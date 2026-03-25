@@ -14,6 +14,7 @@
 use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
 use serde::Deserialize;
+use std::collections::BTreeSet;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -37,6 +38,8 @@ enum Commands {
     PrStatus(PrStatusArgs),
     /// List, reply to, or resolve PR review threads via `gh`.
     PrThreads(PrThreadsArgs),
+    /// Run the high-signal local gate before opening a PR.
+    PrPreflight(PrPreflightArgs),
     /// Run DIND (Deterministic Ironclad Nightmare Drills) harness.
     Dind(DindArgs),
     /// Generate man pages for echo-cli.
@@ -190,6 +193,16 @@ struct PrThreadsResolveArgs {
     thread_ids: Vec<String>,
 }
 
+#[derive(Args)]
+struct PrPreflightArgs {
+    /// Base ref used to compute changed-scope checks in default mode.
+    #[arg(long, default_value = "origin/main")]
+    base: String,
+    /// Run the broader explicit full preflight instead of changed-scope mode.
+    #[arg(long)]
+    full: bool,
+}
+
 fn main() -> Result<()> {
     // Ensure CWD is the repo root so that relative paths like "docs/",
     // "scripts/ensure_spdx.sh", and git-ls-files all work regardless of
@@ -204,6 +217,7 @@ fn main() -> Result<()> {
         Commands::Dags(args) => run_dags(args),
         Commands::PrStatus(args) => run_pr_status(args),
         Commands::PrThreads(args) => run_pr_threads(args),
+        Commands::PrPreflight(args) => run_pr_preflight(args),
         Commands::Dind(args) => run_dind(args),
         Commands::ManPages(args) => run_man_pages(args),
         Commands::LintDeadRefs(args) => run_lint_dead_refs(args),
@@ -263,6 +277,54 @@ fn run_pr_threads(args: PrThreadsArgs) -> Result<()> {
         PrThreadsCommand::Reply(args) => run_pr_threads_reply(args),
         PrThreadsCommand::Resolve(args) => run_pr_threads_resolve(args),
     }
+}
+
+fn run_pr_preflight(args: PrPreflightArgs) -> Result<()> {
+    let changed_files = if args.full {
+        Vec::new()
+    } else {
+        collect_pr_preflight_changed_files(&args.base)?
+    };
+    let mut plan = build_pr_preflight_plan(&changed_files, args.full);
+
+    println!(
+        "PR preflight mode: {}",
+        if args.full { "full" } else { "changed-scope" }
+    );
+    if !args.full {
+        println!("Base ref: {}", args.base);
+        println!("Changed files: {}", changed_files.len());
+    }
+    println!("Checks:");
+    for check in &plan {
+        println!("- {}", check.label);
+    }
+
+    let mut failures = Vec::new();
+    for check in &mut plan {
+        println!("\n==> {}", check.label);
+        let status = check
+            .command
+            .status()
+            .with_context(|| format!("failed to start {}", check.label))?;
+        if status.success() {
+            println!("OK: {}", check.label);
+            continue;
+        }
+        eprintln!("FAIL: {} (exit status: {status})", check.label);
+        failures.push(check.label.clone());
+    }
+
+    if failures.is_empty() {
+        println!("\nPR preflight passed ({} checks).", plan.len());
+        return Ok(());
+    }
+
+    eprintln!("\nPR preflight failed ({} checks):", failures.len());
+    for failure in &failures {
+        eprintln!("- {failure}");
+    }
+    bail!("fix the failing preflight checks before opening the PR");
 }
 
 fn run_pr_threads_list(selector: Option<&str>) -> Result<()> {
@@ -374,6 +436,239 @@ fn build_pr_status_command(script: &Path, selector: Option<&str>) -> Command {
     if let Some(selector) = selector {
         command.arg(selector);
     }
+    command
+}
+
+fn build_pr_preflight_plan(changed_files: &[String], full: bool) -> Vec<PreflightCheck> {
+    let scope = analyze_pr_preflight_scope(changed_files, full);
+    let mut checks = Vec::new();
+
+    checks.push(PreflightCheck::new(
+        format!("local verification ({})", scope.verify_mode),
+        build_verify_local_command(scope.verify_mode),
+    ));
+
+    if scope.run_dead_refs {
+        let mut command = Command::new("cargo");
+        command.args(["xtask", "lint-dead-refs"]);
+        if full {
+            command.args(["--root", "docs"]);
+        } else if let Some(markdown_files) = scope.markdown_files.as_ref() {
+            command.args(["--root", "docs"]);
+            for file in markdown_files {
+                command.arg("--file");
+                command.arg(file);
+            }
+        }
+        checks.push(PreflightCheck::new("docs dead refs", command));
+    }
+
+    if let Some(markdown_files) = scope.markdown_files.as_ref() {
+        let mut command = Command::new("npx");
+        command.arg("markdownlint-cli2");
+        for file in markdown_files {
+            command.arg(file);
+        }
+        checks.push(PreflightCheck::new("markdownlint", command));
+    }
+
+    if scope.run_runtime_schema_explicit {
+        let mut command = Command::new("pnpm");
+        command.arg("schema:runtime:check");
+        checks.push(PreflightCheck::new("runtime schema validation", command));
+    }
+
+    if scope.run_feature_contracts {
+        checks.push(PreflightCheck::new(
+            "feature contract: echo-runtime-schema --no-default-features",
+            build_cargo_check_command(&[
+                "check",
+                "-p",
+                "echo-runtime-schema",
+                "--no-default-features",
+                "--message-format",
+                "short",
+            ]),
+        ));
+        checks.push(PreflightCheck::new(
+            "feature contract: echo-wasm-abi --no-default-features",
+            build_cargo_check_command(&[
+                "check",
+                "-p",
+                "echo-wasm-abi",
+                "--no-default-features",
+                "--message-format",
+                "short",
+            ]),
+        ));
+    }
+
+    if let Some(shell_files) = scope.shell_files.as_ref() {
+        let mut command = Command::new("bash");
+        command.arg("-n");
+        for file in shell_files {
+            command.arg(file);
+        }
+        checks.push(PreflightCheck::new("shell syntax", command));
+    }
+
+    checks
+}
+
+fn collect_pr_preflight_changed_files(base: &str) -> Result<Vec<String>> {
+    let mut files = BTreeSet::new();
+    for file in run_git_lines(["diff", "--name-only", &format!("{base}...HEAD")])? {
+        files.insert(file);
+    }
+    for file in run_git_lines(["diff", "--name-only", "--cached"])? {
+        files.insert(file);
+    }
+    for file in run_git_lines(["diff", "--name-only"])? {
+        files.insert(file);
+    }
+    for file in run_git_lines(["ls-files", "--others", "--exclude-standard"])? {
+        files.insert(file);
+    }
+    Ok(files.into_iter().collect())
+}
+
+fn run_git_lines<I, S>(args: I) -> Result<Vec<String>>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    let output = Command::new("git")
+        .args(args)
+        .output()
+        .context("failed to spawn git")?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let message = stderr.trim();
+        if message.is_empty() {
+            bail!("git command failed with exit status {}", output.status);
+        }
+        bail!("{message}");
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(ToOwned::to_owned)
+        .collect())
+}
+
+fn analyze_pr_preflight_scope(changed_files: &[String], full: bool) -> PreflightScope {
+    let mut scope = PreflightScope {
+        verify_mode: if full { "full" } else { "pr" },
+        run_dead_refs: full,
+        markdown_files: None,
+        run_runtime_schema_explicit: full,
+        run_feature_contracts: full,
+        shell_files: None,
+    };
+
+    if full {
+        let all_markdown = tracked_files_matching(["ls-files", "*.md"]).unwrap_or_default();
+        if !all_markdown.is_empty() {
+            scope.markdown_files = Some(all_markdown);
+        }
+        let shell_files = tracked_shell_files().unwrap_or_default();
+        if !shell_files.is_empty() {
+            scope.shell_files = Some(shell_files);
+        }
+        return scope;
+    }
+
+    let markdown_files: Vec<String> = changed_files
+        .iter()
+        .filter(|path| path.ends_with(".md"))
+        .cloned()
+        .collect();
+    if !markdown_files.is_empty() {
+        scope.markdown_files = Some(markdown_files);
+        scope.run_dead_refs = true;
+    }
+
+    if changed_files.iter().any(|path| {
+        matches!(
+            path.as_str(),
+            "package.json"
+                | "pnpm-lock.yaml"
+                | "scripts/validate-runtime-schema-fragments.mjs"
+                | "tests/hooks/test_runtime_schema_validation.sh"
+        ) || path.starts_with("schemas/runtime/")
+    }) {
+        scope.run_runtime_schema_explicit = true;
+    }
+
+    if changed_files.iter().any(|path| {
+        matches!(
+            path.as_str(),
+            "Cargo.toml" | "Cargo.lock" | "docs/guide/cargo-features.md"
+        ) || path.starts_with("crates/echo-runtime-schema/")
+            || path.starts_with("crates/echo-wasm-abi/")
+    }) {
+        scope.run_feature_contracts = true;
+    }
+
+    let shell_files: Vec<String> = changed_files
+        .iter()
+        .filter(|path| is_maintained_shell_path(path))
+        .cloned()
+        .collect();
+    if !shell_files.is_empty() {
+        scope.shell_files = Some(shell_files);
+    }
+
+    scope
+}
+
+fn tracked_files_matching<I, S>(args: I) -> Result<Vec<String>>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    run_git_lines(args)
+}
+
+fn tracked_shell_files() -> Result<Vec<String>> {
+    Ok(
+        run_git_lines(["ls-files", ".githooks", "scripts", "tests/hooks"])?
+            .into_iter()
+            .filter(|path| is_maintained_shell_path(path))
+            .collect(),
+    )
+}
+
+fn is_maintained_shell_path(path: &str) -> bool {
+    if path.ends_with(".md")
+        || path.ends_with(".mjs")
+        || path.ends_with(".js")
+        || path.ends_with(".json")
+        || path.ends_with(".dot")
+        || path.ends_with(".svg")
+        || path.ends_with(".toml")
+        || path.ends_with(".yml")
+        || path.ends_with(".yaml")
+    {
+        return false;
+    }
+
+    path.starts_with(".githooks/")
+        || path.starts_with("scripts/")
+        || path.starts_with("tests/hooks/")
+}
+
+fn build_verify_local_command(mode: &str) -> Command {
+    let mut command = Command::new(Path::new("scripts").join("verify-local.sh"));
+    command.arg(mode);
+    command
+}
+
+fn build_cargo_check_command(args: &[&str]) -> Command {
+    let mut command = Command::new("cargo");
+    command.args(args);
     command
 }
 
@@ -615,6 +910,30 @@ impl ReviewThreadSummary {
             (None, _) => "<unknown path>".to_owned(),
         }
     }
+}
+
+struct PreflightCheck {
+    label: String,
+    command: Command,
+}
+
+impl PreflightCheck {
+    fn new(label: impl Into<String>, command: Command) -> Self {
+        Self {
+            label: label.into(),
+            command,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PreflightScope {
+    verify_mode: &'static str,
+    run_dead_refs: bool,
+    markdown_files: Option<Vec<String>>,
+    run_runtime_schema_explicit: bool,
+    run_feature_contracts: bool,
+    shell_files: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -1035,24 +1354,42 @@ struct LintDeadRefsArgs {
     #[arg(long, default_value = "docs")]
     root: PathBuf,
 
+    /// Explicit markdown files to scan instead of walking a root directory.
+    #[arg(long = "file")]
+    files: Vec<PathBuf>,
+
     /// Also check non-markdown links (images, HTML, etc.).
     #[arg(long)]
     all: bool,
 }
 
 fn run_lint_dead_refs(args: LintDeadRefsArgs) -> Result<()> {
-    let root = &args.root;
-    if !root.is_dir() {
-        bail!("{} is not a directory", root.display());
-    }
+    let (docs_root, mut md_files) = if args.files.is_empty() {
+        let root = &args.root;
+        if !root.is_dir() {
+            bail!("{} is not a directory", root.display());
+        }
 
-    // Derive the VitePress docs root for root-relative link resolution.
-    // When --root is a subdirectory (e.g. docs/meta), root-relative links
-    // like `/guide/...` must still resolve against the top-level docs dir.
-    let docs_root = find_docs_root(root);
-
-    let mut md_files = Vec::new();
-    collect_md_files(root, &mut md_files)?;
+        // Derive the VitePress docs root for root-relative link resolution.
+        // When --root is a subdirectory (e.g. docs/meta), root-relative links
+        // like `/guide/...` must still resolve against the top-level docs dir.
+        let docs_root = find_docs_root(root);
+        let mut md_files = Vec::new();
+        collect_md_files(root, &mut md_files)?;
+        (docs_root, md_files)
+    } else {
+        let mut md_files = Vec::new();
+        for file in &args.files {
+            if !file.is_file() {
+                bail!("{} is not a file", file.display());
+            }
+            if file.extension().and_then(|ext| ext.to_str()) != Some("md") {
+                bail!("{} is not a markdown file", file.display());
+            }
+            md_files.push(file.clone());
+        }
+        (find_docs_root(&args.root), md_files)
+    };
     md_files.sort();
 
     let mut broken: Vec<(PathBuf, usize, String, PathBuf)> = Vec::new();
@@ -1413,6 +1750,7 @@ fn run_docs_lint(args: DocsLintArgs) -> Result<()> {
     // Phase 2: check dead refs
     let refs_args = LintDeadRefsArgs {
         root: args.root,
+        files: Vec::new(),
         all: args.all,
     };
     run_lint_dead_refs(refs_args)
@@ -1780,5 +2118,108 @@ mod tests {
                 .map(|author| author.login.as_str()),
             Some("coderabbitai")
         );
+    }
+
+    // ── pr_preflight helpers ────────────────────────────────────────
+
+    #[test]
+    fn preflight_scope_for_docs_only_branch_enables_docs_checks() {
+        let scope = analyze_pr_preflight_scope(
+            &[
+                "docs/workflows.md".to_owned(),
+                "scripts/hooks/README.md".to_owned(),
+            ],
+            false,
+        );
+
+        assert_eq!(scope.verify_mode, "pr");
+        assert!(scope.run_dead_refs);
+        assert_eq!(
+            scope.markdown_files,
+            Some(vec![
+                "docs/workflows.md".to_owned(),
+                "scripts/hooks/README.md".to_owned()
+            ])
+        );
+        assert!(!scope.run_feature_contracts);
+        assert!(scope.shell_files.is_none());
+    }
+
+    #[test]
+    fn preflight_scope_for_schema_changes_enables_schema_validation() {
+        let scope = analyze_pr_preflight_scope(
+            &[
+                "schemas/runtime/artifact-a-identifiers.graphql".to_owned(),
+                "scripts/validate-runtime-schema-fragments.mjs".to_owned(),
+            ],
+            false,
+        );
+
+        assert!(scope.run_runtime_schema_explicit);
+        assert!(!scope.run_feature_contracts);
+    }
+
+    #[test]
+    fn preflight_scope_for_feature_crates_enables_feature_contracts() {
+        let scope = analyze_pr_preflight_scope(
+            &[
+                "crates/echo-runtime-schema/src/lib.rs".to_owned(),
+                "docs/guide/cargo-features.md".to_owned(),
+            ],
+            false,
+        );
+
+        assert!(scope.run_feature_contracts);
+        assert!(scope.run_dead_refs);
+    }
+
+    #[test]
+    fn preflight_scope_collects_changed_shell_files() {
+        let scope = analyze_pr_preflight_scope(
+            &[
+                "scripts/pr-status.sh".to_owned(),
+                "tests/hooks/test_pr_status.sh".to_owned(),
+                "scripts/hooks/README.md".to_owned(),
+            ],
+            false,
+        );
+
+        assert_eq!(
+            scope.shell_files,
+            Some(vec![
+                "scripts/pr-status.sh".to_owned(),
+                "tests/hooks/test_pr_status.sh".to_owned()
+            ])
+        );
+    }
+
+    #[test]
+    fn preflight_plan_includes_expected_changed_scope_checks() {
+        let plan = build_pr_preflight_plan(
+            &[
+                "docs/workflows.md".to_owned(),
+                "scripts/pr-status.sh".to_owned(),
+                "crates/echo-runtime-schema/src/lib.rs".to_owned(),
+            ],
+            false,
+        );
+        let labels: Vec<_> = plan.iter().map(|check| check.label.as_str()).collect();
+
+        assert_eq!(labels[0], "local verification (pr)");
+        assert!(labels.contains(&"docs dead refs"));
+        assert!(labels.contains(&"markdownlint"));
+        assert!(labels.contains(&"feature contract: echo-runtime-schema --no-default-features"));
+        assert!(labels.contains(&"feature contract: echo-wasm-abi --no-default-features"));
+        assert!(labels.contains(&"shell syntax"));
+    }
+
+    #[test]
+    fn maintained_shell_path_filter_excludes_non_shell_assets() {
+        assert!(is_maintained_shell_path("scripts/pr-status.sh"));
+        assert!(is_maintained_shell_path(".githooks/pre-commit"));
+        assert!(!is_maintained_shell_path("scripts/hooks/README.md"));
+        assert!(!is_maintained_shell_path(
+            "scripts/generate-dependency-dags.js"
+        ));
     }
 }

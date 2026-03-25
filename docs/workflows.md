@@ -16,7 +16,8 @@ This doc is the “official workflow index” for Echo: how we work, what invari
 
 ### Agent Context System (AI Agents)
 
-AI agents use a **2-tier context system** for seamless handoffs. See [`AGENTS.md`](../AGENTS.md) for full details.
+AI agents use a **2-tier context system** for seamless handoffs. See the repo-root
+`AGENTS.md` for full details.
 
 | Tier      | Store                               | Purpose                                    |
 | --------- | ----------------------------------- | ------------------------------------------ |
@@ -82,7 +83,33 @@ The repo also exposes maintenance commands via `cargo xtask …`:
 - `cargo xtask pr-threads reply 123456789 --body-file /tmp/reply.md` posts a human-authored reply to a review comment id.
 - `cargo xtask pr-threads resolve --all --selector 306 --yes` resolves all unresolved review threads for a PR after you have verified the fix batch.
 - `cargo xtask pr-threads resolve --yes THREAD_ID_A THREAD_ID_B` resolves explicit GitHub review thread ids when you already know the targets.
+- `cargo xtask pr-preflight` runs the default changed-scope pre-PR gate against `origin/main`.
+- `cargo xtask pr-preflight --full` runs the broader explicit full pre-PR gate.
 - `cargo xtask dind` runs the DIND (Deterministic Ironclad Nightmare Drills) harness locally.
+
+### Pre-PR Preflight
+
+Before opening a PR, run:
+
+```sh
+cargo xtask pr-preflight
+```
+
+What it proves:
+
+- the changed surface passes the normal local `verify-local` PR gate
+- changed Markdown docs pass `markdownlint`, and docs branches also get dead-ref checking
+- runtime schema changes get explicit `pnpm schema:runtime:check`
+- feature-sensitive crates get explicit `--no-default-features` checks
+- maintained shell scripts get a syntax pass via `bash -n`
+
+What it intentionally does **not** prove:
+
+- full CI parity for every matrix lane
+- review-thread state or merge readiness on GitHub
+- human/self-review quality
+
+Use `cargo xtask pr-preflight --full` when you want the broader local proof before a high-risk or cross-cutting PR. `make pr-preflight ARGS='--full'` remains available as a thin alias.
 
 ---
 

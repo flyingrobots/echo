@@ -7,7 +7,7 @@ SHELL := /bin/bash
 PORT ?= 5173
 BENCH_PORT ?= 8000
 
-.PHONY: hooks verify-ultra-fast verify-fast verify-pr verify-full verify-full-sequential pr-status pr-threads docs docs-build docs-ci
+.PHONY: hooks verify-ultra-fast verify-fast verify-pr verify-full verify-full-sequential pr-status pr-threads pr-preflight docs docs-build docs-ci
 hooks:
 	@git config core.hooksPath .githooks
 	@chmod +x .githooks/* 2>/dev/null || true
@@ -33,6 +33,9 @@ pr-status:
 
 pr-threads:
 	@cargo xtask pr-threads $(ARGS)
+
+pr-preflight:
+	@cargo xtask pr-preflight $(ARGS)
 
 .PHONY: dags dags-fetch
 dags:

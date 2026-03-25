@@ -25,6 +25,8 @@ prefer `cargo xtask pr-status` (or the `make pr-status` alias). For explicit
 review-thread cleanup after a verified fix batch, prefer `cargo xtask pr-threads`
 over hand-written `gh api graphql` snippets; `make pr-threads ARGS='…'` remains
 available as a thin alias when you want a Make entrypoint.
+Before opening a PR, prefer `cargo xtask pr-preflight` (or
+`make pr-preflight ARGS='…'`) instead of composing ad hoc local checks by hand.
 
 The local full gate now runs as curated parallel lanes with isolated
 `CARGO_TARGET_DIR`s, which keeps expensive cargo invocations from serializing on

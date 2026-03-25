@@ -21,7 +21,10 @@ Authoritative behavior lives in `.githooks/pre-commit` and
 `.githooks/pre-push`. For explicit local runs outside git hooks, prefer the
 `make verify-ultra-fast`, `make verify-fast`, `make verify-pr`, and
 `make verify-full` entry points. For PR gate visibility before or after a push,
-prefer `cargo xtask pr-status` (or the `make pr-status` alias).
+prefer `cargo xtask pr-status` (or the `make pr-status` alias). For explicit
+review-thread cleanup after a verified fix batch, prefer `cargo xtask pr-threads`
+over hand-written `gh api graphql` snippets; `make pr-threads ARGS='…'` remains
+available as a thin alias when you want a Make entrypoint.
 
 The local full gate now runs as curated parallel lanes with isolated
 `CARGO_TARGET_DIR`s, which keeps expensive cargo invocations from serializing on

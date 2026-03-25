@@ -67,6 +67,32 @@ echo "unexpected gh invocation: $*" >&2
 exit 1
 EOF
       ;;
+    clean)
+      cat >"$tmp/bin/gh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "pr" && "${2:-}" == "view" ]]; then
+  cat <<'JSON'
+{"number":308,"url":"https://github.com/flyingrobots/echo/pull/308","headRefOid":"abcdef1234567890abcdef1234567890abcdef12","reviewDecision":"APPROVED","mergeStateStatus":"CLEAN"}
+JSON
+  exit 0
+fi
+if [[ "${1:-}" == "pr" && "${2:-}" == "checks" ]]; then
+  cat <<'JSON'
+[{"name":"Tests","bucket":"pass","state":"SUCCESS"},{"name":"Clippy","bucket":"pass","state":"SUCCESS"}]
+JSON
+  exit 0
+fi
+if [[ "${1:-}" == "api" && "${2:-}" == "graphql" ]]; then
+  cat <<'JSON'
+{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"isResolved":true}],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}
+JSON
+  exit 0
+fi
+echo "unexpected gh invocation: $*" >&2
+exit 1
+EOF
+      ;;
     auth-error)
       cat >"$tmp/bin/gh" <<'EOF'
 #!/usr/bin/env bash
@@ -157,6 +183,33 @@ import os
 import sys
 
 lines = os.environ["STATUS_OUTPUT"].splitlines()
+expected = [
+    "Current blockers:",
+    "- unresolved review threads: 2",
+    "- failing checks: Determinism Guards",
+    "- pending checks: Clippy",
+]
+
+indices = []
+for item in expected:
+    try:
+        indices.append(lines.index(item))
+    except ValueError:
+        sys.exit(1)
+
+sys.exit(0 if indices == sorted(indices) else 1)
+PY
+then
+  pass "pr-status prints a concise blocker summary"
+else
+  fail "pr-status should summarize current blockers"
+  printf '%s\n' "$status_output"
+fi
+if STATUS_OUTPUT="$status_output" python3 - <<'PY'
+import os
+import sys
+
+lines = os.environ["STATUS_OUTPUT"].splitlines()
 
 def heading_contains(heading, item):
     try:
@@ -182,6 +235,14 @@ then
 else
   fail "pr-status should group checks by bucket"
   printf '%s\n' "$status_output"
+fi
+
+clean_output="$(run_with_fake_gh clean)"
+if printf '%s\n' "$clean_output" | grep -q '^Current blockers:$' && printf '%s\n' "$clean_output" | grep -q '^- none detected$'; then
+  pass "pr-status reports when no blockers are detected"
+else
+  fail "pr-status should report a clean readiness summary"
+  printf '%s\n' "$clean_output"
 fi
 
 auth_output="$(run_with_fake_gh auth-error || true)"

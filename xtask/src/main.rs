@@ -13,6 +13,8 @@
 
 use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
+use serde::Deserialize;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -33,6 +35,8 @@ enum Commands {
     Dags(DagsArgs),
     /// Summarize current-head PR status, unresolved threads, and check state.
     PrStatus(PrStatusArgs),
+    /// List, reply to, or resolve PR review threads via `gh`.
+    PrThreads(PrThreadsArgs),
     /// Run DIND (Deterministic Ironclad Nightmare Drills) harness.
     Dind(DindArgs),
     /// Generate man pages for echo-cli.
@@ -139,6 +143,53 @@ struct PrStatusArgs {
     selector: Option<String>,
 }
 
+#[derive(Args)]
+struct PrThreadsArgs {
+    /// PR review thread action to execute.
+    #[command(subcommand)]
+    command: PrThreadsCommand,
+}
+
+#[derive(Subcommand)]
+enum PrThreadsCommand {
+    /// List unresolved review threads for the current PR (or an explicit selector).
+    List {
+        /// Optional PR number or selector understood by `gh pr view`.
+        selector: Option<String>,
+    },
+    /// Reply to an inline review comment by comment id.
+    Reply(PrThreadsReplyArgs),
+    /// Resolve one or more review threads, or all unresolved threads for a PR.
+    Resolve(PrThreadsResolveArgs),
+}
+
+#[derive(Args)]
+struct PrThreadsReplyArgs {
+    /// Numeric GitHub pull-request review comment id to reply to.
+    comment_id: u64,
+    /// Reply body text.
+    #[arg(long, conflicts_with = "body_file")]
+    body: Option<String>,
+    /// Path to a file containing the reply body.
+    #[arg(long = "body-file", conflicts_with = "body")]
+    body_file: Option<PathBuf>,
+}
+
+#[derive(Args)]
+struct PrThreadsResolveArgs {
+    /// Resolve every unresolved thread on the selected PR.
+    #[arg(long)]
+    all: bool,
+    /// Optional PR number or selector understood by `gh pr view` (used with `--all`).
+    #[arg(long)]
+    selector: Option<String>,
+    /// Confirm that the selected thread ids should be resolved.
+    #[arg(long)]
+    yes: bool,
+    /// One or more GitHub review thread node ids to resolve.
+    thread_ids: Vec<String>,
+}
+
 fn main() -> Result<()> {
     // Ensure CWD is the repo root so that relative paths like "docs/",
     // "scripts/ensure_spdx.sh", and git-ls-files all work regardless of
@@ -152,6 +203,7 @@ fn main() -> Result<()> {
     match cli.command {
         Commands::Dags(args) => run_dags(args),
         Commands::PrStatus(args) => run_pr_status(args),
+        Commands::PrThreads(args) => run_pr_threads(args),
         Commands::Dind(args) => run_dind(args),
         Commands::ManPages(args) => run_man_pages(args),
         Commands::LintDeadRefs(args) => run_lint_dead_refs(args),
@@ -205,6 +257,114 @@ fn run_pr_status(args: PrStatusArgs) -> Result<()> {
     Ok(())
 }
 
+fn run_pr_threads(args: PrThreadsArgs) -> Result<()> {
+    match args.command {
+        PrThreadsCommand::List { selector } => run_pr_threads_list(selector.as_deref()),
+        PrThreadsCommand::Reply(args) => run_pr_threads_reply(args),
+        PrThreadsCommand::Resolve(args) => run_pr_threads_resolve(args),
+    }
+}
+
+fn run_pr_threads_list(selector: Option<&str>) -> Result<()> {
+    let overview = fetch_pr_overview(selector)?;
+    let threads = fetch_unresolved_review_threads(&overview)?;
+
+    println!("PR #{}", overview.number);
+    println!("URL: {}", overview.url);
+    println!("Head SHA: {}", overview.head_sha);
+    println!("Unresolved threads: {}", threads.len());
+
+    if threads.is_empty() {
+        println!("\nNo unresolved review threads.");
+        return Ok(());
+    }
+
+    for (idx, thread) in threads.iter().enumerate() {
+        println!("\n{}. {}", idx + 1, thread.thread_id);
+        if let Some(comment_id) = thread.comment_id {
+            println!("   Comment ID: {comment_id}");
+        } else {
+            println!("   Comment ID: unavailable");
+        }
+        println!(
+            "   Author: {}",
+            thread.author.as_deref().unwrap_or("unknown")
+        );
+        println!("   Path: {}", thread.display_location());
+        println!(
+            "   Outdated: {}",
+            if thread.is_outdated { "yes" } else { "no" }
+        );
+        if let Some(url) = thread.url.as_deref() {
+            println!("   URL: {url}");
+        }
+        println!("   Preview: {}", thread.preview);
+    }
+
+    Ok(())
+}
+
+fn run_pr_threads_reply(args: PrThreadsReplyArgs) -> Result<()> {
+    let body = load_reply_body(args.body.as_deref(), args.body_file.as_deref())?;
+    let (owner, repo) = fetch_repo_owner_name()?;
+    let route = format!(
+        "repos/{owner}/{repo}/pulls/comments/{}/replies",
+        args.comment_id
+    );
+
+    let output = run_gh_capture([
+        "api",
+        &route,
+        "--method",
+        "POST",
+        "-f",
+        &format!("body={body}"),
+    ])?;
+    let reply: ReviewReplyResponse =
+        serde_json::from_str(&output).context("failed to parse review reply response")?;
+    let url = reply
+        .html_url
+        .or(reply.url)
+        .unwrap_or_else(|| "<no reply url returned>".to_owned());
+
+    println!("Replied to review comment {}: {url}", args.comment_id);
+    Ok(())
+}
+
+fn run_pr_threads_resolve(args: PrThreadsResolveArgs) -> Result<()> {
+    let targets = resolve_thread_targets(&args)?;
+    if targets.is_empty() {
+        println!("No unresolved review threads matched the requested action.");
+        return Ok(());
+    }
+
+    if !args.yes {
+        eprintln!("Refusing to resolve review threads without --yes.");
+        for thread in &targets {
+            eprintln!("- {} ({})", thread.thread_id, thread.display_location());
+        }
+        bail!("rerun with --yes after confirming the selected thread ids");
+    }
+
+    for thread in &targets {
+        run_gh_capture([
+            "api",
+            "graphql",
+            "-F",
+            &format!("threadId={}", thread.thread_id),
+            "-f",
+            "query=mutation($threadId:ID!) { resolveReviewThread(input:{threadId:$threadId}) { thread { id isResolved } } }",
+        ])?;
+        println!(
+            "Resolved {} ({})",
+            thread.thread_id,
+            thread.display_location()
+        );
+    }
+
+    Ok(())
+}
+
 fn pr_status_script_path() -> PathBuf {
     Path::new("scripts").join("pr-status.sh")
 }
@@ -215,6 +375,337 @@ fn build_pr_status_command(script: &Path, selector: Option<&str>) -> Command {
         command.arg(selector);
     }
     command
+}
+
+fn fetch_pr_overview(selector: Option<&str>) -> Result<PrOverview> {
+    let mut args = vec![
+        "pr",
+        "view",
+        "--json",
+        "number,url,headRefOid,reviewDecision,mergeStateStatus",
+    ];
+    if let Some(selector) = selector {
+        args.insert(2, selector);
+    }
+
+    let output = run_gh_capture(args)?;
+    let view: GhPrView =
+        serde_json::from_str(&output).context("failed to parse `gh pr view` JSON")?;
+    let (owner, repo) = parse_pr_owner_name(&view.url)?;
+
+    Ok(PrOverview {
+        owner,
+        repo,
+        number: view.number,
+        url: view.url,
+        head_sha: view.head_ref_oid.chars().take(12).collect(),
+    })
+}
+
+fn fetch_repo_owner_name() -> Result<(String, String)> {
+    let output = run_gh_capture(["repo", "view", "--json", "nameWithOwner"])?;
+    let repo: GhRepoView =
+        serde_json::from_str(&output).context("failed to parse `gh repo view` JSON")?;
+    let mut parts = repo.name_with_owner.splitn(2, '/');
+    let owner = parts
+        .next()
+        .filter(|value| !value.is_empty())
+        .context("repository owner missing from gh repo view output")?;
+    let name = parts
+        .next()
+        .filter(|value| !value.is_empty())
+        .context("repository name missing from gh repo view output")?;
+    Ok((owner.to_owned(), name.to_owned()))
+}
+
+fn fetch_unresolved_review_threads(pr: &PrOverview) -> Result<Vec<ReviewThreadSummary>> {
+    let mut threads = Vec::new();
+    let mut cursor: Option<String> = None;
+
+    loop {
+        let mut args = vec![
+            "api".to_owned(),
+            "graphql".to_owned(),
+            "-F".to_owned(),
+            format!("owner={}", pr.owner),
+            "-F".to_owned(),
+            format!("name={}", pr.repo),
+            "-F".to_owned(),
+            format!("number={}", pr.number),
+        ];
+        if let Some(cursor_value) = cursor.as_deref() {
+            args.push("-F".to_owned());
+            args.push(format!("cursor={cursor_value}"));
+        }
+        args.push("-f".to_owned());
+        args.push(
+            "query=query($owner:String!, $name:String!, $number:Int!, $cursor:String) { repository(owner:$owner, name:$name) { pullRequest(number:$number) { reviewThreads(first:100, after:$cursor) { nodes { id isResolved isOutdated path line originalLine comments(first:1) { nodes { databaseId url body author { login } } } } pageInfo { hasNextPage endCursor } } } } }".to_owned(),
+        );
+
+        let output = run_gh_capture(args)?;
+        let page: ReviewThreadsQueryResponse = serde_json::from_str(&output)
+            .context("failed to parse review thread GraphQL response")?;
+        let connection = page.data.repository.pull_request.review_threads;
+
+        for thread in connection.nodes {
+            if thread.is_resolved {
+                continue;
+            }
+            let first_comment = thread.comments.nodes.into_iter().next();
+            let comment_id = first_comment
+                .as_ref()
+                .and_then(|comment| comment.database_id);
+            let author = first_comment
+                .as_ref()
+                .and_then(|comment| comment.author.as_ref().map(|author| author.login.clone()));
+            let url = first_comment.as_ref().map(|comment| comment.url.clone());
+            let preview = first_comment
+                .as_ref()
+                .map(|comment| preview_comment_body(&comment.body))
+                .unwrap_or_else(|| "<no comment preview>".to_owned());
+            threads.push(ReviewThreadSummary {
+                thread_id: thread.id,
+                comment_id,
+                author,
+                url,
+                path: thread.path,
+                line: thread.line.or(thread.original_line),
+                is_outdated: thread.is_outdated,
+                preview,
+            });
+        }
+
+        if !connection.page_info.has_next_page {
+            break;
+        }
+        cursor = connection.page_info.end_cursor;
+    }
+
+    Ok(threads)
+}
+
+fn resolve_thread_targets(args: &PrThreadsResolveArgs) -> Result<Vec<ReviewThreadSummary>> {
+    if args.all {
+        if !args.thread_ids.is_empty() {
+            bail!("thread ids cannot be combined with --all");
+        }
+        let overview = fetch_pr_overview(args.selector.as_deref())?;
+        return fetch_unresolved_review_threads(&overview);
+    }
+
+    if args.selector.is_some() {
+        bail!("--selector can only be used with --all");
+    }
+    if args.thread_ids.is_empty() {
+        bail!("provide one or more thread ids, or use --all");
+    }
+
+    Ok(args
+        .thread_ids
+        .iter()
+        .map(|thread_id| ReviewThreadSummary {
+            thread_id: thread_id.clone(),
+            comment_id: None,
+            author: None,
+            url: None,
+            path: None,
+            line: None,
+            is_outdated: false,
+            preview: "<explicit thread id>".to_owned(),
+        })
+        .collect())
+}
+
+fn load_reply_body(body: Option<&str>, body_file: Option<&Path>) -> Result<String> {
+    match (body, body_file) {
+        (Some(_), Some(_)) => bail!("pass exactly one of --body or --body-file"),
+        (None, None) => bail!("pass exactly one of --body or --body-file"),
+        (Some(body), None) => Ok(body.to_owned()),
+        (None, Some(path)) => std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read reply body from {}", path.display())),
+    }
+}
+
+fn preview_comment_body(body: &str) -> String {
+    let first_line = body
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or("<empty>");
+    const LIMIT: usize = 100;
+    if first_line.chars().count() <= LIMIT {
+        return first_line.to_owned();
+    }
+    let truncated: String = first_line.chars().take(LIMIT - 1).collect();
+    format!("{truncated}…")
+}
+
+fn parse_pr_owner_name(url: &str) -> Result<(String, String)> {
+    let trimmed = url.trim();
+    let path_start = trimmed
+        .find("github.com/")
+        .map(|idx| idx + "github.com/".len())
+        .context("unexpected PR URL: missing github.com/ segment")?;
+    let path = &trimmed[path_start..];
+    let parts: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
+    if parts.len() < 4 || parts[2] != "pull" {
+        bail!("unexpected PR URL: {trimmed}");
+    }
+    Ok((parts[0].to_owned(), parts[1].to_owned()))
+}
+
+fn run_gh_capture<I, S>(args: I) -> Result<String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    let output = Command::new("gh")
+        .args(args)
+        .output()
+        .context("failed to spawn `gh` (is GitHub CLI installed?)")?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{stdout}{stderr}");
+    if output.status.success() {
+        return Ok(stdout.into_owned());
+    }
+    if is_gh_auth_error(&combined) {
+        bail!("Auth error—run `gh auth login` and retry.");
+    }
+    let message = combined.trim();
+    if message.is_empty() {
+        bail!("gh command failed with exit status {}", output.status);
+    }
+    bail!("{message}");
+}
+
+fn is_gh_auth_error(output: &str) -> bool {
+    let lowered = output.to_ascii_lowercase();
+    lowered.contains("auth")
+        || lowered.contains("authentication")
+        || lowered.contains("not logged in")
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PrOverview {
+    owner: String,
+    repo: String,
+    number: u64,
+    url: String,
+    head_sha: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ReviewThreadSummary {
+    thread_id: String,
+    comment_id: Option<u64>,
+    author: Option<String>,
+    url: Option<String>,
+    path: Option<String>,
+    line: Option<u32>,
+    is_outdated: bool,
+    preview: String,
+}
+
+impl ReviewThreadSummary {
+    fn display_location(&self) -> String {
+        match (&self.path, self.line) {
+            (Some(path), Some(line)) => format!("{path}:{line}"),
+            (Some(path), None) => path.clone(),
+            (None, _) => "<unknown path>".to_owned(),
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct GhPrView {
+    number: u64,
+    url: String,
+    #[serde(rename = "headRefOid")]
+    head_ref_oid: String,
+}
+
+#[derive(Deserialize)]
+struct GhRepoView {
+    #[serde(rename = "nameWithOwner")]
+    name_with_owner: String,
+}
+
+#[derive(Deserialize)]
+struct ReviewThreadsQueryResponse {
+    data: ReviewThreadsQueryData,
+}
+
+#[derive(Deserialize)]
+struct ReviewThreadsQueryData {
+    repository: ReviewThreadsRepository,
+}
+
+#[derive(Deserialize)]
+struct ReviewThreadsRepository {
+    #[serde(rename = "pullRequest")]
+    pull_request: ReviewThreadsPullRequest,
+}
+
+#[derive(Deserialize)]
+struct ReviewThreadsPullRequest {
+    #[serde(rename = "reviewThreads")]
+    review_threads: ReviewThreadsConnection,
+}
+
+#[derive(Deserialize)]
+struct ReviewThreadsConnection {
+    nodes: Vec<ReviewThreadNode>,
+    #[serde(rename = "pageInfo")]
+    page_info: ReviewThreadsPageInfo,
+}
+
+#[derive(Deserialize)]
+struct ReviewThreadsPageInfo {
+    #[serde(rename = "hasNextPage")]
+    has_next_page: bool,
+    #[serde(rename = "endCursor")]
+    end_cursor: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ReviewThreadNode {
+    id: String,
+    #[serde(rename = "isResolved")]
+    is_resolved: bool,
+    #[serde(rename = "isOutdated")]
+    is_outdated: bool,
+    path: Option<String>,
+    line: Option<u32>,
+    #[serde(rename = "originalLine")]
+    original_line: Option<u32>,
+    comments: ReviewThreadComments,
+}
+
+#[derive(Deserialize)]
+struct ReviewThreadComments {
+    nodes: Vec<ReviewThreadCommentNode>,
+}
+
+#[derive(Deserialize)]
+struct ReviewThreadCommentNode {
+    #[serde(rename = "databaseId")]
+    database_id: Option<u64>,
+    url: String,
+    body: String,
+    author: Option<ReviewThreadAuthor>,
+}
+
+#[derive(Deserialize)]
+struct ReviewThreadAuthor {
+    login: String,
+}
+
+#[derive(Deserialize)]
+struct ReviewReplyResponse {
+    url: Option<String>,
+    #[serde(rename = "html_url")]
+    html_url: Option<String>,
 }
 
 fn validate_snapshot_label(label: &str) -> Result<()> {
@@ -1148,5 +1639,146 @@ mod tests {
         fs::remove_file(&output_path).ok();
         fs::remove_file(&script_path).ok();
         fs::remove_dir(&temp_dir).ok();
+    }
+
+    // ── pr_threads helpers ───────────────────────────────────────────
+
+    #[test]
+    fn parses_pr_owner_and_repo_from_url() {
+        let (owner, repo) = parse_pr_owner_name("https://github.com/flyingrobots/echo/pull/308")
+            .expect("owner/repo should parse");
+        assert_eq!(owner, "flyingrobots");
+        assert_eq!(repo, "echo");
+    }
+
+    #[test]
+    fn preview_comment_body_uses_first_non_empty_line() {
+        let preview = preview_comment_body("\n\n  first useful line  \nsecond line");
+        assert_eq!(preview, "first useful line");
+    }
+
+    #[test]
+    fn preview_comment_body_truncates_long_lines() {
+        let preview = preview_comment_body(&"abcdefghijklmnopqrstuvwxyz".repeat(5));
+        assert!(preview.ends_with('…'));
+        assert!(preview.chars().count() <= 100);
+    }
+
+    #[test]
+    fn load_reply_body_requires_exactly_one_source() {
+        assert!(load_reply_body(None, None).is_err());
+        assert!(load_reply_body(Some("body"), Some(Path::new("reply.md"))).is_err());
+        assert_eq!(
+            load_reply_body(Some("body"), None).expect("body text should load"),
+            "body"
+        );
+    }
+
+    #[test]
+    fn resolve_targets_require_ids_or_all() {
+        let args = PrThreadsResolveArgs {
+            all: false,
+            selector: None,
+            yes: false,
+            thread_ids: Vec::new(),
+        };
+        assert!(resolve_thread_targets(&args).is_err());
+    }
+
+    #[test]
+    fn resolve_targets_reject_selector_without_all() {
+        let args = PrThreadsResolveArgs {
+            all: false,
+            selector: Some("308".to_owned()),
+            yes: false,
+            thread_ids: vec!["THREAD".to_owned()],
+        };
+        assert!(resolve_thread_targets(&args).is_err());
+    }
+
+    #[test]
+    fn resolve_targets_wrap_explicit_thread_ids() {
+        let args = PrThreadsResolveArgs {
+            all: false,
+            selector: None,
+            yes: true,
+            thread_ids: vec!["THREAD_A".to_owned(), "THREAD_B".to_owned()],
+        };
+        let targets = resolve_thread_targets(&args).expect("explicit thread ids should work");
+        assert_eq!(targets.len(), 2);
+        assert_eq!(targets[0].thread_id, "THREAD_A");
+        assert_eq!(targets[1].thread_id, "THREAD_B");
+    }
+
+    #[test]
+    fn review_thread_summary_formats_locations() {
+        let thread = ReviewThreadSummary {
+            thread_id: "THREAD".to_owned(),
+            comment_id: Some(42),
+            author: Some("coderabbitai".to_owned()),
+            url: Some("https://example.invalid".to_owned()),
+            path: Some("xtask/src/main.rs".to_owned()),
+            line: Some(123),
+            is_outdated: false,
+            preview: "preview".to_owned(),
+        };
+        assert_eq!(thread.display_location(), "xtask/src/main.rs:123");
+    }
+
+    #[test]
+    fn review_thread_page_deserializes_expected_fields() {
+        let page: ReviewThreadsQueryResponse = serde_json::from_str(
+            r#"{
+              "data": {
+                "repository": {
+                  "pullRequest": {
+                    "reviewThreads": {
+                      "nodes": [
+                        {
+                          "id": "THREAD_1",
+                          "isResolved": false,
+                          "isOutdated": true,
+                          "path": "xtask/src/main.rs",
+                          "line": 42,
+                          "originalLine": 40,
+                          "comments": {
+                            "nodes": [
+                              {
+                                "databaseId": 123456,
+                                "url": "https://github.com/flyingrobots/echo/pull/308#discussion_r123456",
+                                "body": "Please tighten this branch.",
+                                "author": { "login": "coderabbitai" }
+                              }
+                            ]
+                          }
+                        }
+                      ],
+                      "pageInfo": {
+                        "hasNextPage": true,
+                        "endCursor": "page-2"
+                      }
+                    }
+                  }
+                }
+              }
+            }"#,
+        )
+        .expect("page should deserialize");
+
+        let connection = page.data.repository.pull_request.review_threads;
+        assert_eq!(connection.nodes.len(), 1);
+        assert!(connection.page_info.has_next_page);
+        assert_eq!(connection.page_info.end_cursor.as_deref(), Some("page-2"));
+        let thread = &connection.nodes[0];
+        assert_eq!(thread.id, "THREAD_1");
+        assert!(thread.is_outdated);
+        assert_eq!(thread.comments.nodes[0].database_id, Some(123456));
+        assert_eq!(
+            thread.comments.nodes[0]
+                .author
+                .as_ref()
+                .map(|author| author.login.as_str()),
+            Some("coderabbitai")
+        );
     }
 }

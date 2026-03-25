@@ -75,8 +75,13 @@ The repo also exposes maintenance commands via `cargo xtask …`:
 - `cargo xtask dags --snapshot-label none` omits snapshot labels (best for CI automation).
 - `cargo xtask dags --snapshot-label rolling` emits a stable `rolling` label.
 - `cargo xtask dags --snapshot-label 2026-01-02` pins a date label (useful for comparisons).
-- `cargo xtask pr-status` summarizes the current PR head, unresolved review threads, and grouped check state.
+- `cargo xtask pr-status` summarizes the current PR head, exact unresolved review-thread count, grouped check state, and a concise current-blockers section.
 - `cargo xtask pr-status 306` targets an explicit PR number instead of the current branch PR.
+- `cargo xtask pr-threads list` lists unresolved review threads for the current PR with thread ids, comment ids, path, author, URL, and a short preview.
+- `cargo xtask pr-threads list 306` targets an explicit PR number instead of the current branch PR.
+- `cargo xtask pr-threads reply 123456789 --body-file /tmp/reply.md` posts a human-authored reply to a review comment id.
+- `cargo xtask pr-threads resolve --all --selector 306 --yes` resolves all unresolved review threads for a PR after you have verified the fix batch.
+- `cargo xtask pr-threads resolve --yes THREAD_ID_A THREAD_ID_B` resolves explicit GitHub review thread ids when you already know the targets.
 - `cargo xtask dind` runs the DIND (Deterministic Ironclad Nightmare Drills) harness locally.
 
 ---

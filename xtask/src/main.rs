@@ -449,26 +449,12 @@ fn build_pr_preflight_plan(changed_files: &[String], full: bool) -> Vec<Prefligh
     ));
 
     if scope.run_dead_refs {
-        let mut command = Command::new("cargo");
-        command.args(["xtask", "lint-dead-refs"]);
-        if full {
-            command.args(["--root", "docs"]);
-        } else if let Some(markdown_files) = scope.markdown_files.as_ref() {
-            command.args(["--root", "docs"]);
-            for file in markdown_files {
-                command.arg("--file");
-                command.arg(file);
-            }
-        }
+        let command = build_lint_dead_refs_command(scope.markdown_files.as_deref(), full);
         checks.push(PreflightCheck::new("docs dead refs", command));
     }
 
     if let Some(markdown_files) = scope.markdown_files.as_ref() {
-        let mut command = Command::new("npx");
-        command.arg("markdownlint-cli2");
-        for file in markdown_files {
-            command.arg(file);
-        }
+        let command = build_markdownlint_command(markdown_files);
         checks.push(PreflightCheck::new("markdownlint", command));
     }
 
@@ -649,27 +635,53 @@ fn tracked_shell_files() -> Result<Vec<String>> {
 }
 
 fn is_maintained_shell_path(path: &str) -> bool {
-    if path_has_extension(path, "md")
-        || path_has_extension(path, "mjs")
-        || path_has_extension(path, "js")
-        || path_has_extension(path, "json")
-        || path_has_extension(path, "dot")
-        || path_has_extension(path, "svg")
-        || path_has_extension(path, "toml")
-        || path_has_extension(path, "yml")
-        || path_has_extension(path, "yaml")
-    {
-        return false;
+    let path_ref = Path::new(path);
+    let extension = path_ref.extension().and_then(|value| value.to_str());
+
+    if path.starts_with(".githooks/") {
+        return extension.is_none()
+            || extension.is_some_and(|value| value.eq_ignore_ascii_case("sh"));
     }
 
-    path.starts_with(".githooks/")
-        || path.starts_with("scripts/")
-        || path.starts_with("tests/hooks/")
+    if path.starts_with("scripts/hooks/") {
+        return extension.is_none()
+            || extension.is_some_and(|value| value.eq_ignore_ascii_case("sh"));
+    }
+
+    if path.starts_with("scripts/") || path.starts_with("tests/hooks/") {
+        return extension.is_some_and(|value| value.eq_ignore_ascii_case("sh"));
+    }
+
+    false
 }
 
 fn build_verify_local_command(mode: &str) -> Command {
     let mut command = Command::new(Path::new("scripts").join("verify-local.sh"));
     command.arg(mode);
+    command
+}
+
+fn build_lint_dead_refs_command(markdown_files: Option<&[String]>, full: bool) -> Command {
+    let mut command = Command::new("cargo");
+    command.args(["xtask", "lint-dead-refs"]);
+    if let Some(markdown_files) = markdown_files {
+        command.args(["--root", "docs"]);
+        for file in markdown_files {
+            command.arg("--file");
+            command.arg(file);
+        }
+    } else if full {
+        command.args(["--root", "docs"]);
+    }
+    command
+}
+
+fn build_markdownlint_command(markdown_files: &[String]) -> Command {
+    let mut command = Command::new("pnpm");
+    command.args(["exec", "markdownlint-cli2"]);
+    for file in markdown_files {
+        command.arg(file);
+    }
     command
 }
 
@@ -1835,6 +1847,15 @@ mod tests {
         }
     }
 
+    fn command_program_and_args(command: &Command) -> (String, Vec<String>) {
+        let program = command.get_program().to_string_lossy().into_owned();
+        let args = command
+            .get_args()
+            .map(|value| value.to_string_lossy().into_owned())
+            .collect();
+        (program, args)
+    }
+
     // ── extract_link_targets ──────────────────────────────────────────
 
     #[test]
@@ -2254,12 +2275,49 @@ mod tests {
     }
 
     #[test]
+    fn full_preflight_dead_refs_scans_all_markdown_files_explicitly() {
+        let files = vec!["README.md".to_owned(), "docs/workflows.md".to_owned()];
+        let command = build_lint_dead_refs_command(Some(&files), true);
+        let (program, args) = command_program_and_args(&command);
+
+        assert_eq!(program, "cargo");
+        assert!(args.starts_with(&[
+            "xtask".to_owned(),
+            "lint-dead-refs".to_owned(),
+            "--root".to_owned(),
+            "docs".to_owned(),
+        ]));
+        assert!(args.iter().any(|value| value == "--file"));
+        assert!(args.iter().any(|value| value == "README.md"));
+        assert!(args.iter().any(|value| value == "docs/workflows.md"));
+    }
+
+    #[test]
+    fn preflight_markdownlint_uses_pinned_pnpm_entrypoint() {
+        let command = build_markdownlint_command(&["docs/workflows.md".to_owned()]);
+        let (program, args) = command_program_and_args(&command);
+
+        assert_eq!(program, "pnpm");
+        assert_eq!(
+            args,
+            vec![
+                "exec".to_owned(),
+                "markdownlint-cli2".to_owned(),
+                "docs/workflows.md".to_owned()
+            ]
+        );
+    }
+
+    #[test]
     fn maintained_shell_path_filter_excludes_non_shell_assets() {
         assert!(is_maintained_shell_path("scripts/pr-status.sh"));
         assert!(is_maintained_shell_path(".githooks/pre-commit"));
+        assert!(is_maintained_shell_path("scripts/hooks/pre-commit"));
         assert!(!is_maintained_shell_path("scripts/hooks/README.md"));
         assert!(!is_maintained_shell_path(
             "scripts/generate-dependency-dags.js"
         ));
+        assert!(!is_maintained_shell_path("scripts/bench_bake.py"));
+        assert!(!is_maintained_shell_path("scripts/generate_evidence.cjs"));
     }
 }

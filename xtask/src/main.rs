@@ -170,6 +170,9 @@ enum PrThreadsCommand {
 struct PrThreadsReplyArgs {
     /// Numeric GitHub pull-request review comment id to reply to.
     comment_id: u64,
+    /// Optional PR number or selector understood by `gh pr view`.
+    #[arg(long)]
+    selector: Option<String>,
     /// Reply body text.
     #[arg(long, conflicts_with = "body_file")]
     body: Option<String>,
@@ -368,11 +371,8 @@ fn run_pr_threads_list(selector: Option<&str>) -> Result<()> {
 
 fn run_pr_threads_reply(args: PrThreadsReplyArgs) -> Result<()> {
     let body = load_reply_body(args.body.as_deref(), args.body_file.as_deref())?;
-    let (owner, repo) = fetch_repo_owner_name()?;
-    let route = format!(
-        "repos/{owner}/{repo}/pulls/comments/{}/replies",
-        args.comment_id
-    );
+    let overview = fetch_pr_overview(args.selector.as_deref())?;
+    let route = build_review_reply_route(&overview, args.comment_id);
 
     let output = run_gh_capture([
         "api",
@@ -408,15 +408,23 @@ fn run_pr_threads_resolve(args: PrThreadsResolveArgs) -> Result<()> {
         bail!("rerun with --yes after confirming the selected thread ids");
     }
 
-    for thread in &targets {
-        run_gh_capture([
+    for (resolved, thread) in targets.iter().enumerate() {
+        if let Err(err) = run_gh_capture([
             "api",
             "graphql",
             "-F",
             &format!("threadId={}", thread.thread_id),
             "-f",
             "query=mutation($threadId:ID!) { resolveReviewThread(input:{threadId:$threadId}) { thread { id isResolved } } }",
-        ])?;
+        ]) {
+            if resolved > 0 {
+                eprintln!(
+                    "Resolved {resolved}/{} threads before failure.",
+                    targets.len()
+                );
+            }
+            return Err(err);
+        }
         println!(
             "Resolved {} ({})",
             thread.thread_id,
@@ -437,6 +445,13 @@ fn build_pr_status_command(script: &Path, selector: Option<&str>) -> Command {
         command.arg(selector);
     }
     command
+}
+
+fn build_review_reply_route(overview: &PrOverview, comment_id: u64) -> String {
+    format!(
+        "repos/{}/{}/pulls/comments/{comment_id}/replies",
+        overview.owner, overview.repo
+    )
 }
 
 fn build_pr_preflight_plan(changed_files: &[String], full: bool) -> Vec<PreflightCheck> {
@@ -508,6 +523,17 @@ fn path_has_extension(path: &str, extension: &str) -> bool {
         .is_some_and(|value| value.eq_ignore_ascii_case(extension))
 }
 
+fn repo_relative_file_exists(path: &str) -> bool {
+    let direct = Path::new(path);
+    if direct.is_file() {
+        return true;
+    }
+
+    find_repo_root()
+        .ok()
+        .is_some_and(|root| root.join(path).is_file())
+}
+
 fn collect_pr_preflight_changed_files(base: &str) -> Result<Vec<String>> {
     let mut files = BTreeSet::new();
     for file in run_git_lines(["diff", "--name-only", &format!("{base}...HEAD")])? {
@@ -575,7 +601,7 @@ fn analyze_pr_preflight_scope(changed_files: &[String], full: bool) -> Preflight
 
     let markdown_files: Vec<String> = changed_files
         .iter()
-        .filter(|path| path_has_extension(path, "md"))
+        .filter(|path| path_has_extension(path, "md") && repo_relative_file_exists(path))
         .cloned()
         .collect();
     if !markdown_files.is_empty() {
@@ -607,7 +633,7 @@ fn analyze_pr_preflight_scope(changed_files: &[String], full: bool) -> Preflight
 
     let shell_files: Vec<String> = changed_files
         .iter()
-        .filter(|path| is_maintained_shell_path(path))
+        .filter(|path| is_maintained_shell_path(path) && repo_relative_file_exists(path))
         .cloned()
         .collect();
     if !shell_files.is_empty() {
@@ -714,22 +740,6 @@ fn fetch_pr_overview(selector: Option<&str>) -> Result<PrOverview> {
         url: view.url,
         head_sha: view.head_ref_oid.chars().take(12).collect(),
     })
-}
-
-fn fetch_repo_owner_name() -> Result<(String, String)> {
-    let output = run_gh_capture(["repo", "view", "--json", "nameWithOwner"])?;
-    let repo: GhRepoView =
-        serde_json::from_str(&output).context("failed to parse `gh repo view` JSON")?;
-    let mut parts = repo.name_with_owner.splitn(2, '/');
-    let owner = parts
-        .next()
-        .filter(|value| !value.is_empty())
-        .context("repository owner missing from gh repo view output")?;
-    let name = parts
-        .next()
-        .filter(|value| !value.is_empty())
-        .context("repository name missing from gh repo view output")?;
-    Ok((owner.to_owned(), name.to_owned()))
 }
 
 fn fetch_unresolved_review_threads(pr: &PrOverview) -> Result<Vec<ReviewThreadSummary>> {
@@ -897,8 +907,11 @@ where
 
 fn is_gh_auth_error(output: &str) -> bool {
     let lowered = output.to_ascii_lowercase();
-    lowered.contains("auth")
-        || lowered.contains("authentication")
+    lowered.contains("authentication")
+        || lowered.contains("to authenticate")
+        || lowered.contains("authentication required")
+        || lowered.contains("you must authenticate")
+        || lowered.contains("bad credentials")
         || lowered.contains("not logged in")
 }
 
@@ -963,12 +976,6 @@ struct GhPrView {
     url: String,
     #[serde(rename = "headRefOid")]
     head_ref_oid: String,
-}
-
-#[derive(Deserialize)]
-struct GhRepoView {
-    #[serde(rename = "nameWithOwner")]
-    name_with_owner: String,
 }
 
 #[derive(Deserialize)]
@@ -2069,6 +2076,22 @@ mod tests {
     }
 
     #[test]
+    fn review_reply_route_uses_pr_owner_and_repo() {
+        let overview = PrOverview {
+            owner: "upstream".to_owned(),
+            repo: "fork-target".to_owned(),
+            number: 308,
+            url: "https://github.com/upstream/fork-target/pull/308".to_owned(),
+            head_sha: "deadbeefcafe".to_owned(),
+        };
+
+        assert_eq!(
+            build_review_reply_route(&overview, 42),
+            "repos/upstream/fork-target/pulls/comments/42/replies"
+        );
+    }
+
+    #[test]
     fn resolve_targets_require_ids_or_all() {
         let args = PrThreadsResolveArgs {
             all: false,
@@ -2255,6 +2278,28 @@ mod tests {
     }
 
     #[test]
+    fn preflight_scope_skips_deleted_markdown_and_shell_paths() {
+        let scope = analyze_pr_preflight_scope(
+            &[
+                "docs/workflows.md".to_owned(),
+                "docs/not-here-anymore.md".to_owned(),
+                "scripts/pr-status.sh".to_owned(),
+                "scripts/not-here-anymore.sh".to_owned(),
+            ],
+            false,
+        );
+
+        assert_eq!(
+            scope.markdown_files,
+            Some(vec!["docs/workflows.md".to_owned()])
+        );
+        assert_eq!(
+            scope.shell_files,
+            Some(vec!["scripts/pr-status.sh".to_owned()])
+        );
+    }
+
+    #[test]
     fn preflight_plan_includes_expected_changed_scope_checks() {
         let plan = build_pr_preflight_plan(
             &[
@@ -2319,5 +2364,13 @@ mod tests {
         ));
         assert!(!is_maintained_shell_path("scripts/bench_bake.py"));
         assert!(!is_maintained_shell_path("scripts/generate_evidence.cjs"));
+    }
+
+    #[test]
+    fn auth_error_detection_avoids_author_false_positive() {
+        assert!(!is_gh_auth_error("author lookup failed"));
+        assert!(is_gh_auth_error("authentication required"));
+        assert!(is_gh_auth_error("you must authenticate with GitHub"));
+        assert!(is_gh_auth_error("bad credentials"));
     }
 }

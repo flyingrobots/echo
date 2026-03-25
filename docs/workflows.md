@@ -75,6 +75,8 @@ The repo also exposes maintenance commands via `cargo xtask …`:
 - `cargo xtask dags --snapshot-label none` omits snapshot labels (best for CI automation).
 - `cargo xtask dags --snapshot-label rolling` emits a stable `rolling` label.
 - `cargo xtask dags --snapshot-label 2026-01-02` pins a date label (useful for comparisons).
+- `cargo xtask pr-status` summarizes the current PR head, unresolved review threads, and grouped check state.
+- `cargo xtask pr-status 306` targets an explicit PR number instead of the current branch PR.
 - `cargo xtask dind` runs the DIND (Deterministic Ironclad Nightmare Drills) harness locally.
 
 ---

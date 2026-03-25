@@ -29,7 +29,7 @@ verify-full-sequential:
 	@VERIFY_LANE_MODE=sequential ./scripts/verify-local.sh full
 
 pr-status:
-	@./scripts/pr-status.sh "$(PR)"
+	@cargo xtask pr-status "$(PR)"
 
 .PHONY: dags dags-fetch
 dags:

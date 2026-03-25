@@ -31,6 +31,8 @@ struct Cli {
 enum Commands {
     /// Generate dependency DAG DOT/SVG artifacts for issues + milestones.
     Dags(DagsArgs),
+    /// Summarize current-head PR status, unresolved threads, and check state.
+    PrStatus(PrStatusArgs),
     /// Run DIND (Deterministic Ironclad Nightmare Drills) harness.
     Dind(DindArgs),
     /// Generate man pages for echo-cli.
@@ -131,6 +133,12 @@ struct ManPagesArgs {
     out: std::path::PathBuf,
 }
 
+#[derive(Args)]
+struct PrStatusArgs {
+    /// Optional PR number or selector understood by `gh pr view`.
+    selector: Option<String>,
+}
+
 fn main() -> Result<()> {
     // Ensure CWD is the repo root so that relative paths like "docs/",
     // "scripts/ensure_spdx.sh", and git-ls-files all work regardless of
@@ -143,6 +151,7 @@ fn main() -> Result<()> {
 
     match cli.command {
         Commands::Dags(args) => run_dags(args),
+        Commands::PrStatus(args) => run_pr_status(args),
         Commands::Dind(args) => run_dind(args),
         Commands::ManPages(args) => run_man_pages(args),
         Commands::LintDeadRefs(args) => run_lint_dead_refs(args),
@@ -180,6 +189,32 @@ fn run_dags(args: DagsArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn run_pr_status(args: PrStatusArgs) -> Result<()> {
+    let script = pr_status_script_path();
+    let mut command = build_pr_status_command(&script, args.selector.as_deref());
+
+    let status = command
+        .status()
+        .with_context(|| format!("failed to run {}", script.display()))?;
+    if !status.success() {
+        bail!("PR status command failed (exit status: {status})");
+    }
+
+    Ok(())
+}
+
+fn pr_status_script_path() -> PathBuf {
+    Path::new("scripts").join("pr-status.sh")
+}
+
+fn build_pr_status_command(script: &Path, selector: Option<&str>) -> Command {
+    let mut command = Command::new(script);
+    if let Some(selector) = selector {
+        command.arg(selector);
+    }
+    command
 }
 
 fn validate_snapshot_label(label: &str) -> Result<()> {
@@ -948,7 +983,12 @@ fn run_man_pages(args: ManPagesArgs) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
+    #[cfg(unix)]
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     // ── extract_link_targets ──────────────────────────────────────────
 
@@ -1045,5 +1085,68 @@ mod tests {
         assert!(candidates
             .iter()
             .any(|p| p.ends_with("docs/public/collision-dpo-tour.html")));
+    }
+
+    // ── pr_status helpers ────────────────────────────────────────────
+
+    #[test]
+    fn pr_status_command_omits_selector_when_absent() {
+        let script = Path::new("scripts/pr-status.sh");
+        let command = build_pr_status_command(script, None);
+
+        assert_eq!(command.get_program(), script);
+        assert_eq!(command.get_args().count(), 0);
+    }
+
+    #[test]
+    fn pr_status_command_passes_selector() {
+        let script = Path::new("scripts/pr-status.sh");
+        let command = build_pr_status_command(script, Some("306"));
+        let args: Vec<_> = command.get_args().collect();
+
+        assert_eq!(command.get_program(), script);
+        assert_eq!(args.len(), 1);
+        assert_eq!(args[0].to_str(), Some("306"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pr_status_command_can_execute_explicit_script_path() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time should be monotonic enough for test path generation")
+            .as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("xtask-pr-status-{unique}"));
+        let script_path = temp_dir.join("pr-status.sh");
+        let output_path = temp_dir.join("output.txt");
+
+        fs::create_dir_all(&temp_dir).expect("temp dir should be creatable");
+        fs::write(
+            &script_path,
+            format!(
+                "#!/usr/bin/env bash\nset -euo pipefail\nprintf '%s' \"${{1:-none}}\" > {}\n",
+                output_path.display()
+            ),
+        )
+        .expect("script should be writable");
+
+        let mut permissions = fs::metadata(&script_path)
+            .expect("script metadata should exist")
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&script_path, permissions).expect("script should be executable");
+
+        let status = build_pr_status_command(&script_path, Some("302"))
+            .status()
+            .expect("script should run");
+        assert!(status.success());
+        assert_eq!(
+            fs::read_to_string(&output_path).expect("output should be readable"),
+            "302"
+        );
+
+        fs::remove_file(&output_path).ok();
+        fs::remove_file(&script_path).ok();
+        fs::remove_dir(&temp_dir).ok();
     }
 }

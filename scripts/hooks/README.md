@@ -13,11 +13,15 @@ older local workflows. Both [`scripts/hooks/pre-commit`](./pre-commit) and
 [`.githooks/`](../../.githooks), so a repo configured with
 `core.hooksPath=scripts/hooks` does not drift from the documented policy.
 
+Likewise, other repository maintenance helpers under `scripts/` are best
+treated as implementation details once an `xtask` entrypoint exists. Prefer
+`cargo xtask ...` or `make` over calling helper scripts directly.
+
 Authoritative behavior lives in `.githooks/pre-commit` and
 `.githooks/pre-push`. For explicit local runs outside git hooks, prefer the
 `make verify-ultra-fast`, `make verify-fast`, `make verify-pr`, and
 `make verify-full` entry points. For PR gate visibility before or after a push,
-prefer `make pr-status`.
+prefer `cargo xtask pr-status` (or the `make pr-status` alias).
 
 The local full gate now runs as curated parallel lanes with isolated
 `CARGO_TARGET_DIR`s, which keeps expensive cargo invocations from serializing on

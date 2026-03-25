@@ -12,7 +12,7 @@
 //! - Prefer deterministic outputs for generated artifacts; avoid “timestamp churn” where possible.
 
 use anyhow::{bail, Context, Result};
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
@@ -82,6 +82,9 @@ enum DoghouseCommand {
 struct DoghouseSortieArgs {
     /// Optional PR number or selector understood by `gh pr view`.
     selector: Option<String>,
+    /// Why this Doghouse sortie is being captured.
+    #[arg(long, value_enum, default_value_t = DoghouseSortieIntent::ManualProbe)]
+    intent: DoghouseSortieIntent,
     /// Local artifact root for recorded PR snapshots.
     #[arg(long, default_value = "artifacts/pr-review")]
     out_dir: PathBuf,
@@ -178,6 +181,9 @@ struct PrStatusArgs {
 struct PrSnapshotArgs {
     /// Optional PR number or selector understood by `gh pr view`.
     selector: Option<String>,
+    /// Why this Doghouse snapshot is being captured.
+    #[arg(long, value_enum, default_value_t = DoghouseSortieIntent::ManualProbe)]
+    intent: DoghouseSortieIntent,
     /// Local artifact root for recorded PR snapshots.
     #[arg(long, default_value = "artifacts/pr-review")]
     out_dir: PathBuf,
@@ -323,7 +329,7 @@ fn run_pr_snapshot(args: PrSnapshotArgs) -> Result<()> {
     let overview = fetch_pr_overview(args.selector.as_deref())?;
     let checks = fetch_pr_checks(&overview)?;
     let threads = fetch_unresolved_review_threads(&overview)?;
-    let snapshot = build_pr_snapshot_artifact(&overview, &checks, &threads)?;
+    let snapshot = build_pr_snapshot_artifact(&overview, &checks, &threads, args.intent)?;
     let previous_snapshot = load_latest_pr_snapshot(snapshot.pr.number, &args.out_dir)?;
     let delta = previous_snapshot
         .as_ref()
@@ -348,6 +354,13 @@ fn run_pr_snapshot(args: PrSnapshotArgs) -> Result<()> {
     println!("Title: {}", snapshot.pr.title);
     println!("Head SHA: {}", snapshot.pr.head_sha_short);
     println!("Recorded at: {}", snapshot.recorded_at);
+    println!(
+        "Sortie intent: {}",
+        snapshot
+            .sortie_intent
+            .as_ref()
+            .map_or_else(|| "unknown".to_owned(), doghouse_sortie_intent_label)
+    );
     println!("Current blockers:");
     if snapshot.blockers.is_empty() {
         println!("- none detected");
@@ -385,7 +398,7 @@ fn run_doghouse_sortie(args: DoghouseSortieArgs) -> Result<()> {
     let overview = fetch_pr_overview(args.selector.as_deref())?;
     let checks = fetch_pr_checks(&overview)?;
     let threads = fetch_unresolved_review_threads(&overview)?;
-    let snapshot = build_pr_snapshot_artifact(&overview, &checks, &threads)?;
+    let snapshot = build_pr_snapshot_artifact(&overview, &checks, &threads, args.intent)?;
     let prior_snapshots = load_prior_pr_snapshots(snapshot.pr.number, &args.out_dir)?;
     let baseline = select_doghouse_baseline(&prior_snapshots, &snapshot);
     let delta = baseline
@@ -638,6 +651,7 @@ fn build_pr_snapshot_artifact(
     overview: &PrOverview,
     checks: &[PrCheckSummary],
     threads: &[ReviewThreadSummary],
+    sortie_intent: DoghouseSortieIntent,
 ) -> Result<PrSnapshotArtifact> {
     let recorded_at = OffsetDateTime::now_utc();
     let grouped_checks = group_pr_checks(checks);
@@ -647,6 +661,7 @@ fn build_pr_snapshot_artifact(
             .format(&Rfc3339)
             .context("failed to format snapshot timestamp")?,
         filename_stamp: format_snapshot_filename_stamp(recorded_at),
+        sortie_intent: Some(sortie_intent),
         pr: PrSnapshotOverview {
             number: overview.number,
             url: overview.url.clone(),
@@ -909,6 +924,16 @@ fn doghouse_baseline_age_seconds(
     let previous = OffsetDateTime::parse(previous_recorded_at, &Rfc3339).ok()?;
     let current = OffsetDateTime::parse(current_recorded_at, &Rfc3339).ok()?;
     Some((current - previous).whole_seconds())
+}
+
+fn doghouse_sortie_intent_label(intent: &DoghouseSortieIntent) -> String {
+    match intent {
+        DoghouseSortieIntent::ManualProbe => "manual_probe".to_owned(),
+        DoghouseSortieIntent::PostPush => "post_push".to_owned(),
+        DoghouseSortieIntent::FixBatch => "fix_batch".to_owned(),
+        DoghouseSortieIntent::MergeCheck => "merge_check".to_owned(),
+        DoghouseSortieIntent::Resume => "resume".to_owned(),
+    }
 }
 
 fn doghouse_stale_threshold_seconds(strategy: &DoghouseBaselineStrategy) -> i64 {
@@ -1253,6 +1278,12 @@ fn render_pr_snapshot_markdown(snapshot: &PrSnapshotArtifact) -> String {
     sections.push(format!("URL: {}\n", snapshot.pr.url));
     sections.push(format!("Title: {}\n", snapshot.pr.title));
     sections.push(format!("Recorded at: {}\n", snapshot.recorded_at));
+    if let Some(intent) = snapshot.sortie_intent.as_ref() {
+        sections.push(format!(
+            "Sortie intent: `{}`\n",
+            doghouse_sortie_intent_label(intent)
+        ));
+    }
     sections.push(format!("PR state: `{}`\n", snapshot.pr.state));
     sections.push(format!("Head SHA: `{}`\n", snapshot.pr.head_sha));
     sections.push(format!(
@@ -1519,8 +1550,7 @@ fn build_doghouse_sortie_events(
     delta: Option<&PrSnapshotDelta>,
     next_action: &DoghouseNextAction,
 ) -> Result<Vec<String>> {
-    let mut lines = Vec::new();
-    lines.push(
+    let mut lines = vec![
         serde_json::to_string(&DoghouseSnapshotEvent {
             kind: "doghouse.snapshot",
             pr_number: snapshot.pr.number,
@@ -1528,6 +1558,7 @@ fn build_doghouse_sortie_events(
             pr_title: snapshot.pr.title.clone(),
             pr_state: snapshot.pr.state.clone(),
             recorded_at: snapshot.recorded_at.clone(),
+            sortie_intent: snapshot.sortie_intent,
             head_sha: snapshot.pr.head_sha.clone(),
             head_sha_short: snapshot.pr.head_sha_short.clone(),
             review_decision: snapshot.pr.review_decision.clone(),
@@ -1538,17 +1569,13 @@ fn build_doghouse_sortie_events(
             check_counts: summarize_check_counts(&snapshot.grouped_checks),
         })
         .context("failed to serialize doghouse snapshot event")?,
-    );
-
-    lines.push(
+        serde_json::to_string(&DoghouseIntentEvent::from_snapshots(snapshot, baseline))
+            .context("failed to serialize doghouse intent event")?,
         serde_json::to_string(&DoghouseBaselineEvent::from_selection(baseline))
             .context("failed to serialize doghouse baseline event")?,
-    );
-
-    lines.push(
         serde_json::to_string(&DoghouseComparisonEvent::from_assessment(comparison))
             .context("failed to serialize doghouse comparison event")?,
-    );
+    ];
 
     if let Some(delta) = delta {
         lines.push(
@@ -2282,6 +2309,8 @@ struct PrCheckSummary {
 struct PrSnapshotArtifact {
     recorded_at: String,
     filename_stamp: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sortie_intent: Option<DoghouseSortieIntent>,
     pr: PrSnapshotOverview,
     #[serde(default)]
     blockers: Vec<String>,
@@ -2291,6 +2320,17 @@ struct PrSnapshotArtifact {
     grouped_checks: BTreeMap<String, Vec<String>>,
     #[serde(default)]
     unresolved_threads: Vec<ReviewThreadSummary>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
+#[serde(rename_all = "snake_case")]
+#[value(rename_all = "snake_case")]
+enum DoghouseSortieIntent {
+    ManualProbe,
+    PostPush,
+    FixBatch,
+    MergeCheck,
+    Resume,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2448,6 +2488,7 @@ struct DoghouseSnapshotEvent {
     pr_title: String,
     pr_state: String,
     recorded_at: String,
+    sortie_intent: Option<DoghouseSortieIntent>,
     head_sha: String,
     head_sha_short: String,
     review_decision: String,
@@ -2456,6 +2497,35 @@ struct DoghouseSnapshotEvent {
     blockers: Vec<String>,
     unresolved_thread_count: usize,
     check_counts: BTreeMap<String, usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct DoghouseIntentEvent {
+    kind: &'static str,
+    current_intent: Option<DoghouseSortieIntent>,
+    baseline_intent: Option<DoghouseSortieIntent>,
+    baseline_intent_known: bool,
+    changed_from_baseline: Option<bool>,
+}
+
+impl DoghouseIntentEvent {
+    fn from_snapshots(
+        snapshot: &PrSnapshotArtifact,
+        baseline: Option<&DoghouseBaselineSelection>,
+    ) -> Self {
+        let current_intent = snapshot.sortie_intent;
+        let baseline_intent = baseline.and_then(|selection| selection.snapshot.sortie_intent);
+
+        Self {
+            kind: "doghouse.intent",
+            current_intent,
+            baseline_intent,
+            baseline_intent_known: baseline_intent.is_some(),
+            changed_from_baseline: current_intent
+                .zip(baseline_intent)
+                .map(|(current, previous)| current != previous),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -3549,6 +3619,7 @@ mod tests {
         PrSnapshotArtifact {
             recorded_at: recorded_at.to_owned(),
             filename_stamp: filename_stamp.to_owned(),
+            sortie_intent: Some(DoghouseSortieIntent::ManualProbe),
             pr: PrSnapshotOverview {
                 number: overview.number,
                 url: overview.url,
@@ -3830,11 +3901,20 @@ mod tests {
         let threads = vec![sample_review_thread()];
 
         let snapshot = assert_ok(
-            build_pr_snapshot_artifact(&overview, &checks, &threads),
+            build_pr_snapshot_artifact(
+                &overview,
+                &checks,
+                &threads,
+                DoghouseSortieIntent::ManualProbe,
+            ),
             "snapshot should build",
         );
 
         assert_eq!(snapshot.pr.head_sha_short, "a2ee2f563362");
+        assert_eq!(
+            snapshot.sortie_intent,
+            Some(DoghouseSortieIntent::ManualProbe)
+        );
         assert!(snapshot
             .blockers
             .contains(&"unresolved review threads: 1".to_owned()));
@@ -3862,7 +3942,12 @@ mod tests {
         }];
         let threads = vec![sample_review_thread()];
         let snapshot = assert_ok(
-            build_pr_snapshot_artifact(&overview, &checks, &threads),
+            build_pr_snapshot_artifact(
+                &overview,
+                &checks,
+                &threads,
+                DoghouseSortieIntent::ManualProbe,
+            ),
             "snapshot should build",
         );
 
@@ -3889,7 +3974,7 @@ mod tests {
         }];
 
         let snapshot = assert_ok(
-            build_pr_snapshot_artifact(&overview, &checks, &[]),
+            build_pr_snapshot_artifact(&overview, &checks, &[], DoghouseSortieIntent::ManualProbe),
             "snapshot should build",
         );
 
@@ -3906,7 +3991,12 @@ mod tests {
         }];
         let threads = Vec::new();
         let snapshot = assert_ok(
-            build_pr_snapshot_artifact(&overview, &checks, &threads),
+            build_pr_snapshot_artifact(
+                &overview,
+                &checks,
+                &threads,
+                DoghouseSortieIntent::ManualProbe,
+            ),
             "snapshot should build",
         );
         let temp_dir = unique_temp_path("xtask-pr-snapshot");
@@ -4345,6 +4435,41 @@ mod tests {
     }
 
     #[test]
+    fn doghouse_intent_event_tracks_current_and_baseline_intent() {
+        let mut baseline_snapshot = snapshot_fixture(
+            "2026-03-25T08:00:00Z",
+            "20260325T080000Z",
+            sample_pr_overview(),
+            vec![],
+            vec![],
+            vec![],
+        );
+        baseline_snapshot.sortie_intent = Some(DoghouseSortieIntent::FixBatch);
+        let selection = DoghouseBaselineSelection {
+            strategy: DoghouseBaselineStrategy::ImmediatePrevious,
+            snapshot: baseline_snapshot,
+            newer_snapshot_count: 0,
+            newer_semantic_change_count: 0,
+        };
+
+        let mut current = snapshot_fixture(
+            "2026-03-25T08:20:00Z",
+            "20260325T082000Z",
+            sample_pr_overview(),
+            vec![],
+            vec![],
+            vec![],
+        );
+        current.sortie_intent = Some(DoghouseSortieIntent::MergeCheck);
+
+        let event = DoghouseIntentEvent::from_snapshots(&current, Some(&selection));
+
+        assert_eq!(event.current_intent, Some(DoghouseSortieIntent::MergeCheck));
+        assert_eq!(event.baseline_intent, Some(DoghouseSortieIntent::FixBatch));
+        assert_eq!(event.changed_from_baseline, Some(true));
+    }
+
+    #[test]
     fn doghouse_next_action_prioritizes_unresolved_threads() {
         let snapshot = snapshot_fixture(
             "2026-03-25T08:20:00Z",
@@ -4407,11 +4532,12 @@ mod tests {
             "sortie events should serialize",
         );
 
-        assert_eq!(lines.len(), 4);
+        assert_eq!(lines.len(), 5);
         assert!(lines[0].contains("\"kind\":\"doghouse.snapshot\""));
-        assert!(lines[1].contains("\"kind\":\"doghouse.baseline\""));
-        assert!(lines[2].contains("\"kind\":\"doghouse.comparison\""));
-        assert!(lines[3].contains("\"kind\":\"doghouse.next_action\""));
+        assert!(lines[1].contains("\"kind\":\"doghouse.intent\""));
+        assert!(lines[2].contains("\"kind\":\"doghouse.baseline\""));
+        assert!(lines[3].contains("\"kind\":\"doghouse.comparison\""));
+        assert!(lines[4].contains("\"kind\":\"doghouse.next_action\""));
     }
 
     #[test]
@@ -4440,6 +4566,7 @@ mod tests {
         );
 
         assert_eq!(snapshot.pr.state, "OPEN");
+        assert_eq!(snapshot.sortie_intent, None);
     }
 
     #[test]

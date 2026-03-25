@@ -28,7 +28,9 @@ available as a thin alias when you want a Make entrypoint.
 For a durable local snapshot of PR state across review rounds, prefer
 `cargo xtask pr-snapshot` (or `make pr-snapshot ARGS='…'`), which writes
 gitignored JSON + Markdown under `artifacts/pr-review/`, plus semantic delta
-artifacts when a previous local snapshot exists.
+artifacts when a previous local snapshot exists. When the capture purpose matters,
+pass `--intent merge-check`, `--intent fix-batch`, or another Doghouse intent so
+the recorder can preserve why the snapshot was taken.
 Before opening a PR, prefer `cargo xtask pr-preflight` (or
 `make pr-preflight ARGS='…'`) instead of composing ad hoc local checks by hand.
 

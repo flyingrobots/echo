@@ -35,7 +35,7 @@ The product question is:
 The agent-native plumbing entrypoint is:
 
 ```sh
-cargo xtask doghouse sortie 308
+cargo xtask doghouse sortie 308 --intent merge-check
 ```
 
 That command emits JSONL to stdout, writes local snapshot/delta artifacts under
@@ -45,6 +45,7 @@ the plumbing layer. Friendlier human porcelain can sit on top later.
 The JSONL stream now separates:
 
 - baseline selection: which prior snapshot was picked
+- sortie intent: why the current capture happened, plus the baseline intent when known
 - comparison assessment: how trustworthy that comparison is (`strong`, `usable`, `weak`, or `none`)
 - comparison quality: whether the baseline is `good_enough`, `stale`, `noisy`, `stale_and_noisy`, or an `initial_capture`
 - semantic delta: what actually changed

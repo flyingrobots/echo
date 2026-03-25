@@ -42,6 +42,13 @@ That command emits JSONL to stdout, writes local snapshot/delta artifacts under
 `artifacts/pr-review/`, and includes a machine-usable next-action verdict. It is meant to be
 the plumbing layer. Friendlier human porcelain can sit on top later.
 
+The JSONL stream now separates:
+
+- baseline selection: which prior snapshot was picked
+- comparison assessment: how trustworthy that comparison is (`strong`, `usable`, `weak`, or `none`)
+- semantic delta: what actually changed
+- next action: what the agent should do now
+
 ## Documents
 
 - [Flight Recorder Brief](./flight-recorder-brief.md)

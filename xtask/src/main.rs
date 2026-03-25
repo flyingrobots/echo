@@ -391,6 +391,7 @@ fn run_doghouse_sortie(args: DoghouseSortieArgs) -> Result<()> {
     let delta = baseline
         .as_ref()
         .map(|selection| build_pr_snapshot_delta(&selection.snapshot, &snapshot));
+    let comparison = assess_doghouse_comparison(&snapshot, baseline.as_ref(), delta.as_ref());
     let snapshot_paths = write_pr_snapshot_artifact(&snapshot, &args.out_dir)?;
     let delta_paths = if let Some(delta) = delta.as_ref() {
         Some(write_pr_snapshot_delta_artifact(
@@ -404,8 +405,13 @@ fn run_doghouse_sortie(args: DoghouseSortieArgs) -> Result<()> {
         None
     };
     let next_action = determine_doghouse_next_action(&snapshot, delta.as_ref());
-    let event_lines =
-        build_doghouse_sortie_events(&snapshot, baseline.as_ref(), delta.as_ref(), &next_action)?;
+    let event_lines = build_doghouse_sortie_events(
+        &snapshot,
+        baseline.as_ref(),
+        &comparison,
+        delta.as_ref(),
+        &next_action,
+    )?;
     let jsonl_paths = write_doghouse_jsonl_events(
         &event_lines,
         snapshot.pr.number,
@@ -747,6 +753,90 @@ fn select_doghouse_baseline(
             strategy: DoghouseBaselineStrategy::ImmediatePrevious,
             snapshot,
         })
+}
+
+fn assess_doghouse_comparison(
+    current: &PrSnapshotArtifact,
+    selection: Option<&DoghouseBaselineSelection>,
+    delta: Option<&PrSnapshotDelta>,
+) -> DoghouseComparisonAssessment {
+    match selection {
+        Some(selection) => {
+            let same_head = selection.snapshot.pr.head_sha == current.pr.head_sha;
+            let semantically_changed = delta.is_some_and(pr_snapshot_delta_has_changes);
+            let (trust, mut reasons) = match selection.strategy {
+                DoghouseBaselineStrategy::PreviousDifferentHead => (
+                    DoghouseComparisonTrust::Strong,
+                    vec![
+                        "baseline uses a different head SHA".to_owned(),
+                        "comparison spans a real push boundary".to_owned(),
+                    ],
+                ),
+                DoghouseBaselineStrategy::PreviousSemanticChange => (
+                    DoghouseComparisonTrust::Usable,
+                    vec![
+                        "baseline captures the most recent semantically different snapshot"
+                            .to_owned(),
+                        "comparison stays on the same head but still reflects a meaningful state change"
+                            .to_owned(),
+                    ],
+                ),
+                DoghouseBaselineStrategy::ImmediatePrevious => (
+                    DoghouseComparisonTrust::Weak,
+                    vec![
+                        "no earlier different-head or semantically different baseline was available"
+                            .to_owned(),
+                        "comparison falls back to the immediately previous recorder capture"
+                            .to_owned(),
+                    ],
+                ),
+            };
+
+            if same_head {
+                reasons.push("baseline head matches the current head".to_owned());
+            } else {
+                reasons.push("baseline head differs from the current head".to_owned());
+            }
+
+            if semantically_changed {
+                reasons
+                    .push("selected baseline still shows a semantic state transition".to_owned());
+            } else {
+                reasons
+                    .push("selected baseline does not show a semantic state transition".to_owned());
+            }
+
+            DoghouseComparisonAssessment {
+                selection: Some(selection.strategy.clone()),
+                trust,
+                same_head: Some(same_head),
+                semantically_changed: Some(semantically_changed),
+                reasons,
+            }
+        }
+        None => DoghouseComparisonAssessment {
+            selection: None,
+            trust: DoghouseComparisonTrust::None,
+            same_head: None,
+            semantically_changed: None,
+            reasons: vec![
+                "no prior snapshot was available".to_owned(),
+                "treat this sortie as the initial capture, not a comparison".to_owned(),
+            ],
+        },
+    }
+}
+
+fn pr_snapshot_delta_has_changes(delta: &PrSnapshotDelta) -> bool {
+    !delta.blockers_added.is_empty()
+        || !delta.blockers_removed.is_empty()
+        || !delta.threads_opened.is_empty()
+        || !delta.threads_resolved.is_empty()
+        || !delta.improved_checks.is_empty()
+        || !delta.regressed_checks.is_empty()
+        || !delta.shifted_checks.is_empty()
+        || !delta.added_checks.is_empty()
+        || !delta.removed_checks.is_empty()
 }
 
 fn snapshot_semantically_differs(left: &PrSnapshotArtifact, right: &PrSnapshotArtifact) -> bool {
@@ -1333,6 +1423,7 @@ fn print_pr_snapshot_delta_summary(delta: &PrSnapshotDelta) {
 fn build_doghouse_sortie_events(
     snapshot: &PrSnapshotArtifact,
     baseline: Option<&DoghouseBaselineSelection>,
+    comparison: &DoghouseComparisonAssessment,
     delta: Option<&PrSnapshotDelta>,
     next_action: &DoghouseNextAction,
 ) -> Result<Vec<String>> {
@@ -1360,6 +1451,11 @@ fn build_doghouse_sortie_events(
     lines.push(
         serde_json::to_string(&DoghouseBaselineEvent::from_selection(baseline))
             .context("failed to serialize doghouse baseline event")?,
+    );
+
+    lines.push(
+        serde_json::to_string(&DoghouseComparisonEvent::from_assessment(comparison))
+            .context("failed to serialize doghouse comparison event")?,
     );
 
     if let Some(delta) = delta {
@@ -2156,6 +2252,24 @@ enum DoghouseBaselineStrategy {
     ImmediatePrevious,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DoghouseComparisonAssessment {
+    selection: Option<DoghouseBaselineStrategy>,
+    trust: DoghouseComparisonTrust,
+    same_head: Option<bool>,
+    semantically_changed: Option<bool>,
+    reasons: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum DoghouseComparisonTrust {
+    Strong,
+    Usable,
+    Weak,
+    None,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct PrSnapshotDelta {
     previous: PrSnapshotDeltaRef,
@@ -2247,19 +2361,21 @@ struct DoghouseBaselineEvent {
 }
 
 impl DoghouseBaselineEvent {
+    fn selection_label(strategy: &DoghouseBaselineStrategy) -> String {
+        match strategy {
+            DoghouseBaselineStrategy::PreviousDifferentHead => "previous_different_head".to_owned(),
+            DoghouseBaselineStrategy::PreviousSemanticChange => {
+                "previous_semantic_change".to_owned()
+            }
+            DoghouseBaselineStrategy::ImmediatePrevious => "immediate_previous".to_owned(),
+        }
+    }
+
     fn from_selection(selection: Option<&DoghouseBaselineSelection>) -> Self {
         match selection {
             Some(selection) => Self {
                 kind: "doghouse.baseline",
-                selection: match selection.strategy {
-                    DoghouseBaselineStrategy::PreviousDifferentHead => {
-                        "previous_different_head".to_owned()
-                    }
-                    DoghouseBaselineStrategy::PreviousSemanticChange => {
-                        "previous_semantic_change".to_owned()
-                    }
-                    DoghouseBaselineStrategy::ImmediatePrevious => "immediate_previous".to_owned(),
-                },
+                selection: Self::selection_label(&selection.strategy),
                 found: true,
                 recorded_at: Some(selection.snapshot.recorded_at.clone()),
                 head_sha: Some(selection.snapshot.pr.head_sha.clone()),
@@ -2277,6 +2393,34 @@ impl DoghouseBaselineEvent {
                 blocker_count: None,
                 unresolved_thread_count: None,
             },
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct DoghouseComparisonEvent {
+    kind: &'static str,
+    selection: String,
+    trust: DoghouseComparisonTrust,
+    baseline_found: bool,
+    same_head: Option<bool>,
+    semantically_changed: Option<bool>,
+    reasons: Vec<String>,
+}
+
+impl DoghouseComparisonEvent {
+    fn from_assessment(assessment: &DoghouseComparisonAssessment) -> Self {
+        Self {
+            kind: "doghouse.comparison",
+            selection: assessment
+                .selection
+                .as_ref()
+                .map_or_else(|| "none".to_owned(), DoghouseBaselineEvent::selection_label),
+            trust: assessment.trust.clone(),
+            baseline_found: assessment.selection.is_some(),
+            same_head: assessment.same_head,
+            semantically_changed: assessment.semantically_changed,
+            reasons: assessment.reasons.clone(),
         }
     }
 }
@@ -3935,6 +4079,55 @@ mod tests {
     }
 
     #[test]
+    fn doghouse_comparison_marks_different_head_baselines_strong() {
+        let mut previous_overview = sample_pr_overview();
+        previous_overview.head_sha = "bbbbbbbbbbbb95783719ba9e0be52c4f2f0670e2".to_owned();
+        let previous = snapshot_fixture(
+            "2026-03-25T08:00:00Z",
+            "20260325T080000Z",
+            previous_overview,
+            vec!["review decision: REVIEW_REQUIRED"],
+            vec![],
+            vec![],
+        );
+        let current = snapshot_fixture(
+            "2026-03-25T08:20:00Z",
+            "20260325T082000Z",
+            sample_pr_overview(),
+            vec![],
+            vec![],
+            vec![],
+        );
+        let selection = select_doghouse_baseline(std::slice::from_ref(&previous), &current)
+            .unwrap_or_else(|| unreachable!("baseline should be selected"));
+        let delta = build_pr_snapshot_delta(&selection.snapshot, &current);
+
+        let assessment = assess_doghouse_comparison(&current, Some(&selection), Some(&delta));
+
+        assert_eq!(assessment.trust, DoghouseComparisonTrust::Strong);
+        assert_eq!(assessment.same_head, Some(false));
+        assert_eq!(assessment.semantically_changed, Some(true));
+    }
+
+    #[test]
+    fn doghouse_comparison_marks_initial_capture_as_none() {
+        let current = snapshot_fixture(
+            "2026-03-25T08:20:00Z",
+            "20260325T082000Z",
+            sample_pr_overview(),
+            vec![],
+            vec![],
+            vec![],
+        );
+
+        let assessment = assess_doghouse_comparison(&current, None, None);
+
+        assert_eq!(assessment.trust, DoghouseComparisonTrust::None);
+        assert_eq!(assessment.same_head, None);
+        assert_eq!(assessment.semantically_changed, None);
+    }
+
+    #[test]
     fn doghouse_next_action_prioritizes_unresolved_threads() {
         let snapshot = snapshot_fixture(
             "2026-03-25T08:20:00Z",
@@ -3990,16 +4183,18 @@ mod tests {
             }],
             vec![],
         );
+        let comparison = assess_doghouse_comparison(&snapshot, None, None);
         let action = determine_doghouse_next_action(&snapshot, None);
         let lines = assert_ok(
-            build_doghouse_sortie_events(&snapshot, None, None, &action),
+            build_doghouse_sortie_events(&snapshot, None, &comparison, None, &action),
             "sortie events should serialize",
         );
 
-        assert_eq!(lines.len(), 3);
+        assert_eq!(lines.len(), 4);
         assert!(lines[0].contains("\"kind\":\"doghouse.snapshot\""));
         assert!(lines[1].contains("\"kind\":\"doghouse.baseline\""));
-        assert!(lines[2].contains("\"kind\":\"doghouse.next_action\""));
+        assert!(lines[2].contains("\"kind\":\"doghouse.comparison\""));
+        assert!(lines[3].contains("\"kind\":\"doghouse.next_action\""));
     }
 
     #[test]

@@ -16,8 +16,8 @@ This doc is the “official workflow index” for Echo: how we work, what invari
 
 ### Agent Context System (AI Agents)
 
-AI agents use a **2-tier context system** for seamless handoffs. See the repo-root
-`AGENTS.md` for full details.
+AI agents use a **2-tier context system** for seamless handoffs. See
+[`docs/archive/AGENTS.md`](./archive/AGENTS.md) for full details.
 
 | Tier      | Store                               | Purpose                                    |
 | --------- | ----------------------------------- | ------------------------------------------ |
@@ -80,7 +80,8 @@ The repo also exposes maintenance commands via `cargo xtask …`:
 - `cargo xtask pr-status 306` targets an explicit PR number instead of the current branch PR.
 - `cargo xtask pr-threads list` lists unresolved review threads for the current PR with thread ids, comment ids, path, author, URL, and a short preview.
 - `cargo xtask pr-threads list 306` targets an explicit PR number instead of the current branch PR.
-- `cargo xtask pr-threads reply 123456789 --body-file /tmp/reply.md` posts a human-authored reply to a review comment id.
+- `cargo xtask pr-threads reply 123456789 --body-file /tmp/reply.md` posts a human-authored reply to a review comment id on the current branch PR.
+- `cargo xtask pr-threads reply 123456789 --selector 306 --body-file /tmp/reply.md` targets an explicit PR when the review comment belongs to another repo/PR context.
 - `cargo xtask pr-threads resolve --all --selector 306 --yes` resolves all unresolved review threads for a PR after you have verified the fix batch.
 - `cargo xtask pr-threads resolve --yes THREAD_ID_A THREAD_ID_B` resolves explicit GitHub review thread ids when you already know the targets.
 - `cargo xtask pr-preflight` runs the default changed-scope pre-PR gate against `origin/main`.

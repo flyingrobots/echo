@@ -76,7 +76,7 @@ The repo also exposes maintenance commands via `cargo xtask …`:
 - `cargo xtask dags --snapshot-label none` omits snapshot labels (best for CI automation).
 - `cargo xtask dags --snapshot-label rolling` emits a stable `rolling` label.
 - `cargo xtask dags --snapshot-label 2026-01-02` pins a date label (useful for comparisons).
-- `cargo xtask doghouse sortie 308` emits agent-native JSONL for the selected PR, including baseline selection, comparison trust assessment, semantic delta, and next-action verdicts.
+- `cargo xtask doghouse sortie 308` emits agent-native JSONL for the selected PR, including baseline selection, comparison trust/quality assessment, semantic delta, and next-action verdicts.
 - `cargo xtask pr-status` summarizes the current PR head, exact unresolved review-thread count, grouped check state, and a concise current-blockers section.
 - `cargo xtask pr-status 306` targets an explicit PR number instead of the current branch PR.
 - `cargo xtask pr-snapshot` records a durable local PR review snapshot under `artifacts/pr-review/`.

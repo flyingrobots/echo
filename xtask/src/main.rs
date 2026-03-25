@@ -724,35 +724,56 @@ fn select_doghouse_baseline(
         return None;
     }
 
-    let newest_first = snapshots.iter().rev();
-
-    if let Some(snapshot) = newest_first
-        .clone()
-        .find(|snapshot| snapshot.pr.head_sha != current.pr.head_sha)
+    if let Some(index) = snapshots
+        .iter()
+        .rposition(|snapshot| snapshot.pr.head_sha != current.pr.head_sha)
     {
-        return Some(DoghouseBaselineSelection {
-            strategy: DoghouseBaselineStrategy::PreviousDifferentHead,
-            snapshot: snapshot.clone(),
-        });
+        return Some(build_doghouse_baseline_selection(
+            snapshots,
+            current,
+            index,
+            DoghouseBaselineStrategy::PreviousDifferentHead,
+        ));
     }
 
-    if let Some(snapshot) = newest_first
-        .clone()
-        .find(|snapshot| snapshot_semantically_differs(snapshot, current))
+    if let Some(index) = snapshots
+        .iter()
+        .rposition(|snapshot| snapshot_semantically_differs(snapshot, current))
     {
-        return Some(DoghouseBaselineSelection {
-            strategy: DoghouseBaselineStrategy::PreviousSemanticChange,
-            snapshot: snapshot.clone(),
-        });
+        return Some(build_doghouse_baseline_selection(
+            snapshots,
+            current,
+            index,
+            DoghouseBaselineStrategy::PreviousSemanticChange,
+        ));
     }
 
-    snapshots
-        .last()
-        .cloned()
-        .map(|snapshot| DoghouseBaselineSelection {
-            strategy: DoghouseBaselineStrategy::ImmediatePrevious,
-            snapshot,
-        })
+    Some(build_doghouse_baseline_selection(
+        snapshots,
+        current,
+        snapshots.len() - 1,
+        DoghouseBaselineStrategy::ImmediatePrevious,
+    ))
+}
+
+fn build_doghouse_baseline_selection(
+    snapshots: &[PrSnapshotArtifact],
+    current: &PrSnapshotArtifact,
+    index: usize,
+    strategy: DoghouseBaselineStrategy,
+) -> DoghouseBaselineSelection {
+    let snapshot = snapshots[index].clone();
+    let newer_snapshots = &snapshots[index + 1..];
+
+    DoghouseBaselineSelection {
+        strategy,
+        snapshot,
+        newer_snapshot_count: newer_snapshots.len(),
+        newer_semantic_change_count: newer_snapshots
+            .iter()
+            .filter(|candidate| snapshot_semantically_differs(candidate, current))
+            .count(),
+    }
 }
 
 fn assess_doghouse_comparison(
@@ -764,6 +785,14 @@ fn assess_doghouse_comparison(
         Some(selection) => {
             let same_head = selection.snapshot.pr.head_sha == current.pr.head_sha;
             let semantically_changed = delta.is_some_and(pr_snapshot_delta_has_changes);
+            let baseline_age_seconds = doghouse_baseline_age_seconds(
+                &selection.snapshot.recorded_at,
+                &current.recorded_at,
+            );
+            let stale = baseline_age_seconds.is_some_and(|seconds| {
+                seconds > doghouse_stale_threshold_seconds(&selection.strategy)
+            });
+            let noisy = selection.newer_semantic_change_count > 0;
             let (trust, mut reasons) = match selection.strategy {
                 DoghouseBaselineStrategy::PreviousDifferentHead => (
                     DoghouseComparisonTrust::Strong,
@@ -792,6 +821,14 @@ fn assess_doghouse_comparison(
                 ),
             };
 
+            if let Some(seconds) = baseline_age_seconds {
+                reasons.push(format!("baseline age is {seconds}s"));
+            } else {
+                reasons.push(
+                    "baseline age could not be computed from the recorded timestamps".to_owned(),
+                );
+            }
+
             if same_head {
                 reasons.push("baseline head matches the current head".to_owned());
             } else {
@@ -806,24 +843,79 @@ fn assess_doghouse_comparison(
                     .push("selected baseline does not show a semantic state transition".to_owned());
             }
 
+            if stale {
+                reasons.push(format!(
+                    "baseline exceeded the {}s stale threshold for this selection strategy",
+                    doghouse_stale_threshold_seconds(&selection.strategy)
+                ));
+            }
+
+            if noisy {
+                reasons.push(format!(
+                    "comparison skips {} newer semantically different snapshot(s)",
+                    selection.newer_semantic_change_count
+                ));
+            } else if selection.newer_snapshot_count > 0 {
+                reasons.push(format!(
+                    "{} newer snapshot(s) were skipped, but they were semantically equivalent to the current state",
+                    selection.newer_snapshot_count
+                ));
+            }
+
+            let quality = match (stale, noisy) {
+                (true, true) => DoghouseComparisonQuality::StaleAndNoisy,
+                (true, false) => DoghouseComparisonQuality::Stale,
+                (false, true) => DoghouseComparisonQuality::Noisy,
+                (false, false) => DoghouseComparisonQuality::GoodEnough,
+            };
+
             DoghouseComparisonAssessment {
                 selection: Some(selection.strategy.clone()),
                 trust,
+                quality,
                 same_head: Some(same_head),
                 semantically_changed: Some(semantically_changed),
+                baseline_age_seconds,
+                newer_snapshot_count: Some(selection.newer_snapshot_count),
+                newer_semantic_change_count: Some(selection.newer_semantic_change_count),
+                stale,
+                noisy,
                 reasons,
             }
         }
         None => DoghouseComparisonAssessment {
             selection: None,
             trust: DoghouseComparisonTrust::None,
+            quality: DoghouseComparisonQuality::InitialCapture,
             same_head: None,
             semantically_changed: None,
+            baseline_age_seconds: None,
+            newer_snapshot_count: None,
+            newer_semantic_change_count: None,
+            stale: false,
+            noisy: false,
             reasons: vec![
                 "no prior snapshot was available".to_owned(),
                 "treat this sortie as the initial capture, not a comparison".to_owned(),
             ],
         },
+    }
+}
+
+fn doghouse_baseline_age_seconds(
+    previous_recorded_at: &str,
+    current_recorded_at: &str,
+) -> Option<i64> {
+    let previous = OffsetDateTime::parse(previous_recorded_at, &Rfc3339).ok()?;
+    let current = OffsetDateTime::parse(current_recorded_at, &Rfc3339).ok()?;
+    Some((current - previous).whole_seconds())
+}
+
+fn doghouse_stale_threshold_seconds(strategy: &DoghouseBaselineStrategy) -> i64 {
+    match strategy {
+        DoghouseBaselineStrategy::PreviousDifferentHead => 72 * 60 * 60,
+        DoghouseBaselineStrategy::PreviousSemanticChange => 12 * 60 * 60,
+        DoghouseBaselineStrategy::ImmediatePrevious => 2 * 60 * 60,
     }
 }
 
@@ -2242,6 +2334,8 @@ struct PrSnapshotDeltaPaths {
 struct DoghouseBaselineSelection {
     strategy: DoghouseBaselineStrategy,
     snapshot: PrSnapshotArtifact,
+    newer_snapshot_count: usize,
+    newer_semantic_change_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -2256,8 +2350,14 @@ enum DoghouseBaselineStrategy {
 struct DoghouseComparisonAssessment {
     selection: Option<DoghouseBaselineStrategy>,
     trust: DoghouseComparisonTrust,
+    quality: DoghouseComparisonQuality,
     same_head: Option<bool>,
     semantically_changed: Option<bool>,
+    baseline_age_seconds: Option<i64>,
+    newer_snapshot_count: Option<usize>,
+    newer_semantic_change_count: Option<usize>,
+    stale: bool,
+    noisy: bool,
     reasons: Vec<String>,
 }
 
@@ -2268,6 +2368,16 @@ enum DoghouseComparisonTrust {
     Usable,
     Weak,
     None,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum DoghouseComparisonQuality {
+    GoodEnough,
+    Stale,
+    Noisy,
+    StaleAndNoisy,
+    InitialCapture,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2402,9 +2512,15 @@ struct DoghouseComparisonEvent {
     kind: &'static str,
     selection: String,
     trust: DoghouseComparisonTrust,
+    quality: DoghouseComparisonQuality,
     baseline_found: bool,
     same_head: Option<bool>,
     semantically_changed: Option<bool>,
+    baseline_age_seconds: Option<i64>,
+    newer_snapshot_count: Option<usize>,
+    newer_semantic_change_count: Option<usize>,
+    stale: bool,
+    noisy: bool,
     reasons: Vec<String>,
 }
 
@@ -2417,9 +2533,15 @@ impl DoghouseComparisonEvent {
                 .as_ref()
                 .map_or_else(|| "none".to_owned(), DoghouseBaselineEvent::selection_label),
             trust: assessment.trust.clone(),
+            quality: assessment.quality.clone(),
             baseline_found: assessment.selection.is_some(),
             same_head: assessment.same_head,
             semantically_changed: assessment.semantically_changed,
+            baseline_age_seconds: assessment.baseline_age_seconds,
+            newer_snapshot_count: assessment.newer_snapshot_count,
+            newer_semantic_change_count: assessment.newer_semantic_change_count,
+            stale: assessment.stale,
+            noisy: assessment.noisy,
             reasons: assessment.reasons.clone(),
         }
     }
@@ -4035,6 +4157,8 @@ mod tests {
             selection.snapshot.pr.head_sha,
             older_different_head.pr.head_sha
         );
+        assert_eq!(selection.newer_snapshot_count, 1);
+        assert_eq!(selection.newer_semantic_change_count, 0);
     }
 
     #[test]
@@ -4076,6 +4200,8 @@ mod tests {
             DoghouseBaselineStrategy::PreviousSemanticChange
         );
         assert_eq!(selection.snapshot.recorded_at, latest_changed.recorded_at);
+        assert_eq!(selection.newer_snapshot_count, 0);
+        assert_eq!(selection.newer_semantic_change_count, 0);
     }
 
     #[test]
@@ -4105,8 +4231,93 @@ mod tests {
         let assessment = assess_doghouse_comparison(&current, Some(&selection), Some(&delta));
 
         assert_eq!(assessment.trust, DoghouseComparisonTrust::Strong);
+        assert_eq!(assessment.quality, DoghouseComparisonQuality::GoodEnough);
         assert_eq!(assessment.same_head, Some(false));
         assert_eq!(assessment.semantically_changed, Some(true));
+        assert!(!assessment.stale);
+        assert!(!assessment.noisy);
+    }
+
+    #[test]
+    fn doghouse_comparison_marks_old_same_head_baselines_stale() {
+        let previous = snapshot_fixture(
+            "2026-03-24T20:00:00Z",
+            "20260324T200000Z",
+            sample_pr_overview(),
+            vec!["review decision: REVIEW_REQUIRED"],
+            vec![],
+            vec![],
+        );
+        let current = snapshot_fixture(
+            "2026-03-25T12:30:00Z",
+            "20260325T123000Z",
+            sample_pr_overview(),
+            vec![],
+            vec![],
+            vec![],
+        );
+        let selection = select_doghouse_baseline(std::slice::from_ref(&previous), &current)
+            .unwrap_or_else(|| unreachable!("baseline should be selected"));
+        let delta = build_pr_snapshot_delta(&selection.snapshot, &current);
+
+        let assessment = assess_doghouse_comparison(&current, Some(&selection), Some(&delta));
+
+        assert_eq!(assessment.trust, DoghouseComparisonTrust::Usable);
+        assert_eq!(assessment.quality, DoghouseComparisonQuality::Stale);
+        assert_eq!(assessment.same_head, Some(true));
+        assert!(assessment.stale);
+        assert!(!assessment.noisy);
+        assert!(
+            assessment.baseline_age_seconds.is_some_and(
+                |seconds| seconds > doghouse_stale_threshold_seconds(&selection.strategy)
+            )
+        );
+    }
+
+    #[test]
+    fn doghouse_comparison_marks_skipped_semantic_changes_noisy() {
+        let mut different_head_overview = sample_pr_overview();
+        different_head_overview.head_sha = "bbbbbbbbbbbb95783719ba9e0be52c4f2f0670e2".to_owned();
+        let previous_different_head = snapshot_fixture(
+            "2026-03-25T08:00:00Z",
+            "20260325T080000Z",
+            different_head_overview,
+            vec!["review decision: REVIEW_REQUIRED"],
+            vec![],
+            vec![],
+        );
+        let mut intermediate_overview = sample_pr_overview();
+        intermediate_overview.merge_state = "CLEAN".to_owned();
+        let intermediate_same_head_change = snapshot_fixture(
+            "2026-03-25T08:10:00Z",
+            "20260325T081000Z",
+            intermediate_overview,
+            vec!["merge state: CLEAN"],
+            vec![],
+            vec![],
+        );
+        let current = snapshot_fixture(
+            "2026-03-25T08:20:00Z",
+            "20260325T082000Z",
+            sample_pr_overview(),
+            vec![],
+            vec![],
+            vec![],
+        );
+        let snapshots = vec![previous_different_head, intermediate_same_head_change];
+        let selection = select_doghouse_baseline(&snapshots, &current)
+            .unwrap_or_else(|| unreachable!("baseline should be selected"));
+        let delta = build_pr_snapshot_delta(&selection.snapshot, &current);
+
+        let assessment = assess_doghouse_comparison(&current, Some(&selection), Some(&delta));
+
+        assert_eq!(
+            selection.strategy,
+            DoghouseBaselineStrategy::PreviousDifferentHead
+        );
+        assert_eq!(selection.newer_semantic_change_count, 1);
+        assert_eq!(assessment.quality, DoghouseComparisonQuality::Noisy);
+        assert!(assessment.noisy);
     }
 
     #[test]
@@ -4123,8 +4334,14 @@ mod tests {
         let assessment = assess_doghouse_comparison(&current, None, None);
 
         assert_eq!(assessment.trust, DoghouseComparisonTrust::None);
+        assert_eq!(
+            assessment.quality,
+            DoghouseComparisonQuality::InitialCapture
+        );
         assert_eq!(assessment.same_head, None);
         assert_eq!(assessment.semantically_changed, None);
+        assert!(!assessment.stale);
+        assert!(!assessment.noisy);
     }
 
     #[test]

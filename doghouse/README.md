@@ -46,6 +46,7 @@ The JSONL stream now separates:
 
 - baseline selection: which prior snapshot was picked
 - comparison assessment: how trustworthy that comparison is (`strong`, `usable`, `weak`, or `none`)
+- comparison quality: whether the baseline is `good_enough`, `stale`, `noisy`, `stale_and_noisy`, or an `initial_capture`
 - semantic delta: what actually changed
 - next action: what the agent should do now
 

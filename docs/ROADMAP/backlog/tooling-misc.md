@@ -611,3 +611,162 @@ checks.
 
 **Est. Hours:** 5h
 **Expected Complexity:** ~180 LoC (lane logic + timing + docs)
+
+---
+
+## T-10-8-14: Pre-PR Preflight Gate
+
+**User Story:** As a contributor, I want one high-signal preflight command
+before opening a PR so that obvious CI/review churn is caught locally first.
+
+**Requirements:**
+
+- R1: Add a `cargo xtask ...` preflight entrypoint for pre-PR use
+- R2: Cover the highest-signal local lanes for review churn: formatting, docs
+  lint, runtime schema validation, feature-contract checks, maintained shell
+  checks, and the relevant targeted Rust validation
+- R3: Print a concise summary of failed sub-checks so authors know what to fix
+  before opening a PR
+- R4: Support a fast changed-scope mode and an explicit full mode without
+  weakening existing push-time verification
+- R5: Document when contributors should run the preflight and what it is
+  intentionally not proving
+
+**Acceptance Criteria:**
+
+- [ ] AC1: One `cargo xtask ...` command runs the pre-PR preflight locally
+- [ ] AC2: A representative docs/tooling drift issue is caught before PR open
+- [ ] AC3: A representative feature-contract or schema-contract issue is caught
+      before PR open
+- [ ] AC4: Output is brief enough to use as part of the normal author loop
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** Pre-PR local verification workflow design and implementation.
+**Out of Scope:** Replacing the full push gate or auto-opening pull requests.
+
+**Test Plan:**
+
+- **Goldens:** n/a
+- **Failures:** Introduce one docs lint failure, one schema validation failure,
+  and one `--no-default-features` leak and verify the preflight reports each
+- **Edges:** docs-only PR, tooling-only PR, small Rust-only PR, mixed-code PR
+- **Fuzz/Stress:** Compare changed-scope vs full-mode runtime on representative
+  branches
+
+**Blocked By:** none
+**Blocking:** none
+
+**Est. Hours:** 5h
+**Expected Complexity:** ~180 LoC (xtask + lane wiring + docs)
+
+---
+
+## T-10-8-15: Self-Review Command
+
+**User Story:** As an author, I want a harsh local self-review against the
+merge target before opening a PR so that contract drift, missing negative tests,
+and stale docs are found before Rabbit or humans spend cycles on them.
+
+**Requirements:**
+
+- R1: Add a `cargo xtask ...` self-review entrypoint that diffs against the
+  merge target ref (default `origin/main`)
+- R2: Emit findings with severity, file/line evidence, issue type, and a
+  suggested mitigation prompt
+- R3: Bias findings toward the classes that repeatedly caused late PR churn in
+  Echo: contract drift, portability/tooling assumptions, missing negative
+  tests, stale docs/spec text, and ownership ambiguity
+- R4: Keep the command read-only; it must not mutate code or GitHub state
+- R5: Document how authors should use the output before PR creation
+
+**Acceptance Criteria:**
+
+- [ ] AC1: One `cargo xtask ...` command prints a self-review findings report
+      against `origin/main`
+- [ ] AC2: The report includes file references and mitigation prompts, not just
+      generic prose
+- [ ] AC3: The command handles zero-finding branches cleanly
+- [ ] AC4: Contributor docs position the self-review as a standard pre-PR step
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** Local author-side self-review tooling and workflow guidance.
+**Out of Scope:** Auto-fixing findings or posting review comments to GitHub.
+
+**Test Plan:**
+
+- **Goldens:** Snapshot a representative findings report format
+- **Failures:** Deliberately introduce stale-doc and portability issues and
+  verify they are surfaced with evidence
+- **Edges:** Empty diff, docs-only diff, very large diff, more than one crate
+  touched
+- **Fuzz/Stress:** n/a
+
+**Blocked By:** none
+**Blocking:** none
+
+**Est. Hours:** 5h
+**Expected Complexity:** ~200 LoC (xtask + report formatting + docs)
+
+---
+
+## T-10-8-16: Pre-PR Checklist and Boundary-Change Policy
+
+**User Story:** As an author or reviewer, I want a written pre-PR checklist for
+boundary and tooling work so that the repo has a shared definition of “ready to
+open a PR.”
+
+**Requirements:**
+
+- R1: Document when a branch should be split into smaller PRs instead of
+  carrying mixed code/tooling/docs churn
+- R2: Document mandatory negative-test expectations for new boundary types,
+  parsers, adapters, and schema surfaces
+- R3: Document the lockstep rule for code plus spec/schema/docs updates when a
+  frozen surface changes
+- R4: Document that post-merge backlog grooming should not be added to a green
+  merge-candidate branch unless another CI/review cycle is intended
+- R5: Link the checklist to the preflight and self-review entrypoints once they
+  exist
+
+**Acceptance Criteria:**
+
+- [ ] AC1: A contributor-facing checklist exists in repo docs
+- [ ] AC2: The checklist is specific enough to apply to ABI/schema/runtime
+      boundary changes
+- [ ] AC3: The checklist references the local preflight and self-review
+      commands
+- [ ] AC4: Review instructions and contributor docs do not contradict the
+      checklist
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** Contributor process documentation for pre-PR discipline.
+**Out of Scope:** Automating every checklist item or replacing reviewer
+judgment.
+
+**Test Plan:**
+
+- **Goldens:** n/a
+- **Failures:** n/a
+- **Edges:** ABI/schema branch, docs-only branch, tooling-only branch
+- **Fuzz/Stress:** n/a
+
+**Blocked By:** T-10-8-14, T-10-8-15
+**Blocking:** none
+
+**Est. Hours:** 2h
+**Expected Complexity:** ~60 LoC (docs + links)

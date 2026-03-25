@@ -123,9 +123,12 @@ cargo xtask pr-snapshot
 ```
 
 The recorder writes timestamped JSON + Markdown under `artifacts/pr-review/pr-<number>/`
-and refreshes `latest.json` / `latest.md` for the selected PR. Those artifacts are
-local-only and gitignored on purpose. They exist to make review-state drift legible:
-head SHA, grouped checks, unresolved threads, review decision, merge state, and current blockers.
+and refreshes `latest.json` / `latest.md` for the selected PR. When a prior local snapshot
+exists, the recorder also writes timestamped and `latest.delta.*` semantic delta artifacts so
+you can answer "what changed since the last sortie?" without diffing raw JSON by hand.
+Those artifacts are local-only and gitignored on purpose. They exist to make review-state
+drift legible: head SHA, grouped checks, unresolved threads, review decision, merge state,
+current blockers, and the transition between successive snapshots.
 
 Use `make pr-snapshot ARGS='308'` if you prefer a Make alias or need to target an
 explicit PR number.

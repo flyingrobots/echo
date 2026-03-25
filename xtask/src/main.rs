@@ -293,7 +293,22 @@ fn run_pr_snapshot(args: PrSnapshotArgs) -> Result<()> {
     let checks = fetch_pr_checks(&overview)?;
     let threads = fetch_unresolved_review_threads(&overview)?;
     let snapshot = build_pr_snapshot_artifact(&overview, &checks, &threads)?;
+    let previous_snapshot = load_latest_pr_snapshot(snapshot.pr.number, &args.out_dir)?;
+    let delta = previous_snapshot
+        .as_ref()
+        .map(|previous| build_pr_snapshot_delta(previous, &snapshot));
     let paths = write_pr_snapshot_artifact(&snapshot, &args.out_dir)?;
+    let delta_paths = if let Some(delta) = delta.as_ref() {
+        Some(write_pr_snapshot_delta_artifact(
+            delta,
+            snapshot.pr.number,
+            &snapshot.filename_stamp,
+            &snapshot.pr.head_sha_short,
+            &args.out_dir,
+        )?)
+    } else {
+        None
+    };
 
     println!(
         "Doghouse flight recorder captured PR #{}.",
@@ -314,6 +329,23 @@ fn run_pr_snapshot(args: PrSnapshotArgs) -> Result<()> {
     println!("Snapshot Markdown: {}", paths.snapshot_markdown.display());
     println!("Latest JSON: {}", paths.latest_json.display());
     println!("Latest Markdown: {}", paths.latest_markdown.display());
+    if let Some(delta) = delta.as_ref() {
+        print_pr_snapshot_delta_summary(delta);
+    } else {
+        println!("Previous snapshot: none detected");
+    }
+    if let Some(delta_paths) = delta_paths.as_ref() {
+        println!("Delta JSON: {}", delta_paths.snapshot_json.display());
+        println!(
+            "Delta Markdown: {}",
+            delta_paths.snapshot_markdown.display()
+        );
+        println!("Latest Delta JSON: {}", delta_paths.latest_json.display());
+        println!(
+            "Latest Delta Markdown: {}",
+            delta_paths.latest_markdown.display()
+        );
+    }
 
     Ok(())
 }
@@ -530,6 +562,19 @@ fn build_pr_snapshot_artifact(
     })
 }
 
+fn load_latest_pr_snapshot(pr_number: u64, out_dir: &Path) -> Result<Option<PrSnapshotArtifact>> {
+    let latest_json = out_dir.join(format!("pr-{pr_number}")).join("latest.json");
+    if !latest_json.is_file() {
+        return Ok(None);
+    }
+
+    let contents = std::fs::read_to_string(&latest_json)
+        .with_context(|| format!("failed to read {}", latest_json.display()))?;
+    let snapshot: PrSnapshotArtifact = serde_json::from_str(&contents)
+        .with_context(|| format!("failed to parse {}", latest_json.display()))?;
+    Ok(Some(snapshot))
+}
+
 fn write_pr_snapshot_artifact(
     snapshot: &PrSnapshotArtifact,
     out_dir: &Path,
@@ -564,6 +609,180 @@ fn write_pr_snapshot_artifact(
         latest_json,
         latest_markdown,
     })
+}
+
+fn write_pr_snapshot_delta_artifact(
+    delta: &PrSnapshotDelta,
+    pr_number: u64,
+    filename_stamp: &str,
+    head_sha_short: &str,
+    out_dir: &Path,
+) -> Result<PrSnapshotDeltaPaths> {
+    let pr_dir = out_dir.join(format!("pr-{pr_number}"));
+    std::fs::create_dir_all(&pr_dir)
+        .with_context(|| format!("failed to create {}", pr_dir.display()))?;
+
+    let basename = format!("{filename_stamp}-{head_sha_short}.delta");
+    let snapshot_json = pr_dir.join(format!("{basename}.json"));
+    let snapshot_markdown = pr_dir.join(format!("{basename}.md"));
+    let latest_json = pr_dir.join("latest.delta.json");
+    let latest_markdown = pr_dir.join("latest.delta.md");
+
+    let json =
+        serde_json::to_string_pretty(delta).context("failed to serialize PR delta JSON")? + "\n";
+    let markdown = render_pr_snapshot_delta_markdown(delta);
+
+    std::fs::write(&snapshot_json, &json)
+        .with_context(|| format!("failed to write {}", snapshot_json.display()))?;
+    std::fs::write(&snapshot_markdown, &markdown)
+        .with_context(|| format!("failed to write {}", snapshot_markdown.display()))?;
+    std::fs::write(&latest_json, &json)
+        .with_context(|| format!("failed to write {}", latest_json.display()))?;
+    std::fs::write(&latest_markdown, &markdown)
+        .with_context(|| format!("failed to write {}", latest_markdown.display()))?;
+
+    Ok(PrSnapshotDeltaPaths {
+        snapshot_json,
+        snapshot_markdown,
+        latest_json,
+        latest_markdown,
+    })
+}
+
+fn build_pr_snapshot_delta(
+    previous: &PrSnapshotArtifact,
+    current: &PrSnapshotArtifact,
+) -> PrSnapshotDelta {
+    let previous_blockers = previous.blockers.iter().cloned().collect::<BTreeSet<_>>();
+    let current_blockers = current.blockers.iter().cloned().collect::<BTreeSet<_>>();
+
+    let blockers_added = current_blockers
+        .difference(&previous_blockers)
+        .cloned()
+        .collect::<Vec<_>>();
+    let blockers_removed = previous_blockers
+        .difference(&current_blockers)
+        .cloned()
+        .collect::<Vec<_>>();
+    let blockers_unchanged = current_blockers
+        .intersection(&previous_blockers)
+        .cloned()
+        .collect::<Vec<_>>();
+
+    let previous_threads = previous
+        .unresolved_threads
+        .iter()
+        .map(|thread| (thread.thread_id.clone(), thread))
+        .collect::<BTreeMap<_, _>>();
+    let current_threads = current
+        .unresolved_threads
+        .iter()
+        .map(|thread| (thread.thread_id.clone(), thread))
+        .collect::<BTreeMap<_, _>>();
+
+    let threads_opened = current_threads
+        .iter()
+        .filter(|(thread_id, _)| !previous_threads.contains_key(*thread_id))
+        .map(|(_, thread)| (*thread).clone())
+        .collect::<Vec<_>>();
+    let threads_resolved = previous_threads
+        .iter()
+        .filter(|(thread_id, _)| !current_threads.contains_key(*thread_id))
+        .map(|(_, thread)| (*thread).clone())
+        .collect::<Vec<_>>();
+    let threads_persisting = current_threads
+        .iter()
+        .filter(|(thread_id, _)| previous_threads.contains_key(*thread_id))
+        .map(|(_, thread)| (*thread).clone())
+        .collect::<Vec<_>>();
+
+    let previous_checks = previous
+        .checks
+        .iter()
+        .map(|check| (check.name.clone(), check))
+        .collect::<BTreeMap<_, _>>();
+    let current_checks = current
+        .checks
+        .iter()
+        .map(|check| (check.name.clone(), check))
+        .collect::<BTreeMap<_, _>>();
+
+    let mut improved_checks = Vec::new();
+    let mut regressed_checks = Vec::new();
+    let mut shifted_checks = Vec::new();
+    let mut added_checks = Vec::new();
+    let mut removed_checks = Vec::new();
+
+    for (name, current_check) in &current_checks {
+        match previous_checks.get(name) {
+            Some(previous_check) => {
+                if previous_check == current_check {
+                    continue;
+                }
+                let transition = build_pr_check_transition(previous_check, current_check);
+                match transition.kind {
+                    PrCheckTransitionKind::Improved => improved_checks.push(transition),
+                    PrCheckTransitionKind::Regressed => regressed_checks.push(transition),
+                    PrCheckTransitionKind::Shifted => shifted_checks.push(transition),
+                }
+            }
+            None => added_checks.push((*current_check).clone()),
+        }
+    }
+
+    for (name, previous_check) in &previous_checks {
+        if !current_checks.contains_key(name) {
+            removed_checks.push((*previous_check).clone());
+        }
+    }
+
+    PrSnapshotDelta {
+        previous: PrSnapshotDeltaRef::from_snapshot(previous),
+        current: PrSnapshotDeltaRef::from_snapshot(current),
+        blockers_added,
+        blockers_removed,
+        blockers_unchanged,
+        threads_opened,
+        threads_resolved,
+        threads_persisting,
+        improved_checks,
+        regressed_checks,
+        shifted_checks,
+        added_checks,
+        removed_checks,
+    }
+}
+
+fn build_pr_check_transition(
+    previous: &PrCheckSummary,
+    current: &PrCheckSummary,
+) -> PrCheckTransition {
+    let previous_score = check_bucket_score(&previous.bucket);
+    let current_score = check_bucket_score(&current.bucket);
+    let kind = match current_score.cmp(&previous_score) {
+        std::cmp::Ordering::Greater => PrCheckTransitionKind::Improved,
+        std::cmp::Ordering::Less => PrCheckTransitionKind::Regressed,
+        std::cmp::Ordering::Equal => PrCheckTransitionKind::Shifted,
+    };
+
+    PrCheckTransition {
+        name: current.name.clone(),
+        previous_bucket: previous.bucket.clone(),
+        previous_state: previous.state.clone(),
+        current_bucket: current.bucket.clone(),
+        current_state: current.state.clone(),
+        kind,
+    }
+}
+
+fn check_bucket_score(bucket: &str) -> i8 {
+    match bucket {
+        "fail" => 0,
+        "pending" => 2,
+        "skipping" => 3,
+        "pass" => 4,
+        _ => 1,
+    }
 }
 
 fn format_snapshot_filename_stamp(timestamp: OffsetDateTime) -> String {
@@ -694,6 +913,202 @@ fn render_pr_snapshot_markdown(snapshot: &PrSnapshotArtifact) -> String {
     }
 
     sections.concat()
+}
+
+fn render_pr_snapshot_delta_markdown(delta: &PrSnapshotDelta) -> String {
+    let mut sections = Vec::new();
+    sections.push(format!("# Doghouse Delta: PR #{}\n", delta.current.number));
+    sections.push(format!(
+        "Compared at: current snapshot `{}`\n",
+        delta.current.recorded_at
+    ));
+    sections.push(format!(
+        "Previous snapshot: `{}` at `{}`\n",
+        delta.previous.head_sha_short, delta.previous.recorded_at
+    ));
+    sections.push(format!(
+        "Current snapshot: `{}` at `{}`\n",
+        delta.current.head_sha_short, delta.current.recorded_at
+    ));
+
+    sections.push("\n## Head Transition\n".to_owned());
+    if delta.previous.head_sha == delta.current.head_sha {
+        sections.push(format!(
+            "Head unchanged: `{}`\n",
+            delta.current.head_sha_short
+        ));
+    } else {
+        sections.push(format!(
+            "`{}` -> `{}`\n",
+            delta.previous.head_sha_short, delta.current.head_sha_short
+        ));
+    }
+
+    sections.push("\n## Blocker Transition\n".to_owned());
+    if delta.blockers_added.is_empty()
+        && delta.blockers_removed.is_empty()
+        && delta.blockers_unchanged.is_empty()
+    {
+        sections.push("No blockers in either snapshot.\n".to_owned());
+    } else {
+        render_string_section(&mut sections, "Added blockers", &delta.blockers_added, "- ");
+        render_string_section(
+            &mut sections,
+            "Removed blockers",
+            &delta.blockers_removed,
+            "- ",
+        );
+        render_string_section(
+            &mut sections,
+            "Unchanged blockers",
+            &delta.blockers_unchanged,
+            "- ",
+        );
+    }
+
+    sections.push("\n## Thread Transition\n".to_owned());
+    let thread_transition_count =
+        delta.threads_opened.len() + delta.threads_resolved.len() + delta.threads_persisting.len();
+    if thread_transition_count == 0 {
+        sections.push("No unresolved-thread transition detected.\n".to_owned());
+    } else {
+        render_thread_section(
+            &mut sections,
+            "Opened unresolved threads",
+            &delta.threads_opened,
+        );
+        render_thread_section(
+            &mut sections,
+            "Resolved unresolved threads",
+            &delta.threads_resolved,
+        );
+        render_thread_section(
+            &mut sections,
+            "Still-open unresolved threads",
+            &delta.threads_persisting,
+        );
+    }
+
+    sections.push("\n## Check Transition\n".to_owned());
+    let check_transition_count = delta.improved_checks.len()
+        + delta.regressed_checks.len()
+        + delta.shifted_checks.len()
+        + delta.added_checks.len()
+        + delta.removed_checks.len();
+    if check_transition_count == 0 {
+        sections.push("No check transition detected.\n".to_owned());
+    } else {
+        render_check_transition_section(&mut sections, "Improved checks", &delta.improved_checks);
+        render_check_transition_section(&mut sections, "Regressed checks", &delta.regressed_checks);
+        render_check_transition_section(&mut sections, "Shifted checks", &delta.shifted_checks);
+        render_check_section(&mut sections, "Added checks", &delta.added_checks);
+        render_check_section(&mut sections, "Removed checks", &delta.removed_checks);
+    }
+
+    sections.concat()
+}
+
+fn render_string_section(
+    sections: &mut Vec<String>,
+    heading: &str,
+    values: &[String],
+    prefix: &str,
+) {
+    if values.is_empty() {
+        return;
+    }
+    sections.push(format!("\n### {heading} ({})\n", values.len()));
+    for value in values {
+        sections.push(format!("{prefix}{value}\n"));
+    }
+}
+
+fn render_thread_section(
+    sections: &mut Vec<String>,
+    heading: &str,
+    threads: &[ReviewThreadSummary],
+) {
+    if threads.is_empty() {
+        return;
+    }
+    sections.push(format!("\n### {heading} ({})\n", threads.len()));
+    for thread in threads {
+        sections.push(format!(
+            "- `{}` at `{}` by `{}`\n",
+            thread.thread_id,
+            thread.display_location(),
+            thread.author.as_deref().unwrap_or("unknown")
+        ));
+    }
+}
+
+fn render_check_transition_section(
+    sections: &mut Vec<String>,
+    heading: &str,
+    transitions: &[PrCheckTransition],
+) {
+    if transitions.is_empty() {
+        return;
+    }
+    sections.push(format!("\n### {heading} ({})\n", transitions.len()));
+    for transition in transitions {
+        sections.push(format!(
+            "- {}: `{}/{}` -> `{}/{}`\n",
+            transition.name,
+            transition.previous_bucket,
+            transition.previous_state,
+            transition.current_bucket,
+            transition.current_state
+        ));
+    }
+}
+
+fn render_check_section(sections: &mut Vec<String>, heading: &str, checks: &[PrCheckSummary]) {
+    if checks.is_empty() {
+        return;
+    }
+    sections.push(format!("\n### {heading} ({})\n", checks.len()));
+    for check in checks {
+        sections.push(format!(
+            "- {}: `{}/{}`\n",
+            check.name, check.bucket, check.state
+        ));
+    }
+}
+
+fn print_pr_snapshot_delta_summary(delta: &PrSnapshotDelta) {
+    println!(
+        "Delta since previous snapshot ({} @ {}):",
+        delta.previous.recorded_at, delta.previous.head_sha_short
+    );
+    if delta.previous.head_sha == delta.current.head_sha {
+        println!("- head: unchanged ({})", delta.current.head_sha_short);
+    } else {
+        println!(
+            "- head: {} -> {}",
+            delta.previous.head_sha_short, delta.current.head_sha_short
+        );
+    }
+    println!(
+        "- blockers: +{} / -{} / {} unchanged",
+        delta.blockers_added.len(),
+        delta.blockers_removed.len(),
+        delta.blockers_unchanged.len()
+    );
+    println!(
+        "- threads: +{} opened / -{} resolved / {} still open",
+        delta.threads_opened.len(),
+        delta.threads_resolved.len(),
+        delta.threads_persisting.len()
+    );
+    println!(
+        "- checks: {} improved / {} regressed / {} shifted / {} added / {} removed",
+        delta.improved_checks.len(),
+        delta.regressed_checks.len(),
+        delta.shifted_checks.len(),
+        delta.added_checks.len(),
+        delta.removed_checks.len()
+    );
 }
 
 fn display_check_bucket(bucket: &str) -> &'static str {
@@ -1244,7 +1659,7 @@ impl PrOverview {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct ReviewThreadSummary {
     thread_id: String,
     comment_id: Option<u64>,
@@ -1313,33 +1728,40 @@ struct GhPrCheck {
     state: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct PrCheckSummary {
     name: String,
     bucket: String,
     state: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct PrSnapshotArtifact {
     recorded_at: String,
     filename_stamp: String,
     pr: PrSnapshotOverview,
+    #[serde(default)]
     blockers: Vec<String>,
+    #[serde(default)]
     checks: Vec<PrCheckSummary>,
+    #[serde(default)]
     grouped_checks: BTreeMap<String, Vec<String>>,
+    #[serde(default)]
     unresolved_threads: Vec<ReviewThreadSummary>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct PrSnapshotOverview {
     number: u64,
     url: String,
     title: String,
+    #[serde(default = "default_pr_state")]
     state: String,
     head_sha: String,
     head_sha_short: String,
+    #[serde(default = "default_review_decision")]
     review_decision: String,
+    #[serde(default = "default_merge_state")]
     merge_state: String,
 }
 
@@ -1349,6 +1771,86 @@ struct PrSnapshotPaths {
     snapshot_markdown: PathBuf,
     latest_json: PathBuf,
     latest_markdown: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PrSnapshotDeltaPaths {
+    snapshot_json: PathBuf,
+    snapshot_markdown: PathBuf,
+    latest_json: PathBuf,
+    latest_markdown: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct PrSnapshotDelta {
+    previous: PrSnapshotDeltaRef,
+    current: PrSnapshotDeltaRef,
+    blockers_added: Vec<String>,
+    blockers_removed: Vec<String>,
+    blockers_unchanged: Vec<String>,
+    threads_opened: Vec<ReviewThreadSummary>,
+    threads_resolved: Vec<ReviewThreadSummary>,
+    threads_persisting: Vec<ReviewThreadSummary>,
+    improved_checks: Vec<PrCheckTransition>,
+    regressed_checks: Vec<PrCheckTransition>,
+    shifted_checks: Vec<PrCheckTransition>,
+    added_checks: Vec<PrCheckSummary>,
+    removed_checks: Vec<PrCheckSummary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct PrSnapshotDeltaRef {
+    number: u64,
+    recorded_at: String,
+    state: String,
+    head_sha: String,
+    head_sha_short: String,
+    blocker_count: usize,
+    unresolved_thread_count: usize,
+}
+
+impl PrSnapshotDeltaRef {
+    fn from_snapshot(snapshot: &PrSnapshotArtifact) -> Self {
+        Self {
+            number: snapshot.pr.number,
+            recorded_at: snapshot.recorded_at.clone(),
+            state: snapshot.pr.state.clone(),
+            head_sha: snapshot.pr.head_sha.clone(),
+            head_sha_short: snapshot.pr.head_sha_short.clone(),
+            blocker_count: snapshot.blockers.len(),
+            unresolved_thread_count: snapshot.unresolved_threads.len(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum PrCheckTransitionKind {
+    Improved,
+    Regressed,
+    Shifted,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct PrCheckTransition {
+    name: String,
+    previous_bucket: String,
+    previous_state: String,
+    current_bucket: String,
+    current_state: String,
+    kind: PrCheckTransitionKind,
+}
+
+fn default_pr_state() -> String {
+    "OPEN".to_owned()
+}
+
+fn default_review_decision() -> String {
+    "NONE".to_owned()
+}
+
+fn default_merge_state() -> String {
+    "UNKNOWN".to_owned()
 }
 
 #[derive(Deserialize)]
@@ -2264,6 +2766,35 @@ mod tests {
         }
     }
 
+    fn snapshot_fixture(
+        recorded_at: &str,
+        filename_stamp: &str,
+        overview: PrOverview,
+        blockers: Vec<&str>,
+        checks: Vec<PrCheckSummary>,
+        unresolved_threads: Vec<ReviewThreadSummary>,
+    ) -> PrSnapshotArtifact {
+        let head_sha_short = overview.short_head_sha();
+        PrSnapshotArtifact {
+            recorded_at: recorded_at.to_owned(),
+            filename_stamp: filename_stamp.to_owned(),
+            pr: PrSnapshotOverview {
+                number: overview.number,
+                url: overview.url,
+                title: overview.title,
+                state: overview.state,
+                head_sha: overview.head_sha,
+                head_sha_short,
+                review_decision: overview.review_decision,
+                merge_state: overview.merge_state,
+            },
+            blockers: blockers.into_iter().map(str::to_owned).collect(),
+            grouped_checks: group_pr_checks(&checks),
+            checks,
+            unresolved_threads,
+        }
+    }
+
     fn unique_temp_path(prefix: &str) -> PathBuf {
         let unique = assert_ok(
             SystemTime::now().duration_since(UNIX_EPOCH),
@@ -2639,6 +3170,207 @@ mod tests {
         fs::remove_file(&paths.latest_json).ok();
         fs::remove_file(&paths.latest_markdown).ok();
         fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn snapshot_delta_reports_meaningful_transitions() {
+        let mut previous_overview = sample_pr_overview();
+        previous_overview.head_sha = "11111111111195783719ba9e0be52c4f2f0670e2".to_owned();
+        let previous = snapshot_fixture(
+            "2026-03-25T08:00:00Z",
+            "20260325T080000Z",
+            previous_overview,
+            vec![
+                "unresolved review threads: 2",
+                "pending checks: Tests",
+                "review decision: REVIEW_REQUIRED",
+            ],
+            vec![
+                PrCheckSummary {
+                    name: "Tests".to_owned(),
+                    bucket: "pending".to_owned(),
+                    state: "PENDING".to_owned(),
+                },
+                PrCheckSummary {
+                    name: "Clippy".to_owned(),
+                    bucket: "fail".to_owned(),
+                    state: "FAILURE".to_owned(),
+                },
+            ],
+            vec![
+                sample_review_thread(),
+                ReviewThreadSummary {
+                    thread_id: "THREAD_OLD".to_owned(),
+                    comment_id: Some(333),
+                    author: Some("codex".to_owned()),
+                    url: None,
+                    path: Some("docs/workflows.md".to_owned()),
+                    line: Some(12),
+                    is_outdated: false,
+                    preview: "old thread".to_owned(),
+                },
+            ],
+        );
+
+        let mut current_overview = sample_pr_overview();
+        current_overview.head_sha = "22222222222295783719ba9e0be52c4f2f0670e2".to_owned();
+        current_overview.review_decision = "APPROVED".to_owned();
+        current_overview.merge_state = "CLEAN".to_owned();
+        let current = snapshot_fixture(
+            "2026-03-25T08:20:00Z",
+            "20260325T082000Z",
+            current_overview,
+            vec!["failing checks: Docs"],
+            vec![
+                PrCheckSummary {
+                    name: "Tests".to_owned(),
+                    bucket: "pass".to_owned(),
+                    state: "SUCCESS".to_owned(),
+                },
+                PrCheckSummary {
+                    name: "Clippy".to_owned(),
+                    bucket: "pending".to_owned(),
+                    state: "PENDING".to_owned(),
+                },
+                PrCheckSummary {
+                    name: "Docs".to_owned(),
+                    bucket: "fail".to_owned(),
+                    state: "FAILURE".to_owned(),
+                },
+            ],
+            vec![
+                sample_review_thread(),
+                ReviewThreadSummary {
+                    thread_id: "THREAD_NEW".to_owned(),
+                    comment_id: Some(444),
+                    author: Some("coderabbitai".to_owned()),
+                    url: None,
+                    path: Some("xtask/src/main.rs".to_owned()),
+                    line: Some(99),
+                    is_outdated: false,
+                    preview: "new thread".to_owned(),
+                },
+            ],
+        );
+
+        let delta = build_pr_snapshot_delta(&previous, &current);
+
+        assert_eq!(delta.previous.head_sha_short, "111111111111");
+        assert_eq!(delta.current.head_sha_short, "222222222222");
+        assert_eq!(
+            delta.blockers_added,
+            vec!["failing checks: Docs".to_owned()]
+        );
+        assert!(delta
+            .blockers_removed
+            .contains(&"pending checks: Tests".to_owned()));
+        assert!(delta
+            .blockers_removed
+            .contains(&"review decision: REVIEW_REQUIRED".to_owned()));
+        assert_eq!(
+            delta
+                .threads_opened
+                .iter()
+                .map(|thread| thread.thread_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["THREAD_NEW"]
+        );
+        assert_eq!(
+            delta
+                .threads_resolved
+                .iter()
+                .map(|thread| thread.thread_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["THREAD_OLD"]
+        );
+        assert_eq!(
+            delta
+                .threads_persisting
+                .iter()
+                .map(|thread| thread.thread_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["THREAD_1"]
+        );
+        assert_eq!(delta.improved_checks.len(), 2);
+        assert_eq!(delta.regressed_checks.len(), 0);
+        assert_eq!(delta.shifted_checks.len(), 0);
+        assert_eq!(
+            delta
+                .added_checks
+                .iter()
+                .map(|check| check.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Docs"]
+        );
+    }
+
+    #[test]
+    fn snapshot_delta_markdown_includes_transition_sections() {
+        let previous = snapshot_fixture(
+            "2026-03-25T08:00:00Z",
+            "20260325T080000Z",
+            sample_pr_overview(),
+            vec!["pending checks: Tests"],
+            vec![PrCheckSummary {
+                name: "Tests".to_owned(),
+                bucket: "pending".to_owned(),
+                state: "PENDING".to_owned(),
+            }],
+            vec![sample_review_thread()],
+        );
+        let mut current_overview = sample_pr_overview();
+        current_overview.head_sha = "bbbbbbbbbbbb95783719ba9e0be52c4f2f0670e2".to_owned();
+        let current = snapshot_fixture(
+            "2026-03-25T08:10:00Z",
+            "20260325T081000Z",
+            current_overview,
+            vec![],
+            vec![PrCheckSummary {
+                name: "Tests".to_owned(),
+                bucket: "pass".to_owned(),
+                state: "SUCCESS".to_owned(),
+            }],
+            vec![],
+        );
+
+        let markdown =
+            render_pr_snapshot_delta_markdown(&build_pr_snapshot_delta(&previous, &current));
+
+        assert!(markdown.contains("# Doghouse Delta: PR #308"));
+        assert!(markdown.contains("## Head Transition"));
+        assert!(markdown.contains("## Blocker Transition"));
+        assert!(markdown.contains("## Thread Transition"));
+        assert!(markdown.contains("## Check Transition"));
+        assert!(markdown.contains("Removed blockers"));
+        assert!(markdown.contains("Improved checks"));
+    }
+
+    #[test]
+    fn snapshot_loading_defaults_missing_state_for_older_artifacts() {
+        let snapshot: PrSnapshotArtifact = assert_ok(
+            serde_json::from_str(
+                r#"{
+                  "recorded_at": "2026-03-25T08:00:00Z",
+                  "filename_stamp": "20260325T080000Z",
+                  "pr": {
+                    "number": 308,
+                    "url": "https://github.com/flyingrobots/echo/pull/308",
+                    "title": "Older recorder shape",
+                    "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "head_sha_short": "aaaaaaaaaaaa",
+                    "review_decision": "REVIEW_REQUIRED",
+                    "merge_state": "BLOCKED"
+                  },
+                  "blockers": [],
+                  "checks": [],
+                  "grouped_checks": {},
+                  "unresolved_threads": []
+                }"#,
+            ),
+            "older snapshot shape should deserialize",
+        );
+
+        assert_eq!(snapshot.pr.state, "OPEN");
     }
 
     #[test]

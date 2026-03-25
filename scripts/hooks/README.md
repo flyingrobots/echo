@@ -27,7 +27,8 @@ over hand-written `gh api graphql` snippets; `make pr-threads ARGS='…'` remain
 available as a thin alias when you want a Make entrypoint.
 For a durable local snapshot of PR state across review rounds, prefer
 `cargo xtask pr-snapshot` (or `make pr-snapshot ARGS='…'`), which writes
-gitignored JSON + Markdown under `artifacts/pr-review/`.
+gitignored JSON + Markdown under `artifacts/pr-review/`, plus semantic delta
+artifacts when a previous local snapshot exists.
 Before opening a PR, prefer `cargo xtask pr-preflight` (or
 `make pr-preflight ARGS='…'`) instead of composing ad hoc local checks by hand.
 

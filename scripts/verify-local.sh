@@ -698,6 +698,7 @@ run_docs_lint() {
   local discovered_md_files=()
   local md_files=()
   local md_file
+  local should_validate_runtime_schema=0
 
   mapfile -t discovered_md_files < <(printf '%s\n' "$CHANGED_FILES" | awk '/\.md$/ {print}')
   for md_file in "${discovered_md_files[@]}"; do
@@ -705,15 +706,37 @@ run_docs_lint() {
       md_files+=("$md_file")
     fi
   done
-  if [[ ${#md_files[@]} -eq 0 ]]; then
+
+  while IFS= read -r changed_file; do
+    [[ -z "$changed_file" ]] && continue
+    case "$changed_file" in
+      schemas/runtime/*.graphql|scripts/validate-runtime-schema-fragments.mjs|tests/hooks/test_runtime_schema_validation.sh)
+        should_validate_runtime_schema=1
+        ;;
+    esac
+  done <<< "${CHANGED_FILES}"
+
+  if [[ ${#md_files[@]} -eq 0 && "$should_validate_runtime_schema" -eq 0 ]]; then
     return
   fi
-  if ! command -v npx >/dev/null 2>&1; then
-    echo "[verify-local] npx not found; skipping markdown format check for ${#md_files[@]} changed markdown files" >&2
-    return
+
+  if [[ ${#md_files[@]} -ne 0 ]]; then
+    if ! command -v npx >/dev/null 2>&1; then
+      echo "[verify-local] npx not found; skipping markdown format check for ${#md_files[@]} changed markdown files" >&2
+    else
+      echo "[verify-local] prettier --check (${#md_files[@]} markdown files)"
+      npx prettier --check "${md_files[@]}"
+    fi
   fi
-  echo "[verify-local] prettier --check (${#md_files[@]} markdown files)"
-  npx prettier --check "${md_files[@]}"
+
+  if [[ "$should_validate_runtime_schema" -eq 1 ]]; then
+    if ! command -v pnpm >/dev/null 2>&1; then
+      echo "[verify-local] pnpm not found; cannot run runtime schema validation" >&2
+      return 1
+    fi
+    echo "[verify-local] runtime schema validation"
+    pnpm schema:runtime:check
+  fi
 }
 
 run_targeted_checks() {

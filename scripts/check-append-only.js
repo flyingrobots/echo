@@ -3,10 +3,7 @@
 
 import { execFileSync } from "node:child_process";
 
-const files = [
-  "AGENTS.md",
-  "TASKS-DAG.md",
-];
+const files = ["AGENTS.md", "docs/archive/tasks/TASKS-DAG.md"];
 
 const args = process.argv.slice(2);
 const baseArgIndex = args.indexOf("--base");
@@ -31,9 +28,13 @@ const errors = [];
 for (const file of files) {
   let diffOutput = "";
   try {
-    diffOutput = execFileSync("git", ["diff", "--numstat", baseRef, "--", file], {
-      encoding: "utf8",
-    });
+    diffOutput = execFileSync(
+      "git",
+      ["diff", "--numstat", baseRef, "--", file],
+      {
+        encoding: "utf8",
+      },
+    );
   } catch (err) {
     const stderr = err?.stderr?.toString?.() ?? "";
     if (err?.code === "ENOENT") {
@@ -75,7 +76,9 @@ for (const file of files) {
 }
 
 if (errors.length > 0) {
-  throw new Error(["Append-only invariant violations detected:", ...errors].join("\n"));
+  throw new Error(
+    ["Append-only invariant violations detected:", ...errors].join("\n"),
+  );
 }
 
 console.log(`Append-only check passed (base: ${baseRef}).`);

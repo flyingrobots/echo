@@ -829,7 +829,7 @@ mod tests {
     use crate::worldline::WorldlineId;
 
     fn make_worldline_id(n: u8) -> WorldlineId {
-        WorldlineId(make_hash(n))
+        WorldlineId::from_bytes(make_hash(n))
     }
 
     #[test]
@@ -1187,7 +1187,7 @@ mod tests {
         // requires a version bump or migration plan.
 
         let schema_hash = [0xABu8; 32];
-        let worldline_id = WorldlineId([0xCDu8; 32]);
+        let worldline_id = WorldlineId::from_bytes([0xCDu8; 32]);
         let tick = 42u64;
         let parent = [0x11u8; 32];
         let patch_digest = [0x22u8; 32];

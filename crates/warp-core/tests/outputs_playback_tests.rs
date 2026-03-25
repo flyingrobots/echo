@@ -500,7 +500,7 @@ fn truth_frames_encode_to_mbus_v2() {
     let v2_header = V2PacketHeader {
         session_id: frame.cursor.session_id.0,
         cursor_id: frame.cursor.cursor_id.0,
-        worldline_id: frame.cursor.worldline_id.0,
+        worldline_id: *frame.cursor.worldline_id.as_bytes(),
         warp_id: frame.cursor.warp_id,
         tick: frame.cursor.worldline_tick.as_u64(),
         commit_hash: frame.cursor.commit_hash,
@@ -525,7 +525,7 @@ fn truth_frames_encode_to_mbus_v2() {
     // Verify roundtrip
     assert_eq!(decoded.header.session_id, session_id.0);
     assert_eq!(decoded.header.cursor_id, cursor.cursor_id.0);
-    assert_eq!(decoded.header.worldline_id, worldline_id.0);
+    assert_eq!(decoded.header.worldline_id, *worldline_id.as_bytes());
     assert_eq!(decoded.header.warp_id, warp_id);
     assert_eq!(decoded.header.tick, 7);
     assert_eq!(

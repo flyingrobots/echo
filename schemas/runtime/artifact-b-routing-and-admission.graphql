@@ -1,0 +1,136 @@
+# SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+# ADR-0008 Phase 8 runtime schema fragment: routing and admission.
+# This fragment freezes deterministic ingress routing and declarative scheduler
+# admission for writer heads without dragging in ADR-0009 transport/conflict
+# surface area.
+
+"""
+Named inbox alias within a worldline.
+
+Semantic rule: this is a stable application-facing address, not an internal
+head identity.
+"""
+scalar InboxAddress
+
+"""
+Declarative scheduler admission for a writer head.
+"""
+enum HeadEligibility {
+    DORMANT
+    ADMITTED
+}
+
+"""
+Discriminant for the input-form ingress target envelope.
+
+GraphQL does not have native input unions, so the input surface uses a
+discriminated wrapper until Wesley grows an equivalent first-class construct.
+"""
+enum IngressTargetKind {
+    DEFAULT_WRITER
+    INBOX_ADDRESS
+    EXACT_HEAD
+}
+
+"""
+Discriminant for the input-form inbox policy envelope.
+
+GraphQL does not have native input unions, so the input surface uses a
+discriminated wrapper until Wesley grows an equivalent first-class construct.
+"""
+enum InboxPolicyKind {
+    ACCEPT_ALL
+    KIND_FILTER
+    BUDGETED
+}
+
+"""
+Route to the default writer for a worldline.
+"""
+type DefaultWriterTarget {
+    worldlineId: WorldlineId!
+}
+
+"""
+Route to a named inbox within a worldline.
+"""
+type InboxAddressTarget {
+    worldlineId: WorldlineId!
+    inbox: InboxAddress!
+}
+
+"""
+Route directly to an exact writer head.
+"""
+type ExactHeadTarget {
+    headKey: WriterHeadKey!
+}
+
+"""
+Deterministic ingress target for runtime routing.
+"""
+union IngressTarget = DefaultWriterTarget | InboxAddressTarget | ExactHeadTarget
+
+"""
+Input-form routing target used for configuration and control operations.
+
+Validation rules:
+- `DEFAULT_WRITER` requires `worldlineId`
+- `INBOX_ADDRESS` requires `worldlineId` and `inbox`
+- `EXACT_HEAD` requires `headKey`
+"""
+input IngressTargetInput {
+    kind: IngressTargetKind!
+    worldlineId: WorldlineId
+    inbox: InboxAddress
+    headKey: WriterHeadKeyInput
+}
+
+"""
+Accept all ingressed envelopes.
+"""
+type InboxPolicyAcceptAll {
+    kind: InboxPolicyKind!
+}
+
+"""
+Accept only a bounded set of intent kinds.
+"""
+type InboxPolicyKindFilter {
+    kind: InboxPolicyKind!
+    intentKinds: [IntentKind!]!
+}
+
+"""
+Accept only up to `maxPerTick` envelopes per scheduler cycle.
+
+Semantic rule: `maxPerTick` must be positive.
+"""
+type InboxPolicyBudgeted {
+    kind: InboxPolicyKind!
+    maxPerTick: PositiveInt!
+}
+
+"""
+Deterministic inbox admission policy.
+"""
+union InboxPolicy =
+    | InboxPolicyAcceptAll
+    | InboxPolicyKindFilter
+    | InboxPolicyBudgeted
+
+"""
+Input-form inbox policy used for control/configuration surfaces.
+
+Validation rules:
+- `ACCEPT_ALL` must not provide `intentKinds` or `maxPerTick`
+- `KIND_FILTER` requires non-empty `intentKinds`
+- `BUDGETED` requires positive `maxPerTick`
+"""
+input InboxPolicyInput {
+    kind: InboxPolicyKind!
+    intentKinds: [IntentKind!]
+    maxPerTick: PositiveInt
+}

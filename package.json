@@ -9,11 +9,14 @@
   "scripts": {
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "schema:runtime:check": "node scripts/validate-runtime-schema-fragments.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.48.0",
     "asciichart": "^1.5.25",
+    "graphql": "16.11.0",
+    "prettier": "3.8.1",
     "vitepress": "1.6.4"
   },
   "dependencies": {

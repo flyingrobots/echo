@@ -71,7 +71,10 @@ function maybeWrapMilestonesJson(json) {
     return { generated_at: null, milestones: json };
   }
   if (json && typeof json === "object" && Array.isArray(json.milestones)) {
-    return { generated_at: json.generated_at ?? null, milestones: json.milestones };
+    return {
+      generated_at: json.generated_at ?? null,
+      milestones: json.milestones,
+    };
   }
   fail(
     `Unsupported milestones JSON format: expected an array or { milestones: [...] }.`,
@@ -79,9 +82,9 @@ function maybeWrapMilestonesJson(json) {
 }
 
 function formatDateYYYYMMDD(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
 
@@ -100,7 +103,7 @@ function parseArgs(argv) {
     milestonesJson: ".cache/echo/deps/milestones-all.json",
     configJson: "docs/assets/dags/deps-config.json",
     outDir: "docs/assets/dags",
-    tasksDagPath: "TASKS-DAG.md",
+    tasksDagPath: path.join("docs", "archive", "tasks", "TASKS-DAG.md"),
     snapshot: null,
     snapshotLabelMode: "auto",
   };
@@ -135,7 +138,7 @@ function parseArgs(argv) {
           "  --milestones-json <path> Read/write milestones snapshot JSON",
           "  --config <path>         Dependency config (edges) JSON",
           "  --out-dir <dir>         Output directory for DOT/SVG",
-          "  --tasks-dag <path>      Path to TASKS-DAG.md (reality edges)",
+          "  --tasks-dag <path>      Path to docs/archive/tasks/TASKS-DAG.md (reality edges)",
           "  --snapshot <YYYY-MM-DD> Override label date in output graphs (legacy; prefer --snapshot-label)",
           "  --snapshot-label <mode> Snapshot label: auto|none|rolling|YYYY-MM-DD",
           "",
@@ -167,7 +170,8 @@ function resolveSnapshotLabel({ snapshot, snapshotLabelMode, generatedAt }) {
   if (modeRaw === "none") return { mode: "none", label: null };
   if (modeRaw === "rolling") return { mode: "rolling", label: "rolling" };
   if (modeRaw === "auto") {
-    const fallback = generatedAt?.slice(0, 10) ?? formatDateYYYYMMDD(new Date());
+    const fallback =
+      generatedAt?.slice(0, 10) ?? formatDateYYYYMMDD(new Date());
     return { mode: "date", label: fallback };
   }
 
@@ -237,9 +241,12 @@ function fetchAllMilestonesSnapshot(nameWithOwner) {
 }
 
 function confidenceEdgeAttrs(confidence) {
-  if (confidence === "strong") return 'color="black", penwidth=1.4, style="solid"';
-  if (confidence === "medium") return 'color="gray40", penwidth=1.2, style="dashed"';
-  if (confidence === "weak") return 'color="gray70", penwidth=1.2, style="dotted"';
+  if (confidence === "strong")
+    return 'color="black", penwidth=1.4, style="solid"';
+  if (confidence === "medium")
+    return 'color="gray40", penwidth=1.2, style="dashed"';
+  if (confidence === "weak")
+    return 'color="gray70", penwidth=1.2, style="dotted"';
   fail(`Unknown confidence: ${confidence}`);
 }
 
@@ -293,7 +300,9 @@ function emitIssueDot({ issues, issueEdges, snapshotLabel, realityEdges }) {
 
   const missing = [...nodes].filter((n) => !byNum.has(n)).sort((a, b) => a - b);
   if (missing.length) {
-    console.warn(`Issue DAG: dropping missing issue ids (not in snapshot): ${missing.join(", ")}`);
+    console.warn(
+      `Issue DAG: dropping missing issue ids (not in snapshot): ${missing.join(", ")}`,
+    );
   }
   // Filter nodes absent from the snapshot (config or reality edges referencing unknown issues); they are dropped before rendering.
   const validNodes = [...nodes].filter((n) => byNum.has(n));
@@ -309,7 +318,9 @@ function emitIssueDot({ issues, issueEdges, snapshotLabel, realityEdges }) {
 
   const lines = [];
   lines.push("// SPDX-License-Identifier: Apache-2.0");
-  lines.push("// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>");
+  lines.push(
+    "// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>",
+  );
   lines.push("digraph echo_issue_dependencies {");
   lines.push(
     '  graph [rankdir=LR, labelloc="t", fontsize=18, fontname="Helvetica", newrank=true, splines=true];',
@@ -337,8 +348,12 @@ function emitIssueDot({ issues, issueEdges, snapshotLabel, realityEdges }) {
   lines.push('    L1 [label="strong", fillcolor="#ffffff"];');
   lines.push('    L2 [label="medium", fillcolor="#ffffff"];');
   lines.push('    L3 [label="weak", fillcolor="#ffffff"];');
-  lines.push('    LG [label="confirmed (reality)", color="green", fontcolor="green"];');
-  lines.push('    LR [label="missing from plan", color="red", fontcolor="red"];');
+  lines.push(
+    '    LG [label="confirmed (reality)", color="green", fontcolor="green"];',
+  );
+  lines.push(
+    '    LR [label="missing from plan", color="red", fontcolor="red"];',
+  );
   lines.push(
     `    L1 -> L2 [arrowhead=none, ${confidenceEdgeAttrs("strong")}];`,
   );
@@ -354,10 +369,7 @@ function emitIssueDot({ issues, issueEdges, snapshotLabel, realityEdges }) {
   );
   for (const msTitle of sortedGroupTitles) {
     const clusterId =
-      "cluster_" +
-      msTitle
-        .replaceAll(/[^a-zA-Z0-9]/g, "_")
-        .slice(0, 48);
+      "cluster_" + msTitle.replaceAll(/[^a-zA-Z0-9]/g, "_").slice(0, 48);
     const fill = milestoneFillFor(msTitle);
     lines.push(`  subgraph ${clusterId} {`);
     lines.push(`    label="${escapeDotString(msTitle)}";`);
@@ -404,9 +416,9 @@ function emitIssueDot({ issues, issueEdges, snapshotLabel, realityEdges }) {
         if (!realityEdge) continue;
         const { from: u, to: v } = realityEdge;
         if (byNum.has(u) && byNum.has(v)) {
-           lines.push(
-             `  i${u} -> i${v} [color="red", penwidth=2.0, style="dashed", tooltip="Inferred from TASKS-DAG.md (missing from Plan)"];`
-           );
+          lines.push(
+            `  i${u} -> i${v} [color="red", penwidth=2.0, style="dashed", tooltip="Inferred from TASKS-DAG.md (missing from Plan)"];`,
+          );
         }
       }
     }
@@ -442,7 +454,9 @@ function emitMilestoneDot({ milestones, milestoneEdges, snapshotLabel }) {
 
   const lines = [];
   lines.push("// SPDX-License-Identifier: Apache-2.0");
-  lines.push("// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>");
+  lines.push(
+    "// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>",
+  );
   lines.push("digraph echo_milestone_dependencies {");
   lines.push(
     '  graph [rankdir=LR, labelloc="t", fontsize=18, fontname="Helvetica", splines=true];',
@@ -511,8 +525,13 @@ function main() {
   const args = parseArgs(process.argv);
   const config = readJsonFile(args.configJson);
 
-  if (!Array.isArray(config.issue_edges) || !Array.isArray(config.milestone_edges)) {
-    fail(`Invalid config: expected issue_edges and milestone_edges arrays in ${args.configJson}`);
+  if (
+    !Array.isArray(config.issue_edges) ||
+    !Array.isArray(config.milestone_edges)
+  ) {
+    fail(
+      `Invalid config: expected issue_edges and milestone_edges arrays in ${args.configJson}`,
+    );
   }
 
   if (args.fetch) {
@@ -535,15 +554,19 @@ function main() {
   }
 
   const issuesWrapped = maybeWrapIssuesJson(readJsonFile(args.issuesJson));
-  const milestonesWrapped = maybeWrapMilestonesJson(readJsonFile(args.milestonesJson));
+  const milestonesWrapped = maybeWrapMilestonesJson(
+    readJsonFile(args.milestonesJson),
+  );
 
   let realityEdges = null;
-  const tasksDagPath = path.resolve(process.cwd(), args.tasksDagPath ?? "TASKS-DAG.md");
+  const tasksDagPath = path.resolve(process.cwd(), args.tasksDagPath);
   if (fs.existsSync(tasksDagPath)) {
     try {
       const tasksDagContent = fs.readFileSync(tasksDagPath, "utf8");
       const { edges: tasksDagEdges } = parseTasksDag(tasksDagContent);
-      realityEdges = new Set(tasksDagEdges.map((edge) => `${edge.from}->${edge.to}`));
+      realityEdges = new Set(
+        tasksDagEdges.map((edge) => `${edge.from}->${edge.to}`),
+      );
     } catch (err) {
       console.warn(
         `Warning: failed to parse ${tasksDagPath} for reality edges: ${err?.message ?? err}`,
@@ -578,8 +601,18 @@ function main() {
   fs.writeFileSync(milestoneDotPath, milestoneDot, "utf8");
 
   if (args.render) {
-    runChecked("dot", ["-Tsvg", issueDotPath, "-o", path.join(args.outDir, "issue-deps.svg")]);
-    runChecked("dot", ["-Tsvg", milestoneDotPath, "-o", path.join(args.outDir, "milestone-deps.svg")]);
+    runChecked("dot", [
+      "-Tsvg",
+      issueDotPath,
+      "-o",
+      path.join(args.outDir, "issue-deps.svg"),
+    ]);
+    runChecked("dot", [
+      "-Tsvg",
+      milestoneDotPath,
+      "-o",
+      path.join(args.outDir, "milestone-deps.svg"),
+    ]);
   }
 
   process.stdout.write(
@@ -587,8 +620,12 @@ function main() {
       "Generated dependency DAGs:",
       `- ${issueDotPath}`,
       `- ${milestoneDotPath}`,
-      args.render ? `- ${path.join(args.outDir, "issue-deps.svg")}` : "- (SVGs not rendered; pass --render)",
-      args.render ? `- ${path.join(args.outDir, "milestone-deps.svg")}` : "- (SVGs not rendered; pass --render)",
+      args.render
+        ? `- ${path.join(args.outDir, "issue-deps.svg")}`
+        : "- (SVGs not rendered; pass --render)",
+      args.render
+        ? `- ${path.join(args.outDir, "milestone-deps.svg")}`
+        : "- (SVGs not rendered; pass --render)",
       "",
       "Tip: fetch fresh GitHub data with --fetch (requires gh auth + network).",
     ].join("\n") + "\n",

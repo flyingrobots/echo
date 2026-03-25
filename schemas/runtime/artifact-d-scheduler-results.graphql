@@ -1,0 +1,118 @@
+# SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+# ADR-0008 Phase 8 runtime schema fragment: scheduler result surface.
+# This fragment freezes the public runtime scheduler metadata surface that
+# replaced the old `SuperTickResult` shorthand.
+
+"""
+Opaque control-plane run generation token.
+
+Semantic rule: this is not provenance, not replay state, and not a worldline
+coordinate. It is valid only within one initialized kernel lifetime.
+"""
+scalar RunId
+
+"""
+Discriminant for the scheduler mode envelope.
+"""
+enum SchedulerModeKind {
+    UNTIL_IDLE
+}
+
+"""
+Declared scheduler mode visible to hosts.
+
+Semantic rule: when `cycleLimit` is present, it must be positive.
+"""
+type SchedulerModeUntilIdle {
+    kind: SchedulerModeKind!
+    cycleLimit: PositiveInt
+}
+
+"""
+Current scheduler mode.
+"""
+union SchedulerMode = SchedulerModeUntilIdle
+
+"""
+Input-form scheduler mode used by control intents.
+
+Validation rules:
+- `UNTIL_IDLE` may omit `cycleLimit`
+- when provided, `cycleLimit` must be positive
+"""
+input SchedulerModeInput {
+    kind: SchedulerModeKind!
+    cycleLimit: PositiveInt
+}
+
+"""
+Scheduler lifecycle state.
+"""
+enum SchedulerState {
+    INACTIVE
+    RUNNING
+    STOPPING
+}
+
+"""
+Work availability at the current scheduler boundary.
+"""
+enum WorkState {
+    QUIESCENT
+    RUNNABLE_PENDING
+    BLOCKED_ONLY
+}
+
+"""
+Completion reason for the most recent run.
+"""
+enum RunCompletion {
+    QUIESCED
+    BLOCKED_ONLY
+    CYCLE_LIMIT_REACHED
+    STOPPED
+}
+
+"""
+Runtime truth about a head's scheduler disposition.
+"""
+enum HeadDisposition {
+    DORMANT
+    RUNNABLE
+    BLOCKED
+    RETIRED
+}
+
+"""
+Current scheduler metadata.
+"""
+type SchedulerStatus {
+    state: SchedulerState!
+    """
+    Null when no scheduler mode is currently active.
+    """
+    activeMode: SchedulerMode
+    workState: WorkState!
+    """
+    Null before the first run starts; otherwise the active or most-recent run id.
+    """
+    runId: RunId
+    """
+    Null before the runtime completes its first scheduler cycle.
+    """
+    latestCycleGlobalTick: GlobalTick
+    """
+    Null until some completed cycle produces a commit.
+    """
+    latestCommitGlobalTick: GlobalTick
+    """
+    Null until the runtime first transitions into quiescence.
+    """
+    lastQuiescentGlobalTick: GlobalTick
+    """
+    Null until a run completes and records a terminal completion reason.
+    """
+    lastRunCompletion: RunCompletion
+}

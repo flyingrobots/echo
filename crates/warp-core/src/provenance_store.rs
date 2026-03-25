@@ -1964,7 +1964,11 @@ mod tests {
     use crate::worldline::{AtomWrite, WorldlineTickHeaderV1};
 
     fn test_worldline_id() -> WorldlineId {
-        WorldlineId([1u8; 32])
+        WorldlineId::from_bytes([1u8; 32])
+    }
+
+    fn fork_target_worldline_id() -> WorldlineId {
+        WorldlineId::from_bytes([99u8; 32])
     }
 
     fn test_warp_id() -> WarpId {
@@ -2561,7 +2565,7 @@ mod tests {
     fn fork_copies_entry_prefix_and_checkpoints() {
         let mut store = LocalProvenanceStore::new();
         let source = test_worldline_id();
-        let target = WorldlineId([99u8; 32]);
+        let target = fork_target_worldline_id();
         let initial_state = test_initial_state(test_warp_id());
         let root = *initial_state.root();
         let initial_boundary =
@@ -2611,7 +2615,7 @@ mod tests {
     fn fork_rewrites_same_worldline_parent_refs_to_target_worldline() {
         let mut store = LocalProvenanceStore::new();
         let source = test_worldline_id();
-        let target = WorldlineId([99u8; 32]);
+        let target = fork_target_worldline_id();
         let warp = test_warp_id();
 
         store.register_worldline(source, warp).unwrap();
@@ -2779,7 +2783,7 @@ mod tests {
     fn service_fork_copies_entry_prefix_and_checkpoints() {
         let mut service = ProvenanceService::new();
         let source = test_worldline_id();
-        let target = WorldlineId([99u8; 32]);
+        let target = fork_target_worldline_id();
         let state = WorldlineState::empty();
         let root = *state.root();
 
@@ -3332,11 +3336,11 @@ mod tests {
     #[test]
     fn btr_validation_rejects_mixed_worldlines() {
         let entry = ProvenanceEntry::local_commit(
-            WorldlineId([2u8; 32]),
+            WorldlineId::from_bytes([2u8; 32]),
             wt(0),
             gt(0),
             WriterHeadKey {
-                worldline_id: WorldlineId([2u8; 32]),
+                worldline_id: WorldlineId::from_bytes([2u8; 32]),
                 head_id: make_head_id("b"),
             },
             Vec::new(),

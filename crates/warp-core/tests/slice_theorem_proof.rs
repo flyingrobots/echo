@@ -530,7 +530,7 @@ fn phase_2_and_3_playback_replay_matches_execution() {
     // Build provenance store from execution.
     // IMPORTANT: We compute state_root from the same replay substrate as the cursor:
     // full WorldlineState materialization, not engine-specific incidental state.
-    let worldline_id = WorldlineId([0x42; 32]);
+    let worldline_id = WorldlineId::from_bytes([0x42; 32]);
     let cursor_id = CursorId([0x01; 32]);
     let replay_base = WorldlineState::from_root_store(store, root).expect("replay base");
     let mut provenance = LocalProvenanceStore::new();
@@ -789,7 +789,7 @@ fn phase_6_semantic_correctness_dependent_chain() {
     // Replay: build provenance with the tick-2 patch, seek, verify same semantic result.
     // We only store the second patch since that's the one producing the G attachment.
     // The initial store for the cursor is the store AFTER tick 1 (R1's write is committed).
-    let worldline_id = WorldlineId([0x66; 32]);
+    let worldline_id = WorldlineId::from_bytes([0x66; 32]);
     let cursor_id = CursorId([0x77; 32]);
     let mut provenance = LocalProvenanceStore::new();
 

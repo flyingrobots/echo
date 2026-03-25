@@ -24,6 +24,7 @@ rustc-hash = "2.1.1"
 serde = { version = "1.0", features = ["derive"], optional = true }
 libm = "0.2"
 echo-wasm-abi = { workspace = true }
+echo-runtime-schema = { workspace = true }
 
 [dev-dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -40,7 +41,7 @@ golden_prng = []
 trig_audit_print = []
 # Serde support for serializable wrappers (use ONLY with deterministic CBOR encoder).
 # NEVER use with serde_json - JSON is non-deterministic and banned in warp-core.
-serde = ["dep:serde", "bytes/serde"]
+serde = ["dep:serde", "bytes/serde", "echo-runtime-schema/serde"]
 
 # Scalar backend lanes (CI/test orchestration).
 # - `det_float`: default float32-backed lane using `F32Scalar`.

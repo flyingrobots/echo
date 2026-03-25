@@ -26,7 +26,7 @@ use warp_core::{
 
 /// Creates a deterministic worldline ID for the forked worldline.
 fn forked_worldline_id() -> WorldlineId {
-    WorldlineId([2u8; 32])
+    WorldlineId::from_bytes([2u8; 32])
 }
 
 fn wt(raw: u64) -> WorldlineTick {

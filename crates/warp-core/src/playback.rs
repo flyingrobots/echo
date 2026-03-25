@@ -965,7 +965,7 @@ mod tests {
         let receipt1 = CursorReceipt {
             session_id: SessionId([1u8; 32]),
             cursor_id: CursorId([2u8; 32]),
-            worldline_id: WorldlineId([3u8; 32]),
+            worldline_id: WorldlineId::from_bytes([3u8; 32]),
             warp_id: crate::ident::WarpId([4u8; 32]),
             worldline_tick: wt(42),
             commit_global_tick: Some(gt(7)),
@@ -974,7 +974,7 @@ mod tests {
         let receipt2 = CursorReceipt {
             session_id: SessionId([1u8; 32]),
             cursor_id: CursorId([2u8; 32]),
-            worldline_id: WorldlineId([3u8; 32]),
+            worldline_id: WorldlineId::from_bytes([3u8; 32]),
             warp_id: crate::ident::WarpId([4u8; 32]),
             worldline_tick: wt(42),
             commit_global_tick: Some(gt(7)),
@@ -988,7 +988,7 @@ mod tests {
         let cursor = CursorReceipt {
             session_id: SessionId([1u8; 32]),
             cursor_id: CursorId([2u8; 32]),
-            worldline_id: WorldlineId([3u8; 32]),
+            worldline_id: WorldlineId::from_bytes([3u8; 32]),
             warp_id: crate::ident::WarpId([4u8; 32]),
             worldline_tick: wt(42),
             commit_global_tick: Some(gt(7)),
@@ -1018,7 +1018,7 @@ mod tests {
         let receipt = CursorReceipt {
             session_id: session_a,
             cursor_id: CursorId([0u8; 32]),
-            worldline_id: WorldlineId([0u8; 32]),
+            worldline_id: WorldlineId::from_bytes([0u8; 32]),
             warp_id: WarpId([0u8; 32]),
             worldline_tick: wt(1),
             commit_global_tick: None,

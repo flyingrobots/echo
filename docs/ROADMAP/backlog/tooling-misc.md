@@ -224,21 +224,27 @@ Housekeeping tasks: documentation, logging, naming consistency, and debugger UX 
 
 ---
 
-## T-10-8-6: PR Review Triage Summary Tool
+## T-10-8-6: Current-Head PR Review / Merge Summary Tool
 
-**User Story:** As a reviewer, I want a lightweight PR triage summary so that unresolved threads, failing checks, historical noise, and merge-readiness state are visible before push/merge decisions.
+**User Story:** As a reviewer, I want a lightweight current-head PR summary
+so that unresolved threads, failing checks, historical noise, and
+merge-readiness state are visible before push/merge decisions.
 
 **Requirements:**
 
-- R1: Add a small script or xtask that summarizes unresolved review-thread counts for a PR using paginated GitHub API queries
-- R2: Include failing/pending check names, the current head SHA, and the current approval / merge-readiness state
-- R3: Distinguish live unresolved threads on the current head from historical comment noise and, when possible, show deltas since the last pushed SHA
+- R1: Add a `cargo xtask ...` command that summarizes unresolved review-thread
+  counts for a PR using paginated GitHub API queries
+- R2: Include failing/pending check names, the current head SHA, and the
+  current approval / merge-readiness state
+- R3: Distinguish live unresolved threads on the current head from historical
+  comment noise and, when possible, show deltas since the last pushed SHA
 - R4: Make the output fast to scan in terminal use
 - R5: Keep the tool read-only; it should not mutate PR state
 
 **Acceptance Criteria:**
 
-- [ ] AC1: One command prints exact unresolved thread counts, key checks, head SHA, and approval / merge-readiness state for a PR
+- [ ] AC1: One command prints exact unresolved thread counts, key checks, head
+      SHA, and approval / merge-readiness state for the current PR head
 - [ ] AC2: Output distinguishes pending vs failing vs passing checks
 - [ ] AC3: Output can separate current actionable review state from historical review chatter
 - [ ] AC4: The summary is useful before merge or review-follow-up pushes
@@ -250,7 +256,8 @@ Housekeeping tasks: documentation, logging, naming consistency, and debugger UX 
 - [ ] Tests pass (CI green)
 - [ ] Documentation updated (if applicable)
 
-**Scope:** CLI/script support for review-state summarization and merge-readiness visibility.
+**Scope:** CLI/script support for current-head review-state summarization and
+merge-readiness visibility.
 **Out of Scope:** Auto-replying to review comments, auto-merging.
 
 **Test Plan:**
@@ -391,3 +398,375 @@ Housekeeping tasks: documentation, logging, naming consistency, and debugger UX 
 
 **Est. Hours:** 4h
 **Expected Complexity:** ~120 LoC (scripts + docs + timing assertions)
+
+---
+
+## T-10-8-10: Feature-Gate Contract Verification
+
+**User Story:** As a contributor, I want explicit feature-contract checks for
+no-std / alloc-only crates so that feature-gating regressions are caught before
+PR review or CI.
+
+**Requirements:**
+
+- R1: Identify crates whose manifests promise meaningful `--no-default-features`
+  or alloc-only support
+- R2: Add a `cargo xtask ...` local and CI-visible verification path that
+  exercises those feature contracts directly
+- R3: Keep the lane scoped so it stays fast enough to run during review-fix
+  loops
+- R4: Document which crates are covered and what the lane is proving
+
+**Acceptance Criteria:**
+
+- [ ] AC1: At least `echo-runtime-schema` and `echo-wasm-abi` have an explicit
+      `cargo xtask ...` `--no-default-features` verification path
+- [ ] AC2: A deliberate `std` leak in a gated crate fails the lane
+- [ ] AC3: Contributor docs explain when to run the lane and what it covers
+- [ ] AC4: The covered crate list is easy to keep aligned with manifest truth
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** Feature-gate verification for crates that claim no-std or alloc-only
+support.
+**Out of Scope:** Broad workspace-wide no-std support or changing crate feature
+semantics.
+
+**Test Plan:**
+
+- **Goldens:** n/a
+- **Failures:** Intentionally introduce a `std` dependency in a gated path and
+  verify the lane fails
+- **Edges:** `default-features = false`, alloc-only mode, transitive feature
+  forwarding
+- **Fuzz/Stress:** n/a
+
+**Blocked By:** none
+**Blocking:** none
+
+**Est. Hours:** 2h
+**Expected Complexity:** ~60 LoC (lane wiring + docs)
+
+---
+
+## T-10-8-11: PR Review Thread Reply / Resolution Helper
+
+**User Story:** As a reviewer, I want a safe helper for replying to and
+resolving PR review threads so that GitHub thread state does not lag behind the
+branch state after review-fix pushes.
+
+**Requirements:**
+
+- R1: Enumerate unresolved review threads for a PR with pagination
+- R2: Support drafting or posting explicit replies for selected review
+  comments/threads via a `cargo xtask ...` entrypoint
+- R3: Support resolving selected or all unresolved threads after a verified
+  push via the same `cargo xtask ...` entrypoint
+- R4: Keep the helper explicit and human-driven; it must not auto-generate
+  reply text or auto-resolve based on heuristics alone
+- R5: Show enough context (path, author, URL) for a reviewer to confirm the
+  action before mutating GitHub state
+
+**Acceptance Criteria:**
+
+- [ ] AC1: One `cargo xtask ...` command can list unresolved review threads
+      with exact counts
+- [ ] AC2: One command can post or stage a reply for chosen review comment ids
+      after human-authored input
+- [ ] AC3: One command can resolve chosen thread ids after human confirmation
+- [ ] AC4: The helper works with the existing `gh`-based workflow
+- [ ] AC5: Contributor docs explain when to use it and when to reply manually
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** Local tooling for review-thread listing, explicit replies, and
+explicit resolution.
+**Out of Scope:** Auto-reply generation, auto-merging, or policy decisions
+about which comments deserve direct replies.
+
+**Test Plan:**
+
+- **Goldens:** n/a
+- **Failures:** Bad PR number, missing `gh` auth, invalid thread id
+- **Edges:** More than 100 review threads, mixed resolved/unresolved state,
+  outdated but unresolved threads, replying to outdated inline comments
+- **Fuzz/Stress:** n/a
+
+**Blocked By:** none
+**Blocking:** none
+
+**Est. Hours:** 4h
+**Expected Complexity:** ~120 LoC (script + docs)
+
+---
+
+## T-10-8-12: Shell Script Style / Format Lane
+
+**User Story:** As a maintainer, I want a dedicated shell-style lane for
+maintained hook scripts so that shell regressions are caught before PR review or
+merge.
+
+**Requirements:**
+
+- R1: Cover maintained shell scripts under `.githooks/`, `scripts/`, and
+  `tests/hooks/` with a consistent format/style policy
+- R2: Use standard shell tooling (`shfmt`, `shellcheck`, or an equivalent
+  documented combination)
+- R3: Keep the lane fast enough for local review-fix loops and visible in CI
+- R4: Document which scripts are covered and how contributors run the lane
+
+**Acceptance Criteria:**
+
+- [ ] AC1: One local command checks formatting/style for maintained shell
+      scripts
+- [ ] AC2: A representative shell-style regression fails the lane
+- [ ] AC3: The lane is wired into local verification and visible in CI
+- [ ] AC4: Contributor docs explain the shell-tooling entrypoint
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** Formatting/style verification for maintained repository shell
+scripts.
+**Out of Scope:** Rewriting shell tooling in another language or enforcing style
+rules on archived scripts.
+
+**Test Plan:**
+
+- **Goldens:** n/a
+- **Failures:** Deliberately misformat a maintained hook script or add a
+  shellcheck-detectable issue
+- **Edges:** macOS `/bin/bash` vs Linux `/bin/bash`, sourced helper scripts,
+  executable and non-executable shell files
+- **Fuzz/Stress:** n/a
+
+**Blocked By:** none
+**Blocking:** none
+
+**Est. Hours:** 3h
+**Expected Complexity:** ~100 LoC (lane wiring + docs)
+
+---
+
+## T-10-8-13: Review-Fix Fast Path for Staged Verification
+
+**User Story:** As a contributor, I want small review-fix commits to verify
+quickly so that post-review iteration does not spend minutes rerunning unrelated
+lanes.
+
+**Requirements:**
+
+- R1: Measure the current staged pre-commit path and identify the slowest review
+  loop bottlenecks
+- R2: Add a safe fast path for small review-fix batches without weakening the
+  full push gate
+- R3: Keep the fast path explicit and easy to reason about from changed-file
+  scope
+- R4: Document when contributors should trust the fast path versus the full
+  local gate
+
+**Acceptance Criteria:**
+
+- [ ] AC1: Small docs/tooling review-fix commits avoid obviously unrelated
+      heavyweight lanes during staged verification
+- [ ] AC2: Full push-time verification remains unchanged in coverage
+- [ ] AC3: Timing evidence shows a meaningful staged-latency reduction on a
+      representative review-fix batch
+- [ ] AC4: Contributor docs explain the fast path and its limits
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** Staged pre-commit verification latency reduction for small review-fix
+batches.
+**Out of Scope:** Weakening branch-protection gates or skipping required push
+checks.
+
+**Test Plan:**
+
+- **Goldens:** n/a
+- **Failures:** Ensure a deliberately touched covered file still trips its
+  required lane
+- **Edges:** docs-only review fix, shell-script-only fix, single-crate Rust fix,
+  mixed-code-and-docs patch
+- **Fuzz/Stress:** Compare before/after timing on representative review-fix
+  commits
+
+**Blocked By:** none
+**Blocking:** none
+
+**Est. Hours:** 5h
+**Expected Complexity:** ~180 LoC (lane logic + timing + docs)
+
+---
+
+## T-10-8-14: Pre-PR Preflight Gate
+
+**User Story:** As a contributor, I want one high-signal preflight command
+before opening a PR so that obvious CI/review churn is caught locally first.
+
+**Requirements:**
+
+- R1: Add a `cargo xtask ...` preflight entrypoint for pre-PR use
+- R2: Cover the highest-signal local lanes for review churn: formatting, docs
+  lint, runtime schema validation, feature-contract checks, maintained shell
+  checks, and the relevant targeted Rust validation
+- R3: Print a concise summary of failed sub-checks so authors know what to fix
+  before opening a PR
+- R4: Support a fast changed-scope mode and an explicit full mode without
+  weakening existing push-time verification
+- R5: Document when contributors should run the preflight and what it is
+  intentionally not proving
+
+**Acceptance Criteria:**
+
+- [ ] AC1: One `cargo xtask ...` command runs the pre-PR preflight locally
+- [ ] AC2: A representative docs/tooling drift issue is caught before PR open
+- [ ] AC3: A representative feature-contract or schema-contract issue is caught
+      before PR open
+- [ ] AC4: Output is brief enough to use as part of the normal author loop
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** Pre-PR local verification workflow design and implementation.
+**Out of Scope:** Replacing the full push gate or auto-opening pull requests.
+
+**Test Plan:**
+
+- **Goldens:** n/a
+- **Failures:** Introduce one docs lint failure, one schema validation failure,
+  and one `--no-default-features` leak and verify the preflight reports each
+- **Edges:** docs-only PR, tooling-only PR, small Rust-only PR, mixed-code PR
+- **Fuzz/Stress:** Compare changed-scope vs full-mode runtime on representative
+  branches
+
+**Blocked By:** none
+**Blocking:** none
+
+**Est. Hours:** 5h
+**Expected Complexity:** ~180 LoC (xtask + lane wiring + docs)
+
+---
+
+## T-10-8-15: Self-Review Command
+
+**User Story:** As an author, I want a harsh local self-review against the
+merge target before opening a PR so that contract drift, missing negative tests,
+and stale docs are found before Rabbit or humans spend cycles on them.
+
+**Requirements:**
+
+- R1: Add a `cargo xtask ...` self-review entrypoint that diffs against the
+  merge target ref (default `origin/main`)
+- R2: Emit findings with severity, file/line evidence, issue type, and a
+  suggested mitigation prompt
+- R3: Bias findings toward the classes that repeatedly caused late PR churn in
+  Echo: contract drift, portability/tooling assumptions, missing negative
+  tests, stale docs/spec text, and ownership ambiguity
+- R4: Keep the command read-only; it must not mutate code or GitHub state
+- R5: Document how authors should use the output before PR creation
+
+**Acceptance Criteria:**
+
+- [ ] AC1: One `cargo xtask ...` command prints a self-review findings report
+      against `origin/main`
+- [ ] AC2: The report includes file references and mitigation prompts, not just
+      generic prose
+- [ ] AC3: The command handles zero-finding branches cleanly
+- [ ] AC4: Contributor docs position the self-review as a standard pre-PR step
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** Local author-side self-review tooling and workflow guidance.
+**Out of Scope:** Auto-fixing findings or posting review comments to GitHub.
+
+**Test Plan:**
+
+- **Goldens:** Snapshot a representative findings report format
+- **Failures:** Deliberately introduce stale-doc and portability issues and
+  verify they are surfaced with evidence
+- **Edges:** Empty diff, docs-only diff, very large diff, more than one crate
+  touched
+- **Fuzz/Stress:** n/a
+
+**Blocked By:** none
+**Blocking:** none
+
+**Est. Hours:** 5h
+**Expected Complexity:** ~200 LoC (xtask + report formatting + docs)
+
+---
+
+## T-10-8-16: Pre-PR Checklist and Boundary-Change Policy
+
+**User Story:** As an author or reviewer, I want a written pre-PR checklist for
+boundary and tooling work so that the repo has a shared definition of “ready to
+open a PR.”
+
+**Requirements:**
+
+- R1: Document when a branch should be split into smaller PRs instead of
+  carrying mixed code/tooling/docs churn
+- R2: Document mandatory negative-test expectations for new boundary types,
+  parsers, adapters, and schema surfaces
+- R3: Document the lockstep rule for code plus spec/schema/docs updates when a
+  frozen surface changes
+- R4: Document that post-merge backlog grooming should not be added to a green
+  merge-candidate branch unless another CI/review cycle is intended
+- R5: Link the checklist to the preflight and self-review entrypoints once they
+  exist
+
+**Acceptance Criteria:**
+
+- [ ] AC1: A contributor-facing checklist exists in repo docs
+- [ ] AC2: The checklist is specific enough to apply to ABI/schema/runtime
+      boundary changes
+- [ ] AC3: The checklist references the local preflight and self-review
+      commands
+- [ ] AC4: Review instructions and contributor docs do not contradict the
+      checklist
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** Contributor process documentation for pre-PR discipline.
+**Out of Scope:** Automating every checklist item or replacing reviewer
+judgment.
+
+**Test Plan:**
+
+- **Goldens:** n/a
+- **Failures:** n/a
+- **Edges:** ABI/schema branch, docs-only branch, tooling-only branch
+- **Fuzz/Stress:** n/a
+
+**Blocked By:** T-10-8-14, T-10-8-15
+**Blocking:** none
+
+**Est. Hours:** 2h
+**Expected Complexity:** ~60 LoC (docs + links)

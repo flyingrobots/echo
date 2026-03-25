@@ -274,7 +274,7 @@ impl Default for HeadInbox {
     fn default() -> Self {
         Self {
             head_key: WriterHeadKey {
-                worldline_id: WorldlineId([0u8; 32]),
+                worldline_id: WorldlineId::from_bytes([0u8; 32]),
                 head_id: crate::head::HeadId::MIN,
             },
             pending: BTreeMap::new(),
@@ -419,7 +419,7 @@ mod tests {
     use super::*;
 
     fn wl(n: u8) -> WorldlineId {
-        WorldlineId([n; 32])
+        WorldlineId::from_bytes([n; 32])
     }
 
     fn test_kind() -> IntentKind {

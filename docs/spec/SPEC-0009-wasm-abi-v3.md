@@ -131,8 +131,8 @@ Canonical payload shapes:
     {
       "kind": "set_head_eligibility",
       "head": {
-        "worldline_id": bytes(32),
-        "head_id": bytes(32)
+        "worldline_id": WorldlineId,
+        "head_id": HeadId
       },
       "eligibility": "dormant" | "admitted"
     }
@@ -181,7 +181,8 @@ The scheduler-facing enums use serde's declared shapes directly:
   `HeadDisposition` serialize as snake_case text strings.
 - `SchedulerMode::UntilIdle { cycle_limit }` serializes as
   `{ "kind": "until_idle", "cycle_limit": <u32 or null> }`.
-- `HeadKey.worldline_id` and `HeadKey.head_id` are raw `bytes(32)` values.
+- `WorldlineId` and `HeadId` are typed opaque wrappers that serialize as
+  `bytes(32)`. Array-of-32-integers encodings are invalid for these fields.
 
 Concrete `scheduler_status()` example:
 
@@ -211,7 +212,7 @@ a865737461746568696e6163746976656672756e5f6964076a776f726b5f73746174656971756965
 The request payload for `observe(request)` is canonical-CBOR bytes that decode
 to:
 
-- `coordinate.worldline_id: bytes(32)`
+- `coordinate.worldline_id: WorldlineId` encoded as `bytes(32)`
 - `coordinate.at: frontier | tick { worldline_tick }`
 - `frame: commit_boundary | recorded_truth | query_view`
 - `projection: head | snapshot | truth_channels | query`
@@ -234,7 +235,7 @@ to:
 | Field                        | Type            | Description                                                                                                                                                       |
 | ---------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `observation_version`        | u32             | Observation contract version                                                                                                                                      |
-| `worldline_id`               | bytes(32)       | Worldline actually observed                                                                                                                                       |
+| `worldline_id`               | `WorldlineId`   | Worldline actually observed; serialized as `bytes(32)`                                                                                                            |
 | `requested_at`               | enum            | Original coordinate selector                                                                                                                                      |
 | `resolved_worldline_tick`    | `WorldlineTick` | Resolved coordinate; historical reads use zero-based committed append indices, while `0` plus `commit_global_tick = null` represents empty `U0` frontier metadata |
 | `commit_global_tick`         | `GlobalTick?`   | Commit cycle stamp for the resolved commit; `null` means the resolved coordinate is empty `U0` rather than a committed append                                     |

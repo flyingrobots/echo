@@ -6,6 +6,7 @@ node_modules
 dist
 coverage
 target
+target-ra
 target-fmt
 target-clippy
 target-test
@@ -21,6 +22,7 @@ docs/.vitepress/cache
 .idea
 .vscode/*
 !.vscode/extensions.json
+!.vscode/settings.json
 .obsidian
 .claude/
 

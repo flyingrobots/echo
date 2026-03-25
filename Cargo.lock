@@ -1245,6 +1245,14 @@ name = "echo-registry-api"
 version = "0.1.0"
 
 [[package]]
+name = "echo-runtime-schema"
+version = "0.1.0"
+dependencies = [
+ "ciborium",
+ "serde",
+]
+
+[[package]]
 name = "echo-scene-codec"
 version = "0.1.0"
 dependencies = [
@@ -5303,6 +5311,7 @@ dependencies = [
  "bytes",
  "ciborium",
  "echo-dry-tests",
+ "echo-runtime-schema",
  "echo-wasm-abi",
  "hex",
  "libm",

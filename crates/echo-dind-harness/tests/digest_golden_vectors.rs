@@ -115,7 +115,7 @@ fn tick_commit_hash_v2_full_chain_golden_vector() {
 
     // Step 3: Compute tick commit hash using the above digests
     let schema_hash = make_hash(0xAB);
-    let worldline_id = WorldlineId(make_hash(0xCD));
+    let worldline_id = WorldlineId::from_bytes(make_hash(0xCD));
     let tick = 42u64;
     let parent = make_hash(0x11);
     let patch_digest = make_hash(0x22);

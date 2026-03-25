@@ -28,7 +28,11 @@ extern crate alloc;
 
 use alloc::string::String;
 use alloc::vec::Vec;
-use serde::{Deserialize, Serialize};
+use core::fmt;
+use serde::{
+    Deserialize, Serialize,
+    de::{self, Visitor},
+};
 
 /// Current ABI version for the kernel port contract.
 ///
@@ -36,48 +40,139 @@ use serde::{Deserialize, Serialize};
 /// in a backward-incompatible way.
 pub const ABI_VERSION: u32 = 3;
 
+fn deserialize_opaque_id<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct OpaqueIdVisitor;
+
+    impl Visitor<'_> for OpaqueIdVisitor {
+        type Value = [u8; 32];
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("exactly 32 bytes")
+        }
+
+        fn visit_bytes<E>(self, value: &[u8]) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            value
+                .try_into()
+                .map_err(|_| E::invalid_length(value.len(), &self))
+        }
+
+        fn visit_byte_buf<E>(self, value: Vec<u8>) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            self.visit_bytes(&value)
+        }
+    }
+
+    deserializer.deserialize_bytes(OpaqueIdVisitor)
+}
+
+macro_rules! opaque_id {
+    ($(#[$meta:meta])* $name:ident) => {
+        $(#[$meta])*
+        #[repr(transparent)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        pub struct $name([u8; 32]);
+
+        impl $name {
+            /// Reconstructs an id from its canonical 32-byte representation.
+            #[must_use]
+            pub fn from_bytes(bytes: [u8; 32]) -> Self {
+                Self(bytes)
+            }
+
+            /// Returns the canonical 32-byte representation.
+            #[must_use]
+            pub fn as_bytes(&self) -> &[u8; 32] {
+                &self.0
+            }
+        }
+
+        impl Serialize for $name {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                serializer.serialize_bytes(&self.0)
+            }
+        }
+
+        impl<'de> Deserialize<'de> for $name {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                deserialize_opaque_id(deserializer).map(Self)
+            }
+        }
+    };
+}
+
 macro_rules! logical_counter {
     ($(#[$meta:meta])* $name:ident) => {
         $(#[$meta])*
         #[repr(transparent)]
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize)]
+        #[serde(transparent)]
         pub struct $name(pub u64);
+
+        impl $name {
+            /// Zero value for this logical counter.
+            pub const ZERO: Self = Self(0);
+            /// Largest representable value for this logical counter.
+            pub const MAX: Self = Self(u64::MAX);
+
+            /// Builds the counter from its raw logical value.
+            #[must_use]
+            pub const fn from_raw(raw: u64) -> Self {
+                Self(raw)
+            }
+
+            /// Returns the raw logical value.
+            #[must_use]
+            pub const fn as_u64(self) -> u64 {
+                self.0
+            }
+        }
     };
 }
 
+opaque_id!(
+    /// Opaque stable identifier for a worldline.
+    ///
+    /// This is the canonical 32-byte worldline-id hash, carried as typed
+    /// metadata rather than a generic byte vector.
+    WorldlineId
+);
+
+opaque_id!(
+    /// Opaque stable identifier for a head within a worldline.
+    ///
+    /// This is the canonical 32-byte head-id hash, carried as typed metadata
+    /// rather than a generic byte vector.
+    HeadId
+);
+
 logical_counter!(
-    /// Per-worldline logical coordinate in host-visible metadata.
-    ///
-    /// The meaning of `0` depends on the surface carrying it:
-    ///
-    /// - In historical coordinates such as [`ObservationAt::Tick`], `0` names
-    ///   the first committed append.
-    /// - In frontier/head metadata such as [`HeadInfo`] and
-    ///   [`HeadObservation`], `0` paired with `commit_global_tick = None`
-    ///   means the worldline is still at `U0` and has not committed anything.
+    /// Per-worldline append identity for committed history.
     WorldlineTick
 );
 
 logical_counter!(
-    /// Runtime-cycle correlation stamp in host-visible metadata.
-    ///
-    /// `GlobalTick` is monotonic for the lifetime of one initialized kernel and
-    /// spans all worldlines managed by that kernel. It is not a per-worldline
-    /// append id and it resets when the host creates a fresh kernel via
-    /// `init()`. When exposed through [`SchedulerStatus`] as an `Option`, `None`
-    /// means the referenced event has not happened yet in this kernel lifetime
-    /// (for example, no cycle has completed or no commit has occurred).
+    /// Runtime-cycle correlation stamp. No wall-clock semantics.
     GlobalTick
 );
 
 logical_counter!(
-    /// Control-plane run generation token.
+    /// Control-plane generation token for scheduler runs.
     ///
-    /// A fresh `RunId` is minted for every accepted `Start` request. It stays
-    /// stable across all host observations and `dispatch_intent(...)` calls
-    /// during that run, then remains visible in [`SchedulerStatus::run_id`]
-    /// after completion until another `Start` replaces it or the kernel is
-    /// re-initialized.
+    /// This value is not provenance, replay state, or hash input.
     RunId
 );
 
@@ -287,14 +382,13 @@ pub struct SchedulerStatus {
     pub last_run_completion: Option<RunCompletion>,
 }
 
-/// Stable head key used by control intents.
+/// Stable writer-head key used by control intents.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HeadKey {
-    /// Worldline that owns the head as a canonical 32-byte worldline-id hash.
-    pub worldline_id: Vec<u8>,
-    /// Stable head identifier within that worldline as a canonical 32-byte
-    /// domain-separated head-id hash payload.
-    pub head_id: Vec<u8>,
+pub struct WriterHeadKey {
+    /// Worldline that owns the head.
+    pub worldline_id: WorldlineId,
+    /// Stable head identifier within that worldline.
+    pub head_id: HeadId,
 }
 
 /// Privileged control intents routed through the same intent intake surface.
@@ -315,7 +409,7 @@ pub enum ControlIntentV1 {
     /// Change declarative head admission.
     SetHeadEligibility {
         /// Target head whose eligibility should change.
-        head: HeadKey,
+        head: WriterHeadKey,
         /// New declarative eligibility for that head.
         eligibility: HeadEligibility,
     },
@@ -334,7 +428,7 @@ pub struct ChannelData {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ObservationCoordinate {
     /// Worldline to observe.
-    pub worldline_id: Vec<u8>,
+    pub worldline_id: WorldlineId,
     /// Requested coordinate within the worldline.
     pub at: ObservationAt,
 }
@@ -405,7 +499,7 @@ pub struct ResolvedObservationCoordinate {
     /// Observation contract version.
     pub observation_version: u32,
     /// Worldline actually observed.
-    pub worldline_id: Vec<u8>,
+    pub worldline_id: WorldlineId,
     /// Original coordinate selector from the request.
     pub requested_at: ObservationAt,
     /// Concrete resolved worldline coordinate.

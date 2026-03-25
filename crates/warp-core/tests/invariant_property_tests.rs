@@ -182,7 +182,7 @@ proptest! {
         for w in 0..num_worldlines {
             for h in 0..num_heads_per {
                 keys.push(WriterHeadKey {
-                    worldline_id: WorldlineId([w as u8; 32]),
+                    worldline_id: WorldlineId::from_bytes([w as u8; 32]),
                     head_id: make_head_id(&format!("h-{h}")),
                 });
             }
@@ -292,8 +292,8 @@ proptest! {
 #[test]
 fn inv004_no_cross_worldline_leakage() {
     let warp_id = test_warp_id();
-    let worldline_a = WorldlineId([1u8; 32]);
-    let worldline_b = WorldlineId([2u8; 32]);
+    let worldline_a = WorldlineId::from_bytes([1u8; 32]);
+    let worldline_b = WorldlineId::from_bytes([2u8; 32]);
     let initial_state = create_initial_worldline_state(warp_id);
 
     let mut provenance = LocalProvenanceStore::new();

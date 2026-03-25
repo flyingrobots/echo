@@ -3092,7 +3092,7 @@ mod tests {
 
         let admitted = [IngressEnvelope::local_intent(
             crate::head_inbox::IngressTarget::DefaultWriter {
-                worldline_id: crate::worldline::WorldlineId([7; 32]),
+                worldline_id: crate::worldline::WorldlineId::from_bytes([7; 32]),
             },
             crate::head_inbox::make_intent_kind("test/runtime"),
             b"rollback-root".to_vec(),
@@ -3147,7 +3147,7 @@ mod tests {
         let original_root = *state.root();
         let env = IngressEnvelope::local_intent(
             crate::head_inbox::IngressTarget::DefaultWriter {
-                worldline_id: crate::worldline::WorldlineId([5; 32]),
+                worldline_id: crate::worldline::WorldlineId::from_bytes([5; 32]),
             },
             crate::head_inbox::make_intent_kind("test/runtime-panic"),
             b"panic".to_vec(),
@@ -3240,7 +3240,7 @@ mod tests {
 
         let env = IngressEnvelope::local_intent(
             crate::head_inbox::IngressTarget::DefaultWriter {
-                worldline_id: crate::worldline::WorldlineId([6; 32]),
+                worldline_id: crate::worldline::WorldlineId::from_bytes([6; 32]),
             },
             crate::head_inbox::make_intent_kind("test/runtime-marker"),
             b"duplicate-ingress".to_vec(),
@@ -3347,7 +3347,7 @@ mod tests {
         let Ok(mut state) = state_result else {
             return;
         };
-        let worldline_id = crate::worldline::WorldlineId([9; 32]);
+        let worldline_id = crate::worldline::WorldlineId::from_bytes([9; 32]);
         let kind_a = crate::head_inbox::make_intent_kind("test/runtime-a");
         let kind_b = crate::head_inbox::make_intent_kind("test/runtime-b");
         let bytes = b"same-bytes".to_vec();

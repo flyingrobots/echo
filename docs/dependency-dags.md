@@ -79,18 +79,18 @@ cargo xtask dags --snapshot-label 2026-01-02
 
 ---
 
-## Tasks DAG (derived from TASKS-DAG.md)
+## Tasks DAG (derived from `docs/archive/tasks/TASKS-DAG.md`)
 
 ![Tasks DAG](assets/dags/tasks-dag.svg)
 
 Sources:
 
-- Source data: `TASKS-DAG.md`
-- Generator: `scripts/generate-tasks-dag.js` (scheduled by `.github/workflows/refresh-dependency-dags.yml` to keep the rendered output aligned with `TASKS-DAG.md`)
+- Source data: `docs/archive/tasks/TASKS-DAG.md`
+- Generator: `scripts/generate-tasks-dag.js` (scheduled by the GitHub workflow `.github/workflows/refresh-dependency-dags.yml` to keep the rendered output aligned with `docs/archive/tasks/TASKS-DAG.md`)
 - DOT: `docs/assets/dags/tasks-dag.dot`
 - SVG: `docs/assets/dags/tasks-dag.svg`
 
-This DAG visualizes inferred issue dependencies that contributors log in `TASKS-DAG.md`, offering a quick comparison point against the curated milestone/issue graphs above.
+This DAG visualizes inferred issue dependencies that contributors log in `docs/archive/tasks/TASKS-DAG.md`, offering a quick comparison point against the curated milestone/issue graphs above.
 By design, isolated nodes (no incoming/outgoing edges) are filtered out to reduce clutter; the generator computes `connectedNodeIds` / `filteredNodes` and logs the drop counts during render.
 
 ## Regenerating the Tasks DAG

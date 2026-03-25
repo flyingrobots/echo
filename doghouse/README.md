@@ -46,6 +46,7 @@ The JSONL stream now separates:
 
 - baseline selection: which prior snapshot was picked
 - sortie intent: why the current capture happened, plus the baseline intent when known
+- CodeRabbit state: whether Rabbit is pending, cooling down, or safe to re-request, without masking human or Codex review state
 - comparison assessment: how trustworthy that comparison is (`strong`, `usable`, `weak`, or `none`)
 - comparison quality: whether the baseline is `good_enough`, `stale`, `noisy`, `stale_and_noisy`, or an `initial_capture`
 - semantic delta: what actually changed

@@ -329,7 +329,9 @@ fn run_pr_snapshot(args: PrSnapshotArgs) -> Result<()> {
     let overview = fetch_pr_overview(args.selector.as_deref())?;
     let checks = fetch_pr_checks(&overview)?;
     let threads = fetch_unresolved_review_threads(&overview)?;
-    let snapshot = build_pr_snapshot_artifact(&overview, &checks, &threads, args.intent)?;
+    let rabbit_cooldown = fetch_code_rabbit_cooldown(&overview)?;
+    let snapshot =
+        build_pr_snapshot_artifact(&overview, &checks, &threads, args.intent, rabbit_cooldown)?;
     let previous_snapshot = load_latest_pr_snapshot(snapshot.pr.number, &args.out_dir)?;
     let delta = previous_snapshot
         .as_ref()
@@ -398,7 +400,9 @@ fn run_doghouse_sortie(args: DoghouseSortieArgs) -> Result<()> {
     let overview = fetch_pr_overview(args.selector.as_deref())?;
     let checks = fetch_pr_checks(&overview)?;
     let threads = fetch_unresolved_review_threads(&overview)?;
-    let snapshot = build_pr_snapshot_artifact(&overview, &checks, &threads, args.intent)?;
+    let rabbit_cooldown = fetch_code_rabbit_cooldown(&overview)?;
+    let snapshot =
+        build_pr_snapshot_artifact(&overview, &checks, &threads, args.intent, rabbit_cooldown)?;
     let prior_snapshots = load_prior_pr_snapshots(snapshot.pr.number, &args.out_dir)?;
     let baseline = select_doghouse_baseline(&prior_snapshots, &snapshot);
     let delta = baseline
@@ -652,6 +656,7 @@ fn build_pr_snapshot_artifact(
     checks: &[PrCheckSummary],
     threads: &[ReviewThreadSummary],
     sortie_intent: DoghouseSortieIntent,
+    code_rabbit: Option<DoghouseCodeRabbitState>,
 ) -> Result<PrSnapshotArtifact> {
     let recorded_at = OffsetDateTime::now_utc();
     let grouped_checks = group_pr_checks(checks);
@@ -662,6 +667,7 @@ fn build_pr_snapshot_artifact(
             .context("failed to format snapshot timestamp")?,
         filename_stamp: format_snapshot_filename_stamp(recorded_at),
         sortie_intent: Some(sortie_intent),
+        code_rabbit,
         pr: PrSnapshotOverview {
             number: overview.number,
             url: overview.url.clone(),
@@ -1571,6 +1577,8 @@ fn build_doghouse_sortie_events(
         .context("failed to serialize doghouse snapshot event")?,
         serde_json::to_string(&DoghouseIntentEvent::from_snapshots(snapshot, baseline))
             .context("failed to serialize doghouse intent event")?,
+        serde_json::to_string(&DoghouseCodeRabbitEvent::from_snapshot(snapshot))
+            .context("failed to serialize doghouse CodeRabbit event")?,
         serde_json::to_string(&DoghouseBaselineEvent::from_selection(baseline))
             .context("failed to serialize doghouse baseline event")?,
         serde_json::to_string(&DoghouseComparisonEvent::from_assessment(comparison))
@@ -1677,6 +1685,25 @@ fn determine_doghouse_next_action(
         && !matches!(snapshot.pr.merge_state.as_str(), "CLEAN" | "HAS_HOOKS")
     {
         reasons.push(format!("merge state is {}", snapshot.pr.merge_state));
+    }
+    if let Some(code_rabbit) = snapshot.code_rabbit.as_ref() {
+        if code_rabbit.cooldown_active {
+            reasons.push(format!(
+                "CodeRabbit summary comment is rate-limited until {} ({}s remaining); do not request another Rabbit round yet, but keep tracking human and Codex review state separately",
+                code_rabbit.cooldown_expires_at,
+                code_rabbit.cooldown_remaining_seconds
+            ));
+        }
+    } else if snapshot
+        .checks
+        .iter()
+        .find(|check| check.name.eq_ignore_ascii_case("CodeRabbit"))
+        .is_some_and(|check| check.bucket == "pending")
+    {
+        reasons.push(
+            "CodeRabbit is actively reviewing this head; do not request another Rabbit round yet, but keep tracking human and Codex review state separately"
+                .to_owned(),
+        );
     }
     match (sortie_intent, action) {
         (DoghouseSortieIntent::MergeCheck, "merge_ready_pending_approval") => reasons.push(
@@ -2069,6 +2096,103 @@ fn fetch_pr_checks(pr: &PrOverview) -> Result<Vec<PrCheckSummary>> {
         .collect())
 }
 
+fn fetch_code_rabbit_cooldown(pr: &PrOverview) -> Result<Option<DoghouseCodeRabbitState>> {
+    let output = run_gh_capture([
+        "api",
+        "graphql",
+        "-F",
+        &format!("owner={}", pr.owner),
+        "-F",
+        &format!("name={}", pr.repo),
+        "-F",
+        &format!("number={}", pr.number),
+        "-f",
+        "query=query($owner:String!, $name:String!, $number:Int!) { repository(owner:$owner, name:$name) { pullRequest(number:$number) { comments(last:50) { nodes { url body updatedAt author { login } } } } } }",
+    ])?;
+    let response: CodeRabbitCommentsQueryResponse =
+        serde_json::from_str(&output).context("failed to parse CodeRabbit comments response")?;
+    let comments = response.data.repository.pull_request.comments.nodes;
+    let summary_comment = comments
+        .into_iter()
+        .filter(|comment| {
+            comment
+                .author
+                .as_ref()
+                .is_some_and(|author| author.login.eq_ignore_ascii_case("coderabbitai"))
+        })
+        .filter(|comment| {
+            comment
+                .body
+                .contains("This is an auto-generated comment: summarize by coderabbit.ai")
+        })
+        .max_by(|left, right| left.updated_at.cmp(&right.updated_at));
+
+    Ok(summary_comment.and_then(detect_code_rabbit_cooldown))
+}
+
+fn detect_code_rabbit_cooldown(
+    comment: CodeRabbitSummaryComment,
+) -> Option<DoghouseCodeRabbitState> {
+    if !comment
+        .body
+        .contains("This is an auto-generated comment: rate limited by coderabbit.ai")
+        && !comment.body.contains("## Rate limit exceeded")
+    {
+        return None;
+    }
+
+    let wait_phrase = extract_code_rabbit_wait_phrase(&comment.body)?;
+    let wait_seconds = parse_code_rabbit_wait_seconds(&wait_phrase)?;
+    let updated_at = OffsetDateTime::parse(&comment.updated_at, &Rfc3339).ok()?;
+    let expires_at = updated_at + time::Duration::seconds(wait_seconds);
+    let now = OffsetDateTime::now_utc();
+    let remaining_seconds = (expires_at - now).whole_seconds().max(0);
+
+    Some(DoghouseCodeRabbitState {
+        summary_comment_url: comment.url,
+        summary_comment_updated_at: comment.updated_at,
+        cooldown_active: remaining_seconds > 0,
+        cooldown_expires_at: expires_at.format(&Rfc3339).ok()?,
+        cooldown_remaining_seconds: remaining_seconds,
+        request_review_actionable: remaining_seconds == 0,
+    })
+}
+
+fn extract_code_rabbit_wait_phrase(body: &str) -> Option<String> {
+    let start = body.find("Please wait **")?;
+    let remainder = &body[start + "Please wait **".len()..];
+    let end = remainder.find("** before requesting another review")?;
+    Some(remainder[..end].trim().to_owned())
+}
+
+fn parse_code_rabbit_wait_seconds(phrase: &str) -> Option<i64> {
+    let normalized = phrase.replace(',', " ");
+    let mut total = 0_i64;
+    let mut tokens = normalized.split_whitespace();
+
+    while let Some(token) = tokens.next() {
+        if token.eq_ignore_ascii_case("and") {
+            continue;
+        }
+
+        let value = token.parse::<i64>().ok()?;
+        let unit = tokens.next()?;
+        let unit = unit.trim_end_matches(',');
+        let factor = if unit.starts_with("hour") {
+            60 * 60
+        } else if unit.starts_with("minute") {
+            60
+        } else if unit.starts_with("second") {
+            1
+        } else {
+            return None;
+        };
+        total += value * factor;
+    }
+
+    Some(total)
+}
+
 fn fetch_unresolved_review_threads(pr: &PrOverview) -> Result<Vec<ReviewThreadSummary>> {
     let mut threads = Vec::new();
     let mut cursor: Option<String> = None;
@@ -2343,6 +2467,46 @@ struct GhPrCheck {
     state: String,
 }
 
+#[derive(Deserialize)]
+struct CodeRabbitCommentsQueryResponse {
+    data: CodeRabbitCommentsQueryData,
+}
+
+#[derive(Deserialize)]
+struct CodeRabbitCommentsQueryData {
+    repository: CodeRabbitCommentsRepository,
+}
+
+#[derive(Deserialize)]
+struct CodeRabbitCommentsRepository {
+    #[serde(rename = "pullRequest")]
+    pull_request: CodeRabbitCommentsPullRequest,
+}
+
+#[derive(Deserialize)]
+struct CodeRabbitCommentsPullRequest {
+    comments: CodeRabbitCommentsConnection,
+}
+
+#[derive(Deserialize)]
+struct CodeRabbitCommentsConnection {
+    nodes: Vec<CodeRabbitSummaryComment>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+struct CodeRabbitSummaryComment {
+    url: String,
+    body: String,
+    #[serde(rename = "updatedAt")]
+    updated_at: String,
+    author: Option<CodeRabbitCommentAuthor>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+struct CodeRabbitCommentAuthor {
+    login: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct PrCheckSummary {
     name: String,
@@ -2356,6 +2520,8 @@ struct PrSnapshotArtifact {
     filename_stamp: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     sortie_intent: Option<DoghouseSortieIntent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    code_rabbit: Option<DoghouseCodeRabbitState>,
     pr: PrSnapshotOverview,
     #[serde(default)]
     blockers: Vec<String>,
@@ -2376,6 +2542,16 @@ enum DoghouseSortieIntent {
     FixBatch,
     MergeCheck,
     Resume,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct DoghouseCodeRabbitState {
+    summary_comment_url: String,
+    summary_comment_updated_at: String,
+    cooldown_active: bool,
+    cooldown_expires_at: String,
+    cooldown_remaining_seconds: i64,
+    request_review_actionable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2569,6 +2745,61 @@ impl DoghouseIntentEvent {
             changed_from_baseline: current_intent
                 .zip(baseline_intent)
                 .map(|(current, previous)| current != previous),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct DoghouseCodeRabbitEvent {
+    kind: &'static str,
+    check_bucket: Option<String>,
+    check_state: Option<String>,
+    cooldown_active: bool,
+    cooldown_expires_at: Option<String>,
+    cooldown_remaining_seconds: Option<i64>,
+    request_review_actionable: bool,
+    summary_comment_url: Option<String>,
+    summary_comment_updated_at: Option<String>,
+}
+
+impl DoghouseCodeRabbitEvent {
+    fn from_snapshot(snapshot: &PrSnapshotArtifact) -> Self {
+        let check = snapshot
+            .checks
+            .iter()
+            .find(|check| check.name.eq_ignore_ascii_case("CodeRabbit"));
+
+        Self {
+            kind: "doghouse.coderabbit",
+            check_bucket: check.map(|check| check.bucket.clone()),
+            check_state: check.map(|check| check.state.clone()),
+            cooldown_active: snapshot
+                .code_rabbit
+                .as_ref()
+                .is_some_and(|state| state.cooldown_active),
+            cooldown_expires_at: snapshot
+                .code_rabbit
+                .as_ref()
+                .map(|state| state.cooldown_expires_at.clone()),
+            cooldown_remaining_seconds: snapshot
+                .code_rabbit
+                .as_ref()
+                .map(|state| state.cooldown_remaining_seconds),
+            request_review_actionable: snapshot.code_rabbit.as_ref().map_or_else(
+                || check.is_none_or(|check| check.bucket != "pending"),
+                |state| {
+                    state.request_review_actionable
+                        && check.is_none_or(|check| check.bucket != "pending")
+                },
+            ),
+            summary_comment_url: snapshot
+                .code_rabbit
+                .as_ref()
+                .map(|state| state.summary_comment_url.clone()),
+            summary_comment_updated_at: snapshot
+                .code_rabbit
+                .as_ref()
+                .map(|state| state.summary_comment_updated_at.clone()),
         }
     }
 }
@@ -3666,6 +3897,7 @@ mod tests {
             recorded_at: recorded_at.to_owned(),
             filename_stamp: filename_stamp.to_owned(),
             sortie_intent: Some(DoghouseSortieIntent::ManualProbe),
+            code_rabbit: None,
             pr: PrSnapshotOverview {
                 number: overview.number,
                 url: overview.url,
@@ -3952,6 +4184,7 @@ mod tests {
                 &checks,
                 &threads,
                 DoghouseSortieIntent::ManualProbe,
+                None,
             ),
             "snapshot should build",
         );
@@ -3993,6 +4226,7 @@ mod tests {
                 &checks,
                 &threads,
                 DoghouseSortieIntent::ManualProbe,
+                None,
             ),
             "snapshot should build",
         );
@@ -4020,7 +4254,13 @@ mod tests {
         }];
 
         let snapshot = assert_ok(
-            build_pr_snapshot_artifact(&overview, &checks, &[], DoghouseSortieIntent::ManualProbe),
+            build_pr_snapshot_artifact(
+                &overview,
+                &checks,
+                &[],
+                DoghouseSortieIntent::ManualProbe,
+                None,
+            ),
             "snapshot should build",
         );
 
@@ -4042,6 +4282,7 @@ mod tests {
                 &checks,
                 &threads,
                 DoghouseSortieIntent::ManualProbe,
+                None,
             ),
             "snapshot should build",
         );
@@ -4516,6 +4757,74 @@ mod tests {
     }
 
     #[test]
+    fn detects_coderabbit_cooldown_from_summary_comment() {
+        let updated_at = OffsetDateTime::now_utc();
+        let comment = CodeRabbitSummaryComment {
+            url: "https://github.com/flyingrobots/echo/pull/308#issuecomment-1".to_owned(),
+            body: [
+                "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->",
+                "<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->",
+                "## Rate limit exceeded",
+                "",
+                "Please wait **5 minutes and 59 seconds** before requesting another review.",
+            ]
+            .join("\n"),
+            updated_at: assert_ok(updated_at.format(&Rfc3339), "test timestamp should format"),
+            author: Some(CodeRabbitCommentAuthor {
+                login: "coderabbitai".to_owned(),
+            }),
+        };
+
+        let cooldown = detect_code_rabbit_cooldown(comment)
+            .unwrap_or_else(|| unreachable!("cooldown should be detected"));
+
+        assert!(cooldown.cooldown_active);
+        assert!(cooldown.cooldown_remaining_seconds > 0);
+        assert!(cooldown.cooldown_remaining_seconds <= 359);
+        assert_eq!(
+            cooldown.cooldown_expires_at,
+            assert_ok(
+                (updated_at + time::Duration::seconds(359)).format(&Rfc3339),
+                "cooldown expiry should format",
+            )
+        );
+        assert!(!cooldown.request_review_actionable);
+    }
+
+    #[test]
+    fn coderabbit_event_reflects_pending_check_and_cooldown() {
+        let mut snapshot = snapshot_fixture(
+            "2026-03-25T08:20:00Z",
+            "20260325T082000Z",
+            sample_pr_overview(),
+            vec!["review decision: REVIEW_REQUIRED"],
+            vec![PrCheckSummary {
+                name: "CodeRabbit".to_owned(),
+                bucket: "pending".to_owned(),
+                state: "PENDING".to_owned(),
+            }],
+            vec![],
+        );
+        snapshot.code_rabbit = Some(DoghouseCodeRabbitState {
+            summary_comment_url: "https://github.com/flyingrobots/echo/pull/308#issuecomment-1"
+                .to_owned(),
+            summary_comment_updated_at: "2026-03-25T07:01:37Z".to_owned(),
+            cooldown_active: true,
+            cooldown_expires_at: "2026-03-25T07:07:36Z".to_owned(),
+            cooldown_remaining_seconds: 359,
+            request_review_actionable: false,
+        });
+
+        let event = DoghouseCodeRabbitEvent::from_snapshot(&snapshot);
+
+        assert_eq!(event.check_bucket.as_deref(), Some("pending"));
+        assert_eq!(event.check_state.as_deref(), Some("PENDING"));
+        assert!(event.cooldown_active);
+        assert!(!event.request_review_actionable);
+        assert_eq!(event.cooldown_remaining_seconds, Some(359));
+    }
+
+    #[test]
     fn doghouse_next_action_prioritizes_unresolved_threads() {
         let snapshot = snapshot_fixture(
             "2026-03-25T08:20:00Z",
@@ -4618,6 +4927,45 @@ mod tests {
     }
 
     #[test]
+    fn doghouse_next_action_keeps_human_review_flow_when_rabbit_is_on_cooldown() {
+        let mut overview = sample_pr_overview();
+        overview.merge_state = "BLOCKED".to_owned();
+        let mut snapshot = snapshot_fixture(
+            "2026-03-25T08:20:00Z",
+            "20260325T082000Z",
+            overview,
+            vec!["review decision: REVIEW_REQUIRED", "merge state: BLOCKED"],
+            vec![PrCheckSummary {
+                name: "Tests".to_owned(),
+                bucket: "pass".to_owned(),
+                state: "SUCCESS".to_owned(),
+            }],
+            vec![],
+        );
+        snapshot.code_rabbit = Some(DoghouseCodeRabbitState {
+            summary_comment_url: "https://github.com/flyingrobots/echo/pull/308#issuecomment-1"
+                .to_owned(),
+            summary_comment_updated_at: "2026-03-25T07:01:37Z".to_owned(),
+            cooldown_active: true,
+            cooldown_expires_at: "2026-03-25T07:07:36Z".to_owned(),
+            cooldown_remaining_seconds: 359,
+            request_review_actionable: false,
+        });
+
+        let action = determine_doghouse_next_action(&snapshot, None);
+
+        assert_eq!(action.action, "request_review");
+        assert!(action
+            .reasons
+            .iter()
+            .any(|reason| { reason.contains("CodeRabbit summary comment is rate-limited until") }));
+        assert!(action
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("human and Codex review state separately")));
+    }
+
+    #[test]
     fn doghouse_sortie_events_emit_expected_kinds() {
         let snapshot = snapshot_fixture(
             "2026-03-25T08:20:00Z",
@@ -4638,12 +4986,13 @@ mod tests {
             "sortie events should serialize",
         );
 
-        assert_eq!(lines.len(), 5);
+        assert_eq!(lines.len(), 6);
         assert!(lines[0].contains("\"kind\":\"doghouse.snapshot\""));
         assert!(lines[1].contains("\"kind\":\"doghouse.intent\""));
-        assert!(lines[2].contains("\"kind\":\"doghouse.baseline\""));
-        assert!(lines[3].contains("\"kind\":\"doghouse.comparison\""));
-        assert!(lines[4].contains("\"kind\":\"doghouse.next_action\""));
+        assert!(lines[2].contains("\"kind\":\"doghouse.coderabbit\""));
+        assert!(lines[3].contains("\"kind\":\"doghouse.baseline\""));
+        assert!(lines[4].contains("\"kind\":\"doghouse.comparison\""));
+        assert!(lines[5].contains("\"kind\":\"doghouse.next_action\""));
     }
 
     #[test]
@@ -4673,6 +5022,7 @@ mod tests {
 
         assert_eq!(snapshot.pr.state, "OPEN");
         assert_eq!(snapshot.sortie_intent, None);
+        assert_eq!(snapshot.code_rabbit, None);
     }
 
     #[test]

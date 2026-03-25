@@ -17,8 +17,9 @@ scalar HeadId
 """
 Opaque stable identifier for a worldline.
 
-Semantic rule: this remains an opaque identifier even though implementations
-often derive it from the initial worldline state.
+Semantic rule: this is a fixed-width 32-byte opaque identifier. Consumers must
+preserve opacity and exact byte width even though implementations may derive it
+from the initial worldline state.
 """
 scalar WorldlineId
 

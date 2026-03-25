@@ -90,11 +90,29 @@ Current scheduler metadata.
 """
 type SchedulerStatus {
     state: SchedulerState!
+    """
+    Null when no scheduler mode is currently active.
+    """
     activeMode: SchedulerMode
     workState: WorkState!
+    """
+    Null before the first run starts; otherwise the active or most-recent run id.
+    """
     runId: RunId
+    """
+    Null before the runtime completes its first scheduler cycle.
+    """
     latestCycleGlobalTick: GlobalTick
+    """
+    Null until some completed cycle produces a commit.
+    """
     latestCommitGlobalTick: GlobalTick
+    """
+    Null until the runtime first transitions into quiescence.
+    """
     lastQuiescentGlobalTick: GlobalTick
+    """
+    Null until a run completes and records a terminal completion reason.
+    """
     lastRunCompletion: RunCompletion
 }

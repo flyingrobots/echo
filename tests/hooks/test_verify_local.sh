@@ -162,6 +162,14 @@ if [[ -n "${VERIFY_FAKE_NPX_LOG:-}" ]]; then
 fi
 exit 0
 EOF
+  cat >"$tmp/bin/pnpm" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ -n "${VERIFY_FAKE_PNPM_LOG:-}" ]]; then
+  printf 'PNPM|%s\n' "$*" >>"${VERIFY_FAKE_PNPM_LOG}"
+fi
+exit 0
+EOF
   cat >"$tmp/bin/git" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -209,7 +217,7 @@ fi
 echo "unexpected git invocation: $*" >&2
 exit 1
 EOF
-  chmod +x "$tmp/bin/cargo" "$tmp/bin/cargo-nextest" "$tmp/bin/rustup" "$tmp/bin/rg" "$tmp/bin/npx" "$tmp/bin/git"
+  chmod +x "$tmp/bin/cargo" "$tmp/bin/cargo-nextest" "$tmp/bin/rustup" "$tmp/bin/rg" "$tmp/bin/npx" "$tmp/bin/pnpm" "$tmp/bin/git"
 
   cat >"$tmp/tests/hooks/test_verify_local.sh" <<'EOF'
 #!/usr/bin/env bash
@@ -235,6 +243,8 @@ EOF
   cargo_log="$(mktemp)"
   local npx_log
   npx_log="$(mktemp)"
+  local pnpm_log
+  pnpm_log="$(mktemp)"
   local nextest_log
   nextest_log="$(mktemp)"
 
@@ -248,6 +258,7 @@ EOF
     "VERIFY_CHANGED_FILES_FILE=$changed"
     "VERIFY_FAKE_CARGO_LOG=$cargo_log"
     "VERIFY_FAKE_NPX_LOG=$npx_log"
+    "VERIFY_FAKE_PNPM_LOG=$pnpm_log"
     "VERIFY_FAKE_NEXTEST_LOG=$nextest_log"
   )
   if [[ -n "${VERIFY_FAKE_TIMING_FILE:-}" ]]; then
@@ -264,10 +275,12 @@ EOF
   cat "$cargo_log"
   echo "--- npx-log ---"
   cat "$npx_log"
+  echo "--- pnpm-log ---"
+  cat "$pnpm_log"
   echo "--- nextest-log ---"
   cat "$nextest_log"
 
-  rm -f "$changed" "$cargo_log" "$npx_log" "$nextest_log"
+  rm -f "$changed" "$cargo_log" "$npx_log" "$pnpm_log" "$nextest_log"
   rm -rf "$tmp"
 }
 
@@ -1288,6 +1301,14 @@ if printf '%s\n' "$fake_tooling_output" | grep -q 'target/verify-lanes/full-clip
   printf '%s\n' "$fake_tooling_output"
 else
   pass "tooling-only full verification skips core Rust lanes"
+fi
+
+fake_runtime_schema_output="$(run_fake_verify full schemas/runtime/artifact-a-identifiers.graphql)"
+if printf '%s\n' "$fake_runtime_schema_output" | grep -q 'PNPM|schema:runtime:check'; then
+  pass "runtime schema validation delegates to the pnpm script entrypoint"
+else
+  fail "runtime schema validation should delegate to the pnpm script entrypoint"
+  printf '%s\n' "$fake_runtime_schema_output"
 fi
 
 echo "PASS: $PASS"

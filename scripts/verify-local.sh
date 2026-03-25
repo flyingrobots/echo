@@ -730,12 +730,12 @@ run_docs_lint() {
   fi
 
   if [[ "$should_validate_runtime_schema" -eq 1 ]]; then
-    if ! command -v node >/dev/null 2>&1; then
-      echo "[verify-local] node not found; cannot run runtime schema validation" >&2
+    if ! command -v pnpm >/dev/null 2>&1; then
+      echo "[verify-local] pnpm not found; cannot run runtime schema validation" >&2
       return 1
     fi
     echo "[verify-local] runtime schema validation"
-    node scripts/validate-runtime-schema-fragments.mjs
+    pnpm schema:runtime:check
   fi
 }
 

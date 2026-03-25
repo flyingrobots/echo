@@ -35,6 +35,13 @@ trap cleanup EXIT
 echo "=== runtime schema validation ==="
 echo
 
+if pnpm schema:runtime:check >"$output_file" 2>&1; then
+  pass "pnpm schema:runtime:check accepts the checked-in runtime schema fragments"
+else
+  fail "pnpm schema:runtime:check should accept the checked-in runtime schema fragments"
+  cat "$output_file"
+fi
+
 if node scripts/validate-runtime-schema-fragments.mjs >"$output_file" 2>&1; then
   pass "validator accepts the checked-in runtime schema fragments"
 else
@@ -51,11 +58,23 @@ type DirectiveSafeProbe {
     legacyField: String @deprecated(reason: "old")
 }
 EOF
+cat <<'EOF' >"$tmpdir_directives/interface-safe.graphql"
+# SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+interface RuntimeProbe {
+    id: ID!
+}
+
+type RuntimeProbeImpl implements RuntimeProbe {
+    id: ID!
+}
+EOF
 
 if node scripts/validate-runtime-schema-fragments.mjs --dir "$tmpdir_directives" >"$output_file" 2>&1; then
-  pass "validator accepts directive-bearing GraphQL fields"
+  pass "validator accepts directive-bearing fields and interface definitions"
 else
-  fail "validator should accept directive-bearing GraphQL fields"
+  fail "validator should accept directive-bearing fields and interface definitions"
   cat "$output_file"
 fi
 

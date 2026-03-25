@@ -32,7 +32,7 @@ macro_rules! logical_counter {
         #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
         #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
         #[cfg_attr(feature = "serde", serde(transparent))]
-        pub struct $name(pub u64);
+        pub struct $name(u64);
 
         impl $name {
             /// Zero value for this logical counter.
@@ -370,6 +370,29 @@ mod tests {
 
     #[cfg(feature = "serde")]
     #[test]
+    fn runtime_ids_reject_non_32_byte_cbor_bytes() {
+        #[derive(Debug, PartialEq, Eq, Deserialize)]
+        struct Wrapper {
+            id: WorldlineId,
+        }
+
+        let bytes = encode_cbor(&Value::Map(vec![(
+            Value::Text("id".into()),
+            Value::Bytes(vec![9u8; 31]),
+        )]));
+        let err = ciborium::from_reader::<Wrapper, _>(&bytes[..]).unwrap_err();
+        assert!(err.to_string().contains("32 bytes"));
+
+        let bytes = encode_cbor(&Value::Map(vec![(
+            Value::Text("id".into()),
+            Value::Bytes(vec![9u8; 33]),
+        )]));
+        let err = ciborium::from_reader::<Wrapper, _>(&bytes[..]).unwrap_err();
+        assert!(err.to_string().contains("32 bytes"));
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
     fn runtime_ids_reject_cbor_integer_arrays() {
         #[derive(Debug, PartialEq, Eq, Deserialize)]
         struct Wrapper {
@@ -380,6 +403,18 @@ mod tests {
             Value::Text("id".into()),
             Value::Array(
                 (0u8..32)
+                    .map(|value| Value::Integer(value.into()))
+                    .collect(),
+            ),
+        )]));
+
+        let err = ciborium::from_reader::<Wrapper, _>(&bytes[..]).unwrap_err();
+        assert!(err.to_string().contains("bytes"));
+
+        let bytes = encode_cbor(&Value::Map(vec![(
+            Value::Text("id".into()),
+            Value::Array(
+                (0u8..33)
                     .map(|value| Value::Integer(value.into()))
                     .collect(),
             ),

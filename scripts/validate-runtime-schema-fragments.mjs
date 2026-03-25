@@ -13,6 +13,7 @@ const DEFINITION_KIND_NAMES = new Map([
     ["ObjectTypeDefinition", "type"],
     ["InputObjectTypeDefinition", "input"],
     ["EnumTypeDefinition", "enum"],
+    ["InterfaceTypeDefinition", "interface"],
     ["UnionTypeDefinition", "union"],
 ]);
 const SCRIPT_DIR = fileURLToPath(new URL(".", import.meta.url));

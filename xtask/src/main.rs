@@ -372,7 +372,7 @@ fn run_pr_threads_list(selector: Option<&str>) -> Result<()> {
 fn run_pr_threads_reply(args: PrThreadsReplyArgs) -> Result<()> {
     let body = load_reply_body(args.body.as_deref(), args.body_file.as_deref())?;
     let overview = fetch_pr_overview(args.selector.as_deref())?;
-    let route = build_review_reply_route(&overview, args.comment_id);
+    let route = build_review_reply_route(&overview);
 
     let output = run_gh_capture([
         "api",
@@ -381,6 +381,8 @@ fn run_pr_threads_reply(args: PrThreadsReplyArgs) -> Result<()> {
         "POST",
         "-f",
         &format!("body={body}"),
+        "-F",
+        &format!("in_reply_to={}", args.comment_id),
     ])?;
     let reply: ReviewReplyResponse =
         serde_json::from_str(&output).context("failed to parse review reply response")?;
@@ -447,10 +449,10 @@ fn build_pr_status_command(script: &Path, selector: Option<&str>) -> Command {
     command
 }
 
-fn build_review_reply_route(overview: &PrOverview, comment_id: u64) -> String {
+fn build_review_reply_route(overview: &PrOverview) -> String {
     format!(
-        "repos/{}/{}/pulls/comments/{comment_id}/replies",
-        overview.owner, overview.repo
+        "repos/{}/{}/pulls/{}/comments",
+        overview.owner, overview.repo, overview.number
     )
 }
 
@@ -2086,8 +2088,8 @@ mod tests {
         };
 
         assert_eq!(
-            build_review_reply_route(&overview, 42),
-            "repos/upstream/fork-target/pulls/comments/42/replies"
+            build_review_reply_route(&overview),
+            "repos/upstream/fork-target/pulls/308/comments"
         );
     }
 

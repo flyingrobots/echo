@@ -515,6 +515,13 @@ fn build_pr_preflight_plan(changed_files: &[String], full: bool) -> Vec<Prefligh
     checks
 }
 
+fn path_has_extension(path: &str, extension: &str) -> bool {
+    Path::new(path)
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| value.eq_ignore_ascii_case(extension))
+}
+
 fn collect_pr_preflight_changed_files(base: &str) -> Result<Vec<String>> {
     let mut files = BTreeSet::new();
     for file in run_git_lines(["diff", "--name-only", &format!("{base}...HEAD")])? {
@@ -582,7 +589,7 @@ fn analyze_pr_preflight_scope(changed_files: &[String], full: bool) -> Preflight
 
     let markdown_files: Vec<String> = changed_files
         .iter()
-        .filter(|path| path.ends_with(".md"))
+        .filter(|path| path_has_extension(path, "md"))
         .cloned()
         .collect();
     if !markdown_files.is_empty() {
@@ -642,15 +649,15 @@ fn tracked_shell_files() -> Result<Vec<String>> {
 }
 
 fn is_maintained_shell_path(path: &str) -> bool {
-    if path.ends_with(".md")
-        || path.ends_with(".mjs")
-        || path.ends_with(".js")
-        || path.ends_with(".json")
-        || path.ends_with(".dot")
-        || path.ends_with(".svg")
-        || path.ends_with(".toml")
-        || path.ends_with(".yml")
-        || path.ends_with(".yaml")
+    if path_has_extension(path, "md")
+        || path_has_extension(path, "mjs")
+        || path_has_extension(path, "js")
+        || path_has_extension(path, "json")
+        || path_has_extension(path, "dot")
+        || path_has_extension(path, "svg")
+        || path_has_extension(path, "toml")
+        || path_has_extension(path, "yml")
+        || path_has_extension(path, "yaml")
     {
         return false;
     }
@@ -754,10 +761,10 @@ fn fetch_unresolved_review_threads(pr: &PrOverview) -> Result<Vec<ReviewThreadSu
                 .as_ref()
                 .and_then(|comment| comment.author.as_ref().map(|author| author.login.clone()));
             let url = first_comment.as_ref().map(|comment| comment.url.clone());
-            let preview = first_comment
-                .as_ref()
-                .map(|comment| preview_comment_body(&comment.body))
-                .unwrap_or_else(|| "<no comment preview>".to_owned());
+            let preview = first_comment.as_ref().map_or_else(
+                || "<no comment preview>".to_owned(),
+                |comment| preview_comment_body(&comment.body),
+            );
             threads.push(ReviewThreadSummary {
                 thread_id: thread.id,
                 comment_id,
@@ -813,13 +820,16 @@ fn resolve_thread_targets(args: &PrThreadsResolveArgs) -> Result<Vec<ReviewThrea
 
 fn load_reply_body(body: Option<&str>, body_file: Option<&Path>) -> Result<String> {
     match (body, body_file) {
-        (Some(_), Some(_)) => bail!("pass exactly one of --body or --body-file"),
-        (None, None) => bail!("pass exactly one of --body or --body-file"),
+        (Some(_), Some(_)) | (None, None) => {
+            bail!("pass exactly one of --body or --body-file")
+        }
         (Some(body), None) => Ok(body.to_owned()),
         (None, Some(path)) => std::fs::read_to_string(path)
             .with_context(|| format!("failed to read reply body from {}", path.display())),
     }
 }
+
+const COMMENT_PREVIEW_LIMIT: usize = 100;
 
 fn preview_comment_body(body: &str) -> String {
     let first_line = body
@@ -827,11 +837,10 @@ fn preview_comment_body(body: &str) -> String {
         .map(str::trim)
         .find(|line| !line.is_empty())
         .unwrap_or("<empty>");
-    const LIMIT: usize = 100;
-    if first_line.chars().count() <= LIMIT {
+    if first_line.chars().count() <= COMMENT_PREVIEW_LIMIT {
         return first_line.to_owned();
     }
-    let truncated: String = first_line.chars().take(LIMIT - 1).collect();
+    let truncated: String = first_line.chars().take(COMMENT_PREVIEW_LIMIT - 1).collect();
     format!("{truncated}…")
 }
 
@@ -1819,6 +1828,13 @@ mod tests {
     #[cfg(unix)]
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    fn assert_ok<T, E: std::fmt::Display>(result: Result<T, E>, context: &str) -> T {
+        match result {
+            Ok(value) => value,
+            Err(err) => unreachable!("{context}: {err}"),
+        }
+    }
+
     // ── extract_link_targets ──────────────────────────────────────────
 
     #[test]
@@ -1941,36 +1957,53 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn pr_status_command_can_execute_explicit_script_path() {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("time should be monotonic enough for test path generation")
-            .as_nanos();
+        let unique = assert_ok(
+            SystemTime::now().duration_since(UNIX_EPOCH),
+            "time should be monotonic enough for test path generation",
+        )
+        .as_nanos();
         let temp_dir = std::env::temp_dir().join(format!("xtask-pr-status-{unique}"));
         let script_path = temp_dir.join("pr-status.sh");
         let output_path = temp_dir.join("output.txt");
 
-        fs::create_dir_all(&temp_dir).expect("temp dir should be creatable");
-        fs::write(
-            &script_path,
-            format!(
-                "#!/usr/bin/env bash\nset -euo pipefail\nprintf '%s' \"${{1:-none}}\" > {}\n",
-                output_path.display()
-            ),
-        )
-        .expect("script should be writable");
+        assert_ok(
+            fs::create_dir_all(&temp_dir),
+            "temp dir should be creatable",
+        );
+        let script_body = [
+            "#!/usr/bin/env bash".to_owned(),
+            "set -euo pipefail".to_owned(),
+            "printf '%s' \"$".to_owned()
+                + "{"
+                + "1:-none"
+                + "}\" > "
+                + &output_path.display().to_string(),
+            String::new(),
+        ]
+        .join("\n");
+        assert_ok(
+            fs::write(&script_path, script_body),
+            "script should be writable",
+        );
 
-        let mut permissions = fs::metadata(&script_path)
-            .expect("script metadata should exist")
-            .permissions();
+        let mut permissions =
+            assert_ok(fs::metadata(&script_path), "script metadata should exist").permissions();
         permissions.set_mode(0o755);
-        fs::set_permissions(&script_path, permissions).expect("script should be executable");
+        assert_ok(
+            fs::set_permissions(&script_path, permissions),
+            "script should be executable",
+        );
 
-        let status = build_pr_status_command(&script_path, Some("302"))
-            .status()
-            .expect("script should run");
+        let status = assert_ok(
+            build_pr_status_command(&script_path, Some("302")).status(),
+            "script should run",
+        );
         assert!(status.success());
         assert_eq!(
-            fs::read_to_string(&output_path).expect("output should be readable"),
+            assert_ok(
+                fs::read_to_string(&output_path),
+                "output should be readable",
+            ),
             "302"
         );
 
@@ -1983,8 +2016,10 @@ mod tests {
 
     #[test]
     fn parses_pr_owner_and_repo_from_url() {
-        let (owner, repo) = parse_pr_owner_name("https://github.com/flyingrobots/echo/pull/308")
-            .expect("owner/repo should parse");
+        let (owner, repo) = assert_ok(
+            parse_pr_owner_name("https://github.com/flyingrobots/echo/pull/308"),
+            "owner/repo should parse",
+        );
         assert_eq!(owner, "flyingrobots");
         assert_eq!(repo, "echo");
     }
@@ -2007,7 +2042,7 @@ mod tests {
         assert!(load_reply_body(None, None).is_err());
         assert!(load_reply_body(Some("body"), Some(Path::new("reply.md"))).is_err());
         assert_eq!(
-            load_reply_body(Some("body"), None).expect("body text should load"),
+            assert_ok(load_reply_body(Some("body"), None), "body text should load"),
             "body"
         );
     }
@@ -2042,7 +2077,10 @@ mod tests {
             yes: true,
             thread_ids: vec!["THREAD_A".to_owned(), "THREAD_B".to_owned()],
         };
-        let targets = resolve_thread_targets(&args).expect("explicit thread ids should work");
+        let targets = assert_ok(
+            resolve_thread_targets(&args),
+            "explicit thread ids should work",
+        );
         assert_eq!(targets.len(), 2);
         assert_eq!(targets[0].thread_id, "THREAD_A");
         assert_eq!(targets[1].thread_id, "THREAD_B");
@@ -2065,8 +2103,9 @@ mod tests {
 
     #[test]
     fn review_thread_page_deserializes_expected_fields() {
-        let page: ReviewThreadsQueryResponse = serde_json::from_str(
-            r#"{
+        let page: ReviewThreadsQueryResponse = assert_ok(
+            serde_json::from_str(
+                r#"{
               "data": {
                 "repository": {
                   "pullRequest": {
@@ -2100,8 +2139,9 @@ mod tests {
                 }
               }
             }"#,
-        )
-        .expect("page should deserialize");
+            ),
+            "page should deserialize",
+        );
 
         let connection = page.data.repository.pull_request.review_threads;
         assert_eq!(connection.nodes.len(), 1);

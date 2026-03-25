@@ -13,11 +13,13 @@
 
 use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
-use serde::Deserialize;
-use std::collections::BTreeSet;
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
 
 #[derive(Parser)]
 #[command(
@@ -36,6 +38,8 @@ enum Commands {
     Dags(DagsArgs),
     /// Summarize current-head PR status, unresolved threads, and check state.
     PrStatus(PrStatusArgs),
+    /// Record a durable PR review-state snapshot under local ignored artifacts.
+    PrSnapshot(PrSnapshotArgs),
     /// List, reply to, or resolve PR review threads via `gh`.
     PrThreads(PrThreadsArgs),
     /// Run the high-signal local gate before opening a PR.
@@ -147,6 +151,15 @@ struct PrStatusArgs {
 }
 
 #[derive(Args)]
+struct PrSnapshotArgs {
+    /// Optional PR number or selector understood by `gh pr view`.
+    selector: Option<String>,
+    /// Local artifact root for recorded PR snapshots.
+    #[arg(long, default_value = "artifacts/pr-review")]
+    out_dir: PathBuf,
+}
+
+#[derive(Args)]
 struct PrThreadsArgs {
     /// PR review thread action to execute.
     #[command(subcommand)]
@@ -219,6 +232,7 @@ fn main() -> Result<()> {
     match cli.command {
         Commands::Dags(args) => run_dags(args),
         Commands::PrStatus(args) => run_pr_status(args),
+        Commands::PrSnapshot(args) => run_pr_snapshot(args),
         Commands::PrThreads(args) => run_pr_threads(args),
         Commands::PrPreflight(args) => run_pr_preflight(args),
         Commands::Dind(args) => run_dind(args),
@@ -270,6 +284,36 @@ fn run_pr_status(args: PrStatusArgs) -> Result<()> {
     if !status.success() {
         bail!("PR status command failed (exit status: {status})");
     }
+
+    Ok(())
+}
+
+fn run_pr_snapshot(args: PrSnapshotArgs) -> Result<()> {
+    let overview = fetch_pr_overview(args.selector.as_deref())?;
+    let checks = fetch_pr_checks(&overview)?;
+    let threads = fetch_unresolved_review_threads(&overview)?;
+    let snapshot = build_pr_snapshot_artifact(&overview, &checks, &threads)?;
+    let paths = write_pr_snapshot_artifact(&snapshot, &args.out_dir)?;
+
+    println!(
+        "Doghouse flight recorder captured PR #{}.",
+        snapshot.pr.number
+    );
+    println!("Title: {}", snapshot.pr.title);
+    println!("Head SHA: {}", snapshot.pr.head_sha_short);
+    println!("Recorded at: {}", snapshot.recorded_at);
+    println!("Current blockers:");
+    if snapshot.blockers.is_empty() {
+        println!("- none detected");
+    } else {
+        for blocker in &snapshot.blockers {
+            println!("- {blocker}");
+        }
+    }
+    println!("Snapshot JSON: {}", paths.snapshot_json.display());
+    println!("Snapshot Markdown: {}", paths.snapshot_markdown.display());
+    println!("Latest JSON: {}", paths.latest_json.display());
+    println!("Latest Markdown: {}", paths.latest_markdown.display());
 
     Ok(())
 }
@@ -336,7 +380,7 @@ fn run_pr_threads_list(selector: Option<&str>) -> Result<()> {
 
     println!("PR #{}", overview.number);
     println!("URL: {}", overview.url);
-    println!("Head SHA: {}", overview.head_sha);
+    println!("Head SHA: {}", overview.short_head_sha());
     println!("Unresolved threads: {}", threads.len());
 
     if threads.is_empty() {
@@ -454,6 +498,213 @@ fn build_review_reply_route(overview: &PrOverview) -> String {
         "repos/{}/{}/pulls/{}/comments",
         overview.owner, overview.repo, overview.number
     )
+}
+
+fn build_pr_snapshot_artifact(
+    overview: &PrOverview,
+    checks: &[PrCheckSummary],
+    threads: &[ReviewThreadSummary],
+) -> Result<PrSnapshotArtifact> {
+    let recorded_at = OffsetDateTime::now_utc();
+    let grouped_checks = group_pr_checks(checks);
+
+    Ok(PrSnapshotArtifact {
+        recorded_at: recorded_at
+            .format(&Rfc3339)
+            .context("failed to format snapshot timestamp")?,
+        filename_stamp: format_snapshot_filename_stamp(recorded_at),
+        pr: PrSnapshotOverview {
+            number: overview.number,
+            url: overview.url.clone(),
+            title: overview.title.clone(),
+            state: overview.state.clone(),
+            head_sha: overview.head_sha.clone(),
+            head_sha_short: overview.short_head_sha(),
+            review_decision: overview.review_decision.clone(),
+            merge_state: overview.merge_state.clone(),
+        },
+        blockers: collect_pr_blockers(overview, &grouped_checks, threads.len()),
+        checks: checks.to_vec(),
+        grouped_checks,
+        unresolved_threads: threads.to_vec(),
+    })
+}
+
+fn write_pr_snapshot_artifact(
+    snapshot: &PrSnapshotArtifact,
+    out_dir: &Path,
+) -> Result<PrSnapshotPaths> {
+    let pr_dir = out_dir.join(format!("pr-{}", snapshot.pr.number));
+    std::fs::create_dir_all(&pr_dir)
+        .with_context(|| format!("failed to create {}", pr_dir.display()))?;
+
+    let basename = format!("{}-{}", snapshot.filename_stamp, snapshot.pr.head_sha_short);
+    let snapshot_json = pr_dir.join(format!("{basename}.json"));
+    let snapshot_markdown = pr_dir.join(format!("{basename}.md"));
+    let latest_json = pr_dir.join("latest.json");
+    let latest_markdown = pr_dir.join("latest.md");
+
+    let json = serde_json::to_string_pretty(snapshot)
+        .context("failed to serialize PR snapshot JSON")?
+        + "\n";
+    let markdown = render_pr_snapshot_markdown(snapshot);
+
+    std::fs::write(&snapshot_json, &json)
+        .with_context(|| format!("failed to write {}", snapshot_json.display()))?;
+    std::fs::write(&snapshot_markdown, &markdown)
+        .with_context(|| format!("failed to write {}", snapshot_markdown.display()))?;
+    std::fs::write(&latest_json, &json)
+        .with_context(|| format!("failed to write {}", latest_json.display()))?;
+    std::fs::write(&latest_markdown, &markdown)
+        .with_context(|| format!("failed to write {}", latest_markdown.display()))?;
+
+    Ok(PrSnapshotPaths {
+        snapshot_json,
+        snapshot_markdown,
+        latest_json,
+        latest_markdown,
+    })
+}
+
+fn format_snapshot_filename_stamp(timestamp: OffsetDateTime) -> String {
+    format!(
+        "{:04}{:02}{:02}T{:02}{:02}{:02}Z",
+        timestamp.year(),
+        u8::from(timestamp.month()),
+        timestamp.day(),
+        timestamp.hour(),
+        timestamp.minute(),
+        timestamp.second()
+    )
+}
+
+fn collect_pr_blockers(
+    overview: &PrOverview,
+    grouped_checks: &BTreeMap<String, Vec<String>>,
+    unresolved_threads: usize,
+) -> Vec<String> {
+    let mut blockers = Vec::new();
+
+    if unresolved_threads > 0 {
+        blockers.push(format!("unresolved review threads: {unresolved_threads}"));
+    }
+    if let Some(failing) = grouped_checks
+        .get("fail")
+        .filter(|checks| !checks.is_empty())
+    {
+        blockers.push(format!("failing checks: {}", failing.join(", ")));
+    }
+    if let Some(pending) = grouped_checks
+        .get("pending")
+        .filter(|checks| !checks.is_empty())
+    {
+        blockers.push(format!("pending checks: {}", pending.join(", ")));
+    }
+    if overview.state == "OPEN" && overview.review_decision != "APPROVED" {
+        blockers.push(format!("review decision: {}", overview.review_decision));
+    }
+    if overview.state == "OPEN" && !matches!(overview.merge_state.as_str(), "CLEAN" | "HAS_HOOKS") {
+        blockers.push(format!("merge state: {}", overview.merge_state));
+    }
+
+    blockers
+}
+
+fn group_pr_checks(checks: &[PrCheckSummary]) -> BTreeMap<String, Vec<String>> {
+    let mut grouped = BTreeMap::<String, Vec<String>>::new();
+    for check in checks {
+        grouped
+            .entry(check.bucket.clone())
+            .or_default()
+            .push(check.name.clone());
+    }
+    for names in grouped.values_mut() {
+        names.sort();
+    }
+    grouped
+}
+
+fn render_pr_snapshot_markdown(snapshot: &PrSnapshotArtifact) -> String {
+    let mut sections = Vec::new();
+    sections.push(format!(
+        "# Doghouse Flight Recorder: PR #{}\n",
+        snapshot.pr.number
+    ));
+    sections.push(format!("URL: {}\n", snapshot.pr.url));
+    sections.push(format!("Title: {}\n", snapshot.pr.title));
+    sections.push(format!("Recorded at: {}\n", snapshot.recorded_at));
+    sections.push(format!("PR state: `{}`\n", snapshot.pr.state));
+    sections.push(format!("Head SHA: `{}`\n", snapshot.pr.head_sha));
+    sections.push(format!(
+        "Review decision: `{}`\n",
+        snapshot.pr.review_decision
+    ));
+    sections.push(format!("Merge state: `{}`\n", snapshot.pr.merge_state));
+    sections.push(format!(
+        "Unresolved threads: {}\n",
+        snapshot.unresolved_threads.len()
+    ));
+
+    sections.push("\n## Current Blockers\n".to_owned());
+    if snapshot.blockers.is_empty() {
+        sections.push("- none detected\n".to_owned());
+    } else {
+        for blocker in &snapshot.blockers {
+            sections.push(format!("- {blocker}\n"));
+        }
+    }
+
+    sections.push("\n## Checks\n".to_owned());
+    for bucket in ["fail", "pending", "pass", "skipping", "cancel", "unknown"] {
+        if let Some(names) = snapshot.grouped_checks.get(bucket) {
+            if names.is_empty() {
+                continue;
+            }
+            sections.push(format!(
+                "\n### {} ({})\n",
+                display_check_bucket(bucket),
+                names.len()
+            ));
+            for name in names {
+                sections.push(format!("- {name}\n"));
+            }
+        }
+    }
+
+    sections.push("\n## Unresolved Threads\n".to_owned());
+    if snapshot.unresolved_threads.is_empty() {
+        sections.push("No unresolved review threads.\n".to_owned());
+    } else {
+        for (idx, thread) in snapshot.unresolved_threads.iter().enumerate() {
+            sections.push(format!(
+                "\n{}. `{}` by `{}` at `{}`\n",
+                idx + 1,
+                thread.thread_id,
+                thread.author.as_deref().unwrap_or("unknown"),
+                thread.display_location()
+            ));
+            if let Some(comment_id) = thread.comment_id {
+                sections.push(format!("Comment ID: `{comment_id}`\n"));
+            }
+            if let Some(url) = thread.url.as_deref() {
+                sections.push(format!("URL: {url}\n"));
+            }
+            sections.push(format!("Preview: {}\n", thread.preview));
+        }
+    }
+
+    sections.concat()
+}
+
+fn display_check_bucket(bucket: &str) -> &'static str {
+    match bucket {
+        "fail" => "Failing checks",
+        "pending" => "Pending checks",
+        "pass" => "Passing checks",
+        "skipping" => "Skipped checks",
+        "cancel" => "Cancelled checks",
+        _ => "Other checks",
+    }
 }
 
 fn build_pr_preflight_plan(changed_files: &[String], full: bool) -> Vec<PreflightCheck> {
@@ -724,7 +975,7 @@ fn fetch_pr_overview(selector: Option<&str>) -> Result<PrOverview> {
         "pr",
         "view",
         "--json",
-        "number,url,headRefOid,reviewDecision,mergeStateStatus",
+        "number,title,url,state,headRefOid,reviewDecision,mergeStateStatus",
     ];
     if let Some(selector) = selector {
         args.insert(2, selector);
@@ -739,9 +990,53 @@ fn fetch_pr_overview(selector: Option<&str>) -> Result<PrOverview> {
         owner,
         repo,
         number: view.number,
+        title: view.title,
         url: view.url,
-        head_sha: view.head_ref_oid.chars().take(12).collect(),
+        state: view.state,
+        head_sha: view.head_ref_oid,
+        review_decision: view.review_decision.unwrap_or_else(|| "NONE".to_owned()),
+        merge_state: view
+            .merge_state_status
+            .unwrap_or_else(|| "UNKNOWN".to_owned()),
     })
+}
+
+fn fetch_pr_checks(pr: &PrOverview) -> Result<Vec<PrCheckSummary>> {
+    let output = run_gh_capture_allow_exit_codes(
+        [
+            "pr",
+            "checks",
+            pr.url.as_str(),
+            "--json",
+            "name,bucket,state",
+        ],
+        &[8],
+    )?;
+    let mut checks: Vec<GhPrCheck> =
+        serde_json::from_str(&output).context("failed to parse `gh pr checks` JSON")?;
+    checks.sort_by(|left, right| {
+        left.bucket
+            .cmp(&right.bucket)
+            .then_with(|| left.name.cmp(&right.name))
+            .then_with(|| left.state.cmp(&right.state))
+    });
+
+    Ok(checks
+        .into_iter()
+        .map(|check| PrCheckSummary {
+            name: check.name,
+            bucket: if check.bucket.trim().is_empty() {
+                "unknown".to_owned()
+            } else {
+                check.bucket
+            },
+            state: if check.state.trim().is_empty() {
+                "UNKNOWN".to_owned()
+            } else {
+                check.state
+            },
+        })
+        .collect())
 }
 
 fn fetch_unresolved_review_threads(pr: &PrOverview) -> Result<Vec<ReviewThreadSummary>> {
@@ -887,6 +1182,14 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
+    run_gh_capture_allow_exit_codes(args, &[])
+}
+
+fn run_gh_capture_allow_exit_codes<I, S>(args: I, allowed_exit_codes: &[i32]) -> Result<String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
     let output = Command::new("gh")
         .args(args)
         .output()
@@ -894,7 +1197,12 @@ where
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     let combined = format!("{stdout}{stderr}");
-    if output.status.success() {
+    if output.status.success()
+        || output
+            .status
+            .code()
+            .is_some_and(|code| allowed_exit_codes.contains(&code))
+    {
         return Ok(stdout.into_owned());
     }
     if is_gh_auth_error(&combined) {
@@ -922,11 +1230,21 @@ struct PrOverview {
     owner: String,
     repo: String,
     number: u64,
+    title: String,
     url: String,
+    state: String,
     head_sha: String,
+    review_decision: String,
+    merge_state: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+impl PrOverview {
+    fn short_head_sha(&self) -> String {
+        self.head_sha.chars().take(12).collect()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 struct ReviewThreadSummary {
     thread_id: String,
     comment_id: Option<u64>,
@@ -975,9 +1293,62 @@ struct PreflightScope {
 #[derive(Deserialize)]
 struct GhPrView {
     number: u64,
+    title: String,
     url: String,
+    state: String,
     #[serde(rename = "headRefOid")]
     head_ref_oid: String,
+    #[serde(rename = "reviewDecision")]
+    review_decision: Option<String>,
+    #[serde(rename = "mergeStateStatus")]
+    merge_state_status: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct GhPrCheck {
+    name: String,
+    #[serde(default)]
+    bucket: String,
+    #[serde(default)]
+    state: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct PrCheckSummary {
+    name: String,
+    bucket: String,
+    state: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct PrSnapshotArtifact {
+    recorded_at: String,
+    filename_stamp: String,
+    pr: PrSnapshotOverview,
+    blockers: Vec<String>,
+    checks: Vec<PrCheckSummary>,
+    grouped_checks: BTreeMap<String, Vec<String>>,
+    unresolved_threads: Vec<ReviewThreadSummary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct PrSnapshotOverview {
+    number: u64,
+    url: String,
+    title: String,
+    state: String,
+    head_sha: String,
+    head_sha_short: String,
+    review_decision: String,
+    merge_state: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PrSnapshotPaths {
+    snapshot_json: PathBuf,
+    snapshot_markdown: PathBuf,
+    latest_json: PathBuf,
+    latest_markdown: PathBuf,
 }
 
 #[derive(Deserialize)]
@@ -1846,7 +2217,6 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
-    #[cfg(unix)]
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn assert_ok<T, E: std::fmt::Display>(result: Result<T, E>, context: &str) -> T {
@@ -1863,6 +2233,44 @@ mod tests {
             .map(|value| value.to_string_lossy().into_owned())
             .collect();
         (program, args)
+    }
+
+    fn sample_pr_overview() -> PrOverview {
+        PrOverview {
+            owner: "flyingrobots".to_owned(),
+            repo: "echo".to_owned(),
+            number: 308,
+            title: "Add PR workflow hardening".to_owned(),
+            url: "https://github.com/flyingrobots/echo/pull/308".to_owned(),
+            state: "OPEN".to_owned(),
+            head_sha: "a2ee2f56336295783719ba9e0be52c4f2f0670e2".to_owned(),
+            review_decision: "REVIEW_REQUIRED".to_owned(),
+            merge_state: "BLOCKED".to_owned(),
+        }
+    }
+
+    fn sample_review_thread() -> ReviewThreadSummary {
+        ReviewThreadSummary {
+            thread_id: "THREAD_1".to_owned(),
+            comment_id: Some(123456),
+            author: Some("coderabbitai".to_owned()),
+            url: Some(
+                "https://github.com/flyingrobots/echo/pull/308#discussion_r123456".to_owned(),
+            ),
+            path: Some("xtask/src/main.rs".to_owned()),
+            line: Some(42),
+            is_outdated: false,
+            preview: "Please tighten this branch.".to_owned(),
+        }
+    }
+
+    fn unique_temp_path(prefix: &str) -> PathBuf {
+        let unique = assert_ok(
+            SystemTime::now().duration_since(UNIX_EPOCH),
+            "time should advance for temp-path generation",
+        )
+        .as_nanos();
+        std::env::temp_dir().join(format!("{prefix}-{unique}"))
     }
 
     // ── extract_link_targets ──────────────────────────────────────────
@@ -2083,14 +2491,154 @@ mod tests {
             owner: "upstream".to_owned(),
             repo: "fork-target".to_owned(),
             number: 308,
+            title: "Review helper".to_owned(),
             url: "https://github.com/upstream/fork-target/pull/308".to_owned(),
-            head_sha: "deadbeefcafe".to_owned(),
+            state: "OPEN".to_owned(),
+            head_sha: "deadbeefcafebabefeedface1234567890abcdef".to_owned(),
+            review_decision: "NONE".to_owned(),
+            merge_state: "UNKNOWN".to_owned(),
         };
 
         assert_eq!(
             build_review_reply_route(&overview),
             "repos/upstream/fork-target/pulls/308/comments"
         );
+    }
+
+    #[test]
+    fn snapshot_artifact_collects_expected_blockers() {
+        let overview = sample_pr_overview();
+        let checks = vec![
+            PrCheckSummary {
+                name: "Clippy".to_owned(),
+                bucket: "fail".to_owned(),
+                state: "FAILURE".to_owned(),
+            },
+            PrCheckSummary {
+                name: "Tests".to_owned(),
+                bucket: "pending".to_owned(),
+                state: "PENDING".to_owned(),
+            },
+            PrCheckSummary {
+                name: "fmt".to_owned(),
+                bucket: "pass".to_owned(),
+                state: "SUCCESS".to_owned(),
+            },
+        ];
+        let threads = vec![sample_review_thread()];
+
+        let snapshot = assert_ok(
+            build_pr_snapshot_artifact(&overview, &checks, &threads),
+            "snapshot should build",
+        );
+
+        assert_eq!(snapshot.pr.head_sha_short, "a2ee2f563362");
+        assert!(snapshot
+            .blockers
+            .contains(&"unresolved review threads: 1".to_owned()));
+        assert!(snapshot
+            .blockers
+            .contains(&"failing checks: Clippy".to_owned()));
+        assert!(snapshot
+            .blockers
+            .contains(&"pending checks: Tests".to_owned()));
+        assert!(snapshot
+            .blockers
+            .contains(&"review decision: REVIEW_REQUIRED".to_owned()));
+        assert!(snapshot
+            .blockers
+            .contains(&"merge state: BLOCKED".to_owned()));
+    }
+
+    #[test]
+    fn snapshot_markdown_includes_core_sections() {
+        let overview = sample_pr_overview();
+        let checks = vec![PrCheckSummary {
+            name: "fmt".to_owned(),
+            bucket: "pass".to_owned(),
+            state: "SUCCESS".to_owned(),
+        }];
+        let threads = vec![sample_review_thread()];
+        let snapshot = assert_ok(
+            build_pr_snapshot_artifact(&overview, &checks, &threads),
+            "snapshot should build",
+        );
+
+        let markdown = render_pr_snapshot_markdown(&snapshot);
+
+        assert!(markdown.contains("# Doghouse Flight Recorder: PR #308"));
+        assert!(markdown.contains("PR state: `OPEN`"));
+        assert!(markdown.contains("## Current Blockers"));
+        assert!(markdown.contains("## Checks"));
+        assert!(markdown.contains("## Unresolved Threads"));
+        assert!(markdown.contains("Please tighten this branch."));
+    }
+
+    #[test]
+    fn snapshot_blockers_ignore_review_and_merge_state_for_merged_prs() {
+        let mut overview = sample_pr_overview();
+        overview.state = "MERGED".to_owned();
+        overview.review_decision = "NONE".to_owned();
+        overview.merge_state = "UNKNOWN".to_owned();
+        let checks = vec![PrCheckSummary {
+            name: "fmt".to_owned(),
+            bucket: "pass".to_owned(),
+            state: "SUCCESS".to_owned(),
+        }];
+
+        let snapshot = assert_ok(
+            build_pr_snapshot_artifact(&overview, &checks, &[]),
+            "snapshot should build",
+        );
+
+        assert!(snapshot.blockers.is_empty());
+    }
+
+    #[test]
+    fn snapshot_writer_creates_timestamped_and_latest_outputs() {
+        let overview = sample_pr_overview();
+        let checks = vec![PrCheckSummary {
+            name: "fmt".to_owned(),
+            bucket: "pass".to_owned(),
+            state: "SUCCESS".to_owned(),
+        }];
+        let threads = Vec::new();
+        let snapshot = assert_ok(
+            build_pr_snapshot_artifact(&overview, &checks, &threads),
+            "snapshot should build",
+        );
+        let temp_dir = unique_temp_path("xtask-pr-snapshot");
+
+        let paths = assert_ok(
+            write_pr_snapshot_artifact(&snapshot, &temp_dir),
+            "snapshot artifacts should write",
+        );
+
+        assert!(paths.snapshot_json.is_file());
+        assert!(paths.snapshot_markdown.is_file());
+        assert!(paths.latest_json.is_file());
+        assert!(paths.latest_markdown.is_file());
+        assert!(paths
+            .snapshot_json
+            .file_name()
+            .and_then(|value| value.to_str())
+            .is_some_and(|value| value.ends_with("-a2ee2f563362.json")));
+        assert_eq!(
+            assert_ok(
+                fs::read_to_string(&paths.latest_json),
+                "latest json should be readable",
+            ),
+            assert_ok(
+                fs::read_to_string(&paths.snapshot_json),
+                "snapshot json should be readable",
+            )
+        );
+
+        fs::remove_file(&paths.snapshot_json).ok();
+        fs::remove_file(&paths.snapshot_markdown).ok();
+        fs::remove_file(&paths.latest_json).ok();
+        fs::remove_file(&paths.latest_markdown).ok();
+        fs::remove_dir_all(&temp_dir).ok();
     }
 
     #[test]

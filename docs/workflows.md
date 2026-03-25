@@ -78,6 +78,8 @@ The repo also exposes maintenance commands via `cargo xtask …`:
 - `cargo xtask dags --snapshot-label 2026-01-02` pins a date label (useful for comparisons).
 - `cargo xtask pr-status` summarizes the current PR head, exact unresolved review-thread count, grouped check state, and a concise current-blockers section.
 - `cargo xtask pr-status 306` targets an explicit PR number instead of the current branch PR.
+- `cargo xtask pr-snapshot` records a durable local PR review snapshot under `artifacts/pr-review/`.
+- `cargo xtask pr-snapshot 308` targets an explicit PR number instead of the current branch PR.
 - `cargo xtask pr-threads list` lists unresolved review threads for the current PR with thread ids, comment ids, path, author, URL, and a short preview.
 - `cargo xtask pr-threads list 306` targets an explicit PR number instead of the current branch PR.
 - `cargo xtask pr-threads reply 123456789 --body-file /tmp/reply.md` posts a human-authored reply to a review comment id on the current branch PR.
@@ -111,6 +113,22 @@ What it intentionally does **not** prove:
 - human/self-review quality
 
 Use `cargo xtask pr-preflight --full` when you want the broader local proof before a high-risk or cross-cutting PR. `make pr-preflight ARGS='--full'` remains available as a thin alias.
+
+### PR Flight Recorder
+
+When a review cycle starts getting noisy, capture the current state before and after a fix batch:
+
+```sh
+cargo xtask pr-snapshot
+```
+
+The recorder writes timestamped JSON + Markdown under `artifacts/pr-review/pr-<number>/`
+and refreshes `latest.json` / `latest.md` for the selected PR. Those artifacts are
+local-only and gitignored on purpose. They exist to make review-state drift legible:
+head SHA, grouped checks, unresolved threads, review decision, merge state, and current blockers.
+
+Use `make pr-snapshot ARGS='308'` if you prefer a Make alias or need to target an
+explicit PR number.
 
 ---
 

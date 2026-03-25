@@ -42,11 +42,14 @@ function loadClusterPrefixes() {
   try {
     const raw = fs.readFileSync(CLUSTER_CONFIG_PATH, "utf8");
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.every((p) => typeof p === "string")) {
-      return parsed;
+    if (
+      Array.isArray(parsed) &&
+      parsed.every((p) => typeof p === "string" && p.trim().length > 0)
+    ) {
+      return parsed.map((p) => p.trim());
     }
     console.warn(
-      `clusters-config.json is invalid (expected array of strings); using defaults.`,
+      `clusters-config.json is invalid (expected array of non-empty strings); using defaults.`,
     );
   } catch (err) {
     if (err?.code !== "ENOENT") {

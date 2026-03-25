@@ -15,6 +15,7 @@ const DEFINITION_KIND_NAMES = new Map([
     ["EnumTypeDefinition", "enum"],
     ["InterfaceTypeDefinition", "interface"],
     ["UnionTypeDefinition", "union"],
+    ["DirectiveDefinition", "directive"],
 ]);
 const SCRIPT_DIR = fileURLToPath(new URL(".", import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, "..");

@@ -70,11 +70,21 @@ type RuntimeProbeImpl implements RuntimeProbe {
     id: ID!
 }
 EOF
+cat <<'EOF' >"$tmpdir_directives/directive-definition-safe.graphql"
+# SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+directive @runtimeMarker(label: String!) on FIELD_DEFINITION
+
+type RuntimeDirectiveProbe {
+    field: String @runtimeMarker(label: "stable")
+}
+EOF
 
 if node scripts/validate-runtime-schema-fragments.mjs --dir "$tmpdir_directives" >"$output_file" 2>&1; then
-  pass "validator accepts directive-bearing fields and interface definitions"
+  pass "validator accepts directive-bearing fields, directive definitions, and interface definitions"
 else
-  fail "validator should accept directive-bearing fields and interface definitions"
+  fail "validator should accept directive-bearing fields, directive definitions, and interface definitions"
   cat "$output_file"
 fi
 

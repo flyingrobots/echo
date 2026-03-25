@@ -40,6 +40,7 @@ cat >"$tmpdir/package.json" <<'EOF'
 EOF
 
 cp scripts/generate-dependency-dags.js "$tmpdir/scripts/generate-dependency-dags.js"
+cp scripts/generate-tasks-dag.js "$tmpdir/scripts/generate-tasks-dag.js"
 cp scripts/parse-tasks-dag.js "$tmpdir/scripts/parse-tasks-dag.js"
 cp scripts/dag-utils.js "$tmpdir/scripts/dag-utils.js"
 
@@ -107,6 +108,37 @@ if (
   fi
 else
   fail "generator should succeed with only the archived TASKS-DAG source present"
+  cat "$output_file"
+fi
+
+cat >"$tmpdir/docs/assets/dags/clusters-config.json" <<'EOF'
+["   "]
+EOF
+cat >"$tmpdir/docs/archive/tasks/TASKS-DAG.md" <<'EOF'
+## [#1: Alpha seed](https://example.com/issues/1)
+
+- Blocks:
+  - [#2: Beta dependent](https://example.com/issues/2)
+EOF
+
+echo
+echo "=== tasks DAG cluster-prefix validation ==="
+echo
+
+if (
+  cd "$tmpdir" &&
+    node scripts/generate-tasks-dag.js >"$output_file" 2>&1
+); then
+  if grep -q 'clusters-config.json is invalid (expected array of non-empty strings); using defaults.' "$output_file" &&
+    grep -q 'subgraph cluster_Misc' "$tmpdir/docs/assets/dags/tasks-dag.dot"; then
+    pass "tasks DAG generator rejects blank cluster prefixes and falls back to defaults"
+  else
+    fail "tasks DAG generator should reject blank cluster prefixes and cluster unmatched nodes as Misc"
+    cat "$output_file"
+    cat "$tmpdir/docs/assets/dags/tasks-dag.dot"
+  fi
+else
+  fail "tasks DAG generator should succeed when cluster config falls back to defaults"
   cat "$output_file"
 fi
 

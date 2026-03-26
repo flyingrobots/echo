@@ -76,12 +76,12 @@ The repo also exposes maintenance commands via `cargo xtask …`:
 - `cargo xtask dags --snapshot-label none` omits snapshot labels (best for CI automation).
 - `cargo xtask dags --snapshot-label rolling` emits a stable `rolling` label.
 - `cargo xtask dags --snapshot-label 2026-01-02` pins a date label (useful for comparisons).
-- `cargo xtask doghouse sortie 308 --intent merge-check` emits agent-native JSONL for the selected PR, including sortie intent, CodeRabbit summary-comment state (cooldown, checkbox rearm, or other callout weirdness), actionable checkbox ids/labels when present, baseline selection, comparison trust/quality assessment, semantic delta, and an intent-aware next-action verdict that still keeps human/Codex review state separate.
+- `cargo xtask doghouse sortie 308 --intent merge_check` emits agent-native JSONL for the selected PR, including sortie intent, CodeRabbit summary-comment state (cooldown, checkbox rearm, or other callout weirdness), actionable checkbox ids/labels when present, baseline selection, comparison trust/quality assessment, semantic delta, and an intent-aware next-action verdict that still keeps human/Codex review state separate.
 - `cargo xtask doghouse rearm-coderabbit 308 --yes` edits the latest CodeRabbit summary comment when Rabbit has paused itself behind an active-changes checkbox gate.
 - `cargo xtask pr-status` summarizes the current PR head, exact unresolved review-thread count, grouped check state, and a concise current-blockers section.
 - `cargo xtask pr-status 306` targets an explicit PR number instead of the current branch PR.
 - `cargo xtask pr-snapshot` records a durable local PR review snapshot under `artifacts/pr-review/`.
-- `cargo xtask pr-snapshot 308 --intent fix-batch` targets an explicit PR number and records why the capture was taken.
+- `cargo xtask pr-snapshot 308 --intent fix_batch` targets an explicit PR number and records why the capture was taken.
 - `cargo xtask pr-threads list` lists unresolved review threads for the current PR with thread ids, comment ids, path, author, URL, and a short preview.
 - `cargo xtask pr-threads list 306` targets an explicit PR number instead of the current branch PR.
 - `cargo xtask pr-threads reply 123456789 --body-file /tmp/reply.md` posts a human-authored reply to a review comment id on the current branch PR.
@@ -118,7 +118,7 @@ Use `cargo xtask pr-preflight --full` when you want the broader local proof befo
 
 ### PR Flight Recorder
 
-When a review cycle starts getting noisy, capture the current state before and after a fix batch:
+When a review cycle starts getting noisy, make Doghouse your first stop before manually spelunking through `gh` output or the GitHub UI. Capture the current state after opening the PR, after each push, and before or after each fix batch:
 
 ```sh
 cargo xtask pr-snapshot
@@ -132,8 +132,15 @@ Those artifacts are local-only and gitignored on purpose. They exist to make rev
 drift legible: head SHA, grouped checks, unresolved threads, review decision, merge state,
 current blockers, and the transition between successive snapshots.
 
-Use `make pr-snapshot ARGS='308'` if you prefer a Make alias or need to target an
-explicit PR number.
+For agent-native triage, prefer:
+
+```sh
+cargo xtask doghouse sortie 308 --intent post_push
+```
+
+That JSONL stream is the plumbing surface. It picks a meaningful baseline, grades comparison trust/quality, reports CodeRabbit pause or cooldown state without eclipsing human/Codex reviewers, and emits the current next-action verdict.
+
+Use `make pr-snapshot ARGS='308'` if you prefer a Make alias or need to target an explicit PR number.
 
 ---
 

@@ -35,7 +35,7 @@ The product question is:
 The agent-native plumbing entrypoint is:
 
 ```sh
-cargo xtask doghouse sortie 308 --intent merge-check
+cargo xtask doghouse sortie 308 --intent merge_check
 ```
 
 That command emits JSONL to stdout, writes local snapshot/delta artifacts under

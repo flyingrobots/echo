@@ -29,8 +29,12 @@ For a durable local snapshot of PR state across review rounds, prefer
 `cargo xtask pr-snapshot` (or `make pr-snapshot ARGS='…'`), which writes
 gitignored JSON + Markdown under `artifacts/pr-review/`, plus semantic delta
 artifacts when a previous local snapshot exists. When the capture purpose matters,
-pass `--intent merge-check`, `--intent fix-batch`, or another Doghouse intent so
+pass `--intent merge_check`, `--intent fix_batch`, or another Doghouse intent so
 the recorder can preserve why the snapshot was taken.
+When you need to decide what to do on a live PR, prefer `cargo xtask doghouse sortie`
+before hand-inspecting GitHub. The JSONL output is the agent-native plumbing surface:
+it compares against the last meaningful sortie, reports CodeRabbit pause/cooldown state
+without eclipsing human/Codex reviewers, and emits the next-action verdict.
 Before opening a PR, prefer `cargo xtask pr-preflight` (or
 `make pr-preflight ARGS='…'`) instead of composing ad hoc local checks by hand.
 

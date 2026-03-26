@@ -1302,13 +1302,14 @@ fn check_bucket_score(bucket: &str) -> i8 {
 
 fn format_snapshot_filename_stamp(timestamp: OffsetDateTime) -> String {
     format!(
-        "{:04}{:02}{:02}T{:02}{:02}{:02}Z",
+        "{:04}{:02}{:02}T{:02}{:02}{:02}_{:09}Z",
         timestamp.year(),
         u8::from(timestamp.month()),
         timestamp.day(),
         timestamp.hour(),
         timestamp.minute(),
-        timestamp.second()
+        timestamp.second(),
+        timestamp.nanosecond(),
     )
 }
 
@@ -2211,33 +2212,48 @@ fn fetch_latest_code_rabbit_summary_comment(
 ) -> Result<Option<CodeRabbitSummaryComment>> {
     let output = run_gh_capture([
         "api",
-        "graphql",
-        "-F",
-        &format!("owner={}", pr.owner),
-        "-F",
-        &format!("name={}", pr.repo),
-        "-F",
-        &format!("number={}", pr.number),
-        "-f",
-        "query=query($owner:String!, $name:String!, $number:Int!) { repository(owner:$owner, name:$name) { pullRequest(number:$number) { comments(last:50) { nodes { databaseId url body updatedAt author { login } } } } } }",
+        "--paginate",
+        "--slurp",
+        &format!(
+            "repos/{}/{}/issues/{}/comments?per_page=100&sort=updated&direction=desc",
+            pr.owner, pr.repo, pr.number
+        ),
     ])?;
-    let response: CodeRabbitCommentsQueryResponse =
-        serde_json::from_str(&output).context("failed to parse CodeRabbit comments response")?;
-    let comments = response.data.repository.pull_request.comments.nodes;
-    Ok(comments
+    let pages: Vec<Vec<GhIssueComment>> =
+        serde_json::from_str(&output).context("failed to parse CodeRabbit issue comments")?;
+    let comments = pages
+        .into_iter()
+        .flatten()
+        .map(CodeRabbitSummaryComment::from_issue_comment)
+        .collect::<Vec<_>>();
+    Ok(select_latest_code_rabbit_summary_comment(comments))
+}
+
+fn select_latest_code_rabbit_summary_comment<I>(comments: I) -> Option<CodeRabbitSummaryComment>
+where
+    I: IntoIterator<Item = CodeRabbitSummaryComment>,
+{
+    comments
         .into_iter()
         .filter(|comment| {
             comment
                 .author
                 .as_ref()
-                .is_some_and(|author| author.login.eq_ignore_ascii_case("coderabbitai"))
+                .is_some_and(|author| is_code_rabbit_author_login(&author.login))
         })
         .filter(|comment| {
             comment
                 .body
                 .contains("This is an auto-generated comment: summarize by coderabbit.ai")
         })
-        .max_by(|left, right| left.updated_at.cmp(&right.updated_at)))
+        .max_by(|left, right| left.updated_at.cmp(&right.updated_at))
+}
+
+fn is_code_rabbit_author_login(login: &str) -> bool {
+    matches!(
+        login.to_ascii_lowercase().as_str(),
+        "coderabbitai" | "coderabbitai[bot]"
+    )
 }
 
 fn analyze_code_rabbit_summary_comment(
@@ -2783,29 +2799,19 @@ struct GhPrCheck {
 }
 
 #[derive(Deserialize)]
-struct CodeRabbitCommentsQueryResponse {
-    data: CodeRabbitCommentsQueryData,
+struct GhIssueComment {
+    id: u64,
+    #[serde(rename = "html_url")]
+    html_url: String,
+    body: String,
+    #[serde(rename = "updated_at")]
+    updated_at: String,
+    user: Option<GhIssueCommentUser>,
 }
 
 #[derive(Deserialize)]
-struct CodeRabbitCommentsQueryData {
-    repository: CodeRabbitCommentsRepository,
-}
-
-#[derive(Deserialize)]
-struct CodeRabbitCommentsRepository {
-    #[serde(rename = "pullRequest")]
-    pull_request: CodeRabbitCommentsPullRequest,
-}
-
-#[derive(Deserialize)]
-struct CodeRabbitCommentsPullRequest {
-    comments: CodeRabbitCommentsConnection,
-}
-
-#[derive(Deserialize)]
-struct CodeRabbitCommentsConnection {
-    nodes: Vec<CodeRabbitSummaryComment>,
+struct GhIssueCommentUser {
+    login: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -2822,6 +2828,20 @@ struct CodeRabbitSummaryComment {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 struct CodeRabbitCommentAuthor {
     login: String,
+}
+
+impl CodeRabbitSummaryComment {
+    fn from_issue_comment(comment: GhIssueComment) -> Self {
+        Self {
+            url: comment.html_url,
+            database_id: Some(comment.id),
+            body: comment.body,
+            updated_at: comment.updated_at,
+            author: comment
+                .user
+                .map(|user| CodeRabbitCommentAuthor { login: user.login }),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -4738,6 +4758,23 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_filename_stamp_distinguishes_same_second_captures() {
+        let first = assert_ok(
+            OffsetDateTime::parse("2026-03-26T04:38:02.000000001Z", &Rfc3339),
+            "first timestamp should parse",
+        );
+        let second = assert_ok(
+            OffsetDateTime::parse("2026-03-26T04:38:02.000000002Z", &Rfc3339),
+            "second timestamp should parse",
+        );
+
+        assert_ne!(
+            format_snapshot_filename_stamp(first),
+            format_snapshot_filename_stamp(second)
+        );
+    }
+
+    #[test]
     fn snapshot_delta_reports_meaningful_transitions() {
         let mut previous_overview = sample_pr_overview();
         previous_overview.head_sha = "11111111111195783719ba9e0be52c4f2f0670e2".to_owned();
@@ -5223,6 +5260,53 @@ mod tests {
             ))
         );
         assert!(!cooldown.request_review_actionable);
+    }
+
+    #[test]
+    fn selects_latest_coderabbit_summary_from_paginated_issue_comments() {
+        let comments = vec![
+            CodeRabbitSummaryComment::from_issue_comment(GhIssueComment {
+                id: 1,
+                html_url: "https://github.com/flyingrobots/echo/pull/309#issuecomment-1".to_owned(),
+                body: "ordinary human comment".to_owned(),
+                updated_at: "2026-03-26T03:30:00Z".to_owned(),
+                user: Some(GhIssueCommentUser {
+                    login: "alice".to_owned(),
+                }),
+            }),
+            CodeRabbitSummaryComment::from_issue_comment(GhIssueComment {
+                id: 2,
+                html_url: "https://github.com/flyingrobots/echo/pull/309#issuecomment-2".to_owned(),
+                body: [
+                    "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->",
+                    "older summary",
+                ]
+                .join("\n"),
+                updated_at: "2026-03-26T03:31:00Z".to_owned(),
+                user: Some(GhIssueCommentUser {
+                    login: "coderabbitai[bot]".to_owned(),
+                }),
+            }),
+            CodeRabbitSummaryComment::from_issue_comment(GhIssueComment {
+                id: 3,
+                html_url: "https://github.com/flyingrobots/echo/pull/309#issuecomment-3".to_owned(),
+                body: [
+                    "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->",
+                    "newer summary",
+                ]
+                .join("\n"),
+                updated_at: "2026-03-26T03:32:00Z".to_owned(),
+                user: Some(GhIssueCommentUser {
+                    login: "coderabbitai[bot]".to_owned(),
+                }),
+            }),
+        ];
+
+        let comment = select_latest_code_rabbit_summary_comment(comments)
+            .unwrap_or_else(|| unreachable!("latest CodeRabbit summary should be selected"));
+
+        assert_eq!(comment.database_id, Some(3));
+        assert!(comment.body.contains("newer summary"));
     }
 
     #[test]

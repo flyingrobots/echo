@@ -2244,7 +2244,10 @@ fn analyze_code_rabbit_summary_comment(
     comment: CodeRabbitSummaryComment,
 ) -> Option<DoghouseCodeRabbitState> {
     let callout = extract_code_rabbit_callout(&comment.body);
-    let checkboxes = extract_code_rabbit_checkboxes(&comment.body);
+    let checkboxes = extract_code_rabbit_checkboxes(&comment.body)
+        .into_iter()
+        .filter(|checkbox| is_code_rabbit_review_action_checkbox(&checkbox.label))
+        .collect::<Vec<_>>();
     let active_changes_gate = code_rabbit_summary_mentions_active_changes(&comment.body)
         || callout
             .as_ref()
@@ -2449,7 +2452,9 @@ fn build_code_rabbit_rearm_body(body: &str) -> Option<(String, usize)> {
     let mut toggled_checkbox_count = 0_usize;
     let mut rewritten = Vec::new();
     for line in body.lines() {
-        if parse_code_rabbit_checkbox_line(line).is_some_and(|checkbox| !checkbox.checked) {
+        if parse_code_rabbit_checkbox_line(line).is_some_and(|checkbox| {
+            !checkbox.checked && is_code_rabbit_review_action_checkbox(&checkbox.label)
+        }) {
             rewritten.push(line.replacen("- [ ]", "- [x]", 1));
             toggled_checkbox_count += 1;
         } else {
@@ -2464,21 +2469,39 @@ fn build_code_rabbit_rearm_body(body: &str) -> Option<(String, usize)> {
     Some((rewritten.join("\n"), toggled_checkbox_count))
 }
 
+fn is_code_rabbit_review_action_checkbox(label: &str) -> bool {
+    let lowered = label.to_ascii_lowercase();
+    (lowered.contains("resume") && lowered.contains("review"))
+        || (lowered.contains("running") && lowered.contains("review"))
+        || lowered.contains("trigger review")
+        || lowered.contains("@coderabbitai resume")
+        || lowered.contains("@coderabbitai review")
+}
+
 fn code_rabbit_summary_mentions_active_changes(text: &str) -> bool {
     let lowered = text.to_ascii_lowercase();
     [
         "active changes",
         "active pull request changes",
+        "active development",
+        "under active development",
         "actively reviewing",
         "still making changes",
         "changes are still being made",
+        "reviews paused",
         "review paused",
         "review has been paused",
+        "paused this review",
         "resume review",
+        "resume reviews",
         "continue review",
         "re-enable",
         "enable coderabbit",
         "resume automatic review",
+        "resume automatic reviews",
+        "@coderabbitai resume",
+        "@coderabbitai review",
+        "auto_pause_after_reviewed_commits",
         "manual intervention",
     ]
     .iter()
@@ -5257,6 +5280,7 @@ mod tests {
             "> Resume review when you are ready.",
             "",
             "- [ ] <!-- {\"checkboxId\": \"abc-123\"} --> Resume CodeRabbit review",
+            "- [ ] <!-- {\"checkboxId\": \"def-456\"} --> Create PR with unit tests",
             "- [X](https://example.com/share) share",
         ]
         .join("\n");
@@ -5267,7 +5291,53 @@ mod tests {
         assert_eq!(toggled, 1);
         assert!(updated
             .contains("- [x] <!-- {\"checkboxId\": \"abc-123\"} --> Resume CodeRabbit review"));
+        assert!(updated
+            .contains("- [ ] <!-- {\"checkboxId\": \"def-456\"} --> Create PR with unit tests"));
         assert!(updated.contains("- [X](https://example.com/share) share"));
+    }
+
+    #[test]
+    fn detects_coderabbit_reviews_paused_hibernation_shape() {
+        let comment = CodeRabbitSummaryComment {
+            database_id: Some(4124000000),
+            url: "https://github.com/flyingrobots/echo/pull/308#issuecomment-3".to_owned(),
+            body: [
+                "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->",
+                "Reviews paused",
+                "",
+                "It looks like this branch is under active development.",
+                "To avoid overwhelming you with review comments due to an influx of new commits, CodeRabbit has automatically paused this review.",
+                "You can configure this behavior by changing the reviews.auto_review.auto_pause_after_reviewed_commits setting.",
+                "",
+                "Use the following commands to manage reviews:",
+                "",
+                "@coderabbitai resume to resume automatic reviews.",
+                "@coderabbitai review to trigger a single review.",
+                "Use the checkboxes below for quick actions:",
+                "",
+                "- [ ] <!-- {\"checkboxId\": \"resume-123\"} --> ▶️ Resume reviews",
+                "- [x] <!-- {\"checkboxId\": \"running-456\"} --> 🔄 Running review...",
+            ]
+            .join("\n"),
+            updated_at: "2026-03-25T08:01:37Z".to_owned(),
+            author: Some(CodeRabbitCommentAuthor {
+                login: "coderabbitai".to_owned(),
+            }),
+        };
+
+        let state = analyze_code_rabbit_summary_comment(comment)
+            .unwrap_or_else(|| unreachable!("CodeRabbit state should be detected"));
+
+        assert_eq!(
+            state.summary_state,
+            DoghouseCodeRabbitSummaryState::RearmRequired
+        );
+        assert!(!state.callout_present);
+        assert!(state.rearm_actionable);
+        assert_eq!(state.checkboxes.len(), 2);
+        assert_eq!(state.checkboxes[0].label, "▶️ Resume reviews");
+        assert_eq!(state.checkboxes[1].label, "🔄 Running review...");
+        assert!(!state.request_review_actionable);
     }
 
     #[test]

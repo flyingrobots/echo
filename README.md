@@ -223,7 +223,7 @@ Part of the [AIΩN Framework](https://github.com/flyingrobots/aion).
 
 ## Reference
 
-- [Architecture Outline](docs/architecture-outline.md) &mdash; API documentation for warp-core
+- [Architecture Outline](docs/architecture-outline.md) &mdash; design rationale and high-level system overview
 - [Configuration Reference](docs/guide/configuration-reference.md) &mdash; engine parameters, protocol constants, environment variables
 - [Cargo Feature Flags](docs/guide/cargo-features.md) &mdash; all compile-time features across the workspace
 - [Deterministic Math Policy](docs/SPEC_DETERMINISTIC_MATH.md) &mdash; normative rules for IEEE 754 handling

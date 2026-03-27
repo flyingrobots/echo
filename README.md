@@ -92,8 +92,10 @@ Echo eliminates every known source of nondeterminism:
 - **Wire format**: [Canonical CBOR encoding](docs/SPEC_DETERMINISTIC_MATH.md), no platform-dependent serialization
 - **ABI boundaries**: Unordered containers are [banned from wire-format code](scripts/ban-unordered-abi.sh)
 
-These bans run in the **pre-commit hook**. You cannot accidentally commit
-nondeterministic code. The build rejects it.
+The fast local nondeterminism ban runs in the **pre-commit hook**. The broader
+ban suite, including the global-state and unordered-ABI guards above, is
+enforced in CI. You cannot quietly merge nondeterministic code. The claim
+register and the build reject it.
 
 See [Determinism Claims v0.1](docs/determinism/DETERMINISM_CLAIMS_v0.1.md) for
 the full claim register with CI gates and evidence artifacts.
@@ -120,11 +122,18 @@ where nodes and edges can contain nested graphs. Change happens through
 **DPO-inspired rewriting**: match a pattern, cut it out, glue in a
 replacement along a typed interface.
 
+That DPO/DPOI story is the **north-star semantics**, not a claim that
+`warp-core` already ships a full categorical DPO engine. Today the runtime
+enforces order-independence with conservative `Footprint`s and the scheduler's
+reservation/conflict path; see [Theory](docs/THEORY.md) and
+[SPEC-0003](docs/spec/SPEC-0003-dpo-concurrency-litmus-v0.md) for the intended
+semantics versus the current pragmatic subset.
+
 The combination gives you:
 
 - **Immutable state**: graphs are never mutated in place; rewrites produce new graphs
 - **Append-only history**: every tick is a cryptographic commit in a hash chain
-- **Deterministic convergence**: independent rewrites commute by construction
+- **Deterministic convergence**: independent rewrites commute under today's footprint conflict rules, with DPOI as the intended north star
 - **Nested structure**: a node can contain an entire sub-universe (graphs all the way down)
 
 > **Naming:** Echo is the product. WARP is the underlying algebra. The `warp-*`
@@ -227,11 +236,14 @@ Determinism is sacred. Before you change anything:
 2. Run `make hooks` to install the guardrails
 3. Write tests. If it's not tested, it's not deterministic.
 
-The codebase enforces:
+The repo guardrails cover:
 
 - No global state ([`ban-globals.sh`](scripts/ban-globals.sh))
 - No wall-clock time or uncontrolled randomness ([`ban-nondeterminism.sh`](scripts/ban-nondeterminism.sh))
 - No unordered iteration in wire-format code ([`ban-unordered-abi.sh`](scripts/ban-unordered-abi.sh))
+
+`make hooks` installs the fast local subset. CI runs the broader determinism
+ban suite before merge.
 
 ## Requirements
 

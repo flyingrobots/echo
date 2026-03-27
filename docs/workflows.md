@@ -78,6 +78,7 @@ The repo also exposes maintenance commands via `cargo xtask …`:
 - `cargo xtask dags --snapshot-label 2026-01-02` pins a date label (useful for comparisons).
 - `cargo xtask doghouse sortie 308 --intent merge_check` emits agent-native JSONL for the selected PR, including sortie intent, CodeRabbit summary-comment state (cooldown, checkbox rearm, or other callout weirdness), actionable checkbox ids/labels when present, baseline selection, comparison trust/quality assessment, semantic delta, and an intent-aware next-action verdict that still keeps human/Codex review state separate.
 - `cargo xtask doghouse rearm-coderabbit 308 --yes` edits the latest CodeRabbit summary comment when Rabbit has paused itself behind an active-changes checkbox gate.
+- `cargo xtask doghouse nudge-coderabbit 308 --yes` posts `@coderabbitai review` or `@coderabbitai resume` when Doghouse has already determined that Rabbit is actionable again.
 - `cargo xtask pr-status` summarizes the current PR head, exact unresolved review-thread count, grouped check state, and a concise current-blockers section.
 - `cargo xtask pr-status 306` targets an explicit PR number instead of the current branch PR.
 - `cargo xtask pr-snapshot` records a durable local PR review snapshot under `artifacts/pr-review/`.
@@ -139,6 +140,22 @@ cargo xtask doghouse sortie 308 --intent post_push
 ```
 
 That JSONL stream is the plumbing surface. It picks a meaningful baseline, grades comparison trust/quality, reports CodeRabbit pause or cooldown state without eclipsing human/Codex reviewers, and emits the current next-action verdict.
+
+If that next-action verdict is `capture_fresh_sortie`, trust the recorder: Doghouse is telling you
+the selected comparison is too stale or noisy to support an affirmative move like nudging Rabbit,
+requesting review, or concluding merge readiness. Capture another sortie before acting.
+
+If the verdict is `nudge_coderabbit`, the follow-up command is:
+
+```sh
+cargo xtask doghouse nudge-coderabbit 308 --yes
+```
+
+If Rabbit paused itself behind summary-comment checkboxes first, Doghouse will steer you to:
+
+```sh
+cargo xtask doghouse rearm-coderabbit 308 --yes
+```
 
 Use `make pr-snapshot ARGS='308'` if you prefer a Make alias or need to target an explicit PR number.
 

@@ -76,6 +76,8 @@ struct DoghouseArgs {
 enum DoghouseCommand {
     /// Capture a sortie and emit JSONL events with the current verdict.
     Sortie(DoghouseSortieArgs),
+    /// Post a CodeRabbit review/resume command on the PR when Rabbit is actionable again.
+    NudgeCoderabbit(DoghouseNudgeCoderabbitArgs),
     /// Re-enable CodeRabbit by toggling its summary-comment checkboxes when it is paused behind them.
     RearmCoderabbit(DoghouseRearmCoderabbitArgs),
 }
@@ -97,6 +99,15 @@ struct DoghouseRearmCoderabbitArgs {
     /// Optional PR number or selector understood by `gh pr view`.
     selector: Option<String>,
     /// Confirm that Doghouse should edit the CodeRabbit summary comment.
+    #[arg(long)]
+    yes: bool,
+}
+
+#[derive(Args)]
+struct DoghouseNudgeCoderabbitArgs {
+    /// Optional PR number or selector understood by `gh pr view`.
+    selector: Option<String>,
+    /// Confirm that Doghouse should post the CodeRabbit nudge comment.
     #[arg(long)]
     yes: bool,
 }
@@ -288,6 +299,7 @@ fn main() -> Result<()> {
 fn run_doghouse(args: DoghouseArgs) -> Result<()> {
     match args.command {
         DoghouseCommand::Sortie(args) => run_doghouse_sortie(args),
+        DoghouseCommand::NudgeCoderabbit(args) => run_doghouse_nudge_coderabbit(args),
         DoghouseCommand::RearmCoderabbit(args) => run_doghouse_rearm_coderabbit(args),
     }
 }
@@ -433,7 +445,7 @@ fn run_doghouse_sortie(args: DoghouseSortieArgs) -> Result<()> {
     } else {
         None
     };
-    let next_action = determine_doghouse_next_action(&snapshot, delta.as_ref());
+    let next_action = determine_doghouse_next_action(&snapshot, &comparison, delta.as_ref());
     let event_lines = build_doghouse_sortie_events(
         &snapshot,
         baseline.as_ref(),
@@ -547,6 +559,91 @@ fn run_doghouse_rearm_coderabbit(args: DoghouseRearmCoderabbitArgs) -> Result<()
             updated: true,
         })
         .context("failed to serialize doghouse CodeRabbit rearm event")?
+    );
+
+    Ok(())
+}
+
+fn run_doghouse_nudge_coderabbit(args: DoghouseNudgeCoderabbitArgs) -> Result<()> {
+    let overview = fetch_pr_overview(args.selector.as_deref())?;
+    let checks = fetch_pr_checks(&overview)?;
+    if checks
+        .iter()
+        .any(|check| check.name.eq_ignore_ascii_case("CodeRabbit") && check.bucket == "pending")
+    {
+        bail!(
+            "CodeRabbit is already actively reviewing PR #{}.",
+            overview.number
+        );
+    }
+
+    let comment = fetch_latest_code_rabbit_summary_comment(&overview)?;
+    let analyzed_state = comment
+        .as_ref()
+        .and_then(|summary| analyze_code_rabbit_summary_comment(summary.clone()));
+
+    if let Some(state) = analyzed_state.as_ref() {
+        if state.rearm_actionable {
+            bail!(
+                "CodeRabbit on PR #{} is paused behind a checkbox rearm; run `cargo xtask doghouse rearm-coderabbit {} --yes` first.",
+                overview.number,
+                overview.number
+            );
+        }
+        if state.cooldown_active {
+            bail!(
+                "CodeRabbit on PR #{} is still cooling down until {}.",
+                overview.number,
+                state.cooldown_expires_at.as_deref().unwrap_or("<unknown>")
+            );
+        }
+        if !state.request_review_actionable {
+            bail!(
+                "CodeRabbit is not currently actionable for a manual nudge on PR #{}.",
+                overview.number
+            );
+        }
+    }
+
+    if !args.yes {
+        bail!(
+            "Refusing to post a CodeRabbit nudge without --yes for PR #{}.",
+            overview.number
+        );
+    }
+
+    let nudge_body = select_code_rabbit_nudge_body(comment.as_ref(), analyzed_state.as_ref());
+    let route = format!(
+        "repos/{}/{}/issues/{}/comments",
+        overview.owner, overview.repo, overview.number
+    );
+    let output = run_gh_capture([
+        "api",
+        &route,
+        "--method",
+        "POST",
+        "-f",
+        &format!("body={nudge_body}"),
+    ])?;
+    let posted_comment: GhIssueComment =
+        serde_json::from_str(&output).context("failed to parse CodeRabbit nudge comment")?;
+
+    println!(
+        "{}",
+        serde_json::to_string(&DoghouseCodeRabbitNudgeEvent {
+            kind: "doghouse.coderabbit_nudge",
+            pr_number: overview.number,
+            command: nudge_body.to_owned(),
+            posted_comment_url: posted_comment.html_url,
+            posted_comment_database_id: Some(posted_comment.id),
+            summary_comment_url: analyzed_state
+                .as_ref()
+                .map(|state| state.summary_comment_url.clone()),
+            summary_comment_database_id: analyzed_state
+                .as_ref()
+                .and_then(|state| state.summary_comment_database_id),
+        })
+        .context("failed to serialize doghouse CodeRabbit nudge event")?
     );
 
     Ok(())
@@ -1695,12 +1792,14 @@ fn summarize_check_counts(
 
 fn determine_doghouse_next_action(
     snapshot: &PrSnapshotArtifact,
+    comparison: &DoghouseComparisonAssessment,
     delta: Option<&PrSnapshotDelta>,
 ) -> DoghouseNextAction {
     let sortie_intent = snapshot
         .sortie_intent
         .unwrap_or(DoghouseSortieIntent::ManualProbe);
-    let action = if snapshot.pr.state == "MERGED" {
+    let code_rabbit_request_actionable = doghouse_coderabbit_request_review_actionable(snapshot);
+    let mut action = if snapshot.pr.state == "MERGED" {
         "complete_merged"
     } else if !snapshot.unresolved_threads.is_empty() {
         "fix_unresolved_threads"
@@ -1728,7 +1827,13 @@ fn determine_doghouse_next_action(
             DoghouseSortieIntent::PostPush => "wait_for_review_feedback",
             DoghouseSortieIntent::FixBatch
             | DoghouseSortieIntent::Resume
-            | DoghouseSortieIntent::ManualProbe => "request_review",
+            | DoghouseSortieIntent::ManualProbe => {
+                if code_rabbit_request_actionable {
+                    "nudge_coderabbit"
+                } else {
+                    "request_review"
+                }
+            }
         }
     } else if matches!(snapshot.pr.merge_state.as_str(), "CLEAN" | "HAS_HOOKS") {
         "ready_for_merge"
@@ -1737,6 +1842,13 @@ fn determine_doghouse_next_action(
     } else {
         "investigate_merge_state"
     };
+
+    let recapture_required = doghouse_comparison_requires_recapture(comparison)
+        && doghouse_action_requires_trusted_comparison(action);
+
+    if recapture_required {
+        action = "capture_fresh_sortie";
+    }
 
     let mut reasons = vec![format!(
         "sortie intent is {}",
@@ -1775,6 +1887,12 @@ fn determine_doghouse_next_action(
         && !matches!(snapshot.pr.merge_state.as_str(), "CLEAN" | "HAS_HOOKS")
     {
         reasons.push(format!("merge state is {}", snapshot.pr.merge_state));
+    }
+    if recapture_required {
+        reasons.push(format!(
+            "comparison quality is {}; capture another sortie before trusting an affirmative workflow move",
+            doghouse_comparison_quality_label(&comparison.quality)
+        ));
     }
     if let Some(code_rabbit) = snapshot.code_rabbit.as_ref() {
         if code_rabbit.rearm_actionable {
@@ -1833,8 +1951,16 @@ fn determine_doghouse_next_action(
             "fix-batch intent finished the repair pass; the next move is another review round"
                 .to_owned(),
         ),
+        (_, "nudge_coderabbit") => reasons.push(
+            "CodeRabbit is actionable again, so the immediate next move is to post a review/resume nudge"
+                .to_owned(),
+        ),
         (_, "rearm_coderabbit") => reasons.push(
             "the immediate next mechanical step is to re-enable CodeRabbit on its own summary comment before asking it for more work"
+                .to_owned(),
+        ),
+        (_, "capture_fresh_sortie") => reasons.push(
+            "Doghouse wants a fresher comparison before recommending the next affirmative workflow step"
                 .to_owned(),
         ),
         (DoghouseSortieIntent::Resume, "ready_for_merge") => reasons.push(
@@ -1858,6 +1984,50 @@ fn determine_doghouse_next_action(
         action: action.to_owned(),
         reasons,
     }
+}
+
+fn doghouse_comparison_requires_recapture(comparison: &DoghouseComparisonAssessment) -> bool {
+    matches!(
+        comparison.quality,
+        DoghouseComparisonQuality::Stale
+            | DoghouseComparisonQuality::Noisy
+            | DoghouseComparisonQuality::StaleAndNoisy
+    )
+}
+
+fn doghouse_action_requires_trusted_comparison(action: &str) -> bool {
+    matches!(
+        action,
+        "nudge_coderabbit"
+            | "request_review"
+            | "merge_ready_pending_approval"
+            | "ready_for_merge"
+            | "merge_blocked_investigate_state"
+            | "investigate_merge_state"
+    )
+}
+
+fn doghouse_comparison_quality_label(quality: &DoghouseComparisonQuality) -> &'static str {
+    match quality {
+        DoghouseComparisonQuality::GoodEnough => "good_enough",
+        DoghouseComparisonQuality::Stale => "stale",
+        DoghouseComparisonQuality::Noisy => "noisy",
+        DoghouseComparisonQuality::StaleAndNoisy => "stale_and_noisy",
+        DoghouseComparisonQuality::InitialCapture => "initial_capture",
+    }
+}
+
+fn doghouse_coderabbit_request_review_actionable(snapshot: &PrSnapshotArtifact) -> bool {
+    let currently_reviewing = snapshot
+        .checks
+        .iter()
+        .find(|check| check.name.eq_ignore_ascii_case("CodeRabbit"))
+        .is_some_and(|check| check.bucket == "pending");
+
+    snapshot
+        .code_rabbit
+        .as_ref()
+        .is_some_and(|state| state.request_review_actionable && !currently_reviewing)
 }
 
 fn display_check_bucket(bucket: &str) -> &'static str {
@@ -2483,6 +2653,23 @@ fn build_code_rabbit_rearm_body(body: &str) -> Option<(String, usize)> {
     }
 
     Some((rewritten.join("\n"), toggled_checkbox_count))
+}
+
+fn select_code_rabbit_nudge_body(
+    comment: Option<&CodeRabbitSummaryComment>,
+    state: Option<&DoghouseCodeRabbitState>,
+) -> &'static str {
+    if matches!(
+        state.map(|state| &state.summary_state),
+        Some(DoghouseCodeRabbitSummaryState::RearmRequired)
+    ) || comment
+        .as_ref()
+        .is_some_and(|comment| code_rabbit_summary_mentions_active_changes(&comment.body))
+    {
+        "@coderabbitai resume"
+    } else {
+        "@coderabbitai review"
+    }
 }
 
 fn is_code_rabbit_review_action_checkbox(label: &str) -> bool {
@@ -3239,6 +3426,17 @@ struct DoghouseCodeRabbitRearmEvent {
     summary_comment_database_id: Option<u64>,
     toggled_checkbox_count: usize,
     updated: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct DoghouseCodeRabbitNudgeEvent {
+    kind: &'static str,
+    pr_number: u64,
+    command: String,
+    posted_comment_url: String,
+    posted_comment_database_id: Option<u64>,
+    summary_comment_url: Option<String>,
+    summary_comment_database_id: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -4352,6 +4550,10 @@ mod tests {
         }
     }
 
+    fn initial_comparison(snapshot: &PrSnapshotArtifact) -> DoghouseComparisonAssessment {
+        assess_doghouse_comparison(snapshot, None, None)
+    }
+
     fn unique_temp_path(prefix: &str) -> PathBuf {
         let unique = assert_ok(
             SystemTime::now().duration_since(UNIX_EPOCH),
@@ -5425,6 +5627,61 @@ mod tests {
     }
 
     #[test]
+    fn selects_resume_nudge_for_active_changes_summary() {
+        let comment = CodeRabbitSummaryComment {
+            database_id: Some(4124000001),
+            url: "https://github.com/flyingrobots/echo/pull/308#issuecomment-4".to_owned(),
+            body: [
+                "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->",
+                "Reviews paused",
+                "",
+                "It looks like this branch is under active development.",
+                "",
+                "@coderabbitai resume to resume automatic reviews.",
+                "@coderabbitai review to trigger a single review.",
+                "",
+                "- [ ] <!-- {\"checkboxId\": \"resume-123\"} --> ▶️ Resume reviews",
+            ]
+            .join("\n"),
+            updated_at: "2026-03-25T08:01:37Z".to_owned(),
+            author: Some(CodeRabbitCommentAuthor {
+                login: "coderabbitai".to_owned(),
+            }),
+        };
+        let state = analyze_code_rabbit_summary_comment(comment.clone())
+            .unwrap_or_else(|| unreachable!("CodeRabbit state should be detected"));
+
+        assert_eq!(
+            select_code_rabbit_nudge_body(Some(&comment), Some(&state)),
+            "@coderabbitai resume"
+        );
+    }
+
+    #[test]
+    fn selects_review_nudge_for_ready_summary() {
+        let comment = CodeRabbitSummaryComment {
+            database_id: Some(4124000002),
+            url: "https://github.com/flyingrobots/echo/pull/308#issuecomment-5".to_owned(),
+            body: [
+                "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->",
+                "CodeRabbit ready for another pass.",
+            ]
+            .join("\n"),
+            updated_at: "2026-03-25T08:11:37Z".to_owned(),
+            author: Some(CodeRabbitCommentAuthor {
+                login: "coderabbitai".to_owned(),
+            }),
+        };
+        let state = analyze_code_rabbit_summary_comment(comment.clone())
+            .unwrap_or_else(|| unreachable!("CodeRabbit state should be detected"));
+
+        assert_eq!(
+            select_code_rabbit_nudge_body(Some(&comment), Some(&state)),
+            "@coderabbitai review"
+        );
+    }
+
+    #[test]
     fn coderabbit_event_reflects_pending_check_and_cooldown() {
         let mut snapshot = snapshot_fixture(
             "2026-03-25T08:20:00Z",
@@ -5486,7 +5743,8 @@ mod tests {
             vec![sample_review_thread()],
         );
 
-        let action = determine_doghouse_next_action(&snapshot, None);
+        let comparison = initial_comparison(&snapshot);
+        let action = determine_doghouse_next_action(&snapshot, &comparison, None);
 
         assert_eq!(action.action, "fix_unresolved_threads");
     }
@@ -5509,7 +5767,8 @@ mod tests {
         );
         snapshot.sortie_intent = Some(DoghouseSortieIntent::MergeCheck);
 
-        let action = determine_doghouse_next_action(&snapshot, None);
+        let comparison = initial_comparison(&snapshot);
+        let action = determine_doghouse_next_action(&snapshot, &comparison, None);
 
         assert_eq!(action.sortie_intent, Some(DoghouseSortieIntent::MergeCheck));
         assert_eq!(action.action, "merge_ready_pending_approval");
@@ -5537,7 +5796,8 @@ mod tests {
         );
         snapshot.sortie_intent = Some(DoghouseSortieIntent::PostPush);
 
-        let action = determine_doghouse_next_action(&snapshot, None);
+        let comparison = initial_comparison(&snapshot);
+        let action = determine_doghouse_next_action(&snapshot, &comparison, None);
 
         assert_eq!(action.sortie_intent, Some(DoghouseSortieIntent::PostPush));
         assert_eq!(action.action, "wait_for_review_feedback");
@@ -5564,7 +5824,8 @@ mod tests {
             vec![],
         );
 
-        let action = determine_doghouse_next_action(&snapshot, None);
+        let comparison = initial_comparison(&snapshot);
+        let action = determine_doghouse_next_action(&snapshot, &comparison, None);
 
         assert_eq!(
             action.sortie_intent,
@@ -5606,7 +5867,8 @@ mod tests {
             request_review_actionable: false,
         });
 
-        let action = determine_doghouse_next_action(&snapshot, None);
+        let comparison = initial_comparison(&snapshot);
+        let action = determine_doghouse_next_action(&snapshot, &comparison, None);
 
         assert_eq!(action.action, "request_review");
         assert!(action
@@ -5656,13 +5918,117 @@ mod tests {
             request_review_actionable: false,
         });
 
-        let action = determine_doghouse_next_action(&snapshot, None);
+        let comparison = initial_comparison(&snapshot);
+        let action = determine_doghouse_next_action(&snapshot, &comparison, None);
 
         assert_eq!(action.action, "rearm_coderabbit");
         assert!(action
             .reasons
             .iter()
             .any(|reason| reason.contains("manual rearm via 1 unchecked checkbox")));
+    }
+
+    #[test]
+    fn doghouse_next_action_nudges_coderabbit_when_it_is_actionable() {
+        let mut overview = sample_pr_overview();
+        overview.merge_state = "BLOCKED".to_owned();
+        let mut snapshot = snapshot_fixture(
+            "2026-03-25T08:20:00Z",
+            "20260325T082000Z",
+            overview,
+            vec!["review decision: REVIEW_REQUIRED", "merge state: BLOCKED"],
+            vec![PrCheckSummary {
+                name: "Tests".to_owned(),
+                bucket: "pass".to_owned(),
+                state: "SUCCESS".to_owned(),
+            }],
+            vec![],
+        );
+        snapshot.code_rabbit = Some(DoghouseCodeRabbitState {
+            summary_comment_url: "https://github.com/flyingrobots/echo/pull/308#issuecomment-6"
+                .to_owned(),
+            summary_comment_database_id: Some(4124000003),
+            summary_comment_updated_at: "2026-03-25T08:12:37Z".to_owned(),
+            summary_state: DoghouseCodeRabbitSummaryState::Ready,
+            callout_present: false,
+            callout_kind: None,
+            callout_title: None,
+            cooldown_active: false,
+            cooldown_expires_at: None,
+            cooldown_remaining_seconds: None,
+            rearm_actionable: false,
+            checkboxes: Vec::new(),
+            request_review_actionable: true,
+        });
+
+        let comparison = initial_comparison(&snapshot);
+        let action = determine_doghouse_next_action(&snapshot, &comparison, None);
+
+        assert_eq!(action.action, "nudge_coderabbit");
+        assert!(action
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("CodeRabbit is actionable again")));
+    }
+
+    #[test]
+    fn doghouse_next_action_recaptures_when_affirmative_move_uses_stale_comparison() {
+        let previous = snapshot_fixture(
+            "2026-03-24T20:00:00Z",
+            "20260324T200000Z",
+            sample_pr_overview(),
+            vec!["review decision: REVIEW_REQUIRED", "merge state: BLOCKED"],
+            vec![PrCheckSummary {
+                name: "Tests".to_owned(),
+                bucket: "pass".to_owned(),
+                state: "SUCCESS".to_owned(),
+            }],
+            vec![],
+        );
+        let mut overview = sample_pr_overview();
+        overview.merge_state = "BLOCKED".to_owned();
+        let mut current = snapshot_fixture(
+            "2026-03-25T12:30:00Z",
+            "20260325T123000Z",
+            overview,
+            vec!["review decision: REVIEW_REQUIRED", "merge state: BLOCKED"],
+            vec![PrCheckSummary {
+                name: "Tests".to_owned(),
+                bucket: "pass".to_owned(),
+                state: "SUCCESS".to_owned(),
+            }],
+            vec![],
+        );
+        current.code_rabbit = Some(DoghouseCodeRabbitState {
+            summary_comment_url: "https://github.com/flyingrobots/echo/pull/308#issuecomment-7"
+                .to_owned(),
+            summary_comment_database_id: Some(4124000004),
+            summary_comment_updated_at: "2026-03-25T12:29:37Z".to_owned(),
+            summary_state: DoghouseCodeRabbitSummaryState::Ready,
+            callout_present: false,
+            callout_kind: None,
+            callout_title: None,
+            cooldown_active: false,
+            cooldown_expires_at: None,
+            cooldown_remaining_seconds: None,
+            rearm_actionable: false,
+            checkboxes: Vec::new(),
+            request_review_actionable: true,
+        });
+        let selection = select_doghouse_baseline(std::slice::from_ref(&previous), &current)
+            .unwrap_or_else(|| unreachable!("baseline should be selected"));
+        let delta = build_pr_snapshot_delta(&selection.snapshot, &current);
+        let comparison = assess_doghouse_comparison(&current, Some(&selection), Some(&delta));
+
+        assert_eq!(comparison.quality, DoghouseComparisonQuality::Stale);
+
+        let action = determine_doghouse_next_action(&current, &comparison, Some(&delta));
+
+        assert_eq!(action.action, "capture_fresh_sortie");
+        assert!(action
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("comparison quality is stale")));
     }
 
     #[test]
@@ -5680,7 +6046,7 @@ mod tests {
             vec![],
         );
         let comparison = assess_doghouse_comparison(&snapshot, None, None);
-        let action = determine_doghouse_next_action(&snapshot, None);
+        let action = determine_doghouse_next_action(&snapshot, &comparison, None);
         let lines = assert_ok(
             build_doghouse_sortie_events(&snapshot, None, &comparison, None, &action),
             "sortie events should serialize",

@@ -50,7 +50,7 @@ The JSONL stream now separates:
 - comparison assessment: how trustworthy that comparison is (`strong`, `usable`, `weak`, or `none`)
 - comparison quality: whether the baseline is `good_enough`, `stale`, `noisy`, `stale_and_noisy`, or an `initial_capture`
 - semantic delta: what actually changed
-- next action: what the agent should do now, using an intent-aware policy instead of state alone
+- next action: what the agent should do now, using an intent-aware policy instead of state alone; when the chosen baseline is too stale or noisy for an affirmative workflow move, Doghouse now says `capture_fresh_sortie` instead of bluffing confidence
 
 When CodeRabbit pauses itself behind summary-comment checkboxes, the mutation entrypoint is:
 
@@ -62,6 +62,17 @@ That command is intentionally narrow: it only edits the latest CodeRabbit summar
 comment itself matches the active-changes / resume-review gate and contains actionable unchecked
 task checkboxes.
 
+When CodeRabbit is rearm-free, not cooling down, and ready for another pass, the nudge entrypoint is:
+
+```sh
+cargo xtask doghouse nudge-coderabbit 308 --yes
+```
+
+That command posts either `@coderabbitai review` or `@coderabbitai resume`, depending on the summary
+comment shape Doghouse observed. It is intentionally separate from `rearm-coderabbit`: first
+re-enable Rabbit if it paused itself, then nudge it only when the recorder says that move is
+actually actionable.
+
 ## Documents
 
 - [Flight Recorder Brief](./flight-recorder-brief.md)
@@ -72,6 +83,7 @@ task checkboxes.
 ## Current Product Stance
 
 - The current `pr-snapshot` command is the black box recorder.
+- `doghouse sortie` is the first triage step once a live PR gets noisy.
 - The next slice should only be built if it advances one of the documented hills.
 - Raw snapshot-to-snapshot diffing is not enough on its own.
 - "What changed?" only matters when the answer is tied to a human decision.

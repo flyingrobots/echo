@@ -35,6 +35,9 @@ When you need to decide what to do on a live PR, prefer `cargo xtask doghouse so
 before hand-inspecting GitHub. The JSONL output is the agent-native plumbing surface:
 it compares against the last meaningful sortie, reports CodeRabbit pause/cooldown state
 without eclipsing human/Codex reviewers, and emits the next-action verdict.
+If that verdict is `nudge_coderabbit`, use `cargo xtask doghouse nudge-coderabbit <pr> --yes`.
+If it is `capture_fresh_sortie`, do not trust the current comparison for an affirmative move yet;
+capture another sortie first.
 Before opening a PR, prefer `cargo xtask pr-preflight` (or
 `make pr-preflight ARGS='…'`) instead of composing ad hoc local checks by hand.
 

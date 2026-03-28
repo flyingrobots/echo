@@ -24,6 +24,16 @@ results. This README summarizes how to run them and read the output.
     - Throughput “elements” = rule applications (`n`). Uses `BatchSize::PerIteration`
       so engine construction is excluded from timing.
 
+- `parallel_baseline.rs`
+    - Compares serial execution, the current shard-parallel baseline, the Phase 6B
+      work-queue pipeline, worker-count scaling, and the shard-policy matrix.
+    - The policy matrix compares:
+        - dynamic shard claiming + per-worker deltas
+        - dynamic shard claiming + per-shard deltas
+        - static round-robin shard assignment + per-worker deltas
+        - static round-robin shard assignment + per-shard deltas
+    - Throughput “elements” = executed items in the synthetic independent workload.
+
 ## Run
 
 Run the full benches suite:
@@ -37,6 +47,7 @@ Run a single bench target (faster dev loop):
 ```sh
 cargo bench -p warp-benches --bench snapshot_hash
 cargo bench -p warp-benches --bench scheduler_drain
+cargo bench -p warp-benches --bench parallel_baseline
 ```
 
 Criterion HTML reports are written under `target/criterion/<group>/report/index.html`.

@@ -20,14 +20,15 @@
 //! - `serial_vs_parallel_N`: Compare parallel sharded execution vs serial baseline
 //! - `work_queue_pipeline_N`: Full Phase 6B pipeline (build_work_units → execute_work_queue)
 //! - `worker_scaling_100`: How throughput scales with worker count (1, 2, 4, 8, 16)
+//! - `policy_matrix_1000`: Compare shard assignment and delta accumulation policies directly
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
 use std::collections::BTreeMap;
 use std::time::Duration;
 use warp_core::parallel::{build_work_units, execute_work_queue, WorkerResult};
 use warp_core::{
-    execute_parallel, execute_serial, make_node_id, make_type_id, make_warp_id, AtomPayload,
-    AttachmentKey, AttachmentValue, ExecItem, GraphStore, GraphView, NodeId, NodeKey, NodeRecord,
-    OpOrigin, TickDelta, WarpId, WarpOp,
+    execute_parallel, execute_parallel_with_policy, execute_serial, make_node_id, make_type_id,
+    make_warp_id, AtomPayload, AttachmentKey, AttachmentValue, ExecItem, GraphStore, GraphView,
+    NodeId, NodeKey, NodeRecord, OpOrigin, ParallelExecutionPolicy, TickDelta, WarpId, WarpOp,
 };
 
 /// Simple executor that sets an attachment on the scope node.
@@ -297,10 +298,70 @@ fn bench_worker_scaling(c: &mut Criterion) {
     group.finish();
 }
 
+// =============================================================================
+// Policy matrix comparison
+// =============================================================================
+
+fn policy_label(policy: ParallelExecutionPolicy) -> &'static str {
+    match policy {
+        ParallelExecutionPolicy::DYNAMIC_PER_WORKER => "dynamic_per_worker",
+        ParallelExecutionPolicy::DYNAMIC_PER_SHARD => "dynamic_per_shard",
+        ParallelExecutionPolicy::STATIC_PER_WORKER => "static_per_worker",
+        ParallelExecutionPolicy::STATIC_PER_SHARD => "static_per_shard",
+    }
+}
+
+/// Compares shard assignment and delta accumulation strategies directly.
+fn bench_policy_matrix(c: &mut Criterion) {
+    let mut group = c.benchmark_group("policy_matrix_1000");
+    group
+        .warm_up_time(Duration::from_secs(2))
+        .measurement_time(Duration::from_secs(5))
+        .sample_size(50);
+
+    const WORKLOAD_SIZE: usize = 1_000;
+    group.throughput(Throughput::Elements(WORKLOAD_SIZE as u64));
+
+    let policies = [
+        ParallelExecutionPolicy::DYNAMIC_PER_WORKER,
+        ParallelExecutionPolicy::DYNAMIC_PER_SHARD,
+        ParallelExecutionPolicy::STATIC_PER_WORKER,
+        ParallelExecutionPolicy::STATIC_PER_SHARD,
+    ];
+
+    for &workers in &[1usize, 4, 8] {
+        for policy in policies {
+            group.bench_with_input(
+                BenchmarkId::new(policy_label(policy), workers),
+                &workers,
+                |b, &workers| {
+                    b.iter_batched(
+                        || {
+                            let (store, nodes) = make_test_store(WORKLOAD_SIZE);
+                            let items = make_exec_items(&nodes);
+                            (store, items)
+                        },
+                        |(store, items)| {
+                            let view = GraphView::new(&store);
+                            let deltas =
+                                execute_parallel_with_policy(view, &items, workers, policy);
+                            criterion::black_box(deltas)
+                        },
+                        BatchSize::SmallInput,
+                    );
+                },
+            );
+        }
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_serial_vs_parallel,
     bench_work_queue,
-    bench_worker_scaling
+    bench_worker_scaling,
+    bench_policy_matrix
 );
 criterion_main!(benches);

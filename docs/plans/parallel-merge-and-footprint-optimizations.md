@@ -5,6 +5,18 @@
 
 **Status:** Ideas — not yet designed or scheduled
 
+See also the stricter review note:
+[Parallel Merge & Footprint Optimization Design Review](parallel-merge-and-footprint-design-review.md).
+
+Current disposition after code review:
+
+- k-way merge remains plausible, but only if merge inputs can be proven or
+  enforced to be individually sorted by the canonical `(WarpOpKey, OpOrigin)`
+  order
+- shard-aware cross-shard footprint skipping is **not** currently proven safe
+  against the default scheduler and should be treated as a hypothesis, not an
+  implementation-ready optimization
+
 Two optimization opportunities for the parallel execution pipeline, both
 exploiting structure that already exists in the shard-based architecture.
 

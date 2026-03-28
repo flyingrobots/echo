@@ -1,5 +1,14 @@
 {
   "group": "parallel_policy_matrix",
+  "generated_at": "2026-03-28T22:42:31.293161Z",
+  "git_sha": "85aa10a",
+  "machine": {
+    "os": "macos",
+    "arch": "aarch64",
+    "hostname": null,
+    "label": "macos/aarch64"
+  },
+  "criterion_root": "target/criterion/parallel_policy_matrix",
   "results": [
     {
       "policy": "dynamic_per_shard",
@@ -16,7 +25,7 @@
       "workers": "1w",
       "load": 1000,
       "path": "target/criterion/parallel_policy_matrix/dynamic_per_shard_1w/1000/new/estimates.json",
-      "mean_ns": 178996.56511516919,
+      "mean_ns": 178996.5651151692,
       "lb_ns": 176367.7012996126,
       "ub_ns": 181869.42277687544,
       "series": "dynamic_per_shard:1w"
@@ -57,7 +66,7 @@
       "load": 10000,
       "path": "target/criterion/parallel_policy_matrix/dynamic_per_worker_1w/10000/new/estimates.json",
       "mean_ns": 1362083.5247344126,
-      "lb_ns": 1339547.7014293873,
+      "lb_ns": 1339547.701429387,
       "ub_ns": 1390338.13621592,
       "series": "dynamic_per_worker:1w"
     },
@@ -246,7 +255,7 @@
       "workers": "8w",
       "load": 100,
       "path": "target/criterion/parallel_policy_matrix/dynamic_per_shard_8w/100/new/estimates.json",
-      "mean_ns": 125473.09259451041,
+      "mean_ns": 125473.0925945104,
       "lb_ns": 123779.33144409172,
       "ub_ns": 127490.78512645904,
       "series": "dynamic_per_shard:8w"
@@ -257,7 +266,7 @@
       "load": 1000,
       "path": "target/criterion/parallel_policy_matrix/dynamic_per_shard_8w/1000/new/estimates.json",
       "mean_ns": 193665.19921900536,
-      "lb_ns": 191687.29603728626,
+      "lb_ns": 191687.29603728623,
       "ub_ns": 196231.58434506817,
       "series": "dynamic_per_shard:8w"
     },
@@ -277,8 +286,8 @@
       "load": 100,
       "path": "target/criterion/parallel_policy_matrix/dynamic_per_worker_8w/100/new/estimates.json",
       "mean_ns": 128983.57907979854,
-      "lb_ns": 127943.71433614743,
-      "ub_ns": 130132.92650811099,
+      "lb_ns": 127943.71433614744,
+      "ub_ns": 130132.926508111,
       "series": "dynamic_per_worker:8w"
     },
     {
@@ -308,7 +317,7 @@
       "path": "target/criterion/parallel_policy_matrix/static_per_shard_8w/100/new/estimates.json",
       "mean_ns": 124741.6850011629,
       "lb_ns": 124221.04790877269,
-      "ub_ns": 125235.31189618741,
+      "ub_ns": 125235.3118961874,
       "series": "static_per_shard:8w"
     },
     {
@@ -348,7 +357,7 @@
       "path": "target/criterion/parallel_policy_matrix/static_per_worker_8w/1000/new/estimates.json",
       "mean_ns": 207146.30306442143,
       "lb_ns": 179376.23518869182,
-      "ub_ns": 257593.05344689635,
+      "ub_ns": 257593.05344689637,
       "series": "static_per_worker:8w"
     },
     {
@@ -376,7 +385,7 @@
       "workers": "dedicated",
       "load": 1000,
       "path": "target/criterion/parallel_policy_matrix/dedicated_per_shard/1000/new/estimates.json",
-      "mean_ns": 3684546.1003889563,
+      "mean_ns": 3684546.100388956,
       "lb_ns": 3656159.5005522473,
       "ub_ns": 3711012.7289447538,
       "series": "dedicated_per_shard:dedicated"

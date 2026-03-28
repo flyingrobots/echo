@@ -34,6 +34,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Bake benchmark report artifacts and export benchmark data.
+    Bench(BenchArgs),
     /// Generate dependency DAG DOT/SVG artifacts for issues + milestones.
     Dags(DagsArgs),
     /// Emit agent-native Doghouse recorder events.
@@ -56,6 +58,47 @@ enum Commands {
     MarkdownFix(MarkdownFixArgs),
     /// Run all docs linters: markdown-fix (auto-fix) then lint-dead-refs (check).
     DocsLint(DocsLintArgs),
+}
+
+#[derive(Args)]
+struct BenchArgs {
+    /// Benchmark maintenance subcommand to execute.
+    #[command(subcommand)]
+    command: BenchCommand,
+}
+
+#[derive(Subcommand)]
+enum BenchCommand {
+    /// Bake the unified benchmark report and refresh policy JSON from Criterion outputs.
+    Bake(BenchBakeArgs),
+    /// Export the parallel policy matrix benchmark as raw JSON.
+    PolicyExport(BenchPolicyExportArgs),
+}
+
+#[derive(Args)]
+struct BenchBakeArgs {
+    /// Output path for the baked offline-friendly report.
+    #[arg(long, default_value = "docs/benchmarks/report-inline.html")]
+    out: PathBuf,
+    /// HTML template used for the unified benchmark page.
+    #[arg(long, default_value = "docs/benchmarks/index.html")]
+    template: PathBuf,
+    /// Criterion root for core benchmark groups.
+    #[arg(long, default_value = "target/criterion")]
+    criterion_root: PathBuf,
+    /// Output path for the refreshed policy matrix JSON payload.
+    #[arg(long, default_value = "docs/benchmarks/parallel-policy-matrix.json")]
+    policy_json_out: PathBuf,
+}
+
+#[derive(Args)]
+struct BenchPolicyExportArgs {
+    /// Criterion root for the parallel policy matrix benchmark group.
+    #[arg(long, default_value = "target/criterion/parallel_policy_matrix")]
+    criterion_root: PathBuf,
+    /// Output path for the raw policy matrix JSON payload.
+    #[arg(long, default_value = "docs/benchmarks/parallel-policy-matrix.json")]
+    json_out: PathBuf,
 }
 
 #[derive(Args)]
@@ -282,6 +325,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::Bench(args) => run_bench(args),
         Commands::Dags(args) => run_dags(args),
         Commands::Doghouse(args) => run_doghouse(args),
         Commands::PrStatus(args) => run_pr_status(args),
@@ -293,6 +337,13 @@ fn main() -> Result<()> {
         Commands::LintDeadRefs(args) => run_lint_dead_refs(args),
         Commands::MarkdownFix(args) => run_markdown_fix(&args),
         Commands::DocsLint(args) => run_docs_lint(args),
+    }
+}
+
+fn run_bench(args: BenchArgs) -> Result<()> {
+    match args.command {
+        BenchCommand::Bake(args) => run_bench_bake(args),
+        BenchCommand::PolicyExport(args) => run_bench_policy_export(args),
     }
 }
 
@@ -703,6 +754,467 @@ fn run_pr_preflight(args: PrPreflightArgs) -> Result<()> {
         eprintln!("- {failure}");
     }
     bail!("fix the failing preflight checks before opening the PR");
+}
+
+const BENCH_CORE_GROUP_KEYS: &[&str] = &[
+    "snapshot_hash",
+    "scheduler_drain",
+    "scheduler_drain/enqueue",
+    "scheduler_drain/drain",
+];
+const BENCH_CORE_INPUTS: &[u32] = &[10, 100, 1000, 3000, 10000, 30000];
+const BENCH_POLICY_GROUP: &str = "parallel_policy_matrix";
+const BENCH_INLINE_DATA_MARKER: &str = "<script>\n            const GROUPS = [";
+const BENCH_OPEN_PROPS_LINK_TAG: &str = r#"        <link rel="stylesheet" href="vendor/open-props.min.css" data-bench-inline="open-props" />"#;
+const BENCH_NORMALIZE_DARK_LINK_TAG: &str = r#"        <link rel="stylesheet" href="vendor/normalize.dark.min.css" data-bench-inline="normalize-dark" />"#;
+
+#[derive(Clone, Debug, Serialize)]
+struct CoreBenchRow {
+    group: String,
+    n: u32,
+    mean: f64,
+    lb: Option<f64>,
+    ub: Option<f64>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct MissingBenchRow {
+    group: String,
+    n: u32,
+    path: String,
+    error: String,
+}
+
+#[derive(Clone, Debug)]
+struct CriterionEstimate {
+    path: String,
+    mean: f64,
+    lb: Option<f64>,
+    ub: Option<f64>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+struct BenchMachineDescriptor {
+    os: String,
+    arch: String,
+    hostname: Option<String>,
+    label: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+struct PolicyMatrixPayload {
+    group: String,
+    generated_at: Option<String>,
+    git_sha: Option<String>,
+    machine: Option<BenchMachineDescriptor>,
+    criterion_root: Option<String>,
+    results: Vec<PolicyMatrixRow>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+struct PolicyMatrixRow {
+    policy: String,
+    workers: String,
+    load: u32,
+    path: String,
+    mean_ns: f64,
+    lb_ns: Option<f64>,
+    ub_ns: Option<f64>,
+    series: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct ParsedPolicyCase {
+    policy: String,
+    workers: String,
+    load: u32,
+}
+
+fn run_bench_bake(args: BenchBakeArgs) -> Result<()> {
+    let criterion_root = args.criterion_root;
+    let template_path = args.template;
+    let report_out = args.out;
+    let policy_json_out = args.policy_json_out;
+    let repo_root = find_repo_root()?;
+
+    let (core_data, core_missing) = collect_core_benchmark_rows(&criterion_root, &repo_root);
+    let policy_payload =
+        build_policy_matrix_payload(&criterion_root.join(BENCH_POLICY_GROUP), &repo_root)?;
+    write_policy_matrix_payload(&policy_payload, &policy_json_out)?;
+
+    let template = std::fs::read_to_string(&template_path)
+        .with_context(|| format!("failed to read {}", template_path.display()))?;
+    let baked_html = bake_benchmark_report(
+        &template,
+        &core_data,
+        &core_missing,
+        &policy_payload,
+        &repo_root,
+    )?;
+
+    if let Some(parent) = report_out.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    std::fs::write(&report_out, baked_html)
+        .with_context(|| format!("failed to write {}", report_out.display()))?;
+
+    println!(
+        "[bench-bake] Wrote {}",
+        display_repo_relative(&report_out, &repo_root)
+    );
+    println!(
+        "[bench-bake] Refreshed {}",
+        display_repo_relative(&policy_json_out, &repo_root)
+    );
+    Ok(())
+}
+
+fn run_bench_policy_export(args: BenchPolicyExportArgs) -> Result<()> {
+    let repo_root = find_repo_root()?;
+    let payload = build_policy_matrix_payload(&args.criterion_root, &repo_root)?;
+    write_policy_matrix_payload(&payload, &args.json_out)?;
+    println!(
+        "[bench-policy-export] Wrote {}",
+        display_repo_relative(&args.json_out, &repo_root)
+    );
+    Ok(())
+}
+
+fn collect_core_benchmark_rows(
+    criterion_root: &Path,
+    repo_root: &Path,
+) -> (Vec<CoreBenchRow>, Vec<MissingBenchRow>) {
+    let mut data = Vec::new();
+    let mut missing = Vec::new();
+
+    for group in BENCH_CORE_GROUP_KEYS {
+        for &n in BENCH_CORE_INPUTS {
+            let bench_dir = criterion_root.join(group).join(n.to_string());
+            match load_criterion_estimate(&bench_dir, repo_root) {
+                Ok(estimate) => data.push(CoreBenchRow {
+                    group: (*group).to_owned(),
+                    n,
+                    mean: estimate.mean,
+                    lb: estimate.lb,
+                    ub: estimate.ub,
+                }),
+                Err((path, error)) => missing.push(MissingBenchRow {
+                    group: (*group).to_owned(),
+                    n,
+                    path,
+                    error,
+                }),
+            }
+        }
+    }
+
+    (data, missing)
+}
+
+fn build_policy_matrix_payload(
+    criterion_root: &Path,
+    repo_root: &Path,
+) -> Result<PolicyMatrixPayload> {
+    let generated_at = OffsetDateTime::now_utc()
+        .format(&Rfc3339)
+        .context("failed to format benchmark payload timestamp")?;
+    let git_sha = Some(git_short_head_sha()?);
+    let machine = Some(local_benchmark_machine_descriptor());
+    let criterion_root_display = Some(display_repo_relative(criterion_root, repo_root));
+    let results = collect_policy_matrix_rows(criterion_root, repo_root);
+
+    Ok(PolicyMatrixPayload {
+        group: BENCH_POLICY_GROUP.to_owned(),
+        generated_at: Some(generated_at),
+        git_sha,
+        machine,
+        criterion_root: criterion_root_display,
+        results,
+    })
+}
+
+fn collect_policy_matrix_rows(criterion_root: &Path, repo_root: &Path) -> Vec<PolicyMatrixRow> {
+    if !criterion_root.is_dir() {
+        return Vec::new();
+    }
+
+    let mut results = Vec::new();
+    let mut stack = vec![criterion_root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path.clone());
+            }
+            if !path.is_dir() {
+                continue;
+            }
+            let Ok(relative_dir) = path.strip_prefix(criterion_root) else {
+                continue;
+            };
+            let Some(case) = parse_policy_case(relative_dir) else {
+                continue;
+            };
+            let Ok(estimate) = load_criterion_estimate(&path, repo_root) else {
+                continue;
+            };
+            results.push(PolicyMatrixRow {
+                policy: case.policy.clone(),
+                workers: case.workers.clone(),
+                load: case.load,
+                path: estimate.path,
+                mean_ns: estimate.mean,
+                lb_ns: estimate.lb,
+                ub_ns: estimate.ub,
+                series: format!("{}:{}", case.policy, case.workers),
+            });
+        }
+    }
+
+    results.sort_by(|left, right| {
+        left.workers
+            .cmp(&right.workers)
+            .then_with(|| left.policy.cmp(&right.policy))
+            .then_with(|| left.load.cmp(&right.load))
+    });
+    results
+}
+
+fn parse_policy_case(relative_dir: &Path) -> Option<ParsedPolicyCase> {
+    let parts: Vec<String> = relative_dir
+        .iter()
+        .map(|part| part.to_string_lossy().into_owned())
+        .collect();
+    match parts.as_slice() {
+        [policy_case, load] => {
+            let load = load.parse().ok()?;
+            if let Some((policy, workers)) = split_policy_case(policy_case) {
+                Some(ParsedPolicyCase {
+                    policy,
+                    workers,
+                    load,
+                })
+            } else {
+                Some(ParsedPolicyCase {
+                    policy: policy_case.clone(),
+                    workers: "dedicated".to_owned(),
+                    load,
+                })
+            }
+        }
+        [policy, workers, load] => Some(ParsedPolicyCase {
+            policy: policy.clone(),
+            workers: workers.clone(),
+            load: load.parse().ok()?,
+        }),
+        _ => None,
+    }
+}
+
+fn split_policy_case(policy_case: &str) -> Option<(String, String)> {
+    for suffix in ["_1w", "_4w", "_8w"] {
+        if let Some(policy) = policy_case.strip_suffix(suffix) {
+            return Some((policy.to_owned(), suffix.trim_start_matches('_').to_owned()));
+        }
+    }
+    None
+}
+
+fn load_criterion_estimate(
+    bench_dir: &Path,
+    repo_root: &Path,
+) -> Result<CriterionEstimate, (String, String)> {
+    let candidate_paths =
+        ["new", "base", "change"].map(|kind| bench_dir.join(kind).join("estimates.json"));
+    for path in &candidate_paths {
+        if !path.exists() {
+            continue;
+        }
+        let contents = std::fs::read_to_string(path).map_err(|err| {
+            (
+                display_repo_relative(path, repo_root),
+                format!("read error: {err}"),
+            )
+        })?;
+        let value: serde_json::Value = serde_json::from_str(&contents).map_err(|err| {
+            (
+                display_repo_relative(path, repo_root),
+                format!("parse error: {err}"),
+            )
+        })?;
+
+        let mean = estimate_number(&value, &["mean", "point_estimate"])
+            .or_else(|| estimate_number(&value, &["Mean", "point_estimate"]))
+            .ok_or_else(|| {
+                (
+                    display_repo_relative(path, repo_root),
+                    "missing mean.point_estimate".to_owned(),
+                )
+            })?;
+        let lb = estimate_number(&value, &["mean", "confidence_interval", "lower_bound"])
+            .or_else(|| estimate_number(&value, &["Mean", "confidence_interval", "lower_bound"]));
+        let ub = estimate_number(&value, &["mean", "confidence_interval", "upper_bound"])
+            .or_else(|| estimate_number(&value, &["Mean", "confidence_interval", "upper_bound"]));
+
+        return Ok(CriterionEstimate {
+            path: display_repo_relative(path, repo_root),
+            mean,
+            lb,
+            ub,
+        });
+    }
+
+    Err((
+        display_repo_relative(&candidate_paths[0], repo_root),
+        "not found (tried new/base/change)".to_owned(),
+    ))
+}
+
+fn estimate_number(value: &serde_json::Value, path: &[&str]) -> Option<f64> {
+    let mut current = value;
+    for segment in path {
+        current = current.get(*segment)?;
+    }
+    current.as_f64()
+}
+
+fn write_policy_matrix_payload(payload: &PolicyMatrixPayload, out_path: &Path) -> Result<()> {
+    if let Some(parent) = out_path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    let json = serde_json::to_string_pretty(payload)
+        .context("failed to serialize parallel policy matrix payload")?;
+    std::fs::write(out_path, format!("{json}\n"))
+        .with_context(|| format!("failed to write {}", out_path.display()))
+}
+
+fn bake_benchmark_report(
+    template: &str,
+    core_data: &[CoreBenchRow],
+    core_missing: &[MissingBenchRow],
+    policy_payload: &PolicyMatrixPayload,
+    repo_root: &Path,
+) -> Result<String> {
+    let mut html = inline_benchmark_vendor_styles(template, repo_root)?;
+    let inject = build_benchmark_inline_script(core_data, core_missing, policy_payload)?;
+    if html.contains(BENCH_INLINE_DATA_MARKER) {
+        html = html.replacen(
+            BENCH_INLINE_DATA_MARKER,
+            &(inject + BENCH_INLINE_DATA_MARKER),
+            1,
+        );
+    } else {
+        html = html.replace("</body>", &(inject + "</body>"));
+    }
+    Ok(html)
+}
+
+fn inline_benchmark_vendor_styles(template: &str, repo_root: &Path) -> Result<String> {
+    let open_props = std::fs::read_to_string("docs/benchmarks/vendor/open-props.min.css")
+        .context("failed to read docs/benchmarks/vendor/open-props.min.css")?;
+    let normalize_dark = std::fs::read_to_string("docs/benchmarks/vendor/normalize.dark.min.css")
+        .context("failed to read docs/benchmarks/vendor/normalize.dark.min.css")?;
+
+    let mut html = template.to_owned();
+    html = replace_once_or_bail(
+        &html,
+        BENCH_OPEN_PROPS_LINK_TAG,
+        &format!(
+            "<style data-bench-inline=\"open-props\">\n{}\n</style>",
+            open_props.trim()
+        ),
+        repo_root,
+    )?;
+    html = replace_once_or_bail(
+        &html,
+        BENCH_NORMALIZE_DARK_LINK_TAG,
+        &format!(
+            "<style data-bench-inline=\"normalize-dark\">\n{}\n</style>",
+            normalize_dark.trim()
+        ),
+        repo_root,
+    )?;
+    Ok(html)
+}
+
+fn replace_once_or_bail(
+    haystack: &str,
+    needle: &str,
+    replacement: &str,
+    repo_root: &Path,
+) -> Result<String> {
+    if !haystack.contains(needle) {
+        bail!(
+            "benchmark template is missing expected marker `{needle}` while baking from {}",
+            display_repo_relative(Path::new("docs/benchmarks/index.html"), repo_root)
+        );
+    }
+    Ok(haystack.replacen(needle, replacement, 1))
+}
+
+fn build_benchmark_inline_script(
+    core_data: &[CoreBenchRow],
+    core_missing: &[MissingBenchRow],
+    policy_payload: &PolicyMatrixPayload,
+) -> Result<String> {
+    let data_json =
+        serde_json::to_string(core_data).context("failed to serialize core benchmark rows")?;
+    let missing_json = serde_json::to_string(core_missing)
+        .context("failed to serialize missing core benchmark rows")?;
+    let policy_json = serde_json::to_string(policy_payload)
+        .context("failed to serialize policy payload for inline report")?;
+
+    Ok(format!(
+        "<script>\nwindow.__CRITERION_DATA__ = {data_json};\nwindow.__CRITERION_MISSING__ = {missing_json};\nwindow.__POLICY_MATRIX__ = {policy_json};\n</script>\n"
+    ))
+}
+
+fn display_repo_relative(path: &Path, repo_root: &Path) -> String {
+    path.strip_prefix(repo_root)
+        .unwrap_or(path)
+        .display()
+        .to_string()
+}
+
+fn git_short_head_sha() -> Result<String> {
+    let output = Command::new("git")
+        .args(["rev-parse", "--short", "HEAD"])
+        .output()
+        .context("failed to run `git rev-parse --short HEAD`")?;
+    if !output.status.success() {
+        bail!("git rev-parse --short HEAD failed with {}", output.status);
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+}
+
+fn local_benchmark_machine_descriptor() -> BenchMachineDescriptor {
+    let hostname = std::env::var("HOSTNAME")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            std::env::var("COMPUTERNAME")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+        });
+    let os = std::env::consts::OS.to_owned();
+    let arch = std::env::consts::ARCH.to_owned();
+    let label = hostname.as_ref().map_or_else(
+        || format!("{os}/{arch}"),
+        |host| format!("{os}/{arch} on {host}"),
+    );
+
+    BenchMachineDescriptor {
+        os,
+        arch,
+        hostname,
+        label,
+    }
 }
 
 fn run_pr_threads_list(selector: Option<&str>) -> Result<()> {
@@ -6372,5 +6884,75 @@ mod tests {
         assert!(is_gh_auth_error("authentication required"));
         assert!(is_gh_auth_error("you must authenticate with GitHub"));
         assert!(is_gh_auth_error("bad credentials"));
+    }
+
+    #[test]
+    fn parse_policy_case_handles_worker_suffix_form() {
+        let Some(case) = parse_policy_case(Path::new("dynamic_per_worker_4w/1000")) else {
+            unreachable!("expected worker suffix policy case");
+        };
+
+        assert_eq!(
+            case,
+            ParsedPolicyCase {
+                policy: "dynamic_per_worker".to_owned(),
+                workers: "4w".to_owned(),
+                load: 1000,
+            }
+        );
+    }
+
+    #[test]
+    fn parse_policy_case_handles_dedicated_two_segment_form() {
+        let Some(case) = parse_policy_case(Path::new("dedicated_per_shard/100")) else {
+            unreachable!("expected dedicated policy case");
+        };
+
+        assert_eq!(
+            case,
+            ParsedPolicyCase {
+                policy: "dedicated_per_shard".to_owned(),
+                workers: "dedicated".to_owned(),
+                load: 100,
+            }
+        );
+    }
+
+    #[test]
+    fn benchmark_inline_script_embeds_policy_payload_metadata() {
+        let script = assert_ok(
+            build_benchmark_inline_script(
+                &[],
+                &[],
+                &PolicyMatrixPayload {
+                    group: BENCH_POLICY_GROUP.to_owned(),
+                    generated_at: Some("2026-03-28T22:40:30Z".to_owned()),
+                    git_sha: Some("deadbeef".to_owned()),
+                    machine: Some(BenchMachineDescriptor {
+                        os: "macos".to_owned(),
+                        arch: "aarch64".to_owned(),
+                        hostname: None,
+                        label: "macos/aarch64".to_owned(),
+                    }),
+                    criterion_root: Some("target/criterion/parallel_policy_matrix".to_owned()),
+                    results: vec![PolicyMatrixRow {
+                        policy: "static_per_worker".to_owned(),
+                        workers: "4w".to_owned(),
+                        load: 1000,
+                        path: "target/criterion/parallel_policy_matrix/static_per_worker_4w/1000/new/estimates.json".to_owned(),
+                        mean_ns: 138309.37,
+                        lb_ns: Some(137130.76),
+                        ub_ns: Some(139395.20),
+                        series: "static_per_worker:4w".to_owned(),
+                    }],
+                },
+            ),
+            "inline benchmark script should serialize",
+        );
+
+        assert!(script.contains("window.__POLICY_MATRIX__ ="));
+        assert!(script.contains("\"generated_at\":\"2026-03-28T22:40:30Z\""));
+        assert!(script.contains("\"git_sha\":\"deadbeef\""));
+        assert!(script.contains("\"criterion_root\":\"target/criterion/parallel_policy_matrix\""));
     }
 }

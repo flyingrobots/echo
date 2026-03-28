@@ -41,7 +41,8 @@ spawns one thread per non-empty shard.
 
 Running the dedicated bake target produces:
 
-- raw JSON: [parallel-policy-matrix.json](/Users/james/git/echo/docs/benchmarks/parallel-policy-matrix.json)
+- raw JSON with provenance metadata:
+  [parallel-policy-matrix.json](/Users/james/git/echo/docs/benchmarks/parallel-policy-matrix.json)
 - unified static benchmarks page:
   [report-inline.html](/Users/james/git/echo/docs/benchmarks/report-inline.html)
   Open the `Parallel policy matrix` tab.
@@ -61,6 +62,13 @@ If benchmark results already exist and you only want to regenerate JSON + HTML:
 ```sh
 make bench-policy-export
 ```
+
+The export payload includes:
+
+- generated timestamp
+- git SHA
+- machine descriptor
+- criterion source root
 
 To inspect the registered benchmark cases without running them:
 

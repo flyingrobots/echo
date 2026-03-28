@@ -30,7 +30,7 @@ Added comprehensive benchmarking for the `reserve()` independence checking funct
 **Files Modified:**
 
 - `docs/benchmarks/index.html` - Added reserve_independence to GROUPS
-- `scripts/bench_bake.py` - Added to GROUPS list for baking
+- `cargo xtask bench bake` - Includes the benchmark group in the baked report path
 - `crates/warp-benches/Cargo.toml` - Registered benchmark with harness=false
 
 **Visual Style:**

@@ -6,10 +6,17 @@
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>Echo Benchmarks</title>
+        <link
+            rel="stylesheet"
+            href="vendor/open-props.min.css"
+            data-bench-inline="open-props"
+        />
+        <link
+            rel="stylesheet"
+            href="vendor/normalize.dark.min.css"
+            data-bench-inline="normalize-dark"
+        />
         <style>
-            @import "https://unpkg.com/open-props";
-            @import "https://unpkg.com/open-props/normalize.dark.min.css";
-
             :root {
                 color-scheme: dark;
                 --brand: var(--blue-4);
@@ -545,6 +552,9 @@
                         readable at a glance; the raw table keeps the exact
                         timings.
                     </p>
+                    <p id="policy-provenance" class="inline-callout">
+                        Loading policy-study provenance...
+                    </p>
                 </section>
 
                 <section class="grid-two">
@@ -683,6 +693,7 @@
             let cachedCoreData = [];
             let cachedCoreMissing = [];
             let cachedPolicyData = [];
+            let cachedPolicyPayload = null;
 
             function tooltipNode() {
                 return document.getElementById("tooltip");
@@ -845,26 +856,79 @@
                 return { data, missing };
             }
 
+            function normalizePolicyPayload(payload) {
+                if (Array.isArray(payload)) {
+                    return {
+                        group: "parallel_policy_matrix",
+                        generated_at: null,
+                        git_sha: null,
+                        machine: null,
+                        criterion_root:
+                            "target/criterion/parallel_policy_matrix",
+                        results: payload,
+                    };
+                }
+                if (!payload || typeof payload !== "object") {
+                    return {
+                        group: "parallel_policy_matrix",
+                        generated_at: null,
+                        git_sha: null,
+                        machine: null,
+                        criterion_root:
+                            "target/criterion/parallel_policy_matrix",
+                        results: [],
+                    };
+                }
+                return {
+                    group: payload.group ?? "parallel_policy_matrix",
+                    generated_at: payload.generated_at ?? null,
+                    git_sha: payload.git_sha ?? null,
+                    machine: payload.machine ?? null,
+                    criterion_root:
+                        payload.criterion_root ??
+                        "target/criterion/parallel_policy_matrix",
+                    results: Array.isArray(payload.results)
+                        ? payload.results
+                        : [],
+                };
+            }
+
             async function loadPolicyData() {
-                if (
-                    Array.isArray(window.__POLICY_MATRIX__) &&
-                    window.__POLICY_MATRIX__.length
-                ) {
-                    return window.__POLICY_MATRIX__;
+                if (window.__POLICY_MATRIX__) {
+                    return normalizePolicyPayload(window.__POLICY_MATRIX__);
                 }
 
                 try {
                     const res = await fetch("parallel-policy-matrix.json");
                     if (!res.ok) {
-                        return [];
+                        return normalizePolicyPayload(null);
                     }
                     const payload = await res.json();
-                    return Array.isArray(payload.results)
-                        ? payload.results
-                        : [];
+                    return normalizePolicyPayload(payload);
                 } catch {
-                    return [];
+                    return normalizePolicyPayload(null);
                 }
+            }
+
+            function renderPolicyProvenance(payload) {
+                const root = document.getElementById("policy-provenance");
+                const source =
+                    payload.criterion_root ??
+                    "target/criterion/parallel_policy_matrix";
+                const generatedAt = payload.generated_at
+                    ? `<code>${payload.generated_at}</code>`
+                    : "an unknown time";
+                const gitSha = payload.git_sha
+                    ? `<code>${payload.git_sha}</code>`
+                    : "an unknown commit";
+                const machineLabel = payload.machine?.label
+                    ? `<code>${payload.machine.label}</code>`
+                    : "an unknown machine";
+                if (payload.results.length) {
+                    root.innerHTML = `This policy study was baked from <code>${source}</code> at ${generatedAt} on ${machineLabel}, from git ${gitSha}. Treat the stack rank as a property of this run, not a universal truth.`;
+                    return;
+                }
+                root.innerHTML = `No parallel policy results were found under <code>${source}</code> when this page was baked. Run <code>make bench-policy-bake</code> for a fresh study, or <code>make bench-bake</code> to refresh the unified page from whatever Criterion data is currently present.`;
             }
 
             function syncTabFromHash() {
@@ -1705,16 +1769,18 @@
             }
 
             async function run() {
-                const [{ data, missing }, policyData] = await Promise.all([
+                const [{ data, missing }, policyPayload] = await Promise.all([
                     loadCoreData(),
                     loadPolicyData(),
                 ]);
                 cachedCoreData = data;
                 cachedCoreMissing = missing;
-                cachedPolicyData = policyData;
+                cachedPolicyPayload = policyPayload;
+                cachedPolicyData = policyPayload.results;
 
                 syncTabFromHash();
                 renderOverview(cachedCoreData, cachedCoreMissing);
+                renderPolicyProvenance(cachedPolicyPayload);
                 renderPolicyCommentary(cachedPolicyData);
                 renderPolicyMatrixEnglish(cachedPolicyData);
                 renderPolicyChart(cachedPolicyData);

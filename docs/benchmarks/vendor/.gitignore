@@ -4,3 +4,5 @@
 *.css
 *.css.map
 !.gitkeep
+!open-props.min.css
+!normalize.dark.min.css

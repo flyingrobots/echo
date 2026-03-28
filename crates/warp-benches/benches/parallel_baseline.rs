@@ -20,11 +20,14 @@
 //! - `serial_vs_parallel_N`: Compare parallel sharded execution vs serial baseline
 //! - `work_queue_pipeline_N`: Full Phase 6B pipeline (build_work_units → execute_work_queue)
 //! - `worker_scaling_100`: How throughput scales with worker count (1, 2, 4, 8, 16)
-//! - `policy_matrix_1000`: Compare shard assignment and delta accumulation policies directly
+//! - `parallel_policy_matrix`: Compare shard assignment and delta accumulation policies across loads
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
 use std::collections::BTreeMap;
 use std::time::Duration;
-use warp_core::parallel::{build_work_units, execute_work_queue, WorkerResult};
+use warp_core::parallel::{
+    build_work_units, execute_work_queue, DeltaAccumulationPolicy, ShardAssignmentPolicy,
+    WorkerResult,
+};
 use warp_core::{
     execute_parallel, execute_parallel_with_policy, execute_serial, make_node_id, make_type_id,
     make_warp_id, AtomPayload, AttachmentKey, AttachmentValue, ExecItem, GraphStore, GraphView,
@@ -308,49 +311,74 @@ fn policy_label(policy: ParallelExecutionPolicy) -> &'static str {
         ParallelExecutionPolicy::DYNAMIC_PER_SHARD => "dynamic_per_shard",
         ParallelExecutionPolicy::STATIC_PER_WORKER => "static_per_worker",
         ParallelExecutionPolicy::STATIC_PER_SHARD => "static_per_shard",
+        ParallelExecutionPolicy {
+            assignment: ShardAssignmentPolicy::DedicatedPerShard,
+            accumulation: DeltaAccumulationPolicy::PerWorker,
+        } => "dedicated_per_worker",
+        ParallelExecutionPolicy::DEDICATED_PER_SHARD => "dedicated_per_shard",
     }
 }
 
 /// Compares shard assignment and delta accumulation strategies directly.
 fn bench_policy_matrix(c: &mut Criterion) {
-    let mut group = c.benchmark_group("policy_matrix_1000");
+    let mut group = c.benchmark_group("parallel_policy_matrix");
     group
         .warm_up_time(Duration::from_secs(2))
         .measurement_time(Duration::from_secs(5))
-        .sample_size(50);
-
-    const WORKLOAD_SIZE: usize = 1_000;
-    group.throughput(Throughput::Elements(WORKLOAD_SIZE as u64));
+        .sample_size(40);
 
     let policies = [
         ParallelExecutionPolicy::DYNAMIC_PER_WORKER,
         ParallelExecutionPolicy::DYNAMIC_PER_SHARD,
         ParallelExecutionPolicy::STATIC_PER_WORKER,
         ParallelExecutionPolicy::STATIC_PER_SHARD,
+        ParallelExecutionPolicy::DEDICATED_PER_SHARD,
     ];
 
-    for &workers in &[1usize, 4, 8] {
+    for &n in &[100usize, 1_000, 10_000] {
+        group.throughput(Throughput::Elements(n as u64));
         for policy in policies {
-            group.bench_with_input(
-                BenchmarkId::new(policy_label(policy), workers),
-                &workers,
-                |b, &workers| {
+            if policy == ParallelExecutionPolicy::DEDICATED_PER_SHARD {
+                group.bench_with_input(BenchmarkId::new(policy_label(policy), n), &n, |b, &n| {
                     b.iter_batched(
                         || {
-                            let (store, nodes) = make_test_store(WORKLOAD_SIZE);
+                            let (store, nodes) = make_test_store(n);
                             let items = make_exec_items(&nodes);
                             (store, items)
                         },
                         |(store, items)| {
                             let view = GraphView::new(&store);
-                            let deltas =
-                                execute_parallel_with_policy(view, &items, workers, policy);
+                            let deltas = execute_parallel_with_policy(view, &items, 1, policy);
                             criterion::black_box(deltas)
                         },
                         BatchSize::SmallInput,
                     );
-                },
-            );
+                });
+                continue;
+            }
+
+            for &workers in &[1usize, 4, 8] {
+                group.bench_with_input(
+                    BenchmarkId::new(format!("{}/{}w", policy_label(policy), workers), n),
+                    &n,
+                    |b, &n| {
+                        b.iter_batched(
+                            || {
+                                let (store, nodes) = make_test_store(n);
+                                let items = make_exec_items(&nodes);
+                                (store, items)
+                            },
+                            |(store, items)| {
+                                let view = GraphView::new(&store);
+                                let deltas =
+                                    execute_parallel_with_policy(view, &items, workers, policy);
+                                criterion::black_box(deltas)
+                            },
+                            BatchSize::SmallInput,
+                        );
+                    },
+                );
+            }
         }
     }
 

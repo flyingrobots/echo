@@ -1,0 +1,376 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Echo Parallel Policy Matrix</title>
+        <style>
+            :root {
+                --bg: #0b0f14;
+                --panel: #111822;
+                --text: #e6edf3;
+                --muted: #9fb1c1;
+                --grid: #213041;
+                --line-a: #7aa2f7;
+                --line-b: #9ece6a;
+                --line-c: #e0af68;
+                --line-d: #f7768e;
+                --line-e: #bb9af7;
+            }
+            body {
+                margin: 0;
+                padding: 24px;
+                font-family:
+                    ui-sans-serif,
+                    system-ui,
+                    -apple-system,
+                    BlinkMacSystemFont,
+                    "Segoe UI",
+                    sans-serif;
+                background: var(--bg);
+                color: var(--text);
+            }
+            header,
+            main {
+                max-width: 1100px;
+                margin: 0 auto;
+            }
+            h1,
+            h2 {
+                margin: 0 0 12px;
+            }
+            p,
+            li {
+                color: var(--muted);
+            }
+            .panel {
+                background: var(--panel);
+                border-radius: 10px;
+                padding: 16px;
+                margin-top: 16px;
+            }
+            .chart-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+                gap: 16px;
+            }
+            .chart-card svg {
+                width: 100%;
+                height: 260px;
+            }
+            .legend {
+                display: flex;
+                gap: 12px;
+                flex-wrap: wrap;
+                margin-top: 8px;
+            }
+            .legend-item {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                color: var(--muted);
+                font-size: 13px;
+            }
+            .swatch {
+                width: 12px;
+                height: 12px;
+                border-radius: 3px;
+            }
+            table {
+                width: 100%;
+                border-collapse: collapse;
+            }
+            th,
+            td {
+                text-align: left;
+                padding: 8px;
+                border-bottom: 1px solid #1f2a36;
+            }
+            th {
+                color: var(--muted);
+            }
+            code {
+                background: #0e1620;
+                padding: 2px 6px;
+                border-radius: 4px;
+            }
+            .empty {
+                color: var(--muted);
+                font-style: italic;
+            }
+        </style>
+    </head>
+    <body>
+        <header>
+            <h1>Parallel Policy Matrix</h1>
+            <p>
+                Compare shard assignment and delta accumulation strategies
+                across multiple loads. Raw data lives in
+                <code>parallel-policy-matrix.json</code>; this page is the
+                lightweight static view.
+            </p>
+        </header>
+
+        <main>
+            <section class="panel">
+                <h2>What This Compares</h2>
+                <ul>
+                    <li>
+                        <code>dynamic_per_worker</code>: dynamic shard stealing,
+                        one delta per worker
+                    </li>
+                    <li>
+                        <code>dynamic_per_shard</code>: dynamic shard stealing,
+                        one delta per shard
+                    </li>
+                    <li>
+                        <code>static_per_worker</code>: round-robin shard
+                        assignment, one delta per worker
+                    </li>
+                    <li>
+                        <code>static_per_shard</code>: round-robin shard
+                        assignment, one delta per shard
+                    </li>
+                    <li>
+                        <code>dedicated_per_shard</code>: one worker thread per
+                        non-empty shard, one delta per shard
+                    </li>
+                </ul>
+            </section>
+
+            <section class="panel">
+                <h2>Charts</h2>
+                <div id="charts" class="chart-grid"></div>
+                <div id="legend" class="legend"></div>
+            </section>
+
+            <section class="panel">
+                <h2>Raw Table</h2>
+                <div id="table-root"></div>
+            </section>
+        </main>
+
+        <script>
+            (function () {
+                function load(src, ok, fail) {
+                    const s = document.createElement("script");
+                    s.src = src;
+                    s.onload = ok;
+                    s.onerror = fail;
+                    document.head.appendChild(s);
+                }
+                function start() {
+                    if (typeof d3 !== "undefined") {
+                        run();
+                    }
+                }
+                load("vendor/d3.v7.min.js", start, function () {
+                    load("https://unpkg.com/d3@7", start, function () {
+                        document.getElementById("charts").innerHTML =
+                            '<p class="empty">Failed to load D3.</p>';
+                    });
+                });
+            })();
+        </script>
+        <script>
+            const DATA_URL = "parallel-policy-matrix.json";
+            const COLORS = {
+                dynamic_per_worker: "#7aa2f7",
+                dynamic_per_shard: "#9ece6a",
+                static_per_worker: "#e0af68",
+                static_per_shard: "#f7768e",
+                dedicated_per_shard: "#bb9af7",
+            };
+
+            function fmtNs(ns) {
+                if (ns < 1e3) return `${ns.toFixed(0)} ns`;
+                if (ns < 1e6) return `${(ns / 1e3).toFixed(2)} µs`;
+                if (ns < 1e9) return `${(ns / 1e6).toFixed(2)} ms`;
+                return `${(ns / 1e9).toFixed(2)} s`;
+            }
+
+            async function loadData() {
+                if (Array.isArray(window.__POLICY_MATRIX__)) {
+                    return window.__POLICY_MATRIX__;
+                }
+                const res = await fetch(DATA_URL);
+                if (!res.ok)
+                    throw new Error(
+                        `failed to load ${DATA_URL}: ${res.status}`,
+                    );
+                const json = await res.json();
+                return Array.isArray(json.results) ? json.results : [];
+            }
+
+            function renderLegend(policies) {
+                const legend = document.getElementById("legend");
+                legend.innerHTML = "";
+                for (const policy of policies) {
+                    const item = document.createElement("div");
+                    item.className = "legend-item";
+                    item.innerHTML = `<span class="swatch" style="background:${COLORS[policy]};"></span>${policy}`;
+                    legend.appendChild(item);
+                }
+            }
+
+            function renderCharts(data) {
+                const root = d3.select("#charts");
+                root.selectAll("*").remove();
+
+                if (!data.length) {
+                    root.append("p")
+                        .attr("class", "empty")
+                        .text("No benchmark data found yet.");
+                    return;
+                }
+
+                const workersOrder = ["1w", "4w", "8w", "dedicated"];
+                const grouped = d3.group(data, (d) => d.workers);
+                const loads = [...new Set(data.map((d) => d.load))].sort(
+                    (a, b) => a - b,
+                );
+                const yMax = d3.max(data, (d) => d.ub_ns ?? d.mean_ns) || 1;
+                const policies = [...new Set(data.map((d) => d.policy))];
+                renderLegend(policies);
+
+                for (const workers of workersOrder) {
+                    if (!grouped.has(workers)) continue;
+                    const workerData = grouped.get(workers);
+                    const byPolicy = d3.group(workerData, (d) => d.policy);
+
+                    const card = root
+                        .append("div")
+                        .attr("class", "chart-card panel");
+                    card.append("h3").text(
+                        workers === "dedicated"
+                            ? "Dedicated per shard"
+                            : `Worker pool: ${workers}`,
+                    );
+
+                    const width = 360;
+                    const height = 240;
+                    const margin = { top: 12, right: 12, bottom: 36, left: 56 };
+                    const innerW = width - margin.left - margin.right;
+                    const innerH = height - margin.top - margin.bottom;
+                    const svg = card
+                        .append("svg")
+                        .attr("viewBox", `0 0 ${width} ${height}`);
+                    const g = svg
+                        .append("g")
+                        .attr(
+                            "transform",
+                            `translate(${margin.left},${margin.top})`,
+                        );
+
+                    const x = d3
+                        .scaleLog()
+                        .domain([loads[0], loads[loads.length - 1]])
+                        .range([0, innerW]);
+                    const y = d3
+                        .scaleLinear()
+                        .domain([0, yMax * 1.05])
+                        .range([innerH, 0])
+                        .nice();
+
+                    g.append("g")
+                        .attr("transform", `translate(0,${innerH})`)
+                        .call(
+                            d3
+                                .axisBottom(x)
+                                .tickValues(loads)
+                                .tickFormat(d3.format("~s")),
+                        );
+                    g.append("g").call(
+                        d3
+                            .axisLeft(y)
+                            .ticks(6)
+                            .tickFormat((d) => `${(d / 1e6).toFixed(1)} ms`),
+                    );
+
+                    for (const [policy, series] of byPolicy) {
+                        const sorted = [...series].sort(
+                            (a, b) => a.load - b.load,
+                        );
+                        const line = d3
+                            .line()
+                            .x((d) => x(d.load))
+                            .y((d) => y(d.mean_ns));
+
+                        g.append("path")
+                            .datum(sorted)
+                            .attr("fill", "none")
+                            .attr("stroke", COLORS[policy])
+                            .attr("stroke-width", 2)
+                            .attr("d", line);
+
+                        g.selectAll(`circle-${workers}-${policy}`)
+                            .data(sorted)
+                            .enter()
+                            .append("circle")
+                            .attr("cx", (d) => x(d.load))
+                            .attr("cy", (d) => y(d.mean_ns))
+                            .attr("r", 3)
+                            .attr("fill", COLORS[policy])
+                            .append("title")
+                            .text(
+                                (d) =>
+                                    `${policy} @ ${d.load}: ${fmtNs(d.mean_ns)}`,
+                            );
+                    }
+                }
+            }
+
+            function renderTable(data) {
+                const root = document.getElementById("table-root");
+                if (!data.length) {
+                    root.innerHTML =
+                        '<p class="empty">No benchmark data found yet.</p>';
+                    return;
+                }
+                const rows = [...data]
+                    .sort(
+                        (a, b) =>
+                            a.workers.localeCompare(b.workers) ||
+                            a.policy.localeCompare(b.policy) ||
+                            a.load - b.load,
+                    )
+                    .map(
+                        (d) => `<tr>
+              <td>${d.workers}</td>
+              <td>${d.policy}</td>
+              <td>${d.load}</td>
+              <td>${fmtNs(d.mean_ns)}</td>
+              <td>${fmtNs(d.lb_ns ?? d.mean_ns)} – ${fmtNs(d.ub_ns ?? d.mean_ns)}</td>
+            </tr>`,
+                    )
+                    .join("");
+                root.innerHTML = `<table>
+          <thead>
+            <tr>
+              <th>Workers</th>
+              <th>Policy</th>
+              <th>Load</th>
+              <th>Mean</th>
+              <th>95% CI</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+            }
+
+            async function run() {
+                try {
+                    const data = await loadData();
+                    renderCharts(data);
+                    renderTable(data);
+                } catch (err) {
+                    document.getElementById("charts").innerHTML =
+                        `<p class="empty">${String(err)}</p>`;
+                    document.getElementById("table-root").innerHTML = "";
+                }
+            }
+        </script>
+    </body>
+</html>

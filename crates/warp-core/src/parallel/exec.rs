@@ -27,6 +27,12 @@ pub enum ShardAssignmentPolicy {
     DynamicSteal,
     /// Shards are assigned deterministically to workers by `shard_id % workers`.
     StaticRoundRobin,
+    /// Each non-empty shard gets its own worker thread.
+    ///
+    /// This is primarily a benchmarking / comparison policy, not the default
+    /// engine topology. It intentionally maximizes scheduling isolation at the
+    /// cost of spawning up to one thread per non-empty shard.
+    DedicatedPerShard,
 }
 
 /// How worker execution outputs are grouped into `TickDelta`s.
@@ -75,6 +81,12 @@ impl ParallelExecutionPolicy {
     /// Deterministic round-robin shard assignment with one output delta per non-empty shard.
     pub const STATIC_PER_SHARD: Self = Self {
         assignment: ShardAssignmentPolicy::StaticRoundRobin,
+        accumulation: DeltaAccumulationPolicy::PerShard,
+    };
+
+    /// One worker per non-empty shard with one output delta per shard.
+    pub const DEDICATED_PER_SHARD: Self = Self {
+        assignment: ShardAssignmentPolicy::DedicatedPerShard,
         accumulation: DeltaAccumulationPolicy::PerShard,
     };
 }
@@ -308,6 +320,10 @@ pub fn execute_parallel_sharded_with_policy(
         (ShardAssignmentPolicy::StaticRoundRobin, DeltaAccumulationPolicy::PerShard) => {
             execute_static_per_shard(view, &shards, workers)
         }
+        (
+            ShardAssignmentPolicy::DedicatedPerShard,
+            DeltaAccumulationPolicy::PerWorker | DeltaAccumulationPolicy::PerShard,
+        ) => execute_dedicated_per_shard(view, &shards),
     }
 }
 
@@ -482,6 +498,38 @@ fn execute_static_per_shard(
             .into_iter()
             .flat_map(|h| match h.join() {
                 Ok(worker_deltas) => worker_deltas,
+                Err(e) => std::panic::resume_unwind(e),
+            })
+            .collect();
+        deltas.sort_by_key(|(shard_id, _)| *shard_id);
+        deltas.into_iter().map(|(_, delta)| delta).collect()
+    })
+}
+
+fn execute_dedicated_per_shard(
+    view: GraphView<'_>,
+    shards: &[super::shard::VirtualShard],
+) -> Vec<TickDelta> {
+    std::thread::scope(|s| {
+        let handles: Vec<_> = shards
+            .iter()
+            .enumerate()
+            .filter(|(_, shard)| !shard.items.is_empty())
+            .map(|(shard_id, shard)| {
+                let view_copy = view;
+                let items = &shard.items;
+                s.spawn(move || {
+                    let mut delta = TickDelta::new();
+                    execute_shard_into_delta(view_copy, items, &mut delta);
+                    (shard_id, delta)
+                })
+            })
+            .collect();
+
+        let mut deltas: Vec<(usize, TickDelta)> = handles
+            .into_iter()
+            .map(|h| match h.join() {
+                Ok(delta) => delta,
                 Err(e) => std::panic::resume_unwind(e),
             })
             .collect();
@@ -827,6 +875,7 @@ mod tests {
             ParallelExecutionPolicy::DYNAMIC_PER_SHARD,
             ParallelExecutionPolicy::STATIC_PER_WORKER,
             ParallelExecutionPolicy::STATIC_PER_SHARD,
+            ParallelExecutionPolicy::DEDICATED_PER_SHARD,
         ];
         let (store, items) = make_store_and_items(32);
         let view = GraphView::new(&store);

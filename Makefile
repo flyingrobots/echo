@@ -147,7 +147,7 @@ bench-stop:
 	  echo "[bench] No PID file at target/bench_http.pid"; \
 	fi
 
-.PHONY: bench-bake bench-open-inline
+.PHONY: bench-bake bench-open-inline bench-policy-bake bench-policy-export bench-policy-open-inline
 
 # Bake a standalone HTML with inline data that works over file://
 bench-bake: vendor-d3
@@ -160,6 +160,30 @@ bench-bake: vendor-d3
 
 bench-open-inline:
 	@open docs/benchmarks/report-inline.html
+
+bench-policy-export: vendor-d3
+	@echo "Exporting parallel policy matrix JSON + inline HTML..."
+	@python3 scripts/bench_parallel_policy_bake.py \
+	  --json-out docs/benchmarks/parallel-policy-matrix.json \
+	  --html-out docs/benchmarks/parallel-policy-matrix-inline.html
+	@pnpm exec prettier --write docs/benchmarks/parallel-policy-matrix-inline.html >/dev/null
+
+bench-policy-bake: vendor-d3
+	@echo "Running parallel policy matrix benchmarks..."
+	cargo bench -p warp-benches --bench parallel_baseline -- parallel_policy_matrix
+	@$(MAKE) bench-policy-export
+	@if [ -n "$(OPEN)" ]; then \
+	  $(OPEN) docs/benchmarks/parallel-policy-matrix-inline.html >/dev/null 2>&1 || echo "Open file: docs/benchmarks/parallel-policy-matrix-inline.html" ; \
+	else \
+	  echo "Open file: docs/benchmarks/parallel-policy-matrix-inline.html" ; \
+	fi
+
+bench-policy-open-inline:
+	@if [ -n "$(OPEN)" ]; then \
+	  $(OPEN) docs/benchmarks/parallel-policy-matrix-inline.html >/dev/null 2>&1 || echo "Open file: docs/benchmarks/parallel-policy-matrix-inline.html" ; \
+	else \
+	  echo "Open file: docs/benchmarks/parallel-policy-matrix-inline.html" ; \
+	fi
 
 # Spec-000 (WASM) helpers
 .PHONY: spec-000-dev spec-000-build

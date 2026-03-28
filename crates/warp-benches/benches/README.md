@@ -32,6 +32,9 @@ results. This README summarizes how to run them and read the output.
         - dynamic shard claiming + per-shard deltas
         - static round-robin shard assignment + per-worker deltas
         - static round-robin shard assignment + per-shard deltas
+        - dedicated one-worker-per-shard + one-delta-per-shard
+    - The policy matrix runs across loads `100`, `1000`, and `10000`, with worker
+      counts `1`, `4`, and `8` where the policy uses a worker pool.
     - Throughput “elements” = executed items in the synthetic independent workload.
 
 ## Run

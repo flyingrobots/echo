@@ -765,8 +765,8 @@ const BENCH_CORE_GROUP_KEYS: &[&str] = &[
 const BENCH_CORE_INPUTS: &[u32] = &[10, 100, 1000, 3000, 10000, 30000];
 const BENCH_POLICY_GROUP: &str = "parallel_policy_matrix";
 const BENCH_INLINE_DATA_MARKER: &str = "<script>\n            const GROUPS = [";
-const BENCH_OPEN_PROPS_LINK_TAG: &str = r#"        <link rel="stylesheet" href="vendor/open-props.min.css" data-bench-inline="open-props" />"#;
-const BENCH_NORMALIZE_DARK_LINK_TAG: &str = r#"        <link rel="stylesheet" href="vendor/normalize.dark.min.css" data-bench-inline="normalize-dark" />"#;
+const BENCH_OPEN_PROPS_INLINE_MARKER: &str = r#"data-bench-inline="open-props""#;
+const BENCH_NORMALIZE_DARK_INLINE_MARKER: &str = r#"data-bench-inline="normalize-dark""#;
 
 #[derive(Clone, Debug, Serialize)]
 struct CoreBenchRow {
@@ -1122,18 +1122,18 @@ fn inline_benchmark_vendor_styles(template: &str, repo_root: &Path) -> Result<St
         .context("failed to read docs/benchmarks/vendor/normalize.dark.min.css")?;
 
     let mut html = template.to_owned();
-    html = replace_once_or_bail(
+    html = replace_inline_link_tag(
         &html,
-        BENCH_OPEN_PROPS_LINK_TAG,
+        BENCH_OPEN_PROPS_INLINE_MARKER,
         &format!(
             "<style data-bench-inline=\"open-props\">\n{}\n</style>",
             open_props.trim()
         ),
         repo_root,
     )?;
-    html = replace_once_or_bail(
+    html = replace_inline_link_tag(
         &html,
-        BENCH_NORMALIZE_DARK_LINK_TAG,
+        BENCH_NORMALIZE_DARK_INLINE_MARKER,
         &format!(
             "<style data-bench-inline=\"normalize-dark\">\n{}\n</style>",
             normalize_dark.trim()
@@ -1143,19 +1143,31 @@ fn inline_benchmark_vendor_styles(template: &str, repo_root: &Path) -> Result<St
     Ok(html)
 }
 
-fn replace_once_or_bail(
+fn replace_inline_link_tag(
     haystack: &str,
-    needle: &str,
+    marker: &str,
     replacement: &str,
     repo_root: &Path,
 ) -> Result<String> {
-    if !haystack.contains(needle) {
+    let Some(marker_index) = haystack.find(marker) else {
         bail!(
-            "benchmark template is missing expected marker `{needle}` while baking from {}",
+            "benchmark template is missing expected marker `{marker}` while baking from {}",
             display_repo_relative(Path::new("docs/benchmarks/index.html"), repo_root)
         );
-    }
-    Ok(haystack.replacen(needle, replacement, 1))
+    };
+    let start = haystack[..marker_index].rfind("<link").with_context(|| {
+        format!("failed to locate opening <link> for benchmark marker `{marker}`")
+    })?;
+    let relative_end = haystack[marker_index..]
+        .find('>')
+        .with_context(|| format!("failed to locate closing > for benchmark marker `{marker}`"))?;
+    let end = marker_index + relative_end + 1;
+
+    let mut result = String::with_capacity(haystack.len() + replacement.len());
+    result.push_str(&haystack[..start]);
+    result.push_str(replacement);
+    result.push_str(&haystack[end..]);
+    Ok(result)
 }
 
 fn build_benchmark_inline_script(

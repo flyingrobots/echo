@@ -19,18 +19,22 @@
         <style>
             :root {
                 color-scheme: dark;
-                --brand: var(--blue-4);
-                --brand-strong: var(--indigo-4);
-                --accent-good: var(--green-4);
-                --accent-warn: var(--orange-4);
+                --brand: var(--cyan-4);
+                --brand-strong: var(--blue-5);
+                --brand-soft: color-mix(in srgb, var(--cyan-4) 18%, white 6%);
+                --accent-good: var(--lime-4);
+                --accent-warn: var(--yellow-4);
                 --accent-hot: var(--red-4);
-                --surface-page: var(--surface-1);
-                --surface-panel: var(--surface-2);
-                --surface-panel-2: var(--surface-3);
-                --border-color: var(--stone-8);
+                --surface-page: #07121b;
+                --surface-panel: #0d1a25;
+                --surface-panel-2: #132230;
+                --surface-panel-3: #182a3a;
+                --border-color: color-mix(in srgb, var(--stone-8) 65%, #35506c);
                 --shadow-color: 220 40% 2%;
                 --tooltip-bg: color-mix(in srgb, var(--gray-0) 96%, black 4%);
                 --tooltip-text: var(--gray-12);
+                --hero-glow: rgb(69 181 255 / 18%);
+                --hero-glow-2: rgb(255 204 102 / 10%);
             }
 
             html,
@@ -41,13 +45,11 @@
             body {
                 margin: 0;
                 padding: var(--size-8) var(--size-5) var(--size-10);
-                font-family: var(--font-sans);
+                font-family: var(--font-humanist);
                 background:
-                    radial-gradient(
-                        circle at top,
-                        rgb(20 48 87 / 35%),
-                        transparent 35%
-                    ),
+                    radial-gradient(circle at 10% 0%, var(--hero-glow), transparent 34%),
+                    radial-gradient(circle at 88% 12%, var(--hero-glow-2), transparent 28%),
+                    linear-gradient(180deg, #08131d 0%, #07111a 42%, #050d14 100%);
                     var(--surface-page);
                 color: var(--text-1);
             }
@@ -61,6 +63,40 @@
                 display: grid;
                 gap: var(--size-5);
                 margin-bottom: var(--size-6);
+                padding: clamp(var(--size-5), 3vw, var(--size-8));
+                border-radius: var(--radius-5);
+                border: 1px solid color-mix(in srgb, var(--brand) 18%, var(--border-color));
+                background:
+                    linear-gradient(
+                        135deg,
+                        color-mix(in srgb, var(--surface-panel) 90%, var(--brand) 10%),
+                        color-mix(in srgb, var(--surface-panel-2) 88%, black 12%)
+                    );
+                box-shadow: var(--shadow-5);
+                position: relative;
+                overflow: clip;
+            }
+
+            .hero::before {
+                content: "";
+                position: absolute;
+                inset: 0;
+                background:
+                    linear-gradient(
+                        90deg,
+                        rgb(255 255 255 / 0%) 0%,
+                        rgb(255 255 255 / 4%) 49%,
+                        rgb(255 255 255 / 0%) 50%
+                    ),
+                    linear-gradient(
+                        0deg,
+                        rgb(255 255 255 / 0%) 0%,
+                        rgb(255 255 255 / 3%) 49%,
+                        rgb(255 255 255 / 0%) 50%
+                    );
+                background-size: 32px 32px;
+                opacity: 0.12;
+                pointer-events: none;
             }
 
             .eyebrow {
@@ -70,6 +106,7 @@
                 font-weight: var(--font-weight-7);
                 letter-spacing: var(--font-letterspacing-3);
                 text-transform: uppercase;
+                font-family: var(--font-industrial);
             }
 
             h1,
@@ -81,6 +118,8 @@
             h1 {
                 font-size: clamp(var(--font-size-6), 4vw, var(--font-size-8));
                 line-height: var(--font-lineheight-1);
+                max-width: 11ch;
+                font-family: var(--font-geometric-humanist);
             }
 
             h2 {
@@ -114,12 +153,64 @@
                 margin: var(--size-3) 0 0;
                 max-width: 72ch;
                 font-size: var(--font-size-3);
+                color: color-mix(in srgb, var(--text-1) 88%, var(--brand-soft));
+            }
+
+            .hero-copy {
+                position: relative;
+                z-index: 1;
+                display: grid;
+                gap: var(--size-3);
+            }
+
+            .hero-grid {
+                position: relative;
+                z-index: 1;
+                display: grid;
+                gap: var(--size-4);
+                grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+            }
+
+            .hero-card,
+            .brief-card {
+                padding: var(--size-4);
+                border-radius: var(--radius-4);
+                border: 1px solid color-mix(in srgb, var(--brand) 14%, var(--border-color));
+                background:
+                    linear-gradient(
+                        180deg,
+                        color-mix(in srgb, var(--surface-panel-2) 92%, white 8%),
+                        color-mix(in srgb, var(--surface-panel) 96%, black 4%)
+                    );
+                box-shadow: var(--shadow-3);
+            }
+
+            .hero-card h2,
+            .brief-card h3 {
+                font-size: var(--font-size-3);
+                margin-bottom: var(--size-2);
+            }
+
+            .hero-card p,
+            .brief-card p {
+                margin: 0;
+                color: var(--text-2);
+            }
+
+            .hero-note {
+                color: var(--brand);
+                font-size: var(--font-size-1);
+                font-weight: var(--font-weight-6);
+                text-transform: uppercase;
+                letter-spacing: var(--font-letterspacing-2);
             }
 
             .tabs {
                 display: flex;
                 flex-wrap: wrap;
                 gap: var(--size-3);
+                position: relative;
+                z-index: 1;
             }
 
             .tab-button,
@@ -185,6 +276,7 @@
                 border-radius: var(--radius-4);
                 padding: var(--size-5);
                 box-shadow: var(--shadow-4);
+                backdrop-filter: blur(10px);
             }
 
             .grid-two {
@@ -208,8 +300,8 @@
             .subpanel {
                 background: color-mix(
                     in srgb,
-                    var(--surface-panel-2) 90%,
-                    black 10%
+                    var(--surface-panel-3) 92%,
+                    black 8%
                 );
                 border: 1px solid
                     color-mix(in srgb, var(--border-color) 45%, transparent);
@@ -220,18 +312,27 @@
             .inline-callout {
                 margin-top: var(--size-4);
                 border-inline-start: 4px solid var(--brand);
-                padding-inline-start: var(--size-4);
+                padding: var(--size-3) 0 var(--size-3) var(--size-4);
+                background:
+                    linear-gradient(
+                        90deg,
+                        color-mix(in srgb, var(--brand) 10%, transparent),
+                        transparent 70%
+                    );
+                border-radius: 0 var(--radius-3) var(--radius-3) 0;
             }
 
             .stat-line {
                 margin: 0;
                 padding: var(--size-4);
-                border-radius: var(--radius-3);
-                background: color-mix(
-                    in srgb,
-                    var(--surface-panel-2) 90%,
-                    black 10%
-                );
+                border-radius: var(--radius-4);
+                border: 1px solid color-mix(in srgb, var(--brand) 12%, var(--border-color));
+                background:
+                    linear-gradient(
+                        135deg,
+                        color-mix(in srgb, var(--surface-panel-2) 88%, var(--brand) 12%),
+                        color-mix(in srgb, var(--surface-panel-3) 92%, black 8%)
+                    );
             }
 
             .chart-shell {
@@ -241,12 +342,22 @@
 
             .chart {
                 min-height: 420px;
+                padding: var(--size-3);
+                border-radius: var(--radius-4);
+                background:
+                    linear-gradient(
+                        180deg,
+                        color-mix(in srgb, var(--surface-panel-2) 94%, white 6%),
+                        color-mix(in srgb, var(--surface-panel) 96%, black 4%)
+                    );
+                border: 1px solid color-mix(in srgb, var(--border-color) 55%, transparent);
             }
 
             .legend {
                 display: flex;
                 flex-wrap: wrap;
                 gap: var(--size-3) var(--size-5);
+                padding-top: var(--size-2);
             }
 
             .legend-group {
@@ -279,6 +390,7 @@
             .section-intro {
                 margin-top: var(--size-2);
                 max-width: 70ch;
+                font-size: var(--font-size-2);
             }
 
             .commentary-list,
@@ -292,8 +404,8 @@
                 border-radius: var(--radius-3);
                 background: color-mix(
                     in srgb,
-                    var(--surface-panel-2) 90%,
-                    black 10%
+                    var(--surface-panel-3) 92%,
+                    black 8%
                 );
                 border: 1px solid
                     color-mix(in srgb, var(--border-color) 45%, transparent);
@@ -306,6 +418,8 @@
             table {
                 width: 100%;
                 border-collapse: collapse;
+                border-radius: var(--radius-3);
+                overflow: clip;
             }
 
             thead th {
@@ -313,6 +427,7 @@
                 padding: var(--size-3);
                 color: var(--text-1);
                 font-size: var(--font-size-1);
+                background: color-mix(in srgb, var(--surface-panel-3) 94%, black 6%);
                 border-bottom: 1px solid
                     color-mix(in srgb, var(--border-color) 70%, transparent);
             }
@@ -322,6 +437,10 @@
                 border-bottom: 1px solid
                     color-mix(in srgb, var(--border-color) 35%, transparent);
                 vertical-align: top;
+            }
+
+            tbody tr:nth-child(even) td {
+                background: color-mix(in srgb, var(--surface-panel-2) 92%, black 8%);
             }
 
             .rank-cell {
@@ -388,20 +507,75 @@
                 stroke-width: 1.5;
                 stroke-dasharray: 5 4;
             }
+
+            .brief-grid {
+                display: grid;
+                gap: var(--size-4);
+                grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+                margin-top: var(--size-4);
+            }
+
+            .brief-card h3 {
+                color: var(--text-1);
+                font-size: var(--font-size-2);
+                margin-bottom: var(--size-2);
+            }
+
+            @media (max-width: 720px) {
+                body {
+                    padding-inline: var(--size-3);
+                }
+
+                .hero {
+                    padding: var(--size-4);
+                }
+
+                h1 {
+                    max-width: none;
+                    font-size: clamp(var(--font-size-5), 10vw, var(--font-size-7));
+                }
+            }
         </style>
     </head>
     <body>
         <header class="shell hero">
-            <div>
-                <p class="eyebrow">Echo Benchmarks</p>
-                <h1>One page for the runtime story and the policy dogfight</h1>
+            <div class="hero-copy">
+                <p class="eyebrow">Single-page engineering readout</p>
+                <h1>Echo Runtime Benchmarks</h1>
                 <p class="lede">
-                    This report keeps the core scheduler-overhead view and the
-                    newer parallel policy study in one static page. The core tab
-                    tracks the steady-state budget story; the policy tab
-                    compares sharding and delta accumulation strategies under
-                    the same synthetic independent workload.
+                    This report answers two practical questions: does the
+                    deterministic core stay cheap as load grows, and which
+                    parallel shard-policy shape actually wins when the workload
+                    is held constant?
                 </p>
+            </div>
+            <div class="hero-grid" aria-label="Report scope">
+                <section class="hero-card">
+                    <p class="hero-note">Core overhead</p>
+                    <h2>Stable costs, visible at a glance</h2>
+                    <p>
+                        Snapshot hashing and scheduler drain stay on one tab,
+                        with both budget and complexity views.
+                    </p>
+                </section>
+                <section class="hero-card">
+                    <p class="hero-note">Policy study</p>
+                    <h2>Five shapes, one workload</h2>
+                    <p>
+                        The policy matrix holds the executor constant and only
+                        changes shard claiming, worker shape, and delta
+                        grouping.
+                    </p>
+                </section>
+                <section class="hero-card">
+                    <p class="hero-note">Baked artifact</p>
+                    <h2>Offline-friendly and provenance-aware</h2>
+                    <p>
+                        The generated page carries its data, styling, and run
+                        metadata with it so the story survives outside the live
+                        Criterion directory.
+                    </p>
+                </section>
             </div>
             <nav class="tabs" role="tablist" aria-label="Benchmark views">
                 <button
@@ -435,13 +609,13 @@
                 aria-labelledby="tab-overview"
             >
                 <section class="panel">
-                    <h2>Deterministic scheduler overhead</h2>
+                    <h2>Core overhead</h2>
                     <p class="section-intro">
-                        This tab measures the stable runtime path: snapshot
-                        hashing and scheduler drain behavior as input size
-                        grows. Lower is better. The budget view keeps the
-                        frame-budget context visible, while the complexity view
-                        makes scaling trends easier to see.
+                        This tab tracks the costs the engine pays every tick:
+                        hashing the reachable snapshot and draining the
+                        deterministic scheduler. Budget view keeps the frame
+                        line visible. Complexity view makes the scaling shape
+                        easier to inspect.
                     </p>
                     <div id="dynamic-stats" class="stat-line">
                         Loading benchmark data...
@@ -472,11 +646,11 @@
 
                 <section class="grid-two">
                     <section class="panel">
-                        <h2>Breakout tables</h2>
+                        <h2>Per-benchmark tables</h2>
                         <div id="overview-tables"></div>
                     </section>
                     <section class="panel">
-                        <h2>Missing data</h2>
+                        <h2>Capture status</h2>
                         <div id="overview-missing"></div>
                     </section>
                 </section>
@@ -490,45 +664,48 @@
                 hidden
             >
                 <section class="panel">
-                    <h2>Goal, method, and metric</h2>
+                    <h2>What this study is testing</h2>
                     <p class="section-intro">
                         The policy study isolates topology overhead inside
                         <code>execute_parallel_with_policy</code>. Every case
-                        runs the same independent workload, so the only moving
-                        parts are shard assignment, worker shape, and delta
-                        accumulation policy.
+                        runs the same independent workload. Only the execution
+                        shape changes: shard assignment, worker layout, and
+                        delta grouping.
                     </p>
                     <div class="subgrid">
                         <div class="subpanel">
-                            <h3>What each case actually does</h3>
+                            <h3>What stays constant</h3>
                             <ol>
                                 <li>
-                                    Build a fresh graph store with independent
-                                    benchmark nodes.
+                                    Start from a fresh graph store with
+                                    independent benchmark nodes.
                                 </li>
                                 <li>
                                     Create one <code>ExecItem</code> per node
-                                    with the same executor.
+                                    with the same executor and the same item
+                                    mix.
                                 </li>
                                 <li>
-                                    Run the exact same item set under one policy
+                                    Run that identical item set under one policy
                                     at one load.
                                 </li>
                                 <li>
                                     Black-box the returned deltas so Criterion
-                                    measures the real path.
+                                    measures the actual execution path rather
+                                    than dead-code-eliminating it away.
                                 </li>
                             </ol>
                         </div>
                         <div class="subpanel">
-                            <h3>How it is measured</h3>
+                            <h3>How to read the numbers</h3>
                             <ul>
                                 <li>
-                                    Harness: Criterion group
+                                    Harness:
                                     <code>parallel_policy_matrix</code>
                                 </li>
                                 <li>
-                                    Loads: <code>100</code>, <code>1000</code>,
+                                    Loads:
+                                    <code>100</code>, <code>1000</code>,
                                     <code>10000</code>
                                 </li>
                                 <li>Warmup: <code>2s</code></li>
@@ -538,28 +715,27 @@
                                     Primary metric: mean runtime per invocation
                                 </li>
                                 <li>
-                                    Hover tooltips show exact mean and
-                                    confidence interval
+                                    Hover tooltips keep the exact mean and
+                                    confidence interval on demand
                                 </li>
                             </ul>
                         </div>
                     </div>
                     <p class="inline-callout">
-                        The graph below draws every measured policy/load point.
-                        Color tracks policy family. Line style tracks worker
-                        shape. The English commentary and comparison matrix
-                        intentionally avoid numbers so the performance story is
-                        readable at a glance; the raw table keeps the exact
-                        timings.
+                        Every measured policy/load point appears on the chart
+                        below. Color tracks the topology family. Line style
+                        tracks worker shape. The prose stays in plain English on
+                        purpose; the numbers live in the tooltips and raw table.
                     </p>
                     <p id="policy-provenance" class="inline-callout">
                         Loading policy-study provenance...
                     </p>
+                    <div id="policy-brief" class="brief-grid"></div>
                 </section>
 
                 <section class="grid-two">
                     <section class="panel">
-                        <h2>Plain-English play-by-play</h2>
+                        <h2>What the results say</h2>
                         <div
                             id="policy-commentary"
                             class="commentary-list"
@@ -574,10 +750,10 @@
                 <section class="panel">
                     <h2>All policy data on one chart</h2>
                     <p class="section-intro">
-                        Every series is shown here. Hover any point for exact
-                        details. Dedicated-per-shard stays on the same axes as
-                        the pooled-worker cases so you can see whether it ever
-                        catches up.
+                        Every measured series stays on the same axes. That makes
+                        it easy to see whether a control case ever catches the
+                        leaders, or whether it simply stays expensive all the
+                        way across the load sweep.
                     </p>
                     <div id="policy-legend" class="legend"></div>
                     <div
@@ -589,11 +765,11 @@
 
                 <section class="grid-two">
                     <section class="panel">
-                        <h2>Overall stack rank</h2>
+                        <h2>Stack rank</h2>
                         <div id="policy-rank"></div>
                     </section>
                     <section class="panel">
-                        <h2>Raw policy data</h2>
+                        <h2>Raw policy table</h2>
                         <div id="policy-raw"></div>
                     </section>
                 </section>
@@ -666,11 +842,11 @@
                 dedicated_per_shard: "#c084fc",
             };
             const POLICY_LABELS = {
-                dynamic_per_worker: "Dynamic / per worker",
-                dynamic_per_shard: "Dynamic / per shard",
-                static_per_worker: "Static / per worker",
-                static_per_shard: "Static / per shard",
-                dedicated_per_shard: "Dedicated / per shard",
+                dynamic_per_worker: "Dynamic claim / worker delta",
+                dynamic_per_shard: "Dynamic claim / shard delta",
+                static_per_worker: "Static round-robin / worker delta",
+                static_per_shard: "Static round-robin / shard delta",
+                dedicated_per_shard: "Dedicated shard / shard delta",
             };
             const WORKER_DASH = {
                 "1w": null,
@@ -679,9 +855,9 @@
                 dedicated: "10 4 2 4",
             };
             const WORKER_LABELS = {
-                "1w": "1 worker pool",
-                "4w": "4 worker pool",
-                "8w": "8 worker pool",
+                "1w": "1-worker pool",
+                "4w": "4-worker pool",
+                "8w": "8-worker pool",
                 dedicated: "1 shard = 1 worker = 1 delta",
             };
 
@@ -758,29 +934,29 @@
             }
 
             function loadBand(load) {
-                if (load <= 100) return "Small load";
+                if (load <= 100) return "Light load";
                 if (load <= 1000) return "Medium load";
-                return "Large load";
+                return "Heavy load";
             }
 
             function ratioPhrase(ratio) {
-                if (ratio <= 1.03) return "runs neck-and-neck";
-                if (ratio <= 1.08) return "stays very close";
-                if (ratio <= 1.2) return "sits a step behind";
-                if (ratio <= 1.6) return "falls noticeably behind";
-                return "falls far behind";
+                if (ratio <= 1.03) return "is effectively tied";
+                if (ratio <= 1.08) return "stays close";
+                if (ratio <= 1.2) return "sits one tier back";
+                if (ratio <= 1.6) return "drops off materially";
+                return "is clearly detached";
             }
 
             function overallPhrase(avgRank, wins, lastPlaces) {
                 if (wins > 0 && avgRank <= 1.4)
-                    return "Wins outright and stays at the front elsewhere.";
+                    return "Most consistent winner across the tested loads.";
                 if (avgRank <= 2.5)
-                    return "Lives in the top pack and rarely gets pushed around.";
+                    return "Usually near the front and reasonable as a default candidate.";
                 if (avgRank <= 5)
-                    return "Middle of the field: viable, but not the pace-setter.";
+                    return "Middle of the field: workable, but not the fastest shape here.";
                 if (lastPlaces >= 2)
-                    return "Usually trails the field and never becomes the obvious choice.";
-                return "Back-half performer that needs a stronger reason than raw speed.";
+                    return "Mostly useful as a control case rather than a likely default.";
+                return "Back-half performer; choose it for semantics, not raw speed.";
             }
 
             async function loadEstimate(group, n) {
@@ -925,7 +1101,7 @@
                     ? `<code>${payload.machine.label}</code>`
                     : "an unknown machine";
                 if (payload.results.length) {
-                    root.innerHTML = `This policy study was baked from <code>${source}</code> at ${generatedAt} on ${machineLabel}, from git ${gitSha}. Treat the stack rank as a property of this run, not a universal truth.`;
+                    root.innerHTML = `This policy study was baked from <code>${source}</code> at ${generatedAt} on ${machineLabel}, from git ${gitSha}. Read the rankings as a property of this run, not as a universal truth about every machine.`;
                     return;
                 }
                 root.innerHTML = `No parallel policy results were found under <code>${source}</code> when this page was baked. Run <code>make bench-policy-bake</code> for a fresh study, or <code>make bench-bake</code> to refresh the unified page from whatever Criterion data is currently present.`;
@@ -977,17 +1153,69 @@
                 );
                 if (!scheduler) {
                     stats.innerHTML =
-                        "<em>Benchmark data not available yet.</em>";
+                        "<em>No core benchmark capture is baked into this page yet.</em>";
                     return;
                 }
 
-                let html = `<strong>At n=1000</strong>, scheduler drain stays comfortably under a frame budget on this machine.`;
-                html += ` Exact timing: <strong>${fmtMs(scheduler.mean)}</strong>`;
+                let html = `<strong>Current read:</strong> at <code>n=1000</code>, scheduler drain still sits comfortably under a frame budget on this machine.`;
+                html += ` Total drain: <strong>${fmtMs(scheduler.mean)}</strong>`;
                 html += ` with CI <strong>${fmtMs(scheduler.lb ?? scheduler.mean)} – ${fmtMs(scheduler.ub ?? scheduler.mean)}</strong>.`;
                 if (snapshot) {
-                    html += ` Snapshot hash adds <strong>${fmtMs(snapshot.mean)}</strong>, so the combined cost stays in the low-millisecond range.`;
+                    html += ` Snapshot hashing contributes <strong>${fmtMs(snapshot.mean)}</strong>, so the combined core path stays in the low-millisecond range.`;
                 }
                 stats.innerHTML = html;
+            }
+
+            function renderPolicyBrief(data) {
+                const root = document.getElementById("policy-brief");
+                root.innerHTML = "";
+                if (!data.length) {
+                    root.innerHTML =
+                        "<article class='brief-card'><h3>No briefing yet</h3><p>Run <code>make bench-policy-bake</code> to capture the policy study.</p></article>";
+                    return;
+                }
+
+                const rankedLoads = rankPolicyRows(data);
+                const winners = rankedLoads.map(({ rows }) => rows[0]);
+                const workerSequence = winners
+                    .map((row) => row.workers)
+                    .join(" → ");
+                const sameWinnerFamily = winners.every(
+                    (row) => row.policy === winners[0].policy,
+                );
+                const dedicatedAlwaysLast = rankedLoads.every(
+                    ({ rows }) =>
+                        rows[rows.length - 1].policy === "dedicated_per_shard",
+                );
+
+                const cards = [
+                    {
+                        title: "Pace setter",
+                        body: sameWinnerFamily
+                            ? `${POLICY_LABELS[winners[0].policy] ?? winners[0].policy} leads every tested load on this machine.`
+                            : "No single policy family owns every load. The per-load winner matters more than any global one-line answer.",
+                    },
+                    {
+                        title: "Scaling shape",
+                        body:
+                            workerSequence === "1w → 4w → 8w"
+                                ? "As load rises, the winning worker pool widens step by step. Small work prefers less coordination; heavier work finally pays back broader parallelism."
+                                : "The winning worker shape does not follow one simple ladder, so coordination cost and useful parallelism trade places across the sweep.",
+                    },
+                    {
+                        title: "Boundary case",
+                        body: dedicatedAlwaysLast
+                            ? "The one-thread-per-shard extreme never becomes attractive here. It behaves like a control case that bounds the expensive end of the design space."
+                            : "The dedicated shard extreme never dominates this sweep, but it is not uniformly the worst result either.",
+                    },
+                ];
+
+                root.innerHTML = cards
+                    .map(
+                        (card) =>
+                            `<article class="brief-card"><h3>${card.title}</h3><p>${card.body}</p></article>`,
+                    )
+                    .join("");
             }
 
             function renderOverviewLegend() {
@@ -1336,7 +1564,7 @@
                 root.innerHTML = "";
                 if (!data.length) {
                     root.innerHTML =
-                        "<p class='empty'>Run <code>make bench-policy-bake</code> to populate the policy study.</p>";
+                        "<p class='empty'>Run <code>make bench-policy-bake</code> to capture the policy study.</p>";
                     return;
                 }
 
@@ -1360,11 +1588,11 @@
 
                     const body = document.createElement("div");
                     body.className = "commentary-card";
-                    body.innerHTML = `<strong>${loadBand(load)}:</strong> ${caseLabel(winner)} leads. ${
+                    body.innerHTML = `<strong>${loadBand(load)}:</strong> ${caseLabel(winner)} sets the pace. ${
                         runnerUp
                             ? `${caseLabel(runnerUp)} ${ratioPhrase(runnerUp.mean_ns / winner.mean_ns)}.`
                             : ""
-                    } ${caseLabel(laggard)} ${ratioPhrase(laggard.mean_ns / winner.mean_ns)} and brings up the rear.`;
+                    } ${caseLabel(laggard)} ${ratioPhrase(laggard.mean_ns / winner.mean_ns)} and stays on the expensive edge of the field.`;
                     cards.push(body);
                 });
 
@@ -1384,25 +1612,25 @@
                 const lines = [];
                 if (staticWinsAll) {
                     lines.push(
-                        "Static per-worker wins every tested load on this machine, so the simple pooled-worker path is setting the pace in this study.",
+                        "Static round-robin with one delta per worker wins every tested load on this machine, so the simpler pooled-worker path is setting the pace in this study.",
                     );
                 }
                 if (winnerSeq === "1w → 4w → 8w") {
                     lines.push(
-                        "As load rises, the winning worker pool widens step by step. That is the exact shape you would hope to see if coordination cost dominates small work but wider parallelism starts paying for larger batches.",
+                        "As load rises, the winning worker pool widens step by step. Small work prefers less coordination; heavier work finally justifies a wider pool.",
                     );
                 }
                 if (dedicatedAlwaysLast) {
                     lines.push(
-                        "The dedicated one-thread-per-shard extreme never catches the field. It works as a comparison boundary, not as a promising default.",
+                        "The dedicated one-thread-per-shard extreme never catches the field. It is useful as a boundary case, not as a promising default.",
                     );
                 }
                 if (!lines.length) {
                     lines.push(
-                        "No single dramatic narrative dominates every load, so treat the per-load ranking as the trustworthy story and the overall stack rank as a summary, not a substitute.",
+                        "No single simple narrative owns every load, so trust the per-load ranking first and treat the global stack rank as a summary.",
                     );
                 }
-                summary.innerHTML = `<strong>Overall read:</strong> ${lines.join(" ")}`;
+                summary.innerHTML = `<strong>Headline:</strong> ${lines.join(" ")}`;
                 root.appendChild(summary);
                 cards.forEach((card) => root.appendChild(card));
             }
@@ -1429,18 +1657,18 @@
                         if (rows.length > 1) {
                             const ratio = rows[1].mean_ns / rows[0].mean_ns;
                             if (ratio > 1.15) {
-                                readout =
-                                    "The winner separates clearly from the pack.";
+                                readout = "The leader pulls clear of the rest.";
                             } else if (ratio > 1.05) {
                                 readout =
-                                    "The front runners are close, but not interchangeable.";
+                                    "The front pair are close, but not interchangeable.";
                             }
                         }
                         if (
                             rows[rows.length - 1].mean_ns / rows[0].mean_ns >
                             2
                         ) {
-                            readout += " The tail is meaningfully detached.";
+                            readout +=
+                                " The slow end of the field is meaningfully detached.";
                         }
                         return `<tr>
                 <td>${loadBand(load)}</td>
@@ -1630,7 +1858,7 @@
                 const root = document.getElementById("policy-rank");
                 if (!data.length) {
                     root.innerHTML =
-                        "<p class='empty'>No rank to show yet.</p>";
+                        "<p class='empty'>No stack rank is available yet.</p>";
                     return;
                 }
 
@@ -1711,7 +1939,7 @@
               <tr>
                 <th>Rank</th>
                 <th>Series</th>
-                <th>Read</th>
+                <th>Plain-English read</th>
               </tr>
             </thead>
             <tbody>
@@ -1781,6 +2009,7 @@
                 syncTabFromHash();
                 renderOverview(cachedCoreData, cachedCoreMissing);
                 renderPolicyProvenance(cachedPolicyPayload);
+                renderPolicyBrief(cachedPolicyData);
                 renderPolicyCommentary(cachedPolicyData);
                 renderPolicyMatrixEnglish(cachedPolicyData);
                 renderPolicyChart(cachedPolicyData);

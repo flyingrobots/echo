@@ -38,7 +38,8 @@
                 margin: 0 auto;
             }
             h1,
-            h2 {
+            h2,
+            h3 {
                 margin: 0 0 12px;
             }
             p,
@@ -55,6 +56,16 @@
                 display: grid;
                 grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
                 gap: 16px;
+            }
+            .stack-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+                gap: 16px;
+            }
+            .subpanel {
+                background: #0e1620;
+                border-radius: 8px;
+                padding: 14px;
             }
             .chart-card svg {
                 width: 100%;
@@ -100,6 +111,15 @@
                 color: var(--muted);
                 font-style: italic;
             }
+            .callout {
+                border-left: 4px solid var(--line-a);
+                padding-left: 12px;
+                margin-top: 12px;
+            }
+            .rank {
+                font-weight: 700;
+                color: var(--text);
+            }
         </style>
     </head>
     <body>
@@ -114,6 +134,72 @@
         </header>
 
         <main>
+            <section class="panel">
+                <h2>Goal, Method, and Metric</h2>
+                <p>
+                    This study isolates scheduler topology overhead inside
+                    <code>execute_parallel_with_policy</code>. It is not an
+                    end-to-end engine trace and it is not measuring semantic
+                    conflicts; every load uses the same synthetic independent
+                    workload so the comparison stays focused on shard assignment
+                    and delta accumulation strategy.
+                </p>
+                <div class="stack-grid">
+                    <div class="subpanel">
+                        <h3>What Each Case Runs</h3>
+                        <ol>
+                            <li>
+                                Build a fresh graph store with
+                                <code>N</code> independent benchmark nodes.
+                            </li>
+                            <li>
+                                Create one <code>ExecItem</code> per node using
+                                the same <code>touch_executor</code>.
+                            </li>
+                            <li>
+                                Run that identical item set under one execution
+                                policy at one load.
+                            </li>
+                            <li>
+                                Black-box the returned deltas so the work is not
+                                optimized away.
+                            </li>
+                        </ol>
+                    </div>
+                    <div class="subpanel">
+                        <h3>How It Is Measured</h3>
+                        <ul>
+                            <li>
+                                Harness: Criterion benchmark group
+                                <code>parallel_policy_matrix</code>
+                            </li>
+                            <li>
+                                Loads: <code>100</code>, <code>1000</code>,
+                                <code>10000</code> items
+                            </li>
+                            <li>Warmup: <code>2s</code></li>
+                            <li>Measurement window: <code>5s</code></li>
+                            <li>Sample size: <code>40</code></li>
+                            <li>
+                                Primary metric: mean wall-clock time per
+                                invocation
+                            </li>
+                            <li>
+                                Confidence interval: Criterion 95% CI from
+                                <code>estimates.json</code>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+                <p class="callout">
+                    Lower mean runtime is better. The charts and per-load tables
+                    rank cases by raw mean runtime. The overall scoreboard
+                    normalizes each case against the best runtime at the same
+                    load, then averages that slowdown so mixed-load winners are
+                    not biased by the largest benchmark size.
+                </p>
+            </section>
+
             <section class="panel">
                 <h2>What This Compares</h2>
                 <ul>
@@ -138,6 +224,12 @@
                         non-empty shard, one delta per shard
                     </li>
                 </ul>
+            </section>
+
+            <section class="panel">
+                <h2>Stack Rank</h2>
+                <div id="overall-rank-root"></div>
+                <div id="per-load-rank-root" class="stack-grid"></div>
             </section>
 
             <section class="panel">
@@ -189,6 +281,14 @@
                 if (ns < 1e6) return `${(ns / 1e3).toFixed(2)} µs`;
                 if (ns < 1e9) return `${(ns / 1e6).toFixed(2)} ms`;
                 return `${(ns / 1e9).toFixed(2)} s`;
+            }
+
+            function fmtSlowdown(multiplier) {
+                return `${multiplier.toFixed(2)}x`;
+            }
+
+            function caseLabel(d) {
+                return `${d.policy} / ${d.workers}`;
             }
 
             async function loadData() {
@@ -360,12 +460,156 @@
         </table>`;
             }
 
+            function renderRankings(data) {
+                const overallRoot =
+                    document.getElementById("overall-rank-root");
+                const perLoadRoot =
+                    document.getElementById("per-load-rank-root");
+
+                if (!data.length) {
+                    overallRoot.innerHTML =
+                        '<p class="empty">No benchmark data found yet.</p>';
+                    perLoadRoot.innerHTML = "";
+                    return;
+                }
+
+                const loads = [...new Set(data.map((d) => d.load))].sort(
+                    (a, b) => a - b,
+                );
+                const byLoad = d3.group(data, (d) => d.load);
+                const perLoadRanks = new Map();
+                const bestByLoad = new Map();
+
+                const perLoadCards = loads
+                    .map((load) => {
+                        const ranked = [...(byLoad.get(load) || [])].sort(
+                            (a, b) => a.mean_ns - b.mean_ns,
+                        );
+                        if (!ranked.length) {
+                            return "";
+                        }
+                        bestByLoad.set(load, ranked[0].mean_ns);
+                        ranked.forEach((row, idx) => {
+                            perLoadRanks.set(
+                                `${caseLabel(row)}|${load}`,
+                                idx + 1,
+                            );
+                        });
+                        const rows = ranked
+                            .map((row, idx) => {
+                                const slowdown =
+                                    row.mean_ns / ranked[0].mean_ns;
+                                return `<tr>
+              <td class="rank">#${idx + 1}</td>
+              <td>${row.policy}</td>
+              <td>${row.workers}</td>
+              <td>${fmtNs(row.mean_ns)}</td>
+              <td>${fmtSlowdown(slowdown)}</td>
+            </tr>`;
+                            })
+                            .join("");
+                        return `<div class="subpanel">
+          <h3>Load ${load}</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Rank</th>
+                <th>Policy</th>
+                <th>Workers</th>
+                <th>Mean</th>
+                <th>Slowdown vs best</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>`;
+                    })
+                    .join("");
+
+                perLoadRoot.innerHTML = perLoadCards;
+
+                const bySeries = d3.group(data, (d) => caseLabel(d));
+                const overall = [...bySeries.entries()]
+                    .map(([label, rows]) => {
+                        const normalized = rows.map(
+                            (row) => row.mean_ns / bestByLoad.get(row.load),
+                        );
+                        const avgSlowdown =
+                            normalized.reduce((sum, n) => sum + n, 0) /
+                            normalized.length;
+                        const avgRank =
+                            rows.reduce(
+                                (sum, row) =>
+                                    sum +
+                                    perLoadRanks.get(
+                                        `${caseLabel(row)}|${row.load}`,
+                                    ),
+                                0,
+                            ) / rows.length;
+                        const bestRow = [...rows].sort(
+                            (a, b) => a.mean_ns - b.mean_ns,
+                        )[0];
+                        return {
+                            label,
+                            policy: bestRow.policy,
+                            workers: bestRow.workers,
+                            avgSlowdown,
+                            avgRank,
+                            bestLoad: bestRow.load,
+                            bestMeanNs: bestRow.mean_ns,
+                        };
+                    })
+                    .sort(
+                        (a, b) =>
+                            a.avgSlowdown - b.avgSlowdown ||
+                            a.avgRank - b.avgRank ||
+                            a.label.localeCompare(b.label),
+                    );
+
+                const overallRows = overall
+                    .map(
+                        (row, idx) => `<tr>
+          <td class="rank">#${idx + 1}</td>
+          <td>${row.policy}</td>
+          <td>${row.workers}</td>
+          <td>${fmtSlowdown(row.avgSlowdown)}</td>
+          <td>${row.avgRank.toFixed(2)}</td>
+          <td>${row.bestLoad}</td>
+          <td>${fmtNs(row.bestMeanNs)}</td>
+        </tr>`,
+                    )
+                    .join("");
+
+                overallRoot.innerHTML = `<p class="callout">
+          Overall ranking uses average slowdown relative to the per-load winner.
+          A score of <code>1.00x</code> would mean a case won every tested load.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Rank</th>
+              <th>Policy</th>
+              <th>Workers</th>
+              <th>Avg slowdown</th>
+              <th>Avg load rank</th>
+              <th>Best load</th>
+              <th>Best mean</th>
+            </tr>
+          </thead>
+          <tbody>${overallRows}</tbody>
+        </table>`;
+            }
+
             async function run() {
                 try {
                     const data = await loadData();
+                    renderRankings(data);
                     renderCharts(data);
                     renderTable(data);
                 } catch (err) {
+                    document.getElementById("overall-rank-root").innerHTML = "";
+                    document.getElementById("per-load-rank-root").innerHTML =
+                        "";
                     document.getElementById("charts").innerHTML =
                         `<p class="empty">${String(err)}</p>`;
                     document.getElementById("table-root").innerHTML = "";

@@ -1,0 +1,89 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
+# Doghouse
+
+The Doghouse is the design bay for the PR Flight Recorder.
+
+This directory exists so the recorder does not become "whatever seemed easy to code next."
+The first implementation slice is already real in `cargo xtask pr-snapshot`, but the next
+slices need product discipline before they need more code.
+
+## Why This Exists
+
+Long-lived PRs with multiple pushes, rerun checks, and automated reviewers become hard to
+reason about. The author stops trusting memory, GitHub mixes historical and live state, and
+the CLI is not much better. The recorder's job is to restore clarity.
+
+The product question is not "can we diff two JSON blobs?"
+
+The product question is:
+
+- what changed since the last sortie
+- what matters now
+- what action should happen next
+
+## Working Principle
+
+- Capture trustworthy local state first.
+- Interpret state in terms of blockers, not raw fields.
+- Prefer semantic deltas over raw file diffs.
+- Preserve the Draft Punks flavor later, but earn it with a solid mechanic first.
+
+## Current Plumbing
+
+The agent-native plumbing entrypoint is:
+
+```sh
+cargo xtask doghouse sortie 308 --intent merge_check
+```
+
+That command emits JSONL to stdout, writes local snapshot/delta artifacts under
+`artifacts/pr-review/`, and includes a machine-usable next-action verdict. It is meant to be
+the plumbing layer. Friendlier human porcelain can sit on top later.
+
+The JSONL stream now separates:
+
+- baseline selection: which prior snapshot was picked
+- sortie intent: why the current capture happened, plus the baseline intent when known
+- CodeRabbit state: whether Rabbit is pending, cooling down, blocked behind a summary-comment checkbox rearm, or otherwise in a weird callout state, without masking human or Codex review state; the JSONL event includes the actionable checkbox labels/ids when present
+- comparison assessment: how trustworthy that comparison is (`strong`, `usable`, `weak`, or `none`)
+- comparison quality: whether the baseline is `good_enough`, `stale`, `noisy`, `stale_and_noisy`, or an `initial_capture`
+- semantic delta: what actually changed
+- next action: what the agent should do now, using an intent-aware policy instead of state alone; when the chosen baseline is too stale or noisy for an affirmative workflow move, Doghouse now says `capture_fresh_sortie` instead of bluffing confidence
+
+When CodeRabbit pauses itself behind summary-comment checkboxes, the mutation entrypoint is:
+
+```sh
+cargo xtask doghouse rearm-coderabbit 308 --yes
+```
+
+That command is intentionally narrow: it only edits the latest CodeRabbit summary comment when the
+comment itself matches the active-changes / resume-review gate and contains actionable unchecked
+task checkboxes.
+
+When CodeRabbit is rearm-free, not cooling down, and ready for another pass, the nudge entrypoint is:
+
+```sh
+cargo xtask doghouse nudge-coderabbit 308 --yes
+```
+
+That command posts either `@coderabbitai review` or `@coderabbitai resume`, depending on the summary
+comment shape Doghouse observed. It is intentionally separate from `rearm-coderabbit`: first
+re-enable Rabbit if it paused itself, then nudge it only when the recorder says that move is
+actually actionable.
+
+## Documents
+
+- [Flight Recorder Brief](./flight-recorder-brief.md)
+  Sponsor users, jobs, hills, non-goals, semantic object model, and output strategy.
+- [Playbacks](./playbacks.md)
+  Concrete scenarios that define whether the recorder reduces confusion or just adds artifacts.
+
+## Current Product Stance
+
+- The current `pr-snapshot` command is the black box recorder.
+- `doghouse sortie` is the first triage step once a live PR gets noisy.
+- The next slice should only be built if it advances one of the documented hills.
+- Raw snapshot-to-snapshot diffing is not enough on its own.
+- "What changed?" only matters when the answer is tied to a human decision.

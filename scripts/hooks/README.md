@@ -25,6 +25,19 @@ prefer `cargo xtask pr-status` (or the `make pr-status` alias). For explicit
 review-thread cleanup after a verified fix batch, prefer `cargo xtask pr-threads`
 over hand-written `gh api graphql` snippets; `make pr-threads ARGS='…'` remains
 available as a thin alias when you want a Make entrypoint.
+For a durable local snapshot of PR state across review rounds, prefer
+`cargo xtask pr-snapshot` (or `make pr-snapshot ARGS='…'`), which writes
+gitignored JSON + Markdown under `artifacts/pr-review/`, plus semantic delta
+artifacts when a previous local snapshot exists. When the capture purpose matters,
+pass `--intent merge_check`, `--intent fix_batch`, or another Doghouse intent so
+the recorder can preserve why the snapshot was taken.
+When you need to decide what to do on a live PR, prefer `cargo xtask doghouse sortie`
+before hand-inspecting GitHub. The JSONL output is the agent-native plumbing surface:
+it compares against the last meaningful sortie, reports CodeRabbit pause/cooldown state
+without eclipsing human/Codex reviewers, and emits the next-action verdict.
+If that verdict is `nudge_coderabbit`, use `cargo xtask doghouse nudge-coderabbit <pr> --yes`.
+If it is `capture_fresh_sortie`, do not trust the current comparison for an affirmative move yet;
+capture another sortie first.
 Before opening a PR, prefer `cargo xtask pr-preflight` (or
 `make pr-preflight ARGS='…'`) instead of composing ad hoc local checks by hand.
 

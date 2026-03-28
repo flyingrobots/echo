@@ -7,7 +7,8 @@ Bake Criterion results into a self-contained HTML report that works over file://
 
 Reads estimates from target/criterion for known groups and injects them into
 docs/benchmarks/index.html, producing docs/benchmarks/report-inline.html with
-`window.__CRITERION_DATA__` and `window.__CRITERION_MISSING__` prepopulated.
+`window.__CRITERION_DATA__`, `window.__CRITERION_MISSING__`, and
+`window.__POLICY_MATRIX__` prepopulated.
 
 Usage:
   python3 scripts/bench_bake.py [--out docs/benchmarks/report-inline.html]
@@ -23,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CRITERION = ROOT / "target" / "criterion"
 TEMPLATE = ROOT / "docs" / "benchmarks" / "index.html"
 DEFAULT_OUT = ROOT / "docs" / "benchmarks" / "report-inline.html"
+POLICY_MATRIX_JSON = ROOT / "docs" / "benchmarks" / "parallel-policy-matrix.json"
 
 # Only bake groups the dashboard renders by default
 GROUPS = [
@@ -84,13 +86,27 @@ def load_estimate(group: str, n: int):
     }
 
 
-def build_inline_script(results, missing) -> str:
+def load_policy_matrix_results():
+    if not POLICY_MATRIX_JSON.exists():
+        return []
+    try:
+        payload = json.loads(POLICY_MATRIX_JSON.read_text())
+    except json.JSONDecodeError:
+        return []
+    if isinstance(payload, dict) and isinstance(payload.get("results"), list):
+        return payload["results"]
+    return []
+
+
+def build_inline_script(results, missing, policy_results) -> str:
     data_json = json.dumps(results, separators=(",", ":"))
     missing_json = json.dumps(missing, separators=(",", ":"))
+    policy_json = json.dumps(policy_results, separators=(",", ":"))
     return (
         f"<script>\n"
         f"window.__CRITERION_DATA__ = {data_json};\n"
         f"window.__CRITERION_MISSING__ = {missing_json};\n"
+        f"window.__POLICY_MATRIX__ = {policy_json};\n"
         f"</script>\n"
     )
 
@@ -115,10 +131,11 @@ def bake_html(out_path: Path):
             else:
                 missing.append({"group": key, "n": n, "path": r["path"], "error": r["error"]})
 
+    policy_results = load_policy_matrix_results()
     html = TEMPLATE.read_text()
     # Inject inline data just before the main logic script that defines GROUPS
     marker = "<script>\n      const GROUPS = ["
-    inject = build_inline_script(results, missing)
+    inject = build_inline_script(results, missing, policy_results)
     if marker in html:
         html_out = html.replace(marker, inject + marker, 1)
     else:

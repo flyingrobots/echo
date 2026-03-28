@@ -3,14 +3,13 @@
 # © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
 """
-Export the parallel policy matrix benchmark as JSON and bake an inline HTML view.
+Export the parallel policy matrix benchmark as raw JSON.
 
 Reads Criterion estimates from:
   target/criterion/parallel_policy_matrix/**/new|base|change/estimates.json
 
 Emits:
   - docs/benchmarks/parallel-policy-matrix.json
-  - docs/benchmarks/parallel-policy-matrix-inline.html
 """
 
 from __future__ import annotations
@@ -18,14 +17,11 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CRITERION = ROOT / "target" / "criterion" / "parallel_policy_matrix"
-TEMPLATE = ROOT / "docs" / "benchmarks" / "parallel-policy-matrix.html"
 DEFAULT_JSON_OUT = ROOT / "docs" / "benchmarks" / "parallel-policy-matrix.json"
-DEFAULT_HTML_OUT = ROOT / "docs" / "benchmarks" / "parallel-policy-matrix-inline.html"
 
 
 def load_estimate(bench_dir: Path):
@@ -119,36 +115,13 @@ def collect_results():
     return results
 
 
-def build_inline_script(results):
-    data_json = json.dumps(results, indent=2)
-    return f"<script>\nwindow.__POLICY_MATRIX__ = {data_json};\n</script>\n"
-
-
-def bake_html(results, out_path: Path):
-    if not TEMPLATE.exists():
-        sys.exit(f"Template not found: {TEMPLATE}")
-
-    html = TEMPLATE.read_text()
-    marker = "<script>\n      const DATA_URL = 'parallel-policy-matrix.json';"
-    inject = build_inline_script(results)
-    if marker in html:
-        html_out = html.replace(marker, inject + marker, 1)
-    else:
-        html_out = html.replace("</body>", inject + "</body>")
-    out_path.write_text(html_out)
-    print(f"[bench-parallel-policy] Wrote {out_path.relative_to(ROOT)}")
-
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--json-out", type=Path, default=DEFAULT_JSON_OUT)
-    ap.add_argument("--html-out", type=Path, default=DEFAULT_HTML_OUT)
     args = ap.parse_args()
 
     json_out = args.json_out if args.json_out.is_absolute() else (ROOT / args.json_out)
-    html_out = args.html_out if args.html_out.is_absolute() else (ROOT / args.html_out)
     json_out.parent.mkdir(parents=True, exist_ok=True)
-    html_out.parent.mkdir(parents=True, exist_ok=True)
 
     results = collect_results()
     payload = {
@@ -157,7 +130,6 @@ def main():
     }
     json_out.write_text(json.dumps(payload, indent=2) + "\n")
     print(f"[bench-parallel-policy] Wrote {json_out.relative_to(ROOT)}")
-    bake_html(results, html_out)
 
 
 if __name__ == "__main__":

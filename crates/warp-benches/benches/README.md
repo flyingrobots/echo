@@ -60,6 +60,8 @@ Criterion HTML reports are written under `target/criterion/<group>/report/index.
 - Live server + dashboard: `make bench-report` opens `http://localhost:8000/docs/benchmarks/`.
 - Offline static report (no server): `make bench-bake` writes `docs/benchmarks/report-inline.html` with results injected.
     - Open the file directly (Finder or `open docs/benchmarks/report-inline.html`).
+- The same static page also hosts the parallel shard-policy study.
+    - Run `make bench-policy-bake`, then open the `Parallel policy matrix` tab.
 
 ## Interpreting Results
 

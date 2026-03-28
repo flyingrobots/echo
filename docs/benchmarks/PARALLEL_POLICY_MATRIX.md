@@ -42,8 +42,9 @@ spawns one thread per non-empty shard.
 Running the dedicated bake target produces:
 
 - raw JSON: [parallel-policy-matrix.json](/Users/james/git/echo/docs/benchmarks/parallel-policy-matrix.json)
-- baked static HTML:
-  [parallel-policy-matrix-inline.html](/Users/james/git/echo/docs/benchmarks/parallel-policy-matrix-inline.html)
+- unified static benchmarks page:
+  [report-inline.html](/Users/james/git/echo/docs/benchmarks/report-inline.html)
+  Open the `Parallel policy matrix` tab.
 
 Criterion's original raw estimates remain under `target/criterion/parallel_policy_matrix/`.
 
@@ -72,4 +73,5 @@ cargo bench -p warp-benches --bench parallel_baseline -- --list
 - The benchmark measures execution topology overhead on a synthetic independent
   workload. It is not a substitute for end-to-end engine traces.
 - The dedicated per-shard policy is primarily a comparison tool. It is expected
-  to pay substantial thread-spawn overhead, especially at higher shard counts.
+  to pay substantial thread-spawn overhead and exists to bound the extreme
+  `1 worker = 1 shard = 1 delta` shape against the pooled-worker policies.

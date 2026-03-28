@@ -162,27 +162,28 @@ bench-open-inline:
 	@open docs/benchmarks/report-inline.html
 
 bench-policy-export: vendor-d3
-	@echo "Exporting parallel policy matrix JSON + inline HTML..."
+	@echo "Exporting parallel policy matrix JSON..."
 	@python3 scripts/bench_parallel_policy_bake.py \
-	  --json-out docs/benchmarks/parallel-policy-matrix.json \
-	  --html-out docs/benchmarks/parallel-policy-matrix-inline.html
-	@pnpm exec prettier --write docs/benchmarks/parallel-policy-matrix-inline.html >/dev/null
+	  --json-out docs/benchmarks/parallel-policy-matrix.json
+	@echo "Baking unified inline report..."
+	@python3 scripts/bench_bake.py --out docs/benchmarks/report-inline.html
+	@pnpm exec prettier --write docs/benchmarks/report-inline.html >/dev/null
 
 bench-policy-bake: vendor-d3
 	@echo "Running parallel policy matrix benchmarks..."
 	cargo bench -p warp-benches --bench parallel_baseline -- parallel_policy_matrix
 	@$(MAKE) bench-policy-export
 	@if [ -n "$(OPEN)" ]; then \
-	  $(OPEN) docs/benchmarks/parallel-policy-matrix-inline.html >/dev/null 2>&1 || echo "Open file: docs/benchmarks/parallel-policy-matrix-inline.html" ; \
+	  $(OPEN) "docs/benchmarks/report-inline.html#parallel-policy" >/dev/null 2>&1 || echo "Open file: docs/benchmarks/report-inline.html#parallel-policy" ; \
 	else \
-	  echo "Open file: docs/benchmarks/parallel-policy-matrix-inline.html" ; \
+	  echo "Open file: docs/benchmarks/report-inline.html#parallel-policy" ; \
 	fi
 
 bench-policy-open-inline:
 	@if [ -n "$(OPEN)" ]; then \
-	  $(OPEN) docs/benchmarks/parallel-policy-matrix-inline.html >/dev/null 2>&1 || echo "Open file: docs/benchmarks/parallel-policy-matrix-inline.html" ; \
+	  $(OPEN) "docs/benchmarks/report-inline.html#parallel-policy" >/dev/null 2>&1 || echo "Open file: docs/benchmarks/report-inline.html#parallel-policy" ; \
 	else \
-	  echo "Open file: docs/benchmarks/parallel-policy-matrix-inline.html" ; \
+	  echo "Open file: docs/benchmarks/report-inline.html#parallel-policy" ; \
 	fi
 
 # Spec-000 (WASM) helpers

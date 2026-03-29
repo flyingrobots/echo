@@ -30,9 +30,8 @@ use warp_core::parallel::{
 };
 use warp_core::{
     execute_parallel, execute_parallel_with_policy, execute_serial, make_node_id, make_type_id,
-    make_warp_id, merge_deltas_ok, AtomPayload, AttachmentKey, AttachmentValue, ExecItem,
-    GraphStore, GraphView, NodeId, NodeKey, NodeRecord, OpOrigin, ParallelExecutionPolicy,
-    TickDelta, WarpId, WarpOp,
+    make_warp_id, AtomPayload, AttachmentKey, AttachmentValue, ExecItem, GraphStore, GraphView,
+    NodeId, NodeKey, NodeRecord, OpOrigin, ParallelExecutionPolicy, TickDelta, WarpId, WarpOp,
 };
 
 /// Simple executor that sets an attachment on the scope node.
@@ -49,6 +48,28 @@ fn touch_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
         key,
         value: Some(AttachmentValue::Atom(payload)),
     });
+}
+
+/// Mirrors the production commit-path merge shape used without `delta_validate`.
+fn merge_for_commit_path(deltas: Vec<TickDelta>) -> Vec<WarpOp> {
+    let mut flat: Vec<_> = deltas
+        .into_iter()
+        .flat_map(TickDelta::into_ops_unsorted)
+        .map(|op| (op.sort_key(), op))
+        .collect();
+
+    flat.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+
+    for window in flat.windows(2) {
+        assert!(
+            window[0].0 != window[1].0 || window[0].1 == window[1].1,
+            "bench merge encountered conflicting ops for {:?}",
+            window[0].0
+        );
+    }
+
+    flat.dedup_by(|a, b| a.0 == b.0);
+    flat.into_iter().map(|(_, op)| op).collect()
 }
 
 /// Create a test graph with N independent nodes.
@@ -354,10 +375,7 @@ fn bench_policy_matrix(c: &mut Criterion) {
                         |(store, items)| {
                             let view = GraphView::new(&store);
                             let deltas = execute_parallel_with_policy(view, &items, 1, policy);
-                            let merged = match merge_deltas_ok(deltas) {
-                                Ok(merged) => merged,
-                                Err(err) => panic!("bench: dedicated policy merge failed: {err:?}"),
-                            };
+                            let merged = merge_for_commit_path(deltas);
                             criterion::black_box(merged)
                         },
                         BatchSize::SmallInput,
@@ -381,12 +399,7 @@ fn bench_policy_matrix(c: &mut Criterion) {
                                 let view = GraphView::new(&store);
                                 let deltas =
                                     execute_parallel_with_policy(view, &items, workers, policy);
-                                let merged = match merge_deltas_ok(deltas) {
-                                    Ok(merged) => merged,
-                                    Err(err) => {
-                                        panic!("bench: policy merge failed: {err:?}")
-                                    }
-                                };
+                                let merged = merge_for_commit_path(deltas);
                                 criterion::black_box(merged)
                             },
                             BatchSize::SmallInput,

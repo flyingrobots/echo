@@ -6413,6 +6413,7 @@ dependencies = [
  "pulldown-cmark",
  "serde",
  "serde_json",
+ "sha2",
  "time",
  "warp-cli",
 ]

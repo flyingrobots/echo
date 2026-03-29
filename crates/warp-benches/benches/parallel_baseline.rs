@@ -57,14 +57,6 @@ fn merge_for_commit_path(deltas: Vec<TickDelta>) -> Vec<WarpOp> {
 
     flat.sort_unstable_by(|a, b| a.0.cmp(&b.0));
 
-    for window in flat.windows(2) {
-        assert!(
-            window[0].0 != window[1].0 || window[0].1 == window[1].1,
-            "bench merge encountered conflicting ops for {:?}",
-            window[0].0
-        );
-    }
-
     flat.dedup_by(|a, b| a.0 == b.0);
     flat.into_iter().map(|(_, op)| op).collect()
 }

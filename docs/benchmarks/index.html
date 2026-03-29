@@ -956,6 +956,17 @@
                 return "is clearly detached";
             }
 
+            function confidenceIntervalsOverlap(a, b) {
+                return (
+                    typeof a.lb_ns === "number" &&
+                    typeof a.ub_ns === "number" &&
+                    typeof b.lb_ns === "number" &&
+                    typeof b.ub_ns === "number" &&
+                    a.lb_ns <= b.ub_ns &&
+                    b.lb_ns <= a.ub_ns
+                );
+            }
+
             function overallPhrase(avgRank, wins, lastPlaces) {
                 if (wins > 0 && avgRank <= 1.4)
                     return "Most consistent winner across the tested loads.";
@@ -1615,29 +1626,28 @@
 
                 const rankedLoads = rankPolicyRows(data);
                 const cards = [];
-                const wins = new Map();
-                const lasts = new Map();
+                const tiedFrontLoads = [];
 
                 rankedLoads.forEach(({ load, rows }) => {
                     const winner = rows[0];
                     const runnerUp = rows[1];
                     const laggard = rows[rows.length - 1];
-                    wins.set(
-                        caseLabel(winner),
-                        (wins.get(caseLabel(winner)) ?? 0) + 1,
-                    );
-                    lasts.set(
-                        caseLabel(laggard),
-                        (lasts.get(caseLabel(laggard)) ?? 0) + 1,
-                    );
+                    const tiedFront =
+                        runnerUp &&
+                        confidenceIntervalsOverlap(winner, runnerUp);
+                    if (tiedFront) {
+                        tiedFrontLoads.push(loadBand(load));
+                    }
 
                     const body = document.createElement("div");
                     body.className = "commentary-card";
-                    body.innerHTML = `<strong>${loadBand(load)}:</strong> ${caseLabel(winner)} sets the pace. ${
-                        runnerUp
-                            ? `${caseLabel(runnerUp)} ${ratioPhrase(runnerUp.mean_ns / winner.mean_ns)}.`
-                            : ""
-                    } ${caseLabel(laggard)} ${ratioPhrase(laggard.mean_ns / winner.mean_ns)} and stays on the expensive edge of the field.`;
+                    body.innerHTML = tiedFront
+                        ? `<strong>${loadBand(load)}:</strong> ${caseLabel(winner)} and ${caseLabel(runnerUp)} overlap on confidence intervals, so this load does not have a clean single winner. ${caseLabel(laggard)} ${ratioPhrase(laggard.mean_ns / winner.mean_ns)} and stays on the expensive edge of the field.`
+                        : `<strong>${loadBand(load)}:</strong> ${caseLabel(winner)} sets the pace. ${
+                              runnerUp
+                                  ? `${caseLabel(runnerUp)} ${ratioPhrase(runnerUp.mean_ns / winner.mean_ns)}.`
+                                  : ""
+                          } ${caseLabel(laggard)} ${ratioPhrase(laggard.mean_ns / winner.mean_ns)} and stays on the expensive edge of the field.`;
                     cards.push(body);
                 });
 
@@ -1655,6 +1665,11 @@
                 const summary = document.createElement("div");
                 summary.className = "commentary-card";
                 const lines = [];
+                if (tiedFrontLoads.length) {
+                    lines.push(
+                        `The front pair overlap on confidence intervals for ${tiedFrontLoads.join(", ")}, so trust those loads as close races rather than clean one-policy wins.`,
+                    );
+                }
                 if (staticWinsAll) {
                     lines.push(
                         "Static round-robin with one delta per worker wins every tested load on this machine, so the simpler pooled-worker path is setting the pace in this study.",
@@ -1693,13 +1708,23 @@
                 const rows = rankedLoads
                     .map(({ load, rows }) => {
                         const winner = rows[0];
+                        const runnerUp = rows[1];
+                        const tiedFront =
+                            runnerUp &&
+                            confidenceIntervalsOverlap(winner, runnerUp);
                         const chase = rows
-                            .slice(1, 3)
+                            .slice(tiedFront ? 2 : 1, tiedFront ? 4 : 3)
                             .map(caseLabel)
                             .join(" • ");
                         const laggard = caseLabel(rows[rows.length - 1]);
+                        const winnerLabel = tiedFront
+                            ? `${caseLabel(winner)} + ${caseLabel(runnerUp)}`
+                            : caseLabel(winner);
                         let readout = "The field is tightly packed.";
-                        if (rows.length > 1) {
+                        if (tiedFront) {
+                            readout =
+                                "The front pair overlap on confidence intervals, so there is no clean single winner at this load.";
+                        } else if (rows.length > 1) {
                             const ratio = rows[1].mean_ns / rows[0].mean_ns;
                             if (ratio > 1.15) {
                                 readout = "The leader pulls clear of the rest.";
@@ -1717,7 +1742,7 @@
                         }
                         return `<tr>
                 <td>${loadBand(load)}</td>
-                <td>${caseLabel(winner)}</td>
+                <td>${winnerLabel}</td>
                 <td>${chase || "None"}</td>
                 <td>${laggard}</td>
                 <td>${readout}</td>

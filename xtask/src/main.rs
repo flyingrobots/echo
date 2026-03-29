@@ -14,6 +14,7 @@
 use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
@@ -73,7 +74,7 @@ enum BenchCommand {
     Bake(BenchBakeArgs),
     /// Export the parallel policy matrix benchmark as raw JSON.
     PolicyExport(BenchPolicyExportArgs),
-    /// Verify that committed benchmark artifacts are fresh for the current head.
+    /// Verify that committed benchmark artifacts match the current benchmark inputs.
     CheckArtifacts(BenchCheckArtifactsArgs),
 }
 
@@ -821,6 +822,8 @@ struct PolicyMatrixPayload {
     baked_at: Option<String>,
     #[serde(alias = "git_sha")]
     baked_git_sha: Option<String>,
+    #[serde(alias = "source_digest")]
+    baked_source_digest: Option<String>,
     machine: Option<BenchMachineDescriptor>,
     criterion_root: Option<String>,
     results: Vec<PolicyMatrixRow>,
@@ -897,41 +900,51 @@ fn run_bench_policy_export(args: BenchPolicyExportArgs) -> Result<()> {
 }
 
 fn run_bench_check_artifacts(args: BenchCheckArtifactsArgs) -> Result<()> {
-    let current_head = git_short_head_sha()?;
+    let repo_root = find_repo_root()?;
     let payload_json = std::fs::read_to_string(&args.json)
         .with_context(|| format!("failed to read {}", args.json.display()))?;
     let payload: PolicyMatrixPayload = serde_json::from_str(&payload_json)
         .with_context(|| format!("failed to parse {}", args.json.display()))?;
-    let baked_git_sha = payload.baked_git_sha.as_deref().ok_or_else(|| {
+    let baked_source_digest = payload.baked_source_digest.as_deref().ok_or_else(|| {
         anyhow::anyhow!(
-            "{} is missing `baked_git_sha` metadata",
+            "{} is missing `baked_source_digest` metadata",
             args.json.display()
         )
     })?;
-    if baked_git_sha != current_head {
+    let criterion_root = policy_matrix_criterion_root_from_payload(&payload, &repo_root);
+    let current_source_digest = compute_policy_matrix_source_digest(&criterion_root, &repo_root)
+        .with_context(|| {
+            format!(
+                "failed to compute current benchmark input digest for {}",
+                args.json.display()
+            )
+        })?;
+    if baked_source_digest != current_source_digest {
         bail!(
-            "benchmark payload is stale: {} says baked_git_sha={}, but HEAD is {}",
+            "benchmark payload is stale: {} says baked_source_digest={}, but current inputs hash to {}",
             args.json.display(),
-            baked_git_sha,
-            current_head
+            baked_source_digest,
+            current_source_digest
         );
     }
 
     let html = std::fs::read_to_string(&args.html)
         .with_context(|| format!("failed to read {}", args.html.display()))?;
     let html_needles = [
-        format!("\"baked_git_sha\":\"{current_head}\""),
-        format!("baked_git_sha: \"{current_head}\""),
+        format!("\"baked_source_digest\":\"{current_source_digest}\""),
+        format!("baked_source_digest: \"{current_source_digest}\""),
     ];
     if !html_needles.iter().any(|needle| html.contains(needle)) {
         bail!(
-            "baked report is stale: {} does not contain a baked_git_sha for {}",
+            "baked report is stale: {} does not contain a baked_source_digest for {}",
             args.html.display(),
-            current_head
+            current_source_digest
         );
     }
 
-    println!("[bench-check-artifacts] Artifacts are fresh for HEAD {current_head}");
+    println!(
+        "[bench-check-artifacts] Artifacts match current benchmark inputs ({current_source_digest})"
+    );
     Ok(())
 }
 
@@ -974,6 +987,10 @@ fn build_policy_matrix_payload(
         .format(&Rfc3339)
         .context("failed to format benchmark payload timestamp")?;
     let baked_git_sha = Some(git_short_head_sha()?);
+    let baked_source_digest = Some(compute_policy_matrix_source_digest(
+        criterion_root,
+        repo_root,
+    )?);
     let machine = Some(local_benchmark_machine_descriptor());
     let criterion_root_display = Some(display_repo_relative(criterion_root, repo_root));
     let results = collect_policy_matrix_rows(criterion_root, repo_root);
@@ -982,10 +999,67 @@ fn build_policy_matrix_payload(
         group: BENCH_POLICY_GROUP.to_owned(),
         baked_at: Some(baked_at),
         baked_git_sha,
+        baked_source_digest,
         machine,
         criterion_root: criterion_root_display,
         results,
     })
+}
+
+fn policy_matrix_criterion_root_from_payload(
+    payload: &PolicyMatrixPayload,
+    repo_root: &Path,
+) -> PathBuf {
+    match payload.criterion_root.as_deref() {
+        Some(path) => repo_root.join(path),
+        None => repo_root.join("target/criterion").join(BENCH_POLICY_GROUP),
+    }
+}
+
+fn compute_policy_matrix_source_digest(criterion_root: &Path, repo_root: &Path) -> Result<String> {
+    let mut inputs = Vec::new();
+    for relative in [
+        "xtask/src/main.rs",
+        "crates/warp-benches/benches/parallel_baseline.rs",
+        "crates/warp-core/src/parallel/exec.rs",
+        "docs/benchmarks/index.html",
+        "docs/benchmarks/vendor/open-props.min.css",
+        "docs/benchmarks/vendor/normalize.dark.min.css",
+    ] {
+        let path = repo_root.join(relative);
+        let bytes = std::fs::read(&path)
+            .with_context(|| format!("failed to read benchmark input {}", path.display()))?;
+        inputs.push((relative.to_owned(), bytes));
+    }
+
+    let mut stack = vec![criterion_root.to_path_buf()];
+    while let Some(path) = stack.pop() {
+        let entries = std::fs::read_dir(&path)
+            .with_context(|| format!("failed to read {}", path.display()))?;
+        for entry in entries.flatten() {
+            let child = entry.path();
+            if child.is_dir() {
+                stack.push(child);
+                continue;
+            }
+            if child.file_name() != Some(OsStr::new("estimates.json")) {
+                continue;
+            }
+            let bytes = std::fs::read(&child)
+                .with_context(|| format!("failed to read benchmark input {}", child.display()))?;
+            inputs.push((display_repo_relative(&child, repo_root), bytes));
+        }
+    }
+
+    inputs.sort_by(|left, right| left.0.cmp(&right.0));
+    let mut hasher = Sha256::new();
+    for (label, bytes) in inputs {
+        hasher.update(label.as_bytes());
+        hasher.update([0_u8]);
+        hasher.update(&bytes);
+        hasher.update([0xff_u8]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 fn collect_policy_matrix_rows(criterion_root: &Path, repo_root: &Path) -> Vec<PolicyMatrixRow> {
@@ -7016,6 +7090,7 @@ mod tests {
                     group: BENCH_POLICY_GROUP.to_owned(),
                     baked_at: Some("2026-03-28T22:40:30Z".to_owned()),
                     baked_git_sha: Some("deadbeef".to_owned()),
+                    baked_source_digest: Some("cafebabe".to_owned()),
                     machine: Some(BenchMachineDescriptor {
                         os: "macos".to_owned(),
                         arch: "aarch64".to_owned(),
@@ -7041,6 +7116,7 @@ mod tests {
         assert!(script.contains("window.__POLICY_MATRIX__ ="));
         assert!(script.contains("\"baked_at\":\"2026-03-28T22:40:30Z\""));
         assert!(script.contains("\"baked_git_sha\":\"deadbeef\""));
+        assert!(script.contains("\"baked_source_digest\":\"cafebabe\""));
         assert!(script.contains("\"criterion_root\":\"target/criterion/parallel_policy_matrix\""));
     }
 }

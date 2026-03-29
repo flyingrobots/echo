@@ -73,6 +73,8 @@ enum BenchCommand {
     Bake(BenchBakeArgs),
     /// Export the parallel policy matrix benchmark as raw JSON.
     PolicyExport(BenchPolicyExportArgs),
+    /// Verify that committed benchmark artifacts are fresh for the current head.
+    CheckArtifacts(BenchCheckArtifactsArgs),
 }
 
 #[derive(Args)]
@@ -99,6 +101,16 @@ struct BenchPolicyExportArgs {
     /// Output path for the raw policy matrix JSON payload.
     #[arg(long, default_value = "docs/benchmarks/parallel-policy-matrix.json")]
     json_out: PathBuf,
+}
+
+#[derive(Args)]
+struct BenchCheckArtifactsArgs {
+    /// Path to the baked inline benchmark report.
+    #[arg(long, default_value = "docs/benchmarks/report-inline.html")]
+    html: PathBuf,
+    /// Path to the exported policy-matrix JSON payload.
+    #[arg(long, default_value = "docs/benchmarks/parallel-policy-matrix.json")]
+    json: PathBuf,
 }
 
 #[derive(Args)]
@@ -344,6 +356,7 @@ fn run_bench(args: BenchArgs) -> Result<()> {
     match args.command {
         BenchCommand::Bake(args) => run_bench_bake(args),
         BenchCommand::PolicyExport(args) => run_bench_policy_export(args),
+        BenchCommand::CheckArtifacts(args) => run_bench_check_artifacts(args),
     }
 }
 
@@ -804,8 +817,10 @@ struct BenchMachineDescriptor {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 struct PolicyMatrixPayload {
     group: String,
-    generated_at: Option<String>,
-    git_sha: Option<String>,
+    #[serde(alias = "generated_at")]
+    baked_at: Option<String>,
+    #[serde(alias = "git_sha")]
+    baked_git_sha: Option<String>,
     machine: Option<BenchMachineDescriptor>,
     criterion_root: Option<String>,
     results: Vec<PolicyMatrixRow>,
@@ -881,6 +896,45 @@ fn run_bench_policy_export(args: BenchPolicyExportArgs) -> Result<()> {
     Ok(())
 }
 
+fn run_bench_check_artifacts(args: BenchCheckArtifactsArgs) -> Result<()> {
+    let current_head = git_short_head_sha()?;
+    let payload_json = std::fs::read_to_string(&args.json)
+        .with_context(|| format!("failed to read {}", args.json.display()))?;
+    let payload: PolicyMatrixPayload = serde_json::from_str(&payload_json)
+        .with_context(|| format!("failed to parse {}", args.json.display()))?;
+    let baked_git_sha = payload.baked_git_sha.as_deref().ok_or_else(|| {
+        anyhow::anyhow!(
+            "{} is missing `baked_git_sha` metadata",
+            args.json.display()
+        )
+    })?;
+    if baked_git_sha != current_head {
+        bail!(
+            "benchmark payload is stale: {} says baked_git_sha={}, but HEAD is {}",
+            args.json.display(),
+            baked_git_sha,
+            current_head
+        );
+    }
+
+    let html = std::fs::read_to_string(&args.html)
+        .with_context(|| format!("failed to read {}", args.html.display()))?;
+    let html_needles = [
+        format!("\"baked_git_sha\":\"{current_head}\""),
+        format!("baked_git_sha: \"{current_head}\""),
+    ];
+    if !html_needles.iter().any(|needle| html.contains(needle)) {
+        bail!(
+            "baked report is stale: {} does not contain a baked_git_sha for {}",
+            args.html.display(),
+            current_head
+        );
+    }
+
+    println!("[bench-check-artifacts] Artifacts are fresh for HEAD {current_head}");
+    Ok(())
+}
+
 fn collect_core_benchmark_rows(
     criterion_root: &Path,
     repo_root: &Path,
@@ -916,18 +970,18 @@ fn build_policy_matrix_payload(
     criterion_root: &Path,
     repo_root: &Path,
 ) -> Result<PolicyMatrixPayload> {
-    let generated_at = OffsetDateTime::now_utc()
+    let baked_at = OffsetDateTime::now_utc()
         .format(&Rfc3339)
         .context("failed to format benchmark payload timestamp")?;
-    let git_sha = Some(git_short_head_sha()?);
+    let baked_git_sha = Some(git_short_head_sha()?);
     let machine = Some(local_benchmark_machine_descriptor());
     let criterion_root_display = Some(display_repo_relative(criterion_root, repo_root));
     let results = collect_policy_matrix_rows(criterion_root, repo_root);
 
     Ok(PolicyMatrixPayload {
         group: BENCH_POLICY_GROUP.to_owned(),
-        generated_at: Some(generated_at),
-        git_sha,
+        baked_at: Some(baked_at),
+        baked_git_sha,
         machine,
         criterion_root: criterion_root_display,
         results,
@@ -6938,8 +6992,8 @@ mod tests {
                 &[],
                 &PolicyMatrixPayload {
                     group: BENCH_POLICY_GROUP.to_owned(),
-                    generated_at: Some("2026-03-28T22:40:30Z".to_owned()),
-                    git_sha: Some("deadbeef".to_owned()),
+                    baked_at: Some("2026-03-28T22:40:30Z".to_owned()),
+                    baked_git_sha: Some("deadbeef".to_owned()),
                     machine: Some(BenchMachineDescriptor {
                         os: "macos".to_owned(),
                         arch: "aarch64".to_owned(),
@@ -6963,8 +7017,8 @@ mod tests {
         );
 
         assert!(script.contains("window.__POLICY_MATRIX__ ="));
-        assert!(script.contains("\"generated_at\":\"2026-03-28T22:40:30Z\""));
-        assert!(script.contains("\"git_sha\":\"deadbeef\""));
+        assert!(script.contains("\"baked_at\":\"2026-03-28T22:40:30Z\""));
+        assert!(script.contains("\"baked_git_sha\":\"deadbeef\""));
         assert!(script.contains("\"criterion_root\":\"target/criterion/parallel_policy_matrix\""));
     }
 }

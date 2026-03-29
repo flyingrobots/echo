@@ -30,8 +30,9 @@ use warp_core::parallel::{
 };
 use warp_core::{
     execute_parallel, execute_parallel_with_policy, execute_serial, make_node_id, make_type_id,
-    make_warp_id, AtomPayload, AttachmentKey, AttachmentValue, ExecItem, GraphStore, GraphView,
-    NodeId, NodeKey, NodeRecord, OpOrigin, ParallelExecutionPolicy, TickDelta, WarpId, WarpOp,
+    make_warp_id, merge_deltas_ok, AtomPayload, AttachmentKey, AttachmentValue, ExecItem,
+    GraphStore, GraphView, NodeId, NodeKey, NodeRecord, OpOrigin, ParallelExecutionPolicy,
+    TickDelta, WarpId, WarpOp,
 };
 
 /// Simple executor that sets an attachment on the scope node.
@@ -320,6 +321,10 @@ fn policy_label(policy: ParallelExecutionPolicy) -> &'static str {
 }
 
 /// Compares shard assignment and delta accumulation strategies directly.
+///
+/// This includes canonical delta merge after parallel execution so the
+/// `PerWorker` vs `PerShard` axis reflects the full policy cost visible to the
+/// engine, not just executor-stage delta production.
 fn bench_policy_matrix(c: &mut Criterion) {
     let mut group = c.benchmark_group("parallel_policy_matrix");
     group
@@ -349,7 +354,11 @@ fn bench_policy_matrix(c: &mut Criterion) {
                         |(store, items)| {
                             let view = GraphView::new(&store);
                             let deltas = execute_parallel_with_policy(view, &items, 1, policy);
-                            criterion::black_box(deltas)
+                            let merged = match merge_deltas_ok(deltas) {
+                                Ok(merged) => merged,
+                                Err(err) => panic!("bench: dedicated policy merge failed: {err:?}"),
+                            };
+                            criterion::black_box(merged)
                         },
                         BatchSize::SmallInput,
                     );
@@ -372,7 +381,13 @@ fn bench_policy_matrix(c: &mut Criterion) {
                                 let view = GraphView::new(&store);
                                 let deltas =
                                     execute_parallel_with_policy(view, &items, workers, policy);
-                                criterion::black_box(deltas)
+                                let merged = match merge_deltas_ok(deltas) {
+                                    Ok(merged) => merged,
+                                    Err(err) => {
+                                        panic!("bench: policy merge failed: {err:?}")
+                                    }
+                                };
+                                criterion::black_box(merged)
                             },
                             BatchSize::SmallInput,
                         );

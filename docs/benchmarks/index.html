@@ -666,11 +666,11 @@
                 <section class="panel">
                     <h2>What this study is testing</h2>
                     <p class="section-intro">
-                        The policy study isolates topology overhead inside
-                        <code>execute_parallel_with_policy</code>. Every case
-                        runs the same independent workload. Only the execution
-                        shape changes: shard assignment, worker layout, and
-                        delta grouping.
+                        The policy study holds the workload constant, then
+                        measures policy cost through
+                        <code>execute_parallel_with_policy</code> plus canonical
+                        delta merge. Only the execution shape changes: shard
+                        assignment, worker layout, and delta grouping.
                     </p>
                     <div class="subgrid">
                         <div class="subpanel">
@@ -687,12 +687,13 @@
                                 </li>
                                 <li>
                                     Run that identical item set under one policy
-                                    at one load.
+                                    at one load, then canonically merge the
+                                    returned deltas.
                                 </li>
                                 <li>
-                                    Black-box the returned deltas so Criterion
-                                    measures the actual execution path rather
-                                    than dead-code-eliminating it away.
+                                    Black-box the merged delta so Criterion
+                                    measures the full policy path rather than
+                                    dead-code-eliminating it away.
                                 </li>
                             </ol>
                         </div>
@@ -1036,8 +1037,8 @@
                 if (Array.isArray(payload)) {
                     return {
                         group: "parallel_policy_matrix",
-                        generated_at: null,
-                        git_sha: null,
+                        baked_at: null,
+                        baked_git_sha: null,
                         machine: null,
                         criterion_root:
                             "target/criterion/parallel_policy_matrix",
@@ -1047,8 +1048,8 @@
                 if (!payload || typeof payload !== "object") {
                     return {
                         group: "parallel_policy_matrix",
-                        generated_at: null,
-                        git_sha: null,
+                        baked_at: null,
+                        baked_git_sha: null,
                         machine: null,
                         criterion_root:
                             "target/criterion/parallel_policy_matrix",
@@ -1057,8 +1058,9 @@
                 }
                 return {
                     group: payload.group ?? "parallel_policy_matrix",
-                    generated_at: payload.generated_at ?? null,
-                    git_sha: payload.git_sha ?? null,
+                    baked_at: payload.baked_at ?? payload.generated_at ?? null,
+                    baked_git_sha:
+                        payload.baked_git_sha ?? payload.git_sha ?? null,
                     machine: payload.machine ?? null,
                     criterion_root:
                         payload.criterion_root ??
@@ -1091,17 +1093,17 @@
                 const source =
                     payload.criterion_root ??
                     "target/criterion/parallel_policy_matrix";
-                const generatedAt = payload.generated_at
-                    ? `<code>${payload.generated_at}</code>`
+                const bakedAt = payload.baked_at
+                    ? `<code>${payload.baked_at}</code>`
                     : "an unknown time";
-                const gitSha = payload.git_sha
-                    ? `<code>${payload.git_sha}</code>`
+                const bakedGitSha = payload.baked_git_sha
+                    ? `<code>${payload.baked_git_sha}</code>`
                     : "an unknown commit";
                 const machineLabel = payload.machine?.label
                     ? `<code>${payload.machine.label}</code>`
                     : "an unknown machine";
                 if (payload.results.length) {
-                    root.innerHTML = `This policy study was baked from <code>${source}</code> at ${generatedAt} on ${machineLabel}, from git ${gitSha}. Read the rankings as a property of this run, not as a universal truth about every machine.`;
+                    root.innerHTML = `This page was baked from Criterion estimates under <code>${source}</code> at ${bakedAt} on ${machineLabel}, from git ${bakedGitSha}. The git stamp identifies the bake head for this artifact; read the rankings as local evidence for this captured dataset, not as a universal truth about every machine.`;
                     return;
                 }
                 root.innerHTML = `No parallel policy results were found under <code>${source}</code> when this page was baked. Run <code>make bench-policy-bake</code> for a fresh study, or <code>make bench-bake</code> to refresh the unified page from whatever Criterion data is currently present.`;
@@ -1880,61 +1882,86 @@
                     });
                 });
 
+                const requiredLoads = [
+                    ...new Set(data.map((d) => d.load)),
+                ].sort((a, b) => a - b);
                 const bySeries = d3.group(data, (d) => caseLabel(d));
-                const overall = [...bySeries.entries()]
-                    .map(([label, rows]) => {
-                        const avgSlowdown =
-                            rows.reduce(
-                                (sum, row) =>
-                                    sum +
-                                    row.mean_ns / bestByLoad.get(row.load),
-                                0,
-                            ) / rows.length;
-                        const avgRank =
-                            rows.reduce(
-                                (sum, row) =>
-                                    sum +
+                const complete = [];
+                const incomplete = [];
+
+                for (const [label, rows] of bySeries.entries()) {
+                    const seenLoads = new Set(rows.map((row) => row.load));
+                    const missingLoads = requiredLoads.filter(
+                        (load) => !seenLoads.has(load),
+                    );
+                    if (missingLoads.length) {
+                        incomplete.push({ label, missingLoads });
+                        continue;
+                    }
+
+                    complete.push(
+                        (() => {
+                            const avgSlowdown =
+                                rows.reduce(
+                                    (sum, row) =>
+                                        sum +
+                                        row.mean_ns / bestByLoad.get(row.load),
+                                    0,
+                                ) / rows.length;
+                            const avgRank =
+                                rows.reduce(
+                                    (sum, row) =>
+                                        sum +
+                                        rankByCaseLoad.get(
+                                            `${caseLabel(row)}|${row.load}`,
+                                        ),
+                                    0,
+                                ) / rows.length;
+                            const wins = rows.filter(
+                                (row) =>
                                     rankByCaseLoad.get(
                                         `${caseLabel(row)}|${row.load}`,
-                                    ),
-                                0,
-                            ) / rows.length;
-                        const wins = rows.filter(
-                            (row) =>
-                                rankByCaseLoad.get(
-                                    `${caseLabel(row)}|${row.load}`,
-                                ) === 1,
-                        ).length;
-                        const lastPlaces = rows.filter(
-                            (row) =>
-                                rankByCaseLoad.get(
-                                    `${caseLabel(row)}|${row.load}`,
-                                ) ===
-                                rankedLoads.find(
-                                    (entry) => entry.load === row.load,
-                                ).rows.length,
-                        ).length;
-                        const exemplar = [...rows].sort(
-                            (a, b) => a.mean_ns - b.mean_ns,
-                        )[0];
-                        return {
-                            label,
-                            policy: exemplar.policy,
-                            workers: exemplar.workers,
-                            avgSlowdown,
-                            avgRank,
-                            wins,
-                            lastPlaces,
-                        };
-                    })
-                    .sort(
-                        (a, b) =>
-                            a.avgSlowdown - b.avgSlowdown ||
-                            a.avgRank - b.avgRank ||
-                            a.label.localeCompare(b.label),
+                                    ) === 1,
+                            ).length;
+                            const lastPlaces = rows.filter(
+                                (row) =>
+                                    rankByCaseLoad.get(
+                                        `${caseLabel(row)}|${row.load}`,
+                                    ) ===
+                                    rankedLoads.find(
+                                        (entry) => entry.load === row.load,
+                                    ).rows.length,
+                            ).length;
+                            const exemplar = [...rows].sort(
+                                (a, b) => a.mean_ns - b.mean_ns,
+                            )[0];
+                            return {
+                                label,
+                                policy: exemplar.policy,
+                                workers: exemplar.workers,
+                                avgSlowdown,
+                                avgRank,
+                                wins,
+                                lastPlaces,
+                            };
+                        })(),
                     );
+                }
 
-                root.innerHTML = `<table>
+                const overall = complete.sort(
+                    (a, b) =>
+                        a.avgSlowdown - b.avgSlowdown ||
+                        a.avgRank - b.avgRank ||
+                        a.label.localeCompare(b.label),
+                );
+
+                if (!overall.length) {
+                    root.innerHTML =
+                        "<p class='empty'>No complete policy series are available for stack ranking yet.</p>";
+                    return;
+                }
+
+                let html = `<table>
             <thead>
               <tr>
                 <th>Rank</th>
@@ -1954,6 +1981,19 @@
                   .join("")}
             </tbody>
           </table>`;
+
+                if (incomplete.length) {
+                    html += `<p class="inline-callout">Excluded incomplete series from the overall stack rank: ${incomplete
+                        .map(
+                            ({ label, missingLoads }) =>
+                                `<strong>${label}</strong> (missing load${missingLoads.length === 1 ? "" : "s"} <code>${missingLoads.join(
+                                    ", ",
+                                )}</code>)`,
+                        )
+                        .join(" • ")}.</p>`;
+                }
+
+                root.innerHTML = html;
             }
 
             function renderPolicyRaw(data) {

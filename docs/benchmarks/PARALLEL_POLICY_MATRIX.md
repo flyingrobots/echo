@@ -20,6 +20,10 @@ The point is to answer a narrower question than "is parallel good?":
 - which delta grouping policy is cheaper, and
 - whether "one worker = one shard = one delta" is ever worth the overhead.
 
+The harness includes canonical delta merge after parallel execution, so the
+study measures the full policy cost visible to the engine for these synthetic
+independent workloads, not just executor-stage delta production.
+
 ## Loads
 
 The benchmark currently runs at:
@@ -80,6 +84,9 @@ cargo bench -p warp-benches --bench parallel_baseline -- --list
 
 - The benchmark measures execution topology overhead on a synthetic independent
   workload. It is not a substitute for end-to-end engine traces.
+- The page provenance records when and where the artifact was baked from the
+  local Criterion tree. It does **not** claim to know the original commit that
+  produced those raw Criterion estimates if you rebake from pre-existing data.
 - The dedicated per-shard policy is primarily a comparison tool. It is expected
   to pay substantial thread-spawn overhead and exists to bound the extreme
   `1 worker = 1 shard = 1 delta` shape against the pooled-worker policies.

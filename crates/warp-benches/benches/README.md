@@ -33,6 +33,8 @@ results. This README summarizes how to run them and read the output.
         - static round-robin shard assignment + per-worker deltas
         - static round-robin shard assignment + per-shard deltas
         - dedicated one-worker-per-shard + one-delta-per-shard
+    - Each case includes canonical delta merge after parallel execution, so the
+      study reflects full policy cost for the synthetic independent workload.
     - The policy matrix runs across loads `100`, `1000`, and `10000`, with worker
       counts `1`, `4`, and `8` where the policy uses a worker pool.
     - Throughput “elements” = executed items in the synthetic independent workload.
@@ -62,6 +64,7 @@ Criterion HTML reports are written under `target/criterion/<group>/report/index.
     - Open the file directly (Finder or `open docs/benchmarks/report-inline.html`).
 - The same static page also hosts the parallel shard-policy study.
     - Run `make bench-policy-bake`, then open the `Parallel policy matrix` tab.
+    - `make bench-policy-export` rebakes from the existing local Criterion tree without rerunning benches.
 
 ## Interpreting Results
 

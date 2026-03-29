@@ -173,6 +173,9 @@ bench-bake: bench-vendor
 	@cargo xtask bench bake \
 	  --out docs/benchmarks/report-inline.html \
 	  --policy-json-out docs/benchmarks/parallel-policy-matrix.json
+	@cargo xtask bench check-artifacts \
+	  --html docs/benchmarks/report-inline.html \
+	  --json docs/benchmarks/parallel-policy-matrix.json
 	@echo "Opening inline report..."
 	@open docs/benchmarks/report-inline.html
 
@@ -185,6 +188,9 @@ bench-policy-export: bench-vendor
 	  --json-out docs/benchmarks/parallel-policy-matrix.json
 	@echo "Baking unified inline report..."
 	@cargo xtask bench bake --out docs/benchmarks/report-inline.html
+	@cargo xtask bench check-artifacts \
+	  --html docs/benchmarks/report-inline.html \
+	  --json docs/benchmarks/parallel-policy-matrix.json
 	@pnpm exec prettier --write docs/benchmarks/report-inline.html >/dev/null
 
 bench-policy-bake: bench-vendor

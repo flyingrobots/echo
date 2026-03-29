@@ -1,8 +1,9 @@
 {
   "group": "parallel_policy_matrix",
-  "baked_at": "2026-03-29T19:11:06.835464Z",
-  "baked_git_sha": "6182672",
-  "baked_source_digest": "99d24d5236978f0415953365c2e90e4ea90b8610d95b263e5f8f22d3716f6afa",
+  "baked_at": "2026-03-29T19:51:34.009982Z",
+  "baked_git_sha": "c235096",
+  "baked_source_digest": "7510f1cdabaeb08c4550190c225794d4871c9fb18a916d639ad4f42eb8367521",
+  "template_path": "docs/benchmarks/index.html",
   "machine": {
     "os": "macos",
     "arch": "aarch64",

@@ -824,6 +824,7 @@ struct PolicyMatrixPayload {
     baked_git_sha: Option<String>,
     #[serde(alias = "source_digest")]
     baked_source_digest: Option<String>,
+    template_path: Option<String>,
     machine: Option<BenchMachineDescriptor>,
     criterion_root: Option<String>,
     results: Vec<PolicyMatrixRow>,
@@ -856,8 +857,22 @@ fn run_bench_bake(args: BenchBakeArgs) -> Result<()> {
     let repo_root = find_repo_root()?;
 
     let (core_data, core_missing) = collect_core_benchmark_rows(&criterion_root, &repo_root);
-    let policy_payload =
-        build_policy_matrix_payload(&criterion_root.join(BENCH_POLICY_GROUP), &repo_root)?;
+    let policy_criterion_root = criterion_root.join(BENCH_POLICY_GROUP);
+    let policy_results = collect_policy_matrix_rows(&policy_criterion_root, &repo_root);
+    let baked_source_digest = Some(compute_benchmark_artifact_source_digest(
+        &repo_root,
+        &template_path,
+        &core_data,
+        &core_missing,
+        &policy_results,
+    )?);
+    let policy_payload = build_policy_matrix_payload(
+        &policy_criterion_root,
+        &repo_root,
+        policy_results,
+        Some(&template_path),
+        baked_source_digest,
+    )?;
     write_policy_matrix_payload(&policy_payload, &policy_json_out)?;
 
     let template = std::fs::read_to_string(&template_path)
@@ -890,7 +905,27 @@ fn run_bench_bake(args: BenchBakeArgs) -> Result<()> {
 
 fn run_bench_policy_export(args: BenchPolicyExportArgs) -> Result<()> {
     let repo_root = find_repo_root()?;
-    let payload = build_policy_matrix_payload(&args.criterion_root, &repo_root)?;
+    let default_template = PathBuf::from("docs/benchmarks/index.html");
+    let core_criterion_root = args
+        .criterion_root
+        .parent()
+        .map_or_else(|| args.criterion_root.clone(), Path::to_path_buf);
+    let (core_data, core_missing) = collect_core_benchmark_rows(&core_criterion_root, &repo_root);
+    let policy_results = collect_policy_matrix_rows(&args.criterion_root, &repo_root);
+    let baked_source_digest = Some(compute_benchmark_artifact_source_digest(
+        &repo_root,
+        &default_template,
+        &core_data,
+        &core_missing,
+        &policy_results,
+    )?);
+    let payload = build_policy_matrix_payload(
+        &args.criterion_root,
+        &repo_root,
+        policy_results,
+        Some(&default_template),
+        baked_source_digest,
+    )?;
     write_policy_matrix_payload(&payload, &args.json_out)?;
     println!(
         "[bench-policy-export] Wrote {}",
@@ -912,13 +947,52 @@ fn run_bench_check_artifacts(args: BenchCheckArtifactsArgs) -> Result<()> {
         )
     })?;
     let criterion_root = policy_matrix_criterion_root_from_payload(&payload, &repo_root);
-    let current_source_digest = compute_policy_matrix_source_digest(&criterion_root, &repo_root)
-        .with_context(|| {
-            format!(
-                "failed to compute current benchmark input digest for {}",
-                args.json.display()
-            )
-        })?;
+    let core_criterion_root = criterion_root
+        .parent()
+        .map_or_else(|| repo_root.join("target/criterion"), Path::to_path_buf);
+    let (core_data, core_missing) = collect_core_benchmark_rows(&core_criterion_root, &repo_root);
+    let current_results = collect_policy_matrix_rows(&criterion_root, &repo_root);
+    if payload.results != current_results {
+        bail!(
+            "benchmark payload results are stale: {} no longer matches current Criterion estimates",
+            args.json.display()
+        );
+    }
+
+    let template_path = benchmark_template_path_from_payload(&payload, &repo_root);
+    let expected_template_path = display_repo_relative(&template_path, &repo_root);
+    if payload.template_path.as_deref() != Some(expected_template_path.as_str()) {
+        bail!(
+            "benchmark payload template_path is stale: {} says {:?}, expected {}",
+            args.json.display(),
+            payload.template_path,
+            expected_template_path
+        );
+    }
+
+    let expected_criterion_root = display_repo_relative(&criterion_root, &repo_root);
+    if payload.criterion_root.as_deref() != Some(expected_criterion_root.as_str()) {
+        bail!(
+            "benchmark payload criterion_root is stale: {} says {:?}, expected {}",
+            args.json.display(),
+            payload.criterion_root,
+            expected_criterion_root
+        );
+    }
+
+    let current_source_digest = compute_benchmark_artifact_source_digest(
+        &repo_root,
+        &template_path,
+        &core_data,
+        &core_missing,
+        &current_results,
+    )
+    .with_context(|| {
+        format!(
+            "failed to compute current benchmark input digest for {}",
+            args.json.display()
+        )
+    })?;
     if baked_source_digest != current_source_digest {
         bail!(
             "benchmark payload is stale: {} says baked_source_digest={}, but current inputs hash to {}",
@@ -930,15 +1004,12 @@ fn run_bench_check_artifacts(args: BenchCheckArtifactsArgs) -> Result<()> {
 
     let html = std::fs::read_to_string(&args.html)
         .with_context(|| format!("failed to read {}", args.html.display()))?;
-    let html_needles = [
-        format!("\"baked_source_digest\":\"{current_source_digest}\""),
-        format!("baked_source_digest: \"{current_source_digest}\""),
-    ];
-    if !html_needles.iter().any(|needle| html.contains(needle)) {
+    let expected_inline = build_benchmark_inline_script(&core_data, &core_missing, &payload)
+        .context("failed to build expected inline benchmark payload")?;
+    if !html.contains(&expected_inline) {
         bail!(
-            "baked report is stale: {} does not contain a baked_source_digest for {}",
+            "baked report is stale: {} does not contain the expected inline benchmark payload",
             args.html.display(),
-            current_source_digest
         );
     }
 
@@ -982,24 +1053,24 @@ fn collect_core_benchmark_rows(
 fn build_policy_matrix_payload(
     criterion_root: &Path,
     repo_root: &Path,
+    results: Vec<PolicyMatrixRow>,
+    template_path: Option<&Path>,
+    baked_source_digest: Option<String>,
 ) -> Result<PolicyMatrixPayload> {
     let baked_at = OffsetDateTime::now_utc()
         .format(&Rfc3339)
         .context("failed to format benchmark payload timestamp")?;
     let baked_git_sha = Some(git_short_head_sha()?);
-    let baked_source_digest = Some(compute_policy_matrix_source_digest(
-        criterion_root,
-        repo_root,
-    )?);
     let machine = Some(local_benchmark_machine_descriptor());
     let criterion_root_display = Some(display_repo_relative(criterion_root, repo_root));
-    let results = collect_policy_matrix_rows(criterion_root, repo_root);
+    let template_path_display = template_path.map(|path| display_repo_relative(path, repo_root));
 
     Ok(PolicyMatrixPayload {
         group: BENCH_POLICY_GROUP.to_owned(),
         baked_at: Some(baked_at),
         baked_git_sha,
         baked_source_digest,
+        template_path: template_path_display,
         machine,
         criterion_root: criterion_root_display,
         results,
@@ -1016,13 +1087,28 @@ fn policy_matrix_criterion_root_from_payload(
     }
 }
 
-fn compute_policy_matrix_source_digest(criterion_root: &Path, repo_root: &Path) -> Result<String> {
+fn benchmark_template_path_from_payload(
+    payload: &PolicyMatrixPayload,
+    repo_root: &Path,
+) -> PathBuf {
+    match payload.template_path.as_deref() {
+        Some(path) => repo_root.join(path),
+        None => repo_root.join("docs/benchmarks/index.html"),
+    }
+}
+
+fn compute_benchmark_artifact_source_digest(
+    repo_root: &Path,
+    template_path: &Path,
+    core_data: &[CoreBenchRow],
+    core_missing: &[MissingBenchRow],
+    policy_results: &[PolicyMatrixRow],
+) -> Result<String> {
     let mut inputs = Vec::new();
     for relative in [
         "xtask/src/main.rs",
         "crates/warp-benches/benches/parallel_baseline.rs",
         "crates/warp-core/src/parallel/exec.rs",
-        "docs/benchmarks/index.html",
         "docs/benchmarks/vendor/open-props.min.css",
         "docs/benchmarks/vendor/normalize.dark.min.css",
     ] {
@@ -1032,24 +1118,32 @@ fn compute_policy_matrix_source_digest(criterion_root: &Path, repo_root: &Path) 
         inputs.push((relative.to_owned(), bytes));
     }
 
-    let mut stack = vec![criterion_root.to_path_buf()];
-    while let Some(path) = stack.pop() {
-        let entries = std::fs::read_dir(&path)
-            .with_context(|| format!("failed to read {}", path.display()))?;
-        for entry in entries.flatten() {
-            let child = entry.path();
-            if child.is_dir() {
-                stack.push(child);
-                continue;
-            }
-            if child.file_name() != Some(OsStr::new("estimates.json")) {
-                continue;
-            }
-            let bytes = std::fs::read(&child)
-                .with_context(|| format!("failed to read benchmark input {}", child.display()))?;
-            inputs.push((display_repo_relative(&child, repo_root), bytes));
-        }
-    }
+    let template_bytes = std::fs::read(template_path).with_context(|| {
+        format!(
+            "failed to read benchmark template {}",
+            template_path.display()
+        )
+    })?;
+    inputs.push((
+        display_repo_relative(template_path, repo_root),
+        template_bytes,
+    ));
+
+    inputs.push((
+        "derived/core_data.json".to_owned(),
+        serde_json::to_vec(core_data)
+            .context("failed to serialize core benchmark rows for digest")?,
+    ));
+    inputs.push((
+        "derived/core_missing.json".to_owned(),
+        serde_json::to_vec(core_missing)
+            .context("failed to serialize missing core benchmark rows for digest")?,
+    ));
+    inputs.push((
+        "derived/policy_results.json".to_owned(),
+        serde_json::to_vec(policy_results)
+            .context("failed to serialize policy benchmark rows for digest")?,
+    ));
 
     inputs.sort_by(|left, right| left.0.cmp(&right.0));
     let mut hasher = Sha256::new();
@@ -1326,6 +1420,7 @@ fn display_repo_relative(path: &Path, repo_root: &Path) -> String {
         .unwrap_or(path)
         .display()
         .to_string()
+        .replace('\\', "/")
 }
 
 fn git_short_head_sha() -> Result<String> {
@@ -7091,6 +7186,7 @@ mod tests {
                     baked_at: Some("2026-03-28T22:40:30Z".to_owned()),
                     baked_git_sha: Some("deadbeef".to_owned()),
                     baked_source_digest: Some("cafebabe".to_owned()),
+                    template_path: Some("docs/benchmarks/index.html".to_owned()),
                     machine: Some(BenchMachineDescriptor {
                         os: "macos".to_owned(),
                         arch: "aarch64".to_owned(),
@@ -7117,6 +7213,7 @@ mod tests {
         assert!(script.contains("\"baked_at\":\"2026-03-28T22:40:30Z\""));
         assert!(script.contains("\"baked_git_sha\":\"deadbeef\""));
         assert!(script.contains("\"baked_source_digest\":\"cafebabe\""));
+        assert!(script.contains("\"template_path\":\"docs/benchmarks/index.html\""));
         assert!(script.contains("\"criterion_root\":\"target/criterion/parallel_policy_matrix\""));
     }
 }

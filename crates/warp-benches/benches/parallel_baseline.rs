@@ -324,7 +324,7 @@ fn policy_label(policy: ParallelExecutionPolicy) -> &'static str {
         ParallelExecutionPolicy::STATIC_PER_WORKER => "static_per_worker",
         ParallelExecutionPolicy::STATIC_PER_SHARD => "static_per_shard",
         ParallelExecutionPolicy::DEDICATED_PER_SHARD => "dedicated_per_shard",
-        _ => "unknown_policy",
+        _ => panic!("unmapped ParallelExecutionPolicy in parallel_policy_matrix"),
     }
 }
 

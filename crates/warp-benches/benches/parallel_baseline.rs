@@ -23,6 +23,7 @@
 //! - `parallel_policy_matrix`: Compare shard assignment and delta accumulation policies across loads
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
 use std::collections::BTreeMap;
+use std::num::NonZeroUsize;
 use std::time::Duration;
 use warp_core::parallel::{build_work_units, execute_work_queue, WorkerResult};
 use warp_core::{
@@ -327,6 +328,10 @@ fn policy_label(policy: ParallelExecutionPolicy) -> &'static str {
     }
 }
 
+fn worker_hint(workers: usize) -> NonZeroUsize {
+    NonZeroUsize::new(workers.max(1)).map_or(NonZeroUsize::MIN, |w| w)
+}
+
 /// Compares shard assignment and delta accumulation strategies directly.
 ///
 /// This includes canonical delta merge after parallel execution so the
@@ -360,7 +365,8 @@ fn bench_policy_matrix(c: &mut Criterion) {
                         },
                         |(store, items)| {
                             let view = GraphView::new(&store);
-                            let deltas = execute_parallel_with_policy(view, &items, 1, policy);
+                            let deltas =
+                                execute_parallel_with_policy(view, &items, worker_hint(1), policy);
                             let merged = merge_for_commit_path(deltas);
                             criterion::black_box(merged)
                         },
@@ -383,8 +389,12 @@ fn bench_policy_matrix(c: &mut Criterion) {
                             },
                             |(store, items)| {
                                 let view = GraphView::new(&store);
-                                let deltas =
-                                    execute_parallel_with_policy(view, &items, workers, policy);
+                                let deltas = execute_parallel_with_policy(
+                                    view,
+                                    &items,
+                                    worker_hint(workers),
+                                    policy,
+                                );
                                 let merged = merge_for_commit_path(deltas);
                                 criterion::black_box(merged)
                             },

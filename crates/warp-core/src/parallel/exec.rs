@@ -6,6 +6,7 @@
 //! Workers dynamically claim shards via atomic counter (work-stealing).
 
 use std::any::Any;
+use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
@@ -263,7 +264,8 @@ pub fn execute_parallel(view: GraphView<'_>, items: &[ExecItem], workers: usize)
     assert!(workers >= 1, "need at least one worker");
 
     // Cap workers at NUM_SHARDS - no point spawning 512 threads for 256 shards
-    let capped_workers = workers.min(NUM_SHARDS);
+    let capped_workers =
+        NonZeroUsize::new(workers.min(NUM_SHARDS)).map_or(NonZeroUsize::MIN, |w| w);
 
     execute_parallel_sharded_with_policy(
         view,
@@ -298,6 +300,8 @@ pub fn execute_parallel_sharded(
     items: &[ExecItem],
     workers: usize,
 ) -> Vec<TickDelta> {
+    assert!(workers >= 1, "need at least one worker");
+    let workers = NonZeroUsize::new(workers).map_or(NonZeroUsize::MIN, |w| w);
     execute_parallel_sharded_with_policy(view, items, workers, ParallelExecutionPolicy::DEFAULT)
 }
 
@@ -311,16 +315,13 @@ pub fn execute_parallel_sharded(
 /// policies preserve the worker-shaped empty-result contract and return
 /// `workers` empty deltas when `items` is empty.
 ///
-/// # Panics
-///
-/// Panics if `workers` is 0.
 pub fn execute_parallel_sharded_with_policy(
     view: GraphView<'_>,
     items: &[ExecItem],
-    workers: usize,
+    workers: NonZeroUsize,
     policy: ParallelExecutionPolicy,
 ) -> Vec<TickDelta> {
-    assert!(workers > 0, "workers must be > 0");
+    let workers = workers.get();
 
     if items.is_empty() {
         return match policy.assignment {
@@ -365,17 +366,14 @@ pub fn execute_parallel_sharded_with_policy(
 ///
 /// This mirrors `execute_parallel()` but exposes the policy seam for benchmarks.
 ///
-/// # Panics
-///
-/// Panics if `workers == 0`.
 pub fn execute_parallel_with_policy(
     view: GraphView<'_>,
     items: &[ExecItem],
-    workers: usize,
+    workers: NonZeroUsize,
     policy: ParallelExecutionPolicy,
 ) -> Vec<TickDelta> {
-    assert!(workers >= 1, "need at least one worker");
-    let capped_workers = workers.min(NUM_SHARDS);
+    let capped_workers =
+        NonZeroUsize::new(workers.get().min(NUM_SHARDS)).map_or(NonZeroUsize::MIN, |w| w);
     execute_parallel_sharded_with_policy(view, items, capped_workers, policy)
 }
 
@@ -860,6 +858,7 @@ mod tests {
         execute_serial, make_type_id, merge_deltas_ok, AtomPayload, AttachmentKey, AttachmentValue,
         GraphStore, GraphView, NodeId, NodeKey, NodeRecord, OpOrigin, TickDelta, WarpOp,
     };
+    use std::num::NonZeroUsize;
 
     fn test_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
         let payload = AtomPayload::new(
@@ -903,6 +902,10 @@ mod tests {
         (store, items)
     }
 
+    fn worker_hint(workers: usize) -> NonZeroUsize {
+        NonZeroUsize::new(workers.max(1)).map_or(NonZeroUsize::MIN, |w| w)
+    }
+
     #[test]
     fn all_parallel_policies_match_serial_oracle() {
         let policies = [
@@ -924,19 +927,22 @@ mod tests {
         };
 
         for policy in policies {
-            let deltas = execute_parallel_with_policy(view, &items, 4, policy);
-            let merged_result = merge_deltas_ok(deltas);
-            assert!(
-                merged_result.is_ok(),
-                "policy merge failed for {policy:?}: {merged_result:?}"
-            );
-            let Ok(merged) = merged_result else {
-                unreachable!("assert above guarantees a successful policy merge");
-            };
-            assert_eq!(
-                merged, serial_oracle,
-                "policy {policy:?} changed merged ops"
-            );
+            for workers in [1_usize, 4, 8] {
+                let deltas =
+                    execute_parallel_with_policy(view, &items, worker_hint(workers), policy);
+                let merged_result = merge_deltas_ok(deltas);
+                assert!(
+                    merged_result.is_ok(),
+                    "policy merge failed for {policy:?} @ {workers}w: {merged_result:?}"
+                );
+                let Ok(merged) = merged_result else {
+                    unreachable!("assert above guarantees a successful policy merge");
+                };
+                assert_eq!(
+                    merged, serial_oracle,
+                    "policy {policy:?} changed merged ops at {workers}w"
+                );
+            }
         }
     }
 
@@ -948,24 +954,54 @@ mod tests {
         let per_worker = execute_parallel_with_policy(
             view,
             &items,
-            1,
+            worker_hint(1),
             ParallelExecutionPolicy::DYNAMIC_PER_WORKER,
         );
         let per_shard = execute_parallel_with_policy(
             view,
             &items,
-            1,
+            worker_hint(1),
             ParallelExecutionPolicy::DYNAMIC_PER_SHARD,
         );
-
-        assert_eq!(
-            per_worker.len(),
-            1,
-            "per-worker policy should emit one delta"
+        let serial_oracle = merge_deltas_ok(vec![execute_serial(view, &items)]);
+        assert!(
+            serial_oracle.is_ok(),
+            "serial oracle merge failed for per-shard count test: {serial_oracle:?}"
+        );
+        let Ok(serial_oracle) = serial_oracle else {
+            unreachable!("assert above guarantees a valid serial oracle");
+        };
+        let per_worker_len = per_worker.len();
+        let per_shard_len = per_shard.len();
+        let per_worker_merged = merge_deltas_ok(per_worker);
+        let per_shard_merged = merge_deltas_ok(per_shard);
+        assert!(
+            per_worker_merged.is_ok(),
+            "per-worker merge failed: {per_worker_merged:?}"
         );
         assert!(
-            per_shard.len() > 1,
+            per_shard_merged.is_ok(),
+            "per-shard merge failed: {per_shard_merged:?}"
+        );
+        let Ok(per_worker_merged) = per_worker_merged else {
+            unreachable!("assert above guarantees a merged per-worker result");
+        };
+        let Ok(per_shard_merged) = per_shard_merged else {
+            unreachable!("assert above guarantees a merged per-shard result");
+        };
+
+        assert_eq!(per_worker_len, 1, "per-worker policy should emit one delta");
+        assert!(
+            per_shard_len > 1,
             "per-shard policy should emit multiple deltas when one worker processes multiple shards"
+        );
+        assert_eq!(
+            per_worker_merged, serial_oracle,
+            "per-worker 1w path changed merged ops"
+        );
+        assert_eq!(
+            per_shard_merged, serial_oracle,
+            "per-shard 1w path changed merged ops"
         );
     }
 
@@ -977,20 +1013,53 @@ mod tests {
         let one_worker = execute_parallel_with_policy(
             view,
             &items,
-            1,
+            worker_hint(1),
             ParallelExecutionPolicy::DEDICATED_PER_SHARD,
         );
         let many_workers = execute_parallel_with_policy(
             view,
             &items,
-            8,
+            worker_hint(8),
             ParallelExecutionPolicy::DEDICATED_PER_SHARD,
         );
+        let serial_oracle = merge_deltas_ok(vec![execute_serial(view, &items)]);
+        assert!(
+            serial_oracle.is_ok(),
+            "serial oracle merge failed for dedicated-per-shard test: {serial_oracle:?}"
+        );
+        let Ok(serial_oracle) = serial_oracle else {
+            unreachable!("assert above guarantees a valid serial oracle");
+        };
+        let one_worker_len = one_worker.len();
+        let many_workers_len = many_workers.len();
+        let one_worker_merged = merge_deltas_ok(one_worker);
+        let many_workers_merged = merge_deltas_ok(many_workers);
+        assert!(
+            one_worker_merged.is_ok(),
+            "dedicated-per-shard 1w merge failed: {one_worker_merged:?}"
+        );
+        assert!(
+            many_workers_merged.is_ok(),
+            "dedicated-per-shard 8w merge failed: {many_workers_merged:?}"
+        );
+        let Ok(one_worker_merged) = one_worker_merged else {
+            unreachable!("assert above guarantees a merged dedicated-per-shard 1w result");
+        };
+        let Ok(many_workers_merged) = many_workers_merged else {
+            unreachable!("assert above guarantees a merged dedicated-per-shard 8w result");
+        };
 
         assert_eq!(
-            one_worker.len(),
-            many_workers.len(),
+            one_worker_len, many_workers_len,
             "dedicated-per-shard ignores the worker-count hint"
+        );
+        assert_eq!(
+            one_worker_merged, serial_oracle,
+            "dedicated-per-shard 1w changed merged ops"
+        );
+        assert_eq!(
+            many_workers_merged, serial_oracle,
+            "dedicated-per-shard 8w changed merged ops"
         );
     }
 
@@ -1003,7 +1072,7 @@ mod tests {
         let deltas = execute_parallel_with_policy(
             view,
             &items,
-            4,
+            worker_hint(4),
             ParallelExecutionPolicy::DEDICATED_PER_SHARD,
         );
 

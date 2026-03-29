@@ -13,6 +13,7 @@ count:
 - static round-robin shard assignment + one delta per worker
 - static round-robin shard assignment + one delta per shard
 - dedicated one-worker-per-shard + one delta per shard
+- adaptive shard routing, which selects one of the pooled-worker policies from workload shape
 
 The point is to answer a narrower question than "is parallel good?":
 
@@ -32,7 +33,7 @@ The benchmark currently runs at:
 - `1000`
 - `10000`
 
-For pooled-worker policies, it also varies worker counts:
+For pooled-worker policies, it also varies worker hints:
 
 - `1`
 - `4`

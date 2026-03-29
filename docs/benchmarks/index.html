@@ -849,6 +849,7 @@
                 static_per_worker: "#fbbf24",
                 static_per_shard: "#fb7185",
                 dedicated_per_shard: "#c084fc",
+                adaptive_shard_routing: "#f97316",
             };
             const POLICY_LABELS = {
                 dynamic_per_worker: "Dynamic claim / worker delta",
@@ -856,6 +857,7 @@
                 static_per_worker: "Static round-robin / worker delta",
                 static_per_shard: "Static round-robin / shard delta",
                 dedicated_per_shard: "Dedicated shard / shard delta",
+                adaptive_shard_routing: "Adaptive shard routing selector",
             };
             const WORKER_DASH = {
                 "1w": null,
@@ -1654,8 +1656,17 @@
                 const winnerSeq = rankedLoads
                     .map(({ rows }) => rows[0].workers)
                     .join(" → ");
-                const staticWinsAll = rankedLoads.every(
-                    ({ rows }) => rows[0].policy === "static_per_worker",
+                const sameWinnerFamily = rankedLoads.every(
+                    ({ rows }) =>
+                        rows[0].policy === rankedLoads[0].rows[0].policy,
+                );
+                const adaptiveLeadsAnyLoad = rankedLoads.some(
+                    ({ rows }) => rows[0].policy === "adaptive_shard_routing",
+                );
+                const adaptiveFrontPack = rankedLoads.every(({ rows }) =>
+                    rows
+                        .slice(0, 3)
+                        .some((row) => row.policy === "adaptive_shard_routing"),
                 );
                 const dedicatedAlwaysLast = rankedLoads.every(
                     ({ rows }) =>
@@ -1670,14 +1681,23 @@
                         `The front pair overlap on confidence intervals for ${tiedFrontLoads.join(", ")}, so trust those loads as close races rather than clean one-policy wins.`,
                     );
                 }
-                if (staticWinsAll) {
+                if (sameWinnerFamily) {
                     lines.push(
-                        "Static round-robin with one delta per worker wins every tested load on this machine, so the simpler pooled-worker path is setting the pace in this study.",
+                        `${POLICY_LABELS[rankedLoads[0].rows[0].policy] ?? rankedLoads[0].rows[0].policy} leads every tested load on this machine, so one policy family is clearly setting the pace in this study.`,
                     );
                 }
                 if (winnerSeq === "1w → 4w → 8w") {
                     lines.push(
                         "As load rises, the winning worker pool widens step by step. Small work prefers less coordination; heavier work finally justifies a wider pool.",
+                    );
+                }
+                if (adaptiveLeadsAnyLoad) {
+                    lines.push(
+                        "The workload-aware selector does win at least one tested load, which means the heuristic is not just a convenience wrapper around the slower half of the field.",
+                    );
+                } else if (adaptiveFrontPack) {
+                    lines.push(
+                        "The workload-aware selector stays in the front pack across the sweep, even when a fixed policy edges it out on individual loads.",
                     );
                 }
                 if (dedicatedAlwaysLast) {

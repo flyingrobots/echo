@@ -109,6 +109,157 @@ impl ParallelExecutionPolicy {
     }
 }
 
+/// Lightweight shape summary of a shard-partitioned parallel workload.
+///
+/// This profile is deterministic and cheap to derive once `partition_into_shards()`
+/// has already grouped items by shard. Selectors can use it to choose a stable
+/// execution plan without inspecting machine-local runtime state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ParallelExecutionWorkloadProfile {
+    total_items: usize,
+    non_empty_shards: usize,
+    max_shard_len: usize,
+}
+
+impl ParallelExecutionWorkloadProfile {
+    /// Creates a workload profile from aggregate counts.
+    #[must_use]
+    pub const fn new(total_items: usize, non_empty_shards: usize, max_shard_len: usize) -> Self {
+        Self {
+            total_items,
+            non_empty_shards,
+            max_shard_len,
+        }
+    }
+
+    /// Returns the total number of items in the workload.
+    #[must_use]
+    pub const fn total_items(self) -> usize {
+        self.total_items
+    }
+
+    /// Returns the number of non-empty virtual shards in the workload.
+    #[must_use]
+    pub const fn non_empty_shards(self) -> usize {
+        self.non_empty_shards
+    }
+
+    /// Returns the size of the largest non-empty virtual shard.
+    #[must_use]
+    pub const fn max_shard_len(self) -> usize {
+        self.max_shard_len
+    }
+
+    fn from_shards(shards: &[super::shard::VirtualShard]) -> Self {
+        let mut total_items = 0;
+        let mut non_empty_shards = 0;
+        let mut max_shard_len = 0;
+
+        for shard in shards {
+            let shard_len = shard.items.len();
+            total_items += shard_len;
+            if shard_len > 0 {
+                non_empty_shards += 1;
+                max_shard_len = max_shard_len.max(shard_len);
+            }
+        }
+
+        Self::new(total_items, non_empty_shards, max_shard_len)
+    }
+}
+
+/// Resolved plan for one parallel execution attempt.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ParallelExecutionPlan {
+    workers: NonZeroUsize,
+    policy: ParallelExecutionPolicy,
+}
+
+impl ParallelExecutionPlan {
+    /// Creates a new plan from a worker count and fixed execution policy.
+    #[must_use]
+    pub const fn new(workers: NonZeroUsize, policy: ParallelExecutionPolicy) -> Self {
+        Self { workers, policy }
+    }
+
+    /// Returns the worker count selected for this execution.
+    #[must_use]
+    pub const fn workers(self) -> NonZeroUsize {
+        self.workers
+    }
+
+    /// Returns the fixed execution policy selected for this execution.
+    #[must_use]
+    pub const fn policy(self) -> ParallelExecutionPolicy {
+        self.policy
+    }
+}
+
+/// Selects a deterministic parallel execution plan from a worker hint and workload profile.
+pub trait ParallelExecutionPlanSelector {
+    /// Chooses the fixed execution plan to use for this workload.
+    fn select_plan(
+        &self,
+        worker_hint: NonZeroUsize,
+        workload: ParallelExecutionWorkloadProfile,
+    ) -> ParallelExecutionPlan;
+}
+
+/// Workload-aware selector for shard-routing policy experiments.
+///
+/// The heuristic is intentionally conservative:
+/// - very small or effectively serial workloads collapse to `STATIC_PER_WORKER` on `1w`
+/// - medium workloads use `DYNAMIC_PER_WORKER` on `1w`
+/// - large, well-distributed workloads switch to `DYNAMIC_PER_SHARD` with up to `4w`
+///
+/// This selector is meant for benchmarking and tuning. It does not observe
+/// ambient machine state and remains a pure function of workload shape.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AdaptiveShardRoutingSelector;
+
+const ADAPTIVE_SMALL_WORKLOAD_ITEMS: usize = 256;
+const ADAPTIVE_LARGE_WORKLOAD_ITEMS: usize = 4_096;
+const ADAPTIVE_MIN_PARALLEL_SHARDS: usize = 4;
+const ADAPTIVE_DYNAMIC_PER_SHARD_WORKERS: usize = 4;
+
+impl ParallelExecutionPlanSelector for AdaptiveShardRoutingSelector {
+    fn select_plan(
+        &self,
+        worker_hint: NonZeroUsize,
+        workload: ParallelExecutionWorkloadProfile,
+    ) -> ParallelExecutionPlan {
+        let effective_shard_parallelism = workload.non_empty_shards().min(worker_hint.get()).max(1);
+
+        if workload.total_items() <= ADAPTIVE_SMALL_WORKLOAD_ITEMS
+            || effective_shard_parallelism <= 1
+        {
+            return ParallelExecutionPlan::new(
+                NonZeroUsize::MIN,
+                ParallelExecutionPolicy::STATIC_PER_WORKER,
+            );
+        }
+
+        if workload.total_items() >= ADAPTIVE_LARGE_WORKLOAD_ITEMS
+            && effective_shard_parallelism >= ADAPTIVE_MIN_PARALLEL_SHARDS
+            && workload.max_shard_len().saturating_mul(2) <= workload.total_items()
+        {
+            let workers = non_zero(
+                worker_hint
+                    .get()
+                    .min(ADAPTIVE_DYNAMIC_PER_SHARD_WORKERS)
+                    .min(workload.non_empty_shards())
+                    .max(1),
+            );
+            return ParallelExecutionPlan::new(workers, ParallelExecutionPolicy::DYNAMIC_PER_SHARD);
+        }
+
+        ParallelExecutionPlan::new(
+            NonZeroUsize::MIN,
+            ParallelExecutionPolicy::DYNAMIC_PER_WORKER,
+        )
+    }
+}
+
 impl Default for ParallelExecutionPolicy {
     fn default() -> Self {
         Self::DEFAULT
@@ -264,8 +415,7 @@ pub fn execute_parallel(view: GraphView<'_>, items: &[ExecItem], workers: usize)
     assert!(workers >= 1, "need at least one worker");
 
     // Cap workers at NUM_SHARDS - no point spawning 512 threads for 256 shards
-    let capped_workers =
-        NonZeroUsize::new(workers.min(NUM_SHARDS)).map_or(NonZeroUsize::MIN, |w| w);
+    let capped_workers = capped_workers(non_zero(workers));
 
     execute_parallel_sharded_with_policy(
         view,
@@ -301,7 +451,7 @@ pub fn execute_parallel_sharded(
     workers: usize,
 ) -> Vec<TickDelta> {
     assert!(workers >= 1, "need at least one worker");
-    let workers = NonZeroUsize::new(workers).map_or(NonZeroUsize::MIN, |w| w);
+    let workers = non_zero(workers);
     execute_parallel_sharded_with_policy(view, items, workers, ParallelExecutionPolicy::DEFAULT)
 }
 
@@ -321,43 +471,67 @@ pub fn execute_parallel_sharded_with_policy(
     workers: NonZeroUsize,
     policy: ParallelExecutionPolicy,
 ) -> Vec<TickDelta> {
-    let workers = workers.get();
+    let workers = capped_workers(workers);
+    let shards = partition_into_shards(items);
+    execute_partitioned_shards(view, &shards, ParallelExecutionPlan::new(workers, policy))
+}
 
-    if items.is_empty() {
-        return match policy.assignment {
-            ShardAssignmentPolicy::DedicatedPerShard => Vec::new(),
-            _ => {
-                // Can't use vec![TickDelta::new(); workers] because TickDelta doesn't impl Clone
-                (0..workers).map(|_| TickDelta::new()).collect()
-            }
+/// Parallel execution with a selector that can adapt the plan to workload shape.
+pub fn execute_parallel_sharded_with_selector<S>(
+    view: GraphView<'_>,
+    items: &[ExecItem],
+    workers: NonZeroUsize,
+    selector: S,
+) -> Vec<TickDelta>
+where
+    S: ParallelExecutionPlanSelector,
+{
+    let workers = capped_workers(workers);
+    let shards = partition_into_shards(items);
+    let workload = ParallelExecutionWorkloadProfile::from_shards(&shards);
+    let plan = selector.select_plan(workers, workload);
+    execute_partitioned_shards(view, &shards, plan)
+}
+
+fn execute_partitioned_shards(
+    view: GraphView<'_>,
+    shards: &[super::shard::VirtualShard],
+    plan: ParallelExecutionPlan,
+) -> Vec<TickDelta> {
+    let workload = ParallelExecutionWorkloadProfile::from_shards(shards);
+    if workload.total_items() == 0 {
+        return if plan.policy().assignment == ShardAssignmentPolicy::DedicatedPerShard {
+            Vec::new()
+        } else {
+            let workers = capped_workers(plan.workers()).get();
+            (0..workers).map(|_| TickDelta::new()).collect()
         };
     }
 
-    // Partition into virtual shards by scope
-    let shards = partition_into_shards(items);
-    match (policy.assignment, policy.accumulation) {
+    let workers = capped_workers(plan.workers()).get();
+    match (plan.policy().assignment(), plan.policy().accumulation()) {
         (ShardAssignmentPolicy::DynamicSteal, DeltaAccumulationPolicy::PerWorker) => {
-            execute_dynamic_per_worker(view, &shards, workers)
+            execute_dynamic_per_worker(view, shards, workers)
         }
         (ShardAssignmentPolicy::DynamicSteal, DeltaAccumulationPolicy::PerShard) => {
-            execute_dynamic_per_shard(view, &shards, workers)
+            execute_dynamic_per_shard(view, shards, workers)
         }
         (ShardAssignmentPolicy::StaticRoundRobin, DeltaAccumulationPolicy::PerWorker) => {
-            execute_static_per_worker(view, &shards, workers)
+            execute_static_per_worker(view, shards, workers)
         }
         (ShardAssignmentPolicy::StaticRoundRobin, DeltaAccumulationPolicy::PerShard) => {
-            execute_static_per_shard(view, &shards, workers)
+            execute_static_per_shard(view, shards, workers)
         }
         (
             ShardAssignmentPolicy::DedicatedPerShard,
             DeltaAccumulationPolicy::PerWorker | DeltaAccumulationPolicy::PerShard,
         ) => {
             debug_assert_eq!(
-                policy.accumulation,
+                plan.policy().accumulation(),
                 DeltaAccumulationPolicy::PerShard,
                 "DedicatedPerShard is only exposed with PerShard accumulation"
             );
-            execute_dedicated_per_shard(view, &shards)
+            execute_dedicated_per_shard(view, shards)
         }
     }
 }
@@ -372,9 +546,35 @@ pub fn execute_parallel_with_policy(
     workers: NonZeroUsize,
     policy: ParallelExecutionPolicy,
 ) -> Vec<TickDelta> {
-    let capped_workers =
-        NonZeroUsize::new(workers.get().min(NUM_SHARDS)).map_or(NonZeroUsize::MIN, |w| w);
-    execute_parallel_sharded_with_policy(view, items, capped_workers, policy)
+    execute_parallel_sharded_with_policy(view, items, capped_workers(workers), policy)
+}
+
+/// Parallel execution entry point with a selector that may adapt policy and worker count.
+pub fn execute_parallel_with_selector<S>(
+    view: GraphView<'_>,
+    items: &[ExecItem],
+    workers: NonZeroUsize,
+    selector: S,
+) -> Vec<TickDelta>
+where
+    S: ParallelExecutionPlanSelector,
+{
+    execute_parallel_sharded_with_selector(view, items, capped_workers(workers), selector)
+}
+
+const fn non_zero(value: usize) -> NonZeroUsize {
+    match NonZeroUsize::new(value) {
+        Some(value) => value,
+        None => NonZeroUsize::MIN,
+    }
+}
+
+const fn capped_workers(workers: NonZeroUsize) -> NonZeroUsize {
+    non_zero(if workers.get() < NUM_SHARDS {
+        workers.get()
+    } else {
+        NUM_SHARDS
+    })
 }
 
 fn execute_shard_into_delta(view: GraphView<'_>, items: &[ExecItem], delta: &mut TickDelta) {
@@ -853,7 +1053,11 @@ fn execute_item_enforced(
 
 #[cfg(test)]
 mod tests {
-    use super::{execute_parallel_with_policy, ExecItem, ParallelExecutionPolicy};
+    use super::{
+        execute_parallel_with_policy, execute_parallel_with_selector, AdaptiveShardRoutingSelector,
+        ExecItem, ParallelExecutionPlan, ParallelExecutionPlanSelector, ParallelExecutionPolicy,
+        ParallelExecutionWorkloadProfile,
+    };
     use crate::{
         execute_serial, make_type_id, merge_deltas_ok, AtomPayload, AttachmentKey, AttachmentValue,
         GraphStore, GraphView, NodeId, NodeKey, NodeRecord, OpOrigin, TickDelta, WarpOp,
@@ -904,6 +1108,48 @@ mod tests {
 
     fn worker_hint(workers: usize) -> NonZeroUsize {
         NonZeroUsize::new(workers.max(1)).map_or(NonZeroUsize::MIN, |w| w)
+    }
+
+    #[test]
+    fn adaptive_selector_prefers_static_per_worker_for_small_workloads() {
+        let selector = AdaptiveShardRoutingSelector;
+        let plan = selector.select_plan(
+            worker_hint(8),
+            ParallelExecutionWorkloadProfile::new(100, 100, 1),
+        );
+
+        assert_eq!(
+            plan,
+            ParallelExecutionPlan::new(worker_hint(1), ParallelExecutionPolicy::STATIC_PER_WORKER)
+        );
+    }
+
+    #[test]
+    fn adaptive_selector_prefers_dynamic_per_worker_for_medium_workloads() {
+        let selector = AdaptiveShardRoutingSelector;
+        let plan = selector.select_plan(
+            worker_hint(8),
+            ParallelExecutionWorkloadProfile::new(1_000, 32, 48),
+        );
+
+        assert_eq!(
+            plan,
+            ParallelExecutionPlan::new(worker_hint(1), ParallelExecutionPolicy::DYNAMIC_PER_WORKER)
+        );
+    }
+
+    #[test]
+    fn adaptive_selector_prefers_dynamic_per_shard_for_large_wide_workloads() {
+        let selector = AdaptiveShardRoutingSelector;
+        let plan = selector.select_plan(
+            worker_hint(8),
+            ParallelExecutionWorkloadProfile::new(10_000, 64, 120),
+        );
+
+        assert_eq!(
+            plan,
+            ParallelExecutionPlan::new(worker_hint(4), ParallelExecutionPolicy::DYNAMIC_PER_SHARD)
+        );
     }
 
     #[test]
@@ -1080,5 +1326,37 @@ mod tests {
             deltas.is_empty(),
             "empty workload should produce no deltas for dedicated-per-shard"
         );
+    }
+
+    #[test]
+    fn adaptive_selector_matches_serial_oracle() {
+        let selector = AdaptiveShardRoutingSelector;
+        let (store, items) = make_store_and_items(64);
+        let view = GraphView::new(&store);
+        let serial_oracle_result = merge_deltas_ok(vec![execute_serial(view, &items)]);
+        assert!(
+            serial_oracle_result.is_ok(),
+            "serial oracle merge failed for adaptive selector: {serial_oracle_result:?}"
+        );
+        let Ok(serial_oracle) = serial_oracle_result else {
+            unreachable!("assert above guarantees a valid serial oracle");
+        };
+
+        for workers in [1_usize, 4, 8] {
+            let deltas =
+                execute_parallel_with_selector(view, &items, worker_hint(workers), selector);
+            let merged_result = merge_deltas_ok(deltas);
+            assert!(
+                merged_result.is_ok(),
+                "adaptive selector merge failed at {workers}w: {merged_result:?}"
+            );
+            let Ok(merged) = merged_result else {
+                unreachable!("assert above guarantees a valid adaptive merge");
+            };
+            assert_eq!(
+                merged, serial_oracle,
+                "adaptive selector changed merged ops at {workers}w"
+            );
+        }
     }
 }

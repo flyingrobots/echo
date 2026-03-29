@@ -33,10 +33,11 @@ results. This README summarizes how to run them and read the output.
         - static round-robin shard assignment + per-worker deltas
         - static round-robin shard assignment + per-shard deltas
         - dedicated one-worker-per-shard + one-delta-per-shard
+        - adaptive shard routing, which selects a fixed policy from workload shape
     - Each case includes canonical delta merge after parallel execution, so the
       study reflects full policy cost for the synthetic independent workload.
     - The policy matrix runs across loads `100`, `1000`, and `10000`, with worker
-      counts `1`, `4`, and `8` where the policy uses a worker pool.
+      hints `1`, `4`, and `8` where the policy uses a worker pool.
     - Throughput “elements” = executed items in the synthetic independent workload.
 
 ## Run

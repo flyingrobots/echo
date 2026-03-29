@@ -112,6 +112,9 @@ bench-serve:
 OPEN := $(shell if command -v open >/dev/null 2>&1; then echo open; \
 	elif command -v xdg-open >/dev/null 2>&1; then echo xdg-open; \
 	elif command -v powershell.exe >/dev/null 2>&1; then echo powershell.exe; fi)
+BENCH_INLINE_REPORT_PATH := $(abspath docs/benchmarks/report-inline.html)
+BENCH_INLINE_REPORT_URI := file://$(BENCH_INLINE_REPORT_PATH)
+BENCH_POLICY_REPORT_URI := $(BENCH_INLINE_REPORT_URI)\#parallel-policy
 
 bench-open:
 	@if [ -n "$(OPEN)" ]; then \
@@ -206,16 +209,16 @@ bench-policy-bake: bench-vendor
 	cargo bench -p warp-benches --bench parallel_baseline -- parallel_policy_matrix
 	@$(MAKE) bench-policy-export
 	@if [ -n "$(OPEN)" ]; then \
-	  $(OPEN) "docs/benchmarks/report-inline.html#parallel-policy" >/dev/null 2>&1 || echo "Open file: docs/benchmarks/report-inline.html#parallel-policy" ; \
+	  $(OPEN) "$(BENCH_POLICY_REPORT_URI)" >/dev/null 2>&1 || echo "Open URL: $(BENCH_POLICY_REPORT_URI)" ; \
 	else \
-	  echo "Open file: docs/benchmarks/report-inline.html#parallel-policy" ; \
+	  echo "Open URL: $(BENCH_POLICY_REPORT_URI)" ; \
 	fi
 
 bench-policy-open-inline:
 	@if [ -n "$(OPEN)" ]; then \
-	  $(OPEN) "docs/benchmarks/report-inline.html#parallel-policy" >/dev/null 2>&1 || echo "Open file: docs/benchmarks/report-inline.html#parallel-policy" ; \
+	  $(OPEN) "$(BENCH_POLICY_REPORT_URI)" >/dev/null 2>&1 || echo "Open URL: $(BENCH_POLICY_REPORT_URI)" ; \
 	else \
-	  echo "Open file: docs/benchmarks/report-inline.html#parallel-policy" ; \
+	  echo "Open URL: $(BENCH_POLICY_REPORT_URI)" ; \
 	fi
 
 # Spec-000 (WASM) helpers

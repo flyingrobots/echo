@@ -22,6 +22,7 @@ use super::shard::{partition_into_shards, NUM_SHARDS};
 
 /// How virtual shards are assigned to workers during parallel execution.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ShardAssignmentPolicy {
     /// Workers claim shards dynamically via an atomic counter.
     DynamicSteal,
@@ -37,6 +38,7 @@ pub enum ShardAssignmentPolicy {
 
 /// How worker execution outputs are grouped into `TickDelta`s.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum DeltaAccumulationPolicy {
     /// Each worker accumulates all claimed shards into one `TickDelta`.
     PerWorker,
@@ -48,9 +50,9 @@ pub enum DeltaAccumulationPolicy {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ParallelExecutionPolicy {
     /// How shards are assigned to workers.
-    pub assignment: ShardAssignmentPolicy,
+    assignment: ShardAssignmentPolicy,
     /// How execution outputs are grouped into deltas.
-    pub accumulation: DeltaAccumulationPolicy,
+    accumulation: DeltaAccumulationPolicy,
 }
 
 impl ParallelExecutionPolicy {
@@ -85,10 +87,25 @@ impl ParallelExecutionPolicy {
     };
 
     /// One worker per non-empty shard with one output delta per shard.
+    ///
+    /// The `workers` argument is ignored for this policy. Empty input returns
+    /// zero deltas because there are no non-empty shards to assign.
     pub const DEDICATED_PER_SHARD: Self = Self {
         assignment: ShardAssignmentPolicy::DedicatedPerShard,
         accumulation: DeltaAccumulationPolicy::PerShard,
     };
+
+    /// Returns the shard-assignment mode for this execution policy.
+    #[must_use]
+    pub const fn assignment(self) -> ShardAssignmentPolicy {
+        self.assignment
+    }
+
+    /// Returns the delta-grouping mode for this execution policy.
+    #[must_use]
+    pub const fn accumulation(self) -> DeltaAccumulationPolicy {
+        self.accumulation
+    }
 }
 
 impl Default for ParallelExecutionPolicy {
@@ -289,6 +306,11 @@ pub fn execute_parallel_sharded(
 /// This exposes the execution-policy matrix for benchmarking and experimentation
 /// while preserving `execute_parallel()` as the stable default entrypoint.
 ///
+/// `ParallelExecutionPolicy::DEDICATED_PER_SHARD` intentionally ignores the
+/// `workers` argument and emits one delta per non-empty shard. All other
+/// policies preserve the worker-shaped empty-result contract and return
+/// `workers` empty deltas when `items` is empty.
+///
 /// # Panics
 ///
 /// Panics if `workers` is 0.
@@ -301,8 +323,13 @@ pub fn execute_parallel_sharded_with_policy(
     assert!(workers > 0, "workers must be > 0");
 
     if items.is_empty() {
-        // Can't use vec![TickDelta::new(); workers] because TickDelta doesn't impl Clone
-        return (0..workers).map(|_| TickDelta::new()).collect();
+        return match policy.assignment {
+            ShardAssignmentPolicy::DedicatedPerShard => Vec::new(),
+            _ => {
+                // Can't use vec![TickDelta::new(); workers] because TickDelta doesn't impl Clone
+                (0..workers).map(|_| TickDelta::new()).collect()
+            }
+        };
     }
 
     // Partition into virtual shards by scope
@@ -323,7 +350,14 @@ pub fn execute_parallel_sharded_with_policy(
         (
             ShardAssignmentPolicy::DedicatedPerShard,
             DeltaAccumulationPolicy::PerWorker | DeltaAccumulationPolicy::PerShard,
-        ) => execute_dedicated_per_shard(view, &shards),
+        ) => {
+            debug_assert_eq!(
+                policy.accumulation,
+                DeltaAccumulationPolicy::PerShard,
+                "DedicatedPerShard is only exposed with PerShard accumulation"
+            );
+            execute_dedicated_per_shard(view, &shards)
+        }
     }
 }
 
@@ -821,13 +855,10 @@ fn execute_item_enforced(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        execute_parallel_with_policy, DeltaAccumulationPolicy, ExecItem, ParallelExecutionPolicy,
-        ShardAssignmentPolicy,
-    };
+    use super::{execute_parallel_with_policy, ExecItem, ParallelExecutionPolicy};
     use crate::{
-        make_type_id, merge_deltas_ok, AtomPayload, AttachmentKey, AttachmentValue, GraphStore,
-        GraphView, NodeId, NodeKey, NodeRecord, OpOrigin, TickDelta, WarpOp,
+        execute_serial, make_type_id, merge_deltas_ok, AtomPayload, AttachmentKey, AttachmentValue,
+        GraphStore, GraphView, NodeId, NodeKey, NodeRecord, OpOrigin, TickDelta, WarpOp,
     };
 
     fn test_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
@@ -873,7 +904,7 @@ mod tests {
     }
 
     #[test]
-    fn all_parallel_policies_preserve_merged_ops() {
+    fn all_parallel_policies_match_serial_oracle() {
         let policies = [
             ParallelExecutionPolicy::DYNAMIC_PER_WORKER,
             ParallelExecutionPolicy::DYNAMIC_PER_SHARD,
@@ -883,20 +914,13 @@ mod tests {
         ];
         let (store, items) = make_store_and_items(32);
         let view = GraphView::new(&store);
-        let baseline_result = merge_deltas_ok(execute_parallel_with_policy(
-            view,
-            &items,
-            4,
-            ParallelExecutionPolicy::DYNAMIC_PER_WORKER,
-        ));
+        let serial_oracle_result = merge_deltas_ok(vec![execute_serial(view, &items)]);
         assert!(
-            baseline_result.is_ok(),
-            "baseline merge failed: {baseline_result:?}"
+            serial_oracle_result.is_ok(),
+            "serial oracle merge failed: {serial_oracle_result:?}"
         );
-        let baseline = if let Ok(ops) = baseline_result {
-            ops
-        } else {
-            return;
+        let Ok(serial_oracle) = serial_oracle_result else {
+            unreachable!("assert above guarantees a valid serial oracle");
         };
 
         for policy in policies {
@@ -906,12 +930,13 @@ mod tests {
                 merged_result.is_ok(),
                 "policy merge failed for {policy:?}: {merged_result:?}"
             );
-            let merged = if let Ok(ops) = merged_result {
-                ops
-            } else {
-                return;
+            let Ok(merged) = merged_result else {
+                unreachable!("assert above guarantees a successful policy merge");
             };
-            assert_eq!(merged, baseline, "policy {policy:?} changed merged ops");
+            assert_eq!(
+                merged, serial_oracle,
+                "policy {policy:?} changed merged ops"
+            );
         }
     }
 
@@ -924,19 +949,13 @@ mod tests {
             view,
             &items,
             1,
-            ParallelExecutionPolicy {
-                assignment: ShardAssignmentPolicy::DynamicSteal,
-                accumulation: DeltaAccumulationPolicy::PerWorker,
-            },
+            ParallelExecutionPolicy::DYNAMIC_PER_WORKER,
         );
         let per_shard = execute_parallel_with_policy(
             view,
             &items,
             1,
-            ParallelExecutionPolicy {
-                assignment: ShardAssignmentPolicy::DynamicSteal,
-                accumulation: DeltaAccumulationPolicy::PerShard,
-            },
+            ParallelExecutionPolicy::DYNAMIC_PER_SHARD,
         );
 
         assert_eq!(
@@ -947,6 +966,50 @@ mod tests {
         assert!(
             per_shard.len() > 1,
             "per-shard policy should emit multiple deltas when one worker processes multiple shards"
+        );
+    }
+
+    #[test]
+    fn dedicated_per_shard_ignores_worker_count() {
+        let (store, items) = make_store_and_items(8);
+        let view = GraphView::new(&store);
+
+        let one_worker = execute_parallel_with_policy(
+            view,
+            &items,
+            1,
+            ParallelExecutionPolicy::DEDICATED_PER_SHARD,
+        );
+        let many_workers = execute_parallel_with_policy(
+            view,
+            &items,
+            8,
+            ParallelExecutionPolicy::DEDICATED_PER_SHARD,
+        );
+
+        assert_eq!(
+            one_worker.len(),
+            many_workers.len(),
+            "dedicated-per-shard ignores the worker-count hint"
+        );
+    }
+
+    #[test]
+    fn dedicated_per_shard_empty_workload_emits_no_deltas() {
+        let store = GraphStore::default();
+        let items: Vec<ExecItem> = Vec::new();
+        let view = GraphView::new(&store);
+
+        let deltas = execute_parallel_with_policy(
+            view,
+            &items,
+            4,
+            ParallelExecutionPolicy::DEDICATED_PER_SHARD,
+        );
+
+        assert!(
+            deltas.is_empty(),
+            "empty workload should produce no deltas for dedicated-per-shard"
         );
     }
 }

@@ -24,10 +24,7 @@
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
 use std::collections::BTreeMap;
 use std::time::Duration;
-use warp_core::parallel::{
-    build_work_units, execute_work_queue, DeltaAccumulationPolicy, ShardAssignmentPolicy,
-    WorkerResult,
-};
+use warp_core::parallel::{build_work_units, execute_work_queue, WorkerResult};
 use warp_core::{
     execute_parallel, execute_parallel_with_policy, execute_serial, make_node_id, make_type_id,
     make_warp_id, AtomPayload, AttachmentKey, AttachmentValue, ExecItem, GraphStore, GraphView,
@@ -333,11 +330,8 @@ fn policy_label(policy: ParallelExecutionPolicy) -> &'static str {
         ParallelExecutionPolicy::DYNAMIC_PER_SHARD => "dynamic_per_shard",
         ParallelExecutionPolicy::STATIC_PER_WORKER => "static_per_worker",
         ParallelExecutionPolicy::STATIC_PER_SHARD => "static_per_shard",
-        ParallelExecutionPolicy {
-            assignment: ShardAssignmentPolicy::DedicatedPerShard,
-            accumulation: DeltaAccumulationPolicy::PerWorker,
-        } => "dedicated_per_worker",
         ParallelExecutionPolicy::DEDICATED_PER_SHARD => "dedicated_per_shard",
+        _ => "unknown_policy",
     }
 }
 

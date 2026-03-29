@@ -1071,9 +1071,15 @@ fn parse_policy_case(relative_dir: &Path) -> Option<ParsedPolicyCase> {
 }
 
 fn split_policy_case(policy_case: &str) -> Option<(String, String)> {
-    for suffix in ["_1w", "_4w", "_8w"] {
-        if let Some(policy) = policy_case.strip_suffix(suffix) {
-            return Some((policy.to_owned(), suffix.trim_start_matches('_').to_owned()));
+    for separator in ['_', '-'] {
+        let Some((policy, workers)) = policy_case.rsplit_once(separator) else {
+            continue;
+        };
+        let Some(digits) = workers.strip_suffix('w') else {
+            continue;
+        };
+        if !digits.is_empty() && digits.chars().all(|ch| ch.is_ascii_digit()) {
+            return Some((policy.to_owned(), workers.to_owned()));
         }
     }
     None
@@ -6963,6 +6969,22 @@ mod tests {
             ParsedPolicyCase {
                 policy: "dynamic_per_worker".to_owned(),
                 workers: "4w".to_owned(),
+                load: 1000,
+            }
+        );
+    }
+
+    #[test]
+    fn parse_policy_case_handles_unlisted_worker_suffix_form() {
+        let Some(case) = parse_policy_case(Path::new("static_per_worker_16w/1000")) else {
+            unreachable!("expected generic worker suffix policy case");
+        };
+
+        assert_eq!(
+            case,
+            ParsedPolicyCase {
+                policy: "static_per_worker".to_owned(),
+                workers: "16w".to_owned(),
                 load: 1000,
             }
         );

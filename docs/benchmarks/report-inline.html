@@ -2788,7 +2788,15 @@
 
                 function start() {
                     if (typeof d3 !== "undefined") {
-                        run();
+                        run().catch((err) => {
+                            console.error("[bench] run() failed:", err);
+                            const stats =
+                                document.getElementById("dynamic-stats");
+                            if (stats) {
+                                stats.innerHTML =
+                                    "<em>Failed to render dashboard. See console.</em>";
+                            }
+                        });
                     }
                 }
 
@@ -2976,8 +2984,8 @@
             window.__CRITERION_MISSING__ = [];
             window.__POLICY_MATRIX__ = {
                 group: "parallel_policy_matrix",
-                baked_at: "2026-03-29T05:08:13.145712Z",
-                baked_git_sha: "fb7efc9",
+                baked_at: "2026-03-29T17:24:01.619929Z",
+                baked_git_sha: "2f4d2f0",
                 machine: {
                     os: "macos",
                     arch: "aarch64",
@@ -3700,6 +3708,18 @@
                         "aria-selected",
                         currentTab === "policy" ? "true" : "false",
                     );
+                document
+                    .getElementById("tab-overview")
+                    .setAttribute(
+                        "tabindex",
+                        currentTab === "overview" ? "0" : "-1",
+                    );
+                document
+                    .getElementById("tab-policy")
+                    .setAttribute(
+                        "tabindex",
+                        currentTab === "policy" ? "0" : "-1",
+                    );
                 document.getElementById("overview-view").hidden =
                     currentTab !== "overview";
                 document.getElementById("policy-view").hidden =
@@ -3717,6 +3737,29 @@
                     );
                     syncTabFromHash();
                 }
+            }
+
+            function handleTabKeydown(event) {
+                if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+                    return;
+                }
+                event.preventDefault();
+                const tabs = [
+                    document.getElementById("tab-overview"),
+                    document.getElementById("tab-policy"),
+                ];
+                const currentIndex = tabs.findIndex(
+                    (tab) => tab === event.currentTarget,
+                );
+                if (currentIndex === -1) {
+                    return;
+                }
+                const delta = event.key === "ArrowRight" ? 1 : -1;
+                const nextIndex =
+                    (currentIndex + delta + tabs.length) % tabs.length;
+                const nextTab = tabs[nextIndex];
+                nextTab.focus();
+                setTab(nextTab.id === "tab-policy" ? "policy" : "overview");
             }
 
             function updateDynamicStats(data) {
@@ -4318,7 +4361,12 @@
                 ]);
                 const x = d3
                     .scaleLog()
-                    .domain([loads[0], loads[loads.length - 1]])
+                    .domain([
+                        loads[0],
+                        loads.length > 1
+                            ? loads[loads.length - 1]
+                            : loads[0] * 10,
+                    ])
                     .range([0, innerW]);
                 const y = d3
                     .scaleLog()
@@ -4634,6 +4682,12 @@
                 document
                     .getElementById("tab-policy")
                     .addEventListener("click", () => setTab("policy"));
+                document
+                    .getElementById("tab-overview")
+                    .addEventListener("keydown", handleTabKeydown);
+                document
+                    .getElementById("tab-policy")
+                    .addEventListener("keydown", handleTabKeydown);
                 document
                     .getElementById("btn-budget")
                     .addEventListener("click", () => {

@@ -177,10 +177,18 @@ bench-bake: bench-vendor
 	  --html docs/benchmarks/report-inline.html \
 	  --json docs/benchmarks/parallel-policy-matrix.json
 	@echo "Opening inline report..."
-	@open docs/benchmarks/report-inline.html
+	@if [ -n "$(OPEN)" ]; then \
+	  $(OPEN) docs/benchmarks/report-inline.html >/dev/null 2>&1 || echo "Open file: docs/benchmarks/report-inline.html" ; \
+	else \
+	  echo "Open file: docs/benchmarks/report-inline.html" ; \
+	fi
 
 bench-open-inline:
-	@open docs/benchmarks/report-inline.html
+	@if [ -n "$(OPEN)" ]; then \
+	  $(OPEN) docs/benchmarks/report-inline.html >/dev/null 2>&1 || echo "Open file: docs/benchmarks/report-inline.html" ; \
+	else \
+	  echo "Open file: docs/benchmarks/report-inline.html" ; \
+	fi
 
 bench-policy-export: bench-vendor
 	@echo "Exporting parallel policy matrix JSON..."

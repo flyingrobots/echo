@@ -51,19 +51,24 @@ Today the merge path is:
 1. execute work in parallel
 2. collect one `TickDelta` per worker
 3. flatten all worker deltas
-4. sort globally by `(WarpOpKey, OpOrigin)`
+4. sort globally before hashing or validation paths compare results
 
 Relevant code:
 
 - `execute_parallel_sharded()` returns one `TickDelta` per worker in
   `crates/warp-core/src/parallel/exec.rs`
-- `merge_deltas()` in `crates/warp-core/src/parallel/merge.rs` flattens all
-  worker outputs and sorts the combined vector
+- the live engine path in `crates/warp-core/src/engine_impl.rs` merges parallel
+  deltas by canonical `WarpOpKey`
+- `merge_deltas()` in `crates/warp-core/src/parallel/merge.rs` and the
+  `delta_validate` helpers flatten all worker outputs and sort the combined
+  vector by `(WarpOpKey, OpOrigin)`
 - `TickDelta::into_parts_unsorted()` in `crates/warp-core/src/tick_delta.rs`
   explicitly exposes unsorted emission order
 
 So the current implementation does **not** already materialize the
-"per-shard pre-sorted run" structure that the idea note assumes.
+"per-shard pre-sorted run" structure that the idea note assumes, and the
+ordering key differs slightly between the live engine path and the stricter
+validation/test merge path.
 
 ### Scheduler complexity
 
@@ -108,10 +113,14 @@ performance intuition.
 For a k-way merge to be a correct replacement for the current global sort, we
 need a family of runs `R1..Rk` such that:
 
-- each `Ri` is already sorted by the exact canonical order
-  `(WarpOpKey, OpOrigin)`, and
-- the current merged output is
-  `sort(flatten(R1..Rk))`
+- each `Ri` is already sorted by the exact canonical order required by the path
+  being replaced, and
+- the current merged output is `sort(flatten(R1..Rk))` under that same key
+
+For the `delta_validate` and test helpers that key is `(WarpOpKey, OpOrigin)`.
+For the live engine path, the proof obligation must be stated against the
+engine's canonical `WarpOpKey` ordering instead of assuming the stricter
+validation key.
 
 Under those conditions, a standard heap-based merge is correct:
 

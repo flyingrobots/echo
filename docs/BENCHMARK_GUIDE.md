@@ -118,7 +118,11 @@ const GROUPS = [
 - `#9ece6a` - Green (scheduler_drain)
 - `#e0af68` - Yellow (scheduler_enqueue)
 - `#f7768e` - Red (scheduler_drain/drain)
-- `#7dcfff` - Cyan (reserve_independence)
+
+These are the colors currently used by the core-overhead dashboard groups in
+`BENCH_CORE_GROUP_KEYS`. Specialized studies such as
+`reserve_independence` or `parallel_policy_matrix` manage their own report
+surfaces and do not automatically appear in that overview tab.
 
 **Pick a new color or use available:**
 
@@ -136,7 +140,7 @@ const GROUPS = [
 #### 4b. Add to `cargo xtask bench bake`
 
 Find the `BENCH_CORE_GROUP_KEYS` list in `xtask/src/main.rs` and add your
-benchmark key:
+benchmark key if the new benchmark belongs on the core-overhead dashboard tab:
 
 ```rust
 const BENCH_CORE_GROUP_KEYS: &[&str] = &[

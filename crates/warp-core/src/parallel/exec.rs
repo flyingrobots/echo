@@ -851,7 +851,11 @@ mod tests {
         let mut items = Vec::with_capacity(count);
         for i in 0..count {
             let mut bytes = [0u8; 32];
-            bytes[0] = i as u8;
+            assert!(
+                u8::try_from(i).is_ok(),
+                "test fixture only supports up to 256 scopes"
+            );
+            bytes[0] = u8::try_from(i).unwrap_or(0);
             let scope = NodeId(bytes);
             store.insert_node(scope, NodeRecord { ty: node_ty });
             items.push(ExecItem::new(
@@ -879,17 +883,34 @@ mod tests {
         ];
         let (store, items) = make_store_and_items(32);
         let view = GraphView::new(&store);
-        let baseline = merge_deltas_ok(execute_parallel_with_policy(
+        let baseline_result = merge_deltas_ok(execute_parallel_with_policy(
             view,
             &items,
             4,
             ParallelExecutionPolicy::DYNAMIC_PER_WORKER,
-        ))
-        .expect("baseline merge failed");
+        ));
+        assert!(
+            baseline_result.is_ok(),
+            "baseline merge failed: {baseline_result:?}"
+        );
+        let baseline = if let Ok(ops) = baseline_result {
+            ops
+        } else {
+            return;
+        };
 
         for policy in policies {
             let deltas = execute_parallel_with_policy(view, &items, 4, policy);
-            let merged = merge_deltas_ok(deltas).expect("policy merge failed");
+            let merged_result = merge_deltas_ok(deltas);
+            assert!(
+                merged_result.is_ok(),
+                "policy merge failed for {policy:?}: {merged_result:?}"
+            );
+            let merged = if let Ok(ops) = merged_result {
+                ops
+            } else {
+                return;
+            };
             assert_eq!(merged, baseline, "policy {policy:?} changed merged ops");
         }
     }

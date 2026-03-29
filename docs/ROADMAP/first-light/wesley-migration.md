@@ -3,7 +3,7 @@
 
 # Wesley Migration Planning Phase B
 
-> **Milestone:** [First Light](README.md) | **Priority:** P1 | **Repo:** Wesley
+> **Milestone:** [First Light](../../ROADMAP.md) | **Priority:** P1 | **Repo:** Wesley
 
 Wesley-repo work. Extend Wesley's migration system to handle schema evolution with backfill scripts, switch-over plans, and contract-based validation.
 

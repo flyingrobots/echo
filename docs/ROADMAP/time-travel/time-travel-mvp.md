@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-> **Milestone:** [Time Travel](README.md) | **Priority:** P2
+> **Milestone:** [Time Travel](../../ROADMAP.md) | **Priority:** P2
 
 # TT2 — Time Travel MVP
 

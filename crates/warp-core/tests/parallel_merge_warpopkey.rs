@@ -21,6 +21,27 @@ use warp_core::{
 // T1.1: WarpOpKey Collision Safety
 // =============================================================================
 
+fn merged_ops(deltas: Vec<TickDelta>) -> Vec<WarpOp> {
+    let merged = merge_deltas_ok(deltas);
+    assert!(merged.is_ok(), "merge should succeed: {merged:?}");
+    let Ok(ops) = merged else {
+        unreachable!("assert above guarantees merge success");
+    };
+    ops
+}
+
+fn merge_conflict(deltas: Vec<TickDelta>) -> warp_core::MergeConflict {
+    let merged = merge_deltas_ok(deltas);
+    assert!(
+        matches!(&merged, Err(MergeError::Conflict(_))),
+        "expected MergeError::Conflict, got: {merged:?}"
+    );
+    let Err(MergeError::Conflict(conflict)) = merged else {
+        unreachable!("assert above guarantees merge conflict");
+    };
+    *conflict
+}
+
 /// T1.1.1 - Two deltas with same local target but different warp survive merge.
 ///
 /// This test verifies that operations targeting the same local node ID but in
@@ -90,8 +111,7 @@ fn warp_op_key_distinguishes_by_warp_and_survives_merge() {
     );
 
     // Merge should succeed without conflict - ops target different logical keys
-    let merged = merge_deltas_ok(vec![delta_a, delta_b]);
-    let ops = merged.expect("merge should succeed: ops target different warps");
+    let ops = merged_ops(vec![delta_a, delta_b]);
 
     // Both ops must survive
     assert_eq!(ops.len(), 2, "Both cross-warp ops must survive merge");
@@ -166,7 +186,7 @@ fn warp_op_key_ordering_stability_btreemap() {
         .enumerate()
         .map(|(i, op)| make_delta(i, op))
         .collect();
-    let result_forward = merge_deltas_ok(deltas_forward).expect("merge should succeed");
+    let result_forward = merged_ops(deltas_forward);
 
     // Merge in reverse order
     let deltas_reverse: Vec<_> = ops
@@ -175,7 +195,7 @@ fn warp_op_key_ordering_stability_btreemap() {
         .rev()
         .map(|(i, op)| make_delta(i, op))
         .collect();
-    let result_reverse = merge_deltas_ok(deltas_reverse).expect("merge should succeed");
+    let result_reverse = merged_ops(deltas_reverse);
 
     // Must have all 3 ops (no collisions)
     assert_eq!(result_forward.len(), 3, "All 3 ops must survive merge");
@@ -218,10 +238,7 @@ fn warp_op_key_same_warp_same_target_merges_correctly() {
             bytes::Bytes::from_static(b"same-data"),
         )));
 
-        let op = WarpOp::SetAttachment {
-            key,
-            value: value.clone(),
-        };
+        let op = WarpOp::SetAttachment { key, value };
 
         let mut delta1 = TickDelta::new();
         delta1.emit_with_origin(
@@ -245,8 +262,7 @@ fn warp_op_key_same_warp_same_target_merges_correctly() {
             },
         );
 
-        let merged = merge_deltas_ok(vec![delta1, delta2]);
-        let ops = merged.expect("identical ops should dedupe without conflict");
+        let ops = merged_ops(vec![delta1, delta2]);
         assert_eq!(ops.len(), 1, "Identical ops must dedupe to 1");
         assert_eq!(ops[0], op);
     }
@@ -293,16 +309,7 @@ fn warp_op_key_same_warp_same_target_merges_correctly() {
             },
         );
 
-        let merged = merge_deltas_ok(vec![delta1, delta2]);
-        assert!(
-            merged.is_err(),
-            "Different values for same key must produce MergeConflict"
-        );
-
-        let err = merged.unwrap_err();
-        let MergeError::Conflict(conflict) = err else {
-            panic!("Expected MergeError::Conflict, got: {:?}", err);
-        };
+        let conflict = merge_conflict(vec![delta1, delta2]);
         assert_eq!(
             conflict.writers.len(),
             2,
@@ -369,8 +376,7 @@ fn merge_preserves_all_warp_distinct_ops() {
     }
 
     // Merge should succeed
-    let merged = merge_deltas_ok(deltas);
-    let result_ops = merged.expect("merge should succeed: all ops target different warps");
+    let result_ops = merged_ops(deltas);
 
     // All 3 ops must survive
     assert_eq!(
@@ -437,8 +443,7 @@ fn different_op_types_do_not_conflict() {
     );
 
     // Merge should succeed: different op types have different WarpOpKeys
-    let merged = merge_deltas_ok(vec![delta1, delta2]);
-    let result_ops = merged.expect("different op types should not conflict");
+    let result_ops = merged_ops(vec![delta1, delta2]);
 
     assert_eq!(result_ops.len(), 2, "Both ops must survive");
     assert!(
@@ -451,8 +456,13 @@ fn different_op_types_do_not_conflict() {
     );
 
     // Verify ordering: DeleteNode (kind=5) should come before UpsertNode (kind=6)
-    let delete_idx = result_ops.iter().position(|op| op == &delete_op).unwrap();
-    let upsert_idx = result_ops.iter().position(|op| op == &upsert_op).unwrap();
+    let delete_idx = result_ops.iter().position(|op| op == &delete_op);
+    let upsert_idx = result_ops.iter().position(|op| op == &upsert_op);
+    assert!(delete_idx.is_some(), "DeleteNode must be present");
+    assert!(upsert_idx.is_some(), "UpsertNode must be present");
+    let (Some(delete_idx), Some(upsert_idx)) = (delete_idx, upsert_idx) else {
+        unreachable!("asserts above guarantee indices");
+    };
     assert!(
         delete_idx < upsert_idx,
         "DeleteNode must sort before UpsertNode in canonical order"
@@ -508,8 +518,7 @@ fn attachment_ops_distinguish_node_vs_edge_owners() {
     );
 
     // Merge should succeed: node and edge attachments have different WarpOpKeys
-    let merged = merge_deltas_ok(vec![delta1, delta2]);
-    let result_ops = merged.expect("node vs edge attachment ops should not conflict");
+    let result_ops = merged_ops(vec![delta1, delta2]);
 
     assert_eq!(result_ops.len(), 2, "Both ops must survive");
     assert!(
@@ -581,7 +590,7 @@ fn merge_is_deterministic_regardless_of_delta_order() {
         .enumerate()
         .map(|(i, op)| make_delta(i, op))
         .collect();
-    let result_forward = merge_deltas_ok(deltas_forward).expect("merge should succeed");
+    let result_forward = merged_ops(deltas_forward);
 
     // Merge in reverse order
     let deltas_reverse: Vec<_> = ops
@@ -590,7 +599,7 @@ fn merge_is_deterministic_regardless_of_delta_order() {
         .rev()
         .map(|(i, op)| make_delta(i, op))
         .collect();
-    let result_reverse = merge_deltas_ok(deltas_reverse).expect("merge should succeed");
+    let result_reverse = merged_ops(deltas_reverse);
 
     // Results must be identical
     assert_eq!(
@@ -642,14 +651,12 @@ fn many_warps_same_local_target_all_survive() {
         .collect();
 
     // Merge should succeed
-    let merged = merge_deltas_ok(deltas);
-    let result_ops = merged.expect("all cross-warp ops should merge successfully");
+    let result_ops = merged_ops(deltas);
 
     assert_eq!(
         result_ops.len(),
         num_warps,
-        "All {} warp-distinct ops must survive merge",
-        num_warps
+        "All {num_warps} warp-distinct ops must survive merge"
     );
 
     // Verify all original ops are present
@@ -709,15 +716,6 @@ fn conflict_detected_for_same_nodekey_different_records() {
         },
     );
 
-    let merged = merge_deltas_ok(vec![delta1, delta2]);
-    assert!(
-        merged.is_err(),
-        "UpsertNode ops with same NodeKey but different records must conflict"
-    );
-
-    let err = merged.unwrap_err();
-    let MergeError::Conflict(conflict) = err else {
-        panic!("Expected MergeError::Conflict, got: {:?}", err);
-    };
+    let conflict = merge_conflict(vec![delta1, delta2]);
     assert_eq!(conflict.writers.len(), 2, "Both writers must be reported");
 }

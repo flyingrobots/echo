@@ -77,9 +77,9 @@ docs-ci:
 	@echo "[docs] CI build (no npm install)"
 	@npm run --silent docs:build
 # Benchmarks and reports
-.PHONY: bench-report vendor-d3 bench-serve bench-open
+.PHONY: bench-report bench-vendor vendor-d3 bench-serve bench-open
 
-vendor-d3:
+bench-vendor:
 	@mkdir -p docs/benchmarks/vendor
 	@if [ ! -f docs/benchmarks/vendor/d3.v7.min.js ]; then \
 	  echo "Downloading D3 v7 to docs/benchmarks/vendor..."; \
@@ -88,6 +88,22 @@ vendor-d3:
 	else \
 	  echo "D3 already present (docs/benchmarks/vendor/d3.v7.min.js)"; \
 	fi
+	@if [ ! -f docs/benchmarks/vendor/open-props.min.css ]; then \
+	  echo "Downloading Open Props to docs/benchmarks/vendor..."; \
+	  curl -fsSL https://unpkg.com/open-props@1.7.16/open-props.min.css -o docs/benchmarks/vendor/open-props.min.css; \
+	  echo "Open Props saved to docs/benchmarks/vendor/open-props.min.css"; \
+	else \
+	  echo "Open Props already present (docs/benchmarks/vendor/open-props.min.css)"; \
+	fi
+	@if [ ! -f docs/benchmarks/vendor/normalize.dark.min.css ]; then \
+	  echo "Downloading Open Props normalize.dark to docs/benchmarks/vendor..."; \
+	  curl -fsSL https://unpkg.com/open-props@1.7.16/normalize.dark.min.css -o docs/benchmarks/vendor/normalize.dark.min.css; \
+	  echo "Open Props normalize.dark saved to docs/benchmarks/vendor/normalize.dark.min.css"; \
+	else \
+	  echo "Open Props normalize.dark already present (docs/benchmarks/vendor/normalize.dark.min.css)"; \
+	fi
+
+vendor-d3: bench-vendor
 
 bench-serve:
 	@echo "Serving repo at http://localhost:$(BENCH_PORT) (Ctrl+C to stop)"
@@ -96,6 +112,9 @@ bench-serve:
 OPEN := $(shell if command -v open >/dev/null 2>&1; then echo open; \
 	elif command -v xdg-open >/dev/null 2>&1; then echo xdg-open; \
 	elif command -v powershell.exe >/dev/null 2>&1; then echo powershell.exe; fi)
+BENCH_INLINE_REPORT_PATH := $(abspath docs/benchmarks/report-inline.html)
+BENCH_INLINE_REPORT_URI := file://$(BENCH_INLINE_REPORT_PATH)
+BENCH_POLICY_REPORT_URI := $(BENCH_INLINE_REPORT_URI)\#parallel-policy
 
 bench-open:
 	@if [ -n "$(OPEN)" ]; then \
@@ -104,7 +123,7 @@ bench-open:
 	  echo "Open URL: http://localhost:$(BENCH_PORT)/docs/benchmarks/" ; \
 	fi
 
-bench-report: vendor-d3
+bench-report: bench-vendor
 	@echo "Running benches (warp-benches)..."
 	cargo bench -p warp-benches
 	@echo "Starting local server on :$(BENCH_PORT) and opening dashboard..."
@@ -147,19 +166,60 @@ bench-stop:
 	  echo "[bench] No PID file at target/bench_http.pid"; \
 	fi
 
-.PHONY: bench-bake bench-open-inline
+.PHONY: bench-bake bench-open-inline bench-policy-bake bench-policy-export bench-policy-open-inline
 
-# Bake a standalone HTML with inline data that works over file://
-bench-bake: vendor-d3
+# Bake an offline-friendly HTML report with inline data and local vendored assets.
+bench-bake: bench-vendor
 	@echo "Running benches (warp-benches)..."
 	cargo bench -p warp-benches
 	@echo "Baking inline report..."
-	@python3 scripts/bench_bake.py --out docs/benchmarks/report-inline.html
+	@cargo xtask bench bake \
+	  --out docs/benchmarks/report-inline.html \
+	  --policy-json-out docs/benchmarks/parallel-policy-matrix.json
+	@cargo xtask bench check-artifacts \
+	  --html docs/benchmarks/report-inline.html \
+	  --json docs/benchmarks/parallel-policy-matrix.json
 	@echo "Opening inline report..."
-	@open docs/benchmarks/report-inline.html
+	@if [ -n "$(OPEN)" ]; then \
+	  $(OPEN) docs/benchmarks/report-inline.html >/dev/null 2>&1 || echo "Open file: docs/benchmarks/report-inline.html" ; \
+	else \
+	  echo "Open file: docs/benchmarks/report-inline.html" ; \
+	fi
 
 bench-open-inline:
-	@open docs/benchmarks/report-inline.html
+	@if [ -n "$(OPEN)" ]; then \
+	  $(OPEN) docs/benchmarks/report-inline.html >/dev/null 2>&1 || echo "Open file: docs/benchmarks/report-inline.html" ; \
+	else \
+	  echo "Open file: docs/benchmarks/report-inline.html" ; \
+	fi
+
+bench-policy-export: bench-vendor
+	@echo "Exporting parallel policy matrix JSON..."
+	@cargo xtask bench policy-export \
+	  --json-out docs/benchmarks/parallel-policy-matrix.json
+	@echo "Baking unified inline report..."
+	@cargo xtask bench bake --out docs/benchmarks/report-inline.html
+	@cargo xtask bench check-artifacts \
+	  --html docs/benchmarks/report-inline.html \
+	  --json docs/benchmarks/parallel-policy-matrix.json
+	@pnpm exec prettier --write docs/benchmarks/report-inline.html >/dev/null
+
+bench-policy-bake: bench-vendor
+	@echo "Running parallel policy matrix benchmarks..."
+	cargo bench -p warp-benches --bench parallel_baseline -- parallel_policy_matrix
+	@$(MAKE) bench-policy-export
+	@if [ -n "$(OPEN)" ]; then \
+	  $(OPEN) "$(BENCH_POLICY_REPORT_URI)" >/dev/null 2>&1 || echo "Open URL: $(BENCH_POLICY_REPORT_URI)" ; \
+	else \
+	  echo "Open URL: $(BENCH_POLICY_REPORT_URI)" ; \
+	fi
+
+bench-policy-open-inline:
+	@if [ -n "$(OPEN)" ]; then \
+	  $(OPEN) "$(BENCH_POLICY_REPORT_URI)" >/dev/null 2>&1 || echo "Open URL: $(BENCH_POLICY_REPORT_URI)" ; \
+	else \
+	  echo "Open URL: $(BENCH_POLICY_REPORT_URI)" ; \
+	fi
 
 # Spec-000 (WASM) helpers
 .PHONY: spec-000-dev spec-000-build

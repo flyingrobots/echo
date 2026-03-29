@@ -2,463 +2,2169 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Echo Benchmarks Dashboard</title>
-    <style>
-      :root {
-        --bg: #0b0f14;
-        --panel: #111822;
-        --text: #e6edf3;
-        --muted: #9fb1c1;
-        --accent-a: #7aa2f7;
-        --accent-b: #9ece6a;
-        --grid: #213041;
-        --warn: #f78c6c;
-        --budget-60: #ff6b6b;
-        --budget-1ms: #4ecdc4;
-      }
-      html, body { height: 100%; }
-      body {
-        margin: 0; padding: 24px; font-family: ui-sans-serif, system-ui, -apple-system,
-        Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
-        background: var(--bg); color: var(--text);
-      }
-      header { max-width: 1024px; margin: 0 auto 16px auto; }
-      header h1 { margin: 0 0 8px 0; font-size: 24px; }
-      header p { margin: 4px 0; color: var(--muted); }
-      code { background: #0e1620; padding: 2px 6px; border-radius: 4px; }
-      .panel { background: var(--panel); border-radius: 8px; padding: 16px; }
-      .row { max-width: 1024px; margin: 0 auto; }
-      #chart { height: 420px; }
-      .chart-controls { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }
-      .toggle-btn {
-        background: var(--bg); border: 1px solid var(--grid); color: var(--muted);
-        padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 13px;
-      }
-      .toggle-btn.active { background: var(--accent-a); color: var(--bg); border-color: var(--accent-a); }
-      .toggle-btn:hover { border-color: var(--accent-a); }
-      .legend { display: flex; gap: 16px; align-items: center; color: var(--muted); flex-wrap: wrap; }
-      .swatch { width: 12px; height: 12px; display: inline-block; border-radius: 3px; margin-right: 6px; }
-      table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-      th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #1f2a36; }
-      th { color: var(--muted); font-weight: 600; }
-      .warn { color: var(--warn); }
-      a { color: var(--accent-a); text-decoration: none; }
-      a:hover { text-decoration: underline; }
-      .footer { color: var(--muted); font-size: 12px; margin-top: 12px; }
-      .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 24px; }
-      .stat-card { background: var(--bg); border-radius: 8px; padding: 16px; border-left: 4px solid; }
-      .stat-card h3 { margin: 0 0 12px 0; font-size: 14px; font-weight: 600; }
-      .stat-card table { margin-top: 0; }
-      .threshold-marker { stroke: var(--warn); stroke-width: 2; stroke-dasharray: 8,4; opacity: 0.5; }
-      .threshold-label { fill: var(--warn); font-size: 11px; }
-      .budget-line { stroke-width: 1.5; stroke-dasharray: 4,4; }
-      .budget-label { font-size: 10px; font-weight: 600; }
-      #dynamic-stats { margin: 8px 0; padding: 12px; background: var(--bg); border-radius: 6px; }
-      #dynamic-stats strong { color: var(--accent-b); }
-      .callout { font-weight: 600; }
-    </style>
-  </head>
-  <body>
-    <header class="row">
-      <h1>Echo Benchmarks</h1>
-      <p><strong>What we're measuring:</strong> Deterministic scheduler overhead for executing <em>n</em> rewrites per transaction. Lower is better.</p>
-      <div id="dynamic-stats">Loading benchmark data...</div>
-      <p><strong>Why this matters:</strong> The scheduler maintains <strong>O(n)</strong> linear scaling through adaptive sorting—comparison sort for small batches, radix sort beyond n=1024.</p>
-    </header>
-    <main class="row panel">
-      <div class="chart-controls">
-        <button class="toggle-btn active" id="btn-budget" aria-pressed="true">Budget View</button>
-        <button class="toggle-btn" id="btn-complexity" aria-pressed="false">Complexity View</button>
-        <span class="legend" id="legend"></span>
-      </div>
-      <div id="chart"></div>
-      <div id="tables"></div>
-      <div id="missing" class="warn"></div>
-    </main>
-
-    <script>
-      // Prefer locally vendored D3; fall back to CDN if missing.
-      (function () {
-        function load(src, ok, fail) {
-          var s = document.createElement('script');
-          s.src = src; s.onload = ok; s.onerror = fail; document.head.appendChild(s);
-        }
-        function start() { if (typeof d3 !== 'undefined') { window.__D3_READY__ = true; run(); } }
-        // Try local vendor first
-        load('vendor/d3.v7.min.js', start, function () {
-          // Fallback to CDN as a last resort
-          load('https://unpkg.com/d3@7', start, function () {
-            document.getElementById('missing').textContent = 'Failed to load D3. Run `make vendor-d3` or `make bench-report`.';
-          });
-        });
-      })();
-    </script>
-    <script>
-      const GROUPS = [
-        { key: 'snapshot_hash', label: 'Snapshot Hash', color: '#bb9af7', dash: null },          // purple
-        { key: 'scheduler_drain', label: 'Scheduler Drain (Total)', color: '#9ece6a', dash: null }, // green
-        { key: 'scheduler_drain/enqueue', label: 'Scheduler Enqueue', color: '#e0af68', dash: '4,4' }, // yellow
-        { key: 'scheduler_drain/drain', label: 'Scheduler Drain Phase', color: '#f7768e', dash: '8,4' }, // red
-      ];
-      const INPUTS = [10, 100, 1000, 3000, 10000, 30000];
-      const FRAME_BUDGET_NS = 16.67e6; // 60 FPS in nanoseconds
-      const CHEAP_THRESHOLD_NS = 1e6;  // 1ms "this is cheap" line
-
-      const params = new URLSearchParams(location.search);
-      const ROOT = params.get('root') ?? '/';
-
-      let currentView = 'budget'; // 'budget' or 'complexity'
-      let cachedData = null;
-      let cachedMissing = null;
-
-      async function loadEstimate(group, n) {
-        const basePath = `${ROOT}target/criterion/${group}/${n}`;
-        const newPath = `${basePath}/new/estimates.json`;
-        const baseAlt = `${basePath}/base/estimates.json`;
-        try {
-          const primary = await fetch(newPath);
-          let res = primary;
-          let path = newPath;
-          if (!primary.ok) {
-            const alt = await fetch(baseAlt);
-            if (alt.ok) { res = alt; path = baseAlt; }
-            else { throw new Error(`new: ${primary.status}; base: ${alt.status}`); }
-          }
-          const data = await res.json();
-          const mean = (data.mean?.point_estimate ?? data.Mean?.point_estimate);
-          const lb = (data.mean?.confidence_interval?.lower_bound ?? data.Mean?.confidence_interval?.lower_bound);
-          const ub = (data.mean?.confidence_interval?.upper_bound ?? data.Mean?.confidence_interval?.upper_bound);
-          if (typeof mean !== 'number') throw new Error('missing mean.point_estimate');
-          return { ok: true, path, mean, lb, ub };
-        } catch (err) {
-          return { ok: false, path: newPath, error: String(err) };
-        }
-      }
-
-      function fmtNs(ns) {
-        if (ns < 1e3) return `${ns.toFixed(0)} ns`;
-        if (ns < 1e6) return `${(ns/1e3).toFixed(2)} µs`;
-        if (ns < 1e9) return `${(ns/1e6).toFixed(2)} ms`;
-        return `${(ns/1e9).toFixed(2)} s`;
-      }
-
-      function fmtMs(ns) {
-        return `${(ns / 1e6).toFixed(2)} ms`;
-      }
-
-      function updateDynamicStats(data) {
-        const stats = document.getElementById('dynamic-stats');
-        const scheduler1k = data.find(d => d.group === 'scheduler_drain' && d.n === 1000);
-        const snapshot1k = data.find(d => d.group === 'snapshot_hash' && d.n === 1000);
-
-        if (!scheduler1k) {
-          stats.innerHTML = '<em>Benchmark data not available.</em>';
-          return;
-        }
-
-        const schedulerMs = scheduler1k.mean / 1e6;
-        const schedulerPct = ((scheduler1k.mean / FRAME_BUDGET_NS) * 100).toFixed(1);
-        const schedulerCI = `${fmtMs(scheduler1k.lb ?? scheduler1k.mean)} – ${fmtMs(scheduler1k.ub ?? scheduler1k.mean)}`;
-
-        let html = `<strong>At n=1000:</strong> Scheduler total is <strong>${fmtMs(scheduler1k.mean)}</strong> `;
-        html += `(95% CI: ${schedulerCI}), ~<strong>${schedulerPct}%</strong> of a 60 FPS frame budget.`;
-
-        if (snapshot1k) {
-          const snapshotMs = snapshot1k.mean / 1e6;
-          html += `<br>Snapshot hash: <strong>${fmtMs(snapshot1k.mean)}</strong>.`;
-          const combined = scheduler1k.mean + snapshot1k.mean;
-          const combinedPct = ((combined / FRAME_BUDGET_NS) * 100).toFixed(1);
-          html += ` Combined tick overhead: ~<strong>${fmtMs(combined)}</strong> (${combinedPct}% of budget).`;
-        }
-
-        stats.innerHTML = html;
-      }
-
-      async function run() {
-        if (Array.isArray(window.__CRITERION_DATA__)) {
-          cachedData = window.__CRITERION_DATA__;
-          cachedMissing = Array.isArray(window.__CRITERION_MISSING__) ? window.__CRITERION_MISSING__ : [];
-        } else {
-          cachedData = [];
-          cachedMissing = [];
-          for (const g of GROUPS) {
-            for (const n of INPUTS) {
-              const r = await loadEstimate(g.key, n);
-              if (r.ok) cachedData.push({ group: g.key, n, mean: r.mean, lb: r.lb, ub: r.ub });
-              else cachedMissing.push({ group: g.key, n, path: r.path, error: r.error });
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Echo Benchmarks</title>
+        <link
+            rel="stylesheet"
+            href="vendor/open-props.min.css"
+            data-bench-inline="open-props"
+        />
+        <link
+            rel="stylesheet"
+            href="vendor/normalize.dark.min.css"
+            data-bench-inline="normalize-dark"
+        />
+        <style>
+            :root {
+                color-scheme: dark;
+                --brand: var(--cyan-4);
+                --brand-strong: var(--blue-5);
+                --brand-soft: color-mix(in srgb, var(--cyan-4) 18%, white 6%);
+                --accent-good: var(--lime-4);
+                --accent-warn: var(--yellow-4);
+                --accent-hot: var(--red-4);
+                --surface-page: #07121b;
+                --surface-panel: #0d1a25;
+                --surface-panel-2: #132230;
+                --surface-panel-3: #182a3a;
+                --border-color: color-mix(in srgb, var(--stone-8) 65%, #35506c);
+                --shadow-color: 220 40% 2%;
+                --tooltip-bg: color-mix(in srgb, var(--gray-0) 96%, black 4%);
+                --tooltip-text: var(--gray-12);
+                --hero-glow: rgb(69 181 255 / 18%);
+                --hero-glow-2: rgb(255 204 102 / 10%);
             }
-          }
-        }
 
-        updateDynamicStats(cachedData);
-        render(cachedData, cachedMissing);
-
-        // Wire up toggle buttons
-        document.getElementById('btn-budget').addEventListener('click', () => setView('budget'));
-        document.getElementById('btn-complexity').addEventListener('click', () => setView('complexity'));
-      }
-
-      function setView(view) {
-        currentView = view;
-        document.getElementById('btn-budget').classList.toggle('active', view === 'budget');
-        document.getElementById('btn-complexity').classList.toggle('active', view === 'complexity');
-        document.getElementById('btn-budget').setAttribute('aria-pressed', view === 'budget' ? 'true' : 'false');
-        document.getElementById('btn-complexity').setAttribute('aria-pressed', view === 'complexity' ? 'true' : 'false');
-        render(cachedData, cachedMissing);
-      }
-
-      function render(data, missing) {
-        const container = d3.select('#chart');
-        container.selectAll('*').remove();
-        const width = Math.max(720, container.node().clientWidth || 720);
-        const height = 420;
-        const margin = { top: 20, right: 24, bottom: 40, left: 70 };
-        const innerW = width - margin.left - margin.right;
-        const innerH = height - margin.top - margin.bottom;
-
-        const svg = container
-          .append('svg')
-          .attr('viewBox', `0 0 ${width} ${height}`)
-          .attr('width', '100%')
-          .attr('height', height);
-
-        const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
-
-        const byGroup = d3.group(data, d => d.group);
-        const allY = data.flatMap(d => [d.lb ?? d.mean, d.ub ?? d.mean]);
-        const yMax = d3.max(allY) || 10;
-
-        // X is always log scale
-        const x = d3.scaleLog().domain([d3.min(INPUTS), d3.max(INPUTS)]).range([0, innerW]).nice();
-
-        // Y depends on view mode
-        let y, yAxisLabel;
-        if (currentView === 'budget') {
-          // Linear Y, ensure we show the 16.67ms budget line
-          const yDomainMax = Math.max(yMax, FRAME_BUDGET_NS * 1.1);
-          y = d3.scaleLinear().domain([0, yDomainMax]).range([innerH, 0]).nice();
-          yAxisLabel = 'Time (ms)';
-        } else {
-          // Log Y for complexity view
-          const yMin = d3.min(allY) || 1;
-          y = d3.scaleLog().domain([Math.max(1, yMin * 0.5), yMax * 1.5]).range([innerH, 0]).nice();
-          yAxisLabel = 'Time (log scale)';
-        }
-
-        const xAxis = d3.axisBottom(x).tickValues(INPUTS).tickFormat(d3.format('~s'));
-        const yAxis = currentView === 'budget'
-          ? d3.axisLeft(y).ticks(8).tickFormat(d => fmtMs(d))
-          : d3.axisLeft(y).ticks(6, '~s').tickFormat(d => fmtNs(d));
-
-        // Grid lines
-        g.append('g')
-          .attr('stroke', '#213041')
-          .attr('stroke-opacity', 0.5)
-          .selectAll('line.h')
-          .data(y.ticks(8))
-          .join('line')
-          .attr('x1', 0)
-          .attr('x2', innerW)
-          .attr('y1', d => y(d))
-          .attr('y2', d => y(d));
-
-        // Budget lines (only in budget view)
-        if (currentView === 'budget') {
-          // 60 FPS budget line (16.67ms)
-          const y60 = y(FRAME_BUDGET_NS);
-          if (y60 >= 0 && y60 <= innerH) {
-            g.append('line')
-              .attr('class', 'budget-line')
-              .attr('stroke', '#ff6b6b')
-              .attr('x1', 0).attr('x2', innerW)
-              .attr('y1', y60).attr('y2', y60);
-            g.append('text')
-              .attr('class', 'budget-label')
-              .attr('fill', '#ff6b6b')
-              .attr('x', innerW - 5)
-              .attr('y', y60 - 5)
-              .attr('text-anchor', 'end')
-              .text('60 FPS budget (16.67ms)');
-          }
-
-          // 1ms "cheap" line
-          const y1ms = y(CHEAP_THRESHOLD_NS);
-          if (y1ms >= 0 && y1ms <= innerH) {
-            g.append('line')
-              .attr('class', 'budget-line')
-              .attr('stroke', '#4ecdc4')
-              .attr('x1', 0).attr('x2', innerW)
-              .attr('y1', y1ms).attr('y2', y1ms);
-            g.append('text')
-              .attr('class', 'budget-label')
-              .attr('fill', '#4ecdc4')
-              .attr('x', innerW - 5)
-              .attr('y', y1ms + 12)
-              .attr('text-anchor', 'end')
-              .text('1ms (cheap)');
-          }
-        }
-
-        g.append('g').attr('transform', `translate(0,${innerH})`).call(xAxis).call(g=>g.selectAll('text').attr('fill', '#cbd6e2'));
-        g.append('g').call(yAxis).call(g=>g.selectAll('text').attr('fill', '#cbd6e2'));
-
-        // Axis labels
-        g.append('text')
-          .attr('text-anchor', 'middle')
-          .attr('x', innerW / 2)
-          .attr('y', innerH + 35)
-          .attr('fill', '#cbd6e2')
-          .style('font-size', '12px')
-          .text('Input size (n)');
-
-        g.append('text')
-          .attr('text-anchor', 'middle')
-          .attr('transform', `translate(-55,${innerH / 2})rotate(-90)`)
-          .attr('fill', '#cbd6e2')
-          .style('font-size', '12px')
-          .text(yAxisLabel);
-
-        // Radix sort threshold marker at n=1024
-        const thresholdX = x(1024);
-        g.append('line')
-          .attr('class', 'threshold-marker')
-          .attr('x1', thresholdX)
-          .attr('x2', thresholdX)
-          .attr('y1', 0)
-          .attr('y2', innerH);
-        g.append('text')
-          .attr('class', 'threshold-label')
-          .attr('x', thresholdX + 5)
-          .attr('y', 15)
-          .text('↓ radix sort');
-        g.append('text')
-          .attr('class', 'threshold-label')
-          .attr('x', thresholdX - 5)
-          .attr('y', 15)
-          .attr('text-anchor', 'end')
-          .text('comparison ↑');
-
-        const line = d3.line()
-          .x(d => x(d.n))
-          .y(d => y(d.mean))
-          .curve(d3.curveMonotoneX);
-
-        for (const [group, series] of byGroup) {
-          const groupInfo = GROUPS.find(g => g.key === group);
-          const color = groupInfo?.color || '#7aa2f7';
-          const dash = groupInfo?.dash;
-          const sorted = series.slice().sort((a,b)=>a.n-b.n);
-
-          const path = g.append('path')
-            .datum(sorted)
-            .attr('fill', 'none')
-            .attr('stroke', color)
-            .attr('stroke-width', 2)
-            .attr('d', line);
-          if (dash) path.attr('stroke-dasharray', dash);
-
-          // CI band
-          if (sorted.some(d => Number.isFinite(d.lb) && Number.isFinite(d.ub))) {
-            const area = d3.area()
-              .x(d => x(d.n))
-              .y0(d => y(d.lb ?? d.mean))
-              .y1(d => y(d.ub ?? d.mean))
-              .curve(d3.curveMonotoneX);
-            g.append('path')
-              .datum(sorted)
-              .attr('fill', color)
-              .attr('opacity', 0.12)
-              .attr('d', area);
-          }
-
-          // Points
-          const safeClass = group.replace(/\//g, '-');
-          g.selectAll(`circle.${safeClass}`)
-            .data(sorted)
-            .join('circle')
-            .attr('class', safeClass)
-            .attr('cx', d => x(d.n))
-            .attr('cy', d => y(d.mean))
-            .attr('r', 3.5)
-            .attr('fill', color)
-            .append('title')
-            .text(d => `${groupInfo?.label || group} n=${d.n}\nmean: ${fmtNs(d.mean)}\nCI: ${fmtNs(d.lb ?? d.mean)}–${fmtNs(d.ub ?? d.mean)}`);
-
-          // Callout at n=1000 for main groups
-          if ((group === 'scheduler_drain' || group === 'snapshot_hash') && currentView === 'budget') {
-            const pt1k = sorted.find(d => d.n === 1000);
-            if (pt1k) {
-              g.append('circle')
-                .attr('cx', x(1000))
-                .attr('cy', y(pt1k.mean))
-                .attr('r', 7)
-                .attr('fill', 'none')
-                .attr('stroke', color)
-                .attr('stroke-width', 2);
+            html,
+            body {
+                min-height: 100%;
             }
-          }
-        }
 
-        // Legend
-        const legend = d3.select('#legend');
-        legend.selectAll('*').remove();
-        legend.selectAll('div.item')
-          .data(GROUPS)
-          .join('div')
-          .attr('class', 'item')
-          .html(d => {
-            const dash = d.dash ? `stroke-dasharray="${d.dash}"` : '';
-            return `<svg width="24" height="12" style="display:inline-block;vertical-align:middle;margin-right:6px"><line x1="0" y1="6" x2="24" y2="6" stroke="${d.color}" stroke-width="2" ${dash}/></svg>${d.label}`;
-          });
+            body {
+                margin: 0;
+                padding: var(--size-8) var(--size-5) var(--size-10);
+                font-family: var(--font-humanist);
+                background:
+                    radial-gradient(circle at 10% 0%, var(--hero-glow), transparent 34%),
+                    radial-gradient(circle at 88% 12%, var(--hero-glow-2), transparent 28%),
+                    linear-gradient(180deg, #08131d 0%, #07111a 42%, #050d14 100%);
+                    var(--surface-page);
+                color: var(--text-1);
+            }
 
-        // Stat cards
-        const tables = d3.select('#tables');
-        tables.selectAll('*').remove();
-        const grid = tables.append('div').attr('class', 'stats-grid');
+            .shell {
+                width: min(1200px, 100%);
+                margin-inline: auto;
+            }
 
-        for (const ginfo of GROUPS) {
-          const rows = data.filter(d => d.group === ginfo.key).sort((a,b)=>a.n-b.n);
-          if (!rows.length) continue;
+            .hero {
+                display: grid;
+                gap: var(--size-5);
+                margin-bottom: var(--size-6);
+                padding: clamp(var(--size-5), 3vw, var(--size-8));
+                border-radius: var(--radius-5);
+                border: 1px solid color-mix(in srgb, var(--brand) 18%, var(--border-color));
+                background:
+                    linear-gradient(
+                        135deg,
+                        color-mix(in srgb, var(--surface-panel) 90%, var(--brand) 10%),
+                        color-mix(in srgb, var(--surface-panel-2) 88%, black 12%)
+                    );
+                box-shadow: var(--shadow-5);
+                position: relative;
+                overflow: clip;
+            }
 
-          const card = grid.append('div')
-            .attr('class', 'stat-card')
-            .style('border-left-color', ginfo.color);
+            .hero::before {
+                content: "";
+                position: absolute;
+                inset: 0;
+                background:
+                    linear-gradient(
+                        90deg,
+                        rgb(255 255 255 / 0%) 0%,
+                        rgb(255 255 255 / 4%) 49%,
+                        rgb(255 255 255 / 0%) 50%
+                    ),
+                    linear-gradient(
+                        0deg,
+                        rgb(255 255 255 / 0%) 0%,
+                        rgb(255 255 255 / 3%) 49%,
+                        rgb(255 255 255 / 0%) 50%
+                    );
+                background-size: 32px 32px;
+                opacity: 0.12;
+                pointer-events: none;
+            }
 
-          card.append('h3').text(ginfo.label).style('color', ginfo.color);
+            .eyebrow {
+                margin: 0 0 var(--size-2);
+                color: var(--brand);
+                font-size: var(--font-size-1);
+                font-weight: var(--font-weight-7);
+                letter-spacing: var(--font-letterspacing-3);
+                text-transform: uppercase;
+                font-family: var(--font-industrial);
+            }
 
-          const tbl = card.append('table');
-          const thead = tbl.append('thead').append('tr');
-          thead.html('<th>Input n</th><th>Mean</th><th>95% CI</th>');
-          const tbody = tbl.append('tbody');
-          tbody.selectAll('tr').data(rows).join('tr').html(d => {
-            const ci = `${fmtNs(d.lb ?? d.mean)} – ${fmtNs(d.ub ?? d.mean)}`;
-            const highlight = d.n === 1000 ? ' class="callout"' : '';
-            return `<td${highlight}>${d.n}</td><td${highlight}>${fmtNs(d.mean)}</td><td${highlight}>${ci}</td>`;
-          });
-        }
+            h1,
+            h2,
+            h3 {
+                margin: 0;
+            }
 
-        // Missing guidance
-        const miss = d3.select('#missing');
-        miss.selectAll('*').remove();
-        if (missing.length) {
-          miss.append('div').html(
-            `Some results were not found. Ensure you:<br>` +
-            `1) Serve repo root (e.g., run <code>make bench-serve</code>),<br>` +
-            `2) Run <code>cargo bench -p warp-benches</code>,<br>` +
-            `3) If serving elsewhere, pass <code>?root=../../</code>.`
-          );
-          const ul = miss.append('ul');
-          ul.selectAll('li')
-            .data(missing)
-            .join('li')
-            .text(m => `${m.group} n=${m.n} → ${m.path} (${m.error})`);
-        }
-      }
+            h1 {
+                font-size: clamp(var(--font-size-6), 4vw, var(--font-size-8));
+                line-height: var(--font-lineheight-1);
+                max-width: 11ch;
+                font-family: var(--font-geometric-humanist);
+            }
 
-      // `run()` is invoked after D3 loads in the loader above.
-    </script>
-  </body>
+            h2 {
+                font-size: var(--font-size-5);
+            }
+
+            h3 {
+                font-size: var(--font-size-3);
+            }
+
+            p,
+            li,
+            td,
+            th {
+                color: var(--text-2);
+            }
+
+            code {
+                background: color-mix(
+                    in srgb,
+                    var(--surface-panel-2) 86%,
+                    black 14%
+                );
+                color: var(--text-1);
+                border-radius: var(--radius-2);
+                padding-inline: var(--size-2);
+                padding-block: 2px;
+            }
+
+            .lede {
+                margin: var(--size-3) 0 0;
+                max-width: 72ch;
+                font-size: var(--font-size-3);
+                color: color-mix(in srgb, var(--text-1) 88%, var(--brand-soft));
+            }
+
+            .hero-copy {
+                position: relative;
+                z-index: 1;
+                display: grid;
+                gap: var(--size-3);
+            }
+
+            .hero-grid {
+                position: relative;
+                z-index: 1;
+                display: grid;
+                gap: var(--size-4);
+                grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+            }
+
+            .hero-card,
+            .brief-card {
+                padding: var(--size-4);
+                border-radius: var(--radius-4);
+                border: 1px solid color-mix(in srgb, var(--brand) 14%, var(--border-color));
+                background:
+                    linear-gradient(
+                        180deg,
+                        color-mix(in srgb, var(--surface-panel-2) 92%, white 8%),
+                        color-mix(in srgb, var(--surface-panel) 96%, black 4%)
+                    );
+                box-shadow: var(--shadow-3);
+            }
+
+            .hero-card h2,
+            .brief-card h3 {
+                font-size: var(--font-size-3);
+                margin-bottom: var(--size-2);
+            }
+
+            .hero-card p,
+            .brief-card p {
+                margin: 0;
+                color: var(--text-2);
+            }
+
+            .hero-note {
+                color: var(--brand);
+                font-size: var(--font-size-1);
+                font-weight: var(--font-weight-6);
+                text-transform: uppercase;
+                letter-spacing: var(--font-letterspacing-2);
+            }
+
+            .tabs {
+                display: flex;
+                flex-wrap: wrap;
+                gap: var(--size-3);
+                position: relative;
+                z-index: 1;
+            }
+
+            .tab-button,
+            .toggle-button {
+                appearance: none;
+                border: 1px solid
+                    color-mix(in srgb, var(--brand) 18%, var(--border-color));
+                background: color-mix(
+                    in srgb,
+                    var(--surface-panel) 84%,
+                    var(--brand) 16%
+                );
+                color: var(--text-1);
+                border-radius: var(--radius-round);
+                padding: var(--size-2) var(--size-4);
+                font-weight: var(--font-weight-6);
+                cursor: pointer;
+                transition:
+                    transform 120ms ease,
+                    background 120ms ease,
+                    border-color 120ms ease;
+            }
+
+            .tab-button:hover,
+            .toggle-button:hover {
+                transform: translateY(-1px);
+                border-color: var(--brand);
+            }
+
+            .tab-button[aria-selected="true"],
+            .toggle-button[aria-pressed="true"] {
+                background: linear-gradient(
+                    135deg,
+                    color-mix(in srgb, var(--brand) 66%, black 34%),
+                    color-mix(in srgb, var(--brand-strong) 70%, black 30%)
+                );
+                color: white;
+                border-color: color-mix(
+                    in srgb,
+                    white 20%,
+                    var(--brand-strong)
+                );
+                box-shadow: var(--shadow-3);
+            }
+
+            .view {
+                display: grid;
+                gap: var(--size-5);
+            }
+
+            [hidden] {
+                display: none !important;
+            }
+
+            .panel {
+                background: color-mix(
+                    in srgb,
+                    var(--surface-panel) 88%,
+                    black 12%
+                );
+                border: 1px solid
+                    color-mix(in srgb, var(--border-color) 55%, transparent);
+                border-radius: var(--radius-4);
+                padding: var(--size-5);
+                box-shadow: var(--shadow-4);
+                backdrop-filter: blur(10px);
+            }
+
+            .grid-two {
+                display: grid;
+                gap: var(--size-5);
+                grid-template-columns: repeat(
+                    auto-fit,
+                    minmax(min(100%, 320px), 1fr)
+                );
+            }
+
+            .subgrid {
+                display: grid;
+                gap: var(--size-4);
+                grid-template-columns: repeat(
+                    auto-fit,
+                    minmax(min(100%, 260px), 1fr)
+                );
+            }
+
+            .subpanel {
+                background: color-mix(
+                    in srgb,
+                    var(--surface-panel-3) 92%,
+                    black 8%
+                );
+                border: 1px solid
+                    color-mix(in srgb, var(--border-color) 45%, transparent);
+                border-radius: var(--radius-3);
+                padding: var(--size-4);
+            }
+
+            .inline-callout {
+                margin-top: var(--size-4);
+                border-inline-start: 4px solid var(--brand);
+                padding: var(--size-3) 0 var(--size-3) var(--size-4);
+                background:
+                    linear-gradient(
+                        90deg,
+                        color-mix(in srgb, var(--brand) 10%, transparent),
+                        transparent 70%
+                    );
+                border-radius: 0 var(--radius-3) var(--radius-3) 0;
+            }
+
+            .stat-line {
+                margin: 0;
+                padding: var(--size-4);
+                border-radius: var(--radius-4);
+                border: 1px solid color-mix(in srgb, var(--brand) 12%, var(--border-color));
+                background:
+                    linear-gradient(
+                        135deg,
+                        color-mix(in srgb, var(--surface-panel-2) 88%, var(--brand) 12%),
+                        color-mix(in srgb, var(--surface-panel-3) 92%, black 8%)
+                    );
+            }
+
+            .chart-shell {
+                display: grid;
+                gap: var(--size-4);
+            }
+
+            .chart {
+                min-height: 420px;
+                padding: var(--size-3);
+                border-radius: var(--radius-4);
+                background:
+                    linear-gradient(
+                        180deg,
+                        color-mix(in srgb, var(--surface-panel-2) 94%, white 6%),
+                        color-mix(in srgb, var(--surface-panel) 96%, black 4%)
+                    );
+                border: 1px solid color-mix(in srgb, var(--border-color) 55%, transparent);
+            }
+
+            .legend {
+                display: flex;
+                flex-wrap: wrap;
+                gap: var(--size-3) var(--size-5);
+                padding-top: var(--size-2);
+            }
+
+            .legend-group {
+                display: flex;
+                flex-wrap: wrap;
+                gap: var(--size-3);
+            }
+
+            .legend-item {
+                display: inline-flex;
+                align-items: center;
+                gap: var(--size-2);
+                font-size: var(--font-size-1);
+                color: var(--text-2);
+            }
+
+            .legend-swatch {
+                width: 14px;
+                height: 14px;
+                border-radius: var(--radius-2);
+                display: inline-block;
+            }
+
+            .legend-line {
+                width: 24px;
+                height: 8px;
+                display: inline-block;
+            }
+
+            .section-intro {
+                margin-top: var(--size-2);
+                max-width: 70ch;
+                font-size: var(--font-size-2);
+            }
+
+            .commentary-list,
+            .matrix-list {
+                display: grid;
+                gap: var(--size-3);
+            }
+
+            .commentary-card {
+                padding: var(--size-4);
+                border-radius: var(--radius-3);
+                background: color-mix(
+                    in srgb,
+                    var(--surface-panel-3) 92%,
+                    black 8%
+                );
+                border: 1px solid
+                    color-mix(in srgb, var(--border-color) 45%, transparent);
+            }
+
+            .commentary-card strong {
+                color: var(--text-1);
+            }
+
+            table {
+                width: 100%;
+                border-collapse: collapse;
+                border-radius: var(--radius-3);
+                overflow: clip;
+            }
+
+            thead th {
+                text-align: left;
+                padding: var(--size-3);
+                color: var(--text-1);
+                font-size: var(--font-size-1);
+                background: color-mix(in srgb, var(--surface-panel-3) 94%, black 6%);
+                border-bottom: 1px solid
+                    color-mix(in srgb, var(--border-color) 70%, transparent);
+            }
+
+            tbody td {
+                padding: var(--size-3);
+                border-bottom: 1px solid
+                    color-mix(in srgb, var(--border-color) 35%, transparent);
+                vertical-align: top;
+            }
+
+            tbody tr:nth-child(even) td {
+                background: color-mix(in srgb, var(--surface-panel-2) 92%, black 8%);
+            }
+
+            .rank-cell {
+                color: var(--text-1);
+                font-weight: var(--font-weight-7);
+            }
+
+            .note-bad {
+                color: var(--accent-hot);
+            }
+
+            .note-good {
+                color: var(--accent-good);
+            }
+
+            .tooltip {
+                position: fixed;
+                z-index: 1000;
+                max-width: 340px;
+                pointer-events: none;
+                padding: var(--size-3);
+                border-radius: var(--radius-3);
+                background: var(--tooltip-bg);
+                color: var(--tooltip-text);
+                box-shadow: var(--shadow-5);
+                border: 1px solid
+                    color-mix(in srgb, var(--brand) 35%, transparent);
+                font-size: var(--font-size-1);
+            }
+
+            .tooltip strong {
+                color: black;
+            }
+
+            .empty {
+                margin: 0;
+                font-style: italic;
+            }
+
+            .missing-list {
+                margin-top: var(--size-3);
+            }
+
+            .axis text,
+            .axis path,
+            .axis line {
+                color: var(--text-2);
+                stroke: color-mix(
+                    in srgb,
+                    var(--border-color) 80%,
+                    transparent
+                );
+            }
+
+            .grid-line {
+                stroke: color-mix(
+                    in srgb,
+                    var(--border-color) 45%,
+                    transparent
+                );
+            }
+
+            .threshold-line {
+                stroke-width: 1.5;
+                stroke-dasharray: 5 4;
+            }
+
+            .brief-grid {
+                display: grid;
+                gap: var(--size-4);
+                grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+                margin-top: var(--size-4);
+            }
+
+            .brief-card h3 {
+                color: var(--text-1);
+                font-size: var(--font-size-2);
+                margin-bottom: var(--size-2);
+            }
+
+            @media (max-width: 720px) {
+                body {
+                    padding-inline: var(--size-3);
+                }
+
+                .hero {
+                    padding: var(--size-4);
+                }
+
+                h1 {
+                    max-width: none;
+                    font-size: clamp(var(--font-size-5), 10vw, var(--font-size-7));
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <header class="shell hero">
+            <div class="hero-copy">
+                <p class="eyebrow">Single-page engineering readout</p>
+                <h1>Echo Runtime Benchmarks</h1>
+                <p class="lede">
+                    This report answers two practical questions: does the
+                    deterministic core stay cheap as load grows, and which
+                    parallel shard-policy shape actually wins when the workload
+                    is held constant?
+                </p>
+            </div>
+            <div class="hero-grid" aria-label="Report scope">
+                <section class="hero-card">
+                    <p class="hero-note">Core overhead</p>
+                    <h2>Stable costs, visible at a glance</h2>
+                    <p>
+                        Snapshot hashing and scheduler drain stay on one tab,
+                        with both budget and complexity views.
+                    </p>
+                </section>
+                <section class="hero-card">
+                    <p class="hero-note">Policy study</p>
+                    <h2>Five shapes, one workload</h2>
+                    <p>
+                        The policy matrix holds the executor constant and only
+                        changes shard claiming, worker shape, and delta
+                        grouping.
+                    </p>
+                </section>
+                <section class="hero-card">
+                    <p class="hero-note">Baked artifact</p>
+                    <h2>Offline-friendly and provenance-aware</h2>
+                    <p>
+                        The generated page carries its data, styling, and run
+                        metadata with it so the story survives outside the live
+                        Criterion directory.
+                    </p>
+                </section>
+            </div>
+            <nav class="tabs" role="tablist" aria-label="Benchmark views">
+                <button
+                    class="tab-button"
+                    id="tab-overview"
+                    role="tab"
+                    aria-controls="overview-view"
+                    aria-selected="true"
+                    type="button"
+                >
+                    Core overhead
+                </button>
+                <button
+                    class="tab-button"
+                    id="tab-policy"
+                    role="tab"
+                    aria-controls="policy-view"
+                    aria-selected="false"
+                    type="button"
+                >
+                    Parallel policy matrix
+                </button>
+            </nav>
+        </header>
+
+        <main class="shell">
+            <section
+                id="overview-view"
+                class="view"
+                role="tabpanel"
+                aria-labelledby="tab-overview"
+            >
+                <section class="panel">
+                    <h2>Core overhead</h2>
+                    <p class="section-intro">
+                        This tab tracks the costs the engine pays every tick:
+                        hashing the reachable snapshot and draining the
+                        deterministic scheduler. Budget view keeps the frame
+                        line visible. Complexity view makes the scaling shape
+                        easier to inspect.
+                    </p>
+                    <div id="dynamic-stats" class="stat-line">
+                        Loading benchmark data...
+                    </div>
+                    <div class="tabs" style="margin-top: var(--size-4)">
+                        <button
+                            class="toggle-button"
+                            id="btn-budget"
+                            aria-pressed="true"
+                            type="button"
+                        >
+                            Budget view
+                        </button>
+                        <button
+                            class="toggle-button"
+                            id="btn-complexity"
+                            aria-pressed="false"
+                            type="button"
+                        >
+                            Complexity view
+                        </button>
+                    </div>
+                    <div class="chart-shell" style="margin-top: var(--size-4)">
+                        <div id="overview-chart" class="chart"></div>
+                        <div id="overview-legend" class="legend"></div>
+                    </div>
+                </section>
+
+                <section class="grid-two">
+                    <section class="panel">
+                        <h2>Per-benchmark tables</h2>
+                        <div id="overview-tables"></div>
+                    </section>
+                    <section class="panel">
+                        <h2>Capture status</h2>
+                        <div id="overview-missing"></div>
+                    </section>
+                </section>
+            </section>
+
+            <section
+                id="policy-view"
+                class="view"
+                role="tabpanel"
+                aria-labelledby="tab-policy"
+                hidden
+            >
+                <section class="panel">
+                    <h2>What this study is testing</h2>
+                    <p class="section-intro">
+                        The policy study holds the workload constant, then
+                        measures policy cost through
+                        <code>execute_parallel_with_policy</code> plus canonical
+                        delta merge. Only the execution shape changes: shard
+                        assignment, worker layout, and delta grouping.
+                    </p>
+                    <div class="subgrid">
+                        <div class="subpanel">
+                            <h3>What stays constant</h3>
+                            <ol>
+                                <li>
+                                    Start from a fresh graph store with
+                                    independent benchmark nodes.
+                                </li>
+                                <li>
+                                    Create one <code>ExecItem</code> per node
+                                    with the same executor and the same item
+                                    mix.
+                                </li>
+                                <li>
+                                    Run that identical item set under one policy
+                                    at one load, then canonically merge the
+                                    returned deltas.
+                                </li>
+                                <li>
+                                    Black-box the merged delta so Criterion
+                                    measures the full policy path rather than
+                                    dead-code-eliminating it away.
+                                </li>
+                            </ol>
+                        </div>
+                        <div class="subpanel">
+                            <h3>How to read the numbers</h3>
+                            <ul>
+                                <li>
+                                    Harness:
+                                    <code>parallel_policy_matrix</code>
+                                </li>
+                                <li>
+                                    Loads:
+                                    <code>100</code>, <code>1000</code>,
+                                    <code>10000</code>
+                                </li>
+                                <li>Warmup: <code>2s</code></li>
+                                <li>Measurement window: <code>5s</code></li>
+                                <li>Sample size: <code>40</code></li>
+                                <li>
+                                    Primary metric: mean runtime per invocation
+                                </li>
+                                <li>
+                                    Hover tooltips keep the exact mean and
+                                    confidence interval on demand
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                    <p class="inline-callout">
+                        Every measured policy/load point appears on the chart
+                        below. Color tracks the topology family. Line style
+                        tracks worker shape. The prose stays in plain English on
+                        purpose; the numbers live in the tooltips and raw table.
+                    </p>
+                    <p id="policy-provenance" class="inline-callout">
+                        Loading policy-study provenance...
+                    </p>
+                    <div id="policy-brief" class="brief-grid"></div>
+                </section>
+
+                <section class="grid-two">
+                    <section class="panel">
+                        <h2>What the results say</h2>
+                        <div
+                            id="policy-commentary"
+                            class="commentary-list"
+                        ></div>
+                    </section>
+                    <section class="panel">
+                        <h2>Comparison matrix in English</h2>
+                        <div id="policy-matrix"></div>
+                    </section>
+                </section>
+
+                <section class="panel">
+                    <h2>All policy data on one chart</h2>
+                    <p class="section-intro">
+                        Every measured series stays on the same axes. That makes
+                        it easy to see whether a control case ever catches the
+                        leaders, or whether it simply stays expensive all the
+                        way across the load sweep.
+                    </p>
+                    <div id="policy-legend" class="legend"></div>
+                    <div
+                        id="policy-chart"
+                        class="chart"
+                        style="margin-top: var(--size-4)"
+                    ></div>
+                </section>
+
+                <section class="grid-two">
+                    <section class="panel">
+                        <h2>Stack rank</h2>
+                        <div id="policy-rank"></div>
+                    </section>
+                    <section class="panel">
+                        <h2>Raw policy table</h2>
+                        <div id="policy-raw"></div>
+                    </section>
+                </section>
+            </section>
+        </main>
+
+        <div id="tooltip" class="tooltip" hidden></div>
+
+        <script>
+            (function () {
+                function load(src, ok, fail) {
+                    const script = document.createElement("script");
+                    script.src = src;
+                    script.onload = ok;
+                    script.onerror = fail;
+                    document.head.appendChild(script);
+                }
+
+                function start() {
+                    if (typeof d3 !== "undefined") {
+                        run().catch((err) => {
+                            console.error("[bench] run() failed:", err);
+                            const stats =
+                                document.getElementById("dynamic-stats");
+                            if (stats) {
+                                stats.innerHTML =
+                                    "<em>Failed to render dashboard. See console.</em>";
+                            }
+                        });
+                    }
+                }
+
+                load("vendor/d3.v7.min.js", start, function () {
+                    load("https://unpkg.com/d3@7", start, function () {
+                        document.getElementById(
+                            "overview-missing",
+                        ).textContent =
+                            "Failed to load D3. Run `make vendor-d3` or `make bench-bake`.";
+                    });
+                });
+            })();
+        </script>
+        <script>
+            const GROUPS = [
+                {
+                    key: "snapshot_hash",
+                    label: "Snapshot Hash",
+                    color: "#c084fc",
+                    dash: null,
+                },
+                {
+                    key: "scheduler_drain",
+                    label: "Scheduler Drain (Total)",
+                    color: "#4ade80",
+                    dash: null,
+                },
+                {
+                    key: "scheduler_drain/enqueue",
+                    label: "Scheduler Enqueue",
+                    color: "#fbbf24",
+                    dash: "6 4",
+                },
+                {
+                    key: "scheduler_drain/drain",
+                    label: "Scheduler Drain Phase",
+                    color: "#fb7185",
+                    dash: "2 4",
+                },
+            ];
+            const INPUTS = [10, 100, 1000, 3000, 10000, 30000];
+            const FRAME_BUDGET_NS = 16.67e6;
+            const CHEAP_THRESHOLD_NS = 1e6;
+            const POLICY_COLORS = {
+                dynamic_per_worker: "#60a5fa",
+                dynamic_per_shard: "#4ade80",
+                static_per_worker: "#fbbf24",
+                static_per_shard: "#fb7185",
+                dedicated_per_shard: "#c084fc",
+            };
+            const POLICY_LABELS = {
+                dynamic_per_worker: "Dynamic claim / worker delta",
+                dynamic_per_shard: "Dynamic claim / shard delta",
+                static_per_worker: "Static round-robin / worker delta",
+                static_per_shard: "Static round-robin / shard delta",
+                dedicated_per_shard: "Dedicated shard / shard delta",
+            };
+            const WORKER_DASH = {
+                "1w": null,
+                "4w": "6 4",
+                "8w": "2 4",
+                dedicated: "10 4 2 4",
+            };
+            const WORKER_LABELS = {
+                "1w": "1-worker pool",
+                "4w": "4-worker pool",
+                "8w": "8-worker pool",
+                dedicated: "1 shard = 1 worker = 1 delta",
+            };
+
+            const params = new URLSearchParams(location.search);
+            const ROOT = params.get("root") ?? "/";
+
+            let currentOverviewMode = "budget";
+            let currentTab = "overview";
+            let cachedCoreData = [];
+            let cachedCoreMissing = [];
+            let cachedPolicyData = [];
+            let cachedPolicyPayload = null;
+
+            function tooltipNode() {
+                return document.getElementById("tooltip");
+            }
+
+            function showTooltip(event, html) {
+                const tooltip = tooltipNode();
+                tooltip.innerHTML = html;
+                tooltip.hidden = false;
+                moveTooltip(event);
+            }
+
+            function moveTooltip(event) {
+                const tooltip = tooltipNode();
+                if (tooltip.hidden) {
+                    return;
+                }
+                const pad = 16;
+                const x = Math.min(
+                    event.clientX + pad,
+                    window.innerWidth - tooltip.offsetWidth - pad,
+                );
+                const y = Math.min(
+                    event.clientY + pad,
+                    window.innerHeight - tooltip.offsetHeight - pad,
+                );
+                tooltip.style.left = `${x}px`;
+                tooltip.style.top = `${y}px`;
+            }
+
+            function hideTooltip() {
+                tooltipNode().hidden = true;
+            }
+
+            function fmtNs(ns) {
+                if (ns < 1e3) return `${ns.toFixed(0)} ns`;
+                if (ns < 1e6) return `${(ns / 1e3).toFixed(2)} µs`;
+                if (ns < 1e9) return `${(ns / 1e6).toFixed(2)} ms`;
+                return `${(ns / 1e9).toFixed(2)} s`;
+            }
+
+            function fmtMs(ns) {
+                return `${(ns / 1e6).toFixed(2)} ms`;
+            }
+
+            function caseLabel(row) {
+                return `${POLICY_LABELS[row.policy] ?? row.policy} / ${WORKER_LABELS[row.workers] ?? row.workers}`;
+            }
+
+            function workerSortKey(workers) {
+                return ["1w", "4w", "8w", "dedicated"].indexOf(workers);
+            }
+
+            function policySortKey(policy) {
+                return [
+                    "dynamic_per_worker",
+                    "dynamic_per_shard",
+                    "static_per_worker",
+                    "static_per_shard",
+                    "dedicated_per_shard",
+                ].indexOf(policy);
+            }
+
+            function loadBand(load) {
+                if (load <= 100) return "Light load";
+                if (load <= 1000) return "Medium load";
+                return "Heavy load";
+            }
+
+            function ratioPhrase(ratio) {
+                if (ratio <= 1.03) return "is effectively tied";
+                if (ratio <= 1.08) return "stays close";
+                if (ratio <= 1.2) return "sits one tier back";
+                if (ratio <= 1.6) return "drops off materially";
+                return "is clearly detached";
+            }
+
+            function confidenceIntervalsOverlap(a, b) {
+                return (
+                    typeof a.lb_ns === "number" &&
+                    typeof a.ub_ns === "number" &&
+                    typeof b.lb_ns === "number" &&
+                    typeof b.ub_ns === "number" &&
+                    a.lb_ns <= b.ub_ns &&
+                    b.lb_ns <= a.ub_ns
+                );
+            }
+
+            function overallPhrase(avgRank, wins, lastPlaces) {
+                if (wins > 0 && avgRank <= 1.4)
+                    return "Most consistent winner across the tested loads.";
+                if (avgRank <= 2.5)
+                    return "Usually near the front and reasonable as a default candidate.";
+                if (avgRank <= 5)
+                    return "Middle of the field: workable, but not the fastest shape here.";
+                if (lastPlaces >= 2)
+                    return "Mostly useful as a control case rather than a likely default.";
+                return "Back-half performer; choose it for semantics, not raw speed.";
+            }
+
+            async function loadEstimate(group, n) {
+                const basePath = `${ROOT}target/criterion/${group}/${n}`;
+                const newPath = `${basePath}/new/estimates.json`;
+                const baseAlt = `${basePath}/base/estimates.json`;
+                try {
+                    const primary = await fetch(newPath);
+                    let res = primary;
+                    let path = newPath;
+                    if (!primary.ok) {
+                        const alt = await fetch(baseAlt);
+                        if (alt.ok) {
+                            res = alt;
+                            path = baseAlt;
+                        } else {
+                            throw new Error(
+                                `new: ${primary.status}; base: ${alt.status}`,
+                            );
+                        }
+                    }
+                    const data = await res.json();
+                    const mean =
+                        data.mean?.point_estimate ?? data.Mean?.point_estimate;
+                    const lb =
+                        data.mean?.confidence_interval?.lower_bound ??
+                        data.Mean?.confidence_interval?.lower_bound;
+                    const ub =
+                        data.mean?.confidence_interval?.upper_bound ??
+                        data.Mean?.confidence_interval?.upper_bound;
+                    if (typeof mean !== "number") {
+                        throw new Error("missing mean.point_estimate");
+                    }
+                    return { ok: true, path, mean, lb, ub };
+                } catch (err) {
+                    return { ok: false, path: newPath, error: String(err) };
+                }
+            }
+
+            async function loadCoreData() {
+                if (Array.isArray(window.__CRITERION_DATA__)) {
+                    return {
+                        data: window.__CRITERION_DATA__,
+                        missing: Array.isArray(window.__CRITERION_MISSING__)
+                            ? window.__CRITERION_MISSING__
+                            : [],
+                    };
+                }
+
+                const data = [];
+                const missing = [];
+                for (const group of GROUPS) {
+                    for (const n of INPUTS) {
+                        const result = await loadEstimate(group.key, n);
+                        if (result.ok) {
+                            data.push({
+                                group: group.key,
+                                n,
+                                mean: result.mean,
+                                lb: result.lb,
+                                ub: result.ub,
+                            });
+                        } else {
+                            missing.push({
+                                group: group.key,
+                                n,
+                                path: result.path,
+                                error: result.error,
+                            });
+                        }
+                    }
+                }
+                return { data, missing };
+            }
+
+            function normalizePolicyPayload(payload) {
+                if (Array.isArray(payload)) {
+                    return {
+                        group: "parallel_policy_matrix",
+                        baked_at: null,
+                        baked_git_sha: null,
+                        machine: null,
+                        criterion_root:
+                            "target/criterion/parallel_policy_matrix",
+                        results: payload,
+                    };
+                }
+                if (!payload || typeof payload !== "object") {
+                    return {
+                        group: "parallel_policy_matrix",
+                        baked_at: null,
+                        baked_git_sha: null,
+                        machine: null,
+                        criterion_root:
+                            "target/criterion/parallel_policy_matrix",
+                        results: [],
+                    };
+                }
+                return {
+                    group: payload.group ?? "parallel_policy_matrix",
+                    baked_at: payload.baked_at ?? payload.generated_at ?? null,
+                    baked_git_sha:
+                        payload.baked_git_sha ?? payload.git_sha ?? null,
+                    machine: payload.machine ?? null,
+                    criterion_root:
+                        payload.criterion_root ??
+                        "target/criterion/parallel_policy_matrix",
+                    results: Array.isArray(payload.results)
+                        ? payload.results
+                        : [],
+                };
+            }
+
+            async function loadPolicyData() {
+                if (window.__POLICY_MATRIX__) {
+                    return normalizePolicyPayload(window.__POLICY_MATRIX__);
+                }
+
+                try {
+                    const res = await fetch("parallel-policy-matrix.json");
+                    if (!res.ok) {
+                        return normalizePolicyPayload(null);
+                    }
+                    const payload = await res.json();
+                    return normalizePolicyPayload(payload);
+                } catch {
+                    return normalizePolicyPayload(null);
+                }
+            }
+
+            function renderPolicyProvenance(payload) {
+                const root = document.getElementById("policy-provenance");
+                const source =
+                    payload.criterion_root ??
+                    "target/criterion/parallel_policy_matrix";
+                const bakedAt = payload.baked_at
+                    ? `<code>${payload.baked_at}</code>`
+                    : "an unknown time";
+                const bakedGitSha = payload.baked_git_sha
+                    ? `<code>${payload.baked_git_sha}</code>`
+                    : "an unknown commit";
+                const machineLabel = payload.machine?.label
+                    ? `<code>${payload.machine.label}</code>`
+                    : "an unknown machine";
+                if (payload.results.length) {
+                    root.innerHTML = `This page was baked from Criterion estimates under <code>${source}</code> at ${bakedAt} on ${machineLabel}, from git ${bakedGitSha}. The git stamp identifies the bake head for this artifact; read the rankings as local evidence for this captured dataset, not as a universal truth about every machine.`;
+                    return;
+                }
+                root.innerHTML = `No parallel policy results were found under <code>${source}</code> when this page was baked. Run <code>make bench-policy-bake</code> for a fresh study, or <code>make bench-bake</code> to refresh the unified page from whatever Criterion data is currently present.`;
+            }
+
+            function syncTabFromHash() {
+                currentTab =
+                    location.hash === "#parallel-policy"
+                        ? "policy"
+                        : "overview";
+                document
+                    .getElementById("tab-overview")
+                    .setAttribute(
+                        "aria-selected",
+                        currentTab === "overview" ? "true" : "false",
+                    );
+                document
+                    .getElementById("tab-policy")
+                    .setAttribute(
+                        "aria-selected",
+                        currentTab === "policy" ? "true" : "false",
+                    );
+                document
+                    .getElementById("tab-overview")
+                    .setAttribute(
+                        "tabindex",
+                        currentTab === "overview" ? "0" : "-1",
+                    );
+                document
+                    .getElementById("tab-policy")
+                    .setAttribute(
+                        "tabindex",
+                        currentTab === "policy" ? "0" : "-1",
+                    );
+                document.getElementById("overview-view").hidden =
+                    currentTab !== "overview";
+                document.getElementById("policy-view").hidden =
+                    currentTab !== "policy";
+            }
+
+            function setTab(tab) {
+                if (tab === "policy") {
+                    location.hash = "parallel-policy";
+                } else {
+                    history.replaceState(
+                        null,
+                        "",
+                        location.pathname + location.search,
+                    );
+                    syncTabFromHash();
+                }
+            }
+
+            function handleTabKeydown(event) {
+                if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+                    return;
+                }
+                event.preventDefault();
+                const tabs = [
+                    document.getElementById("tab-overview"),
+                    document.getElementById("tab-policy"),
+                ];
+                const currentIndex = tabs.findIndex(
+                    (tab) => tab === event.currentTarget,
+                );
+                if (currentIndex === -1) {
+                    return;
+                }
+                const delta = event.key === "ArrowRight" ? 1 : -1;
+                const nextIndex =
+                    (currentIndex + delta + tabs.length) % tabs.length;
+                const nextTab = tabs[nextIndex];
+                nextTab.focus();
+                setTab(nextTab.id === "tab-policy" ? "policy" : "overview");
+            }
+
+            function updateDynamicStats(data) {
+                const stats = document.getElementById("dynamic-stats");
+                const scheduler = data.find(
+                    (d) => d.group === "scheduler_drain" && d.n === 1000,
+                );
+                const snapshot = data.find(
+                    (d) => d.group === "snapshot_hash" && d.n === 1000,
+                );
+                if (!scheduler) {
+                    stats.innerHTML =
+                        "<em>No core benchmark capture is baked into this page yet.</em>";
+                    return;
+                }
+
+                let html = `<strong>Current read:</strong> at <code>n=1000</code>, scheduler drain still sits comfortably under a frame budget on this machine.`;
+                html += ` Total drain: <strong>${fmtMs(scheduler.mean)}</strong>`;
+                html += ` with CI <strong>${fmtMs(scheduler.lb ?? scheduler.mean)} – ${fmtMs(scheduler.ub ?? scheduler.mean)}</strong>.`;
+                if (snapshot) {
+                    html += ` Snapshot hashing contributes <strong>${fmtMs(snapshot.mean)}</strong>, so the combined core path stays in the low-millisecond range.`;
+                }
+                stats.innerHTML = html;
+            }
+
+            function renderPolicyBrief(data) {
+                const root = document.getElementById("policy-brief");
+                root.innerHTML = "";
+                if (!data.length) {
+                    root.innerHTML =
+                        "<article class='brief-card'><h3>No briefing yet</h3><p>Run <code>make bench-policy-bake</code> to capture the policy study.</p></article>";
+                    return;
+                }
+
+                const rankedLoads = rankPolicyRows(data);
+                const winners = rankedLoads.map(({ rows }) => rows[0]);
+                const workerSequence = winners
+                    .map((row) => row.workers)
+                    .join(" → ");
+                const sameWinnerFamily = winners.every(
+                    (row) => row.policy === winners[0].policy,
+                );
+                const dedicatedAlwaysLast = rankedLoads.every(
+                    ({ rows }) =>
+                        rows[rows.length - 1].policy === "dedicated_per_shard",
+                );
+
+                const cards = [
+                    {
+                        title: "Pace setter",
+                        body: sameWinnerFamily
+                            ? `${POLICY_LABELS[winners[0].policy] ?? winners[0].policy} leads every tested load on this machine.`
+                            : "No single policy family owns every load. The per-load winner matters more than any global one-line answer.",
+                    },
+                    {
+                        title: "Scaling shape",
+                        body:
+                            workerSequence === "1w → 4w → 8w"
+                                ? "As load rises, the winning worker pool widens step by step. Small work prefers less coordination; heavier work finally pays back broader parallelism."
+                                : "The winning worker shape does not follow one simple ladder, so coordination cost and useful parallelism trade places across the sweep.",
+                    },
+                    {
+                        title: "Boundary case",
+                        body: dedicatedAlwaysLast
+                            ? "The one-thread-per-shard extreme never becomes attractive here. It behaves like a control case that bounds the expensive end of the design space."
+                            : "The dedicated shard extreme never dominates this sweep, but it is not uniformly the worst result either.",
+                    },
+                ];
+
+                root.innerHTML = cards
+                    .map(
+                        (card) =>
+                            `<article class="brief-card"><h3>${card.title}</h3><p>${card.body}</p></article>`,
+                    )
+                    .join("");
+            }
+
+            function renderOverviewLegend() {
+                const root = document.getElementById("overview-legend");
+                root.innerHTML = "";
+                GROUPS.forEach((group) => {
+                    const item = document.createElement("div");
+                    item.className = "legend-item";
+                    item.innerHTML = `<svg class="legend-line" viewBox="0 0 24 8" aria-hidden="true">
+              <line x1="0" y1="4" x2="24" y2="4" stroke="${group.color}" stroke-width="2" ${
+                  group.dash ? `stroke-dasharray="${group.dash}"` : ""
+              } />
+            </svg>${group.label}`;
+                    root.appendChild(item);
+                });
+            }
+
+            function renderOverview(data, missing) {
+                updateDynamicStats(data);
+                renderOverviewLegend();
+
+                const container = d3.select("#overview-chart");
+                container.selectAll("*").remove();
+
+                if (!data.length) {
+                    container
+                        .append("p")
+                        .attr("class", "empty")
+                        .text("No core benchmark data found yet.");
+                    document.getElementById("overview-tables").innerHTML = "";
+                    document.getElementById("overview-missing").innerHTML =
+                        "<p class='empty'>Run `make bench-bake` to populate this page.</p>";
+                    return;
+                }
+
+                const width = Math.max(
+                    760,
+                    container.node().clientWidth || 760,
+                );
+                const height = 430;
+                const margin = { top: 24, right: 24, bottom: 48, left: 72 };
+                const innerW = width - margin.left - margin.right;
+                const innerH = height - margin.top - margin.bottom;
+
+                const svg = container
+                    .append("svg")
+                    .attr("viewBox", `0 0 ${width} ${height}`)
+                    .attr("width", "100%")
+                    .attr("height", height);
+
+                const g = svg
+                    .append("g")
+                    .attr(
+                        "transform",
+                        `translate(${margin.left},${margin.top})`,
+                    );
+
+                const allY = data.flatMap((d) => [
+                    d.lb ?? d.mean,
+                    d.ub ?? d.mean,
+                ]);
+                const x = d3
+                    .scaleLog()
+                    .domain([d3.min(INPUTS), d3.max(INPUTS)])
+                    .range([0, innerW]);
+                let y;
+                let yLabel;
+
+                if (currentOverviewMode === "budget") {
+                    y = d3
+                        .scaleLinear()
+                        .domain([
+                            0,
+                            Math.max(d3.max(allY) || 1, FRAME_BUDGET_NS * 1.1),
+                        ])
+                        .range([innerH, 0])
+                        .nice();
+                    yLabel = "Time (ms)";
+                } else {
+                    y = d3
+                        .scaleLog()
+                        .domain([
+                            Math.max(1, (d3.min(allY) || 1) * 0.5),
+                            (d3.max(allY) || 1) * 1.5,
+                        ])
+                        .range([innerH, 0])
+                        .nice();
+                    yLabel = "Time (log scale)";
+                }
+
+                g.append("g")
+                    .selectAll("line")
+                    .data(
+                        currentOverviewMode === "budget"
+                            ? y.ticks(8)
+                            : y.ticks(6),
+                    )
+                    .join("line")
+                    .attr("class", "grid-line")
+                    .attr("x1", 0)
+                    .attr("x2", innerW)
+                    .attr("y1", (d) => y(d))
+                    .attr("y2", (d) => y(d));
+
+                if (currentOverviewMode === "budget") {
+                    const y60 = y(FRAME_BUDGET_NS);
+                    const y1ms = y(CHEAP_THRESHOLD_NS);
+                    g.append("line")
+                        .attr("class", "threshold-line")
+                        .attr("stroke", "#fb7185")
+                        .attr("x1", 0)
+                        .attr("x2", innerW)
+                        .attr("y1", y60)
+                        .attr("y2", y60);
+                    g.append("text")
+                        .attr("x", innerW - 4)
+                        .attr("y", y60 - 6)
+                        .attr("text-anchor", "end")
+                        .attr("fill", "#fb7185")
+                        .style("font-size", "11px")
+                        .text("60 FPS frame budget");
+
+                    g.append("line")
+                        .attr("class", "threshold-line")
+                        .attr("stroke", "#4ade80")
+                        .attr("x1", 0)
+                        .attr("x2", innerW)
+                        .attr("y1", y1ms)
+                        .attr("y2", y1ms);
+                    g.append("text")
+                        .attr("x", innerW - 4)
+                        .attr("y", y1ms + 14)
+                        .attr("text-anchor", "end")
+                        .attr("fill", "#4ade80")
+                        .style("font-size", "11px")
+                        .text("1 ms cheap line");
+                }
+
+                g.append("g")
+                    .attr("class", "axis")
+                    .attr("transform", `translate(0,${innerH})`)
+                    .call(
+                        d3
+                            .axisBottom(x)
+                            .tickValues(INPUTS)
+                            .tickFormat(d3.format("~s")),
+                    );
+                g.append("g")
+                    .attr("class", "axis")
+                    .call(
+                        currentOverviewMode === "budget"
+                            ? d3
+                                  .axisLeft(y)
+                                  .ticks(8)
+                                  .tickFormat((d) => fmtMs(d))
+                            : d3
+                                  .axisLeft(y)
+                                  .ticks(6, "~s")
+                                  .tickFormat((d) => fmtNs(d)),
+                    );
+
+                g.append("text")
+                    .attr("x", innerW / 2)
+                    .attr("y", innerH + 38)
+                    .attr("text-anchor", "middle")
+                    .attr("fill", "var(--text-2)")
+                    .text("Input size (n)");
+                g.append("text")
+                    .attr("text-anchor", "middle")
+                    .attr(
+                        "transform",
+                        `translate(-54,${innerH / 2}) rotate(-90)`,
+                    )
+                    .attr("fill", "var(--text-2)")
+                    .text(yLabel);
+
+                const thresholdX = x(1024);
+                g.append("line")
+                    .attr("class", "threshold-line")
+                    .attr("stroke", "#fbbf24")
+                    .attr("x1", thresholdX)
+                    .attr("x2", thresholdX)
+                    .attr("y1", 0)
+                    .attr("y2", innerH);
+                g.append("text")
+                    .attr("x", thresholdX + 6)
+                    .attr("y", 14)
+                    .attr("fill", "#fbbf24")
+                    .style("font-size", "11px")
+                    .text("radix-sort threshold");
+
+                const byGroup = d3.group(data, (d) => d.group);
+                const line = d3
+                    .line()
+                    .x((d) => x(d.n))
+                    .y((d) => y(d.mean))
+                    .curve(d3.curveMonotoneX);
+
+                for (const [groupKey, rows] of byGroup) {
+                    const info = GROUPS.find((group) => group.key === groupKey);
+                    const sorted = [...rows].sort((a, b) => a.n - b.n);
+
+                    if (
+                        sorted.some(
+                            (row) =>
+                                Number.isFinite(row.lb) &&
+                                Number.isFinite(row.ub),
+                        )
+                    ) {
+                        const area = d3
+                            .area()
+                            .x((d) => x(d.n))
+                            .y0((d) => y(d.lb ?? d.mean))
+                            .y1((d) => y(d.ub ?? d.mean))
+                            .curve(d3.curveMonotoneX);
+                        g.append("path")
+                            .datum(sorted)
+                            .attr("fill", info?.color ?? "#60a5fa")
+                            .attr("opacity", 0.12)
+                            .attr("d", area);
+                    }
+
+                    const path = g
+                        .append("path")
+                        .datum(sorted)
+                        .attr("fill", "none")
+                        .attr("stroke", info?.color ?? "#60a5fa")
+                        .attr("stroke-width", 2.2)
+                        .attr("d", line);
+                    if (info?.dash) {
+                        path.attr("stroke-dasharray", info.dash);
+                    }
+
+                    g.selectAll(`circle.${groupKey.replace(/\//g, "-")}`)
+                        .data(sorted)
+                        .join("circle")
+                        .attr("cx", (d) => x(d.n))
+                        .attr("cy", (d) => y(d.mean))
+                        .attr("r", 4)
+                        .attr("fill", info?.color ?? "#60a5fa")
+                        .on("mouseenter", function (event, d) {
+                            showTooltip(
+                                event,
+                                `<strong>${info?.label ?? groupKey}</strong><br>Input: <code>${d.n}</code><br>Mean: <code>${fmtNs(d.mean)}</code><br>95% CI: <code>${fmtNs(d.lb ?? d.mean)} – ${fmtNs(d.ub ?? d.mean)}</code>`,
+                            );
+                        })
+                        .on("mousemove", moveTooltip)
+                        .on("mouseleave", hideTooltip);
+                }
+
+                const tablesRoot = document.getElementById("overview-tables");
+                tablesRoot.innerHTML = "";
+                const grid = document.createElement("div");
+                grid.className = "subgrid";
+                tablesRoot.appendChild(grid);
+
+                GROUPS.forEach((group) => {
+                    const rows = data
+                        .filter((row) => row.group === group.key)
+                        .sort((a, b) => a.n - b.n);
+                    if (!rows.length) {
+                        return;
+                    }
+                    const wrapper = document.createElement("div");
+                    wrapper.className = "subpanel";
+                    wrapper.innerHTML = `<h3 style="color:${group.color}">${group.label}</h3>`;
+                    const table = document.createElement("table");
+                    table.innerHTML = `<thead>
+              <tr><th>Input</th><th>Mean</th><th>95% CI</th></tr>
+            </thead>
+            <tbody>
+              ${rows
+                  .map(
+                      (row) => `<tr>
+                      <td>${row.n}</td>
+                      <td>${fmtNs(row.mean)}</td>
+                      <td>${fmtNs(row.lb ?? row.mean)} – ${fmtNs(row.ub ?? row.mean)}</td>
+                    </tr>`,
+                  )
+                  .join("")}
+            </tbody>`;
+                    wrapper.appendChild(table);
+                    grid.appendChild(wrapper);
+                });
+
+                const missingRoot = document.getElementById("overview-missing");
+                if (!missing.length) {
+                    missingRoot.innerHTML =
+                        "<p class='empty'>No missing core benchmark data.</p>";
+                } else {
+                    missingRoot.innerHTML = `<p>Some benchmark inputs were not found. Run <code>make bench-bake</code> from the repo root, or serve the repo root and pass <code>?root=../../</code> if needed.</p>
+            <ul class="missing-list">
+              ${missing
+                  .map(
+                      (row) =>
+                          `<li><code>${row.group}</code> at <code>${row.n}</code>: ${row.error}</li>`,
+                  )
+                  .join("")}
+            </ul>`;
+                }
+            }
+
+            function rankPolicyRows(data) {
+                const byLoad = d3.group(data, (d) => d.load);
+                return [...byLoad.entries()]
+                    .sort((a, b) => a[0] - b[0])
+                    .map(([load, rows]) => ({
+                        load,
+                        rows: [...rows].sort((a, b) => a.mean_ns - b.mean_ns),
+                    }));
+            }
+
+            function renderPolicyLegend() {
+                const root = document.getElementById("policy-legend");
+                root.innerHTML = "";
+
+                const family = document.createElement("div");
+                family.className = "legend-group";
+                Object.entries(POLICY_LABELS).forEach(([policy, label]) => {
+                    const item = document.createElement("div");
+                    item.className = "legend-item";
+                    item.innerHTML = `<span class="legend-swatch" style="background:${POLICY_COLORS[policy]}"></span>${label}`;
+                    family.appendChild(item);
+                });
+                root.appendChild(family);
+
+                const workers = document.createElement("div");
+                workers.className = "legend-group";
+                Object.entries(WORKER_LABELS).forEach(([workersKey, label]) => {
+                    const item = document.createElement("div");
+                    item.className = "legend-item";
+                    item.innerHTML = `<svg class="legend-line" viewBox="0 0 24 8" aria-hidden="true">
+              <line x1="0" y1="4" x2="24" y2="4" stroke="var(--text-1)" stroke-width="2" ${
+                  WORKER_DASH[workersKey]
+                      ? `stroke-dasharray="${WORKER_DASH[workersKey]}"`
+                      : ""
+              } />
+            </svg>${label}`;
+                    workers.appendChild(item);
+                });
+                root.appendChild(workers);
+            }
+
+            function renderPolicyCommentary(data) {
+                const root = document.getElementById("policy-commentary");
+                root.innerHTML = "";
+                if (!data.length) {
+                    root.innerHTML =
+                        "<p class='empty'>Run <code>make bench-policy-bake</code> to capture the policy study.</p>";
+                    return;
+                }
+
+                const rankedLoads = rankPolicyRows(data);
+                const cards = [];
+                const tiedFrontLoads = [];
+
+                rankedLoads.forEach(({ load, rows }) => {
+                    const winner = rows[0];
+                    const runnerUp = rows[1];
+                    const laggard = rows[rows.length - 1];
+                    const tiedFront =
+                        runnerUp &&
+                        confidenceIntervalsOverlap(winner, runnerUp);
+                    if (tiedFront) {
+                        tiedFrontLoads.push(loadBand(load));
+                    }
+
+                    const body = document.createElement("div");
+                    body.className = "commentary-card";
+                    body.innerHTML = tiedFront
+                        ? `<strong>${loadBand(load)}:</strong> ${caseLabel(winner)} and ${caseLabel(runnerUp)} overlap on confidence intervals, so this load does not have a clean single winner. ${caseLabel(laggard)} ${ratioPhrase(laggard.mean_ns / winner.mean_ns)} and stays on the expensive edge of the field.`
+                        : `<strong>${loadBand(load)}:</strong> ${caseLabel(winner)} sets the pace. ${
+                              runnerUp
+                                  ? `${caseLabel(runnerUp)} ${ratioPhrase(runnerUp.mean_ns / winner.mean_ns)}.`
+                                  : ""
+                          } ${caseLabel(laggard)} ${ratioPhrase(laggard.mean_ns / winner.mean_ns)} and stays on the expensive edge of the field.`;
+                    cards.push(body);
+                });
+
+                const winnerSeq = rankedLoads
+                    .map(({ rows }) => rows[0].workers)
+                    .join(" → ");
+                const staticWinsAll = rankedLoads.every(
+                    ({ rows }) => rows[0].policy === "static_per_worker",
+                );
+                const dedicatedAlwaysLast = rankedLoads.every(
+                    ({ rows }) =>
+                        rows[rows.length - 1].policy === "dedicated_per_shard",
+                );
+
+                const summary = document.createElement("div");
+                summary.className = "commentary-card";
+                const lines = [];
+                if (tiedFrontLoads.length) {
+                    lines.push(
+                        `The front pair overlap on confidence intervals for ${tiedFrontLoads.join(", ")}, so trust those loads as close races rather than clean one-policy wins.`,
+                    );
+                }
+                if (staticWinsAll) {
+                    lines.push(
+                        "Static round-robin with one delta per worker wins every tested load on this machine, so the simpler pooled-worker path is setting the pace in this study.",
+                    );
+                }
+                if (winnerSeq === "1w → 4w → 8w") {
+                    lines.push(
+                        "As load rises, the winning worker pool widens step by step. Small work prefers less coordination; heavier work finally justifies a wider pool.",
+                    );
+                }
+                if (dedicatedAlwaysLast) {
+                    lines.push(
+                        "The dedicated one-thread-per-shard extreme never catches the field. It is useful as a boundary case, not as a promising default.",
+                    );
+                }
+                if (!lines.length) {
+                    lines.push(
+                        "No single simple narrative owns every load, so trust the per-load ranking first and treat the global stack rank as a summary.",
+                    );
+                }
+                summary.innerHTML = `<strong>Headline:</strong> ${lines.join(" ")}`;
+                root.appendChild(summary);
+                cards.forEach((card) => root.appendChild(card));
+            }
+
+            function renderPolicyMatrixEnglish(data) {
+                const root = document.getElementById("policy-matrix");
+                root.innerHTML = "";
+                if (!data.length) {
+                    root.innerHTML =
+                        "<p class='empty'>No policy matrix data found yet.</p>";
+                    return;
+                }
+
+                const rankedLoads = rankPolicyRows(data);
+                const rows = rankedLoads
+                    .map(({ load, rows }) => {
+                        const winner = rows[0];
+                        const runnerUp = rows[1];
+                        const tiedFront =
+                            runnerUp &&
+                            confidenceIntervalsOverlap(winner, runnerUp);
+                        const chase = rows
+                            .slice(tiedFront ? 2 : 1, tiedFront ? 4 : 3)
+                            .map(caseLabel)
+                            .join(" • ");
+                        const laggard = caseLabel(rows[rows.length - 1]);
+                        const winnerLabel = tiedFront
+                            ? `${caseLabel(winner)} + ${caseLabel(runnerUp)}`
+                            : caseLabel(winner);
+                        let readout = "The field is tightly packed.";
+                        if (tiedFront) {
+                            readout =
+                                "The front pair overlap on confidence intervals, so there is no clean single winner at this load.";
+                        } else if (rows.length > 1) {
+                            const ratio = rows[1].mean_ns / rows[0].mean_ns;
+                            if (ratio > 1.15) {
+                                readout = "The leader pulls clear of the rest.";
+                            } else if (ratio > 1.05) {
+                                readout =
+                                    "The front pair are close, but not interchangeable.";
+                            }
+                        }
+                        if (
+                            rows[rows.length - 1].mean_ns / rows[0].mean_ns >
+                            2
+                        ) {
+                            readout +=
+                                " The slow end of the field is meaningfully detached.";
+                        }
+                        return `<tr>
+                <td>${loadBand(load)}</td>
+                <td>${winnerLabel}</td>
+                <td>${chase || "None"}</td>
+                <td>${laggard}</td>
+                <td>${readout}</td>
+              </tr>`;
+                    })
+                    .join("");
+
+                root.innerHTML = `<table>
+            <thead>
+              <tr>
+                <th>Load band</th>
+                <th>Winner</th>
+                <th>Chasing pack</th>
+                <th>Back of pack</th>
+                <th>Readout</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>`;
+            }
+
+            function renderPolicyChart(data) {
+                const container = d3.select("#policy-chart");
+                container.selectAll("*").remove();
+
+                if (!data.length) {
+                    container
+                        .append("p")
+                        .attr("class", "empty")
+                        .text("No policy matrix data found yet.");
+                    document.getElementById("policy-rank").innerHTML = "";
+                    document.getElementById("policy-raw").innerHTML = "";
+                    renderPolicyLegend();
+                    return;
+                }
+
+                renderPolicyLegend();
+
+                const width = Math.max(
+                    920,
+                    container.node().clientWidth || 920,
+                );
+                const height = 470;
+                const margin = { top: 24, right: 28, bottom: 48, left: 78 };
+                const innerW = width - margin.left - margin.right;
+                const innerH = height - margin.top - margin.bottom;
+
+                const svg = container
+                    .append("svg")
+                    .attr("viewBox", `0 0 ${width} ${height}`)
+                    .attr("width", "100%")
+                    .attr("height", height);
+
+                const g = svg
+                    .append("g")
+                    .attr(
+                        "transform",
+                        `translate(${margin.left},${margin.top})`,
+                    );
+
+                const loads = [...new Set(data.map((d) => d.load))].sort(
+                    (a, b) => a - b,
+                );
+                const allY = data.flatMap((d) => [
+                    d.lb_ns ?? d.mean_ns,
+                    d.ub_ns ?? d.mean_ns,
+                ]);
+                const x = d3
+                    .scaleLog()
+                    .domain([
+                        loads[0],
+                        loads.length > 1
+                            ? loads[loads.length - 1]
+                            : loads[0] * 10,
+                    ])
+                    .range([0, innerW]);
+                const y = d3
+                    .scaleLog()
+                    .domain([
+                        Math.max(1, (d3.min(allY) || 1) * 0.9),
+                        (d3.max(allY) || 1) * 1.15,
+                    ])
+                    .range([innerH, 0])
+                    .nice();
+
+                g.append("g")
+                    .selectAll("line")
+                    .data(y.ticks(8))
+                    .join("line")
+                    .attr("class", "grid-line")
+                    .attr("x1", 0)
+                    .attr("x2", innerW)
+                    .attr("y1", (d) => y(d))
+                    .attr("y2", (d) => y(d));
+
+                g.append("g")
+                    .attr("class", "axis")
+                    .attr("transform", `translate(0,${innerH})`)
+                    .call(
+                        d3
+                            .axisBottom(x)
+                            .tickValues(loads)
+                            .tickFormat(d3.format("~s")),
+                    );
+                g.append("g")
+                    .attr("class", "axis")
+                    .call(
+                        d3
+                            .axisLeft(y)
+                            .ticks(8, "~s")
+                            .tickFormat((d) => fmtNs(d)),
+                    );
+
+                g.append("text")
+                    .attr("x", innerW / 2)
+                    .attr("y", innerH + 38)
+                    .attr("text-anchor", "middle")
+                    .attr("fill", "var(--text-2)")
+                    .text("Load (independent ExecItems)");
+                g.append("text")
+                    .attr("text-anchor", "middle")
+                    .attr(
+                        "transform",
+                        `translate(-58,${innerH / 2}) rotate(-90)`,
+                    )
+                    .attr("fill", "var(--text-2)")
+                    .text("Mean runtime (log scale)");
+
+                const series = d3.group(
+                    data,
+                    (d) => `${d.policy}|${d.workers}`,
+                );
+                const line = d3
+                    .line()
+                    .x((d) => x(d.load))
+                    .y((d) => y(d.mean_ns))
+                    .curve(d3.curveMonotoneX);
+
+                for (const [seriesKey, rows] of series) {
+                    const sorted = [...rows].sort((a, b) => a.load - b.load);
+                    const policy = sorted[0].policy;
+                    const workers = sorted[0].workers;
+
+                    g.append("path")
+                        .datum(sorted)
+                        .attr("fill", "none")
+                        .attr("stroke", POLICY_COLORS[policy] ?? "#60a5fa")
+                        .attr("stroke-width", 2.1)
+                        .attr("stroke-dasharray", WORKER_DASH[workers] ?? null)
+                        .attr("opacity", 0.9)
+                        .attr("d", line);
+
+                    g.selectAll(`ci-${seriesKey.replace(/[|/]/g, "-")}`)
+                        .data(sorted)
+                        .join("line")
+                        .attr("x1", (d) => x(d.load))
+                        .attr("x2", (d) => x(d.load))
+                        .attr("y1", (d) => y(d.lb_ns ?? d.mean_ns))
+                        .attr("y2", (d) => y(d.ub_ns ?? d.mean_ns))
+                        .attr("stroke", POLICY_COLORS[policy] ?? "#60a5fa")
+                        .attr("stroke-width", 1)
+                        .attr("opacity", 0.45);
+
+                    g.selectAll(`point-${seriesKey.replace(/[|/]/g, "-")}`)
+                        .data(sorted)
+                        .join("circle")
+                        .attr("cx", (d) => x(d.load))
+                        .attr("cy", (d) => y(d.mean_ns))
+                        .attr("r", 4.3)
+                        .attr("fill", POLICY_COLORS[policy] ?? "#60a5fa")
+                        .attr("stroke", "white")
+                        .attr("stroke-width", 0.8)
+                        .on("mouseenter", function (event, d) {
+                            showTooltip(
+                                event,
+                                `<strong>${caseLabel(d)}</strong><br>Load: <code>${d.load}</code><br>Mean: <code>${fmtNs(d.mean_ns)}</code><br>95% CI: <code>${fmtNs(d.lb_ns ?? d.mean_ns)} – ${fmtNs(d.ub_ns ?? d.mean_ns)}</code>`,
+                            );
+                        })
+                        .on("mousemove", moveTooltip)
+                        .on("mouseleave", hideTooltip);
+                }
+
+                renderPolicyRank(data);
+                renderPolicyRaw(data);
+            }
+
+            function renderPolicyRank(data) {
+                const root = document.getElementById("policy-rank");
+                if (!data.length) {
+                    root.innerHTML =
+                        "<p class='empty'>No stack rank is available yet.</p>";
+                    return;
+                }
+
+                const rankedLoads = rankPolicyRows(data);
+                const bestByLoad = new Map(
+                    rankedLoads.map(({ load, rows }) => [
+                        load,
+                        rows[0].mean_ns,
+                    ]),
+                );
+                const rankByCaseLoad = new Map();
+
+                rankedLoads.forEach(({ load, rows }) => {
+                    rows.forEach((row, idx) => {
+                        rankByCaseLoad.set(
+                            `${caseLabel(row)}|${load}`,
+                            idx + 1,
+                        );
+                    });
+                });
+
+                const requiredLoads = [
+                    ...new Set(data.map((d) => d.load)),
+                ].sort((a, b) => a - b);
+                const bySeries = d3.group(data, (d) => caseLabel(d));
+                const complete = [];
+                const incomplete = [];
+
+                for (const [label, rows] of bySeries.entries()) {
+                    const seenLoads = new Set(rows.map((row) => row.load));
+                    const missingLoads = requiredLoads.filter(
+                        (load) => !seenLoads.has(load),
+                    );
+                    if (missingLoads.length) {
+                        incomplete.push({ label, missingLoads });
+                        continue;
+                    }
+
+                    complete.push(
+                        (() => {
+                            const avgSlowdown =
+                                rows.reduce(
+                                    (sum, row) =>
+                                        sum +
+                                        row.mean_ns / bestByLoad.get(row.load),
+                                    0,
+                                ) / rows.length;
+                            const avgRank =
+                                rows.reduce(
+                                    (sum, row) =>
+                                        sum +
+                                        rankByCaseLoad.get(
+                                            `${caseLabel(row)}|${row.load}`,
+                                        ),
+                                    0,
+                                ) / rows.length;
+                            const wins = rows.filter(
+                                (row) =>
+                                    rankByCaseLoad.get(
+                                        `${caseLabel(row)}|${row.load}`,
+                                    ) === 1,
+                            ).length;
+                            const lastPlaces = rows.filter(
+                                (row) =>
+                                    rankByCaseLoad.get(
+                                        `${caseLabel(row)}|${row.load}`,
+                                    ) ===
+                                    rankedLoads.find(
+                                        (entry) => entry.load === row.load,
+                                    ).rows.length,
+                            ).length;
+                            const exemplar = [...rows].sort(
+                                (a, b) => a.mean_ns - b.mean_ns,
+                            )[0];
+                            return {
+                                label,
+                                policy: exemplar.policy,
+                                workers: exemplar.workers,
+                                avgSlowdown,
+                                avgRank,
+                                wins,
+                                lastPlaces,
+                            };
+                        })(),
+                    );
+                }
+
+                const overall = complete.sort(
+                    (a, b) =>
+                        a.avgSlowdown - b.avgSlowdown ||
+                        a.avgRank - b.avgRank ||
+                        a.label.localeCompare(b.label),
+                );
+
+                if (!overall.length) {
+                    root.innerHTML =
+                        "<p class='empty'>No complete policy series are available for stack ranking yet.</p>";
+                    return;
+                }
+
+                let html = `<table>
+            <thead>
+              <tr>
+                <th>Rank</th>
+                <th>Series</th>
+                <th>Plain-English read</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${overall
+                  .map(
+                      (row, idx) => `<tr>
+                      <td class="rank-cell">#${idx + 1}</td>
+                      <td>${row.label}</td>
+                      <td>${overallPhrase(row.avgRank, row.wins, row.lastPlaces)}</td>
+                    </tr>`,
+                  )
+                  .join("")}
+            </tbody>
+          </table>`;
+
+                if (incomplete.length) {
+                    html += `<p class="inline-callout">Excluded incomplete series from the overall stack rank: ${incomplete
+                        .map(
+                            ({ label, missingLoads }) =>
+                                `<strong>${label}</strong> (missing load${missingLoads.length === 1 ? "" : "s"} <code>${missingLoads.join(
+                                    ", ",
+                                )}</code>)`,
+                        )
+                        .join(" • ")}.</p>`;
+                }
+
+                root.innerHTML = html;
+            }
+
+            function renderPolicyRaw(data) {
+                const root = document.getElementById("policy-raw");
+                if (!data.length) {
+                    root.innerHTML =
+                        "<p class='empty'>No raw policy data found yet.</p>";
+                    return;
+                }
+
+                const rows = [...data]
+                    .sort(
+                        (a, b) =>
+                            a.load - b.load ||
+                            policySortKey(a.policy) - policySortKey(b.policy) ||
+                            workerSortKey(a.workers) - workerSortKey(b.workers),
+                    )
+                    .map(
+                        (row) => `<tr>
+                <td>${row.load}</td>
+                <td>${POLICY_LABELS[row.policy] ?? row.policy}</td>
+                <td>${WORKER_LABELS[row.workers] ?? row.workers}</td>
+                <td>${fmtNs(row.mean_ns)}</td>
+                <td>${fmtNs(row.lb_ns ?? row.mean_ns)} – ${fmtNs(row.ub_ns ?? row.mean_ns)}</td>
+              </tr>`,
+                    )
+                    .join("");
+
+                root.innerHTML = `<table>
+            <thead>
+              <tr>
+                <th>Load</th>
+                <th>Policy</th>
+                <th>Workers</th>
+                <th>Mean</th>
+                <th>95% CI</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>`;
+            }
+
+            async function run() {
+                const [{ data, missing }, policyPayload] = await Promise.all([
+                    loadCoreData(),
+                    loadPolicyData(),
+                ]);
+                cachedCoreData = data;
+                cachedCoreMissing = missing;
+                cachedPolicyPayload = policyPayload;
+                cachedPolicyData = policyPayload.results;
+
+                syncTabFromHash();
+                renderOverview(cachedCoreData, cachedCoreMissing);
+                renderPolicyProvenance(cachedPolicyPayload);
+                renderPolicyBrief(cachedPolicyData);
+                renderPolicyCommentary(cachedPolicyData);
+                renderPolicyMatrixEnglish(cachedPolicyData);
+                renderPolicyChart(cachedPolicyData);
+
+                document
+                    .getElementById("tab-overview")
+                    .addEventListener("click", () => setTab("overview"));
+                document
+                    .getElementById("tab-policy")
+                    .addEventListener("click", () => setTab("policy"));
+                document
+                    .getElementById("tab-overview")
+                    .addEventListener("keydown", handleTabKeydown);
+                document
+                    .getElementById("tab-policy")
+                    .addEventListener("keydown", handleTabKeydown);
+                document
+                    .getElementById("btn-budget")
+                    .addEventListener("click", () => {
+                        currentOverviewMode = "budget";
+                        document
+                            .getElementById("btn-budget")
+                            .setAttribute("aria-pressed", "true");
+                        document
+                            .getElementById("btn-complexity")
+                            .setAttribute("aria-pressed", "false");
+                        renderOverview(cachedCoreData, cachedCoreMissing);
+                    });
+                document
+                    .getElementById("btn-complexity")
+                    .addEventListener("click", () => {
+                        currentOverviewMode = "complexity";
+                        document
+                            .getElementById("btn-budget")
+                            .setAttribute("aria-pressed", "false");
+                        document
+                            .getElementById("btn-complexity")
+                            .setAttribute("aria-pressed", "true");
+                        renderOverview(cachedCoreData, cachedCoreMissing);
+                    });
+                window.addEventListener("hashchange", syncTabFromHash);
+            }
+        </script>
+    </body>
 </html>

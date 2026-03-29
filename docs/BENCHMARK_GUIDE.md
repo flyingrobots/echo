@@ -118,7 +118,11 @@ const GROUPS = [
 - `#9ece6a` - Green (scheduler_drain)
 - `#e0af68` - Yellow (scheduler_enqueue)
 - `#f7768e` - Red (scheduler_drain/drain)
-- `#7dcfff` - Cyan (reserve_independence)
+
+These are the colors currently used by the core-overhead dashboard groups in
+`BENCH_CORE_GROUP_KEYS`. Specialized studies such as
+`reserve_independence` or `parallel_policy_matrix` manage their own report
+surfaces and do not automatically appear in that overview tab.
 
 **Pick a new color or use available:**
 
@@ -133,15 +137,16 @@ const GROUPS = [
 - `'4,4'` - Medium dashes
 - `'8,4'` - Long dashes
 
-#### 4b. Add to `scripts/bench_bake.py`
+#### 4b. Add to `cargo xtask bench bake`
 
-Find the `GROUPS` list and add your benchmark:
+Find the `BENCH_CORE_GROUP_KEYS` list in `xtask/src/main.rs` and add your
+benchmark key if the new benchmark belongs on the core-overhead dashboard tab:
 
-```python
-GROUPS = [
-    # ... existing benchmarks ...
-    ("my_feature", "My Feature Description"),
-]
+```rust
+const BENCH_CORE_GROUP_KEYS: &[&str] = &[
+    // ... existing benchmarks ...
+    "my_feature",
+];
 ```
 
 ### 5. Generate the Dashboard
@@ -406,7 +411,7 @@ Before considering your benchmark "done":
 - [ ] Runs successfully: `cargo bench -p warp-benches --bench my_feature`
 - [ ] JSON artifacts generated in `target/criterion/`
 - [ ] Added to `docs/benchmarks/index.html` GROUPS array
-- [ ] Added to `scripts/bench_bake.py` GROUPS list
+- [ ] Added to `xtask/src/main.rs` `BENCH_CORE_GROUP_KEYS`
 - [ ] Dashboard displays line with unique color/dash pattern
 - [ ] Results validate complexity hypothesis
 - [ ] Documentation created in `docs/benchmarks/`

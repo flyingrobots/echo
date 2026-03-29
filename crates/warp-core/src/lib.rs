@@ -167,8 +167,9 @@ pub use ident::{
     TypeId, WarpId,
 };
 pub use parallel::{
-    execute_parallel, execute_parallel_sharded, execute_serial, shard_of, ExecItem, MergeConflict,
-    PoisonedDelta, NUM_SHARDS,
+    execute_parallel, execute_parallel_sharded, execute_parallel_sharded_with_policy,
+    execute_parallel_with_policy, execute_serial, shard_of, DeltaAccumulationPolicy, ExecItem,
+    MergeConflict, ParallelExecutionPolicy, PoisonedDelta, ShardAssignmentPolicy, NUM_SHARDS,
 };
 /// Delta merging functions, only available with `delta_validate` feature.
 ///

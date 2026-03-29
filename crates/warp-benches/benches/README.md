@@ -24,6 +24,21 @@ results. This README summarizes how to run them and read the output.
     - Throughput “elements” = rule applications (`n`). Uses `BatchSize::PerIteration`
       so engine construction is excluded from timing.
 
+- `parallel_baseline.rs`
+    - Compares serial execution, the current shard-parallel baseline, the Phase 6B
+      work-queue pipeline, worker-count scaling, and the shard-policy matrix.
+    - The policy matrix compares:
+        - dynamic shard claiming + per-worker deltas
+        - dynamic shard claiming + per-shard deltas
+        - static round-robin shard assignment + per-worker deltas
+        - static round-robin shard assignment + per-shard deltas
+        - dedicated one-worker-per-shard + one-delta-per-shard
+    - Each case includes canonical delta merge after parallel execution, so the
+      study reflects full policy cost for the synthetic independent workload.
+    - The policy matrix runs across loads `100`, `1000`, and `10000`, with worker
+      counts `1`, `4`, and `8` where the policy uses a worker pool.
+    - Throughput “elements” = executed items in the synthetic independent workload.
+
 ## Run
 
 Run the full benches suite:
@@ -37,6 +52,7 @@ Run a single bench target (faster dev loop):
 ```sh
 cargo bench -p warp-benches --bench snapshot_hash
 cargo bench -p warp-benches --bench scheduler_drain
+cargo bench -p warp-benches --bench parallel_baseline
 ```
 
 Criterion HTML reports are written under `target/criterion/<group>/report/index.html`.
@@ -44,8 +60,11 @@ Criterion HTML reports are written under `target/criterion/<group>/report/index.
 ### Charts & Reports
 
 - Live server + dashboard: `make bench-report` opens `http://localhost:8000/docs/benchmarks/`.
-- Offline static report (no server): `make bench-bake` writes `docs/benchmarks/report-inline.html` with results injected.
+- Offline static report (no server): `make bench-bake` writes `docs/benchmarks/report-inline.html` with results, policy payload, and provenance injected.
     - Open the file directly (Finder or `open docs/benchmarks/report-inline.html`).
+- The same static page also hosts the parallel shard-policy study.
+    - Run `make bench-policy-bake`, then open the `Parallel policy matrix` tab.
+    - `make bench-policy-export` rebakes from the existing local Criterion tree without rerunning benches.
 
 ## Interpreting Results
 

@@ -45,6 +45,8 @@ temp
 # Local caches
 .cache
 artifacts/pr-review/
+__pycache__/
+*.pyc
 
 # Playwright artifacts
 test-results

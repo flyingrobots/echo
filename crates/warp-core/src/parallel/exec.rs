@@ -6,6 +6,7 @@
 //! Workers dynamically claim shards via atomic counter (work-stealing).
 
 use std::any::Any;
+use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
@@ -19,6 +20,100 @@ use crate::tick_delta::{OpOrigin, TickDelta};
 use crate::NodeId;
 
 use super::shard::{partition_into_shards, NUM_SHARDS};
+
+/// How virtual shards are assigned to workers during parallel execution.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ShardAssignmentPolicy {
+    /// Workers claim shards dynamically via an atomic counter.
+    DynamicSteal,
+    /// Shards are assigned deterministically to workers by `shard_id % workers`.
+    StaticRoundRobin,
+    /// Each non-empty shard gets its own worker thread.
+    ///
+    /// This is primarily a benchmarking / comparison policy, not the default
+    /// engine topology. It intentionally maximizes scheduling isolation at the
+    /// cost of spawning up to one thread per non-empty shard.
+    DedicatedPerShard,
+}
+
+/// How worker execution outputs are grouped into `TickDelta`s.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum DeltaAccumulationPolicy {
+    /// Each worker accumulates all claimed shards into one `TickDelta`.
+    PerWorker,
+    /// Each non-empty shard produces its own `TickDelta`.
+    PerShard,
+}
+
+/// Execution policy for the shard-based parallel executor.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ParallelExecutionPolicy {
+    /// How shards are assigned to workers.
+    assignment: ShardAssignmentPolicy,
+    /// How execution outputs are grouped into deltas.
+    accumulation: DeltaAccumulationPolicy,
+}
+
+impl ParallelExecutionPolicy {
+    /// Current default execution policy used by `execute_parallel()`.
+    pub const DEFAULT: Self = Self {
+        assignment: ShardAssignmentPolicy::DynamicSteal,
+        accumulation: DeltaAccumulationPolicy::PerWorker,
+    };
+
+    /// Dynamic shard claiming with one output delta per worker.
+    pub const DYNAMIC_PER_WORKER: Self = Self {
+        assignment: ShardAssignmentPolicy::DynamicSteal,
+        accumulation: DeltaAccumulationPolicy::PerWorker,
+    };
+
+    /// Dynamic shard claiming with one output delta per non-empty shard.
+    pub const DYNAMIC_PER_SHARD: Self = Self {
+        assignment: ShardAssignmentPolicy::DynamicSteal,
+        accumulation: DeltaAccumulationPolicy::PerShard,
+    };
+
+    /// Deterministic round-robin shard assignment with one output delta per worker.
+    pub const STATIC_PER_WORKER: Self = Self {
+        assignment: ShardAssignmentPolicy::StaticRoundRobin,
+        accumulation: DeltaAccumulationPolicy::PerWorker,
+    };
+
+    /// Deterministic round-robin shard assignment with one output delta per non-empty shard.
+    pub const STATIC_PER_SHARD: Self = Self {
+        assignment: ShardAssignmentPolicy::StaticRoundRobin,
+        accumulation: DeltaAccumulationPolicy::PerShard,
+    };
+
+    /// One worker per non-empty shard with one output delta per shard.
+    ///
+    /// The `workers` argument is ignored for this policy. Empty input returns
+    /// zero deltas because there are no non-empty shards to assign.
+    pub const DEDICATED_PER_SHARD: Self = Self {
+        assignment: ShardAssignmentPolicy::DedicatedPerShard,
+        accumulation: DeltaAccumulationPolicy::PerShard,
+    };
+
+    /// Returns the shard-assignment mode for this execution policy.
+    #[must_use]
+    pub const fn assignment(self) -> ShardAssignmentPolicy {
+        self.assignment
+    }
+
+    /// Returns the delta-grouping mode for this execution policy.
+    #[must_use]
+    pub const fn accumulation(self) -> DeltaAccumulationPolicy {
+        self.accumulation
+    }
+}
+
+impl Default for ParallelExecutionPolicy {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
 
 /// Classification of an executor for footprint enforcement.
 ///
@@ -169,9 +264,15 @@ pub fn execute_parallel(view: GraphView<'_>, items: &[ExecItem], workers: usize)
     assert!(workers >= 1, "need at least one worker");
 
     // Cap workers at NUM_SHARDS - no point spawning 512 threads for 256 shards
-    let capped_workers = workers.min(NUM_SHARDS);
+    let capped_workers =
+        NonZeroUsize::new(workers.min(NUM_SHARDS)).map_or(NonZeroUsize::MIN, |w| w);
 
-    execute_parallel_sharded(view, items, capped_workers)
+    execute_parallel_sharded_with_policy(
+        view,
+        items,
+        capped_workers,
+        ParallelExecutionPolicy::DEFAULT,
+    )
 }
 
 /// Parallel execution with virtual shard partitioning (Phase 6B).
@@ -199,15 +300,95 @@ pub fn execute_parallel_sharded(
     items: &[ExecItem],
     workers: usize,
 ) -> Vec<TickDelta> {
-    assert!(workers > 0, "workers must be > 0");
+    assert!(workers >= 1, "need at least one worker");
+    let workers = NonZeroUsize::new(workers).map_or(NonZeroUsize::MIN, |w| w);
+    execute_parallel_sharded_with_policy(view, items, workers, ParallelExecutionPolicy::DEFAULT)
+}
+
+/// Parallel execution with an explicit shard assignment and delta accumulation policy.
+///
+/// This exposes the execution-policy matrix for benchmarking and experimentation
+/// while preserving `execute_parallel()` as the stable default entrypoint.
+///
+/// `ParallelExecutionPolicy::DEDICATED_PER_SHARD` intentionally ignores the
+/// `workers` argument and emits one delta per non-empty shard. All other
+/// policies preserve the worker-shaped empty-result contract and return
+/// `workers` empty deltas when `items` is empty.
+///
+pub fn execute_parallel_sharded_with_policy(
+    view: GraphView<'_>,
+    items: &[ExecItem],
+    workers: NonZeroUsize,
+    policy: ParallelExecutionPolicy,
+) -> Vec<TickDelta> {
+    let workers = workers.get();
 
     if items.is_empty() {
-        // Can't use vec![TickDelta::new(); workers] because TickDelta doesn't impl Clone
-        return (0..workers).map(|_| TickDelta::new()).collect();
+        return match policy.assignment {
+            ShardAssignmentPolicy::DedicatedPerShard => Vec::new(),
+            _ => {
+                // Can't use vec![TickDelta::new(); workers] because TickDelta doesn't impl Clone
+                (0..workers).map(|_| TickDelta::new()).collect()
+            }
+        };
     }
 
     // Partition into virtual shards by scope
     let shards = partition_into_shards(items);
+    match (policy.assignment, policy.accumulation) {
+        (ShardAssignmentPolicy::DynamicSteal, DeltaAccumulationPolicy::PerWorker) => {
+            execute_dynamic_per_worker(view, &shards, workers)
+        }
+        (ShardAssignmentPolicy::DynamicSteal, DeltaAccumulationPolicy::PerShard) => {
+            execute_dynamic_per_shard(view, &shards, workers)
+        }
+        (ShardAssignmentPolicy::StaticRoundRobin, DeltaAccumulationPolicy::PerWorker) => {
+            execute_static_per_worker(view, &shards, workers)
+        }
+        (ShardAssignmentPolicy::StaticRoundRobin, DeltaAccumulationPolicy::PerShard) => {
+            execute_static_per_shard(view, &shards, workers)
+        }
+        (
+            ShardAssignmentPolicy::DedicatedPerShard,
+            DeltaAccumulationPolicy::PerWorker | DeltaAccumulationPolicy::PerShard,
+        ) => {
+            debug_assert_eq!(
+                policy.accumulation,
+                DeltaAccumulationPolicy::PerShard,
+                "DedicatedPerShard is only exposed with PerShard accumulation"
+            );
+            execute_dedicated_per_shard(view, &shards)
+        }
+    }
+}
+
+/// Parallel execution entry point with an explicit policy and worker cap.
+///
+/// This mirrors `execute_parallel()` but exposes the policy seam for benchmarks.
+///
+pub fn execute_parallel_with_policy(
+    view: GraphView<'_>,
+    items: &[ExecItem],
+    workers: NonZeroUsize,
+    policy: ParallelExecutionPolicy,
+) -> Vec<TickDelta> {
+    let capped_workers =
+        NonZeroUsize::new(workers.get().min(NUM_SHARDS)).map_or(NonZeroUsize::MIN, |w| w);
+    execute_parallel_sharded_with_policy(view, items, capped_workers, policy)
+}
+
+fn execute_shard_into_delta(view: GraphView<'_>, items: &[ExecItem], delta: &mut TickDelta) {
+    for item in items {
+        let mut scoped = delta.scoped(item.origin);
+        (item.exec)(view, &item.scope, scoped.inner_mut());
+    }
+}
+
+fn execute_dynamic_per_worker(
+    view: GraphView<'_>,
+    shards: &[super::shard::VirtualShard],
+    workers: usize,
+) -> Vec<TickDelta> {
     let next_shard = AtomicUsize::new(0);
 
     std::thread::scope(|s| {
@@ -219,21 +400,13 @@ pub fn execute_parallel_sharded(
 
                 s.spawn(move || {
                     let mut delta = TickDelta::new();
-
-                    // Work-stealing loop: claim shards until none remain
                     loop {
                         let shard_id = next_shard.fetch_add(1, Ordering::Relaxed);
                         if shard_id >= NUM_SHARDS {
                             break;
                         }
-
-                        // Execute all items in this shard (cache locality)
-                        for item in &shards[shard_id].items {
-                            let mut scoped = delta.scoped(item.origin);
-                            (item.exec)(view_copy, &item.scope, scoped.inner_mut());
-                        }
+                        execute_shard_into_delta(view_copy, &shards[shard_id].items, &mut delta);
                     }
-
                     delta
                 })
             })
@@ -246,6 +419,154 @@ pub fn execute_parallel_sharded(
                 Err(e) => std::panic::resume_unwind(e),
             })
             .collect()
+    })
+}
+
+fn execute_dynamic_per_shard(
+    view: GraphView<'_>,
+    shards: &[super::shard::VirtualShard],
+    workers: usize,
+) -> Vec<TickDelta> {
+    let next_shard = AtomicUsize::new(0);
+
+    std::thread::scope(|s| {
+        let handles: Vec<_> = (0..workers)
+            .map(|_| {
+                let view_copy = view;
+                let shards = &shards;
+                let next_shard = &next_shard;
+
+                s.spawn(move || {
+                    let mut deltas: Vec<(usize, TickDelta)> = Vec::new();
+                    loop {
+                        let shard_id = next_shard.fetch_add(1, Ordering::Relaxed);
+                        if shard_id >= NUM_SHARDS {
+                            break;
+                        }
+                        let items = &shards[shard_id].items;
+                        if items.is_empty() {
+                            continue;
+                        }
+                        let mut delta = TickDelta::new();
+                        execute_shard_into_delta(view_copy, items, &mut delta);
+                        deltas.push((shard_id, delta));
+                    }
+                    deltas
+                })
+            })
+            .collect();
+
+        let mut deltas: Vec<(usize, TickDelta)> = handles
+            .into_iter()
+            .flat_map(|h| match h.join() {
+                Ok(worker_deltas) => worker_deltas,
+                Err(e) => std::panic::resume_unwind(e),
+            })
+            .collect();
+        deltas.sort_by_key(|(shard_id, _)| *shard_id);
+        deltas.into_iter().map(|(_, delta)| delta).collect()
+    })
+}
+
+fn execute_static_per_worker(
+    view: GraphView<'_>,
+    shards: &[super::shard::VirtualShard],
+    workers: usize,
+) -> Vec<TickDelta> {
+    std::thread::scope(|s| {
+        let handles: Vec<_> = (0..workers)
+            .map(|worker_ix| {
+                let view_copy = view;
+                let shards = &shards;
+
+                s.spawn(move || {
+                    let mut delta = TickDelta::new();
+                    for shard_id in (worker_ix..NUM_SHARDS).step_by(workers) {
+                        execute_shard_into_delta(view_copy, &shards[shard_id].items, &mut delta);
+                    }
+                    delta
+                })
+            })
+            .collect();
+
+        handles
+            .into_iter()
+            .map(|h| match h.join() {
+                Ok(delta) => delta,
+                Err(e) => std::panic::resume_unwind(e),
+            })
+            .collect()
+    })
+}
+
+fn execute_static_per_shard(
+    view: GraphView<'_>,
+    shards: &[super::shard::VirtualShard],
+    workers: usize,
+) -> Vec<TickDelta> {
+    std::thread::scope(|s| {
+        let handles: Vec<_> = (0..workers)
+            .map(|worker_ix| {
+                let view_copy = view;
+                let shards = &shards;
+
+                s.spawn(move || {
+                    let mut deltas: Vec<(usize, TickDelta)> = Vec::new();
+                    for shard_id in (worker_ix..NUM_SHARDS).step_by(workers) {
+                        let items = &shards[shard_id].items;
+                        if items.is_empty() {
+                            continue;
+                        }
+                        let mut delta = TickDelta::new();
+                        execute_shard_into_delta(view_copy, items, &mut delta);
+                        deltas.push((shard_id, delta));
+                    }
+                    deltas
+                })
+            })
+            .collect();
+
+        let mut deltas: Vec<(usize, TickDelta)> = handles
+            .into_iter()
+            .flat_map(|h| match h.join() {
+                Ok(worker_deltas) => worker_deltas,
+                Err(e) => std::panic::resume_unwind(e),
+            })
+            .collect();
+        deltas.sort_by_key(|(shard_id, _)| *shard_id);
+        deltas.into_iter().map(|(_, delta)| delta).collect()
+    })
+}
+
+fn execute_dedicated_per_shard(
+    view: GraphView<'_>,
+    shards: &[super::shard::VirtualShard],
+) -> Vec<TickDelta> {
+    std::thread::scope(|s| {
+        let handles: Vec<_> = shards
+            .iter()
+            .enumerate()
+            .filter(|(_, shard)| !shard.items.is_empty())
+            .map(|(shard_id, shard)| {
+                let view_copy = view;
+                let items = &shard.items;
+                s.spawn(move || {
+                    let mut delta = TickDelta::new();
+                    execute_shard_into_delta(view_copy, items, &mut delta);
+                    (shard_id, delta)
+                })
+            })
+            .collect();
+
+        let mut deltas: Vec<(usize, TickDelta)> = handles
+            .into_iter()
+            .map(|h| match h.join() {
+                Ok(delta) => delta,
+                Err(e) => std::panic::resume_unwind(e),
+            })
+            .collect();
+        deltas.sort_by_key(|(shard_id, _)| *shard_id);
+        deltas.into_iter().map(|(_, delta)| delta).collect()
     })
 }
 
@@ -527,5 +848,237 @@ fn execute_item_enforced(
         (item.exec)(view, &item.scope, scoped.inner_mut());
 
         Ok(delta)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{execute_parallel_with_policy, ExecItem, ParallelExecutionPolicy};
+    use crate::{
+        execute_serial, make_type_id, merge_deltas_ok, AtomPayload, AttachmentKey, AttachmentValue,
+        GraphStore, GraphView, NodeId, NodeKey, NodeRecord, OpOrigin, TickDelta, WarpOp,
+    };
+    use std::num::NonZeroUsize;
+
+    fn test_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
+        let payload = AtomPayload::new(
+            make_type_id("parallel/policy-test"),
+            bytes::Bytes::from_static(b"ok"),
+        );
+        let key = AttachmentKey::node_alpha(NodeKey {
+            warp_id: view.warp_id(),
+            local_id: *scope,
+        });
+        delta.push(WarpOp::SetAttachment {
+            key,
+            value: Some(AttachmentValue::Atom(payload)),
+        });
+    }
+
+    fn make_store_and_items(count: usize) -> (GraphStore, Vec<ExecItem>) {
+        let mut store = GraphStore::default();
+        let node_ty = make_type_id("parallel/policy-node");
+        let mut items = Vec::with_capacity(count);
+        for i in 0..count {
+            let mut bytes = [0u8; 32];
+            assert!(
+                u8::try_from(i).is_ok(),
+                "test fixture only supports up to 256 scopes"
+            );
+            bytes[0] = u8::try_from(i).unwrap_or(0);
+            let scope = NodeId(bytes);
+            store.insert_node(scope, NodeRecord { ty: node_ty });
+            items.push(ExecItem::new(
+                test_executor,
+                scope,
+                OpOrigin {
+                    intent_id: i as u64,
+                    rule_id: 1,
+                    match_ix: 0,
+                    op_ix: 0,
+                },
+            ));
+        }
+        (store, items)
+    }
+
+    fn worker_hint(workers: usize) -> NonZeroUsize {
+        NonZeroUsize::new(workers.max(1)).map_or(NonZeroUsize::MIN, |w| w)
+    }
+
+    #[test]
+    fn all_parallel_policies_match_serial_oracle() {
+        let policies = [
+            ParallelExecutionPolicy::DYNAMIC_PER_WORKER,
+            ParallelExecutionPolicy::DYNAMIC_PER_SHARD,
+            ParallelExecutionPolicy::STATIC_PER_WORKER,
+            ParallelExecutionPolicy::STATIC_PER_SHARD,
+            ParallelExecutionPolicy::DEDICATED_PER_SHARD,
+        ];
+        let (store, items) = make_store_and_items(32);
+        let view = GraphView::new(&store);
+        let serial_oracle_result = merge_deltas_ok(vec![execute_serial(view, &items)]);
+        assert!(
+            serial_oracle_result.is_ok(),
+            "serial oracle merge failed: {serial_oracle_result:?}"
+        );
+        let Ok(serial_oracle) = serial_oracle_result else {
+            unreachable!("assert above guarantees a valid serial oracle");
+        };
+
+        for policy in policies {
+            for workers in [1_usize, 4, 8] {
+                let deltas =
+                    execute_parallel_with_policy(view, &items, worker_hint(workers), policy);
+                let merged_result = merge_deltas_ok(deltas);
+                assert!(
+                    merged_result.is_ok(),
+                    "policy merge failed for {policy:?} @ {workers}w: {merged_result:?}"
+                );
+                let Ok(merged) = merged_result else {
+                    unreachable!("assert above guarantees a successful policy merge");
+                };
+                assert_eq!(
+                    merged, serial_oracle,
+                    "policy {policy:?} changed merged ops at {workers}w"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn per_shard_policy_emits_more_than_one_delta_when_one_worker_sees_many_shards() {
+        let (store, items) = make_store_and_items(8);
+        let view = GraphView::new(&store);
+
+        let per_worker = execute_parallel_with_policy(
+            view,
+            &items,
+            worker_hint(1),
+            ParallelExecutionPolicy::DYNAMIC_PER_WORKER,
+        );
+        let per_shard = execute_parallel_with_policy(
+            view,
+            &items,
+            worker_hint(1),
+            ParallelExecutionPolicy::DYNAMIC_PER_SHARD,
+        );
+        let serial_oracle = merge_deltas_ok(vec![execute_serial(view, &items)]);
+        assert!(
+            serial_oracle.is_ok(),
+            "serial oracle merge failed for per-shard count test: {serial_oracle:?}"
+        );
+        let Ok(serial_oracle) = serial_oracle else {
+            unreachable!("assert above guarantees a valid serial oracle");
+        };
+        let per_worker_len = per_worker.len();
+        let per_shard_len = per_shard.len();
+        let per_worker_merged = merge_deltas_ok(per_worker);
+        let per_shard_merged = merge_deltas_ok(per_shard);
+        assert!(
+            per_worker_merged.is_ok(),
+            "per-worker merge failed: {per_worker_merged:?}"
+        );
+        assert!(
+            per_shard_merged.is_ok(),
+            "per-shard merge failed: {per_shard_merged:?}"
+        );
+        let Ok(per_worker_merged) = per_worker_merged else {
+            unreachable!("assert above guarantees a merged per-worker result");
+        };
+        let Ok(per_shard_merged) = per_shard_merged else {
+            unreachable!("assert above guarantees a merged per-shard result");
+        };
+
+        assert_eq!(per_worker_len, 1, "per-worker policy should emit one delta");
+        assert!(
+            per_shard_len > 1,
+            "per-shard policy should emit multiple deltas when one worker processes multiple shards"
+        );
+        assert_eq!(
+            per_worker_merged, serial_oracle,
+            "per-worker 1w path changed merged ops"
+        );
+        assert_eq!(
+            per_shard_merged, serial_oracle,
+            "per-shard 1w path changed merged ops"
+        );
+    }
+
+    #[test]
+    fn dedicated_per_shard_ignores_worker_count() {
+        let (store, items) = make_store_and_items(8);
+        let view = GraphView::new(&store);
+
+        let one_worker = execute_parallel_with_policy(
+            view,
+            &items,
+            worker_hint(1),
+            ParallelExecutionPolicy::DEDICATED_PER_SHARD,
+        );
+        let many_workers = execute_parallel_with_policy(
+            view,
+            &items,
+            worker_hint(8),
+            ParallelExecutionPolicy::DEDICATED_PER_SHARD,
+        );
+        let serial_oracle = merge_deltas_ok(vec![execute_serial(view, &items)]);
+        assert!(
+            serial_oracle.is_ok(),
+            "serial oracle merge failed for dedicated-per-shard test: {serial_oracle:?}"
+        );
+        let Ok(serial_oracle) = serial_oracle else {
+            unreachable!("assert above guarantees a valid serial oracle");
+        };
+        let one_worker_len = one_worker.len();
+        let many_workers_len = many_workers.len();
+        let one_worker_merged = merge_deltas_ok(one_worker);
+        let many_workers_merged = merge_deltas_ok(many_workers);
+        assert!(
+            one_worker_merged.is_ok(),
+            "dedicated-per-shard 1w merge failed: {one_worker_merged:?}"
+        );
+        assert!(
+            many_workers_merged.is_ok(),
+            "dedicated-per-shard 8w merge failed: {many_workers_merged:?}"
+        );
+        let Ok(one_worker_merged) = one_worker_merged else {
+            unreachable!("assert above guarantees a merged dedicated-per-shard 1w result");
+        };
+        let Ok(many_workers_merged) = many_workers_merged else {
+            unreachable!("assert above guarantees a merged dedicated-per-shard 8w result");
+        };
+
+        assert_eq!(
+            one_worker_len, many_workers_len,
+            "dedicated-per-shard ignores the worker-count hint"
+        );
+        assert_eq!(
+            one_worker_merged, serial_oracle,
+            "dedicated-per-shard 1w changed merged ops"
+        );
+        assert_eq!(
+            many_workers_merged, serial_oracle,
+            "dedicated-per-shard 8w changed merged ops"
+        );
+    }
+
+    #[test]
+    fn dedicated_per_shard_empty_workload_emits_no_deltas() {
+        let store = GraphStore::default();
+        let items: Vec<ExecItem> = Vec::new();
+        let view = GraphView::new(&store);
+
+        let deltas = execute_parallel_with_policy(
+            view,
+            &items,
+            worker_hint(4),
+            ParallelExecutionPolicy::DEDICATED_PER_SHARD,
+        );
+
+        assert!(
+            deltas.is_empty(),
+            "empty workload should produce no deltas for dedicated-per-shard"
+        );
     }
 }

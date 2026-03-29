@@ -5,6 +5,18 @@
 
 **Status:** Ideas — not yet designed or scheduled
 
+See also the stricter review note:
+[Parallel Merge & Footprint Optimization Design Review](parallel-merge-and-footprint-design-review.md).
+
+Current disposition after code review:
+
+- k-way merge remains plausible, but only if merge inputs can be proven or
+  enforced to be individually sorted by the canonical `(WarpOpKey, OpOrigin)`
+  order
+- shard-aware cross-shard footprint skipping is **not** currently proven safe
+  against the default scheduler and should be treated as a hypothesis, not an
+  implementation-ready optimization
+
 Two optimization opportunities for the parallel execution pipeline, both
 exploiting structure that already exists in the shard-based architecture.
 
@@ -14,10 +26,11 @@ exploiting structure that already exists in the shard-based architecture.
 
 ### Observation
 
-Per-shard deltas are already partially sorted by construction: shards are
-assigned by `lowbits(NodeId) & (SHARDS - 1)`, so ops within a shard share
-a bit prefix. If ops are accumulated in insertion order within each shard,
-the per-worker deltas are pre-sorted runs.
+Per-shard deltas may be partially sorted only under stricter preconditions.
+Shard assignment by `lowbits(NodeId) & (SHARDS - 1)` alone does not prove
+canonical run ordering, and the current code does not yet enforce individually
+sorted runs. Treat "pre-sorted runs" as a hypothesis until the design review's
+proof obligations are satisfied.
 
 ### Idea
 
@@ -27,10 +40,10 @@ O(n log n), where k = worker count (bounded, typically 4–16).
 
 ### Why It Works
 
-The canonical merge must produce ops in `(WarpOpKey, OpOrigin)` order for
-deterministic hashing. A k-way merge of pre-sorted runs produces the same
-canonical order — it's just cheaper when the runs are already partially
-ordered, which they are by shard assignment.
+If the merge inputs can be proven or enforced to be pre-sorted by the canonical
+ordering required by the target path, then a k-way merge would produce the same
+deterministic output at lower cost. That proof does not exist yet, so this
+remains a design candidate rather than an implementation-ready optimization.
 
 ### Constraints
 
@@ -45,14 +58,15 @@ ordered, which they are by shard assignment.
 ### Current Behavior
 
 Footprint overlap testing currently considers all rule pairs. But rules
-whose footprints land in different shards are structurally disjoint by
-construction — the shard assignment (`lowbits(NodeId)`) already proves
-non-overlap.
+whose footprints land in different shards may be structurally disjoint under
+additional scheduler invariants. The current review note does **not** treat
+cross-shard independence as proven against the default scheduler.
 
 ### Proposed Change
 
-Only perform footprint overlap checks for rules within the same shard.
-Cross-shard pairs are guaranteed independent and skip the check entirely.
+Only perform footprint overlap checks for rules within the same shard if a
+stronger locality invariant can first prove cross-shard independence. Until
+then, cross-shard skip remains a hypothesis and not a safe implementation step.
 
 For the remaining same-shard pairs, use a bloom filter over read/write
 slots: hash each footprint's slots into a small bit vector, AND two
@@ -62,10 +76,11 @@ the real overlap check.
 
 ### Rationale
 
-In a well-distributed workload, most rules land in different shards, making
-the overlap test set much smaller than the full rule set. The bloom filter
-further prunes within-shard pairs at near-zero cost. False positives just
-mean conservative serialization, which is safe — never incorrect.
+If the stronger locality invariant holds, then in a well-distributed workload
+most rules would land in different shards, making the overlap test set much
+smaller than the full rule set. The bloom filter would then further prune
+within-shard pairs at near-zero cost. False positives would just mean
+conservative serialization, which is safe — never incorrect.
 
 ### Bounds
 

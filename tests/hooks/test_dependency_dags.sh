@@ -29,7 +29,6 @@ trap cleanup EXIT
 
 mkdir -p \
   "$tmpdir/scripts" \
-  "$tmpdir/docs/archive/tasks" \
   "$tmpdir/docs/assets/dags" \
   "$tmpdir/.cache/echo/deps"
 
@@ -82,7 +81,7 @@ cat >"$tmpdir/docs/assets/dags/deps-config.json" <<'EOF'
 }
 EOF
 
-cat >"$tmpdir/docs/archive/tasks/TASKS-DAG.md" <<'EOF'
+cat >"$tmpdir/docs/assets/dags/tasks-dag-source.md" <<'EOF'
 ## [#2: Dependent issue](https://example.com/issues/2)
 
 - Blocked by:
@@ -97,9 +96,9 @@ if (
     node scripts/generate-dependency-dags.js >"$output_file" 2>&1
 ); then
   if grep -Eq 'i1 -> i2 \[[^]]*color="red"' "$tmpdir/docs/assets/dags/issue-deps.dot"; then
-    pass "generator reads archived TASKS-DAG source by default"
+    pass "generator reads tasks DAG source by default"
   else
-    fail "generator should render a reality-only edge from the archived TASKS-DAG source"
+    fail "generator should render a reality-only edge from the tasks DAG source"
     if [[ -f "$tmpdir/docs/assets/dags/issue-deps.dot" ]]; then
       cat "$tmpdir/docs/assets/dags/issue-deps.dot"
     else
@@ -107,14 +106,14 @@ if (
     fi
   fi
 else
-  fail "generator should succeed with only the archived TASKS-DAG source present"
+  fail "generator should succeed with only the tasks DAG source present"
   cat "$output_file"
 fi
 
 cat >"$tmpdir/docs/assets/dags/clusters-config.json" <<'EOF'
 ["   "]
 EOF
-cat >"$tmpdir/docs/archive/tasks/TASKS-DAG.md" <<'EOF'
+cat >"$tmpdir/docs/assets/dags/tasks-dag-source.md" <<'EOF'
 ## [#1: Alpha seed](https://example.com/issues/1)
 
 - Blocks:

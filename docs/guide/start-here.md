@@ -34,8 +34,7 @@ ECS is a _useful storage and API layer_, but the deeper “ground truth” model
 ### If you want to run something end-to-end
 
 1. WARP View Protocol demo: [/guide/wvp-demo](/guide/wvp-demo)
-2. Collision tour: [/guide/collision-tour](/guide/collision-tour)
-3. Interactive collision DPO tour (static HTML): [/collision-dpo-tour.html](/collision-dpo-tour.html)
+2. Collision DPO tour (static HTML): [/collision-dpo-tour.html](/collision-dpo-tour.html)
 
 ### Collision DPO Tour (what to expect)
 
@@ -45,14 +44,14 @@ ECS is a _useful storage and API layer_, but the deeper “ground truth” model
 
 ### If you want what should I work on?
 
-- Docs map (curated index): [/meta/docs-index](/meta/docs-index)
+- Docs home / curated map: [/](/)
 
 ## How These Docs Are Organized
 
 - **Guides** (`docs/guide/`): newcomer-friendly explanations and runnable walkthroughs.
 - **Specs** (`docs/spec-*.md`, `docs/spec/`): normative artifacts we try to keep stable and precise.
-- **Notes** (`docs/notes/`): explorations and scratchpads; useful, but not authoritative.
-- **Book** (`docs/book/`): long-form LaTeX material; may lag behind the latest implementation.
+- **Architecture / Theory** (`docs/architecture*.md`, `docs/THEORY.md`, `docs/METHODOLOGY.md`): design intent and conceptual framing.
+- **Procedures / Benchmarks** (`docs/procedures/`, `docs/benchmarks/`): contributor workflow and evidence.
 
 ## Viewing Docs Locally
 

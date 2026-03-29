@@ -7,6 +7,8 @@ Echo is a deterministic **graph‑rewrite simulation engine**.
 In Echo, “WARP” is the core idea: your world state is a graph (structure) plus attachments (data),
 and each tick applies deterministic rewrite rules to that graph.
 
+Git history is the archive. This page is the live docs map.
+
 ## Visual Topic Map
 
 ```mermaid
@@ -60,13 +62,38 @@ flowchart TD
 - Architecture overview (draft, but the source of truth for intent): [/architecture-outline](/architecture-outline)
 - Core runtime spec (`warp-core`): [/spec-warp-core](/spec-warp-core)
 
+## Curated Map
+
+### Core runtime
+
+- WARP core runtime: [/spec-warp-core](/spec-warp-core)
+- Tick patch boundary: [/spec-warp-tick-patch](/spec-warp-tick-patch)
+- Rewrite scheduler (current implementation): [/scheduler-warp-core](/scheduler-warp-core)
+- Merkle commit / snapshot hashing: [/spec-merkle-commit](/spec-merkle-commit)
+- Two-plane law: [/warp-two-plane-law](/warp-two-plane-law)
+
+### Determinism
+
+- Deterministic math policy: [/SPEC_DETERMINISTIC_MATH](/SPEC_DETERMINISTIC_MATH)
+- Deterministic math hazards: [/DETERMINISTIC_MATH](/DETERMINISTIC_MATH)
+- Claim register + evidence: [/determinism/DETERMINISM_CLAIMS_v0.1](/determinism/DETERMINISM_CLAIMS_v0.1)
+- Benchmark guide: [/BENCHMARK_GUIDE](/BENCHMARK_GUIDE)
+
+### Contributor workflow
+
+- Contributor playbook: [/workflows](/workflows)
+- PR submission loop: [/procedures/PR-SUBMISSION-REVIEW-LOOP](/procedures/PR-SUBMISSION-REVIEW-LOOP)
+- Dependency DAGs: [/dependency-dags](/dependency-dags)
+- Roadmap index: [/ROADMAP](/ROADMAP)
+
+### Theory / intent
+
+- Architecture outline: [/architecture-outline](/architecture-outline)
+- Theory: [/THEORY](/THEORY)
+- Methodology: [/METHODOLOGY](/METHODOLOGY)
+
 ## Run Something (learn by doing)
 
 - WARP View Protocol demo (hub + 2 viewers): [/guide/wvp-demo](/guide/wvp-demo)
-- Collision tour (walkthrough + links): [/guide/collision-tour](/guide/collision-tour)
+- Collision tour (static walkthrough): [/collision-dpo-tour.html](/collision-dpo-tour.html)
 - Interactive collision DPO tour (static HTML): [/collision-dpo-tour.html](/collision-dpo-tour.html)
-- Geometry & collision (spec stub): [/spec-geom-collision](/spec-geom-collision)
-
-## When You Need a Map
-
-- Docs map (curated): [/meta/docs-index](/meta/docs-index)

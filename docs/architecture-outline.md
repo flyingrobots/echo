@@ -17,6 +17,22 @@ will lag behind the current Rust-first implementation; prefer WARP specs for the
 > - ⚠️ **Partial** — some aspects exist, others planned
 > - 🗺️ **Planned** — design only, not yet implemented
 
+## What Exists Today
+
+Before the aspirational material below: Echo already has a real deterministic WARP runtime.
+
+- **`warp-core` rewrite engine** ✅: immutable snapshot reads, private deltas, canonical merge, and deterministic scheduling.
+- **Playback / worldlines / provenance** ✅: recorded history, cursor replay, and append-only lineage support.
+- **Renderer / scene boundary** ✅: a bit-exact scene port and canonical codec boundary.
+- **TTD / browser tooling substrate** ✅: WASM-first protocol tooling and time-travel debugging infrastructure.
+
+Read the current implementation through these docs first:
+
+- [/spec-warp-core](/spec-warp-core)
+- [/scheduler-warp-core](/scheduler-warp-core)
+- [/spec/SPEC-0004-worldlines-playback-truthbus](/spec/SPEC-0004-worldlines-playback-truthbus)
+- [/warp-two-plane-law](/warp-two-plane-law)
+
 ## Vision
 
 - Reimagine a battle-tested ECS core into **Echo**, a renderer-agnostic spine that survives browsers, native shells, and whatever 2125 invents next.
@@ -192,13 +208,6 @@ TTD is a first-class citizen in Echo, built on top of the provenance and scene p
 - **Security & Sandbox**: Optional restrictions for user-generated content or multiplayer host/client boundaries; capability-based access to ports.
 - **Extensibility**: Plugins define new components, systems, adapters, or editor tools; registration API enforces namespace isolation and version checks.
 
-## Legacy Excavation Log
-
-- **Goal**: Track every legacy file, classify (keep concept, redesign, discard), note dependencies (Mootools, globals, duplicate IDs), and record learnings to inform Echo.
-- **Artifacts**: `docs/meta/legacy-excavation.md` (to be populated) with columns for file, role, verdict, action items, and notes.
-- **Process**: Review file → summarize intent → capture bugs/gaps → map to Echo’s modules → decide migration path or deprecation.
-- **Outcome**: Comprehensive reference that prevents accidental feature loss and keeps the rewrite grounded in historical context.
-
 ## Delivery Roadmap
 
 > **Current Status (2026-01):** Phase 0 is largely complete for `warp-core`. The Rust-first WARP graph rewriting engine is implemented with deterministic scheduling, snapshot hashing, and basic math. ECS storage and system scheduler remain future work.
@@ -239,5 +248,5 @@ TTD is a first-class citizen in Echo, built on top of the provenance and scene p
     - `/packages/echo-cli` — tooling launcher (future), wraps dev server and inspector.
     - `/packages/echo-adapters` — reference adapters (Pixi/WebGPU, browser input, etc.).
     - `/apps/playground` — Vite-driven sandbox for samples and inspector.
-    - `/docs` — specs, diagrams, memorials (human-facing knowledge base).
+    - `/docs` — live specs, guides, and operational knowledge.
     - `/tooling` — shared build scripts, benchmarking harness (future).

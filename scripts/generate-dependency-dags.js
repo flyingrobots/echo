@@ -103,7 +103,7 @@ function parseArgs(argv) {
     milestonesJson: ".cache/echo/deps/milestones-all.json",
     configJson: "docs/assets/dags/deps-config.json",
     outDir: "docs/assets/dags",
-    tasksDagPath: path.join("docs", "archive", "tasks", "TASKS-DAG.md"),
+    tasksDagPath: path.join("docs", "assets", "dags", "tasks-dag-source.md"),
     snapshot: null,
     snapshotLabelMode: "auto",
   };
@@ -138,7 +138,7 @@ function parseArgs(argv) {
           "  --milestones-json <path> Read/write milestones snapshot JSON",
           "  --config <path>         Dependency config (edges) JSON",
           "  --out-dir <dir>         Output directory for DOT/SVG",
-          "  --tasks-dag <path>      Path to docs/archive/tasks/TASKS-DAG.md (reality edges)",
+          "  --tasks-dag <path>      Path to docs/assets/dags/tasks-dag-source.md (reality edges)",
           "  --snapshot <YYYY-MM-DD> Override label date in output graphs (legacy; prefer --snapshot-label)",
           "  --snapshot-label <mode> Snapshot label: auto|none|rolling|YYYY-MM-DD",
           "",

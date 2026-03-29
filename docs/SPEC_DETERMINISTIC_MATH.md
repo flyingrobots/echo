@@ -16,9 +16,7 @@ All math within the simulation loop (`warp-core`) must adhere to these rules.
 > | -------------------------------------------------------------------------------- | -------------------------------------------------- |
 > | [DETERMINISTIC_MATH.md](DETERMINISTIC_MATH.md)                                   | Hazard catalog (IEEE 754 pitfalls and mitigations) |
 > | [warp-math-claims.md](warp-math-claims.md)                                       | Claims and theory framing                          |
-> | [math-validation-plan.md](math-validation-plan.md)                               | Validation test plan and CI lanes                  |
 > | [determinism/DETERMINISM_CLAIMS_v0.1.md](determinism/DETERMINISM_CLAIMS_v0.1.md) | Formal determinism claims                          |
-> | [spec-deterministic-math.md](spec-deterministic-math.md)                         | Legacy Phase 0 design sketch (archived)            |
 
 ## 1. Floating Point (f32)
 

@@ -95,5 +95,4 @@ flowchart TD
 ## Run Something (learn by doing)
 
 - WARP View Protocol demo (hub + 2 viewers): [/guide/wvp-demo](/guide/wvp-demo)
-- Collision tour (static walkthrough): [/collision-dpo-tour.html](/collision-dpo-tour.html)
-- Interactive collision DPO tour (static HTML): [/collision-dpo-tour.html](/collision-dpo-tour.html)
+- Collision DPO tour (static walkthrough): [/collision-dpo-tour.html](/collision-dpo-tour.html)

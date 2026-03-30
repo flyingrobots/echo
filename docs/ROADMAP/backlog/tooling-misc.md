@@ -470,6 +470,9 @@ branch state after review-fix pushes.
   reply text or auto-resolve based on heuristics alone
 - R5: Show enough context (path, author, URL) for a reviewer to confirm the
   action before mutating GitHub state
+- R6: Reconcile current-head code state against GitHub thread state after reply
+  / resolve actions so outdated-but-unresolved threads are easy to distinguish
+  from genuinely still-open review debt
 
 **Acceptance Criteria:**
 
@@ -480,6 +483,8 @@ branch state after review-fix pushes.
 - [ ] AC3: One command can resolve chosen thread ids after human confirmation
 - [ ] AC4: The helper works with the existing `gh`-based workflow
 - [ ] AC5: Contributor docs explain when to use it and when to reply manually
+- [ ] AC6: After replies / resolutions, the helper can recount unresolved
+      threads and highlight outdated-vs-current review state explicitly
 
 **Definition of Done:**
 
@@ -770,3 +775,162 @@ judgment.
 
 **Est. Hours:** 2h
 **Expected Complexity:** ~60 LoC (docs + links)
+
+---
+
+## T-10-8-17: Docs Validation Beyond Markdown
+
+**User Story:** As a contributor, I want docs validation to cover the real docs
+surface, not just Markdown, so that broken static-HTML links and other live-doc
+regressions are caught before PR review.
+
+**Requirements:**
+
+- R1: Expand docs validation so it covers `docs/public/*.html` and any other
+  live non-Markdown docs entrypoints
+- R2: Add static-HTML link and asset checks for repo-local routes and
+  references
+- R3: Keep the lane scoped enough that docs-only changes remain fast to verify
+- R4: Document exactly which doc surfaces are covered and which are still
+  intentionally excluded
+
+**Acceptance Criteria:**
+
+- [ ] AC1: A broken local route or asset reference in `docs/public/*.html`
+      fails the docs validation lane
+- [ ] AC2: Docs validation is no longer effectively Markdown-only
+- [ ] AC3: Contributors can run one documented command to check the covered docs
+      surfaces locally
+- [ ] AC4: The collision-tour style regression class is caught before review
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** Validation for live docs surfaces, including Markdown plus static
+HTML entrypoints and their local links/assets.
+**Out of Scope:** External-link availability checks or full website end-to-end
+crawling.
+
+**Test Plan:**
+
+- **Goldens:** n/a
+- **Failures:** Intentionally break a local static-HTML route and a local asset
+  link and verify the lane fails
+- **Edges:** `file://`-style static docs, generated HTML, root-relative vs
+  relative links
+- **Fuzz/Stress:** n/a
+
+**Blocked By:** none
+**Blocking:** none
+
+**Est. Hours:** 4h
+**Expected Complexity:** ~140 LoC (validation wiring + docs + tests)
+
+---
+
+## T-10-8-18: Implementation-Backed Docs Claims Policy
+
+**User Story:** As a maintainer, I want contributor guidance and lightweight
+checks around strong claims like `bit-exact`, `canonical`, and `deterministic`
+so that docs do not overstate what the code actually guarantees.
+
+**Requirements:**
+
+- R1: Define a short docs-claims checklist for implementation-backed guarantee
+  language
+- R2: Identify especially sensitive claim words and the evidence expected for
+  each
+- R3: Add a lightweight lint, review checklist, or equivalent guard for the
+  most failure-prone phrases
+- R4: Document where stronger claims belong (specs, claim registers, crate
+  docs) versus where contributor docs should stay conservative
+
+**Acceptance Criteria:**
+
+- [ ] AC1: A contributor-facing checklist exists for strong guarantee wording
+- [ ] AC2: The repo has at least one lightweight guard or review rubric for
+      claim words like `bit-exact`, `canonical`, and `deterministic`
+- [ ] AC3: A representative overclaim is caught before PR review
+- [ ] AC4: Docs and spec surfaces describe the evidence expectation clearly
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** Docs wording discipline, lightweight guardrails, and contributor
+guidance.
+**Out of Scope:** Proving every guarantee in the repo or replacing reviewer
+judgment with a perfect linter.
+
+**Test Plan:**
+
+- **Goldens:** n/a
+- **Failures:** Introduce a representative wording overclaim and verify the new
+  checklist / guard catches it
+- **Edges:** Claim appears in roadmap docs, architecture docs, crate docs, or
+  generated reference pages
+- **Fuzz/Stress:** n/a
+
+**Blocked By:** none
+**Blocking:** none
+
+**Est. Hours:** 3h
+**Expected Complexity:** ~80 LoC (docs + guard/checklist)
+
+---
+
+## T-10-8-19: Remove Committed Generated DAG Artifacts
+
+**User Story:** As a maintainer, I want generated DAG outputs out of the main
+docs tree so that the repo keeps source-of-truth inputs, not churn-heavy baked
+artifacts.
+
+**Requirements:**
+
+- R1: Identify which DAG outputs are generated and should no longer live as
+  committed source files
+- R2: Keep only the canonical DAG inputs and generation entrypoints in the repo
+- R3: Move generated DAG viewing/sharing to on-demand generation, CI artifacts,
+  or another explicit publication path
+- R4: Update docs and validation so they no longer assume committed generated
+  DAG outputs are the truth
+
+**Acceptance Criteria:**
+
+- [ ] AC1: Generated DAG artifacts are removed from the committed live docs
+      surface
+- [ ] AC2: Contributors still have one documented way to generate or inspect
+      the DAG outputs when needed
+- [ ] AC3: CI or release workflow still has a clear path for sharing generated
+      DAG views when useful
+- [ ] AC4: Docs validation no longer depends on stale committed DAG outputs
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** Generated dependency/task DAG artifacts and their publication path.
+**Out of Scope:** Removing the underlying DAG sources or DAG generation logic
+entirely.
+
+**Test Plan:**
+
+- **Goldens:** n/a
+- **Failures:** Remove a generated artifact and verify the documented
+  generation/view path still works
+- **Edges:** Offline local viewing, CI artifact upload, docs links that used to
+  target committed outputs
+- **Fuzz/Stress:** n/a
+
+**Blocked By:** none
+**Blocking:** none
+
+**Est. Hours:** 4h
+**Expected Complexity:** ~120 LoC (docs + workflow/tooling cleanup)

@@ -25,12 +25,14 @@ use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criteri
 use std::collections::BTreeMap;
 use std::num::NonZeroUsize;
 use std::time::Duration;
-use warp_core::parallel::{build_work_units, execute_work_queue, WorkerResult};
+use warp_core::parallel::{
+    build_work_units, execute_parallel_with_selector, execute_work_queue,
+    AdaptiveShardRoutingSelector, WorkerResult,
+};
 use warp_core::{
-    execute_parallel, execute_parallel_with_policy, execute_parallel_with_selector, execute_serial,
-    make_node_id, make_type_id, make_warp_id, AdaptiveShardRoutingSelector, AtomPayload,
-    AttachmentKey, AttachmentValue, ExecItem, GraphStore, GraphView, NodeId, NodeKey, NodeRecord,
-    OpOrigin, ParallelExecutionPolicy, TickDelta, WarpId, WarpOp,
+    execute_parallel, execute_parallel_with_policy, execute_serial, make_node_id, make_type_id,
+    make_warp_id, AtomPayload, AttachmentKey, AttachmentValue, ExecItem, GraphStore, GraphView,
+    NodeId, NodeKey, NodeRecord, OpOrigin, ParallelExecutionPolicy, TickDelta, WarpId, WarpOp,
 };
 
 /// Simple executor that sets an attachment on the scope node.

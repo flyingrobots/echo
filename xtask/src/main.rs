@@ -5382,7 +5382,7 @@ mod tests {
 
     #[test]
     fn root_relative_link_resolves_against_docs_root() {
-        let source = Path::new("docs/meta/docs-index.md");
+        let source = Path::new("docs/index.md");
         let docs_root = Path::new("docs");
         let candidates = build_candidates(source, "/guide/start-here.md", docs_root);
         assert!(candidates

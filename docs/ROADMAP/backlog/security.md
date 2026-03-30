@@ -3,7 +3,7 @@
 
 # Security
 
-> **Milestone:** [Backlog](README.md) | **Priority:** Unscheduled
+> **Milestone:** [Backlog](../../ROADMAP.md) | **Priority:** Unscheduled
 
 Specifications and hardening for trust boundaries across FFI, WASM, and CLI surfaces. Includes commit signing specs, security context definitions, FFI validation, packet checksums, and provenance envelopes.
 

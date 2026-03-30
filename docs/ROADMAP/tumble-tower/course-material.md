@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-> **Milestone:** [Tumble Tower](README.md) | **Priority:** P2
+> **Milestone:** [Tumble Tower](../../ROADMAP.md) | **Priority:** P2
 >
 > This feature is a skeleton. Tasks will be expanded as the GDD matures.
 

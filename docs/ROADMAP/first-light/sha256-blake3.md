@@ -3,7 +3,7 @@
 
 # SHA-256 to BLAKE3 Coordination
 
-> **Milestone:** [First Light](README.md) | **Priority:** P1 | **Repo:** Shared
+> **Milestone:** [First Light](../../ROADMAP.md) | **Priority:** P1 | **Repo:** Shared
 
 Cross-repo planning task. Wesley currently uses SHA-256 for schema hashing. Echo uses BLAKE3. This task produces the migration specification, not the implementation.
 

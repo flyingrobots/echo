@@ -47,7 +47,6 @@ temp
 artifacts/pr-review/
 __pycache__/
 *.pyc
-EDITORS-REPORT.md
 
 # Playwright artifacts
 test-results

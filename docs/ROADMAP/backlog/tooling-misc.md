@@ -786,7 +786,7 @@ regressions are caught before PR review.
 
 **Requirements:**
 
-- R1: Expand docs validation so it covers `docs/public/*.html` and any other
+- R1: Expand docs validation so it covers `docs/public/**/*.html` and any other
   live non-Markdown docs entrypoints
 - R2: Add static-HTML link and asset checks for repo-local routes and
   references
@@ -796,11 +796,12 @@ regressions are caught before PR review.
 
 **Acceptance Criteria:**
 
-- [ ] AC1: A broken local route or asset reference in `docs/public/*.html`
+- [ ] AC1: A broken local route or asset reference in `docs/public/**/*.html`
       fails the docs validation lane
 - [ ] AC2: Docs validation is no longer effectively Markdown-only
-- [ ] AC3: Contributors can run one documented command to check the covered docs
-      surfaces locally
+- [ ] AC3: Contributors can run one documented local command to check the
+      covered docs surfaces, including recursive `docs/public/**/*.html`
+      coverage
 - [ ] AC4: The collision-tour-style regression class is caught before review
 
 **Definition of Done:**

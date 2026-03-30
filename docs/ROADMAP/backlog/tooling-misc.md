@@ -801,7 +801,7 @@ regressions are caught before PR review.
 - [ ] AC2: Docs validation is no longer effectively Markdown-only
 - [ ] AC3: Contributors can run one documented command to check the covered docs
       surfaces locally
-- [ ] AC4: The collision-tour style regression class is caught before review
+- [ ] AC4: The collision-tour-style regression class is caught before review
 
 **Definition of Done:**
 

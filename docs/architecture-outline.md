@@ -23,7 +23,7 @@ Before the aspirational material below: Echo already has a real deterministic WA
 
 - **`warp-core` rewrite engine** ✅: immutable snapshot reads, private deltas, canonical merge, and deterministic scheduling.
 - **Playback / worldlines / provenance** ✅: recorded history, cursor replay, and append-only lineage support.
-- **Renderer / scene boundary** ✅: a bit-exact scene port and canonical codec boundary.
+- **Renderer / scene boundary** ✅: a deterministic scene port and canonical codec boundary.
 - **TTD / browser tooling substrate** ✅: WASM-first protocol tooling and time-travel debugging infrastructure.
 
 Read the current implementation through these docs first:

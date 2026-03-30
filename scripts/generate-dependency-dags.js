@@ -284,7 +284,9 @@ function emitIssueDot({ issues, issueEdges, snapshotLabel, realityEdges }) {
   }
 
   if (realityEdges) {
-    // Add nodes for reality-only edges (TASKS-DAG.md) when both endpoints exist and the edge is absent from configuredEdges, so red “missing from plan” edges can render.
+    // Add nodes for reality-only edges (tasks-dag-source.md) when both endpoints
+    // exist and the edge is absent from configuredEdges, so red “missing from
+    // plan” edges can render.
     for (const edgeKey of realityEdges) {
       const realityEdge = safeParseEdgeKey(edgeKey, "reality edge");
       if (!realityEdge) continue;
@@ -336,7 +338,7 @@ function emitIssueDot({ issues, issueEdges, snapshotLabel, realityEdges }) {
   lines.push(
     `  label="${escapeDotString(
       title,
-    )}\\nEdge direction: prerequisite → dependent (do tail before head)\\nEdge styles encode confidence (solid=strong, dashed=medium, dotted=weak).\\nGreen = Confirmed in TASKS-DAG.md; Red = In TASKS-DAG.md but missing from Plan.";`,
+    )}\\nEdge direction: prerequisite → dependent (do tail before head)\\nEdge styles encode confidence (solid=strong, dashed=medium, dotted=weak).\\nGreen = Confirmed in tasks-dag-source.md; Red = In tasks-dag-source.md but missing from Plan.";`,
   );
   lines.push("");
 
@@ -417,7 +419,7 @@ function emitIssueDot({ issues, issueEdges, snapshotLabel, realityEdges }) {
         const { from: u, to: v } = realityEdge;
         if (byNum.has(u) && byNum.has(v)) {
           lines.push(
-            `  i${u} -> i${v} [color="red", penwidth=2.0, style="dashed", tooltip="Inferred from TASKS-DAG.md (missing from Plan)"];`,
+            `  i${u} -> i${v} [color="red", penwidth=2.0, style="dashed", tooltip="Inferred from tasks-dag-source.md (missing from Plan)"];`,
           );
         }
       }

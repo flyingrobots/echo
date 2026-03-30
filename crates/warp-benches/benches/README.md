@@ -38,6 +38,9 @@ results. This README summarizes how to run them and read the output.
       study reflects full policy cost for the synthetic independent workload.
     - The policy matrix runs across loads `100`, `1000`, and `10000`, with worker
       hints `1`, `4`, and `8` where the policy uses a worker pool.
+    - Adaptive rows record both the incoming worker hint and the fixed plan the
+      selector actually chose for that load, so the baked report stays truthful
+      when the heuristic collapses to `1w` or caps itself at `4w`.
     - Throughput “elements” = executed items in the synthetic independent workload.
 
 ## Run

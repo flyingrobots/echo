@@ -42,6 +42,14 @@ For pooled-worker policies, it also varies worker hints:
 The dedicated per-shard policy intentionally ignores the worker-count knob and
 spawns one thread per non-empty shard.
 
+For the adaptive selector, the report preserves both:
+
+- the incoming worker hint used to seed the heuristic, and
+- the fixed policy/worker plan the selector actually chose for that load
+
+That keeps the baked HTML and JSON honest when multiple hints collapse to the
+same concrete plan.
+
 ## Outputs
 
 Running the dedicated bake target produces:

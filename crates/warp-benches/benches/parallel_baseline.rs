@@ -26,13 +26,15 @@ use std::collections::BTreeMap;
 use std::num::NonZeroUsize;
 use std::time::Duration;
 use warp_core::parallel::{
-    build_work_units, execute_parallel_with_selector, execute_work_queue,
-    AdaptiveShardRoutingSelector, WorkerResult,
+    build_work_units, execute_parallel_with_selector, execute_work_queue, shard_of,
+    AdaptiveShardRoutingSelector, ParallelExecutionPlan, ParallelExecutionPlanSelector,
+    ParallelExecutionWorkloadProfile, WorkerResult,
 };
 use warp_core::{
     execute_parallel, execute_parallel_with_policy, execute_serial, make_node_id, make_type_id,
     make_warp_id, AtomPayload, AttachmentKey, AttachmentValue, ExecItem, GraphStore, GraphView,
     NodeId, NodeKey, NodeRecord, OpOrigin, ParallelExecutionPolicy, TickDelta, WarpId, WarpOp,
+    NUM_SHARDS,
 };
 
 /// Simple executor that sets an attachment on the scope node.
@@ -326,26 +328,43 @@ enum PolicyMatrixCase {
     Adaptive,
 }
 
-fn policy_case_label(case: PolicyMatrixCase) -> &'static str {
-    match case {
-        PolicyMatrixCase::Fixed(ParallelExecutionPolicy::DYNAMIC_PER_WORKER) => {
-            "dynamic_per_worker"
-        }
-        PolicyMatrixCase::Fixed(ParallelExecutionPolicy::DYNAMIC_PER_SHARD) => "dynamic_per_shard",
-        PolicyMatrixCase::Fixed(ParallelExecutionPolicy::STATIC_PER_WORKER) => "static_per_worker",
-        PolicyMatrixCase::Fixed(ParallelExecutionPolicy::STATIC_PER_SHARD) => "static_per_shard",
-        PolicyMatrixCase::Fixed(ParallelExecutionPolicy::DEDICATED_PER_SHARD) => {
-            "dedicated_per_shard"
-        }
-        PolicyMatrixCase::Fixed(_) => {
-            panic!("unmapped ParallelExecutionPolicy in parallel_policy_matrix")
-        }
-        PolicyMatrixCase::Adaptive => "adaptive_shard_routing",
+fn policy_label(policy: ParallelExecutionPolicy) -> &'static str {
+    match policy {
+        ParallelExecutionPolicy::DYNAMIC_PER_WORKER => "dynamic_per_worker",
+        ParallelExecutionPolicy::DYNAMIC_PER_SHARD => "dynamic_per_shard",
+        ParallelExecutionPolicy::STATIC_PER_WORKER => "static_per_worker",
+        ParallelExecutionPolicy::STATIC_PER_SHARD => "static_per_shard",
+        ParallelExecutionPolicy::DEDICATED_PER_SHARD => "dedicated_per_shard",
+        _ => panic!("unmapped ParallelExecutionPolicy in parallel_policy_matrix"),
     }
 }
 
 fn worker_hint(workers: usize) -> NonZeroUsize {
     NonZeroUsize::new(workers.max(1)).map_or(NonZeroUsize::MIN, |w| w)
+}
+
+fn workload_profile(items: &[ExecItem]) -> ParallelExecutionWorkloadProfile {
+    let mut shard_sizes = [0_usize; NUM_SHARDS];
+    for item in items {
+        shard_sizes[shard_of(&item.scope)] += 1;
+    }
+
+    let non_empty_shards = shard_sizes.iter().filter(|&&len| len > 0).count();
+    let max_shard_len = shard_sizes.iter().copied().max().unwrap_or(0);
+    ParallelExecutionWorkloadProfile::new(items.len(), non_empty_shards, max_shard_len)
+}
+
+fn adaptive_plan_for_items(items: &[ExecItem], hint: NonZeroUsize) -> ParallelExecutionPlan {
+    AdaptiveShardRoutingSelector.select_plan(hint, workload_profile(items))
+}
+
+fn adaptive_case_label(hint: NonZeroUsize, selected: ParallelExecutionPlan) -> String {
+    format!(
+        "adaptive_shard_routing__hint_{}w__selected_{}_{}w",
+        hint.get(),
+        policy_label(selected.policy()),
+        selected.workers().get(),
+    )
 }
 
 /// Compares shard assignment and delta accumulation strategies directly.
@@ -374,7 +393,10 @@ fn bench_policy_matrix(c: &mut Criterion) {
         for case in cases {
             if case == PolicyMatrixCase::Fixed(ParallelExecutionPolicy::DEDICATED_PER_SHARD) {
                 group.bench_with_input(
-                    BenchmarkId::new(policy_case_label(case), n),
+                    BenchmarkId::new(
+                        policy_label(ParallelExecutionPolicy::DEDICATED_PER_SHARD),
+                        n,
+                    ),
                     &n,
                     |b, &n| {
                         b.iter_batched(
@@ -402,41 +424,47 @@ fn bench_policy_matrix(c: &mut Criterion) {
             }
 
             for &workers in &[1usize, 4, 8] {
-                group.bench_with_input(
-                    BenchmarkId::new(format!("{}/{}w", policy_case_label(case), workers), n),
-                    &n,
-                    |b, &n| {
-                        b.iter_batched(
-                            || {
-                                let (store, nodes) = make_test_store(n);
-                                let items = make_exec_items(&nodes);
-                                (store, items)
-                            },
-                            |(store, items)| {
-                                let view = GraphView::new(&store);
-                                let deltas = match case {
-                                    PolicyMatrixCase::Fixed(policy) => {
-                                        execute_parallel_with_policy(
-                                            view,
-                                            &items,
-                                            worker_hint(workers),
-                                            policy,
-                                        )
-                                    }
-                                    PolicyMatrixCase::Adaptive => execute_parallel_with_selector(
-                                        view,
-                                        &items,
-                                        worker_hint(workers),
-                                        AdaptiveShardRoutingSelector,
-                                    ),
-                                };
-                                let merged = merge_for_commit_path(deltas);
-                                criterion::black_box(merged)
-                            },
-                            BatchSize::SmallInput,
-                        );
-                    },
-                );
+                let benchmark_label = match case {
+                    PolicyMatrixCase::Fixed(policy) => {
+                        format!("{}/{}w", policy_label(policy), workers)
+                    }
+                    PolicyMatrixCase::Adaptive => {
+                        let (_, nodes) = make_test_store(n);
+                        let items = make_exec_items(&nodes);
+                        let hint = worker_hint(workers);
+                        let selected = adaptive_plan_for_items(&items, hint);
+                        adaptive_case_label(hint, selected)
+                    }
+                };
+                group.bench_with_input(BenchmarkId::new(benchmark_label, n), &n, |b, &n| {
+                    b.iter_batched(
+                        || {
+                            let (store, nodes) = make_test_store(n);
+                            let items = make_exec_items(&nodes);
+                            (store, items)
+                        },
+                        |(store, items)| {
+                            let view = GraphView::new(&store);
+                            let deltas = match case {
+                                PolicyMatrixCase::Fixed(policy) => execute_parallel_with_policy(
+                                    view,
+                                    &items,
+                                    worker_hint(workers),
+                                    policy,
+                                ),
+                                PolicyMatrixCase::Adaptive => execute_parallel_with_selector(
+                                    view,
+                                    &items,
+                                    worker_hint(workers),
+                                    AdaptiveShardRoutingSelector,
+                                ),
+                            };
+                            let merged = merge_for_commit_path(deltas);
+                            criterion::black_box(merged)
+                        },
+                        BatchSize::SmallInput,
+                    );
+                });
             }
         }
     }

@@ -5,6 +5,15 @@
 
 ## Unreleased
 
+### Fixed (PR #312 follow-up)
+
+- The docs-surface reduction follow-ups so the collision tour no longer points
+  at a deleted guide route, the architecture outline uses implementation-backed
+  deterministic wording for the scene boundary, task-DAG tooling/docs use the
+  new `tasks-dag-source.md` name consistently, and the backlog now tracks
+  broader docs-validation cleanup beyond Markdown-only checks, including
+  recursive `docs/public/**/*.html` coverage.
+
 ### Fixed (PR #308 follow-up)
 
 - The PR workflow hardening follow-ups so `pr-preflight` skips deleted

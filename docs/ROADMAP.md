@@ -1,27 +1,25 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# Echo Roadmap Index
+# Echo Roadmap
 
-> Scope: Echo + Wesley + git-mind planning and sequencing.
-> Format: ROADMAP index -> milestone README -> feature file (tasks inline).
-> Last updated: 2026-03-06
+This is the only roadmap entrypoint you should need.
 
-This is the map-of-content (MoC) index for roadmap navigation. Detailed specs live in `docs/ROADMAP/`.
+- Use this page to understand current priorities and find the live planning docs.
+- Use GitHub Issues / the project board for current execution state.
+- Git history is the archive; this page points only at live planning material.
 
-## Execution Policy (The WIP Cap)
+## Status Vocabulary
 
-To prevent context thrashing, we adhere to a strict WIP limit:
+- `Planned`: scoped, but not active.
+- `In Progress`: currently being worked.
+- `Verified`: merged and evidenced on `main`.
 
-- **Max 2** active milestones at once.
-- **Max 3** active feature files per active milestone.
-- Everything else is "Queued."
-
-## Dependency DAG
+## Priority Ladder
 
 ```mermaid
 flowchart TD
-  A["P0 Lock the Hashes ✅"] --> D["P1 Proof Core ✅"]
+  A["P0 Lock the Hashes ✅"] --> D["P1 Proof Core"]
   B["P0 Developer CLI ✅"] --> D
   D --> C["P2 First Light"]
   E["P1 Time Semantics Lock"] --> F["P3 Time Travel"]
@@ -32,42 +30,41 @@ flowchart TD
   C --> J["P3 Deep Storage"]
 ```
 
-## Priority / Status
+## Milestones
 
-| Pri    | Milestone                                                              | Focus                                    | Status      |
-| ------ | ---------------------------------------------------------------------- | ---------------------------------------- | ----------- |
-| **P0** | **[Lock the Hashes](ROADMAP/lock-the-hashes/README.md)**               | Canonical hash vectors & cleanup         | Verified    |
-| **P0** | **[Developer CLI](ROADMAP/developer-cli/README.md)**                   | `verify`, `bench`, `inspect` tools       | Verified    |
-| **P1** | **[Proof Core](ROADMAP/proof-core/README.md)**                         | Determinism claims _without_ Time Travel | In Progress |
-| **P1** | **[Time Semantics Lock](ROADMAP/time-semantics-lock/README.md)**       | Frozen Time Spec (Doc only)              | Planned     |
-| **P2** | **[First Light](ROADMAP/first-light/README.md)**                       | Browser Demo (Website)                   | Planned     |
-| **P3** | **[Time Travel](ROADMAP/time-travel/README.md)**                       | Inspector & Rewind Tooling               | Planned     |
-| **P3** | **[Proof Time Convergence](ROADMAP/proof-time-convergence/README.md)** | Worldline Convergence                    | Planned     |
-| **P3** | **[Splash Guy](ROADMAP/splash-guy/README.md)**                         | Game Demo 1                              | Planned     |
-| **P3** | **[Tumble Tower](ROADMAP/tumble-tower/README.md)**                     | Game Demo 2                              | Planned     |
-| **P3** | **[Deep Storage](ROADMAP/deep-storage/README.md)**                     | Disk Tier / GC                           | Planned     |
+| Priority | Milestone              | Status        | Focus                                                              | Live Planning Docs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| -------- | ---------------------- | ------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `P0`     | Lock the Hashes        | `Verified`    | Canonical hash vectors, domain separation, benchmark cleanup       | [domain-separated-hashes.md](ROADMAP/lock-the-hashes/domain-separated-hashes.md), [benchmarks-cleanup.md](ROADMAP/lock-the-hashes/benchmarks-cleanup.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `P0`     | Developer CLI          | `Verified`    | Stable `echo verify` / `bench` / `inspect` workflows               | [cli-scaffold.md](ROADMAP/developer-cli/cli-scaffold.md), [verify.md](ROADMAP/developer-cli/verify.md), [bench.md](ROADMAP/developer-cli/bench.md), [inspect.md](ROADMAP/developer-cli/inspect.md), [docs-man-pages.md](ROADMAP/developer-cli/docs-man-pages.md)                                                                                                                                                                                                                                                                                                                                                           |
+| `P1`     | Proof Core             | `In Progress` | Determinism claims, torture harness, trig oracle                   | [determinism-torture.md](ROADMAP/proof-core/determinism-torture.md), [deterministic-trig.md](ROADMAP/proof-core/deterministic-trig.md), [docs-polish.md](ROADMAP/proof-core/docs-polish.md)                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `P1`     | Time Semantics Lock    | `Planned`     | Freeze HistoryTime / HostTime / TTL semantics                      | [time-model-spec.md](ROADMAP/time-semantics-lock/time-model-spec.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `P2`     | First Light            | `Planned`     | Browser demo, Wesley pipeline, WASM runtime, browser visualization | [wesley-qir-phase-c.md](ROADMAP/first-light/wesley-qir-phase-c.md), [wesley-migration.md](ROADMAP/first-light/wesley-migration.md), [wesley-go-public.md](ROADMAP/first-light/wesley-go-public.md), [echo-wesley-gen-v2.md](ROADMAP/first-light/echo-wesley-gen-v2.md), [sha256-blake3.md](ROADMAP/first-light/sha256-blake3.md), [wasm-runtime.md](ROADMAP/first-light/wasm-runtime.md), [browser-visualization.md](ROADMAP/first-light/browser-visualization.md), [echo-cas-browser.md](ROADMAP/first-light/echo-cas-browser.md), [wesley-type-pipeline-browser.md](ROADMAP/first-light/wesley-type-pipeline-browser.md) |
+| `P3`     | Time Travel            | `Planned`     | Inspector visibility, replay, worldline comparison                 | [streams-inspector.md](ROADMAP/time-travel/streams-inspector.md), [time-travel-mvp.md](ROADMAP/time-travel/time-travel-mvp.md), [rulial-diff.md](ROADMAP/time-travel/rulial-diff.md)                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `P3`     | Proof Time Convergence | `Planned`     | Worldline convergence suite                                        | [worldline-convergence.md](ROADMAP/proof-time-convergence/worldline-convergence.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `P3`     | Splash Guy             | `Planned`     | Deterministic networking-first game demo                           | [rules-and-state.md](ROADMAP/splash-guy/rules-and-state.md), [lockstep-protocol.md](ROADMAP/splash-guy/lockstep-protocol.md), [controlled-desync.md](ROADMAP/splash-guy/controlled-desync.md), [visualization.md](ROADMAP/splash-guy/visualization.md), [course-material.md](ROADMAP/splash-guy/course-material.md)                                                                                                                                                                                                                                                                                                        |
+| `P3`     | Tumble Tower           | `Planned`     | Deterministic physics game demo                                    | [stage-0-aabb.md](ROADMAP/tumble-tower/stage-0-aabb.md), [stage-1-rotation.md](ROADMAP/tumble-tower/stage-1-rotation.md), [stage-2-friction.md](ROADMAP/tumble-tower/stage-2-friction.md), [stage-3-sleeping.md](ROADMAP/tumble-tower/stage-3-sleeping.md), [lockstep-harness.md](ROADMAP/tumble-tower/lockstep-harness.md), [desync-breakers.md](ROADMAP/tumble-tower/desync-breakers.md), [visualization.md](ROADMAP/tumble-tower/visualization.md), [course-material.md](ROADMAP/tumble-tower/course-material.md)                                                                                                       |
+| `P3`     | Deep Storage           | `Planned`     | Disk CAS tier, GC sweep, remote wire protocol                      | [disk-tier.md](ROADMAP/deep-storage/disk-tier.md), [gc-sweep-eviction.md](ROADMAP/deep-storage/gc-sweep-eviction.md), [wire-protocol.md](ROADMAP/deep-storage/wire-protocol.md), [api-evolution.md](ROADMAP/deep-storage/api-evolution.md)                                                                                                                                                                                                                                                                                                                                                                                 |
 
-## Milestone Directories
+## Backlog
 
-- `docs/ROADMAP/lock-the-hashes/`
-- `docs/ROADMAP/developer-cli/`
-- `docs/ROADMAP/first-light/`
-- `docs/ROADMAP/proof-core/`
-- `docs/ROADMAP/time-semantics-lock/`
-- `docs/ROADMAP/time-travel/`
-- `docs/ROADMAP/proof-time-convergence/`
-- `docs/ROADMAP/splash-guy/`
-- `docs/ROADMAP/tumble-tower/`
-- `docs/ROADMAP/deep-storage/`
-- `docs/ROADMAP/backlog/`
+Unscheduled work that is real but off the critical path:
 
-## Cross-Project Notes
+- [tooling-misc.md](ROADMAP/backlog/tooling-misc.md)
+- [security.md](ROADMAP/backlog/security.md)
+- [plugin-abi.md](ROADMAP/backlog/plugin-abi.md)
+- [signing-pipeline.md](ROADMAP/backlog/signing-pipeline.md)
+- [editor-hot-reload.md](ROADMAP/backlog/editor-hot-reload.md)
+- [importer.md](ROADMAP/backlog/importer.md)
+- [deterministic-rhai.md](ROADMAP/backlog/deterministic-rhai.md)
+- [wesley-boundary-grammar.md](ROADMAP/backlog/wesley-boundary-grammar.md)
+- [wesley-docs.md](ROADMAP/backlog/wesley-docs.md)
+- [wesley-future.md](ROADMAP/backlog/wesley-future.md)
+- [ttd-hardening.md](ROADMAP/backlog/ttd-hardening.md)
+- [git-mind-nexus.md](ROADMAP/backlog/git-mind-nexus.md)
 
-- **Proof Core gates First Light**: determinism claims must be proven before demoing the engine publicly.
-- Wesley work is grouped into **First Light** because it is upstream of the website demo deliverable.
-- git-mind NEXUS is moved to **Backlog** because it is independent of Echo's critical path.
-- Proof work is split into **Proof Core** (P1) and **Proof Time Convergence** (P3) to avoid false blocking.
+## Notes
 
-## Issue Matrix
-
-Issue coverage is maintained in `docs/ROADMAP/ISSUE-INDEX.md`.
+- Proof Core gates First Light.
+- Time Semantics Lock gates Time Travel.
+- Time Travel plus Proof Core gate Proof Time Convergence.
+- First Light gates Splash Guy, Tumble Tower, and Deep Storage.

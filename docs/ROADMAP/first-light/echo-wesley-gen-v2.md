@@ -3,7 +3,7 @@
 
 # echo-wesley-gen v2 Update
 
-> **Milestone:** [First Light](README.md) | **Priority:** P1 | **Repo:** Echo
+> **Milestone:** [First Light](../../ROADMAP.md) | **Priority:** P1 | **Repo:** Echo
 
 Echo-repo work. The `crates/echo-wesley-gen` crate currently consumes `echo-ir/v1` JSON. Update it to handle the `echo-ir/v2` format that Wesley will emit after QIR Phase C, including new fields for query operations and migration metadata.
 

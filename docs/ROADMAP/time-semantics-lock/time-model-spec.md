@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-> **Milestone:** [Time Semantics Lock](README.md) | **Priority:** P1
+> **Milestone:** [Time Semantics Lock](../../ROADMAP.md) | **Priority:** P1
 
 # TT0 — Time Model Spec Lock
 

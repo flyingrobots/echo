@@ -12,7 +12,7 @@
 <p align="center">
   <a href="docs/guide/start-here.md">Get Started</a> •
   <a href="docs/architecture-outline.md">Architecture</a> •
-  <a href="docs/meta/docs-index.md">Docs</a> •
+  <a href="docs/index.md">Docs</a> •
   <a href="https://github.com/flyingrobots/aion">AIΩN Framework</a>
 </p>
 

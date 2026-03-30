@@ -3,7 +3,7 @@
 
 # WASM Runtime Integration
 
-> **Milestone:** [First Light](README.md) | **Priority:** P1 | **Repo:** Echo
+> **Milestone:** [First Light](../../ROADMAP.md) | **Priority:** P1 | **Repo:** Echo
 >
 > **Historical note:** This roadmap item predates the observation-first ABI v2
 > and the intent-shaped ABI v3 control-plane rewrite. It is retained as

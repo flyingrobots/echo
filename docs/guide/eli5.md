@@ -145,7 +145,7 @@ If you want the formal version, see:
 ### If you want to run something concrete
 
 - WARP View Protocol demo: [/guide/wvp-demo](/guide/wvp-demo)
-- Collision tour: [/guide/collision-tour](/guide/collision-tour)
+- Collision DPO tour: [/collision-dpo-tour.html](/collision-dpo-tour.html)
 
 ---
 

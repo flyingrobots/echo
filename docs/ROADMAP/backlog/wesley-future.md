@@ -3,7 +3,7 @@
 
 # Wesley Future
 
-> **Milestone:** [Backlog](README.md) | **Priority:** Unscheduled
+> **Milestone:** [Backlog](../../ROADMAP.md) | **Priority:** Unscheduled
 
 Long-horizon Wesley enhancements tracked at the feature level. These live in the Wesley repo and are recorded here for cross-project visibility.
 

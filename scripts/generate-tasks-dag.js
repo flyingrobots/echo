@@ -7,7 +7,7 @@ import { spawnSync } from "node:child_process";
 import { parseTasksDag } from "./parse-tasks-dag.js";
 import { escapeDotString } from "./dag-utils.js";
 
-const INPUT_FILE_DISPLAY = "docs/archive/tasks/TASKS-DAG.md";
+const INPUT_FILE_DISPLAY = "docs/assets/dags/tasks-dag-source.md";
 const INPUT_FILE = path.join(...INPUT_FILE_DISPLAY.split("/"));
 const OUT_DIR = "docs/assets/dags";
 const DOT_FILE = path.join(OUT_DIR, "tasks-dag.dot");

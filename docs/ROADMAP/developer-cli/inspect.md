@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-> **Milestone:** [Developer CLI](README.md) | **Priority:** P0
+> **Milestone:** [Developer CLI](../../ROADMAP.md) | **Priority:** P0
 
 # inspect (#50)
 

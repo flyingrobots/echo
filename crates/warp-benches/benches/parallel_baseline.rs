@@ -26,15 +26,13 @@ use std::collections::BTreeMap;
 use std::num::NonZeroUsize;
 use std::time::Duration;
 use warp_core::parallel::{
-    build_work_units, execute_parallel_with_selector, execute_work_queue, shard_of,
-    AdaptiveShardRoutingSelector, ParallelExecutionPlan, ParallelExecutionPlanSelector,
-    ParallelExecutionWorkloadProfile, WorkerResult,
+    build_work_units, execute_parallel_with_adaptive_routing, execute_work_queue,
+    resolve_adaptive_shard_routing, WorkerResult,
 };
 use warp_core::{
     execute_parallel, execute_parallel_with_policy, execute_serial, make_node_id, make_type_id,
     make_warp_id, AtomPayload, AttachmentKey, AttachmentValue, ExecItem, GraphStore, GraphView,
     NodeId, NodeKey, NodeRecord, OpOrigin, ParallelExecutionPolicy, TickDelta, WarpId, WarpOp,
-    NUM_SHARDS,
 };
 
 /// Simple executor that sets an attachment on the scope node.
@@ -343,27 +341,16 @@ fn worker_hint(workers: usize) -> NonZeroUsize {
     NonZeroUsize::new(workers.max(1)).map_or(NonZeroUsize::MIN, |w| w)
 }
 
-fn workload_profile(items: &[ExecItem]) -> ParallelExecutionWorkloadProfile {
-    let mut shard_sizes = [0_usize; NUM_SHARDS];
-    for item in items {
-        shard_sizes[shard_of(&item.scope)] += 1;
-    }
-
-    let non_empty_shards = shard_sizes.iter().filter(|&&len| len > 0).count();
-    let max_shard_len = shard_sizes.iter().copied().max().unwrap_or(0);
-    ParallelExecutionWorkloadProfile::new(items.len(), non_empty_shards, max_shard_len)
-}
-
-fn adaptive_plan_for_items(items: &[ExecItem], hint: NonZeroUsize) -> ParallelExecutionPlan {
-    AdaptiveShardRoutingSelector.select_plan(hint, workload_profile(items))
-}
-
-fn adaptive_case_label(hint: NonZeroUsize, selected: ParallelExecutionPlan) -> String {
+fn adaptive_case_label(
+    hint: NonZeroUsize,
+    selected_policy: ParallelExecutionPolicy,
+    selected_workers: NonZeroUsize,
+) -> String {
     format!(
         "adaptive_shard_routing__hint_{}w__selected_{}_{}w",
         hint.get(),
-        policy_label(selected.policy()),
-        selected.workers().get(),
+        policy_label(selected_policy),
+        selected_workers.get(),
     )
 }
 
@@ -432,8 +419,9 @@ fn bench_policy_matrix(c: &mut Criterion) {
                         let (_, nodes) = make_test_store(n);
                         let items = make_exec_items(&nodes);
                         let hint = worker_hint(workers);
-                        let selected = adaptive_plan_for_items(&items, hint);
-                        adaptive_case_label(hint, selected)
+                        let (selected_policy, selected_workers) =
+                            resolve_adaptive_shard_routing(&items, hint);
+                        adaptive_case_label(hint, selected_policy, selected_workers)
                     }
                 };
                 group.bench_with_input(BenchmarkId::new(benchmark_label, n), &n, |b, &n| {
@@ -452,12 +440,13 @@ fn bench_policy_matrix(c: &mut Criterion) {
                                     worker_hint(workers),
                                     policy,
                                 ),
-                                PolicyMatrixCase::Adaptive => execute_parallel_with_selector(
-                                    view,
-                                    &items,
-                                    worker_hint(workers),
-                                    AdaptiveShardRoutingSelector,
-                                ),
+                                PolicyMatrixCase::Adaptive => {
+                                    execute_parallel_with_adaptive_routing(
+                                        view,
+                                        &items,
+                                        worker_hint(workers),
+                                    )
+                                }
                             };
                             let merged = merge_for_commit_path(deltas);
                             criterion::black_box(merged)

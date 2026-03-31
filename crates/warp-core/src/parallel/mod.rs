@@ -13,11 +13,10 @@ pub mod shard;
 pub(crate) use exec::ExecItemKind;
 pub use exec::{
     build_work_units, execute_parallel, execute_parallel_sharded,
-    execute_parallel_sharded_with_policy, execute_parallel_sharded_with_selector,
-    execute_parallel_with_policy, execute_parallel_with_selector, execute_serial,
-    execute_work_queue, AdaptiveShardRoutingSelector, DeltaAccumulationPolicy, ExecItem,
-    ParallelExecutionPlan, ParallelExecutionPlanSelector, ParallelExecutionPolicy,
-    ParallelExecutionWorkloadProfile, PoisonedDelta, ShardAssignmentPolicy, WorkUnit, WorkerResult,
+    execute_parallel_sharded_with_adaptive_routing, execute_parallel_sharded_with_policy,
+    execute_parallel_with_adaptive_routing, execute_parallel_with_policy, execute_serial,
+    execute_work_queue, resolve_adaptive_shard_routing, DeltaAccumulationPolicy, ExecItem,
+    ParallelExecutionPolicy, PoisonedDelta, ShardAssignmentPolicy, WorkUnit, WorkerResult,
 };
 #[cfg(not(any(test, feature = "delta_validate")))]
 pub(crate) use merge::check_write_to_new_warp;

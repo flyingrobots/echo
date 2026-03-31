@@ -805,6 +805,7 @@ struct CriterionEstimate {
     mean: f64,
     lb: Option<f64>,
     ub: Option<f64>,
+    modified_unix_nanos: u128,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -1168,7 +1169,7 @@ fn collect_policy_matrix_rows(criterion_root: &Path, repo_root: &Path) -> Vec<Po
         return Vec::new();
     }
 
-    let mut by_case = BTreeMap::new();
+    let mut by_case: BTreeMap<(String, String, u32), (PolicyMatrixRow, u128)> = BTreeMap::new();
     let mut stack = vec![criterion_root.to_path_buf()];
     while let Some(dir) = stack.pop() {
         let Ok(entries) = std::fs::read_dir(&dir) else {
@@ -1213,18 +1214,24 @@ fn collect_policy_matrix_rows(criterion_root: &Path, repo_root: &Path) -> Vec<Po
             let key = (row.policy.clone(), row.workers.clone(), row.load);
             match by_case.entry(key) {
                 std::collections::btree_map::Entry::Vacant(entry) => {
-                    entry.insert(row);
+                    entry.insert((row, estimate.modified_unix_nanos));
                 }
                 std::collections::btree_map::Entry::Occupied(mut entry) => {
-                    if prefer_policy_matrix_row(entry.get(), &row) {
-                        entry.insert(row);
+                    let (existing_row, existing_mtime) = entry.get();
+                    if prefer_policy_matrix_row(
+                        existing_row,
+                        *existing_mtime,
+                        &row,
+                        estimate.modified_unix_nanos,
+                    ) {
+                        entry.insert((row, estimate.modified_unix_nanos));
                     }
                 }
             }
         }
     }
 
-    let mut results: Vec<_> = by_case.into_values().collect();
+    let mut results: Vec<_> = by_case.into_values().map(|(row, _)| row).collect();
     results.sort_by(|left, right| {
         left.workers
             .cmp(&right.workers)
@@ -1234,8 +1241,21 @@ fn collect_policy_matrix_rows(criterion_root: &Path, repo_root: &Path) -> Vec<Po
     results
 }
 
-fn prefer_policy_matrix_row(existing: &PolicyMatrixRow, candidate: &PolicyMatrixRow) -> bool {
-    existing.selected_policy.is_none() && candidate.selected_policy.is_some()
+fn prefer_policy_matrix_row(
+    existing: &PolicyMatrixRow,
+    existing_modified_unix_nanos: u128,
+    candidate: &PolicyMatrixRow,
+    candidate_modified_unix_nanos: u128,
+) -> bool {
+    (
+        candidate.selected_policy.is_some(),
+        candidate_modified_unix_nanos,
+        candidate.path.as_str(),
+    ) > (
+        existing.selected_policy.is_some(),
+        existing_modified_unix_nanos,
+        existing.path.as_str(),
+    )
 }
 
 fn parse_policy_case(relative_dir: &Path) -> Option<ParsedPolicyCase> {
@@ -1246,8 +1266,8 @@ fn parse_policy_case(relative_dir: &Path) -> Option<ParsedPolicyCase> {
     match parts.as_slice() {
         [policy_case, load] => {
             let load = load.parse().ok()?;
-            if let Some(case) = parse_adaptive_policy_case(policy_case, load) {
-                return Some(case);
+            if policy_case.starts_with("adaptive_shard_routing__hint_") {
+                return parse_adaptive_policy_case(policy_case, load);
             }
             if let Some((policy, workers)) = split_policy_case(policy_case) {
                 Some(ParsedPolicyCase {
@@ -1284,16 +1304,25 @@ fn parse_policy_case(relative_dir: &Path) -> Option<ParsedPolicyCase> {
 fn parse_adaptive_policy_case(policy_case: &str, load: u32) -> Option<ParsedPolicyCase> {
     let rest = policy_case.strip_prefix("adaptive_shard_routing__hint_")?;
     let (worker_hint, selected_case) = rest.split_once("__selected_")?;
+    let worker_hint = parse_worker_suffix(worker_hint)?;
     let (selected_policy, selected_workers) = split_policy_case(selected_case)?;
 
     Some(ParsedPolicyCase {
         policy: "adaptive_shard_routing".to_owned(),
-        workers: worker_hint.to_owned(),
-        worker_hint: Some(worker_hint.to_owned()),
+        workers: worker_hint.clone(),
+        worker_hint: Some(worker_hint),
         selected_policy: Some(selected_policy),
         selected_workers: Some(selected_workers),
         load,
     })
+}
+
+fn parse_worker_suffix(label: &str) -> Option<String> {
+    let digits = label.strip_suffix('w')?;
+    if digits.is_empty() || !digits.chars().all(|ch| ch.is_ascii_digit()) {
+        return None;
+    }
+    Some(label.to_owned())
 }
 
 fn split_policy_case(policy_case: &str) -> Option<(String, String)> {
@@ -1352,6 +1381,12 @@ fn load_criterion_estimate(
             mean,
             lb,
             ub,
+            modified_unix_nanos: path
+                .metadata()
+                .ok()
+                .and_then(|metadata| metadata.modified().ok())
+                .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |duration| duration.as_nanos()),
         });
     }
 
@@ -7264,6 +7299,17 @@ mod tests {
     }
 
     #[test]
+    fn parse_policy_case_rejects_invalid_adaptive_worker_hint_form() {
+        let case = parse_policy_case(Path::new(
+            "adaptive_shard_routing__hint_bad__selected_dynamic_per_worker_1w/1000",
+        ));
+        assert!(
+            case.is_none(),
+            "invalid adaptive worker hint should be rejected"
+        );
+    }
+
+    #[test]
     fn prefer_policy_matrix_row_keeps_selected_plan_metadata_when_present() {
         let stale = PolicyMatrixRow {
             policy: "adaptive_shard_routing".to_owned(),
@@ -7294,8 +7340,36 @@ mod tests {
             series: "adaptive_shard_routing:4w".to_owned(),
         };
 
-        assert!(prefer_policy_matrix_row(&stale, &truthful));
-        assert!(!prefer_policy_matrix_row(&truthful, &stale));
+        assert!(prefer_policy_matrix_row(&stale, 1, &truthful, 1));
+        assert!(!prefer_policy_matrix_row(&truthful, 1, &stale, 1));
+    }
+
+    #[test]
+    fn prefer_policy_matrix_row_prefers_newer_truthful_row_for_same_case() {
+        let older = PolicyMatrixRow {
+            policy: "adaptive_shard_routing".to_owned(),
+            workers: "4w".to_owned(),
+            worker_hint: Some("4w".to_owned()),
+            selected_policy: Some("dynamic_per_worker".to_owned()),
+            selected_workers: Some("1w".to_owned()),
+            selected_series: Some("dynamic_per_worker:1w".to_owned()),
+            load: 1000,
+            path: "target/criterion/parallel_policy_matrix/adaptive_shard_routing__hint_4w__selected_dynamic_per_worker_1w/1000/new/estimates.json".to_owned(),
+            mean_ns: 1.0,
+            lb_ns: None,
+            ub_ns: None,
+            series: "adaptive_shard_routing:4w".to_owned(),
+        };
+        let newer = PolicyMatrixRow {
+            path: "target/criterion/parallel_policy_matrix/adaptive_shard_routing__hint_4w__selected_dynamic_per_shard_4w/1000/new/estimates.json".to_owned(),
+            selected_policy: Some("dynamic_per_shard".to_owned()),
+            selected_workers: Some("4w".to_owned()),
+            selected_series: Some("dynamic_per_shard:4w".to_owned()),
+            ..older.clone()
+        };
+
+        assert!(prefer_policy_matrix_row(&older, 10, &newer, 20));
+        assert!(!prefer_policy_matrix_row(&newer, 20, &older, 10));
     }
 
     #[test]

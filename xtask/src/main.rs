@@ -1284,9 +1284,7 @@ fn parse_policy_case(relative_dir: &Path) -> Option<ParsedPolicyCase> {
 fn parse_adaptive_policy_case(policy_case: &str, load: u32) -> Option<ParsedPolicyCase> {
     let rest = policy_case.strip_prefix("adaptive_shard_routing__hint_")?;
     let (worker_hint, selected_case) = rest.split_once("__selected_")?;
-    let Some((selected_policy, selected_workers)) = split_policy_case(selected_case) else {
-        return None;
-    };
+    let (selected_policy, selected_workers) = split_policy_case(selected_case)?;
 
     Some(ParsedPolicyCase {
         policy: "adaptive_shard_routing".to_owned(),

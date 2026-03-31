@@ -5,6 +5,17 @@
 
 ## Unreleased
 
+### Fixed (PR #313 follow-up)
+
+- The adaptive parallel-policy experiment follow-ups so benchmark/report rows
+  now describe the plan that actually executed, adaptive planning reuses the
+  runtime shard-partitioning path instead of duplicating profiling logic, stale
+  adaptive Criterion directories are selected deterministically, malformed
+  adaptive worker-hint directory names are rejected, and the experimental
+  selector seam stays out of the public `warp-core` kernel surface while the
+  benchmark-facing adaptive routing entrypoints remain concrete and
+  deterministic.
+
 ### Fixed (PR #312 follow-up)
 
 - The docs-surface reduction follow-ups so the collision tour no longer points

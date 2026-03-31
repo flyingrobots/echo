@@ -1,8 +1,8 @@
 {
   "group": "parallel_policy_matrix",
-  "baked_at": "2026-03-30T20:15:43.359028Z",
-  "baked_git_sha": "3285602",
-  "baked_source_digest": "b3aece65e132337abc09c4d59b16953590920b8543d80ee72c53c4c36a1590c6",
+  "baked_at": "2026-03-31T08:02:58.657717Z",
+  "baked_git_sha": "564919a",
+  "baked_source_digest": "1dee37136df4d1fdf0cebb944a42c0293acf5fc4246f87f072aba583bfff0212",
   "template_path": "docs/benchmarks/index.html",
   "machine": {
     "os": "macos",
@@ -21,9 +21,9 @@
       "selected_series": "static_per_worker:1w",
       "load": 100,
       "path": "target/criterion/parallel_policy_matrix/adaptive_shard_routing__hint_1w__selected_static_per_worker_1w/100/new/estimates.json",
-      "mean_ns": 48814.95512107914,
-      "lb_ns": 46976.40060113568,
-      "ub_ns": 51038.275202852354,
+      "mean_ns": 45170.70683538968,
+      "lb_ns": 44038.050397627456,
+      "ub_ns": 46400.69903834069,
       "series": "adaptive_shard_routing:1w"
     },
     {
@@ -35,9 +35,9 @@
       "selected_series": "static_per_worker:1w",
       "load": 1000,
       "path": "target/criterion/parallel_policy_matrix/adaptive_shard_routing__hint_1w__selected_static_per_worker_1w/1000/new/estimates.json",
-      "mean_ns": 243309.23633202337,
-      "lb_ns": 241760.17241536823,
-      "ub_ns": 244886.94791512872,
+      "mean_ns": 320441.07359758386,
+      "lb_ns": 306843.07447798236,
+      "ub_ns": 336464.889460925,
       "series": "adaptive_shard_routing:1w"
     },
     {
@@ -49,9 +49,9 @@
       "selected_series": "static_per_worker:1w",
       "load": 10000,
       "path": "target/criterion/parallel_policy_matrix/adaptive_shard_routing__hint_1w__selected_static_per_worker_1w/10000/new/estimates.json",
-      "mean_ns": 2835897.8220787826,
-      "lb_ns": 2792917.578765613,
-      "ub_ns": 2891761.582979454,
+      "mean_ns": 3352257.4166431827,
+      "lb_ns": 3172515.393349267,
+      "ub_ns": 3573891.5918121217,
       "series": "adaptive_shard_routing:1w"
     },
     {
@@ -63,9 +63,9 @@
       "selected_series": null,
       "load": 100,
       "path": "target/criterion/parallel_policy_matrix/dynamic_per_shard_1w/100/new/estimates.json",
-      "mean_ns": 55701.359803303014,
-      "lb_ns": 55003.017380662786,
-      "ub_ns": 56473.87544070608,
+      "mean_ns": 50515.702017362266,
+      "lb_ns": 49960.85533819769,
+      "ub_ns": 51117.00262479456,
       "series": "dynamic_per_shard:1w"
     },
     {
@@ -77,9 +77,9 @@
       "selected_series": null,
       "load": 1000,
       "path": "target/criterion/parallel_policy_matrix/dynamic_per_shard_1w/1000/new/estimates.json",
-      "mean_ns": 271755.8879641715,
-      "lb_ns": 271011.43460600014,
-      "ub_ns": 272466.7885926078,
+      "mean_ns": 286184.76952351123,
+      "lb_ns": 283682.75430253963,
+      "ub_ns": 289134.9265411066,
       "series": "dynamic_per_shard:1w"
     },
     {
@@ -91,9 +91,9 @@
       "selected_series": null,
       "load": 10000,
       "path": "target/criterion/parallel_policy_matrix/dynamic_per_shard_1w/10000/new/estimates.json",
-      "mean_ns": 3276490.65837279,
-      "lb_ns": 3148622.7525932,
-      "ub_ns": 3456441.6176076583,
+      "mean_ns": 3236890.6028111214,
+      "lb_ns": 3163598.152532645,
+      "ub_ns": 3320956.2942565517,
       "series": "dynamic_per_shard:1w"
     },
     {
@@ -105,9 +105,9 @@
       "selected_series": null,
       "load": 100,
       "path": "target/criterion/parallel_policy_matrix/dynamic_per_worker_1w/100/new/estimates.json",
-      "mean_ns": 74288.54004011962,
-      "lb_ns": 71694.79808219144,
-      "ub_ns": 77357.32244391936,
+      "mean_ns": 43548.817486473665,
+      "lb_ns": 42872.155940598466,
+      "ub_ns": 44275.748149573905,
       "series": "dynamic_per_worker:1w"
     },
     {
@@ -119,9 +119,9 @@
       "selected_series": null,
       "load": 1000,
       "path": "target/criterion/parallel_policy_matrix/dynamic_per_worker_1w/1000/new/estimates.json",
-      "mean_ns": 254800.7730051324,
-      "lb_ns": 253034.04827787512,
-      "ub_ns": 256628.717699948,
+      "mean_ns": 318679.6487854434,
+      "lb_ns": 315356.96473102306,
+      "ub_ns": 322199.6108989417,
       "series": "dynamic_per_worker:1w"
     },
     {
@@ -133,9 +133,9 @@
       "selected_series": null,
       "load": 10000,
       "path": "target/criterion/parallel_policy_matrix/dynamic_per_worker_1w/10000/new/estimates.json",
-      "mean_ns": 2576353.581868411,
-      "lb_ns": 2542934.554631925,
-      "ub_ns": 2618529.591282143,
+      "mean_ns": 3265831.0757960146,
+      "lb_ns": 3143340.217694261,
+      "ub_ns": 3462918.521039351,
       "series": "dynamic_per_worker:1w"
     },
     {
@@ -147,9 +147,9 @@
       "selected_series": null,
       "load": 100,
       "path": "target/criterion/parallel_policy_matrix/static_per_shard_1w/100/new/estimates.json",
-      "mean_ns": 54335.14654325011,
-      "lb_ns": 54019.84158620133,
-      "ub_ns": 54745.2069541169,
+      "mean_ns": 54106.522247873305,
+      "lb_ns": 53144.77043251318,
+      "ub_ns": 55081.11348974757,
       "series": "static_per_shard:1w"
     },
     {
@@ -161,9 +161,9 @@
       "selected_series": null,
       "load": 1000,
       "path": "target/criterion/parallel_policy_matrix/static_per_shard_1w/1000/new/estimates.json",
-      "mean_ns": 261512.6813402162,
-      "lb_ns": 260344.88338828948,
-      "ub_ns": 262821.8505080066,
+      "mean_ns": 299845.3279419348,
+      "lb_ns": 295715.3106605483,
+      "ub_ns": 303565.8404826931,
       "series": "static_per_shard:1w"
     },
     {
@@ -175,9 +175,9 @@
       "selected_series": null,
       "load": 10000,
       "path": "target/criterion/parallel_policy_matrix/static_per_shard_1w/10000/new/estimates.json",
-      "mean_ns": 2995425.7336253575,
-      "lb_ns": 2976728.2457414833,
-      "ub_ns": 3014799.0857769917,
+      "mean_ns": 3186130.8141137627,
+      "lb_ns": 3163129.7593584433,
+      "ub_ns": 3212477.160973803,
       "series": "static_per_shard:1w"
     },
     {
@@ -189,9 +189,9 @@
       "selected_series": null,
       "load": 100,
       "path": "target/criterion/parallel_policy_matrix/static_per_worker_1w/100/new/estimates.json",
-      "mean_ns": 49395.42259335288,
-      "lb_ns": 49086.55531040496,
-      "ub_ns": 49732.8120142642,
+      "mean_ns": 49368.8274620388,
+      "lb_ns": 48679.995617259534,
+      "ub_ns": 50024.507009047695,
       "series": "static_per_worker:1w"
     },
     {
@@ -203,9 +203,9 @@
       "selected_series": null,
       "load": 1000,
       "path": "target/criterion/parallel_policy_matrix/static_per_worker_1w/1000/new/estimates.json",
-      "mean_ns": 256155.83745329705,
-      "lb_ns": 252617.31728901184,
-      "ub_ns": 260278.15968980605,
+      "mean_ns": 257305.82397818903,
+      "lb_ns": 255039.72418530256,
+      "ub_ns": 259595.68997921923,
       "series": "static_per_worker:1w"
     },
     {
@@ -217,9 +217,9 @@
       "selected_series": null,
       "load": 10000,
       "path": "target/criterion/parallel_policy_matrix/static_per_worker_1w/10000/new/estimates.json",
-      "mean_ns": 2870983.7615674473,
-      "lb_ns": 2766751.191191996,
-      "ub_ns": 3050358.7044583303,
+      "mean_ns": 3154200.482608165,
+      "lb_ns": 3029736.1942840945,
+      "ub_ns": 3292539.256043021,
       "series": "static_per_worker:1w"
     },
     {
@@ -231,9 +231,9 @@
       "selected_series": "static_per_worker:1w",
       "load": 100,
       "path": "target/criterion/parallel_policy_matrix/adaptive_shard_routing__hint_4w__selected_static_per_worker_1w/100/new/estimates.json",
-      "mean_ns": 53610.8781077518,
-      "lb_ns": 45122.062483183465,
-      "ub_ns": 67469.57759814177,
+      "mean_ns": 43992.323830592424,
+      "lb_ns": 43220.83627672932,
+      "ub_ns": 44833.9068249005,
       "series": "adaptive_shard_routing:4w"
     },
     {
@@ -245,9 +245,9 @@
       "selected_series": "dynamic_per_worker:1w",
       "load": 1000,
       "path": "target/criterion/parallel_policy_matrix/adaptive_shard_routing__hint_4w__selected_dynamic_per_worker_1w/1000/new/estimates.json",
-      "mean_ns": 246258.94045159928,
-      "lb_ns": 245351.57182127563,
-      "ub_ns": 247197.5072563213,
+      "mean_ns": 301971.95382570714,
+      "lb_ns": 295530.88317150075,
+      "ub_ns": 309984.30004747375,
       "series": "adaptive_shard_routing:4w"
     },
     {
@@ -259,9 +259,9 @@
       "selected_series": "dynamic_per_shard:4w",
       "load": 10000,
       "path": "target/criterion/parallel_policy_matrix/adaptive_shard_routing__hint_4w__selected_dynamic_per_shard_4w/10000/new/estimates.json",
-      "mean_ns": 2349454.8143890654,
-      "lb_ns": 2296728.1314406395,
-      "ub_ns": 2428829.5585968923,
+      "mean_ns": 2673776.0130713526,
+      "lb_ns": 2604270.7341417857,
+      "ub_ns": 2751947.8874801314,
       "series": "adaptive_shard_routing:4w"
     },
     {
@@ -273,9 +273,9 @@
       "selected_series": null,
       "load": 100,
       "path": "target/criterion/parallel_policy_matrix/dynamic_per_shard_4w/100/new/estimates.json",
-      "mean_ns": 97858.0695803907,
-      "lb_ns": 97506.22949002017,
-      "ub_ns": 98243.94870010696,
+      "mean_ns": 82055.1527511099,
+      "lb_ns": 79511.75543375462,
+      "ub_ns": 84721.74470579976,
       "series": "dynamic_per_shard:4w"
     },
     {
@@ -287,9 +287,9 @@
       "selected_series": null,
       "load": 1000,
       "path": "target/criterion/parallel_policy_matrix/dynamic_per_shard_4w/1000/new/estimates.json",
-      "mean_ns": 272621.56339620124,
-      "lb_ns": 271487.1636443226,
-      "ub_ns": 273738.0743588584,
+      "mean_ns": 288027.92681351874,
+      "lb_ns": 279967.69307321985,
+      "ub_ns": 302963.3954730564,
       "series": "dynamic_per_shard:4w"
     },
     {
@@ -301,9 +301,9 @@
       "selected_series": null,
       "load": 10000,
       "path": "target/criterion/parallel_policy_matrix/dynamic_per_shard_4w/10000/new/estimates.json",
-      "mean_ns": 2298901.894409138,
-      "lb_ns": 2266171.382493886,
-      "ub_ns": 2340487.9173230366,
+      "mean_ns": 2422040.149857522,
+      "lb_ns": 2389424.481864121,
+      "ub_ns": 2457889.268942081,
       "series": "dynamic_per_shard:4w"
     },
     {
@@ -315,9 +315,9 @@
       "selected_series": null,
       "load": 100,
       "path": "target/criterion/parallel_policy_matrix/dynamic_per_worker_4w/100/new/estimates.json",
-      "mean_ns": 110538.9692916242,
-      "lb_ns": 105299.4166228991,
-      "ub_ns": 116787.01955646784,
+      "mean_ns": 80464.9074086326,
+      "lb_ns": 78042.19605937475,
+      "ub_ns": 82783.11099808023,
       "series": "dynamic_per_worker:4w"
     },
     {
@@ -329,9 +329,9 @@
       "selected_series": null,
       "load": 1000,
       "path": "target/criterion/parallel_policy_matrix/dynamic_per_worker_4w/1000/new/estimates.json",
-      "mean_ns": 276114.7313452295,
-      "lb_ns": 274806.2245654378,
-      "ub_ns": 277550.938612023,
+      "mean_ns": 349301.1054956669,
+      "lb_ns": 344478.52609163814,
+      "ub_ns": 354165.24001226487,
       "series": "dynamic_per_worker:4w"
     },
     {
@@ -343,9 +343,9 @@
       "selected_series": null,
       "load": 10000,
       "path": "target/criterion/parallel_policy_matrix/dynamic_per_worker_4w/10000/new/estimates.json",
-      "mean_ns": 2430756.0023494046,
-      "lb_ns": 2402712.785486056,
-      "ub_ns": 2458234.7425625823,
+      "mean_ns": 2798819.5315694204,
+      "lb_ns": 2740667.369277322,
+      "ub_ns": 2858140.9693026,
       "series": "dynamic_per_worker:4w"
     },
     {
@@ -357,9 +357,9 @@
       "selected_series": null,
       "load": 100,
       "path": "target/criterion/parallel_policy_matrix/static_per_shard_4w/100/new/estimates.json",
-      "mean_ns": 96669.7118663406,
-      "lb_ns": 95665.01493543584,
-      "ub_ns": 97774.01970123163,
+      "mean_ns": 81496.7381324212,
+      "lb_ns": 79490.72739457357,
+      "ub_ns": 83668.56433620017,
       "series": "static_per_shard:4w"
     },
     {
@@ -371,9 +371,9 @@
       "selected_series": null,
       "load": 1000,
       "path": "target/criterion/parallel_policy_matrix/static_per_shard_4w/1000/new/estimates.json",
-      "mean_ns": 265068.98514697317,
-      "lb_ns": 264072.0190368779,
-      "ub_ns": 266075.4267450506,
+      "mean_ns": 273243.89711718255,
+      "lb_ns": 271390.4225985688,
+      "ub_ns": 275576.25361808186,
       "series": "static_per_shard:4w"
     },
     {
@@ -385,9 +385,9 @@
       "selected_series": null,
       "load": 10000,
       "path": "target/criterion/parallel_policy_matrix/static_per_shard_4w/10000/new/estimates.json",
-      "mean_ns": 2368090.737374551,
-      "lb_ns": 2270287.511255549,
-      "ub_ns": 2538069.3219288406,
+      "mean_ns": 2538494.8250080533,
+      "lb_ns": 2493325.2607828225,
+      "ub_ns": 2590587.585276198,
       "series": "static_per_shard:4w"
     },
     {
@@ -399,9 +399,9 @@
       "selected_series": null,
       "load": 100,
       "path": "target/criterion/parallel_policy_matrix/static_per_worker_4w/100/new/estimates.json",
-      "mean_ns": 99719.00226878436,
-      "lb_ns": 98709.43466906682,
-      "ub_ns": 100749.50990501368,
+      "mean_ns": 92265.76157562473,
+      "lb_ns": 90995.64145554138,
+      "ub_ns": 93494.11468083777,
       "series": "static_per_worker:4w"
     },
     {
@@ -413,9 +413,9 @@
       "selected_series": null,
       "load": 1000,
       "path": "target/criterion/parallel_policy_matrix/static_per_worker_4w/1000/new/estimates.json",
-      "mean_ns": 269667.589560778,
-      "lb_ns": 268423.9807179183,
-      "ub_ns": 270776.70145294565,
+      "mean_ns": 276999.48782287294,
+      "lb_ns": 275834.50363322074,
+      "ub_ns": 278111.14116521436,
       "series": "static_per_worker:4w"
     },
     {
@@ -427,9 +427,9 @@
       "selected_series": null,
       "load": 10000,
       "path": "target/criterion/parallel_policy_matrix/static_per_worker_4w/10000/new/estimates.json",
-      "mean_ns": 3505447.6732336907,
-      "lb_ns": 3434633.864120753,
-      "ub_ns": 3587545.996028199,
+      "mean_ns": 3784507.143609345,
+      "lb_ns": 3646396.9359374866,
+      "ub_ns": 3988502.02934999,
       "series": "static_per_worker:4w"
     },
     {
@@ -441,9 +441,9 @@
       "selected_series": "static_per_worker:1w",
       "load": 100,
       "path": "target/criterion/parallel_policy_matrix/adaptive_shard_routing__hint_8w__selected_static_per_worker_1w/100/new/estimates.json",
-      "mean_ns": 46651.50990351103,
-      "lb_ns": 46386.02602614273,
-      "ub_ns": 46949.52611561754,
+      "mean_ns": 41649.445077542005,
+      "lb_ns": 40927.88017958355,
+      "ub_ns": 42482.481800850146,
       "series": "adaptive_shard_routing:8w"
     },
     {
@@ -455,9 +455,9 @@
       "selected_series": "dynamic_per_worker:1w",
       "load": 1000,
       "path": "target/criterion/parallel_policy_matrix/adaptive_shard_routing__hint_8w__selected_dynamic_per_worker_1w/1000/new/estimates.json",
-      "mean_ns": 256076.3376839857,
-      "lb_ns": 254567.49636987865,
-      "ub_ns": 257616.22996874043,
+      "mean_ns": 326092.33179679874,
+      "lb_ns": 321261.1925643069,
+      "ub_ns": 330953.5572374113,
       "series": "adaptive_shard_routing:8w"
     },
     {
@@ -469,9 +469,9 @@
       "selected_series": "dynamic_per_shard:4w",
       "load": 10000,
       "path": "target/criterion/parallel_policy_matrix/adaptive_shard_routing__hint_8w__selected_dynamic_per_shard_4w/10000/new/estimates.json",
-      "mean_ns": 2284241.260040309,
-      "lb_ns": 2255996.453062004,
-      "ub_ns": 2318562.9205891867,
+      "mean_ns": 2522432.115796646,
+      "lb_ns": 2462773.1367397923,
+      "ub_ns": 2595560.216251987,
       "series": "adaptive_shard_routing:8w"
     },
     {
@@ -483,9 +483,9 @@
       "selected_series": null,
       "load": 100,
       "path": "target/criterion/parallel_policy_matrix/dynamic_per_shard_8w/100/new/estimates.json",
-      "mean_ns": 221128.20566731348,
-      "lb_ns": 168705.9512206884,
-      "ub_ns": 293084.435072481,
+      "mean_ns": 140205.51979412173,
+      "lb_ns": 135864.07048469654,
+      "ub_ns": 144647.94829752753,
       "series": "dynamic_per_shard:8w"
     },
     {
@@ -497,9 +497,9 @@
       "selected_series": null,
       "load": 1000,
       "path": "target/criterion/parallel_policy_matrix/dynamic_per_shard_8w/1000/new/estimates.json",
-      "mean_ns": 322579.03715202067,
-      "lb_ns": 313824.7637328752,
-      "ub_ns": 333064.86031953624,
+      "mean_ns": 330258.647134717,
+      "lb_ns": 324277.1188797893,
+      "ub_ns": 339607.02609701356,
       "series": "dynamic_per_shard:8w"
     },
     {
@@ -511,9 +511,9 @@
       "selected_series": null,
       "load": 10000,
       "path": "target/criterion/parallel_policy_matrix/dynamic_per_shard_8w/10000/new/estimates.json",
-      "mean_ns": 2335564.351981975,
-      "lb_ns": 2263207.3908042028,
-      "ub_ns": 2443024.9226102415,
+      "mean_ns": 2557485.098412513,
+      "lb_ns": 2487846.6331850705,
+      "ub_ns": 2643893.313182536,
       "series": "dynamic_per_shard:8w"
     },
     {
@@ -525,9 +525,9 @@
       "selected_series": null,
       "load": 100,
       "path": "target/criterion/parallel_policy_matrix/dynamic_per_worker_8w/100/new/estimates.json",
-      "mean_ns": 214218.04202913484,
-      "lb_ns": 193187.97679325848,
-      "ub_ns": 238758.84087165337,
+      "mean_ns": 149511.95815615234,
+      "lb_ns": 147470.62017485485,
+      "ub_ns": 151573.26186183703,
       "series": "dynamic_per_worker:8w"
     },
     {
@@ -539,9 +539,9 @@
       "selected_series": null,
       "load": 1000,
       "path": "target/criterion/parallel_policy_matrix/dynamic_per_worker_8w/1000/new/estimates.json",
-      "mean_ns": 321004.3301200386,
-      "lb_ns": 317842.07396151253,
-      "ub_ns": 325435.05238823453,
+      "mean_ns": 325590.0612194114,
+      "lb_ns": 324091.42368059576,
+      "ub_ns": 327137.0547241333,
       "series": "dynamic_per_worker:8w"
     },
     {
@@ -553,9 +553,9 @@
       "selected_series": null,
       "load": 10000,
       "path": "target/criterion/parallel_policy_matrix/dynamic_per_worker_8w/10000/new/estimates.json",
-      "mean_ns": 2460321.2251013084,
-      "lb_ns": 2313684.5328440117,
-      "ub_ns": 2626424.160253788,
+      "mean_ns": 3085805.2240987127,
+      "lb_ns": 2920772.721915216,
+      "ub_ns": 3348289.549019437,
       "series": "dynamic_per_worker:8w"
     },
     {
@@ -567,9 +567,9 @@
       "selected_series": null,
       "load": 100,
       "path": "target/criterion/parallel_policy_matrix/static_per_shard_8w/100/new/estimates.json",
-      "mean_ns": 146395.53828625812,
-      "lb_ns": 145641.12584209957,
-      "ub_ns": 147198.46098699563,
+      "mean_ns": 147356.25805304147,
+      "lb_ns": 145053.02833667208,
+      "ub_ns": 149686.32319773582,
       "series": "static_per_shard:8w"
     },
     {
@@ -581,9 +581,9 @@
       "selected_series": null,
       "load": 1000,
       "path": "target/criterion/parallel_policy_matrix/static_per_shard_8w/1000/new/estimates.json",
-      "mean_ns": 295905.1546011342,
-      "lb_ns": 293014.79591983877,
-      "ub_ns": 299260.63467926346,
+      "mean_ns": 322090.02217452985,
+      "lb_ns": 311331.5126824062,
+      "ub_ns": 339788.4516180621,
       "series": "static_per_shard:8w"
     },
     {
@@ -595,9 +595,9 @@
       "selected_series": null,
       "load": 10000,
       "path": "target/criterion/parallel_policy_matrix/static_per_shard_8w/10000/new/estimates.json",
-      "mean_ns": 2484937.7551968335,
-      "lb_ns": 2403509.5394070093,
-      "ub_ns": 2601308.228536655,
+      "mean_ns": 2699334.6041044453,
+      "lb_ns": 2610318.7511610296,
+      "ub_ns": 2801684.93808115,
       "series": "static_per_shard:8w"
     },
     {
@@ -609,9 +609,9 @@
       "selected_series": null,
       "load": 100,
       "path": "target/criterion/parallel_policy_matrix/static_per_worker_8w/100/new/estimates.json",
-      "mean_ns": 154197.09437883832,
-      "lb_ns": 152176.27827774498,
-      "ub_ns": 157352.58676331266,
+      "mean_ns": 145470.83287082094,
+      "lb_ns": 142825.38357221676,
+      "ub_ns": 147321.79713396358,
       "series": "static_per_worker:8w"
     },
     {
@@ -623,9 +623,9 @@
       "selected_series": null,
       "load": 1000,
       "path": "target/criterion/parallel_policy_matrix/static_per_worker_8w/1000/new/estimates.json",
-      "mean_ns": 312927.1394223887,
-      "lb_ns": 306956.82742838125,
-      "ub_ns": 320907.94685956487,
+      "mean_ns": 312971.2070730934,
+      "lb_ns": 311539.11500526086,
+      "ub_ns": 314529.94585226075,
       "series": "static_per_worker:8w"
     },
     {
@@ -637,9 +637,9 @@
       "selected_series": null,
       "load": 10000,
       "path": "target/criterion/parallel_policy_matrix/static_per_worker_8w/10000/new/estimates.json",
-      "mean_ns": 3401459.2276305696,
-      "lb_ns": 3366019.69010309,
-      "ub_ns": 3439981.5737767485,
+      "mean_ns": 3809381.5602099313,
+      "lb_ns": 3753360.7200898663,
+      "ub_ns": 3870542.960591511,
       "series": "static_per_worker:8w"
     },
     {
@@ -651,9 +651,9 @@
       "selected_series": null,
       "load": 100,
       "path": "target/criterion/parallel_policy_matrix/dedicated_per_shard/100/new/estimates.json",
-      "mean_ns": 1303612.6502110336,
-      "lb_ns": 1285108.941474432,
-      "ub_ns": 1323233.115030701,
+      "mean_ns": 1288925.125304984,
+      "lb_ns": 1268798.4553926778,
+      "ub_ns": 1311162.5981921842,
       "series": "dedicated_per_shard:dedicated"
     },
     {
@@ -665,9 +665,9 @@
       "selected_series": null,
       "load": 1000,
       "path": "target/criterion/parallel_policy_matrix/dedicated_per_shard/1000/new/estimates.json",
-      "mean_ns": 3685327.945523915,
-      "lb_ns": 3660924.728274504,
-      "ub_ns": 3708054.6584757934,
+      "mean_ns": 4097745.441445052,
+      "lb_ns": 4081943.937550013,
+      "ub_ns": 4114397.028953228,
       "series": "dedicated_per_shard:dedicated"
     },
     {
@@ -679,9 +679,9 @@
       "selected_series": null,
       "load": 10000,
       "path": "target/criterion/parallel_policy_matrix/dedicated_per_shard/10000/new/estimates.json",
-      "mean_ns": 6414922.0955179455,
-      "lb_ns": 6344838.313537467,
-      "ub_ns": 6490126.823744494,
+      "mean_ns": 7683962.817640886,
+      "lb_ns": 7195839.476383331,
+      "ub_ns": 8359661.276558725,
       "series": "dedicated_per_shard:dedicated"
     }
   ]

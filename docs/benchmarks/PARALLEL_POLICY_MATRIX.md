@@ -33,7 +33,7 @@ The benchmark currently runs at:
 - `1000`
 - `10000`
 
-For pooled-worker policies, it also varies worker hints:
+For the fixed dynamic/static policies, it also varies concrete worker counts:
 
 - `1`
 - `4`
@@ -45,7 +45,8 @@ spawns one thread per non-empty shard.
 For the adaptive selector, the report preserves both:
 
 - the incoming worker hint used to seed the heuristic, and
-- the fixed policy/worker plan the selector actually chose for that load
+- the fixed policy/worker plan the selector actually chose for that
+  workload/hint pair
 
 That keeps the baked HTML and JSON honest when multiple hints collapse to the
 same concrete plan.

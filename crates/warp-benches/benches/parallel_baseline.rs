@@ -65,16 +65,23 @@ fn merge_for_commit_path(deltas: Vec<TickDelta>) -> Vec<WarpOp> {
     flat.into_iter().map(|(_, op)| op).collect()
 }
 
+fn make_test_nodes(n: usize) -> Vec<NodeId> {
+    let mut nodes = Vec::with_capacity(n);
+    for i in 0..n {
+        nodes.push(make_node_id(&format!("bench/n{i}")));
+    }
+
+    nodes
+}
+
 /// Create a test graph with N independent nodes.
 fn make_test_store(n: usize) -> (GraphStore, Vec<NodeId>) {
     let node_ty = make_type_id("bench/node");
     let mut store = GraphStore::default();
-    let mut nodes = Vec::with_capacity(n);
+    let nodes = make_test_nodes(n);
 
-    for i in 0..n {
-        let id = make_node_id(&format!("bench/n{i}"));
+    for &id in &nodes {
         store.insert_node(id, NodeRecord { ty: node_ty });
-        nodes.push(id);
     }
 
     (store, nodes)
@@ -416,7 +423,7 @@ fn bench_policy_matrix(c: &mut Criterion) {
                         format!("{}/{}w", policy_label(policy), workers)
                     }
                     PolicyMatrixCase::Adaptive => {
-                        let (_, nodes) = make_test_store(n);
+                        let nodes = make_test_nodes(n);
                         let items = make_exec_items(&nodes);
                         let hint = worker_hint(workers);
                         let (selected_policy, selected_workers) =

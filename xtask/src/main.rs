@@ -866,7 +866,7 @@ fn run_bench_bake(args: BenchBakeArgs) -> Result<()> {
 
     let (core_data, core_missing) = collect_core_benchmark_rows(&criterion_root, &repo_root);
     let policy_criterion_root = criterion_root.join(BENCH_POLICY_GROUP);
-    let policy_results = collect_policy_matrix_rows(&policy_criterion_root, &repo_root);
+    let policy_results = collect_policy_matrix_rows(&policy_criterion_root, &repo_root)?;
     let baked_source_digest = Some(compute_benchmark_artifact_source_digest(
         &repo_root,
         &template_path,
@@ -919,7 +919,7 @@ fn run_bench_policy_export(args: BenchPolicyExportArgs) -> Result<()> {
         .parent()
         .map_or_else(|| args.criterion_root.clone(), Path::to_path_buf);
     let (core_data, core_missing) = collect_core_benchmark_rows(&core_criterion_root, &repo_root);
-    let policy_results = collect_policy_matrix_rows(&args.criterion_root, &repo_root);
+    let policy_results = collect_policy_matrix_rows(&args.criterion_root, &repo_root)?;
     let baked_source_digest = Some(compute_benchmark_artifact_source_digest(
         &repo_root,
         &default_template,
@@ -959,7 +959,7 @@ fn run_bench_check_artifacts(args: BenchCheckArtifactsArgs) -> Result<()> {
         .parent()
         .map_or_else(|| repo_root.join("target/criterion"), Path::to_path_buf);
     let (core_data, core_missing) = collect_core_benchmark_rows(&core_criterion_root, &repo_root);
-    let current_results = collect_policy_matrix_rows(&criterion_root, &repo_root);
+    let current_results = collect_policy_matrix_rows(&criterion_root, &repo_root)?;
     if payload.results != current_results {
         bail!(
             "benchmark payload results are stale: {} no longer matches current Criterion estimates",
@@ -1164,9 +1164,12 @@ fn compute_benchmark_artifact_source_digest(
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-fn collect_policy_matrix_rows(criterion_root: &Path, repo_root: &Path) -> Vec<PolicyMatrixRow> {
+fn collect_policy_matrix_rows(
+    criterion_root: &Path,
+    repo_root: &Path,
+) -> Result<Vec<PolicyMatrixRow>> {
     if !criterion_root.is_dir() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
     let mut by_case: BTreeMap<(String, String, u32), (PolicyMatrixRow, u128)> = BTreeMap::new();
@@ -1187,8 +1190,15 @@ fn collect_policy_matrix_rows(criterion_root: &Path, repo_root: &Path) -> Vec<Po
             let Ok(relative_dir) = path.strip_prefix(criterion_root) else {
                 continue;
             };
-            let Some(case) = parse_policy_case(relative_dir) else {
-                continue;
+            let case = match parse_policy_case(relative_dir).map_err(|err| {
+                anyhow::anyhow!(
+                    "invalid policy matrix benchmark case `{}` under {}: {err}",
+                    relative_dir.display(),
+                    criterion_root.display()
+                )
+            })? {
+                Some(case) => case,
+                None => continue,
             };
             let Ok(estimate) = load_criterion_estimate(&path, repo_root) else {
                 continue;
@@ -1227,7 +1237,7 @@ fn collect_policy_matrix_rows(criterion_root: &Path, repo_root: &Path) -> Vec<Po
             .then_with(|| left.policy.cmp(&right.policy))
             .then_with(|| left.load.cmp(&right.load))
     });
-    results
+    Ok(results)
 }
 
 fn insert_policy_matrix_row(
@@ -1286,59 +1296,94 @@ fn prefer_policy_matrix_row(
     )
 }
 
-fn parse_policy_case(relative_dir: &Path) -> Option<ParsedPolicyCase> {
+fn parse_policy_case(relative_dir: &Path) -> Result<Option<ParsedPolicyCase>, String> {
     let parts: Vec<String> = relative_dir
         .iter()
         .map(|part| part.to_string_lossy().into_owned())
         .collect();
     match parts.as_slice() {
         [policy_case, load] => {
-            let load = load.parse().ok()?;
+            let Ok(load) = load.parse() else {
+                return Ok(None);
+            };
             if policy_case.starts_with("adaptive_shard_routing__hint_") {
-                return parse_adaptive_policy_case(policy_case, load);
+                return parse_adaptive_policy_case(policy_case, load).map(Some);
             }
-            if let Some((policy, workers)) = split_policy_case(policy_case) {
-                Some(ParsedPolicyCase {
+            if let Some((policy, workers)) = split_policy_case(policy_case)? {
+                Ok(Some(ParsedPolicyCase {
                     policy,
                     workers,
                     worker_hint: None,
                     selected_policy: None,
                     selected_workers: None,
                     load,
-                })
-            } else if policy_case.ends_with('w') {
-                None
+                }))
+            } else if policy_case.ends_with('w')
+                && (policy_case.contains('_') || policy_case.contains('-'))
+            {
+                Err(format!(
+                    "policy case `{policy_case}` ends with a worker suffix but does not match `<policy>_<workers>` or `<policy>-<workers>`"
+                ))
             } else {
-                Some(ParsedPolicyCase {
+                Ok(Some(ParsedPolicyCase {
                     policy: policy_case.clone(),
                     workers: "dedicated".to_owned(),
                     worker_hint: None,
                     selected_policy: None,
                     selected_workers: None,
                     load,
-                })
+                }))
             }
         }
-        [policy, workers, load] => Some(ParsedPolicyCase {
-            policy: policy.clone(),
-            workers: parse_worker_suffix(workers)?,
-            worker_hint: None,
-            selected_policy: None,
-            selected_workers: None,
-            load: load.parse().ok()?,
-        }),
-        _ => None,
+        [policy, workers, load] => {
+            let Ok(load) = load.parse() else {
+                return Ok(None);
+            };
+            let workers = parse_worker_suffix(workers).ok_or_else(|| {
+                format!(
+                    "worker segment `{workers}` in benchmark case `{}` must be `<positive integer>w` without leading zeros",
+                    relative_dir.display()
+                )
+            })?;
+            Ok(Some(ParsedPolicyCase {
+                policy: policy.clone(),
+                workers,
+                worker_hint: None,
+                selected_policy: None,
+                selected_workers: None,
+                load,
+            }))
+        }
+        _ => Ok(None),
     }
 }
 
-fn parse_adaptive_policy_case(policy_case: &str, load: u32) -> Option<ParsedPolicyCase> {
-    let rest = policy_case.strip_prefix("adaptive_shard_routing__hint_")?;
-    let (worker_hint, selected_case) = rest.split_once("__selected_")?;
-    let worker_hint = parse_worker_suffix(worker_hint)?;
-    let (selected_policy, selected_workers) = split_policy_case(selected_case)?;
-    let selected_workers = parse_worker_suffix(&selected_workers)?;
+fn parse_adaptive_policy_case(policy_case: &str, load: u32) -> Result<ParsedPolicyCase, String> {
+    let rest = policy_case
+        .strip_prefix("adaptive_shard_routing__hint_")
+        .ok_or_else(|| {
+            format!("adaptive benchmark case `{policy_case}` is missing the expected hint prefix")
+        })?;
+    let (worker_hint, selected_case) = rest.split_once("__selected_").ok_or_else(|| {
+        format!("adaptive benchmark case `{policy_case}` is missing the `__selected_...` segment")
+    })?;
+    let worker_hint = parse_worker_suffix(worker_hint).ok_or_else(|| {
+        format!(
+            "adaptive benchmark case `{policy_case}` has invalid worker hint `{worker_hint}`; expected `<positive integer>w` without leading zeros"
+        )
+    })?;
+    let (selected_policy, selected_workers) = split_policy_case(selected_case)?.ok_or_else(|| {
+        format!(
+            "adaptive benchmark case `{policy_case}` has invalid selected plan `{selected_case}`; expected `<policy>_<workers>` or `<policy>-<workers>`"
+        )
+    })?;
+    let selected_workers = parse_worker_suffix(&selected_workers).ok_or_else(|| {
+        format!(
+            "adaptive benchmark case `{policy_case}` has invalid selected worker suffix `{selected_workers}`; expected `<positive integer>w` without leading zeros"
+        )
+    })?;
 
-    Some(ParsedPolicyCase {
+    Ok(ParsedPolicyCase {
         policy: "adaptive_shard_routing".to_owned(),
         workers: worker_hint.clone(),
         worker_hint: Some(worker_hint),
@@ -1357,17 +1402,22 @@ fn parse_worker_suffix(label: &str) -> Option<String> {
     Some(label.to_owned())
 }
 
-fn split_policy_case(policy_case: &str) -> Option<(String, String)> {
+fn split_policy_case(policy_case: &str) -> Result<Option<(String, String)>, String> {
     for separator in ['_', '-'] {
         let Some((policy, workers)) = policy_case.rsplit_once(separator) else {
             continue;
         };
-        let Some(workers) = parse_worker_suffix(workers) else {
+        if !workers.ends_with('w') {
             continue;
+        }
+        let Some(workers) = parse_worker_suffix(workers) else {
+            return Err(format!(
+                "policy case `{policy_case}` has invalid worker suffix `{workers}`; expected `<positive integer>w` without leading zeros"
+            ));
         };
-        return Some((policy.to_owned(), workers));
+        return Ok(Some((policy.to_owned(), workers)));
     }
-    None
+    Ok(None)
 }
 
 fn load_criterion_estimate(
@@ -7252,7 +7302,7 @@ mod tests {
 
     #[test]
     fn parse_policy_case_handles_worker_suffix_form() {
-        let Some(case) = parse_policy_case(Path::new("dynamic_per_worker_4w/1000")) else {
+        let Ok(Some(case)) = parse_policy_case(Path::new("dynamic_per_worker_4w/1000")) else {
             unreachable!("expected worker suffix policy case");
         };
 
@@ -7271,7 +7321,7 @@ mod tests {
 
     #[test]
     fn parse_policy_case_handles_unlisted_worker_suffix_form() {
-        let Some(case) = parse_policy_case(Path::new("static_per_worker_16w/1000")) else {
+        let Ok(Some(case)) = parse_policy_case(Path::new("static_per_worker_16w/1000")) else {
             unreachable!("expected generic worker suffix policy case");
         };
 
@@ -7290,7 +7340,7 @@ mod tests {
 
     #[test]
     fn parse_policy_case_handles_dedicated_two_segment_form() {
-        let Some(case) = parse_policy_case(Path::new("dedicated_per_shard/100")) else {
+        let Ok(Some(case)) = parse_policy_case(Path::new("dedicated_per_shard/100")) else {
             unreachable!("expected dedicated policy case");
         };
 
@@ -7309,7 +7359,7 @@ mod tests {
 
     #[test]
     fn parse_policy_case_handles_adaptive_selected_plan_form() {
-        let Some(case) = parse_policy_case(Path::new(
+        let Ok(Some(case)) = parse_policy_case(Path::new(
             "adaptive_shard_routing__hint_8w__selected_dynamic_per_shard_4w/10000",
         )) else {
             unreachable!("expected adaptive selected-plan policy case");
@@ -7329,41 +7379,88 @@ mod tests {
     }
 
     #[test]
-    fn parse_policy_case_rejects_invalid_adaptive_worker_hint_form() {
-        let case = parse_policy_case(Path::new(
+    fn parse_policy_case_errors_on_invalid_adaptive_worker_hint_form() {
+        let err = match parse_policy_case(Path::new(
             "adaptive_shard_routing__hint_bad__selected_dynamic_per_worker_1w/1000",
-        ));
+        )) {
+            Ok(value) => unreachable!("expected error, got {value:?}"),
+            Err(err) => err,
+        };
         assert!(
-            case.is_none(),
-            "invalid adaptive worker hint should be rejected"
+            err.contains("invalid worker hint"),
+            "expected invalid worker hint error, got: {err}"
         );
     }
 
     #[test]
-    fn parse_policy_case_rejects_invalid_adaptive_selected_worker_form() {
-        let zero = parse_policy_case(Path::new(
+    fn parse_policy_case_errors_on_invalid_adaptive_selected_worker_form() {
+        let zero = match parse_policy_case(Path::new(
             "adaptive_shard_routing__hint_8w__selected_dynamic_per_worker_0w/1000",
-        ));
-        let zero_padded = parse_policy_case(Path::new(
+        )) {
+            Ok(value) => unreachable!("expected error, got {value:?}"),
+            Err(err) => err,
+        };
+        let zero_padded = match parse_policy_case(Path::new(
             "adaptive_shard_routing__hint_8w__selected_dynamic_per_worker_01w/1000",
-        ));
+        )) {
+            Ok(value) => unreachable!("expected error, got {value:?}"),
+            Err(err) => err,
+        };
 
         assert!(
-            zero.is_none(),
-            "zero selected worker count should be rejected"
+            zero.contains("invalid worker suffix") || zero.contains("invalid selected plan"),
+            "expected invalid selected worker error, got: {zero}"
         );
         assert!(
-            zero_padded.is_none(),
-            "zero-padded selected worker count should be rejected"
+            zero_padded.contains("invalid worker suffix")
+                || zero_padded.contains("invalid selected worker suffix")
+                || zero_padded.contains("invalid selected plan"),
+            "expected zero-padded selected worker error, got: {zero_padded}"
         );
     }
 
     #[test]
-    fn parse_policy_case_rejects_zero_padded_fixed_worker_suffix() {
-        let case = parse_policy_case(Path::new("dynamic_per_worker_01w/1000"));
+    fn parse_policy_case_errors_on_zero_padded_fixed_worker_suffix() {
+        let err = match parse_policy_case(Path::new("dynamic_per_worker_01w/1000")) {
+            Ok(value) => unreachable!("expected error, got {value:?}"),
+            Err(err) => err,
+        };
         assert!(
-            case.is_none(),
-            "zero-padded fixed worker suffix should be rejected"
+            err.contains("invalid worker suffix"),
+            "expected invalid worker suffix error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn collect_policy_matrix_rows_errors_on_malformed_policy_case() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        let root = std::env::temp_dir().join(format!(
+            "echo-xtask-policy-case-{}-{unique}",
+            std::process::id()
+        ));
+        let malformed =
+            root.join("adaptive_shard_routing__hint_8w__selected_dynamic_per_worker_01w/1000");
+        assert!(
+            std::fs::create_dir_all(&malformed).is_ok(),
+            "failed to create malformed benchmark case fixture"
+        );
+
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().map_or_else(
+            || PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+            Path::to_path_buf,
+        );
+        let err = match collect_policy_matrix_rows(&root, &repo_root) {
+            Ok(value) => unreachable!("expected error, got {value:?}"),
+            Err(err) => err,
+        };
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert!(
+            err.to_string().contains("invalid worker suffix"),
+            "expected invalid worker suffix error, got: {err:#}"
         );
     }
 
@@ -7419,10 +7516,7 @@ mod tests {
             series: "adaptive_shard_routing:4w".to_owned(),
         };
         let newer = PolicyMatrixRow {
-            path: "target/criterion/parallel_policy_matrix/adaptive_shard_routing__hint_4w__selected_dynamic_per_shard_4w/1000/new/estimates.json".to_owned(),
-            selected_policy: Some("dynamic_per_shard".to_owned()),
-            selected_workers: Some("4w".to_owned()),
-            selected_series: Some("dynamic_per_shard:4w".to_owned()),
+            path: "target/criterion/parallel_policy_matrix/adaptive_shard_routing__hint_4w__selected_dynamic_per_worker_1w/1000/base/estimates.json".to_owned(),
             ..older.clone()
         };
 

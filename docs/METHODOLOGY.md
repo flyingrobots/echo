@@ -55,16 +55,16 @@ The following diagram illustrates how a single Rust source feed generates the Ke
 ```mermaid
 graph TD
     subgraph "The Source of Truth"
-        Source[crates/echo-wasm-bindings<br/>(Current demo kernel / WASM DTOs)]
+        Source["crates/echo-wasm-bindings<br/>(Current demo kernel / WASM DTOs)"]
     end
 
     subgraph "Build Targets"
-        Native[Native Target<br/>x86_64 / Aarch64]
-        Wasm[WASM Target<br/>wasm32-unknown]
+        Native["Native Target<br/>x86_64 / Aarch64"]
+        Wasm["WASM Target<br/>wasm32-unknown"]
     end
 
     subgraph "The Living Spec (Web)"
-        Page[Spec Page<br/>(Leptos/HTML)]
+        Page["Spec Page<br/>(Leptos/HTML)"]
         UI[Interactive UI]
         Narrative[Docs & Theory]
     end
@@ -83,7 +83,7 @@ graph TD
     UI -->|Embedded In| Page
     Narrative -->|Embedded In| Page
 
-    User((User / Dev)) -->|Reads| Narrative
+    User("(User / Dev)") -->|Reads| Narrative
     User -->|Manipulates| UI
     UI -->|Calls| Source
 

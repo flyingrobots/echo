@@ -13,6 +13,7 @@ count:
 - static round-robin shard assignment + one delta per worker
 - static round-robin shard assignment + one delta per shard
 - dedicated one-worker-per-shard + one delta per shard
+- adaptive shard routing, which selects one of the pooled-worker policies from workload shape
 
 The point is to answer a narrower question than "is parallel good?":
 
@@ -32,7 +33,7 @@ The benchmark currently runs at:
 - `1000`
 - `10000`
 
-For pooled-worker policies, it also varies worker counts:
+For the fixed dynamic/static policies, it also varies concrete worker counts:
 
 - `1`
 - `4`
@@ -40,6 +41,15 @@ For pooled-worker policies, it also varies worker counts:
 
 The dedicated per-shard policy intentionally ignores the worker-count knob and
 spawns one thread per non-empty shard.
+
+For the adaptive selector, the report preserves both:
+
+- the incoming worker hint used to seed the heuristic, and
+- the fixed policy/worker plan the selector actually chose for that
+  workload/hint pair
+
+That keeps the baked HTML and JSON honest when multiple hints collapse to the
+same concrete plan.
 
 ## Outputs
 

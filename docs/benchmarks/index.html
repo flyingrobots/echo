@@ -849,6 +849,7 @@
                 static_per_worker: "#fbbf24",
                 static_per_shard: "#fb7185",
                 dedicated_per_shard: "#c084fc",
+                adaptive_shard_routing: "#f97316",
             };
             const POLICY_LABELS = {
                 dynamic_per_worker: "Dynamic claim / worker delta",
@@ -856,6 +857,7 @@
                 static_per_worker: "Static round-robin / worker delta",
                 static_per_shard: "Static round-robin / shard delta",
                 dedicated_per_shard: "Dedicated shard / shard delta",
+                adaptive_shard_routing: "Adaptive shard routing selector",
             };
             const WORKER_DASH = {
                 "1w": null,
@@ -924,8 +926,38 @@
                 return `${(ns / 1e6).toFixed(2)} ms`;
             }
 
+            function workerPoolLabel(workers) {
+                return WORKER_LABELS[workers] ?? workers;
+            }
+
+            function workerHintLabel(workers) {
+                const label = workerPoolLabel(workers);
+                return label.endsWith("pool")
+                    ? label.replace("pool", "hint")
+                    : `${label} hint`;
+            }
+
+            function selectedPolicy(row) {
+                return row.selected_policy ?? row.policy;
+            }
+
+            function selectedWorkers(row) {
+                return row.selected_workers ?? row.workers;
+            }
+
+            function selectedPlanLabel(row) {
+                return `${POLICY_LABELS[selectedPolicy(row)] ?? selectedPolicy(row)} / ${workerPoolLabel(selectedWorkers(row))}`;
+            }
+
             function caseLabel(row) {
-                return `${POLICY_LABELS[row.policy] ?? row.policy} / ${WORKER_LABELS[row.workers] ?? row.workers}`;
+                if (
+                    row.worker_hint &&
+                    row.selected_policy &&
+                    row.selected_workers
+                ) {
+                    return `${POLICY_LABELS[row.policy] ?? row.policy} / ${workerHintLabel(row.worker_hint)} (selected ${selectedPlanLabel(row)})`;
+                }
+                return `${POLICY_LABELS[row.policy] ?? row.policy} / ${workerPoolLabel(row.workers)}`;
             }
 
             function workerSortKey(workers) {
@@ -1613,6 +1645,12 @@
                     workers.appendChild(item);
                 });
                 root.appendChild(workers);
+
+                const note = document.createElement("p");
+                note.className = "inline-callout";
+                note.textContent =
+                    "Adaptive rows are grouped by worker hint. Tooltips and the raw table show the fixed plan the selector actually chose for that load.";
+                root.appendChild(note);
             }
 
             function renderPolicyCommentary(data) {
@@ -1652,10 +1690,19 @@
                 });
 
                 const winnerSeq = rankedLoads
-                    .map(({ rows }) => rows[0].workers)
+                    .map(({ rows }) => selectedWorkers(rows[0]))
                     .join(" → ");
-                const staticWinsAll = rankedLoads.every(
-                    ({ rows }) => rows[0].policy === "static_per_worker",
+                const sameWinnerFamily = rankedLoads.every(
+                    ({ rows }) =>
+                        rows[0].policy === rankedLoads[0].rows[0].policy,
+                );
+                const adaptiveLeadsAnyLoad = rankedLoads.some(
+                    ({ rows }) => rows[0].policy === "adaptive_shard_routing",
+                );
+                const adaptiveFrontPack = rankedLoads.every(({ rows }) =>
+                    rows
+                        .slice(0, 3)
+                        .some((row) => row.policy === "adaptive_shard_routing"),
                 );
                 const dedicatedAlwaysLast = rankedLoads.every(
                     ({ rows }) =>
@@ -1670,14 +1717,23 @@
                         `The front pair overlap on confidence intervals for ${tiedFrontLoads.join(", ")}, so trust those loads as close races rather than clean one-policy wins.`,
                     );
                 }
-                if (staticWinsAll) {
+                if (sameWinnerFamily) {
                     lines.push(
-                        "Static round-robin with one delta per worker wins every tested load on this machine, so the simpler pooled-worker path is setting the pace in this study.",
+                        `${POLICY_LABELS[rankedLoads[0].rows[0].policy] ?? rankedLoads[0].rows[0].policy} leads every tested load on this machine, so one policy family is clearly setting the pace in this study.`,
                     );
                 }
                 if (winnerSeq === "1w → 4w → 8w") {
                     lines.push(
                         "As load rises, the winning worker pool widens step by step. Small work prefers less coordination; heavier work finally justifies a wider pool.",
+                    );
+                }
+                if (adaptiveLeadsAnyLoad) {
+                    lines.push(
+                        "The workload-aware selector does win at least one tested load, which means the heuristic is not just a convenience wrapper around the slower half of the field.",
+                    );
+                } else if (adaptiveFrontPack) {
+                    lines.push(
+                        "The workload-aware selector stays in the front pack across the sweep, even when a fixed policy edges it out on individual loads.",
                     );
                 }
                 if (dedicatedAlwaysLast) {
@@ -1918,7 +1974,7 @@
                         .on("mouseenter", function (event, d) {
                             showTooltip(
                                 event,
-                                `<strong>${caseLabel(d)}</strong><br>Load: <code>${d.load}</code><br>Mean: <code>${fmtNs(d.mean_ns)}</code><br>95% CI: <code>${fmtNs(d.lb_ns ?? d.mean_ns)} – ${fmtNs(d.ub_ns ?? d.mean_ns)}</code>`,
+                                `<strong>${caseLabel(d)}</strong><br>Load: <code>${d.load}</code><br>Executed plan: <code>${selectedPlanLabel(d)}</code><br>Mean: <code>${fmtNs(d.mean_ns)}</code><br>95% CI: <code>${fmtNs(d.lb_ns ?? d.mean_ns)} – ${fmtNs(d.ub_ns ?? d.mean_ns)}</code>`,
                             );
                         })
                         .on("mousemove", moveTooltip)
@@ -2088,7 +2144,8 @@
                         (row) => `<tr>
                 <td>${row.load}</td>
                 <td>${POLICY_LABELS[row.policy] ?? row.policy}</td>
-                <td>${WORKER_LABELS[row.workers] ?? row.workers}</td>
+                <td>${row.worker_hint ? workerHintLabel(row.worker_hint) : workerPoolLabel(row.workers)}</td>
+                <td>${selectedPlanLabel(row)}</td>
                 <td>${fmtNs(row.mean_ns)}</td>
                 <td>${fmtNs(row.lb_ns ?? row.mean_ns)} – ${fmtNs(row.ub_ns ?? row.mean_ns)}</td>
               </tr>`,
@@ -2099,8 +2156,9 @@
             <thead>
               <tr>
                 <th>Load</th>
-                <th>Policy</th>
-                <th>Workers</th>
+                <th>Strategy</th>
+                <th>Input workers</th>
+                <th>Executed plan</th>
                 <th>Mean</th>
                 <th>95% CI</th>
               </tr>

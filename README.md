@@ -12,6 +12,7 @@
 <p align="center">
   <a href="docs/guide/start-here.md">Get Started</a> •
   <a href="docs/architecture-outline.md">Architecture</a> •
+  <a href="CONTINUUM.md">Continuum</a> •
   <a href="docs/index.md">Docs</a> •
   <a href="https://github.com/flyingrobots/aion">AIΩN Framework</a>
 </p>
@@ -160,6 +161,10 @@ The combination gives you:
 See also: [Wesley](https://github.com/flyingrobots/wesley)&mdash;a GraphQL-to-Rust/TypeScript
 schema compiler that will generate typed WARP schemas, footprints, and
 deterministic serialization from a single source of truth.
+
+Echo is the `hot` runtime within the larger Continuum architecture. For the
+multi-repo system model, see [Continuum](CONTINUUM.md) and
+[Continuum Foundations](docs/continuum-foundations.md).
 
 ## Quick Tour
 

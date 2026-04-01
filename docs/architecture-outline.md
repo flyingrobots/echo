@@ -7,9 +7,16 @@ If you’re new here, start with:
 
 - [/guide/start-here](/guide/start-here)
 - [/guide/warp-primer](/guide/warp-primer)
+- [/continuum-foundations](/continuum-foundations)
 
 This document is a high-level architecture and "why" artifact. Many sections are aspirational and
 will lag behind the current Rust-first implementation; prefer WARP specs for the runtime boundary.
+
+Echo is the `hot` runtime within the larger Continuum architecture. This
+document is intentionally Echo-scoped. It does not define the full multi-repo
+platform, the `cold` runtime, or the ownership of every shared contract. For
+that wider system model, see `CONTINUUM.md` in the repo root and
+[/continuum-foundations](/continuum-foundations).
 
 > **Implementation Status Legend:**
 >
@@ -17,14 +24,53 @@ will lag behind the current Rust-first implementation; prefer WARP specs for the
 > - ⚠️ **Partial** — some aspects exist, others planned
 > - 🗺️ **Planned** — design only, not yet implemented
 
+## Continuum Context
+
+Echo is one runtime temperature in a larger causal computing stack:
+
+- Echo is the `hot` runtime for deterministic execution under immediate
+  scheduling pressure.
+- `git-warp` is the `cold` runtime for durable asynchronous causal storage and
+  transport.
+- `warp-ttd` is the cross-host observer and control plane.
+- Wesley is the contract compiler and compatibility membrane for shared causal
+  nouns, protocol families, and binary contracts.
+
+This matters because Echo should not be described as if it owns the entire
+platform. It owns the hot path.
+
+## Scope Of This Document
+
+This document should be read as:
+
+- Echo-specific runtime architecture
+- the current `warp-core`-centered kernel story
+- selected future-facing product and adapter ideas
+
+This document should not be read as:
+
+- the canonical definition of Continuum
+- a complete spec for `git-warp`
+- the authoritative contract ownership map for all shared nouns
+- a claim that every planned ECS-style layer below already exists
+
 ## What Exists Today
 
 Before the aspirational material below: Echo already has a real deterministic WARP runtime.
 
-- **`warp-core` rewrite engine** ✅: immutable snapshot reads, private deltas, canonical merge, and deterministic scheduling.
-- **Playback / worldlines / provenance** ✅: recorded history, cursor replay, and append-only lineage support.
-- **Renderer / scene boundary** ✅: a deterministic scene port and canonical codec boundary.
-- **TTD / browser tooling substrate** ✅: WASM-first protocol tooling and time-travel debugging infrastructure.
+- **`warp-core` rewrite engine** ✅: immutable snapshot reads, private deltas,
+  canonical merge, and deterministic scheduling.
+- **Playback / worldlines / provenance** ✅: recorded history, cursor replay,
+  and append-only lineage support.
+- **Renderer / scene boundary** ✅: a deterministic scene port and canonical
+  codec boundary.
+- **Echo-side TTD substrate** ✅: playback, provenance, browser tooling, and
+  host-side protocol/runtime surfaces that the larger `warp-ttd` observer plane
+  can consume.
+
+The important framing is simple: Echo already has a real hot runtime. What it
+does not yet have is a fully minimized, fully stabilized product surface around
+that runtime.
 
 Read the current implementation through these docs first:
 
@@ -35,10 +81,15 @@ Read the current implementation through these docs first:
 
 ## Vision
 
-- Reimagine a battle-tested ECS core into **Echo**, a renderer-agnostic spine that survives browsers, native shells, and whatever 2125 invents next.
-- Empower teams to build 2D, 3D, or abstract simulations with the same spine, swapping adapters instead of rewriting gameplay.
-- Combine modern ergonomics (Rust-first core, clean public surfaces, first-class docs) with ruthless performance discipline so the engine scales from hobby jams to production.
-- Preserve institutional memory—document why choices exist, what legacy quirks inspired them, and how to extend or override any piece.
+- Make Echo the strongest possible `hot` WARP runtime: deterministic,
+  replayable, inspectable, and fast under real execution pressure.
+- Expose clean renderer, tooling, and host boundaries so simulations, games,
+  diagnostics tools, and future runtimes can consume the same causal kernel
+  without rewriting it.
+- Keep the implementation honest about what is current runtime reality versus
+  future-facing API and product design.
+- Preserve institutional memory without letting architecture docs drift into a
+  parallel universe that no longer matches the code.
 
 ## Cultural Principles
 
@@ -51,13 +102,20 @@ Read the current implementation through these docs first:
 ## Guiding Principles
 
 - **Hexagonal Domain Boundary**: The domain never touches DOM, WebGL, or timers directly; everything outside the core arrives through narrow ports.
-- **Data-Oriented Internals**: Gameplay-friendly APIs sit atop archetype/struct-of-arrays storage, pooled allocators, and cache-aware iteration.
-- **Predictable Loop**: Fixed time-step simulation by default with deterministic ordering; variable step, interpolation, and rollback sit behind explicit opt-ins.
-- **Tooling Is Non-Negotiable**: Debug inspector, event traces, hot-reload, and profiling hooks ship alongside the engine, not as an afterthought.
+- **Graph-First Internals**: The kernel is a WARP graph runtime first. Any ECS-like facades or storage layers are product/API layers above that kernel, not the core truth.
+- **Predictable Tick Loop**: Fixed-step, deterministic advancement stays primary; interpolation, rollback, speculative branching, and transport layers must preserve causal clarity.
+- **Tooling Is Non-Negotiable**: Replay, diff, inspection, host adapters, and TTD-facing surfaces ship with the runtime instead of being bolted on later.
 - **Extensible By Design**: Every subsystem exposes extension points, configuration, and hooks for optional native/Wasm accelerators.
 - **Operational Transparency**: Metrics, logging, and failure modes are documented; Echo should be debuggable at 3 AM without spelunking source.
 
 ## Domain Layers
+
+Before reading the planned layers below, keep one constraint in mind:
+
+The current kernel is `warp-core`, which is a WARP graph rewrite runtime. Large
+parts of the ECS-flavored material below are future product/interface design,
+legacy conceptual scaffolding, or a possible facade over the graph-first
+kernel. They are not the present-tense implementation model.
 
 ### Core ECS 🗺️ Planned
 
@@ -159,7 +217,13 @@ The Renderer Port is implemented as a bit-exact, hexagonal boundary:
 
 ### Time Travel Debugging (TTD) ✅ Implemented
 
-TTD is a first-class citizen in Echo, built on top of the provenance and scene port layers:
+TTD is a first-class citizen in Echo, built on top of the provenance and scene
+port layers.
+
+Within Continuum, the broader cross-host debugger vocabulary belongs to
+`warp-ttd`. This section describes Echo's side of that relationship: the host
+runtime surfaces, generated bridges, privacy controls, and browser-facing tools
+that make Echo inspectable through a shared observer model.
 
 - **`ttd-browser`**: A WASM-compiled engine that manages parallel cursors and worldline forks in the browser.
 - **`echo-wesley-gen`**: Hardened code generator that emits bit-exact Rust/TS bridges from GraphQL schemas.
@@ -197,7 +261,7 @@ TTD is a first-class citizen in Echo, built on top of the provenance and scene p
 
 - **Bootstrap Pipeline**: Dependency injection container wires ports, services, systems, and configuration before the first tick. Supports editor-time hot reload.
 - **Resource Lifecycle**: Asset handles (textures, meshes, scripts) managed through reference-counted registries and async loaders; domain requests are idempotent.
-- **Serialization**: Schema-driven serialization for components and events. Allows save/load, network replication, and state diffing.
+- **Serialization & Contracts**: Schema-driven serialization should increasingly flow through Wesley-owned shared contracts where a surface is cross-host or cross-language. Save/load, replication, debugger packets, and state diffing should not each invent their own shadow model.
 - **Deterministic Math**: Echo Math module standardizes vector/matrix/transform operations using reproducible algorithms (configurable precision: fixed-point or IEEE-compliant float32). All systems pull from deterministic PRNG services seeded per branch.
 - **Branch Persistence**:
     - Persistent archetype arena with structural sharing.
@@ -210,7 +274,10 @@ TTD is a first-class citizen in Echo, built on top of the provenance and scene p
 
 ## Delivery Roadmap
 
-> **Current Status (2026-01):** Phase 0 is largely complete for `warp-core`. The Rust-first WARP graph rewriting engine is implemented with deterministic scheduling, snapshot hashing, and basic math. ECS storage and system scheduler remain future work.
+> **Current Status (2026-04):** `warp-core` is a real deterministic WARP graph
+> runtime. The biggest remaining architecture work is not "invent a core from
+> scratch"; it is converging the public surface, contract boundaries, and
+> future-facing layers around the core that already exists.
 
 - **Phase 0 – Spec Deep Dive** ✅ Implemented: WARP core specs finalized; MaterializationBus implemented (ADR-0003).
 - **Phase 1 – Core EXTRACTION** ✅ Implemented: High-integrity TTD protocols, provenance hardening, and worldline management extracted from spec branch.
@@ -243,10 +310,11 @@ TTD is a first-class citizen in Echo, built on top of the provenance and scene p
 - **Compatibility Notes**: Guidance for migrating legacy prototypes, bridging Mootools utilities, and reintroducing box2d/pixi demos on modern footing.
 - **Data Structure Sketches**: (pending) diagrams for archetype arena, branch tree, Codex’s Baby queues.
 - **Temporal Mechanic Catalogue**: (pending) curated list of déjà vu, Mandela artifacts, paradox mitigation, multiverse puzzles.
-- **Repository Layout (Draft)**:
-    - `/packages/echo-core` — deterministic ECS, scheduler, Codex’s Baby, timeline tree.
-    - `/packages/echo-cli` — tooling launcher (future), wraps dev server and inspector.
-    - `/packages/echo-adapters` — reference adapters (Pixi/WebGPU, browser input, etc.).
-    - `/apps/playground` — Vite-driven sandbox for samples and inspector.
-    - `/docs` — live specs, guides, and operational knowledge.
-    - `/tooling` — shared build scripts, benchmarking harness (future).
+- **Repository Layout (Current High-Level)**:
+    - `/crates/warp-core` — hot runtime kernel, replay, provenance, scheduling, commit path.
+    - `/crates/echo-session-*` — session transport, Unix socket hub, WebSocket gateway, protocol edges.
+    - `/crates/echo-scene-*` — deterministic scene boundary, codec surface, renderer adapters.
+    - `/crates/echo-dind-*` — determinism harnesses and cross-platform verification support.
+    - `/apps/ttd-app` — browser-facing diagnostic and TTD surfaces.
+    - `/docs` — specs, guides, ADRs, audits, and architecture memos.
+    - `/scripts` and `/xtask` — verification, repo operations, and local workflow tooling.

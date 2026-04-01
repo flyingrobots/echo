@@ -89,6 +89,7 @@ flowchart TD
 ### Theory / intent
 
 - Architecture outline: [/architecture-outline](/architecture-outline)
+- Continuum foundations bridge: [/continuum-foundations](/continuum-foundations)
 - Theory: [/THEORY](/THEORY)
 - Methodology: [/METHODOLOGY](/METHODOLOGY)
 

@@ -61,6 +61,7 @@ ttd-browser = { version = "0.1.0", path = "crates/ttd-browser" }
 ttd-protocol-rs = { version = "0.1.0", path = "crates/ttd-protocol-rs" }
 ttd-manifest = { version = "0.1.0", path = "crates/ttd-manifest" }
 echo-ttd = { version = "0.1.0", path = "crates/echo-ttd" }
+method = { version = "0.1.0", path = "crates/method" }
 
 # ── Workspace-wide lint policy ──────────────────────────────────────
 # Maximum strictness. Crates opt in via `[lints] workspace = true`.

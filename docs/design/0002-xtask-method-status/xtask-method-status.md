@@ -3,8 +3,8 @@
 
 # 0002 — xtask method status
 
-_Cycle for adding a `method status` subcommand to the xtask CLI so
-the METHOD state of the repo is one command away._
+_Cycle for building a `method` library crate and wiring its `status`
+command through `cargo xtask`._
 
 Legend: [PLATFORM](../../method/legends/PLATFORM.md)
 
@@ -19,7 +19,9 @@ but it requires multiple commands and mental arithmetic to answer
 "what's next?" and "how loaded is each legend?"
 
 This cycle exists to make `cargo xtask method status` the single
-command that answers those questions.
+command that answers those questions — and to build the underlying
+`method` crate as a standalone library that could eventually move
+out of this repo.
 
 ## Human users / jobs / hills
 
@@ -78,57 +80,122 @@ legends are heaviest, and whether any cycles are currently active.
    asap has 15 items.
 4. Claude recommends pulling a PLATFORM item from asap.
 
+## Design decisions
+
+### Standalone `method` crate
+
+The METHOD logic lives in `crates/method/`, not in xtask. This crate
+is a library with no binary. It knows how to read a METHOD workspace
+from a filesystem path and answer questions about it.
+
+```text
+crates/method/
+├── Cargo.toml
+└── src/
+    ├── lib.rs          # pub mod workspace, status
+    ├── workspace.rs    # MethodWorkspace: discover and parse a METHOD root
+    └── status.rs       # StatusReport: lane counts, active cycles, legend load
+```
+
+The crate is organized so it could move to its own repo later (like
+`~/git/method/` already has a TS CLI). It has no dependency on Echo,
+warp-core, or any other Echo crate. Its only inputs are filesystem
+paths.
+
+### xtask integration
+
+xtask depends on `method` and adds a thin `Method` subcommand that
+constructs a `MethodWorkspace` from the repo root and calls
+`method::status()`. The xtask layer handles CLI parsing and output
+formatting. The library returns structured data.
+
+### Workspace discovery
+
+`MethodWorkspace::discover(root: &Path)` looks for:
+
+- `docs/method/backlog/` — the backlog root
+- `docs/design/` — the design docs root
+- `docs/method/retro/` — the retro root
+- `docs/method/legends/` — the legends root
+
+If the backlog directory doesn't exist, the workspace is not a
+METHOD repo. Return an error, don't guess.
+
+### StatusReport struct
+
+```rust
+pub struct StatusReport {
+    pub lanes: BTreeMap<String, usize>,      // lane name -> file count
+    pub active_cycles: Vec<ActiveCycle>,      // design with no retro
+    pub legend_load: BTreeMap<String, usize>, // legend prefix -> count
+    pub total_items: usize,
+}
+
+pub struct ActiveCycle {
+    pub number: String,    // e.g., "0002"
+    pub slug: String,      // e.g., "xtask-method-status"
+    pub legend: Option<String>,
+}
+```
+
+The library returns this struct. xtask formats it for the terminal.
+A future JSON mode or MCP tool would format it differently.
+
 ## Implementation outline
 
-1. Add a `Method` variant to the `Commands` enum in `xtask/src/main.rs`
-   with a `MethodCommand::Status` sub-subcommand.
-2. Implement `method_status()` that:
-    - finds the repo root (walk up from `env::current_dir()` looking
-      for `Cargo.toml`, or use a fixed relative path)
-    - reads `docs/method/backlog/{inbox,asap,up-next,cool-ideas,bad-code}/`
-      and counts `.md` files per lane
-    - reads `docs/design/*/` to find cycle directories
-    - reads `docs/method/retro/*/` to find completed cycles
-    - diffs design vs retro to identify active cycles
-    - parses `<LEGEND>_` prefixes from all backlog filenames and
-      counts per legend
-3. Print three sections to stdout: lanes, active cycles, legend load.
-4. Exit 0 on success.
+1. Create `crates/method/` with `Cargo.toml` (no dependencies beyond
+   `std` — keep it minimal).
+2. Implement `MethodWorkspace::discover(root)` — validate directory
+   structure, return workspace handle.
+3. Implement `MethodWorkspace::status()` — scan lanes, parse legend
+   prefixes, diff design vs retro for active cycles.
+4. Add `method` as a dependency to `xtask/Cargo.toml`.
+5. Add `Method(MethodArgs)` variant to `Commands` enum with
+   `MethodCommand::Status` sub-subcommand.
+6. Wire xtask to call `method::MethodWorkspace::discover()` then
+   `status()`, format output to stdout.
 
 ## Tests to write first
 
-- a test proving `method status` exits 0 when run against a repo
-  with populated backlog lanes
-- a test proving lane counts are correct for a known fixture
-- a test proving active cycle detection works (design dir exists,
-  retro dir does not)
-- a test proving legend load counts parse prefixes correctly
+In `crates/method/`:
+
+- test that `discover()` returns error for a path with no backlog dir
+- test that `discover()` succeeds for a valid METHOD workspace
+- test that `status()` counts lane files correctly for a temp dir
+  fixture with known `.md` files
+- test that active cycle detection finds design dirs with no
+  matching retro dir
+- test that legend prefix parsing extracts `KERNEL` from
+  `KERNEL_foo.md` and counts correctly
+- test that files without a legend prefix are counted under a
+  `(none)` or similar bucket
 
 ## Risks / unknowns
 
-- The xtask binary currently lives in a single `main.rs` file. Adding
-  another subcommand increases the god-file problem. If this gets
-  unwieldy, extracting a `method.rs` module is the natural next step,
-  but that's debt, not a blocker.
-- Path resolution: xtask runs from the repo root via `.cargo/config.toml`
-  alias, so relative paths should work. But if someone runs it from
-  a subdirectory, it could break. We should resolve paths relative to
-  the workspace root.
+- The `method` crate has zero dependencies today. If we later need
+  TOML parsing (for config) or serde (for JSON output), those are
+  additive, not breaking. Start minimal.
+- Workspace path resolution: xtask runs from the repo root via
+  `.cargo/config.toml`. The library takes an explicit path, so it
+  doesn't care about working directory.
+- The crate lives in Echo's workspace for now but is designed to
+  extract. It must not import anything from Echo.
 
 ## Postures
 
-- **Accessibility:** Plain text output, no decoration required to
-  parse meaning. Screen readers can consume it directly.
-- **Localization:** Not applicable — CLI output is English-only for
-  now. No hardcoded left/right layout assumptions.
-- **Agent inspectability:** Output is one item per line, consistent
-  formatting. An agent can parse it to determine what to pull next.
+- **Accessibility:** Plain text output from xtask. No decoration
+  required to parse meaning.
+- **Localization:** Not applicable — English-only CLI for now.
+- **Agent inspectability:** Structured `StatusReport` return type
+  is the agent surface. The xtask layer formats it; an MCP tool
+  or JSON mode could format it differently.
 
 ## Non-goals
 
 - Other METHOD subcommands (inbox, pull, close, drift). Those remain
-  in the backlog.
+  in the backlog and would be added to the `method` crate later.
 - Color output or rich formatting. Plain text is the contract.
 - Reading file contents. Status only cares about filenames and
   directory structure.
-- JSON output mode. If needed later, it's a separate backlog item.
+- JSON output mode. Separate backlog item if needed.
+- Config files or TOML. The filesystem is the database.

@@ -73,12 +73,12 @@ legends are heaviest, and whether any cycles are currently active.
 
 ## Agent playback
 
-1. Claude runs `cargo xtask method status` at the start of a session.
-2. The output contains parseable lines for lane counts, active cycles,
-   and legend load.
-3. Claude determines that PLATFORM has the highest backlog load and
-   asap has 15 items.
-4. Claude recommends pulling a PLATFORM item from asap.
+1. Claude runs `cargo xtask method status --json` at session start.
+2. The output is a JSON object with `lanes`, `active_cycles`,
+   `legend_load`, and `total_items` fields.
+3. Claude parses the JSON directly — no regex, no line counting.
+4. Claude determines PLATFORM has the highest legend load and asap
+   has 15 items. Recommends pulling a PLATFORM item from asap.
 
 ## Design decisions
 
@@ -124,6 +124,7 @@ METHOD repo. Return an error, don't guess.
 ### StatusReport struct
 
 ```rust
+#[derive(Serialize)]
 pub struct StatusReport {
     pub lanes: BTreeMap<String, usize>,      // lane name -> file count
     pub active_cycles: Vec<ActiveCycle>,      // design with no retro
@@ -131,6 +132,7 @@ pub struct StatusReport {
     pub total_items: usize,
 }
 
+#[derive(Serialize)]
 pub struct ActiveCycle {
     pub number: String,    // e.g., "0002"
     pub slug: String,      // e.g., "xtask-method-status"
@@ -138,13 +140,16 @@ pub struct ActiveCycle {
 }
 ```
 
-The library returns this struct. xtask formats it for the terminal.
-A future JSON mode or MCP tool would format it differently.
+The library returns this struct with `Serialize` derived. The agent
+surface (`--json`) is the primary output — it's what gets built and
+tested first. The human-readable plain text format is a projection
+of the same data, added second. No `--human` flag needed; plain text
+is the default, `--json` is the agent flag.
 
 ## Implementation outline
 
-1. Create `crates/method/` with `Cargo.toml` (no dependencies beyond
-   `std` — keep it minimal).
+1. Create `crates/method/` with `Cargo.toml` (deps: `serde` with
+   derive, `serde_json`).
 2. Implement `MethodWorkspace::discover(root)` — validate directory
    structure, return workspace handle.
 3. Implement `MethodWorkspace::status()` — scan lanes, parse legend
@@ -169,12 +174,13 @@ In `crates/method/`:
   `KERNEL_foo.md` and counts correctly
 - test that files without a legend prefix are counted under a
   `(none)` or similar bucket
+- test that `StatusReport` serializes to valid JSON with expected
+  keys (`lanes`, `active_cycles`, `legend_load`, `total_items`)
 
 ## Risks / unknowns
 
-- The `method` crate has zero dependencies today. If we later need
-  TOML parsing (for config) or serde (for JSON output), those are
-  additive, not breaking. Start minimal.
+- The `method` crate depends on `serde` and `serde_json` from day
+  one. Agent surface first means structured output is not optional.
 - Workspace path resolution: xtask runs from the repo root via
   `.cargo/config.toml`. The library takes an explicit path, so it
   doesn't care about working directory.
@@ -186,9 +192,9 @@ In `crates/method/`:
 - **Accessibility:** Plain text output from xtask. No decoration
   required to parse meaning.
 - **Localization:** Not applicable — English-only CLI for now.
-- **Agent inspectability:** Structured `StatusReport` return type
-  is the agent surface. The xtask layer formats it; an MCP tool
-  or JSON mode could format it differently.
+- **Agent inspectability:** `--json` outputs `StatusReport` as JSON.
+  This is the primary surface — built first, tested first. The
+  human plain text view is derived from the same struct.
 
 ## Non-goals
 
@@ -197,5 +203,4 @@ In `crates/method/`:
 - Color output or rich formatting. Plain text is the contract.
 - Reading file contents. Status only cares about filenames and
   directory structure.
-- JSON output mode. Separate backlog item if needed.
 - Config files or TOML. The filesystem is the database.

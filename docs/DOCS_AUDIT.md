@@ -14,7 +14,7 @@ from scratch today, based on what the code actually does?
 | ----------- | -------------------------------------------------------------------- |
 | **KEEP**    | Accurate, useful, would exist from scratch.                          |
 | **REWRITE** | The topic matters but the content is stale, aspirational, or sloppy. |
-| **ARCHIVE** | Historical value only. Move to `docs/archive/`.                      |
+| **ARCHIVE** | Historical value only. Deleted; recoverable from git.                |
 | **DELETE**  | No value. Remove.                                                    |
 | **BACKLOG** | Active concern — migrate to METHOD backlog.                          |
 

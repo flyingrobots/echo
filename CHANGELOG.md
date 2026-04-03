@@ -23,6 +23,8 @@
 - `docs/march-16.plan.md` — stale planning scratchpad.
 - `docs/plans/parallel-merge-and-footprint-optimizations.md` — superseded
   by design review.
+- ADRs (0001–0011), old plans, book (LaTeX), and research artifacts.
+  All recoverable from git history.
 - **`warp-ffi` crate deleted:** The C ABI integration path (`crates/warp-ffi`)
   has been removed. The C ABI approach was abandoned in favor of Rust plugin
   extension via `RewriteRule` trait registration and Rhai scripting. See
@@ -30,13 +32,6 @@
   downstream code that depended on the C FFI surface.
 
 ### Changed
-
-- Archive ADRs (0001–0011 + exceptions + tech debt + phase 6B status)
-  to `docs/archive/adr/`.
-- Archive plans (phase 8 conformance, mapping contract, schema freeze,
-  design review, ADR-0008/0009 living plan) to `docs/archive/plans/`.
-- Archive book (LaTeX source) to `docs/archive/book/`.
-- Archive `warp-rulial-distance.tex` to `docs/archive/`.
 
 ### Fixed (PR #313 follow-up)
 

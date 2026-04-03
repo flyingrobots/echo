@@ -32,6 +32,7 @@ members = [
     "crates/ttd-protocol-rs",
     "crates/ttd-manifest",
     "crates/echo-ttd",
+    "crates/method",
     "xtask"
 ]
 resolver = "2"

@@ -14,7 +14,9 @@ honestly — no skipping phases, no post-hoc design docs.
 **Phase 1 — Pull and design** (when the human says "pull \<item\>"):
 
 1. Move the backlog file to `docs/design/<next-cycle>/`.
-2. Write the design doc (hill, playback questions, postures, non-goals).
+2. Write the design doc from `docs/method/design-template.md`. Include
+   all required sections: why, human/agent hills and playback scenarios,
+   implementation outline, tests to write first, risks, postures, non-goals.
 3. **STOP. Present the design doc to the human for review.** Do not
    proceed until the human approves the design.
 

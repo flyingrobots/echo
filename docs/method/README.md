@@ -211,18 +211,27 @@ in one sentence, the cycle is too big. Split it.
 0. **Pull** — choose from the backlog. Move it into
    `docs/design/<cycle>/`. You are now committed.
 
-1. **Design** — write a design doc. Required sections:
-    - Sponsor human
-    - Sponsor agent
-    - Hill (one sentence)
-    - Playback questions — yes/no, both perspectives. Write them first.
-    - Accessibility / assistive reading posture
-    - Localization / directionality posture
-    - Agent inspectability / explainability posture
-    - Non-goals
-
-    If a posture is not relevant, say so explicitly. Silence is not a
-    position.
+1. **Design** — write a design doc from the template at
+   `docs/method/design-template.md`. Required sections:
+    - **Title and legend** — cycle number, name, legend link.
+    - **Why this cycle exists** — motivation and context.
+    - **Depends on** — explicit dependency chain (or "nothing").
+    - **Human users / jobs / hills** — who benefits, what they do,
+      one-sentence hill from the human perspective.
+    - **Agent users / jobs / hills** — same, from the agent
+      perspective.
+    - **Human playback** — concrete walk-through scenario proving
+      the human hill.
+    - **Agent playback** — concrete walk-through scenario proving
+      the agent hill.
+    - **Implementation outline** — numbered steps of what the code
+      (or docs) will do.
+    - **Tests to write first** — the RED phase, named in the design.
+    - **Risks / unknowns** — what might go wrong.
+    - **Postures** — accessibility, localization, agent
+      inspectability. If not relevant, say so explicitly. Silence
+      is not a position.
+    - **Non-goals** — what this cycle will not do.
 
 2. **RED** — write failing tests. Playback questions become specs.
    Default to agent surface first.

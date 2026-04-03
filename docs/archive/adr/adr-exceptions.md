@@ -1,12 +1,13 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # ADR Exceptions Ledger
 
 Use this file for any temporary implementation that knowingly violates an accepted
 ADR or an implementation-plan invariant.
 
 | Exception | ADR / Plan Section | Owner | Reason | Expiry Date | Tracking Issue / PR | Status |
-| --- | --- | --- | --- | --- | --- | --- |
+| --------- | ------------------ | ----- | ------ | ----------- | ------------------- | ------ |
 
 There are currently no active exceptions.
 

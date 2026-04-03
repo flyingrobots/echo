@@ -1,5 +1,6 @@
 {
   "MD007": { "indent": 4 },
+  "MD024": { "siblings_only": true },
   "MD013": false,
   "MD049": false,
   "MD033": {

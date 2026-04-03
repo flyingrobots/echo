@@ -5,6 +5,39 @@
 
 ## Unreleased
 
+### Added
+
+- Adopt METHOD: backlog lanes, legends, cycle loop, BEARING signpost.
+- `docs/DOCS_AUDIT.md` — full audit of every file in the docs corpus.
+- `docs/BEARING.md` — current direction and tensions signpost.
+- Four legends: KERNEL, MATH, PLATFORM, DOCS.
+- Seven asap backlog items (five xtask METHOD commands, docs cleanup,
+  roadmap migration).
+- Three graveyard entries (BOAW naming, 5x Duty Model, unimplemented
+  future specs).
+
+### Removed
+
+- `docs/METHODOLOGY.md` — 5x Duty Model (never practiced; see graveyard).
+- 17 unimplemented future spec files (see graveyard).
+- `docs/march-16.plan.md` — stale planning scratchpad.
+- `docs/plans/parallel-merge-and-footprint-optimizations.md` — superseded
+  by design review.
+- **`warp-ffi` crate deleted:** The C ABI integration path (`crates/warp-ffi`)
+  has been removed. The C ABI approach was abandoned in favor of Rust plugin
+  extension via `RewriteRule` trait registration and Rhai scripting. See
+  TASKS-DAG.md #26 (Graveyard). This is a **BREAKING CHANGE** for any
+  downstream code that depended on the C FFI surface.
+
+### Changed
+
+- Archive ADRs (0001–0011 + exceptions + tech debt + phase 6B status)
+  to `docs/archive/adr/`.
+- Archive plans (phase 8 conformance, mapping contract, schema freeze,
+  design review, ADR-0008/0009 living plan) to `docs/archive/plans/`.
+- Archive book (LaTeX source) to `docs/archive/book/`.
+- Archive `warp-rulial-distance.tex` to `docs/archive/`.
+
 ### Fixed (PR #313 follow-up)
 
 - The adaptive parallel-policy experiment follow-ups so benchmark/report rows
@@ -946,14 +979,6 @@ warp-core` and `warp-core` shards, preserving the required `Tests` status
 - **Man Pages:** Added `clap_mangen`-based man page generation to `xtask`.
   `cargo xtask man-pages` generates `docs/man/echo-cli.1`,
   `echo-cli-verify.1`, `echo-cli-bench.1`, `echo-cli-inspect.1`.
-
-### Removed
-
-- **`warp-ffi` crate deleted:** The C ABI integration path (`crates/warp-ffi`)
-  has been removed. The C ABI approach was abandoned in favor of Rust plugin
-  extension via `RewriteRule` trait registration and Rhai scripting. See
-  TASKS-DAG.md #26 (Graveyard). This is a **BREAKING CHANGE** for any
-  downstream code that depended on the C FFI surface.
 
 ### Added — Provenance Payload Spec (PP-1)
 

@@ -59,6 +59,28 @@ enum Commands {
     MarkdownFix(MarkdownFixArgs),
     /// Run all docs linters: markdown-fix (auto-fix) then lint-dead-refs (check).
     DocsLint(DocsLintArgs),
+    /// METHOD workspace operations (status, backlog inspection).
+    Method(MethodArgs),
+}
+
+#[derive(Args)]
+struct MethodArgs {
+    /// METHOD subcommand to execute.
+    #[command(subcommand)]
+    command: MethodCommand,
+}
+
+#[derive(Subcommand)]
+enum MethodCommand {
+    /// Show backlog lanes, active cycles, and legend load.
+    Status(MethodStatusArgs),
+}
+
+#[derive(Args)]
+struct MethodStatusArgs {
+    /// Output as JSON (agent surface).
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Args)]
@@ -350,7 +372,56 @@ fn main() -> Result<()> {
         Commands::LintDeadRefs(args) => run_lint_dead_refs(args),
         Commands::MarkdownFix(args) => run_markdown_fix(&args),
         Commands::DocsLint(args) => run_docs_lint(args),
+        Commands::Method(args) => run_method(args),
     }
+}
+
+fn run_method(args: MethodArgs) -> Result<()> {
+    match args.command {
+        MethodCommand::Status(status_args) => run_method_status(status_args),
+    }
+}
+
+fn run_method_status(args: MethodStatusArgs) -> Result<()> {
+    let root = std::env::current_dir().context("failed to get current dir")?;
+    let workspace =
+        method::workspace::MethodWorkspace::discover(&root).map_err(|e| anyhow::anyhow!(e))?;
+    let report = method::status::StatusReport::build(&workspace).map_err(|e| anyhow::anyhow!(e))?;
+
+    if args.json {
+        let json =
+            serde_json::to_string_pretty(&report).context("failed to serialize status report")?;
+        println!("{json}");
+    } else {
+        print_status_human(&report);
+    }
+    Ok(())
+}
+
+fn print_status_human(report: &method::status::StatusReport) {
+    println!("Backlog");
+    for (lane, count) in &report.lanes {
+        println!("  {lane}: {count}");
+    }
+    println!();
+
+    println!("Active cycles");
+    if report.active_cycles.is_empty() {
+        println!("  (none)");
+    } else {
+        for cycle in &report.active_cycles {
+            println!("  {}-{}", cycle.number, cycle.slug);
+        }
+    }
+    println!();
+
+    println!("Legend load");
+    for (legend, count) in &report.legend_load {
+        println!("  {legend}: {count}");
+    }
+    println!();
+
+    println!("Total: {}", report.total_items);
 }
 
 fn run_bench(args: BenchArgs) -> Result<()> {

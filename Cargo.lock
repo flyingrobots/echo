@@ -6419,6 +6419,7 @@ dependencies = [
  "anyhow",
  "clap",
  "clap_mangen",
+ "method",
  "pulldown-cmark",
  "serde",
  "serde_json",

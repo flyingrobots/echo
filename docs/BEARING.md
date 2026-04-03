@@ -8,23 +8,26 @@ replace backlog items, design docs, retros, or CLI status.
 
 ## Where are we going?
 
-Current priority: adopt METHOD, audit the documentation corpus, and
-establish honest bookkeeping for what Echo actually is today.
+Current priority: build out METHOD tooling and align Echo with
+warp-ttd (the official time-travel debugger) and git-warp (the
+reference WARP substrate).
 
 ## What just shipped?
 
-Adaptive parallel selector (PR #313) — the last feature cycle before
-METHOD adoption.
+Cycle 0002 — `cargo xtask method status` with `--json` agent surface.
+The method crate is a standalone library with zero Echo dependencies.
 
 ## What feels wrong?
 
-- The docs corpus is ~25% fiction (specs for things that don't exist).
-  The audit is written; the cleanup is not.
-- No cycle has ever run under METHOD in this repo. The first one will
-  test whether the process fits a Rust simulation engine.
-- 47 unmerged local branches were just pruned, but the worktree at
-  `echo-cleanup-docs` is still hanging around.
-- The old ROADMAP structure needs to be migrated into METHOD backlog
-  lanes. Items are identified in `DOCS_AUDIT.md` but not yet moved.
-- xtask tooling for METHOD commands does not exist yet. Manual `ls`
-  and `mv` until then.
+- The docs corpus is still ~25% fiction. The audit is written; the
+  cleanup hasn't been pulled as a cycle yet.
+- Echo has no strand or braiding semantics. git-warp has a full
+  implementation. The gap is real and growing.
+- The warp-ttd protocol was shaped by git-warp's simpler model. Echo's
+  richer runtime schema (typed IDs, dual tick clocks, ingress routing,
+  scheduler introspection) isn't surfaced through the protocol yet.
+- Echo's pre-warp-ttd crates (echo-ttd, ttd-browser, ttd-protocol-rs)
+  need reconciliation with warp-ttd's canonical schema.
+- RED and GREEN can't be separate commits under the current lint
+  policy (clippy denies `todo!()`). The discipline is preserved but
+  the commit structure doesn't show it.

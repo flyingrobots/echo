@@ -7,6 +7,9 @@
 
 ### Added
 
+- `crates/method/` — standalone METHOD library crate (cycle 0002).
+  `cargo xtask method status` and `cargo xtask method status --json`
+  for backlog lane counts, active cycles, and legend load.
 - Adopt METHOD: backlog lanes, legends, cycle loop, BEARING signpost.
 - `docs/DOCS_AUDIT.md` — full audit of every file in the docs corpus.
 - `docs/BEARING.md` — current direction and tensions signpost.

@@ -55,6 +55,12 @@ settlement protocol:
    unresolvable disagreements. These are first-class provenance, not
    silent drops.
 
+## Preconditions
+
+- Cross-worldline settlement requires identical `tick_quantum` (per
+  FIXED-TIMESTEP invariant). The planner rejects settlement between
+  worldlines with different quanta.
+
 ## What this does NOT do
 
 - Automatic conflict resolution (v1 surfaces conflicts, does not

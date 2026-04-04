@@ -55,13 +55,6 @@ settlement protocol:
    unresolvable disagreements. These are first-class provenance, not
    silent drops.
 
-## Braidability constraint
-
-Variable-dt lanes are not settleable unless their dt streams are
-identical (per SPEC-0010 dt policy). This is enforced at step 2 (Plan):
-the planner rejects settlement between worldlines with incompatible
-dt configurations.
-
 ## What this does NOT do
 
 - Automatic conflict resolution (v1 surfaces conflicts, does not

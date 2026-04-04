@@ -11,9 +11,11 @@ use warp_core::strand::{
     make_strand_id, BaseRef, DropReceipt, Strand, StrandError, StrandRegistry,
 };
 use warp_core::{
-    make_head_id, make_node_id, make_type_id, make_warp_id, GraphStore, HeadEligibility,
-    NodeRecord, PlaybackHeadRegistry, PlaybackMode, ProvenanceRef, ProvenanceService,
-    RunnableWriterSet, WorldlineId, WorldlineState, WorldlineTick, WriterHead, WriterHeadKey,
+    make_head_id, make_node_id, make_type_id, make_warp_id, GlobalTick, GraphStore, HashTriplet,
+    HeadEligibility, LocalProvenanceStore, NodeRecord, PlaybackHeadRegistry, PlaybackMode,
+    ProvenanceEntry, ProvenanceRef, ProvenanceService, ProvenanceStore, RunnableWriterSet,
+    WorldlineId, WorldlineState, WorldlineTick, WorldlineTickHeaderV1, WorldlineTickPatchV1,
+    WriterHead, WriterHeadKey,
 };
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -317,6 +319,101 @@ fn provenance_fork_creates_child_with_prefix() {
         result.is_err(),
         "fork should fail when no entries exist at fork_tick"
     );
+}
+
+// ── Happy-path fork: commit entries, fork, verify child prefix ──────────
+
+#[test]
+fn provenance_fork_happy_path_child_has_correct_prefix() {
+    let base_id = wl(1);
+    let child_id = wl(2);
+    let warp_id = make_warp_id("fork-test-warp");
+
+    let mut store = LocalProvenanceStore::new();
+    store
+        .register_worldline(base_id, warp_id)
+        .expect("register");
+
+    let head_key = WriterHeadKey {
+        worldline_id: base_id,
+        head_id: make_head_id("fork-test-head"),
+    };
+
+    // Commit 3 ticks (0, 1, 2) to the base worldline.
+    let mut parents = Vec::new();
+    for tick in 0..3 {
+        let triplet = HashTriplet {
+            state_root: [tick as u8 + 1; 32],
+            patch_digest: [tick as u8 + 0x10; 32],
+            commit_hash: [tick as u8 + 0x20; 32],
+        };
+        let entry = ProvenanceEntry::local_commit(
+            base_id,
+            wt(tick),
+            GlobalTick::from_raw(tick),
+            head_key,
+            parents,
+            triplet,
+            WorldlineTickPatchV1 {
+                header: WorldlineTickHeaderV1 {
+                    commit_global_tick: GlobalTick::from_raw(tick),
+                    policy_id: 0,
+                    rule_pack_id: [0u8; 32],
+                    plan_digest: [0u8; 32],
+                    decision_digest: [0u8; 32],
+                    rewrites_digest: [0u8; 32],
+                },
+                warp_id,
+                ops: vec![],
+                in_slots: vec![],
+                out_slots: vec![],
+                patch_digest: [tick as u8; 32],
+            },
+            vec![],
+            Vec::new(),
+        );
+        parents = vec![entry.as_ref()];
+        store.append_local_commit(entry).expect("append");
+    }
+
+    // Fork at tick 1 (last included tick = 1, child gets ticks 0 and 1).
+    store.fork(base_id, wt(1), child_id).expect("fork");
+
+    // Verify child has exactly 2 entries (ticks 0 and 1).
+    assert_eq!(store.len(child_id).expect("child len"), 2);
+
+    // Verify the forked entry at tick 1 has the expected commit hash.
+    let child_entry = store.entry(child_id, wt(1)).expect("child entry at tick 1");
+    assert_eq!(
+        child_entry.expected.commit_hash,
+        [1 + 0x20; 32],
+        "child entry at fork_tick should have the base's commit hash"
+    );
+
+    // Verify the child's worldline ID was rewritten.
+    assert_eq!(child_entry.worldline_id, child_id);
+
+    // This is the base_ref verification: all fields from one coordinate.
+    let base_ref = BaseRef {
+        source_worldline_id: base_id,
+        fork_tick: wt(1),
+        commit_hash: child_entry.expected.commit_hash,
+        boundary_hash: child_entry.expected.state_root,
+        provenance_ref: ProvenanceRef {
+            worldline_id: base_id,
+            worldline_tick: wt(1),
+            commit_hash: child_entry.expected.commit_hash,
+        },
+    };
+
+    // INV-S5: all fields agree.
+    assert_eq!(
+        base_ref.provenance_ref.worldline_id,
+        base_ref.source_worldline_id
+    );
+    assert_eq!(base_ref.provenance_ref.worldline_tick, base_ref.fork_tick);
+    assert_eq!(base_ref.provenance_ref.commit_hash, base_ref.commit_hash);
+    assert_eq!(base_ref.boundary_hash, child_entry.expected.state_root);
 }
 
 // ── Drop receipt carries correct fields ─────────────────────────────────

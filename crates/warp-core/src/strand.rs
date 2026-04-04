@@ -35,8 +35,6 @@ use crate::ident::Hash;
 use crate::provenance_store::ProvenanceRef;
 use crate::worldline::WorldlineId;
 
-pub use echo_runtime_schema::HeadId;
-
 use crate::head::WriterHeadKey;
 
 /// A 32-byte domain-separated strand identifier.
@@ -131,7 +129,7 @@ pub struct DropReceipt {
 /// A strand either exists in the `StrandRegistry` (live) or does not
 /// (dropped). There is no lifecycle field — operational state is derived
 /// from the writer heads.
-#[derive(Clone, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Strand {
     /// Unique strand identity.
     pub strand_id: StrandId,

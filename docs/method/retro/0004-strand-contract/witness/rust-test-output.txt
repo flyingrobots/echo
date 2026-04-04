@@ -1,0 +1,23 @@
+
+running 18 tests
+test drop_receipt_carries_correct_fields ... ok
+test inv_s5_base_ref_fields_consistent ... ok
+test inv_s7_child_and_base_worldlines_are_distinct ... ok
+test inv_s9_support_pins_empty_on_creation ... ok
+test inv_s4_strand_head_created_dormant_and_paused ... ok
+test inv_s2_s8_strand_heads_belong_to_child_worldline ... ok
+test registry_duplicate_insert_fails ... ok
+test inv_s4_s10_dormant_strand_heads_excluded_from_runnable_set ... ok
+test provenance_fork_creates_child_with_prefix ... ok
+test registry_insert_and_get ... ok
+test provenance_fork_happy_path_child_has_correct_prefix ... ok
+test registry_insert_rejects_inv_s7_same_worldline ... ok
+test registry_insert_rejects_inv_s8_wrong_head_worldline ... ok
+test registry_insert_rejects_inv_s9_nonempty_support_pins ... ok
+test registry_list_by_base_filters_correctly ... ok
+test registry_remove_nonexistent_returns_error ... ok
+test registry_remove_returns_strand_and_clears ... ok
+test v1_strand_has_exactly_one_writer_head ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

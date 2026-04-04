@@ -1,0 +1,21 @@
+=== STRAND-CONTRACT invariant tests ===
+
+1. Invariant document exists
+  PASS: docs/invariants/STRAND-CONTRACT.md exists
+
+2. Contains all ten invariant codes
+  PASS: INV-S1 present
+  PASS: INV-S2 present
+  PASS: INV-S3 present
+  PASS: INV-S4 present
+  PASS: INV-S5 present
+  PASS: INV-S6 present
+  PASS: INV-S7 present
+  PASS: INV-S8 present
+  PASS: INV-S9 present
+  PASS: INV-S10 present
+
+3. Normative language
+  PASS: contains MUST
+
+=== Results: 12 passed, 0 failed ===

@@ -7,6 +7,13 @@
 
 ### Added
 
+- Cycle 0003 (dt policy) — ratify fixed timestep as default, variable-dt
+  as opt-in admitted stream, braidability constraint for settlement.
+- `KERNEL_strand-contract` backlog item — strand as a first-class
+  relation with exact fields, invariants, lifecycle, and TTD mapping.
+- `KERNEL_strand-settlement` backlog item — deterministic settlement
+  semantics (compare → plan → import → conflict artifact).
+
 - `crates/method/` — standalone METHOD library crate (cycle 0002).
   `cargo xtask method status` and `cargo xtask method status --json`
   for backlog lane counts, active cycles, and legend load.

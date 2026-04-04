@@ -142,6 +142,8 @@ mod worldline;
 mod coordinator;
 mod head;
 mod head_inbox;
+/// Strand contract for speculative execution lanes.
+pub mod strand;
 mod worldline_registry;
 mod worldline_state;
 

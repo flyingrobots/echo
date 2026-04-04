@@ -37,7 +37,7 @@ echo ""
 echo "2. Contains all ten invariant codes"
 for code in INV-S1 INV-S2 INV-S3 INV-S4 INV-S5 INV-S6 INV-S7 INV-S8 INV-S9 INV-S10; do
   assert "${code} present" \
-    grep -q "${code}" "${invariant}"
+    grep -Eq "(^### ${code}([[:space:]]|$)| ${code}[ :(])" "${invariant}"
 done
 
 echo ""

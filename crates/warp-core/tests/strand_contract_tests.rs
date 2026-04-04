@@ -55,6 +55,11 @@ fn setup_base_worldline() -> (ProvenanceService, WorldlineId, WorldlineState) {
     (provenance, base_id, initial_state)
 }
 
+/// Build a strand with explicit base/child worldlines for invariant violation tests.
+fn make_test_strand_raw(base_worldline: WorldlineId, child_worldline: WorldlineId) -> Strand {
+    make_test_strand("raw", base_worldline, child_worldline, wt(5))
+}
+
 /// Build a strand by hand (without full engine integration) to test the
 /// registry and type invariants.
 fn make_test_strand(
@@ -251,6 +256,88 @@ fn registry_remove_returns_strand_and_clears() {
 }
 
 #[test]
+fn registry_insert_rejects_inv_s7_same_worldline() {
+    let mut registry = StrandRegistry::new();
+    // child == base violates INV-S7
+    let strand = make_test_strand_raw(wl(1), wl(1));
+    let err = registry.insert(strand).expect_err("INV-S7 should reject");
+    assert!(
+        matches!(err, StrandError::InvariantViolation(_)),
+        "expected InvariantViolation, got {err:?}"
+    );
+}
+
+#[test]
+fn registry_insert_rejects_inv_s8_wrong_head_worldline() {
+    let mut registry = StrandRegistry::new();
+    let strand_id = make_strand_id("s8-bad");
+    let strand = Strand {
+        strand_id,
+        base_ref: BaseRef {
+            source_worldline_id: wl(1),
+            fork_tick: wt(5),
+            commit_hash: [0xAA; 32],
+            boundary_hash: [0xBB; 32],
+            provenance_ref: ProvenanceRef {
+                worldline_id: wl(1),
+                worldline_tick: wt(5),
+                commit_hash: [0xAA; 32],
+            },
+        },
+        child_worldline_id: wl(2),
+        // Head belongs to wl(3), not wl(2) — violates INV-S8
+        writer_heads: vec![WriterHeadKey {
+            worldline_id: wl(3),
+            head_id: make_head_id("wrong-wl-head"),
+        }],
+        support_pins: Vec::new(),
+    };
+    let err = registry.insert(strand).expect_err("INV-S8 should reject");
+    assert!(
+        matches!(err, StrandError::InvariantViolation(_)),
+        "expected InvariantViolation, got {err:?}"
+    );
+}
+
+#[test]
+fn registry_insert_rejects_inv_s9_nonempty_support_pins() {
+    use warp_core::strand::SupportPin;
+
+    let mut registry = StrandRegistry::new();
+    let strand_id = make_strand_id("s9-bad");
+    let strand = Strand {
+        strand_id,
+        base_ref: BaseRef {
+            source_worldline_id: wl(1),
+            fork_tick: wt(5),
+            commit_hash: [0xAA; 32],
+            boundary_hash: [0xBB; 32],
+            provenance_ref: ProvenanceRef {
+                worldline_id: wl(1),
+                worldline_tick: wt(5),
+                commit_hash: [0xAA; 32],
+            },
+        },
+        child_worldline_id: wl(2),
+        writer_heads: vec![WriterHeadKey {
+            worldline_id: wl(2),
+            head_id: make_head_id("s9-head"),
+        }],
+        support_pins: vec![SupportPin {
+            strand_id: make_strand_id("pinned"),
+            worldline_id: wl(10),
+            pinned_tick: wt(0),
+            state_hash: [0; 32],
+        }],
+    };
+    let err = registry.insert(strand).expect_err("INV-S9 should reject");
+    assert!(
+        matches!(err, StrandError::InvariantViolation(_)),
+        "expected InvariantViolation, got {err:?}"
+    );
+}
+
+#[test]
 fn registry_remove_nonexistent_returns_none() {
     let mut registry = StrandRegistry::new();
     let sid = make_strand_id("ghost");
@@ -341,22 +428,23 @@ fn provenance_fork_happy_path_child_has_correct_prefix() {
 
     // Commit 3 ticks (0, 1, 2) to the base worldline.
     let mut parents = Vec::new();
-    for tick in 0..3 {
+    for tick in 0_u8..3 {
+        let tick_u64 = u64::from(tick);
         let triplet = HashTriplet {
-            state_root: [tick as u8 + 1; 32],
-            patch_digest: [tick as u8 + 0x10; 32],
-            commit_hash: [tick as u8 + 0x20; 32],
+            state_root: [tick + 1; 32],
+            patch_digest: [tick + 0x10; 32],
+            commit_hash: [tick + 0x20; 32],
         };
         let entry = ProvenanceEntry::local_commit(
             base_id,
-            wt(tick),
-            GlobalTick::from_raw(tick),
+            wt(tick_u64),
+            GlobalTick::from_raw(tick_u64),
             head_key,
             parents,
             triplet,
             WorldlineTickPatchV1 {
                 header: WorldlineTickHeaderV1 {
-                    commit_global_tick: GlobalTick::from_raw(tick),
+                    commit_global_tick: GlobalTick::from_raw(tick_u64),
                     policy_id: 0,
                     rule_pack_id: [0u8; 32],
                     plan_digest: [0u8; 32],
@@ -367,7 +455,7 @@ fn provenance_fork_happy_path_child_has_correct_prefix() {
                 ops: vec![],
                 in_slots: vec![],
                 out_slots: vec![],
-                patch_digest: [tick as u8; 32],
+                patch_digest: [tick; 32],
             },
             vec![],
             Vec::new(),

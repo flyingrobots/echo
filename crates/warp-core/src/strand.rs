@@ -170,6 +170,10 @@ pub enum StrandError {
     /// A provenance operation failed during strand creation or drop.
     #[error("provenance error: {0}")]
     Provenance(String),
+
+    /// A contract invariant was violated.
+    #[error("invariant violation: {0}")]
+    InvariantViolation(&'static str),
 }
 
 /// Session-scoped registry of live strands.
@@ -190,13 +194,39 @@ impl StrandRegistry {
 
     /// Inserts a fully constructed strand into the registry.
     ///
+    /// Validates contract invariants before insertion:
+    /// - INV-S7: `child_worldline_id != base_ref.source_worldline_id`
+    /// - INV-S8: every writer head belongs to `child_worldline_id`
+    /// - INV-S9: `support_pins` is empty in v1
+    ///
     /// # Errors
     ///
     /// Returns [`StrandError::AlreadyExists`] if a strand with the same ID
-    /// is already registered.
+    /// is already registered, or [`StrandError::InvariantViolation`] if any
+    /// contract invariant is violated.
     pub fn insert(&mut self, strand: Strand) -> Result<(), StrandError> {
         if self.strands.contains_key(&strand.strand_id) {
             return Err(StrandError::AlreadyExists(strand.strand_id));
+        }
+        // INV-S7: distinct worldlines.
+        if strand.child_worldline_id == strand.base_ref.source_worldline_id {
+            return Err(StrandError::InvariantViolation(
+                "INV-S7: child_worldline_id must differ from base_ref.source_worldline_id",
+            ));
+        }
+        // INV-S8: head ownership.
+        for head_key in &strand.writer_heads {
+            if head_key.worldline_id != strand.child_worldline_id {
+                return Err(StrandError::InvariantViolation(
+                    "INV-S8: every writer head must belong to child_worldline_id",
+                ));
+            }
+        }
+        // INV-S9: no support pins in v1.
+        if !strand.support_pins.is_empty() {
+            return Err(StrandError::InvariantViolation(
+                "INV-S9: support_pins must be empty in v1",
+            ));
         }
         self.strands.insert(strand.strand_id, strand);
         Ok(())

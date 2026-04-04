@@ -208,8 +208,10 @@ in one sentence, the cycle is too big. Split it.
 
 ### The loop
 
-0. **Pull** — choose from the backlog. Move it into
-   `docs/design/<cycle>/`. You are now committed.
+0. **Pull** — choose from the backlog. Create a `cycle/<id>` branch
+   off `main` (e.g., `cycle/0003-dt-policy`). Move the backlog item
+   into `docs/design/<cycle>/`. You are now committed. All cycle work
+   happens on this branch.
 
 1. **Design** — write a design doc from the template at
    `docs/method/design-template.md`. Required sections:
@@ -257,8 +259,10 @@ in one sentence, the cycle is too big. Split it.
 
     Closing the cycle packet does not mean `main` has accepted it yet.
 
-6. **PR / review** — review the full cycle packet until merge or
-   rejection.
+6. **PR / review** — push the `cycle/<id>` branch and open a PR to
+   `main`. The PR contains the full cycle packet: design doc,
+   implementation, tests, retro, and witness. Review the full cycle
+   packet until merge or rejection.
 
 7. **Ship sync on `main`** — after merge, update repo-level ship
    surfaces such as `docs/BEARING.md`, `CHANGELOG.md`, and release
@@ -362,11 +366,12 @@ to resurrect something, you must address the note.
 
 ```text
 idea -> inbox/ -> cool-ideas/ -> up-next/ -> asap/
+  -> cycle/<id> branch off main
   -> design/<cycle>/  (committed)
   -> RED -> GREEN -> playback (witness)
-  -> retro/<cycle>/   (cycle packet closed)
-  -> PR -> main
-  -> ship sync (BEARING / CHANGELOG / release when meaningful)
+  -> retro/<cycle>/   (cycle packet closed on branch)
+  -> push cycle/<id>, PR to main
+  -> ship sync on main (BEARING / CHANGELOG / release when meaningful)
       - or ->
   -> graveyard/
 ```

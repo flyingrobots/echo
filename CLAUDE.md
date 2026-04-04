@@ -13,11 +13,13 @@ honestly — no skipping phases, no post-hoc design docs.
 
 **Phase 1 — Pull and design** (when the human says "pull \<item\>"):
 
-1. Move the backlog file to `docs/design/<next-cycle>/`.
-2. Write the design doc from `docs/method/design-template.md`. Include
+1. Create a `cycle/<id>` branch off `main` (e.g., `cycle/0003-dt-policy`).
+   All cycle work happens on this branch.
+2. Move the backlog file to `docs/design/<next-cycle>/`.
+3. Write the design doc from `docs/method/design-template.md`. Include
    all required sections: why, human/agent hills and playback scenarios,
    implementation outline, tests to write first, risks, postures, non-goals.
-3. **STOP. Present the design doc to the human for review.** Do not
+4. **STOP. Present the design doc to the human for review.** Do not
    proceed until the human approves the design.
 
 **Phase 2 — RED / GREEN** (when the human approves the design):
@@ -40,6 +42,7 @@ honestly — no skipping phases, no post-hoc design docs.
 1. Write the retro in `docs/method/retro/<cycle>/`. Include drift
    check, new debt, cool ideas.
 2. Commit the cycle packet.
+3. Push the `cycle/<id>` branch and open a PR to `main`.
 
 ### Backlog operations
 

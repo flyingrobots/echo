@@ -14,16 +14,17 @@ reference WARP substrate).
 
 ## What just shipped?
 
-Cycle 0003 — FIXED-TIMESTEP invariant. dt is fixed per worldline via
-immutable `tick_quantum` at genesis. No per-tick variable dt. Wall-clock
-time never enters semantic history. Cross-worldline operations require
-identical `tick_quantum`. First entry in `docs/invariants/`.
+Cycle 0004 — strand contract. `Strand`, `BaseRef`, `StrandRegistry`
+types in `warp-core/src/strand.rs`. Ten invariants (INV-S1 through
+INV-S10). Invariant validation on registry insert. Hard-delete drop
+with `DropReceipt`. Second entry in `docs/invariants/`.
+
+Prior: cycle 0003 — FIXED-TIMESTEP invariant.
 
 ## What is next?
 
-Strand contract (KERNEL_strand-contract), then strand settlement
-(KERNEL_strand-settlement). The order is deliberate: dt (done) →
-strand identity → settlement semantics.
+Strand settlement (KERNEL_strand-settlement). The trilogy: dt (done) →
+strand contract (done) → settlement semantics.
 
 ## What feels wrong?
 

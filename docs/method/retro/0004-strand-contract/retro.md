@@ -33,13 +33,19 @@ all passing.
 
 ### Human playback
 
-| #   | Question                                        | Answer | Witness                              |
-| --- | ----------------------------------------------- | ------ | ------------------------------------ |
-| 1   | Does create_strand return correct fields?       | Yes    | 14 Rust tests pass                   |
-| 2   | Is base_ref pinned exactly?                     | Yes    | inv_s5 test                          |
-| 3   | Are strand heads Dormant/Paused?                | Yes    | inv_s4 test                          |
-| 4   | Are strand heads excluded from runnable set?    | Yes    | inv_s4_s10 integration test          |
-| 5   | Does drop remove everything and return receipt? | Yes    | registry_remove + drop_receipt tests |
+| #   | Question                                         | Answer | Witness                          |
+| --- | ------------------------------------------------ | ------ | -------------------------------- |
+| 1   | Does Strand struct have correct contract fields? | Yes    | 18 Rust tests pass               |
+| 2   | Is base_ref pinned exactly?                      | Yes    | inv_s5 + happy-path fork test    |
+| 3   | Are strand heads Dormant/Paused?                 | Yes    | inv_s4 test                      |
+| 4   | Are strand heads excluded from runnable set?     | Yes    | inv_s4_s10 integration test      |
+| 5   | Does registry reject invalid strands?            | Yes    | 3 rejection tests (S7/S8/S9)     |
+| 6   | Does remove surface NotFound errors?             | Yes    | registry_remove_nonexistent test |
+
+Note: orchestrated `create_strand` and `drop_strand` APIs (provenance
+fork + head creation + registry insert with rollback) are defined in
+the design doc but not yet implemented as a single API. The types,
+registry, and invariant validation exist; the wiring is future work.
 
 ### Agent playback
 

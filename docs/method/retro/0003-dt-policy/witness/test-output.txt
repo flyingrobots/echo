@@ -1,0 +1,28 @@
+=== FIXED-TIMESTEP invariant tests ===
+
+1. Invariant document exists
+  PASS: docs/invariants/FIXED-TIMESTEP.md exists
+
+2. Normative language
+  PASS: contains MUST
+  PASS: contains tick_quantum
+
+3. Seven normative rulings
+  PASS: ruling 1: immutable tick_quantum at genesis
+  PASS: ruling 2: each tick advances by exactly one quantum
+  PASS: ruling 3: dt is not an admitted stream fact
+  PASS: ruling 4: dt is never stored per tick
+  PASS: ruling 5: tick-denominated
+  PASS: ruling 6: canonical decision
+  PASS: ruling 7: identical tick_quantum for cross-worldline
+
+4. Cross-references
+  PASS: SPEC-0004 references the invariant
+
+5. Negative test: variable-dt concepts absent from crates
+  PASS: no 'variable_dt' in crates/
+  PASS: no 'dt_stream' in crates/
+  PASS: no 'variable.dt' in crates/ (dot-separated)
+
+=== Results: 14 passed, 0 failed ===
+exit: 0

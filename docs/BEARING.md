@@ -14,19 +14,16 @@ reference WARP substrate).
 
 ## What just shipped?
 
-Cycle 0002 — `cargo xtask method status` with `--json` agent surface.
-The method crate is a standalone library with zero Echo dependencies.
+Cycle 0003 — FIXED-TIMESTEP invariant. dt is fixed per worldline via
+immutable `tick_quantum` at genesis. No per-tick variable dt. Wall-clock
+time never enters semantic history. Cross-worldline operations require
+identical `tick_quantum`. First entry in `docs/invariants/`.
 
-## What is active?
+## What is next?
 
-Cycle 0003 — dt policy. Ratify fixed timestep as the default, define
-variable-dt as opt-in, lock the braidability constraint. This is
-spec-only work that gates the strand contract and settlement specs.
-
-Queued behind it: strand contract (KERNEL_strand-contract) and strand
-settlement (KERNEL_strand-settlement). The order is deliberate: dt →
-strand identity → settlement semantics. Starting from merge smuggles
-in answers to all three with worse names.
+Strand contract (KERNEL_strand-contract), then strand settlement
+(KERNEL_strand-settlement). The order is deliberate: dt (done) →
+strand identity → settlement semantics.
 
 ## What feels wrong?
 

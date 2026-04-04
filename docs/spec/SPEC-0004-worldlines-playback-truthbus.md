@@ -44,6 +44,7 @@ A `Worldline` is an append-only boundary encoding sufficient to reconstruct (a) 
 
 - **WL-001 (Holography):** Given `U0Ref`, patches, and canonical apply, any tick’s state is reconstructible.
 - **WL-002 (Truth):** Given recorded outputs per tick, any tick’s client-visible truth is reconstructible byte-for-byte.
+- **WL-003 (FIXED-TIMESTEP):** Every worldline has an immutable `tick_quantum` and every committed tick advances simulation by exactly one quantum. See [FIXED-TIMESTEP invariant](../invariants/FIXED-TIMESTEP.md).
 
 ---
 

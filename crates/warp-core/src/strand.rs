@@ -8,7 +8,7 @@
 //!
 //! # Lifecycle
 //!
-//! A strand either exists in the [`StrandRegistry`] (live) or does not
+//! A strand either exists in the `StrandRegistry` (live) or does not
 //! (dropped). There is no tombstone state. Operational control (paused,
 //! admitted, ticking) is derived from the writer heads — the heads are the
 //! single source of truth for control state.
@@ -113,7 +113,7 @@ pub struct SupportPin {
     pub state_hash: Hash,
 }
 
-/// Receipt returned by [`StrandRegistry::drop_strand`].
+/// Receipt returned when a strand is dropped.
 ///
 /// This is the only record that the strand existed after hard-delete.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -128,7 +128,7 @@ pub struct DropReceipt {
 
 /// A strand: a named, ephemeral, speculative execution lane.
 ///
-/// A strand either exists in the [`StrandRegistry`] (live) or does not
+/// A strand either exists in the `StrandRegistry` (live) or does not
 /// (dropped). There is no lifecycle field — operational state is derived
 /// from the writer heads.
 #[derive(Clone, Debug)]

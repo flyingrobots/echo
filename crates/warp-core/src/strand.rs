@@ -232,9 +232,15 @@ impl StrandRegistry {
         Ok(())
     }
 
-    /// Removes a strand from the registry, returning it if it existed.
-    pub fn remove(&mut self, strand_id: &StrandId) -> Option<Strand> {
-        self.strands.remove(strand_id)
+    /// Removes a strand from the registry.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StrandError::NotFound`] if the strand is not registered.
+    pub fn remove(&mut self, strand_id: &StrandId) -> Result<Strand, StrandError> {
+        self.strands
+            .remove(strand_id)
+            .ok_or(StrandError::NotFound(*strand_id))
     }
 
     /// Returns a reference to a strand, if it exists.
@@ -249,13 +255,22 @@ impl StrandRegistry {
         self.strands.contains_key(strand_id)
     }
 
-    /// Returns all live strands derived from the given base worldline,
-    /// ordered by [`StrandId`].
-    pub fn list_by_base(&self, base_worldline_id: &WorldlineId) -> Vec<&Strand> {
+    /// Returns a zero-allocation iterator over live strands derived from the
+    /// given base worldline, ordered by [`StrandId`].
+    pub fn iter_by_base<'a>(
+        &'a self,
+        base_worldline_id: &'a WorldlineId,
+    ) -> impl Iterator<Item = &'a Strand> + 'a {
         self.strands
             .values()
-            .filter(|s| &s.base_ref.source_worldline_id == base_worldline_id)
-            .collect()
+            .filter(move |s| &s.base_ref.source_worldline_id == base_worldline_id)
+    }
+
+    /// Returns all live strands derived from the given base worldline,
+    /// ordered by [`StrandId`]. Allocates; prefer [`iter_by_base`](Self::iter_by_base)
+    /// in hot paths.
+    pub fn list_by_base<'a>(&'a self, base_worldline_id: &'a WorldlineId) -> Vec<&'a Strand> {
+        self.iter_by_base(base_worldline_id).collect()
     }
 
     /// Returns the number of live strands.

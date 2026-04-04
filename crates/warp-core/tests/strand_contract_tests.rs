@@ -245,8 +245,8 @@ fn registry_remove_returns_strand_and_clears() {
     let sid = strand.strand_id;
 
     registry.insert(strand).expect("insert");
-    let removed = registry.remove(&sid);
-    assert!(removed.is_some(), "remove should return the strand");
+    let removed = registry.remove(&sid).expect("remove should succeed");
+    assert_eq!(removed.strand_id, sid);
     assert!(
         !registry.contains(&sid),
         "strand should be gone after remove"
@@ -338,10 +338,11 @@ fn registry_insert_rejects_inv_s9_nonempty_support_pins() {
 }
 
 #[test]
-fn registry_remove_nonexistent_returns_none() {
+fn registry_remove_nonexistent_returns_error() {
     let mut registry = StrandRegistry::new();
     let sid = make_strand_id("ghost");
-    assert!(registry.remove(&sid).is_none());
+    let err = registry.remove(&sid).expect_err("remove should fail");
+    assert_eq!(err, StrandError::NotFound(sid));
 }
 
 #[test]
@@ -369,7 +370,8 @@ fn registry_list_by_base_filters_correctly() {
     let from_b = registry.list_by_base(&base_b);
     assert_eq!(from_b.len(), 1, "should find 1 strand from base_b");
 
-    let from_none = registry.list_by_base(&wl(99));
+    let unknown = wl(99);
+    let from_none = registry.list_by_base(&unknown);
     assert!(
         from_none.is_empty(),
         "should find no strands from unknown base"
@@ -470,38 +472,44 @@ fn provenance_fork_happy_path_child_has_correct_prefix() {
     // Verify child has exactly 2 entries (ticks 0 and 1).
     assert_eq!(store.len(child_id).expect("child len"), 2);
 
-    // Verify the forked entry at tick 1 has the expected commit hash.
+    // Fetch the SOURCE entry (not the child copy) for ground-truth comparison.
+    let base_entry = store.entry(base_id, wt(1)).expect("base entry at tick 1");
     let child_entry = store.entry(child_id, wt(1)).expect("child entry at tick 1");
+
+    // Verify fork preserved commit hashes between source and child.
     assert_eq!(
-        child_entry.expected.commit_hash,
-        [1 + 0x20; 32],
-        "child entry at fork_tick should have the base's commit hash"
+        child_entry.expected.commit_hash, base_entry.expected.commit_hash,
+        "child entry commit_hash should match base entry"
+    );
+    assert_eq!(
+        child_entry.expected.state_root, base_entry.expected.state_root,
+        "child entry state_root should match base entry"
     );
 
     // Verify the child's worldline ID was rewritten.
     assert_eq!(child_entry.worldline_id, child_id);
 
-    // This is the base_ref verification: all fields from one coordinate.
+    // Build base_ref from the SOURCE entry, not the child copy.
     let base_ref = BaseRef {
         source_worldline_id: base_id,
         fork_tick: wt(1),
-        commit_hash: child_entry.expected.commit_hash,
-        boundary_hash: child_entry.expected.state_root,
+        commit_hash: base_entry.expected.commit_hash,
+        boundary_hash: base_entry.expected.state_root,
         provenance_ref: ProvenanceRef {
             worldline_id: base_id,
             worldline_tick: wt(1),
-            commit_hash: child_entry.expected.commit_hash,
+            commit_hash: base_entry.expected.commit_hash,
         },
     };
 
-    // INV-S5: all fields agree.
+    // INV-S5: all fields agree with source coordinate.
     assert_eq!(
         base_ref.provenance_ref.worldline_id,
         base_ref.source_worldline_id
     );
     assert_eq!(base_ref.provenance_ref.worldline_tick, base_ref.fork_tick);
     assert_eq!(base_ref.provenance_ref.commit_hash, base_ref.commit_hash);
-    assert_eq!(base_ref.boundary_hash, child_entry.expected.state_root);
+    assert_eq!(base_ref.boundary_hash, base_entry.expected.state_root);
 }
 
 // ── Drop receipt carries correct fields ─────────────────────────────────

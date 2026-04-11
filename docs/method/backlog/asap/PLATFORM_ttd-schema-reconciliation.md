@@ -7,7 +7,6 @@ Echo has local TTD protocol artifacts that predate warp-ttd:
 
 - `ttd-protocol-rs` — generated Rust types still described as if Wesley or a
   repo-local schema were the direct source of truth
-- `ttd-manifest` — vendored IR for the protocol
 - `packages/ttd-protocol-ts` — generated TypeScript package carrying the same
   ownership ambiguity
 
@@ -18,7 +17,6 @@ truth.
 Work:
 
 - Point `ttd-protocol-rs` generation at warp-ttd's canonical schema
-- Remove or redirect `ttd-manifest` to consume warp-ttd's IR
 - Keep generated crates/packages clearly marked as downstream consumers, not
   backup protocol owners
 - Verify generated types still satisfy `echo-ttd` compliance checker

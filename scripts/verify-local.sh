@@ -245,7 +245,6 @@ readonly FULL_CRITICAL_PREFIXES=(
   "crates/echo-dind-tests/"
   "crates/ttd-browser/"
   "crates/ttd-protocol-rs/"
-  "crates/ttd-manifest/"
   ".github/workflows/"
   ".githooks/"
   "scripts/"
@@ -300,7 +299,6 @@ readonly FULL_LOCAL_PACKAGES=(
   "echo-dind-tests"
   "ttd-browser"
   "ttd-protocol-rs"
-  "ttd-manifest"
   "xtask"
 )
 
@@ -331,7 +329,6 @@ readonly FULL_LOCAL_CLIPPY_SUPPORT_PACKAGES=(
   "echo-dind-tests"
   "ttd-browser"
   "ttd-protocol-rs"
-  "ttd-manifest"
 )
 
 readonly FULL_LOCAL_CLIPPY_BIN_ONLY_PACKAGES=(

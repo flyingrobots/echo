@@ -30,7 +30,6 @@ members = [
     "crates/echo-scene-codec",
     "crates/ttd-browser",
     "crates/ttd-protocol-rs",
-    "crates/ttd-manifest",
     "crates/echo-ttd",
     "crates/method",
     "xtask"
@@ -59,7 +58,6 @@ echo-wasm-abi = { version = "0.1.0", path = "crates/echo-wasm-abi" }
 warp-core = { version = "0.1.1", path = "crates/warp-core" }
 ttd-browser = { version = "0.1.0", path = "crates/ttd-browser" }
 ttd-protocol-rs = { version = "0.1.0", path = "crates/ttd-protocol-rs" }
-ttd-manifest = { version = "0.1.0", path = "crates/ttd-manifest" }
 echo-ttd = { version = "0.1.0", path = "crates/echo-ttd" }
 method = { version = "0.1.0", path = "crates/method" }
 

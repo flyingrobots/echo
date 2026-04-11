@@ -9,7 +9,6 @@ Echo still carries local TTD protocol artifacts that predate the current
 Continuum ownership split:
 
 - `crates/ttd-protocol-rs`
-- `crates/ttd-manifest`
 - `packages/ttd-protocol-ts`
 - `crates/echo-ttd/src/compliance.rs`
 

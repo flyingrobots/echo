@@ -9,10 +9,10 @@ Filesystem-backed configuration adapter for Echo tools.
 
 - Implements `echo-app-core`'s `ConfigStore` using platform-specific
   configuration directories (via the `directories` crate) and JSON files.
-- Provides a concrete `FsConfigStore` type that tools like `warp-viewer` and
-  `echo-session-service` use to persist:
-    - viewer preferences (camera pose, HUD toggles, vsync options),
-    - host/service settings (e.g., socket path).
+- Provides a concrete `FsConfigStore` type that browser/host tools can use to
+  persist:
+    - local TTD/browser preferences,
+    - host/runtime settings (for example browser bridge configuration).
 - Keeps persistence details (paths, JSON encoding) out of UI and domain logic,
   which talk only to the abstract `ConfigStore` / `ConfigService` from
   `echo-app-core`.

@@ -480,8 +480,9 @@ use crate::worldline::WorldlineId;
 ///     Some(&op_emission_index_digest),
 /// );
 /// ```
-// Allow many arguments: this signature matches the TTD spec (docs/plans/ttd-app.md §3.3)
-// exactly. A builder pattern would obscure the wire format correspondence.
+// Allow many arguments: this signature mirrors the current TTD receipt hash
+// contract exactly. A builder pattern would obscure the wire-format
+// correspondence.
 #[allow(clippy::too_many_arguments)]
 pub fn compute_tick_commit_hash_v2(
     schema_hash: &Hash,

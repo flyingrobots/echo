@@ -33,8 +33,10 @@ ECS is a _useful storage and API layer_, but the deeper “ground truth” model
 
 ### If you want to run something end-to-end
 
-1. WARP View Protocol demo: [/guide/wvp-demo](/guide/wvp-demo)
-2. Collision DPO tour (static HTML): [/collision-dpo-tour.html](/collision-dpo-tour.html)
+1. Collision DPO tour (static HTML): [/collision-dpo-tour.html](/collision-dpo-tour.html)
+
+Echo no longer ships the older local WVP demo stack. Browser debugger delivery
+is moving to `warp-ttd`, while Echo keeps the WASM/browser host surfaces.
 
 ### Collision DPO Tour (what to expect)
 

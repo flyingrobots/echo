@@ -146,7 +146,7 @@ The combination gives you:
 > **Echo is early. Sharp edges.**
 >
 > - **Stable:** Core determinism, hashing, replay invariants, parallel execution
-> - **Changing:** Schema/IR, APIs, file formats, viewer protocol
+> - **Changing:** Schema/IR, APIs, file formats, browser/TTD host surfaces
 > - **Not yet:** Nice UX, polished docs, batteries-included examples
 >
 > If you need a plug-and-play game engine today, this isn't that (yet).
@@ -186,8 +186,8 @@ cargo test -p warp-core --features delta_validate
 ```
 
 ```bash
-# Launch the viewer
-cargo run -p warp-viewer
+# Check the browser-facing host bridge and protocol consumers
+cargo check -p ttd-browser -p ttd-protocol-rs
 
 # Build the docs site
 make docs
@@ -204,15 +204,14 @@ make docs
 - **Materialization bus**&mdash;order-independent output channels
 - **WSC** (Write-Streaming Columnar)&mdash;zero-copy snapshot format for fast state reload + verification
 
-**Pipeline** &mdash; `crates/echo-session-*`
+**Browser / Contract Surfaces** &mdash; `crates/ttd-browser`, `crates/ttd-protocol-rs`, `packages/ttd-protocol-ts`, `crates/echo-wesley-gen`
 
-- Unix socket hub with gapless diff streaming
-- WebSocket gateway for browser tools
-- Canonical CBOR wire format
+- Browser-hostable TTD/runtime bridge surfaces over Echo WASM
+- Generated Rust/TypeScript protocol consumers aligned to canonical shared contracts
+- Narrow Echo-side substrate interfaces for the future `warp-ttd` browser delivery path
 
-**Tools** &mdash; `crates/warp-viewer`, `crates/echo-dind-*`
+**Verification Tools** &mdash; `crates/echo-dind-*`
 
-- Native GPU viewer with per-frame hash verification
 - **DIND** (Determinism-in-Determinism)&mdash;cross-platform test harness that proves hash convergence
 
 ## Research Foundation

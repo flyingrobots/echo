@@ -17,9 +17,15 @@ split:
 
 ## What just shipped?
 
-Prototype viewer-stack removal. Echo no longer carries the old local browser
-debugger product path (`warp-viewer`, session hub/gateway/client, `ttd-app`).
-Repo truth now points at:
+The parity runway is now explicit in design:
+
+- `0007` defines braid geometry and native neighborhood publication
+- `0008` defines strand settlement as compare -> plan -> import ->
+  conflict artifact
+
+Earlier cleanup also removed the old local browser debugger product path
+(`warp-viewer`, session hub/gateway/client, `ttd-app`). Repo truth now points
+at:
 
 - Echo browser/WASM host bridge surfaces
 - `warp-ttd` as the browser debugger destination
@@ -27,20 +33,24 @@ Repo truth now points at:
 
 ## What is next?
 
-Two bounded cleanup cuts:
+Two implementation cuts and one contract cut:
 
-1. narrow `ttd-browser` into a real Echo browser host bridge
-2. split `echo-session-proto` so retained TTD/browser frame contracts stop
-   living in the same conceptual bucket as dead hub/WVP transport residue
+1. make `0007` real in kernel/runtime truth:
+   support pins + native neighborhood site publication
+2. make `0008` real in kernel/runtime truth:
+   compare/plan/import/conflict artifact publication
+3. land one Wesley-generated proof slice against the shared Continuum observer
+   contract, then narrow `ttd-browser` / `echo-session-proto` around that
+   reality
 
 ## What feels wrong?
 
-- `ttd-browser` still carries too much legacy debugger-shaped surface for a
-  crate that should now be a host bridge.
-- `echo-session-proto` still mixes retained TTDR/EINT/browser framing with the
-  older WVP/session-hub protocol family.
+- support pins and neighborhood sites are still design truth, not runtime
+  truth.
+- settlement nouns exist only as a new design packet and placeholder event
+  kinds, not a shipped compare/plan/import path.
 - Echo's richer runtime schema (typed IDs, dual tick clocks, ingress routing,
   scheduler introspection) still is not surfaced cleanly through the canonical
-  `warp-ttd` protocol.
+  shared observer/debugger contract.
 - Echo still lacks an explicit CLI/MCP agent boundary, so agent use depends on
   repo-local APIs and bridge folklore instead of one inspectable surface.

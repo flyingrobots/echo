@@ -43,7 +43,8 @@ This cycle therefore defines the first non-empty support-pin contract and the
 first honest local-site publication boundary.
 
 Settlement remains separate. This packet is about local plural read geometry,
-not compare/import/conflict law.
+not compare/import/conflict law. That follow-on is now
+[0008 — Strand settlement and conflict artifacts](../0008-strand-settlement/design.md).
 
 ## Design decision
 

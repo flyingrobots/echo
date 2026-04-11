@@ -5,12 +5,12 @@ name = "ttd-browser"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.90.0"
-description = "TTD Browser Engine: WASM bindings for the Time-Travel Debugger"
+description = "Echo browser host bridge: WASM bindings for observation, playback, and receipt surfaces"
 license = "Apache-2.0"
 repository = "https://github.com/flyingrobots/echo"
 readme = "README.md"
-keywords = ["echo", "ttd", "wasm", "time-travel", "debugger"]
-categories = ["wasm", "development-tools::debugging"]
+keywords = ["echo", "ttd", "wasm", "browser", "host-bridge"]
+categories = ["wasm", "development-tools"]
 
 [lib]
 crate-type = ["cdylib"]

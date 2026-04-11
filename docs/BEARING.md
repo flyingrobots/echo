@@ -8,33 +8,37 @@ replace backlog items, design docs, retros, or CLI status.
 
 ## Where are we going?
 
-Current priority: build out METHOD tooling and align Echo with
-warp-ttd (the official time-travel debugger) and git-warp (the
-reference WARP substrate).
+Current priority: finish the Echo-side cutover to the Continuum ownership
+split:
+
+- Echo owns hot runtime truth and browser-hostable WASM substrate
+- `warp-ttd` owns debugger session semantics and browser delivery
+- shared protocol truth stays canonical outside Echo
 
 ## What just shipped?
 
-Cycle 0004 — strand contract. `Strand`, `BaseRef`, `StrandRegistry`
-types in `warp-core/src/strand.rs`. Ten invariants (INV-S1 through
-INV-S10). Invariant validation on registry insert. Hard-delete drop
-with `DropReceipt`. Second entry in `docs/invariants/`.
+Prototype viewer-stack removal. Echo no longer carries the old local browser
+debugger product path (`warp-viewer`, session hub/gateway/client, `ttd-app`).
+Repo truth now points at:
 
-Prior: cycle 0003 — FIXED-TIMESTEP invariant.
+- Echo browser/WASM host bridge surfaces
+- `warp-ttd` as the browser debugger destination
+- generated protocol consumers as downstream artifacts, not protocol owners
 
 ## What is next?
 
-Strand settlement (KERNEL_strand-settlement). The trilogy: dt (done) →
-strand contract (done) → settlement semantics.
+Two bounded cleanup cuts:
+
+1. narrow `ttd-browser` into a real Echo browser host bridge
+2. split `echo-session-proto` so retained TTD/browser frame contracts stop
+   living in the same conceptual bucket as dead hub/WVP transport residue
 
 ## What feels wrong?
 
-- The docs corpus is still ~25% fiction. The audit is written; the
-  cleanup hasn't been pulled as a cycle yet.
-- The warp-ttd protocol was shaped by git-warp's simpler model. Echo's
-  richer runtime schema (typed IDs, dual tick clocks, ingress routing,
-  scheduler introspection) isn't surfaced through the protocol yet.
-- Echo's pre-warp-ttd crates (echo-ttd, ttd-browser, ttd-protocol-rs)
-  need reconciliation with warp-ttd's canonical schema.
-- RED and GREEN can't be separate commits under the current lint
-  policy (clippy denies `todo!()`). The discipline is preserved but
-  the commit structure doesn't show it.
+- `ttd-browser` still carries too much legacy debugger-shaped surface for a
+  crate that should now be a host bridge.
+- `echo-session-proto` still mixes retained TTDR/EINT/browser framing with the
+  older WVP/session-hub protocol family.
+- Echo's richer runtime schema (typed IDs, dual tick clocks, ingress routing,
+  scheduler introspection) still is not surfaced cleanly through the canonical
+  `warp-ttd` protocol.

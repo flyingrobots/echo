@@ -3,19 +3,24 @@
 
 # echo-ttd
 
-Time-Travel Debugger compliance engine for Echo.
+Runtime-side compliance and receipt validation for Echo.
 
 ## Overview
 
-This crate provides the compliance validation layer for the Echo TTD system.
-It validates that recorded tick emissions conform to declared channel policies,
-rule contracts, and determinism constraints.
+This crate provides the compliance validation layer around Echo runtime truth.
+It validates that recorded tick emissions and channel outputs conform to
+declared channel policies, rule contracts, and determinism constraints.
+
+It is not the debugger product. Its job is to provide runtime-side checking and
+structured violations that browser adapters and `warp-ttd` can consume.
 
 ## Features
 
 - **Channel Policy Validation**: Verify `StrictSingle`, `Reduce`, and `Log` policies
 - **Violation Tracking**: Structured error reporting with severity levels
 - **Receipt Verification**: Hash chain and digest validation (future)
+- **Runtime-side witness support**: structured violations suitable for adapter
+  or protocol lifting
 
 ## Usage
 

@@ -1,16 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
-//! TTD Browser Engine: WASM bindings for the Time-Travel Debugger.
+//! Echo browser host bridge: WASM bindings for observation, playback, and
+//! receipt surfaces.
 //!
-//! This crate provides a stateful `TtdEngine` struct that wraps the TTD primitives
-//! from `warp-core` into a JavaScript-friendly API. It is designed as a "pure MBUS
-//! client" per the TTD architecture spec - it sends EINT intents and receives
-//! `TruthFrames`, with minimal protocol logic.
+//! This crate provides a stateful `TtdEngine` struct that wraps Echo playback
+//! and provenance primitives into a JavaScript-friendly API.
+//!
+//! It is a browser-facing host bridge and compatibility layer, not the
+//! long-term home of browser debugger semantics. Those belong in `warp-ttd`.
 //!
 //! # Key Types
 //!
-//! - [`TtdEngine`]: The main entry point, managing cursors, sessions, and provenance.
+//! - [`TtdEngine`]: The main entry point, managing browser-facing cursors,
+//!   compatibility sessions, and provenance access.
 //!
 //! # Usage (from JavaScript)
 //!
@@ -33,10 +36,10 @@
 //!
 //! # Architecture Notes
 //!
-//! This crate is intentionally thin. The heavier protocol logic will live in
-//! `ttd-controller` (Task 5.1) once Wesley delivers the generated types.
-//! For now, we expose the playback, session, and provenance APIs that work
-//! with existing `warp-core` infrastructure.
+//! This crate should stay thinner than the browser debugger product itself.
+//! For now it exposes the playback, compatibility-session, and provenance APIs
+//! needed to bridge browser-hosted Echo into the future Browser TTD delivery
+//! path.
 
 // wasm_bindgen generates unsafe glue code; allow unsafe in this crate.
 #![allow(unsafe_code)]

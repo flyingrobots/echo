@@ -204,10 +204,27 @@ impl WorldlineRuntime {
         self.global_tick
     }
 
+    pub(crate) fn advance_global_tick(&mut self) -> Result<GlobalTick, RuntimeError> {
+        self.global_tick = self
+            .global_tick
+            .checked_increment()
+            .ok_or(RuntimeError::GlobalTickOverflow)?;
+        Ok(self.global_tick)
+    }
+
     /// Returns the live strand registry.
     #[must_use]
     pub fn strands(&self) -> &StrandRegistry {
         &self.strands
+    }
+
+    pub(crate) fn frontier_mut(
+        &mut self,
+        worldline_id: &WorldlineId,
+    ) -> Result<&mut WorldlineFrontier, RuntimeError> {
+        self.worldlines
+            .frontier_mut(worldline_id)
+            .ok_or(RuntimeError::UnknownWorldline(*worldline_id))
     }
 
     #[cfg(test)]

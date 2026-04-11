@@ -108,6 +108,29 @@ pub enum HistoryError {
         got: ProvenanceEventKind,
     },
 
+    /// Recorded non-local events must not impersonate a local writer head.
+    #[error("recorded event unexpectedly carried head attribution at tick {tick}")]
+    RecordedEventUnexpectedHeadKey {
+        /// The entry tick.
+        tick: WorldlineTick,
+    },
+
+    /// Recorded non-local events must carry a replay patch.
+    #[error("recorded event missing patch at tick {tick}")]
+    RecordedEventMissingPatch {
+        /// The entry tick.
+        tick: WorldlineTick,
+    },
+
+    /// `append_recorded_event(...)` only admits non-local provenance entries.
+    #[error("append_recorded_event rejected local event kind {got:?} at tick {tick}")]
+    InvalidRecordedEventKind {
+        /// The entry tick.
+        tick: WorldlineTick,
+        /// The unexpected event kind.
+        got: ProvenanceEventKind,
+    },
+
     /// Parent references must already be stored in canonical commit-hash order.
     #[error("parent refs must be in canonical commit-hash order at tick {tick}")]
     NonCanonicalParents {
@@ -496,6 +519,34 @@ impl ProvenanceEntry {
             atom_writes,
         }
     }
+
+    /// Constructs a recorded non-local provenance entry.
+    #[must_use]
+    #[allow(clippy::too_many_arguments)]
+    pub fn recorded_event(
+        worldline_id: WorldlineId,
+        worldline_tick: WorldlineTick,
+        commit_global_tick: GlobalTick,
+        parents: Vec<ProvenanceRef>,
+        event_kind: ProvenanceEventKind,
+        expected: HashTriplet,
+        patch: WorldlineTickPatchV1,
+        outputs: OutputFrameSet,
+        atom_writes: AtomWriteSet,
+    ) -> Self {
+        Self {
+            worldline_id,
+            worldline_tick,
+            commit_global_tick,
+            head_key: None,
+            parents,
+            event_kind,
+            expected,
+            patch: Some(patch),
+            outputs,
+            atom_writes,
+        }
+    }
 }
 
 /// Single-worldline contiguous provenance payload.
@@ -645,6 +696,14 @@ pub trait ProvenanceStore: Send + Sync {
     /// Returns [`HistoryError`] if the worldline does not exist, the tick is not
     /// append-only, or the entry violates local-commit invariants.
     fn append_local_commit(&mut self, entry: ProvenanceEntry) -> Result<(), HistoryError>;
+
+    /// Appends a replayable recorded non-local provenance entry.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HistoryError`] if the worldline does not exist, the tick is not
+    /// append-only, or the entry violates recorded-event invariants.
+    fn append_recorded_event(&mut self, entry: ProvenanceEntry) -> Result<(), HistoryError>;
 
     /// Returns the nearest checkpoint before a given tick, if any.
     fn checkpoint_before(&self, w: WorldlineId, tick: WorldlineTick) -> Option<CheckpointRef>;
@@ -1231,7 +1290,7 @@ impl LocalProvenanceStore {
             .ok_or(HistoryError::WorldlineNotFound(w))
     }
 
-    fn validate_local_commit_entry(
+    fn validate_shared_entry(
         worldlines: &BTreeMap<WorldlineId, WorldlineHistory>,
         worldline_id: WorldlineId,
         expected_tick: WorldlineTick,
@@ -1247,28 +1306,6 @@ impl LocalProvenanceStore {
             return Err(HistoryError::TickGap {
                 expected: expected_tick,
                 got: entry.worldline_tick,
-            });
-        }
-        let Some(head_key) = entry.head_key else {
-            return Err(HistoryError::LocalCommitMissingHeadKey {
-                tick: entry.worldline_tick,
-            });
-        };
-        if head_key.worldline_id != entry.worldline_id {
-            return Err(HistoryError::HeadWorldlineMismatch {
-                entry_worldline: entry.worldline_id,
-                head_key,
-            });
-        }
-        if entry.patch.is_none() {
-            return Err(HistoryError::LocalCommitMissingPatch {
-                tick: entry.worldline_tick,
-            });
-        }
-        if !matches!(entry.event_kind, ProvenanceEventKind::LocalCommit) {
-            return Err(HistoryError::InvalidLocalCommitEventKind {
-                tick: entry.worldline_tick,
-                got: entry.event_kind.clone(),
             });
         }
         if !entry
@@ -1301,6 +1338,64 @@ impl LocalProvenanceStore {
                     stored_commit_hash: stored.expected.commit_hash,
                 });
             }
+        }
+        Ok(())
+    }
+
+    fn validate_local_commit_entry(
+        worldlines: &BTreeMap<WorldlineId, WorldlineHistory>,
+        worldline_id: WorldlineId,
+        expected_tick: WorldlineTick,
+        entry: &ProvenanceEntry,
+    ) -> Result<(), HistoryError> {
+        Self::validate_shared_entry(worldlines, worldline_id, expected_tick, entry)?;
+        let Some(head_key) = entry.head_key else {
+            return Err(HistoryError::LocalCommitMissingHeadKey {
+                tick: entry.worldline_tick,
+            });
+        };
+        if head_key.worldline_id != entry.worldline_id {
+            return Err(HistoryError::HeadWorldlineMismatch {
+                entry_worldline: entry.worldline_id,
+                head_key,
+            });
+        }
+        if entry.patch.is_none() {
+            return Err(HistoryError::LocalCommitMissingPatch {
+                tick: entry.worldline_tick,
+            });
+        }
+        if !matches!(entry.event_kind, ProvenanceEventKind::LocalCommit) {
+            return Err(HistoryError::InvalidLocalCommitEventKind {
+                tick: entry.worldline_tick,
+                got: entry.event_kind.clone(),
+            });
+        }
+        Ok(())
+    }
+
+    fn validate_recorded_event_entry(
+        worldlines: &BTreeMap<WorldlineId, WorldlineHistory>,
+        worldline_id: WorldlineId,
+        expected_tick: WorldlineTick,
+        entry: &ProvenanceEntry,
+    ) -> Result<(), HistoryError> {
+        Self::validate_shared_entry(worldlines, worldline_id, expected_tick, entry)?;
+        if entry.head_key.is_some() {
+            return Err(HistoryError::RecordedEventUnexpectedHeadKey {
+                tick: entry.worldline_tick,
+            });
+        }
+        if entry.patch.is_none() {
+            return Err(HistoryError::RecordedEventMissingPatch {
+                tick: entry.worldline_tick,
+            });
+        }
+        if matches!(entry.event_kind, ProvenanceEventKind::LocalCommit) {
+            return Err(HistoryError::InvalidRecordedEventKind {
+                tick: entry.worldline_tick,
+                got: entry.event_kind.clone(),
+            });
         }
         Ok(())
     }
@@ -1558,6 +1653,20 @@ impl ProvenanceStore for LocalProvenanceStore {
         let expected_tick =
             WorldlineTick::from_raw(self.history(entry.worldline_id)?.entries.len() as u64);
         Self::validate_local_commit_entry(
+            &self.worldlines,
+            entry.worldline_id,
+            expected_tick,
+            &entry,
+        )?;
+        let history = self.history_mut(entry.worldline_id)?;
+        history.entries.push(entry);
+        Ok(())
+    }
+
+    fn append_recorded_event(&mut self, entry: ProvenanceEntry) -> Result<(), HistoryError> {
+        let expected_tick =
+            WorldlineTick::from_raw(self.history(entry.worldline_id)?.entries.len() as u64);
+        Self::validate_recorded_event_entry(
             &self.worldlines,
             entry.worldline_id,
             expected_tick,
@@ -1931,6 +2040,10 @@ impl ProvenanceStore for ProvenanceService {
 
     fn append_local_commit(&mut self, entry: ProvenanceEntry) -> Result<(), HistoryError> {
         self.store.append_local_commit(entry)
+    }
+
+    fn append_recorded_event(&mut self, entry: ProvenanceEntry) -> Result<(), HistoryError> {
+        self.store.append_recorded_event(entry)
     }
 
     fn checkpoint_before(&self, w: WorldlineId, tick: WorldlineTick) -> Option<CheckpointRef> {
@@ -2331,6 +2444,48 @@ mod tests {
                 got: ProvenanceEventKind::ConflictArtifact { .. }
             }) if tick == wt(0)
         ));
+    }
+
+    #[test]
+    fn append_recorded_event_rejects_local_commit_kind() {
+        let mut store = LocalProvenanceStore::new();
+        let w = test_worldline_id();
+        store.register_worldline(w, test_warp_id()).unwrap();
+
+        let mut entry = test_entry(0);
+        entry.head_key = None;
+        let result = store.append_recorded_event(entry);
+        assert!(matches!(
+            result,
+            Err(HistoryError::InvalidRecordedEventKind {
+                tick,
+                got: ProvenanceEventKind::LocalCommit
+            }) if tick == wt(0)
+        ));
+    }
+
+    #[test]
+    fn append_recorded_event_accepts_conflict_artifact_with_replay_patch() {
+        let mut store = LocalProvenanceStore::new();
+        let w = test_worldline_id();
+        store.register_worldline(w, test_warp_id()).unwrap();
+
+        let entry = ProvenanceEntry::recorded_event(
+            w,
+            wt(0),
+            gt(0),
+            Vec::new(),
+            ProvenanceEventKind::ConflictArtifact {
+                artifact_id: [9u8; 32],
+            },
+            test_triplet(0),
+            test_patch(0),
+            Vec::new(),
+            Vec::new(),
+        );
+
+        store.append_recorded_event(entry.clone()).unwrap();
+        assert_eq!(store.entry(w, wt(0)).unwrap(), entry);
     }
 
     #[test]

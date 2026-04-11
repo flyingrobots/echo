@@ -130,6 +130,7 @@ mod sandbox;
 mod scheduler;
 #[cfg(feature = "serde")]
 mod serializable;
+mod settlement;
 mod snapshot;
 mod snapshot_accum;
 mod telemetry;
@@ -220,6 +221,10 @@ pub use scheduler::SchedulerKind;
 #[cfg(feature = "serde")]
 pub use serializable::{
     SerializableReceipt, SerializableReceiptEntry, SerializableSnapshot, SerializableTick,
+};
+pub use settlement::{
+    ConflictArtifactDraft, ConflictReason, ImportCandidate, SettlementDecision, SettlementDelta,
+    SettlementError, SettlementPlan, SettlementResult, SettlementService,
 };
 pub use snapshot::{
     compute_commit_hash_v2, compute_emissions_digest, compute_op_emission_index_digest,

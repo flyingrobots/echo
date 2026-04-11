@@ -155,12 +155,13 @@ SupportPin {
 }
 ```
 
-**v1: `support_pins` MUST be empty.** The field exists to prevent a
-breaking struct change when braid geometry arrives. No mutation API
-for `support_pins` exists in v1.
+**Bootstrap note:** the first strand cut left `support_pins` empty to avoid
+premature braid semantics. That restriction is superseded by
+[0007 — Braid geometry and neighborhood publication](../0007-braid-geometry-and-neighborhood-publication/design.md),
+which makes validated non-empty support pins real kernel truth.
 
-This is a bootstrap constraint, not the target model. If Echo stops
-here, it will still lag `git-warp` on braid-capable speculative work.
+If Echo stopped at the bootstrap posture, it would still lag `git-warp` on
+braid-capable speculative work.
 
 ### Registry ordering
 
@@ -195,7 +196,8 @@ deterministic but not semantically meaningful.
   equal `base_ref.source_worldline_id`.
 - **INV-S8 (Head ownership):** Every key in `writer_heads` MUST
   belong to `child_worldline_id`.
-- **INV-S9 (No support pins in v1):** `support_pins` MUST be empty.
+- **INV-S9 (Validated support pins):** support pins, when present, MUST be
+  live, correctly resolved, non-duplicated, and read-only.
 - **INV-S10 (Clean drop):** After `drop_strand`, no runnable heads
   for the child worldline MUST remain in the `PlaybackHeadRegistry`.
 
@@ -297,9 +299,9 @@ cycle, but it does need to keep the door open for:
 - observer/debugger surfaces that can inspect more than one lane at a
   local site
 
-So `support_pins` being empty in bootstrap is acceptable only if the
-next design/work cycle makes braid geometry real. That follow-on is
-now [0007 — Braid geometry and neighborhood publication](../0007-braid-geometry-and-neighborhood-publication/design.md).
+The old bootstrap posture of keeping `support_pins` empty was acceptable only
+because the next cycle made braid geometry real. That follow-on now exists as
+[0007 — Braid geometry and neighborhood publication](../0007-braid-geometry-and-neighborhood-publication/design.md).
 
 ### 3. Settlement must remain separate from braid
 
@@ -407,7 +409,8 @@ typed API and programmatically surface strand topology to TTD.
 1. The agent calls the strand creation API.
 2. The returned `Strand` struct contains: `strand_id`, `base_ref`
    (with `provenance_ref`), `child_worldline_id`, `writer_heads`
-   (length 1), `support_pins` (empty).
+   (length 1), `support_pins` (empty until explicitly pinned through braid
+   geometry APIs).
 3. The agent maps `strand_id` to `LaneKind::STRAND` (type, not
    lifecycle) and `base_ref.source_worldline_id` to
    `LaneRef.parentId`.
@@ -469,7 +472,10 @@ Required follow-ons:
   `strand_id`, `child_worldline_id`, and final tick.
 - Unit test: `child_worldline_id != base_ref.source_worldline_id`
   (INV-S7).
-- Unit test: `support_pins` is empty on creation (INV-S9).
+- Unit test: new strands start with `support_pins` empty until explicitly
+  pinned.
+- Unit test: support pins validate live targets, reject duplicates/self pins,
+  and remain read-only (INV-S9).
 - Unit test: `create_strand` fails and rolls back if `fork_tick`
   does not exist in the source worldline.
 - Shell assertion: `docs/invariants/STRAND-CONTRACT.md` exists and
@@ -514,8 +520,8 @@ Required follow-ons:
 ## Non-goals
 
 - Settlement semantics (KERNEL_strand-settlement, future cycle).
-- Full braid geometry implementation in this cycle. The bootstrap may
-  keep `support_pins` empty, but that posture is not the endpoint.
+- Full braid geometry implementation in this cycle. Bootstrap alone left
+  `support_pins` empty, but that posture was not the endpoint.
 - Strand persistence across sessions (v1 is ephemeral).
 - Automatic scheduling of strand heads (v1 is manual tick only).
 - TTD adapter implementation (this cycle defines the mapping; the

@@ -152,11 +152,21 @@ opaque_id!(
 );
 
 opaque_id!(
+    /// Opaque stable identifier for a strand.
+    StrandId
+);
+
+opaque_id!(
     /// Opaque stable identifier for a head within a worldline.
     ///
     /// This is the canonical 32-byte head-id hash, carried as typed metadata
     /// rather than a generic byte vector.
     HeadId
+);
+
+opaque_id!(
+    /// Opaque stable identifier for a published local site.
+    NeighborhoodSiteId
 );
 
 logical_counter!(
@@ -636,6 +646,56 @@ pub struct ObservationArtifact {
     pub payload: ObservationPayload,
 }
 
+/// Whether a published local site is singleton or plural.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SitePlurality {
+    /// Only the primary lane participates.
+    Singleton,
+    /// One or more additional participants are present.
+    Braided,
+}
+
+/// Role a participant plays in a local site.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ParticipantRole {
+    /// The directly observed lane.
+    Primary,
+    /// The base coordinate from which the primary strand forked.
+    BaseAnchor,
+    /// A read-only support-pinned lane.
+    Support,
+}
+
+/// One participating lane in a published local site.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SiteParticipant {
+    /// The participant's worldline.
+    pub worldline_id: WorldlineId,
+    /// Strand identity when the participant is a strand.
+    pub strand_id: Option<StrandId>,
+    /// Participant role within the site.
+    pub role: ParticipantRole,
+    /// Exact participant tick.
+    pub tick: WorldlineTick,
+    /// Canonical state hash for the participant at that tick.
+    pub state_hash: Vec<u8>,
+}
+
+/// Published local-site object for one observation anchor.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NeighborhoodSite {
+    /// Stable identity for this local site.
+    pub site_id: NeighborhoodSiteId,
+    /// Anchor coordinate for the site.
+    pub anchor: ResolvedObservationCoordinate,
+    /// Singleton or plural site truth.
+    pub plurality: SitePlurality,
+    /// Participating lanes for the site.
+    pub participants: Vec<SiteParticipant>,
+}
+
 /// Registry and handshake metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RegistryInfo {
@@ -740,6 +800,21 @@ pub trait KernelPort {
         Err(AbiError {
             code: error_codes::NOT_SUPPORTED,
             message: "observe is not supported by this kernel".into(),
+        })
+    }
+
+    /// Publish the local neighborhood site for an explicit observation request.
+    ///
+    /// This is the canonical public read for plural local-site inspection.
+    /// The default implementation reports that neighborhood publication is not
+    /// supported by this kernel implementation.
+    fn observe_neighborhood_site(
+        &self,
+        _request: ObservationRequest,
+    ) -> Result<NeighborhoodSite, AbiError> {
+        Err(AbiError {
+            code: error_codes::NOT_SUPPORTED,
+            message: "observe_neighborhood_site is not supported by this kernel".into(),
         })
     }
 

@@ -68,11 +68,15 @@ A strand is always a distinct worldline from its base.
 Every key in `writer_heads` MUST belong to `child_worldline_id`.
 No head may reference a different worldline.
 
-### INV-S9 — No support pins in v1
+### INV-S9 — Support pins are validated, live, and read-only
 
-`support_pins` MUST be empty in v1. The field exists to prevent a
-breaking struct change when braid geometry arrives. No mutation API
-for `support_pins` exists in v1.
+`support_pins` MAY be non-empty once braid geometry is enabled, but every
+declared pin MUST:
+
+- target a live strand
+- name that strand's child worldline correctly
+- avoid self-reference and duplicate targets
+- remain read-only support, not write authority
 
 ### INV-S10 — Clean drop
 

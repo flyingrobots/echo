@@ -8,7 +8,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use warp_core::strand::{
-    make_strand_id, BaseRef, DropReceipt, Strand, StrandError, StrandRegistry,
+    make_strand_id, BaseRef, DropReceipt, Strand, StrandError, StrandRegistry, SupportPin,
 };
 use warp_core::{
     make_head_id, make_node_id, make_type_id, make_warp_id, GlobalTick, GraphStore, HashTriplet,
@@ -93,6 +93,59 @@ fn make_test_strand(
         writer_heads: vec![head_key],
         support_pins: Vec::new(),
     }
+}
+
+fn append_committed_tick(
+    provenance: &mut ProvenanceService,
+    worldline_id: WorldlineId,
+    global_tick: GlobalTick,
+) {
+    let tick = wt(0);
+    let patch_digest = [worldline_id.as_bytes()[0]; 32];
+    let triplet = HashTriplet {
+        state_root: [worldline_id.as_bytes()[0].wrapping_add(1); 32],
+        patch_digest,
+        commit_hash: [worldline_id.as_bytes()[0].wrapping_add(2); 32],
+    };
+    let entry = ProvenanceEntry::local_commit(
+        worldline_id,
+        tick,
+        global_tick,
+        WriterHeadKey {
+            worldline_id,
+            head_id: make_head_id(&format!("prov-head-{}", worldline_id.as_bytes()[0])),
+        },
+        Vec::new(),
+        triplet,
+        WorldlineTickPatchV1 {
+            header: WorldlineTickHeaderV1 {
+                commit_global_tick: global_tick,
+                policy_id: 0,
+                rule_pack_id: [0u8; 32],
+                plan_digest: [0u8; 32],
+                decision_digest: [0u8; 32],
+                rewrites_digest: [0u8; 32],
+            },
+            warp_id: make_warp_id(&format!("strand-prov-{}", worldline_id.as_bytes()[0])),
+            ops: vec![],
+            in_slots: vec![],
+            out_slots: vec![],
+            patch_digest,
+        },
+        vec![],
+        Vec::new(),
+    );
+    provenance
+        .append_local_commit(entry)
+        .expect("append commit");
+}
+
+fn register_worldline_with_tick(provenance: &mut ProvenanceService, worldline_id: WorldlineId) {
+    let state = test_initial_state();
+    provenance
+        .register_worldline(worldline_id, &state)
+        .expect("register worldline");
+    append_committed_tick(provenance, worldline_id, GlobalTick::from_raw(1));
 }
 
 // ── INV-S7: child_worldline_id != base_ref.source_worldline_id ──────────
@@ -189,14 +242,14 @@ fn inv_s4_s10_dormant_strand_heads_excluded_from_runnable_set() {
     );
 }
 
-// ── INV-S9: support_pins must be empty in v1 ───────────────────────────
+// ── INV-S9: support pins are validated live read-only references ───────
 
 #[test]
-fn inv_s9_support_pins_empty_on_creation() {
+fn inv_s9_support_pins_default_empty_until_pinned() {
     let strand = make_test_strand("s9-test", wl(1), wl(2), wt(5));
     assert!(
         strand.support_pins.is_empty(),
-        "INV-S9: support_pins must be empty in v1"
+        "new strands start without support pins until runtime validation adds them"
     );
 }
 
@@ -300,13 +353,80 @@ fn registry_insert_rejects_inv_s8_wrong_head_worldline() {
 }
 
 #[test]
-fn registry_insert_rejects_inv_s9_nonempty_support_pins() {
-    use warp_core::strand::SupportPin;
-
+fn registry_insert_accepts_valid_nonempty_support_pins() {
     let mut registry = StrandRegistry::new();
-    let strand_id = make_strand_id("s9-bad");
-    let strand = Strand {
-        strand_id,
+    let target = make_test_strand("support-target", wl(1), wl(10), wt(5));
+    let target_id = target.strand_id;
+    let target_worldline = target.child_worldline_id;
+    registry.insert(target).expect("insert support target");
+
+    let mut owner = make_test_strand("support-owner", wl(1), wl(2), wt(5));
+    owner.support_pins.push(SupportPin {
+        strand_id: target_id,
+        worldline_id: target_worldline,
+        pinned_tick: wt(0),
+        state_hash: [0xCC; 32],
+    });
+    registry
+        .insert(owner)
+        .expect("valid support pin should insert");
+}
+
+#[test]
+fn registry_insert_rejects_support_pin_missing_target() {
+    let mut registry = StrandRegistry::new();
+    let mut owner = make_test_strand("missing-target", wl(1), wl(2), wt(5));
+    let missing = make_strand_id("missing-support");
+    owner.support_pins.push(SupportPin {
+        strand_id: missing,
+        worldline_id: wl(10),
+        pinned_tick: wt(0),
+        state_hash: [0; 32],
+    });
+    let err = registry
+        .insert(owner)
+        .expect_err("missing support target should reject");
+    assert_eq!(err, StrandError::MissingSupportTarget(missing));
+}
+
+#[test]
+fn registry_insert_rejects_support_pin_worldline_mismatch() {
+    let mut registry = StrandRegistry::new();
+    let target = make_test_strand("mismatch-target", wl(1), wl(10), wt(5));
+    let target_id = target.strand_id;
+    registry.insert(target).expect("insert support target");
+
+    let mut owner = make_test_strand("mismatch-owner", wl(1), wl(2), wt(5));
+    owner.support_pins.push(SupportPin {
+        strand_id: target_id,
+        worldline_id: wl(11),
+        pinned_tick: wt(0),
+        state_hash: [0; 32],
+    });
+    let err = registry
+        .insert(owner)
+        .expect_err("worldline mismatch should reject");
+    assert_eq!(
+        err,
+        StrandError::SupportWorldlineMismatch {
+            target: target_id,
+            expected: wl(10),
+            got: wl(11),
+        }
+    );
+}
+
+#[test]
+fn registry_insert_rejects_duplicate_support_target() {
+    let mut registry = StrandRegistry::new();
+    let target = make_test_strand("duplicate-target", wl(1), wl(10), wt(5));
+    let target_id = target.strand_id;
+    let target_worldline = target.child_worldline_id;
+    registry.insert(target).expect("insert support target");
+
+    let owner_id = make_strand_id("duplicate-owner");
+    let owner = Strand {
+        strand_id: owner_id,
         base_ref: BaseRef {
             source_worldline_id: wl(1),
             fork_tick: wt(5),
@@ -321,20 +441,137 @@ fn registry_insert_rejects_inv_s9_nonempty_support_pins() {
         child_worldline_id: wl(2),
         writer_heads: vec![WriterHeadKey {
             worldline_id: wl(2),
-            head_id: make_head_id("s9-head"),
+            head_id: make_head_id("duplicate-owner-head"),
         }],
-        support_pins: vec![SupportPin {
-            strand_id: make_strand_id("pinned"),
-            worldline_id: wl(10),
-            pinned_tick: wt(0),
-            state_hash: [0; 32],
-        }],
+        support_pins: vec![
+            SupportPin {
+                strand_id: target_id,
+                worldline_id: target_worldline,
+                pinned_tick: wt(0),
+                state_hash: [1; 32],
+            },
+            SupportPin {
+                strand_id: target_id,
+                worldline_id: target_worldline,
+                pinned_tick: wt(1),
+                state_hash: [2; 32],
+            },
+        ],
     };
-    let err = registry.insert(strand).expect_err("INV-S9 should reject");
-    assert!(
-        matches!(err, StrandError::InvariantViolation(_)),
-        "expected InvariantViolation, got {err:?}"
+    let err = registry
+        .insert(owner)
+        .expect_err("duplicate support target should reject");
+    assert_eq!(
+        err,
+        StrandError::DuplicateSupportTarget {
+            owner: owner_id,
+            target: target_id,
+        }
     );
+}
+
+#[test]
+fn registry_pin_support_records_state_hash_from_provenance() {
+    let mut provenance = ProvenanceService::new();
+    register_worldline_with_tick(&mut provenance, wl(10));
+
+    let mut registry = StrandRegistry::new();
+    let owner = make_test_strand("pin-owner", wl(1), wl(2), wt(5));
+    let owner_id = owner.strand_id;
+    let target = make_test_strand("pin-target", wl(1), wl(10), wt(5));
+    let target_id = target.strand_id;
+    let target_worldline = target.child_worldline_id;
+    registry.insert(owner).expect("insert owner");
+    registry.insert(target).expect("insert target");
+
+    let support_pin = registry
+        .pin_support(&provenance, owner_id, target_id, wt(0))
+        .expect("pin support");
+
+    assert_eq!(support_pin.strand_id, target_id);
+    assert_eq!(support_pin.worldline_id, target_worldline);
+    assert_eq!(support_pin.pinned_tick, wt(0));
+    assert_eq!(
+        support_pin.state_hash,
+        provenance
+            .entry(target_worldline, wt(0))
+            .unwrap()
+            .expected
+            .state_root
+    );
+    assert_eq!(
+        registry.list_support_pins(&owner_id).unwrap(),
+        &[support_pin]
+    );
+}
+
+#[test]
+fn registry_pin_support_rejects_duplicate_and_self_target() {
+    let mut provenance = ProvenanceService::new();
+    register_worldline_with_tick(&mut provenance, wl(10));
+
+    let mut registry = StrandRegistry::new();
+    let owner = make_test_strand("pin-owner-dup", wl(1), wl(2), wt(5));
+    let owner_id = owner.strand_id;
+    let target = make_test_strand("pin-target-dup", wl(1), wl(10), wt(5));
+    let target_id = target.strand_id;
+    registry.insert(owner).expect("insert owner");
+    registry.insert(target).expect("insert target");
+
+    registry
+        .pin_support(&provenance, owner_id, target_id, wt(0))
+        .expect("first pin");
+    let duplicate = registry
+        .pin_support(&provenance, owner_id, target_id, wt(0))
+        .expect_err("duplicate pin should reject");
+    assert_eq!(
+        duplicate,
+        StrandError::DuplicateSupportTarget {
+            owner: owner_id,
+            target: target_id,
+        }
+    );
+
+    let self_pin = registry
+        .pin_support(&provenance, owner_id, owner_id, wt(0))
+        .expect_err("self pin should reject");
+    assert_eq!(self_pin, StrandError::SelfSupportPin(owner_id));
+}
+
+#[test]
+fn registry_remove_rejects_live_pinned_target_until_unpinned() {
+    let mut provenance = ProvenanceService::new();
+    register_worldline_with_tick(&mut provenance, wl(10));
+
+    let mut registry = StrandRegistry::new();
+    let owner = make_test_strand("pin-owner-rm", wl(1), wl(2), wt(5));
+    let owner_id = owner.strand_id;
+    let target = make_test_strand("pin-target-rm", wl(1), wl(10), wt(5));
+    let target_id = target.strand_id;
+    registry.insert(owner).expect("insert owner");
+    registry.insert(target).expect("insert target");
+    registry
+        .pin_support(&provenance, owner_id, target_id, wt(0))
+        .expect("pin support");
+
+    let err = registry
+        .remove(&target_id)
+        .expect_err("pinned target should not remove");
+    assert_eq!(
+        err,
+        StrandError::PinnedByLiveStrand {
+            strand: target_id,
+            pinned_by: owner_id,
+        }
+    );
+
+    let removed_pin = registry
+        .unpin_support(owner_id, target_id)
+        .expect("unpin support");
+    assert_eq!(removed_pin.strand_id, target_id);
+    assert!(registry.list_support_pins(&owner_id).unwrap().is_empty());
+    let removed = registry.remove(&target_id).expect("remove unpinned target");
+    assert_eq!(removed.strand_id, target_id);
 }
 
 #[test]

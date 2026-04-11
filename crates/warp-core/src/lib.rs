@@ -96,6 +96,7 @@ mod ident;
 pub mod inbox;
 /// Materialization subsystem for deterministic channel-based output.
 pub mod materialization;
+mod neighborhood;
 mod observation;
 /// Parallel execution module.
 ///
@@ -196,6 +197,10 @@ pub use playback::{
 // --- Session types ---
 pub use playback::{SessionId, ViewSession};
 // --- Truth delivery ---
+pub use neighborhood::{
+    NeighborhoodError, NeighborhoodSite, NeighborhoodSiteId, NeighborhoodSiteService,
+    ParticipantRole, SiteParticipant, SitePlurality,
+};
 pub use observation::{
     HeadObservation, ObservationArtifact, ObservationAt, ObservationCoordinate, ObservationError,
     ObservationFrame, ObservationPayload, ObservationProjection, ObservationProjectionKind,

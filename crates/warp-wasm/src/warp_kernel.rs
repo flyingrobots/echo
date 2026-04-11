@@ -12,21 +12,21 @@ use std::fmt;
 use echo_wasm_abi::kernel_port::{
     error_codes, AbiError, ControlIntentV1, DispatchResponse, GlobalTick as AbiGlobalTick,
     HeadEligibility as AbiHeadEligibility, HeadId as AbiHeadId, HeadInfo, KernelPort,
-    ObservationArtifact as AbiObservationArtifact, ObservationFrame as AbiObservationFrame,
-    ObservationProjection as AbiObservationProjection, ObservationRequest as AbiObservationRequest,
-    RegistryInfo, RunCompletion, RunId as AbiRunId, SchedulerMode, SchedulerState, SchedulerStatus,
-    WorkState, WorldlineId as AbiWorldlineId, WorldlineTick as AbiWorldlineTick,
-    WriterHeadKey as AbiWriterHeadKey, ABI_VERSION,
+    NeighborhoodSite as AbiNeighborhoodSite, ObservationArtifact as AbiObservationArtifact,
+    ObservationFrame as AbiObservationFrame, ObservationProjection as AbiObservationProjection,
+    ObservationRequest as AbiObservationRequest, RegistryInfo, RunCompletion, RunId as AbiRunId,
+    SchedulerMode, SchedulerState, SchedulerStatus, WorkState, WorldlineId as AbiWorldlineId,
+    WorldlineTick as AbiWorldlineTick, WriterHeadKey as AbiWriterHeadKey, ABI_VERSION,
 };
 use echo_wasm_abi::{unpack_control_intent_v1, unpack_intent_v1, CONTROL_INTENT_V1_OP_ID};
 use warp_core::{
     make_head_id, make_intent_kind, make_node_id, make_type_id, Engine, EngineBuilder, GlobalTick,
     GraphStore, HeadEligibility, HeadId, HistoryError, IngressDisposition, IngressEnvelope,
-    IngressTarget, NodeRecord, ObservationAt, ObservationCoordinate, ObservationError,
-    ObservationFrame, ObservationPayload, ObservationProjection, ObservationRequest,
-    ObservationService, PlaybackMode, ProvenanceService, RunId, RuntimeError, SchedulerCoordinator,
-    SchedulerKind, WorldlineId, WorldlineRuntime, WorldlineState, WorldlineStateError,
-    WorldlineTick, WriterHead, WriterHeadKey,
+    IngressTarget, NeighborhoodError, NeighborhoodSiteService, NodeRecord, ObservationAt,
+    ObservationCoordinate, ObservationError, ObservationFrame, ObservationPayload,
+    ObservationProjection, ObservationRequest, ObservationService, PlaybackMode, ProvenanceService,
+    RunId, RuntimeError, SchedulerCoordinator, SchedulerKind, WorldlineId, WorldlineRuntime,
+    WorldlineState, WorldlineStateError, WorldlineTick, WriterHead, WriterHeadKey,
 };
 
 /// Error returned when a [`WarpKernel`] cannot be initialized from a caller-supplied engine.
@@ -225,6 +225,19 @@ impl WarpKernel {
             ObservationError::CodecFailure(message) => AbiError {
                 code: error_codes::CODEC_ERROR,
                 message,
+            },
+        }
+    }
+
+    fn map_neighborhood_error(err: NeighborhoodError) -> AbiError {
+        match err {
+            NeighborhoodError::Observation(observation_error) => {
+                Self::map_observation_error(observation_error)
+            }
+            NeighborhoodError::InvalidSupportPin { .. }
+            | NeighborhoodError::MissingSupportStrand { .. } => AbiError {
+                code: error_codes::OBSERVATION_UNAVAILABLE,
+                message: err.to_string(),
             },
         }
     }
@@ -538,6 +551,16 @@ impl KernelPort for WarpKernel {
     fn observe(&self, request: AbiObservationRequest) -> Result<AbiObservationArtifact, AbiError> {
         let request = Self::to_core_request(request)?;
         Ok(self.observe_core(request)?.to_abi())
+    }
+
+    fn observe_neighborhood_site(
+        &self,
+        request: AbiObservationRequest,
+    ) -> Result<AbiNeighborhoodSite, AbiError> {
+        let request = Self::to_core_request(request)?;
+        NeighborhoodSiteService::observe(&self.runtime, &self.provenance, &self.engine, request)
+            .map(|site| site.to_abi())
+            .map_err(Self::map_neighborhood_error)
     }
 
     fn registry_info(&self) -> RegistryInfo {
@@ -914,6 +937,35 @@ mod tests {
         assert_eq!(observed.commit_global_tick, head.commit_global_tick);
         assert_eq!(observed.state_root, head.state_root);
         assert_eq!(observed.commit_id, head.commit_id);
+    }
+
+    #[test]
+    fn observe_neighborhood_site_returns_singleton_site_for_default_worldline() {
+        let kernel = WarpKernel::new().unwrap();
+        let site = kernel
+            .observe_neighborhood_site(AbiObservationRequest {
+                coordinate: AbiObservationCoordinate {
+                    worldline_id: abi_worldline_id(kernel.default_worldline),
+                    at: AbiObservationAt::Frontier,
+                },
+                frame: AbiObservationFrame::CommitBoundary,
+                projection: AbiObservationProjection::Head,
+            })
+            .unwrap();
+
+        assert_eq!(
+            site.plurality,
+            echo_wasm_abi::kernel_port::SitePlurality::Singleton
+        );
+        assert_eq!(site.participants.len(), 1);
+        assert_eq!(
+            site.participants[0].role,
+            echo_wasm_abi::kernel_port::ParticipantRole::Primary
+        );
+        assert_eq!(
+            site.participants[0].worldline_id,
+            abi_worldline_id(kernel.default_worldline)
+        );
     }
 
     #[test]

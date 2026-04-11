@@ -262,6 +262,23 @@ pub fn observe(request_bytes: &[u8]) -> Uint8Array {
     encode_result(with_kernel_ref(|k| k.observe(request)))
 }
 
+/// Publish the local neighborhood site for an explicit observation request.
+///
+/// The request bytes must decode as canonical-CBOR `ObservationRequest`.
+#[wasm_bindgen]
+pub fn observe_neighborhood_site(request_bytes: &[u8]) -> Uint8Array {
+    let request = match echo_wasm_abi::decode_cbor::<ObservationRequest>(request_bytes) {
+        Ok(request) => request,
+        Err(err) => {
+            return encode_err(&AbiError {
+                code: kernel_port::error_codes::INVALID_PAYLOAD,
+                message: format!("invalid observation request payload: {err}"),
+            })
+        }
+    };
+    encode_result(with_kernel_ref(|k| k.observe_neighborhood_site(request)))
+}
+
 /// Return registry metadata (schema hash, codec id, registry version).
 ///
 /// Returns CBOR-encoded [`RegistryInfo`](kernel_port::RegistryInfo).
@@ -523,10 +540,12 @@ mod schema_validation_tests {
 mod init_tests {
     use super::*;
     use echo_wasm_abi::kernel_port::{
-        DispatchResponse, GlobalTick, HeadInfo, HeadObservation, ObservationArtifact,
-        ObservationAt, ObservationFrame, ObservationPayload, ObservationProjection, RegistryInfo,
+        DispatchResponse, GlobalTick, HeadInfo, HeadObservation, NeighborhoodSite,
+        NeighborhoodSiteId, ObservationArtifact, ObservationAt, ObservationFrame,
+        ObservationPayload, ObservationProjection, ParticipantRole, RegistryInfo,
         ResolvedObservationCoordinate, RunCompletion, RunId, SchedulerMode, SchedulerState,
-        SchedulerStatus, WorkState, WorldlineId, WorldlineTick, ABI_VERSION,
+        SchedulerStatus, SiteParticipant, SitePlurality, WorkState, WorldlineId, WorldlineTick,
+        ABI_VERSION,
     };
 
     struct StubKernel;
@@ -589,6 +608,33 @@ mod init_tests {
             })
         }
 
+        fn observe_neighborhood_site(
+            &self,
+            _request: ObservationRequest,
+        ) -> Result<NeighborhoodSite, AbiError> {
+            Ok(NeighborhoodSite {
+                site_id: NeighborhoodSiteId::from_bytes([7; 32]),
+                anchor: ResolvedObservationCoordinate {
+                    observation_version: 2,
+                    worldline_id: WorldlineId::from_bytes([9; 32]),
+                    requested_at: ObservationAt::Frontier,
+                    resolved_worldline_tick: WorldlineTick(0),
+                    commit_global_tick: None,
+                    observed_after_global_tick: Some(GlobalTick(1)),
+                    state_root: vec![2; 32],
+                    commit_hash: vec![3; 32],
+                },
+                plurality: SitePlurality::Singleton,
+                participants: vec![SiteParticipant {
+                    worldline_id: WorldlineId::from_bytes([9; 32]),
+                    strand_id: None,
+                    role: ParticipantRole::Primary,
+                    tick: WorldlineTick(0),
+                    state_hash: vec![2; 32],
+                }],
+            })
+        }
+
         fn registry_info(&self) -> RegistryInfo {
             RegistryInfo {
                 codec_id: Some("stub".into()),
@@ -644,5 +690,23 @@ mod init_tests {
             unreachable!("registry_info should fail after init failure");
         };
         assert_eq!(err.code, kernel_port::error_codes::NOT_INITIALIZED);
+    }
+
+    #[test]
+    fn neighborhood_observation_uses_installed_kernel() {
+        clear_kernel();
+        install_kernel(Box::new(StubKernel));
+        let request = ObservationRequest {
+            coordinate: kernel_port::ObservationCoordinate {
+                worldline_id: WorldlineId::from_bytes([9; 32]),
+                at: ObservationAt::Frontier,
+            },
+            frame: ObservationFrame::CommitBoundary,
+            projection: ObservationProjection::Head,
+        };
+        let site = with_kernel_ref(|k| k.observe_neighborhood_site(request)).unwrap();
+        assert_eq!(site.plurality, SitePlurality::Singleton);
+        assert_eq!(site.participants.len(), 1);
+        assert_eq!(site.participants[0].role, ParticipantRole::Primary);
     }
 }

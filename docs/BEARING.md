@@ -42,3 +42,5 @@ Two bounded cleanup cuts:
 - Echo's richer runtime schema (typed IDs, dual tick clocks, ingress routing,
   scheduler introspection) still is not surfaced cleanly through the canonical
   `warp-ttd` protocol.
+- Echo still lacks an explicit CLI/MCP agent boundary, so agent use depends on
+  repo-local APIs and bridge folklore instead of one inspectable surface.

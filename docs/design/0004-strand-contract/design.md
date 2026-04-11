@@ -298,7 +298,8 @@ cycle, but it does need to keep the door open for:
   local site
 
 So `support_pins` being empty in bootstrap is acceptable only if the
-next design/work cycle makes braid geometry real.
+next design/work cycle makes braid geometry real. That follow-on is
+now [0007 — Braid geometry and neighborhood publication](../0007-braid-geometry-and-neighborhood-publication/design.md).
 
 ### 3. Settlement must remain separate from braid
 

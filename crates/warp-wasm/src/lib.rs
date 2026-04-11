@@ -30,7 +30,7 @@ use wasm_bindgen::JsValue;
 #[cfg(feature = "engine")]
 use echo_wasm_abi::kernel_port::HeadInfo;
 use echo_wasm_abi::kernel_port::{
-    self, AbiError, ErrEnvelope, KernelPort, ObservationRequest, OkEnvelope,
+    self, AbiError, ErrEnvelope, KernelPort, ObservationRequest, OkEnvelope, SettlementRequest,
 };
 
 use std::cell::RefCell;
@@ -277,6 +277,57 @@ pub fn observe_neighborhood_site(request_bytes: &[u8]) -> Uint8Array {
         }
     };
     encode_result(with_kernel_ref(|k| k.observe_neighborhood_site(request)))
+}
+
+/// Compare a strand suffix against its recorded base coordinate.
+///
+/// The request bytes must decode as canonical-CBOR `SettlementRequest`.
+#[wasm_bindgen]
+pub fn compare_settlement(request_bytes: &[u8]) -> Uint8Array {
+    let request = match echo_wasm_abi::decode_cbor::<SettlementRequest>(request_bytes) {
+        Ok(request) => request,
+        Err(err) => {
+            return encode_err(&AbiError {
+                code: kernel_port::error_codes::INVALID_PAYLOAD,
+                message: format!("invalid settlement request payload: {err}"),
+            })
+        }
+    };
+    encode_result(with_kernel_ref(|k| k.compare_settlement(request)))
+}
+
+/// Produce a deterministic settlement plan for one strand.
+///
+/// The request bytes must decode as canonical-CBOR `SettlementRequest`.
+#[wasm_bindgen]
+pub fn plan_settlement(request_bytes: &[u8]) -> Uint8Array {
+    let request = match echo_wasm_abi::decode_cbor::<SettlementRequest>(request_bytes) {
+        Ok(request) => request,
+        Err(err) => {
+            return encode_err(&AbiError {
+                code: kernel_port::error_codes::INVALID_PAYLOAD,
+                message: format!("invalid settlement request payload: {err}"),
+            })
+        }
+    };
+    encode_result(with_kernel_ref(|k| k.plan_settlement(request)))
+}
+
+/// Execute the deterministic settlement plan for one strand.
+///
+/// The request bytes must decode as canonical-CBOR `SettlementRequest`.
+#[wasm_bindgen]
+pub fn settle_strand(request_bytes: &[u8]) -> Uint8Array {
+    let request = match echo_wasm_abi::decode_cbor::<SettlementRequest>(request_bytes) {
+        Ok(request) => request,
+        Err(err) => {
+            return encode_err(&AbiError {
+                code: kernel_port::error_codes::INVALID_PAYLOAD,
+                message: format!("invalid settlement request payload: {err}"),
+            })
+        }
+    };
+    encode_result(with_kernel(|k| k.settle_strand(request)))
 }
 
 /// Return registry metadata (schema hash, codec id, registry version).
@@ -537,15 +588,17 @@ mod schema_validation_tests {
 }
 
 #[cfg(all(test, feature = "engine"))]
+#[allow(clippy::unwrap_used)]
 mod init_tests {
     use super::*;
     use echo_wasm_abi::kernel_port::{
-        DispatchResponse, GlobalTick, HeadInfo, HeadObservation, NeighborhoodSite,
-        NeighborhoodSiteId, ObservationArtifact, ObservationAt, ObservationFrame,
-        ObservationPayload, ObservationProjection, ParticipantRole, RegistryInfo,
-        ResolvedObservationCoordinate, RunCompletion, RunId, SchedulerMode, SchedulerState,
-        SchedulerStatus, SiteParticipant, SitePlurality, WorkState, WorldlineId, WorldlineTick,
-        ABI_VERSION,
+        BaseRef, ConflictArtifactDraft, ConflictReason, DispatchResponse, GlobalTick, HeadInfo,
+        HeadObservation, NeighborhoodSite, NeighborhoodSiteId, ObservationArtifact, ObservationAt,
+        ObservationFrame, ObservationPayload, ObservationProjection, ParticipantRole,
+        ProvenanceRef, RegistryInfo, ResolvedObservationCoordinate, RunCompletion, RunId,
+        SchedulerMode, SchedulerState, SchedulerStatus, SettlementDecision, SettlementDelta,
+        SettlementPlan, SettlementRequest, SettlementResult, SiteParticipant, SitePlurality,
+        WorkState, WorldlineId, WorldlineTick, ABI_VERSION,
     };
 
     struct StubKernel;
@@ -635,6 +688,74 @@ mod init_tests {
             })
         }
 
+        fn compare_settlement(
+            &self,
+            request: SettlementRequest,
+        ) -> Result<SettlementDelta, AbiError> {
+            Ok(SettlementDelta {
+                strand_id: request.strand_id,
+                base_ref: BaseRef {
+                    source_worldline_id: WorldlineId::from_bytes([9; 32]),
+                    fork_tick: WorldlineTick(0),
+                    commit_hash: vec![3; 32],
+                    boundary_hash: vec![2; 32],
+                    provenance_ref: ProvenanceRef {
+                        worldline_id: WorldlineId::from_bytes([9; 32]),
+                        worldline_tick: WorldlineTick(0),
+                        commit_hash: vec![3; 32],
+                    },
+                },
+                source_worldline_id: WorldlineId::from_bytes([4; 32]),
+                source_suffix_start_tick: WorldlineTick(1),
+                source_suffix_end_tick: WorldlineTick(1),
+                source_entries: vec![ProvenanceRef {
+                    worldline_id: WorldlineId::from_bytes([4; 32]),
+                    worldline_tick: WorldlineTick(1),
+                    commit_hash: vec![8; 32],
+                }],
+            })
+        }
+
+        fn plan_settlement(&self, request: SettlementRequest) -> Result<SettlementPlan, AbiError> {
+            Ok(SettlementPlan {
+                strand_id: request.strand_id,
+                target_worldline: WorldlineId::from_bytes([9; 32]),
+                target_base_ref: ProvenanceRef {
+                    worldline_id: WorldlineId::from_bytes([9; 32]),
+                    worldline_tick: WorldlineTick(0),
+                    commit_hash: vec![3; 32],
+                },
+                decisions: vec![SettlementDecision::ConflictArtifact {
+                    artifact: ConflictArtifactDraft {
+                        artifact_id: vec![7; 32],
+                        source_ref: ProvenanceRef {
+                            worldline_id: WorldlineId::from_bytes([4; 32]),
+                            worldline_tick: WorldlineTick(1),
+                            commit_hash: vec![8; 32],
+                        },
+                        channel_ids: vec![vec![6; 32]],
+                        reason: ConflictReason::BaseDivergence,
+                    },
+                }],
+            })
+        }
+
+        fn settle_strand(
+            &mut self,
+            request: SettlementRequest,
+        ) -> Result<SettlementResult, AbiError> {
+            let plan = self.plan_settlement(request)?;
+            Ok(SettlementResult {
+                plan,
+                appended_imports: Vec::new(),
+                appended_conflicts: vec![ProvenanceRef {
+                    worldline_id: WorldlineId::from_bytes([9; 32]),
+                    worldline_tick: WorldlineTick(1),
+                    commit_hash: vec![5; 32],
+                }],
+            })
+        }
+
         fn registry_info(&self) -> RegistryInfo {
             RegistryInfo {
                 codec_id: Some("stub".into()),
@@ -708,5 +829,30 @@ mod init_tests {
         assert_eq!(site.plurality, SitePlurality::Singleton);
         assert_eq!(site.participants.len(), 1);
         assert_eq!(site.participants[0].role, ParticipantRole::Primary);
+    }
+
+    #[test]
+    fn settlement_publication_uses_installed_kernel() {
+        clear_kernel();
+        install_kernel(Box::new(StubKernel));
+        let request = SettlementRequest {
+            strand_id: kernel_port::StrandId::from_bytes([4; 32]),
+        };
+
+        let delta = with_kernel_ref(|k| k.compare_settlement(request.clone())).unwrap();
+        assert_eq!(delta.strand_id, request.strand_id);
+        assert_eq!(delta.source_entries.len(), 1);
+
+        let plan = with_kernel_ref(|k| k.plan_settlement(request.clone())).unwrap();
+        assert_eq!(plan.decisions.len(), 1);
+        assert!(matches!(
+            &plan.decisions[0],
+            SettlementDecision::ConflictArtifact { artifact }
+                if artifact.reason == ConflictReason::BaseDivergence
+        ));
+
+        let result = with_kernel(|k| k.settle_strand(request)).unwrap();
+        assert!(result.appended_imports.is_empty());
+        assert_eq!(result.appended_conflicts.len(), 1);
     }
 }

@@ -230,6 +230,9 @@ pub use snapshot::{
     compute_commit_hash_v2, compute_emissions_digest, compute_op_emission_index_digest,
     compute_state_root_for_warp_store, compute_tick_commit_hash_v2, OpEmissionEntry, Snapshot,
 };
+pub use strand::{
+    make_strand_id, BaseRef, DropReceipt, Strand, StrandError, StrandId, StrandRegistry, SupportPin,
+};
 pub use telemetry::{NullTelemetrySink, TelemetrySink};
 pub use tick_delta::{DeltaStats, OpOrigin, ScopedDelta, TickDelta};
 pub use tick_patch::{

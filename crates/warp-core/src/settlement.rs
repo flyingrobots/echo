@@ -3,6 +3,7 @@
 //! Base-worldline strand settlement for Echo v1.
 
 use blake3::Hasher;
+use echo_wasm_abi::kernel_port as abi;
 use thiserror::Error;
 
 use crate::clock::{GlobalTick, WorldlineTick};
@@ -44,6 +45,15 @@ impl ConflictReason {
             Self::QuantumMismatch => 4,
         }
     }
+
+    fn to_abi(self) -> abi::ConflictReason {
+        match self {
+            Self::ChannelPolicyConflict => abi::ConflictReason::ChannelPolicyConflict,
+            Self::UnsupportedImport => abi::ConflictReason::UnsupportedImport,
+            Self::BaseDivergence => abi::ConflictReason::BaseDivergence,
+            Self::QuantumMismatch => abi::ConflictReason::QuantumMismatch,
+        }
+    }
 }
 
 /// Compare surface for one strand suffix relative to its recorded base.
@@ -63,6 +73,26 @@ pub struct SettlementDelta {
     pub source_entries: Vec<ProvenanceRef>,
 }
 
+impl SettlementDelta {
+    /// Converts the delta into its ABI DTO.
+    #[must_use]
+    pub fn to_abi(&self) -> abi::SettlementDelta {
+        abi::SettlementDelta {
+            strand_id: abi::StrandId::from_bytes(*self.strand_id.as_bytes()),
+            base_ref: base_ref_to_abi(self.base_ref),
+            source_worldline_id: abi::WorldlineId::from_bytes(*self.source_worldline_id.as_bytes()),
+            source_suffix_start_tick: abi::WorldlineTick(self.source_suffix_start_tick.as_u64()),
+            source_suffix_end_tick: abi::WorldlineTick(self.source_suffix_end_tick.as_u64()),
+            source_entries: self
+                .source_entries
+                .iter()
+                .copied()
+                .map(provenance_ref_to_abi)
+                .collect(),
+        }
+    }
+}
+
 /// Deterministic settlement evaluation for one strand against its base worldline.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SettlementPlan {
@@ -76,6 +106,23 @@ pub struct SettlementPlan {
     pub decisions: Vec<SettlementDecision>,
 }
 
+impl SettlementPlan {
+    /// Converts the plan into its ABI DTO.
+    #[must_use]
+    pub fn to_abi(&self) -> abi::SettlementPlan {
+        abi::SettlementPlan {
+            strand_id: abi::StrandId::from_bytes(*self.strand_id.as_bytes()),
+            target_worldline: abi::WorldlineId::from_bytes(*self.target_worldline.as_bytes()),
+            target_base_ref: provenance_ref_to_abi(self.target_base_ref),
+            decisions: self
+                .decisions
+                .iter()
+                .map(SettlementDecision::to_abi)
+                .collect(),
+        }
+    }
+}
+
 /// One deterministic settlement decision.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SettlementDecision {
@@ -83,6 +130,19 @@ pub enum SettlementDecision {
     ImportCandidate(ImportCandidate),
     /// Source history that must remain explicit residue.
     ConflictArtifact(ConflictArtifactDraft),
+}
+
+impl SettlementDecision {
+    fn to_abi(&self) -> abi::SettlementDecision {
+        match self {
+            Self::ImportCandidate(candidate) => abi::SettlementDecision::ImportCandidate {
+                candidate: candidate.to_abi(),
+            },
+            Self::ConflictArtifact(artifact) => abi::SettlementDecision::ConflictArtifact {
+                artifact: artifact.to_abi(),
+            },
+        }
+    }
 }
 
 /// One accepted unit of source provenance eligible for import.
@@ -94,6 +154,16 @@ pub struct ImportCandidate {
     pub source_head_key: Option<crate::head::WriterHeadKey>,
     /// Stable imported operation identifier.
     pub imported_op_id: Hash,
+}
+
+impl ImportCandidate {
+    fn to_abi(&self) -> abi::ImportCandidate {
+        abi::ImportCandidate {
+            source_ref: provenance_ref_to_abi(self.source_ref),
+            source_head_key: self.source_head_key.map(writer_head_key_to_abi),
+            imported_op_id: self.imported_op_id.to_vec(),
+        }
+    }
 }
 
 /// One unresolved settlement residue draft.
@@ -109,6 +179,21 @@ pub struct ConflictArtifactDraft {
     pub reason: ConflictReason,
 }
 
+impl ConflictArtifactDraft {
+    fn to_abi(&self) -> abi::ConflictArtifactDraft {
+        abi::ConflictArtifactDraft {
+            artifact_id: self.artifact_id.to_vec(),
+            source_ref: provenance_ref_to_abi(self.source_ref),
+            channel_ids: self
+                .channel_ids
+                .iter()
+                .map(|channel_id| channel_id.0.to_vec())
+                .collect(),
+            reason: self.reason.to_abi(),
+        }
+    }
+}
+
 /// Runtime result of executing one settlement plan.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SettlementResult {
@@ -118,6 +203,53 @@ pub struct SettlementResult {
     pub appended_imports: Vec<ProvenanceRef>,
     /// Target-worldline refs appended as `ConflictArtifact`.
     pub appended_conflicts: Vec<ProvenanceRef>,
+}
+
+impl SettlementResult {
+    /// Converts the result into its ABI DTO.
+    #[must_use]
+    pub fn to_abi(&self) -> abi::SettlementResult {
+        abi::SettlementResult {
+            plan: self.plan.to_abi(),
+            appended_imports: self
+                .appended_imports
+                .iter()
+                .copied()
+                .map(provenance_ref_to_abi)
+                .collect(),
+            appended_conflicts: self
+                .appended_conflicts
+                .iter()
+                .copied()
+                .map(provenance_ref_to_abi)
+                .collect(),
+        }
+    }
+}
+
+fn base_ref_to_abi(base_ref: crate::strand::BaseRef) -> abi::BaseRef {
+    abi::BaseRef {
+        source_worldline_id: abi::WorldlineId::from_bytes(*base_ref.source_worldline_id.as_bytes()),
+        fork_tick: abi::WorldlineTick(base_ref.fork_tick.as_u64()),
+        commit_hash: base_ref.commit_hash.to_vec(),
+        boundary_hash: base_ref.boundary_hash.to_vec(),
+        provenance_ref: provenance_ref_to_abi(base_ref.provenance_ref),
+    }
+}
+
+fn provenance_ref_to_abi(reference: ProvenanceRef) -> abi::ProvenanceRef {
+    abi::ProvenanceRef {
+        worldline_id: abi::WorldlineId::from_bytes(*reference.worldline_id.as_bytes()),
+        worldline_tick: abi::WorldlineTick(reference.worldline_tick.as_u64()),
+        commit_hash: reference.commit_hash.to_vec(),
+    }
+}
+
+fn writer_head_key_to_abi(key: crate::head::WriterHeadKey) -> abi::WriterHeadKey {
+    abi::WriterHeadKey {
+        worldline_id: abi::WorldlineId::from_bytes(*key.worldline_id.as_bytes()),
+        head_id: abi::HeadId::from_bytes(*key.head_id.as_bytes()),
+    }
 }
 
 /// Errors surfaced while comparing, planning, or executing settlement.

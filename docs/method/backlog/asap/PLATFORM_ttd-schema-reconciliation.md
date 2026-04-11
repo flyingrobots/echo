@@ -5,9 +5,11 @@
 
 Echo has local TTD protocol artifacts that predate warp-ttd:
 
-- `ttd-protocol-rs` — generated Rust types from a local GraphQL schema
+- `ttd-protocol-rs` — generated Rust types still described as if Wesley or a
+  repo-local schema were the direct source of truth
 - `ttd-manifest` — vendored IR for the protocol
-- `schemas/ttd-protocol.graphql` — local copy of the schema
+- `packages/ttd-protocol-ts` — generated TypeScript package carrying the same
+  ownership ambiguity
 
 warp-ttd is now the canonical debugger project. Its schema at
 `schemas/warp-ttd-protocol.graphql` should be the single source of
@@ -17,5 +19,6 @@ Work:
 
 - Point `ttd-protocol-rs` generation at warp-ttd's canonical schema
 - Remove or redirect `ttd-manifest` to consume warp-ttd's IR
-- Delete Echo's local `schemas/ttd-protocol.graphql` if redundant
+- Keep generated crates/packages clearly marked as downstream consumers, not
+  backup protocol owners
 - Verify generated types still satisfy `echo-ttd` compliance checker

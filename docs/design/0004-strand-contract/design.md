@@ -27,11 +27,61 @@ builds strand lifecycle into the TUI (`LaneKind::STRAND`,
 strands through the TTD adapter, and it needs the strand contract to
 do so honestly.
 
-The strand contract does not require settlement. It defines identity,
-lifecycle, and the adapter seam. Settlement is a separate spec that
-builds on this one.
+The strand contract does not require settlement in the same cycle. It
+does need to stop lying about scope.
 
-## Normative definitions
+`git-warp` is currently ahead on speculative-lane richness. It already
+has durable strands, braid-capable reads, comparison workflows, and a
+clearer path toward settlement. Echo does not need to copy that engine
+internally, but if parity is the real target then Echo's strand plan
+must be read as a **bootstrap slice**, not the endpoint.
+
+This cycle therefore has two jobs:
+
+1. define the exact bootstrap contract Echo can land now
+2. make explicit which additional capabilities are required before Echo
+   can claim conceptual parity with `git-warp`
+
+Settlement remains a separate spec, but the strand contract must leave
+an honest path to settlement, braid geometry, and shared debugger
+publication instead of freezing a too-small model as if it were final.
+
+## Scope posture
+
+This packet defines the **bootstrap strand contract**.
+
+That bootstrap is sufficient for:
+
+- fork
+- explicit speculative ticking
+- parent/base provenance
+- TTD lane typing and parentage
+- basic compare workflows
+
+It is **not** sufficient for full parity with `git-warp`.
+
+Parity requires follow-on work in at least four areas:
+
+1. **Braid geometry**
+    - support pins or equivalent multi-lane read composition
+    - participating-lane publication
+    - honest local plurality for debugger surfaces
+2. **Settlement**
+    - compare
+    - plan
+    - import
+    - conflict artifact publication
+3. **Retention policy**
+    - session-scoped ephemerality is acceptable for bootstrap
+    - it is not the only valid long-term model
+4. **Shared observer/debugger publication**
+    - neighborhood core
+    - reintegration detail
+    - receipt shell
+
+Nothing in the bootstrap contract should block those later capabilities.
+
+## Bootstrap normative definitions
 
 ### Strand
 
@@ -109,6 +159,9 @@ SupportPin {
 breaking struct change when braid geometry arrives. No mutation API
 for `support_pins` exists in v1.
 
+This is a bootstrap constraint, not the target model. If Echo stops
+here, it will still lag `git-warp` on braid-capable speculative work.
+
 ### Registry ordering
 
 `StrandRegistry` is a `BTreeMap<StrandId, Strand>`. Iteration order
@@ -125,8 +178,10 @@ deterministic but not semantically meaningful.
 - **INV-S2 (Own heads):** A strand's child worldline MUST NOT share
   writer heads with its base worldline. Head keys are created fresh
   for the child.
-- **INV-S3 (Session-scoped):** A strand MUST NOT outlive the session
-  that created it (v1).
+- **INV-S3 (Bootstrap session scope):** A strand MUST NOT outlive the
+  session that created it in the bootstrap landing. Long-term retention
+  policy remains an explicit follow-on design axis, not a semantic truth
+  about what a strand is.
 - **INV-S4 (Manual tick):** A strand's writer heads MUST be created
   with `HeadEligibility::Dormant`. They are ticked only by explicit
   external command, never by the live scheduler.
@@ -144,9 +199,9 @@ deterministic but not semantically meaningful.
 - **INV-S10 (Clean drop):** After `drop_strand`, no runnable heads
   for the child worldline MUST remain in the `PlaybackHeadRegistry`.
 
-## Drop semantics
+## Bootstrap drop semantics
 
-v1 uses **hard-delete**:
+The bootstrap landing uses **hard-delete**:
 
 - `drop_strand(strand_id)` removes the strand's writer heads from
   `PlaybackHeadRegistry`, removes the child worldline from
@@ -161,7 +216,7 @@ v1 uses **hard-delete**:
 - TTD can log the `DropReceipt` if it needs to show "this strand
   existed and was dropped" during the session.
 
-## Create/drop atomicity
+## Bootstrap create/drop atomicity
 
 ### create_strand
 
@@ -198,11 +253,96 @@ If the strand does not exist, return an error. If intermediate
 removal fails (e.g., worldline already removed), log a warning and
 continue — drop is best-effort cleanup of an ephemeral resource.
 
-## Writer heads cardinality
+## Bootstrap writer-head cardinality
 
 v1 creates exactly one writer head per strand. `writer_heads` is a
 `Vec<WriterHeadKey>` to support future multi-head strands, but v1
 always produces a vec of length 1.
+
+Again, this is a bootstrap constraint, not a statement that a strand is
+inherently single-head forever.
+
+## Parity target that bootstrap must not block
+
+### 1. Strands must grow beyond singleton publication
+
+The bootstrap contract is good enough to say:
+
+- this is a speculative lane
+- it came from this base coordinate
+- it has its own writer head
+
+That is not enough for mature debugger or comparison work.
+
+For parity, Echo eventually needs a first-class local-site publication
+path that can say:
+
+- which lanes participate in the current local site
+- whether the site is singleton or plural
+- what the nearby alternatives are
+
+The current strand contract should therefore be read as the minimal lane
+identity foundation, not the whole neighborhood story.
+
+### 2. Braid geometry is required for parity
+
+`git-warp` already treats braid as a real composite read presentation.
+
+Echo does not need to implement the full final braid model in this
+cycle, but it does need to keep the door open for:
+
+- read-only support overlays
+- explicit support-pin mutation APIs
+- participating-lane publication
+- observer/debugger surfaces that can inspect more than one lane at a
+  local site
+
+So `support_pins` being empty in bootstrap is acceptable only if the
+next design/work cycle makes braid geometry real.
+
+### 3. Settlement must remain separate from braid
+
+The current split is correct:
+
+- braid is geometry
+- settlement is history/import/conflict law
+
+But parity requires both, not just one.
+
+Echo needs:
+
+- braid-capable speculative reads
+- compare / plan / import / conflict artifacts
+
+That is why `KERNEL_strand-settlement` remains required even after this
+packet lands.
+
+### 4. Retention must become policy, not essence
+
+Session-scoped strands are a sensible bootstrap safety posture.
+
+They should not harden into the theory as if "strands are ephemeral"
+were an essential truth. For parity with `git-warp`, Echo needs a
+clearer retention policy axis:
+
+- session-scoped
+- lease-scoped
+- or durable
+
+The current bootstrap may choose the first. The type/theory should not
+pretend the others are impossible.
+
+### 5. Shared debugger publication must become explicit
+
+Even after bootstrap strands land, Echo will still not be aligned if the
+host adapter has to invent:
+
+- neighborhood core
+- reintegration detail
+- receipt shell
+
+Strands therefore need to feed the later Continuum-aligned publication
+boundaries, not remain only an Echo-local kernel feature.
 
 ## Human users / jobs / hills
 
@@ -276,7 +416,7 @@ typed API and programmatically surface strand topology to TTD.
    The `DropReceipt` carries the strand_id, child worldline, and
    final tick.
 
-## Implementation outline
+## Bootstrap implementation outline
 
 1. Define `StrandId` as a domain-separated hash newtype (prefix
    `b"strand:"`), following the `HeadId`/`NodeId` pattern.
@@ -293,6 +433,18 @@ typed API and programmatically surface strand topology to TTD.
    `base_ref.source_worldline_id`, ordered by `StrandId`.
 7. Write `docs/invariants/STRAND-CONTRACT.md` with the ten
    invariants (INV-S1 through INV-S10).
+
+## Required follow-on work for parity
+
+This packet is only correct if the next queue makes the missing
+capabilities explicit.
+
+Required follow-ons:
+
+1. braid geometry and neighborhood publication
+2. settlement / compare / import / conflict artifacts
+3. retention and capability policy for timeline mutation
+4. Continuum/Wesley publication of strand-facing shared observer nouns
 
 ## Tests to write first
 
@@ -340,6 +492,13 @@ typed API and programmatically surface strand topology to TTD.
 - **Unknown: multi-head strands.** v1 creates one head per strand.
   Future cycles may create multiple. The vec is correct but the
   cardinality-1 assumption should be documented and tested.
+- **Unknown: retention posture beyond bootstrap.** Session-scoped
+  deletion is simple, but parity with `git-warp` may eventually require
+  explicit durable or lease-scoped strands. That decision should be made
+  as policy, not smuggled in as type essence.
+- **Unknown: braid publication shape.** `support_pins` is enough to
+  avoid a breaking struct rewrite, but not enough to define how plural
+  local sites should publish into shared debugger contracts.
 
 ## Postures
 
@@ -354,8 +513,8 @@ typed API and programmatically surface strand topology to TTD.
 ## Non-goals
 
 - Settlement semantics (KERNEL_strand-settlement, future cycle).
-- SupportPin / braid geometry implementation (v1 has INV-S9:
-  support_pins MUST be empty).
+- Full braid geometry implementation in this cycle. The bootstrap may
+  keep `support_pins` empty, but that posture is not the endpoint.
 - Strand persistence across sessions (v1 is ephemeral).
 - Automatic scheduling of strand heads (v1 is manual tick only).
 - TTD adapter implementation (this cycle defines the mapping; the

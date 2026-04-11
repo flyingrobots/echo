@@ -9,6 +9,12 @@ Define the strand as a first-class relation in Echo, not just a fork
 that happens to exist. Write a spec with exact fields, invariants,
 lifecycle, and TTD mapping.
 
+This note should be read as the **bootstrap strand hill**, not the final
+parity claim. Echo needs a first honest strand contract now, but braid
+geometry, settlement, and richer neighborhood publication still remain
+follow-on work if Echo is going to reach conceptual parity with
+`git-warp`.
+
 ## What this delivers
 
 A spec (`SPEC-0011-strand-contract.md`) defining:
@@ -18,9 +24,8 @@ Strand = {
     strand_id,
     base_ref,            // source worldline, fork tick, commit hash, boundary hash
     child_worldline_id,  // created by fork()
-    primary_heads,       // own head keys, not shared with parent
+    writer_heads,        // own head keys, not shared with parent
     support_pins,        // read-only references to other strands (braid geometry)
-    lifecycle,           // Created → Active → Dropped (ephemeral in v1)
 }
 ```
 
@@ -30,7 +35,8 @@ Strand = {
   "overlay" is the child suffix after `fork_tick`, not a separate
   substrate.
 - Strands are **ephemeral in v1**. No persistence across sessions.
-  Matches warp-ttd Cycle D ("no strand persistence across sessions").
+  This is a bootstrap posture, not a claim that ephemerality is the
+  semantic essence of strands.
 - **Own head keys.** Do not share the parent's heads. Use the same
   head infrastructure but give the child worldline its own
   `WriterHeadKey`s.
@@ -41,7 +47,9 @@ Strand = {
   already has `LaneKind::STRAND` and `LaneRef.parentId`. The adapter
   seam is waiting.
 - **Braid is geometry, not history.** Braid = pinning read-only
-  support overlays. Settlement (history) is a separate spec.
+  support overlays. Settlement (history) is a separate spec. v1 may
+  still land with empty `support_pins`, but that is a bootstrap limit,
+  not the target model.
 
 ## Invariants to specify
 
@@ -56,7 +64,7 @@ Strand = {
 
 ## TTD mapping
 
-- `LaneKind::STRAND` ← strand lifecycle
+- `LaneKind::STRAND` ← strand type
 - `LaneRef.parentId` ← `base_ref.source_worldline_id`
 - Strand create/tick/compare/drop maps to warp-ttd Cycle D operations
 
@@ -64,5 +72,6 @@ Strand = {
 
 - Supersedes design questions 1–5 in `KERNEL_strands-and-braiding`
 - Enables `KERNEL_strand-settlement` (settlement spec)
+- Requires follow-on `KERNEL_braid-geometry-and-neighborhood-publication`
 - Unblocks `PLATFORM_echo-ttd-host-adapter` for strand surface
 - Unblocks time travel MVP (TT2) fork/compare workflow

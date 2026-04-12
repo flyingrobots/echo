@@ -25,239 +25,175 @@
 
 ---
 
-## The Trick
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-Echo runs graph rewrites in parallel across all your cores. No mutexes. No
-locks. No lock-free spinning. No CRDTs. No synchronization of any kind.
+# Echo
 
-How? Every rule reads from an **immutable snapshot**. Every rule writes to
-its own **private delta**. When all rules finish, the deltas merge in
-**canonical order**. Same inputs, same hashes, same result&mdash;whether you
-have 1 thread or 32.
+An deterministic causal graph-rewrite simulation engine.
 
-```text
-  ┌─ Rule A ──► private delta A ─┐
-  │                               │
-  Snapshot ─┤─ Rule B ──► private delta B ─├──► Canonical Merge ──► Commit ──► Hash
-  │                               │
-  └─ Rule C ──► private delta C ─┘
+[![Determinism CI](https://github.com/flyingrobots/echo/actions/workflows/determinism.yml/badge.svg)](https://github.com/flyingrobots/echo/actions/workflows/determinism.yml)
+[![CI](https://github.com/flyingrobots/echo/actions/workflows/ci.yml/badge.svg)](https://github.com/flyingrobots/echo/actions/workflows/ci.yml)
 
-  Nothing is shared. Nothing is locked. Order doesn't matter.
-```
+Echo executes parallel graph rewrites with 0-ULP cross-platform determinism, structurally eliminating concurrency issues through immutable snapshots and canonical delta merging. Designed for everything from high-frequency interactive simulations to massive-scale causal graph analysis, Echo provides bit-perfect replayability across platforms and concurrency profiles as an inherent system property — not an afterthought.
 
-The concurrency problem doesn't get solved. It gets
-**structurally prevented from existing.**
+---
 
-Benchmark: 1M entities, 100 ticks, 10 cores. This approach matches Rayon's
-optimized work-stealing thread pool at ~4.7x speedup&mdash;while also being
-deterministic, which Rayon cannot offer.
-([Parallelism study](docs/benchmarks/parallelism-study.md))
+## The Problem With Your Runtime
 
-## How Independence Is Proven
+You model state as a hierarchy of mutable containers. You manage concurrency through locks, mutexes, and prayer. You "debug" by scattering print statements across a non-deterministic execution that will never reproduce the same way twice. When something goes wrong, you squint at logs and guess.
 
-Each rule declares a **footprint**&mdash;the graph regions it reads and
-writes. The scheduler checks footprints before execution: if two rules
-touch the same structure, they're serialized deterministically. If they
-don't, they're provably independent and can run in any order with identical
-results.
+Echo doesn't fix concurrency bugs. It makes them architecturally impossible.
 
-At runtime, footprint guards **enforce** the contract:
+State is immutable. It evolves canonically through optics that produce holograms. There is nothing to lock, nothing to race, and nothing to guess about — because every transition is a witnessed, cryptographically verifiable admission of new truth.
 
-- **Reads** are checked via guarded graph views that reject undeclared access
-- **Writes** are validated post-execution against the declared footprint
-- **Violations** poison the delta&mdash;it cannot be committed
+---
 
-This isn't honor system. It's runtime proof.
+## WARP Graphs
 
-## Cross-Platform Determinism
+At its core, Echo operates on WARP graphs (**W**orldline **A**lgebra for **R**ecursive **P**rovenance).
 
-```text
-$ cargo xtask dind run
-[DIND] Running 50 seeds across 3 platforms...
-[DIND] linux-x64:   7f3a9c...d82e1a ✅
-[DIND] macos-arm64: 7f3a9c...d82e1a ✅
-[DIND] windows-x64: 7f3a9c...d82e1a ✅
+A WARP graph is not a flat data structure. It is a recursive double-decker system:
 
-Hashes match. Determinism verified.
-```
+- **The Skeleton Plane** provides the immutable geometric structure — the shape of the graph.
+- **The Attachment Plane** is where values and data live.
 
-Same hashes. Every platform. Every thread count. Every run. Not
-approximately&mdash;identical bytes, cryptographically verified.
+Nodes and edges can both host attachments, and those attachments can themselves be WARP graphs. Graphs all the way down.
 
-Echo eliminates every known source of nondeterminism:
+Structure and data are governed by different laws. The skeleton is the causal geometry; the attachments are the payload that rides it. Separating them means rewrites can reason about shape independently of content, and content can be projected independently of shape.
 
-- **Float math**: LUT-based trig with 0-ULP golden vectors, no stdlib transcendentals
-- **Iteration order**: `BTreeMap` everywhere, `HashMap` is [banned from core crates](scripts/ban-nondeterminism.sh)
-- **Global state**: `OnceLock`, `lazy_static`, `thread_local`, `static mut` are all [banned](scripts/ban-globals.sh)
-- **Time and entropy**: `SystemTime`, `Instant::now`, `rand::` are all [banned](scripts/ban-nondeterminism.sh)
-- **Wire format**: [Canonical CBOR encoding](docs/SPEC_DETERMINISTIC_MATH.md), no platform-dependent serialization
-- **ABI boundaries**: Unordered containers are [banned from wire-format code](scripts/ban-unordered-abi.sh)
+---
 
-The fast local nondeterminism ban runs in the **pre-commit hook**. The broader
-ban suite, including the global-state and unordered-ABI guards above, is
-enforced in CI. You cannot quietly merge nondeterministic code. The claim
-register and the build reject it.
+## How State Evolves
 
-See [Determinism Claims v0.1](docs/determinism/DETERMINISM_CLAIMS_v0.1.md) for
-the full claim register with CI gates and evidence artifacts.
+WARP graphs are strictly immutable. When Echo ticks, it does not mutate the graph. It admits a new state.
 
-## Time Travel Debugging
+Echo uses **optics** to perform lawful Double Push-Out (DPO) graph rewriting. An optic declares a semantic footprint — a bounded region of the graph it intends to read and write. The runtime cuts out that footprint and replaces it with a new configuration, producing two inseparable artifacts:
 
-Every tick stores the full WARP state, the rewrite bundle (all legal moves),
-the interference pattern, and the collapse decision. History isn't
-reconstructed&mdash;it's **recorded by construction**.
+1. **A new state**: the next canonical step in the worldline.
+2. **A provenance payload**: a minimal, cryptographic witness of the transition — what changed, why it was lawful, and what it replaced.
 
-- **Rewind**: step backward to any prior tick with perfect fidelity
-- **Fork**: branch into a counterfactual worldline from any point
-- **Diff**: overlay actual vs. alternative worldlines to find where they diverge
+The witness is not optional metadata. It is a structural consequence of the rewrite. Every tick is self-documenting by construction.
 
-This is always available. You don't enable recording. You don't configure
-tracing. Deterministic replay is a property of the architecture, not a
-feature you turn on.
+---
 
-## What Is WARP?
+## Determinism by Construction
 
-WARP (Worldline Algebra for Recursive Provenance) is the graph algebra
-underneath Echo. State is a **WARP graph**&mdash;a typed, directed graph
-where nodes and edges can contain nested graphs. Change happens through
-**DPO-inspired rewriting**: match a pattern, cut it out, glue in a
-replacement along a typed interface.
+Echo achieves parallelism without synchronization. Rewrite rules read from an immutable snapshot and write to a private delta. Deltas merge in canonical order. The result is identical whether the host runs 1 thread or 32.
 
-That DPO/DPOI story is the **north-star semantics**, not a claim that
-`warp-core` already ships a full categorical DPO engine. Today the runtime
-enforces order-independence with conservative `Footprint`s and the scheduler's
-reservation/conflict path; see [Theory](docs/THEORY.md) and
-[SPEC-0003](docs/spec/SPEC-0003-dpo-concurrency-litmus-v0.md) for the intended
-semantics versus the current pragmatic subset.
+This is not "mostly deterministic." It is 0-ULP deterministic:
 
-The combination gives you:
+- Standard floats are banned. Echo uses fixed-point or otherwise platform-invariant arithmetic.
+- System time is banned. Simulation time is a causal property of the worldline, not a wall-clock reading.
+- Unseeded randomness is banned. If a tick uses randomness, the seed is part of the state.
 
-- **Immutable state**: graphs are never mutated in place; rewrites produce new graphs
-- **Append-only history**: every tick is a cryptographic commit in a hash chain
-- **Deterministic convergence**: independent rewrites commute under today's footprint conflict rules, with DPOI as the intended north star
-- **Nested structure**: a node can contain an entire sub-universe (graphs all the way down)
+The same tick hash on Linux, macOS, and Windows. The same tick hash today, next year, and on hardware that doesn't exist yet. This is what **absolute inevitability** means: given the same input, the output is not just likely identical — it is mathematically guaranteed.
 
-> **Naming:** Echo is the product. WARP is the underlying algebra. The `warp-*`
-> and `echo-*` crates are internal modules&mdash;same project, different layers.
+**Footprint enforcement** is the mechanism that makes this survive parallelism. Optics declare their graph regions. The scheduler proves independence. Any delta that violates its declared contract is poisoned — not patched, not retried, but structurally rejected. The system does not tolerate lying about what you touch.
 
-## Project Status
+---
 
-> [!WARNING]
-> **Echo is early. Sharp edges.**
->
-> - **Stable:** Core determinism, hashing, replay invariants, parallel execution
-> - **Changing:** Schema/IR, APIs, file formats, viewer protocol
-> - **Not yet:** Nice UX, polished docs, batteries-included examples
->
-> If you need a plug-and-play game engine today, this isn't that (yet).
-> If you need deterministic, replayable state transitions you can prove, it is.
+## Holography and the Death of Debugging
 
-### Roadmap
+Because every transition produces an information-complete witness, WARP graphs are inherently **holographic**. An Echo state contains encoded boundary structure that — combined with its provenance chain — can recover any previous state in its entire causal history.
 
-1. **WARPSITE**&mdash;a website powered by WARP graph rewriting
-2. **Splash Guy**&mdash;a demo game designed to introduce Echo concepts
-3. **Tumble Tower**&mdash;a demo game designed to demonstrate Echo's physics determinism
+This gives you always-on time-travel. Not as a dev tool bolted on after the fact, but as a structural property of the substrate. Every state knows its own autobiography.
 
-See also: [Wesley](https://github.com/flyingrobots/wesley)&mdash;a GraphQL-to-Rust/TypeScript
-schema compiler that will generate typed WARP schemas, footprints, and
-deterministic serialization from a single source of truth.
+"Debugging" is a legacy term. In Echo, you are a **ReaderHead** performing forensic revelation — stepping backward, jumping across the worldline, inspecting the causal ancestry of any value. You don't hunt for bugs in a non-deterministic ghost. You read history.
 
-Echo is the `hot` runtime within the larger Continuum architecture. For the
-multi-repo system model, see [Continuum](CONTINUUM.md) and
-[Continuum Foundations](docs/continuum-foundations.md).
+---
 
-## Quick Tour
+## Observer Geometry
+
+An observer in Echo is not a scalar. It is a structural 5-tuple that defines the **aperture of revelation**:
+
+| Component | Name | Role |
+|---|---|---|
+| **O** | Projection | The mapping from the causal substrate to what is displayed |
+| **B** | Basis | The native coordinate system of events |
+| **M** | State | Accumulated observational memory |
+| **K** | Update | The transition law for integrating new observations |
+| **E** | Emission | The structural description produced by the observation act |
+
+Two concepts matter here:
+
+**Aperture** is the measure of what task-relevant distinctions survive observation. Not everything in the worldline is visible to every observer. Aperture governs what a raw trace reveals versus what accumulates over time, split across projection aperture, basis aperture, and accumulated aperture.
+
+**Degeneracy** is the hidden multiplicity behind an observation. Two worldline states can look identical under one projection while being structurally different underneath. The job of forensic inspection is to surface degeneracy — not collapse it. Through counterfactual forking, Echo lets you explore not just what happened, but the plurality of what could have been.
+
+This is where the deeper architecture shows through. Observation is not a passive read. It is a structured act with its own geometry, and different observers can hold lawfully different views of the same causal history.
+
+---
+
+## The Broader Architecture
+
+Echo is the engine layer of a larger stack called **WARP** — a recursive, witnessed admission architecture that governs the transition from private speculation to shared causal reality.
+
+Above the engine, the WARP stack handles:
+
+- **Braids**: when multiple strands of causal history meet at a frontier and must be judged — joined, preserved as plurality, surfaced as conflict, or declared obstructed.
+- **Commitment, Folding, and Revelation**: three distinct operations. What becomes true. How admitted history is lawfully compressed. What a bounded observer can actually see.
+- **Reliance**: trust over proof-bearing artifacts as a first-class admission domain — certificates are issued, activated, superseded, suspended, or revoked through the same witnessed kernel.
+
+Echo provides the deterministic, holographic substrate. The upper stack provides the governance. Together, they form a system where collaboration itself becomes a witnessed, rights-bearing admission problem rather than a soft social assumption layered on top of software.
+
+---
+
+## In Short
+
+| Property | How |
+|---|---|
+| **Parallelism without synchronization** | Immutable snapshots, private deltas, canonical merge order |
+| **0-ULP cross-platform determinism** | No floats, no system time, no unseeded randomness |
+| **Always-on time-travel** | Holographic provenance witnesses on every transition |
+| **Footprint enforcement** | Optics declare regions; the runtime poisons liars |
+| **Observer geometry** | Structural 5-tuple aperture, not scalar subscription |
+| **WARP substrate** | Tamper-evident, recursively provenance-bearing, graphs all the way down |
+
+
+## Quick Start
+
+### 1. Repository Setup
+
+Install the guardrails and verify the environment.
 
 ```bash
-# Install hooks (formats code, runs clippy, checks docs)
 make hooks
+cargo check
+```
 
-# Run the test suite
-cargo test --workspace
+### 2. Verify Determinism
 
-# Run determinism verification
+Run the cross-platform DIND (Determinism-in-Determinism) harness.
+
+```bash
 cargo xtask dind run
 ```
 
-Run `warp-core` with extra delta validation enabled:
+### 3. Build Documentation
+
+Generate the high-fidelity docs site.
 
 ```bash
-cargo test -p warp-core --features delta_validate
-```
-
-```bash
-# Launch the viewer
-cargo run -p warp-viewer
-
-# Build the docs site
 make docs
 ```
 
-## The Stack
+## Stack
 
-**Core** &mdash; `crates/warp-core`
+| Component           | Role                                                               |
+| :------------------ | :----------------------------------------------------------------- |
+| **`warp-core`**     | The rewrite engine, deterministic math, and transaction kernel.    |
+| **`echo-app-core`** | Application lifecycle, system orchestration, and effect pipelines. |
+| **`ttd-browser`**   | Browser-hostable TTD/runtime bridge surfaces over Echo WASM.       |
+| **`echo-dind-*`**   | Cross-platform test harness for hash convergence verification.     |
 
-- Graph-rewrite engine with transactional commits
-- Deterministic math (fixed-point, PRNG, Vec3/Mat4/Quat)
-- Parallel execution via snapshot + private delta + canonical merge
-- **Footprint guards**&mdash;runtime enforcement of declared read/write sets
-- **Materialization bus**&mdash;order-independent output channels
-- **WSC** (Write-Streaming Columnar)&mdash;zero-copy snapshot format for fast state reload + verification
+## Documentation
 
-**Pipeline** &mdash; `crates/echo-session-*`
-
-- Unix socket hub with gapless diff streaming
-- WebSocket gateway for browser tools
-- Canonical CBOR wire format
-
-**Tools** &mdash; `crates/warp-viewer`, `crates/echo-dind-*`
-
-- Native GPU viewer with per-frame hash verification
-- **DIND** (Determinism-in-Determinism)&mdash;cross-platform test harness that proves hash convergence
-
-## Research Foundation
-
-Echo implements ideas from the **AIΩN Foundations** paper series:
-
-1. [WARP Graphs: A Worldline Algebra for Recursive Provenance](https://doi.org/10.5281/zenodo.17908005)
-2. [Canonical State Evolution and Deterministic Worldlines](https://doi.org/10.5281/zenodo.17934512)
-3. [Computational Holography & Provenance Payloads](https://doi.org/10.5281/zenodo.17963669)
-4. [Rulial Distance & Observer Geometry](https://doi.org/10.5281/zenodo.18038297)
-
-Part of the [AIΩN Framework](https://github.com/flyingrobots/aion).
-
-## Reference
-
-- [Architecture Outline](docs/architecture-outline.md) &mdash; design rationale and high-level system overview
-- [Configuration Reference](docs/guide/configuration-reference.md) &mdash; engine parameters, protocol constants, environment variables
-- [Cargo Feature Flags](docs/guide/cargo-features.md) &mdash; all compile-time features across the workspace
-- [Deterministic Math Policy](docs/SPEC_DETERMINISTIC_MATH.md) &mdash; normative rules for IEEE 754 handling
-
-## Contributing
-
-Determinism is sacred. Before you change anything:
-
-1. Read [`CONTRIBUTING.md`](CONTRIBUTING.md)
-2. Run `make hooks` to install the guardrails
-3. Write tests. If it's not tested, it's not deterministic.
-
-The repo guardrails cover:
-
-- No global state ([`ban-globals.sh`](scripts/ban-globals.sh))
-- No wall-clock time or uncontrolled randomness ([`ban-nondeterminism.sh`](scripts/ban-nondeterminism.sh))
-- No unordered iteration in wire-format code ([`ban-unordered-abi.sh`](scripts/ban-unordered-abi.sh))
-
-`make hooks` installs the fast local subset. CI runs the broader determinism
-ban suite before merge.
-
-## Requirements
-
-- **Rust** &mdash; pinned in `rust-toolchain.toml` (currently 1.90.0)
-- **Node.js 18+** &mdash; for the docs site (VitePress)
-
-## License
-
-Dual-licensed under Apache 2.0 and MIND-UCAL 1.0. See [`LEGAL.md`](LEGAL.md) for details.
+- **[Guide](./docs/guide/start-here.md)**: Orientation, the fast path, and core concepts.
+- **[Architecture](./docs/architecture-outline.md)**: The authoritative system map and layer model.
+- **[DIND](./docs/dind-harness.md)**: Determinism verification and the "Drill Sergeant" discipline.
+- **[Theory](./docs/THEORY.md)**: Theoretical foundations (AION Foundations series).
+- **[Continuum](./CONTINUUM.md)**: The multi-repo system model and hot-runtime role.
 
 ---
 

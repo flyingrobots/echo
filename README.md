@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <strong>State is a graph. Time is a hash chain. Determinism isn't optional.</strong>
+  <strong>An deterministic causal graph-rewrite simulation engine.</strong>
 </p>
 
 <p align="center">
@@ -23,17 +23,6 @@
     <img src="https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-blue" alt="Platforms" />
 </p>
 
----
-
-<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
-<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
-
-# Echo
-
-An deterministic causal graph-rewrite simulation engine.
-
-[![Determinism CI](https://github.com/flyingrobots/echo/actions/workflows/determinism.yml/badge.svg)](https://github.com/flyingrobots/echo/actions/workflows/determinism.yml)
-[![CI](https://github.com/flyingrobots/echo/actions/workflows/ci.yml/badge.svg)](https://github.com/flyingrobots/echo/actions/workflows/ci.yml)
 
 Echo executes parallel graph rewrites with 0-ULP cross-platform determinism, structurally eliminating concurrency issues through immutable snapshots and canonical delta merging. Designed for everything from high-frequency interactive simulations to massive-scale causal graph analysis, Echo provides bit-perfect replayability across platforms and concurrency profiles as an inherent system property — not an afterthought.
 

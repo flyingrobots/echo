@@ -24,7 +24,7 @@
 </p>
 
 
-Echo executes parallel graph rewrites with 0-ULP cross-platform determinism, structurally eliminating concurrency issues through immutable snapshots and canonical delta merging. Designed for everything from high-frequency interactive simulations to massive-scale causal graph analysis, Echo provides bit-perfect replayability across platforms and concurrency profiles as an inherent system property — not an afterthought.
+Echo executes parallel graph rewrites with 0-ULP cross-platform determinism, structurally abolishing concurrency issues through immutable snapshots and canonical delta merging. Designed for everything from high-frequency interactive simulations to massive-scale causal graph analysis, Echo provides bit-perfect replayability across platforms and concurrency profiles as an inherent system property — not an afterthought.
 
 ---
 

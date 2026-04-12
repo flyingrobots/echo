@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <strong>An deterministic causal graph-rewrite simulation engine.</strong>
+  <strong>A deterministic causal graph-rewrite simulation engine</strong>
 </p>
 
 <p align="center">

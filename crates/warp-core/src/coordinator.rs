@@ -19,8 +19,9 @@ use crate::head_inbox::{InboxAddress, InboxIngestResult, IngressEnvelope, Ingres
 use crate::ident::Hash;
 use crate::provenance_store::{
     HistoryError, ProvenanceCheckpoint, ProvenanceEntry, ProvenanceService, ProvenanceStore,
+    ReplayError,
 };
-use crate::strand::{Strand, StrandError, StrandId, StrandRegistry, SupportPin};
+use crate::strand::{ForkBasisRef, Strand, StrandError, StrandId, StrandRegistry, SupportPin};
 use crate::worldline::WorldlineId;
 use crate::worldline_registry::WorldlineRegistry;
 use crate::worldline_state::{WorldlineFrontier, WorldlineState};
@@ -75,6 +76,9 @@ pub enum RuntimeError {
     /// Provenance append or lookup failed during a runtime step.
     #[error(transparent)]
     Provenance(#[from] HistoryError),
+    /// Historical replay or materialization failed.
+    #[error(transparent)]
+    Replay(#[from] ReplayError),
     /// Strand registry or support-pin operation failed.
     #[error(transparent)]
     Strand(#[from] StrandError),
@@ -103,6 +107,34 @@ pub enum IngressDisposition {
         /// The head that owns the duplicate route target.
         head_key: WriterHeadKey,
     },
+}
+
+/// Request to fork a strand from one precise source-lane coordinate.
+#[derive(Clone, Debug)]
+pub struct ForkStrandRequest {
+    /// Stable strand identity to register.
+    pub strand_id: StrandId,
+    /// Source lane carrying the fork basis in v1.
+    pub source_lane_id: WorldlineId,
+    /// Last included tick in the copied prefix.
+    pub fork_tick: WorldlineTick,
+    /// Child worldline that will carry the speculative frontier.
+    pub child_worldline_id: WorldlineId,
+    /// Writer heads to register for the child worldline.
+    pub writer_heads: Vec<WriterHead>,
+}
+
+/// Receipt returned after a strand fork succeeds.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ForkStrandReceipt {
+    /// Stable strand identity.
+    pub strand_id: StrandId,
+    /// Immutable fork basis recorded for the new strand.
+    pub fork_basis_ref: ForkBasisRef,
+    /// Child worldline carrying the strand's live state.
+    pub child_worldline_id: WorldlineId,
+    /// Writer heads authorized for the child worldline.
+    pub writer_heads: Vec<WriterHeadKey>,
 }
 
 // =============================================================================
@@ -256,10 +288,10 @@ impl WorldlineRuntime {
     pub fn register_strand(&mut self, strand: Strand) -> Result<(), RuntimeError> {
         if !self
             .worldlines
-            .contains(&strand.base_ref.source_worldline_id)
+            .contains(&strand.fork_basis_ref.source_lane_id)
         {
             return Err(RuntimeError::UnknownWorldline(
-                strand.base_ref.source_worldline_id,
+                strand.fork_basis_ref.source_lane_id,
             ));
         }
         if !self.worldlines.contains(&strand.child_worldline_id) {
@@ -271,6 +303,96 @@ impl WorldlineRuntime {
             }
         }
         self.strands.insert(strand).map_err(RuntimeError::Strand)
+    }
+
+    /// Forks a new strand from one precise source-lane coordinate.
+    ///
+    /// This copies provenance history, materializes the child frontier at the
+    /// requested fork basis, registers the child worldline and writer heads,
+    /// then inserts the strand relation object.
+    ///
+    /// On failure, both runtime and provenance are restored to their pre-fork
+    /// state so forking does not leave partial truth behind.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the source lane is missing, provenance cannot fork
+    /// or replay the child history, writer-head registration fails, or strand
+    /// invariants are violated.
+    pub fn fork_strand(
+        &mut self,
+        provenance: &mut ProvenanceService,
+        request: ForkStrandRequest,
+    ) -> Result<ForkStrandReceipt, RuntimeError> {
+        let runtime_before = self.clone();
+        let provenance_before = provenance.clone();
+
+        let outcome =
+            (|| {
+                let source_state = self
+                    .worldlines
+                    .get(&request.source_lane_id)
+                    .ok_or(RuntimeError::UnknownWorldline(request.source_lane_id))?
+                    .state()
+                    .clone();
+
+                provenance.fork(
+                    request.source_lane_id,
+                    request.fork_tick,
+                    request.child_worldline_id,
+                )?;
+
+                let child_target_tick = request.fork_tick.checked_increment().ok_or(
+                    RuntimeError::FrontierTickOverflow(request.child_worldline_id),
+                )?;
+                let child_state = provenance.replay_worldline_state_at(
+                    request.child_worldline_id,
+                    &source_state,
+                    child_target_tick,
+                )?;
+
+                let source_entry = provenance.entry(request.source_lane_id, request.fork_tick)?;
+                let fork_basis_ref = ForkBasisRef {
+                    source_lane_id: request.source_lane_id,
+                    fork_tick: request.fork_tick,
+                    commit_hash: source_entry.expected.commit_hash,
+                    boundary_hash: source_entry.expected.state_root,
+                    provenance_ref: source_entry.as_ref(),
+                };
+                let writer_heads = request
+                    .writer_heads
+                    .iter()
+                    .map(|head| *head.key())
+                    .collect::<Vec<_>>();
+
+                self.register_worldline(request.child_worldline_id, child_state)?;
+                for head in request.writer_heads {
+                    self.register_writer_head(head)?;
+                }
+                self.register_strand(Strand {
+                    strand_id: request.strand_id,
+                    fork_basis_ref,
+                    child_worldline_id: request.child_worldline_id,
+                    writer_heads: writer_heads.clone(),
+                    support_pins: Vec::new(),
+                })?;
+
+                Ok(ForkStrandReceipt {
+                    strand_id: request.strand_id,
+                    fork_basis_ref,
+                    child_worldline_id: request.child_worldline_id,
+                    writer_heads,
+                })
+            })();
+
+        match outcome {
+            Ok(receipt) => Ok(receipt),
+            Err(err) => {
+                *self = runtime_before;
+                *provenance = provenance_before;
+                Err(err)
+            }
+        }
     }
 
     /// Adds a validated support pin between two live strands.
@@ -656,6 +778,7 @@ mod tests {
     use crate::head_inbox::{make_intent_kind, InboxPolicy};
     use crate::playback::PlaybackMode;
     use crate::rule::{ConflictPolicy, PatternGraph, RewriteRule};
+    use crate::strand::make_strand_id;
     use crate::worldline::WorldlineId;
     use crate::{
         make_node_id, make_type_id, EngineBuilder, GraphStore, GraphView, NodeId, NodeRecord,
@@ -728,6 +851,23 @@ mod tests {
         provenance
     }
 
+    fn commit_one_tick(
+        runtime: &mut WorldlineRuntime,
+        provenance: &mut ProvenanceService,
+        engine: &mut Engine,
+        worldline_id: WorldlineId,
+        label: &str,
+    ) {
+        runtime
+            .ingest(IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind(label),
+                label.as_bytes().to_vec(),
+            ))
+            .unwrap();
+        SchedulerCoordinator::super_tick(runtime, provenance, engine).unwrap();
+    }
+
     fn runtime_marker_matches(view: GraphView<'_>, scope: &NodeId) -> bool {
         matches!(
             view.node_attachment(scope),
@@ -740,6 +880,144 @@ mod tests {
             view.node_attachment(scope),
             Some(crate::AttachmentValue::Atom(payload)) if payload.bytes.as_ref() == b"panic-b"
         )
+    }
+
+    #[test]
+    fn fork_strand_registers_child_frontier_and_strand_relation() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        let source_lane_id = wl(1);
+        let child_worldline_id = wl(2);
+        let strand_id = make_strand_id("fork-runtime");
+
+        runtime
+            .register_worldline(source_lane_id, WorldlineState::empty())
+            .unwrap();
+        register_head(
+            &mut runtime,
+            source_lane_id,
+            "source-default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+
+        let mut provenance = mirrored_provenance(&runtime);
+        commit_one_tick(
+            &mut runtime,
+            &mut provenance,
+            &mut engine,
+            source_lane_id,
+            "fork-source-commit",
+        );
+
+        let child_head_key = WriterHeadKey {
+            worldline_id: child_worldline_id,
+            head_id: make_head_id("child-default"),
+        };
+        let receipt = runtime
+            .fork_strand(
+                &mut provenance,
+                ForkStrandRequest {
+                    strand_id,
+                    source_lane_id,
+                    fork_tick: wt(0),
+                    child_worldline_id,
+                    writer_heads: vec![WriterHead::with_routing(
+                        child_head_key,
+                        PlaybackMode::Play,
+                        InboxPolicy::AcceptAll,
+                        None,
+                        true,
+                    )],
+                },
+            )
+            .unwrap();
+
+        let child_frontier = runtime.worldlines().get(&child_worldline_id).unwrap();
+        assert_eq!(child_frontier.frontier_tick(), wt(1));
+        assert_eq!(child_frontier.state().current_tick(), wt(1));
+        assert_eq!(
+            child_frontier.state().state_root(),
+            runtime
+                .worldlines()
+                .get(&source_lane_id)
+                .unwrap()
+                .state()
+                .state_root()
+        );
+
+        let strand = runtime.strands().get(&strand_id).unwrap();
+        assert_eq!(strand.fork_basis_ref, receipt.fork_basis_ref);
+        assert_eq!(receipt.fork_basis_ref.source_lane_id, source_lane_id);
+        assert_eq!(receipt.fork_basis_ref.fork_tick, wt(0));
+        assert_eq!(receipt.child_worldline_id, child_worldline_id);
+        assert_eq!(receipt.writer_heads, vec![child_head_key]);
+        assert!(runtime.heads().get(&child_head_key).is_some());
+        assert_eq!(provenance.len(child_worldline_id).unwrap(), 1);
+    }
+
+    #[test]
+    fn fork_strand_rolls_back_runtime_and_provenance_on_error() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        let source_lane_id = wl(1);
+        let child_worldline_id = wl(2);
+        let strand_id = make_strand_id("fork-rollback");
+
+        runtime
+            .register_worldline(source_lane_id, WorldlineState::empty())
+            .unwrap();
+        register_head(
+            &mut runtime,
+            source_lane_id,
+            "source-default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+
+        let mut provenance = mirrored_provenance(&runtime);
+        commit_one_tick(
+            &mut runtime,
+            &mut provenance,
+            &mut engine,
+            source_lane_id,
+            "fork-rollback-source",
+        );
+
+        let wrong_head_key = WriterHeadKey {
+            worldline_id: source_lane_id,
+            head_id: make_head_id("wrong-worldline"),
+        };
+        let err = runtime
+            .fork_strand(
+                &mut provenance,
+                ForkStrandRequest {
+                    strand_id,
+                    source_lane_id,
+                    fork_tick: wt(0),
+                    child_worldline_id,
+                    writer_heads: vec![WriterHead::with_routing(
+                        wrong_head_key,
+                        PlaybackMode::Play,
+                        InboxPolicy::AcceptAll,
+                        Some(InboxAddress("wrong-worldline".to_owned())),
+                        false,
+                    )],
+                },
+            )
+            .unwrap_err();
+
+        assert!(matches!(
+            err,
+            RuntimeError::Strand(StrandError::InvariantViolation(_))
+        ));
+        assert!(runtime.worldlines().get(&child_worldline_id).is_none());
+        assert!(runtime.strands().get(&strand_id).is_none());
+        assert!(runtime.heads().get(&wrong_head_key).is_none());
+        assert!(provenance.len(child_worldline_id).is_err());
+        assert_eq!(provenance.len(source_lane_id).unwrap(), 1);
     }
 
     fn noop_runtime_rule(rule_name: &'static str) -> RewriteRule {

@@ -50,9 +50,9 @@ For the first cut, the proof slice should cover:
 
 ## Repo Evidence
 
-- `docs/design/0006-echo-continuum-alignment/design.md`
-- `docs/design/0007-braid-geometry-and-neighborhood-publication/design.md`
-- `docs/design/0008-strand-settlement/design.md`
+- `docs/design/0006-echo-continuum-alignment.md`
+- `docs/design/0007-braid-geometry-and-neighborhood-publication.md`
+- `docs/design/0008-strand-settlement.md`
 - `crates/echo-wasm-abi/src/kernel_port.rs`
 - `crates/warp-core/src/neighborhood.rs`
 - `crates/warp-core/src/settlement.rs`

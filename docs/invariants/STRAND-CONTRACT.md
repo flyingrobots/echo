@@ -7,9 +7,10 @@
 
 ## Invariant
 
-A strand is a named, ephemeral, speculative execution lane derived
-from a base worldline. It is a relation over a child worldline
-created by `ProvenanceStore::fork()`, not a separate substrate. A
+A strand is a named speculative execution lane rooted at one exact
+admissible source-lane coordinate. It is a relation over a child
+worldline created by `ProvenanceStore::fork()`, not a separate
+substrate. A
 strand either exists in the `StrandRegistry` (live) or does not
 (dropped). There is no tombstone state.
 
@@ -18,18 +19,18 @@ strand either exists in the `StrandRegistry` (live) or does not
 The following invariants are normative. "MUST" and "MUST NOT" follow
 RFC 2119 convention.
 
-### INV-S1 — Immutable base
+### INV-S1 — Immutable fork basis
 
-A strand's `base_ref` MUST NOT change after creation. The `BaseRef`
-pins the exact provenance coordinate the strand was forked from:
-source worldline ID, fork tick (last included tick in the copied
-prefix), commit hash at fork tick, output boundary hash (state root
-after applying the patch), and a `ProvenanceRef` handle.
+A strand's `fork_basis_ref` MUST NOT change after creation. The
+`ForkBasisRef` pins the exact admissible coordinate the strand was
+forked from: source lane ID, fork tick (last included tick in the
+copied prefix), commit hash at fork tick, output boundary hash (state
+root after applying the patch), and a `ProvenanceRef` handle.
 
 ### INV-S2 — Own heads
 
-A strand's child worldline MUST NOT share writer heads with its base
-worldline. Head keys are created fresh for the child, using the same
+A strand's child worldline MUST NOT share writer heads with its source
+lane. Head keys are created fresh for the child, using the same
 `WriterHead` infrastructure but with `WriterHeadKey.worldline_id`
 set to the child worldline.
 
@@ -38,16 +39,15 @@ set to the child worldline.
 A strand MUST NOT outlive the session that created it (v1). No
 strand persistence across sessions.
 
-### INV-S4 — Manual tick
+### INV-S4 — Single tick law
 
-A strand's writer heads MUST be created with
-`HeadEligibility::Dormant` and `PlaybackMode::Paused`. They are
-ticked only by explicit external command, never by the live
-scheduler. Dormant heads do not appear in the `RunnableWriterSet`.
+A strand advances only through ordinary intent admission under Echo's
+global `super_tick()` path. No strand-specific tick path is
+authoritative.
 
-### INV-S5 — Complete base_ref
+### INV-S5 — Complete fork basis
 
-`base_ref` MUST pin: source worldline ID, fork tick, commit hash,
+`fork_basis_ref` MUST pin: source lane ID, fork tick, commit hash,
 boundary hash, and provenance ref. All fields MUST agree with the
 provenance store at construction time. If any field disagrees,
 construction MUST fail.
@@ -60,8 +60,9 @@ change its quantum.
 
 ### INV-S7 — Distinct worldlines
 
-`child_worldline_id` MUST NOT equal `base_ref.source_worldline_id`.
-A strand is always a distinct worldline from its base.
+`child_worldline_id` MUST remain distinct from the source-basis
+carrier. A strand is always represented by a distinct child
+worldline, even when its source lane was itself speculative.
 
 ### INV-S8 — Head ownership
 
@@ -89,18 +90,20 @@ is returned as the only proof the strand existed.
 ## Rationale
 
 Echo can fork worldlines via `ProvenanceStore::fork()` but has no
-concept of the relationship between forked worldlines. The strand
+concept of the relationship between forked lanes. The strand
 contract names that relationship explicitly: what was forked, from
-where, with what heads, under what lifecycle rules.
+where, with what heads, and under what basis law.
 
 This enables warp-ttd to surface strand topology through its existing
 `LaneKind::STRAND` and `LaneRef.parentId` protocol, and it provides
 the foundation for the settlement spec (which imports operations from
-strands into base worldlines under channel policy).
+strands into canonical target worldlines under channel policy).
 
 ## Cross-references
 
 - [FIXED-TIMESTEP](./FIXED-TIMESTEP.md) — inherited quantum
+- [TTD-COUNTERFACTUAL-CREATION](./TTD-COUNTERFACTUAL-CREATION.md) —
+  observation versus explicit fork
 - [SPEC-0004 — Worldlines](../spec/SPEC-0004-worldlines-playback-truthbus.md)
 - [SPEC-0005 — Provenance Payload](../spec/SPEC-0005-provenance-payload.md)
 - `warp_core::strand` — code-level implementation

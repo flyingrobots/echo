@@ -79,7 +79,7 @@ pub enum ParticipantRole {
     /// The lane being directly observed.
     Primary,
     /// The base coordinate from which the primary strand forked.
-    BaseAnchor,
+    BasisAnchor,
     /// A read-only support-pinned lane.
     Support,
 }
@@ -88,7 +88,7 @@ impl ParticipantRole {
     fn to_abi(self) -> abi::ParticipantRole {
         match self {
             Self::Primary => abi::ParticipantRole::Primary,
-            Self::BaseAnchor => abi::ParticipantRole::BaseAnchor,
+            Self::BasisAnchor => abi::ParticipantRole::BaseAnchor,
             Self::Support => abi::ParticipantRole::Support,
         }
     }
@@ -96,7 +96,7 @@ impl ParticipantRole {
     fn code(self) -> u8 {
         match self {
             Self::Primary => 1,
-            Self::BaseAnchor => 2,
+            Self::BasisAnchor => 2,
             Self::Support => 3,
         }
     }
@@ -237,11 +237,11 @@ impl NeighborhoodSiteService {
 
         if let Some(strand) = primary_strand {
             participants.push(SiteParticipant {
-                worldline_id: strand.base_ref.source_worldline_id,
+                worldline_id: strand.fork_basis_ref.source_lane_id,
                 strand_id: None,
-                role: ParticipantRole::BaseAnchor,
-                tick: strand.base_ref.fork_tick,
-                state_hash: strand.base_ref.boundary_hash,
+                role: ParticipantRole::BasisAnchor,
+                tick: strand.fork_basis_ref.fork_tick,
+                state_hash: strand.fork_basis_ref.boundary_hash,
             });
 
             for support_pin in &strand.support_pins {
@@ -358,7 +358,7 @@ mod tests {
     use crate::receipt::TickReceipt;
     use crate::record::NodeRecord;
     use crate::snapshot::Snapshot;
-    use crate::strand::{make_strand_id, BaseRef, Strand};
+    use crate::strand::{make_strand_id, ForkBasisRef, Strand};
     use crate::tick_patch::{TickCommitStatus, WarpTickPatchV1};
     use crate::worldline::{HashTriplet, WorldlineTickHeaderV1, WorldlineTickPatchV1};
     use crate::{
@@ -560,8 +560,8 @@ mod tests {
         runtime
             .register_strand(Strand {
                 strand_id: support_strand_id,
-                base_ref: BaseRef {
-                    source_worldline_id: base_worldline,
+                fork_basis_ref: ForkBasisRef {
+                    source_lane_id: base_worldline,
                     fork_tick: wt(0),
                     commit_hash: base_snapshot.hash,
                     boundary_hash: base_snapshot.state_root,
@@ -581,8 +581,8 @@ mod tests {
         runtime
             .register_strand(Strand {
                 strand_id: primary_strand_id,
-                base_ref: BaseRef {
-                    source_worldline_id: base_worldline,
+                fork_basis_ref: ForkBasisRef {
+                    source_lane_id: base_worldline,
                     fork_tick: wt(0),
                     commit_hash: base_snapshot.hash,
                     boundary_hash: base_snapshot.state_root,
@@ -621,7 +621,7 @@ mod tests {
         assert_eq!(site.participants.len(), 3);
         assert_eq!(site.participants[0].role, ParticipantRole::Primary);
         assert_eq!(site.participants[0].strand_id, Some(primary_strand_id));
-        assert_eq!(site.participants[1].role, ParticipantRole::BaseAnchor);
+        assert_eq!(site.participants[1].role, ParticipantRole::BasisAnchor);
         assert_eq!(site.participants[1].worldline_id, base_worldline);
         assert_eq!(site.participants[1].state_hash, base_snapshot.state_root);
         assert_eq!(site.participants[2].role, ParticipantRole::Support);
@@ -696,8 +696,8 @@ mod tests {
         runtime
             .register_strand(Strand {
                 strand_id: support_strand_id,
-                base_ref: BaseRef {
-                    source_worldline_id: base_worldline,
+                fork_basis_ref: ForkBasisRef {
+                    source_lane_id: base_worldline,
                     fork_tick: wt(0),
                     commit_hash: base_snapshot.hash,
                     boundary_hash: base_snapshot.state_root,
@@ -716,8 +716,8 @@ mod tests {
         runtime
             .register_strand(Strand {
                 strand_id: primary_strand_id,
-                base_ref: BaseRef {
-                    source_worldline_id: base_worldline,
+                fork_basis_ref: ForkBasisRef {
+                    source_lane_id: base_worldline,
                     fork_tick: wt(0),
                     commit_hash: base_snapshot.hash,
                     boundary_hash: base_snapshot.state_root,

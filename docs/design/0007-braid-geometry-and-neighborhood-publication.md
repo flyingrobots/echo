@@ -10,9 +10,9 @@ Legend: KERNEL
 
 Depends on:
 
-- [0004 — Strand contract](../0004-strand-contract/design.md)
-- [0005 — Echo TTD witness surface](../0005-echo-ttd-witness-surface/design.md)
-- [0006 — Echo Continuum alignment](../0006-echo-continuum-alignment/design.md)
+- [0004 — Strand contract](./0004-strand-contract.md)
+- [0005 — Echo TTD witness surface](./0005-echo-ttd-witness-surface.md)
+- [0006 — Echo Continuum alignment](./0006-echo-continuum-alignment.md)
 - external Continuum packets:
     - `0001` through `0015`
     - `OVERVIEW`
@@ -22,8 +22,8 @@ Depends on:
 The bootstrap strand contract in `0004` was intentionally narrow:
 
 - strands are first-class speculative lanes
-- parent/base provenance is explicit
-- ticking is explicit and manual
+- source-basis provenance is explicit
+- advancement happens only through ordinary ingress + `super_tick()`
 - support pins exist structurally, but MUST be empty in bootstrap
 
 That was the right first cut, but it is not enough for parity with
@@ -44,16 +44,18 @@ first honest local-site publication boundary.
 
 Settlement remains separate. This packet is about local plural read geometry,
 not compare/import/conflict law. That follow-on is now
-[0008 — Strand settlement and conflict artifacts](../0008-strand-settlement/design.md).
+[0008 — Strand settlement and conflict artifacts](./0008-strand-settlement.md).
 
 ## Design decision
 
-Echo should align with Continuum braid theory by making two kernel truths
-first-class:
+Echo should align with Continuum braid theory by making two publication
+surfaces first-class, while keeping the authoritative runtime-control
+ontology anchored in
+[0009 — Strand Runtime Graph Ontology](./0009-strand-runtime-graph-ontology.md):
 
-1. **Support pins become real, read-only braid geometry on strands.**
+1. **Support pins become real, read-only braid geometry inputs on strands.**
 2. **Observation publishes a first-class local site object whose participants
-   come from the observed lane, its base relation, and its declared support
+   come from the observed lane, its source-basis relation, and its declared support
    pins.**
 
 The resulting publication must stay intentionally narrow:
@@ -224,8 +226,8 @@ Where:
 
 - `ParticipantRole::Primary`
     - the observed lane at the observed coordinate
-- `ParticipantRole::BaseAnchor`
-    - the base lane/coordinate from `BaseRef` when the primary lane is a strand
+- `ParticipantRole::BasisAnchor`
+    - the source lane/coordinate from `ForkBasisRef` when the primary lane is a strand
 - `ParticipantRole::Support`
     - a read-only support-pinned lane
 
@@ -243,7 +245,7 @@ The first publication must stay narrow and explicit.
 At an observed coordinate, participants are:
 
 1. the observed primary lane
-2. the base anchor, if the primary lane is a strand
+2. the basis anchor, if the primary lane is a strand
 3. every declared support pin on that strand, resolved to its pinned
    coordinate
 
@@ -291,12 +293,18 @@ This keeps the layering clean:
 
 Echo kernel/runtime should own:
 
-- strand/base/support pin truth
+- strand -> child-worldline truth
+- fork-basis truth
+- authorised head truth
+- support-pin declarations or cache records when enabled
 - participant roles
 - pinned coordinates and state hashes
-- site plurality
+- site plurality inputs
 - stable site identity inputs
-- `NeighborhoodSite` publication
+
+`NeighborhoodSite` itself is a derived publication object in the first
+cut. It is computed from authoritative runtime truth; it is not the
+authoritative store of that truth.
 
 ### Adapter / debugger summary
 
@@ -322,7 +330,7 @@ The intended mapping is:
 - `NeighborhoodSite.anchor` → shared coordinate/frame truth
 - `NeighborhoodSite.participants` → shared lane participation
 - `NeighborhoodSite.plurality` → shared singleton-vs-plural site truth
-- support/base roles → Continuum neighborhood semantics
+- support/basis roles → Continuum neighborhood semantics
 
 This is the first real Echo-side grounding for a shared `NeighborhoodCore`.
 
@@ -346,7 +354,8 @@ Those remain separate layers.
 ## Immediate implementation consequences
 
 1. `StrandRegistry` and strand runtime APIs must allow non-empty
-   `support_pins` under the new invariants.
+   `support_pins` under the new invariants, while keeping them
+   explicitly non-authoritative in the first cut.
 2. Echo must track reverse pin usage well enough to reject dropping a pinned
    support strand.
 3. Observation/publication code must expose a native `NeighborhoodSite`
@@ -362,7 +371,7 @@ Those remain separate layers.
    canonical-worldline support references too?
 2. Does `NeighborhoodSite` belong beside `ObservationArtifact`, or should both
    be grouped under a higher observation/publication envelope?
-3. Is `BaseAnchor` always a participant in the published site, or can some
+3. Is `BasisAnchor` always a participant in the published site, or can some
    observers request a reduced publication that omits provenance-only lanes?
 
 ## Decision
@@ -372,10 +381,10 @@ local sites.
 
 It should:
 
-- make support pins real as read-only braid geometry
+- make support pins real as read-only braid geometry inputs
 - publish one native `NeighborhoodSite` object for the observed local site
 - keep settlement separate
-- let adapters consume that kernel truth instead of inventing it
+- let adapters consume that derived publication instead of inventing it
 
 That is the smallest honest step from bootstrap strands toward parity with
 `git-warp` and toward shared Continuum debugger nouns.

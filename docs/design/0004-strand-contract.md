@@ -4,13 +4,13 @@
 # 0004 — Strand contract
 
 _Define the strand as a first-class relation in Echo with exact fields,
-invariants, lifecycle, and TTD mapping._
+invariants, fork-basis semantics, and TTD mapping._
 
 Legend: KERNEL
 
 Depends on:
 
-- [0003 — dt-policy](../0003-dt-policy/design.md)
+- [0003 — dt-policy](./0003-dt-policy.md)
 
 ## Why this cycle exists
 
@@ -19,11 +19,11 @@ between them. `ProvenanceStore::fork()` creates a prefix-copy and
 rewrites parent refs, but once forked, the child worldline is just
 another worldline — there is no way to ask "what was this forked
 from?", "is this a speculative lane?", or "what strands exist for
-this base?"
+this source lane?"
 
 git-warp has a full strand implementation. warp-ttd Cycle D already
-builds strand lifecycle into the TUI (`LaneKind::STRAND`,
-`LaneRef.parentId`, create/tick/compare/drop). Echo needs to surface
+builds strand topology into the TUI (`LaneKind::STRAND`,
+`LaneRef.parentId`, create/inspect/compare/drop). Echo needs to surface
 strands through the TTD adapter, and it needs the strand contract to
 do so honestly.
 
@@ -48,13 +48,15 @@ publication instead of freezing a too-small model as if it were final.
 
 ## Scope posture
 
-This packet defines the **bootstrap strand contract**.
+This packet defines the **bootstrap strand contract** under the runtime
+ontology now governed by
+[0009 — Strand Runtime Graph Ontology](./0009-strand-runtime-graph-ontology.md).
 
 That bootstrap is sufficient for:
 
 - fork
-- explicit speculative ticking
-- parent/base provenance
+- speculative authoring through ordinary ingress + `super_tick()`
+- precise source-lane provenance
 - TTD lane typing and parentage
 - basic compare workflows
 
@@ -85,14 +87,14 @@ Nothing in the bootstrap contract should block those later capabilities.
 
 ### Strand
 
-A strand is a named, ephemeral, speculative execution lane derived
-from a base worldline at a specific tick. It is a relation over a
-child worldline, not a separate substrate.
+A strand is a named speculative execution lane rooted at one exact
+admissible source-lane coordinate. It is a relation over a child
+worldline, not a separate substrate.
 
 ```text
 Strand {
     strand_id:           StrandId,
-    base_ref:            BaseRef,
+    fork_basis_ref:      ForkBasisRef,
     child_worldline_id:  WorldlineId,
     writer_heads:        Vec<WriterHeadKey>,
     support_pins:        Vec<SupportPin>,
@@ -100,45 +102,49 @@ Strand {
 ```
 
 There is no `StrandLifecycle` field. A strand either exists in the
-registry (live) or does not (dropped). Operational state (paused,
-admitted, ticking) is derived from the writer heads — the heads are
-the single source of truth for control state.
+registry (live) or does not (dropped). Its materialised state is
+obtained solely from the child worldline frontier. Operational control
+comes from ordinary writer-head eligibility and playback posture under
+Echo's single `super_tick()` law, not from a strand-specific ticking
+subsystem.
 
 ### StrandId
 
 Domain-separated hash newtype (prefix `b"strand:"`), following the
 `HeadId`/`NodeId` pattern.
 
-### BaseRef
+### ForkBasisRef
 
-The exact provenance coordinate the strand was forked from. Immutable
+The exact admissible coordinate the strand was forked from. Immutable
 after creation.
 
 ```text
-BaseRef {
-    source_worldline_id:  WorldlineId,
-    fork_tick:            WorldlineTick,
-    commit_hash:          Hash,
-    boundary_hash:        Hash,
-    provenance_ref:       ProvenanceRef,
+ForkBasisRef {
+    source_lane_id:   LaneId,
+    fork_tick:        WorldlineTick,
+    commit_hash:      Hash,
+    boundary_hash:    Hash,
+    provenance_ref:   ProvenanceRef,
 }
 ```
 
 **Coordinate semantics (exact):**
 
-- `fork_tick` is the **last included tick** in the copied prefix.
-  The child worldline contains entries `0..=fork_tick`. The child's
-  next appendable tick is `fork_tick + 1`.
-- `commit_hash` is the commit hash **at `fork_tick`** — i.e.,
-  `provenance.entry(source, fork_tick).expected.commit_hash`.
+- `source_lane_id` names the precise source lane. In the first runtime
+  cut this may point to a canonical worldline or to a speculative lane
+  resolved at one exact coordinate.
+- `fork_tick` is the **last included tick** in the copied prefix. The
+  child worldline contains entries `0..=fork_tick`. The child's next
+  appendable tick is `fork_tick + 1`.
+- `commit_hash` is the commit hash **at `fork_tick`** for the source
+  coordinate.
 - `boundary_hash` is the **output boundary hash** at `fork_tick` —
-  the state root after applying the patch at `fork_tick`. This is
-  the hash of the state the child worldline begins diverging from.
+  the state root after applying the patch at `fork_tick`. This is the
+  hash of the state the child worldline begins diverging from.
 - `provenance_ref` carries the same coordinate as a `ProvenanceRef`
-  (worldline, tick, commit hash) for substrate-native lookups.
-- All five fields refer to the **same provenance coordinate**. If
-  any field disagrees with the provenance store, construction MUST
-  fail.
+  for substrate-native lookups.
+- All five fields refer to the **same admissible coordinate**. If any
+  field disagrees with the provenance store, construction MUST fail.
 
 ### SupportPin
 
@@ -157,10 +163,12 @@ SupportPin {
 
 **Bootstrap note:** the first strand cut left `support_pins` empty to avoid
 premature braid semantics. That restriction is superseded by
-[0007 — Braid geometry and neighborhood publication](../0007-braid-geometry-and-neighborhood-publication/design.md),
-which makes validated non-empty support pins real kernel truth.
+[0007 — Braid geometry and neighborhood publication](./0007-braid-geometry-and-neighborhood-publication.md),
+which permits validated non-empty support pins as read geometry and
+publication inputs. Under `0009`, however, support pins remain derived /
+cache truth in the first cut rather than authoritative graph ontology.
 
-If Echo stopped at the bootstrap posture, it would still lag `git-warp` on
+If Echo stopped at the empty-only posture, it would still lag `git-warp` on
 braid-capable speculative work.
 
 ### Registry ordering
@@ -169,31 +177,33 @@ braid-capable speculative work.
 is by `StrandId` (lexicographic over the hash bytes). This is
 deterministic but not semantically meaningful.
 
-`list_strands(base_worldline_id)` returns results filtered by
-`base_ref.source_worldline_id`, ordered by `StrandId`.
+`list_strands_by_source_lane(source_lane_id)` returns results filtered by
+`fork_basis_ref.source_lane_id`, ordered by `StrandId`.
 
 ## Invariants
 
-- **INV-S1 (Immutable base):** A strand's `base_ref` MUST NOT change
-  after creation.
+- **INV-S1 (Immutable fork basis):** A strand's `fork_basis_ref` MUST NOT
+  change after creation.
 - **INV-S2 (Own heads):** A strand's child worldline MUST NOT share
-  writer heads with its base worldline. Head keys are created fresh
-  for the child.
+  writer heads with its source lane. Head keys are created fresh for
+  the child worldline.
 - **INV-S3 (Bootstrap session scope):** A strand MUST NOT outlive the
   session that created it in the bootstrap landing. Long-term retention
   policy remains an explicit follow-on design axis, not a semantic truth
   about what a strand is.
-- **INV-S4 (Manual tick):** A strand's writer heads MUST be created
-  with `HeadEligibility::Dormant`. They are ticked only by explicit
-  external command, never by the live scheduler.
-- **INV-S5 (Complete base_ref):** `base_ref` MUST pin source worldline
+- **INV-S4 (Single tick law):** A strand advances only through ordinary
+  intent admission under Echo's global `super_tick()` path. No
+  strand-specific tick path is authoritative.
+- **INV-S5 (Complete fork basis):** `fork_basis_ref` MUST pin source lane
   ID, fork tick, commit hash, boundary hash, and provenance ref. All
   fields MUST agree with the provenance store at construction time.
 - **INV-S6 (Inherited quantum):** A strand inherits its parent's
   `tick_quantum` at fork time (per FIXED-TIMESTEP invariant). No
   strand can change its quantum.
 - **INV-S7 (Distinct worldlines):** `child_worldline_id` MUST NOT
-  equal `base_ref.source_worldline_id`.
+  equal the source-basis carrier. A strand is always represented by a
+  distinct child worldline, even when its source lane was itself
+  speculative.
 - **INV-S8 (Head ownership):** Every key in `writer_heads` MUST
   belong to `child_worldline_id`.
 - **INV-S9 (Validated support pins):** support pins, when present, MUST be
@@ -225,11 +235,11 @@ The bootstrap landing uses **hard-delete**:
 Construction follows a fixed order. If any step fails, all prior
 steps are rolled back:
 
-1. Validate that `fork_tick` exists in the source worldline's
-   provenance and capture the `BaseRef` fields.
+1. Validate that the requested source lane / tick coordinate is admissible
+   and capture the `ForkBasisRef` fields.
 2. Call `ProvenanceStore::fork()` to create the child worldline.
-3. Create a new `WriterHead` for the child worldline with
-   `PlaybackMode::Paused` and `HeadEligibility::Dormant`.
+3. Create one or more new `WriterHead`s for the child worldline under the
+   ordinary writer-head control model.
 4. Register the head in `PlaybackHeadRegistry`.
 5. Register the strand in `StrandRegistry`.
 
@@ -271,7 +281,7 @@ inherently single-head forever.
 The bootstrap contract is good enough to say:
 
 - this is a speculative lane
-- it came from this base coordinate
+- it came from this source basis coordinate
 - it has its own writer head
 
 That is not enough for mature debugger or comparison work.
@@ -301,7 +311,7 @@ cycle, but it does need to keep the door open for:
 
 The old bootstrap posture of keeping `support_pins` empty was acceptable only
 because the next cycle made braid geometry real. That follow-on now exists as
-[0007 — Braid geometry and neighborhood publication](../0007-braid-geometry-and-neighborhood-publication/design.md).
+[0007 — Braid geometry and neighborhood publication](./0007-braid-geometry-and-neighborhood-publication.md).
 
 ### 3. Settlement must remain separate from braid
 
@@ -335,6 +345,13 @@ clearer retention policy axis:
 The current bootstrap may choose the first. The type/theory should not
 pretend the others are impossible.
 
+The same distinction applies to debugger work. A TTD observation does
+not itself create a strand. An explicit "continue from here" or "what
+if?" action does. In Echo v1, that debugger-created strand should be
+understood as session-scoped scratch by default. Durable author-only
+retention is a later policy extension, not something observation gets
+for free.
+
 ### 5. Shared debugger publication must become explicit
 
 Even after bootstrap strands land, Echo will still not be aligned if the
@@ -357,16 +374,16 @@ boundaries, not remain only an Echo-local kernel feature.
 
 ### Human jobs
 
-1. Fork a strand from any tick of a running worldline.
-2. Tick the strand independently to explore a scenario.
-3. Compare strand state against the base worldline.
-4. Drop the strand when done.
+1. Fork a strand from any admissible lane/tick coordinate.
+2. Author speculative intents against the child worldline.
+3. Let `super_tick()` advance the strand through the ordinary scheduler.
+4. Compare strand state against its source basis.
+5. Drop the strand when done.
 
 ### Human hill
 
-A debugger user can fork a speculative lane from any point in
-simulation history and explore it without affecting the live
-worldline.
+A debugger user can fork a speculative lane from any admissible point in
+simulation history and explore it without affecting the source lane.
 
 ## Agent users / jobs / hills
 
@@ -377,45 +394,47 @@ worldline.
 
 ### Agent jobs
 
-1. Create a strand with a well-defined `base_ref`.
+1. Create a strand with a well-defined `fork_basis_ref`.
 2. Register strand heads in the head registry.
 3. Report strand type and parentage to the TTD adapter
    (`LaneKind::STRAND`, `LaneRef.parentId`).
-4. Enumerate strands derived from a common base.
+4. Enumerate strands derived from a common source lane.
 
 ### Agent hill
 
-An agent can create, tick, inspect, and drop strands through a
-typed API and programmatically surface strand topology to TTD.
+An agent can create, inspect, and drop strands through a typed API,
+author intents through ordinary ingress, and programmatically surface
+strand topology to TTD.
 
 ## Human playback
 
-1. The human calls `create_strand(base_worldline, fork_tick)`.
-2. A new strand is returned with a `StrandId`, `base_ref` pinning
-   the exact fork coordinate (all five fields verified against
-   provenance), and a child worldline with its own Dormant writer
-   head.
-3. The human explicitly ticks the strand's head. The base worldline
-   is unaffected.
-4. The human inspects the strand's child worldline state at its
-   current tick and compares it to the base worldline at the same
-   tick.
-5. The human drops the strand. A `DropReceipt` is returned. The
+1. The human calls `create_strand(source_lane, fork_tick)`.
+2. A new strand is returned with a `StrandId`, `fork_basis_ref`
+   pinning the exact fork coordinate (all five fields verified against
+   provenance), and a child worldline with its own writer head.
+3. The human submits speculative intents for the child worldline. The
+   source lane is unaffected.
+4. Echo advances the runtime through `super_tick()`. The strand moves
+   only because the ordinary scheduler admitted those intents.
+5. The human inspects the strand's child worldline state at its
+   current tick and compares it to the source basis.
+6. The human drops the strand. A `DropReceipt` is returned. The
    child worldline, its heads, and its provenance are gone.
    `get(strand_id)` returns `None`.
 
 ## Agent playback
 
 1. The agent calls the strand creation API.
-2. The returned `Strand` struct contains: `strand_id`, `base_ref`
+2. The returned `Strand` struct contains: `strand_id`, `fork_basis_ref`
    (with `provenance_ref`), `child_worldline_id`, `writer_heads`
    (length 1), `support_pins` (empty until explicitly pinned through braid
    geometry APIs).
 3. The agent maps `strand_id` to `LaneKind::STRAND` (type, not
-   lifecycle) and `base_ref.source_worldline_id` to
+   lifecycle) and `fork_basis_ref.source_lane_id` to
    `LaneRef.parentId`.
-4. The agent calls `list_strands(base_worldline_id)` and receives
-   all live strands derived from that base, ordered by `StrandId`.
+4. The agent calls `list_strands_by_source_lane(source_lane_id)` and
+   receives all live strands derived from that source lane, ordered by
+   `StrandId`.
 5. The agent drops the strand. `get(strand_id)` returns `None`.
    The `DropReceipt` carries the strand_id, child worldline, and
    final tick.
@@ -424,17 +443,17 @@ typed API and programmatically surface strand topology to TTD.
 
 1. Define `StrandId` as a domain-separated hash newtype (prefix
    `b"strand:"`), following the `HeadId`/`NodeId` pattern.
-2. Define `BaseRef`, `SupportPin`, `DropReceipt`, and `Strand`
+2. Define `ForkBasisRef`, `SupportPin`, `DropReceipt`, and `Strand`
    structs in a new `crates/warp-core/src/strand.rs` module.
 3. Define `StrandRegistry` — `BTreeMap<StrandId, Strand>` with
-   `create`, `get`, `contains`, `list_by_base`, and `drop`
+   `create`, `get`, `contains`, `list_by_source_lane`, and `drop`
    operations. Session-scoped, not persisted.
 4. Implement `create_strand` with the five-step construction
    sequence and rollback on failure.
 5. Implement `drop_strand` with the five-step hard-delete sequence
    returning a `DropReceipt`.
-6. Implement `list_strands(base_worldline_id)` — filter by
-   `base_ref.source_worldline_id`, ordered by `StrandId`.
+6. Implement `list_strands_by_source_lane(source_lane_id)` — filter by
+   `fork_basis_ref.source_lane_id`, ordered by `StrandId`.
 7. Write `docs/invariants/STRAND-CONTRACT.md` with the ten
    invariants (INV-S1 through INV-S10).
 
@@ -453,25 +472,23 @@ Required follow-ons:
 ## Tests to write first
 
 - Unit test: `create_strand` returns a strand with correct
-  `base_ref` fields — all five fields match the source worldline's
-  provenance entry at `fork_tick`.
+  `fork_basis_ref` fields — all five fields match the source
+  coordinate at `fork_tick`.
 - Unit test: strand's child worldline has its own `WriterHeadKey`,
-  distinct from any head on the base worldline (INV-S2).
-- Unit test: strand head is created Dormant and Paused (INV-S4).
-- Unit test: ticking the strand head advances the child worldline
-  without affecting the base worldline's frontier.
-- Unit test: strand heads do not appear in the live scheduler's
-  runnable set — integration test proving Dormant heads are excluded
-  from canonical runnable ordering (INV-S4, INV-S10).
-- Unit test: `list_strands` returns strands matching the base
-  worldline and does not return strands from other bases.
+  distinct from any head on the source lane (INV-S2).
+- Unit test: the only way to advance a strand is through ordinary
+  ingress + `super_tick()` (INV-S4).
+- Unit test: strand-authored intents advance the child worldline
+  without affecting the source lane frontier.
+- Unit test: `list_strands_by_source_lane` returns strands matching the
+  source lane and does not return strands from other source lanes.
 - Unit test: `drop_strand` removes the child worldline, its heads,
   and its provenance. `get(strand_id)` returns `None`. No heads for
   the child worldline remain in `PlaybackHeadRegistry` (INV-S10).
 - Unit test: `drop_strand` returns a `DropReceipt` with the correct
   `strand_id`, `child_worldline_id`, and final tick.
-- Unit test: `child_worldline_id != base_ref.source_worldline_id`
-  (INV-S7).
+- Unit test: `child_worldline_id` is distinct from the source lane's
+  live worldline frontier carrier (INV-S7).
 - Unit test: new strands start with `support_pins` empty until explicitly
   pinned.
 - Unit test: support pins validate live targets, reject duplicates/self pins,
@@ -492,10 +509,11 @@ Required follow-ons:
   resolves, which is the correct behavior for a dropped strand).
 - **Risk: head registry coupling.** `PlaybackHeadRegistry` is
   engine-global, ordered canonically by `(worldline_id, head_id)`.
-  Strand heads are inserted into this global registry. The Dormant
-  eligibility gate prevents live scheduling, but the test must prove
-  this with an integration test that builds a runnable set and
-  verifies strand heads are absent.
+  Strand heads are inserted into this global registry. The risk is no
+  longer accidental live scheduling through a strand-specific gate; it
+  is accidental over-capability. Tests must prove that strand heads can
+  author only for their child worldline and participate in scheduling
+  only through ordinary ingress + `super_tick()`.
 - **Unknown: multi-head strands.** v1 creates one head per strand.
   Future cycles may create multiple. The vec is correct but the
   cardinality-1 assumption should be documented and tested.
@@ -514,7 +532,7 @@ Required follow-ons:
 - **Agent inspectability:** All strand fields are public and
   serializable. `StrandRegistry` supports enumeration with
   documented ordering. The TTD mapping is type-to-type (`StrandId`
-  → `LaneKind::STRAND`, `base_ref.source_worldline_id` →
+  → `LaneKind::STRAND`, `fork_basis_ref.source_lane_id` →
   `LaneRef.parentId`), not lifecycle-to-lifecycle.
 
 ## Non-goals
@@ -523,7 +541,8 @@ Required follow-ons:
 - Full braid geometry implementation in this cycle. Bootstrap alone left
   `support_pins` empty, but that posture was not the endpoint.
 - Strand persistence across sessions (v1 is ephemeral).
-- Automatic scheduling of strand heads (v1 is manual tick only).
+- Any strand-specific execution model separate from ordinary ingress +
+  `super_tick()`.
 - TTD adapter implementation (this cycle defines the mapping; the
   adapter is PLATFORM_echo-ttd-host-adapter).
 - Multi-head strand creation (v1 creates exactly one head).

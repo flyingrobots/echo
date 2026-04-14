@@ -8,7 +8,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use warp_core::strand::{
-    make_strand_id, BaseRef, DropReceipt, Strand, StrandError, StrandRegistry, SupportPin,
+    make_strand_id, DropReceipt, ForkBasisRef, Strand, StrandError, StrandRegistry, SupportPin,
 };
 use warp_core::{
     make_head_id, make_node_id, make_type_id, make_warp_id, GlobalTick, GraphStore, HashTriplet,
@@ -78,8 +78,8 @@ fn make_test_strand(
 
     Strand {
         strand_id,
-        base_ref: BaseRef {
-            source_worldline_id: base_worldline,
+        fork_basis_ref: ForkBasisRef {
+            source_lane_id: base_worldline,
             fork_tick,
             commit_hash,
             boundary_hash,
@@ -148,13 +148,13 @@ fn register_worldline_with_tick(provenance: &mut ProvenanceService, worldline_id
     append_committed_tick(provenance, worldline_id, GlobalTick::from_raw(1));
 }
 
-// ── INV-S7: child_worldline_id != base_ref.source_worldline_id ──────────
+// ── INV-S7: child_worldline_id != fork_basis_ref.source_lane_id ──────────
 
 #[test]
 fn inv_s7_child_and_base_worldlines_are_distinct() {
     let strand = make_test_strand("s7-test", wl(1), wl(2), wt(5));
     assert_ne!(
-        strand.child_worldline_id, strand.base_ref.source_worldline_id,
+        strand.child_worldline_id, strand.fork_basis_ref.source_lane_id,
         "INV-S7: child worldline must differ from base"
     );
 }
@@ -179,31 +179,42 @@ fn inv_s2_s8_strand_heads_belong_to_child_worldline() {
     }
 }
 
-// ── INV-S4: strand heads are Dormant and Paused ────────────────────────
+// ── INV-S4: strand heads use ordinary writer-head control ──────────────
 
 #[test]
-fn inv_s4_strand_head_created_dormant_and_paused() {
+fn inv_s4_strand_head_uses_ordinary_writer_head_control() {
     let child = wl(2);
     let head_key = WriterHeadKey {
         worldline_id: child,
-        head_id: make_head_id("strand-head-dormant"),
+        head_id: make_head_id("strand-head-generic"),
     };
-    let head = WriterHead::new(head_key, PlaybackMode::Paused);
+    let mut head = WriterHead::new(head_key, PlaybackMode::Play);
 
-    assert!(head.is_paused(), "strand head must be created paused");
-    // Dormant must be set explicitly
-    let mut head = head;
+    assert!(
+        head.is_admitted(),
+        "strand head should use default admitted eligibility"
+    );
+    assert!(
+        !head.is_paused(),
+        "strand head should follow ordinary writer-head playback defaults"
+    );
+
+    head.pause();
+    assert!(
+        head.is_paused(),
+        "generic pause control should remain available"
+    );
     head.set_eligibility(HeadEligibility::Dormant);
     assert!(
         !head.is_admitted(),
-        "strand head must not be admitted (Dormant)"
+        "generic eligibility control should remain available"
     );
 }
 
-// ── INV-S4 / INV-S10: strand heads excluded from live scheduler ────────
+// ── INV-S4 / INV-S10: strand heads follow ordinary runnable-set rules ───
 
 #[test]
-fn inv_s4_s10_dormant_strand_heads_excluded_from_runnable_set() {
+fn inv_s4_s10_strand_heads_follow_ordinary_runnable_set_rules() {
     let base_wl = wl(1);
     let strand_wl = wl(2);
 
@@ -216,13 +227,12 @@ fn inv_s4_s10_dormant_strand_heads_excluded_from_runnable_set() {
     };
     head_registry.insert(WriterHead::new(live_key, PlaybackMode::Play));
 
-    // Register a strand head on the child worldline (dormant, paused)
+    // Register a strand head on the child worldline using ordinary head control
     let strand_key = WriterHeadKey {
         worldline_id: strand_wl,
         head_id: make_head_id("strand-head"),
     };
-    let mut strand_head = WriterHead::new(strand_key, PlaybackMode::Paused);
-    strand_head.set_eligibility(HeadEligibility::Dormant);
+    let strand_head = WriterHead::new(strand_key, PlaybackMode::Play);
     head_registry.insert(strand_head);
 
     // Build the runnable set
@@ -235,10 +245,22 @@ fn inv_s4_s10_dormant_strand_heads_excluded_from_runnable_set() {
         "live head should be in runnable set"
     );
 
-    // Strand head must NOT be runnable
+    // Strand head should participate like any other admitted, unpaused head
+    assert!(
+        runnable.iter().any(|k| *k == strand_key),
+        "INV-S4: strand head should appear in runnable set when admitted and unpaused"
+    );
+
+    let mut strand_head = head_registry
+        .remove(&strand_key)
+        .expect("strand head present");
+    strand_head.pause();
+    head_registry.insert(strand_head);
+
+    runnable.rebuild(&head_registry);
     assert!(
         !runnable.iter().any(|k| *k == strand_key),
-        "INV-S4/S10: dormant strand head must not appear in runnable set"
+        "paused strand head should be excluded by ordinary runnable-set rules"
     );
 }
 
@@ -253,15 +275,15 @@ fn inv_s9_support_pins_default_empty_until_pinned() {
     );
 }
 
-// ── INV-S5: base_ref fields agree ──────────────────────────────────────
+// ── INV-S5: fork_basis_ref fields agree ──────────────────────────────────────
 
 #[test]
 fn inv_s5_base_ref_fields_consistent() {
     let strand = make_test_strand("s5-test", wl(1), wl(2), wt(5));
-    let br = &strand.base_ref;
+    let br = &strand.fork_basis_ref;
 
-    // provenance_ref must agree with base_ref scalars
-    assert_eq!(br.provenance_ref.worldline_id, br.source_worldline_id);
+    // provenance_ref must agree with fork_basis_ref scalars
+    assert_eq!(br.provenance_ref.worldline_id, br.source_lane_id);
     assert_eq!(br.provenance_ref.worldline_tick, br.fork_tick);
     assert_eq!(br.provenance_ref.commit_hash, br.commit_hash);
 }
@@ -326,8 +348,8 @@ fn registry_insert_rejects_inv_s8_wrong_head_worldline() {
     let strand_id = make_strand_id("s8-bad");
     let strand = Strand {
         strand_id,
-        base_ref: BaseRef {
-            source_worldline_id: wl(1),
+        fork_basis_ref: ForkBasisRef {
+            source_lane_id: wl(1),
             fork_tick: wt(5),
             commit_hash: [0xAA; 32],
             boundary_hash: [0xBB; 32],
@@ -427,8 +449,8 @@ fn registry_insert_rejects_duplicate_support_target() {
     let owner_id = make_strand_id("duplicate-owner");
     let owner = Strand {
         strand_id: owner_id,
-        base_ref: BaseRef {
-            source_worldline_id: wl(1),
+        fork_basis_ref: ForkBasisRef {
+            source_lane_id: wl(1),
             fork_tick: wt(5),
             commit_hash: [0xAA; 32],
             boundary_hash: [0xBB; 32],
@@ -583,7 +605,7 @@ fn registry_remove_nonexistent_returns_error() {
 }
 
 #[test]
-fn registry_list_by_base_filters_correctly() {
+fn registry_list_by_source_lane_filters_correctly() {
     let mut registry = StrandRegistry::new();
     let base_a = wl(1);
     let base_b = wl(10);
@@ -598,20 +620,20 @@ fn registry_list_by_base_filters_correctly() {
         .insert(make_test_strand("b1", base_b, wl(4), wt(5)))
         .unwrap();
 
-    let from_a = registry.list_by_base(&base_a);
-    assert_eq!(from_a.len(), 2, "should find 2 strands from base_a");
+    let from_a = registry.list_by_source_lane(&base_a);
+    assert_eq!(from_a.len(), 2, "should find 2 strands from source lane a");
     for s in &from_a {
-        assert_eq!(s.base_ref.source_worldline_id, base_a);
+        assert_eq!(s.fork_basis_ref.source_lane_id, base_a);
     }
 
-    let from_b = registry.list_by_base(&base_b);
-    assert_eq!(from_b.len(), 1, "should find 1 strand from base_b");
+    let from_b = registry.list_by_source_lane(&base_b);
+    assert_eq!(from_b.len(), 1, "should find 1 strand from source lane b");
 
     let unknown = wl(99);
-    let from_none = registry.list_by_base(&unknown);
+    let from_none = registry.list_by_source_lane(&unknown);
     assert!(
         from_none.is_empty(),
-        "should find no strands from unknown base"
+        "should find no strands from unknown source lane"
     );
 }
 
@@ -726,9 +748,9 @@ fn provenance_fork_happy_path_child_has_correct_prefix() {
     // Verify the child's worldline ID was rewritten.
     assert_eq!(child_entry.worldline_id, child_id);
 
-    // Build base_ref from the SOURCE entry, not the child copy.
-    let base_ref = BaseRef {
-        source_worldline_id: base_id,
+    // Build fork_basis_ref from the SOURCE entry, not the child copy.
+    let fork_basis_ref = ForkBasisRef {
+        source_lane_id: base_id,
         fork_tick: wt(1),
         commit_hash: base_entry.expected.commit_hash,
         boundary_hash: base_entry.expected.state_root,
@@ -741,12 +763,18 @@ fn provenance_fork_happy_path_child_has_correct_prefix() {
 
     // INV-S5: all fields agree with source coordinate.
     assert_eq!(
-        base_ref.provenance_ref.worldline_id,
-        base_ref.source_worldline_id
+        fork_basis_ref.provenance_ref.worldline_id,
+        fork_basis_ref.source_lane_id
     );
-    assert_eq!(base_ref.provenance_ref.worldline_tick, base_ref.fork_tick);
-    assert_eq!(base_ref.provenance_ref.commit_hash, base_ref.commit_hash);
-    assert_eq!(base_ref.boundary_hash, base_entry.expected.state_root);
+    assert_eq!(
+        fork_basis_ref.provenance_ref.worldline_tick,
+        fork_basis_ref.fork_tick
+    );
+    assert_eq!(
+        fork_basis_ref.provenance_ref.commit_hash,
+        fork_basis_ref.commit_hash
+    );
+    assert_eq!(fork_basis_ref.boundary_hash, base_entry.expected.state_root);
 }
 
 // ── Drop receipt carries correct fields ─────────────────────────────────

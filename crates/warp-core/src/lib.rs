@@ -231,7 +231,8 @@ pub use snapshot::{
     compute_state_root_for_warp_store, compute_tick_commit_hash_v2, OpEmissionEntry, Snapshot,
 };
 pub use strand::{
-    make_strand_id, BaseRef, DropReceipt, Strand, StrandError, StrandId, StrandRegistry, SupportPin,
+    make_strand_id, DropReceipt, ForkBasisRef, Strand, StrandError, StrandId, StrandRegistry,
+    SupportPin,
 };
 pub use telemetry::{NullTelemetrySink, TelemetrySink};
 pub use tick_delta::{DeltaStats, OpOrigin, ScopedDelta, TickDelta};
@@ -250,7 +251,8 @@ pub use worldline::{
 ///
 /// Prefer this coordinator/runtime API for new stepping and routing code.
 pub use coordinator::{
-    IngressDisposition, RuntimeError, SchedulerCoordinator, StepRecord, WorldlineRuntime,
+    ForkStrandReceipt, ForkStrandRequest, IngressDisposition, RuntimeError, SchedulerCoordinator,
+    StepRecord, WorldlineRuntime,
 };
 /// Writer-head registry and routing primitives used by the runtime-owned ingress path.
 pub use head::{

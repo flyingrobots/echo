@@ -9,7 +9,7 @@ Legend: [PLATFORM](../../method/legends/PLATFORM.md)
 
 Depends on:
 
-- [0004 — Strand contract](../0004-strand-contract/design.md)
+- [0004 — Strand contract](./0004-strand-contract.md)
 - external `warp-ttd` design packets:
     - `0016-local-neighborhood-browser`
     - `0017-neighborhood-protocol-shapes`
@@ -117,6 +117,33 @@ Echo does **not** yet expose a single first-class local-site object carrying
 participating lanes, local outcome, or reintegration core. The initial adapter
 may synthesize a bounded shape from current objects, but the missing pieces
 must be named explicitly as host gaps, not silently guessed.
+
+## TTD observation versus counterfactual creation
+
+This packet needs one explicit separation because `warp-ttd` will
+eventually expose both read-side inspection and write-side speculative
+forks.
+
+Observation alone does not create new Echo history. A debugger session,
+cursor move, or read against `ObservationArtifact` remains revelation
+over existing runtime truth.
+
+If a user explicitly asks to continue from an earlier coordinate or
+explore a counterfactual, that is a separate act: create a strand with
+an exact `fork_basis_ref` and route speculative intents through the
+ordinary scheduler.
+
+For Echo v1, the honest posture is:
+
+- debugger-created strands are session-scoped scratch or minimally
+  retained speculative lanes
+- they are not silently promoted into shared admitted history
+- any future durable author-only retention must record creator, tool or
+  session origin, exact fork basis, and retention or revelation posture
+
+This keeps the adapter honest about the difference between a reading
+surface and a fork surface while still matching the three-tier thinking
+room doctrine from Paper VII.
 
 ## Runtime mapping
 

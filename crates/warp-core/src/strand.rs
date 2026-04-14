@@ -2,27 +2,27 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Strand contract for speculative execution lanes.
 //!
-//! A strand is a named, ephemeral, speculative execution lane derived from a
-//! base worldline at a specific tick. It is a relation over a child worldline,
-//! not a separate substrate.
+//! A strand is a named, speculative execution lane derived from a source
+//! worldline at a specific tick. It is a relation over a child worldline, not
+//! a separate substrate.
 //!
 //! # Lifecycle
 //!
 //! A strand either exists in the `StrandRegistry` (live) or does not
-//! (dropped). There is no tombstone state. Operational control (paused,
-//! admitted, ticking) is derived from the writer heads — the heads are the
-//! single source of truth for control state.
+//! (dropped). There is no tombstone state. Operational control comes from the
+//! ordinary writer-head control plane; strands do not own a private tick path
+//! or scheduler.
 //!
 //! # Invariants
 //!
 //! See `docs/invariants/STRAND-CONTRACT.md` for the full normative list.
 //! Key invariants enforced by this module:
 //!
-//! - **INV-S1:** `base_ref` is immutable after creation.
+//! - **INV-S1:** `fork_basis_ref` is immutable after creation.
 //! - **INV-S2:** Writer heads are created fresh for the child worldline.
-//! - **INV-S4:** Writer heads are created Dormant (manual tick only).
-//! - **INV-S5:** All `base_ref` fields are verified against provenance.
-//! - **INV-S7:** `child_worldline_id != base_ref.source_worldline_id`.
+//! - **INV-S4:** Strands advance only through ordinary ingress + `super_tick()`.
+//! - **INV-S5:** All `fork_basis_ref` fields are verified against provenance.
+//! - **INV-S7:** `child_worldline_id != fork_basis_ref.source_lane_id`.
 //! - **INV-S8:** Every writer head key belongs to `child_worldline_id`.
 //! - **INV-S9:** support pins must be validated, live, and read-only.
 
@@ -81,9 +81,9 @@ pub fn make_strand_id(label: &str) -> StrandId {
 /// - `provenance_ref` carries the same coordinate as a [`ProvenanceRef`].
 /// - All fields refer to the **same provenance coordinate**.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct BaseRef {
-    /// Source worldline this strand was forked from.
-    pub source_worldline_id: WorldlineId,
+pub struct ForkBasisRef {
+    /// Source lane this strand was forked from in v1.
+    pub source_lane_id: WorldlineId,
     /// Last included tick in the copied prefix.
     pub fork_tick: WorldlineTick,
     /// Commit hash at `fork_tick`.
@@ -135,7 +135,7 @@ pub struct Strand {
     /// Unique strand identity.
     pub strand_id: StrandId,
     /// Immutable fork coordinate.
-    pub base_ref: BaseRef,
+    pub fork_basis_ref: ForkBasisRef,
     /// Child worldline created by fork.
     pub child_worldline_id: WorldlineId,
     /// Writer heads for the child worldline (cardinality 1 in v1).
@@ -244,7 +244,7 @@ impl StrandRegistry {
     /// Inserts a fully constructed strand into the registry.
     ///
     /// Validates contract invariants before insertion:
-    /// - INV-S7: `child_worldline_id != base_ref.source_worldline_id`
+    /// - INV-S7: `child_worldline_id != fork_basis_ref.source_lane_id`
     /// - INV-S8: every writer head belongs to `child_worldline_id`
     /// - support pins, when present, reference already-live strands and do not
     ///   duplicate or self-target
@@ -259,9 +259,9 @@ impl StrandRegistry {
             return Err(StrandError::AlreadyExists(strand.strand_id));
         }
         // INV-S7: distinct worldlines.
-        if strand.child_worldline_id == strand.base_ref.source_worldline_id {
+        if strand.child_worldline_id == strand.fork_basis_ref.source_lane_id {
             return Err(StrandError::InvariantViolation(
-                "INV-S7: child_worldline_id must differ from base_ref.source_worldline_id",
+                "INV-S7: child_worldline_id must differ from fork_basis_ref.source_lane_id",
             ));
         }
         // INV-S8: head ownership.
@@ -321,21 +321,21 @@ impl StrandRegistry {
     }
 
     /// Returns a zero-allocation iterator over live strands derived from the
-    /// given base worldline, ordered by [`StrandId`].
-    pub fn iter_by_base<'a>(
+    /// given source lane, ordered by [`StrandId`].
+    pub fn iter_by_source_lane<'a>(
         &'a self,
-        base_worldline_id: &'a WorldlineId,
+        source_lane_id: &'a WorldlineId,
     ) -> impl Iterator<Item = &'a Strand> + 'a {
         self.strands
             .values()
-            .filter(move |s| &s.base_ref.source_worldline_id == base_worldline_id)
+            .filter(move |s| &s.fork_basis_ref.source_lane_id == source_lane_id)
     }
 
-    /// Returns all live strands derived from the given base worldline,
-    /// ordered by [`StrandId`]. Allocates; prefer [`iter_by_base`](Self::iter_by_base)
-    /// in hot paths.
-    pub fn list_by_base<'a>(&'a self, base_worldline_id: &'a WorldlineId) -> Vec<&'a Strand> {
-        self.iter_by_base(base_worldline_id).collect()
+    /// Returns all live strands derived from the given source lane,
+    /// ordered by [`StrandId`]. Allocates; prefer
+    /// [`iter_by_source_lane`](Self::iter_by_source_lane) in hot paths.
+    pub fn list_by_source_lane<'a>(&'a self, source_lane_id: &'a WorldlineId) -> Vec<&'a Strand> {
+        self.iter_by_source_lane(source_lane_id).collect()
     }
 
     /// Returns the support pins for one strand.

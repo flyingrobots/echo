@@ -10,16 +10,16 @@ Legend: KERNEL
 
 Depends on:
 
-- [0004 — Strand contract](../0004-strand-contract/design.md)
-- [0007 — Braid geometry and neighborhood publication](../0007-braid-geometry-and-neighborhood-publication/design.md)
-- [0006 — Echo Continuum alignment](../0006-echo-continuum-alignment/design.md)
+- [0004 — Strand contract](./0004-strand-contract.md)
+- [0007 — Braid geometry and neighborhood publication](./0007-braid-geometry-and-neighborhood-publication.md)
+- [0006 — Echo Continuum alignment](./0006-echo-continuum-alignment.md)
 
 ## Why this cycle exists
 
 After `0007`, Echo has an honest story for:
 
 - speculative lanes
-- base provenance
+- fork-basis provenance
 - braid geometry
 - local plurality publication
 
@@ -37,7 +37,7 @@ Settlement is not:
 
 Settlement is a separate history law:
 
-- compare the strand's suffix against its base coordinate
+- compare the strand's suffix against its fork-basis coordinate
 - plan what may be imported under deterministic policy
 - import accepted cause-level history
 - record unresolved residue as first-class conflict artifacts
@@ -47,17 +47,22 @@ This is the missing leg between plural speculative work and real parity with
 
 ## Design decision
 
-Echo should define v1 strand settlement as a **base-worldline settlement
+Echo should define v1 strand settlement as a **canonical-source settlement
 runway**:
 
 1. compare one strand's suffix against the worldline and coordinate recorded in
-   `BaseRef`
+   `ForkBasisRef`
 2. produce a deterministic settlement plan
-3. append accepted imports to the base worldline as `MergeImport`
+3. append accepted imports to the canonical target worldline as `MergeImport`
    provenance entries
 4. append unresolved residue as `ConflictArtifact` provenance entries
 
-v1 does **not** generalize to arbitrary target lanes yet.
+v1 does **not** generalize to arbitrary target lanes yet, and it does
+not yet support settlement when the strand's source basis is itself a
+speculative lane.
+
+`0009` governs the runtime-control ontology and the generalized
+`ForkBasisRef` naming. This packet narrows only the settlement runway.
 
 That is a deliberate narrowing, not a theoretical claim. It gives Echo one
 honest settlement path without pretending every cross-worldline import problem
@@ -74,7 +79,7 @@ is solved at once.
 
 ### Human jobs
 
-1. Compare a strand against its base coordinate and see the resulting delta.
+1. Compare a strand against its fork-basis coordinate and see the resulting delta.
 2. Produce a deterministic import plan instead of ad hoc merge behavior.
 3. See explicit conflict artifacts for what could not be imported.
 
@@ -125,20 +130,23 @@ It does not settle by replaying UI frames back into history.
 ### Allowed source
 
 - one live strand
+- `fork_basis_ref.source_lane_id` must name a canonical worldline in v1
 - source history is the child worldline suffix strictly after
-  `base_ref.fork_tick`
+  `fork_basis_ref.fork_tick`
 
 ### Allowed target
 
-- only the strand's `base_ref.source_worldline_id`
-- only against the exact base coordinate recorded in `base_ref`
+- only the canonical worldline named by `fork_basis_ref.source_lane_id`
+- only against the exact fork-basis coordinate recorded in `fork_basis_ref`
 
 ### Explicit exclusions
 
 v1 does not define:
 
-- settlement into arbitrary non-base worldlines
+- settlement into arbitrary non-target worldlines
 - settlement between two sibling strands
+- settlement for strands whose `fork_basis_ref.source_lane_id` is
+  itself speculative
 - automatic conflict resolution
 - support-pin history import
 - synthetic merged worldlines
@@ -153,15 +161,15 @@ should look like this.
 
 ### 1. `SettlementDelta`
 
-The compare result for one strand relative to its base coordinate.
+The compare result for one strand relative to its fork-basis coordinate.
 
 Minimum contents:
 
 ```text
 SettlementDelta {
     strand_id:                StrandId,
-    base_ref:                 BaseRef,
-    source_worldline_id:      WorldlineId,
+    fork_basis_ref:           ForkBasisRef,
+    source_child_worldline_id: WorldlineId,
     source_suffix_start_tick: WorldlineTick,
     source_suffix_end_tick:   WorldlineTick,
     source_entries:           Vec<ProvenanceRef>,
@@ -181,7 +189,7 @@ Minimum contents:
 SettlementPlan {
     strand_id:          StrandId,
     target_worldline:   WorldlineId,
-    target_base_ref:    ProvenanceRef,
+    target_basis_ref:   ProvenanceRef,
     decisions:          Vec<SettlementDecision>,
 }
 ```
@@ -226,7 +234,7 @@ ConflictArtifactDraft {
 
 - `ChannelPolicyConflict`
 - `UnsupportedImport`
-- `BaseDivergence`
+- `BasisDivergence`
 - `QuantumMismatch`
 
 The exact reason set can grow later, but v1 must not collapse every failure
@@ -239,7 +247,7 @@ The compare phase answers:
 - what exact suffix exists on the strand after the fork point
 - what the planner will evaluate
 
-Compare walks the strand child worldline after `base_ref.fork_tick` and
+Compare walks the strand child worldline after `fork_basis_ref.fork_tick` and
 collects authoritative `ProvenanceRef`s / entries in append order.
 
 Compare does **not** decide eligibility. It only defines the candidate runway.
@@ -252,7 +260,7 @@ The plan phase evaluates each source entry under deterministic import law.
 
 - source `ProvenanceEntry`
 - source replay patch / atom writes / outputs
-- target base coordinate
+- target fork-basis coordinate
 - target worldline policy state
 - channel policy for all affected channels
 
@@ -290,7 +298,7 @@ deterministically.
 
 ## Import phase
 
-The import phase appends accepted imports to the base worldline as
+The import phase appends accepted imports to the canonical target worldline as
 `ProvenanceEventKind::MergeImport` entries.
 
 Those entries should:
@@ -374,7 +382,7 @@ settlement looks nothing like `git-warp` transfer planning."
 ## What this cycle does not do
 
 - implement automatic conflict resolution
-- define arbitrary target selection beyond the base worldline
+- define arbitrary target selection beyond the canonical target worldline
 - define a full conflict artifact schema family
 - settle support-pin participants as if they were source history
 - replace reintegration detail with settlement shell
@@ -396,14 +404,14 @@ settlement looks nothing like `git-warp` transfer planning."
    should v1 plan at finer op/channel granularity inside an entry?
 2. Does `ConflictArtifactDraft` need a first-class payload type in kernel truth
    immediately, or can v1 begin with provenance entry plus shell data?
-3. When Echo later permits durable strands, does settlement remain base-worldline
-   only, or become target-parameterized?
+3. When Echo later permits durable strands, does settlement remain
+   canonical-source-only, or become target-parameterized?
 
 ## Decision
 
 Echo should add one honest, deterministic settlement runway now:
 
-- compare one strand's suffix to its base coordinate
+- compare one strand's suffix to its fork-basis coordinate
 - plan imports under channel policy
 - record accepted imports as `MergeImport`
 - record unresolved residue as `ConflictArtifact`

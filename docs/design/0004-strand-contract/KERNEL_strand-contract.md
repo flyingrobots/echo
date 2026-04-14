@@ -22,7 +22,7 @@ A spec (`SPEC-0011-strand-contract.md`) defining:
 ```text
 Strand = {
     strand_id,
-    base_ref,            // source worldline, fork tick, commit hash, boundary hash
+    fork_basis_ref,            // source worldline, fork tick, commit hash, boundary hash
     child_worldline_id,  // created by fork()
     writer_heads,        // own head keys, not shared with parent
     support_pins,        // read-only references to other strands (braid geometry)
@@ -53,19 +53,19 @@ Strand = {
 
 ## Invariants to specify
 
-- INV-S1: A strand's `base_ref` is immutable after creation.
+- INV-S1: A strand's `fork_basis_ref` is immutable after creation.
 - INV-S2: A strand's child worldline shares no writer heads with
   its base worldline.
 - INV-S3: A strand cannot outlive the session that created it (v1).
 - INV-S4: A strand's child worldline is ticked only by explicit
   external command, never by the live scheduler.
-- INV-S5: `base_ref` must pin: source worldline ID, fork tick,
+- INV-S5: `fork_basis_ref` must pin: source worldline ID, fork tick,
   commit hash, and state/boundary hash.
 
 ## TTD mapping
 
 - `LaneKind::STRAND` ← strand type
-- `LaneRef.parentId` ← `base_ref.source_worldline_id`
+- `LaneRef.parentId` ← `fork_basis_ref.source_lane_id`
 - Strand create/tick/compare/drop maps to warp-ttd Cycle D operations
 
 ## Relationship to other backlog items

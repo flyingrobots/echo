@@ -10,8 +10,8 @@ Legend: [PLATFORM](../../method/legends/PLATFORM.md)
 
 Depends on:
 
-- [0004 — Strand contract](../0004-strand-contract/design.md)
-- [0005 — Echo TTD witness surface](../0005-echo-ttd-witness-surface/design.md)
+- [0004 — Strand contract](./0004-strand-contract.md)
+- [0005 — Echo TTD witness surface](./0005-echo-ttd-witness-surface.md)
 - external Continuum packets:
     - `0001` through `0015`
 

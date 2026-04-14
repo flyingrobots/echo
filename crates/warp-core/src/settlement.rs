@@ -6,6 +6,7 @@ use blake3::Hasher;
 use echo_wasm_abi::kernel_port as abi;
 use thiserror::Error;
 
+use crate::admission::AdmissionOutcomeKind;
 use crate::clock::{GlobalTick, WorldlineTick};
 use crate::coordinator::{RuntimeError, WorldlineRuntime};
 use crate::ident::Hash;
@@ -133,6 +134,15 @@ pub enum SettlementDecision {
 }
 
 impl SettlementDecision {
+    /// Maps this settlement publication into Echo's shared lawful outcome family.
+    #[must_use]
+    pub fn admission_outcome_kind(&self) -> AdmissionOutcomeKind {
+        match self {
+            Self::ImportCandidate(_) => AdmissionOutcomeKind::Derived,
+            Self::ConflictArtifact(_) => AdmissionOutcomeKind::Conflict,
+        }
+    }
+
     fn to_abi(&self) -> abi::SettlementDecision {
         match self {
             Self::ImportCandidate(candidate) => abi::SettlementDecision::ImportCandidate {
@@ -1103,6 +1113,10 @@ mod tests {
             plan.decisions[0],
             SettlementDecision::ImportCandidate(_)
         ));
+        assert_eq!(
+            plan.decisions[0].admission_outcome_kind(),
+            AdmissionOutcomeKind::Derived
+        );
 
         let result = SettlementService::settle(&mut runtime, &mut provenance, strand_id).unwrap();
         assert_eq!(result.appended_imports.len(), 1);
@@ -1160,6 +1174,10 @@ mod tests {
                 ..
             })
         ));
+        assert_eq!(
+            plan.decisions[0].admission_outcome_kind(),
+            AdmissionOutcomeKind::Conflict
+        );
 
         let result = SettlementService::settle(&mut runtime, &mut provenance, strand_id).unwrap();
         assert!(result.appended_imports.is_empty());

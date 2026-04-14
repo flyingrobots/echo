@@ -199,6 +199,16 @@ Where each `SettlementDecision` is one of:
 - `ImportCandidate`
 - `ConflictArtifactDraft`
 
+At the shared admission-family layer, v1 settlement uses the narrow truthful
+subset:
+
+- `ImportCandidate` => `Derived`
+- `ConflictArtifactDraft` => `Conflict`
+
+v1 settlement does **not** yet publish `Plural` or `Obstruction` as settlement
+surface outcomes. Those remain future braid/collapse and wider admission-law
+work, not something this packet should fake early.
+
 ### 3. `ImportCandidate`
 
 One accepted unit of source history eligible to become target provenance.
@@ -374,6 +384,7 @@ The important top-level debugger truth is:
 
 - accepted import
 - explicit conflict artifact
+- admission outcome kind
 - stable source/target coordinate
 
 That gives Continuum tools one honest cross-host story instead of "Echo

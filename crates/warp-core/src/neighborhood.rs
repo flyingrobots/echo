@@ -6,11 +6,17 @@
 //! observed local site. It is intentionally narrower than a full global braid
 //! model: it says which lanes participate in the current observed site, not
 //! every nearby alternative in the universe.
+//!
+//! This is a derived publication surface, not the authoritative admission-side
+//! site noun. Admission in Echo is judged over a
+//! [`BoundedSite`](crate::admission::BoundedSite); neighborhood publication is
+//! a later observer-facing projection over nearby lane truth.
 
 use blake3::Hasher;
 use echo_wasm_abi::kernel_port as abi;
 use thiserror::Error;
 
+use crate::admission::AdmissionOutcomeKind;
 use crate::clock::{GlobalTick, WorldlineTick};
 use crate::coordinator::WorldlineRuntime;
 use crate::engine_impl::Engine;
@@ -58,6 +64,15 @@ pub enum SitePlurality {
 }
 
 impl SitePlurality {
+    /// Maps the published site plurality into Echo's shared lawful outcome family.
+    #[must_use]
+    pub fn admission_outcome_kind(self) -> AdmissionOutcomeKind {
+        match self {
+            Self::Singleton => AdmissionOutcomeKind::Derived,
+            Self::Braided => AdmissionOutcomeKind::Plural,
+        }
+    }
+
     fn to_abi(self) -> abi::SitePlurality {
         match self {
             Self::Singleton => abi::SitePlurality::Singleton,
@@ -145,6 +160,16 @@ pub struct NeighborhoodSite {
 }
 
 impl NeighborhoodSite {
+    /// Returns the top-level lawful outcome kind for the published local site.
+    ///
+    /// Neighborhood publication remains a derived observer-facing surface, but
+    /// it should still use the same shared outcome algebra as the rest of
+    /// Echo's admission/publication stack.
+    #[must_use]
+    pub fn admission_outcome_kind(&self) -> AdmissionOutcomeKind {
+        self.plurality.admission_outcome_kind()
+    }
+
     /// Converts the site into its ABI DTO.
     #[must_use]
     pub fn to_abi(&self) -> abi::NeighborhoodSite {
@@ -485,6 +510,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(site.plurality, SitePlurality::Singleton);
+        assert_eq!(site.admission_outcome_kind(), AdmissionOutcomeKind::Derived);
         assert_eq!(site.participants.len(), 1);
         assert_eq!(site.participants[0].role, ParticipantRole::Primary);
         assert_eq!(site.participants[0].worldline_id, worldline_id);
@@ -618,6 +644,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(site.plurality, SitePlurality::Braided);
+        assert_eq!(site.admission_outcome_kind(), AdmissionOutcomeKind::Plural);
         assert_eq!(site.participants.len(), 3);
         assert_eq!(site.participants[0].role, ParticipantRole::Primary);
         assert_eq!(site.participants[0].strand_id, Some(primary_strand_id));

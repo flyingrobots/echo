@@ -206,6 +206,30 @@ It should:
 4. keep existing policy fragments, but route them through one clearer
    admission-law story
 
+### Current implementation note
+
+The first runtime cut lands this as a thin wrapper over existing footprint
+truth:
+
+- `crates/warp-core/src/admission.rs` defines `BoundedSite`
+- `claim_footprint` preserves the full declared footprint
+- `affected_region` is currently the direct write wake
+- `reintegration_boundary` is currently the declared boundary-port surface
+
+This is intentionally conservative. It makes the admission-site noun explicit
+without inventing a second geometry or pretending that braid publication is
+already the authoritative site model.
+
+The next runtime cut should thread the shared lawful outcome family through the
+existing publication surfaces:
+
+- `TickReceiptDisposition::Applied` => `Derived`
+- `TickReceiptDisposition::Rejected(FootprintConflict)` => `Obstruction`
+- `SettlementDecision::ImportCandidate` => `Derived`
+- `SettlementDecision::ConflictArtifact` => `Conflict`
+
+That keeps Echo honest while braid-local plurality remains a later cut.
+
 ## Non-goals
 
 - replacing Echo's scheduler with a different execution model

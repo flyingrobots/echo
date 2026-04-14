@@ -598,6 +598,12 @@ impl SchedulerCoordinator {
     /// Executes one SuperTick: admits inbox work in canonical head order and
     /// commits each non-empty head against its worldline frontier.
     ///
+    /// In the admission-law vocabulary, `super_tick()` is the single place
+    /// where Echo judges ingress claims at bounded sites under engine-defined
+    /// deterministic policy. The current runtime still derives bounded sites
+    /// from rule footprints and commits policy identity through the emitted
+    /// patch/shell family, but it does not introduce a second execution model.
+    ///
     /// The SuperTick is failure-atomic with respect to runtime state: if any
     /// head commit fails, all prior runtime and provenance mutations from this
     /// pass are discarded and both subsystems are restored to their

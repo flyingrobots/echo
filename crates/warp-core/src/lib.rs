@@ -32,6 +32,7 @@ pub mod math;
 /// WSC (Write-Streaming Columnar) snapshot format for deterministic serialization.
 pub mod wsc;
 
+mod admission;
 mod attachment;
 mod clock;
 mod cmd;
@@ -150,6 +151,10 @@ mod worldline_registry;
 mod worldline_state;
 
 // Re-exports for stable public API
+pub use admission::{
+    AdmissionOutcome, AdmissionOutcomeKind, AdmissionPolicyRef, AffectedRegion, BoundedSite,
+    PluralArtifact, ReintegrationBoundary,
+};
 pub use attachment::{
     AtomPayload, AttachmentKey, AttachmentOwner, AttachmentPlane, AttachmentValue, Codec,
     CodecRegistry, DecodeError, ErasedCodec, RegistryError,

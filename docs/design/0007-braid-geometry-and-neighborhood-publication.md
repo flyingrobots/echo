@@ -211,6 +211,7 @@ NeighborhoodSite {
     anchor:         ResolvedObservationCoordinate,
     plurality:      SitePlurality,
     participants:   Vec<SiteParticipant>,
+    outcome_kind:   AdmissionOutcomeKind,   // derived from plurality in the first cut
 }
 
 SiteParticipant {
@@ -237,6 +238,14 @@ And:
     - only the primary lane participates
 - `SitePlurality::Braided`
     - one or more additional participants are present
+
+At the shared lawful-outcome layer, the first cut maps:
+
+- `SitePlurality::Singleton` => `Derived`
+- `SitePlurality::Braided` => `Plural`
+
+This should remain a derived relation in the first cut. Echo does not need a
+separate stored field to tell the same story twice.
 
 ### What counts as a participant
 
@@ -330,6 +339,7 @@ The intended mapping is:
 - `NeighborhoodSite.anchor` → shared coordinate/frame truth
 - `NeighborhoodSite.participants` → shared lane participation
 - `NeighborhoodSite.plurality` → shared singleton-vs-plural site truth
+- `NeighborhoodSite.outcome_kind` → shared lawful outcome family (`Derived` / `Plural`)
 - support/basis roles → Continuum neighborhood semantics
 
 This is the first real Echo-side grounding for a shared `NeighborhoodCore`.

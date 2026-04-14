@@ -81,6 +81,7 @@ The important shared targets are:
 
 - lane / worldline / strand identity at the observer boundary
 - coordinate / frame truth
+- admission outcome kind
 - neighborhood core
 - reintegration detail
 - receipt shell
@@ -93,6 +94,17 @@ The key idea is:
 - the internal engine may stay Echo-shaped
 - the published observer/debugger contract should not feel like a different
   religion from `git-warp`
+
+That includes one shared lawful outcome family at the publication boundary:
+
+- `Derived`
+- `Plural`
+- `Conflict`
+- `Obstruction`
+
+Echo does not need to make every local subsystem emit all four outcomes
+immediately. It does need to publish the same top-level outcome kind whenever a
+shared observer/debugger surface depends on that distinction.
 
 ## Current Echo misalignment
 
@@ -197,6 +209,7 @@ Minimum target:
 - stable site identity
 - primary lane/worldline/head coordinate
 - explicit statement of whether the site is singleton/narrow or plural
+- top-level lawful outcome kind
 - enough lane participation data to support shared neighborhood nouns later
 
 ### B. Add a native reintegration detail boundary
@@ -292,6 +305,7 @@ should not.
 - native local-site boundary
 - native reintegration-detail boundary
 - explicit shell layering
+- one shared lawful outcome mapping across tick, neighborhood, and settlement publication
 
 ### Phase 2: prove Wesley ownership on one slice
 
@@ -304,6 +318,22 @@ should not.
 - narrow `ttd-browser`
 - split `echo-session-proto`
 - feed `warp-ttd` through the shared contract instead of local folklore
+
+## Current implementation note
+
+Echo now has the first truthful runtime mapping for the shared lawful outcome
+family:
+
+- `TickReceiptDisposition::Applied` => `Derived`
+- `TickReceiptDisposition::Rejected(FootprintConflict)` => `Obstruction`
+- `NeighborhoodSite::Singleton` => `Derived`
+- `NeighborhoodSite::Braided` => `Plural`
+- `SettlementDecision::ImportCandidate` => `Derived`
+- `SettlementDecision::ConflictArtifact` => `Conflict`
+
+That is enough to prove the top-level algebra in runtime truth. The remaining
+Continuum cut is to carry this mapping into the shared generated family
+boundary instead of leaving adapters to infer it.
 
 ## What does not need to change
 

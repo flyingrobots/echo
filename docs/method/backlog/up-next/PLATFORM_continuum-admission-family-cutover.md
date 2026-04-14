@@ -29,3 +29,8 @@ The current runtime now has enough truthful mapping to drive that platform cut:
 The next step is not inventing more local nouns. It is selecting one generated
 Continuum family slice that can carry this same outcome algebra and shell /
 witness layering across the Echo boundary.
+
+The first concrete target for that cut is now:
+
+- Continuum packet: `docs/design/0022-neighborhood-core-and-admission-outcome-family/README.md`
+- authored family: `schemas/continuum-neighborhood-core-family.graphql`

@@ -44,8 +44,9 @@ What is missing is not a `jedit`-named Echo API. What is missing is the first
 clean handoff that connects:
 
 - Wesley-compiled app intents
+- Wesley-compiled observer plans
 - generic Echo intent ingest / deterministic result envelopes
-- generic Echo observation
+- generic Echo observation and hosted observer lifecycle
 - app-side projection over observed worldlines
 
 ## Hill
@@ -61,13 +62,18 @@ Echo through optics without:
 
 - one Echo-facing design or spec note states the optic handoff explicitly:
     - app submits intent
-    - Echo returns the deterministic result / receipt envelope
-    - app observes resulting worldline state
+    - Echo returns the deterministic result / receipt envelope plus a
+      hologram/frontier handoff
+    - app reads through a generic observer plan or observer handle
 - the note explains where app-specific operation names live:
     - authored in the app contract
     - compiled by Wesley
     - encoded into generic substrate intents
     - never promoted to handwritten Echo public methods
+- the note also explains where app-authored observer behavior lives:
+    - authored as app observer spec
+    - compiled by Wesley into generic observer plans
+    - hosted by Echo without handwritten app callbacks
 - one concrete seam is named for the first `jedit` hot-text operations:
     - create buffer worldline
     - replace range as tick
@@ -75,9 +81,10 @@ Echo through optics without:
     - read canonical worldline snapshot
 - repo truth makes clear how those operations travel through:
     - Wesley-generated intent / codec artifacts
+    - Wesley-generated observer plan / reading codec artifacts
     - generic Echo intent ingest
     - deterministic receipt / result envelopes
-    - generic observation
+    - generic observation and observer hosting
     - app-side worldline projection
 
 ## Repo evidence
@@ -87,3 +94,4 @@ Echo through optics without:
 - `docs/design/0012-dynamic-footprint-binding-runtime.md`
 - `docs/invariants/DECLARATIVE-RULE-AUTHORSHIP.md`
 - `/Users/james/git/aion-paper-07/optics/warp-optic.pdf`
+- `docs/design/0013-generic-observer-api-and-plan.md`

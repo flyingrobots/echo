@@ -91,6 +91,7 @@ flowchart TD
 - Continuum foundations bridge: [/continuum-foundations](/continuum-foundations)
 - Theory: [/THEORY](/THEORY)
 - Methodology: [/METHODOLOGY](/METHODOLOGY)
+- Generic observer API and plan: [/design/0013-generic-observer-api-and-plan](/design/0013-generic-observer-api-and-plan)
 
 ## Run Something (learn by doing)
 

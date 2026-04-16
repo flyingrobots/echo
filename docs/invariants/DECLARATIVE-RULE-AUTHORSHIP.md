@@ -56,6 +56,11 @@ surfaces. They MAY exist for engine internals, internal system rules,
 transitional bootstrap code, and tests, but they MUST NOT be treated as the
 long-term public authoring boundary for application rewrite logic.
 
+Echo's default public Rust API MUST NOT expose native rewrite authoring as a
+supported extension surface. If a temporary bootstrap seam remains, it must be
+explicitly internal, non-default, and subordinate to the same declarative
+boundary.
+
 ### R3 — Host policy is selected, not authored
 
 Hosts MAY select engine-defined deterministic policy by reference. Hosts MUST

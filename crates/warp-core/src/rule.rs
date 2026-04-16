@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Rewrite rule definitions.
+#![cfg_attr(not(feature = "native_rule_bootstrap"), allow(dead_code))]
+
 use crate::footprint::Footprint;
 use crate::graph_view::GraphView;
 use crate::ident::{Hash, NodeId, TypeId};

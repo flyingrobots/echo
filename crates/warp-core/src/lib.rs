@@ -221,8 +221,11 @@ pub use provenance_store::{
 };
 pub use receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection};
 pub use record::{EdgeRecord, NodeRecord};
+#[cfg(feature = "native_rule_bootstrap")]
 pub use rule::{ConflictPolicy, ExecuteFn, MatchFn, PatternGraph, RewriteRule};
-pub use sandbox::{build_engine, run_pair_determinism, DeterminismError, EchoConfig};
+pub use sandbox::DeterminismError;
+#[cfg(feature = "native_rule_bootstrap")]
+pub use sandbox::{build_engine, run_pair_determinism, EchoConfig};
 pub use scheduler::SchedulerKind;
 #[cfg(feature = "serde")]
 pub use serializable::{

@@ -34,6 +34,10 @@ echo-dry-tests = { workspace = true }
 
 [features]
 default = []
+# INTERNAL ONLY: exposes native Rust rule authoring seams for Echo's own
+# bootstrap fixtures, tests, and benchmarks. This is not the public authoring
+# path for application rewrites.
+native_rule_bootstrap = []
 # Optional regression check for PRNG sequences; off by default to avoid
 # freezing algorithm choices. Used only in tests guarded with `cfg(feature)`.
 golden_prng = []

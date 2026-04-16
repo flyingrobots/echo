@@ -5,6 +5,7 @@
 name = "echo-dry-tests"
 version = "0.1.0"
 edition = "2021"
+publish = false
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
@@ -15,7 +16,7 @@ categories = ["development-tools::testing"]
 
 [dependencies]
 # Core crates for test doubles
-warp-core = { workspace = true }
+warp-core = { workspace = true, features = ["native_rule_bootstrap"] }
 echo-graph = { workspace = true }
 echo-app-core = { workspace = true }
 

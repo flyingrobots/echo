@@ -26,6 +26,7 @@ assert() {
 
 invariant="${repo_root}/docs/invariants/DECLARATIVE-RULE-AUTHORSHIP.md"
 release_policy="${repo_root}/docs/RELEASE_POLICY.md"
+warp_core_lib="${repo_root}/crates/warp-core/src/lib.rs"
 
 echo "=== DECLARATIVE-RULE-AUTHORSHIP invariant tests ==="
 echo ""
@@ -49,6 +50,18 @@ echo ""
 echo "3. Release policy cross-reference"
 assert "RELEASE_POLICY references DECLARATIVE-RULE-AUTHORSHIP" \
   grep -q "DECLARATIVE-RULE-AUTHORSHIP" "${release_policy}"
+
+echo ""
+echo "4. Default public API does not export native rule authoring"
+assert "default lib.rs does not unconditionally pub use RewriteRule" \
+  awk '
+    /^#\[cfg\(feature = "native_rule_bootstrap"\)\]$/ { gated = 1; next }
+    /^pub use rule::\{ConflictPolicy, ExecuteFn, MatchFn, PatternGraph, RewriteRule\};$/ {
+      if (!gated) exit 1
+    }
+    { gated = 0 }
+    END { exit 0 }
+  ' "${warp_core_lib}"
 
 echo ""
 echo "=== Results: ${passed} passed, ${failed} failed ==="

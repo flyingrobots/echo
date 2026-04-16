@@ -18,6 +18,7 @@
 //! This module provides:
 //! - `sys/dispatch_inbox`: drains all pending edges from the inbox (legacy helper)
 //! - `sys/ack_pending`: consumes exactly one pending edge for an event scope
+#![cfg_attr(not(feature = "native_rule_bootstrap"), allow(dead_code))]
 
 use blake3::Hasher;
 
@@ -65,7 +66,19 @@ const PENDING_EDGE_HASH_DOMAIN: &[u8] = b"sim/inbox/pending:";
 /// - Deletes all `edge:pending` edges from the inbox node.
 /// - Does NOT delete the event nodes (ledger entries remain).
 #[must_use]
+#[cfg(feature = "native_rule_bootstrap")]
+#[doc(hidden)]
 pub fn dispatch_inbox_rule() -> RewriteRule {
+    dispatch_inbox_rule_impl()
+}
+
+#[must_use]
+#[cfg(not(feature = "native_rule_bootstrap"))]
+pub(crate) fn dispatch_inbox_rule() -> RewriteRule {
+    dispatch_inbox_rule_impl()
+}
+
+fn dispatch_inbox_rule_impl() -> RewriteRule {
     let id: Hash = make_type_id("rule:sys/dispatch_inbox").0;
     RewriteRule {
         id,
@@ -85,7 +98,19 @@ pub fn dispatch_inbox_rule() -> RewriteRule {
 /// This rule deletes the `edge:pending` edge corresponding to the provided
 /// `scope` event node, treating edge deletion as queue maintenance (not ledger deletion).
 #[must_use]
+#[cfg(feature = "native_rule_bootstrap")]
+#[doc(hidden)]
 pub fn ack_pending_rule() -> RewriteRule {
+    ack_pending_rule_impl()
+}
+
+#[must_use]
+#[cfg(not(feature = "native_rule_bootstrap"))]
+pub(crate) fn ack_pending_rule() -> RewriteRule {
+    ack_pending_rule_impl()
+}
+
+fn ack_pending_rule_impl() -> RewriteRule {
     let id: Hash = make_type_id("rule:sys/ack_pending").0;
     RewriteRule {
         id,

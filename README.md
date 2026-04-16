@@ -12,7 +12,7 @@ Echo is designed for anything high-frequency, like real-time interactive simulat
 
 ![ECHO](https://github.com/user-attachments/assets/bef3fab9-cfc7-4601-b246-67ef7416ae75)
 
-Echo executes parallel graph rewrites with 0-ULP cross-platform determinism, structurally preventing concurrency issues through immutable snapshots and canonical delta merging.
+Echo executes parallel graph rewrites with 0-ULP cross-platform determinism, structurally preventing concurrency issues through immutable snapshots and canonical delta merging. Footprint isolation removes silent local interference; distributed concurrency remains, but is elevated to an explicit boundary and causality problem.
 
 Echo is designed for everything from high-frequency game logic to massive-scale causal graph analysis. It provides bit-perfect replayability across platforms and concurrency profiles as an inherent system property, not an afterthought.
 

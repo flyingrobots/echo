@@ -344,6 +344,11 @@ The intended mapping is:
 
 This is the first real Echo-side grounding for a shared `NeighborhoodCore`.
 
+The current kernel cut now also provides a native projection boundary from
+`NeighborhoodSite` into an Echo-side `NeighborhoodCore` DTO, so host projects
+no longer need to reconstruct that shape from scattered runtime objects just
+to consume the first shared family slice.
+
 It does **not** yet solve:
 
 - reintegration detail

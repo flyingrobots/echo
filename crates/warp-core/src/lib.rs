@@ -204,7 +204,8 @@ pub use playback::{
 pub use playback::{SessionId, ViewSession};
 // --- Truth delivery ---
 pub use neighborhood::{
-    NeighborhoodError, NeighborhoodSite, NeighborhoodSiteId, NeighborhoodSiteService,
+    NeighborhoodCore, NeighborhoodError, NeighborhoodParticipant, NeighborhoodParticipantRole,
+    NeighborhoodPlurality, NeighborhoodSite, NeighborhoodSiteId, NeighborhoodSiteService,
     ParticipantRole, SiteParticipant, SitePlurality,
 };
 pub use observation::{

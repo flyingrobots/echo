@@ -108,11 +108,27 @@ impl ParticipantRole {
         }
     }
 
+    fn to_core(self) -> NeighborhoodParticipantRole {
+        match self {
+            Self::Primary => NeighborhoodParticipantRole::Primary,
+            Self::BasisAnchor => NeighborhoodParticipantRole::BasisAnchor,
+            Self::Support => NeighborhoodParticipantRole::Support,
+        }
+    }
+
     fn code(self) -> u8 {
         match self {
             Self::Primary => 1,
             Self::BasisAnchor => 2,
             Self::Support => 3,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Primary => "primary",
+            Self::BasisAnchor => "basis-anchor",
+            Self::Support => "support",
         }
     }
 }
@@ -144,6 +160,90 @@ impl SiteParticipant {
             state_hash: self.state_hash.to_vec(),
         }
     }
+}
+
+/// Shared observer/debugger plurality for one published neighborhood core.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NeighborhoodPlurality {
+    /// Only the primary lane participates.
+    Singleton,
+    /// Multiple lanes participate in the published local site.
+    Plural,
+}
+
+impl SitePlurality {
+    fn to_core(self) -> NeighborhoodPlurality {
+        match self {
+            Self::Singleton => NeighborhoodPlurality::Singleton,
+            Self::Braided => NeighborhoodPlurality::Plural,
+        }
+    }
+}
+
+/// Shared observer/debugger role for one published neighborhood participant.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NeighborhoodParticipantRole {
+    /// The directly observed lane.
+    Primary,
+    /// The fork/source lane anchoring the primary strand.
+    BasisAnchor,
+    /// A read-only support lane.
+    Support,
+}
+
+/// Shared observer/debugger participant for one published neighborhood core.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct NeighborhoodParticipant {
+    /// Stable participant identity within the published site.
+    pub participant_id: String,
+    /// Stable lane identity for the participant's worldline carrier.
+    pub lane_id: String,
+    /// Optional strand identity when the participant is a strand-backed lane.
+    pub strand_id: Option<String>,
+    /// Participant role in the published site.
+    pub role: NeighborhoodParticipantRole,
+    /// Exact participant frame index.
+    pub frame_index: u64,
+    /// Canonical state hash for the participant at that frame.
+    pub state_hash: String,
+}
+
+impl SiteParticipant {
+    fn to_core(&self) -> NeighborhoodParticipant {
+        NeighborhoodParticipant {
+            participant_id: participant_id(self),
+            lane_id: worldline_lane_id(self.worldline_id),
+            strand_id: self.strand_id.map(strand_id_label),
+            role: self.role.to_core(),
+            frame_index: self.tick.as_u64(),
+            state_hash: hash_label(self.state_hash),
+        }
+    }
+}
+
+/// Shared observer/debugger projection for one published local site.
+///
+/// This is the first Echo-side grounding for the shared Continuum
+/// `NeighborhoodCore` family shape. It is intentionally narrow and does not
+/// carry reintegration detail or receipt shell enrichment.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct NeighborhoodCore {
+    /// Stable published site identity.
+    pub site_id: String,
+    /// Anchor lane identity derived from the observed worldline.
+    pub anchor_lane_id: String,
+    /// Exact resolved anchor frame index.
+    pub anchor_frame_index: u64,
+    /// Optional anchor head identity. Echo does not yet publish this natively.
+    pub anchor_head_id: Option<String>,
+    /// Top-level lawful outcome kind for this published site.
+    pub outcome_kind: AdmissionOutcomeKind,
+    /// Shared singleton-vs-plural truth.
+    pub plurality: NeighborhoodPlurality,
+    /// Participating lanes for the site.
+    pub participants: Vec<NeighborhoodParticipant>,
+    /// Narrow human-readable summary for debugger surfaces.
+    pub summary: String,
 }
 
 /// Kernel-backed publication object for one observed local site.
@@ -182,6 +282,26 @@ impl NeighborhoodSite {
                 .iter()
                 .map(SiteParticipant::to_abi)
                 .collect(),
+        }
+    }
+
+    /// Projects the kernel-local site into the shared neighborhood-core family
+    /// shape consumed by observer/debugger surfaces.
+    #[must_use]
+    pub fn to_core(&self) -> NeighborhoodCore {
+        NeighborhoodCore {
+            site_id: site_id_label(self.site_id),
+            anchor_lane_id: worldline_lane_id(self.anchor.worldline_id),
+            anchor_frame_index: self.anchor.resolved_worldline_tick.as_u64(),
+            anchor_head_id: None,
+            outcome_kind: self.admission_outcome_kind(),
+            plurality: self.plurality.to_core(),
+            participants: self
+                .participants
+                .iter()
+                .map(SiteParticipant::to_core)
+                .collect(),
+            summary: neighborhood_summary(self),
         }
     }
 }
@@ -360,6 +480,52 @@ fn compute_site_id(
     NeighborhoodSiteId(hasher.finalize().into())
 }
 
+fn site_id_label(site_id: NeighborhoodSiteId) -> String {
+    format!("site:{}", hex::encode(site_id.as_bytes()))
+}
+
+fn worldline_lane_id(worldline_id: WorldlineId) -> String {
+    format!("wl:{}", hex::encode(worldline_id.as_bytes()))
+}
+
+fn strand_id_label(strand_id: StrandId) -> String {
+    format!("strand:{}", hex::encode(strand_id.as_bytes()))
+}
+
+fn hash_label(hash: Hash) -> String {
+    hex::encode(hash)
+}
+
+fn participant_id(participant: &SiteParticipant) -> String {
+    let carrier = participant.strand_id.map_or_else(
+        || worldline_lane_id(participant.worldline_id),
+        strand_id_label,
+    );
+    format!(
+        "participant:{}:{}:{}",
+        carrier,
+        participant.role.label(),
+        participant.tick.as_u64()
+    )
+}
+
+fn neighborhood_summary(site: &NeighborhoodSite) -> String {
+    match site.plurality {
+        SitePlurality::Singleton => format!(
+            "Echo published a singleton local site with {} participant at {}@{}.",
+            site.participants.len(),
+            worldline_lane_id(site.anchor.worldline_id),
+            site.anchor.resolved_worldline_tick.as_u64()
+        ),
+        SitePlurality::Braided => format!(
+            "Echo published a plural local site with {} participants at {}@{}.",
+            site.participants.len(),
+            worldline_lane_id(site.anchor.worldline_id),
+            site.anchor.resolved_worldline_tick.as_u64()
+        ),
+    }
+}
+
 fn write_optional_global_tick(hasher: &mut Hasher, tick: Option<GlobalTick>) {
     match tick {
         Some(value) => {
@@ -515,6 +681,36 @@ mod tests {
         assert_eq!(site.participants[0].role, ParticipantRole::Primary);
         assert_eq!(site.participants[0].worldline_id, worldline_id);
         assert_eq!(site.participants[0].state_hash, snapshot.state_root);
+
+        let core = site.to_core();
+        assert_eq!(
+            core.site_id,
+            format!("site:{}", hex::encode(site.site_id.as_bytes()))
+        );
+        assert_eq!(
+            core.anchor_lane_id,
+            format!("wl:{}", hex::encode(worldline_id.as_bytes()))
+        );
+        assert_eq!(core.anchor_frame_index, 0);
+        assert_eq!(core.anchor_head_id, None);
+        assert_eq!(core.outcome_kind, AdmissionOutcomeKind::Derived);
+        assert_eq!(core.plurality, NeighborhoodPlurality::Singleton);
+        assert_eq!(core.participants.len(), 1);
+        assert_eq!(
+            core.participants[0].lane_id,
+            format!("wl:{}", hex::encode(worldline_id.as_bytes()))
+        );
+        assert_eq!(core.participants[0].strand_id, None);
+        assert_eq!(
+            core.participants[0].role,
+            NeighborhoodParticipantRole::Primary
+        );
+        assert_eq!(core.participants[0].frame_index, 0);
+        assert_eq!(
+            core.participants[0].state_hash,
+            hex::encode(snapshot.state_root)
+        );
+        assert!(core.summary.contains("singleton local site"));
     }
 
     #[test]
@@ -655,6 +851,56 @@ mod tests {
         assert_eq!(site.participants[2].worldline_id, support_worldline);
         assert_eq!(site.participants[2].strand_id, Some(support_strand_id));
         assert_eq!(site.participants[2].state_hash, support_snapshot.state_root);
+
+        let core = site.to_core();
+        assert_eq!(
+            core.anchor_lane_id,
+            format!("wl:{}", hex::encode(primary_worldline.as_bytes()))
+        );
+        assert_eq!(core.anchor_frame_index, 0);
+        assert_eq!(core.outcome_kind, AdmissionOutcomeKind::Plural);
+        assert_eq!(core.plurality, NeighborhoodPlurality::Plural);
+        assert_eq!(core.participants.len(), 3);
+        assert_eq!(
+            core.participants[0].role,
+            NeighborhoodParticipantRole::Primary
+        );
+        assert_eq!(
+            core.participants[0].lane_id,
+            format!("wl:{}", hex::encode(primary_worldline.as_bytes()))
+        );
+        assert_eq!(
+            core.participants[0].strand_id,
+            Some(format!(
+                "strand:{}",
+                hex::encode(primary_strand_id.as_bytes())
+            ))
+        );
+        assert_eq!(
+            core.participants[1].role,
+            NeighborhoodParticipantRole::BasisAnchor
+        );
+        assert_eq!(
+            core.participants[1].lane_id,
+            format!("wl:{}", hex::encode(base_worldline.as_bytes()))
+        );
+        assert_eq!(core.participants[1].strand_id, None);
+        assert_eq!(
+            core.participants[2].role,
+            NeighborhoodParticipantRole::Support
+        );
+        assert_eq!(
+            core.participants[2].lane_id,
+            format!("wl:{}", hex::encode(support_worldline.as_bytes()))
+        );
+        assert_eq!(
+            core.participants[2].strand_id,
+            Some(format!(
+                "strand:{}",
+                hex::encode(support_strand_id.as_bytes())
+            ))
+        );
+        assert!(core.summary.contains("plural local site"));
     }
 
     #[test]

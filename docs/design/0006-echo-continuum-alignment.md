@@ -335,6 +335,11 @@ That is enough to prove the top-level algebra in runtime truth. The remaining
 Continuum cut is to carry this mapping into the shared generated family
 boundary instead of leaving adapters to infer it.
 
+Echo also now has a native projection from `NeighborhoodSite` into an
+Echo-side `NeighborhoodCore` DTO. That closes the first local-site publication
+gap: the runtime can publish the shared neighborhood-core shape directly,
+rather than requiring demo or adapter code to synthesize it by hand.
+
 ## What does not need to change
 
 Echo does **not** need to:

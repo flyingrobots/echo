@@ -217,6 +217,155 @@ impl From<DynamicBindingError> for DynamicBindingRuntimeError {
     }
 }
 
+/// Request for resolving one declared range-scoped closure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RangeClosureBindingRequest<'a> {
+    /// Authored closure slot name.
+    pub slot: &'a str,
+    /// Authored source slot from which the closure is derived.
+    pub from_slot: &'a str,
+    /// Declared closure operator.
+    pub operator: &'a str,
+    /// Optional second authored slot needed by the operator.
+    pub related_slot: Option<&'a str>,
+    /// Requested range start.
+    pub start: usize,
+    /// Requested range end.
+    pub end: usize,
+}
+
+/// Runtime adapter that resolves structured footprint bindings against graph truth.
+pub trait StructuredBindingRuntime {
+    /// Resolves one direct slot from invocation-supplied reference material.
+    fn resolve_direct_slot(
+        &self,
+        slot: &str,
+        kind: &str,
+        reference: &str,
+    ) -> Result<BoundNodeRef, DynamicBindingRuntimeError>;
+
+    /// Resolves one relation-derived slot from an already bound source slot.
+    fn resolve_relation_slot(
+        &self,
+        slot: &str,
+        from_slot: &str,
+        relation: &str,
+        source: &BoundNodeRef,
+        expected_kind: &str,
+    ) -> Result<BoundNodeRef, DynamicBindingRuntimeError>;
+
+    /// Resolves one range-scoped closure from an already bound source slot.
+    fn resolve_range_closure(
+        &self,
+        request: &RangeClosureBindingRequest<'_>,
+        source: &BoundNodeRef,
+        related: Option<&BoundNodeRef>,
+    ) -> Result<Vec<ClosureMemberBinding>, DynamicBindingRuntimeError>;
+}
+
+/// Internal resolver that accumulates structured runtime bindings.
+#[derive(Debug)]
+pub struct StructuredBindingResolver<'a, R> {
+    runtime: &'a R,
+    bindings: StructuredRuntimeBindings,
+}
+
+impl<'a, R> StructuredBindingResolver<'a, R>
+where
+    R: StructuredBindingRuntime,
+{
+    /// Creates a new resolver over `runtime`.
+    #[must_use]
+    pub fn new(runtime: &'a R) -> Self {
+        Self {
+            runtime,
+            bindings: StructuredRuntimeBindings::new(),
+        }
+    }
+
+    /// Returns the currently accumulated runtime bindings.
+    #[must_use]
+    pub fn bindings(&self) -> &StructuredRuntimeBindings {
+        &self.bindings
+    }
+
+    /// Consumes the resolver and returns the accumulated runtime bindings.
+    #[must_use]
+    pub fn into_bindings(self) -> StructuredRuntimeBindings {
+        self.bindings
+    }
+
+    /// Resolves and records one direct slot from invocation input.
+    pub fn bind_direct_slot(
+        &mut self,
+        slot: &str,
+        kind: &str,
+        reference: &str,
+    ) -> Result<(), DynamicBindingRuntimeError> {
+        let binding = self.runtime.resolve_direct_slot(slot, kind, reference)?;
+        self.bindings.bind_direct_slot(slot, binding)?;
+        Ok(())
+    }
+
+    /// Resolves and records one relation-derived slot from an existing binding.
+    pub fn bind_relation_slot(
+        &mut self,
+        slot: &str,
+        kind: &str,
+        from_slot: &str,
+        relation: &str,
+    ) -> Result<(), DynamicBindingRuntimeError> {
+        let source = self.bindings.slot(from_slot).ok_or_else(|| {
+            DynamicBindingRuntimeError::MissingRelationSource {
+                slot: slot.to_owned(),
+                from_slot: from_slot.to_owned(),
+            }
+        })?;
+        let binding = self.runtime.resolve_relation_slot(
+            slot,
+            from_slot,
+            relation,
+            source.binding(),
+            kind,
+        )?;
+        self.bindings
+            .bind_relation_slot(slot, from_slot, relation, binding)?;
+        Ok(())
+    }
+
+    /// Resolves and records one declared range-scoped closure.
+    pub fn bind_range_closure(
+        &mut self,
+        request: RangeClosureBindingRequest<'_>,
+    ) -> Result<(), DynamicBindingRuntimeError> {
+        let source = self.bindings.slot(request.from_slot).ok_or_else(|| {
+            DynamicBindingRuntimeError::MissingClosureSource {
+                slot: request.slot.to_owned(),
+                from_slot: request.from_slot.to_owned(),
+            }
+        })?;
+        let related = request
+            .related_slot
+            .map(|slot_name| {
+                self.bindings.slot(slot_name).ok_or_else(|| {
+                    DynamicBindingRuntimeError::MissingClosureSource {
+                        slot: request.slot.to_owned(),
+                        from_slot: slot_name.to_owned(),
+                    }
+                })
+            })
+            .transpose()?;
+        let members = self.runtime.resolve_range_closure(
+            &request,
+            source.binding(),
+            related.map(ResolvedSlotBinding::binding),
+        )?;
+        self.bindings
+            .bind_closure(request.slot, request.from_slot, request.operator, members)?;
+        Ok(())
+    }
+}
+
 /// Concrete runtime bindings for one structured footprint invocation.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct StructuredRuntimeBindings {
@@ -375,6 +524,165 @@ mod tests {
         start < other_end && other_start < end
     }
 
+    impl StructuredBindingRuntime for MockTextRuntime {
+        fn resolve_direct_slot(
+            &self,
+            slot: &str,
+            _kind: &str,
+            reference: &str,
+        ) -> Result<BoundNodeRef, DynamicBindingRuntimeError> {
+            match slot {
+                "worldline" => self
+                    .worldlines
+                    .get(reference)
+                    .map(|worldline| worldline.binding.clone())
+                    .ok_or_else(|| DynamicBindingRuntimeError::MissingDirectSlotTarget {
+                        slot: slot.to_owned(),
+                        reference: reference.to_owned(),
+                    }),
+                "baseHead" => self
+                    .heads
+                    .get(reference)
+                    .map(|head| head.binding.clone())
+                    .ok_or_else(|| DynamicBindingRuntimeError::MissingDirectSlotTarget {
+                        slot: slot.to_owned(),
+                        reference: reference.to_owned(),
+                    }),
+                _ => Err(DynamicBindingRuntimeError::MissingDirectSlotTarget {
+                    slot: slot.to_owned(),
+                    reference: reference.to_owned(),
+                }),
+            }
+        }
+
+        fn resolve_relation_slot(
+            &self,
+            slot: &str,
+            from_slot: &str,
+            relation: &str,
+            source: &BoundNodeRef,
+            _expected_kind: &str,
+        ) -> Result<BoundNodeRef, DynamicBindingRuntimeError> {
+            if from_slot != "worldline" || relation != "CANONICAL_HEAD" {
+                return Err(DynamicBindingRuntimeError::MissingRelationTarget {
+                    slot: slot.to_owned(),
+                    from_slot: from_slot.to_owned(),
+                    relation: relation.to_owned(),
+                });
+            }
+
+            let worldline = self
+                .worldlines
+                .values()
+                .find(|worldline| worldline.binding == *source)
+                .ok_or_else(|| DynamicBindingRuntimeError::MissingRelationTarget {
+                    slot: slot.to_owned(),
+                    from_slot: from_slot.to_owned(),
+                    relation: relation.to_owned(),
+                })?;
+
+            let canonical_head_id = worldline.canonical_head_id.clone().ok_or_else(|| {
+                DynamicBindingRuntimeError::MissingRelationTarget {
+                    slot: slot.to_owned(),
+                    from_slot: from_slot.to_owned(),
+                    relation: relation.to_owned(),
+                }
+            })?;
+
+            self.heads
+                .get(&canonical_head_id)
+                .map(|head| head.binding.clone())
+                .ok_or_else(|| DynamicBindingRuntimeError::MissingRelationTarget {
+                    slot: slot.to_owned(),
+                    from_slot: from_slot.to_owned(),
+                    relation: relation.to_owned(),
+                })
+        }
+
+        fn resolve_range_closure(
+            &self,
+            request: &RangeClosureBindingRequest<'_>,
+            source: &BoundNodeRef,
+            related: Option<&BoundNodeRef>,
+        ) -> Result<Vec<ClosureMemberBinding>, DynamicBindingRuntimeError> {
+            match request.operator {
+                "ropeRangeClosure" => {
+                    let base_head = self
+                        .heads
+                        .values()
+                        .find(|head| head.binding == *source)
+                        .ok_or_else(|| DynamicBindingRuntimeError::MissingDirectSlotTarget {
+                            slot: request.slot.to_owned(),
+                            reference: source.kind.clone(),
+                        })?;
+
+                    if request.start > request.end || request.end > base_head.byte_length {
+                        return Err(DynamicBindingRuntimeError::InvalidClosureRange {
+                            slot: request.slot.to_owned(),
+                            start: request.start,
+                            end: request.end,
+                            limit: base_head.byte_length,
+                        });
+                    }
+
+                    Ok(base_head
+                        .rope_members
+                        .iter()
+                        .filter(|member| {
+                            overlap(request.start, request.end, member.start, member.end)
+                        })
+                        .map(|member| member.binding.clone())
+                        .collect())
+                }
+                "anchorsIntersectingEditWindow" => {
+                    let worldline = self
+                        .worldlines
+                        .values()
+                        .find(|worldline| worldline.binding == *source)
+                        .ok_or_else(|| DynamicBindingRuntimeError::MissingDirectSlotTarget {
+                            slot: request.slot.to_owned(),
+                            reference: source.kind.clone(),
+                        })?;
+                    let related = related.ok_or_else(|| {
+                        DynamicBindingRuntimeError::MissingClosureSource {
+                            slot: request.slot.to_owned(),
+                            from_slot: "baseHead".to_owned(),
+                        }
+                    })?;
+                    let base_head = self
+                        .heads
+                        .values()
+                        .find(|head| head.binding == *related)
+                        .ok_or_else(|| DynamicBindingRuntimeError::MissingDirectSlotTarget {
+                            slot: request.slot.to_owned(),
+                            reference: related.kind.clone(),
+                        })?;
+
+                    if base_head.worldline_id != worldline.id {
+                        return Err(DynamicBindingRuntimeError::BasisHeadMismatch {
+                            worldline: worldline.id.clone(),
+                            head: base_head.id.clone(),
+                        });
+                    }
+
+                    Ok(self
+                        .anchors
+                        .iter()
+                        .filter(|anchor| {
+                            anchor.basis_head_id == base_head.id
+                                && overlap(request.start, request.end, anchor.start, anchor.end)
+                        })
+                        .map(|anchor| anchor.binding.clone())
+                        .collect())
+                }
+                _ => Err(DynamicBindingRuntimeError::UnknownClosureOperator {
+                    slot: request.slot.to_owned(),
+                    operator: request.operator.to_owned(),
+                }),
+            }
+        }
+    }
+
     fn bind_replace_range_runtime(
         runtime: &MockTextRuntime,
         request: &ReplaceRangeBindingRequest,
@@ -400,92 +708,36 @@ mod tests {
             });
         }
 
-        if request.start_byte > request.end_byte || request.end_byte > base_head.byte_length {
-            return Err(DynamicBindingRuntimeError::InvalidClosureRange {
-                slot: "touchedRope".to_owned(),
-                start: request.start_byte,
-                end: request.end_byte,
-                limit: base_head.byte_length,
-            });
-        }
-
-        let touched_rope = base_head
-            .rope_members
-            .iter()
-            .filter(|member| {
-                overlap(
-                    request.start_byte,
-                    request.end_byte,
-                    member.start,
-                    member.end,
-                )
-            })
-            .map(|member| member.binding.clone())
-            .collect::<Vec<_>>();
-
-        let affected_anchors = runtime
-            .anchors
-            .iter()
-            .filter(|anchor| {
-                anchor.basis_head_id == base_head.id
-                    && overlap(
-                        request.start_byte,
-                        request.end_byte,
-                        anchor.start,
-                        anchor.end,
-                    )
-            })
-            .map(|anchor| anchor.binding.clone())
-            .collect::<Vec<_>>();
-
-        let mut bindings = StructuredRuntimeBindings::new();
-        bindings.bind_direct_slot("worldline", worldline.binding.clone())?;
-        bindings.bind_direct_slot("baseHead", base_head.binding.clone())?;
-        bindings.bind_closure("touchedRope", "baseHead", "ropeRangeClosure", touched_rope)?;
-        bindings.bind_closure(
-            "affectedAnchors",
-            "worldline",
-            "anchorsIntersectingEditWindow",
-            affected_anchors,
-        )?;
-        Ok(bindings)
+        let mut resolver = StructuredBindingResolver::new(runtime);
+        resolver.bind_direct_slot("worldline", "BufferWorldline", &request.worldline_id)?;
+        resolver.bind_direct_slot("baseHead", "RopeHead", &request.base_head_id)?;
+        resolver.bind_range_closure(RangeClosureBindingRequest {
+            slot: "touchedRope",
+            from_slot: "baseHead",
+            operator: "ropeRangeClosure",
+            related_slot: None,
+            start: request.start_byte,
+            end: request.end_byte,
+        })?;
+        resolver.bind_range_closure(RangeClosureBindingRequest {
+            slot: "affectedAnchors",
+            from_slot: "worldline",
+            operator: "anchorsIntersectingEditWindow",
+            related_slot: Some("baseHead"),
+            start: request.start_byte,
+            end: request.end_byte,
+        })?;
+        Ok(resolver.into_bindings())
     }
 
     fn bind_checkpoint_runtime(
         runtime: &MockTextRuntime,
         worldline_id: &str,
     ) -> Result<StructuredRuntimeBindings, DynamicBindingRuntimeError> {
-        let worldline = runtime.worldlines.get(worldline_id).ok_or_else(|| {
-            DynamicBindingRuntimeError::MissingDirectSlotTarget {
-                slot: "worldline".to_owned(),
-                reference: worldline_id.to_owned(),
-            }
-        })?;
-
-        let canonical_head_id = worldline.canonical_head_id.clone().ok_or_else(|| {
-            DynamicBindingRuntimeError::MissingRelationTarget {
-                slot: "currentHead".to_owned(),
-                from_slot: "worldline".to_owned(),
-                relation: "CANONICAL_HEAD".to_owned(),
-            }
-        })?;
-        let canonical_head = runtime.heads.get(&canonical_head_id).ok_or_else(|| {
-            DynamicBindingRuntimeError::MissingRelationTarget {
-                slot: "currentHead".to_owned(),
-                from_slot: "worldline".to_owned(),
-                relation: "CANONICAL_HEAD".to_owned(),
-            }
-        })?;
-
-        let mut bindings = StructuredRuntimeBindings::new();
-        bindings.bind_direct_slot("worldline", worldline.binding.clone())?;
-        bindings.bind_relation_slot(
-            "currentHead",
-            "worldline",
-            "CANONICAL_HEAD",
-            canonical_head.binding.clone(),
-        )?;
-        Ok(bindings)
+        let mut resolver = StructuredBindingResolver::new(runtime);
+        resolver.bind_direct_slot("worldline", "BufferWorldline", worldline_id)?;
+        resolver.bind_relation_slot("currentHead", "RopeHead", "worldline", "CANONICAL_HEAD")?;
+        Ok(resolver.into_bindings())
     }
 
     fn mock_runtime() -> MockTextRuntime {

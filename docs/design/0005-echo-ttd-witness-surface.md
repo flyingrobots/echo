@@ -175,17 +175,23 @@ This is enough to ground:
 - `headId` when applicable
 - `frameIndex` / debugger-local coordinate mapping
 
-This is **not** enough to ground the full neighborhood core shape yet.
+This is **not** enough to ground the full neighborhood core shape by itself.
 
 Missing today:
 
-- explicit participating lane set
-- explicit local outcome at one braid/merge/collapse site
 - explicit alternative set near the current site
+- richer nearby-neighborhood enumeration beyond the current local site
 
-So the initial Echo adapter can honestly publish a **singleton or narrow**
-neighborhood core, but not a full Kairotic neighborhood browser, unless Echo
-grows a first-class local-site object.
+Echo now closes the first neighborhood-core gap natively through
+`NeighborhoodSite` and its shared `NeighborhoodCore` projection:
+
+- explicit participating lane set
+- explicit singleton-vs-plural local outcome at one observed site
+
+So the initial Echo adapter no longer needs to invent neighborhood core from
+raw `ObservationArtifact` alone. It should consume the native
+`NeighborhoodCore` projection first, then add reintegration and shell detail
+without redefining the core.
 
 ### 2. Reintegration detail
 
@@ -279,26 +285,26 @@ The Echo host adapter should follow these rules:
 
 - full participating-lane neighborhood enumeration
 - explicit local alternative set
-- first-class neighborhood outcome object
 - native reintegration-core DTO
 
 ## Implementation outline
 
 1. Reconcile Echo's TTD protocol consumption with canonical `warp-ttd`
    protocol ownership.
-2. In the eventual Echo host adapter, map `ObservationArtifact` into a narrow
-   `NeighborhoodCoreSummary`.
+2. In the eventual Echo host adapter, consume Echo's native
+   `NeighborhoodCore` publication first, with `ObservationArtifact` retained as
+   shell/revelation context rather than as the source of core site truth.
 3. Synthesize `ReintegrationDetailSummary` from `TickReceipt`,
    `ProvenanceEntry.parents`, and materialization conflict data.
 4. Keep `ProvenanceEntry`, `FinalizedChannel`, `CursorReceipt`, `TruthFrame`,
    and `SchedulerStatus` in receipt shell lanes.
 5. File or implement follow-on runtime work when the adapter needs explicit
-   participating lanes or local site outcomes.
+   nearby alternatives or richer reintegration structure.
 
 ## Tests to write first
 
-- adapter test proving one `ObservationArtifact` maps to a truthful narrow
-  neighborhood core without fake alternatives
+- adapter test proving Echo's native `NeighborhoodCore` publication reaches the
+  host boundary without fake alternatives
 - adapter test proving `TickReceipt.blocked_by()` becomes reintegration detail,
   not receipt shell-only text
 - adapter test proving finalized channels and scheduler status stay in shell and

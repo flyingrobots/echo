@@ -65,16 +65,18 @@ poll, or tick hook API in ABI v3.
 All exports are `#[wasm_bindgen]` functions. Return types are CBOR-encoded
 `Uint8Array` unless noted otherwise.
 
-| Export                    | Signature              | Returns                        |
-| ------------------------- | ---------------------- | ------------------------------ |
-| `init()`                  | `() → Uint8Array`      | `HeadInfo` envelope            |
-| `dispatch_intent(bytes)`  | `(&[u8]) → Uint8Array` | `DispatchResponse` envelope    |
-| `observe(request)`        | `(&[u8]) → Uint8Array` | `ObservationArtifact` envelope |
-| `scheduler_status()`      | `() → Uint8Array`      | `SchedulerStatus` envelope     |
-| `get_registry_info()`     | `() → Uint8Array`      | `RegistryInfo` envelope        |
-| `get_codec_id()`          | `() → JsValue`         | `string \| null`               |
-| `get_registry_version()`  | `() → JsValue`         | `string \| null`               |
-| `get_schema_sha256_hex()` | `() → JsValue`         | `string \| null`               |
+| Export                               | Signature              | Returns                        |
+| ------------------------------------ | ---------------------- | ------------------------------ |
+| `init()`                             | `() → Uint8Array`      | `HeadInfo` envelope            |
+| `dispatch_intent(bytes)`             | `(&[u8]) → Uint8Array` | `DispatchResponse` envelope    |
+| `observe(request)`                   | `(&[u8]) → Uint8Array` | `ObservationArtifact` envelope |
+| `observe_neighborhood_site(request)` | `(&[u8]) → Uint8Array` | `NeighborhoodSite` envelope    |
+| `observe_neighborhood_core(request)` | `(&[u8]) → Uint8Array` | `NeighborhoodCore` envelope    |
+| `scheduler_status()`                 | `() → Uint8Array`      | `SchedulerStatus` envelope     |
+| `get_registry_info()`                | `() → Uint8Array`      | `RegistryInfo` envelope        |
+| `get_codec_id()`                     | `() → JsValue`         | `string \| null`               |
+| `get_registry_version()`             | `() → JsValue`         | `string \| null`               |
+| `get_schema_sha256_hex()`            | `() → JsValue`         | `string \| null`               |
 
 Removed before or by ABI v3:
 

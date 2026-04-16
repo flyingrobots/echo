@@ -180,6 +180,15 @@ impl SitePlurality {
     }
 }
 
+impl NeighborhoodPlurality {
+    fn to_abi(self) -> abi::NeighborhoodPlurality {
+        match self {
+            Self::Singleton => abi::NeighborhoodPlurality::Singleton,
+            Self::Plural => abi::NeighborhoodPlurality::Plural,
+        }
+    }
+}
+
 /// Shared observer/debugger role for one published neighborhood participant.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum NeighborhoodParticipantRole {
@@ -189,6 +198,16 @@ pub enum NeighborhoodParticipantRole {
     BasisAnchor,
     /// A read-only support lane.
     Support,
+}
+
+impl NeighborhoodParticipantRole {
+    fn to_abi(self) -> abi::NeighborhoodParticipantRole {
+        match self {
+            Self::Primary => abi::NeighborhoodParticipantRole::Primary,
+            Self::BasisAnchor => abi::NeighborhoodParticipantRole::BasisAnchor,
+            Self::Support => abi::NeighborhoodParticipantRole::Support,
+        }
+    }
 }
 
 /// Shared observer/debugger participant for one published neighborhood core.
@@ -221,6 +240,19 @@ impl SiteParticipant {
     }
 }
 
+impl NeighborhoodParticipant {
+    fn to_abi(&self) -> abi::NeighborhoodParticipant {
+        abi::NeighborhoodParticipant {
+            participant_id: self.participant_id.clone(),
+            lane_id: self.lane_id.clone(),
+            strand_id: self.strand_id.clone(),
+            role: self.role.to_abi(),
+            frame_index: self.frame_index,
+            state_hash: self.state_hash.clone(),
+        }
+    }
+}
+
 /// Shared observer/debugger projection for one published local site.
 ///
 /// This is the first Echo-side grounding for the shared Continuum
@@ -244,6 +276,38 @@ pub struct NeighborhoodCore {
     pub participants: Vec<NeighborhoodParticipant>,
     /// Narrow human-readable summary for debugger surfaces.
     pub summary: String,
+}
+
+impl AdmissionOutcomeKind {
+    fn to_core_abi(self) -> abi::AdmissionOutcomeKind {
+        match self {
+            Self::Derived => abi::AdmissionOutcomeKind::Derived,
+            Self::Plural => abi::AdmissionOutcomeKind::Plural,
+            Self::Conflict => abi::AdmissionOutcomeKind::Conflict,
+            Self::Obstruction => abi::AdmissionOutcomeKind::Obstruction,
+        }
+    }
+}
+
+impl NeighborhoodCore {
+    /// Converts the neighborhood core into its shared ABI DTO.
+    #[must_use]
+    pub fn to_abi(&self) -> abi::NeighborhoodCore {
+        abi::NeighborhoodCore {
+            site_id: self.site_id.clone(),
+            anchor_lane_id: self.anchor_lane_id.clone(),
+            anchor_frame_index: self.anchor_frame_index,
+            anchor_head_id: self.anchor_head_id.clone(),
+            outcome_kind: self.outcome_kind.to_core_abi(),
+            plurality: self.plurality.to_abi(),
+            participants: self
+                .participants
+                .iter()
+                .map(NeighborhoodParticipant::to_abi)
+                .collect(),
+            summary: self.summary.clone(),
+        }
+    }
 }
 
 /// Kernel-backed publication object for one observed local site.

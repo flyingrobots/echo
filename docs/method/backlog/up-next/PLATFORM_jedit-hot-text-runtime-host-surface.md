@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# jedit Hot Text Runtime Host Surface
+# jedit Optic Intent / Observation Handoff
 
 - Lane: `up-next`
 - Legend: `PLATFORM`
@@ -22,7 +22,7 @@ including:
 Wesley can generate TypeScript and Zod operation registries from that
 contract, and `jedit` now consumes those registries in its app-owned adapter.
 
-The next blocker is not in `jedit`. It is in Echo's host surface.
+The next blocker is not in `jedit`. It is in the substrate handoff model.
 
 Echo's current public wasm/kernel boundary exposes:
 
@@ -31,39 +31,54 @@ Echo's current public wasm/kernel boundary exposes:
 - neighborhood publication
 - settlement publication
 
-It does not expose an app-consumable hot-text runtime surface that could back
-`jedit`'s current `HotTextRuntimePort` without inventing app-specific logic in
-the wrong layer.
+That is directionally correct, but the integration posture now needs to match
+the optic model more explicitly:
+
+- the application submits intent through an optic-shaped boundary
+- Echo admits or rejects that intent against generic substrate truth
+- Echo returns the deterministic result / receipt envelope for that intent
+- the application then observes the resulting worldline state and projects that
+  generic graph truth into app-specific nouns
+
+What is missing is not a `jedit`-named Echo API. What is missing is the first
+clean handoff that connects:
+
+- Wesley-compiled app intents
+- generic Echo intent ingest / deterministic result envelopes
+- generic Echo observation
+- app-side projection over observed worldlines
 
 ## Hill
 
-Define the first consumable Echo host surface that can back a `jedit`-style
-hot-text runtime without:
+Define the first substrate handoff that lets a `jedit`-style application use
+Echo through optics without:
 
 - putting app-specific rewrite names on Echo's generic public API
 - reopening host-authored native rewrite code
-- forcing `jedit` to fake an Echo integration on top of unrelated observer
-  calls
+- forcing `jedit` to fake causal state changes entirely in app-local runtime
 
 ## Done looks like
 
-- one Echo-facing design or spec note states how a generated app contract is
-  supposed to cross the host boundary
+- one Echo-facing design or spec note states the optic handoff explicitly:
+    - app submits intent
+    - Echo returns the deterministic result / receipt envelope
+    - app observes resulting worldline state
 - the note explains where app-specific operation names live:
     - authored in the app contract
     - compiled by Wesley
-    - hosted by Echo through a generic installed-schema / generated-surface
-      model
-- one concrete host-facing seam is named for the first `jedit` hot-text
-  operations
+    - encoded into generic substrate intents
+    - never promoted to handwritten Echo public methods
+- one concrete seam is named for the first `jedit` hot-text operations:
     - create buffer worldline
     - replace range as tick
     - create checkpoint
     - read canonical worldline snapshot
-- the seam is consumable from JS/WASM without editing `warp-core` for app
-  names
-- repo truth makes clear why the existing `dispatch_intent` / `observe`
-  boundary is not yet enough for this use case
+- repo truth makes clear how those operations travel through:
+    - Wesley-generated intent / codec artifacts
+    - generic Echo intent ingest
+    - deterministic receipt / result envelopes
+    - generic observation
+    - app-side worldline projection
 
 ## Repo evidence
 
@@ -71,3 +86,4 @@ hot-text runtime without:
 - `crates/warp-wasm/src/lib.rs`
 - `docs/design/0012-dynamic-footprint-binding-runtime.md`
 - `docs/invariants/DECLARATIVE-RULE-AUTHORSHIP.md`
+- `/Users/james/git/aion-paper-07/optics/warp-optic.pdf`

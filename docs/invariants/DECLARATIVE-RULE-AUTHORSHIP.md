@@ -49,6 +49,12 @@ capability boundaries explicit enough that dishonest footprint use becomes
 structurally impossible or a compile-time failure, rather than something Echo
 discovers only after arbitrary native code has already been admitted.
 
+For dynamic rewrites, the declared boundary should be read as static at the
+level of slots, binding sources, closure operators, create/update surfaces,
+and forbidden surfaces. Echo then owns the runtime problem of binding concrete
+ids and resolving those declared closures without widening the capability
+surface.
+
 ### R2 — Native rewrite functions are bootstrap-only
 
 `RewriteRule`, `MatchFn`, and `ExecuteFn` are bootstrap-only trusted-code
@@ -118,6 +124,7 @@ deterministic path.
 ## Cross-references
 
 - [0010-bounded-site-and-admission-policy](../design/0010-bounded-site-and-admission-policy.md)
+- [0012-dynamic-footprint-binding-runtime](../design/0012-dynamic-footprint-binding-runtime.md)
 - [TTD-COUNTERFACTUAL-CREATION](./TTD-COUNTERFACTUAL-CREATION.md)
 - [FIXED-TIMESTEP](./FIXED-TIMESTEP.md)
 - [RELEASE_POLICY](../RELEASE_POLICY.md)

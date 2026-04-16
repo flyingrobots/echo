@@ -101,6 +101,22 @@ An allowlist entry is appropriate **only** when all of the following hold:
 If the API is reachable from the deterministic engine loop under any
 configuration, **do not allowlist it. Refactor instead.**
 
+### Native Rule Surface Governance
+
+The [DECLARATIVE-RULE-AUTHORSHIP invariant](./invariants/DECLARATIVE-RULE-AUTHORSHIP.md)
+controls how this policy applies to rewrite authorship.
+
+- Native `RewriteRule`, `MatchFn`, and `ExecuteFn` surfaces are treated as
+  **trusted/bootstrap-only** implementation seams.
+- User-authored rewrite logic is expected to converge on
+  **Wesley-compiled declarative IR**, not on handwritten native executable rule
+  code.
+- Allowlist exemptions MUST NOT be used to normalize or legitimize
+  user-authored native rewrite execution on the deterministic path.
+- Public browser/WASM host boundaries must remain callback-free and
+  byte-oriented; host adapters may select deterministic policy by reference, but
+  must not inject bespoke executable law.
+
 ### Approval Requirements
 
 - Every new allowlist entry **must** include an inline justification explaining

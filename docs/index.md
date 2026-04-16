@@ -75,6 +75,7 @@ flowchart TD
 - Deterministic math policy: [/SPEC_DETERMINISTIC_MATH](/SPEC_DETERMINISTIC_MATH)
 - Deterministic math hazards: [/DETERMINISTIC_MATH](/DETERMINISTIC_MATH)
 - Claim register + evidence: [/determinism/DETERMINISM_CLAIMS_v0.1](/determinism/DETERMINISM_CLAIMS_v0.1)
+- Declarative rule authorship invariant: [/invariants/DECLARATIVE-RULE-AUTHORSHIP](/invariants/DECLARATIVE-RULE-AUTHORSHIP)
 - Benchmark guide: [/BENCHMARK_GUIDE](/BENCHMARK_GUIDE)
 
 ### Contributor workflow

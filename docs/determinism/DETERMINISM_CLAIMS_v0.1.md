@@ -54,7 +54,8 @@ proves it. See `docs/determinism/CLAIM_MAP.yaml` for the machine-readable regist
 ### DET-001: Static Nondeterminism Ban
 
 > DET_CRITICAL crate paths contain zero matches for the banned pattern set
-> (HashMap, HashSet, thread_rng, SystemTime, etc.).
+> (HashMap, HashSet, thread_rng, SystemTime, host callback hooks, network
+> surfaces, etc.).
 
 - **Gate:** G1 / DET-001 Static Inspection
 - **Evidence:** `ban-nondeterminism.sh` ripgrep scan

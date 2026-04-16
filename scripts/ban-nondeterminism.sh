@@ -66,6 +66,14 @@ PATTERNS=(
   '\bgetrandom::\b'
   '\bfastrand::\b'
 
+  # Host-supplied callback / network escape hatches
+  '\bjs_sys::Function\b'
+  '\bwasm_bindgen::closure::Closure\b'
+  '\bClosure<'
+  '\bstd::net::\b'
+  '\breqwest::\b'
+  '\bureq::\b'
+
   # Unordered containers that will betray you if they cross a boundary
   '\bstd::collections::HashMap\b'
   '\bstd::collections::HashSet\b'

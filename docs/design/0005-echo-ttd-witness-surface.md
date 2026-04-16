@@ -105,18 +105,23 @@ missing.
 Echo should map its existing runtime surfaces onto the `warp-ttd` neighborhood
 ladder as follows:
 
-- `NeighborhoodCoreSummary` is derived primarily from `ObservationArtifact`
-  plus lane/worldline identity and, where available, strand metadata.
+- `NeighborhoodCoreSummary` is derived primarily from Echo's native
+  `NeighborhoodCore` publication, with `ObservationArtifact` retained as
+  revelation / shell context rather than the source of local-site truth.
 - `ReintegrationDetailSummary` is derived primarily from `TickReceipt`,
   provenance parentage, and materialization conflict structure.
 - `ReceiptShellSummary` is derived from `ProvenanceEntry`, finalized channel
   outputs, cursor/session receipts, scheduler metadata, and other explanatory
   runtime context.
 
-Echo does **not** yet expose a single first-class local-site object carrying
-participating lanes, local outcome, or reintegration core. The initial adapter
-may synthesize a bounded shape from current objects, but the missing pieces
-must be named explicitly as host gaps, not silently guessed.
+Echo now does expose one first-class local-site object:
+
+- `NeighborhoodSite` as Echo-native publication truth
+- `NeighborhoodCore` as the shared neighborhood-core family projection
+
+What Echo still does **not** yet expose is a native reintegration-core object
+or a full nearby-alternative neighborhood browser. Those remain explicit host
+or follow-on runtime gaps and should not be guessed silently.
 
 ## TTD observation versus counterfactual creation
 

@@ -22,6 +22,13 @@ The parity runway is now explicit in design:
 - `0007` defines braid geometry and native neighborhood publication
 - `0008` defines strand settlement as compare -> plan -> import ->
   conflict artifact
+- `0011` explains the neighborhood publication stack from admission truth to
+  host-visible `NeighborhoodCore`
+
+Runtime and boundary truth now match that direction more closely:
+
+- `NeighborhoodSite` is live in kernel/runtime truth
+- `NeighborhoodCore` is now exported through the wasm ABI boundary
 
 Earlier cleanup also removed the old local browser debugger product path
 (`warp-viewer`, session hub/gateway/client, `ttd-app`). Repo truth now points
@@ -35,22 +42,22 @@ at:
 
 Two implementation cuts and one contract cut:
 
-1. make `0007` real in kernel/runtime truth:
-   support pins + native neighborhood site publication
-2. make `0008` real in kernel/runtime truth:
+1. make `0008` real in kernel/runtime truth:
    compare/plan/import/conflict artifact publication
-3. land one Wesley-generated proof slice against the shared Continuum observer
+2. land one Wesley-generated proof slice against the shared Continuum observer
    contract, then narrow `ttd-browser` / `echo-session-proto` around that
    reality
+3. move host consumers such as `continuum-demo` onto Echo's native
+   neighborhood-core boundary instead of app-level reconstruction
 
 ## What feels wrong?
 
-- support pins and neighborhood sites are still design truth, not runtime
-  truth.
 - settlement nouns exist only as a new design packet and placeholder event
   kinds, not a shipped compare/plan/import path.
 - Echo's richer runtime schema (typed IDs, dual tick clocks, ingress routing,
   scheduler introspection) still is not surfaced cleanly through the canonical
   shared observer/debugger contract.
+- the host/demo side still has places where neighborhood-core shape is
+  reconstructed outside Echo instead of consumed from the new native boundary.
 - Echo still lacks an explicit CLI/MCP agent boundary, so agent use depends on
   repo-local APIs and bridge folklore instead of one inspectable surface.

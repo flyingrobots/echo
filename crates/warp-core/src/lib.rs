@@ -39,6 +39,7 @@ mod cmd;
 mod constants;
 /// Domain separation prefixes for hashing.
 pub mod domain;
+mod dynamic_binding;
 mod engine_impl;
 mod footprint;
 /// Footprint enforcement guard for parallel execution.
@@ -161,6 +162,10 @@ pub use attachment::{
 };
 pub use clock::{GlobalTick, RunId, WorldlineTick};
 pub use constants::{blake3_empty, digest_len0_u64, POLICY_ID_NO_POLICY_V0};
+pub use dynamic_binding::{
+    BoundNodeRef, ClosureMemberBinding, DirectSlotBinding, DynamicBindingError,
+    RelationSlotBinding, ResolvedClosureBinding, ResolvedSlotBinding, StructuredRuntimeBindings,
+};
 pub use engine_impl::{
     scope_hash, ApplyResult, CommitOutcome, DispatchDisposition, Engine, EngineBuilder,
     EngineError, ExistingState, FreshStore, IngestDisposition,

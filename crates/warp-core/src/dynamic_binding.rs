@@ -468,6 +468,70 @@ impl StructuredRuntimeBindings {
     }
 }
 
+/// Runtime binding request for the v1 `replaceRangeAsTick` hot-text rewrite.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplaceRangeAsTickBindingRequest {
+    /// Invocation-supplied worldline id.
+    pub worldline_id: String,
+    /// Invocation-supplied basis head id.
+    pub base_head_id: String,
+    /// Requested edit range start byte.
+    pub start_byte: usize,
+    /// Requested edit range end byte.
+    pub end_byte: usize,
+}
+
+/// Runtime binding request for the v1 canonical-head `createCheckpoint` rewrite.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreateCheckpointBindingRequest {
+    /// Invocation-supplied worldline id.
+    pub worldline_id: String,
+}
+
+/// Resolves the declared v1 `replaceRangeAsTick` slot and closure bindings.
+pub fn bind_replace_range_as_tick<R>(
+    runtime: &R,
+    request: &ReplaceRangeAsTickBindingRequest,
+) -> Result<StructuredRuntimeBindings, DynamicBindingRuntimeError>
+where
+    R: StructuredBindingRuntime,
+{
+    let mut resolver = StructuredBindingResolver::new(runtime);
+    resolver.bind_direct_slot("worldline", "BufferWorldline", &request.worldline_id)?;
+    resolver.bind_direct_slot("baseHead", "RopeHead", &request.base_head_id)?;
+    resolver.bind_range_closure(RangeClosureBindingRequest {
+        slot: "touchedRope",
+        from_slot: "baseHead",
+        operator: "ropeRangeClosure",
+        related_slot: None,
+        start: request.start_byte,
+        end: request.end_byte,
+    })?;
+    resolver.bind_range_closure(RangeClosureBindingRequest {
+        slot: "affectedAnchors",
+        from_slot: "worldline",
+        operator: "anchorsIntersectingEditWindow",
+        related_slot: Some("baseHead"),
+        start: request.start_byte,
+        end: request.end_byte,
+    })?;
+    Ok(resolver.into_bindings())
+}
+
+/// Resolves the declared v1 canonical-head `createCheckpoint` bindings.
+pub fn bind_create_checkpoint<R>(
+    runtime: &R,
+    request: &CreateCheckpointBindingRequest,
+) -> Result<StructuredRuntimeBindings, DynamicBindingRuntimeError>
+where
+    R: StructuredBindingRuntime,
+{
+    let mut resolver = StructuredBindingResolver::new(runtime);
+    resolver.bind_direct_slot("worldline", "BufferWorldline", &request.worldline_id)?;
+    resolver.bind_relation_slot("currentHead", "RopeHead", "worldline", "CANONICAL_HEAD")?;
+    Ok(resolver.into_bindings())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -510,14 +574,6 @@ mod tests {
         worldlines: BTreeMap<String, MockWorldline>,
         heads: BTreeMap<String, MockHead>,
         anchors: Vec<MockAnchor>,
-    }
-
-    #[derive(Debug, Clone)]
-    struct ReplaceRangeBindingRequest {
-        worldline_id: String,
-        base_head_id: String,
-        start_byte: usize,
-        end_byte: usize,
     }
 
     fn overlap(start: usize, end: usize, other_start: usize, other_end: usize) -> bool {
@@ -681,63 +737,6 @@ mod tests {
                 }),
             }
         }
-    }
-
-    fn bind_replace_range_runtime(
-        runtime: &MockTextRuntime,
-        request: &ReplaceRangeBindingRequest,
-    ) -> Result<StructuredRuntimeBindings, DynamicBindingRuntimeError> {
-        let worldline = runtime
-            .worldlines
-            .get(&request.worldline_id)
-            .ok_or_else(|| DynamicBindingRuntimeError::MissingDirectSlotTarget {
-                slot: "worldline".to_owned(),
-                reference: request.worldline_id.clone(),
-            })?;
-        let base_head = runtime.heads.get(&request.base_head_id).ok_or_else(|| {
-            DynamicBindingRuntimeError::MissingDirectSlotTarget {
-                slot: "baseHead".to_owned(),
-                reference: request.base_head_id.clone(),
-            }
-        })?;
-
-        if base_head.worldline_id != worldline.id {
-            return Err(DynamicBindingRuntimeError::BasisHeadMismatch {
-                worldline: worldline.id.clone(),
-                head: base_head.id.clone(),
-            });
-        }
-
-        let mut resolver = StructuredBindingResolver::new(runtime);
-        resolver.bind_direct_slot("worldline", "BufferWorldline", &request.worldline_id)?;
-        resolver.bind_direct_slot("baseHead", "RopeHead", &request.base_head_id)?;
-        resolver.bind_range_closure(RangeClosureBindingRequest {
-            slot: "touchedRope",
-            from_slot: "baseHead",
-            operator: "ropeRangeClosure",
-            related_slot: None,
-            start: request.start_byte,
-            end: request.end_byte,
-        })?;
-        resolver.bind_range_closure(RangeClosureBindingRequest {
-            slot: "affectedAnchors",
-            from_slot: "worldline",
-            operator: "anchorsIntersectingEditWindow",
-            related_slot: Some("baseHead"),
-            start: request.start_byte,
-            end: request.end_byte,
-        })?;
-        Ok(resolver.into_bindings())
-    }
-
-    fn bind_checkpoint_runtime(
-        runtime: &MockTextRuntime,
-        worldline_id: &str,
-    ) -> Result<StructuredRuntimeBindings, DynamicBindingRuntimeError> {
-        let mut resolver = StructuredBindingResolver::new(runtime);
-        resolver.bind_direct_slot("worldline", "BufferWorldline", worldline_id)?;
-        resolver.bind_relation_slot("currentHead", "RopeHead", "worldline", "CANONICAL_HEAD")?;
-        Ok(resolver.into_bindings())
     }
 
     fn mock_runtime() -> MockTextRuntime {
@@ -942,9 +941,9 @@ mod tests {
     #[test]
     fn mock_replace_range_runtime_binds_direct_slots_and_resolves_declared_closures() {
         let runtime = mock_runtime();
-        let bindings = bind_replace_range_runtime(
+        let bindings = bind_replace_range_as_tick(
             &runtime,
-            &ReplaceRangeBindingRequest {
+            &ReplaceRangeAsTickBindingRequest {
                 worldline_id: "wl:buf-1".to_owned(),
                 base_head_id: "head:current".to_owned(),
                 start_byte: 4,
@@ -982,7 +981,13 @@ mod tests {
     #[test]
     fn mock_checkpoint_runtime_binds_relation_derived_current_head() {
         let runtime = mock_runtime();
-        let bindings = bind_checkpoint_runtime(&runtime, "wl:buf-1").expect("bind checkpoint");
+        let bindings = bind_create_checkpoint(
+            &runtime,
+            &CreateCheckpointBindingRequest {
+                worldline_id: "wl:buf-1".to_owned(),
+            },
+        )
+        .expect("bind checkpoint");
 
         let worldline = bindings.slot("worldline").expect("worldline");
         assert_eq!(worldline.binding().kind, "BufferWorldline");
@@ -1003,9 +1008,9 @@ mod tests {
         let runtime = mock_runtime();
 
         assert_eq!(
-            bind_replace_range_runtime(
+            bind_replace_range_as_tick(
                 &runtime,
-                &ReplaceRangeBindingRequest {
+                &ReplaceRangeAsTickBindingRequest {
                     worldline_id: "wl:missing".to_owned(),
                     base_head_id: "head:current".to_owned(),
                     start_byte: 0,
@@ -1019,9 +1024,9 @@ mod tests {
         );
 
         assert_eq!(
-            bind_replace_range_runtime(
+            bind_replace_range_as_tick(
                 &runtime,
-                &ReplaceRangeBindingRequest {
+                &ReplaceRangeAsTickBindingRequest {
                     worldline_id: "wl:buf-1".to_owned(),
                     base_head_id: "head:stale".to_owned(),
                     start_byte: 0,
@@ -1035,9 +1040,9 @@ mod tests {
         );
 
         assert_eq!(
-            bind_replace_range_runtime(
+            bind_replace_range_as_tick(
                 &runtime,
-                &ReplaceRangeBindingRequest {
+                &ReplaceRangeAsTickBindingRequest {
                     worldline_id: "wl:buf-1".to_owned(),
                     base_head_id: "head:current".to_owned(),
                     start_byte: 12,
@@ -1063,7 +1068,12 @@ mod tests {
             .canonical_head_id = None;
 
         assert_eq!(
-            bind_checkpoint_runtime(&runtime, "wl:buf-1"),
+            bind_create_checkpoint(
+                &runtime,
+                &CreateCheckpointBindingRequest {
+                    worldline_id: "wl:buf-1".to_owned(),
+                },
+            ),
             Err(DynamicBindingRuntimeError::MissingRelationTarget {
                 slot: "currentHead".to_owned(),
                 from_slot: "worldline".to_owned(),

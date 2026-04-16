@@ -163,10 +163,11 @@ pub use attachment::{
 pub use clock::{GlobalTick, RunId, WorldlineTick};
 pub use constants::{blake3_empty, digest_len0_u64, POLICY_ID_NO_POLICY_V0};
 pub use dynamic_binding::{
-    BoundNodeRef, ClosureMemberBinding, DirectSlotBinding, DynamicBindingError,
+    bind_create_checkpoint, bind_replace_range_as_tick, BoundNodeRef, ClosureMemberBinding,
+    CreateCheckpointBindingRequest, DirectSlotBinding, DynamicBindingError,
     DynamicBindingRuntimeError, RangeClosureBindingRequest, RelationSlotBinding,
-    ResolvedClosureBinding, ResolvedSlotBinding, StructuredBindingResolver,
-    StructuredBindingRuntime, StructuredRuntimeBindings,
+    ReplaceRangeAsTickBindingRequest, ResolvedClosureBinding, ResolvedSlotBinding,
+    StructuredBindingResolver, StructuredBindingRuntime, StructuredRuntimeBindings,
 };
 pub use engine_impl::{
     scope_hash, ApplyResult, CommitOutcome, DispatchDisposition, Engine, EngineBuilder,

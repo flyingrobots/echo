@@ -12,6 +12,12 @@ Wesley-compiled declarative IR. Native executable rewrite code is a
 trusted/bootstrap-only engine implementation surface, not a public user
 extension boundary.
 
+For Echo, that declarative boundary is the GraphQL-authored shared family
+surface: graph entities, graph rewrites, declared footprints, and any types
+that cross Rust, TypeScript, WASM, process, or network boundaries. The rest of
+the runtime may remain handwritten Rust as long as it does not become a shadow
+authority for user-authored rewrite law.
+
 ## Rulings
 
 The following rulings are normative. "MUST" and "MUST NOT" follow
@@ -22,6 +28,26 @@ RFC 2119 convention.
 User-authored rewrite logic MUST enter Echo as Wesley-compiled declarative IR.
 User-authored rewrite law MUST NOT enter the deterministic path as handwritten
 native callbacks, function pointers, or ad hoc executable host code.
+
+GraphQL-authored shared families are the intended source for user-authored
+graph entities, graph rewrites, declared footprints, and cross-boundary types
+that Echo exposes to hosts, `warp-ttd`, or other engines.
+
+Echo MAY keep handwritten Rust for engine internals, storage, scheduler
+mechanics, and other local implementation details, but those details MUST NOT
+replace the shared family as the public authoring boundary for rewrite law or
+cross-boundary types.
+
+### R1a — Declared footprints are part of the authored boundary
+
+When a user-authored graph rewrite enters Echo through the shared family
+surface, its declared footprint is part of the contract, not optional
+commentary.
+
+The long-term target is for Wesley-generated Rust surfaces to make those
+capability boundaries explicit enough that dishonest footprint use becomes
+structurally impossible or a compile-time failure, rather than something Echo
+discovers only after arbitrary native code has already been admitted.
 
 ### R2 — Native rewrite functions are bootstrap-only
 
@@ -68,6 +94,11 @@ or impure helper code will stay out of deterministic execution.
 The correct closure is not "be careful." The correct closure is to narrow the
 user authoring boundary until it is declarative, inspectable, and compilable by
 Wesley into a lawful rewrite substrate.
+
+That does not require Wesley to compile the entire application. It requires
+Wesley to own the lawful graph/rewrite boundary so Echo can keep runtime
+internals handwritten without exposing arbitrary native author code on the
+deterministic path.
 
 ## Consequences
 

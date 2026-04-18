@@ -29,7 +29,7 @@ If Echo and `git-warp` are simultaneous WARP replicas at different runtime
 temperatures, Echo must not export:
 
 - latest state snapshot
-- latest materialized view
+- latest materialized reading
 - observer-rendered truth frame
 
 It must export witnessed causal history rooted at a known frontier.
@@ -73,14 +73,15 @@ That is the right level of honesty.
 
 ### Allowed target
 
-- one receiving runtime that understands the same graph identity and suffix
+- one receiving runtime that understands the same causal-history identity and
+  suffix
   family
 
 ### Explicit exclusions
 
 v1 does not define:
 
-- whole-graph state mirroring
+- whole-history state mirroring
 - last-write-wins policy
 - silent direct mutation of a peer branch
 - automatic full-duplex sync daemon behavior
@@ -94,7 +95,7 @@ Minimum meaning:
 
 ```text
 ExportSuffixRequest {
-    graph_id:      GraphId,
+    history_id:    HistoryId,
     lane_id:       LaneId,
     base_frontier: Frontier,
     target_frontier: Option<Frontier>,
@@ -109,7 +110,7 @@ Minimum meaning:
 
 ```text
 CausalSuffixBundle {
-    graph_id:          GraphId,
+    history_id:        HistoryId,
     source_runtime_id: RuntimeId,
     source_writer_id:  WriterId,
     lane_id:           LaneId,
@@ -145,11 +146,11 @@ ImportSuffixResult =
 
 Export must:
 
-1. verify the requested graph and lane identity
+1. verify the requested history and lane identity
 2. normalize the requested base frontier against local runtime truth
 3. gather the ordered transition suffix
 4. gather referenced payload material
-5. include any optional checkpoint or wormhole aids without redefining graph
+5. include any optional checkpoint or wormhole aids without redefining causal
    truth
 6. emit a witness that says what Echo believes it is exporting
 
@@ -163,7 +164,7 @@ Export must not:
 
 Import must:
 
-1. verify graph identity, lane identity, and bundle integrity
+1. verify history identity, lane identity, and bundle integrity
 2. normalize the bundle's base frontier against local truth
 3. detect already-known transitions and prior imports
 4. compute overlap and dependency geometry
@@ -204,7 +205,7 @@ import_suffix(bundle) -> ImportSuffixResult
 One supporting read surface is also useful:
 
 ```text
-frontier_summary(graph_id, lane_id) -> FrontierSummary
+frontier_summary(history_id, lane_id) -> FrontierSummary
 ```
 
 That gives peers enough information to detect missing suffixes without
@@ -232,5 +233,5 @@ The first cut should prove:
 - Echo can export one lawful causal suffix bundle from hot runtime truth
 - Echo can import one lawful peer bundle through its normal admission algebra
 - handoff to `git-warp` is honest and inspectable
-- runtime temperature remains an execution distinction, not a graph ownership
+- runtime temperature remains an execution distinction, not a causal-history ownership
   distinction

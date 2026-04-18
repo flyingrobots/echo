@@ -391,10 +391,14 @@ make bench-open-inline # Open baked report without rebuilding
 
 ## CI Integration
 
-Benchmark regression gating is live via the **G3 perf gate** in
-`.github/workflows/det-gates.yml`. It compares Criterion output against a
+Benchmark regression gating remains live via the **G3 perf gate** in
+`.github/workflows/det-gates.yml`. It compares Criterion output against the
 git-tracked `perf-baseline.json` and fails if any benchmark regresses beyond
 the configured threshold.
+
+Baseline updates are manual. The old automation that opened `chore/perf-baseline-*`
+branches after `main` pushes is intentionally disabled so benchmark baseline
+changes only happen when a human chooses to review and land them.
 
 ## Questions?
 

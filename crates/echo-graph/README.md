@@ -15,9 +15,9 @@ Canonical renderable graph format for Echo (nodes/edges + payloads).
 - Provides helpers to hash graphs deterministically (via BLAKE3) for use in
   state verification and write-ahead logging.
 - Is the shared graph representation between:
-    - `echo-session-proto` (protocol layer),
-    - `echo-session-service` (hub),
-    - `warp-viewer` and other tools that want to render or inspect WARPs.
+    - `echo-session-proto` (protocol/frame layer),
+    - `ttd-browser`,
+    - and other browser/host tools that need a renderable WARP view.
 
 ## Documentation
 

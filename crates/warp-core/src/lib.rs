@@ -96,6 +96,7 @@ mod ident;
 pub mod inbox;
 /// Materialization subsystem for deterministic channel-based output.
 pub mod materialization;
+mod neighborhood;
 mod observation;
 /// Parallel execution module.
 ///
@@ -129,6 +130,7 @@ mod sandbox;
 mod scheduler;
 #[cfg(feature = "serde")]
 mod serializable;
+mod settlement;
 mod snapshot;
 mod snapshot_accum;
 mod telemetry;
@@ -196,6 +198,10 @@ pub use playback::{
 // --- Session types ---
 pub use playback::{SessionId, ViewSession};
 // --- Truth delivery ---
+pub use neighborhood::{
+    NeighborhoodError, NeighborhoodSite, NeighborhoodSiteId, NeighborhoodSiteService,
+    ParticipantRole, SiteParticipant, SitePlurality,
+};
 pub use observation::{
     HeadObservation, ObservationArtifact, ObservationAt, ObservationCoordinate, ObservationError,
     ObservationFrame, ObservationPayload, ObservationProjection, ObservationProjectionKind,
@@ -216,9 +222,16 @@ pub use scheduler::SchedulerKind;
 pub use serializable::{
     SerializableReceipt, SerializableReceiptEntry, SerializableSnapshot, SerializableTick,
 };
+pub use settlement::{
+    ConflictArtifactDraft, ConflictReason, ImportCandidate, SettlementDecision, SettlementDelta,
+    SettlementError, SettlementPlan, SettlementResult, SettlementService,
+};
 pub use snapshot::{
     compute_commit_hash_v2, compute_emissions_digest, compute_op_emission_index_digest,
     compute_state_root_for_warp_store, compute_tick_commit_hash_v2, OpEmissionEntry, Snapshot,
+};
+pub use strand::{
+    make_strand_id, BaseRef, DropReceipt, Strand, StrandError, StrandId, StrandRegistry, SupportPin,
 };
 pub use telemetry::{NullTelemetrySink, TelemetrySink};
 pub use tick_delta::{DeltaStats, OpOrigin, ScopedDelta, TickDelta};

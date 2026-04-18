@@ -10,7 +10,7 @@
       "import": "./index.ts"
     }
   },
-  "description": "Generated TTD protocol types from Wesley schema (DO NOT EDIT)",
+  "description": "Generated TTD protocol types from the canonical warp-ttd protocol (DO NOT EDIT)",
   "license": "Apache-2.0",
   "private": true,
   "dependencies": {

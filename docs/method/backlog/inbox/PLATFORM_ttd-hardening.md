@@ -57,7 +57,7 @@ Post-merge improvements for Time Travel Debugging (TTD) and the Scene Port bound
 - R1: Add a `to_dot()` method to `MockAdapter` (or a helper trait).
 - R2: Map nodes, edges, and labels to DOT nodes/edges with appropriate styling.
 - R3: Optionally include provenance metadata (who wrote this atom and when).
-- R4: Add a CLI flag to `ttd-app` or a standalone tool to emit DOT files from captured logs.
+- R4: Add a standalone tool or browser-host bridge hook to emit DOT files from captured logs.
 
 **Acceptance Criteria:**
 

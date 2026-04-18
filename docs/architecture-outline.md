@@ -64,9 +64,9 @@ Before the aspirational material below: Echo already has a real deterministic WA
   and append-only lineage support.
 - **Renderer / scene boundary** ✅: a deterministic scene port and canonical
   codec boundary.
-- **Echo-side TTD substrate** ✅: playback, provenance, browser tooling, and
-  host-side protocol/runtime surfaces that the larger `warp-ttd` observer plane
-  can consume.
+- **Echo-side TTD substrate** ✅: playback, provenance, browser-hostable WASM
+  surfaces, and host-side protocol/runtime surfaces that the larger `warp-ttd`
+  observer plane can consume.
 
 The important framing is simple: Echo already has a real hot runtime. What it
 does not yet have is a fully minimized, fully stabilized product surface around
@@ -228,7 +228,7 @@ that make Echo inspectable through a shared observer model.
 - **`ttd-browser`**: A WASM-compiled engine that manages parallel cursors and worldline forks in the browser.
 - **`echo-wesley-gen`**: Hardened code generator that emits bit-exact Rust/TS bridges from GraphQL schemas.
 - **`PrivacyMask`**: Built-in support for field-level redaction (Public, Pseudonymized, Private) to allow high-integrity debugging without leaking sensitive PII.
-- **`ttd-app`**: A React-based diagnostic dashboard for scrubbing timelines and inspecting causal provenance.
+- **Browser delivery ownership**: Echo keeps the browser host bridge and WASM substrate surfaces; the browser debugger product is moving to `warp-ttd`.
 
 ### Input Port 🗺️ Planned
 
@@ -285,7 +285,7 @@ that make Echo inspectable through a shared observer model.
 - **Phase 3 – Robust Code Generation** ✅ Implemented: Wesley bridge hardened for `no_std` WASM guests.
 - **Phase 4 – Safe WASM FFI & Privacy** ✅ Implemented: Opaque session tokens and field-level redaction (PrivacyMask) implemented.
 - **Phase 5 – Frontend Design System** ✅ Implemented: TTD UI substrate and pnpm workspace configuration restored.
-- **Phase 6 – Real-World UI Binding** ✅ Implemented: `ttd-app` wired to actual WASM TTD engine.
+- **Phase 6 – Real-World UI Binding** ⚠️ Historical prototype: local `ttd-app` validated the WASM TTD engine, but browser debugger delivery is now moving to `warp-ttd`.
 - **Phase 7 – Final Documentation** ⚠️ In Progress: Documentation lock and CI policy reinforcement.
 - **Phase 8 – Echo Core MVP** 🗺️ Planned: Entity/component storage and system scheduler.
 - **Phase 9 – Adapter Foundations** 🗺️ Planned _(Milestone: "Double-Jump")_: Input and physics integration.
@@ -312,9 +312,9 @@ that make Echo inspectable through a shared observer model.
 - **Temporal Mechanic Catalogue**: (pending) curated list of déjà vu, Mandela artifacts, paradox mitigation, multiverse puzzles.
 - **Repository Layout (Current High-Level)**:
     - `/crates/warp-core` — hot runtime kernel, replay, provenance, scheduling, commit path.
-    - `/crates/echo-session-*` — session transport, Unix socket hub, WebSocket gateway, protocol edges.
+    - `/crates/echo-session-proto` — retained Echo-side protocol and receipt/frame encodings used by current browser-host surfaces.
     - `/crates/echo-scene-*` — deterministic scene boundary, codec surface, renderer adapters.
+    - `/crates/ttd-browser`, `/crates/ttd-protocol-rs`, `/packages/ttd-protocol-ts` — current browser-host bridge and generated protocol consumers.
     - `/crates/echo-dind-*` — determinism harnesses and cross-platform verification support.
-    - `/apps/ttd-app` — browser-facing diagnostic and TTD surfaces.
     - `/docs` — specs, guides, ADRs, audits, and architecture memos.
     - `/scripts` and `/xtask` — verification, repo operations, and local workflow tooling.

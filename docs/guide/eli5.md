@@ -144,8 +144,10 @@ If you want the formal version, see:
 
 ### If you want to run something concrete
 
-- WARP View Protocol demo: [/guide/wvp-demo](/guide/wvp-demo)
 - Collision DPO tour: [/collision-dpo-tour.html](/collision-dpo-tour.html)
+
+Echo no longer ships the older local WVP demo stack. Browser debugger delivery
+is moving to `warp-ttd`, while Echo keeps the WASM/browser host surfaces.
 
 ---
 

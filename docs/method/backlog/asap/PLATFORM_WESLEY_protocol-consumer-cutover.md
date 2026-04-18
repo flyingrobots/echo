@@ -9,13 +9,18 @@ Echo still carries local TTD protocol artifacts that predate the current
 Continuum ownership split:
 
 - `crates/ttd-protocol-rs`
-- `crates/ttd-manifest`
 - `packages/ttd-protocol-ts`
 - `crates/echo-ttd/src/compliance.rs`
 
 For the current Wesley-sponsored hill, Echo should stop acting like a backup
 source of truth for the host-neutral debugger protocol and become a boring
 consumer of the canonical authored schema plus Wesley-generated bundle.
+
+Current repo truth:
+
+- Echo no longer carries a local `schemas/ttd-protocol.graphql`
+- the remaining drift is ownership language and consumer wiring around the
+  generated crates/packages
 
 Work:
 

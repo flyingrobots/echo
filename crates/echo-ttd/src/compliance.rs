@@ -69,7 +69,8 @@ impl std::fmt::Display for Severity {
 
 /// Classification of compliance violations.
 ///
-/// These codes match the TTD spec (docs/plans/ttd-app.md Part 4.1).
+/// These codes match Echo's current TTD compliance surface used by the browser
+/// host bridge and future `warp-ttd` integration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ViolationCode {
     // ─── Receipt / Hashing ───────────────────────────────────────────────────

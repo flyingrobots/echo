@@ -29,7 +29,6 @@ flowchart TD
   end
 
   subgraph Guides["Guides & Demos"]
-    G1["WVP Demo ✅"]
     G2["Collision Tour ⚠️"]
   end
 
@@ -42,14 +41,13 @@ flowchart TD
   S1 --> S6
   S2 --> S4
   S5 --> S4
-  S6 --> G1
   E3 --> G2
 
   classDef implemented fill:#d7f9e9,stroke:#1f7a4c,stroke-width:1px,color:#0b3d2e;
   classDef partial fill:#fff2cc,stroke:#b58900,stroke-width:1px,color:#4d3b00;
   classDef planned fill:#e6e6e6,stroke:#666,stroke-width:1px,color:#333;
 
-  class E1,E2,E3,S1,S2,S6,G1 implemented;
+  class E1,E2,E3,S1,S2,S6 implemented;
   class S3,G2 partial;
   class S4,S5 planned;
 ```
@@ -95,5 +93,7 @@ flowchart TD
 
 ## Run Something (learn by doing)
 
-- WARP View Protocol demo (hub + 2 viewers): [/guide/wvp-demo](/guide/wvp-demo)
 - Collision DPO tour (static walkthrough): [/collision-dpo-tour.html](/collision-dpo-tour.html)
+
+Echo no longer ships the older local WVP demo stack. Browser debugger delivery
+is moving to `warp-ttd`, with Echo keeping the WASM/browser host surfaces.

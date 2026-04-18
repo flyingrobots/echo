@@ -14,9 +14,9 @@ Shared application services and ports for Echo tools.
     - `ToastService` and related types for in-app notifications (info/warn/error).
     - `RenderPort` trait so tools can request redraws without depending directly
       on winit or other windowing APIs.
-- Helps keep tool UIs (like `warp-viewer`) hexagonal: domain state and reducers
-  talk to abstract ports; adapters live in separate crates (`echo-config-fs`,
-  `warp-viewer`, etc.).
+- Helps keep browser/host tools hexagonal: domain state and reducers talk to
+  abstract ports; adapters live in separate crates (`echo-config-fs`,
+  `ttd-browser`, future Browser TTD host bridges, etc.).
 
 ## Documentation
 

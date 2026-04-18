@@ -14,13 +14,17 @@
     clippy::unnecessary_wraps,
     clippy::derive_partial_eq_without_eq
 )]
-//! Session wire schema for Echo hub (WARP snapshots/diffs + notifications).
+//! Deterministic bridge encodings for Echo browser-facing session and TTD
+//! surfaces.
 //!
-//! This crate provides wire protocols for Echo session communication:
+//! This crate currently carries two families of protocol surface:
 //!
-//! - **JIT! v1.0** ([`wire`]) — JS-ABI framing with OpEnvelopes (ADR/ARCH-0013)
-//! - **EINT v2** ([`eint_v2`]) — Intent envelope for TTD commands
-//! - **TTDR v2** ([`ttdr_v2`]) — Tick receipt record for deterministic verification
+//! - **JIT! v1.0** ([`wire`]) — older JS-ABI framing with OpEnvelopes
+//! - **EINT v2** ([`eint_v2`]) — intent envelope for TTD commands
+//! - **TTDR v2** ([`ttdr_v2`]) — tick receipt record for deterministic verification
+//!
+//! The long-term direction is to retain the browser/TTD bridge contracts while
+//! splitting away the older session/WVP transport residue.
 //!
 //! WARP frames use the canonical `echo-graph` types and are transported in
 //! deterministic CBOR encoding.
@@ -50,7 +54,7 @@ mod integrity_tests;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::PathBuf};
 
-/// Default Unix socket path for the session hub.
+/// Default Unix socket path for legacy local socket transports.
 ///
 /// Prefers a per-user runtime dir (XDG_RUNTIME_DIR) and falls back to `/tmp`
 /// when unavailable.

@@ -2,7 +2,7 @@
   "name": "ttd-browser",
   "version": "0.1.0",
   "type": "module",
-  "description": "WASM bindings for TTD Browser Engine",
+  "description": "WASM bindings for the Echo browser host bridge",
   "files": [
     "pkg/*.{js,wasm,d.ts}"
   ],

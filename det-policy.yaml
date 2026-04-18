@@ -111,30 +111,14 @@ crates:
     class: DET_IMPORTANT
     owner_role: "Architect"
     paths: ["crates/echo-registry-api/**"]
-  echo-session-client:
-    class: DET_IMPORTANT
-    owner_role: "Architect"
-    paths: ["crates/echo-session-client/**"]
   echo-session-proto:
     class: DET_IMPORTANT
     owner_role: "Architect"
     paths: ["crates/echo-session-proto/**"]
-  echo-session-service:
-    class: DET_IMPORTANT
-    owner_role: "Architect"
-    paths: ["crates/echo-session-service/**"]
-  echo-session-ws-gateway:
-    class: DET_IMPORTANT
-    owner_role: "Architect"
-    paths: ["crates/echo-session-ws-gateway/**"]
   warp-cli:
     class: DET_IMPORTANT
     owner_role: "Architect"
     paths: ["crates/warp-cli/**"]
-  warp-viewer:
-    class: DET_IMPORTANT
-    owner_role: "Architect"
-    paths: ["crates/warp-viewer/**"]
   warp-benches:
     class: DET_IMPORTANT
     owner_role: "Performance Engineer"
@@ -152,10 +136,6 @@ crates:
   # always classified as DET_CRITICAL. This eliminates the need to enumerate
   # every top-level filename and prevents require_full_classification failures
   # when new non-critical files are added to the repo.
-  ttd-app:
-    class: DET_NONCRITICAL
-    owner_role: "Frontend Engineer"
-    paths: ["apps/ttd-app/**", "playwright.config.ts"]
   docs:
     class: DET_NONCRITICAL
     owner_role: "Tech Writer"

@@ -360,6 +360,22 @@ impl WorldlineState {
             committed_ingress: BTreeSet::new(),
         }
     }
+
+    /// Records one replayable committed tick into frontier metadata.
+    pub(crate) fn record_replayed_tick(
+        &mut self,
+        snapshot: Snapshot,
+        receipt: TickReceipt,
+        replay_patch: WarpTickPatchV1,
+        materialization: Vec<FinalizedChannel>,
+    ) {
+        self.tick_history
+            .push((snapshot.clone(), receipt, replay_patch));
+        self.last_snapshot = Some(snapshot);
+        self.last_materialization = materialization;
+        self.last_materialization_errors.clear();
+        self.tx_counter = self.tick_history.len() as u64;
+    }
 }
 
 impl TryFrom<WarpState> for WorldlineState {

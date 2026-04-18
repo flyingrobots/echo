@@ -3,34 +3,62 @@
 
 # ttd-browser
 
-TTD Browser Engine: WASM bindings for the Echo Time-Travel Debugger.
+Echo browser host bridge: WASM bindings for browser-hosted observation,
+playback, and receipt surfaces.
 
 ## Overview
 
-This crate provides a stateful `TtdEngine` struct that wraps the TTD primitives from `warp-core` into a JavaScript-friendly API. It compiles to WebAssembly via `wasm-bindgen` and exposes:
+This crate provides a stateful `TtdEngine` struct that wraps current Echo
+playback and provenance primitives into a JavaScript-friendly API. It compiles
+to WebAssembly via `wasm-bindgen`.
 
-- **Cursor Management**: Create, seek, step, and manage playback cursors
-- **Session Management**: Subscribe to channels and receive truth frames
-- **Provenance Queries**: Get state roots, commit hashes, and emissions digests
-- **Fork Support**: Snapshot and fork worldlines for "what-if" exploration
-- **Transaction Control**: Generate TTDR v2 receipts
+Today it still exposes a fairly rich compatibility surface:
+
+- **Cursor management**: create, seek, step, and manage playback cursors
+- **Session-style frame draining**: subscribe to channels and receive truth frames
+- **Provenance queries**: state roots, commit hashes, and emissions digests
+- **Fork support**: snapshot and fork worldlines for local exploration
+- **Receipt generation**: generate TTDR v2 receipts
+
+That compatibility surface is useful, but the ownership split is now explicit:
+
+- Echo owns runtime truth and browser-hostable WASM substrate
+- `warp-ttd` owns debugger session semantics and browser debugger product
+
+So `ttd-browser` should be read as a browser host bridge and migration layer,
+not as the long-term home of browser debugger semantics.
 
 ## Architecture
 
-`ttd-browser` is designed as a "pure MBUS client" — it sends EINT intents and receives TruthFrames, with minimal protocol logic.
+`ttd-browser` is currently the narrowest reusable Echo-side browser bridge.
+Long-term, Browser TTD should sit above it as a `warp-ttd` delivery adapter.
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
-│  JavaScript (TTD App)                                           │
+│  Browser UI / Browser TTD delivery adapter                      │
 ├─────────────────────────────────────────────────────────────────┤
-│  ttd-browser (TtdEngine)                                        │
-│    ├── Cursor management (create, seek, step)                   │
-│    ├── Session management (subscribe, drain_frames)             │
-│    └── Provenance queries (digests, receipts)                   │
+│  ttd-browser (Echo browser host bridge)                         │
+│    ├── Browser-safe playback / provenance access                │
+│    ├── TTDR / EINT bridge encoding                              │
+│    └── Transitional compatibility surface                       │
 ├─────────────────────────────────────────────────────────────────┤
 │  warp-core (PlaybackCursor, ViewSession, LocalProvenanceStore)  │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+## Long-term role
+
+Keep in this crate:
+
+- browser-hosted access to Echo runtime state
+- browser-safe observation / playback handles
+- deterministic frame / receipt encoding needed by a host adapter
+
+Do not keep growing here:
+
+- browser-only debugger session semantics
+- canonical neighborhood browser logic
+- product-defining browser debugger UI concepts
 
 ## Usage
 
@@ -90,7 +118,7 @@ const frames = engine.drain_frames(sessionId); // CBOR-encoded
 - `get_emissions_digest(cursor_id) → Uint8Array`
 - `get_history_length(worldline_id) → u64`
 
-### Session Management
+### Session / Frame Compatibility
 
 - `create_session() → session_id`
 - `set_session_cursor(session_id, cursor_id)`
@@ -131,8 +159,9 @@ wasm-pack build crates/ttd-browser --target web
 ## Related
 
 - **warp-wasm**: Low-level TTD WASM bindings (digests, compliance, wire codecs)
-- **echo-ttd**: Compliance engine
+- **echo-ttd**: Runtime-side compliance and receipt validation
 - **warp-core**: Playback cursors, sessions, provenance store
+- **warp-ttd**: Canonical debugger/session semantics and future Browser TTD delivery adapter
 
 ## License
 

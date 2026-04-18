@@ -207,7 +207,7 @@ pub struct ResolvedObservationCoordinate {
 }
 
 impl ResolvedObservationCoordinate {
-    fn to_abi(&self) -> abi::ResolvedObservationCoordinate {
+    pub(crate) fn to_abi(&self) -> abi::ResolvedObservationCoordinate {
         abi::ResolvedObservationCoordinate {
             observation_version: self.observation_version,
             worldline_id: abi::WorldlineId::from_bytes(*self.worldline_id.as_bytes()),

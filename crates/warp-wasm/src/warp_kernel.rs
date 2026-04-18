@@ -12,21 +12,24 @@ use std::fmt;
 use echo_wasm_abi::kernel_port::{
     error_codes, AbiError, ControlIntentV1, DispatchResponse, GlobalTick as AbiGlobalTick,
     HeadEligibility as AbiHeadEligibility, HeadId as AbiHeadId, HeadInfo, KernelPort,
-    ObservationArtifact as AbiObservationArtifact, ObservationFrame as AbiObservationFrame,
-    ObservationProjection as AbiObservationProjection, ObservationRequest as AbiObservationRequest,
-    RegistryInfo, RunCompletion, RunId as AbiRunId, SchedulerMode, SchedulerState, SchedulerStatus,
-    WorkState, WorldlineId as AbiWorldlineId, WorldlineTick as AbiWorldlineTick,
-    WriterHeadKey as AbiWriterHeadKey, ABI_VERSION,
+    NeighborhoodSite as AbiNeighborhoodSite, ObservationArtifact as AbiObservationArtifact,
+    ObservationFrame as AbiObservationFrame, ObservationProjection as AbiObservationProjection,
+    ObservationRequest as AbiObservationRequest, RegistryInfo, RunCompletion, RunId as AbiRunId,
+    SchedulerMode, SchedulerState, SchedulerStatus, SettlementDelta as AbiSettlementDelta,
+    SettlementPlan as AbiSettlementPlan, SettlementRequest as AbiSettlementRequest,
+    SettlementResult as AbiSettlementResult, WorkState, WorldlineId as AbiWorldlineId,
+    WorldlineTick as AbiWorldlineTick, WriterHeadKey as AbiWriterHeadKey, ABI_VERSION,
 };
 use echo_wasm_abi::{unpack_control_intent_v1, unpack_intent_v1, CONTROL_INTENT_V1_OP_ID};
 use warp_core::{
     make_head_id, make_intent_kind, make_node_id, make_type_id, Engine, EngineBuilder, GlobalTick,
     GraphStore, HeadEligibility, HeadId, HistoryError, IngressDisposition, IngressEnvelope,
-    IngressTarget, NodeRecord, ObservationAt, ObservationCoordinate, ObservationError,
-    ObservationFrame, ObservationPayload, ObservationProjection, ObservationRequest,
-    ObservationService, PlaybackMode, ProvenanceService, RunId, RuntimeError, SchedulerCoordinator,
-    SchedulerKind, WorldlineId, WorldlineRuntime, WorldlineState, WorldlineStateError,
-    WorldlineTick, WriterHead, WriterHeadKey,
+    IngressTarget, NeighborhoodError, NeighborhoodSiteService, NodeRecord, ObservationAt,
+    ObservationCoordinate, ObservationError, ObservationFrame, ObservationPayload,
+    ObservationProjection, ObservationRequest, ObservationService, PlaybackMode, ProvenanceService,
+    RunId, RuntimeError, SchedulerCoordinator, SchedulerKind, SettlementError, SettlementService,
+    StrandId, WorldlineId, WorldlineRuntime, WorldlineState, WorldlineStateError, WorldlineTick,
+    WriterHead, WriterHeadKey,
 };
 
 /// Error returned when a [`WarpKernel`] cannot be initialized from a caller-supplied engine.
@@ -175,6 +178,10 @@ impl WarpKernel {
         HeadId::from_bytes(*head_id.as_bytes())
     }
 
+    fn to_core_strand_id(strand_id: &echo_wasm_abi::kernel_port::StrandId) -> StrandId {
+        StrandId::from_bytes(*strand_id.as_bytes())
+    }
+
     fn parse_channel_ids(
         channels: Option<&Vec<Vec<u8>>>,
     ) -> Result<Option<Vec<warp_core::TypeId>>, AbiError> {
@@ -225,6 +232,32 @@ impl WarpKernel {
             ObservationError::CodecFailure(message) => AbiError {
                 code: error_codes::CODEC_ERROR,
                 message,
+            },
+        }
+    }
+
+    fn map_neighborhood_error(err: NeighborhoodError) -> AbiError {
+        match err {
+            NeighborhoodError::Observation(observation_error) => {
+                Self::map_observation_error(observation_error)
+            }
+            NeighborhoodError::InvalidSupportPin { .. }
+            | NeighborhoodError::MissingSupportStrand { .. } => AbiError {
+                code: error_codes::OBSERVATION_UNAVAILABLE,
+                message: err.to_string(),
+            },
+        }
+    }
+
+    fn map_settlement_error(err: SettlementError) -> AbiError {
+        match err {
+            SettlementError::StrandNotFound(strand_id) => AbiError {
+                code: error_codes::INVALID_STRAND,
+                message: format!("invalid strand: {strand_id:?}"),
+            },
+            _ => AbiError {
+                code: error_codes::ENGINE_ERROR,
+                message: err.to_string(),
             },
         }
     }
@@ -540,6 +573,46 @@ impl KernelPort for WarpKernel {
         Ok(self.observe_core(request)?.to_abi())
     }
 
+    fn observe_neighborhood_site(
+        &self,
+        request: AbiObservationRequest,
+    ) -> Result<AbiNeighborhoodSite, AbiError> {
+        let request = Self::to_core_request(request)?;
+        NeighborhoodSiteService::observe(&self.runtime, &self.provenance, &self.engine, request)
+            .map(|site| site.to_abi())
+            .map_err(Self::map_neighborhood_error)
+    }
+
+    fn compare_settlement(
+        &self,
+        request: AbiSettlementRequest,
+    ) -> Result<AbiSettlementDelta, AbiError> {
+        let strand_id = Self::to_core_strand_id(&request.strand_id);
+        SettlementService::compare(&self.runtime, &self.provenance, strand_id)
+            .map(|delta| delta.to_abi())
+            .map_err(Self::map_settlement_error)
+    }
+
+    fn plan_settlement(
+        &self,
+        request: AbiSettlementRequest,
+    ) -> Result<AbiSettlementPlan, AbiError> {
+        let strand_id = Self::to_core_strand_id(&request.strand_id);
+        SettlementService::plan(&self.runtime, &self.provenance, strand_id)
+            .map(|plan| plan.to_abi())
+            .map_err(Self::map_settlement_error)
+    }
+
+    fn settle_strand(
+        &mut self,
+        request: AbiSettlementRequest,
+    ) -> Result<AbiSettlementResult, AbiError> {
+        let strand_id = Self::to_core_strand_id(&request.strand_id);
+        SettlementService::settle(&mut self.runtime, &mut self.provenance, strand_id)
+            .map(|result| result.to_abi())
+            .map_err(Self::map_settlement_error)
+    }
+
     fn registry_info(&self) -> RegistryInfo {
         self.registry.clone()
     }
@@ -550,7 +623,7 @@ impl KernelPort for WarpKernel {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
     use echo_wasm_abi::{
@@ -561,14 +634,19 @@ mod tests {
             ObservationFrame as AbiObservationFrame, ObservationPayload as AbiObservationPayload,
             ObservationProjection as AbiObservationProjection,
             ObservationRequest as AbiObservationRequest, RunCompletion, SchedulerMode,
-            SchedulerState, WorkState, WorldlineId as AbiWorldlineId,
+            SchedulerState, SettlementDecision as AbiSettlementDecision,
+            SettlementRequest as AbiSettlementRequest, WorkState, WorldlineId as AbiWorldlineId,
             WorldlineTick as AbiWorldlineTick, WriterHeadKey as AbiWriterHeadKey,
         },
         pack_control_intent_v1, pack_intent_v1,
     };
     use warp_core::{
-        make_head_id, materialization::make_channel_id, GlobalTick, HashTriplet, ProvenanceEntry,
-        ProvenanceStore, WorldlineTick, WorldlineTickHeaderV1, WorldlineTickPatchV1, WriterHeadKey,
+        compute_commit_hash_v2, make_head_id, make_node_id, make_strand_id, make_type_id,
+        make_warp_id, materialization::make_channel_id, BaseRef, GlobalTick, GraphStore,
+        HashTriplet, InboxPolicy, NodeKey, NodeRecord, PlaybackMode, ProvenanceEntry,
+        ProvenanceService, ProvenanceStore, SlotId, Strand, StrandId, TickCommitStatus, WarpOp,
+        WarpTickPatchV1, WorldlineRuntime, WorldlineState, WorldlineTick, WorldlineTickHeaderV1,
+        WorldlineTickPatchV1, WriterHead, WriterHeadKey,
     };
 
     fn start_until_idle(kernel: &mut WarpKernel, cycle_limit: Option<u32>) -> DispatchResponse {
@@ -592,6 +670,268 @@ mod tests {
 
     fn abi_head_id(head_id: HeadId) -> AbiHeadId {
         AbiHeadId::from_bytes(*head_id.as_bytes())
+    }
+
+    fn wl(n: u8) -> WorldlineId {
+        WorldlineId::from_bytes([n; 32])
+    }
+
+    fn wt(raw: u64) -> WorldlineTick {
+        WorldlineTick::from_raw(raw)
+    }
+
+    fn gt(raw: u64) -> GlobalTick {
+        GlobalTick::from_raw(raw)
+    }
+
+    fn register_head(
+        runtime: &mut WorldlineRuntime,
+        worldline_id: WorldlineId,
+        label: &str,
+    ) -> WriterHeadKey {
+        let key = WriterHeadKey {
+            worldline_id,
+            head_id: make_head_id(label),
+        };
+        runtime
+            .register_writer_head(WriterHead::with_routing(
+                key,
+                PlaybackMode::Play,
+                InboxPolicy::AcceptAll,
+                None,
+                true,
+            ))
+            .unwrap();
+        key
+    }
+
+    fn append_local_patch(
+        state: &mut WorldlineState,
+        provenance: &mut ProvenanceService,
+        worldline_id: WorldlineId,
+        head_key: WriterHeadKey,
+        commit_global_tick: GlobalTick,
+        patch: WorldlineTickPatchV1,
+    ) -> ProvenanceEntry {
+        let worldline_tick = state.current_tick();
+        let parents = provenance
+            .tip_ref(worldline_id)
+            .unwrap()
+            .into_iter()
+            .collect::<Vec<_>>();
+        patch.apply_to_worldline_state(state).unwrap();
+        let state_root = state.state_root();
+        let parent_hashes = parents
+            .iter()
+            .map(|parent| parent.commit_hash)
+            .collect::<Vec<_>>();
+        let commit_hash = compute_commit_hash_v2(
+            &state_root,
+            &parent_hashes,
+            &patch.patch_digest,
+            patch.policy_id(),
+        );
+        let entry = ProvenanceEntry::local_commit(
+            worldline_id,
+            worldline_tick,
+            commit_global_tick,
+            head_key,
+            parents,
+            HashTriplet {
+                state_root,
+                patch_digest: patch.patch_digest,
+                commit_hash,
+            },
+            patch,
+            Vec::new(),
+            Vec::new(),
+        );
+        provenance.append_local_commit(entry.clone()).unwrap();
+        entry
+    }
+
+    fn node_upsert_patch(
+        state: &WorldlineState,
+        label: &str,
+        commit_global_tick: GlobalTick,
+    ) -> WorldlineTickPatchV1 {
+        let root = *state.root();
+        let node = NodeKey {
+            warp_id: root.warp_id,
+            local_id: make_node_id(label),
+        };
+        let replay_patch = WarpTickPatchV1::new(
+            warp_core::POLICY_ID_NO_POLICY_V0,
+            warp_core::blake3_empty(),
+            TickCommitStatus::Committed,
+            Vec::new(),
+            vec![SlotId::Node(node)],
+            vec![WarpOp::UpsertNode {
+                node,
+                record: NodeRecord {
+                    ty: make_type_id("settlement-node"),
+                },
+            }],
+        );
+        WorldlineTickPatchV1 {
+            header: WorldlineTickHeaderV1 {
+                commit_global_tick,
+                policy_id: replay_patch.policy_id(),
+                rule_pack_id: replay_patch.rule_pack_id(),
+                plan_digest: warp_core::blake3_empty(),
+                decision_digest: warp_core::blake3_empty(),
+                rewrites_digest: warp_core::blake3_empty(),
+            },
+            warp_id: root.warp_id,
+            ops: replay_patch.ops().to_vec(),
+            in_slots: replay_patch.in_slots().to_vec(),
+            out_slots: replay_patch.out_slots().to_vec(),
+            patch_digest: replay_patch.digest(),
+        }
+    }
+
+    fn setup_runtime_with_strand(
+        base_diverged: bool,
+    ) -> (
+        WorldlineRuntime,
+        ProvenanceService,
+        StrandId,
+        WorldlineId,
+        WorldlineId,
+    ) {
+        let base_worldline = wl(1);
+        let child_worldline = wl(2);
+        let warp_id = make_warp_id("settlement-root");
+        let mut base_store = GraphStore::new(warp_id);
+        let root_node = make_node_id("root");
+        base_store.insert_node(
+            root_node,
+            NodeRecord {
+                ty: make_type_id("world"),
+            },
+        );
+        let engine = warp_core::EngineBuilder::new(base_store, root_node)
+            .workers(1)
+            .build();
+        let mut base_state = WorldlineState::try_from(engine.state().clone()).unwrap();
+        let mut provenance = ProvenanceService::new();
+        provenance
+            .register_worldline(base_worldline, &base_state)
+            .unwrap();
+
+        let mut runtime = WorldlineRuntime::new();
+        runtime
+            .register_worldline(base_worldline, base_state.clone())
+            .unwrap();
+        let base_head = register_head(&mut runtime, base_worldline, "base-head");
+        let base_patch = node_upsert_patch(&base_state, "base-node", gt(1));
+        let base_entry = append_local_patch(
+            &mut base_state,
+            &mut provenance,
+            base_worldline,
+            base_head,
+            gt(1),
+            base_patch,
+        );
+        base_state = provenance
+            .replay_worldline_state(base_worldline, &base_state)
+            .unwrap();
+        runtime = WorldlineRuntime::new();
+        runtime
+            .register_worldline(base_worldline, base_state.clone())
+            .unwrap();
+        register_head(&mut runtime, base_worldline, "base-head");
+
+        provenance
+            .fork(base_worldline, wt(0), child_worldline)
+            .unwrap();
+        let mut child_state = provenance
+            .replay_worldline_state(base_worldline, &base_state)
+            .unwrap();
+        runtime
+            .register_worldline(child_worldline, child_state.clone())
+            .unwrap();
+        let child_head = register_head(&mut runtime, child_worldline, "child-head");
+        let strand_id = make_strand_id("kernel-settlement-strand");
+        runtime
+            .register_strand(Strand {
+                strand_id,
+                base_ref: BaseRef {
+                    source_worldline_id: base_worldline,
+                    fork_tick: wt(0),
+                    commit_hash: base_entry.expected.commit_hash,
+                    boundary_hash: base_entry.expected.state_root,
+                    provenance_ref: base_entry.as_ref(),
+                },
+                child_worldline_id: child_worldline,
+                writer_heads: vec![child_head],
+                support_pins: Vec::new(),
+            })
+            .unwrap();
+
+        if base_diverged {
+            let diverged_head = WriterHeadKey {
+                worldline_id: base_worldline,
+                head_id: make_head_id("base-head"),
+            };
+            let diverged_patch = node_upsert_patch(&base_state, "base-diverged", gt(2));
+            append_local_patch(
+                &mut base_state,
+                &mut provenance,
+                base_worldline,
+                diverged_head,
+                gt(2),
+                diverged_patch,
+            );
+            base_state = provenance
+                .replay_worldline_state(base_worldline, &base_state)
+                .unwrap();
+        }
+
+        let child_patch = node_upsert_patch(&child_state, "child-node", gt(3));
+        append_local_patch(
+            &mut child_state,
+            &mut provenance,
+            child_worldline,
+            child_head,
+            gt(3),
+            child_patch,
+        );
+        child_state = provenance
+            .replay_worldline_state(child_worldline, &child_state)
+            .unwrap();
+
+        runtime = WorldlineRuntime::new();
+        runtime
+            .register_worldline(base_worldline, base_state)
+            .unwrap();
+        register_head(&mut runtime, base_worldline, "base-head");
+        runtime
+            .register_worldline(child_worldline, child_state)
+            .unwrap();
+        register_head(&mut runtime, child_worldline, "child-head");
+        runtime
+            .register_strand(Strand {
+                strand_id,
+                base_ref: BaseRef {
+                    source_worldline_id: base_worldline,
+                    fork_tick: wt(0),
+                    commit_hash: base_entry.expected.commit_hash,
+                    boundary_hash: base_entry.expected.state_root,
+                    provenance_ref: base_entry.as_ref(),
+                },
+                child_worldline_id: child_worldline,
+                writer_heads: vec![child_head],
+                support_pins: Vec::new(),
+            })
+            .unwrap();
+        (
+            runtime,
+            provenance,
+            strand_id,
+            base_worldline,
+            child_worldline,
+        )
     }
 
     #[test]
@@ -914,6 +1254,88 @@ mod tests {
         assert_eq!(observed.commit_global_tick, head.commit_global_tick);
         assert_eq!(observed.state_root, head.state_root);
         assert_eq!(observed.commit_id, head.commit_id);
+    }
+
+    #[test]
+    fn observe_neighborhood_site_returns_singleton_site_for_default_worldline() {
+        let kernel = WarpKernel::new().unwrap();
+        let site = kernel
+            .observe_neighborhood_site(AbiObservationRequest {
+                coordinate: AbiObservationCoordinate {
+                    worldline_id: abi_worldline_id(kernel.default_worldline),
+                    at: AbiObservationAt::Frontier,
+                },
+                frame: AbiObservationFrame::CommitBoundary,
+                projection: AbiObservationProjection::Head,
+            })
+            .unwrap();
+
+        assert_eq!(
+            site.plurality,
+            echo_wasm_abi::kernel_port::SitePlurality::Singleton
+        );
+        assert_eq!(site.participants.len(), 1);
+        assert_eq!(
+            site.participants[0].role,
+            echo_wasm_abi::kernel_port::ParticipantRole::Primary
+        );
+        assert_eq!(
+            site.participants[0].worldline_id,
+            abi_worldline_id(kernel.default_worldline)
+        );
+    }
+
+    #[test]
+    fn settlement_publication_returns_import_plan_for_child_suffix() {
+        let mut kernel = WarpKernel::new().unwrap();
+        let (runtime, provenance, strand_id, base_worldline, child_worldline) =
+            setup_runtime_with_strand(false);
+        kernel.runtime = runtime;
+        kernel.provenance = provenance;
+        kernel.default_worldline = base_worldline;
+
+        let request = AbiSettlementRequest {
+            strand_id: echo_wasm_abi::kernel_port::StrandId::from_bytes(*strand_id.as_bytes()),
+        };
+        let delta = kernel.compare_settlement(request.clone()).unwrap();
+        assert_eq!(delta.source_worldline_id, abi_worldline_id(child_worldline));
+        assert_eq!(delta.source_entries.len(), 1);
+
+        let plan = kernel.plan_settlement(request.clone()).unwrap();
+        assert_eq!(plan.strand_id, request.strand_id);
+        assert_eq!(plan.target_worldline, abi_worldline_id(base_worldline));
+        assert!(matches!(
+            &plan.decisions[0],
+            AbiSettlementDecision::ImportCandidate { .. }
+        ));
+
+        let result = kernel.settle_strand(request).unwrap();
+        assert_eq!(result.appended_imports.len(), 1);
+        assert!(result.appended_conflicts.is_empty());
+    }
+
+    #[test]
+    fn settlement_publication_returns_conflict_when_base_diverged() {
+        let mut kernel = WarpKernel::new().unwrap();
+        let (runtime, provenance, strand_id, base_worldline, _) = setup_runtime_with_strand(true);
+        kernel.runtime = runtime;
+        kernel.provenance = provenance;
+        kernel.default_worldline = base_worldline;
+
+        let request = AbiSettlementRequest {
+            strand_id: echo_wasm_abi::kernel_port::StrandId::from_bytes(*strand_id.as_bytes()),
+        };
+        let plan = kernel.plan_settlement(request.clone()).unwrap();
+        assert!(matches!(
+            &plan.decisions[0],
+            AbiSettlementDecision::ConflictArtifact { artifact }
+                if artifact.reason
+                    == echo_wasm_abi::kernel_port::ConflictReason::BaseDivergence
+        ));
+
+        let result = kernel.settle_strand(request).unwrap();
+        assert!(result.appended_imports.is_empty());
+        assert_eq!(result.appended_conflicts.len(), 1);
     }
 
     #[test]

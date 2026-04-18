@@ -116,9 +116,9 @@ Enabling both `footprint_enforce_release` and `unsafe_graph` is a compile error.
 
 ## ttd-browser
 
-| Feature         | Default | Description                                                                  |
-| --------------- | ------- | ---------------------------------------------------------------------------- |
-| `console-panic` | no      | Routes panic messages to the browser console via `console_error_panic_hook`. |
+| Feature         | Default | Description                                                                                                               |
+| --------------- | ------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `console-panic` | no      | Routes panic messages to the browser console via `console_error_panic_hook` while debugging the Echo browser host bridge. |
 
 ## echo-wasm-bindings
 

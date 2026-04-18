@@ -4,6 +4,11 @@
 # WARP View Protocol (WVP)
 
 > **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
+>
+> **Status:** This note documents the older Echo-local WARP stream contract
+> retained in `echo-session-proto`. Echo no longer ships the session-hub/viewer
+> binaries that used to exercise it end-to-end; browser debugger delivery is
+> moving to `warp-ttd`.
 
 A narrow, deterministic pub/sub protocol for sharing **WARP streams** (snapshots + diffs over a renderable graph) between tools via the session service.
 
@@ -82,9 +87,10 @@ Tools that consume a WARP stream keep a per-`WarpId` state machine:
 - The protocol prefers `subscribe_warp` / `warp_stream` op strings and `warp_id`.
 - Decoders accept legacy aliases (`subscribe_rmg` / `rmg_stream` and `rmg_id`) during the WARP rename transition.
 
-## Implementation Checklist (v0)
+## Historical Prototype Checklist (v0)
 
-The following v0 implementation is complete:
+The crate-level wire pieces remain, but the old service/viewer demo path has
+been retired from Echo:
 
 - [x] Define the WVP package: channel naming, `WarpId` + owner identity, publisher-only writes, snapshot + diff pattern, transport envelope.
 - [x] Generalize as an Echo Interaction Pattern (EIP) template (roles, authority, message types, flow styles).
@@ -93,7 +99,7 @@ The following v0 implementation is complete:
 - [x] Publish/subscribe toggles in UI (enable/disable send/receive per `WarpId`).
 - [x] Session-service wiring: publish endpoint, validate owner + gapless epochs, rebroadcast to subscribers.
 - [x] Client wiring: bidirectional tool connection; surface authority/epoch errors as notifications.
-- [x] Demo path: session-service + two viewers (publisher + subscriber) (`docs/guide/wvp-demo.md`).
+- Retired from this repo: session-service + two viewers (publisher + subscriber).
 - [x] Tests: authority rejection, gapless enforcement, dirty-loop behavior, toggle respect; integration test w/ two clients + loopback server. (Tracking: #169)
 - [x] Docs sync: update GitHub Issues as slices land.
 

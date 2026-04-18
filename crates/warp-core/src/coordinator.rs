@@ -20,6 +20,7 @@ use crate::ident::Hash;
 use crate::provenance_store::{
     HistoryError, ProvenanceCheckpoint, ProvenanceEntry, ProvenanceService, ProvenanceStore,
 };
+use crate::strand::{Strand, StrandError, StrandId, StrandRegistry, SupportPin};
 use crate::worldline::WorldlineId;
 use crate::worldline_registry::WorldlineRegistry;
 use crate::worldline_state::{WorldlineFrontier, WorldlineState};
@@ -74,6 +75,9 @@ pub enum RuntimeError {
     /// Provenance append or lookup failed during a runtime step.
     #[error(transparent)]
     Provenance(#[from] HistoryError),
+    /// Strand registry or support-pin operation failed.
+    #[error(transparent)]
+    Strand(#[from] StrandError),
     /// Attempted to advance a frontier tick past `u64::MAX`.
     #[error("frontier tick overflow for worldline: {0:?}")]
     FrontierTickOverflow(WorldlineId),
@@ -123,6 +127,8 @@ pub struct WorldlineRuntime {
     default_writers: BTreeMap<WorldlineId, WriterHeadKey>,
     /// Deterministic route table for named public inboxes.
     public_inboxes: BTreeMap<WorldlineId, BTreeMap<InboxAddress, WriterHeadKey>>,
+    /// Registry of live speculative strands attached to the runtime.
+    strands: StrandRegistry,
 }
 
 #[derive(Clone, Debug)]
@@ -198,6 +204,34 @@ impl WorldlineRuntime {
         self.global_tick
     }
 
+    pub(crate) fn advance_global_tick(&mut self) -> Result<GlobalTick, RuntimeError> {
+        self.global_tick = self
+            .global_tick
+            .checked_increment()
+            .ok_or(RuntimeError::GlobalTickOverflow)?;
+        Ok(self.global_tick)
+    }
+
+    /// Returns the live strand registry.
+    #[must_use]
+    pub fn strands(&self) -> &StrandRegistry {
+        &self.strands
+    }
+
+    pub(crate) fn frontier_mut(
+        &mut self,
+        worldline_id: &WorldlineId,
+    ) -> Result<&mut WorldlineFrontier, RuntimeError> {
+        self.worldlines
+            .frontier_mut(worldline_id)
+            .ok_or(RuntimeError::UnknownWorldline(*worldline_id))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn strands_mut_for_tests(&mut self) -> &mut StrandRegistry {
+        &mut self.strands
+    }
+
     /// Registers a worldline frontier with the runtime.
     ///
     /// # Errors
@@ -211,6 +245,65 @@ impl WorldlineRuntime {
         self.worldlines
             .register(worldline_id, state)
             .map_err(|_| RuntimeError::DuplicateWorldline(worldline_id))
+    }
+
+    /// Registers a strand whose worldlines and heads are already live in the runtime.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the strand references missing worldlines/heads or
+    /// violates strand-registry invariants.
+    pub fn register_strand(&mut self, strand: Strand) -> Result<(), RuntimeError> {
+        if !self
+            .worldlines
+            .contains(&strand.base_ref.source_worldline_id)
+        {
+            return Err(RuntimeError::UnknownWorldline(
+                strand.base_ref.source_worldline_id,
+            ));
+        }
+        if !self.worldlines.contains(&strand.child_worldline_id) {
+            return Err(RuntimeError::UnknownWorldline(strand.child_worldline_id));
+        }
+        for head_key in &strand.writer_heads {
+            if self.heads.get(head_key).is_none() {
+                return Err(RuntimeError::UnknownHead(*head_key));
+            }
+        }
+        self.strands.insert(strand).map_err(RuntimeError::Strand)
+    }
+
+    /// Adds a validated support pin between two live strands.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the pin would violate strand invariants or if the
+    /// pinned coordinate is not available in provenance.
+    pub fn pin_support(
+        &mut self,
+        provenance: &ProvenanceService,
+        strand_id: StrandId,
+        support_strand_id: StrandId,
+        pinned_tick: WorldlineTick,
+    ) -> Result<SupportPin, RuntimeError> {
+        self.strands
+            .pin_support(provenance, strand_id, support_strand_id, pinned_tick)
+            .map_err(RuntimeError::Strand)
+    }
+
+    /// Removes one support pin from a live strand.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the owner strand or support target is not found.
+    pub fn unpin_support(
+        &mut self,
+        strand_id: StrandId,
+        support_strand_id: StrandId,
+    ) -> Result<SupportPin, RuntimeError> {
+        self.strands
+            .unpin_support(strand_id, support_strand_id)
+            .map_err(RuntimeError::Strand)
     }
 
     /// Registers a writer head and its routing metadata with the runtime.

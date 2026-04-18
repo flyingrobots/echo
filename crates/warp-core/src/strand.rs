@@ -24,15 +24,15 @@
 //! - **INV-S5:** All `base_ref` fields are verified against provenance.
 //! - **INV-S7:** `child_worldline_id != base_ref.source_worldline_id`.
 //! - **INV-S8:** Every writer head key belongs to `child_worldline_id`.
-//! - **INV-S9:** `support_pins` is empty in v1.
+//! - **INV-S9:** support pins must be validated, live, and read-only.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use thiserror::Error;
 
 use crate::clock::WorldlineTick;
 use crate::ident::Hash;
-use crate::provenance_store::ProvenanceRef;
+use crate::provenance_store::{ProvenanceRef, ProvenanceService, ProvenanceStore};
 use crate::worldline::WorldlineId;
 
 use crate::head::WriterHeadKey;
@@ -97,8 +97,9 @@ pub struct BaseRef {
 /// A read-only reference to another strand's materialized state (braid
 /// geometry).
 ///
-/// **v1: not implemented.** The `support_pins` field on [`Strand`] MUST be
-/// empty (INV-S9). No mutation API exists.
+/// Support pins are created through validated registry/runtime APIs so the
+/// stored `worldline_id`, `pinned_tick`, and `state_hash` remain replayable
+/// kernel truth.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct SupportPin {
     /// The strand being pinned.
@@ -139,7 +140,7 @@ pub struct Strand {
     pub child_worldline_id: WorldlineId,
     /// Writer heads for the child worldline (cardinality 1 in v1).
     pub writer_heads: Vec<WriterHeadKey>,
-    /// Support pins for braid geometry (MUST be empty in v1).
+    /// Read-only support pins for braid geometry.
     pub support_pins: Vec<SupportPin>,
 }
 
@@ -171,6 +172,54 @@ pub enum StrandError {
     #[error("provenance error: {0}")]
     Provenance(String),
 
+    /// A support pin targeted a strand that is not live in the registry.
+    #[error("support pin target strand not found: {0:?}")]
+    MissingSupportTarget(StrandId),
+
+    /// A support pin claimed the wrong child worldline for its target strand.
+    #[error(
+        "support pin worldline mismatch for target {target:?}: expected {expected:?}, got {got:?}"
+    )]
+    SupportWorldlineMismatch {
+        /// The support target strand.
+        target: StrandId,
+        /// Expected child worldline id for that strand.
+        expected: WorldlineId,
+        /// Actual worldline id carried by the support pin.
+        got: WorldlineId,
+    },
+
+    /// A support pin must not target the owning strand.
+    #[error("strand must not support-pin itself: {0:?}")]
+    SelfSupportPin(StrandId),
+
+    /// A support pin duplicated an already pinned support target.
+    #[error("duplicate support pin target: owner {owner:?}, target {target:?}")]
+    DuplicateSupportTarget {
+        /// Owning strand.
+        owner: StrandId,
+        /// Support strand that was duplicated.
+        target: StrandId,
+    },
+
+    /// A pinned coordinate was not available in provenance.
+    #[error("support pin tick {tick} unavailable for target strand {target:?}")]
+    SupportPinUnavailable {
+        /// Support target strand.
+        target: StrandId,
+        /// Requested pinned tick.
+        tick: WorldlineTick,
+    },
+
+    /// A strand cannot be removed while another live strand still pins it.
+    #[error("strand {strand:?} is pinned by live strand {pinned_by:?}")]
+    PinnedByLiveStrand {
+        /// Strand being removed.
+        strand: StrandId,
+        /// Live strand that still references it.
+        pinned_by: StrandId,
+    },
+
     /// A contract invariant was violated.
     #[error("invariant violation: {0}")]
     InvariantViolation(&'static str),
@@ -197,7 +246,8 @@ impl StrandRegistry {
     /// Validates contract invariants before insertion:
     /// - INV-S7: `child_worldline_id != base_ref.source_worldline_id`
     /// - INV-S8: every writer head belongs to `child_worldline_id`
-    /// - INV-S9: `support_pins` is empty in v1
+    /// - support pins, when present, reference already-live strands and do not
+    ///   duplicate or self-target
     ///
     /// # Errors
     ///
@@ -222,12 +272,7 @@ impl StrandRegistry {
                 ));
             }
         }
-        // INV-S9: no support pins in v1.
-        if !strand.support_pins.is_empty() {
-            return Err(StrandError::InvariantViolation(
-                "INV-S9: support_pins must be empty in v1",
-            ));
-        }
+        self.validate_support_pins(&strand)?;
         self.strands.insert(strand.strand_id, strand);
         Ok(())
     }
@@ -238,6 +283,12 @@ impl StrandRegistry {
     ///
     /// Returns [`StrandError::NotFound`] if the strand is not registered.
     pub fn remove(&mut self, strand_id: &StrandId) -> Result<Strand, StrandError> {
+        if let Some(pinned_by) = self.find_pinned_by(strand_id) {
+            return Err(StrandError::PinnedByLiveStrand {
+                strand: *strand_id,
+                pinned_by,
+            });
+        }
         self.strands
             .remove(strand_id)
             .ok_or(StrandError::NotFound(*strand_id))
@@ -249,10 +300,24 @@ impl StrandRegistry {
         self.strands.get(strand_id)
     }
 
+    /// Returns a mutable reference to a strand, if it exists.
+    #[cfg(test)]
+    pub(crate) fn get_mut(&mut self, strand_id: &StrandId) -> Option<&mut Strand> {
+        self.strands.get_mut(strand_id)
+    }
+
     /// Returns `true` if the registry contains the given strand.
     #[must_use]
     pub fn contains(&self, strand_id: &StrandId) -> bool {
         self.strands.contains_key(strand_id)
+    }
+
+    /// Returns the strand whose child worldline matches `worldline_id`, if any.
+    #[must_use]
+    pub fn find_by_child_worldline(&self, worldline_id: &WorldlineId) -> Option<&Strand> {
+        self.strands
+            .values()
+            .find(|strand| &strand.child_worldline_id == worldline_id)
     }
 
     /// Returns a zero-allocation iterator over live strands derived from the
@@ -273,6 +338,100 @@ impl StrandRegistry {
         self.iter_by_base(base_worldline_id).collect()
     }
 
+    /// Returns the support pins for one strand.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StrandError::NotFound`] if the strand is not registered.
+    pub fn list_support_pins(&self, strand_id: &StrandId) -> Result<&[SupportPin], StrandError> {
+        Ok(&self
+            .strands
+            .get(strand_id)
+            .ok_or(StrandError::NotFound(*strand_id))?
+            .support_pins)
+    }
+
+    /// Validates and adds one read-only support pin to a live strand.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StrandError`] if either strand is missing, if the pin would be
+    /// self-referential or duplicate, or if the pinned coordinate is not
+    /// available in provenance.
+    pub fn pin_support(
+        &mut self,
+        provenance: &ProvenanceService,
+        strand_id: StrandId,
+        support_strand_id: StrandId,
+        pinned_tick: WorldlineTick,
+    ) -> Result<SupportPin, StrandError> {
+        let support_strand = self
+            .strands
+            .get(&support_strand_id)
+            .ok_or(StrandError::MissingSupportTarget(support_strand_id))?
+            .clone();
+        let owner = self
+            .strands
+            .get(&strand_id)
+            .ok_or(StrandError::NotFound(strand_id))?;
+        if strand_id == support_strand_id {
+            return Err(StrandError::SelfSupportPin(strand_id));
+        }
+        if owner
+            .support_pins
+            .iter()
+            .any(|support_pin| support_pin.strand_id == support_strand_id)
+        {
+            return Err(StrandError::DuplicateSupportTarget {
+                owner: strand_id,
+                target: support_strand_id,
+            });
+        }
+
+        let pinned_entry = provenance
+            .entry(support_strand.child_worldline_id, pinned_tick)
+            .map_err(|_| StrandError::SupportPinUnavailable {
+                target: support_strand_id,
+                tick: pinned_tick,
+            })?;
+        let support_pin = SupportPin {
+            strand_id: support_strand_id,
+            worldline_id: support_strand.child_worldline_id,
+            pinned_tick,
+            state_hash: pinned_entry.expected.state_root,
+        };
+
+        self.strands
+            .get_mut(&strand_id)
+            .ok_or(StrandError::NotFound(strand_id))?
+            .support_pins
+            .push(support_pin);
+        Ok(support_pin)
+    }
+
+    /// Removes one support pin from a live strand.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StrandError::NotFound`] if the owner strand is missing or the
+    /// named support target is not pinned.
+    pub fn unpin_support(
+        &mut self,
+        strand_id: StrandId,
+        support_strand_id: StrandId,
+    ) -> Result<SupportPin, StrandError> {
+        let owner = self
+            .strands
+            .get_mut(&strand_id)
+            .ok_or(StrandError::NotFound(strand_id))?;
+        let index = owner
+            .support_pins
+            .iter()
+            .position(|support_pin| support_pin.strand_id == support_strand_id)
+            .ok_or(StrandError::MissingSupportTarget(support_strand_id))?;
+        Ok(owner.support_pins.remove(index))
+    }
+
     /// Returns the number of live strands.
     #[must_use]
     pub fn len(&self) -> usize {
@@ -283,5 +442,42 @@ impl StrandRegistry {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.strands.is_empty()
+    }
+
+    fn validate_support_pins(&self, strand: &Strand) -> Result<(), StrandError> {
+        let mut seen = BTreeSet::new();
+        for support_pin in &strand.support_pins {
+            if support_pin.strand_id == strand.strand_id {
+                return Err(StrandError::SelfSupportPin(strand.strand_id));
+            }
+            let target = self
+                .strands
+                .get(&support_pin.strand_id)
+                .ok_or(StrandError::MissingSupportTarget(support_pin.strand_id))?;
+            if target.child_worldline_id != support_pin.worldline_id {
+                return Err(StrandError::SupportWorldlineMismatch {
+                    target: support_pin.strand_id,
+                    expected: target.child_worldline_id,
+                    got: support_pin.worldline_id,
+                });
+            }
+            if !seen.insert(support_pin.strand_id) {
+                return Err(StrandError::DuplicateSupportTarget {
+                    owner: strand.strand_id,
+                    target: support_pin.strand_id,
+                });
+            }
+        }
+        Ok(())
+    }
+
+    fn find_pinned_by(&self, strand_id: &StrandId) -> Option<StrandId> {
+        self.strands.values().find_map(|strand| {
+            strand
+                .support_pins
+                .iter()
+                .any(|support_pin| &support_pin.strand_id == strand_id)
+                .then_some(strand.strand_id)
+        })
     }
 }

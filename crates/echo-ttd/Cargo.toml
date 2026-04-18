@@ -5,11 +5,11 @@ name = "echo-ttd"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.90.0"
-description = "Time-Travel Debugger compliance engine for Echo"
+description = "Runtime-side compliance and receipt validation for Echo"
 repository = "https://github.com/flyingrobots/echo"
 readme = "README.md"
-keywords = ["echo", "ttd", "compliance", "debugger"]
-categories = ["development-tools", "debugging"]
+keywords = ["echo", "ttd", "compliance", "receipts"]
+categories = ["development-tools"]
 license = "Apache-2.0"
 
 [dependencies]

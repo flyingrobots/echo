@@ -143,7 +143,8 @@ Both substrates use Wesley for schema compilation, but:
 - Design compliance reporting as a protocol extension
   (see `KERNEL_compliance-protocol-envelope` backlog item)
 - Evaluate `ttd-browser` crate overlap with warp-ttd's browser story
-  (see warp-ttd backlog: `ttd-browser-evaluation`)
+  (see Echo backlog: `PLATFORM_ttd-browser-host-bridge` and warp-ttd backlog:
+  `DELIVERY_browser-ttd-adapter`)
 
 ### Long term (requires strand/merge design)
 

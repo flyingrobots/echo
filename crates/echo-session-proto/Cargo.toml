@@ -5,11 +5,11 @@ name = "echo-session-proto"
 version = "0.1.1"
 edition = "2021"
 rust-version = "1.90.0"
-description = "Wire schema for Echo session hub (WARP streams, commands, notifications)"
+description = "Deterministic bridge encodings for Echo browser-facing session and TTD surfaces"
 repository = "https://github.com/flyingrobots/echo"
 readme = "README.md"
-keywords = ["echo", "session", "protocol", "warp"]
-categories = ["development-tools", "network-programming"]
+keywords = ["echo", "protocol", "ttd", "bridge", "cbor"]
+categories = ["development-tools"]
 license = "Apache-2.0"
 
 [dependencies]

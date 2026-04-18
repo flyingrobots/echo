@@ -152,11 +152,21 @@ opaque_id!(
 );
 
 opaque_id!(
+    /// Opaque stable identifier for a strand.
+    StrandId
+);
+
+opaque_id!(
     /// Opaque stable identifier for a head within a worldline.
     ///
     /// This is the canonical 32-byte head-id hash, carried as typed metadata
     /// rather than a generic byte vector.
     HeadId
+);
+
+opaque_id!(
+    /// Opaque stable identifier for a published local site.
+    NeighborhoodSiteId
 );
 
 logical_counter!(
@@ -208,6 +218,8 @@ pub mod error_codes {
     pub const OBSERVATION_UNAVAILABLE: u32 = 12;
     /// The provided control intent payload was invalid.
     pub const INVALID_CONTROL: u32 = 13;
+    /// The requested strand is not registered.
+    pub const INVALID_STRAND: u32 = 14;
 }
 
 // ---------------------------------------------------------------------------
@@ -636,6 +648,184 @@ pub struct ObservationArtifact {
     pub payload: ObservationPayload,
 }
 
+/// Whether a published local site is singleton or plural.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SitePlurality {
+    /// Only the primary lane participates.
+    Singleton,
+    /// One or more additional participants are present.
+    Braided,
+}
+
+/// Role a participant plays in a local site.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ParticipantRole {
+    /// The directly observed lane.
+    Primary,
+    /// The base coordinate from which the primary strand forked.
+    BaseAnchor,
+    /// A read-only support-pinned lane.
+    Support,
+}
+
+/// One participating lane in a published local site.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SiteParticipant {
+    /// The participant's worldline.
+    pub worldline_id: WorldlineId,
+    /// Strand identity when the participant is a strand.
+    pub strand_id: Option<StrandId>,
+    /// Participant role within the site.
+    pub role: ParticipantRole,
+    /// Exact participant tick.
+    pub tick: WorldlineTick,
+    /// Canonical state hash for the participant at that tick.
+    pub state_hash: Vec<u8>,
+}
+
+/// Published local-site object for one observation anchor.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NeighborhoodSite {
+    /// Stable identity for this local site.
+    pub site_id: NeighborhoodSiteId,
+    /// Anchor coordinate for the site.
+    pub anchor: ResolvedObservationCoordinate,
+    /// Singleton or plural site truth.
+    pub plurality: SitePlurality,
+    /// Participating lanes for the site.
+    pub participants: Vec<SiteParticipant>,
+}
+
+/// Request payload for strand settlement publication.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SettlementRequest {
+    /// Strand being compared, planned, or settled.
+    pub strand_id: StrandId,
+}
+
+/// One stable provenance coordinate.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProvenanceRef {
+    /// Worldline that owns this coordinate.
+    pub worldline_id: WorldlineId,
+    /// Tick within that worldline.
+    pub worldline_tick: WorldlineTick,
+    /// Canonical commit hash for the coordinate.
+    pub commit_hash: Vec<u8>,
+}
+
+/// The recorded base coordinate for a strand.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BaseRef {
+    /// Source worldline the strand forked from.
+    pub source_worldline_id: WorldlineId,
+    /// Last included tick in the copied prefix.
+    pub fork_tick: WorldlineTick,
+    /// Commit hash at the fork tick.
+    pub commit_hash: Vec<u8>,
+    /// Boundary state hash at the fork tick.
+    pub boundary_hash: Vec<u8>,
+    /// Full provenance coordinate for the fork boundary.
+    pub provenance_ref: ProvenanceRef,
+}
+
+/// Deterministic reasons a settlement step could not be imported.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConflictReason {
+    /// The source step depends on unsupported channel policy detail.
+    ChannelPolicyConflict,
+    /// The source step is not replayable under current settlement law.
+    UnsupportedImport,
+    /// The base worldline advanced away from the strand's fork boundary.
+    BaseDivergence,
+    /// The source and target lanes disagree on time-quantum assumptions.
+    QuantumMismatch,
+}
+
+/// Compare output for one strand suffix relative to its recorded base.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SettlementDelta {
+    /// Strand being compared.
+    pub strand_id: StrandId,
+    /// Recorded base coordinate for the strand.
+    pub base_ref: BaseRef,
+    /// Child worldline carrying speculative suffix history.
+    pub source_worldline_id: WorldlineId,
+    /// First suffix tick eligible for settlement consideration.
+    pub source_suffix_start_tick: WorldlineTick,
+    /// Last suffix tick currently present on the source worldline.
+    pub source_suffix_end_tick: WorldlineTick,
+    /// Authoritative source provenance refs in settlement order.
+    pub source_entries: Vec<ProvenanceRef>,
+}
+
+/// One accepted unit of source provenance eligible for import.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImportCandidate {
+    /// Source provenance coordinate being imported.
+    pub source_ref: ProvenanceRef,
+    /// Source writer head when the imported entry was a local commit.
+    pub source_head_key: Option<WriterHeadKey>,
+    /// Stable imported operation identifier.
+    pub imported_op_id: Vec<u8>,
+}
+
+/// One unresolved settlement residue draft.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConflictArtifactDraft {
+    /// Stable artifact identifier for this residue record.
+    pub artifact_id: Vec<u8>,
+    /// Source provenance coordinate that could not be imported.
+    pub source_ref: ProvenanceRef,
+    /// Channels implicated by the unresolved source entry.
+    pub channel_ids: Vec<Vec<u8>>,
+    /// Deterministic reason the source entry was rejected.
+    pub reason: ConflictReason,
+}
+
+/// One deterministic settlement decision.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SettlementDecision {
+    /// Source history that can be imported into the base worldline.
+    ImportCandidate {
+        /// Accepted import detail.
+        candidate: ImportCandidate,
+    },
+    /// Source history that must remain explicit residue.
+    ConflictArtifact {
+        /// Residue detail.
+        artifact: ConflictArtifactDraft,
+    },
+}
+
+/// Deterministic settlement evaluation for one strand against its base worldline.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SettlementPlan {
+    /// Strand being settled.
+    pub strand_id: StrandId,
+    /// Base worldline receiving settlement output.
+    pub target_worldline: WorldlineId,
+    /// Provenance coordinate the strand claims as its base.
+    pub target_base_ref: ProvenanceRef,
+    /// Ordered import or conflict decisions for the suffix.
+    pub decisions: Vec<SettlementDecision>,
+}
+
+/// Runtime result of executing one settlement plan.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SettlementResult {
+    /// Deterministic plan that was executed.
+    pub plan: SettlementPlan,
+    /// Target-worldline refs appended as `MergeImport`.
+    pub appended_imports: Vec<ProvenanceRef>,
+    /// Target-worldline refs appended as `ConflictArtifact`.
+    pub appended_conflicts: Vec<ProvenanceRef>,
+}
+
 /// Registry and handshake metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RegistryInfo {
@@ -740,6 +930,54 @@ pub trait KernelPort {
         Err(AbiError {
             code: error_codes::NOT_SUPPORTED,
             message: "observe is not supported by this kernel".into(),
+        })
+    }
+
+    /// Publish the local neighborhood site for an explicit observation request.
+    ///
+    /// This is the canonical public read for plural local-site inspection.
+    /// The default implementation reports that neighborhood publication is not
+    /// supported by this kernel implementation.
+    fn observe_neighborhood_site(
+        &self,
+        _request: ObservationRequest,
+    ) -> Result<NeighborhoodSite, AbiError> {
+        Err(AbiError {
+            code: error_codes::NOT_SUPPORTED,
+            message: "observe_neighborhood_site is not supported by this kernel".into(),
+        })
+    }
+
+    /// Compare a strand suffix against its recorded base coordinate.
+    ///
+    /// The default implementation reports that settlement publication is not
+    /// supported by this kernel implementation.
+    fn compare_settlement(&self, _request: SettlementRequest) -> Result<SettlementDelta, AbiError> {
+        Err(AbiError {
+            code: error_codes::NOT_SUPPORTED,
+            message: "compare_settlement is not supported by this kernel".into(),
+        })
+    }
+
+    /// Produce a deterministic settlement plan for one strand.
+    ///
+    /// The default implementation reports that settlement publication is not
+    /// supported by this kernel implementation.
+    fn plan_settlement(&self, _request: SettlementRequest) -> Result<SettlementPlan, AbiError> {
+        Err(AbiError {
+            code: error_codes::NOT_SUPPORTED,
+            message: "plan_settlement is not supported by this kernel".into(),
+        })
+    }
+
+    /// Execute the deterministic settlement plan for one strand.
+    ///
+    /// The default implementation reports that settlement execution is not
+    /// supported by this kernel implementation.
+    fn settle_strand(&mut self, _request: SettlementRequest) -> Result<SettlementResult, AbiError> {
+        Err(AbiError {
+            code: error_codes::NOT_SUPPORTED,
+            message: "settle_strand is not supported by this kernel".into(),
         })
     }
 

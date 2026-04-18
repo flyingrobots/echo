@@ -8,33 +8,49 @@ replace backlog items, design docs, retros, or CLI status.
 
 ## Where are we going?
 
-Current priority: build out METHOD tooling and align Echo with
-warp-ttd (the official time-travel debugger) and git-warp (the
-reference WARP substrate).
+Current priority: finish the Echo-side cutover to the Continuum ownership
+split:
+
+- Echo owns hot runtime truth and browser-hostable WASM substrate
+- `warp-ttd` owns debugger session semantics and browser delivery
+- shared protocol truth stays canonical outside Echo
 
 ## What just shipped?
 
-Cycle 0004 — strand contract. `Strand`, `BaseRef`, `StrandRegistry`
-types in `warp-core/src/strand.rs`. Ten invariants (INV-S1 through
-INV-S10). Invariant validation on registry insert. Hard-delete drop
-with `DropReceipt`. Second entry in `docs/invariants/`.
+The parity runway is now explicit in design:
 
-Prior: cycle 0003 — FIXED-TIMESTEP invariant.
+- `0007` defines braid geometry and native neighborhood publication
+- `0008` defines strand settlement as compare -> plan -> import ->
+  conflict artifact
+
+Earlier cleanup also removed the old local browser debugger product path
+(`warp-viewer`, session hub/gateway/client, `ttd-app`). Repo truth now points
+at:
+
+- Echo browser/WASM host bridge surfaces
+- `warp-ttd` as the browser debugger destination
+- generated protocol consumers as downstream artifacts, not protocol owners
 
 ## What is next?
 
-Strand settlement (KERNEL_strand-settlement). The trilogy: dt (done) →
-strand contract (done) → settlement semantics.
+Two implementation cuts and one contract cut:
+
+1. make `0007` real in kernel/runtime truth:
+   support pins + native neighborhood site publication
+2. make `0008` real in kernel/runtime truth:
+   compare/plan/import/conflict artifact publication
+3. land one Wesley-generated proof slice against the shared Continuum observer
+   contract, then narrow `ttd-browser` / `echo-session-proto` around that
+   reality
 
 ## What feels wrong?
 
-- The docs corpus is still ~25% fiction. The audit is written; the
-  cleanup hasn't been pulled as a cycle yet.
-- The warp-ttd protocol was shaped by git-warp's simpler model. Echo's
-  richer runtime schema (typed IDs, dual tick clocks, ingress routing,
-  scheduler introspection) isn't surfaced through the protocol yet.
-- Echo's pre-warp-ttd crates (echo-ttd, ttd-browser, ttd-protocol-rs)
-  need reconciliation with warp-ttd's canonical schema.
-- RED and GREEN can't be separate commits under the current lint
-  policy (clippy denies `todo!()`). The discipline is preserved but
-  the commit structure doesn't show it.
+- support pins and neighborhood sites are still design truth, not runtime
+  truth.
+- settlement nouns exist only as a new design packet and placeholder event
+  kinds, not a shipped compare/plan/import path.
+- Echo's richer runtime schema (typed IDs, dual tick clocks, ingress routing,
+  scheduler introspection) still is not surfaced cleanly through the canonical
+  shared observer/debugger contract.
+- Echo still lacks an explicit CLI/MCP agent boundary, so agent use depends on
+  repo-local APIs and bridge folklore instead of one inspectable surface.

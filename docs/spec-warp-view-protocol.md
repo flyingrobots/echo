@@ -49,7 +49,7 @@ See `crates/echo-session-proto/src/lib.rs` and `crates/echo-session-proto/src/wi
 
 ## Stream Semantics
 
-- **Snapshots** are authoritative full-state resets for a `WarpId` at a specific epoch.
+- **Snapshots** are authoritative full replacement snapshots for a `WarpId` at a specific epoch.
 - **Diffs** must be gapless for live streams:
     - `from_epoch == last_epoch`
     - `to_epoch == from_epoch + 1`

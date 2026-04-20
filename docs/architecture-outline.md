@@ -247,14 +247,14 @@ that make Echo inspectable through a shared observer model.
 
 - **Mode Support**: Single-player (loopback), lockstep peer-to-peer, host-client, dedicated server.
 - **Transport Abstraction**: Reliable/unreliable channels, clock sync, session management. Adapter options: WebRTC, WebSockets, native sockets.
-- **Replication Strategy**: Deterministic event replication using Codex’s Baby ledger; optional state snapshots for fast-forward joins.
+- **Replication Strategy**: Deterministic event replication using Codex’s Baby ledger; optional materialized frontier checkpoints for fast-forward joins.
 - **Rollback Hooks**: Scheduler exposes rewinding API; networking port coordinates branch rewinds and replays when desync detected.
 - **Security Considerations**: Capability tokens, branch validation, deterministic checksum comparison to detect tampering.
 
 ### Audio, Persistence, Telemetry Ports 🗺️ Planned
 
 - **Audio**: Command queue for spatial/ambient playback, timeline control, and crossfade scheduling.
-- **Persistence**: Abstract reader/writer for save games, cloud sync, diagnostics dumps. Supports structured snapshots and delta patches.
+- **Persistence**: Abstract reader/writer for save games, cloud sync, diagnostics dumps. Supports structured checkpoints, materialized readings, and delta patches.
 - **Telemetry**: Export frame metrics, event traces, and custom probes to external dashboards or editor overlays.
 
 ## Cross-Cutting Concerns ⚠️ Partial

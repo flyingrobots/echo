@@ -28,7 +28,7 @@ runtime boundary.
 If Echo and `git-warp` are simultaneous WARP replicas at different runtime
 temperatures, Echo must not export:
 
-- latest state snapshot
+- latest materialized frontier snapshot
 - latest materialized reading
 - observer-rendered truth frame
 
@@ -45,7 +45,7 @@ Echo should define v1 hot/cold runtime handoff as:
 2. import one peer suffix bundle through normal witnessed admission
 3. return one explicit import outcome and receipt
 
-Echo must not synchronize state blobs or silently mutate a peer's canonical
+Echo must not synchronize materialized blobs or silently mutate a peer's canonical
 branch.
 
 ## Core principle
@@ -209,7 +209,7 @@ frontier_summary(history_id, lane_id) -> FrontierSummary
 ```
 
 That gives peers enough information to detect missing suffixes without
-pretending to exchange state snapshots.
+pretending to exchange materialized frontier snapshots.
 
 ## First implementation slice
 

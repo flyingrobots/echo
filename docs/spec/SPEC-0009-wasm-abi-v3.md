@@ -240,7 +240,7 @@ to:
 | `resolved_worldline_tick`    | `WorldlineTick` | Resolved coordinate; historical reads use zero-based committed append indices, while `0` plus `commit_global_tick = null` represents empty `U0` frontier metadata |
 | `commit_global_tick`         | `GlobalTick?`   | Commit cycle stamp for the resolved commit; `null` means the resolved coordinate is empty `U0` rather than a committed append                                     |
 | `observed_after_global_tick` | `GlobalTick?`   | Observation freshness watermark                                                                                                                                   |
-| `state_root`                 | bytes(32)       | Canonical full-state root hash; empty `U0` observations still carry the deterministic `U0` materialization root                                                   |
+| `state_root`                 | bytes(32)       | Canonical full materialization root hash; empty `U0` observations still carry the deterministic `U0` materialization root                                         |
 | `commit_hash`                | bytes(32)       | Canonical frontier/commit hash at the resolved point; empty `U0` observations still carry the deterministic `U0` frontier snapshot hash                           |
 
 ### ObservationProjection
@@ -263,12 +263,12 @@ to:
 
 ### HeadObservation
 
-| Field                | Type            | Description                                                                                                     |
-| -------------------- | --------------- | --------------------------------------------------------------------------------------------------------------- |
-| `worldline_tick`     | `WorldlineTick` | Frontier coordinate; `0` plus `commit_global_tick = null` means the observed frontier is empty `U0`             |
-| `commit_global_tick` | `GlobalTick?`   | Commit cycle stamp for the observed frontier; `null` means no committed append yet                              |
-| `state_root`         | bytes(32)       | Canonical full-state root hash; empty `U0` observations still carry the deterministic `U0` materialization root |
-| `commit_id`          | bytes(32)       | Canonical frontier hash; empty `U0` observations still carry the deterministic `U0` frontier snapshot hash      |
+| Field                | Type            | Description                                                                                                               |
+| -------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `worldline_tick`     | `WorldlineTick` | Frontier coordinate; `0` plus `commit_global_tick = null` means the observed frontier is empty `U0`                       |
+| `commit_global_tick` | `GlobalTick?`   | Commit cycle stamp for the observed frontier; `null` means no committed append yet                                        |
+| `state_root`         | bytes(32)       | Canonical full materialization root hash; empty `U0` observations still carry the deterministic `U0` materialization root |
+| `commit_id`          | bytes(32)       | Canonical frontier hash; empty `U0` observations still carry the deterministic `U0` frontier snapshot hash                |
 
 ### SnapshotObservation
 
@@ -276,19 +276,19 @@ to:
 | -------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | `worldline_tick`     | `WorldlineTick` | Snapshot coordinate; historical reads use append indices, while frontier snapshot reads may return `0` + `null` for empty `U0` |
 | `commit_global_tick` | `GlobalTick?`   | Commit cycle stamp; `null` is reserved for an empty-frontier `U0` snapshot resolved from `ObservationAt::Frontier`             |
-| `state_root`         | bytes(32)       | Canonical full-state root hash; empty `U0` snapshots still carry the deterministic `U0` materialization root                   |
+| `state_root`         | bytes(32)       | Canonical full materialization root hash; empty `U0` snapshots still carry the deterministic `U0` materialization root         |
 | `commit_id`          | bytes(32)       | Canonical snapshot hash; empty `U0` snapshots still carry the deterministic `U0` frontier snapshot hash                        |
 
 ### HeadInfo
 
 Returned by `init()`.
 
-| Field                | Type            | Description                                                                                                 |
-| -------------------- | --------------- | ----------------------------------------------------------------------------------------------------------- |
-| `worldline_tick`     | `WorldlineTick` | Current committed frontier position; `0` plus `commit_global_tick = null` means empty `U0`                  |
-| `commit_global_tick` | `GlobalTick?`   | Cycle stamp for the current commit; `null` means no commits yet                                             |
-| `state_root`         | bytes(32)       | Canonical full-state BLAKE3 root hash; empty `U0` still carries the deterministic `U0` materialization root |
-| `commit_id`          | bytes(32)       | Canonical frontier hash; empty `U0` still carries the deterministic `U0` frontier snapshot hash             |
+| Field                | Type            | Description                                                                                                           |
+| -------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `worldline_tick`     | `WorldlineTick` | Current committed frontier position; `0` plus `commit_global_tick = null` means empty `U0`                            |
+| `commit_global_tick` | `GlobalTick?`   | Cycle stamp for the current commit; `null` means no commits yet                                                       |
+| `state_root`         | bytes(32)       | Canonical full materialization BLAKE3 root hash; empty `U0` still carries the deterministic `U0` materialization root |
+| `commit_id`          | bytes(32)       | Canonical frontier hash; empty `U0` still carries the deterministic `U0` frontier snapshot hash                       |
 
 ### DispatchResponse
 

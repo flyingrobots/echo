@@ -10,7 +10,7 @@
 ## Why now
 
 Echo now has honest publication for neighborhood and settlement runtime truth,
-and Continuum has a cleaner "one graph, two temperatures" story.
+and Continuum has a cleaner "shared causal history, two temperatures" story.
 
 What is still missing is the concrete handoff boundary:
 

@@ -464,7 +464,7 @@ Define the core TickPatch record in Rust and wire it to the existing engine tick
 - **Goldens:** Bit-exact patch bytes for the motion demo rule (3 ticks)
 - **Failures:** Corrupt patch (wrong rule-pack hash, missing match key, truncated delta)
 - **Edges:** Empty tick (no matches), single-match tick, max-conflict-resolution tick
-- **Fuzz:** proptest over random graph states + random rule applications → extract patch → replay → assert convergence
+- **Fuzz:** proptest over random materialized graph readings + random rule applications → extract patch → replay → assert convergence
 
 **Est. Hours:** 10h
 

@@ -6,6 +6,7 @@
 Refines:
 
 - [Echo / git-warp witnessed suffix sync](./PLATFORM_echo-git-warp-witnessed-suffix-sync.md)
+- [0011 — Optic and observer runtime doctrine](../../../design/0011-optic-observer-runtime-doctrine/design.md)
 
 ## Why now
 

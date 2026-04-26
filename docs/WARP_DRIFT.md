@@ -199,6 +199,7 @@ Relevant existing design context:
 - [0008 — Strand settlement](./design/0008-strand-settlement/design.md)
 - [0009 — Witnessed causal suffix sync](./design/0009-witnessed-causal-suffix-sync/design.md)
 - [0010 — Live-basis settlement correction plan](./design/0010-live-basis-settlement-plan/design.md)
+- [0011 — Optic and observer runtime doctrine](./design/0011-optic-observer-runtime-doctrine/design.md)
 - [0006 — Echo Continuum alignment](./design/0006-echo-continuum-alignment/design.md)
 
 ## Practical rule

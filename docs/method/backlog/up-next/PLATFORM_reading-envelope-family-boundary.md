@@ -6,6 +6,7 @@
 Depends on:
 
 - [PLATFORM_observer-plan-reading-artifacts](../asap/PLATFORM_observer-plan-reading-artifacts.md)
+- [0011 — Optic and observer runtime doctrine](../../../design/0011-optic-observer-runtime-doctrine/design.md)
 
 ## Why now
 
@@ -36,6 +37,8 @@ The emitted reading envelope should be explicit about:
 - coordinate or frontier reference
 - payload
 - witness or shell reference
+- observer basis
+- parent-basis posture when the reading is strand-relative
 - budget posture
 - rights or revelation posture
 - plurality, obstruction, or other read-status posture where relevant

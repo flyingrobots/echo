@@ -8,6 +8,7 @@ Depends on:
 - `crates/echo-wasm-abi/src/kernel_port.rs`
 - [0006 — Echo Continuum alignment](../../../design/0006-echo-continuum-alignment/design.md)
 - [0005 — Echo TTD witness surface](../../../design/0005-echo-ttd-witness-surface/design.md)
+- [0011 — Optic and observer runtime doctrine](../../../design/0011-optic-observer-runtime-doctrine/design.md)
 
 ## Why now
 
@@ -24,6 +25,8 @@ snapshot." The current doctrine is stronger:
 
 - app/authored observer spec is not the runtime observer instance
 - the observer is only the revelation-side object, not the whole optic
+- the observer basis is not the same thing as the parent basis used to realize
+  a strand
 - reads should come back as witness-bearing artifacts over causal
   history
 
@@ -52,6 +55,8 @@ Echo needs an explicit observer-plan boundary instead of letting
     - frontier / coordinate
     - reading payload
     - witness or shell reference
+    - parent-basis posture when the read is strand-relative
+    - observer-basis metadata for native distinctions retained by the reading
     - budget posture
     - obstruction / plurality / residual when relevant
 - One-shot observation and hosted/stateful observation should share

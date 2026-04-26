@@ -5,8 +5,8 @@
 
 This document covers **performance measurement** for the implemented `warp-core` rewrite scheduler.
 
-It is **not** about the planned Echo ECS/system scheduler (see `docs/spec-scheduler.md`).
-For a doc map of “which scheduler doc should I read?”, see `docs/scheduler.md`.
+It is not a standalone scheduler spec. For scheduler semantics, see
+[`../spec/scheduler-warp-core.md`](../spec/scheduler-warp-core.md).
 
 ---
 
@@ -77,5 +77,5 @@ These are “nice to have” when tuning the scheduler or validating complexity 
 When you add/modify scheduler benches:
 
 - update this doc to link the bench file(s),
-- keep `docs/scheduler-warp-core.md` aligned if semantics are affected,
+- keep `docs/spec/scheduler-warp-core.md` aligned if semantics are affected,
 - avoid “single-run timing inside unit tests” as the foundation for performance claims.

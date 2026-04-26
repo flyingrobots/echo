@@ -5,6 +5,16 @@
 
 > **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
 
+Status: Partially implemented.
+
+The content-addressed inbox, idempotent admission, canonical `ingress_id`
+ordering, and append-only ledger/queue-maintenance split are backed by
+`crates/warp-core/src/head_inbox.rs`, `crates/warp-core/src/engine_impl.rs`,
+`crates/warp-core/src/inbox.rs`, and their tests. The priority-class scheduler
+tie-break described below remains design guidance; the implemented warp-core
+rewrite scheduler orders rewrites by `(scope_hash, rule_id, nonce)` as described
+in [`scheduler-warp-core.md`](scheduler-warp-core.md).
+
 ## 0) Purpose
 
 Guarantee that for a given tick, the full WARP graph is bit-identical across runs

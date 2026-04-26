@@ -62,7 +62,7 @@ export default defineConfig({
         },
         {
           text: "Subsystem Hubs",
-          items: [{ text: "Scheduler", link: "/scheduler" }],
+          items: [{ text: "Scheduler", link: "/spec/scheduler-warp-core" }],
         },
       ],
       "/guide/": [

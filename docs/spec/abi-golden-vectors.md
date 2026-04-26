@@ -8,7 +8,7 @@ Status: Partial Rust-side vector set
 These vectors document the **Canonical CBOR subset** used by the WASM ABI.
 Rust-side encoder/decoder checks live in
 `crates/echo-wasm-abi/tests/canonical_vectors.rs`; the canonical JS mapping is
-specified in [`../js-cbor-mapping.md`](../js-cbor-mapping.md). Host-side
+specified in [`js-cbor-mapping.md`](js-cbor-mapping.md). Host-side
 conformance vectors still need to be expanded before this can be treated as a
 complete cross-language ABI lock.
 

@@ -66,7 +66,10 @@ flowchart TD
 
 - WARP core runtime: [/spec-warp-core](/spec-warp-core)
 - Tick patch boundary: [/spec-warp-tick-patch](/spec-warp-tick-patch)
-- Rewrite scheduler (current implementation): [/scheduler-warp-core](/scheduler-warp-core)
+- Rewrite scheduler (current implementation): [/spec/scheduler-warp-core](/spec/scheduler-warp-core)
+- Scheduler benchmarks: [/benchmarks/scheduler-performance-warp-core](/benchmarks/scheduler-performance-warp-core)
+- Canonical inbox sequencing: [/spec/canonical-inbox-sequencing](/spec/canonical-inbox-sequencing)
+- JS/CBOR ABI mapping: [/spec/js-cbor-mapping](/spec/js-cbor-mapping)
 - Merkle commit / snapshot hashing: [/spec-merkle-commit](/spec-merkle-commit)
 - ABI golden vectors: [/spec/abi-golden-vectors](/spec/abi-golden-vectors)
 - Two-plane law: [/warp-two-plane-law](/warp-two-plane-law)

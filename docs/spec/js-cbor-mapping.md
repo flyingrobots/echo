@@ -3,11 +3,12 @@
 
 # JS → Canonical CBOR Mapping Rules (ABI v1)
 
-Status: **Frozen for website kernel P1**
+Status: Current ABI rule document
 
-These rules define how host-side JS/TS values must be mapped into the canonical CBOR
-encoder before hitting the ledger. The same rules apply to wasm helpers
-(`encode_command`, `encode_query_vars`) and to native tooling.
+These rules define how host-side JS/TS values must be mapped into canonical CBOR
+before crossing the ABI boundary. The same rules apply to generated WASM helper
+surfaces such as `encode_command` / `encode_query_vars` and to native tooling
+that emits ABI payloads.
 
 ## Scalars
 
@@ -54,4 +55,5 @@ encoder before hitting the ledger. The same rules apply to wasm helpers
 ## References
 
 - `crates/echo-wasm-abi/src/canonical.rs` — canonical encoder/decoder and rejection tests.
-- ADR-0013 / JS-ABI v1 framing (canonical CBOR payload inside packet header).
+- `crates/echo-wasm-abi/tests/canonical_vectors.rs` — golden vectors and rejection cases.
+- `crates/echo-session-proto/src/wire.rs` — session packet framing that carries canonical CBOR payloads.

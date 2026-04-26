@@ -36,4 +36,4 @@ protocol surfaces.
       (`13-networking-wire-protocol.tex`),
     - Section `Consuming WARP Streams: Snapshots and Diffs`
       (`14-warp-stream-consumers.tex`).
-- JS-ABI v1.0 encoding rules: `docs/js-cbor-mapping.md`.
+- JS-ABI v1.0 encoding rules: `docs/spec/js-cbor-mapping.md`.

@@ -369,3 +369,43 @@ audit records rather than rewritten.
 | filepath        | description                            | score | decision       | new filepath    | remarks                                                                                                                                                                            |
 | --------------- | -------------------------------------- | ----- | -------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `docs/index.md` | Live docs map and VitePress home page. | `4/5` | Keep in place. | `docs/index.md` | Still the right root map; updated links for moved Batch 3 docs and added the DIND/ABI-vector surfaces. Residual risk remains in broader docs-site dead links outside the docs map. |
+
+---
+
+## docs/js-cbor-mapping.md
+
+| filepath                  | description                                | score | decision                         | new filepath                   | remarks                                                                                                                                                                                                        |
+| ------------------------- | ------------------------------------------ | ----- | -------------------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/js-cbor-mapping.md` | JS/TS-to-canonical-CBOR ABI mapping rules. | `4/5` | Keep, move, and lightly correct. | `docs/spec/js-cbor-mapping.md` | Backed by `crates/echo-wasm-abi/src/canonical.rs`, canonical-vector tests, `echo-session-proto` framing, and generated helper names in `packages/wesley-generator-vue`; refreshed stale status/reference text. |
+
+---
+
+## docs/scheduler-performance-warp-core.md
+
+| filepath                                  | description                                              | score | decision       | new filepath                                         | remarks                                                                                                                                                                                   |
+| ----------------------------------------- | -------------------------------------------------------- | ----- | -------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/scheduler-performance-warp-core.md` | Benchmark guide for the implemented warp-core scheduler. | `4/5` | Keep and move. | `docs/benchmarks/scheduler-performance-warp-core.md` | Bench files exist at `crates/warp-benches/benches/scheduler_drain.rs` and `scheduler_adversarial.rs`; doc avoids hard timing claims and now points at the moved canonical scheduler spec. |
+
+---
+
+## docs/scheduler-warp-core.md
+
+| filepath                      | description                                                | score | decision                         | new filepath                       | remarks                                                                                                                                                                                              |
+| ----------------------------- | ---------------------------------------------------------- | ----- | -------------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/scheduler-warp-core.md` | Canonical implemented scheduler semantics for `warp-core`. | `4/5` | Keep, move, and lightly correct. | `docs/spec/scheduler-warp-core.md` | Matches `crates/warp-core/src/scheduler.rs` for `PendingRewrite`, `reserve()`, `GenSet`, `SchedulerKind::Radix`, and drain ordering; removed stale links to missing scheduler map/future spec/notes. |
+
+---
+
+## docs/scheduler.md
+
+| filepath            | description                  | score | decision | new filepath | remarks                                                                                                                                                                                                 |
+| ------------------- | ---------------------------- | ----- | -------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/scheduler.md` | Top-level scheduler doc map. | `1/5` | Trash.   | `n/a`        | Duplicated the live docs map, pointed to missing `docs/spec-scheduler.md`, and encouraged multiple scheduler truths. Deleted in favor of `docs/spec/scheduler-warp-core.md` plus `docs/index.md` links. |
+
+---
+
+## docs/spec-canonical-inbox-sequencing.md
+
+| filepath                                  | description                                                     | score | decision                      | new filepath                              | remarks                                                                                                                                                                                                                     |
+| ----------------------------------------- | --------------------------------------------------------------- | ----- | ----------------------------- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/spec-canonical-inbox-sequencing.md` | Canonical inbox identity, admission order, and sequencing spec. | `3/5` | Keep, move, and mark partial. | `docs/spec/canonical-inbox-sequencing.md` | Content-addressed ingress and append-only queue maintenance are backed by `head_inbox.rs`, `engine_impl.rs`, `inbox.rs`, and tests; priority-class scheduler tie-break remains design guidance, so status now says partial. |

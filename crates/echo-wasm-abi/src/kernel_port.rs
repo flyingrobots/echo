@@ -11,7 +11,7 @@
 //! # ABI Version
 //!
 //! The current ABI version is [`ABI_VERSION`] (6). All response types are
-//! CBOR-encoded using the canonical rules defined in `docs/js-cbor-mapping.md`.
+//! CBOR-encoded using the canonical rules defined in `docs/spec/js-cbor-mapping.md`.
 //! Breaking changes to response shapes or error codes require a bump to the
 //! ABI version.
 //!

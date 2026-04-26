@@ -179,7 +179,7 @@ All `Uint8Array` returns use a CBOR envelope with an `ok` discriminator:
 ```
 
 JS callers check `ok` before decoding the rest. The CBOR encoding follows the
-canonical rules in `docs/js-cbor-mapping.md`.
+canonical rules in `docs/spec/js-cbor-mapping.md`.
 
 ### Typed Field Encoding
 

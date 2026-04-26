@@ -28,7 +28,7 @@ ECS is a _useful storage and API layer_, but the deeper “ground truth” model
 ### If you’re new to WARP / graph-rewrite simulation
 
 1. WARP primer: [/guide/warp-primer](/guide/warp-primer)
-2. Two-plane law (why “no hidden edges” exists): [/warp-two-plane-law](/warp-two-plane-law)
+2. Two-plane law (why “no hidden edges” exists): [/invariants/warp-two-plane-law](/invariants/warp-two-plane-law)
 3. Core runtime spec (`warp-core`): [/spec/warp-core](/spec/warp-core)
 
 ### If you want to run something end-to-end

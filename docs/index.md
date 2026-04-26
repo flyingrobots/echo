@@ -57,6 +57,7 @@ flowchart TD
 - Newcomer (no-programming) intro: [/guide/eli5](/guide/eli5)
 - Start Here guide: [/guide/start-here](/guide/start-here)
 - WARP primer: [/guide/warp-primer](/guide/warp-primer)
+- Current bearing: [/BEARING](/BEARING)
 - Architecture overview (draft context artifact): [/architecture/outline](/architecture/outline)
 - Core runtime spec (`warp-core`): [/spec/warp-core](/spec/warp-core)
 
@@ -73,7 +74,7 @@ flowchart TD
 - Merkle commit / snapshot hashing: [/spec/merkle-commit](/spec/merkle-commit)
 - Retained WARP view protocol: [/spec/warp-view-protocol](/spec/warp-view-protocol)
 - ABI golden vectors: [/spec/abi-golden-vectors](/spec/abi-golden-vectors)
-- Two-plane law: [/warp-two-plane-law](/warp-two-plane-law)
+- Two-plane law: [/invariants/warp-two-plane-law](/invariants/warp-two-plane-law)
 
 ### Determinism
 

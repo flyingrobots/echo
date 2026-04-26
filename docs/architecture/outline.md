@@ -77,7 +77,7 @@ Read the current implementation through these docs first:
 - [/spec/warp-core](/spec/warp-core)
 - [/spec/scheduler-warp-core](/spec/scheduler-warp-core)
 - [/spec/SPEC-0004-worldlines-playback-truthbus](/spec/SPEC-0004-worldlines-playback-truthbus)
-- [/warp-two-plane-law](/warp-two-plane-law)
+- [/invariants/warp-two-plane-law](/invariants/warp-two-plane-law)
 
 ## Vision
 

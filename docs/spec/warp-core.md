@@ -17,7 +17,7 @@ If you only remember one thing:
 Related docs (recommended, in order):
 
 1. [WARP Primer](/guide/warp-primer) — newcomer-friendly WARP overview (start here).
-2. [Two-plane law](/warp-two-plane-law) — project law for SkeletonGraph vs attachment plane.
+2. [Two-plane law](/invariants/warp-two-plane-law) — project law for SkeletonGraph vs attachment plane.
 3. [Merkle Commit](/spec/merkle-commit) — state_root vs commit_id and what is committed.
 4. [WARP Tick Patch](/spec/warp-tick-patch) — tick patch boundary artifact (Paper III).
 5. [Descended attachments](/spec/SPEC-0002-descended-attachments-v1) — WarpInstances / descended attachments (Stage B1).

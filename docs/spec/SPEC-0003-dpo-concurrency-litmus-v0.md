@@ -73,5 +73,4 @@ For litmus tests that compare different enqueue orders within the **same tick**,
 ## References
 
 - `docs/spec-mwmr-concurrency.md` (footprints, ports, and independence model)
-- `docs/warp-math-claims.md` (theory framing: DPO/DPOI + determinism claims)
 - Litmus tests: `crates/warp-core/tests/dpo_concurrency_litmus.rs`

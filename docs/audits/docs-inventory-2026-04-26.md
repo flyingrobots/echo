@@ -449,3 +449,35 @@ audit records rather than rewritten.
 | filepath                          | description                                          | score | decision                                                 | new filepath                      | remarks                                                                                                                                                                                                         |
 | --------------------------------- | ---------------------------------------------------- | ----- | -------------------------------------------------------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `docs/spec-warp-view-protocol.md` | Retained older Echo-local WARP view stream contract. | `3/5` | Keep, move, and retain as historical/current-proto note. | `docs/spec/warp-view-protocol.md` | Message names and aliases are backed by `echo-session-proto`; the session hub/viewer path is retired as the doc already stated, and the stale 8 MiB payload cap was corrected against current JS-ABI/EINT code. |
+
+---
+
+## docs/BEARING.md
+
+| filepath          | description                                       | score | decision                           | new filepath      | remarks                                                                                                                                                                                                                   |
+| ----------------- | ------------------------------------------------- | ----- | ---------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/BEARING.md` | Current direction signpost for Echo docs/runtime. | `4/5` | Keep in place and lightly correct. | `docs/BEARING.md` | Current claims are backed by `neighborhood.rs`, `settlement.rs`, `warp_kernel.rs`, `kernel_port.rs`, SPEC-0009, Method docs, and design 0011; added the stricter live-docs corpus rule and linked it from the docs index. |
+
+---
+
+## docs/warp-math-claims.md
+
+| filepath                   | description                                                                        | score | decision | new filepath | remarks                                                                                                                                                                                                                |
+| -------------------------- | ---------------------------------------------------------------------------------- | ----- | -------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/warp-math-claims.md` | Theory note asserting WPP/hypergraph-to-WARP embedding and rulial-distance claims. | `1/5` | Trash.   | `n/a`        | Interesting theory, but not current repo truth: no proof pack, WPP importer, parity demo, or rulial-distance runtime exists. Removed direct links rather than preserving an archaeology/theory duplicate in live docs. |
+
+---
+
+## docs/warp-two-plane-law.md
+
+| filepath                     | description                                                                | score | decision       | new filepath                            | remarks                                                                                                                                                                                                                  |
+| ---------------------------- | -------------------------------------------------------------------------- | ----- | -------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `docs/warp-two-plane-law.md` | Implemented law separating WARP skeleton structure from typed attachments. | `5/5` | Keep and move. | `docs/invariants/warp-two-plane-law.md` | Code-backed by `GraphStore`, `AttachmentValue::Atom`, `AttachmentValue::Descend`, `GraphView`, `Footprint`, `WarpTickPatchV1`, `compute_state_root`, and Stage B1 portal/slicing tests; moved into invariants ownership. |
+
+---
+
+## docs/workflows.md
+
+| filepath            | description                                        | score | decision                           | new filepath        | remarks                                                                                                                                                                                                                                                             |
+| ------------------- | -------------------------------------------------- | ----- | ---------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/workflows.md` | Contributor workflow and tooling entrypoint index. | `4/5` | Keep in place and lightly correct. | `docs/workflows.md` | Current commands are backed by `Makefile`, `xtask/src/main.rs`, `scripts/verify-local.sh`, and dependency-DAG/DIND workflows; removed stale ADR wording and an empty validation heading, while keeping the path because repo tests and hooks reference it directly. |

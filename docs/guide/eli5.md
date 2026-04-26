@@ -128,7 +128,7 @@ The key rule is:
 Echo calls this the “no hidden edges” law.
 
 If you want the formal version, see:
-[/warp-two-plane-law](/warp-two-plane-law)
+[/invariants/warp-two-plane-law](/invariants/warp-two-plane-law)
 
 ---
 

@@ -12,7 +12,7 @@ code, the code wins and this file should be corrected.
 ## Where are we going?
 
 Current priority: make Echo's WARP optics observable, documented, and fast to
-iterate without turning docs into a second codebase:
+iterate without turning docs into a museum or a second codebase:
 
 - Echo owns hot runtime truth in `warp-core`.
 - Echo exposes current browser-hostable substrate through the WASM ABI, not a
@@ -40,7 +40,8 @@ The Continuum cutover is no longer just design text:
 ## What is next?
 
 1. Audit `docs/` five documents at a time, score each one against code, and
-   delete or relocate aggressively. Git history is the archive.
+   delete or relocate aggressively. The live docs corpus contains current,
+   useful, navigable truth; git history is the archive.
 2. Fold the Optic/Observer doctrine into the runtime path toward WARP optics,
    anchored by `docs/design/0011-optic-observer-runtime-doctrine/design.md`.
 3. Improve local iteration by separating quick doc/code lanes from full release

@@ -94,7 +94,7 @@ not buried inside payload bytes.
 
 This is how Echo avoids building a system that “looks like WARP” but produces incorrect slices.
 
-Canonical statement: `docs/warp-two-plane-law.md`.
+Canonical statement: `docs/invariants/warp-two-plane-law.md`.
 
 Enforcement in `warp-core` is by construction:
 
@@ -267,7 +267,7 @@ Recommended reading order:
 
 1. `docs/guide/warp-primer.md` — you are here (what WARP means in Echo).
 2. `docs/spec/warp-core.md` — `warp-core` crate tour and API map.
-3. `docs/warp-two-plane-law.md` — the hard laws (structure vs data, no hidden edges).
+3. `docs/invariants/warp-two-plane-law.md` — the hard laws (structure vs data, no hidden edges).
 4. `docs/spec/merkle-commit.md` — state hashing + commit header semantics.
 5. `docs/spec/warp-tick-patch.md` — tick patch boundary artifact (delta ops, hashing).
 6. `docs/spec/SPEC-0002-descended-attachments-v1.md` — WarpInstances, portals, merge/DAG slicing semantics.

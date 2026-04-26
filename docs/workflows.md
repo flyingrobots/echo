@@ -12,7 +12,7 @@ This doc is the “official workflow index” for Echo: how we work, what invari
 ## Session Workflow
 
 - Record architectural decisions in active design packets (`docs/design/`),
-  ADR history (`docs/adr/`), or PR descriptions.
+  Method items (`docs/method/`), or PR descriptions.
 - Before opening a PR, run the validation workflow below.
 
 ---
@@ -55,8 +55,6 @@ cargo fmt --all
 cargo test --workspace
 cargo clippy --all-targets -- -D warnings -D missing_docs
 ```
-
-Validation commands:
 
 ---
 

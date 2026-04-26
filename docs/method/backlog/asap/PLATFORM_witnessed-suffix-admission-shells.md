@@ -3,6 +3,12 @@
 
 # Witnessed suffix admission shells
 
+Status: active planned design. Echo has settlement, neighborhood publication,
+observer reading envelopes, and design 0009 for witnessed causal suffix sync.
+It does not yet have implemented `ExportSuffixRequest`, `CausalSuffixBundle`,
+`ImportSuffixResult`, `export_suffix`, or `import_suffix` surfaces. This card is
+the execution handle for that gap.
+
 Refines:
 
 - [Echo / git-warp witnessed suffix sync](../up-next/PLATFORM_echo-git-warp-witnessed-suffix-sync.md)
@@ -64,6 +70,7 @@ older sync contract into its runtime and ABI.
 - `docs/design/0009-witnessed-causal-suffix-sync/design.md`
 - `docs/design/0008-strand-settlement/design.md`
 - `crates/warp-core/src/settlement.rs`
+- `crates/warp-core/src/neighborhood.rs`
 - `crates/echo-wasm-abi/src/kernel_port.rs`
 
 ## Non-goals

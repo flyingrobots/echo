@@ -3,6 +3,12 @@
 
 # Observer plans and reading artifacts
 
+Status: active and partially implemented. `ObservationService` and the ABI now
+emit one-shot built-in observation artifacts with `ReadingEnvelope` metadata.
+The remaining gap is authored `ObserverPlan` support plus hosted/stateful
+observer instances; query-shaped reads still exist only as a placeholder plan
+and return unsupported at runtime.
+
 Depends on:
 
 - `crates/echo-wasm-abi/src/kernel_port.rs`
@@ -82,6 +88,7 @@ posture, and residual posture for one-shot observations. Authored
 
 ## Repo evidence
 
+- `crates/warp-core/src/observation.rs`
 - `crates/echo-wasm-abi/src/kernel_port.rs`
 - `crates/warp-wasm/src/warp_kernel.rs`
 - `docs/design/0006-echo-continuum-alignment/design.md`

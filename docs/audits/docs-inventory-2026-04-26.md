@@ -629,3 +629,43 @@ audit records rather than rewritten.
 | filepath                                                         | description                                 | score | decision          | new filepath                                                     | remarks                                                                                                                                                                                                                                                           |
 | ---------------------------------------------------------------- | ------------------------------------------- | ----- | ----------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `docs/method/backlog/asap/PLATFORM_decoder-negative-test-map.md` | Active decoder negative-test coverage item. | `4/5` | Keep and correct. | `docs/method/backlog/asap/PLATFORM_decoder-negative-test-map.md` | `docs/determinism/sec-claim-map.json`, `CLAIM_MAP.yaml`, `.github/workflows/det-gates.yml`, and `crates/echo-scene-codec/src/cbor.rs` prove mapped SEC-001..005 tests and CI ID checks exist. Narrowed the remaining task to exhaustive control-to-test coverage. |
+
+---
+
+## docs/method/backlog/asap/PLATFORM_observer-plan-reading-artifacts.md
+
+| filepath                                                               | description                                 | score | decision          | new filepath                                                           | remarks                                                                                                                                                                                                                                                       |
+| ---------------------------------------------------------------------- | ------------------------------------------- | ----- | ----------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/backlog/asap/PLATFORM_observer-plan-reading-artifacts.md` | Active observer-plan/reading-artifact task. | `4/5` | Keep and correct. | `docs/method/backlog/asap/PLATFORM_observer-plan-reading-artifacts.md` | `crates/warp-core/src/observation.rs`, `crates/echo-wasm-abi/src/kernel_port.rs`, and `crates/warp-wasm/src/warp_kernel.rs` prove built-in one-shot reading artifacts now exist; narrowed the remaining work to authored plans and hosted/stateful observers. |
+
+---
+
+## docs/method/backlog/asap/PLATFORM_staging-blocker-matrix.md
+
+| filepath                                                      | description                             | score | decision | new filepath | remarks                                                                                                                                                                                                                                      |
+| ------------------------------------------------------------- | --------------------------------------- | ----- | -------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/backlog/asap/PLATFORM_staging-blocker-matrix.md` | Superseded release blocker-matrix task. | `1/5` | Trash.   | `n/a`        | The task is completed and now stale: `docs/determinism/RELEASE_POLICY.md` already contains the staging vs production blocker matrix, including G3 staging-optional and production-blocking semantics. No live references required retention. |
+
+---
+
+## docs/method/backlog/asap/PLATFORM_ttd-rollback-playbooks.md
+
+| filepath                                                      | description                        | score | decision          | new filepath                                                  | remarks                                                                                                                                                                                                                                                   |
+| ------------------------------------------------------------- | ---------------------------------- | ----- | ----------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/backlog/asap/PLATFORM_ttd-rollback-playbooks.md` | Active TTD rollback-playbook task. | `3/5` | Keep and correct. | `docs/method/backlog/asap/PLATFORM_ttd-rollback-playbooks.md` | Sparse but still useful: generated protocol consumers, `echo-ttd`, `ttd-browser`, `apps/ttd-app`, and WASM TTD bindings exist, while no rollback playbook exists. Rewrote it around concrete integration seams, owner split, and validation expectations. |
+
+---
+
+## docs/method/backlog/asap/PLATFORM_ttd-schema-reconciliation.md
+
+| filepath                                                         | description                                       | score | decision          | new filepath                                                     | remarks                                                                                                                                                                                                                                                         |
+| ---------------------------------------------------------------- | ------------------------------------------------- | ----- | ----------------- | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/backlog/asap/PLATFORM_ttd-schema-reconciliation.md` | Active TTD protocol-consumer reconciliation task. | `4/5` | Keep and correct. | `docs/method/backlog/asap/PLATFORM_ttd-schema-reconciliation.md` | `crates/ttd-protocol-rs` and `packages/ttd-protocol-ts` already identify as generated canonical `warp-ttd` consumers, but `cargo xtask wesley sync` is still advertised without a local command. Narrowed the card to source/provenance/tooling reconciliation. |
+
+---
+
+## docs/method/backlog/asap/PLATFORM_witnessed-suffix-admission-shells.md
+
+| filepath                                                                 | description                                | score | decision          | new filepath                                                             | remarks                                                                                                                                                                                                                                                    |
+| ------------------------------------------------------------------------ | ------------------------------------------ | ----- | ----------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/backlog/asap/PLATFORM_witnessed-suffix-admission-shells.md` | Active witnessed-suffix shell design task. | `3/5` | Keep and correct. | `docs/method/backlog/asap/PLATFORM_witnessed-suffix-admission-shells.md` | Design 0009, design 0011, settlement, neighborhood, and ABI publication surfaces make this active execution work, but no `ExportSuffixRequest`, `CausalSuffixBundle`, `ImportSuffixResult`, `export_suffix`, or `import_suffix` implementation exists yet. |

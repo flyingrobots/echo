@@ -3,20 +3,34 @@
 
 # Reconcile TTD protocol schemas with warp-ttd
 
-Echo has local TTD protocol artifacts that predate warp-ttd:
+Status: active and partially implemented. Echo's generated Rust and TypeScript
+protocol consumers are already labeled as generated from the canonical
+`warp-ttd` protocol. The remaining gap is provenance/tooling: the advertised
+regeneration command does not exist locally, and Echo still needs a verified
+handoff from the external canonical schema to the checked-in generated
+artifacts.
 
-- `ttd-protocol-rs` — generated Rust types still described as if Wesley or a
-  repo-local schema were the direct source of truth
-- `packages/ttd-protocol-ts` — generated TypeScript package carrying the same
-  ownership ambiguity
+Echo has local TTD protocol artifacts that must stay downstream of `warp-ttd`:
+
+- `ttd-protocol-rs` — generated Rust types from the canonical `warp-ttd`
+  protocol
+- `packages/ttd-protocol-ts` — generated TypeScript types from the same
+  canonical protocol
 
 warp-ttd is now the canonical debugger project. Its schema at
 `schemas/warp-ttd-protocol.graphql` should be the single source of
-truth.
+truth; Echo should consume it through a reproducible generation path rather than
+acting as a backup schema owner.
 
 Work:
 
-- Point `ttd-protocol-rs` generation at warp-ttd's canonical schema
+- Reconcile `crates/ttd-protocol-rs/Cargo.toml` advertising
+  `cargo xtask wesley sync` with the actual repo tooling.
+- Point protocol generation at the canonical `warp-ttd` schema or document the
+  exact external bundle handoff if generation stays outside this repo.
 - Keep generated crates/packages clearly marked as downstream consumers, not
-  backup protocol owners
-- Verify generated types still satisfy `echo-ttd` compliance checker
+  backup protocol owners.
+- Verify generated types still satisfy the `echo-ttd` compliance checker and
+  local browser adapter surfaces.
+- Coordinate with `PLATFORM_WESLEY_protocol-consumer-cutover` instead of
+  reopening protocol ownership from scratch.

@@ -10,7 +10,7 @@
 //!
 //! # ABI Version
 //!
-//! The current ABI version is [`ABI_VERSION`] (3). All response types are
+//! The current ABI version is [`ABI_VERSION`] (4). All response types are
 //! CBOR-encoded using the canonical rules defined in `docs/js-cbor-mapping.md`.
 //! Breaking changes to response shapes or error codes require a bump to the
 //! ABI version.
@@ -38,7 +38,7 @@ use serde::{
 ///
 /// Increment when response types, error codes, or method signatures change
 /// in a backward-incompatible way.
-pub const ABI_VERSION: u32 = 3;
+pub const ABI_VERSION: u32 = 4;
 
 fn deserialize_opaque_id<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
 where
@@ -741,6 +741,8 @@ pub enum ConflictReason {
     UnsupportedImport,
     /// The base worldline advanced away from the strand's fork boundary.
     BaseDivergence,
+    /// The parent advanced into the strand-owned closed footprint.
+    ParentFootprintOverlap,
     /// The source and target lanes disagree on time-quantum assumptions.
     QuantumMismatch,
 }
@@ -923,7 +925,7 @@ pub trait KernelPort {
 
     /// Observe a worldline at an explicit coordinate and frame.
     ///
-    /// This is the only canonical public read entrypoint in ABI v3. The
+    /// This is the canonical world-state read entrypoint. The
     /// default implementation reports that the observation contract is not
     /// supported by this kernel implementation.
     fn observe(&self, _request: ObservationRequest) -> Result<ObservationArtifact, AbiError> {

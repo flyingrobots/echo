@@ -48,7 +48,16 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
 ## Testing Expectations
 
 - Write tests before or alongside code changes.
-- `cargo test` must pass locally before PR submission.
+- Use narrow local slices while iterating. For example:
+    - `cargo xtask test-slice strand`
+    - `cargo xtask test-slice settlement`
+    - `cargo xtask test-slice observation`
+    - `cargo xtask test-slice neighborhood`
+    - `cargo xtask test-slice warp-core-smoke`
+- Avoid broad filtered commands such as `cargo test -p warp-core settlement`
+  during normal development. Cargo still compiles and launches every
+  `warp-core` integration-test binary before applying that runtime filter.
+- The broader local gate must pass before PR submission.
 - Add unit/integration coverage for new logic; Rhai/TypeScript tooling will regain coverage when reintroduced.
 - For WASM / living specs:
     - Install toolchain target: `rustup target add wasm32-unknown-unknown`.
@@ -63,7 +72,7 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
 
 ## Submitting Changes
 
-1. Run `cargo fmt`, `cargo clippy`, and `cargo test`.
+1. Run `cargo fmt`, focused `cargo xtask test-slice …` checks for the changed surface, and the appropriate broader local gate (`cargo xtask pr-preflight` before PRs).
 2. Commit with conventional commit messages: `type(scope): summary` (e.g., `fix(warp-core): prevent NaN propagation`).
 3. Push your branch and open a PR. Include:
     - Summary of changes and motivation.

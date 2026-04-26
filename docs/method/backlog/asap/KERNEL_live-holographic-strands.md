@@ -7,6 +7,7 @@ Depends on:
 
 - [0004 — Strand contract](../../../design/0004-strand-contract/design.md)
 - [0008 — Strand settlement](../../../design/0008-strand-settlement/design.md)
+- [0010 — Live-basis settlement correction plan](../../../design/0010-live-basis-settlement-plan/design.md)
 
 ## Why now
 
@@ -48,6 +49,23 @@ Echo needs to stop hardening the bootstrap cut into ontology.
   not require the theory to pretend the speculative lane was never
   real.
 
+## Current implementation slice
+
+The first slice is now deliberately smaller than the full target:
+
+- `Strand::live_basis_report(...)` reports parent basis movement, child owned
+  footprint, and revalidation state.
+- settlement compare/plan carries the basis report internally.
+- disjoint parent movement is detected separately from owned-footprint overlap.
+- disjoint parent movement now plans a target-local import candidate instead of
+  a conflict artifact.
+- owned-footprint overlap is still surfaced as `ParentFootprintOverlap` until a
+  richer revalidation artifact exists.
+
+The first slice still does not implement overlap revalidation. The full decision
+record and runway live in
+[0010 — Live-basis settlement correction plan](../../../design/0010-live-basis-settlement-plan/design.md).
+
 ## Done looks like
 
 - `docs/invariants/STRAND-CONTRACT.md` no longer defines a strand as
@@ -71,6 +89,7 @@ Echo needs to stop hardening the bootstrap cut into ontology.
 - `docs/invariants/STRAND-CONTRACT.md`
 - `docs/design/0004-strand-contract/design.md`
 - `docs/design/0008-strand-settlement/design.md`
+- `docs/design/0010-live-basis-settlement-plan/design.md`
 
 ## Non-goals
 

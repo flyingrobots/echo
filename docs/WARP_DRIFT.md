@@ -149,6 +149,14 @@ to:
 - explicit revalidation/conflict when the parent moves inside an owned
   footprint
 
+Implementation note: the first runtime slice now exposes this distinction via
+`Strand::live_basis_report(...)` and settlement conflict reasons for disjoint
+parent drift versus owned-footprint overlap. That slice is intentionally
+conservative: disjoint parent drift is semantically clean, but current
+settlement import still cannot append the correct target-local state root. The
+active decision/implementation plan is
+[0010 — Live-basis settlement correction plan](./design/0010-live-basis-settlement-plan/design.md).
+
 ### Second: define observer plans and reading artifacts explicitly
 
 Echo should expose the read side as:
@@ -189,6 +197,7 @@ Relevant existing design context:
 - [0004 — Strand contract](./design/0004-strand-contract/design.md)
 - [0008 — Strand settlement](./design/0008-strand-settlement/design.md)
 - [0009 — Witnessed causal suffix sync](./design/0009-witnessed-causal-suffix-sync/design.md)
+- [0010 — Live-basis settlement correction plan](./design/0010-live-basis-settlement-plan/design.md)
 - [0006 — Echo Continuum alignment](./design/0006-echo-continuum-alignment/design.md)
 
 ## Practical rule

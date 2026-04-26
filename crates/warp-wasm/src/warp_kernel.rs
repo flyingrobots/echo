@@ -641,12 +641,12 @@ mod tests {
         pack_control_intent_v1, pack_intent_v1,
     };
     use warp_core::{
-        compute_commit_hash_v2, make_head_id, make_node_id, make_strand_id, make_type_id,
-        make_warp_id, materialization::make_channel_id, BaseRef, GlobalTick, GraphStore,
-        HashTriplet, InboxPolicy, NodeKey, NodeRecord, PlaybackMode, ProvenanceEntry,
-        ProvenanceService, ProvenanceStore, SlotId, Strand, StrandId, TickCommitStatus, WarpOp,
-        WarpTickPatchV1, WorldlineRuntime, WorldlineState, WorldlineTick, WorldlineTickHeaderV1,
-        WorldlineTickPatchV1, WriterHead, WriterHeadKey,
+        compute_commit_hash_v2, make_edge_id, make_head_id, make_node_id, make_strand_id,
+        make_type_id, make_warp_id, materialization::make_channel_id, BaseRef, EdgeRecord,
+        GlobalTick, GraphStore, HashTriplet, InboxPolicy, NodeKey, NodeRecord, PlaybackMode,
+        ProvenanceEntry, ProvenanceService, ProvenanceStore, SlotId, Strand, StrandId,
+        TickCommitStatus, WarpOp, WarpTickPatchV1, WorldlineRuntime, WorldlineState, WorldlineTick,
+        WorldlineTickHeaderV1, WorldlineTickPatchV1, WriterHead, WriterHeadKey,
     };
 
     fn start_until_idle(kernel: &mut WarpKernel, cycle_limit: Option<u32>) -> DispatchResponse {
@@ -760,18 +760,34 @@ mod tests {
             warp_id: root.warp_id,
             local_id: make_node_id(label),
         };
+        let edge_id = make_edge_id(&format!("root-to-{label}"));
+        let edge = warp_core::EdgeKey {
+            warp_id: root.warp_id,
+            local_id: edge_id,
+        };
         let replay_patch = WarpTickPatchV1::new(
             warp_core::POLICY_ID_NO_POLICY_V0,
             warp_core::blake3_empty(),
             TickCommitStatus::Committed,
-            Vec::new(),
-            vec![SlotId::Node(node)],
-            vec![WarpOp::UpsertNode {
-                node,
-                record: NodeRecord {
-                    ty: make_type_id("settlement-node"),
+            vec![SlotId::Node(root)],
+            vec![SlotId::Node(node), SlotId::Edge(edge)],
+            vec![
+                WarpOp::UpsertNode {
+                    node,
+                    record: NodeRecord {
+                        ty: make_type_id("settlement-node"),
+                    },
                 },
-            }],
+                WarpOp::UpsertEdge {
+                    warp_id: root.warp_id,
+                    record: EdgeRecord {
+                        id: edge_id,
+                        from: root.local_id,
+                        to: node.local_id,
+                        ty: make_type_id("settlement-edge"),
+                    },
+                },
+            ],
         );
         WorldlineTickPatchV1 {
             header: WorldlineTickHeaderV1 {
@@ -1315,7 +1331,7 @@ mod tests {
     }
 
     #[test]
-    fn settlement_publication_returns_conflict_when_base_diverged() {
+    fn settlement_publication_imports_when_parent_advanced_disjoint() {
         let mut kernel = WarpKernel::new().unwrap();
         let (runtime, provenance, strand_id, base_worldline, _) = setup_runtime_with_strand(true);
         kernel.runtime = runtime;
@@ -1328,14 +1344,12 @@ mod tests {
         let plan = kernel.plan_settlement(request.clone()).unwrap();
         assert!(matches!(
             &plan.decisions[0],
-            AbiSettlementDecision::ConflictArtifact { artifact }
-                if artifact.reason
-                    == echo_wasm_abi::kernel_port::ConflictReason::BaseDivergence
+            AbiSettlementDecision::ImportCandidate { .. }
         ));
 
         let result = kernel.settle_strand(request).unwrap();
-        assert!(result.appended_imports.is_empty());
-        assert_eq!(result.appended_conflicts.len(), 1);
+        assert_eq!(result.appended_imports.len(), 1);
+        assert!(result.appended_conflicts.is_empty());
     }
 
     #[test]

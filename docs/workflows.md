@@ -11,7 +11,8 @@ This doc is the “official workflow index” for Echo: how we work, what invari
 
 ## Session Workflow
 
-- Record architectural decisions in ADRs (`docs/adr/`) or PR descriptions.
+- Record architectural decisions in active design packets (`docs/design/`),
+  ADR history (`docs/adr/`), or PR descriptions.
 - Before opening a PR, run the validation workflow below.
 
 ---
@@ -28,7 +29,26 @@ This doc is the “official workflow index” for Echo: how we work, what invari
 
 ## Validation Workflow
 
-Common checks:
+Local iteration should start with the narrowest target that proves the changed
+surface. Prefer the repo-owned slices below before reaching for broad Cargo
+filters:
+
+```sh
+cargo xtask test-slice strand
+cargo xtask test-slice settlement
+cargo xtask test-slice observation
+cargo xtask test-slice neighborhood
+cargo xtask test-slice warp-core-smoke
+```
+
+Why this matters: `cargo test -p warp-core settlement` still compiles and
+launches every `crates/warp-core/tests/*.rs` integration-test target before
+applying the runtime filter. That makes narrow runtime work pay for unrelated
+test binaries and stale fixtures. The `test-slice` commands use exact Cargo
+target selection such as `--lib settlement::tests` or
+`--test strand_contract_tests`.
+
+Checkpoint checks:
 
 ```sh
 cargo fmt --all
@@ -73,6 +93,11 @@ The repo also exposes maintenance commands via `cargo xtask …`:
 - `cargo xtask pr-threads reply 123456789 --selector 306 --body-file /tmp/reply.md` targets an explicit PR when the review comment belongs to another repo/PR context.
 - `cargo xtask pr-threads resolve --all --selector 306 --yes` resolves all unresolved review threads for a PR after you have verified the fix batch.
 - `cargo xtask pr-threads resolve --yes THREAD_ID_A THREAD_ID_B` resolves explicit GitHub review thread ids when you already know the targets.
+- `cargo xtask test-slice strand` runs the strand contract/live-basis slice with exact Cargo target selection.
+- `cargo xtask test-slice settlement` runs only `warp-core` settlement module unit tests via `--lib`.
+- `cargo xtask test-slice observation` runs only `warp-core` observation module unit tests via `--lib`.
+- `cargo xtask test-slice neighborhood` runs only `warp-core` neighborhood module unit tests via `--lib`.
+- `cargo xtask test-slice warp-core-smoke` runs the `warp-core` lib tests plus the strand integration target without launching every integration-test binary.
 - `cargo xtask pr-preflight` runs the default changed-scope pre-PR gate against `origin/main`.
 - `cargo xtask pr-preflight --full` runs the broader explicit full pre-PR gate.
 - `cargo xtask dind` runs the DIND (Deterministic Ironclad Nightmare Drills) harness locally.

@@ -15,7 +15,9 @@ use crate::provenance_store::{
     ProvenanceEventKind, ProvenanceRef, ProvenanceService, ProvenanceStore,
 };
 use crate::snapshot::{compute_commit_hash_v2, compute_state_root_for_warp_state};
-use crate::strand::{StrandId, StrandRegistry};
+use crate::strand::{
+    StrandBasisReport, StrandError, StrandId, StrandRegistry, StrandRevalidationState,
+};
 use crate::tick_patch::{TickCommitStatus, WarpTickPatchV1};
 use crate::worldline::{
     ApplyError, HashTriplet, WorldlineId, WorldlineTickHeaderV1, WorldlineTickPatchV1,
@@ -32,6 +34,8 @@ pub enum ConflictReason {
     UnsupportedImport,
     /// The base worldline advanced away from the strand's recorded fork coordinate.
     BaseDivergence,
+    /// Parent movement overlaps the strand-owned closed footprint.
+    ParentFootprintOverlap,
     /// The source and target lanes disagree on time-quantum assumptions.
     QuantumMismatch,
 }
@@ -42,7 +46,8 @@ impl ConflictReason {
             Self::ChannelPolicyConflict => 1,
             Self::UnsupportedImport => 2,
             Self::BaseDivergence => 3,
-            Self::QuantumMismatch => 4,
+            Self::ParentFootprintOverlap => 4,
+            Self::QuantumMismatch => 5,
         }
     }
 
@@ -51,6 +56,7 @@ impl ConflictReason {
             Self::ChannelPolicyConflict => abi::ConflictReason::ChannelPolicyConflict,
             Self::UnsupportedImport => abi::ConflictReason::UnsupportedImport,
             Self::BaseDivergence => abi::ConflictReason::BaseDivergence,
+            Self::ParentFootprintOverlap => abi::ConflictReason::ParentFootprintOverlap,
             Self::QuantumMismatch => abi::ConflictReason::QuantumMismatch,
         }
     }
@@ -71,6 +77,8 @@ pub struct SettlementDelta {
     pub source_suffix_end_tick: WorldlineTick,
     /// Authoritative source provenance refs in settlement order.
     pub source_entries: Vec<ProvenanceRef>,
+    /// Basis-relative report for this strand against current parent history.
+    pub basis_report: StrandBasisReport,
 }
 
 impl SettlementDelta {
@@ -102,6 +110,8 @@ pub struct SettlementPlan {
     pub target_worldline: WorldlineId,
     /// Provenance coordinate the strand claims as its base.
     pub target_base_ref: ProvenanceRef,
+    /// Basis-relative report used while producing this plan.
+    pub basis_report: StrandBasisReport,
     /// Ordered import or conflict decisions for the suffix.
     pub decisions: Vec<SettlementDecision>,
 }
@@ -154,6 +164,8 @@ pub struct ImportCandidate {
     pub source_head_key: Option<crate::head::WriterHeadKey>,
     /// Stable imported operation identifier.
     pub imported_op_id: Hash,
+    /// Target-local state root expected after replaying this import.
+    pub target_expected_state_root: Hash,
 }
 
 impl ImportCandidate {
@@ -307,6 +319,9 @@ pub enum SettlementError {
     /// Wrapped replay-artifact reconstruction error.
     #[error(transparent)]
     Replay(#[from] crate::provenance_store::ReplayError),
+    /// Strand live-basis analysis failed.
+    #[error(transparent)]
+    StrandBasis(#[from] StrandError),
 }
 
 /// Deterministic base-worldline settlement service.
@@ -336,6 +351,7 @@ impl SettlementService {
         )?;
         let source_len =
             ensure_frontier_matches_provenance(runtime, provenance, strand.child_worldline_id)?;
+        let basis_report = strand.live_basis_report(provenance)?;
         let source_suffix_start_tick = strand
             .base_ref
             .fork_tick
@@ -359,6 +375,7 @@ impl SettlementService {
             source_suffix_start_tick,
             source_suffix_end_tick,
             source_entries,
+            basis_report,
         })
     }
 
@@ -379,6 +396,11 @@ impl SettlementService {
             .checked_increment()
             .ok_or(SettlementError::ForkTickOverflow(strand_id))?;
         let target_tip = provenance.tip_ref(target_worldline)?;
+        let basis_conflict_reason = settlement_basis_conflict_reason(&delta.basis_report);
+        let parent_at_anchor = matches!(
+            delta.basis_report.parent_revalidation,
+            StrandRevalidationState::AtAnchor
+        );
 
         let mut decisions = Vec::new();
         let mut simulated = runtime
@@ -393,8 +415,11 @@ impl SettlementService {
             let source_entry =
                 provenance.entry(delta.source_worldline_id, source_ref.worldline_tick)?;
             let reason = blocked_reason.or_else(|| {
-                if target_frontier_tick != expected_target_tick
-                    || target_tip != Some(strand.base_ref.provenance_ref)
+                if let Some(reason) = basis_conflict_reason {
+                    Some(reason)
+                } else if parent_at_anchor
+                    && (target_frontier_tick != expected_target_tick
+                        || target_tip != Some(strand.base_ref.provenance_ref))
                 {
                     Some(ConflictReason::BaseDivergence)
                 } else if !matches!(source_entry.event_kind, ProvenanceEventKind::LocalCommit) {
@@ -436,7 +461,7 @@ impl SettlementService {
 
             let actual_state_root =
                 compute_state_root_for_warp_state(simulated.warp_state(), simulated.root());
-            if actual_state_root != source_entry.expected.state_root {
+            if parent_at_anchor && actual_state_root != source_entry.expected.state_root {
                 blocked_reason = Some(ConflictReason::UnsupportedImport);
                 decisions.push(SettlementDecision::ConflictArtifact(conflict_draft(
                     target_worldline,
@@ -450,6 +475,7 @@ impl SettlementService {
                 source_ref: source_entry.as_ref(),
                 source_head_key: source_entry.head_key,
                 imported_op_id: source_entry.expected.commit_hash,
+                target_expected_state_root: actual_state_root,
             }));
         }
 
@@ -457,6 +483,7 @@ impl SettlementService {
             strand_id,
             target_worldline,
             target_base_ref: strand.base_ref.provenance_ref,
+            basis_report: delta.basis_report,
             decisions,
         })
     }
@@ -553,6 +580,16 @@ fn ensure_frontier_matches_provenance(
     Ok(frontier_tick)
 }
 
+fn settlement_basis_conflict_reason(report: &StrandBasisReport) -> Option<ConflictReason> {
+    match &report.parent_revalidation {
+        StrandRevalidationState::AtAnchor
+        | StrandRevalidationState::ParentAdvancedDisjoint { .. } => None,
+        StrandRevalidationState::RevalidationRequired { .. } => {
+            Some(ConflictReason::ParentFootprintOverlap)
+        }
+    }
+}
+
 fn append_import_candidate(
     runtime: &mut WorldlineRuntime,
     provenance: &mut ProvenanceService,
@@ -583,7 +620,7 @@ fn append_import_candidate(
                 op_id: candidate.imported_op_id,
             },
             patch: imported_patch,
-            expected_state_root: source_entry.expected.state_root,
+            expected_state_root: candidate.target_expected_state_root,
             outputs: source_entry.outputs.clone(),
             atom_writes: source_entry.atom_writes.clone(),
             source_ref: Some(candidate.source_ref),
@@ -800,9 +837,9 @@ mod tests {
 
     use crate::head::{make_head_id, WriterHead, WriterHeadKey};
     use crate::head_inbox::InboxPolicy;
-    use crate::ident::{make_node_id, make_type_id};
+    use crate::ident::{make_edge_id, make_node_id, make_type_id};
     use crate::playback::PlaybackMode;
-    use crate::record::NodeRecord;
+    use crate::record::{EdgeRecord, NodeRecord};
     use crate::strand::{BaseRef, Strand};
     use crate::tick_patch::{SlotId, WarpOp};
     use crate::{GraphStore, WorldlineState};
@@ -899,18 +936,34 @@ mod tests {
             warp_id: root.warp_id,
             local_id: make_node_id(label),
         };
+        let edge_id = make_edge_id(&format!("root-to-{label}"));
+        let edge = crate::ident::EdgeKey {
+            warp_id: root.warp_id,
+            local_id: edge_id,
+        };
         let replay_patch = WarpTickPatchV1::new(
             crate::POLICY_ID_NO_POLICY_V0,
             crate::blake3_empty(),
             TickCommitStatus::Committed,
-            Vec::new(),
-            vec![SlotId::Node(node)],
-            vec![WarpOp::UpsertNode {
-                node,
-                record: NodeRecord {
-                    ty: make_type_id("settlement-node"),
+            vec![SlotId::Node(root)],
+            vec![SlotId::Node(node), SlotId::Edge(edge)],
+            vec![
+                WarpOp::UpsertNode {
+                    node,
+                    record: NodeRecord {
+                        ty: make_type_id("settlement-node"),
+                    },
                 },
-            }],
+                WarpOp::UpsertEdge {
+                    warp_id: root.warp_id,
+                    record: EdgeRecord {
+                        id: edge_id,
+                        from: root.local_id,
+                        to: node.local_id,
+                        ty: make_type_id("settlement-edge"),
+                    },
+                },
+            ],
         );
         WorldlineTickPatchV1 {
             header: WorldlineTickHeaderV1 {
@@ -929,8 +982,15 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Copy)]
+    enum ParentDrift {
+        None,
+        Disjoint,
+        Overlap,
+    }
+
     fn setup_runtime_with_strand(
-        base_diverged: bool,
+        parent_drift: ParentDrift,
     ) -> (
         WorldlineRuntime,
         ProvenanceService,
@@ -1000,12 +1060,17 @@ mod tests {
         };
         runtime.register_strand(strand).unwrap();
 
-        if base_diverged {
+        let parent_drift_label = match parent_drift {
+            ParentDrift::None => None,
+            ParentDrift::Disjoint => Some("base-diverged"),
+            ParentDrift::Overlap => Some("child-node"),
+        };
+        if let Some(parent_drift_label) = parent_drift_label {
             let diverged_head = WriterHeadKey {
                 worldline_id: base_worldline,
                 head_id: make_head_id("base-head"),
             };
-            let diverged_patch = node_upsert_patch(&base_state, "base-diverged", gt(2));
+            let diverged_patch = node_upsert_patch(&base_state, parent_drift_label, gt(2));
             let entry = append_local_patch(
                 &mut base_state,
                 &mut provenance,
@@ -1086,7 +1151,7 @@ mod tests {
     #[test]
     fn settlement_imports_child_suffix_into_base_worldline() {
         let (mut runtime, mut provenance, strand_id, base_worldline, _) =
-            setup_runtime_with_strand(false);
+            setup_runtime_with_strand(ParentDrift::None);
 
         let plan = SettlementService::plan(&runtime, &provenance, strand_id).unwrap();
         assert_eq!(plan.decisions.len(), 1);
@@ -1132,36 +1197,34 @@ mod tests {
     }
 
     #[test]
-    fn settlement_records_conflict_artifact_when_base_diverged() {
-        let (mut runtime, mut provenance, strand_id, base_worldline, _) =
-            setup_runtime_with_strand(true);
-        let state_root_before = runtime
-            .worldlines()
-            .get(&base_worldline)
-            .unwrap()
-            .state()
-            .state_root();
+    fn settlement_imports_child_suffix_when_parent_advanced_disjoint() {
+        let (mut runtime, mut provenance, strand_id, base_worldline, child_worldline) =
+            setup_runtime_with_strand(ParentDrift::Disjoint);
+        let source_entry = provenance.entry(child_worldline, wt(1)).unwrap();
 
         let plan = SettlementService::plan(&runtime, &provenance, strand_id).unwrap();
         assert_eq!(plan.decisions.len(), 1);
-        assert!(matches!(
-            &plan.decisions[0],
-            SettlementDecision::ConflictArtifact(ConflictArtifactDraft {
-                reason: ConflictReason::BaseDivergence,
-                ..
-            })
-        ));
+        let SettlementDecision::ImportCandidate(candidate) = &plan.decisions[0] else {
+            panic!("expected disjoint parent drift to plan a target-local import");
+        };
+        assert_ne!(
+            candidate.target_expected_state_root,
+            source_entry.expected.state_root
+        );
 
         let result = SettlementService::settle(&mut runtime, &mut provenance, strand_id).unwrap();
-        assert!(result.appended_imports.is_empty());
-        assert_eq!(result.appended_conflicts.len(), 1);
+        assert_eq!(result.appended_imports.len(), 1);
+        assert!(result.appended_conflicts.is_empty());
 
-        let conflict = provenance.entry(base_worldline, wt(2)).unwrap();
+        let imported = provenance.entry(base_worldline, wt(2)).unwrap();
         assert!(matches!(
-            conflict.event_kind,
-            ProvenanceEventKind::ConflictArtifact { .. }
+            imported.event_kind,
+            ProvenanceEventKind::MergeImport { .. }
         ));
-        assert_eq!(conflict.expected.state_root, state_root_before);
+        assert_ne!(
+            imported.expected.state_root,
+            source_entry.expected.state_root
+        );
         assert_eq!(
             runtime
                 .worldlines()
@@ -1170,5 +1233,47 @@ mod tests {
                 .frontier_tick(),
             wt(3)
         );
+        let root_warp = runtime
+            .worldlines()
+            .get(&base_worldline)
+            .unwrap()
+            .state()
+            .root()
+            .warp_id;
+        for label in ["base-diverged", "child-node"] {
+            let node_id = make_node_id(label);
+            assert!(runtime
+                .worldlines()
+                .get(&base_worldline)
+                .unwrap()
+                .state()
+                .store(&root_warp)
+                .unwrap()
+                .node(&node_id)
+                .is_some());
+        }
+    }
+
+    #[test]
+    fn settlement_records_conflict_artifact_when_parent_overlaps_child_footprint() {
+        let (runtime, provenance, strand_id, _, _) =
+            setup_runtime_with_strand(ParentDrift::Overlap);
+
+        let plan = SettlementService::plan(&runtime, &provenance, strand_id).unwrap();
+        assert_eq!(plan.decisions.len(), 1);
+        assert!(matches!(
+            &plan.basis_report.parent_revalidation,
+            StrandRevalidationState::RevalidationRequired {
+                overlapping_slots,
+                ..
+            } if !overlapping_slots.is_empty()
+        ));
+        assert!(matches!(
+            &plan.decisions[0],
+            SettlementDecision::ConflictArtifact(ConflictArtifactDraft {
+                reason: ConflictReason::ParentFootprintOverlap,
+                ..
+            })
+        ));
     }
 }

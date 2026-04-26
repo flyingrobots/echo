@@ -33,6 +33,7 @@ use thiserror::Error;
 use crate::clock::WorldlineTick;
 use crate::ident::Hash;
 use crate::provenance_store::{ProvenanceRef, ProvenanceService, ProvenanceStore};
+use crate::tick_patch::SlotId;
 use crate::worldline::WorldlineId;
 
 use crate::head::WriterHeadKey;
@@ -144,6 +145,238 @@ pub struct Strand {
     pub support_pins: Vec<SupportPin>,
 }
 
+impl Strand {
+    /// Builds a basis-relative report for this strand against current parent history.
+    ///
+    /// The report is the first live-strand seam: the strand still records an
+    /// immutable fork anchor, but realization is evaluated against the current
+    /// parent basis. Parent movement outside the strand-owned closed footprint
+    /// can flow through; parent writes into that footprint require explicit
+    /// revalidation before callers treat the realization as clean.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StrandError`] when provenance is unavailable or the fork tick
+    /// cannot be advanced to the suffix start coordinate.
+    pub fn live_basis_report<P: ProvenanceStore>(
+        &self,
+        provenance: &P,
+    ) -> Result<StrandBasisReport, StrandError> {
+        let suffix_start = self
+            .base_ref
+            .fork_tick
+            .checked_increment()
+            .ok_or(StrandError::ForkTickOverflow(self.strand_id))?;
+        let child_len = history_len(provenance, self.child_worldline_id)?;
+        let parent_len = history_len(provenance, self.base_ref.source_worldline_id)?;
+
+        if child_len < suffix_start {
+            return Err(StrandError::Provenance(format!(
+                "child worldline {:?} is shorter than strand suffix start {}",
+                self.child_worldline_id, suffix_start
+            )));
+        }
+        if parent_len < suffix_start {
+            return Err(StrandError::Provenance(format!(
+                "parent worldline {:?} is shorter than strand anchor successor {}",
+                self.base_ref.source_worldline_id, suffix_start
+            )));
+        }
+
+        let owned_divergence = collect_divergence_footprint(
+            provenance,
+            self.child_worldline_id,
+            suffix_start,
+            child_len,
+        )?;
+        let parent_movement = collect_parent_movement(
+            provenance,
+            self.base_ref.source_worldline_id,
+            suffix_start,
+            parent_len,
+        )?;
+        let realized_parent_ref =
+            tip_ref_at_len(provenance, self.base_ref.source_worldline_id, parent_len)?
+                .unwrap_or(self.base_ref.provenance_ref);
+        let source_suffix_end_tick = last_tick_before(child_len);
+        let parent_revalidation = if parent_len == suffix_start {
+            StrandRevalidationState::AtAnchor
+        } else {
+            let overlapping_slots = owned_divergence.overlapping_parent_writes(&parent_movement);
+            if overlapping_slots.is_empty() {
+                StrandRevalidationState::ParentAdvancedDisjoint {
+                    parent_from: self.base_ref.provenance_ref,
+                    parent_to: realized_parent_ref,
+                }
+            } else {
+                StrandRevalidationState::RevalidationRequired {
+                    parent_from: self.base_ref.provenance_ref,
+                    parent_to: realized_parent_ref,
+                    overlapping_slots,
+                }
+            }
+        };
+
+        Ok(StrandBasisReport {
+            strand_id: self.strand_id,
+            parent_anchor: self.base_ref,
+            child_worldline_id: self.child_worldline_id,
+            source_suffix_start_tick: suffix_start,
+            source_suffix_end_tick,
+            realized_parent_ref,
+            owned_divergence,
+            parent_movement,
+            parent_revalidation,
+        })
+    }
+}
+
+/// Closed optic footprint owned by a strand's local divergence.
+///
+/// The write set records slots the child suffix produced. The read set records
+/// slots the child suffix depended on. The closed footprint is the union of both:
+/// parent writes into either side require revalidation because the speculative
+/// realization may no longer be basis-clean.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StrandDivergenceFootprint {
+    read_slots: BTreeSet<SlotId>,
+    write_slots: BTreeSet<SlotId>,
+}
+
+impl StrandDivergenceFootprint {
+    /// Records one replay patch as part of the strand-owned divergence.
+    pub fn extend_patch(&mut self, patch: &crate::worldline::WorldlineTickPatchV1) {
+        self.read_slots.extend(patch.in_slots.iter().copied());
+        self.write_slots.extend(patch.out_slots.iter().copied());
+    }
+
+    /// Returns the number of unique slots in the closed footprint.
+    #[must_use]
+    pub fn closed_len(&self) -> usize {
+        self.closed_slots().len()
+    }
+
+    /// Returns `true` when the closed footprint is empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.read_slots.is_empty() && self.write_slots.is_empty()
+    }
+
+    /// Returns `true` when `slot` is in the closed read-or-write footprint.
+    #[must_use]
+    pub fn contains_closed(&self, slot: &SlotId) -> bool {
+        self.read_slots.contains(slot) || self.write_slots.contains(slot)
+    }
+
+    /// Returns read slots in deterministic order.
+    pub fn read_slots(&self) -> impl Iterator<Item = &SlotId> {
+        self.read_slots.iter()
+    }
+
+    /// Returns write slots in deterministic order.
+    pub fn write_slots(&self) -> impl Iterator<Item = &SlotId> {
+        self.write_slots.iter()
+    }
+
+    fn closed_slots(&self) -> BTreeSet<SlotId> {
+        self.read_slots.union(&self.write_slots).copied().collect()
+    }
+
+    fn overlapping_parent_writes(&self, parent_movement: &ParentMovementFootprint) -> Vec<SlotId> {
+        parent_movement
+            .write_slots
+            .iter()
+            .filter(|slot| self.contains_closed(slot))
+            .copied()
+            .collect()
+    }
+}
+
+/// Parent movement after a strand's anchor coordinate.
+///
+/// v1 tracks parent writes because parent writes into the strand-owned
+/// divergence footprint are the condition that forces revalidation.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ParentMovementFootprint {
+    write_slots: BTreeSet<SlotId>,
+}
+
+impl ParentMovementFootprint {
+    /// Records one parent replay patch as movement after the strand anchor.
+    pub fn extend_patch(&mut self, patch: &crate::worldline::WorldlineTickPatchV1) {
+        self.write_slots.extend(patch.out_slots.iter().copied());
+    }
+
+    /// Returns `true` when no parent writes were observed after the anchor.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.write_slots.is_empty()
+    }
+
+    /// Returns the number of unique parent-written slots after the anchor.
+    #[must_use]
+    pub fn write_len(&self) -> usize {
+        self.write_slots.len()
+    }
+
+    /// Returns `true` when the parent wrote `slot` after the anchor.
+    #[must_use]
+    pub fn contains_write(&self, slot: &SlotId) -> bool {
+        self.write_slots.contains(slot)
+    }
+
+    /// Returns parent-written slots in deterministic order.
+    pub fn write_slots(&self) -> impl Iterator<Item = &SlotId> {
+        self.write_slots.iter()
+    }
+}
+
+/// Parent-basis posture for a live strand realization.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StrandRevalidationState {
+    /// The parent has not advanced beyond the strand's anchor coordinate.
+    AtAnchor,
+    /// The parent advanced, but its writes did not touch the strand-owned footprint.
+    ParentAdvancedDisjoint {
+        /// Anchor coordinate from which the strand diverged.
+        parent_from: ProvenanceRef,
+        /// Current parent basis used for realization.
+        parent_to: ProvenanceRef,
+    },
+    /// The parent advanced into the strand-owned footprint.
+    RevalidationRequired {
+        /// Anchor coordinate from which the strand diverged.
+        parent_from: ProvenanceRef,
+        /// Current parent basis that must be checked.
+        parent_to: ProvenanceRef,
+        /// Parent-written slots that overlap the strand-owned closed footprint.
+        overlapping_slots: Vec<SlotId>,
+    },
+}
+
+/// Basis-relative realization report for one live strand.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StrandBasisReport {
+    /// Strand being reported.
+    pub strand_id: StrandId,
+    /// Immutable parent anchor recorded at strand creation.
+    pub parent_anchor: BaseRef,
+    /// Child worldline currently carrying local divergence.
+    pub child_worldline_id: WorldlineId,
+    /// First child tick after the anchor.
+    pub source_suffix_start_tick: WorldlineTick,
+    /// Last child suffix tick, or `None` when the strand has no local suffix yet.
+    pub source_suffix_end_tick: Option<WorldlineTick>,
+    /// Current parent coordinate against which this strand can be realized.
+    pub realized_parent_ref: ProvenanceRef,
+    /// Closed footprint owned by the child suffix.
+    pub owned_divergence: StrandDivergenceFootprint,
+    /// Parent writes after the strand anchor.
+    pub parent_movement: ParentMovementFootprint,
+    /// Revalidation state induced by parent movement.
+    pub parent_revalidation: StrandRevalidationState,
+}
+
 /// Errors that can occur during strand operations.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum StrandError {
@@ -171,6 +404,10 @@ pub enum StrandError {
     /// A provenance operation failed during strand creation or drop.
     #[error("provenance error: {0}")]
     Provenance(String),
+
+    /// The strand fork coordinate cannot advance to a suffix start tick.
+    #[error("fork tick overflow for strand {0:?}")]
+    ForkTickOverflow(StrandId),
 
     /// A support pin targeted a strand that is not live in the registry.
     #[error("support pin target strand not found: {0:?}")]
@@ -223,6 +460,70 @@ pub enum StrandError {
     /// A contract invariant was violated.
     #[error("invariant violation: {0}")]
     InvariantViolation(&'static str),
+}
+
+fn history_len<P: ProvenanceStore>(
+    provenance: &P,
+    worldline_id: WorldlineId,
+) -> Result<WorldlineTick, StrandError> {
+    provenance
+        .len(worldline_id)
+        .map(WorldlineTick::from_raw)
+        .map_err(|err| StrandError::Provenance(err.to_string()))
+}
+
+fn tip_ref_at_len<P: ProvenanceStore>(
+    provenance: &P,
+    worldline_id: WorldlineId,
+    len: WorldlineTick,
+) -> Result<Option<ProvenanceRef>, StrandError> {
+    let Some(tip_tick) = last_tick_before(len) else {
+        return Ok(None);
+    };
+    provenance
+        .entry(worldline_id, tip_tick)
+        .map(|entry| Some(entry.as_ref()))
+        .map_err(|err| StrandError::Provenance(err.to_string()))
+}
+
+fn last_tick_before(len: WorldlineTick) -> Option<WorldlineTick> {
+    len.checked_sub(1)
+}
+
+fn collect_divergence_footprint<P: ProvenanceStore>(
+    provenance: &P,
+    worldline_id: WorldlineId,
+    start_tick: WorldlineTick,
+    end_tick: WorldlineTick,
+) -> Result<StrandDivergenceFootprint, StrandError> {
+    let mut footprint = StrandDivergenceFootprint::default();
+    for raw_tick in start_tick.as_u64()..end_tick.as_u64() {
+        let entry = provenance
+            .entry(worldline_id, WorldlineTick::from_raw(raw_tick))
+            .map_err(|err| StrandError::Provenance(err.to_string()))?;
+        if let Some(patch) = entry.patch.as_ref() {
+            footprint.extend_patch(patch);
+        }
+    }
+    Ok(footprint)
+}
+
+fn collect_parent_movement<P: ProvenanceStore>(
+    provenance: &P,
+    worldline_id: WorldlineId,
+    start_tick: WorldlineTick,
+    end_tick: WorldlineTick,
+) -> Result<ParentMovementFootprint, StrandError> {
+    let mut movement = ParentMovementFootprint::default();
+    for raw_tick in start_tick.as_u64()..end_tick.as_u64() {
+        let entry = provenance
+            .entry(worldline_id, WorldlineTick::from_raw(raw_tick))
+            .map_err(|err| StrandError::Provenance(err.to_string()))?;
+        if let Some(patch) = entry.patch.as_ref() {
+            movement.extend_patch(patch);
+        }
+    }
+    Ok(movement)
 }
 
 /// Session-scoped registry of live strands.

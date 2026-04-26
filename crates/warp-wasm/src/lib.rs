@@ -7,7 +7,7 @@
 //! implementation. The boundary is app-agnostic: any kernel that implements
 //! the trait can be installed via [`install_kernel`].
 //!
-//! # ABI Contract (v3)
+//! # ABI Contract (v4)
 //!
 //! All exports return CBOR-encoded bytes wrapped in a success/error envelope:
 //! - Success: `{ "ok": true, ...response_fields }`

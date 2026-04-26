@@ -6,6 +6,7 @@
 Depends on:
 
 - [KERNEL_live-holographic-strands](../asap/KERNEL_live-holographic-strands.md)
+- [0010 — Live-basis settlement correction plan](../../../design/0010-live-basis-settlement-plan/design.md)
 
 ## Why now
 
@@ -37,6 +38,18 @@ two bad outcomes:
     - explicit conflict
 - the revalidation state is inspectable and not just an internal retry loop
 
+## Current implementation consequence
+
+The runtime can now distinguish the two parent-drift classes, but settlement
+still handles overlap conservatively:
+
+- parent movement outside the owned footprint plans a target-local import
+  candidate
+- parent movement inside the owned footprint maps to `ParentFootprintOverlap`
+
+Owned-footprint overlap still needs an explicit revalidation artifact that can
+resolve to clean, obstructed, or conflict.
+
 ## Done looks like
 
 - one strand/runtime packet states the revalidation law explicitly
@@ -54,4 +67,5 @@ two bad outcomes:
 - `docs/WARP_DRIFT.md`
 - `docs/design/0004-strand-contract/design.md`
 - `docs/design/0008-strand-settlement/design.md`
+- `docs/design/0010-live-basis-settlement-plan/design.md`
 - `crates/warp-core/src/strand.rs`

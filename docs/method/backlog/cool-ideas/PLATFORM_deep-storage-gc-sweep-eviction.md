@@ -2,6 +2,12 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 > **Milestone:** Deep Storage | **Priority:** P2
+>
+> Status: active cool idea. `crates/echo-cas` currently has synchronous
+> `BlobStore` and in-memory `MemoryTier` only; no `DiskTier`, `TieredStore`,
+> listing/metadata API, deletion path, `GcSweep`, `EvictionPolicy`, or
+> `GcRunner` exists yet. This remains operational as the GC follow-up after
+> disk tier and enumeration support land.
 
 # GC Sweep & Eviction
 

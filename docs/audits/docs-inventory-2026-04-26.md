@@ -869,3 +869,43 @@ audit records rather than rewritten.
 | filepath                                                            | description                             | score | decision          | new filepath                                                        | remarks                                                                                                                                                                                                                                 |
 | ------------------------------------------------------------------- | --------------------------------------- | ----- | ----------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `docs/method/backlog/cool-ideas/PLATFORM_deep-storage-disk-tier.md` | Active echo-cas disk tier backlog item. | `3/5` | Keep and correct. | `docs/method/backlog/cool-ideas/PLATFORM_deep-storage-disk-tier.md` | `crates/echo-cas` is still memory-only: synchronous `BlobStore` and `MemoryTier` exist, but no `DiskTier`, `TieredStore`, file layout, promotion/demotion path, or disk persistence tests exist. Added explicit current-status framing. |
+
+---
+
+## docs/method/backlog/cool-ideas/PLATFORM_deep-storage-gc-sweep-eviction.md
+
+| filepath                                                                    | description                               | score | decision          | new filepath                                                                | remarks                                                                                                                                                                                                                                  |
+| --------------------------------------------------------------------------- | ----------------------------------------- | ----- | ----------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/backlog/cool-ideas/PLATFORM_deep-storage-gc-sweep-eviction.md` | Active echo-cas GC/eviction backlog item. | `3/5` | Keep and correct. | `docs/method/backlog/cool-ideas/PLATFORM_deep-storage-gc-sweep-eviction.md` | `crates/echo-cas` has synchronous `BlobStore` and `MemoryTier` only; no `DiskTier`, `TieredStore`, listing/metadata API, deletion path, `GcSweep`, `EvictionPolicy`, or `GcRunner` exists yet. Added explicit dependency/status framing. |
+
+---
+
+## docs/method/backlog/cool-ideas/PLATFORM_deep-storage-wire-protocol.md
+
+| filepath                                                                | description                                 | score | decision          | new filepath                                                            | remarks                                                                                                                                                                                                                   |
+| ----------------------------------------------------------------------- | ------------------------------------------- | ----- | ----------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/backlog/cool-ideas/PLATFORM_deep-storage-wire-protocol.md` | Active echo-cas wire protocol backlog item. | `3/5` | Keep and correct. | `docs/method/backlog/cool-ideas/PLATFORM_deep-storage-wire-protocol.md` | `crates/echo-cas` is still local memory-only storage; no deep-storage wire message types, codec golden vectors, `BlobExchange` state machine, or network transfer path exists yet. Added explicit current-status framing. |
+
+---
+
+## docs/method/backlog/cool-ideas/PLATFORM_method-crate-extract.md
+
+| filepath                                                          | description                              | score | decision          | new filepath                                                      | remarks                                                                                                                                                                                                                                            |
+| ----------------------------------------------------------------- | ---------------------------------------- | ----- | ----------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/backlog/cool-ideas/PLATFORM_method-crate-extract.md` | Active Method crate extraction decision. | `3/5` | Keep and correct. | `docs/method/backlog/cool-ideas/PLATFORM_method-crate-extract.md` | Echo has `crates/method` with no Echo dependencies and `cargo xtask method status --json`; `/Users/james/git/method` has the TypeScript CLI/library, drift detector, MCP server, and tests. Reframed the card as an extraction/ownership decision. |
+
+---
+
+## docs/method/backlog/cool-ideas/PLATFORM_method-drift-as-pre-push-hook.md
+
+| filepath                                                                   | description                            | score | decision          | new filepath                                                               | remarks                                                                                                                                                                                                                                                             |
+| -------------------------------------------------------------------------- | -------------------------------------- | ----- | ----------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/backlog/cool-ideas/PLATFORM_method-drift-as-pre-push-hook.md` | Active Method drift-hook backlog item. | `3/5` | Keep and correct. | `docs/method/backlog/cool-ideas/PLATFORM_method-drift-as-pre-push-hook.md` | Echo documents `cargo xtask method drift` as planned, but `cargo xtask method --help` exposes only `status`; the pre-push hook is present but has no Method drift gate. `/Users/james/git/method` has drift detection. Reframed the remaining integration decision. |
+
+---
+
+## docs/method/backlog/cool-ideas/PLATFORM_method-mcp-server.md
+
+| filepath                                                       | description                        | score | decision | new filepath | remarks                                                                                                                                                                                                                                                 |
+| -------------------------------------------------------------- | ---------------------------------- | ----- | -------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/backlog/cool-ideas/PLATFORM_method-mcp-server.md` | Superseded Method MCP server note. | `1/5` | Trash.   | `n/a`        | The requested capability exists in `/Users/james/git/method`: `mcp.ts`, `dist/mcp.*`, and `tests/mcp.test.ts` cover MCP tools including `method_status`, `method_inbox`, `method_pull`, `method_close`, and `method_drift`. Git history is the archive. |

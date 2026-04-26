@@ -2,6 +2,12 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 > **Milestone:** Deep Storage | **Priority:** P2
+>
+> Status: active cool idea. `crates/echo-cas` provides local memory-only
+> content-addressed storage; no deep-storage wire message types, codec golden
+> vectors, `BlobExchange` state machine, or network transfer path exists yet.
+> This remains operational as the network exchange follow-up after the local CAS
+> API and disk tier mature.
 
 # Wire Protocol
 

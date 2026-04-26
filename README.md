@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <strong>A deterministic causal graph-rewrite simulation engine</strong>
+  <strong>A deterministic WARP runtime for witnessed causal history, bounded observation, and graph-shaped readings</strong>
 </p>
 
 <p align="center">
@@ -23,163 +23,257 @@
     <img src="https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-blue" alt="Platforms" />
 </p>
 
-Echo executes parallel graph rewrites with 0-ULP cross-platform determinism, structurally abolishing concurrency issues through immutable snapshots and canonical delta merging. Designed for everything from high-frequency interactive simulations to massive-scale causal graph analysis, Echo provides bit-perfect replayability across platforms and concurrency profiles as an inherent system property — not an afterthought.
+Echo is the hot runtime layer for WARP. It admits causal work into witnessed
+history, lowers bounded optics into outcomes, witnesses, and retained shells,
+emits reading artifacts for observers, and preserves enough structure for
+deterministic replay, settlement, import, and inspection.
+
+Echo still uses graph structures where they are the right carrier. The stronger
+doctrine is that a graph is not the only substrate truth. Graph-shaped structure
+is often an observer-relative reading over witnessed causal history.
 
 ---
 
 ## The Problem With Your Runtime
 
-You model state as a hierarchy of mutable containers. You manage concurrency through locks, mutexes, and prayer. You "debug" by scattering print statements across a non-deterministic execution that will never reproduce the same way twice. When something goes wrong, you squint at logs and guess.
+You model state as a hierarchy of mutable containers. You manage concurrency
+through locks, mutexes, and prayer. You "debug" by scattering print statements
+across a non-deterministic execution that will never reproduce the same way
+twice. When something goes wrong, you squint at logs and guess.
 
-Echo doesn't fix concurrency bugs. It makes them architecturally impossible.
+Echo moves the hard part to witnessed admission.
 
-State is immutable. It evolves canonically through optics that produce holograms. There is nothing to lock, nothing to race, and nothing to guess about — because every transition is a witnessed, cryptographically verifiable admission of new truth.
-
----
-
-## WARP Graphs
-
-At its core, Echo operates on WARP graphs (**W**orldline **A**lgebra for **R**ecursive **P**rovenance).
-
-A WARP graph is not a flat data structure. It is a recursive double-decker system:
-
-- **The Skeleton Plane** provides the immutable geometric structure — the shape of the graph.
-- **The Attachment Plane** is where values and data live.
-
-Nodes and edges can both host attachments, and those attachments can themselves be WARP graphs. Graphs all the way down.
-
-Structure and data are governed by different laws. The skeleton is the causal geometry; the attachments are the payload that rides it. Separating them means rewrites can reason about shape independently of content, and content can be projected independently of shape.
+Kernel history is immutable once admitted. Parallel work lowers through bounded
+optics, emits private deltas, and merges only when the runtime can prove the
+claims are lawful. There is nothing to lock inside the admitted history, and
+there is no mystery transition: every accepted change carries witness material
+that can be inspected later.
 
 ---
 
-## How State Evolves
+## WARP Runtime Model
 
-WARP graphs are strictly immutable. When Echo ticks, it does not mutate the graph. It admits a new state.
+WARP means **W**orldline **A**lgebra for **R**ecursive **P**rovenance.
 
-Echo uses **optics** to perform lawful Double Push-Out (DPO) graph rewriting. An optic declares a semantic footprint — a bounded region of the graph it intends to read and write. The runtime cuts out that footprint and replaces it with a new configuration, producing two inseparable artifacts:
+The runtime model is:
 
-1. **A new state**: the next canonical step in the worldline.
-2. **A provenance payload**: a minimal, cryptographic witness of the transition — what changed, why it was lawful, and what it replaced.
+- **Witnessed causal history** is the semantic substrate.
+- **Graph-shaped readings** are observer-relative views over that history.
+- **Optics** define bounded lowering, admission, witness, and retention.
+- **Observers** define what a read can project, preserve, accumulate, and emit.
+- **Shells** are retained carriers that make replay, audit, transport, or
+  revelation possible.
 
-The witness is not optional metadata. It is a structural consequence of the rewrite. Every tick is self-documenting by construction.
+Echo can materialize graphs, snapshots, checkpoints, and deltas as runtime
+carriers. Those carriers are useful, but they are not the whole ontology. The
+durable question is: what was admitted, under what law, with what witness, and
+what can a bounded observer lawfully read from it?
 
 ---
+
+## How Admission Evolves
+
+When Echo ticks, it does not mutate a canonical global object. Work is lowered
+through an optic:
+
+```text
+Optic = (ObserverPlan, OpticSlice, LoweringSurface, AdmissionLaw, RetentionContract)
+
+Lower(frontier, weave) = (Outcome, Witness, Shell)
+
+Outcome(X) = Derived(X) | Plural(X) | Conflict | Obstruction
+```
+
+DPO-style graph rewriting is one concrete lowering pattern Echo uses. The
+larger runtime contract is more general:
+
+- **Outcome** says what was admitted or why admission did not collapse to a
+  single value.
+- **Witness** carries the evidence needed to review the judgment.
+- **Shell** preserves the carrier required for replay, audit, transport, or
+  later reading.
+
+Materialized state still matters. It is a cache, checkpoint, shell, or reading
+surface. It is not the only source of truth.
 
 ## Determinism by Construction
 
-Echo achieves parallelism without synchronization. Rewrite rules read from an immutable snapshot and write to a private delta. Deltas merge in canonical order. The result is identical whether the host runs 1 thread or 32.
+Echo achieves parallelism without making scheduler timing semantically visible.
+Runtime rules read from an immutable basis and write to private deltas. Deltas
+merge in canonical order only after footprint and admission checks pass. The
+result is identical whether the host runs 1 thread or 32.
 
 This is not "mostly deterministic." It is 0-ULP deterministic:
 
-- Standard floats are banned. Echo uses fixed-point or otherwise platform-invariant arithmetic.
-- System time is banned. Simulation time is a causal property of the worldline, not a wall-clock reading.
-- Unseeded randomness is banned. If a tick uses randomness, the seed is part of the state.
+- Bare host floats are banned from deterministic kernel semantics. Echo uses
+  fixed-point or otherwise platform-invariant scalar surfaces.
+- System time is banned. Simulation time is a causal property of the worldline,
+  not a wall-clock reading.
+- Unseeded randomness is banned. If a tick uses randomness, the seed is part of
+  the admitted input.
 
-The same tick hash on Linux, macOS, and Windows. The same tick hash today, next year, and on hardware that doesn't exist yet. This is what **absolute inevitability** means: given the same input, the output is not just likely identical — it is mathematically guaranteed.
+The same tick hash on Linux, macOS, and Windows. The same tick hash today, next
+year, and on hardware that doesn't exist yet. Given the same admitted input, the
+kernel output is not just likely identical. It is required to converge.
 
-**Footprint enforcement** is the mechanism that makes this survive parallelism. Optics declare their graph regions. The scheduler proves independence. Any delta that violates its declared contract is poisoned — not patched, not retried, but structurally rejected. The system does not tolerate lying about what you touch.
-
----
-
-## Holography and the Death of Debugging
-
-Because every transition produces an information-complete witness, WARP graphs are inherently **holographic**. An Echo state contains encoded boundary structure that — combined with its provenance chain — can recover any previous state in its entire causal history.
-
-This gives you always-on time-travel. Not as a dev tool bolted on after the fact, but as a structural property of the substrate. Every state knows its own autobiography.
-
-"Debugging" is a legacy term. In Echo, you are a **ReaderHead** performing forensic revelation — stepping backward, jumping across the worldline, inspecting the causal ancestry of any value. You don't hunt for bugs in a non-deterministic ghost. You read history.
+**Footprint enforcement** is the mechanism that makes this survive parallelism.
+Optics declare their bounded regions. The scheduler proves independence. Any
+delta that violates its declared contract is poisoned: not patched, not retried,
+but structurally rejected.
 
 ---
 
-## Observer Geometry
+## Observation and Reading Artifacts
 
-An observer in Echo is not a scalar. It is a structural 5-tuple that defines the **aperture of revelation**:
+Observation is not a passive state query.
 
-| Component | Name       | Role                                                       |
-| --------- | ---------- | ---------------------------------------------------------- |
-| **O**     | Projection | The mapping from the causal substrate to what is displayed |
-| **B**     | Basis      | The native coordinate system of events                     |
-| **M**     | State      | Accumulated observational memory                           |
-| **K**     | Update     | The transition law for integrating new observations        |
-| **E**     | Emission   | The structural description produced by the observation act |
+The read side is modeled as:
 
-Two concepts matter here:
+```text
+StructuralObserver = (Projection, ObserverBasis, ObserverState, UpdateLaw, EmissionLaw)
+```
 
-**Aperture** is the measure of what task-relevant distinctions survive observation. Not everything in the worldline is visible to every observer. Aperture governs what a raw trace reveals versus what accumulates over time, split across projection aperture, basis aperture, and accumulated aperture.
+Echo distinguishes:
 
-**Degeneracy** is the hidden multiplicity behind an observation. Two worldline states can look identical under one projection while being structurally different underneath. The job of forensic inspection is to surface degeneracy — not collapse it. Through counterfactual forking, Echo lets you explore not just what happened, but the plurality of what could have been.
+- **ObserverPlan**: the authored or compiled revelation discipline.
+- **ObserverInstance**: a runtime observer plus accumulated state when
+  observation is stateful.
+- **ReadingArtifact**: the emitted result, with coordinate, payload, witness,
+  basis, budget, rights, and residual posture.
 
-This is where the deeper architecture shows through. Observation is not a passive read. It is a structured act with its own geometry, and different observers can hold lawfully different views of the same causal history.
+The current WASM ABI wraps observations in `ReadingEnvelope` metadata so host
+tools can see how a read was resolved. A live strand read can report parent
+basis posture. A bounded observer can receive a lawful reading without
+pretending it saw the whole kernel state.
+
+This is the practical version of Echo's holography. Witnessed provenance,
+retained shells, checkpoints, and reading envelopes let tools reconstruct prior
+readings and causal slices according to explicit retention contracts. Time
+travel is not a debugger bolted on afterward. It is a read discipline over
+witnessed history.
 
 ---
 
-## The Broader Architecture
+## Settlement, Strands, and WARP
 
-Echo is the engine layer of a larger stack called **WARP** — a recursive, witnessed admission architecture that governs the transition from private speculation to shared causal reality.
+Echo is the engine layer of a larger WARP stack: a recursive witnessed
+admission architecture that governs the transition from private speculation to
+shared causal reality.
 
-Above the engine, the WARP stack handles:
+The important runtime separations are:
 
-- **Braids**: when multiple strands of causal history meet at a frontier and must be judged — joined, preserved as plurality, surfaced as conflict, or declared obstructed.
-- **Commitment, Folding, and Revelation**: three distinct operations. What becomes true. How admitted history is lawfully compressed. What a bounded observer can actually see.
-- **Reliance**: trust over proof-bearing artifacts as a first-class admission domain — certificates are issued, activated, superseded, suspended, or revoked through the same witnessed kernel.
+- **Commit / Lower**: judge bounded claims and produce an outcome, witness, and
+  shell.
+- **Fold / Retain**: preserve what replay, audit, transport, or revelation
+  requires.
+- **Reveal / Observe**: emit an observer-relative reading under aperture, basis,
+  budget, and rights.
+- **Settle**: compare speculative or remote claims against a live basis and
+  return import, plurality, conflict, or obstruction.
 
-Echo provides the deterministic, holographic substrate. The upper stack provides the governance. Together, they form a system where collaboration itself becomes a witnessed, rights-bearing admission problem rather than a soft social assumption layered on top of software.
+Strands are live speculative lanes, not just frozen snapshots. Settlement uses
+live-basis reports, parent movement, overlap checks, target-local replay, and
+conflict artifacts to decide whether a suffix can be imported cleanly. Remote
+exchange is witnessed suffix admission, not state sync.
+
+---
+
+## Current Runtime Surfaces
+
+| Surface                       | Current role                                                                 |
+| ----------------------------- | ---------------------------------------------------------------------------- |
+| **`warp-core`**               | Hot runtime semantics: worldlines, strands, observation, settlement, ticks.  |
+| **`ObservationService`**      | Canonical read path that emits observation artifacts and reading posture.    |
+| **`SettlementService`**       | Strand comparison, planning, import candidates, and conflict artifacts.      |
+| **`NeighborhoodSiteService`** | Witness-bearing neighborhood/site publication surface.                       |
+| **`echo-wasm-abi`**           | Current ABI DTOs and canonical CBOR boundary.                                |
+| **`warp-wasm`**               | wasm-bindgen host/browser wrapper over the current ABI.                      |
+| **`method` / `xtask`**        | Filesystem Method workflow automation, including `cargo xtask method inbox`. |
+
+The current WASM ABI version is **6**. That number is a compatibility epoch for
+host/runtime mismatch detection, not a support promise for ABI v1 through v5.
+The public world-state read export is `observe(...)`; the write/control ingress
+is `dispatch_intent(...)`; scheduler metadata comes through
+`scheduler_status()`.
+
+Removed or intentionally absent public hooks such as `step(...)`,
+`snapshot_at(...)`, and `render_snapshot(...)` are not the current boundary.
 
 ---
 
 ## In Short
 
-| Property                                | How                                                                     |
-| --------------------------------------- | ----------------------------------------------------------------------- |
-| **Parallelism without synchronization** | Immutable snapshots, private deltas, canonical merge order              |
-| **0-ULP cross-platform determinism**    | No floats, no system time, no unseeded randomness                       |
-| **Always-on time-travel**               | Holographic provenance witnesses on every transition                    |
-| **Footprint enforcement**               | Optics declare regions; the runtime poisons liars                       |
-| **Observer geometry**                   | Structural 5-tuple aperture, not scalar subscription                    |
-| **WARP substrate**                      | Tamper-evident, recursively provenance-bearing, graphs all the way down |
+| Property                                | How                                                                 |
+| --------------------------------------- | ------------------------------------------------------------------- |
+| **Parallelism without synchronization** | Immutable bases, private deltas, canonical merge, footprint checks. |
+| **0-ULP cross-platform determinism**    | Platform-invariant math, logical time, seeded randomness.           |
+| **Witnessed admission**                 | Every accepted transition carries reviewable evidence.              |
+| **Bounded optics**                      | Lowering produces outcome, witness, and retained shell.             |
+| **Observer-relative reads**             | Reading artifacts carry coordinate, basis, witness, and posture.    |
+| **Live settlement**                     | Strands and suffixes settle against live basis evidence.            |
+| **Method workflow**                     | Current work is tracked as live operational Markdown plus `xtask`.  |
 
 ## Quick Start
 
 ### 1. Repository Setup
 
-Install the guardrails and verify the environment.
+Install the guardrails and verify the current Method view.
 
 ```bash
 make hooks
-cargo check
+cargo xtask method status --json
 ```
 
-### 2. Verify Determinism
+### 2. Run a Fast Runtime Slice
 
-Run the cross-platform DIND (Determinism-in-Determinism) harness.
+Use the narrow test-slice path for local iteration.
+
+```bash
+cargo xtask test-slice warp-core-smoke
+```
+
+### 3. Keep Docs as a Gate
+
+The docs build is a real regression gate.
+
+```bash
+pnpm docs:build
+```
+
+### 4. Run the Deeper Determinism Harness
+
+Use DIND when you need cross-platform hash convergence evidence.
 
 ```bash
 cargo xtask dind run
 ```
 
-### 3. Build Documentation
-
-Generate the high-fidelity docs site.
-
-```bash
-make docs
-```
-
 ## Stack
 
-| Component           | Role                                                               |
-| :------------------ | :----------------------------------------------------------------- |
-| **`warp-core`**     | The rewrite engine, deterministic math, and transaction kernel.    |
-| **`echo-app-core`** | Application lifecycle, system orchestration, and effect pipelines. |
-| **`ttd-browser`**   | Browser-hostable TTD/runtime bridge surfaces over Echo WASM.       |
-| **`echo-dind-*`**   | Cross-platform test harness for hash convergence verification.     |
+| Component           | Role                                                                 |
+| :------------------ | :------------------------------------------------------------------- |
+| **`warp-core`**     | Hot runtime kernel for worldlines, strands, observation, settlement. |
+| **`echo-wasm-abi`** | ABI v6 DTOs, canonical CBOR envelopes, host/runtime contract.        |
+| **`warp-wasm`**     | wasm-bindgen boundary for browser and JavaScript tooling.            |
+| **`method`**        | Method workflow automation and backlog file generation.              |
+| **`warp-cli`**      | Native CLI inspection and verification surface.                      |
+| **`echo-cas`**      | Content-addressed storage substrate.                                 |
+| **`echo-ttd`**      | Time-travel/debugging protocol surfaces.                             |
+| **`ttd-browser`**   | Browser-hostable TTD/runtime bridge surfaces over Echo WASM.         |
+| **`echo-dind-*`**   | Cross-platform harness for hash convergence verification.            |
+| **`echo-app-core`** | Application lifecycle, orchestration, and effect pipelines.          |
 
 ## Documentation
 
 - **[Guide](./docs/guide/start-here.md)**: Orientation, the fast path, and core concepts.
-- **[Architecture](./docs/architecture/outline.md)**: Draft architecture map and layer model.
+- **[Bearing](./docs/BEARING.md)**: Current repo bearing and near-term priorities.
+- **[Architecture](./docs/architecture/outline.md)**: Architecture map and layer model.
+- **[WARP Drift](./docs/architecture/WARP_DRIFT.md)**: Current doctrine corrections around strands, observation, and suffix admission.
+- **[Optic and Observer Doctrine](./docs/design/0011-optic-observer-runtime-doctrine/design.md)**: Runtime noun stack for optics, observers, witnesses, shells, and readings.
+- **[WASM ABI](./docs/spec/SPEC-0009-wasm-abi.md)**: Current ABI v6 contract.
+- **[Method](./docs/method/README.md)**: Operational workflow and backlog automation.
 - **[DIND](./docs/determinism/dind-harness.md)**: Determinism verification and the "Drill Sergeant" discipline.
-- **[Theory](./docs/theory/THEORY.md)**: Theoretical foundations (AION Foundations series).
+- **[Theory](./docs/theory/THEORY.md)**: Theoretical foundations.
 - **[Continuum](./CONTINUUM.md)**: The multi-repo system model and hot-runtime role.
 
 ---

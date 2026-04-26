@@ -7,9 +7,6 @@
 >
 > **Status:** `state_root`, `commit_id` v2, `patch_digest`, `plan_digest`,
 > `decision_digest`, and `rewrites_digest` are implemented in `warp-core`.
-> The `admission_digest` material below is planned stream-admission design
-> context only; `Snapshot` does not currently expose an `admission_digest`
-> field.
 
 This document precisely defines the two hashes produced by the engine when recording state and provenance.
 
@@ -140,62 +137,6 @@ not to the blocker metadata.
 `rewrites_digest` is a deterministic digest of the ordered rewrites applied
 during the tick (encoded as a length-prefixed list; empty list =
 `EMPTY_LEN_DIGEST`).
-
-### 3.4 admission_digest (planned stream admission decisions)
-
-`admission_digest` is planned design material for deterministic
-`StreamAdmissionDecision` records. It is not currently an implemented
-`Snapshot` field in `warp-core`.
-
-Intended purpose:
-
-- Make stream admission part of HistoryTime (foldable, replay-safe) without
-  changing commit hash v2.
-- Provide an integrity pin for time travel tooling (rewind/catch-up/merge UX),
-  so “why/how was this admitted?” is auditable from history rather than
-  re-derived from HostTime.
-
-Planned canonical encoding (v1) for `admission_digest`:
-
-- If there are **0** admission decisions for the tick, `admission_digest` is the
-  canonical empty digest: `EMPTY_LEN_DIGEST` (see section 4).
-- Otherwise, compute `blake3(encoding)` where `encoding` is:
-    - `version: u16 = 1`
-    - `count: u64` number of decision records
-    - For each decision, in canonical order:
-        - Primary sort key: `(view_id, stream_id)` (lexicographic on canonical bytes)
-        - Secondary: `admit_at_tick` (u64 LE), then `admitted_range.from_seq` (u64 LE)
-    - Each decision record encodes:
-        - `view_id_len: u64`, then `view_id_bytes`
-        - `stream_id_len: u64`, then `stream_id_bytes`
-        - `admit_at_tick: u64`
-        - `policy_hash: 32`
-        - `budget_max_events_present: u8` then `budget_max_events: u64` if present
-        - `budget_max_bytes_present: u8` then `budget_max_bytes: u64` if present
-        - `budget_max_work_present: u8` then `budget_max_work: u64` if present
-        - `fairness_order_digest_present: u8` then `fairness_order_digest: 32` if present
-        - `admitted_set_tag: u8`
-            - `1` = Range (inclusive): `from_seq: u64`, `to_seq: u64`
-            - `2` = Sparse list: `count: u64`, then each `seq: u64`
-        - `admitted_digest: 32`
-
-Notes:
-
-- `view_id` and `stream_id` are treated as opaque identifiers at this layer; the
-  canonical encoding is length-prefixed bytes so we can use stable string or
-  binary identifiers without ambiguity.
-- The `worldline_ref` (universe/branch) is already pinned by the snapshot header
-  (`commit_id` ancestry + branch metadata in higher layers); `admit_at_tick`
-  anchors the decision into Chronos.
-- The `decision_id` used for cross-references in `StreamAdmissionDecision` is
-  derived (not separately encoded) to avoid circularity and to keep the
-  admission digest stable. Compute it as:
-    - `decision_id = blake3("echo:stream_admission_decision_id:v1\0" || decision_record_bytes_v1)`
-      The trailing `\0` denotes a single null byte (`0x00`), not the two-character escape sequence.
-    - where `decision_record_bytes_v1` is exactly the per-decision record encoding
-      bytes listed above (from `view_id_len` through `admitted_digest`).
-
----
 
 ## 4. Invariants and Notes
 

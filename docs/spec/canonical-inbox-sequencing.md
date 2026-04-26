@@ -1,19 +1,15 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# Spec: Canonical Inbox Sequencing + Deterministic Scheduler Tie-Break
+# Spec: Canonical Inbox Sequencing
 
 > **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
-
-Status: Partially implemented.
 
 The content-addressed inbox, idempotent admission, canonical `ingress_id`
 ordering, and append-only ledger/queue-maintenance split are backed by
 `crates/warp-core/src/head_inbox.rs`, `crates/warp-core/src/engine_impl.rs`,
-`crates/warp-core/src/inbox.rs`, and their tests. The priority-class scheduler
-tie-break described below remains design guidance; the implemented warp-core
-rewrite scheduler orders rewrites by `(scope_hash, rule_id, nonce)` as described
-in [`scheduler-warp-core.md`](scheduler-warp-core.md).
+`crates/warp-core/src/inbox.rs`, and their tests. Rewrite scheduler ordering is
+specified separately in [`scheduler-warp-core.md`](scheduler-warp-core.md).
 
 ## 0) Purpose
 
@@ -81,7 +77,6 @@ Each pending inbox entry MUST carry:
 - intent_bytes: Bytes (canonical)
 - optional: seq: u64 (canonical rank / audit field; see §4)
 - optional: tick_id (if your model persists tick partitioning)
-- optional: priority_class: u8 (stable scheduler priority input; defaults to 128 if absent)
 
 Rule: seq is NOT part of identity. Identity is intent_id.
 
@@ -141,44 +136,12 @@ If an intent is re-ingested:
   DUPLICATE (and optional seq_assigned if your implementation records one)
 - DO NOT create a new pending entry.
 
-## 5) Scheduler: deterministic conflict resolution
+## 5) Scheduler boundary
 
-### 5.1 Conflict detection
-
-Two intents conflict if their computed footprints overlap per existing rules.
-
-### 5.2 Deterministic tie-break key
-
-When choosing a winner among conflicting candidates, the scheduler MUST use a
-stable tie-break key independent of evaluation order.
-
-Define:
-
-priority_key(intent) = (
-priority_class, // stable, explicit (e.g., system > user > background)
-intent_id // stable content hash
-)
-
-Then:
-
-- The winner is the intent with **min(priority_key)** (ascending lexicographic order).
-- Losers are **deferred** to the next tick (not rejected). This ensures eventual
-  delivery while maintaining determinism. Rejection is only permitted for malformed
-  intents that fail validation.
-
-If you need multi-phase scheduling, extend the tuple, but every field must be
-stable and derived from content/state in a canonical way.
-
-### 5.3 Evaluation order must not leak
-
-Even if you compute footprints in parallel, the final chosen schedule must be
-equivalent to:
-
-- consider all pending intents
-- compute (or cache) footprints
-- select winners using priority_key ordering only
-
-No "first one we happened to see" logic.
+Inbox sequencing defines which pending ingress envelopes are admitted and in
+what canonical order. Rewrite conflict detection and tie-break behavior belong
+to the `warp-core` rewrite scheduler, which orders pending rewrites by
+`(scope_hash, rule_id, nonce)`.
 
 ## 6) Graph construction + hashing canonicalization
 
@@ -208,20 +171,12 @@ T1 - Permutation invariance (full hash)
     - ledger/inbox node IDs identical
     - seq assignments identical
 
-T2 - Conflict invariance
-
-- Construct S where at least two intents conflict (overlapping footprints).
-- Shuffle ingestion order.
-- Assert the same winner intent_id is chosen (and same losers deferred), across
-  seeds.
-
-T3 - Idempotency invariance
+T2 - Idempotency invariance
 
 - Ingest same intent twice (different arrival times, different threads).
-- Assert no duplicate ledger entry; same seq returned.
+- Assert no duplicate ledger entry and stable pending state.
 
 ## 8) Implementation summary
 
 Move seq assignment from "ingest arrival" to "tick commit canonicalization" and
-make the scheduler's winner selection purely a function of stable keys
-(priority_class + intent_id).
+keep inbox admission ordered by stable `ingress_id` keys.

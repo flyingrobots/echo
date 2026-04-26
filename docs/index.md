@@ -72,7 +72,7 @@ flowchart TD
 - Canonical inbox sequencing: [/spec/canonical-inbox-sequencing](/spec/canonical-inbox-sequencing)
 - JS/CBOR ABI mapping: [/spec/js-cbor-mapping](/spec/js-cbor-mapping)
 - Merkle commit / snapshot hashing: [/spec/merkle-commit](/spec/merkle-commit)
-- Retained WARP view protocol: [/spec/warp-view-protocol](/spec/warp-view-protocol)
+- WARP stream wire protocol: [/spec/warp-view-protocol](/spec/warp-view-protocol)
 - ABI golden vectors: [/spec/abi-golden-vectors](/spec/abi-golden-vectors)
 - Two-plane law: [/invariants/warp-two-plane-law](/invariants/warp-two-plane-law)
 
@@ -103,5 +103,6 @@ flowchart TD
 
 - Collision DPO tour (static walkthrough): [/collision-dpo-tour.html](/collision-dpo-tour.html)
 
-Echo no longer ships the older local WVP demo stack. Browser debugger delivery
-is moving to `warp-ttd`, with Echo keeping the WASM/browser host surfaces.
+Runnable browser work currently centers on the Collision DPO tour and the
+WASM/browser host surfaces. WARP stream wire-schema reference lives at
+[/spec/warp-view-protocol](/spec/warp-view-protocol).

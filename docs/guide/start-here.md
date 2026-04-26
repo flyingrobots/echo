@@ -35,8 +35,9 @@ ECS is a _useful storage and API layer_, but the deeper “ground truth” model
 
 1. Collision DPO tour (static HTML): [/collision-dpo-tour.html](/collision-dpo-tour.html)
 
-Echo no longer ships the older local WVP demo stack. Browser debugger delivery
-is moving to `warp-ttd`, while Echo keeps the WASM/browser host surfaces.
+Runnable browser work currently centers on the Collision DPO tour and the
+WASM/browser host surfaces. WARP stream wire-schema reference lives at
+[/spec/warp-view-protocol](/spec/warp-view-protocol).
 
 ### Collision DPO Tour (what to expect)
 

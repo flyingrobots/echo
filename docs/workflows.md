@@ -48,6 +48,20 @@ test binaries and stale fixtures. The `test-slice` commands use exact Cargo
 target selection such as `--lib settlement::tests` or
 `--test strand_contract_tests`.
 
+Hard ban during docs inventory and local iteration:
+
+```sh
+cargo test -p <crate> <filter>
+```
+
+Use only exact test targets:
+
+```sh
+cargo test -p <crate> --lib <filter>
+cargo test -p <crate> --test <test_file_name> <filter>
+cargo xtask test-slice <slice>
+```
+
 Checkpoint checks:
 
 ```sh

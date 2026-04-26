@@ -287,8 +287,7 @@ Echo treats these as non-negotiable invariants. Violations must abort determinis
 3. **Temporal stability:** GC/compression/inspector activity must not alter logical state.
 4. **Schema consistency:** component layout hashes must match before merges.
 5. **Causal integrity:** writes cannot modify values they transitively read earlier in Chronos.
-6. **Entropy reproducibility:** branch entropy is a deterministic function of recorded events; the event-log format remains future design work.
-7. **Replay integrity:** replay from A→B reproduces world hash, event order, and PRNG draw counts.
+6. **Replay integrity:** replay from A→B reproduces world hash, event order, and PRNG draw counts.
 
 ---
 

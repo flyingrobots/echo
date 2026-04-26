@@ -3,7 +3,9 @@
 
 > **Milestone:** Tumble Tower | **Priority:** P2
 >
-> This feature is a skeleton. Tasks will be expanded as the GDD matures.
+> Status: active cool idea, blocked by the open Tumble Tower physics,
+> lockstep, desync-breaker, and visualization tasks. `docs/guide/tumble-tower.md`
+> defines the staged ladder, but no physics-ladder course modules exist yet.
 
 # Course Material
 

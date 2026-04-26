@@ -709,3 +709,43 @@ audit records rather than rewritten.
 | filepath                                                  | description                                      | score | decision          | new filepath                                              | remarks                                                                                                                                                                                                                                                  |
 | --------------------------------------------------------- | ------------------------------------------------ | ----- | ----------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `docs/method/backlog/bad-code/red-green-lint-friction.md` | Active Method RED/GREEN lint-friction debt note. | `4/5` | Keep and correct. | `docs/method/backlog/bad-code/red-green-lint-friction.md` | `scripts/verify-local.sh` still runs clippy with `-D warnings -D missing_docs`, while ignored future-contract tests use explicit test-only `clippy::todo`/`clippy::unimplemented` allowances. Narrowed the card to documenting the approved RED pattern. |
+
+---
+
+## docs/method/backlog/bad-code/xtask-god-file.md
+
+| filepath                                         | description                       | score | decision          | new filepath                                     | remarks                                                                                                                                                                                                             |
+| ------------------------------------------------ | --------------------------------- | ----- | ----------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/backlog/bad-code/xtask-god-file.md` | Active xtask modularization debt. | `4/5` | Keep and correct. | `docs/method/backlog/bad-code/xtask-god-file.md` | `xtask/src/main.rs` is still the only xtask source file and is roughly 7.8k lines with CLI args, dispatch, PR/GitHub helpers, benchmarks, DIND, docs linting, and Method code mixed together. Added current status. |
+
+---
+
+## docs/method/backlog/cool-ideas/DOCS_glossary-enforcement.md
+
+| filepath                                                      | description                               | score | decision          | new filepath                                                  | remarks                                                                                                                                                                                              |
+| ------------------------------------------------------------- | ----------------------------------------- | ----- | ----------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/backlog/cool-ideas/DOCS_glossary-enforcement.md` | Active docs terminology enforcement idea. | `3/5` | Keep and correct. | `docs/method/backlog/cool-ideas/DOCS_glossary-enforcement.md` | Echo has `docs/guide/course/glossary.md` and docs linting but no glossary/terminology gate. Removed unverifiable external framing and narrowed the card to enforcement against live vocabulary docs. |
+
+---
+
+## docs/method/backlog/cool-ideas/DOCS_splash-guy-course-material.md
+
+| filepath                                                            | description                             | score | decision          | new filepath                                                        | remarks                                                                                                                                                                                                               |
+| ------------------------------------------------------------------- | --------------------------------------- | ----- | ----------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/backlog/cool-ideas/DOCS_splash-guy-course-material.md` | Active Splash Guy course-material idea. | `3/5` | Keep and correct. | `docs/method/backlog/cool-ideas/DOCS_splash-guy-course-material.md` | `docs/guide/course/`, `docs/guide/splash-guy.md`, and task DAG issue `#226` show this is still active, but the course shell and modules `00`/`01` already exist. Narrowed the card to remaining modules and blockers. |
+
+---
+
+## docs/method/backlog/cool-ideas/DOCS_tumble-tower-course-material.md
+
+| filepath                                                              | description                               | score | decision          | new filepath                                                          | remarks                                                                                                                                                                                                                           |
+| --------------------------------------------------------------------- | ----------------------------------------- | ----- | ----------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/backlog/cool-ideas/DOCS_tumble-tower-course-material.md` | Active Tumble Tower course-material idea. | `3/5` | Keep and correct. | `docs/method/backlog/cool-ideas/DOCS_tumble-tower-course-material.md` | `docs/guide/tumble-tower.md` and task DAG issue `#238` define the physics-ladder course dependency chain, but no modules exist yet and physics/lockstep/desync/visualization blockers remain open. Added explicit blocked status. |
+
+---
+
+## docs/method/backlog/cool-ideas/KERNEL_parallel-execution-counterfactuals.md
+
+| filepath                                                                      | description                                | score | decision          | new filepath                                                                  | remarks                                                                                                                                                                                                                                                                                                                             |
+| ----------------------------------------------------------------------------- | ------------------------------------------ | ----- | ----------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/backlog/cool-ideas/KERNEL_parallel-execution-counterfactuals.md` | Active parallel-debugging/provenance idea. | `3/5` | Keep and correct. | `docs/method/backlog/cool-ideas/KERNEL_parallel-execution-counterfactuals.md` | `warp-core` has shard-based parallel execution, per-worker/per-shard `TickDelta`s, canonical merge, poisoned-delta handling, and tick receipts, but no public artifact preserving shard-level intermediate deltas as debugger counterfactuals. Rewrote stale supersession/external-protocol language around current merge behavior. |

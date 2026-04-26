@@ -3,7 +3,10 @@
 
 > **Milestone:** Splash Guy | **Priority:** P2
 >
-> This feature is a skeleton. Tasks will be expanded as the GDD matures.
+> Status: active cool idea, blocked by the open Splash Guy implementation and
+> visualization tasks. `docs/guide/course/` already has the course shell plus
+> modules `00-orientation` and `01-lockstep`; this card now tracks the remaining
+> networking-first course modules, not course creation from zero.
 
 # Course Material
 
@@ -13,11 +16,11 @@
 
 ## Requirements
 
-- R1: Write 4 course modules:
-    - Module 1: "State is a pure function" — introduce the game state model and deterministic rules.
-    - Module 2: "Lockstep means trust" — walk through the input protocol and fingerprint exchange.
-    - Module 3: "Break it to understand it" — guide through the 3 desync scenarios.
-    - Module 4: "See what you built" — explain the rendering path and debug overlay.
+- R1: Finish the Splash Guy modules after the implementation tasks land:
+    - "State is a pure function" — introduce the game state model and deterministic rules.
+    - "Lockstep means trust" — extend the existing lockstep module into the implemented protocol and fingerprint exchange.
+    - "Break it to understand it" — guide through the controlled desync scenarios.
+    - "See what you built" — explain the rendering path and debug overlay.
 - R2: Each module includes runnable code snippets that correspond to the actual implementation.
 - R3: Each module ends with a "checkpoint" — a verifiable assertion the learner can confirm (e.g., "your fingerprint at tick 20 should be 0xABCD...").
 - R4: Modules are published as VitePress pages under `docs/guide/`.

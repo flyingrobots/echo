@@ -12,13 +12,12 @@ See the repository root `README.md` for the full overview.
 - Wraps `echo-wasm-abi` and `echo-registry-api` in `wasm-bindgen` bindings so
   Echo’s deterministic wire protocol can be used from JavaScript/TypeScript in
   web-based tools and playgrounds.
-- Exposes the ABI v4 observation-first and intent-shaped control surface:
-  `observe(...)` is the only public world-state read export,
-  `scheduler_status()` is the read-only scheduler metadata export, and all
-  external writes or scheduler control requests flow through
-  `dispatch_intent(...)`.
-  ABI v4 also publishes strand settlement comparison, planning, and execution
-  entrypoints.
+- Exposes the current observation-first and intent-shaped control surface
+  (`ABI_VERSION` 5 in `echo-wasm-abi`): `observe(...)` is the only public
+  world-state read export, `scheduler_status()` is the read-only scheduler
+  metadata export, and `dispatch_intent(...)` is the write/control ingress.
+  The current ABI also publishes strand settlement comparison, planning,
+  execution entrypoints, and read-side basis posture on observation artifacts.
 - The engine-backed boundary uses logical clocks only:
   `WorldlineTick` is per-worldline append identity and `GlobalTick` is runtime
   cycle correlation metadata. No wall-clock time enters Echo internals.

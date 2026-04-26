@@ -1,17 +1,22 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# SPEC-0009: WASM ABI Contract v5
+# SPEC-0009: WASM ABI Contract
 
-> **Status:** Active | **ABI Version:** 5 | **Crate:** `warp-wasm`
+> **Status:** Active | **Current ABI Version:** 5 | **Crate:** `warp-wasm`
 
 ## Overview
 
 This document specifies the current WASM export surface, wire encoding, and
 error protocol for Echo's deterministic simulation boundary.
 
-ABI v5 keeps the ABI v3 public export shape and extends observation artifacts
-with read-side basis posture.
+Echo implements only the current WASM ABI. `ABI_VERSION` is a compatibility
+epoch for host/runtime mismatch detection, not a promise that older ABI epochs
+remain supported. Historical ABI numbers below are migration breadcrumbs for
+host adapters.
+
+Current ABI version 5 keeps the ABI v3 public export shape and extends
+observation artifacts with read-side basis posture.
 
 ABI v3 made three boundaries explicit:
 
@@ -388,7 +393,10 @@ surface. Implementors that need head or snapshot data must derive them from
 their own observation-backed internals rather than adding parallel public read
 methods.
 
-## Migration Notes for Host Adapters
+## Historical Migration Notes
+
+These notes explain past breaking contract epochs for host adapters. They do
+not imply that Echo keeps multiple runtime ABI implementations alive.
 
 ### From ABI v2 to ABI v3
 
@@ -420,6 +428,7 @@ methods.
 
 ## Compatibility Note
 
-ABI v5 is intentionally breaking relative to v4 for observation responses. ABI
-v3 remains the major export-shape break that removed step/pump; v5 preserves
-that export shape while adding read-side basis posture to observation artifacts.
+Only the current ABI is implemented. Version 5 is intentionally breaking
+relative to version 4 for observation responses. Version 3 remains the major
+export-shape break that removed step/pump; version 5 preserves that export
+shape while adding read-side basis posture to observation artifacts.

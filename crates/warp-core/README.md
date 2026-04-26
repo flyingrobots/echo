@@ -60,7 +60,7 @@ The `warp-core` crate also contains a small “website kernel spike” used by t
 ## Documentation
 
 - Core engine specs live in `docs/`:
-    - `docs/spec-warp-core.md`, `docs/spec/scheduler-warp-core.md`,
+    - `docs/spec/warp-core.md`, `docs/spec/scheduler-warp-core.md`,
       `docs/spec/canonical-inbox-sequencing.md`, and related architecture
       documents.
 - The Core booklet (`docs/book/echo/booklet-02-core.tex`) describes the

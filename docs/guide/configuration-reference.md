@@ -4,8 +4,8 @@
 # Configuration Reference
 
 This document describes how to configure the Echo engine at build time and
-runtime. For the formal specification and hashing semantics, see
-[spec-runtime-config.md](../spec-runtime-config.md).
+runtime. It separates implemented knobs from planned project-level runtime
+configuration. No live formal runtime configuration spec exists today.
 
 ## Engine Parameters (EngineBuilder)
 
@@ -75,10 +75,12 @@ tick are resolved. All policies preserve confluence.
 | -------------- | ------------------------------------ | --------------------------- |
 | `ECHO_WORKERS` | Override default worker thread count | `ECHO_WORKERS=8 cargo test` |
 
-## Planned Configuration (spec-runtime-config.md)
+## Planned Configuration
 
-The [runtime config spec](../spec-runtime-config.md) defines a planned
-`echo.config.json` schema for project-level configuration. Key planned fields:
+Echo does not currently implement a project-level `echo.config.json` load
+pipeline. The old top-level runtime config spec was removed as aspirational
+during the docs inventory; this section preserves the useful planned fields
+without presenting them as current behavior.
 
 | Field               | Type                                      | Default     | Description                          |
 | ------------------- | ----------------------------------------- | ----------- | ------------------------------------ |
@@ -89,11 +91,9 @@ The [runtime config spec](../spec-runtime-config.md) defines a planned
 | `inspector.enabled` | `boolean`                                 | `false`     | Enable inspector protocol            |
 | `inspector.port`    | `number`                                  | TBD         | Inspector listen port                |
 
-These are not yet implemented as runtime features. See the spec for the
-planned load pipeline and canonical hashing.
+These are not yet implemented as runtime features.
 
 ## See Also
 
-- [spec-runtime-config.md](../spec-runtime-config.md) -- formal specification
 - [cargo-features.md](cargo-features.md) -- compile-time feature flags
 - [start-here.md](start-here.md) -- getting started guide

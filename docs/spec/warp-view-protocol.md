@@ -25,7 +25,9 @@ This is an instantiation of the Echo Interaction Pattern (EIP): a small, boring,
 
 - Encoding: canonical CBOR via `ciborium` (see `crates/echo-session-proto`).
 - Framing: JS-ABI v1.0 packet framing (`MAGIC || VERSION || FLAGS || LENGTH || PAYLOAD || CHECKSUM`).
-- MAX_PAYLOAD: 8 MiB (hard cap; errors if exceeded).
+- Payload length: the retained JS-ABI packet uses a `u32` payload length and a
+  checksum; current `echo-session-proto` does not enforce the older WVP-specific
+  8 MiB cap. The separate EINT v2 codec enforces `EINT_MAX_PAYLOAD` at 256 MiB.
 - Non‑blocking read loop; partial frames preserved until complete.
 
 ## Identity & Authority
@@ -79,7 +81,7 @@ Tools that consume a WARP stream keep a per-`WarpId` state machine:
 - `ForbiddenPublish`: non‑producer attempted publish.
 - `SnapshotRequired`: diff received before first snapshot for a stream.
 - `EpochGap`: `from/to` not contiguous with server state.
-- `Oversize`: payload exceeded MAX_PAYLOAD.
+- `Oversize`: payload exceeded the transport's payload limit.
 - `DecodeError`: CBOR/frame parse failure.
 
 ## Compatibility Notes

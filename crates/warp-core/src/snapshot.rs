@@ -3,7 +3,7 @@
 
 //! Snapshot type and hash computation.
 //!
-//! See the high-level spec in `docs/spec-merkle-commit.md` for precise
+//! See the high-level spec in `docs/spec/merkle-commit.md` for precise
 //! definitions of `state_root` (graph-only hash) and `commit hash` (aka
 //! `commit_id`: `state_root` + metadata + parents).
 //!

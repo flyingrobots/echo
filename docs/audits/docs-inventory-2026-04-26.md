@@ -409,3 +409,43 @@ audit records rather than rewritten.
 | filepath                                  | description                                                     | score | decision                      | new filepath                              | remarks                                                                                                                                                                                                                     |
 | ----------------------------------------- | --------------------------------------------------------------- | ----- | ----------------------------- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `docs/spec-canonical-inbox-sequencing.md` | Canonical inbox identity, admission order, and sequencing spec. | `3/5` | Keep, move, and mark partial. | `docs/spec/canonical-inbox-sequencing.md` | Content-addressed ingress and append-only queue maintenance are backed by `head_inbox.rs`, `engine_impl.rs`, `inbox.rs`, and tests; priority-class scheduler tie-break remains design guidance, so status now says partial. |
+
+---
+
+## docs/spec-merkle-commit.md
+
+| filepath                     | description                                        | score | decision                      | new filepath                 | remarks                                                                                                                                                                                                                                                              |
+| ---------------------------- | -------------------------------------------------- | ----- | ----------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/spec-merkle-commit.md` | Snapshot state-root and commit-hash encoding spec. | `3/5` | Keep, move, and mark partial. | `docs/spec/merkle-commit.md` | Core `state_root`, `commit_id` v2, patch/plan/decision/rewrites digest behavior is backed by `snapshot.rs`, `engine_impl.rs`, receipts, playback/provenance tests, and golden vectors; parent-limit and `admission_digest` claims were corrected as partial/planned. |
+
+---
+
+## docs/spec-runtime-config.md
+
+| filepath                      | description                                         | score | decision | new filepath | remarks                                                                                                                                                                                                                                                                  |
+| ----------------------------- | --------------------------------------------------- | ----- | -------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `docs/spec-runtime-config.md` | Planned project-level runtime configuration schema. | `1/5` | Trash.   | `n/a`        | No `echo.config.json` loader, config CLI, schema command, config hash, or `ERR_CONFIG_HASH_MISMATCH` implementation exists; the only implemented `EchoConfig` is sandbox construction config, and the guide now preserves planned fields without promoting a ghost spec. |
+
+---
+
+## docs/spec-warp-core.md
+
+| filepath                 | description                             | score | decision                         | new filepath             | remarks                                                                                                                                                                                                                 |
+| ------------------------ | --------------------------------------- | ----- | -------------------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/spec-warp-core.md` | Broad `warp-core` runtime and API tour. | `3/5` | Keep, move, and lightly correct. | `docs/spec/warp-core.md` | Mostly backed by `lib.rs` exports, `Engine`, `GraphView`, `WarpState`, `tick_patch.rs`, `snapshot.rs`, and Stage B1 tests; stale links, the future entropy pointer, and obsolete footprint example code were corrected. |
+
+---
+
+## docs/spec-warp-tick-patch.md
+
+| filepath                       | description                                                            | score | decision                         | new filepath                   | remarks                                                                                                                                                                                                                                                        |
+| ------------------------------ | ---------------------------------------------------------------------- | ----- | -------------------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/spec-warp-tick-patch.md` | Tick patch boundary artifact, canonical ops, replay, and slicing spec. | `4/5` | Keep, move, and lightly correct. | `docs/spec/warp-tick-patch.md` | Strongly backed by `WarpTickPatchV1`, `WarpOp`, `SlotId`, canonical sorting/digest code, `apply_to_state`, and slicing tests; corrected links and clarified that stream admission records are future digest design material, not current `patch_digest` input. |
+
+---
+
+## docs/spec-warp-view-protocol.md
+
+| filepath                          | description                                          | score | decision                                                 | new filepath                      | remarks                                                                                                                                                                                                         |
+| --------------------------------- | ---------------------------------------------------- | ----- | -------------------------------------------------------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/spec-warp-view-protocol.md` | Retained older Echo-local WARP view stream contract. | `3/5` | Keep, move, and retain as historical/current-proto note. | `docs/spec/warp-view-protocol.md` | Message names and aliases are backed by `echo-session-proto`; the session hub/viewer path is retired as the doc already stated, and the stale 8 MiB payload cap was corrected against current JS-ABI/EINT code. |

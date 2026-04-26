@@ -3,7 +3,13 @@
 
 # Snapshot Commit Spec (v2)
 
-> **Background:** For a gentler introduction, see [WARP Primer](guide/warp-primer.md).
+> **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
+>
+> **Status:** `state_root`, `commit_id` v2, `patch_digest`, `plan_digest`,
+> `decision_digest`, and `rewrites_digest` are implemented in `warp-core`.
+> The `admission_digest` material below is planned stream-admission design
+> context only; `Snapshot` does not currently expose an `admission_digest`
+> field.
 
 This document precisely defines the two hashes produced by the engine when recording state and provenance.
 
@@ -75,7 +81,9 @@ Header fields (v2):
 
 - version: u16 = 2
 - parents: `Vec<Hash>` (length u64 LE, then each 32-byte hash). Genesis commits
-  have zero parents (length = 0). The parent count MUST NOT exceed 16. Implementations MUST reject commits exceeding this limit. Implementations of `compute_commit_hash_v2()` MUST validate this limit before hashing.
+  have zero parents (length = 0). Current `compute_commit_hash_v2()` hashes the
+  parent slice exactly as supplied; callers that admit merge commits are
+  responsible for deterministic parent ordering.
 - state_root: 32 bytes (from section 1)
 - patch_digest: 32 bytes (digest of the tick patch boundary delta)
 - policy_id: u32 (version pin for Aion policy)
@@ -87,7 +95,7 @@ Hash: blake3(encode(header)) → commit_id.
 `patch_digest` commits to the tick patch boundary artifact: a replayable delta
 patch with canonical ops and conservative in/out slot sets.
 
-Canonical encoding for the tick patch (v2) is defined in `docs/spec-warp-tick-patch.md`.
+Canonical encoding for the tick patch (v2) is defined in [WARP Tick Patch](/spec/warp-tick-patch).
 
 ---
 
@@ -133,12 +141,13 @@ not to the blocker metadata.
 during the tick (encoded as a length-prefixed list; empty list =
 `EMPTY_LEN_DIGEST`).
 
-### 3.4 admission_digest (Stream admission decisions)
+### 3.4 admission_digest (planned stream admission decisions)
 
-`admission_digest` is a deterministic digest of the `StreamAdmissionDecision`
-records produced for the tick (see `docs/spec-time-streams-and-wormholes.md`).
+`admission_digest` is planned design material for deterministic
+`StreamAdmissionDecision` records. It is not currently an implemented
+`Snapshot` field in `warp-core`.
 
-Purpose:
+Intended purpose:
 
 - Make stream admission part of HistoryTime (foldable, replay-safe) without
   changing commit hash v2.
@@ -146,7 +155,7 @@ Purpose:
   so “why/how was this admitted?” is auditable from history rather than
   re-derived from HostTime.
 
-Canonical encoding (v1) for `admission_digest`:
+Planned canonical encoding (v1) for `admission_digest`:
 
 - If there are **0** admission decisions for the tick, `admission_digest` is the
   canonical empty digest: `EMPTY_LEN_DIGEST` (see section 4).
@@ -192,7 +201,7 @@ Notes:
 
 Constants:
 
-- `EMPTY_LEN_DIGEST = blake3(0u64.to_le_bytes())` -- used as the canonical digest when a collection contains zero entries. This is the value referenced by the engine’s `DIGEST_LEN0_U64` constant.
+- `EMPTY_LEN_DIGEST = blake3(0u64.to_le_bytes())` -- used as the canonical digest when a collection contains zero entries. This is the value returned by the engine’s `digest_len0_u64()` helper.
 
 Invariants:
 

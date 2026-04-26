@@ -20,7 +20,7 @@ Lock the vocabulary and semantics for HistoryTime vs HostTime, tick-based TTL/de
 - R1: Produce a table in `docs/spec-time-streams-and-wormholes.md` listing every known time field across `StreamAdmissionDecision`, `ClockDecision`, `EventEnvelope`, `InspectorEnvelope`, and session-proto messages.
 - R2: Each field is classified as HistoryTime or HostTime with a one-line rationale.
 - R3: Add a "decision record" rule: any adapter that consults HostTime must emit a canonical decision record before the simulation consumes the result.
-- R4: Cross-reference `docs/spec-merkle-commit.md` for fields that feed into `admission_digest`.
+- R4: Cross-reference `docs/spec/merkle-commit.md` for fields that feed into `admission_digest`.
 
 **Acceptance Criteria:**
 

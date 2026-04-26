@@ -28,11 +28,11 @@ export default defineConfig({
       {
         text: "Specs",
         items: [
-          { text: "warp-core", link: "/spec-warp-core" },
-          { text: "Tick Patch", link: "/spec-warp-tick-patch" },
+          { text: "warp-core", link: "/spec/warp-core" },
+          { text: "Tick Patch", link: "/spec/warp-tick-patch" },
           { text: "Serialization", link: "/spec-serialization-protocol" },
           { text: "Branch Tree", link: "/spec-branch-tree" },
-          { text: "WVP", link: "/spec-warp-view-protocol" },
+          { text: "WVP", link: "/spec/warp-view-protocol" },
         ],
       },
     ],
@@ -50,9 +50,9 @@ export default defineConfig({
         {
           text: "WARP",
           items: [
-            { text: "warp-core Spec", link: "/spec-warp-core" },
-            { text: "Tick Patch Spec", link: "/spec-warp-tick-patch" },
-            { text: "WVP Spec", link: "/spec-warp-view-protocol" },
+            { text: "warp-core Spec", link: "/spec/warp-core" },
+            { text: "Tick Patch Spec", link: "/spec/warp-tick-patch" },
+            { text: "WVP Spec", link: "/spec/warp-view-protocol" },
             {
               text: "Serialization Spec",
               link: "/spec-serialization-protocol",

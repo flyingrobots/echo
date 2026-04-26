@@ -742,7 +742,7 @@ mod tests {
             .support_pins[0]
             .state_hash = [0xFF; 32];
 
-        let err = NeighborhoodSiteService::from_resolved(
+        let result = NeighborhoodSiteService::from_resolved(
             &runtime,
             &provenance,
             &ResolvedObservationCoordinate {
@@ -755,15 +755,19 @@ mod tests {
                 state_root: primary_snapshot.state_root,
                 commit_hash: primary_snapshot.hash,
             },
-        )
-        .expect_err("stale support pin should fail");
-        assert_eq!(
-            err,
-            NeighborhoodError::InvalidSupportPin {
-                owner: primary_strand_id,
-                support: support_strand_id,
-                tick: wt(0),
-            }
+        );
+        assert!(
+            matches!(
+                result,
+                Err(NeighborhoodError::InvalidSupportPin {
+                    owner,
+                    support,
+                    tick,
+                }) if owner == primary_strand_id
+                    && support == support_strand_id
+                    && tick == wt(0)
+            ),
+            "stale support pin should fail"
         );
     }
 }

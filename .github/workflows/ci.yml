@@ -361,8 +361,8 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Playwright e2e (session dashboard)
-        run: pnpm exec playwright test e2e/session-dashboard.spec.ts
+      - name: Playwright e2e
+        run: pnpm exec playwright test
 
       - name: Upload Playwright report
         if: always()

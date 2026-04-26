@@ -1300,8 +1300,12 @@ mod tests {
 
         let plan = SettlementService::plan(&runtime, &provenance, strand_id).unwrap();
         assert_eq!(plan.decisions.len(), 1);
-        let SettlementDecision::ImportCandidate(candidate) = &plan.decisions[0] else {
-            panic!("expected disjoint parent drift to plan a target-local import");
+        let Some(candidate) = import_candidate(&plan.decisions[0]) else {
+            assert!(
+                matches!(&plan.decisions[0], SettlementDecision::ImportCandidate(_)),
+                "expected disjoint parent drift to plan a target-local import"
+            );
+            return;
         };
         assert_ne!(
             candidate.target_expected_state_root,
@@ -1364,8 +1368,12 @@ mod tests {
                 ..
             } if !overlapping_slots.is_empty()
         ));
-        let SettlementDecision::ImportCandidate(candidate) = &plan.decisions[0] else {
-            panic!("expected idempotent parent overlap to revalidate cleanly");
+        let Some(candidate) = import_candidate(&plan.decisions[0]) else {
+            assert!(
+                matches!(&plan.decisions[0], SettlementDecision::ImportCandidate(_)),
+                "expected idempotent parent overlap to revalidate cleanly"
+            );
+            return;
         };
         assert!(matches!(
             &candidate.overlap_revalidation,
@@ -1407,8 +1415,12 @@ mod tests {
                 ..
             } if !overlapping_slots.is_empty()
         ));
-        let SettlementDecision::ConflictArtifact(draft) = &plan.decisions[0] else {
-            panic!("expected conflicting parent overlap to remain residue");
+        let Some(draft) = conflict_artifact(&plan.decisions[0]) else {
+            assert!(
+                matches!(&plan.decisions[0], SettlementDecision::ConflictArtifact(_)),
+                "expected conflicting parent overlap to remain residue"
+            );
+            return;
         };
         assert_eq!(draft.reason, ConflictReason::ParentFootprintOverlap);
         assert!(matches!(
@@ -1417,5 +1429,19 @@ mod tests {
                 overlapping_slots
             }) if !overlapping_slots.is_empty()
         ));
+    }
+
+    fn import_candidate(decision: &SettlementDecision) -> Option<&ImportCandidate> {
+        match decision {
+            SettlementDecision::ImportCandidate(candidate) => Some(candidate),
+            SettlementDecision::ConflictArtifact(_) => None,
+        }
+    }
+
+    fn conflict_artifact(decision: &SettlementDecision) -> Option<&ConflictArtifactDraft> {
+        match decision {
+            SettlementDecision::ConflictArtifact(draft) => Some(draft),
+            SettlementDecision::ImportCandidate(_) => None,
+        }
     }
 }

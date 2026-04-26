@@ -219,10 +219,13 @@ ReadingArtifact {
 }
 ```
 
-The first implementation slice exposes `basis_posture` in the ABI and includes
-it in `ObservationHashInput`. The kernel keeps full overlap slots internally;
-the ABI carries overlap count plus a deterministic slot digest until a stable
-public slot representation exists.
+The first implementation slice exposed parent-basis posture. The second slice
+wraps observation artifacts in `ReadingEnvelope`, includes it in
+`ObservationHashInput`, and makes built-in observer plan, observer basis,
+witness refs, budget posture, rights posture, and residual posture ABI-visible.
+The kernel keeps full overlap slots internally; the ABI carries overlap count
+plus a deterministic slot digest until a stable public slot representation
+exists.
 
 Required behavior:
 
@@ -291,8 +294,8 @@ Purpose:
 
 ### Step 2: Observation basis posture
 
-Status: implemented for basis posture; broader observer plan and reading
-envelope work remains planned.
+Status: implemented for basis posture; superseded by Step 3's explicit reading
+envelope boundary.
 
 Scope:
 
@@ -305,8 +308,9 @@ Scope:
 Current implementation evidence:
 
 - `ObservationBasisPosture`
-- `ObservationArtifact::basis_posture`
-- `ObservationHashInput::basis_posture`
+- `ReadingEnvelope::parent_basis_posture`
+- `ObservationArtifact::reading`
+- `ObservationHashInput::reading`
 - `strand_frontier_observation_reports_disjoint_live_basis_posture`
 - `strand_frontier_observation_reports_overlap_revalidation_posture`
 
@@ -319,7 +323,7 @@ Likely code surfaces:
 
 ### Step 3: Reading envelope family boundary
 
-Status: planned by
+Status: implemented for built-in one-shot observations by
 [Reading envelope family boundary](../../method/backlog/up-next/PLATFORM_reading-envelope-family-boundary.md).
 
 Scope:
@@ -329,6 +333,17 @@ Scope:
   reading
 - decide which posture fields become stable ABI now versus internal kernel
   metadata
+
+Current implementation evidence:
+
+- `ReadingEnvelope`
+- `ReadingObserverPlan`
+- `ReadingObserverBasis`
+- `ReadingWitnessRef`
+- `ReadingBudgetPosture`
+- `ReadingRightsPosture`
+- `ReadingResidualPosture`
+- `ordinary_worldline_observation_reports_worldline_posture`
 
 ### Step 4: Witnessed suffix shells
 

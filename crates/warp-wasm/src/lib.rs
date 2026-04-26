@@ -592,13 +592,16 @@ mod schema_validation_tests {
 mod init_tests {
     use super::*;
     use echo_wasm_abi::kernel_port::{
-        BaseRef, ConflictArtifactDraft, ConflictReason, DispatchResponse, GlobalTick, HeadInfo,
-        HeadObservation, NeighborhoodSite, NeighborhoodSiteId, ObservationArtifact, ObservationAt,
-        ObservationBasisPosture, ObservationFrame, ObservationPayload, ObservationProjection,
-        ParticipantRole, ProvenanceRef, RegistryInfo, ResolvedObservationCoordinate, RunCompletion,
-        RunId, SchedulerMode, SchedulerState, SchedulerStatus, SettlementDecision, SettlementDelta,
-        SettlementPlan, SettlementRequest, SettlementResult, SiteParticipant, SitePlurality,
-        WorkState, WorldlineId, WorldlineTick, ABI_VERSION,
+        BaseRef, BuiltinObserverPlan, ConflictArtifactDraft, ConflictReason, DispatchResponse,
+        GlobalTick, HeadInfo, HeadObservation, NeighborhoodSite, NeighborhoodSiteId,
+        ObservationArtifact, ObservationAt, ObservationBasisPosture, ObservationFrame,
+        ObservationPayload, ObservationProjection, ParticipantRole, ProvenanceRef,
+        ReadingBudgetPosture, ReadingEnvelope, ReadingObserverBasis, ReadingObserverPlan,
+        ReadingResidualPosture, ReadingRightsPosture, ReadingWitnessRef, RegistryInfo,
+        ResolvedObservationCoordinate, RunCompletion, RunId, SchedulerMode, SchedulerState,
+        SchedulerStatus, SettlementDecision, SettlementDelta, SettlementPlan, SettlementRequest,
+        SettlementResult, SiteParticipant, SitePlurality, WorkState, WorldlineId, WorldlineTick,
+        ABI_VERSION,
     };
 
     struct StubKernel;
@@ -647,7 +650,21 @@ mod init_tests {
                     state_root: head.state_root.clone(),
                     commit_hash: head.commit_id.clone(),
                 },
-                basis_posture: ObservationBasisPosture::Worldline,
+                reading: ReadingEnvelope {
+                    observer_plan: ReadingObserverPlan::Builtin {
+                        plan: BuiltinObserverPlan::CommitBoundaryHead,
+                    },
+                    observer_basis: ReadingObserverBasis::CommitBoundary,
+                    witness_refs: vec![ReadingWitnessRef::EmptyFrontier {
+                        worldline_id: WorldlineId::from_bytes([9; 32]),
+                        state_root: head.state_root.clone(),
+                        commit_hash: head.commit_id.clone(),
+                    }],
+                    parent_basis_posture: ObservationBasisPosture::Worldline,
+                    budget_posture: ReadingBudgetPosture::UnboundedOneShot,
+                    rights_posture: ReadingRightsPosture::KernelPublic,
+                    residual_posture: ReadingResidualPosture::Complete,
+                },
                 frame: ObservationFrame::CommitBoundary,
                 projection: ObservationProjection::Head,
                 artifact_hash: vec![4; 32],

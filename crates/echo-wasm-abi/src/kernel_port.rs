@@ -10,7 +10,7 @@
 //!
 //! # ABI Version
 //!
-//! The current ABI version is [`ABI_VERSION`] (5). All response types are
+//! The current ABI version is [`ABI_VERSION`] (6). All response types are
 //! CBOR-encoded using the canonical rules defined in `docs/js-cbor-mapping.md`.
 //! Breaking changes to response shapes or error codes require a bump to the
 //! ABI version.
@@ -38,7 +38,7 @@ use serde::{
 ///
 /// Increment when response types, error codes, or method signatures change
 /// in a backward-incompatible way.
-pub const ABI_VERSION: u32 = 5;
+pub const ABI_VERSION: u32 = 6;
 
 fn deserialize_opaque_id<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
 where
@@ -579,6 +579,106 @@ pub enum ObservationBasisPosture {
     },
 }
 
+/// Built-in observer plans provided by the kernel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BuiltinObserverPlan {
+    /// Commit-boundary head metadata reading.
+    CommitBoundaryHead,
+    /// Commit-boundary snapshot metadata reading.
+    CommitBoundarySnapshot,
+    /// Recorded-truth channel payload reading.
+    RecordedTruthChannels,
+    /// Query-byte reading placeholder.
+    QueryBytes,
+}
+
+/// Observer plan identity for a reading artifact.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ReadingObserverPlan {
+    /// Kernel-provided observer plan.
+    Builtin {
+        /// Built-in plan selected by the observation frame/projection pair.
+        plan: BuiltinObserverPlan,
+    },
+}
+
+/// Native observer basis used by the emitted reading.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReadingObserverBasis {
+    /// Commit-boundary observer basis.
+    CommitBoundary,
+    /// Recorded-truth observer basis.
+    RecordedTruth,
+    /// Query-view observer basis.
+    QueryView,
+}
+
+/// Witness reference carried by a reading artifact.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ReadingWitnessRef {
+    /// The reading is witnessed by a retained provenance commit.
+    ResolvedCommit {
+        /// Provenance coordinate that witnesses the reading.
+        reference: ProvenanceRef,
+    },
+    /// The reading is the deterministic empty frontier before any commit exists.
+    EmptyFrontier {
+        /// Worldline observed at its empty frontier.
+        worldline_id: WorldlineId,
+        /// Deterministic empty-frontier state root.
+        state_root: Vec<u8>,
+        /// Deterministic empty-frontier commit/frontier hash.
+        commit_hash: Vec<u8>,
+    },
+}
+
+/// Budget posture for a reading artifact.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReadingBudgetPosture {
+    /// One-shot built-in observer with no caller-specified slice budget.
+    UnboundedOneShot,
+}
+
+/// Rights posture for a reading artifact.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReadingRightsPosture {
+    /// Kernel-public reading with no app-specific authorization layer.
+    KernelPublic,
+}
+
+/// Residual posture for a reading artifact.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReadingResidualPosture {
+    /// The built-in observer emitted a complete reading for the requested projection.
+    Complete,
+}
+
+/// Reading-envelope metadata carried by every observation artifact.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReadingEnvelope {
+    /// Observer plan identity.
+    pub observer_plan: ReadingObserverPlan,
+    /// Native observer basis used by the reading.
+    pub observer_basis: ReadingObserverBasis,
+    /// Witnesses or shell references that support the reading.
+    pub witness_refs: Vec<ReadingWitnessRef>,
+    /// Read-side parent/strand basis posture.
+    pub parent_basis_posture: ObservationBasisPosture,
+    /// Budget posture for the reading.
+    pub budget_posture: ReadingBudgetPosture,
+    /// Rights or revelation posture for the reading.
+    pub rights_posture: ReadingRightsPosture,
+    /// Residual, obstruction, or plurality posture for the reading.
+    pub residual_posture: ReadingResidualPosture,
+}
+
 /// Minimal head observation payload.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HeadObservation {
@@ -660,13 +760,14 @@ pub enum ObservationPayload {
 /// Canonical hash input for an observation artifact.
 ///
 /// This excludes `artifact_hash` itself so kernels can compute the hash over
-/// the resolved coordinate, frame, projection, and canonical payload bytes.
+/// the resolved coordinate, reading envelope, frame, projection, and canonical
+/// payload bytes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ObservationHashInput {
     /// Resolved coordinate metadata.
     pub resolved: ResolvedObservationCoordinate,
-    /// Read-side basis posture.
-    pub basis_posture: ObservationBasisPosture,
+    /// Reading-envelope metadata.
+    pub reading: ReadingEnvelope,
     /// Declared semantic frame.
     pub frame: ObservationFrame,
     /// Declared projection.
@@ -680,8 +781,8 @@ pub struct ObservationHashInput {
 pub struct ObservationArtifact {
     /// Resolved coordinate metadata.
     pub resolved: ResolvedObservationCoordinate,
-    /// Read-side basis posture.
-    pub basis_posture: ObservationBasisPosture,
+    /// Reading-envelope metadata.
+    pub reading: ReadingEnvelope,
     /// Declared semantic frame.
     pub frame: ObservationFrame,
     /// Declared projection.

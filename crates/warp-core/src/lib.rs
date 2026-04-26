@@ -203,9 +203,11 @@ pub use neighborhood::{
     ParticipantRole, SiteParticipant, SitePlurality,
 };
 pub use observation::{
-    HeadObservation, ObservationArtifact, ObservationAt, ObservationBasisPosture,
-    ObservationCoordinate, ObservationError, ObservationFrame, ObservationPayload,
-    ObservationProjection, ObservationProjectionKind, ObservationRequest, ObservationService,
+    BuiltinObserverPlan, HeadObservation, ObservationArtifact, ObservationAt,
+    ObservationBasisPosture, ObservationCoordinate, ObservationError, ObservationFrame,
+    ObservationPayload, ObservationProjection, ObservationProjectionKind, ObservationRequest,
+    ObservationService, ReadingBudgetPosture, ReadingEnvelope, ReadingObserverBasis,
+    ReadingObserverPlan, ReadingResidualPosture, ReadingRightsPosture, ReadingWitnessRef,
     ResolvedObservationCoordinate, WorldlineSnapshot,
 };
 pub use playback::{CursorReceipt, TruthFrame, TruthSink};

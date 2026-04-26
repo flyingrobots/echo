@@ -46,6 +46,27 @@ The emitted reading envelope should be explicit about:
 This does not require one global UI shape. It does require one honest runtime
 family boundary.
 
+## Current implementation
+
+Implemented for built-in one-shot observations:
+
+- `ObservationArtifact::reading`
+- `ReadingEnvelope`
+- `ReadingObserverPlan`
+- `ReadingObserverBasis`
+- `ReadingWitnessRef`
+- `ReadingBudgetPosture`
+- `ReadingRightsPosture`
+- `ReadingResidualPosture`
+- `ObservationHashInput::reading`
+
+Still open:
+
+- authored observer plans
+- hosted/stateful observer instances
+- app-specific budget and rights enforcement
+- obstruction/plurality variants beyond the current `complete` posture
+
 ## Done looks like
 
 - one packet names the minimum reading-envelope fields Echo should emit

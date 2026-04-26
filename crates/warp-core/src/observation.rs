@@ -23,7 +23,7 @@ use crate::coordinator::WorldlineRuntime;
 use crate::engine_impl::Engine;
 use crate::ident::Hash;
 use crate::materialization::ChannelId;
-use crate::provenance_store::{ProvenanceService, ProvenanceStore};
+use crate::provenance_store::{ProvenanceRef, ProvenanceService, ProvenanceStore};
 use crate::snapshot::Snapshot;
 use crate::strand::{StrandId, StrandRevalidationState};
 use crate::tick_patch::SlotId;
@@ -302,6 +302,191 @@ impl ObservationBasisPosture {
     }
 }
 
+/// Built-in observer plans provided by the kernel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BuiltinObserverPlan {
+    /// Commit-boundary head metadata reading.
+    CommitBoundaryHead,
+    /// Commit-boundary snapshot metadata reading.
+    CommitBoundarySnapshot,
+    /// Recorded-truth channel payload reading.
+    RecordedTruthChannels,
+    /// Query-byte reading placeholder.
+    QueryBytes,
+}
+
+impl BuiltinObserverPlan {
+    fn to_abi(self) -> abi::BuiltinObserverPlan {
+        match self {
+            Self::CommitBoundaryHead => abi::BuiltinObserverPlan::CommitBoundaryHead,
+            Self::CommitBoundarySnapshot => abi::BuiltinObserverPlan::CommitBoundarySnapshot,
+            Self::RecordedTruthChannels => abi::BuiltinObserverPlan::RecordedTruthChannels,
+            Self::QueryBytes => abi::BuiltinObserverPlan::QueryBytes,
+        }
+    }
+}
+
+/// Observer plan identity for a reading artifact.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ReadingObserverPlan {
+    /// Kernel-provided observer plan.
+    Builtin {
+        /// Built-in plan selected by the observation frame/projection pair.
+        plan: BuiltinObserverPlan,
+    },
+}
+
+impl ReadingObserverPlan {
+    fn to_abi(&self) -> abi::ReadingObserverPlan {
+        match self {
+            Self::Builtin { plan } => abi::ReadingObserverPlan::Builtin {
+                plan: plan.to_abi(),
+            },
+        }
+    }
+}
+
+/// Native observer basis used by the emitted reading.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReadingObserverBasis {
+    /// Commit-boundary observer basis.
+    CommitBoundary,
+    /// Recorded-truth observer basis.
+    RecordedTruth,
+    /// Query-view observer basis.
+    QueryView,
+}
+
+impl ReadingObserverBasis {
+    fn to_abi(self) -> abi::ReadingObserverBasis {
+        match self {
+            Self::CommitBoundary => abi::ReadingObserverBasis::CommitBoundary,
+            Self::RecordedTruth => abi::ReadingObserverBasis::RecordedTruth,
+            Self::QueryView => abi::ReadingObserverBasis::QueryView,
+        }
+    }
+}
+
+/// Witness reference carried by a reading artifact.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ReadingWitnessRef {
+    /// The reading is witnessed by a retained provenance commit.
+    ResolvedCommit {
+        /// Provenance coordinate that witnesses the reading.
+        reference: ProvenanceRef,
+    },
+    /// The reading is the deterministic empty frontier before any commit exists.
+    EmptyFrontier {
+        /// Worldline observed at its empty frontier.
+        worldline_id: WorldlineId,
+        /// Deterministic empty-frontier state root.
+        state_root: Hash,
+        /// Deterministic empty-frontier commit/frontier hash.
+        commit_hash: Hash,
+    },
+}
+
+impl ReadingWitnessRef {
+    fn to_abi(&self) -> abi::ReadingWitnessRef {
+        match self {
+            Self::ResolvedCommit { reference } => abi::ReadingWitnessRef::ResolvedCommit {
+                reference: provenance_ref_to_abi(*reference),
+            },
+            Self::EmptyFrontier {
+                worldline_id,
+                state_root,
+                commit_hash,
+            } => abi::ReadingWitnessRef::EmptyFrontier {
+                worldline_id: abi::WorldlineId::from_bytes(*worldline_id.as_bytes()),
+                state_root: state_root.to_vec(),
+                commit_hash: commit_hash.to_vec(),
+            },
+        }
+    }
+}
+
+/// Budget posture for a reading artifact.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReadingBudgetPosture {
+    /// One-shot built-in observer with no caller-specified slice budget.
+    UnboundedOneShot,
+}
+
+impl ReadingBudgetPosture {
+    fn to_abi(self) -> abi::ReadingBudgetPosture {
+        match self {
+            Self::UnboundedOneShot => abi::ReadingBudgetPosture::UnboundedOneShot,
+        }
+    }
+}
+
+/// Rights posture for a reading artifact.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReadingRightsPosture {
+    /// Kernel-public reading with no app-specific authorization layer.
+    KernelPublic,
+}
+
+impl ReadingRightsPosture {
+    fn to_abi(self) -> abi::ReadingRightsPosture {
+        match self {
+            Self::KernelPublic => abi::ReadingRightsPosture::KernelPublic,
+        }
+    }
+}
+
+/// Residual posture for a reading artifact.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReadingResidualPosture {
+    /// The built-in observer emitted a complete reading for the requested projection.
+    Complete,
+}
+
+impl ReadingResidualPosture {
+    fn to_abi(self) -> abi::ReadingResidualPosture {
+        match self {
+            Self::Complete => abi::ReadingResidualPosture::Complete,
+        }
+    }
+}
+
+/// Reading-envelope metadata carried by every observation artifact.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReadingEnvelope {
+    /// Observer plan identity.
+    pub observer_plan: ReadingObserverPlan,
+    /// Native observer basis used by the reading.
+    pub observer_basis: ReadingObserverBasis,
+    /// Witnesses or shell references that support the reading.
+    pub witness_refs: Vec<ReadingWitnessRef>,
+    /// Read-side parent/strand basis posture.
+    pub parent_basis_posture: ObservationBasisPosture,
+    /// Budget posture for the reading.
+    pub budget_posture: ReadingBudgetPosture,
+    /// Rights or revelation posture for the reading.
+    pub rights_posture: ReadingRightsPosture,
+    /// Residual, obstruction, or plurality posture for the reading.
+    pub residual_posture: ReadingResidualPosture,
+}
+
+impl ReadingEnvelope {
+    fn to_abi(&self) -> abi::ReadingEnvelope {
+        abi::ReadingEnvelope {
+            observer_plan: self.observer_plan.to_abi(),
+            observer_basis: self.observer_basis.to_abi(),
+            witness_refs: self
+                .witness_refs
+                .iter()
+                .map(ReadingWitnessRef::to_abi)
+                .collect(),
+            parent_basis_posture: self.parent_basis_posture.to_abi(),
+            budget_posture: self.budget_posture.to_abi(),
+            rights_posture: self.rights_posture.to_abi(),
+            residual_posture: self.residual_posture.to_abi(),
+        }
+    }
+}
+
 /// Minimal frontier/head observation payload.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HeadObservation {
@@ -395,8 +580,8 @@ impl ObservationPayload {
 pub struct ObservationArtifact {
     /// Resolved coordinate metadata.
     pub resolved: ResolvedObservationCoordinate,
-    /// Read-side basis posture.
-    pub basis_posture: ObservationBasisPosture,
+    /// Reading-envelope metadata.
+    pub reading: ReadingEnvelope,
     /// Declared semantic frame.
     pub frame: ObservationFrame,
     /// Declared projection.
@@ -413,7 +598,7 @@ impl ObservationArtifact {
     pub fn to_abi(&self) -> abi::ObservationArtifact {
         abi::ObservationArtifact {
             resolved: self.resolved.to_abi(),
-            basis_posture: self.basis_posture.to_abi(),
+            reading: self.reading.to_abi(),
             frame: self.frame.to_abi(),
             projection: self.projection.to_abi(),
             artifact_hash: self.artifact_hash.to_vec(),
@@ -490,8 +675,14 @@ impl ObservationService {
         }
 
         let resolved = Self::resolve_coordinate(runtime, provenance, engine, &request)?;
-        let basis_posture =
+        let parent_basis_posture =
             Self::basis_posture(runtime, provenance, worldline_id, request.coordinate.at)?;
+        let reading = Self::reading_envelope(
+            &resolved,
+            parent_basis_posture,
+            request.frame,
+            &request.projection,
+        );
         let payload = match (&request.frame, &request.projection) {
             (ObservationFrame::CommitBoundary, ObservationProjection::Head) => {
                 ObservationPayload::Head(HeadObservation {
@@ -537,14 +728,14 @@ impl ObservationService {
 
         let artifact_hash = Self::compute_artifact_hash(
             &resolved,
-            &basis_posture,
+            &reading,
             request.frame,
             &request.projection,
             &payload,
         )?;
         Ok(ObservationArtifact {
             resolved,
-            basis_posture,
+            reading,
             frame: request.frame,
             projection: request.projection,
             artifact_hash,
@@ -701,14 +892,14 @@ impl ObservationService {
 
     fn compute_artifact_hash(
         resolved: &ResolvedObservationCoordinate,
-        basis_posture: &ObservationBasisPosture,
+        reading: &ReadingEnvelope,
         frame: ObservationFrame,
         projection: &ObservationProjection,
         payload: &ObservationPayload,
     ) -> Result<Hash, ObservationError> {
         let input = abi::ObservationHashInput {
             resolved: resolved.to_abi(),
-            basis_posture: basis_posture.to_abi(),
+            reading: reading.to_abi(),
             frame: frame.to_abi(),
             projection: projection.to_abi(),
             payload: payload.to_abi(),
@@ -719,6 +910,92 @@ impl ObservationService {
         hasher.update(OBSERVATION_ARTIFACT_DOMAIN);
         hasher.update(&bytes);
         Ok(hasher.finalize().into())
+    }
+
+    fn reading_envelope(
+        resolved: &ResolvedObservationCoordinate,
+        parent_basis_posture: ObservationBasisPosture,
+        frame: ObservationFrame,
+        projection: &ObservationProjection,
+    ) -> ReadingEnvelope {
+        ReadingEnvelope {
+            observer_plan: Self::observer_plan(frame, projection.kind()),
+            observer_basis: Self::observer_basis(frame),
+            witness_refs: Self::witness_refs(resolved, frame),
+            parent_basis_posture,
+            budget_posture: ReadingBudgetPosture::UnboundedOneShot,
+            rights_posture: ReadingRightsPosture::KernelPublic,
+            residual_posture: ReadingResidualPosture::Complete,
+        }
+    }
+
+    fn observer_plan(
+        frame: ObservationFrame,
+        projection: ObservationProjectionKind,
+    ) -> ReadingObserverPlan {
+        let plan = match (frame, projection) {
+            (ObservationFrame::CommitBoundary, ObservationProjectionKind::Head) => {
+                BuiltinObserverPlan::CommitBoundaryHead
+            }
+            (ObservationFrame::CommitBoundary, ObservationProjectionKind::Snapshot) => {
+                BuiltinObserverPlan::CommitBoundarySnapshot
+            }
+            (ObservationFrame::RecordedTruth, ObservationProjectionKind::TruthChannels) => {
+                BuiltinObserverPlan::RecordedTruthChannels
+            }
+            (ObservationFrame::QueryView, ObservationProjectionKind::Query) => {
+                BuiltinObserverPlan::QueryBytes
+            }
+            _ => {
+                debug_assert!(
+                    false,
+                    "observer_plan requires a valid frame/projection pair"
+                );
+                BuiltinObserverPlan::QueryBytes
+            }
+        };
+        ReadingObserverPlan::Builtin { plan }
+    }
+
+    fn observer_basis(frame: ObservationFrame) -> ReadingObserverBasis {
+        match frame {
+            ObservationFrame::CommitBoundary => ReadingObserverBasis::CommitBoundary,
+            ObservationFrame::RecordedTruth => ReadingObserverBasis::RecordedTruth,
+            ObservationFrame::QueryView => ReadingObserverBasis::QueryView,
+        }
+    }
+
+    fn witness_refs(
+        resolved: &ResolvedObservationCoordinate,
+        frame: ObservationFrame,
+    ) -> Vec<ReadingWitnessRef> {
+        let Some(commit_tick) = Self::witness_commit_tick(resolved, frame) else {
+            return vec![ReadingWitnessRef::EmptyFrontier {
+                worldline_id: resolved.worldline_id,
+                state_root: resolved.state_root,
+                commit_hash: resolved.commit_hash,
+            }];
+        };
+        vec![ReadingWitnessRef::ResolvedCommit {
+            reference: ProvenanceRef {
+                worldline_id: resolved.worldline_id,
+                worldline_tick: commit_tick,
+                commit_hash: resolved.commit_hash,
+            },
+        }]
+    }
+
+    fn witness_commit_tick(
+        resolved: &ResolvedObservationCoordinate,
+        frame: ObservationFrame,
+    ) -> Option<WorldlineTick> {
+        resolved.commit_global_tick?;
+        match (frame, resolved.requested_at) {
+            (ObservationFrame::CommitBoundary, ObservationAt::Frontier) => {
+                resolved.resolved_worldline_tick.checked_sub(1)
+            }
+            _ => Some(resolved.resolved_worldline_tick),
+        }
     }
 
     fn basis_posture(
@@ -1396,9 +1673,45 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(artifact.basis_posture, ObservationBasisPosture::Worldline);
         assert_eq!(
-            artifact.to_abi().basis_posture,
+            artifact.reading.observer_plan,
+            ReadingObserverPlan::Builtin {
+                plan: BuiltinObserverPlan::CommitBoundaryHead
+            }
+        );
+        assert_eq!(
+            artifact.reading.observer_basis,
+            ReadingObserverBasis::CommitBoundary
+        );
+        assert_eq!(
+            artifact.reading.parent_basis_posture,
+            ObservationBasisPosture::Worldline
+        );
+        assert_eq!(
+            artifact.reading.budget_posture,
+            ReadingBudgetPosture::UnboundedOneShot
+        );
+        assert_eq!(
+            artifact.reading.rights_posture,
+            ReadingRightsPosture::KernelPublic
+        );
+        assert_eq!(
+            artifact.reading.residual_posture,
+            ReadingResidualPosture::Complete
+        );
+        assert!(matches!(
+            artifact.reading.witness_refs.as_slice(),
+            [ReadingWitnessRef::ResolvedCommit { .. }]
+        ));
+        if let [ReadingWitnessRef::ResolvedCommit { reference }] =
+            artifact.reading.witness_refs.as_slice()
+        {
+            assert_eq!(reference.worldline_id, worldline_id);
+            assert_eq!(reference.worldline_tick, wt(0));
+            assert_eq!(reference.commit_hash, artifact.resolved.commit_hash);
+        }
+        assert_eq!(
+            artifact.to_abi().reading.parent_basis_posture,
             abi::ObservationBasisPosture::Worldline
         );
     }
@@ -1423,7 +1736,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            artifact.basis_posture,
+            artifact.reading.parent_basis_posture,
             ObservationBasisPosture::StrandAtAnchor { strand_id }
         );
     }
@@ -1465,7 +1778,7 @@ mod tests {
         .unwrap();
 
         assert!(matches!(
-            artifact.basis_posture,
+            artifact.reading.parent_basis_posture,
             ObservationBasisPosture::StrandParentAdvancedDisjoint {
                 strand_id: observed_strand,
                 ..
@@ -1499,7 +1812,7 @@ mod tests {
 
         assert!(
             matches!(
-                artifact.basis_posture,
+                artifact.reading.parent_basis_posture,
                 ObservationBasisPosture::StrandRevalidationRequired { .. }
             ),
             "expected revalidation-gated strand posture"
@@ -1508,14 +1821,14 @@ mod tests {
             strand_id: observed_strand,
             overlapping_slots,
             ..
-        } = &artifact.basis_posture
+        } = &artifact.reading.parent_basis_posture
         {
             assert_eq!(*observed_strand, strand_id);
             assert!(!overlapping_slots.is_empty());
         }
 
         assert!(matches!(
-            artifact.to_abi().basis_posture,
+            artifact.to_abi().reading.parent_basis_posture,
             abi::ObservationBasisPosture::StrandRevalidationRequired {
                 overlapping_slot_count,
                 ref overlapping_slots_digest,

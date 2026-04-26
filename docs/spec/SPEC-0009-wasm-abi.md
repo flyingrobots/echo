@@ -3,7 +3,7 @@
 
 # SPEC-0009: WASM ABI Contract
 
-> **Status:** Active | **Current ABI Version:** 5 | **Crate:** `warp-wasm`
+> **Status:** Active | **Current ABI Version:** 6 | **Crate:** `warp-wasm`
 
 ## Overview
 
@@ -15,8 +15,8 @@ epoch for host/runtime mismatch detection, not a promise that older ABI epochs
 remain supported. Historical ABI numbers below are migration breadcrumbs for
 host adapters.
 
-Current ABI version 5 keeps the ABI v3 public export shape and extends
-observation artifacts with read-side basis posture.
+Current ABI version 6 keeps the ABI v3 public export shape and wraps
+observation artifacts in explicit reading-envelope metadata.
 
 ABI v3 made three boundaries explicit:
 
@@ -227,21 +227,22 @@ to:
 
 ### ObservationArtifact
 
-| Field           | Type                            | Description                                                  |
-| --------------- | ------------------------------- | ------------------------------------------------------------ |
-| `resolved`      | `ResolvedObservationCoordinate` | Explicit resolved coordinate metadata                        |
-| `basis_posture` | `ObservationBasisPosture`       | Read-side parent/strand basis posture included in hash input |
-| `frame`         | enum                            | Declared semantic frame                                      |
-| `projection`    | enum                            | Declared projection                                          |
-| `artifact_hash` | bytes(32)                       | Canonical observation artifact hash                          |
-| `payload`       | tagged union                    | Head, snapshot, recorded truth, or query bytes               |
+| Field           | Type                            | Description                                    |
+| --------------- | ------------------------------- | ---------------------------------------------- |
+| `resolved`      | `ResolvedObservationCoordinate` | Explicit resolved coordinate metadata          |
+| `reading`       | `ReadingEnvelope`               | Observer-relative reading-envelope metadata    |
+| `frame`         | enum                            | Declared semantic frame                        |
+| `projection`    | enum                            | Declared projection                            |
+| `artifact_hash` | bytes(32)                       | Canonical observation artifact hash            |
+| `payload`       | tagged union                    | Head, snapshot, recorded truth, or query bytes |
 
 `artifact_hash` is computed as
 `blake3("echo:observation-artifact:v2\0" || canonical_cbor(hash_input))`.
 
 ### ObservationBasisPosture
 
-`basis_posture` is the read-side posture of the observed coordinate:
+`reading.parent_basis_posture` is the read-side parent/strand posture of the
+observed coordinate:
 
 - `worldline`
 - `strand_historical { strand_id }`
@@ -253,6 +254,34 @@ overlapping_slot_count, overlapping_slots_digest }`
 The kernel retains the full overlapping slot list internally. The ABI carries a
 count plus deterministic digest until a stable public slot representation is
 introduced.
+
+### ReadingEnvelope
+
+`reading` is the observer-relative envelope around the payload:
+
+| Field                  | Type                      | Description                                              |
+| ---------------------- | ------------------------- | -------------------------------------------------------- |
+| `observer_plan`        | `ReadingObserverPlan`     | Observer plan identity selected for this reading         |
+| `observer_basis`       | `ReadingObserverBasis`    | Native distinctions the emitted reading preserves        |
+| `witness_refs`         | `ReadingWitnessRef[]`     | Provenance or empty-frontier witnesses for the reading   |
+| `parent_basis_posture` | `ObservationBasisPosture` | Parent/strand basis posture used by strand-relative read |
+| `budget_posture`       | `ReadingBudgetPosture`    | Budget posture for this reading                          |
+| `rights_posture`       | `ReadingRightsPosture`    | Rights or revelation posture for this reading            |
+| `residual_posture`     | `ReadingResidualPosture`  | Residual, obstruction, or plurality posture              |
+
+Current built-in one-shot observers use:
+
+- `observer_plan = builtin { plan }`, where `plan` is one of
+  `commit_boundary_head`, `commit_boundary_snapshot`,
+  `recorded_truth_channels`, or `query_bytes`
+- `observer_basis = commit_boundary | recorded_truth | query_view`
+- `budget_posture = unbounded_one_shot`
+- `rights_posture = kernel_public`
+- `residual_posture = complete`
+
+`witness_refs` contains `resolved_commit { reference }` when retained
+provenance witnesses the reading. Empty-frontier commit-boundary reads instead
+carry `empty_frontier { worldline_id, state_root, commit_hash }`.
 
 ### ResolvedObservationCoordinate
 
@@ -359,7 +388,7 @@ Current engine-backed behavior:
 | `codec_id`          | string? | Codec identifier (e.g. `"cbor-canonical-v1"`) |
 | `registry_version`  | string? | Registry version                              |
 | `schema_sha256_hex` | string? | Schema hash (hex)                             |
-| `abi_version`       | u32     | ABI contract version (currently `5`)          |
+| `abi_version`       | u32     | ABI contract version (currently `6`)          |
 
 ## Error Codes
 
@@ -426,9 +455,20 @@ not imply that Echo keeps multiple runtime ABI implementations alive.
 4. Use `overlapping_slot_count` and `overlapping_slots_digest` as witness
    metadata only. The stable public slot representation is still deferred.
 
+### From ABI v5 to ABI v6
+
+1. Decode `ObservationArtifact.reading` on every observation response.
+2. Read parent/strand basis posture from
+   `ObservationArtifact.reading.parent_basis_posture`.
+3. Include the full `reading` envelope in host-side observation artifact hash
+   verification.
+4. Treat `observer_plan`, `observer_basis`, `witness_refs`, `budget_posture`,
+   `rights_posture`, and `residual_posture` as stable reading-envelope
+   metadata for built-in one-shot observers.
+
 ## Compatibility Note
 
-Only the current ABI is implemented. Version 5 is intentionally breaking
-relative to version 4 for observation responses. Version 3 remains the major
-export-shape break that removed step/pump; version 5 preserves that export
-shape while adding read-side basis posture to observation artifacts.
+Only the current ABI is implemented. Version 6 is intentionally breaking
+relative to version 5 for observation responses. Version 3 remains the major
+export-shape break that removed step/pump; version 6 preserves that export
+shape while making observation artifacts explicit reading envelopes.

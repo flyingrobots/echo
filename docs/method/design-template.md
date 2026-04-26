@@ -5,11 +5,11 @@
 
 _One-line description of what this cycle delivers._
 
-Legend: [LEGEND](../../method/legends/LEGEND.md)
+Legend: `LEGEND` (for example, [PLATFORM](./legends/PLATFORM.md))
 
 Depends on:
 
-- [NNNN — dependency](./dependency.md) (or "nothing")
+- `NNNN — dependency` (or "nothing")
 
 ## Why this cycle exists
 

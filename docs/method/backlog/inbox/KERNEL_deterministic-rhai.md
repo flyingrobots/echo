@@ -3,7 +3,7 @@
 
 # Deterministic Rhai
 
-> **Milestone:** [Backlog](../../ROADMAP.md) | **Priority:** Unscheduled
+> **Milestone:** Backlog | **Priority:** Unscheduled
 
 A sandboxed Rhai scripting surface for simulations where all host access (time, IO, randomness) goes through explicit View/Claim/Effect channels, preserving Echo's determinism guarantees.
 

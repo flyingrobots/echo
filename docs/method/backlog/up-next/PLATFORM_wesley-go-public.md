@@ -3,7 +3,7 @@
 
 # Wesley Go Public
 
-> **Milestone:** [First Light](../../ROADMAP.md) | **Priority:** P1 | **Repo:** Wesley
+> **Milestone:** First Light | **Priority:** P1 | **Repo:** Wesley
 
 Wesley-repo work. Prepare the Wesley repository for open-source release: README polish, contributor documentation, CI hardening, and legal review.
 

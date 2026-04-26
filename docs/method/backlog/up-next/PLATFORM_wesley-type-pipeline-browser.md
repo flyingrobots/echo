@@ -3,7 +3,7 @@
 
 # Wesley Type Pipeline in Browser
 
-> **Milestone:** [First Light](../../ROADMAP.md) | **Priority:** P1 | **Repo:** Shared
+> **Milestone:** First Light | **Priority:** P1 | **Repo:** Shared
 
 Ensure Wesley-generated types are usable across the JS/WASM boundary. TypeScript types + Zod validators generated from Wesley IR, with a serialization bridge to the WASM Rust side.
 

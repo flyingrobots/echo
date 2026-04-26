@@ -3,7 +3,7 @@
 
 # git-mind NEXUS
 
-> **Milestone:** [Backlog](../../ROADMAP.md) | **Priority:** Unscheduled
+> **Milestone:** Backlog | **Priority:** Unscheduled
 > **Formerly:** MS-3 (demoted — independent of Echo critical path)
 
 Cross-repo federation, schema validation, and data exchange for git-mind knowledge graphs. Enables git-mind instances to sync, validate structural constraints, and exchange graph fragments via a portable format.

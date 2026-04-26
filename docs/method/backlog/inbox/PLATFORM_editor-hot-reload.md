@@ -3,7 +3,7 @@
 
 # Editor Hot-Reload
 
-> **Milestone:** [Backlog](../../ROADMAP.md) | **Priority:** Unscheduled
+> **Milestone:** Backlog | **Priority:** Unscheduled
 
 File-watching and hot-reload infrastructure for the editor/dev-server workflow. Enables rapid iteration on simulation schemas and scripts.
 

@@ -21,7 +21,7 @@ Pin error budget and verify the deterministic trig oracle for cross-OS audit. No
 - R2: Define the error budget: maximum ULP (units in last place) deviation allowed between the deterministic oracle and reference values (expected: 0 ULP, since the oracle is a software implementation).
 - R3: Add a CI matrix job that runs the trig golden suite on macOS, Ubuntu (glibc), and Alpine (musl).
 - R4: Verify that the oracle's outputs are bit-identical across all three platforms (not just within error budget — must be exact).
-- R5: Document the oracle's algorithm (LUT + refinement) and its determinism guarantees in `docs/SPEC_DETERMINISTIC_MATH.md`.
+- R5: Document the oracle's algorithm (LUT + refinement) and its determinism guarantees in `docs/determinism/SPEC_DETERMINISTIC_MATH.md`.
 
 **Acceptance Criteria:**
 
@@ -29,7 +29,7 @@ Pin error budget and verify the deterministic trig oracle for cross-OS audit. No
 - [ ] AC2: All 1000 values produce bit-identical results across macOS, Ubuntu, and Alpine.
 - [ ] AC3: CI matrix job runs on all 3 platforms and gates the release.
 - [ ] AC4: Error budget is documented as "0 ULP (bit-exact)" with rationale.
-- [ ] AC5: Algorithm documentation is added to `docs/SPEC_DETERMINISTIC_MATH.md`.
+- [ ] AC5: Algorithm documentation is added to `docs/determinism/SPEC_DETERMINISTIC_MATH.md`.
 
 **Definition of Done:**
 

@@ -72,7 +72,7 @@ should be added when a natural patch-level obstruction case is available.
 
 ## Repo evidence
 
-- `docs/WARP_DRIFT.md`
+- `docs/architecture/WARP_DRIFT.md`
 - `docs/design/0004-strand-contract/design.md`
 - `docs/design/0008-strand-settlement/design.md`
 - `docs/design/0010-live-basis-settlement-plan/design.md`

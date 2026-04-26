@@ -31,7 +31,7 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
 ## Getting Started
 
 1. Clone the repo and run `cargo check` to ensure the Rust workspace builds.
-2. Read `docs/architecture-outline.md`.
+2. Read `docs/architecture/outline.md`.
 3. Review `docs/AGENTS.md` for collaboration norms before touching runtime code.
 4. Optional: develop inside the devcontainer for toolchain parity with CI.
     - Open in VS Code → "Reopen in Container" (requires the Dev Containers extension).

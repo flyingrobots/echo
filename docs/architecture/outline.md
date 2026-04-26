@@ -169,7 +169,7 @@ kernel. They are not the present-tense implementation model.
 
 ## Event Bus ✅ Implemented
 
-> **Note:** The original "Event Bus" spec has been superseded by [ADR-0003 (MaterializationBus)](/adr/ADR-0003-Materialization-Bus.md). The MaterializationBus is now implemented with:
+> **Note:** The original "Event Bus" spec has been superseded by the implemented `MaterializationBus` in `crates/warp-core/src/materialization/`. Current runtime evidence lives in code and tests:
 >
 > - `EmissionPort` trait (hexagonal boundary for rule emissions)
 > - `ScopedEmitter` adapter (auto-fills EmitKey from execution context)
@@ -178,7 +178,7 @@ kernel. They are not the present-tense implementation model.
 > - 128 tests covering permutation invariance, reduce algebra, and engine integration
 > - Cross-platform CI (macOS + Linux, weekly via `dind-cross-platform.yml`)
 >
-> See `docs/rfc/mat-bus-finish.md` for the completion RFC.
+> The old ADR/RFC history is not a live docs route; git history is the archive.
 >
 > _The content below is preserved for historical context only._
 
@@ -192,7 +192,7 @@ kernel. They are not the present-tense implementation model.
 
 ## Playback & Worldlines ✅ Implemented
 
-> **Reference:** [SPEC-0004 (Worldlines, Playback, TruthBus)](spec/SPEC-0004-worldlines-playback-truthbus.md)
+> **Reference:** [SPEC-0004 (Worldlines, Playback, TruthBus)](/spec/SPEC-0004-worldlines-playback-truthbus)
 
 SPEC-0004 introduces infrastructure for deterministic materialization, cursor-based replay, and append-only provenance tracking:
 

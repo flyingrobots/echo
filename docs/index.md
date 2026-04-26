@@ -57,7 +57,7 @@ flowchart TD
 - Newcomer (no-programming) intro: [/guide/eli5](/guide/eli5)
 - Start Here guide: [/guide/start-here](/guide/start-here)
 - WARP primer: [/guide/warp-primer](/guide/warp-primer)
-- Architecture overview (draft, but the source of truth for intent): [/architecture-outline](/architecture-outline)
+- Architecture overview (draft context artifact): [/architecture/outline](/architecture/outline)
 - Core runtime spec (`warp-core`): [/spec-warp-core](/spec-warp-core)
 
 ## Curated Map
@@ -72,7 +72,7 @@ flowchart TD
 
 ### Determinism
 
-- Deterministic math policy: [/SPEC_DETERMINISTIC_MATH](/SPEC_DETERMINISTIC_MATH)
+- Deterministic math policy: [/determinism/SPEC_DETERMINISTIC_MATH](/determinism/SPEC_DETERMINISTIC_MATH)
 - Deterministic math hazards: [/determinism/DETERMINISTIC_MATH](/determinism/DETERMINISTIC_MATH)
 - Claim register + evidence: [/determinism/DETERMINISM_CLAIMS_v0.1](/determinism/DETERMINISM_CLAIMS_v0.1)
 - Release policy: [/determinism/RELEASE_POLICY](/determinism/RELEASE_POLICY)
@@ -87,9 +87,9 @@ flowchart TD
 
 ### Theory / intent
 
-- Architecture outline: [/architecture-outline](/architecture-outline)
+- Architecture outline: [/architecture/outline](/architecture/outline)
 - Continuum foundations bridge: [/continuum-foundations](/continuum-foundations)
-- Theory: [/THEORY](/THEORY)
+- Theory: [/theory/THEORY](/theory/THEORY)
 - Method: [/method/README](/method/README)
 
 ## Run Something (learn by doing)

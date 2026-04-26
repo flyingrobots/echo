@@ -81,6 +81,6 @@ Still open:
 
 ## Repo evidence
 
-- `docs/WARP_DRIFT.md`
+- `docs/architecture/WARP_DRIFT.md`
 - `docs/design/0006-echo-continuum-alignment/design.md`
 - `docs/design/0009-witnessed-causal-suffix-sync/design.md`

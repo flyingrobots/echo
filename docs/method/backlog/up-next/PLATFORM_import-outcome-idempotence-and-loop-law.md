@@ -51,4 +51,4 @@ That is not strong enough for the runtime boundary Echo now wants to expose.
 ## Repo evidence
 
 - `docs/design/0009-witnessed-causal-suffix-sync/design.md`
-- `docs/WARP_DRIFT.md`
+- `docs/architecture/WARP_DRIFT.md`

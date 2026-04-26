@@ -78,7 +78,7 @@ cargo xtask                 # developer CLI (subcommands vary)
 ## Determinism
 
 Echo is a deterministic simulation engine. All floating-point
-operations must be canonicalized per `docs/SPEC_DETERMINISTIC_MATH.md`.
+operations must be canonicalized per `docs/determinism/SPEC_DETERMINISTIC_MATH.md`.
 No global state, no `rand`, no system time, no unordered containers
 in deterministic paths. CI enforces this via `scripts/ban-globals.sh`
 and `scripts/ban-nondeterminism.sh`.

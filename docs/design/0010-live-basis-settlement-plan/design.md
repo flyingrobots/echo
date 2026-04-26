@@ -15,7 +15,7 @@ Depends on:
 - [0008 — Strand settlement and conflict artifacts](../0008-strand-settlement/design.md)
 - [0009 — Witnessed causal suffix export and import](../0009-witnessed-causal-suffix-sync/design.md)
 - [0011 — Optic and observer runtime doctrine](../0011-optic-observer-runtime-doctrine/design.md)
-- [Echo WARP Drift](../../WARP_DRIFT.md)
+- [Echo WARP Drift](../../architecture/WARP_DRIFT.md)
 
 ## Why this packet exists
 

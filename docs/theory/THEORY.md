@@ -1053,4 +1053,6 @@ When Echo diverges, it should not be a mystery or an accident.
 > [!note]
 > Echo does this differently (by policy). Echo prioritizes determinism + replayability _and_ runtime performance. It works like this because Echo is meant to run real simulations, not just prove theorems — but every deviation from the Foundations series should be explained so readers can map paper concepts to the codebase without guesswork.
 
-For canonical mappings and explicit deviation rationale, see `docs/aion-papers-bridge.md`.
+For current runtime drift and terminology mappings, see
+[`../architecture/WARP_DRIFT.md`](../architecture/WARP_DRIFT.md) and
+[`../architecture/TERMS_WARP_STATE_INSTANCES_PORTALS_WORMHOLES.md`](../architecture/TERMS_WARP_STATE_INSTANCES_PORTALS_WORMHOLES.md).

@@ -52,7 +52,7 @@ is moving to `warp-ttd`, while Echo keeps the WASM/browser host surfaces.
 
 - **Guides** (`docs/guide/`): newcomer-friendly explanations and runnable walkthroughs.
 - **Specs** (`docs/spec-*.md`, `docs/spec/`): normative artifacts we try to keep stable and precise.
-- **Architecture / Theory** (`docs/architecture*.md`, `docs/THEORY.md`, `docs/METHODOLOGY.md`): design intent and conceptual framing.
+- **Architecture / Theory** (`docs/architecture/`, `docs/theory/`): design intent and conceptual framing.
 - **Procedures / Benchmarks** (`docs/procedures/`, `docs/benchmarks/`): contributor workflow and evidence.
 
 ## Viewing Docs Locally

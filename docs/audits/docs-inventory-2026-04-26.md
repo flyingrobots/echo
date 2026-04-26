@@ -153,3 +153,171 @@ Action taken: moved into `docs/determinism/` and updated live references.
   a larger preexisting dead-link set, especially stale `ROADMAP` links inside
   Method backlog items. That should become its own cleanup batch instead of
   being hidden.
+
+---
+
+## Log Policy
+
+As of this entry, this file is append-only. New audit entries are appended at
+the bottom and separated with `---`. If a past decision becomes wrong, append a
+new correction entry instead of rewriting earlier audit text.
+
+---
+
+## Batch 2
+
+### `docs/SPEC_DETERMINISTIC_MATH.md`
+
+About: normative deterministic-math policy for `warp-core`.
+
+Code/doc evidence checked:
+
+- `crates/warp-core/src/math/scalar.rs` implements `F32Scalar::new(...)`
+  canonicalization for NaN, signed zero, and subnormals.
+- `crates/warp-core/src/math/trig.rs` implements deterministic LUT-backed
+  `sin`/`cos` and avoids platform transcendentals.
+- `crates/warp-core/src/math/fixed_q32_32.rs` implements deterministic Q32.32
+  conversions for the `det_fixed` lane.
+- `.github/workflows/ci.yml` runs the float, fixed-point, and MUSL validation
+  lanes named by the doc.
+- `scripts/check_no_raw_trig.sh` backs the raw-transcendental policy.
+
+Accuracy as found: `4/5`.
+
+Decision: keep and relocate. The content is code-backed and should remain the
+normative math policy, but it belongs with the determinism corpus.
+
+Destination: `docs/determinism/SPEC_DETERMINISTIC_MATH.md`.
+
+Action taken: moved into `docs/determinism/` and updated live references.
+
+### `docs/THEORY.md`
+
+About: AIΩN / WARP foundations paraphrase with implementation-deviation notes
+for Echo.
+
+Code/doc evidence checked:
+
+- `crates/warp-core/src/attachment.rs` and `crates/warp-core/src/tick_patch.rs`
+  back the typed-atom / `Descend(WarpId)` / `OpenPortal` model.
+- `crates/warp-core/src/tick_patch.rs` rejects dangling portals and orphan
+  instances during patch replay.
+- `crates/warp-core/src/tick_patch.rs` and `crates/warp-core/src/receipt.rs`
+  back the delta-first patch and receipt notes.
+- `crates/warp-core/src/worldline_state.rs` backs linear worldline state and
+  tick-history storage.
+- Paper IV observer geometry is explicitly marked as not implemented in
+  `warp-core`; current runtime evidence is the reading-envelope work.
+
+Accuracy as found: `3/5`.
+
+Decision: keep, but demote from top-level docs. It is useful north-star
+material, not an implementation spec. It also pointed to missing
+`docs/aion-papers-bridge.md`.
+
+Destination: `docs/theory/THEORY.md`.
+
+Action taken: moved into `docs/theory/` and replaced the missing bridge link
+with live links to `docs/architecture/WARP_DRIFT.md` and the WARP terms doc.
+
+### `docs/WARP_DRIFT.md`
+
+About: current gap analysis between Echo's runtime/docs and the stronger WARP
+optic/observer/strand doctrine.
+
+Code/doc evidence checked:
+
+- `crates/warp-core/src/strand.rs` implements `Strand::live_basis_report(...)`.
+- `crates/warp-core/src/settlement.rs` implements `SettlementPlan`,
+  `SettlementDecision`, `ConflictArtifactDraft`, and `SettlementResult`.
+- `crates/warp-wasm/src/warp_kernel.rs` exposes `dispatch_intent(...)`,
+  `observe(...)`, neighborhood publication, and settlement entrypoints.
+- `crates/echo-wasm-abi/src/kernel_port.rs` exposes `ReadingEnvelope` and
+  settlement/observation ABI types.
+- Referenced Method items and designs for live holographic strands, observer
+  plans, reading envelopes, and witnessed suffix shells exist.
+
+Accuracy as found: `4/5`.
+
+Decision: keep and relocate. This is a useful current architecture/drift memo,
+but it belongs under architecture rather than the top-level docs namespace.
+
+Destination: `docs/architecture/WARP_DRIFT.md`.
+
+Action taken: moved into `docs/architecture/` and updated references.
+
+### `docs/architecture-outline.md`
+
+About: high-level Echo architecture draft mixing current runtime facts,
+Continuum context, and future product/ECS/interface ideas.
+
+Code/doc evidence checked:
+
+- `crates/warp-core` backs the current hot runtime claims.
+- `crates/warp-core/src/materialization/` backs the `MaterializationBus`
+  claims.
+- `crates/echo-scene-port`, `crates/echo-scene-codec`, and
+  `packages/echo-renderer-three` back the scene boundary claims.
+- `crates/ttd-browser`, `crates/echo-wesley-gen`, and `PrivacyMask` types exist.
+- The doc also linked removed ADR/RFC routes and still contains large planned
+  ECS/product sections.
+
+Accuracy as found: `2/5`.
+
+Decision: keep only as a draft context artifact and quarantine it under
+`docs/architecture/`. It should not be presented as the authoritative system
+map until rewritten more aggressively.
+
+Destination: `docs/architecture/outline.md`.
+
+Action taken: moved into `docs/architecture/`, downgraded README/index wording,
+and replaced missing ADR/RFC links with code-backed materialization evidence.
+
+### `docs/architecture/TERMS_WARP_STATE_INSTANCES_PORTALS_WORMHOLES.md`
+
+About: canonical terminology for WARP state, skeletons, attachment planes,
+instances, portals, wormholes, and slicing.
+
+Code/doc evidence checked:
+
+- `crates/warp-core/src/attachment.rs` defines `AttachmentValue::Atom` and
+  `AttachmentValue::Descend(WarpId)`.
+- `crates/warp-core/src/tick_patch.rs` defines `WarpOp::OpenPortal` and
+  validates dangling-portal/orphan-instance invariants.
+- `crates/warp-core/src/worldline_state.rs` and `crates/warp-core/src/lib.rs`
+  expose `WarpState`, `WorldlineState`, and related runtime terms.
+- `docs/spec/SPEC-0002-descended-attachments-v1.md` matches the flattened
+  indirection model.
+
+Accuracy as found: `5/5`.
+
+Decision: keep in place. This is one of the better architecture docs: precise,
+code-backed, and already in the right directory.
+
+Destination: `docs/architecture/TERMS_WARP_STATE_INSTANCES_PORTALS_WORMHOLES.md`.
+
+Action taken: none beyond recording the audit decision.
+
+---
+
+## Verification Note
+
+`pnpm docs:build` now gets past the moved-file links from batch 2, but still
+fails on 59 dead links. The remaining class is the known docs-site backlog:
+stale `ROADMAP` links in Method backlog/graveyard files, `scheduler.md` pointing
+at missing `spec-scheduler`, `benchmarks/PARALLEL_POLICY_MATRIX.md` pointing at
+missing `report-inline`, and a few non-doc-root links. Do not hide this with
+`ignoreDeadLinks`; fix it as a dedicated cleanup batch.
+
+---
+
+## Batch 2 Follow-up
+
+A post-move stale-reference sweep found remaining live references to the old
+top-level paths in `CONTRIBUTING.md`, `CLAUDE.md`, and
+`docs/method/backlog/asap/DOCS_docs-cleanup.md`. These were updated to the new
+destinations under `docs/architecture/`, `docs/determinism/`, and
+`docs/theory/`.
+
+Historical path references in older `docs/audits/` files were left untouched as
+audit records rather than rewritten.

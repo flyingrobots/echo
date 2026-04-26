@@ -6,7 +6,8 @@
 This document outlines the high-risk sources of nondeterminism in floating-point math (IEEE 754)
 and the mitigation strategies Echo uses to stay bit-stable across architectures.
 
-For the normative rules, see [/SPEC_DETERMINISTIC_MATH](/SPEC_DETERMINISTIC_MATH).
+For the normative rules, see
+[/determinism/SPEC_DETERMINISTIC_MATH](/determinism/SPEC_DETERMINISTIC_MATH).
 
 Achieving bit-perfect determinism across disparate hardware architectures (x86_64, AArch64, WASM32)
 is difficult due to loosely defined behaviors in the IEEE 754 specification. While basic arithmetic
@@ -15,13 +16,13 @@ is largely standardized, "freaky numbers" (NaN, Subnormals, Signed Zero) introdu
 ## Docs Map
 
 > **You are here:** hazard catalog (non-normative supporting doc).
-> The mitigations below summarize requirements derived from [SPEC_DETERMINISTIC_MATH.md](../SPEC_DETERMINISTIC_MATH.md); that document is the normative source. If anything in this file conflicts with the spec, the spec wins.
+> The mitigations below summarize requirements derived from [SPEC_DETERMINISTIC_MATH.md](SPEC_DETERMINISTIC_MATH.md); that document is the normative source. If anything in this file conflicts with the spec, the spec wins.
 >
-> | Doc                                                         | Role                                         |
-> | ----------------------------------------------------------- | -------------------------------------------- |
-> | [SPEC_DETERMINISTIC_MATH.md](../SPEC_DETERMINISTIC_MATH.md) | **Normative policy** (this doc defers to it) |
-> | [warp-math-claims.md](../warp-math-claims.md)               | Claims and theory framing                    |
-> | [DETERMINISM_CLAIMS_v0.1.md](DETERMINISM_CLAIMS_v0.1.md)    | Formal determinism claims                    |
+> | Doc                                                      | Role                                         |
+> | -------------------------------------------------------- | -------------------------------------------- |
+> | [SPEC_DETERMINISTIC_MATH.md](SPEC_DETERMINISTIC_MATH.md) | **Normative policy** (this doc defers to it) |
+> | [warp-math-claims.md](../warp-math-claims.md)            | Claims and theory framing                    |
+> | [DETERMINISM_CLAIMS_v0.1.md](DETERMINISM_CLAIMS_v0.1.md) | Formal determinism claims                    |
 
 ## 1. NaN Payloads
 

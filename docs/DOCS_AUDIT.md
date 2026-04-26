@@ -86,7 +86,7 @@ from scratch today, based on what the code actually does?
 | `SPEC-0003-dpo-concurrency-litmus-v0.md`    | KEEP | Yes           | DPO concurrency litmus tests. Implemented. |
 | `SPEC-0004-worldlines-playback-truthbus.md` | KEEP | Yes           | Provenance infrastructure. Implemented.    |
 | `SPEC-0005-provenance-payload.md`           | KEEP | Yes           | Provenance payload. Implemented.           |
-| `SPEC-0009-wasm-abi-v3.md`                  | KEEP | Yes           | WASM ABI v3. Implemented.                  |
+| `SPEC-0009-wasm-abi-v5.md`                  | KEEP | Yes           | WASM ABI v5. Implemented.                  |
 
 ## docs/adr/
 

@@ -10,7 +10,7 @@
 //!
 //! # ABI Version
 //!
-//! The current ABI version is [`ABI_VERSION`] (4). All response types are
+//! The current ABI version is [`ABI_VERSION`] (5). All response types are
 //! CBOR-encoded using the canonical rules defined in `docs/js-cbor-mapping.md`.
 //! Breaking changes to response shapes or error codes require a bump to the
 //! ABI version.
@@ -38,7 +38,7 @@ use serde::{
 ///
 /// Increment when response types, error codes, or method signatures change
 /// in a backward-incompatible way.
-pub const ABI_VERSION: u32 = 4;
+pub const ABI_VERSION: u32 = 5;
 
 fn deserialize_opaque_id<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
 where
@@ -539,6 +539,46 @@ pub struct ResolvedObservationCoordinate {
     pub commit_hash: Vec<u8>,
 }
 
+/// Read-side basis posture carried by every observation artifact.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ObservationBasisPosture {
+    /// Ordinary worldline read with no live-strand basis relation.
+    Worldline,
+    /// Historical coordinate on a live strand's child worldline.
+    StrandHistorical {
+        /// Live strand whose child worldline was read.
+        strand_id: StrandId,
+    },
+    /// Live strand frontier read while parent remains at the fork anchor.
+    StrandAtAnchor {
+        /// Live strand whose child worldline was read.
+        strand_id: StrandId,
+    },
+    /// Live strand frontier read after parent movement outside the owned footprint.
+    StrandParentAdvancedDisjoint {
+        /// Live strand whose child worldline was read.
+        strand_id: StrandId,
+        /// Anchor coordinate from which the strand diverged.
+        parent_from: ProvenanceRef,
+        /// Current parent basis used for the read.
+        parent_to: ProvenanceRef,
+    },
+    /// Live strand frontier read after parent movement inside the owned footprint.
+    StrandRevalidationRequired {
+        /// Live strand whose child worldline was read.
+        strand_id: StrandId,
+        /// Anchor coordinate from which the strand diverged.
+        parent_from: ProvenanceRef,
+        /// Current parent basis that must be revalidated.
+        parent_to: ProvenanceRef,
+        /// Number of overlapping slots in the core artifact.
+        overlapping_slot_count: u64,
+        /// Deterministic digest of the core overlapping slot list.
+        overlapping_slots_digest: Vec<u8>,
+    },
+}
+
 /// Minimal head observation payload.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HeadObservation {
@@ -625,6 +665,8 @@ pub enum ObservationPayload {
 pub struct ObservationHashInput {
     /// Resolved coordinate metadata.
     pub resolved: ResolvedObservationCoordinate,
+    /// Read-side basis posture.
+    pub basis_posture: ObservationBasisPosture,
     /// Declared semantic frame.
     pub frame: ObservationFrame,
     /// Declared projection.
@@ -638,6 +680,8 @@ pub struct ObservationHashInput {
 pub struct ObservationArtifact {
     /// Resolved coordinate metadata.
     pub resolved: ResolvedObservationCoordinate,
+    /// Read-side basis posture.
+    pub basis_posture: ObservationBasisPosture,
     /// Declared semantic frame.
     pub frame: ObservationFrame,
     /// Declared projection.

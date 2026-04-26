@@ -203,9 +203,10 @@ pub use neighborhood::{
     ParticipantRole, SiteParticipant, SitePlurality,
 };
 pub use observation::{
-    HeadObservation, ObservationArtifact, ObservationAt, ObservationCoordinate, ObservationError,
-    ObservationFrame, ObservationPayload, ObservationProjection, ObservationProjectionKind,
-    ObservationRequest, ObservationService, ResolvedObservationCoordinate, WorldlineSnapshot,
+    HeadObservation, ObservationArtifact, ObservationAt, ObservationBasisPosture,
+    ObservationCoordinate, ObservationError, ObservationFrame, ObservationPayload,
+    ObservationProjection, ObservationProjectionKind, ObservationRequest, ObservationService,
+    ResolvedObservationCoordinate, WorldlineSnapshot,
 };
 pub use playback::{CursorReceipt, TruthFrame, TruthSink};
 pub use provenance_store::{

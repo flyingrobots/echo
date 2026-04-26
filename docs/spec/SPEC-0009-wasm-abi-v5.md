@@ -1,16 +1,19 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# SPEC-0009: WASM ABI Contract v3
+# SPEC-0009: WASM ABI Contract v5
 
-> **Status:** Active | **ABI Version:** 3 | **Crate:** `warp-wasm`
+> **Status:** Active | **ABI Version:** 5 | **Crate:** `warp-wasm`
 
 ## Overview
 
 This document specifies the current WASM export surface, wire encoding, and
 error protocol for Echo's deterministic simulation boundary.
 
-ABI v3 makes three boundaries explicit:
+ABI v5 keeps the ABI v3 public export shape and extends observation artifacts
+with read-side basis posture.
+
+ABI v3 made three boundaries explicit:
 
 - `observe(request)` is the only public world-state read export.
 - `dispatch_intent(...)` is the only public write and control ingress surface.
@@ -219,16 +222,32 @@ to:
 
 ### ObservationArtifact
 
-| Field           | Type                            | Description                                    |
-| --------------- | ------------------------------- | ---------------------------------------------- |
-| `resolved`      | `ResolvedObservationCoordinate` | Explicit resolved coordinate metadata          |
-| `frame`         | enum                            | Declared semantic frame                        |
-| `projection`    | enum                            | Declared projection                            |
-| `artifact_hash` | bytes(32)                       | Canonical observation artifact hash            |
-| `payload`       | tagged union                    | Head, snapshot, recorded truth, or query bytes |
+| Field           | Type                            | Description                                                  |
+| --------------- | ------------------------------- | ------------------------------------------------------------ |
+| `resolved`      | `ResolvedObservationCoordinate` | Explicit resolved coordinate metadata                        |
+| `basis_posture` | `ObservationBasisPosture`       | Read-side parent/strand basis posture included in hash input |
+| `frame`         | enum                            | Declared semantic frame                                      |
+| `projection`    | enum                            | Declared projection                                          |
+| `artifact_hash` | bytes(32)                       | Canonical observation artifact hash                          |
+| `payload`       | tagged union                    | Head, snapshot, recorded truth, or query bytes               |
 
 `artifact_hash` is computed as
 `blake3("echo:observation-artifact:v2\0" || canonical_cbor(hash_input))`.
+
+### ObservationBasisPosture
+
+`basis_posture` is the read-side posture of the observed coordinate:
+
+- `worldline`
+- `strand_historical { strand_id }`
+- `strand_at_anchor { strand_id }`
+- `strand_parent_advanced_disjoint { strand_id, parent_from, parent_to }`
+- `strand_revalidation_required { strand_id, parent_from, parent_to,
+overlapping_slot_count, overlapping_slots_digest }`
+
+The kernel retains the full overlapping slot list internally. The ABI carries a
+count plus deterministic digest until a stable public slot representation is
+introduced.
 
 ### ResolvedObservationCoordinate
 
@@ -335,7 +354,7 @@ Current engine-backed behavior:
 | `codec_id`          | string? | Codec identifier (e.g. `"cbor-canonical-v1"`) |
 | `registry_version`  | string? | Registry version                              |
 | `schema_sha256_hex` | string? | Schema hash (hex)                             |
-| `abi_version`       | u32     | ABI contract version (currently `3`)          |
+| `abi_version`       | u32     | ABI contract version (currently `5`)          |
 
 ## Error Codes
 
@@ -378,7 +397,7 @@ methods.
    world-state read boundary.
 3. Route scheduler lifecycle and admission requests through
    `dispatch_intent(...)` using `ControlIntentV1` packed into an EINT envelope.
-4. Read `RegistryInfo.abi_version` and reject hosts that still expect the v2
+4. Read `RegistryInfo.abi_version` and reject hosts that still expect older
    step surface.
 5. Rename host-side field access from bare `tick`-style fields to explicit
    `worldline_tick`, `commit_global_tick`, and
@@ -389,8 +408,18 @@ methods.
    `UNSUPPORTED_QUERY` until a real observation-backed query implementation
    lands.
 
+### From ABI v4 to ABI v5
+
+1. Decode `ObservationArtifact.basis_posture` on every observation response.
+2. Include `basis_posture` in any host-side observation artifact hash
+   verification.
+3. Treat `strand_revalidation_required` as a visible read posture, not as a
+   materialized-state failure.
+4. Use `overlapping_slot_count` and `overlapping_slots_digest` as witness
+   metadata only. The stable public slot representation is still deferred.
+
 ## Compatibility Note
 
-ABI v3 is intentionally breaking. The removed step/pump surface is absent, not
-deprecated, and hosts must migrate to explicit observation requests plus
-intent-shaped scheduler control.
+ABI v5 is intentionally breaking relative to v4 for observation responses. ABI
+v3 remains the major export-shape break that removed step/pump; v5 preserves
+that export shape while adding read-side basis posture to observation artifacts.

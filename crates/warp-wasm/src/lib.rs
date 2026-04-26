@@ -594,9 +594,9 @@ mod init_tests {
     use echo_wasm_abi::kernel_port::{
         BaseRef, ConflictArtifactDraft, ConflictReason, DispatchResponse, GlobalTick, HeadInfo,
         HeadObservation, NeighborhoodSite, NeighborhoodSiteId, ObservationArtifact, ObservationAt,
-        ObservationFrame, ObservationPayload, ObservationProjection, ParticipantRole,
-        ProvenanceRef, RegistryInfo, ResolvedObservationCoordinate, RunCompletion, RunId,
-        SchedulerMode, SchedulerState, SchedulerStatus, SettlementDecision, SettlementDelta,
+        ObservationBasisPosture, ObservationFrame, ObservationPayload, ObservationProjection,
+        ParticipantRole, ProvenanceRef, RegistryInfo, ResolvedObservationCoordinate, RunCompletion,
+        RunId, SchedulerMode, SchedulerState, SchedulerStatus, SettlementDecision, SettlementDelta,
         SettlementPlan, SettlementRequest, SettlementResult, SiteParticipant, SitePlurality,
         WorkState, WorldlineId, WorldlineTick, ABI_VERSION,
     };
@@ -647,6 +647,7 @@ mod init_tests {
                     state_root: head.state_root.clone(),
                     commit_hash: head.commit_id.clone(),
                 },
+                basis_posture: ObservationBasisPosture::Worldline,
                 frame: ObservationFrame::CommitBoundary,
                 projection: ObservationProjection::Head,
                 artifact_hash: vec![4; 32],

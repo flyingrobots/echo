@@ -17,6 +17,7 @@ use blake3::Hasher;
 use echo_wasm_abi::kernel_port as abi;
 use thiserror::Error;
 
+use crate::attachment::{AttachmentOwner, AttachmentPlane};
 use crate::clock::{GlobalTick, WorldlineTick};
 use crate::coordinator::WorldlineRuntime;
 use crate::engine_impl::Engine;
@@ -24,6 +25,8 @@ use crate::ident::Hash;
 use crate::materialization::ChannelId;
 use crate::provenance_store::{ProvenanceService, ProvenanceStore};
 use crate::snapshot::Snapshot;
+use crate::strand::{StrandId, StrandRevalidationState};
+use crate::tick_patch::SlotId;
 use crate::worldline::WorldlineId;
 
 const OBSERVATION_VERSION: u32 = 2;
@@ -225,6 +228,80 @@ impl ResolvedObservationCoordinate {
     }
 }
 
+/// Read-side basis posture carried by every observation artifact.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ObservationBasisPosture {
+    /// Ordinary worldline read with no live-strand basis relation.
+    Worldline,
+    /// Historical coordinate on a live strand's child worldline.
+    StrandHistorical {
+        /// Live strand whose child worldline was read.
+        strand_id: StrandId,
+    },
+    /// Live strand frontier read while parent remains at the fork anchor.
+    StrandAtAnchor {
+        /// Live strand whose child worldline was read.
+        strand_id: StrandId,
+    },
+    /// Live strand frontier read after parent movement outside the owned footprint.
+    StrandParentAdvancedDisjoint {
+        /// Live strand whose child worldline was read.
+        strand_id: StrandId,
+        /// Anchor coordinate from which the strand diverged.
+        parent_from: crate::provenance_store::ProvenanceRef,
+        /// Current parent basis used for the read.
+        parent_to: crate::provenance_store::ProvenanceRef,
+    },
+    /// Live strand frontier read after parent movement inside the owned footprint.
+    StrandRevalidationRequired {
+        /// Live strand whose child worldline was read.
+        strand_id: StrandId,
+        /// Anchor coordinate from which the strand diverged.
+        parent_from: crate::provenance_store::ProvenanceRef,
+        /// Current parent basis that must be revalidated.
+        parent_to: crate::provenance_store::ProvenanceRef,
+        /// Parent-written slots that overlap the strand-owned closed footprint.
+        overlapping_slots: Vec<SlotId>,
+    },
+}
+
+impl ObservationBasisPosture {
+    fn to_abi(&self) -> abi::ObservationBasisPosture {
+        match self {
+            Self::Worldline => abi::ObservationBasisPosture::Worldline,
+            Self::StrandHistorical { strand_id } => {
+                abi::ObservationBasisPosture::StrandHistorical {
+                    strand_id: abi::StrandId::from_bytes(*strand_id.as_bytes()),
+                }
+            }
+            Self::StrandAtAnchor { strand_id } => abi::ObservationBasisPosture::StrandAtAnchor {
+                strand_id: abi::StrandId::from_bytes(*strand_id.as_bytes()),
+            },
+            Self::StrandParentAdvancedDisjoint {
+                strand_id,
+                parent_from,
+                parent_to,
+            } => abi::ObservationBasisPosture::StrandParentAdvancedDisjoint {
+                strand_id: abi::StrandId::from_bytes(*strand_id.as_bytes()),
+                parent_from: provenance_ref_to_abi(*parent_from),
+                parent_to: provenance_ref_to_abi(*parent_to),
+            },
+            Self::StrandRevalidationRequired {
+                strand_id,
+                parent_from,
+                parent_to,
+                overlapping_slots,
+            } => abi::ObservationBasisPosture::StrandRevalidationRequired {
+                strand_id: abi::StrandId::from_bytes(*strand_id.as_bytes()),
+                parent_from: provenance_ref_to_abi(*parent_from),
+                parent_to: provenance_ref_to_abi(*parent_to),
+                overlapping_slot_count: overlapping_slots.len() as u64,
+                overlapping_slots_digest: overlap_slots_digest(overlapping_slots).to_vec(),
+            },
+        }
+    }
+}
+
 /// Minimal frontier/head observation payload.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HeadObservation {
@@ -318,6 +395,8 @@ impl ObservationPayload {
 pub struct ObservationArtifact {
     /// Resolved coordinate metadata.
     pub resolved: ResolvedObservationCoordinate,
+    /// Read-side basis posture.
+    pub basis_posture: ObservationBasisPosture,
     /// Declared semantic frame.
     pub frame: ObservationFrame,
     /// Declared projection.
@@ -334,6 +413,7 @@ impl ObservationArtifact {
     pub fn to_abi(&self) -> abi::ObservationArtifact {
         abi::ObservationArtifact {
             resolved: self.resolved.to_abi(),
+            basis_posture: self.basis_posture.to_abi(),
             frame: self.frame.to_abi(),
             projection: self.projection.to_abi(),
             artifact_hash: self.artifact_hash.to_vec(),
@@ -410,6 +490,8 @@ impl ObservationService {
         }
 
         let resolved = Self::resolve_coordinate(runtime, provenance, engine, &request)?;
+        let basis_posture =
+            Self::basis_posture(runtime, provenance, worldline_id, request.coordinate.at)?;
         let payload = match (&request.frame, &request.projection) {
             (ObservationFrame::CommitBoundary, ObservationProjection::Head) => {
                 ObservationPayload::Head(HeadObservation {
@@ -453,10 +535,16 @@ impl ObservationService {
             _ => unreachable!("validity matrix must reject unsupported combinations"),
         };
 
-        let artifact_hash =
-            Self::compute_artifact_hash(&resolved, request.frame, &request.projection, &payload)?;
+        let artifact_hash = Self::compute_artifact_hash(
+            &resolved,
+            &basis_posture,
+            request.frame,
+            &request.projection,
+            &payload,
+        )?;
         Ok(ObservationArtifact {
             resolved,
+            basis_posture,
             frame: request.frame,
             projection: request.projection,
             artifact_hash,
@@ -613,12 +701,14 @@ impl ObservationService {
 
     fn compute_artifact_hash(
         resolved: &ResolvedObservationCoordinate,
+        basis_posture: &ObservationBasisPosture,
         frame: ObservationFrame,
         projection: &ObservationProjection,
         payload: &ObservationPayload,
     ) -> Result<Hash, ObservationError> {
         let input = abi::ObservationHashInput {
             resolved: resolved.to_abi(),
+            basis_posture: basis_posture.to_abi(),
             frame: frame.to_abi(),
             projection: projection.to_abi(),
             payload: payload.to_abi(),
@@ -629,6 +719,106 @@ impl ObservationService {
         hasher.update(OBSERVATION_ARTIFACT_DOMAIN);
         hasher.update(&bytes);
         Ok(hasher.finalize().into())
+    }
+
+    fn basis_posture(
+        runtime: &WorldlineRuntime,
+        provenance: &ProvenanceService,
+        worldline_id: WorldlineId,
+        at: ObservationAt,
+    ) -> Result<ObservationBasisPosture, ObservationError> {
+        let Some(strand) = runtime.strands().find_by_child_worldline(&worldline_id) else {
+            return Ok(ObservationBasisPosture::Worldline);
+        };
+        if !matches!(at, ObservationAt::Frontier) {
+            return Ok(ObservationBasisPosture::StrandHistorical {
+                strand_id: strand.strand_id,
+            });
+        }
+
+        let report = strand
+            .live_basis_report(provenance)
+            .map_err(|_| ObservationError::ObservationUnavailable { worldline_id, at })?;
+        Ok(match report.parent_revalidation {
+            StrandRevalidationState::AtAnchor => ObservationBasisPosture::StrandAtAnchor {
+                strand_id: strand.strand_id,
+            },
+            StrandRevalidationState::ParentAdvancedDisjoint {
+                parent_from,
+                parent_to,
+            } => ObservationBasisPosture::StrandParentAdvancedDisjoint {
+                strand_id: strand.strand_id,
+                parent_from,
+                parent_to,
+            },
+            StrandRevalidationState::RevalidationRequired {
+                parent_from,
+                parent_to,
+                overlapping_slots,
+            } => ObservationBasisPosture::StrandRevalidationRequired {
+                strand_id: strand.strand_id,
+                parent_from,
+                parent_to,
+                overlapping_slots,
+            },
+        })
+    }
+}
+
+fn provenance_ref_to_abi(reference: crate::provenance_store::ProvenanceRef) -> abi::ProvenanceRef {
+    abi::ProvenanceRef {
+        worldline_id: abi::WorldlineId::from_bytes(*reference.worldline_id.as_bytes()),
+        worldline_tick: abi::WorldlineTick(reference.worldline_tick.as_u64()),
+        commit_hash: reference.commit_hash.to_vec(),
+    }
+}
+
+fn overlap_slots_digest(slots: &[SlotId]) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(b"echo:observation-overlap-slots:v1\0");
+    hasher.update(&(slots.len() as u64).to_le_bytes());
+    for slot in slots {
+        hash_slot(&mut hasher, slot);
+    }
+    hasher.finalize().into()
+}
+
+fn hash_slot(hasher: &mut Hasher, slot: &SlotId) {
+    match slot {
+        SlotId::Node(node) => {
+            hasher.update(&[1]);
+            hasher.update(node.warp_id.as_bytes());
+            hasher.update(node.local_id.as_bytes());
+        }
+        SlotId::Edge(edge) => {
+            hasher.update(&[2]);
+            hasher.update(edge.warp_id.as_bytes());
+            hasher.update(edge.local_id.as_bytes());
+        }
+        SlotId::Attachment(attachment) => {
+            hasher.update(&[3]);
+            match attachment.owner {
+                AttachmentOwner::Node(node) => {
+                    hasher.update(&[1]);
+                    hasher.update(node.warp_id.as_bytes());
+                    hasher.update(node.local_id.as_bytes());
+                }
+                AttachmentOwner::Edge(edge) => {
+                    hasher.update(&[2]);
+                    hasher.update(edge.warp_id.as_bytes());
+                    hasher.update(edge.local_id.as_bytes());
+                }
+            }
+            match attachment.plane {
+                AttachmentPlane::Alpha => hasher.update(&[1]),
+                AttachmentPlane::Beta => hasher.update(&[2]),
+            };
+        }
+        SlotId::Port((warp_id, port_key)) => {
+            hasher.update(&[4]);
+            hasher.update(warp_id.as_bytes());
+            hasher.update(&port_key.to_le_bytes());
+        }
     }
 }
 
@@ -647,11 +837,14 @@ mod tests {
     use crate::coordinator::WorldlineRuntime;
     use crate::head::{make_head_id, WriterHead, WriterHeadKey};
     use crate::head_inbox::{make_intent_kind, InboxPolicy, IngressEnvelope, IngressTarget};
-    use crate::ident::{make_node_id, make_type_id, WarpId};
+    use crate::ident::{make_edge_id, make_node_id, make_type_id, WarpId};
     use crate::materialization::make_channel_id;
+    use crate::provenance_store::replay_artifacts_for_entry;
     use crate::receipt::TickReceipt;
-    use crate::record::NodeRecord;
-    use crate::tick_patch::{TickCommitStatus, WarpTickPatchV1};
+    use crate::record::{EdgeRecord, NodeRecord};
+    use crate::snapshot::compute_commit_hash_v2;
+    use crate::strand::{make_strand_id, BaseRef, Strand};
+    use crate::tick_patch::{SlotId, TickCommitStatus, WarpOp, WarpTickPatchV1};
     use crate::worldline::{HashTriplet, WorldlineTickHeaderV1, WorldlineTickPatchV1};
     use crate::{
         EngineBuilder, GraphStore, PlaybackMode, ProvenanceEntry, SchedulerCoordinator,
@@ -717,6 +910,245 @@ mod tests {
             .unwrap();
         SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
         (engine, runtime, provenance, worldline_id)
+    }
+
+    fn append_local_patch(
+        state: &mut WorldlineState,
+        provenance: &mut ProvenanceService,
+        worldline_id: WorldlineId,
+        head_key: WriterHeadKey,
+        commit_global_tick: GlobalTick,
+        patch: WorldlineTickPatchV1,
+    ) -> ProvenanceEntry {
+        let worldline_tick = state.current_tick();
+        let parents = provenance
+            .tip_ref(worldline_id)
+            .unwrap()
+            .into_iter()
+            .collect::<Vec<_>>();
+        patch.apply_to_worldline_state(state).unwrap();
+        let state_root = state.state_root();
+        let parent_hashes = parents
+            .iter()
+            .map(|parent| parent.commit_hash)
+            .collect::<Vec<_>>();
+        let commit_hash = compute_commit_hash_v2(
+            &state_root,
+            &parent_hashes,
+            &patch.patch_digest,
+            patch.policy_id(),
+        );
+        let entry = ProvenanceEntry::local_commit(
+            worldline_id,
+            worldline_tick,
+            commit_global_tick,
+            head_key,
+            parents,
+            HashTriplet {
+                state_root,
+                patch_digest: patch.patch_digest,
+                commit_hash,
+            },
+            patch,
+            Vec::new(),
+            Vec::new(),
+        );
+        provenance.append_local_commit(entry.clone()).unwrap();
+        let patch_ref = entry.patch.as_ref().unwrap();
+        let (snapshot, receipt, replay_patch) =
+            replay_artifacts_for_entry(*state.root(), &entry, patch_ref).unwrap();
+        state.record_replayed_tick(snapshot, receipt, replay_patch, Vec::new());
+        entry
+    }
+
+    fn node_upsert_patch(
+        state: &WorldlineState,
+        label: &str,
+        commit_global_tick: GlobalTick,
+    ) -> WorldlineTickPatchV1 {
+        let root = *state.root();
+        let node = crate::ident::NodeKey {
+            warp_id: root.warp_id,
+            local_id: make_node_id(label),
+        };
+        let edge_id = make_edge_id(&format!("root-to-{label}"));
+        let edge = crate::ident::EdgeKey {
+            warp_id: root.warp_id,
+            local_id: edge_id,
+        };
+        let replay_patch = WarpTickPatchV1::new(
+            crate::POLICY_ID_NO_POLICY_V0,
+            crate::blake3_empty(),
+            TickCommitStatus::Committed,
+            vec![SlotId::Node(root)],
+            vec![SlotId::Node(node), SlotId::Edge(edge)],
+            vec![
+                WarpOp::UpsertNode {
+                    node,
+                    record: NodeRecord {
+                        ty: make_type_id("observation-node"),
+                    },
+                },
+                WarpOp::UpsertEdge {
+                    warp_id: root.warp_id,
+                    record: EdgeRecord {
+                        id: edge_id,
+                        from: root.local_id,
+                        to: node.local_id,
+                        ty: make_type_id("observation-edge"),
+                    },
+                },
+            ],
+        );
+        WorldlineTickPatchV1 {
+            header: WorldlineTickHeaderV1 {
+                commit_global_tick,
+                policy_id: replay_patch.policy_id(),
+                rule_pack_id: replay_patch.rule_pack_id(),
+                plan_digest: crate::blake3_empty(),
+                decision_digest: crate::blake3_empty(),
+                rewrites_digest: crate::blake3_empty(),
+            },
+            warp_id: root.warp_id,
+            ops: replay_patch.ops().to_vec(),
+            in_slots: replay_patch.in_slots().to_vec(),
+            out_slots: replay_patch.out_slots().to_vec(),
+            patch_digest: replay_patch.digest(),
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    enum ParentDrift {
+        None,
+        Disjoint,
+        Overlap,
+    }
+
+    fn strand_observation_fixture(
+        parent_drift: ParentDrift,
+    ) -> (
+        Engine,
+        WorldlineRuntime,
+        ProvenanceService,
+        crate::strand::StrandId,
+        WorldlineId,
+    ) {
+        let base_worldline = wl(21);
+        let child_worldline = wl(22);
+        let mut base_store = GraphStore::new(crate::ident::make_warp_id("observation-root"));
+        let root_node = make_node_id("root");
+        base_store.insert_node(
+            root_node,
+            NodeRecord {
+                ty: make_type_id("root"),
+            },
+        );
+        let engine = EngineBuilder::new(base_store.clone(), root_node)
+            .workers(1)
+            .build();
+        let mut base_state = WorldlineState::from_root_store(base_store, root_node).unwrap();
+        let mut provenance = ProvenanceService::new();
+        provenance
+            .register_worldline(base_worldline, &base_state)
+            .unwrap();
+
+        let base_head = WriterHeadKey {
+            worldline_id: base_worldline,
+            head_id: make_head_id("base-head"),
+        };
+        let child_head = WriterHeadKey {
+            worldline_id: child_worldline,
+            head_id: make_head_id("child-head"),
+        };
+        let base_patch = node_upsert_patch(&base_state, "base-node", gt(1));
+        let base_entry = append_local_patch(
+            &mut base_state,
+            &mut provenance,
+            base_worldline,
+            base_head,
+            gt(1),
+            base_patch,
+        );
+
+        provenance
+            .fork(base_worldline, wt(0), child_worldline)
+            .unwrap();
+        let mut child_state = provenance
+            .replay_worldline_state(base_worldline, &base_state)
+            .unwrap();
+
+        match parent_drift {
+            ParentDrift::None => {}
+            ParentDrift::Disjoint => {
+                let drift_patch = node_upsert_patch(&base_state, "parent-only", gt(2));
+                append_local_patch(
+                    &mut base_state,
+                    &mut provenance,
+                    base_worldline,
+                    base_head,
+                    gt(2),
+                    drift_patch,
+                );
+            }
+            ParentDrift::Overlap => {
+                let drift_patch = node_upsert_patch(&base_state, "child-node", gt(2));
+                append_local_patch(
+                    &mut base_state,
+                    &mut provenance,
+                    base_worldline,
+                    base_head,
+                    gt(2),
+                    drift_patch,
+                );
+            }
+        }
+
+        let child_patch = node_upsert_patch(&child_state, "child-node", gt(3));
+        append_local_patch(
+            &mut child_state,
+            &mut provenance,
+            child_worldline,
+            child_head,
+            gt(3),
+            child_patch,
+        );
+
+        let strand_id = make_strand_id("observation-strand");
+        let mut runtime = WorldlineRuntime::new();
+        runtime
+            .register_worldline(base_worldline, base_state)
+            .unwrap();
+        runtime
+            .register_worldline(child_worldline, child_state)
+            .unwrap();
+        for key in [base_head, child_head] {
+            runtime
+                .register_writer_head(WriterHead::with_routing(
+                    key,
+                    PlaybackMode::Play,
+                    InboxPolicy::AcceptAll,
+                    None,
+                    true,
+                ))
+                .unwrap();
+        }
+        runtime
+            .register_strand(Strand {
+                strand_id,
+                base_ref: BaseRef {
+                    source_worldline_id: base_worldline,
+                    fork_tick: wt(0),
+                    commit_hash: base_entry.expected.commit_hash,
+                    boundary_hash: base_entry.expected.state_root,
+                    provenance_ref: base_entry.as_ref(),
+                },
+                child_worldline_id: child_worldline,
+                writer_heads: vec![child_head],
+                support_pins: Vec::new(),
+            })
+            .unwrap();
+
+        (engine, runtime, provenance, strand_id, child_worldline)
     }
 
     fn recorded_truth_fixture() -> (Engine, WorldlineRuntime, ProvenanceService, WorldlineId) {
@@ -944,6 +1376,152 @@ mod tests {
         let second = ObservationService::observe(&runtime, &provenance, &engine, request).unwrap();
         assert_eq!(first.artifact_hash, second.artifact_hash);
         assert_eq!(first.to_abi(), second.to_abi());
+    }
+
+    #[test]
+    fn ordinary_worldline_observation_reports_worldline_posture() {
+        let (engine, runtime, provenance, worldline_id) = one_commit_fixture();
+        let artifact = ObservationService::observe(
+            &runtime,
+            &provenance,
+            &engine,
+            ObservationRequest {
+                coordinate: ObservationCoordinate {
+                    worldline_id,
+                    at: ObservationAt::Frontier,
+                },
+                frame: ObservationFrame::CommitBoundary,
+                projection: ObservationProjection::Head,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(artifact.basis_posture, ObservationBasisPosture::Worldline);
+        assert_eq!(
+            artifact.to_abi().basis_posture,
+            abi::ObservationBasisPosture::Worldline
+        );
+    }
+
+    #[test]
+    fn strand_frontier_observation_reports_anchor_posture() {
+        let (engine, runtime, provenance, strand_id, child_worldline) =
+            strand_observation_fixture(ParentDrift::None);
+        let artifact = ObservationService::observe(
+            &runtime,
+            &provenance,
+            &engine,
+            ObservationRequest {
+                coordinate: ObservationCoordinate {
+                    worldline_id: child_worldline,
+                    at: ObservationAt::Frontier,
+                },
+                frame: ObservationFrame::CommitBoundary,
+                projection: ObservationProjection::Snapshot,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            artifact.basis_posture,
+            ObservationBasisPosture::StrandAtAnchor { strand_id }
+        );
+    }
+
+    #[test]
+    fn strand_frontier_observation_reports_disjoint_live_basis_posture() {
+        let (anchor_engine, anchor_runtime, anchor_provenance, _, anchor_child) =
+            strand_observation_fixture(ParentDrift::None);
+        let (engine, runtime, provenance, strand_id, child_worldline) =
+            strand_observation_fixture(ParentDrift::Disjoint);
+
+        let anchor_artifact = ObservationService::observe(
+            &anchor_runtime,
+            &anchor_provenance,
+            &anchor_engine,
+            ObservationRequest {
+                coordinate: ObservationCoordinate {
+                    worldline_id: anchor_child,
+                    at: ObservationAt::Frontier,
+                },
+                frame: ObservationFrame::CommitBoundary,
+                projection: ObservationProjection::Snapshot,
+            },
+        )
+        .unwrap();
+        let artifact = ObservationService::observe(
+            &runtime,
+            &provenance,
+            &engine,
+            ObservationRequest {
+                coordinate: ObservationCoordinate {
+                    worldline_id: child_worldline,
+                    at: ObservationAt::Frontier,
+                },
+                frame: ObservationFrame::CommitBoundary,
+                projection: ObservationProjection::Snapshot,
+            },
+        )
+        .unwrap();
+
+        assert!(matches!(
+            artifact.basis_posture,
+            ObservationBasisPosture::StrandParentAdvancedDisjoint {
+                strand_id: observed_strand,
+                ..
+            } if observed_strand == strand_id
+        ));
+        assert_eq!(
+            artifact.resolved.state_root,
+            anchor_artifact.resolved.state_root
+        );
+        assert_ne!(artifact.artifact_hash, anchor_artifact.artifact_hash);
+    }
+
+    #[test]
+    fn strand_frontier_observation_reports_overlap_revalidation_posture() {
+        let (engine, runtime, provenance, strand_id, child_worldline) =
+            strand_observation_fixture(ParentDrift::Overlap);
+        let artifact = ObservationService::observe(
+            &runtime,
+            &provenance,
+            &engine,
+            ObservationRequest {
+                coordinate: ObservationCoordinate {
+                    worldline_id: child_worldline,
+                    at: ObservationAt::Frontier,
+                },
+                frame: ObservationFrame::CommitBoundary,
+                projection: ObservationProjection::Snapshot,
+            },
+        )
+        .unwrap();
+
+        assert!(
+            matches!(
+                artifact.basis_posture,
+                ObservationBasisPosture::StrandRevalidationRequired { .. }
+            ),
+            "expected revalidation-gated strand posture"
+        );
+        if let ObservationBasisPosture::StrandRevalidationRequired {
+            strand_id: observed_strand,
+            overlapping_slots,
+            ..
+        } = &artifact.basis_posture
+        {
+            assert_eq!(*observed_strand, strand_id);
+            assert!(!overlapping_slots.is_empty());
+        }
+
+        assert!(matches!(
+            artifact.to_abi().basis_posture,
+            abi::ObservationBasisPosture::StrandRevalidationRequired {
+                overlapping_slot_count,
+                ref overlapping_slots_digest,
+                ..
+            } if overlapping_slot_count > 0 && overlapping_slots_digest.len() == 32
+        ));
     }
 
     #[test]

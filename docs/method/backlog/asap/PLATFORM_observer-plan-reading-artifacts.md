@@ -33,6 +33,11 @@ snapshot." The current doctrine is stronger:
 Echo needs an explicit observer-plan boundary instead of letting
 "observation" collapse back into ad hoc materialization.
 
+Current implementation note: `ObservationArtifact` now carries ABI-visible
+`basis_posture`, which covers the parent-basis posture part of this packet.
+The broader authored `ObserverPlan`, observer instance, budget, rights, and
+reading-envelope family are still open.
+
 ## What it should look like
 
 - One authored/configured **ObserverPlan** shape exists for the read

@@ -287,7 +287,8 @@ Likely code surfaces:
 
 ### Step 4: Observer plans and bounded reading artifacts
 
-Status: planned by
+Status: partially implemented by `ObservationArtifact::basis_posture`; broader
+observer plans remain planned by
 [PLATFORM_observer-plan-reading-artifacts](../../method/backlog/asap/PLATFORM_observer-plan-reading-artifacts.md).
 Doctrine: [0011 — Optic and observer runtime doctrine](../0011-optic-observer-runtime-doctrine/design.md).
 
@@ -297,6 +298,13 @@ Required behavior:
 - carry coordinate, basis, witness, budget, and obstruction/plurality state
 - consume live-basis/revalidation output instead of inventing a separate read
   law
+
+Current implementation evidence:
+
+- `ObservationBasisPosture`
+- `ObservationArtifact::basis_posture`
+- `ObservationHashInput::basis_posture`
+- ABI version 5
 
 ### Step 5: Witnessed suffix admission shells
 

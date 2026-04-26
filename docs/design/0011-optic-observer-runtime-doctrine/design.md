@@ -219,9 +219,10 @@ ReadingArtifact {
 }
 ```
 
-Not every field has to be ABI-visible in the first slice. The kernel should
-carry enough internal structure that the ABI can expose it without inventing a
-new law later.
+The first implementation slice exposes `basis_posture` in the ABI and includes
+it in `ObservationHashInput`. The kernel keeps full overlap slots internally;
+the ABI carries overlap count plus a deterministic slot digest until a stable
+public slot representation exists.
 
 Required behavior:
 
@@ -290,7 +291,8 @@ Purpose:
 
 ### Step 2: Observation basis posture
 
-Status: next recommended implementation slice.
+Status: implemented for basis posture; broader observer plan and reading
+envelope work remains planned.
 
 Scope:
 
@@ -299,6 +301,14 @@ Scope:
   live-basis strand, or revalidation-gated strand
 - reuse `StrandBasisReport` or a smaller shared posture type
 - add tests proving reads do not hide parent-basis overlap
+
+Current implementation evidence:
+
+- `ObservationBasisPosture`
+- `ObservationArtifact::basis_posture`
+- `ObservationHashInput::basis_posture`
+- `strand_frontier_observation_reports_disjoint_live_basis_posture`
+- `strand_frontier_observation_reports_overlap_revalidation_posture`
 
 Likely code surfaces:
 

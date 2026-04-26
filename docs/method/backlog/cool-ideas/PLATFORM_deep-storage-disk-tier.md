@@ -2,6 +2,12 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 > **Milestone:** Deep Storage | **Priority:** P2
+>
+> Status: active cool idea. `crates/echo-cas` exists with synchronous
+> `BlobStore` and in-memory `MemoryTier`; no `DiskTier`, `TieredStore`, file
+> layout, promotion/demotion path, or disk persistence tests exist yet. This
+> card remains operational because it is the concrete disk tier follow-up to the
+> current memory-only CAS crate.
 
 # DiskTier
 

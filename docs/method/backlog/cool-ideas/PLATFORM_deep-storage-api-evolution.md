@@ -2,6 +2,12 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 > **Milestone:** Deep Storage | **Priority:** P2
+>
+> Status: active cool idea. `crates/echo-cas` exists with `BlobStore` and
+> `MemoryTier`; the current trait still returns `Arc<[u8]>` and explicitly notes
+> that `bytes::Bytes`, disk, cold, and async tiers are future work. No
+> `DiskTier`, `TieredStore`, `AsyncBlobStore`, `BlobMeta`, or `StoreStats`
+> implementation exists yet.
 
 # API Evolution
 
@@ -34,7 +40,8 @@ Modernize the `BlobStore` trait for async usage, `bytes::Bytes` payloads, and en
 - [ ] Tests pass (CI green)
 - [ ] Documentation updated (if applicable)
 
-**Scope:** Return type migration, internal storage migration, downstream compile fixes.
+**Scope:** Return type migration, internal storage migration, downstream compile
+fixes.
 **Out of Scope:** Streaming reads. Associated type generics. Async.
 
 **Test Plan:**
@@ -76,7 +83,8 @@ Modernize the `BlobStore` trait for async usage, `bytes::Bytes` payloads, and en
 - [ ] Tests pass (CI green)
 - [ ] Documentation updated (if applicable)
 
-**Scope:** AsyncBlobStore trait definition, blanket impl, DiskTier async impl, TieredStore async impl.
+**Scope:** AsyncBlobStore trait definition, blanket impl, DiskTier async impl,
+TieredStore async impl.
 **Out of Scope:** Async pin/unpin (remains sync for Phase 3). Async GC runner. Stream-based get.
 
 **Test Plan:**

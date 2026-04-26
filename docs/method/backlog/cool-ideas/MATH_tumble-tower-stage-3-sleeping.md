@@ -3,7 +3,10 @@
 
 > **Milestone:** Tumble Tower | **Priority:** P2
 >
-> This feature is a skeleton. Tasks will be expanded as the GDD matures.
+> Status: active cool idea. Task DAG issue #234 is still open and blocked by
+> Stage 2 (#233). `docs/guide/tumble-tower.md` defines sleeping/islands as
+> Stage 3, but no Tumble Tower solver, sleep-state model, island builder, or
+> performance benchmark exists yet.
 
 # Stage 3: Sleeping
 
@@ -42,7 +45,8 @@
 - **Edges:** Single body alone (island of 1); all bodies sleeping and no new inputs (simulation is effectively idle); body oscillating exactly at the sleep threshold.
 - **Fuzz/Stress:** Benchmark: 500 bodies, measure tick time with and without sleep enabled over 1000 ticks.
 
-**Blocked By:** stage-2-friction
+**Blocked By:** stage-2-friction; operationally blocked until a runnable physics
+solver exists to put bodies to sleep.
 **Blocking:** desync-breakers
 
 **Est. Hours:** 6h

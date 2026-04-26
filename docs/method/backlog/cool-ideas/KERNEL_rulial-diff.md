@@ -2,6 +2,11 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 > **Milestone:** Time Travel | **Priority:** P2
+>
+> Status: active cool idea. Task DAG issues #172, #199, and #204 are
+> still live and blocked by TT2 (#171). `PlaybackCursor`, checkpoint-backed
+> seek, provenance checkpoints/forks, and playback/provenance specs exist, but
+> no public worldline-diff CLI or inspector diff protocol exists yet.
 
 # TT3 — Rulial Diff
 
@@ -17,8 +22,10 @@ Side-by-side worldline comparison: find the first divergence, show per-tick diff
 
 **Requirements:**
 
-- R1: Accept two worldline references (branch IDs or exported worldline files) and a tick range.
-- R2: Binary search for the first divergent tick by comparing `state_root` hashes at wormhole checkpoint boundaries, then narrowing to the exact tick.
+- R1: Accept two worldline references (worldline IDs, snapshots, or exported
+  provenance/worldline artifacts) and a tick range.
+- R2: Binary search for the first divergent tick by comparing `state_root`
+  hashes at checkpoint-backed seek boundaries, then narrowing to the exact tick.
 - R3: At the divergent tick, produce a structured diff: added/removed/modified nodes and edges, with node IDs and field values.
 - R4: Support both CLI output (JSONL diff records) and inspector protocol (diff frames for UI consumption).
 - R5: Handle worldlines of different lengths gracefully (shorter worldline ends; remaining ticks in the longer one are "added").

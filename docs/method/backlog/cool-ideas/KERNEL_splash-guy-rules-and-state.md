@@ -3,7 +3,9 @@
 
 > **Milestone:** Splash Guy | **Priority:** P2
 >
-> This feature is a skeleton. Tasks will be expanded as the GDD matures.
+> Status: active cool idea. Task DAG issue #222 is still live and feeds the
+> Splash Guy course track (#226). `docs/guide/splash-guy.md` defines the
+> current scenario, but no Splash Guy simulation crate/harness exists yet.
 
 # Rules & State Model
 
@@ -15,7 +17,8 @@
 
 - R1: Define the game state model: grid (NxM), player positions, balloon placements (position + fuse timer), explosion masks, score.
 - R2: Implement deterministic rules: player movement (4-directional, collision with walls), balloon placement (fuse countdown per tick), explosion propagation (chain reactions via adjacency), player elimination.
-- R3: All state is stored as Echo graph nodes/edges using Wesley-generated types.
+- R3: All state is represented as Echo graph nodes/edges using canonical schema
+  or Wesley-generated types once the demo schema exists.
 - R4: State transitions are pure functions of (current state, admitted inputs) with no HostTime dependency.
 - R5: Compute a per-tick `state_fingerprint` (hash of the full game state) for determinism verification.
 
@@ -42,7 +45,8 @@
 - **Edges:** Two balloons detonating on the same tick; player at grid boundary; grid completely filled with explosions.
 - **Fuzz/Stress:** Property test: random input sequences always produce valid game states (no panics, no NaN, all positions in-bounds).
 
-**Blocked By:** none (First Light is an external blocker at the milestone level)
+**Blocked By:** none in the task DAG; implementation is the first Splash Guy
+kernel slice.
 **Blocking:** lockstep-protocol, controlled-desync, visualization
 
 **Est. Hours:** 6h

@@ -384,6 +384,7 @@ following commands are implemented:
 
 | Command                            | Purpose                                                  |
 | ---------------------------------- | -------------------------------------------------------- |
+| `cargo xtask method inbox "idea"`  | Capture a backlog note in `inbox/`.                      |
 | `cargo xtask method status`        | Summarize backlog lanes, active cycles, and legend load. |
 | `cargo xtask method status --json` | Emit the same status report for agents and tooling.      |
 
@@ -391,7 +392,6 @@ The following commands are planned but **not yet implemented**:
 
 | Command                            | Purpose                                                          |
 | ---------------------------------- | ---------------------------------------------------------------- |
-| `cargo xtask method inbox "idea"`  | Capture a backlog note in `inbox/`.                              |
 | `cargo xtask method pull <item>`   | Promote a backlog item into the next numbered cycle.             |
 | `cargo xtask method close [cycle]` | Write a retro and create its `witness/` directory.               |
 | `cargo xtask method drift [cycle]` | Check active cycle playback questions against test descriptions. |

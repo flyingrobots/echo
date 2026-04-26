@@ -66,5 +66,4 @@ failing, and what to work on next.
     - `asap/PLATFORM_cli-verify.md`
     - `asap/PLATFORM_xtask-method-close.md`
     - `asap/PLATFORM_xtask-method-drift.md`
-    - `asap/PLATFORM_xtask-method-inbox.md`
     - `asap/PLATFORM_xtask-method-pull.md`

@@ -98,8 +98,16 @@ struct MethodArgs {
 
 #[derive(Subcommand)]
 enum MethodCommand {
+    /// Capture a backlog note in inbox/.
+    Inbox(MethodInboxArgs),
     /// Show backlog lanes, active cycles, and legend load.
     Status(MethodStatusArgs),
+}
+
+#[derive(Args)]
+struct MethodInboxArgs {
+    /// Idea title or one-line note to capture.
+    title: String,
 }
 
 #[derive(Args)]
@@ -484,8 +492,20 @@ fn display_command(command: &Command) -> String {
 
 fn run_method(args: MethodArgs) -> Result<()> {
     match args.command {
+        MethodCommand::Inbox(inbox_args) => run_method_inbox(inbox_args),
         MethodCommand::Status(status_args) => run_method_status(status_args),
     }
+}
+
+fn run_method_inbox(args: MethodInboxArgs) -> Result<()> {
+    let root = std::env::current_dir().context("failed to get current dir")?;
+    let workspace =
+        method::workspace::MethodWorkspace::discover(&root).map_err(|e| anyhow::anyhow!(e))?;
+    let path = method::inbox::create_inbox_item(&workspace, &args.title)
+        .map_err(|e| anyhow::anyhow!(e))?;
+    let display_path = path.strip_prefix(&root).unwrap_or(&path);
+    println!("{}", display_path.display());
+    Ok(())
 }
 
 fn run_method_status(args: MethodStatusArgs) -> Result<()> {

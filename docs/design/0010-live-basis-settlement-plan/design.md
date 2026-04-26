@@ -163,22 +163,28 @@ Current implementation evidence:
 
 - `ConflictReason::ParentFootprintOverlap`
 - `StrandRevalidationState::RevalidationRequired`
-- `settlement_records_conflict_artifact_when_parent_overlaps_child_footprint`
+- `StrandOverlapRevalidation::{Clean, Obstructed, Conflict}`
+- `settlement_imports_child_suffix_when_parent_overlap_revalidates_clean`
+- `settlement_records_conflict_artifact_when_parent_overlap_changes_target_state`
 
 Consequences:
 
-- the current settlement path records overlap as explicit conflict residue
-- future revalidation can be more nuanced, but it must stay inspectable
-- no hidden retry loop may silently convert overlap into a clean import without
-  emitting the relevant witness/revalidation artifact
+- settlement no longer blanket-rejects all owned-footprint overlap
+- overlap that is already satisfied on the current parent basis imports as
+  `Clean`
+- overlap that would mutate target state remains explicit
+  `ParentFootprintOverlap` residue with `Conflict` revalidation metadata
+- apply failure on overlapped replay is represented as `Obstructed`
+- no hidden retry loop may silently convert overlap into a clean import; the
+  decision carries revalidation metadata
 
 Open work:
 
-- distinguish "overlap but still valid" from "overlap obstructed" and "overlap
-  conflict"
 - define the revalidation artifact shape consumed by observer/read tooling
-- decide whether overlap revalidation belongs in settlement only or in a shared
-  strand-reading surface
+- thread the same revalidation posture into bounded reads instead of letting
+  reading code invent a parallel law
+- add an obstruction-focused fixture once there is a natural patch-level
+  obstruction case worth preserving
 
 ## Decision 5: Local iteration speed is part of the plan
 
@@ -227,7 +233,7 @@ What this proves:
 
 What this does not prove:
 
-- overlap does not yet run a real revalidation procedure
+- observer/read paths do not yet consume the same overlap revalidation posture
 
 ### Step 2: Target-local import candidates for disjoint parent drift
 
@@ -259,7 +265,8 @@ ABI note:
 
 ### Step 3: Explicit overlap revalidation
 
-Status: planned.
+Status: implemented for settlement; observer/read artifact integration remains
+planned.
 
 Required behavior:
 
@@ -268,7 +275,8 @@ Required behavior:
     - revalidated clean
     - obstructed
     - explicit conflict
-- settlement and bounded reads should agree on the same parent-drift law
+- settlement stores the result on import/conflict decisions
+- bounded reads should consume the same parent-drift law in the next slice
 
 Likely code surfaces:
 

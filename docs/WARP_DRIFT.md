@@ -149,12 +149,13 @@ to:
 - explicit revalidation/conflict when the parent moves inside an owned
   footprint
 
-Implementation note: the first runtime slice now exposes this distinction via
-`Strand::live_basis_report(...)` and settlement conflict reasons for disjoint
-parent drift versus owned-footprint overlap. That slice is intentionally
-conservative: disjoint parent drift is semantically clean, but current
-settlement import still cannot append the correct target-local state root. The
-active decision/implementation plan is
+Implementation note: the runtime now exposes this distinction via
+`Strand::live_basis_report(...)` and settlement planning. Disjoint parent drift
+settles through a target-local import root. Owned-footprint overlap runs
+explicit settlement revalidation: already-satisfied replay imports as `Clean`,
+apply failure is `Obstructed`, and state-changing replay remains
+`ParentFootprintOverlap` conflict residue. The active decision/implementation
+plan is
 [0010 — Live-basis settlement correction plan](./design/0010-live-basis-settlement-plan/design.md).
 
 ### Second: define observer plans and reading artifacts explicitly

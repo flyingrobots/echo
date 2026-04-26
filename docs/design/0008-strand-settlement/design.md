@@ -201,13 +201,17 @@ Minimum contents:
 
 ```text
 ImportCandidate {
-    source_ref:         ProvenanceRef,
-    source_head_key:    Option<WriterHeadKey>,
-    imported_op_id:     Hash,
+    source_ref:                 ProvenanceRef,
+    source_head_key:            Option<WriterHeadKey>,
+    imported_op_id:             Hash,
+    target_expected_state_root: Hash,
+    overlap_revalidation:       Option<StrandOverlapRevalidation>,
 }
 ```
 
-The imported unit is source provenance, not playback shell.
+The imported unit is source provenance, not playback shell. The target expected
+state root is target-local replay truth; it may differ from the source state
+root when the parent basis advanced.
 
 ### 4. `ConflictArtifactDraft`
 
@@ -217,10 +221,11 @@ Minimum contents:
 
 ```text
 ConflictArtifactDraft {
-    artifact_id:        Hash,
-    source_ref:         ProvenanceRef,
-    channel_ids:        Vec<ChannelId>,
-    reason:             ConflictReason,
+    artifact_id:          Hash,
+    source_ref:           ProvenanceRef,
+    channel_ids:          Vec<ChannelId>,
+    reason:               ConflictReason,
+    overlap_revalidation: Option<StrandOverlapRevalidation>,
 }
 ```
 
@@ -239,9 +244,11 @@ Disjoint parent advance is not a conflict reason. When the parent advanced
 outside the strand-owned footprint, settlement must compute a target-local
 expected root and plan an `ImportCandidate` over the current parent basis.
 
-`ParentFootprintOverlap` means the parent advanced into the strand-owned closed
-footprint. That requires explicit revalidation, obstruction, or conflict; it
-must not be smoothed over as clean flow-through.
+`ParentFootprintOverlap` means explicit revalidation of a parent write inside
+the strand-owned closed footprint failed, was obstructed, or proved conflicting.
+It is not the default result for all overlap: an overlapped source patch that is
+already satisfied on the current parent basis can still settle as a clean
+target-local import with an inspectable `Clean` revalidation outcome.
 
 ## Compare phase
 
@@ -277,8 +284,12 @@ The plan phase evaluates each source entry under deterministic import law.
 4. **Unsettled residue becomes explicit conflict artifacts.**
 5. **Live-basis drift must be classified before import.**
    Parent movement outside the owned footprint is eligible for target-local
-   import once the importer can compute target-local roots. Parent movement
-   inside the owned footprint requires revalidation.
+   import. Parent movement inside the owned footprint requires explicit
+   revalidation before it can import.
+6. **Overlap revalidation must be inspectable.**
+   If a source patch intersects live-basis overlap slots, apply failure becomes
+   `Obstructed` residue, no target state-root change becomes `Clean` import,
+   and target state-root change becomes `Conflict` residue.
 
 ### Live-basis import root law
 
@@ -294,8 +305,9 @@ target root = state_root(current_parent_tip + child_suffix_patch)
 ```
 
 The target root is the only root that may be committed on the target worldline.
-Until settlement computes that target-local root, disjoint parent drift must be
-reported explicitly instead of imported optimistically.
+Settlement now computes this root during planning and carries it on the internal
+`ImportCandidate`, while the ABI plan continues to expose the source-coordinate
+candidate shape.
 
 ### Channel policy law
 

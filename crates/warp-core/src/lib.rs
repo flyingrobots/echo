@@ -232,8 +232,8 @@ pub use snapshot::{
 };
 pub use strand::{
     make_strand_id, BaseRef, DropReceipt, ParentMovementFootprint, Strand, StrandBasisReport,
-    StrandDivergenceFootprint, StrandError, StrandId, StrandRegistry, StrandRevalidationState,
-    SupportPin,
+    StrandDivergenceFootprint, StrandError, StrandId, StrandOverlapRevalidation, StrandRegistry,
+    StrandRevalidationState, SupportPin,
 };
 pub use telemetry::{NullTelemetrySink, TelemetrySink};
 pub use tick_delta::{DeltaStats, OpOrigin, ScopedDelta, TickDelta};

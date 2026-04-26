@@ -59,11 +59,15 @@ The first slice is now deliberately smaller than the full target:
 - disjoint parent movement is detected separately from owned-footprint overlap.
 - disjoint parent movement now plans a target-local import candidate instead of
   a conflict artifact.
-- owned-footprint overlap is still surfaced as `ParentFootprintOverlap` until a
-  richer revalidation artifact exists.
+- owned-footprint overlap now runs explicit settlement revalidation:
+    - replay already satisfied on the parent basis imports as `Clean`
+    - replay failure is `Obstructed`
+    - replay that would mutate overlapped parent state is `Conflict` residue
+      under `ParentFootprintOverlap`
 
-The first slice still does not implement overlap revalidation. The full decision
-record and runway live in
+The runtime settlement path now has the first concrete overlap revalidation
+law. Observer/read artifacts still need to consume the same posture instead of
+inventing a separate reading law. The full decision record and runway live in
 [0010 — Live-basis settlement correction plan](../../../design/0010-live-basis-settlement-plan/design.md).
 
 ## Done looks like

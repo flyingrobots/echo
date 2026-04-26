@@ -40,25 +40,33 @@ two bad outcomes:
 
 ## Current implementation consequence
 
-The runtime can now distinguish the two parent-drift classes, but settlement
-still handles overlap conservatively:
+The runtime can now distinguish the two parent-drift classes, and settlement
+has the first explicit overlap revalidation law:
 
 - parent movement outside the owned footprint plans a target-local import
   candidate
-- parent movement inside the owned footprint maps to `ParentFootprintOverlap`
+- parent movement inside the owned footprint is checked against the current
+  target frontier
+- overlapped replay that is already satisfied imports as `Clean`
+- overlapped replay that fails to apply is `Obstructed`
+- overlapped replay that would mutate target state remains
+  `ParentFootprintOverlap` residue with `Conflict` revalidation metadata
 
-Owned-footprint overlap still needs an explicit revalidation artifact that can
-resolve to clean, obstructed, or conflict.
+Owned-footprint overlap still needs the same posture threaded into observer and
+bounded-read artifacts. The current tests cover no-overlap, disjoint parent
+advance, clean overlap, and conflicting overlap; an obstruction-specific fixture
+should be added when a natural patch-level obstruction case is available.
 
 ## Done looks like
 
 - one strand/runtime packet states the revalidation law explicitly
 - the runtime has one inspectable state or artifact for overlap-driven
   revalidation
-- tests prove all three cases:
+- tests prove the settlement cases:
     - no overlap
     - overlap but still valid
-    - overlap causing obstruction or conflict
+    - overlap causing conflict
+- observer/read artifacts consume the same revalidation law
 - public semantics stop implying that live-following strands are just magical
   overlays with no parent-drift law
 

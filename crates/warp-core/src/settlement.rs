@@ -16,7 +16,8 @@ use crate::provenance_store::{
 };
 use crate::snapshot::{compute_commit_hash_v2, compute_state_root_for_warp_state};
 use crate::strand::{
-    StrandBasisReport, StrandError, StrandId, StrandRegistry, StrandRevalidationState,
+    StrandBasisReport, StrandError, StrandId, StrandOverlapRevalidation, StrandRegistry,
+    StrandRevalidationState,
 };
 use crate::tick_patch::{TickCommitStatus, WarpTickPatchV1};
 use crate::worldline::{
@@ -166,6 +167,8 @@ pub struct ImportCandidate {
     pub imported_op_id: Hash,
     /// Target-local state root expected after replaying this import.
     pub target_expected_state_root: Hash,
+    /// Explicit overlap revalidation outcome, when this import was accepted after overlap.
+    pub overlap_revalidation: Option<StrandOverlapRevalidation>,
 }
 
 impl ImportCandidate {
@@ -189,6 +192,8 @@ pub struct ConflictArtifactDraft {
     pub channel_ids: Vec<ChannelId>,
     /// Deterministic reason the source entry was rejected.
     pub reason: ConflictReason,
+    /// Explicit overlap revalidation outcome, when overlap caused this residue.
+    pub overlap_revalidation: Option<StrandOverlapRevalidation>,
 }
 
 impl ConflictArtifactDraft {
@@ -396,7 +401,7 @@ impl SettlementService {
             .checked_increment()
             .ok_or(SettlementError::ForkTickOverflow(strand_id))?;
         let target_tip = provenance.tip_ref(target_worldline)?;
-        let basis_conflict_reason = settlement_basis_conflict_reason(&delta.basis_report);
+        let basis_overlap_slots = settlement_basis_overlap_slots(&delta.basis_report);
         let parent_at_anchor = matches!(
             delta.basis_report.parent_revalidation,
             StrandRevalidationState::AtAnchor
@@ -415,9 +420,7 @@ impl SettlementService {
             let source_entry =
                 provenance.entry(delta.source_worldline_id, source_ref.worldline_tick)?;
             let reason = blocked_reason.or_else(|| {
-                if let Some(reason) = basis_conflict_reason {
-                    Some(reason)
-                } else if parent_at_anchor
+                if parent_at_anchor
                     && (target_frontier_tick != expected_target_tick
                         || target_tip != Some(strand.base_ref.provenance_ref))
                 {
@@ -449,18 +452,44 @@ impl SettlementService {
                 continue;
             };
 
-            if patch.apply_to_worldline_state(&mut simulated).is_err() {
-                blocked_reason = Some(ConflictReason::UnsupportedImport);
-                decisions.push(SettlementDecision::ConflictArtifact(conflict_draft(
-                    target_worldline,
-                    &source_entry,
-                    ConflictReason::UnsupportedImport,
-                )));
+            let entry_overlap_slots = basis_overlap_slots
+                .as_deref()
+                .map_or_else(Vec::new, |slots| overlap_slots_for_patch(patch, slots));
+            let mut candidate_simulated = simulated.clone();
+            let before_state_root = compute_state_root_for_warp_state(
+                candidate_simulated.warp_state(),
+                candidate_simulated.root(),
+            );
+            if patch
+                .apply_to_worldline_state(&mut candidate_simulated)
+                .is_err()
+            {
+                let reason = if entry_overlap_slots.is_empty() {
+                    ConflictReason::UnsupportedImport
+                } else {
+                    ConflictReason::ParentFootprintOverlap
+                };
+                let overlap_revalidation = (!entry_overlap_slots.is_empty()).then_some(
+                    StrandOverlapRevalidation::Obstructed {
+                        overlapping_slots: entry_overlap_slots,
+                    },
+                );
+                blocked_reason = Some(reason);
+                decisions.push(SettlementDecision::ConflictArtifact(
+                    conflict_draft_with_revalidation(
+                        target_worldline,
+                        &source_entry,
+                        reason,
+                        overlap_revalidation,
+                    ),
+                ));
                 continue;
             }
 
-            let actual_state_root =
-                compute_state_root_for_warp_state(simulated.warp_state(), simulated.root());
+            let actual_state_root = compute_state_root_for_warp_state(
+                candidate_simulated.warp_state(),
+                candidate_simulated.root(),
+            );
             if parent_at_anchor && actual_state_root != source_entry.expected.state_root {
                 blocked_reason = Some(ConflictReason::UnsupportedImport);
                 decisions.push(SettlementDecision::ConflictArtifact(conflict_draft(
@@ -471,11 +500,34 @@ impl SettlementService {
                 continue;
             }
 
+            let overlap_revalidation = if entry_overlap_slots.is_empty() {
+                None
+            } else if actual_state_root == before_state_root {
+                Some(StrandOverlapRevalidation::Clean {
+                    overlapping_slots: entry_overlap_slots,
+                })
+            } else {
+                blocked_reason = Some(ConflictReason::ParentFootprintOverlap);
+                decisions.push(SettlementDecision::ConflictArtifact(
+                    conflict_draft_with_revalidation(
+                        target_worldline,
+                        &source_entry,
+                        ConflictReason::ParentFootprintOverlap,
+                        Some(StrandOverlapRevalidation::Conflict {
+                            overlapping_slots: entry_overlap_slots,
+                        }),
+                    ),
+                ));
+                continue;
+            };
+
+            simulated = candidate_simulated;
             decisions.push(SettlementDecision::ImportCandidate(ImportCandidate {
                 source_ref: source_entry.as_ref(),
                 source_head_key: source_entry.head_key,
                 imported_op_id: source_entry.expected.commit_hash,
                 target_expected_state_root: actual_state_root,
+                overlap_revalidation,
             }));
         }
 
@@ -580,14 +632,25 @@ fn ensure_frontier_matches_provenance(
     Ok(frontier_tick)
 }
 
-fn settlement_basis_conflict_reason(report: &StrandBasisReport) -> Option<ConflictReason> {
+fn settlement_basis_overlap_slots(report: &StrandBasisReport) -> Option<Vec<crate::SlotId>> {
     match &report.parent_revalidation {
         StrandRevalidationState::AtAnchor
         | StrandRevalidationState::ParentAdvancedDisjoint { .. } => None,
-        StrandRevalidationState::RevalidationRequired { .. } => {
-            Some(ConflictReason::ParentFootprintOverlap)
-        }
+        StrandRevalidationState::RevalidationRequired {
+            overlapping_slots, ..
+        } => Some(overlapping_slots.clone()),
     }
+}
+
+fn overlap_slots_for_patch(
+    patch: &WorldlineTickPatchV1,
+    basis_overlap_slots: &[crate::SlotId],
+) -> Vec<crate::SlotId> {
+    basis_overlap_slots
+        .iter()
+        .filter(|slot| patch.in_slots.contains(slot) || patch.out_slots.contains(slot))
+        .copied()
+        .collect()
 }
 
 fn append_import_candidate(
@@ -753,6 +816,15 @@ fn conflict_draft(
     source_entry: &ProvenanceEntry,
     reason: ConflictReason,
 ) -> ConflictArtifactDraft {
+    conflict_draft_with_revalidation(target_worldline, source_entry, reason, None)
+}
+
+fn conflict_draft_with_revalidation(
+    target_worldline: WorldlineId,
+    source_entry: &ProvenanceEntry,
+    reason: ConflictReason,
+    overlap_revalidation: Option<StrandOverlapRevalidation>,
+) -> ConflictArtifactDraft {
     ConflictArtifactDraft {
         artifact_id: compute_conflict_artifact_id(target_worldline, source_entry.as_ref(), reason),
         source_ref: source_entry.as_ref(),
@@ -762,6 +834,7 @@ fn conflict_draft(
             .map(|(channel, _)| *channel)
             .collect(),
         reason,
+        overlap_revalidation,
     }
 }
 
@@ -931,6 +1004,22 @@ mod tests {
         label: &str,
         commit_global_tick: GlobalTick,
     ) -> WorldlineTickPatchV1 {
+        typed_node_upsert_patch(
+            state,
+            label,
+            "settlement-node",
+            "settlement-edge",
+            commit_global_tick,
+        )
+    }
+
+    fn typed_node_upsert_patch(
+        state: &WorldlineState,
+        label: &str,
+        node_type_label: &str,
+        edge_type_label: &str,
+        commit_global_tick: GlobalTick,
+    ) -> WorldlineTickPatchV1 {
         let root = *state.root();
         let node = crate::ident::NodeKey {
             warp_id: root.warp_id,
@@ -951,7 +1040,7 @@ mod tests {
                 WarpOp::UpsertNode {
                     node,
                     record: NodeRecord {
-                        ty: make_type_id("settlement-node"),
+                        ty: make_type_id(node_type_label),
                     },
                 },
                 WarpOp::UpsertEdge {
@@ -960,7 +1049,7 @@ mod tests {
                         id: edge_id,
                         from: root.local_id,
                         to: node.local_id,
-                        ty: make_type_id("settlement-edge"),
+                        ty: make_type_id(edge_type_label),
                     },
                 },
             ],
@@ -986,7 +1075,8 @@ mod tests {
     enum ParentDrift {
         None,
         Disjoint,
-        Overlap,
+        OverlapSame,
+        OverlapDifferent,
     }
 
     fn setup_runtime_with_strand(
@@ -1060,17 +1150,23 @@ mod tests {
         };
         runtime.register_strand(strand).unwrap();
 
-        let parent_drift_label = match parent_drift {
+        let parent_drift_patch = match parent_drift {
             ParentDrift::None => None,
-            ParentDrift::Disjoint => Some("base-diverged"),
-            ParentDrift::Overlap => Some("child-node"),
+            ParentDrift::Disjoint => Some(node_upsert_patch(&base_state, "base-diverged", gt(2))),
+            ParentDrift::OverlapSame => Some(node_upsert_patch(&base_state, "child-node", gt(2))),
+            ParentDrift::OverlapDifferent => Some(typed_node_upsert_patch(
+                &base_state,
+                "child-node",
+                "parent-node",
+                "parent-edge",
+                gt(2),
+            )),
         };
-        if let Some(parent_drift_label) = parent_drift_label {
+        if let Some(diverged_patch) = parent_drift_patch {
             let diverged_head = WriterHeadKey {
                 worldline_id: base_worldline,
                 head_id: make_head_id("base-head"),
             };
-            let diverged_patch = node_upsert_patch(&base_state, parent_drift_label, gt(2));
             let entry = append_local_patch(
                 &mut base_state,
                 &mut provenance,
@@ -1255,9 +1351,9 @@ mod tests {
     }
 
     #[test]
-    fn settlement_records_conflict_artifact_when_parent_overlaps_child_footprint() {
-        let (runtime, provenance, strand_id, _, _) =
-            setup_runtime_with_strand(ParentDrift::Overlap);
+    fn settlement_imports_child_suffix_when_parent_overlap_revalidates_clean() {
+        let (mut runtime, mut provenance, strand_id, base_worldline, _) =
+            setup_runtime_with_strand(ParentDrift::OverlapSame);
 
         let plan = SettlementService::plan(&runtime, &provenance, strand_id).unwrap();
         assert_eq!(plan.decisions.len(), 1);
@@ -1268,12 +1364,58 @@ mod tests {
                 ..
             } if !overlapping_slots.is_empty()
         ));
+        let SettlementDecision::ImportCandidate(candidate) = &plan.decisions[0] else {
+            panic!("expected idempotent parent overlap to revalidate cleanly");
+        };
         assert!(matches!(
-            &plan.decisions[0],
-            SettlementDecision::ConflictArtifact(ConflictArtifactDraft {
-                reason: ConflictReason::ParentFootprintOverlap,
+            &candidate.overlap_revalidation,
+            Some(StrandOverlapRevalidation::Clean {
+                overlapping_slots
+            }) if !overlapping_slots.is_empty()
+        ));
+
+        let result = SettlementService::settle(&mut runtime, &mut provenance, strand_id).unwrap();
+        assert_eq!(result.appended_imports.len(), 1);
+        assert!(result.appended_conflicts.is_empty());
+
+        let imported = provenance.entry(base_worldline, wt(2)).unwrap();
+        assert!(matches!(
+            imported.event_kind,
+            ProvenanceEventKind::MergeImport { .. }
+        ));
+        assert_eq!(
+            runtime
+                .worldlines()
+                .get(&base_worldline)
+                .unwrap()
+                .frontier_tick(),
+            wt(3)
+        );
+    }
+
+    #[test]
+    fn settlement_records_conflict_artifact_when_parent_overlap_changes_target_state() {
+        let (runtime, provenance, strand_id, _, _) =
+            setup_runtime_with_strand(ParentDrift::OverlapDifferent);
+
+        let plan = SettlementService::plan(&runtime, &provenance, strand_id).unwrap();
+        assert_eq!(plan.decisions.len(), 1);
+        assert!(matches!(
+            &plan.basis_report.parent_revalidation,
+            StrandRevalidationState::RevalidationRequired {
+                overlapping_slots,
                 ..
-            })
+            } if !overlapping_slots.is_empty()
+        ));
+        let SettlementDecision::ConflictArtifact(draft) = &plan.decisions[0] else {
+            panic!("expected conflicting parent overlap to remain residue");
+        };
+        assert_eq!(draft.reason, ConflictReason::ParentFootprintOverlap);
+        assert!(matches!(
+            &draft.overlap_revalidation,
+            Some(StrandOverlapRevalidation::Conflict {
+                overlapping_slots
+            }) if !overlapping_slots.is_empty()
         ));
     }
 }

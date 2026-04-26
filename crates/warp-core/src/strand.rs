@@ -354,6 +354,43 @@ pub enum StrandRevalidationState {
     },
 }
 
+/// Result of explicitly revalidating parent movement inside a strand-owned footprint.
+///
+/// This is the inspectable seam between live-basis posture and downstream
+/// settlement/reading decisions. The strand report identifies the overlap;
+/// callers that can compare concrete target state classify the overlap as
+/// clean, obstructed, or conflicting.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StrandOverlapRevalidation {
+    /// The overlapped source patch is already satisfied on the current parent basis.
+    Clean {
+        /// Parent-written slots that overlapped this source patch.
+        overlapping_slots: Vec<SlotId>,
+    },
+    /// The source patch could not be replayed on the current parent basis.
+    Obstructed {
+        /// Parent-written slots that overlapped this source patch.
+        overlapping_slots: Vec<SlotId>,
+    },
+    /// Replaying the source patch would mutate overlapped parent state.
+    Conflict {
+        /// Parent-written slots that overlapped this source patch.
+        overlapping_slots: Vec<SlotId>,
+    },
+}
+
+impl StrandOverlapRevalidation {
+    /// Returns the overlapping slots that drove this revalidation outcome.
+    #[must_use]
+    pub fn overlapping_slots(&self) -> &[SlotId] {
+        match self {
+            Self::Clean { overlapping_slots }
+            | Self::Obstructed { overlapping_slots }
+            | Self::Conflict { overlapping_slots } => overlapping_slots,
+        }
+    }
+}
+
 /// Basis-relative realization report for one live strand.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StrandBasisReport {

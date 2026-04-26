@@ -669,3 +669,43 @@ audit records rather than rewritten.
 | filepath                                                                 | description                                | score | decision          | new filepath                                                             | remarks                                                                                                                                                                                                                                                    |
 | ------------------------------------------------------------------------ | ------------------------------------------ | ----- | ----------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `docs/method/backlog/asap/PLATFORM_witnessed-suffix-admission-shells.md` | Active witnessed-suffix shell design task. | `3/5` | Keep and correct. | `docs/method/backlog/asap/PLATFORM_witnessed-suffix-admission-shells.md` | Design 0009, design 0011, settlement, neighborhood, and ABI publication surfaces make this active execution work, but no `ExportSuffixRequest`, `CausalSuffixBundle`, `ImportSuffixResult`, `export_suffix`, or `import_suffix` implementation exists yet. |
+
+---
+
+## docs/method/backlog/asap/PLATFORM_xtask-method-close.md
+
+| filepath                                                  | description                                   | score | decision          | new filepath                                              | remarks                                                                                                                                                                                                                          |
+| --------------------------------------------------------- | --------------------------------------------- | ----- | ----------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/backlog/asap/PLATFORM_xtask-method-close.md` | Active Method cycle-close xtask backlog item. | `4/5` | Keep and correct. | `docs/method/backlog/asap/PLATFORM_xtask-method-close.md` | `cargo xtask method --help` and `xtask/src/main.rs` show only `method status` exists; `docs/method/README.md` lists `close` as planned. Added current status so the card is a live implementation handle, not stale tooling fog. |
+
+---
+
+## docs/method/backlog/asap/PLATFORM_xtask-method-drift.md
+
+| filepath                                                  | description                                   | score | decision          | new filepath                                              | remarks                                                                                                                                                                                                                                    |
+| --------------------------------------------------------- | --------------------------------------------- | ----- | ----------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `docs/method/backlog/asap/PLATFORM_xtask-method-drift.md` | Active Method drift-check xtask backlog item. | `4/5` | Keep and correct. | `docs/method/backlog/asap/PLATFORM_xtask-method-drift.md` | `cargo xtask method --help` and `xtask/src/main.rs` show only `method status` exists; retros currently carry manual drift-check sections. Added current status and retained the automated playback-question coverage check as active work. |
+
+---
+
+## docs/method/backlog/asap/PLATFORM_xtask-method-inbox.md
+
+| filepath                                                  | description                                     | score | decision          | new filepath                                              | remarks                                                                                                                                                                                                                  |
+| --------------------------------------------------------- | ----------------------------------------------- | ----- | ----------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `docs/method/backlog/asap/PLATFORM_xtask-method-inbox.md` | Active Method inbox-capture xtask backlog item. | `4/5` | Keep and correct. | `docs/method/backlog/asap/PLATFORM_xtask-method-inbox.md` | `cargo xtask method --help` and `xtask/src/main.rs` show only `method status` exists; `crates/method/src/workspace.rs` knows the inbox lane but has no capture command. Added current status around the missing command. |
+
+---
+
+## docs/method/backlog/asap/PLATFORM_xtask-method-pull.md
+
+| filepath                                                 | description                                 | score | decision          | new filepath                                             | remarks                                                                                                                                                                                                    |
+| -------------------------------------------------------- | ------------------------------------------- | ----- | ----------------- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/backlog/asap/PLATFORM_xtask-method-pull.md` | Active Method backlog-promotion xtask item. | `4/5` | Keep and correct. | `docs/method/backlog/asap/PLATFORM_xtask-method-pull.md` | `cargo xtask method --help` and `xtask/src/main.rs` show only `method status` exists; `MethodWorkspace::design_root()` exists but no command moves backlog cards into design cycles. Added current status. |
+
+---
+
+## docs/method/backlog/bad-code/red-green-lint-friction.md
+
+| filepath                                                  | description                                      | score | decision          | new filepath                                              | remarks                                                                                                                                                                                                                                                  |
+| --------------------------------------------------------- | ------------------------------------------------ | ----- | ----------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/backlog/bad-code/red-green-lint-friction.md` | Active Method RED/GREEN lint-friction debt note. | `4/5` | Keep and correct. | `docs/method/backlog/bad-code/red-green-lint-friction.md` | `scripts/verify-local.sh` still runs clippy with `-D warnings -D missing_docs`, while ignored future-contract tests use explicit test-only `clippy::todo`/`clippy::unimplemented` allowances. Narrowed the card to documenting the approved RED pattern. |

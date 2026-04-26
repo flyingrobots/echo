@@ -3,6 +3,11 @@
 
 # xtask method drift
 
+Status: active and not implemented. `cargo xtask method --help` exposes only
+`status`; `xtask/src/main.rs` has only `MethodCommand::Status`. Current retros
+contain manual "Drift check" sections, so the remaining work is the automated
+coverage check.
+
 Implement `cargo xtask method drift [cycle]` — check active cycle
 playback questions against committed test descriptions.
 

@@ -3,6 +3,11 @@
 
 # xtask method inbox
 
+Status: active and not implemented. `cargo xtask method --help` exposes only
+`status`; `xtask/src/main.rs` has only `MethodCommand::Status`. The Method
+workspace already knows the `inbox` lane, but capture still happens by creating
+files manually.
+
 Implement `cargo xtask method inbox "idea"` — create a backlog file in
 `docs/method/backlog/inbox/` from a one-liner.
 

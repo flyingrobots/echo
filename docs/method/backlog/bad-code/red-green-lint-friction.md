@@ -3,6 +3,12 @@
 
 # RED/GREEN can't be separate commits
 
+Status: active bad-code note. `scripts/verify-local.sh` runs clippy with
+`-D warnings -D missing_docs`, so production `todo!()` and `unimplemented!()`
+stubs still fail local gates. The repo already uses explicit test-only
+allowances for ignored future-contract tests, so the remaining problem is
+documenting the approved RED pattern rather than weakening production linting.
+
 Clippy denies `todo!()` and `unimplemented!()` in production code.
 This means the RED phase (failing tests with stub implementations)
 can't be committed separately from the GREEN phase (real code).

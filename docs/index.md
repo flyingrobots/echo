@@ -73,23 +73,24 @@ flowchart TD
 ### Determinism
 
 - Deterministic math policy: [/SPEC_DETERMINISTIC_MATH](/SPEC_DETERMINISTIC_MATH)
-- Deterministic math hazards: [/DETERMINISTIC_MATH](/DETERMINISTIC_MATH)
+- Deterministic math hazards: [/determinism/DETERMINISTIC_MATH](/determinism/DETERMINISTIC_MATH)
 - Claim register + evidence: [/determinism/DETERMINISM_CLAIMS_v0.1](/determinism/DETERMINISM_CLAIMS_v0.1)
-- Benchmark guide: [/BENCHMARK_GUIDE](/BENCHMARK_GUIDE)
+- Release policy: [/determinism/RELEASE_POLICY](/determinism/RELEASE_POLICY)
+- Benchmark guide: [/benchmarks/BENCHMARK_GUIDE](/benchmarks/BENCHMARK_GUIDE)
 
 ### Contributor workflow
 
 - Contributor playbook: [/workflows](/workflows)
 - PR submission loop: [/procedures/PR-SUBMISSION-REVIEW-LOOP](/procedures/PR-SUBMISSION-REVIEW-LOOP)
 - Dependency DAGs: [/dependency-dags](/dependency-dags)
-- Roadmap index: [/ROADMAP](/ROADMAP)
+- Method backlog: [/method/README](/method/README)
 
 ### Theory / intent
 
 - Architecture outline: [/architecture-outline](/architecture-outline)
 - Continuum foundations bridge: [/continuum-foundations](/continuum-foundations)
 - Theory: [/THEORY](/THEORY)
-- Methodology: [/METHODOLOGY](/METHODOLOGY)
+- Method: [/method/README](/method/README)
 
 ## Run Something (learn by doing)
 

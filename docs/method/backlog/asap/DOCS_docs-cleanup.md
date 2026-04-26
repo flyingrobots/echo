@@ -3,7 +3,9 @@
 
 # Docs cleanup
 
-Execute the recommendations in `docs/DOCS_AUDIT.md`:
+Execute the five-at-a-time docs inventory recorded in
+`docs/audits/docs-inventory-2026-04-26.md`. The old `docs/DOCS_AUDIT.md`
+was deleted because it was stale; git history is the archive.
 
 - Delete the 17 unimplemented future specs (done).
 - Archive ADRs (done).
@@ -16,4 +18,4 @@ Execute the recommendations in `docs/DOCS_AUDIT.md`:
 - Update `procedures/PR-SUBMISSION-REVIEW-LOOP.md` for METHOD.
 
 Some of this was done during METHOD adoption. The remainder is tracked
-here.
+here and in the dated audit ledger.

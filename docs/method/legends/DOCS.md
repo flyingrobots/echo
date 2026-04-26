@@ -50,7 +50,8 @@ actually shipped.
 
 - No spec exists for unimplemented features. Aspirations go in the
   backlog, not in specs.
-- `DOCS_AUDIT.md` tracks the state of every file.
+- `docs/audits/docs-inventory-2026-04-26.md` tracks the current
+  five-at-a-time inventory.
 - Guide entry points link to real, working content.
 - Stale docs are deleted, not left to mislead. Git is the archive.
 

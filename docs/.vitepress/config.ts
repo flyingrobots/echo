@@ -6,6 +6,7 @@ export default defineConfig({
   title: 'Echo',
   description: 'Real-Time, Deterministic, Recursive Meta-Graph Simulation Engine',
   cleanUrls: true,
+  srcExclude: ['assets/dags/tasks-dag-source.md'],
   themeConfig: {
     search: {
       provider: 'local'
@@ -13,7 +14,7 @@ export default defineConfig({
     nav: [
       { text: 'Home', link: '/' },
       { text: 'Start Here', link: '/guide/start-here' },
-      { text: 'Docs Map', link: '/meta/docs-index' },
+      { text: 'Docs Map', link: '/' },
       {
         text: 'Guides',
         items: [
@@ -41,7 +42,7 @@ export default defineConfig({
           items: [
             { text: 'Start Here', link: '/guide/start-here' },
             { text: 'WARP Primer', link: '/guide/warp-primer' },
-            { text: 'Docs Map', link: '/meta/docs-index' },
+            { text: 'Docs Map', link: '/' },
             { text: 'Architecture Outline', link: '/architecture-outline' }
           ]
         },

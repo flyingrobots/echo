@@ -941,3 +941,22 @@ audit records rather than rewritten.
 | filepath                                                                | description                             | score | decision          | new filepath                                                            | remarks                                                                                                                                                                                                                     |
 | ----------------------------------------------------------------------- | --------------------------------------- | ----- | ----------------- | ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `docs/method/backlog/cool-ideas/PLATFORM_tumble-tower-visualization.md` | Active Tumble Tower visualization task. | `3/5` | Keep and correct. | `docs/method/backlog/cool-ideas/PLATFORM_tumble-tower-visualization.md` | Task DAG issue `#237`, `docs/guide/tumble-tower.md`, and the course track keep this operational, but no Tumble Tower physics simulation, browser renderer, or visualization harness exists. Removed stale skeleton framing. |
+
+---
+
+## Inventory pause checkpoint
+
+Paused full corpus inventory after restoring `pnpm docs:build` and
+completing top-level cleanup, doctrine reconciliation, dead-link cleanup,
+and the `cool-ideas/` audit.
+
+Remaining unaudited docs are known debt, not ignored debt.
+
+Resume only when:
+
+- a doc blocks active feature work,
+- a stale doc causes build/link/test failure,
+- or a dedicated docs-cleanup cycle is explicitly scheduled.
+
+Current feature work should proceed with `pnpm docs:build` preserved as a
+gate.

@@ -61,4 +61,3 @@ actually shipped.
 - live backlog:
     - `asap/DOCS_docs-cleanup.md`
     - `asap/DOCS_cli-man-pages.md`
-    - `asap/DOCS_proof-core-polish.md`

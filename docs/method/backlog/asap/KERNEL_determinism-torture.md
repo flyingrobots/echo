@@ -9,6 +9,10 @@ Prove that single-threaded and multi-threaded execution produce identical result
 
 **Issues:** #190
 
+Status: active backlog item. Existing determinism gates cover many related
+cases; this item is specifically for the remaining 1-thread vs N-thread report
+and snapshot/restore fuzz gate.
+
 ---
 
 ## T-9-1-1: Implement 1-thread vs N-thread determinism harness

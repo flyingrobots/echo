@@ -509,3 +509,43 @@ audit records rather than rewritten.
 | `docs/invariants/FIXED-TIMESTEP.md`                                      | Fixed-timestep cross-reference.              | `n/a` | Remove out-of-docs site link.   | `n/a`        | Replaced the `../../CONTINUUM.md` Markdown link with a repo-root code reference because VitePress cannot validate links outside the docs site.                                                               |
 | `docs/method/backlog/asap/PLATFORM_witnessed-suffix-admission-shells.md` | Method task refinement link.                 | `n/a` | Fix moved sibling task route.   | `n/a`        | Pointed the refinement link at `../up-next/PLATFORM_echo-git-warp-witnessed-suffix-sync.md`, the current location of the referenced task.                                                                    |
 | `docs/method/design-template.md`                                         | Method template placeholder links.           | `n/a` | Remove ghost placeholder links. | `n/a`        | Replaced nonexistent placeholder links to `LEGEND.md` and `dependency.md` with non-link placeholders plus one real legend example so the template no longer creates intentional broken docs-site references. |
+
+---
+
+## docs/method/README.md
+
+| filepath                | description                                   | score | decision          | new filepath            | remarks                                                                                                                                                                                                                         |
+| ----------------------- | --------------------------------------------- | ----- | ----------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/README.md` | METHOD operating doctrine and filesystem map. | `4/5` | Keep and correct. | `docs/method/README.md` | Active and linked from `docs/index.md`; backed by `crates/method`, `cargo xtask method status --json`, and current backlog/design/retro directories. Removed live `graveyard/` doctrine and corrected implemented xtask status. |
+
+---
+
+## docs/method/backlog/asap/DOCS_cli-man-pages.md
+
+| filepath                                         | description                                  | score | decision          | new filepath                                     | remarks                                                                                                                                                                                                            |
+| ------------------------------------------------ | -------------------------------------------- | ----- | ----------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `docs/method/backlog/asap/DOCS_cli-man-pages.md` | Active docs task for CLI man pages/examples. | `4/5` | Keep and correct. | `docs/method/backlog/asap/DOCS_cli-man-pages.md` | Issue `#51` remains open in the task DAG; `clap_mangen`, `cargo xtask man-pages`, and `docs/man/echo-cli*.1` already exist, so the backlog item was narrowed to remaining README examples and CI freshness gating. |
+
+---
+
+## docs/method/backlog/asap/DOCS_docs-cleanup.md
+
+| filepath                                        | description                               | score | decision          | new filepath                                    | remarks                                                                                                                                                                                                                         |
+| ----------------------------------------------- | ----------------------------------------- | ----- | ----------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/backlog/asap/DOCS_docs-cleanup.md` | Active docs cleanup control backlog item. | `4/5` | Keep and correct. | `docs/method/backlog/asap/DOCS_docs-cleanup.md` | This remains active because the dated audit ledger is still driving inventory work; replaced stale archive/old-roadmap checklist items with current doctrine, completed top-level/docs-build milestones, and Method-next scope. |
+
+---
+
+## docs/method/backlog/asap/DOCS_proof-core-polish.md
+
+| filepath                                             | description                                 | score | decision | new filepath | remarks                                                                                                                                                                                                                                        |
+| ---------------------------------------------------- | ------------------------------------------- | ----- | -------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/backlog/asap/DOCS_proof-core-polish.md` | Completed README/docs polish backlog shard. | `1/5` | Trash.   | `n/a`        | Local task DAG marks issue `#41` as completed; current docs already have README, configuration, feature, start-here, and passing docs-build coverage. Deleted the stale active-backlog duplicate and removed direct legend/blocker references. |
+
+---
+
+## docs/method/backlog/asap/KERNEL_determinism-torture.md
+
+| filepath                                                 | description                                            | score | decision          | new filepath                                             | remarks                                                                                                                                                                                                                                                                   |
+| -------------------------------------------------------- | ------------------------------------------------------ | ----- | ----------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/backlog/asap/KERNEL_determinism-torture.md` | Active kernel task for determinism torture/fuzz gates. | `4/5` | Keep and correct. | `docs/method/backlog/asap/KERNEL_determinism-torture.md` | Issue `#190` remains open in the task DAG; existing determinism tests and DIND infrastructure prove the area is real, while the specific structured 1-thread-vs-N report and snapshot/restore fuzz gate remains useful active work. Added explicit active-backlog status. |

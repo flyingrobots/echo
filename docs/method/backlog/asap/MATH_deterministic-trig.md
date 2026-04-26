@@ -48,7 +48,7 @@ Pin error budget and verify the deterministic trig oracle for cross-OS audit. No
 - **Fuzz/Stress:** Extended suite: 100,000 uniformly-spaced values in [0, 2pi], verified bit-identical (CI nightly).
 
 **Blocked By:** none
-**Blocking:** T-9-4-1
+**Blocking:** none
 
 **Est. Hours:** 4h
 **Expected Complexity:** ~300 LoC

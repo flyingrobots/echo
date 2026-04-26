@@ -3,7 +3,7 @@
 
 # Wesley Docs
 
-> **Milestone:** [Backlog](../../ROADMAP.md) | **Priority:** Unscheduled
+> **Milestone:** Backlog | **Priority:** Unscheduled
 
 Wesley-repo documentation consolidation. Recorded here for cross-project tracking.
 

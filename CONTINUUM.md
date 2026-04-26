@@ -9,7 +9,7 @@ This is the short platform memo for the multi-repo system around Echo.
 
 If you want the longer bridge from AIΩN, WARP, observer geometry, and optics
 into the runtime design, read
-[`docs/continuum-foundations.md`](docs/continuum-foundations.md).
+[`docs/architecture/continuum-foundations.md`](docs/architecture/continuum-foundations.md).
 
 ## One Sentence
 

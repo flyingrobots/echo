@@ -1,11 +1,18 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-> **Milestone:** [Proof Time Convergence](../../ROADMAP.md) | **Priority:** P2
+> **Milestone:** Proof Time Convergence | **Priority:** P2
+>
+> Status: active determinism backlog item. Task DAG issue #187 is still open.
+> `PlaybackCursor`, checkpoint-backed seek tests, fork tests, tick-patch replay,
+> slice-theorem tests, and commit/state-root specs exist; this card tracks the
+> remaining generalized property suite that proves convergence across arbitrary
+> checkpoint and patch-replay positions.
 
 # Worldline Convergence Suite
 
-Replay-from-patches converges. Property tests showing that replaying from any checkpoint produces identical worldlines.
+Replay-from-patches converges. Property tests showing that replaying from any
+checkpoint or sampled patch boundary produces identical worldlines.
 
 **Issues:** #187
 
@@ -17,10 +24,14 @@ Replay-from-patches converges. Property tests showing that replaying from any ch
 
 **Requirements:**
 
-- R1: For a given simulation run, create checkpoints at ticks [0, N/4, N/2, 3N/4, N-1].
-- R2: Replay from each checkpoint to the final tick; compare `state_root` and `commit_id` with the original run.
-- R3: Replay from each checkpoint with the admission decision journal (not raw streams) to verify journal-based replay matches live execution.
-- R4: Test with worldlines that include branch/fork points (from MS-7 TT2 operations).
+- R1: For a given simulation run, create checkpoints at ticks [0, N/4, N/2,
+  3N/4, N-1].
+- R2: Replay from each checkpoint to the final tick; compare `state_root` and
+  `commit_id` with the original run.
+- R3: Replay from each checkpoint with authoritative provenance/tick-patch
+  history, not ambient input streams, to verify replay matches live execution.
+- R4: Test with worldlines that include branch/fork points from the current
+  playback/provenance substrate.
 
 **Acceptance Criteria:**
 
@@ -35,13 +46,15 @@ Replay-from-patches converges. Property tests showing that replaying from any ch
 - [ ] Tests pass (CI green)
 - [ ] Documentation updated (if applicable)
 
-**Scope:** Checkpoint replay convergence, journal replay, branched worldline replay.
+**Scope:** Checkpoint replay convergence, provenance/tick-patch replay,
+branched worldline replay.
 **Out of Scope:** Replay performance optimization; distributed replay; replay from corrupted checkpoints.
 
 **Test Plan:**
 
 - **Goldens:** Final state hash from each replay path must match the original run's final hash.
-- **Failures:** Checkpoint with missing tick patches (error, not silent divergence); journal with a gap (detected and reported).
+- **Failures:** Checkpoint with missing tick patches (error, not silent
+  divergence); provenance/tick-patch history with a gap (detected and reported).
 - **Edges:** Replay from tick 0 (full replay); replay from the last tick (no simulation); replay from a tick just after a branch point.
 - **Fuzz/Stress:** Property test: 20 random checkpoint positions in a 1000-tick simulation, all converge.
 

@@ -13,6 +13,7 @@ Depends on:
 - [0004 — Strand contract](../0004-strand-contract/design.md)
 - [0007 — Braid geometry and neighborhood publication](../0007-braid-geometry-and-neighborhood-publication/design.md)
 - [0006 — Echo Continuum alignment](../0006-echo-continuum-alignment/design.md)
+- [0010 — Live-basis settlement correction plan](../0010-live-basis-settlement-plan/design.md)
 
 ## Why this cycle exists
 
@@ -182,6 +183,7 @@ SettlementPlan {
     strand_id:          StrandId,
     target_worldline:   WorldlineId,
     target_base_ref:    ProvenanceRef,
+    basis_report:       StrandBasisReport,
     decisions:          Vec<SettlementDecision>,
 }
 ```
@@ -199,13 +201,17 @@ Minimum contents:
 
 ```text
 ImportCandidate {
-    source_ref:         ProvenanceRef,
-    source_head_key:    Option<WriterHeadKey>,
-    imported_op_id:     Hash,
+    source_ref:                 ProvenanceRef,
+    source_head_key:            Option<WriterHeadKey>,
+    imported_op_id:             Hash,
+    target_expected_state_root: Hash,
+    overlap_revalidation:       Option<StrandOverlapRevalidation>,
 }
 ```
 
-The imported unit is source provenance, not playback shell.
+The imported unit is source provenance, not playback shell. The target expected
+state root is target-local replay truth; it may differ from the source state
+root when the parent basis advanced.
 
 ### 4. `ConflictArtifactDraft`
 
@@ -215,10 +221,11 @@ Minimum contents:
 
 ```text
 ConflictArtifactDraft {
-    artifact_id:        Hash,
-    source_ref:         ProvenanceRef,
-    channel_ids:        Vec<ChannelId>,
-    reason:             ConflictReason,
+    artifact_id:          Hash,
+    source_ref:           ProvenanceRef,
+    channel_ids:          Vec<ChannelId>,
+    reason:               ConflictReason,
+    overlap_revalidation: Option<StrandOverlapRevalidation>,
 }
 ```
 
@@ -227,10 +234,21 @@ ConflictArtifactDraft {
 - `ChannelPolicyConflict`
 - `UnsupportedImport`
 - `BaseDivergence`
+- `ParentFootprintOverlap`
 - `QuantumMismatch`
 
 The exact reason set can grow later, but v1 must not collapse every failure
 into one anonymous "could not merge" blob.
+
+Disjoint parent advance is not a conflict reason. When the parent advanced
+outside the strand-owned footprint, settlement must compute a target-local
+expected root and plan an `ImportCandidate` over the current parent basis.
+
+`ParentFootprintOverlap` means explicit revalidation of a parent write inside
+the strand-owned closed footprint failed, was obstructed, or proved conflicting.
+It is not the default result for all overlap: an overlapped source patch that is
+already satisfied on the current parent basis can still settle as a clean
+target-local import with an inspectable `Clean` revalidation outcome.
 
 ## Compare phase
 
@@ -264,6 +282,32 @@ The plan phase evaluates each source entry under deterministic import law.
    Only the strand's own post-fork suffix is planned.
 3. **Channel policy gates import eligibility.**
 4. **Unsettled residue becomes explicit conflict artifacts.**
+5. **Live-basis drift must be classified before import.**
+   Parent movement outside the owned footprint is eligible for target-local
+   import. Parent movement inside the owned footprint requires explicit
+   revalidation before it can import.
+6. **Overlap revalidation must be inspectable.**
+   If a source patch intersects live-basis overlap slots, apply failure becomes
+   `Obstructed` residue, no target state-root change becomes `Clean` import,
+   and target state-root change becomes `Conflict` residue.
+
+### Live-basis import root law
+
+When the parent has not advanced beyond the strand anchor, a source suffix
+entry's expected root can match the target-local import root.
+
+When the parent has advanced outside the strand-owned footprint, those roots are
+not the same object:
+
+```text
+source root = state_root(anchor_parent + child_suffix_patch)
+target root = state_root(current_parent_tip + child_suffix_patch)
+```
+
+The target root is the only root that may be committed on the target worldline.
+Settlement now computes this root during planning and carries it on the internal
+`ImportCandidate`, while the ABI plan continues to expose the source-coordinate
+candidate shape.
 
 ### Channel policy law
 
@@ -389,6 +433,8 @@ settlement looks nothing like `git-warp` transfer planning."
 5. Later Wesley/Continuum proof slices should target these settlement outputs
    as shared observer/debugger nouns, with Echo-local shell allowed around
    them.
+6. Settlement must grow target-local import candidates before disjoint parent
+   drift can be cleanly imported.
 
 ## Open questions
 

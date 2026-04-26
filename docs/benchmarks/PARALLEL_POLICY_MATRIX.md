@@ -56,10 +56,10 @@ same concrete plan.
 Running the dedicated bake target produces:
 
 - raw JSON with provenance metadata:
-  [parallel-policy-matrix.json](/Users/james/git/echo/docs/benchmarks/parallel-policy-matrix.json)
+  [parallel-policy-matrix.json](./parallel-policy-matrix.json)
 - unified static benchmarks page:
-  [report-inline.html](/Users/james/git/echo/docs/benchmarks/report-inline.html)
-  Open the `Parallel policy matrix` tab.
+  `docs/benchmarks/report-inline.html`
+  Open the `Parallel policy matrix` tab in that local artifact.
 
 Criterion's original raw estimates remain under `target/criterion/parallel_policy_matrix/`.
 

@@ -3,7 +3,7 @@
 
 # Tooling & Misc
 
-> **Milestone:** [Backlog](../../ROADMAP.md) | **Priority:** Unscheduled
+> **Milestone:** Backlog | **Priority:** Unscheduled
 
 Housekeeping tasks: documentation, logging, naming consistency, and debugger UX design.
 

@@ -1,11 +1,16 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-> **Milestone:** [Developer CLI](../../ROADMAP.md) | **Priority:** P0
+> **Milestone:** Developer CLI | **Priority:** P0
 
 # Docs/man pages (#51)
 
 CLI documentation: man pages, usage examples, and integration with the docs site.
+
+Status: partially implemented. `clap_mangen`, `cargo xtask man-pages`, and the
+checked-in `docs/man/echo-cli*.1` pages exist. The remaining work is README
+copy-paste examples plus a CI freshness gate that regenerates and diffs the
+man pages.
 
 ## T-6-5-1: Man page generation and README examples
 
@@ -13,8 +18,10 @@ CLI documentation: man pages, usage examples, and integration with the docs site
 
 **Requirements:**
 
-- R1: Add `clap_mangen` dependency and an xtask command (`cargo xtask man`) that generates man pages to `docs/man/`.
-- R2: Generate man pages for the top-level command and each subcommand (verify, bench, inspect, completions).
+- R1: Use the existing `clap_mangen` dependency and `cargo xtask man-pages`
+  command to generate man pages to `docs/man/`.
+- R2: Generate man pages for the top-level command and each current subcommand
+  (`verify`, `bench`, `inspect`).
 - R3: Add a "CLI Usage" section to the repository README with examples for each subcommand.
 - R4: CI step verifies man pages are up-to-date (regenerate and diff; fail if stale).
 

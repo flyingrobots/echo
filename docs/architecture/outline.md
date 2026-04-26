@@ -7,7 +7,7 @@ If you’re new here, start with:
 
 - [/guide/start-here](/guide/start-here)
 - [/guide/warp-primer](/guide/warp-primer)
-- [/continuum-foundations](/continuum-foundations)
+- [/architecture/continuum-foundations](/architecture/continuum-foundations)
 
 This document is a high-level architecture and "why" artifact. Many sections are aspirational and
 will lag behind the current Rust-first implementation; prefer WARP specs for the runtime boundary.
@@ -16,7 +16,7 @@ Echo is the `hot` runtime within the larger Continuum architecture. This
 document is intentionally Echo-scoped. It does not define the full multi-repo
 platform, the `cold` runtime, or the ownership of every shared contract. For
 that wider system model, see `CONTINUUM.md` in the repo root and
-[/continuum-foundations](/continuum-foundations).
+[/architecture/continuum-foundations](/architecture/continuum-foundations).
 
 > **Implementation Status Legend:**
 >
@@ -74,10 +74,10 @@ that runtime.
 
 Read the current implementation through these docs first:
 
-- [/spec-warp-core](/spec-warp-core)
-- [/scheduler-warp-core](/scheduler-warp-core)
+- [/spec/warp-core](/spec/warp-core)
+- [/spec/scheduler-warp-core](/spec/scheduler-warp-core)
 - [/spec/SPEC-0004-worldlines-playback-truthbus](/spec/SPEC-0004-worldlines-playback-truthbus)
-- [/warp-two-plane-law](/warp-two-plane-law)
+- [/invariants/warp-two-plane-law](/invariants/warp-two-plane-law)
 
 ## Vision
 
@@ -169,7 +169,7 @@ kernel. They are not the present-tense implementation model.
 
 ## Event Bus ✅ Implemented
 
-> **Note:** The original "Event Bus" spec has been superseded by [ADR-0003 (MaterializationBus)](/adr/ADR-0003-Materialization-Bus.md). The MaterializationBus is now implemented with:
+> **Note:** The original "Event Bus" spec has been superseded by the implemented `MaterializationBus` in `crates/warp-core/src/materialization/`. Current runtime evidence lives in code and tests:
 >
 > - `EmissionPort` trait (hexagonal boundary for rule emissions)
 > - `ScopedEmitter` adapter (auto-fills EmitKey from execution context)
@@ -178,7 +178,7 @@ kernel. They are not the present-tense implementation model.
 > - 128 tests covering permutation invariance, reduce algebra, and engine integration
 > - Cross-platform CI (macOS + Linux, weekly via `dind-cross-platform.yml`)
 >
-> See `docs/rfc/mat-bus-finish.md` for the completion RFC.
+> The old ADR/RFC history is not a live docs route; git history is the archive.
 >
 > _The content below is preserved for historical context only._
 
@@ -192,7 +192,7 @@ kernel. They are not the present-tense implementation model.
 
 ## Playback & Worldlines ✅ Implemented
 
-> **Reference:** [SPEC-0004 (Worldlines, Playback, TruthBus)](spec/SPEC-0004-worldlines-playback-truthbus.md)
+> **Reference:** [SPEC-0004 (Worldlines, Playback, TruthBus)](/spec/SPEC-0004-worldlines-playback-truthbus)
 
 SPEC-0004 introduces infrastructure for deterministic materialization, cursor-based replay, and append-only provenance tracking:
 
@@ -247,14 +247,14 @@ that make Echo inspectable through a shared observer model.
 
 - **Mode Support**: Single-player (loopback), lockstep peer-to-peer, host-client, dedicated server.
 - **Transport Abstraction**: Reliable/unreliable channels, clock sync, session management. Adapter options: WebRTC, WebSockets, native sockets.
-- **Replication Strategy**: Deterministic event replication using Codex’s Baby ledger; optional state snapshots for fast-forward joins.
+- **Replication Strategy**: Deterministic event replication using Codex’s Baby ledger; optional materialized frontier checkpoints for fast-forward joins.
 - **Rollback Hooks**: Scheduler exposes rewinding API; networking port coordinates branch rewinds and replays when desync detected.
 - **Security Considerations**: Capability tokens, branch validation, deterministic checksum comparison to detect tampering.
 
 ### Audio, Persistence, Telemetry Ports 🗺️ Planned
 
 - **Audio**: Command queue for spatial/ambient playback, timeline control, and crossfade scheduling.
-- **Persistence**: Abstract reader/writer for save games, cloud sync, diagnostics dumps. Supports structured snapshots and delta patches.
+- **Persistence**: Abstract reader/writer for save games, cloud sync, diagnostics dumps. Supports structured checkpoints, materialized readings, and delta patches.
 - **Telemetry**: Export frame metrics, event traces, and custom probes to external dashboards or editor overlays.
 
 ## Cross-Cutting Concerns ⚠️ Partial

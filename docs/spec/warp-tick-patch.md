@@ -3,7 +3,7 @@
 
 # WARP Tick Patch Spec (v2)
 
-> **Background:** For a gentler introduction, see [WARP Primer](guide/warp-primer.md).
+> **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
 
 This document defines the **tick patch** boundary artifact used for Paper III-style replay and slicing.
 
@@ -107,7 +107,7 @@ Non-canonical optional metadata (not part of `patch_digest` unless explicitly up
 
 - tick receipts / traces (e.g., Paper II receipts with blocking-causality witness)
 - applied rewrite keys (“how we got here”)
-- stream admission decision records (`StreamAdmissionDecision`) for time travel tooling (pause/buffer/catch-up). These are committed via `admission_digest` on `Snapshot` (see [spec-merkle-commit.md](spec-merkle-commit.md)) rather than `patch_digest` in v2.
+- planned stream admission decision records (`StreamAdmissionDecision`) for time travel tooling (pause/buffer/catch-up). These are future `admission_digest` design material (see [Merkle Commit](/spec/merkle-commit)) rather than `patch_digest` inputs in v2.
 
 ---
 

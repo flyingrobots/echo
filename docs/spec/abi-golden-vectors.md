@@ -3,10 +3,14 @@
 
 # ABI Golden Vectors (v1)
 
-Status: **Phase 1 Frozen**
+Status: Partial Rust-side vector set
 
-These vectors ensure that both the Rust kernel and the JS host implement the
-**Canonical CBOR (subset)** mapping identically.
+These vectors document the **Canonical CBOR subset** used by the WASM ABI.
+Rust-side encoder/decoder checks live in
+`crates/echo-wasm-abi/tests/canonical_vectors.rs`; the canonical JS mapping is
+specified in [`js-cbor-mapping.md`](js-cbor-mapping.md). Host-side
+conformance vectors still need to be expanded before this can be treated as a
+complete cross-language ABI lock.
 
 ## 1. Scalars
 
@@ -40,6 +44,15 @@ Maps MUST be sorted by the bytewise representation of their encoded keys.
 - Key `"b"` encodes to `61 62`
 - Correct Order: `"a"`, then `"b"`
 - **Hex**: `a2 61 61 02 61 62 01`
+
+### Test-backed vector: `{ "a": 1, "b": true }`
+
+This vector is enforced by `golden_sample_map` in
+`crates/echo-wasm-abi/tests/canonical_vectors.rs`.
+
+- Key `"a"` encodes to `61 61`
+- Key `"b"` encodes to `61 62`
+- **Hex**: `a2 61 61 01 61 62 f5`
 
 ## 4. Nested Structures
 

@@ -1,9 +1,12 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-> **Milestone:** [Tumble Tower](../../ROADMAP.md) | **Priority:** P2
+> **Milestone:** Tumble Tower | **Priority:** P2
 >
-> This feature is a skeleton. Tasks will be expanded as the GDD matures.
+> Status: active cool idea. Task DAG issue #235 is still open and blocks the
+> Tumble Tower course track (#238). `docs/guide/tumble-tower.md` defines the
+> inputs-only lockstep proof, but no Tumble Tower physics simulation or
+> two-peer harness exists yet.
 
 # Lockstep Harness
 
@@ -13,7 +16,9 @@
 
 ## Requirements
 
-- R1: Adapt the Splash Guy lockstep harness (from demo-splash-guy/lockstep-protocol) for Tumble Tower's input model (block placement position + rotation).
+- R1: Implement a two-peer lockstep harness for Tumble Tower's input model
+  (block placement position + rotation), sharing the same protocol shape as the
+  Splash Guy lockstep task once that harness exists.
 - R2: Exchange `physics_fingerprint` each tick between peers; mismatch triggers desync alert with the divergent tick number.
 - R3: Support replaying a recorded input sequence for regression testing.
 - R4: Log per-tick state summaries (body count, sleeping count, total energy) for debugging.
@@ -41,7 +46,8 @@
 - **Edges:** Both peers place blocks at the same position on the same tick; zero-input game (just gravity).
 - **Fuzz/Stress:** Property test: random block placements for 2 peers over 300 ticks, verify fingerprint match.
 
-**Blocked By:** stage-0-aabb
+**Blocked By:** stage-0-aabb; operationally blocked until there is at least one
+runnable Tumble Tower physics stage to fingerprint.
 **Blocking:** desync-breakers
 
 **Est. Hours:** 5h

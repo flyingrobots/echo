@@ -3,54 +3,58 @@
 
 # BEARING
 
-This signpost summarizes direction. It does not create commitments or
-replace backlog items, design docs, retros, or CLI status.
+Last updated: 2026-04-26.
+
+This signpost summarizes current direction. It does not create commitments or
+replace backlog items, design docs, retros, or CLI status. If it disagrees with
+code, the code wins and this file should be corrected.
 
 ## Where are we going?
 
-Current priority: finish the Echo-side cutover to the Continuum ownership
-split:
+Current priority: make Echo's WARP optics observable, documented, and fast to
+iterate without turning docs into a museum or a second codebase:
 
-- Echo owns hot runtime truth and browser-hostable WASM substrate
-- `warp-ttd` owns debugger session semantics and browser delivery
-- shared protocol truth stays canonical outside Echo
+- Echo owns hot runtime truth in `warp-core`.
+- Echo exposes current browser-hostable substrate through the WASM ABI, not a
+  pile of historical ABI versions.
+- Observer-relative reading metadata travels in `ReadingEnvelope`.
+- Method cycles and dated audit ledgers track planning decisions.
+- Local iteration speed is a first-class hill, because slow gates make every
+  design/code/doc correction more expensive.
 
 ## What just shipped?
 
-The parity runway is now explicit in design:
+The Continuum cutover is no longer just design text:
 
-- `0007` defines braid geometry and native neighborhood publication
-- `0008` defines strand settlement as compare -> plan -> import ->
-  conflict artifact
-
-Earlier cleanup also removed the old local browser debugger product path
-(`warp-viewer`, session hub/gateway/client, `ttd-app`). Repo truth now points
-at:
-
-- Echo browser/WASM host bridge surfaces
-- `warp-ttd` as the browser debugger destination
-- generated protocol consumers as downstream artifacts, not protocol owners
+- `0007` has runtime shape through `crates/warp-core/src/neighborhood.rs` and
+  `NeighborhoodSiteService`.
+- `0008` has runtime shape through `crates/warp-core/src/settlement.rs` and
+  `SettlementService`.
+- `crates/warp-wasm/src/warp_kernel.rs` exposes neighborhood and settlement
+  surfaces through the WASM kernel boundary.
+- `crates/echo-wasm-abi/src/kernel_port.rs` is currently ABI version 6 and
+  carries `ReadingEnvelope` inside observation artifacts.
+- `docs/spec/SPEC-0009-wasm-abi.md` now documents the current ABI contract
+  instead of pretending to preserve ABI v1-v5.
 
 ## What is next?
 
-Two implementation cuts and one contract cut:
-
-1. make `0007` real in kernel/runtime truth:
-   support pins + native neighborhood site publication
-2. make `0008` real in kernel/runtime truth:
-   compare/plan/import/conflict artifact publication
-3. land one Wesley-generated proof slice against the shared Continuum observer
-   contract, then narrow `ttd-browser` / `echo-session-proto` around that
-   reality
+1. Audit `docs/` five documents at a time, score each one against code, and
+   delete or relocate aggressively. The live docs corpus contains current,
+   useful, navigable truth; git history is the archive.
+2. Fold the Optic/Observer doctrine into the runtime path toward WARP optics,
+   anchored by `docs/design/0011-optic-observer-runtime-doctrine/design.md`.
+3. Improve local iteration by separating quick doc/code lanes from full release
+   gates while keeping full verification before publication.
+4. Keep hardening the reading envelope and basis-posture surfaces until the
+   observer contract is boring, current, and test-backed.
 
 ## What feels wrong?
 
-- support pins and neighborhood sites are still design truth, not runtime
-  truth.
-- settlement nouns exist only as a new design packet and placeholder event
-  kinds, not a shipped compare/plan/import path.
-- Echo's richer runtime schema (typed IDs, dual tick clocks, ingress routing,
-  scheduler introspection) still is not surfaced cleanly through the canonical
-  shared observer/debugger contract.
-- Echo still lacks an explicit CLI/MCP agent boundary, so agent use depends on
-  repo-local APIs and bridge folklore instead of one inspectable surface.
+- `docs/` still mixes living specs, Method backlog items, generated assets,
+  historical audits, book sources, and stale top-level signposts.
+- The docs site still has broken or stale navigation surfaces from earlier
+  reorganizations.
+- Local verification remains too coarse for doc-only or narrow ABI changes.
+- We still lack one boring, inspectable agent boundary for "observe runtime,
+  ask question, get evidence-backed answer."

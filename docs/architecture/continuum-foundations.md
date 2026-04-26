@@ -22,8 +22,10 @@ obvious instead of magical.
 See also:
 
 - `CONTINUUM.md` in the repo root for the platform-level summary
-- [`/docs/architecture-outline.md`](/docs/architecture-outline.md) for the
+- [`/docs/architecture/outline.md`](/architecture/outline) for the
   Echo-specific runtime story
+- [0011 — Optic and observer runtime doctrine](/design/0011-optic-observer-runtime-doctrine/design)
+  for the Echo runtime subset of the optic and observer formalism
 
 ## One Sentence
 

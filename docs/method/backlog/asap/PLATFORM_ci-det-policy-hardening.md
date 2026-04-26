@@ -5,10 +5,13 @@
 
 Harden the determinism classification CI pipeline.
 
-- Unit tests for `classify_changes.cjs` and `matches()` (#286)
-- Auto-generate `DETERMINISM_PATHS` from `det-policy.yaml` DET_CRITICAL
-  entries (#285)
-- Per-crate gate overrides in det-policy classification system (#284)
+Status: active and partially implemented.
 
-These three are tightly coupled — they all protect the determinism
-guarantee at the CI level.
+- Unit tests for `classify_changes.cjs` and `matches()` (#286, open)
+- Auto-generate `DETERMINISM_PATHS` from `det-policy.yaml` DET_CRITICAL
+  entries (#285, completed in `.github/workflows/det-gates.yml`)
+- Per-crate gate overrides in det-policy classification system (#284, open)
+
+The remaining open pieces are still tightly coupled: script tests make the
+classifier safe to change, and per-crate overrides are the next precision step
+after the broad `scripts/**` fail-safe.

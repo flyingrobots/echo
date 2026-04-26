@@ -57,43 +57,52 @@ flowchart TD
 - Newcomer (no-programming) intro: [/guide/eli5](/guide/eli5)
 - Start Here guide: [/guide/start-here](/guide/start-here)
 - WARP primer: [/guide/warp-primer](/guide/warp-primer)
-- Architecture overview (draft, but the source of truth for intent): [/architecture-outline](/architecture-outline)
-- Core runtime spec (`warp-core`): [/spec-warp-core](/spec-warp-core)
+- Current bearing: [/BEARING](/BEARING)
+- Architecture overview (draft context artifact): [/architecture/outline](/architecture/outline)
+- Core runtime spec (`warp-core`): [/spec/warp-core](/spec/warp-core)
 
 ## Curated Map
 
 ### Core runtime
 
-- WARP core runtime: [/spec-warp-core](/spec-warp-core)
-- Tick patch boundary: [/spec-warp-tick-patch](/spec-warp-tick-patch)
-- Rewrite scheduler (current implementation): [/scheduler-warp-core](/scheduler-warp-core)
-- Merkle commit / snapshot hashing: [/spec-merkle-commit](/spec-merkle-commit)
-- Two-plane law: [/warp-two-plane-law](/warp-two-plane-law)
+- WARP core runtime: [/spec/warp-core](/spec/warp-core)
+- Tick patch boundary: [/spec/warp-tick-patch](/spec/warp-tick-patch)
+- Rewrite scheduler (current implementation): [/spec/scheduler-warp-core](/spec/scheduler-warp-core)
+- Scheduler benchmarks: [/benchmarks/scheduler-performance-warp-core](/benchmarks/scheduler-performance-warp-core)
+- Canonical inbox sequencing: [/spec/canonical-inbox-sequencing](/spec/canonical-inbox-sequencing)
+- JS/CBOR ABI mapping: [/spec/js-cbor-mapping](/spec/js-cbor-mapping)
+- Merkle commit / snapshot hashing: [/spec/merkle-commit](/spec/merkle-commit)
+- WARP stream wire protocol: [/spec/warp-view-protocol](/spec/warp-view-protocol)
+- ABI golden vectors: [/spec/abi-golden-vectors](/spec/abi-golden-vectors)
+- Two-plane law: [/invariants/warp-two-plane-law](/invariants/warp-two-plane-law)
 
 ### Determinism
 
-- Deterministic math policy: [/SPEC_DETERMINISTIC_MATH](/SPEC_DETERMINISTIC_MATH)
-- Deterministic math hazards: [/DETERMINISTIC_MATH](/DETERMINISTIC_MATH)
+- Deterministic math policy: [/determinism/SPEC_DETERMINISTIC_MATH](/determinism/SPEC_DETERMINISTIC_MATH)
+- Deterministic math hazards: [/determinism/DETERMINISTIC_MATH](/determinism/DETERMINISTIC_MATH)
 - Claim register + evidence: [/determinism/DETERMINISM_CLAIMS_v0.1](/determinism/DETERMINISM_CLAIMS_v0.1)
-- Benchmark guide: [/BENCHMARK_GUIDE](/BENCHMARK_GUIDE)
+- DIND harness: [/determinism/dind-harness](/determinism/dind-harness)
+- Release policy: [/determinism/RELEASE_POLICY](/determinism/RELEASE_POLICY)
+- Benchmark guide: [/benchmarks/BENCHMARK_GUIDE](/benchmarks/BENCHMARK_GUIDE)
 
 ### Contributor workflow
 
 - Contributor playbook: [/workflows](/workflows)
 - PR submission loop: [/procedures/PR-SUBMISSION-REVIEW-LOOP](/procedures/PR-SUBMISSION-REVIEW-LOOP)
-- Dependency DAGs: [/dependency-dags](/dependency-dags)
-- Roadmap index: [/ROADMAP](/ROADMAP)
+- Dependency DAGs: [/method/dependency-dags](/method/dependency-dags)
+- Method backlog: [/method/README](/method/README)
 
 ### Theory / intent
 
-- Architecture outline: [/architecture-outline](/architecture-outline)
-- Continuum foundations bridge: [/continuum-foundations](/continuum-foundations)
-- Theory: [/THEORY](/THEORY)
-- Methodology: [/METHODOLOGY](/METHODOLOGY)
+- Architecture outline: [/architecture/outline](/architecture/outline)
+- Continuum foundations bridge: [/architecture/continuum-foundations](/architecture/continuum-foundations)
+- Theory: [/theory/THEORY](/theory/THEORY)
+- Method: [/method/README](/method/README)
 
 ## Run Something (learn by doing)
 
 - Collision DPO tour (static walkthrough): [/collision-dpo-tour.html](/collision-dpo-tour.html)
 
-Echo no longer ships the older local WVP demo stack. Browser debugger delivery
-is moving to `warp-ttd`, with Echo keeping the WASM/browser host surfaces.
+Runnable browser work currently centers on the Collision DPO tour and the
+WASM/browser host surfaces. WARP stream wire-schema reference lives at
+[/spec/warp-view-protocol](/spec/warp-view-protocol).

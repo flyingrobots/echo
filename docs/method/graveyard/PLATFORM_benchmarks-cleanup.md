@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-> **Milestone:** [Lock the Hashes](../../ROADMAP.md) | **Priority:** P0
+> **Milestone:** Lock the Hashes | **Priority:** P0
 
 # Benchmarks Pipeline Cleanup
 

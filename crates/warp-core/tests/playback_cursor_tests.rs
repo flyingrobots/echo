@@ -102,6 +102,14 @@ impl ProvenanceStore for RecordingProvenance {
         self.inner.append_local_commit(entry)
     }
 
+    fn append_recorded_event(&mut self, entry: ProvenanceEntry) -> Result<(), HistoryError> {
+        self.record(format!(
+            "append_recorded_event:{}",
+            entry.worldline_tick.as_u64()
+        ));
+        self.inner.append_recorded_event(entry)
+    }
+
     fn checkpoint_before(&self, w: WorldlineId, tick: WorldlineTick) -> Option<CheckpointRef> {
         self.record(format!("checkpoint_before:{}", tick.as_u64()));
         self.inner.checkpoint_before(w, tick)

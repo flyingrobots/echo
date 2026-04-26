@@ -1,9 +1,11 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-> **Milestone:** [Splash Guy](../../ROADMAP.md) | **Priority:** P2
+> **Milestone:** Splash Guy | **Priority:** P2
 >
-> This feature is a skeleton. Tasks will be expanded as the GDD matures.
+> Status: active cool idea. Task DAG issue #223 is still live.
+> `docs/guide/course/01-lockstep.md` teaches the contract, but no Splash Guy
+> two-peer harness exists yet.
 
 # Lockstep Protocol
 
@@ -15,7 +17,9 @@
 
 - R1: Implement a lockstep input protocol: each peer sends its input for tick T, waits for the other peer's input, then both advance.
 - R2: Each peer computes `state_fingerprint` after advancing and exchanges it; mismatch triggers a desync alert.
-- R3: Two-peer harness: a test binary that runs two Echo instances in the same process (or via loopback), exchanging inputs via channels.
+- R3: Two-peer harness: a test binary or integration harness that runs two Echo
+  instances in the same process (or via loopback), exchanging inputs via
+  channels.
 - R4: Support configurable simulated latency (delay input delivery by N ticks) to test buffering.
 - R5: Log input exchange and fingerprint comparison for debugging.
 

@@ -1,11 +1,20 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-> **Milestone:** [Time Travel](../../ROADMAP.md) | **Priority:** P2
+> **Milestone:** Time Travel | **Priority:** P2
 
 # TT1 — Streams Inspector Frame
 
-Add `StreamsFrame` to the inspector protocol and resolve the four open design questions (#243, #244, #245, #246) required before the time-travel MVP.
+Status: active but stale cool idea. Task DAG issues #170, #203, and
+the #244-#246 set remain open, while #243 now has the fixed-timestep
+invariant in `docs/invariants/FIXED-TIMESTEP.md`. No `StreamsFrame`,
+inspector stream frame, or Constraint Lens UI exists yet. This card
+remains operational as the handle for turning current
+playback/provenance/checkpoint substrate into a stream/admission inspection
+surface; it is not implemented protocol truth.
+
+Define the stream/admission inspector surface and resolve the remaining TT1
+design questions (#244, #245, #246) required before the time-travel MVP.
 
 **Issues:** #170, #203, #243, #244, #245, #246
 
@@ -17,15 +26,20 @@ Add `StreamsFrame` to the inspector protocol and resolve the four open design qu
 
 **Requirements:**
 
-- R1: Evaluate fixed-timestep vs variable-dt-as-stream tradeoffs in a short decision document section within `docs/spec-time-streams-and-wormholes.md`.
-- R2: Lock the decision: fixed timestep is default; variable dt is opt-in and treated as an admitted stream with its own `StreamAdmissionDecision`.
-- R3: Document how the fixed timestep interacts with catch-up (multiple ticks per frame) and wormhole compression.
+- R1: Treat `docs/invariants/FIXED-TIMESTEP.md` as the current decision
+  artifact.
+- R2: Confirm downstream TT1 work follows the locked decision: fixed
+  timestep is default; `dt` is not an admitted stream fact.
+- R3: Document any remaining catch-up/checkpoint implications in the
+  time-model or retention follow-up docs rather than reopening dt policy.
 
 **Acceptance Criteria:**
 
-- [ ] AC1: Decision is recorded as normative text in the spec.
-- [ ] AC2: Fixed-timestep is documented as the default with explicit opt-in path for variable dt.
-- [ ] AC3: Catch-up interaction is described with a 3-step worked example.
+- [ ] AC1: The fixed-timestep invariant remains the normative decision.
+- [ ] AC2: TT1 follow-up docs do not reintroduce per-tick or admitted
+      variable `dt`.
+- [ ] AC3: Catch-up/checkpoint implications are covered by the current
+      time-model or retention docs.
 
 **Definition of Done:**
 
@@ -33,8 +47,8 @@ Add `StreamsFrame` to the inspector protocol and resolve the four open design qu
 - [ ] Tests pass (CI green)
 - [ ] Documentation updated (if applicable)
 
-**Scope:** Design decision and spec text for dt policy.
-**Out of Scope:** Runtime implementation of variable-dt stream; changes to the scheduler.
+**Scope:** Verify downstream TT1 alignment with the fixed-timestep invariant.
+**Out of Scope:** Reopening variable-dt support; changes to the scheduler.
 
 **Test Plan:**
 
@@ -61,6 +75,8 @@ Add `StreamsFrame` to the inspector protocol and resolve the four open design qu
 - R2: Specify compaction triggers: tick count threshold, byte budget, or explicit GC request.
 - R3: Define wormhole density policy: minimum one wormhole checkpoint per N ticks (configurable), plus mandatory checkpoints at branch/merge points.
 - R4: Document the relationship between retention and replay cost (seek latency formula).
+- R5: Align with `docs/method/backlog/up-next/KERNEL_timestream-retention.md`
+  and the existing `ProvenanceStore::checkpoint_before()` seam.
 
 **Acceptance Criteria:**
 
@@ -109,7 +125,9 @@ Add `StreamsFrame` to the inspector protocol and resolve the four open design qu
 - [ ] AC1: Three merge strategies are defined with tradeoff analysis.
 - [ ] AC2: Revalidation rules are specified for at least two stream types (NetworkRx, GameInput).
 - [ ] AC3: Worked example covers diverge, independent admission, and merge with conflict.
-- [ ] AC4: Paradox quarantine interaction is cross-referenced to `docs/spec-entropy-and-paradox.md`.
+- [ ] AC4: Conflict/quarantine behavior is cross-referenced to current
+      worldline/provenance docs or a live follow-up card, not a retired spec
+      path.
 
 **Definition of Done:**
 
@@ -141,14 +159,17 @@ Add `StreamsFrame` to the inspector protocol and resolve the four open design qu
 
 **Requirements:**
 
-- R1: Define new capability tokens: `timeline:fork`, `timeline:rewind`, `timeline:merge` (extending the existing `docs/spec-capabilities-and-security.md` token set).
+- R1: Define the capability names or rights model for fork, rewind, and
+  merge, aligned with
+  `docs/method/backlog/up-next/KERNEL_time-travel-capabilities.md`.
 - R2: Specify per-session and per-player capability grants (host can restrict rewind to observers only, etc.).
 - R3: Document provenance sovereignty: a player's forked branch carries their signer identity; merging requires authority from the branch owner or session host.
 - R4: Define fault codes for unauthorized time-travel operations.
 
 **Acceptance Criteria:**
 
-- [ ] AC1: New capability tokens are added to the token table in `docs/spec-capabilities-and-security.md`.
+- [ ] AC1: Time-travel capability names and denial faults are documented in
+      the live capability follow-up.
 - [ ] AC2: Per-session capability grant model is documented with example configurations.
 - [ ] AC3: Provenance sovereignty rules are stated as normative requirements.
 - [ ] AC4: At least 2 new fault codes are defined (e.g., `ERR_FORK_DENIED`, `ERR_MERGE_UNAUTHORIZED`).
@@ -183,18 +204,26 @@ Add `StreamsFrame` to the inspector protocol and resolve the four open design qu
 
 **Requirements:**
 
-- R1: Define `StreamsFrame` struct in the inspector protocol (Rust side) with fields: `stream_id`, `backlog_count`, `backlog_bytes`, `cursor_positions` (per view), `recent_decisions` (last N `StreamAdmissionDecision` summaries), `admission_digest`.
-- R2: Add `"streams"` to the `FrameType` enum in the inspector envelope.
-- R3: Emit `StreamsFrame` post `timeline_flush` each tick, consistent with existing frame emission order.
+- R1: Define the stream/admission frame shape in the inspector or observer
+  protocol, covering `stream_id`, backlog metrics, cursor positions,
+  recent admission-decision summaries, and `admission_digest`.
+- R2: Add a streams/admission frame kind to the selected inspector envelope
+  once that envelope exists.
+- R3: Emit the frame at a deterministic tick boundary consistent with the
+  current scheduler/playback emission order.
 - R4: Serialize to JSONL for offline analysis; expose via WebSocket transport.
-- R5: Add subscription/filter support for the `streams` frame type in `InspectorCommand`.
+- R5: Add subscription/filter support for the streams/admission frame in the
+  selected inspector command surface.
 
 **Acceptance Criteria:**
 
-- [ ] AC1: `StreamsFrame` struct compiles and is included in the inspector module.
-- [ ] AC2: A unit test constructs a `StreamsFrame` with mock data and serializes it to JSON matching a golden snapshot.
+- [ ] AC1: The streams/admission frame type compiles and is included in the
+      selected inspector or observer module.
+- [ ] AC2: A unit test constructs the frame with mock data and serializes it
+      to JSON matching a golden snapshot.
 - [ ] AC3: Integration test: run a 10-tick simulation with at least 2 streams, verify `StreamsFrame` is emitted each tick with correct backlog and cursor values.
-- [ ] AC4: `InspectorCommand` accepts `frameType: "streams"` for subscribe/filter.
+- [ ] AC4: The selected inspector command surface accepts a streams/admission
+      frame subscription or filter.
 
 **Definition of Done:**
 
@@ -202,12 +231,15 @@ Add `StreamsFrame` to the inspector protocol and resolve the four open design qu
 - [ ] Tests pass (CI green)
 - [ ] Documentation updated (if applicable)
 
-**Scope:** `StreamsFrame` struct, serialization, emission, subscription.
-**Out of Scope:** UI rendering of streams data (that is T-7-2-6); wormhole density metrics (deferred to TT2).
+**Scope:** Streams/admission frame shape, serialization, emission, and
+subscription.
+**Out of Scope:** UI rendering of streams data (that is T-7-2-6); checkpoint
+density metrics (deferred to TT2).
 
 **Test Plan:**
 
-- **Goldens:** Golden JSON snapshot for `StreamsFrame` serialization (at least 2 streams, 3 recent decisions).
+- **Goldens:** Golden JSON snapshot for streams/admission frame serialization
+  (at least 2 streams, 3 recent decisions).
 - **Failures:** Verify graceful handling when a stream has zero backlog; when a view has no cursor for a stream.
 - **Edges:** Stream with exactly one event admitted at the current tick (boundary between empty and non-empty backlog).
 - **Fuzz/Stress:** Property test: random stream/cursor configurations produce valid serialized frames.
@@ -226,7 +258,8 @@ Add `StreamsFrame` to the inspector protocol and resolve the four open design qu
 
 **Requirements:**
 
-- R1: Render recent `StreamAdmissionDecision` records from `StreamsFrame` in a scrollable list with admit/reject status and reason summary.
+- R1: Render recent stream/admission decision records from the inspector
+  frame in a scrollable list with admit/reject status and reason summary.
 - R2: Display the policy parameters (budget, fairness order) that were active for each decision.
 - R3: Provide counterfactual sliders for `max_events`, `max_bytes`, and `max_work_units` that re-evaluate the most recent tick's admission decisions locally (read-only "what-if", no mutation of the simulation).
 - R4: Highlight decisions that would change under the adjusted parameters.
@@ -236,7 +269,8 @@ Add `StreamsFrame` to the inspector protocol and resolve the four open design qu
 - [ ] AC1: Panel renders in the inspector UI with at least the last 10 admission decisions.
 - [ ] AC2: Each decision shows: stream_id, admitted range, policy_hash, budget values, and admit/reject.
 - [ ] AC3: Moving a counterfactual slider recomputes and highlights changed decisions within 100ms.
-- [ ] AC4: Panel degrades gracefully when no `StreamsFrame` data is available (shows "no streams data" message).
+- [ ] AC4: Panel degrades gracefully when no streams/admission frame data is
+      available (shows "no streams data" message).
 
 **Definition of Done:**
 

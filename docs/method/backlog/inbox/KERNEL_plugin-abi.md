@@ -3,7 +3,7 @@
 
 # Plugin ABI
 
-> **Milestone:** [Backlog](../../ROADMAP.md) | **Priority:** Unscheduled
+> **Milestone:** Backlog | **Priority:** Unscheduled
 
 A C-compatible plugin ABI enabling third-party extensions to hook into the Echo runtime without recompilation. Covers spec, host loader, version negotiation, capability tokens, and a reference plugin.
 

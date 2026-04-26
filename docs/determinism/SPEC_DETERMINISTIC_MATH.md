@@ -4,7 +4,8 @@
 # Policy: Strictly Deterministic Math
 
 This document is **normative**: if it conflicts with other docs, this wins.
-For background hazards and motivation, see [/DETERMINISTIC_MATH](/DETERMINISTIC_MATH).
+For background hazards and motivation, see
+[/determinism/DETERMINISTIC_MATH](/determinism/DETERMINISTIC_MATH).
 
 All math within the simulation loop (`warp-core`) must adhere to these rules.
 
@@ -12,11 +13,10 @@ All math within the simulation loop (`warp-core`) must adhere to these rules.
 
 > **You are here:** normative policy (this document wins on conflicts).
 >
-> | Doc                                                                              | Role                                               |
-> | -------------------------------------------------------------------------------- | -------------------------------------------------- |
-> | [DETERMINISTIC_MATH.md](DETERMINISTIC_MATH.md)                                   | Hazard catalog (IEEE 754 pitfalls and mitigations) |
-> | [warp-math-claims.md](warp-math-claims.md)                                       | Claims and theory framing                          |
-> | [determinism/DETERMINISM_CLAIMS_v0.1.md](determinism/DETERMINISM_CLAIMS_v0.1.md) | Formal determinism claims                          |
+> | Doc                                                      | Role                                               |
+> | -------------------------------------------------------- | -------------------------------------------------- |
+> | [DETERMINISTIC_MATH.md](DETERMINISTIC_MATH.md)           | Hazard catalog (IEEE 754 pitfalls and mitigations) |
+> | [DETERMINISM_CLAIMS_v0.1.md](DETERMINISM_CLAIMS_v0.1.md) | Formal determinism claims                          |
 
 ## 1. Floating Point (f32)
 

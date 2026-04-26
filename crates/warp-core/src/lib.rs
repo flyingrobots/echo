@@ -203,9 +203,12 @@ pub use neighborhood::{
     ParticipantRole, SiteParticipant, SitePlurality,
 };
 pub use observation::{
-    HeadObservation, ObservationArtifact, ObservationAt, ObservationCoordinate, ObservationError,
-    ObservationFrame, ObservationPayload, ObservationProjection, ObservationProjectionKind,
-    ObservationRequest, ObservationService, ResolvedObservationCoordinate, WorldlineSnapshot,
+    BuiltinObserverPlan, HeadObservation, ObservationArtifact, ObservationAt,
+    ObservationBasisPosture, ObservationCoordinate, ObservationError, ObservationFrame,
+    ObservationPayload, ObservationProjection, ObservationProjectionKind, ObservationRequest,
+    ObservationService, ReadingBudgetPosture, ReadingEnvelope, ReadingObserverBasis,
+    ReadingObserverPlan, ReadingResidualPosture, ReadingRightsPosture, ReadingWitnessRef,
+    ResolvedObservationCoordinate, WorldlineSnapshot,
 };
 pub use playback::{CursorReceipt, TruthFrame, TruthSink};
 pub use provenance_store::{
@@ -231,7 +234,9 @@ pub use snapshot::{
     compute_state_root_for_warp_store, compute_tick_commit_hash_v2, OpEmissionEntry, Snapshot,
 };
 pub use strand::{
-    make_strand_id, BaseRef, DropReceipt, Strand, StrandError, StrandId, StrandRegistry, SupportPin,
+    make_strand_id, BaseRef, DropReceipt, ParentMovementFootprint, Strand, StrandBasisReport,
+    StrandDivergenceFootprint, StrandError, StrandId, StrandOverlapRevalidation, StrandRegistry,
+    StrandRevalidationState, SupportPin,
 };
 pub use telemetry::{NullTelemetrySink, TelemetrySink};
 pub use tick_delta::{DeltaStats, OpOrigin, ScopedDelta, TickDelta};

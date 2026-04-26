@@ -3,12 +3,12 @@
 
 # WASM Runtime Integration
 
-> **Milestone:** [First Light](../../ROADMAP.md) | **Priority:** P1 | **Repo:** Echo
+> **Milestone:** First Light | **Priority:** P1 | **Repo:** Echo
 >
 > **Historical note:** This roadmap item predates the observation-first ABI v2
 > and the intent-shaped ABI v3 control-plane rewrite. It is retained as
 > planning archaeology, not as the current WASM API contract. The live public
-> boundary is documented in [SPEC-0009 WASM ABI v3](../../spec/SPEC-0009-wasm-abi-v3.md).
+> boundary is documented in [SPEC-0009 WASM ABI](../../../spec/SPEC-0009-wasm-abi.md).
 >
 > Historical First Light plan for wiring warp-wasm exports to real engine
 > logic. It reflects an earlier `step(...)`-driven browser boundary that has

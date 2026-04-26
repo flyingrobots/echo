@@ -1,9 +1,11 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-> **Milestone:** [Tumble Tower](../../ROADMAP.md) | **Priority:** P2
+> **Milestone:** Tumble Tower | **Priority:** P2
 >
-> This feature is a skeleton. Tasks will be expanded as the GDD matures.
+> Status: active cool idea, blocked by the open Tumble Tower physics,
+> lockstep, desync-breaker, and visualization tasks. `docs/guide/tumble-tower.md`
+> defines the staged ladder, but no physics-ladder course modules exist yet.
 
 # Course Material
 

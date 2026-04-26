@@ -1,77 +1,82 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-import { defineConfig } from 'vitepress'
+import { defineConfig } from "vitepress";
 
 export default defineConfig({
-  title: 'Echo',
-  description: 'Real-Time, Deterministic, Recursive Meta-Graph Simulation Engine',
+  title: "Echo",
+  description:
+    "Real-Time, Deterministic, Recursive Meta-Graph Simulation Engine",
   cleanUrls: true,
+  srcExclude: ["assets/dags/tasks-dag-source.md"],
   themeConfig: {
     search: {
-      provider: 'local'
+      provider: "local",
     },
     nav: [
-      { text: 'Home', link: '/' },
-      { text: 'Start Here', link: '/guide/start-here' },
-      { text: 'Docs Map', link: '/meta/docs-index' },
+      { text: "Home", link: "/" },
+      { text: "Start Here", link: "/guide/start-here" },
+      { text: "Docs Map", link: "/" },
       {
-        text: 'Guides',
+        text: "Guides",
         items: [
-          { text: 'Echo (ELI5)', link: '/guide/eli5' },
-          { text: 'WARP Primer', link: '/guide/warp-primer' },
-          { text: 'WVP Demo', link: '/guide/wvp-demo' },
-          { text: 'Collision Tour', link: '/guide/collision-tour' }
-        ]
+          { text: "Echo (ELI5)", link: "/guide/eli5" },
+          { text: "WARP Primer", link: "/guide/warp-primer" },
+          { text: "WVP Demo", link: "/guide/wvp-demo" },
+          { text: "Collision Tour", link: "/guide/collision-tour" },
+        ],
       },
       {
-        text: 'Specs',
+        text: "Specs",
         items: [
-          { text: 'warp-core', link: '/spec-warp-core' },
-          { text: 'Tick Patch', link: '/spec-warp-tick-patch' },
-          { text: 'Serialization', link: '/spec-serialization-protocol' },
-          { text: 'Branch Tree', link: '/spec-branch-tree' },
-          { text: 'WVP', link: '/spec-warp-view-protocol' }
-        ]
+          { text: "warp-core", link: "/spec/warp-core" },
+          { text: "Tick Patch", link: "/spec/warp-tick-patch" },
+          { text: "Serialization", link: "/spec-serialization-protocol" },
+          { text: "Branch Tree", link: "/spec-branch-tree" },
+          { text: "WVP", link: "/spec/warp-view-protocol" },
+        ],
       },
     ],
     sidebar: {
-      '/': [
+      "/": [
         {
-          text: 'Start Here',
+          text: "Start Here",
           items: [
-            { text: 'Start Here', link: '/guide/start-here' },
-            { text: 'WARP Primer', link: '/guide/warp-primer' },
-            { text: 'Docs Map', link: '/meta/docs-index' },
-            { text: 'Architecture Outline', link: '/architecture-outline' }
-          ]
+            { text: "Start Here", link: "/guide/start-here" },
+            { text: "WARP Primer", link: "/guide/warp-primer" },
+            { text: "Docs Map", link: "/" },
+            { text: "Architecture Outline", link: "/architecture/outline" },
+          ],
         },
         {
-          text: 'WARP',
+          text: "WARP",
           items: [
-            { text: 'warp-core Spec', link: '/spec-warp-core' },
-            { text: 'Tick Patch Spec', link: '/spec-warp-tick-patch' },
-            { text: 'WVP Spec', link: '/spec-warp-view-protocol' },
-            { text: 'Serialization Spec', link: '/spec-serialization-protocol' },
-            { text: 'Branch Tree Spec', link: '/spec-branch-tree' }
-          ]
+            { text: "warp-core Spec", link: "/spec/warp-core" },
+            { text: "Tick Patch Spec", link: "/spec/warp-tick-patch" },
+            { text: "WVP Spec", link: "/spec/warp-view-protocol" },
+            {
+              text: "Serialization Spec",
+              link: "/spec-serialization-protocol",
+            },
+            { text: "Branch Tree Spec", link: "/spec-branch-tree" },
+          ],
         },
         {
-          text: 'Subsystem Hubs',
-          items: [{ text: 'Scheduler', link: '/scheduler' }]
+          text: "Subsystem Hubs",
+          items: [{ text: "Scheduler", link: "/spec/scheduler-warp-core" }],
         },
       ],
-      '/guide/': [
+      "/guide/": [
         {
-          text: 'Guide',
+          text: "Guide",
           items: [
-            { text: 'Echo (ELI5)', link: '/guide/eli5' },
-            { text: 'Start Here', link: '/guide/start-here' },
-            { text: 'WARP Primer', link: '/guide/warp-primer' },
-            { text: 'WVP Demo', link: '/guide/wvp-demo' },
-            { text: 'Collision Tour', link: '/guide/collision-tour' }
-          ]
-        }
-      ]
-    }
-  }
-})
+            { text: "Echo (ELI5)", link: "/guide/eli5" },
+            { text: "Start Here", link: "/guide/start-here" },
+            { text: "WARP Primer", link: "/guide/warp-primer" },
+            { text: "WVP Demo", link: "/guide/wvp-demo" },
+            { text: "Collision Tour", link: "/guide/collision-tour" },
+          ],
+        },
+      ],
+    },
+  },
+});

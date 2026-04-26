@@ -28,15 +28,16 @@ ECS is a _useful storage and API layer_, but the deeper “ground truth” model
 ### If you’re new to WARP / graph-rewrite simulation
 
 1. WARP primer: [/guide/warp-primer](/guide/warp-primer)
-2. Two-plane law (why “no hidden edges” exists): [/warp-two-plane-law](/warp-two-plane-law)
-3. Core runtime spec (`warp-core`): [/spec-warp-core](/spec-warp-core)
+2. Two-plane law (why “no hidden edges” exists): [/invariants/warp-two-plane-law](/invariants/warp-two-plane-law)
+3. Core runtime spec (`warp-core`): [/spec/warp-core](/spec/warp-core)
 
 ### If you want to run something end-to-end
 
 1. Collision DPO tour (static HTML): [/collision-dpo-tour.html](/collision-dpo-tour.html)
 
-Echo no longer ships the older local WVP demo stack. Browser debugger delivery
-is moving to `warp-ttd`, while Echo keeps the WASM/browser host surfaces.
+Runnable browser work currently centers on the Collision DPO tour and the
+WASM/browser host surfaces. WARP stream wire-schema reference lives at
+[/spec/warp-view-protocol](/spec/warp-view-protocol).
 
 ### Collision DPO Tour (what to expect)
 
@@ -52,7 +53,7 @@ is moving to `warp-ttd`, while Echo keeps the WASM/browser host surfaces.
 
 - **Guides** (`docs/guide/`): newcomer-friendly explanations and runnable walkthroughs.
 - **Specs** (`docs/spec-*.md`, `docs/spec/`): normative artifacts we try to keep stable and precise.
-- **Architecture / Theory** (`docs/architecture*.md`, `docs/THEORY.md`, `docs/METHODOLOGY.md`): design intent and conceptual framing.
+- **Architecture / Theory** (`docs/architecture/`, `docs/theory/`): design intent and conceptual framing.
 - **Procedures / Benchmarks** (`docs/procedures/`, `docs/benchmarks/`): contributor workflow and evidence.
 
 ## Viewing Docs Locally

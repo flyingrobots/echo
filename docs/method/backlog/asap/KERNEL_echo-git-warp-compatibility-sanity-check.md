@@ -18,6 +18,10 @@ tooling, and future feature work (especially strands/braiding).
 This item exists because a deep-dive in April 2026 surfaced
 significant gaps that need deliberate alignment, not accidental drift.
 
+Status: active coordination backlog. This is a compatibility map, not an
+implementation spec; keep it aligned with current Echo runtime facts before
+using it to drive cross-repo protocol work.
+
 ## Where they align
 
 ### Causal model
@@ -30,7 +34,9 @@ significant gaps that need deliberate alignment, not accidental drift.
 ### Protocol surface
 
 - Both are targets of the warp-ttd protocol
-- Both use Wesley-compiled GraphQL schemas with CBOR encoding
+- Both are targets for Wesley-compiled protocol/schema surfaces. Echo currently
+  has generated TTD protocol consumers plus local runtime schema fragments; not
+  every runtime fragment is Wesley-generated yet.
 - Both expose worldlines, lanes, and frame-indexed playback
 
 ### Terminology
@@ -46,7 +52,7 @@ significant gaps that need deliberate alignment, not accidental drift.
 | ------------ | ----------------------------------------------------------- | ---------------------------------------------- |
 | Strategy     | Canonical order (one scheduler, one result)                 | CRDT convergence (OR-Set + LWW, commutative)   |
 | Multi-writer | Explicit sync protocol, scheduler-mediated                  | Native, automatic convergence                  |
-| Merge        | No merge API exists                                         | CRDT rules resolve automatically               |
+| Merge        | No CRDT merge API; base-worldline strand settlement exists  | CRDT rules resolve automatically               |
 | Determinism  | Non-negotiable — identical inputs produce identical outputs | Deterministic given same patches in same order |
 
 This is the fundamental divergence. Echo's determinism is
@@ -55,18 +61,18 @@ deterministic, but the mechanisms are incompatible.
 
 ### Strands and braiding
 
-|              | Echo                                    | git-warp                                                    |
-| ------------ | --------------------------------------- | ----------------------------------------------------------- |
-| Fork         | `ProvenanceStore::fork()` — prefix-copy | `createStrand()` — pinned base observation + overlay writer |
-| Strand type  | No first-class type                     | Full: base observation, overlay, intent queue, evolution    |
-| Braid        | Not present                             | Read-only composition of support strands without collapse   |
-| Merge back   | Not possible                            | `braidStrand()` merges overlay into base graph              |
-| Compare      | Not possible                            | `compareStrand()` diffs strand vs any coordinate            |
-| Intent queue | Not present                             | Speculative intents queued but not committed                |
+|              | Echo                                                                                | git-warp                                                    |
+| ------------ | ----------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| Fork         | `ProvenanceStore::fork()` plus `StrandRegistry`                                     | `createStrand()` — pinned base observation + overlay writer |
+| Strand type  | First-class `Strand` with base ref, child worldline, writer heads, and support pins | Full: base observation, overlay, intent queue, evolution    |
+| Braid        | Support pins exist; full braid presentation/collapse is not implemented             | Read-only composition of support strands without collapse   |
+| Merge back   | Base-worldline strand settlement exists; no general braid collapse                  | `braidStrand()` merges overlay into base graph              |
+| Compare      | `StrandSettlement::compare` exists for base-worldline settlement                    | `compareStrand()` diffs strand vs any coordinate            |
+| Intent queue | Not present                                                                         | Speculative intents queued but not committed                |
 
-Echo has the infrastructure (DAG-ready parents, fork, worldline
-registry) but none of the semantics (strand lifecycle, braid
-composition, merge, comparison).
+Echo now has initial strand lifecycle, support-pin, and base-worldline
+settlement semantics. It still lacks git-warp's richer braid composition,
+durable overlay, intent queue, and general comparison/collapse model.
 
 ### Tick model
 
@@ -85,11 +91,11 @@ composition, merge, comparison).
 
 ### Storage
 
-|             | Echo                                                    | git-warp                                        |
-| ----------- | ------------------------------------------------------- | ----------------------------------------------- |
-| Persistence | In-memory (ephemeral); echo-cas planned                 | Git-native (durable, distributed)               |
-| Checkpoints | `ProvenanceStore` checkpoint interface (wormhole-ready) | Git snapshots after N patches                   |
-| CAS         | Planned (`echo-cas` crate, not yet created)             | `git-cas` (content-addressed blob store on Git) |
+|             | Echo                                                                                                       | git-warp                                        |
+| ----------- | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| Persistence | Runtime state is still in-memory/ephemeral; `echo-cas` exists but is not yet the runtime persistence layer | Git-native (durable, distributed)               |
+| Checkpoints | `ProvenanceStore` checkpoint interface (wormhole-ready)                                                    | Git snapshots after N patches                   |
+| CAS         | `echo-cas` crate exists; runtime persistence integration remains pending                                   | `git-cas` (content-addressed blob store on Git) |
 
 ### Effect pipeline
 
@@ -138,8 +144,8 @@ Both substrates use Wesley for schema compilation, but:
 
 ### Medium term (design decisions needed)
 
-- Define what "strand" means in Echo's canonical/deterministic model
-  (see `KERNEL_strands-and-braiding` backlog item)
+- Finish live holographic strand semantics in Echo's canonical/deterministic
+  model (see `KERNEL_live-holographic-strands` backlog item)
 - Design compliance reporting as a protocol extension
   (see `KERNEL_compliance-protocol-envelope` backlog item)
 - Evaluate `ttd-browser` crate overlap with warp-ttd's browser story

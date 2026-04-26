@@ -19,7 +19,7 @@ It is intentionally “low ceremony”: the goal is to pin _executable evidence_
 
 > Given a fixed starting state and a fixed set of candidate rewrites for a tick, the engine produces a unique deterministic outcome (same terminal digest) independent of the order in which candidates were enqueued.
 
-These litmus tests cover scenarios where insertion-order tie-breakers (nonce) do not affect admission or winner selection. See `scheduler-warp-core.md` for the nonce tie-break rule.
+These litmus tests cover scenarios where insertion-order tie-breakers (nonce) do not affect admission or winner selection. See [`scheduler-warp-core.md`](scheduler-warp-core.md) for the nonce tie-break rule.
 
 In other words: we test _order independence under the engine’s admissibility rules_, not the full “unique up to iso” statement from adhesive-category DPO.
 
@@ -73,5 +73,4 @@ For litmus tests that compare different enqueue orders within the **same tick**,
 ## References
 
 - `docs/spec-mwmr-concurrency.md` (footprints, ports, and independence model)
-- `docs/warp-math-claims.md` (theory framing: DPO/DPOI + determinism claims)
 - Litmus tests: `crates/warp-core/tests/dpo_concurrency_litmus.rs`

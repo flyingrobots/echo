@@ -74,8 +74,7 @@ docs/
       bad-code/                     tech debt
       *.md                          everything else
     legends/                        named domains
-    retro/<cycle>/<task>.md         retrospectives
-    graveyard/                      rejected ideas
+    retro/<cycle>/retro.md          closed-cycle retrospectives
     guide.md                        operator advice and non-doctrinal practice notes
     process.md                      how cycles run
   design/
@@ -154,7 +153,8 @@ agent) in the design doc. It does not go back.
 
 End of cycle:
 
-- Process inbox. Promote, flesh out, or bury.
+- Process inbox. Promote, flesh out, or delete if it is not useful
+  current work.
 - Re-prioritize. What you learned changes what matters.
 - Clean up. Merge duplicates, kill the dead.
 
@@ -317,8 +317,8 @@ a standup:
 - What is everyone working on? → active design docs in `docs/design/`
 - What is committed? → each design doc names its sponsors and hill
 - What is next? → `ls docs/method/backlog/asap/`
-- What failed and why? → `ls docs/method/retro/`
-- What did we decide not to do? → `ls docs/method/graveyard/`
+- What closed, failed, or drifted? → `ls docs/method/retro/`
+- What was deleted? → the audit entry or git history for the decision
 
 If any of these are unclear, the docs are incomplete. Fix the docs,
 not the process.
@@ -354,11 +354,12 @@ single source of truth. Read it.
 
 ---
 
-## Graveyard
+## Rejected Work
 
-Rejected work moves to `docs/method/graveyard/` with a note explaining
-why. The graveyard prevents re-proposing without context. If you want
-to resurrect something, you must address the note.
+Rejected work does not get a live museum directory. If the reason
+matters to current operators, capture it in the active design, retro,
+audit entry, or backlog item that made the decision, then delete the
+stale file. Git history is the archive.
 
 ---
 
@@ -372,8 +373,6 @@ idea -> inbox/ -> cool-ideas/ -> up-next/ -> asap/
   -> retro/<cycle>/   (cycle packet closed on branch)
   -> push cycle/<id>, PR to main
   -> ship sync on main (BEARING / CHANGELOG / release when meaningful)
-      - or ->
-  -> graveyard/
 ```
 
 ---
@@ -381,17 +380,23 @@ idea -> inbox/ -> cool-ideas/ -> up-next/ -> asap/
 ## Tooling
 
 METHOD operations in this repo are performed via `cargo xtask`. The
-following commands are planned but **not yet implemented**:
+following commands are implemented:
+
+| Command                            | Purpose                                                  |
+| ---------------------------------- | -------------------------------------------------------- |
+| `cargo xtask method inbox "idea"`  | Capture a backlog note in `inbox/`.                      |
+| `cargo xtask method status`        | Summarize backlog lanes, active cycles, and legend load. |
+| `cargo xtask method status --json` | Emit the same status report for agents and tooling.      |
+
+The following commands are planned but **not yet implemented**:
 
 | Command                            | Purpose                                                          |
 | ---------------------------------- | ---------------------------------------------------------------- |
-| `cargo xtask method status`        | Summarize backlog lanes, active cycles, and legend load.         |
-| `cargo xtask method inbox "idea"`  | Capture a backlog note in `inbox/`.                              |
 | `cargo xtask method pull <item>`   | Promote a backlog item into the next numbered cycle.             |
 | `cargo xtask method close [cycle]` | Write a retro and create its `witness/` directory.               |
 | `cargo xtask method drift [cycle]` | Check active cycle playback questions against test descriptions. |
 
-Until tooling exists, these operations are done manually via the
+Until each command exists, that operation is done manually via the
 filesystem. `ls` and `mv` are the primitives.
 
 See backlog items in `asap/` prefixed with `PLATFORM_` for tooling

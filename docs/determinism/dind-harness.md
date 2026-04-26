@@ -1,9 +1,11 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# DIND Harness (Deterministic Ironclad Nightmare Drills)
+# DIND Harness
 
-The DIND harness is the deterministic verification runner for Echo/WARP. It replays canonical intent transcripts and asserts that state hashes and intermediate outputs are identical across runs, platforms, and build profiles.
+The DIND harness is Echo's deterministic verification runner. It replays
+canonical intent transcripts and asserts that state hashes are identical across
+runs, platforms, and build profiles.
 
 Location:
 
@@ -13,7 +15,7 @@ Location:
 
 ## Quickstart
 
-```bash
+```sh
 # Via xtask (recommended)
 cargo xtask dind run
 
@@ -23,12 +25,15 @@ cargo xtask dind run
 cargo run -p echo-dind-harness -- help
 ```
 
-Examples (commands depend on the harness CLI):
+Direct harness examples:
 
-```bash
-cargo run -p echo-dind-harness -- torture
-cargo run -p echo-dind-harness -- converge
-cargo run -p echo-dind-harness -- repro <scenario>
+```sh
+cargo run -p echo-dind-harness -- run testdata/dind/000_smoke_theme.eintlog \
+  --golden testdata/dind/000_smoke_theme.hashes.json
+cargo run -p echo-dind-harness -- torture testdata/dind/000_smoke_theme.eintlog --runs 20
+cargo run -p echo-dind-harness -- converge \
+  testdata/dind/051_randomized_convergent_seed0001.eintlog \
+  testdata/dind/051_randomized_convergent_seed0002.eintlog
 ```
 
 Cross-platform DIND runs weekly in CI via `.github/workflows/dind-cross-platform.yml` (Windows, macOS, and Linux matrix).
@@ -43,17 +48,16 @@ Echo ships guard scripts to enforce determinism in core crates:
 
 ### FootprintGuard Enforcement Tests
 
-The DIND harness validates footprint enforcement via the **slice theorem
+Echo validates footprint enforcement alongside DIND via the **slice theorem
 proof** test suite (`crates/warp-core/tests/slice_theorem_proof.rs`).
 These tests execute the same workload under varying worker counts
 (1, 2, 4, 8, 16, 32) and verify that `patch_digest`, `state_root`, and
-`commit_hash` remain identical — proving that the footprint declarations
+`commit_hash` remain identical, proving that the footprint declarations
 are both correct and complete.
 
-The FootprintGuard is active during DIND test runs in debug builds unless
-the \`unsafe_graph\` feature is enabled, meaning any undeclared read/write
-will surface as a \`FootprintViolation\` panic before the convergence check
-even runs.
+The FootprintGuard is active in debug builds unless the `unsafe_graph` feature
+is enabled, meaning undeclared reads or writes surface as a
+`FootprintViolation` before convergence checks can hide the issue.
 
 ## Convergence scope (Invariant B)
 
@@ -94,13 +98,11 @@ printing full hashes for visibility.
 
 ### CLI override (debug only)
 
-`converge` accepts an override for ad‑hoc debugging:
+`converge` accepts an override for ad-hoc debugging:
 
-```bash
+```sh
 cargo run -p echo-dind-harness -- converge --scope sim/state --i-know-what-im-doing <scenarios...>
 ```
 
 This bypasses `MANIFEST.json` and emits a warning. Do not use it for canonical
 test results.
-
-Run them locally or wire them into CI for strict enforcement.

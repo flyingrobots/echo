@@ -8,14 +8,15 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use warp_core::strand::{
-    make_strand_id, BaseRef, DropReceipt, Strand, StrandError, StrandRegistry, SupportPin,
+    make_strand_id, BaseRef, DropReceipt, Strand, StrandError, StrandRegistry,
+    StrandRevalidationState, SupportPin,
 };
 use warp_core::{
     make_head_id, make_node_id, make_type_id, make_warp_id, GlobalTick, GraphStore, HashTriplet,
     HeadEligibility, LocalProvenanceStore, NodeRecord, PlaybackHeadRegistry, PlaybackMode,
-    ProvenanceEntry, ProvenanceRef, ProvenanceService, ProvenanceStore, RunnableWriterSet,
-    WorldlineId, WorldlineState, WorldlineTick, WorldlineTickHeaderV1, WorldlineTickPatchV1,
-    WriterHead, WriterHeadKey,
+    ProvenanceEntry, ProvenanceRef, ProvenanceService, ProvenanceStore, RunnableWriterSet, SlotId,
+    WarpId, WorldlineId, WorldlineState, WorldlineTick, WorldlineTickHeaderV1,
+    WorldlineTickPatchV1, WriterHead, WriterHeadKey,
 };
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -140,6 +141,80 @@ fn append_committed_tick(
         .expect("append commit");
 }
 
+fn node_slot(warp_id: WarpId, label: &str) -> SlotId {
+    SlotId::Node(warp_core::NodeKey {
+        warp_id,
+        local_id: make_node_id(label),
+    })
+}
+
+fn append_committed_tick_with_slots(
+    provenance: &mut ProvenanceService,
+    worldline_id: WorldlineId,
+    tick: WorldlineTick,
+    global_tick: GlobalTick,
+    in_slots: Vec<SlotId>,
+    out_slots: Vec<SlotId>,
+) -> ProvenanceRef {
+    let parents = tick
+        .checked_sub(1)
+        .map(|parent_tick| {
+            provenance
+                .entry(worldline_id, parent_tick)
+                .expect("parent entry should exist")
+                .as_ref()
+        })
+        .into_iter()
+        .collect();
+    let seed = worldline_id.as_bytes()[0].wrapping_add(tick.as_u64().to_le_bytes()[0]);
+    let patch_digest = [seed.wrapping_add(1); 32];
+    let entry = ProvenanceEntry::local_commit(
+        worldline_id,
+        tick,
+        global_tick,
+        WriterHeadKey {
+            worldline_id,
+            head_id: make_head_id(&format!(
+                "slot-head-{}-{}",
+                worldline_id.as_bytes()[0],
+                tick.as_u64()
+            )),
+        },
+        parents,
+        HashTriplet {
+            state_root: [seed.wrapping_add(2); 32],
+            patch_digest,
+            commit_hash: [seed.wrapping_add(3); 32],
+        },
+        WorldlineTickPatchV1 {
+            header: WorldlineTickHeaderV1 {
+                commit_global_tick: global_tick,
+                policy_id: 0,
+                rule_pack_id: [0u8; 32],
+                plan_digest: [0u8; 32],
+                decision_digest: [0u8; 32],
+                rewrites_digest: [0u8; 32],
+            },
+            warp_id: make_warp_id(&format!(
+                "slot-warp-{}-{}",
+                worldline_id.as_bytes()[0],
+                tick.as_u64()
+            )),
+            ops: vec![],
+            in_slots,
+            out_slots,
+            patch_digest,
+        },
+        vec![],
+        Vec::new(),
+    );
+    let entry_ref = entry.as_ref();
+    provenance
+        .append_local_commit(entry)
+        .expect("append slotted commit");
+    entry_ref
+}
+
 fn register_worldline_with_tick(provenance: &mut ProvenanceService, worldline_id: WorldlineId) {
     let state = test_initial_state();
     provenance
@@ -251,6 +326,147 @@ fn inv_s9_support_pins_default_empty_until_pinned() {
         strand.support_pins.is_empty(),
         "new strands start without support pins until runtime validation adds them"
     );
+}
+
+#[test]
+fn live_basis_report_allows_parent_advance_outside_owned_footprint() {
+    let (mut provenance, base_worldline, _) = setup_base_worldline();
+    let child_worldline = wl(2);
+    let warp_id = make_warp_id("live-basis-disjoint");
+    let child_owned = node_slot(warp_id, "child-owned");
+    let parent_other = node_slot(warp_id, "parent-other");
+
+    let base_ref = append_committed_tick_with_slots(
+        &mut provenance,
+        base_worldline,
+        wt(0),
+        GlobalTick::from_raw(1),
+        vec![],
+        vec![],
+    );
+    provenance
+        .fork(base_worldline, wt(0), child_worldline)
+        .expect("fork child provenance");
+    append_committed_tick_with_slots(
+        &mut provenance,
+        child_worldline,
+        wt(1),
+        GlobalTick::from_raw(2),
+        vec![child_owned],
+        vec![child_owned],
+    );
+    let parent_tip = append_committed_tick_with_slots(
+        &mut provenance,
+        base_worldline,
+        wt(1),
+        GlobalTick::from_raw(3),
+        vec![],
+        vec![parent_other],
+    );
+
+    let strand = Strand {
+        strand_id: make_strand_id("live-basis-disjoint"),
+        base_ref: BaseRef {
+            source_worldline_id: base_worldline,
+            fork_tick: wt(0),
+            commit_hash: base_ref.commit_hash,
+            boundary_hash: provenance
+                .entry(base_worldline, wt(0))
+                .expect("base entry")
+                .expected
+                .state_root,
+            provenance_ref: base_ref,
+        },
+        child_worldline_id: child_worldline,
+        writer_heads: vec![WriterHeadKey {
+            worldline_id: child_worldline,
+            head_id: make_head_id("live-basis-disjoint-head"),
+        }],
+        support_pins: Vec::new(),
+    };
+
+    let report = strand
+        .live_basis_report(&provenance)
+        .expect("live basis report");
+    assert_eq!(report.realized_parent_ref, parent_tip);
+    assert_eq!(report.source_suffix_start_tick, wt(1));
+    assert_eq!(report.source_suffix_end_tick, Some(wt(1)));
+    assert!(report.owned_divergence.contains_closed(&child_owned));
+    assert!(report.parent_movement.contains_write(&parent_other));
+    assert!(matches!(
+        report.parent_revalidation,
+        StrandRevalidationState::ParentAdvancedDisjoint { parent_to, .. }
+            if parent_to == parent_tip
+    ));
+}
+
+#[test]
+fn live_basis_report_requires_revalidation_when_parent_invades_owned_footprint() {
+    let (mut provenance, base_worldline, _) = setup_base_worldline();
+    let child_worldline = wl(2);
+    let warp_id = make_warp_id("live-basis-overlap");
+    let owned_slot = node_slot(warp_id, "owned-slot");
+
+    let base_ref = append_committed_tick_with_slots(
+        &mut provenance,
+        base_worldline,
+        wt(0),
+        GlobalTick::from_raw(1),
+        vec![],
+        vec![],
+    );
+    provenance
+        .fork(base_worldline, wt(0), child_worldline)
+        .expect("fork child provenance");
+    append_committed_tick_with_slots(
+        &mut provenance,
+        child_worldline,
+        wt(1),
+        GlobalTick::from_raw(2),
+        vec![owned_slot],
+        vec![],
+    );
+    let parent_tip = append_committed_tick_with_slots(
+        &mut provenance,
+        base_worldline,
+        wt(1),
+        GlobalTick::from_raw(3),
+        vec![],
+        vec![owned_slot],
+    );
+
+    let strand = Strand {
+        strand_id: make_strand_id("live-basis-overlap"),
+        base_ref: BaseRef {
+            source_worldline_id: base_worldline,
+            fork_tick: wt(0),
+            commit_hash: base_ref.commit_hash,
+            boundary_hash: provenance
+                .entry(base_worldline, wt(0))
+                .expect("base entry")
+                .expected
+                .state_root,
+            provenance_ref: base_ref,
+        },
+        child_worldline_id: child_worldline,
+        writer_heads: vec![WriterHeadKey {
+            worldline_id: child_worldline,
+            head_id: make_head_id("live-basis-overlap-head"),
+        }],
+        support_pins: Vec::new(),
+    };
+
+    let report = strand
+        .live_basis_report(&provenance)
+        .expect("live basis report");
+    assert!(matches!(
+        report.parent_revalidation,
+        StrandRevalidationState::RevalidationRequired {
+            parent_to,
+            ref overlapping_slots,
+            ..
+        } if parent_to == parent_tip && overlapping_slots == &vec![owned_slot]
+    ));
 }
 
 // ── INV-S5: base_ref fields agree ──────────────────────────────────────

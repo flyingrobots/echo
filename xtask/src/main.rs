@@ -61,6 +61,32 @@ enum Commands {
     DocsLint(DocsLintArgs),
     /// METHOD workspace operations (status, backlog inspection).
     Method(MethodArgs),
+    /// Run a narrow local test slice with explicit Cargo target selection.
+    TestSlice(TestSliceArgs),
+}
+
+#[derive(Args)]
+struct TestSliceArgs {
+    /// Named local iteration slice to run.
+    #[arg(value_enum)]
+    slice: TestSlice,
+    /// Print the exact commands without running them.
+    #[arg(long)]
+    dry_run: bool,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum TestSlice {
+    /// Strand contract and live-basis integration tests.
+    Strand,
+    /// Settlement module unit tests only.
+    Settlement,
+    /// Observation module unit tests only.
+    Observation,
+    /// Neighborhood module unit tests only.
+    Neighborhood,
+    /// High-signal warp-core smoke without compiling every integration-test target.
+    WarpCoreSmoke,
 }
 
 #[derive(Args)]
@@ -72,8 +98,16 @@ struct MethodArgs {
 
 #[derive(Subcommand)]
 enum MethodCommand {
+    /// Capture a backlog note in inbox/.
+    Inbox(MethodInboxArgs),
     /// Show backlog lanes, active cycles, and legend load.
     Status(MethodStatusArgs),
+}
+
+#[derive(Args)]
+struct MethodInboxArgs {
+    /// Idea title or one-line note to capture.
+    title: String,
 }
 
 #[derive(Args)]
@@ -373,13 +407,105 @@ fn main() -> Result<()> {
         Commands::MarkdownFix(args) => run_markdown_fix(&args),
         Commands::DocsLint(args) => run_docs_lint(args),
         Commands::Method(args) => run_method(args),
+        Commands::TestSlice(args) => run_test_slice(args),
     }
+}
+
+fn run_test_slice(args: TestSliceArgs) -> Result<()> {
+    let commands = build_test_slice_commands(args.slice);
+    println!("test-slice {:?}: {} command(s)", args.slice, commands.len());
+
+    for mut command in commands {
+        println!("  {}", display_command(&command));
+        if args.dry_run {
+            continue;
+        }
+
+        let status = command
+            .status()
+            .with_context(|| format!("failed to spawn {}", display_command(&command)))?;
+        if !status.success() {
+            bail!(
+                "test-slice {:?} failed while running `{}` (exit status: {status})",
+                args.slice,
+                display_command(&command)
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn build_test_slice_commands(slice: TestSlice) -> Vec<Command> {
+    match slice {
+        TestSlice::Strand => vec![cargo_command([
+            "test",
+            "-p",
+            "warp-core",
+            "--test",
+            "strand_contract_tests",
+        ])],
+        TestSlice::Settlement => vec![cargo_command([
+            "test",
+            "-p",
+            "warp-core",
+            "--lib",
+            "settlement::tests",
+        ])],
+        TestSlice::Observation => vec![cargo_command([
+            "test",
+            "-p",
+            "warp-core",
+            "--lib",
+            "observation::tests",
+        ])],
+        TestSlice::Neighborhood => vec![cargo_command([
+            "test",
+            "-p",
+            "warp-core",
+            "--lib",
+            "neighborhood::tests",
+        ])],
+        TestSlice::WarpCoreSmoke => vec![
+            cargo_command(["test", "-p", "warp-core", "--lib"]),
+            cargo_command(["test", "-p", "warp-core", "--test", "strand_contract_tests"]),
+        ],
+    }
+}
+
+fn cargo_command<const N: usize>(args: [&str; N]) -> Command {
+    let mut command = Command::new("cargo");
+    command.args(args);
+    command
+}
+
+fn display_command(command: &Command) -> String {
+    let mut parts = Vec::new();
+    parts.push(command.get_program().to_string_lossy().into_owned());
+    parts.extend(
+        command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned()),
+    );
+    parts.join(" ")
 }
 
 fn run_method(args: MethodArgs) -> Result<()> {
     match args.command {
+        MethodCommand::Inbox(inbox_args) => run_method_inbox(inbox_args),
         MethodCommand::Status(status_args) => run_method_status(status_args),
     }
+}
+
+fn run_method_inbox(args: MethodInboxArgs) -> Result<()> {
+    let root = std::env::current_dir().context("failed to get current dir")?;
+    let workspace =
+        method::workspace::MethodWorkspace::discover(&root).map_err(|e| anyhow::anyhow!(e))?;
+    let path = method::inbox::create_inbox_item(&workspace, &args.title)
+        .map_err(|e| anyhow::anyhow!(e))?;
+    let display_path = path.strip_prefix(&root).unwrap_or(&path);
+    println!("{}", display_path.display());
+    Ok(())
 }
 
 fn run_method_status(args: MethodStatusArgs) -> Result<()> {
@@ -5485,6 +5611,35 @@ mod tests {
             .map(|value| value.to_string_lossy().into_owned())
             .collect();
         (program, args)
+    }
+
+    #[test]
+    fn test_slice_settlement_uses_lib_filter_not_integration_scan() {
+        let commands = build_test_slice_commands(TestSlice::Settlement);
+        assert_eq!(commands.len(), 1);
+        let (program, args) = command_program_and_args(&commands[0]);
+        assert_eq!(program, "cargo");
+        assert_eq!(
+            args,
+            vec!["test", "-p", "warp-core", "--lib", "settlement::tests"]
+        );
+    }
+
+    #[test]
+    fn test_slice_warp_core_smoke_stays_explicit() {
+        let commands = build_test_slice_commands(TestSlice::WarpCoreSmoke);
+        assert_eq!(commands.len(), 2);
+
+        let (program, args) = command_program_and_args(&commands[0]);
+        assert_eq!(program, "cargo");
+        assert_eq!(args, vec!["test", "-p", "warp-core", "--lib"]);
+
+        let (program, args) = command_program_and_args(&commands[1]);
+        assert_eq!(program, "cargo");
+        assert_eq!(
+            args,
+            vec!["test", "-p", "warp-core", "--test", "strand_contract_tests"]
+        );
     }
 
     fn sample_pr_overview() -> PrOverview {

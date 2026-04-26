@@ -1,16 +1,24 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# SPEC-0009: WASM ABI Contract v3
+# SPEC-0009: WASM ABI Contract
 
-> **Status:** Active | **ABI Version:** 3 | **Crate:** `warp-wasm`
+> **Status:** Active | **Current ABI Version:** 6 | **Crate:** `warp-wasm`
 
 ## Overview
 
 This document specifies the current WASM export surface, wire encoding, and
 error protocol for Echo's deterministic simulation boundary.
 
-ABI v3 makes three boundaries explicit:
+Echo implements only the current WASM ABI. `ABI_VERSION` is a compatibility
+epoch for host/runtime mismatch detection, not a promise that older ABI epochs
+remain supported. Historical ABI numbers below are migration breadcrumbs for
+host adapters.
+
+Current ABI version 6 keeps the ABI v3 public export shape and wraps
+observation artifacts in explicit reading-envelope metadata.
+
+ABI v3 made three boundaries explicit:
 
 - `observe(request)` is the only public world-state read export.
 - `dispatch_intent(...)` is the only public write and control ingress surface.
@@ -171,7 +179,7 @@ All `Uint8Array` returns use a CBOR envelope with an `ok` discriminator:
 ```
 
 JS callers check `ok` before decoding the rest. The CBOR encoding follows the
-canonical rules in `docs/js-cbor-mapping.md`.
+canonical rules in `docs/spec/js-cbor-mapping.md`.
 
 ### Typed Field Encoding
 
@@ -222,6 +230,7 @@ to:
 | Field           | Type                            | Description                                    |
 | --------------- | ------------------------------- | ---------------------------------------------- |
 | `resolved`      | `ResolvedObservationCoordinate` | Explicit resolved coordinate metadata          |
+| `reading`       | `ReadingEnvelope`               | Observer-relative reading-envelope metadata    |
 | `frame`         | enum                            | Declared semantic frame                        |
 | `projection`    | enum                            | Declared projection                            |
 | `artifact_hash` | bytes(32)                       | Canonical observation artifact hash            |
@@ -229,6 +238,50 @@ to:
 
 `artifact_hash` is computed as
 `blake3("echo:observation-artifact:v2\0" || canonical_cbor(hash_input))`.
+
+### ObservationBasisPosture
+
+`reading.parent_basis_posture` is the read-side parent/strand posture of the
+observed coordinate:
+
+- `worldline`
+- `strand_historical { strand_id }`
+- `strand_at_anchor { strand_id }`
+- `strand_parent_advanced_disjoint { strand_id, parent_from, parent_to }`
+- `strand_revalidation_required { strand_id, parent_from, parent_to,
+overlapping_slot_count, overlapping_slots_digest }`
+
+The kernel retains the full overlapping slot list internally. The ABI carries a
+count plus deterministic digest until a stable public slot representation is
+introduced.
+
+### ReadingEnvelope
+
+`reading` is the observer-relative envelope around the payload:
+
+| Field                  | Type                      | Description                                              |
+| ---------------------- | ------------------------- | -------------------------------------------------------- |
+| `observer_plan`        | `ReadingObserverPlan`     | Observer plan identity selected for this reading         |
+| `observer_basis`       | `ReadingObserverBasis`    | Native distinctions the emitted reading preserves        |
+| `witness_refs`         | `ReadingWitnessRef[]`     | Provenance or empty-frontier witnesses for the reading   |
+| `parent_basis_posture` | `ObservationBasisPosture` | Parent/strand basis posture used by strand-relative read |
+| `budget_posture`       | `ReadingBudgetPosture`    | Budget posture for this reading                          |
+| `rights_posture`       | `ReadingRightsPosture`    | Rights or revelation posture for this reading            |
+| `residual_posture`     | `ReadingResidualPosture`  | Residual, obstruction, or plurality posture              |
+
+Current built-in one-shot observers use:
+
+- `observer_plan = builtin { plan }`, where `plan` is one of
+  `commit_boundary_head`, `commit_boundary_snapshot`,
+  `recorded_truth_channels`, or `query_bytes`
+- `observer_basis = commit_boundary | recorded_truth | query_view`
+- `budget_posture = unbounded_one_shot`
+- `rights_posture = kernel_public`
+- `residual_posture = complete`
+
+`witness_refs` contains `resolved_commit { reference }` when retained
+provenance witnesses the reading. Empty-frontier commit-boundary reads instead
+carry `empty_frontier { worldline_id, state_root, commit_hash }`.
 
 ### ResolvedObservationCoordinate
 
@@ -240,7 +293,7 @@ to:
 | `resolved_worldline_tick`    | `WorldlineTick` | Resolved coordinate; historical reads use zero-based committed append indices, while `0` plus `commit_global_tick = null` represents empty `U0` frontier metadata |
 | `commit_global_tick`         | `GlobalTick?`   | Commit cycle stamp for the resolved commit; `null` means the resolved coordinate is empty `U0` rather than a committed append                                     |
 | `observed_after_global_tick` | `GlobalTick?`   | Observation freshness watermark                                                                                                                                   |
-| `state_root`                 | bytes(32)       | Canonical full-state root hash; empty `U0` observations still carry the deterministic `U0` materialization root                                                   |
+| `state_root`                 | bytes(32)       | Canonical full materialization root hash; empty `U0` observations still carry the deterministic `U0` materialization root                                         |
 | `commit_hash`                | bytes(32)       | Canonical frontier/commit hash at the resolved point; empty `U0` observations still carry the deterministic `U0` frontier snapshot hash                           |
 
 ### ObservationProjection
@@ -263,12 +316,12 @@ to:
 
 ### HeadObservation
 
-| Field                | Type            | Description                                                                                                     |
-| -------------------- | --------------- | --------------------------------------------------------------------------------------------------------------- |
-| `worldline_tick`     | `WorldlineTick` | Frontier coordinate; `0` plus `commit_global_tick = null` means the observed frontier is empty `U0`             |
-| `commit_global_tick` | `GlobalTick?`   | Commit cycle stamp for the observed frontier; `null` means no committed append yet                              |
-| `state_root`         | bytes(32)       | Canonical full-state root hash; empty `U0` observations still carry the deterministic `U0` materialization root |
-| `commit_id`          | bytes(32)       | Canonical frontier hash; empty `U0` observations still carry the deterministic `U0` frontier snapshot hash      |
+| Field                | Type            | Description                                                                                                               |
+| -------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `worldline_tick`     | `WorldlineTick` | Frontier coordinate; `0` plus `commit_global_tick = null` means the observed frontier is empty `U0`                       |
+| `commit_global_tick` | `GlobalTick?`   | Commit cycle stamp for the observed frontier; `null` means no committed append yet                                        |
+| `state_root`         | bytes(32)       | Canonical full materialization root hash; empty `U0` observations still carry the deterministic `U0` materialization root |
+| `commit_id`          | bytes(32)       | Canonical frontier hash; empty `U0` observations still carry the deterministic `U0` frontier snapshot hash                |
 
 ### SnapshotObservation
 
@@ -276,19 +329,19 @@ to:
 | -------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | `worldline_tick`     | `WorldlineTick` | Snapshot coordinate; historical reads use append indices, while frontier snapshot reads may return `0` + `null` for empty `U0` |
 | `commit_global_tick` | `GlobalTick?`   | Commit cycle stamp; `null` is reserved for an empty-frontier `U0` snapshot resolved from `ObservationAt::Frontier`             |
-| `state_root`         | bytes(32)       | Canonical full-state root hash; empty `U0` snapshots still carry the deterministic `U0` materialization root                   |
+| `state_root`         | bytes(32)       | Canonical full materialization root hash; empty `U0` snapshots still carry the deterministic `U0` materialization root         |
 | `commit_id`          | bytes(32)       | Canonical snapshot hash; empty `U0` snapshots still carry the deterministic `U0` frontier snapshot hash                        |
 
 ### HeadInfo
 
 Returned by `init()`.
 
-| Field                | Type            | Description                                                                                                 |
-| -------------------- | --------------- | ----------------------------------------------------------------------------------------------------------- |
-| `worldline_tick`     | `WorldlineTick` | Current committed frontier position; `0` plus `commit_global_tick = null` means empty `U0`                  |
-| `commit_global_tick` | `GlobalTick?`   | Cycle stamp for the current commit; `null` means no commits yet                                             |
-| `state_root`         | bytes(32)       | Canonical full-state BLAKE3 root hash; empty `U0` still carries the deterministic `U0` materialization root |
-| `commit_id`          | bytes(32)       | Canonical frontier hash; empty `U0` still carries the deterministic `U0` frontier snapshot hash             |
+| Field                | Type            | Description                                                                                                           |
+| -------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `worldline_tick`     | `WorldlineTick` | Current committed frontier position; `0` plus `commit_global_tick = null` means empty `U0`                            |
+| `commit_global_tick` | `GlobalTick?`   | Cycle stamp for the current commit; `null` means no commits yet                                                       |
+| `state_root`         | bytes(32)       | Canonical full materialization BLAKE3 root hash; empty `U0` still carries the deterministic `U0` materialization root |
+| `commit_id`          | bytes(32)       | Canonical frontier hash; empty `U0` still carries the deterministic `U0` frontier snapshot hash                       |
 
 ### DispatchResponse
 
@@ -335,7 +388,7 @@ Current engine-backed behavior:
 | `codec_id`          | string? | Codec identifier (e.g. `"cbor-canonical-v1"`) |
 | `registry_version`  | string? | Registry version                              |
 | `schema_sha256_hex` | string? | Schema hash (hex)                             |
-| `abi_version`       | u32     | ABI contract version (currently `3`)          |
+| `abi_version`       | u32     | ABI contract version (currently `6`)          |
 
 ## Error Codes
 
@@ -369,7 +422,10 @@ surface. Implementors that need head or snapshot data must derive them from
 their own observation-backed internals rather than adding parallel public read
 methods.
 
-## Migration Notes for Host Adapters
+## Historical Migration Notes
+
+These notes explain past breaking contract epochs for host adapters. They do
+not imply that Echo keeps multiple runtime ABI implementations alive.
 
 ### From ABI v2 to ABI v3
 
@@ -378,7 +434,7 @@ methods.
    world-state read boundary.
 3. Route scheduler lifecycle and admission requests through
    `dispatch_intent(...)` using `ControlIntentV1` packed into an EINT envelope.
-4. Read `RegistryInfo.abi_version` and reject hosts that still expect the v2
+4. Read `RegistryInfo.abi_version` and reject hosts that still expect older
    step surface.
 5. Rename host-side field access from bare `tick`-style fields to explicit
    `worldline_tick`, `commit_global_tick`, and
@@ -389,8 +445,30 @@ methods.
    `UNSUPPORTED_QUERY` until a real observation-backed query implementation
    lands.
 
+### From ABI v4 to ABI v5
+
+1. Decode `ObservationArtifact.basis_posture` on every observation response.
+2. Include `basis_posture` in any host-side observation artifact hash
+   verification.
+3. Treat `strand_revalidation_required` as a visible read posture, not as a
+   materialized-state failure.
+4. Use `overlapping_slot_count` and `overlapping_slots_digest` as witness
+   metadata only. The stable public slot representation is still deferred.
+
+### From ABI v5 to ABI v6
+
+1. Decode `ObservationArtifact.reading` on every observation response.
+2. Read parent/strand basis posture from
+   `ObservationArtifact.reading.parent_basis_posture`.
+3. Include the full `reading` envelope in host-side observation artifact hash
+   verification.
+4. Treat `observer_plan`, `observer_basis`, `witness_refs`, `budget_posture`,
+   `rights_posture`, and `residual_posture` as stable reading-envelope
+   metadata for built-in one-shot observers.
+
 ## Compatibility Note
 
-ABI v3 is intentionally breaking. The removed step/pump surface is absent, not
-deprecated, and hosts must migrate to explicit observation requests plus
-intent-shaped scheduler control.
+Only the current ABI is implemented. Version 6 is intentionally breaking
+relative to version 5 for observation responses. Version 3 remains the major
+export-shape break that removed step/pump; version 6 preserves that export
+shape while making observation artifacts explicit reading envelopes.

@@ -3,7 +3,7 @@
 
 # Wesley QIR Phase C
 
-> **Milestone:** [First Light](../../ROADMAP.md) | **Priority:** P1 | **Repo:** Wesley
+> **Milestone:** First Light | **Priority:** P1 | **Repo:** Wesley
 
 Wesley-repo work. Extend Wesley's Query IR to compile GraphQL operations into executable SQL query plan ASTs. This builds on the existing E0-E4 foundation.
 

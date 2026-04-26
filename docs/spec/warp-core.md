@@ -16,11 +16,11 @@ If you only remember one thing:
 
 Related docs (recommended, in order):
 
-1. `docs/guide/warp-primer.md` — newcomer-friendly WARP overview (start here).
-2. `docs/warp-two-plane-law.md` — project law for SkeletonGraph vs attachment plane.
-3. `docs/spec-merkle-commit.md` — state_root vs commit_id and what is committed.
-4. `docs/spec-warp-tick-patch.md` — tick patch boundary artifact (Paper III).
-5. `docs/spec/SPEC-0002-descended-attachments-v1.md` — WarpInstances / descended attachments (Stage B1).
+1. [WARP Primer](/guide/warp-primer) — newcomer-friendly WARP overview (start here).
+2. [Two-plane law](/invariants/warp-two-plane-law) — project law for SkeletonGraph vs attachment plane.
+3. [Merkle Commit](/spec/merkle-commit) — state_root vs commit_id and what is committed.
+4. [WARP Tick Patch](/spec/warp-tick-patch) — tick patch boundary artifact (Paper III).
+5. [Descended attachments](/spec/SPEC-0002-descended-attachments-v1) — WarpInstances / descended attachments (Stage B1).
 
 ---
 
@@ -254,7 +254,7 @@ Commit hash v2 commits to:
 - `policy_id`
 
 Plan/decision/rewrites digests remain deterministic diagnostics but are _not_ committed by v2.
-See `docs/spec-merkle-commit.md` for the canonical encoding.
+See [Merkle Commit](/spec/merkle-commit) for the canonical encoding.
 
 ### 8.2 `TickReceipt`: Paper II outcomes
 
@@ -272,7 +272,7 @@ The tick patch is the “what happened” boundary artifact:
 
 - conservative `in_slots` / `out_slots` (unversioned `SlotId`s)
 - canonical delta ops (`WarpOp`) such as `UpsertNode`, `DeleteEdge`, `SetAttachment`, `OpenPortal`, etc.
-- `digest()` commits to the canonical v2 patch encoding (see `docs/spec-warp-tick-patch.md`)
+- `digest()` commits to the canonical v2 patch encoding (see [WARP Tick Patch](/spec/warp-tick-patch))
 
 Worldline slicing uses the Paper III interpretation rule:
 
@@ -287,8 +287,7 @@ Echo treats these as non-negotiable invariants. Violations must abort determinis
 3. **Temporal stability:** GC/compression/inspector activity must not alter logical state.
 4. **Schema consistency:** component layout hashes must match before merges.
 5. **Causal integrity:** writes cannot modify values they transitively read earlier in Chronos.
-6. **Entropy reproducibility:** branch entropy is a deterministic function of recorded events (see `/spec-entropy-and-paradox` for event log format + location).
-7. **Replay integrity:** replay from A→B reproduces world hash, event order, and PRNG draw counts.
+6. **Replay integrity:** replay from A→B reproduces world hash, event order, and PRNG draw counts.
 
 ---
 
@@ -311,7 +310,7 @@ The engine enforces the law in `Engine::apply_in_warp` by _injecting_ the descen
 chain into the footprint before the candidate is enqueued:
 
 ```rust
-let mut footprint = (rule.compute_footprint)(store, scope);
+let mut footprint = (rule.compute_footprint)(view, scope);
 // Stage B1 law: any match/exec inside a descended instance must READ
 // every attachment slot in the descent chain.
 for key in descent_stack {
@@ -443,10 +442,13 @@ fn b1_rule_exec(view: GraphView<'_>, _scope: &NodeId, delta: &mut TickDelta) {
     });
 }
 
-fn b1_rule_footprint(_view: GraphView<'_>, _scope: &NodeId) -> Footprint {
+fn b1_rule_footprint(view: GraphView<'_>, _scope: &NodeId) -> Footprint {
     let mut fp = Footprint::default();
     // Conservative: record the write so patch out_slots is slice-safe.
-    fp.n_write.insert_node(&make_node_id("child-node"));
+    fp.n_write.insert(NodeKey {
+        warp_id: view.warp_id(),
+        local_id: make_node_id("child-node"),
+    });
     fp
 }
 

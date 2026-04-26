@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="docs/guide/start-here.md">Get Started</a> •
-  <a href="docs/architecture-outline.md">Architecture</a> •
+  <a href="docs/architecture/outline.md">Architecture</a> •
   <a href="CONTINUUM.md">Continuum</a> •
   <a href="docs/index.md">Docs</a> •
   <a href="https://github.com/flyingrobots/aion">AIΩN Framework</a>
@@ -22,7 +22,6 @@
     <a href="https://github.com/flyingrobots/echo/actions/workflows/ci.yml" ><img src="https://github.com/flyingrobots/echo/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
     <img src="https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-blue" alt="Platforms" />
 </p>
-
 
 Echo executes parallel graph rewrites with 0-ULP cross-platform determinism, structurally abolishing concurrency issues through immutable snapshots and canonical delta merging. Designed for everything from high-frequency interactive simulations to massive-scale causal graph analysis, Echo provides bit-perfect replayability across platforms and concurrency profiles as an inherent system property — not an afterthought.
 
@@ -96,13 +95,13 @@ This gives you always-on time-travel. Not as a dev tool bolted on after the fact
 
 An observer in Echo is not a scalar. It is a structural 5-tuple that defines the **aperture of revelation**:
 
-| Component | Name | Role |
-|---|---|---|
-| **O** | Projection | The mapping from the causal substrate to what is displayed |
-| **B** | Basis | The native coordinate system of events |
-| **M** | State | Accumulated observational memory |
-| **K** | Update | The transition law for integrating new observations |
-| **E** | Emission | The structural description produced by the observation act |
+| Component | Name       | Role                                                       |
+| --------- | ---------- | ---------------------------------------------------------- |
+| **O**     | Projection | The mapping from the causal substrate to what is displayed |
+| **B**     | Basis      | The native coordinate system of events                     |
+| **M**     | State      | Accumulated observational memory                           |
+| **K**     | Update     | The transition law for integrating new observations        |
+| **E**     | Emission   | The structural description produced by the observation act |
 
 Two concepts matter here:
 
@@ -130,15 +129,14 @@ Echo provides the deterministic, holographic substrate. The upper stack provides
 
 ## In Short
 
-| Property | How |
-|---|---|
-| **Parallelism without synchronization** | Immutable snapshots, private deltas, canonical merge order |
-| **0-ULP cross-platform determinism** | No floats, no system time, no unseeded randomness |
-| **Always-on time-travel** | Holographic provenance witnesses on every transition |
-| **Footprint enforcement** | Optics declare regions; the runtime poisons liars |
-| **Observer geometry** | Structural 5-tuple aperture, not scalar subscription |
-| **WARP substrate** | Tamper-evident, recursively provenance-bearing, graphs all the way down |
-
+| Property                                | How                                                                     |
+| --------------------------------------- | ----------------------------------------------------------------------- |
+| **Parallelism without synchronization** | Immutable snapshots, private deltas, canonical merge order              |
+| **0-ULP cross-platform determinism**    | No floats, no system time, no unseeded randomness                       |
+| **Always-on time-travel**               | Holographic provenance witnesses on every transition                    |
+| **Footprint enforcement**               | Optics declare regions; the runtime poisons liars                       |
+| **Observer geometry**                   | Structural 5-tuple aperture, not scalar subscription                    |
+| **WARP substrate**                      | Tamper-evident, recursively provenance-bearing, graphs all the way down |
 
 ## Quick Start
 
@@ -179,9 +177,9 @@ make docs
 ## Documentation
 
 - **[Guide](./docs/guide/start-here.md)**: Orientation, the fast path, and core concepts.
-- **[Architecture](./docs/architecture-outline.md)**: The authoritative system map and layer model.
-- **[DIND](./docs/dind-harness.md)**: Determinism verification and the "Drill Sergeant" discipline.
-- **[Theory](./docs/THEORY.md)**: Theoretical foundations (AION Foundations series).
+- **[Architecture](./docs/architecture/outline.md)**: Draft architecture map and layer model.
+- **[DIND](./docs/determinism/dind-harness.md)**: Determinism verification and the "Drill Sergeant" discipline.
+- **[Theory](./docs/theory/THEORY.md)**: Theoretical foundations (AION Foundations series).
 - **[Continuum](./CONTINUUM.md)**: The multi-repo system model and hot-runtime role.
 
 ---

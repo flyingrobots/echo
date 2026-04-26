@@ -3,7 +3,7 @@
 
 # echo-cas Browser Integration
 
-> **Milestone:** [First Light](../../ROADMAP.md) | **Priority:** P1 | **Repo:** Echo
+> **Milestone:** First Light | **Priority:** P1 | **Repo:** Echo
 
 Validate and wire MemoryTier in the WASM context. echo-cas Phase 1 provides `MemoryTier` (in-memory, `HashMap`-backed). This feature confirms it compiles to WASM, exposes JS bindings for store/retrieve, and validates blob integrity in-browser.
 

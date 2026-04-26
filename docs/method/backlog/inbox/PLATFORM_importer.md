@@ -3,7 +3,7 @@
 
 # Importer
 
-> **Milestone:** [Backlog](../../ROADMAP.md) | **Priority:** Unscheduled
+> **Milestone:** Backlog | **Priority:** Unscheduled
 
 Umbrella for the TurtlGraph-to-Echo-store importer. All child tasks (#80-84) are closed. This feature needs an audit to determine if the umbrella issue can be closed.
 

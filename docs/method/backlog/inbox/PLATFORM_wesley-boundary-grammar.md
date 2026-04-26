@@ -3,7 +3,7 @@
 
 # Wesley Boundary Grammar
 
-> **Milestone:** [Backlog](../../ROADMAP.md) | **Priority:** Unscheduled
+> **Milestone:** Backlog | **Priority:** Unscheduled
 
 Remaining work on Wesley as a boundary grammar — canonical AST, schema hashing, schema evolution vocabulary, and provenance query semantics. These are foundational to the Phase 2 roadmap.
 

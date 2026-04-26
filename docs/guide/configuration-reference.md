@@ -3,9 +3,7 @@
 
 # Configuration Reference
 
-This document describes how to configure the Echo engine at build time and
-runtime. For the formal specification and hashing semantics, see
-[spec-runtime-config.md](../spec-runtime-config.md).
+This document describes the implemented Echo engine configuration knobs.
 
 ## Engine Parameters (EngineBuilder)
 
@@ -47,7 +45,7 @@ and `commit_id`. It makes the policy boundary explicit so that two engines
 running different policy versions produce different hashes (intentional divergence).
 
 Current value: `POLICY_ID_NO_POLICY_V0` = `b"NOP0"` interpreted as little-endian
-u32. This placeholder will be replaced when Aion policy semantics land.
+u32. This is the no-policy v0 hash-domain pin.
 
 ## Protocol Constants
 
@@ -56,7 +54,7 @@ These values are frozen and cannot be changed without a protocol version bump.
 | Constant                 | Value        | Location                                 | Notes                                                                 |
 | ------------------------ | ------------ | ---------------------------------------- | --------------------------------------------------------------------- |
 | `NUM_SHARDS`             | 256          | `crates/warp-core/src/parallel/shard.rs` | Must be power of two. Routing formula: `LE_u64(node_id[0..8]) & 0xFF` |
-| `POLICY_ID_NO_POLICY_V0` | `0x304F504E` | `crates/warp-core/src/constants.rs`      | Placeholder policy ID (`b"NOP0"` LE)                                  |
+| `POLICY_ID_NO_POLICY_V0` | `0x304F504E` | `crates/warp-core/src/constants.rs`      | No-policy v0 hash-domain pin (`b"NOP0"` LE)                           |
 
 ## Channel Policies (MaterializationBus)
 
@@ -75,25 +73,7 @@ tick are resolved. All policies preserve confluence.
 | -------------- | ------------------------------------ | --------------------------- |
 | `ECHO_WORKERS` | Override default worker thread count | `ECHO_WORKERS=8 cargo test` |
 
-## Planned Configuration (spec-runtime-config.md)
-
-The [runtime config spec](../spec-runtime-config.md) defines a planned
-`echo.config.json` schema for project-level configuration. Key planned fields:
-
-| Field               | Type                                      | Default     | Description                          |
-| ------------------- | ----------------------------------------- | ----------- | ------------------------------------ |
-| `mathMode`          | `"float32" \| "fixed32"`                  | `"float32"` | Scalar backend selection             |
-| `chunkSize`         | `number`                                  | TBD         | ECS chunk size                       |
-| `backpressureMode`  | `"throw" \| "dropOldest" \| "dropNewest"` | `"throw"`   | How to handle queue overflow         |
-| `entropyWeights`    | `Record<string, number>`                  | `{}`        | Per-subsystem entropy metric weights |
-| `inspector.enabled` | `boolean`                                 | `false`     | Enable inspector protocol            |
-| `inspector.port`    | `number`                                  | TBD         | Inspector listen port                |
-
-These are not yet implemented as runtime features. See the spec for the
-planned load pipeline and canonical hashing.
-
 ## See Also
 
-- [spec-runtime-config.md](../spec-runtime-config.md) -- formal specification
 - [cargo-features.md](cargo-features.md) -- compile-time feature flags
 - [start-here.md](start-here.md) -- getting started guide

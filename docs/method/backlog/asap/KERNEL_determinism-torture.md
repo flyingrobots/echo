@@ -1,13 +1,17 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-> **Milestone:** [Proof Core](../../ROADMAP.md) | **Priority:** P1
+> **Milestone:** Proof Core | **Priority:** P1
 
 # Determinism Torture Harness
 
 Prove that single-threaded and multi-threaded execution produce identical results. Snapshot/restore fuzz to catch nondeterminism in state serialization.
 
 **Issues:** #190
+
+Status: active backlog item. Existing determinism gates cover many related
+cases; this item is specifically for the remaining 1-thread vs N-thread report
+and snapshot/restore fuzz gate.
 
 ---
 

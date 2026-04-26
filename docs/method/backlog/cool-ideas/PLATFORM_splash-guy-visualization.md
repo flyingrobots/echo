@@ -1,9 +1,12 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-> **Milestone:** [Splash Guy](../../ROADMAP.md) | **Priority:** P2
+> **Milestone:** Splash Guy | **Priority:** P2
 >
-> This feature is a skeleton. Tasks will be expanded as the GDD matures.
+> Status: active cool idea. Task DAG issue #225 is still open and blocks
+> the Splash Guy course track (#226). `docs/guide/splash-guy.md` defines
+> the scenario, but no Splash Guy simulation state, browser renderer, or
+> visualization harness exists yet.
 
 # Visualization
 
@@ -15,9 +18,10 @@
 
 - R1: Render the grid as a 2D tile map (cell colors for empty, wall, player, balloon, explosion).
 - R2: Display player identifiers and balloon fuse countdown numbers.
-- R3: Render in the WASM browser target (using the website demo canvas from First Light).
+- R3: Render in the WASM browser target using the website demo surface.
 - R4: Support a "debug overlay" toggle showing per-tick fingerprint and tick number.
-- R5: Rendering reads state via the inspector protocol (read-only, no mutation).
+- R5: Rendering reads state through a read-only observer/inspector surface
+  with no simulation mutation.
 
 ## Acceptance Criteria
 

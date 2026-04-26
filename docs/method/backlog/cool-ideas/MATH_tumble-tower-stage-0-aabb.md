@@ -1,9 +1,13 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-> **Milestone:** [Tumble Tower](../../ROADMAP.md) | **Priority:** P2
+> **Milestone:** Tumble Tower | **Priority:** P2
 >
-> This feature is a skeleton. Tasks will be expanded as the GDD matures.
+> Status: active cool idea. Task DAG issue #231 is still open and blocks the
+> Tumble Tower physics ladder/course (#232, #235, #238). `crates/warp-geom`
+> already provides AABB geometry and deterministic broad-phase scaffolding, but
+> no Tumble Tower gravity/contact-resolution simulation or physics fingerprint
+> exists yet.
 
 # Stage 0: AABB
 
@@ -17,7 +21,9 @@
 - R2: Implement gravity as a constant downward acceleration applied per tick.
 - R3: Implement AABB-vs-AABB overlap detection (separating axis test on 2 axes).
 - R4: Implement contact resolution: push overlapping boxes apart along the minimum penetration axis; zero out velocity along the contact normal.
-- R5: All arithmetic uses `F32Scalar` (or `DFix64`) — no raw `f32` operations.
+- R5: Simulation arithmetic uses `F32Scalar` by default, with `DFix64` as the
+  fixed-point lane where the feature is enabled; avoid raw `f32` in the
+  authoritative update path.
 - R6: Per-tick `physics_fingerprint` for determinism verification.
 
 ## Acceptance Criteria
@@ -43,7 +49,8 @@
 - **Edges:** Two boxes landing simultaneously; box exactly touching ground (zero penetration); very high stack (20 boxes).
 - **Fuzz/Stress:** Property test: random initial positions and velocities for 10 boxes, verify no interpenetration after 500 ticks of settling.
 
-**Blocked By:** none (First Light is an external blocker at the milestone level)
+**Blocked By:** none in the task DAG; implementation is the first Tumble Tower
+physics slice.
 **Blocking:** stage-1-rotation, lockstep-harness, visualization
 
 **Est. Hours:** 6h

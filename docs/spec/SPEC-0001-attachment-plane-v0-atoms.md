@@ -122,7 +122,7 @@ See: `crates/warp-core/src/snapshot.rs`.
 
 `patch_digest` commits to the replayable delta ops. Any op that encodes payload bytes MUST use the same typed-atom encoding rule as above (presence tag + `type_id` + length + bytes).
 
-See: `crates/warp-core/src/tick_patch.rs` and `docs/spec-warp-tick-patch.md`.
+See: `crates/warp-core/src/tick_patch.rs` and `docs/spec/warp-tick-patch.md`.
 
 ## API surface
 

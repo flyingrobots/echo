@@ -413,7 +413,7 @@ Provide a deterministic harness with:
 - **Assert:**
     - frames include `CursorReceipt` with correct tick/`commit_hash`
     - values are exactly x=3 then x=7 (bytes)
-    - **client required behavior**: replace-only (assert in test by ensuring frames are full-state, not deltas)
+    - **client required behavior**: replace-only (assert in test by ensuring frames are full replacement frames, not deltas)
 
 ##### T8: `outputs_match_recorded_bytes_for_same_tick`
 

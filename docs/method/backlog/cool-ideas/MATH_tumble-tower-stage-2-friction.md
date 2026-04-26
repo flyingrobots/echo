@@ -1,9 +1,12 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-> **Milestone:** [Tumble Tower](../../ROADMAP.md) | **Priority:** P2
+> **Milestone:** Tumble Tower | **Priority:** P2
 >
-> This feature is a skeleton. Tasks will be expanded as the GDD matures.
+> Status: active cool idea. Task DAG issue #233 is still open and blocked by
+> Stage 1 (#232). `docs/guide/tumble-tower.md` defines friction/restitution as
+> Stage 2, but no Tumble Tower contact solver, material model, or physics
+> fingerprint exists yet.
 
 # Stage 2: Friction
 
@@ -42,7 +45,8 @@
 - **Edges:** Zero restitution (perfectly inelastic collision); friction coefficient of exactly 0 vs exactly 1; two bodies with identical material properties.
 - **Fuzz/Stress:** Property test: random material properties for 10 bodies, verify energy is non-increasing (within floating-point tolerance) per tick when restitution <= 1.0.
 
-**Blocked By:** stage-1-rotation
+**Blocked By:** stage-1-rotation; operationally blocked until Stage 1 provides
+rotating contacts to apply friction and restitution against.
 **Blocking:** stage-3-sleeping
 
 **Est. Hours:** 5h

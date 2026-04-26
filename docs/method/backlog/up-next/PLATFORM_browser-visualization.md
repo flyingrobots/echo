@@ -3,20 +3,20 @@
 
 # In-Browser Visualization
 
-> **Milestone:** [First Light](../../ROADMAP.md) | **Priority:** P1 | **Repo:** Echo
+> **Milestone:** First Light | **Priority:** P1 | **Repo:** Echo
 >
 > **Historical note:** This roadmap item predates the observation-first ABI v2
 > and the intent-shaped ABI v3 control-plane rewrite. It is retained as
 > planning archaeology, not as the current WASM API contract. The live public
-> boundary is documented in [SPEC-0009 WASM ABI v3](../../spec/SPEC-0009-wasm-abi-v3.md).
+> boundary is documented in [SPEC-0009 WASM ABI](../../../spec/SPEC-0009-wasm-abi.md).
 >
 > Historical First Light plan for a Canvas-based graph rewrite viewer. It
 > assumes an earlier `step(...)`-driven browser boundary that has since been
 > replaced.
 
-## T-4-2-1: Canvas graph renderer (static snapshot)
+## T-4-2-1: Canvas graph renderer (static materialized reading)
 
-**User Story:** As a user, I want to see the simulation's graph state rendered visually so that I can understand the entity structure at a glance.
+**User Story:** As a user, I want to see the simulation's current graph-shaped reading rendered visually so that I can understand the entity structure at a glance.
 
 **Requirements:**
 
@@ -24,7 +24,7 @@
 - R2: Use a force-directed layout (simple spring-embedder, ~100 iterations on init) for automatic positioning.
 - R3: Node labels show the TypeId short name. Edge labels show EdgeId type.
 - R4: Pan and zoom via mouse drag / scroll wheel.
-- R5: Accept graph data as a plain JS object (nodes array, edges array) produced by the WASM bridge `drain_view_ops` output.
+- R5: Accept graph-shaped reading data as a plain JS object (nodes array, edges array) produced by the WASM bridge `drain_view_ops` output.
 
 **Acceptance Criteria:**
 

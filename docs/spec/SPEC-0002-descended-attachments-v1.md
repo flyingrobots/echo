@@ -9,7 +9,7 @@ Related:
 
 - `docs/adr/ADR-0002-warp-instances-descended-attachments.md`
 - `docs/spec/SPEC-0001-attachment-plane-v0-atoms.md`
-- `docs/warp-two-plane-law.md`
+- `docs/invariants/warp-two-plane-law.md`
 
 ## Goal
 

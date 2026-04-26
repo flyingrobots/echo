@@ -1,9 +1,11 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-> **Milestone:** [Splash Guy](../../ROADMAP.md) | **Priority:** P2
+> **Milestone:** Splash Guy | **Priority:** P2
 >
-> This feature is a skeleton. Tasks will be expanded as the GDD matures.
+> Status: active cool idea. Task DAG issue #224 is still live and blocks the
+> Splash Guy course track (#226). `docs/guide/splash-guy.md` and the course
+> shell define the lesson; no controlled-desync harness exists yet.
 
 # Controlled Desync
 
@@ -14,9 +16,12 @@
 ## Requirements
 
 - R1: Create 3 desync scenarios, each as a toggleable flag:
-    - Scenario A: Use `rand()` instead of seeded PRNG for balloon fuse timer (nondeterministic initial state).
-    - Scenario B: Use floating-point `f64` instead of `DFix64`/`F32Scalar` for explosion radius (cross-platform divergence).
-    - Scenario C: Process inputs in arrival order instead of canonical order (network ordering nondeterminism).
+    - Scenario A: Use `rand()` instead of seeded PRNG for balloon fuse timer
+      (nondeterministic initial state).
+    - Scenario B: Deliberately bypass `DFix64`/`F32Scalar` by using raw `f64`
+      for explosion radius (cross-platform divergence).
+    - Scenario C: Process inputs in arrival order instead of canonical order
+      (network ordering nondeterminism).
 - R2: Each scenario has a before/after explanation documenting what went wrong and why.
 - R3: The two-peer harness detects the desync via fingerprint mismatch and reports which tick diverged.
 - R4: Each scenario is runnable via a CLI flag or feature toggle.

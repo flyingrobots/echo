@@ -129,5 +129,5 @@ Enabling both `footprint_enforce_release` and `unsafe_graph` is a compile error.
 ## See Also
 
 - [configuration-reference.md](configuration-reference.md) -- runtime configuration
-- [../SPEC_DETERMINISTIC_MATH.md](../SPEC_DETERMINISTIC_MATH.md) -- deterministic math policy
+- [../determinism/SPEC_DETERMINISTIC_MATH.md](../determinism/SPEC_DETERMINISTIC_MATH.md) -- deterministic math policy
 - [start-here.md](start-here.md) -- getting started guide

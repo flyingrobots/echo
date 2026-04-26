@@ -3,7 +3,7 @@
 
 # Signing Pipeline
 
-> **Milestone:** [Backlog](../../ROADMAP.md) | **Priority:** Unscheduled
+> **Milestone:** Backlog | **Priority:** Unscheduled
 
 CI and CLI support for signing and verifying release artifacts. Depends on the signing spec from F10.2.
 

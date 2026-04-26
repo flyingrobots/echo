@@ -5,8 +5,8 @@
 
 This document covers the **implemented** rewrite scheduler in Rust `warp-core`.
 
-It is **not** the planned ECS/system scheduler described in `docs/spec-scheduler.md`.
-For a “which scheduler doc should I read?” landing page, see `docs/scheduler.md`.
+This is the canonical scheduler document for the implemented Rust runtime. It is
+not a future ECS/system scheduler design.
 
 ---
 
@@ -175,7 +175,8 @@ Status / mitigation notes:
 - We currently treat scheduler keys as internal engine identifiers (not attacker-controlled inputs).
 - We maintain an adversarial-collision benchmark to detect regressions and quantify worst-case behavior:
   `crates/warp-benches/benches/scheduler_adversarial.rs`.
-- Longer-term hasher hardening discussion lives in `docs/notes/scheduler-optimization-followups.md`.
+- Longer-term hasher hardening should be tracked as Method work before it
+  becomes an implementation claim.
 
 See also the adversarial hashing bench:
 
@@ -189,6 +190,7 @@ Benchmarks are intentionally separated from unit-test timing:
 
 - Drain throughput / apply+commit: `crates/warp-benches/benches/scheduler_drain.rs`
 - Hash-table collision behavior: `crates/warp-benches/benches/scheduler_adversarial.rs`
+- Performance doc: [`../benchmarks/scheduler-performance-warp-core.md`](../benchmarks/scheduler-performance-warp-core.md)
 
 Run benches:
 
@@ -236,7 +238,7 @@ cargo test -p warp-core --test reserve_gate_tests
 When changing `crates/warp-core/src/scheduler.rs` behavior (especially around `reserve()`):
 
 - update this doc,
-- keep `docs/scheduler.md`’s mapping accurate,
+- keep the docs map in `docs/index.md` accurate,
 - and prefer encoding invariants in tests over prose-only claims.
 
 Additional maintenance expectations:
@@ -246,5 +248,5 @@ Additional maintenance expectations:
 - **Drift detection:** treat changes to `reserve()`/footprint structures as “docs must change” in code review; prefer adding/adjusting tests
   (in `crates/warp-core/src/scheduler.rs` and `crates/warp-core/tests/*`) that encode any new invariants.
 - **Ownership:** changes to `crates/warp-core/src/scheduler.rs` should request review from the warp-core maintainers / determinism owners.
-- **Deprecation flow:** if this scheduler is replaced, leave this doc as a redirect stub (like other scheduler satellites) and update `docs/scheduler.md`
-  so older links remain stable.
+- **Deprecation flow:** if this scheduler is replaced, leave this doc as a
+  redirect stub and update `docs/index.md` so older links remain stable.

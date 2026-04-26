@@ -589,3 +589,43 @@ audit records rather than rewritten.
 | filepath                                                       | description                                  | score | decision          | new filepath                                                   | remarks                                                                                                                                                                                                                          |
 | -------------------------------------------------------------- | -------------------------------------------- | ----- | ----------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `docs/method/backlog/asap/PLATFORM_ci-det-policy-hardening.md` | Active determinism-policy CI hardening item. | `4/5` | Keep and correct. | `docs/method/backlog/asap/PLATFORM_ci-det-policy-hardening.md` | Task DAG marks `#285` completed while `#284` and `#286` remain open; `.github/workflows/det-gates.yml` now computes `DETERMINISM_PATHS` from `det-policy.yaml`. Updated the backlog item to reflect completed vs remaining work. |
+
+---
+
+## docs/method/backlog/asap/PLATFORM_cli-bench.md
+
+| filepath                                         | description                              | score | decision          | new filepath                                     | remarks                                                                                                                                                                                                                                                                 |
+| ------------------------------------------------ | ---------------------------------------- | ----- | ----------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/backlog/asap/PLATFORM_cli-bench.md` | Active CLI bench reporting/backlog item. | `4/5` | Keep and correct. | `docs/method/backlog/asap/PLATFORM_cli-bench.md` | `crates/warp-cli/src/bench.rs`, CLI parser tests, and `crates/warp-cli/README.md` show core bench/filter/text/JSON behavior exists. Narrowed the task to CLI baseline comparison and Criterion metadata alignment, while noting G3 CI regression gating already exists. |
+
+---
+
+## docs/method/backlog/asap/PLATFORM_cli-inspect.md
+
+| filepath                                           | description                                      | score | decision          | new filepath                                       | remarks                                                                                                                                                                                                                                                                    |
+| -------------------------------------------------- | ------------------------------------------------ | ----- | ----------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/backlog/asap/PLATFORM_cli-inspect.md` | Active CLI inspect/payload-display backlog item. | `4/5` | Keep and correct. | `docs/method/backlog/asap/PLATFORM_cli-inspect.md` | `crates/warp-cli/src/inspect.rs`, `wsc_loader.rs`, WSC row types, and integration tests back current metadata/stats/tree output. Removed stale commit/parent/policy metadata claims from current WSC truth and kept attachment pretty-printing as the active residual gap. |
+
+---
+
+## docs/method/backlog/asap/PLATFORM_cli-scaffold.md
+
+| filepath                                            | description                                  | score | decision          | new filepath                                        | remarks                                                                                                                                                                                                                                                   |
+| --------------------------------------------------- | -------------------------------------------- | ----- | ----------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/backlog/asap/PLATFORM_cli-scaffold.md` | Active CLI scaffold/ergonomics backlog item. | `4/5` | Keep and correct. | `docs/method/backlog/asap/PLATFORM_cli-scaffold.md` | `crates/warp-cli/src/cli.rs`, `main.rs`, `Cargo.toml`, and `cli_integration.rs` prove clap subcommands, `--format`, binary naming, and help/error paths exist. Narrowed the remaining work to revalidated global flags, config defaults, and completions. |
+
+---
+
+## docs/method/backlog/asap/PLATFORM_cli-verify.md
+
+| filepath                                          | description                                | score | decision          | new filepath                                      | remarks                                                                                                                                                                                                                                         |
+| ------------------------------------------------- | ------------------------------------------ | ----- | ----------------- | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/backlog/asap/PLATFORM_cli-verify.md` | Active CLI verify/hash-scope backlog item. | `4/5` | Keep and correct. | `docs/method/backlog/asap/PLATFORM_cli-verify.md` | `crates/warp-cli/src/verify.rs`, WSC validation, and WSC roundtrip tests show current WSC validation plus per-warp state-root recomputation exists. Corrected obsolete stored-commit assumptions because WSC v1 does not carry commit metadata. |
+
+---
+
+## docs/method/backlog/asap/PLATFORM_decoder-negative-test-map.md
+
+| filepath                                                         | description                                 | score | decision          | new filepath                                                     | remarks                                                                                                                                                                                                                                                           |
+| ---------------------------------------------------------------- | ------------------------------------------- | ----- | ----------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/backlog/asap/PLATFORM_decoder-negative-test-map.md` | Active decoder negative-test coverage item. | `4/5` | Keep and correct. | `docs/method/backlog/asap/PLATFORM_decoder-negative-test-map.md` | `docs/determinism/sec-claim-map.json`, `CLAIM_MAP.yaml`, `.github/workflows/det-gates.yml`, and `crates/echo-scene-codec/src/cbor.rs` prove mapped SEC-001..005 tests and CI ID checks exist. Narrowed the remaining task to exhaustive control-to-test coverage. |

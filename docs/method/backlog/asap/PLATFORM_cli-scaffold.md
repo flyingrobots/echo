@@ -5,9 +5,23 @@
 
 # CLI Scaffold (#47)
 
-Subcommand structure using clap. Replace the placeholder `main.rs` with a real argument parser and subcommand dispatch.
+Subcommand structure and ergonomic defaults for the current clap-based
+`echo-cli`.
+
+Status: partially implemented. `crates/warp-cli/src/cli.rs` and `main.rs`
+already provide the clap subcommand shell for `verify`, `bench`, and `inspect`,
+the global `--format` flag, and the `echo-cli` binary name. The remaining active
+work is narrower: revalidate whether `--verbose` and `--snapshot-dir` are still
+wanted as global flags, then implement config-file defaults and shell
+completions if they remain part of the CLI surface.
 
 ## T-6-1-1: clap subcommand structure and global flags
+
+Implementation status: mostly complete. `clap`, the subcommand enum, binary
+name, no-subcommand error path, unknown-subcommand error path, and global
+`--format` parsing are implemented and tested. `--verbose` and `--snapshot-dir`
+are not implemented and should be revalidated before adding them because the
+current subcommands take explicit paths.
 
 **User Story:** As a developer, I want a well-structured CLI with `echo verify|bench|inspect` subcommands so that I can interact with Echo from the terminal.
 
@@ -15,16 +29,16 @@ Subcommand structure using clap. Replace the placeholder `main.rs` with a real a
 
 - R1: Add `clap = { version = "4", features = ["derive"] }` dependency to warp-cli.
 - R2: Define top-level `Cli` struct with `#[command(subcommand)]` and variants: `Verify`, `Bench`, `Inspect`.
-- R3: Global flags: `--verbose` (increases log level), `--format [text|json]` (output format), `--snapshot-dir <path>` (default: `./snapshots`).
+- R3: Global flags: `--format [text|json]` is implemented; `--verbose` and `--snapshot-dir <path>` are candidate residual flags that need a current-use check before implementation.
 - R4: Running `echo` with no subcommand prints help. Unknown subcommands print error + help.
 - R5: Binary name is `echo-cli` (avoid collision with `/bin/echo`).
 
 **Acceptance Criteria:**
 
-- [ ] AC1: `echo-cli --help` prints usage with all three subcommands listed.
-- [ ] AC2: `echo-cli verify --help` prints verify-specific options.
-- [ ] AC3: `echo-cli --format json verify` parses the global flag correctly before the subcommand.
-- [ ] AC4: `echo-cli unknown` exits with code 2 and prints "unrecognized subcommand".
+- [x] AC1: `echo-cli --help` prints usage with all three subcommands listed.
+- [x] AC2: `echo-cli verify --help` prints verify-specific options.
+- [x] AC3: `echo-cli --format json verify` parses the global flag correctly before the subcommand.
+- [x] AC4: `echo-cli unknown` exits with code 2.
 
 **Definition of Done:**
 
@@ -84,7 +98,7 @@ Subcommand structure using clap. Replace the placeholder `main.rs` with a real a
 - **Edges:** Config file with only some fields set. Empty config file. Config dir does not exist.
 - **Fuzz/Stress:** N/A.
 
-**Blocked By:** T-6-1-1
+**Blocked By:** residual global-flag decision from T-6-1-1
 **Blocking:** none
 
 **Est. Hours:** 3h

@@ -7,23 +7,31 @@
 
 Snapshot summary, graph statistics, and optional terminal visualization.
 
+Status: partially implemented. `echo-cli inspect` already loads and validates
+WSC files, reports tick/schema hash/warp count plus per-warp IDs, root node,
+state root, node/edge counts, type breakdown, connected components, and optional
+tree output in text or JSON. WSC v1 does not currently store `commit_id`,
+parent list, or `policy_id`, so those fields must not be treated as implemented
+metadata unless the WSC format grows them. The remaining active gap is
+attachment payload display and `--raw`.
+
 ## T-6-4-1: Inspect subcommand -- metadata and graph stats
 
 **User Story:** As a developer, I want to inspect a snapshot's metadata and graph structure so that I can debug simulation state without writing code.
 
 **Requirements:**
 
-- R1: `echo-cli inspect <snapshot-path>` prints snapshot metadata: tick count, entity count, state_root (hex), commit_id (hex), parents, policy_id.
+- R1: `echo-cli inspect <snapshot-path>` prints current WSC metadata: tick count, schema hash, warp count, per-warp ID, root node ID, and computed state root.
 - R2: Graph statistics: total nodes, total edges, node types breakdown (count per TypeId), connected components count.
 - R3: `--format json` outputs all stats as structured JSON.
 - R4: `--tree` flag renders a simple ASCII tree of the graph starting from the root node (depth-limited to 5 levels).
 
 **Acceptance Criteria:**
 
-- [ ] AC1: Inspect on a demo snapshot prints all metadata fields.
-- [ ] AC2: Node type breakdown sums to total node count.
-- [ ] AC3: `--tree` output shows root at level 0 with children indented.
-- [ ] AC4: JSON output includes both metadata and graph stats.
+- [x] AC1: Inspect on a demo snapshot prints all current WSC metadata fields.
+- [x] AC2: Node type breakdown sums to total node count.
+- [x] AC3: `--tree` output shows root at level 0 with children indented.
+- [x] AC4: JSON output includes both metadata and graph stats.
 
 **Definition of Done:**
 
@@ -41,7 +49,7 @@ Snapshot summary, graph statistics, and optional terminal visualization.
 - **Edges:** Snapshot with 0 nodes. Snapshot with disconnected components (tree shows only root's component). Very deep graph with `--tree` (respects depth limit).
 - **Fuzz/Stress:** Inspect a 50,000-node snapshot; must complete in <2s.
 
-**Blocked By:** T-6-1-1
+**Blocked By:** none (T-6-1-1 is implemented enough for current CLI dispatch)
 **Blocking:** none
 
 **Est. Hours:** 5h
@@ -50,6 +58,10 @@ Snapshot summary, graph statistics, and optional terminal visualization.
 ---
 
 ## T-6-4-2: Inspect -- attachment payload pretty-printing
+
+Status: not implemented. WSC stores attachment rows and blobs, and
+`warp-cli` reconstructs them for state-root verification, but inspect does not
+yet render attachment payloads.
 
 **User Story:** As a developer, I want inspect to decode and display attachment payloads so that I can see entity data without manual hex decoding.
 
@@ -83,7 +95,7 @@ Snapshot summary, graph statistics, and optional terminal visualization.
 - **Edges:** Empty payload bytes. Payload with all-zero bytes. Maximum-length payload (64KB).
 - **Fuzz/Stress:** N/A.
 
-**Blocked By:** T-6-4-1
+**Blocked By:** none (T-6-4-1 is implemented enough to support payload display work)
 **Blocking:** none
 
 **Est. Hours:** 4h

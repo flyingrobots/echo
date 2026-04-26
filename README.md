@@ -178,7 +178,7 @@ make docs
 
 - **[Guide](./docs/guide/start-here.md)**: Orientation, the fast path, and core concepts.
 - **[Architecture](./docs/architecture/outline.md)**: Draft architecture map and layer model.
-- **[DIND](./docs/dind-harness.md)**: Determinism verification and the "Drill Sergeant" discipline.
+- **[DIND](./docs/determinism/dind-harness.md)**: Determinism verification and the "Drill Sergeant" discipline.
 - **[Theory](./docs/theory/THEORY.md)**: Theoretical foundations (AION Foundations series).
 - **[Continuum](./CONTINUUM.md)**: The multi-repo system model and hot-runtime role.
 

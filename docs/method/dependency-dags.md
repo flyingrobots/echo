@@ -19,7 +19,7 @@ These diagrams are a **planning aid**: they visualize a “do X before Y” orde
 
 ## Milestone Dependency Sketch
 
-![Milestone dependency DAG](assets/dags/milestone-deps.svg)
+![Milestone dependency DAG](../assets/dags/milestone-deps.svg)
 
 Sources:
 
@@ -30,7 +30,7 @@ Sources:
 
 ## Issue Dependency Sketch (Selected Subgraph)
 
-![Issue dependency DAG](assets/dags/issue-deps.svg)
+![Issue dependency DAG](../assets/dags/issue-deps.svg)
 
 Sources:
 
@@ -81,7 +81,7 @@ cargo xtask dags --snapshot-label 2026-01-02
 
 ## Tasks DAG (derived from `docs/assets/dags/tasks-dag-source.md`)
 
-![Tasks DAG](assets/dags/tasks-dag.svg)
+![Tasks DAG](../assets/dags/tasks-dag.svg)
 
 Sources:
 

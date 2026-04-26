@@ -16,7 +16,7 @@ Depends on:
 - [0008 — Strand settlement and conflict artifacts](../0008-strand-settlement/design.md)
 - [0009 — Witnessed causal suffix export and import](../0009-witnessed-causal-suffix-sync/design.md)
 - [0010 — Live-basis settlement correction plan](../0010-live-basis-settlement-plan/design.md)
-- [Continuum Foundations](../../continuum-foundations.md)
+- [Continuum Foundations](../../architecture/continuum-foundations.md)
 - [Observer plans and reading artifacts](../../method/backlog/asap/PLATFORM_observer-plan-reading-artifacts.md)
 
 Source theory inputs:

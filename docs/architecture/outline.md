@@ -7,7 +7,7 @@ If you’re new here, start with:
 
 - [/guide/start-here](/guide/start-here)
 - [/guide/warp-primer](/guide/warp-primer)
-- [/continuum-foundations](/continuum-foundations)
+- [/architecture/continuum-foundations](/architecture/continuum-foundations)
 
 This document is a high-level architecture and "why" artifact. Many sections are aspirational and
 will lag behind the current Rust-first implementation; prefer WARP specs for the runtime boundary.
@@ -16,7 +16,7 @@ Echo is the `hot` runtime within the larger Continuum architecture. This
 document is intentionally Echo-scoped. It does not define the full multi-repo
 platform, the `cold` runtime, or the ownership of every shared contract. For
 that wider system model, see `CONTINUUM.md` in the repo root and
-[/continuum-foundations](/continuum-foundations).
+[/architecture/continuum-foundations](/architecture/continuum-foundations).
 
 > **Implementation Status Legend:**
 >

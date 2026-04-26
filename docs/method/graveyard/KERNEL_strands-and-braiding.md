@@ -15,7 +15,7 @@ concept to Echo.
   structure (multiple parents in canonical order)
 - `WorldlineRegistry` — holds multiple worldlines with independent
   frontiers
-- "strand" is named in `continuum-foundations.md` as a concept that
+- "strand" is named in `docs/architecture/continuum-foundations.md` as a concept that
   should have a contract owner, but no contract exists
 
 ## What Echo is missing

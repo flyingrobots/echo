@@ -177,7 +177,7 @@ Artifacts:
 - DOT + SVG output lives under `docs/assets/dags/`.
 - The hand-maintained edge list lives in `docs/assets/dags/deps-config.json`.
 - The generator is `scripts/generate-dependency-dags.js` (wrapped by `cargo xtask dags`).
-- The explainer doc is `docs/dependency-dags.md`.
+- The explainer doc is `docs/method/dependency-dags.md`.
 
 Automation:
 

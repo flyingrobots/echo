@@ -321,3 +321,51 @@ destinations under `docs/architecture/`, `docs/determinism/`, and
 
 Historical path references in older `docs/audits/` files were left untouched as
 audit records rather than rewritten.
+
+---
+
+## docs/audits/docs-inventory-2026-04-26.md
+
+| filepath                                   | description       | score | decision                           | new filepath                               | remarks                                                                                                                                        |
+| ------------------------------------------ | ----------------- | ----- | ---------------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/audits/docs-inventory-2026-04-26.md` | Docs audit ledger | `n/a` | Use the table format going forward | `docs/audits/docs-inventory-2026-04-26.md` | Existing prose entries remain immutable under the append-only rule; new audited docs use one `## <filepath>` heading plus the requested table. |
+
+---
+
+## docs/continuum-foundations.md
+
+| filepath                        | description                                                               | score | decision       | new filepath                                 | remarks                                                                                                                                                                                                        |
+| ------------------------------- | ------------------------------------------------------------------------- | ----- | -------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/continuum-foundations.md` | Draft platform bridge from WARP/observer/optic theory to Continuum repos. | `3/5` | Keep and move. | `docs/architecture/continuum-foundations.md` | Accurate as a clearly labeled architecture intent memo; evidence includes `CONTINUUM.md`, design 0011, and local sibling repos, but several Wesley/`git-warp`/`warp-ttd` proof obligations remain future work. |
+
+---
+
+## docs/dependency-dags.md
+
+| filepath                  | description                                                         | score | decision       | new filepath                     | remarks                                                                                                                                                                                         |
+| ------------------------- | ------------------------------------------------------------------- | ----- | -------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/dependency-dags.md` | Explainer for issue, milestone, and task dependency DAG generation. | `5/5` | Keep and move. | `docs/method/dependency-dags.md` | Code-backed by `scripts/generate-dependency-dags.js`, `scripts/generate-tasks-dag.js`, `cargo xtask dags`, `Makefile` targets, DAG assets, and `.github/workflows/refresh-dependency-dags.yml`. |
+
+---
+
+## docs/dind-harness.md
+
+| filepath               | description                                                 | score | decision       | new filepath                       | remarks                                                                                                                                                                                      |
+| ---------------------- | ----------------------------------------------------------- | ----- | -------------- | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/dind-harness.md` | Determinism verification runner and DIND scenario workflow. | `3/5` | Keep and move. | `docs/determinism/dind-harness.md` | Useful and code-backed by `crates/echo-dind-harness`, `crates/echo-dind-tests`, `testdata/dind`, and DIND workflows; fixed stale direct CLI examples and overclaiming around FootprintGuard. |
+
+---
+
+## docs/golden-vectors.md
+
+| filepath                 | description                                | score | decision       | new filepath                      | remarks                                                                                                                                                                                    |
+| ------------------------ | ------------------------------------------ | ----- | -------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `docs/golden-vectors.md` | ABI canonical-CBOR golden-vector examples. | `2/5` | Keep and move. | `docs/spec/abi-golden-vectors.md` | The CBOR examples are directionally useful, but the old "Phase 1 Frozen" and Rust+JS parity claim overstated current evidence; relabeled as partial and tied to the Rust-side vector test. |
+
+---
+
+## docs/index.md
+
+| filepath        | description                            | score | decision       | new filepath    | remarks                                                                                                                                                                            |
+| --------------- | -------------------------------------- | ----- | -------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/index.md` | Live docs map and VitePress home page. | `4/5` | Keep in place. | `docs/index.md` | Still the right root map; updated links for moved Batch 3 docs and added the DIND/ABI-vector surfaces. Residual risk remains in broader docs-site dead links outside the docs map. |

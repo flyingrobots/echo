@@ -68,6 +68,7 @@ flowchart TD
 - Tick patch boundary: [/spec-warp-tick-patch](/spec-warp-tick-patch)
 - Rewrite scheduler (current implementation): [/scheduler-warp-core](/scheduler-warp-core)
 - Merkle commit / snapshot hashing: [/spec-merkle-commit](/spec-merkle-commit)
+- ABI golden vectors: [/spec/abi-golden-vectors](/spec/abi-golden-vectors)
 - Two-plane law: [/warp-two-plane-law](/warp-two-plane-law)
 
 ### Determinism
@@ -75,6 +76,7 @@ flowchart TD
 - Deterministic math policy: [/determinism/SPEC_DETERMINISTIC_MATH](/determinism/SPEC_DETERMINISTIC_MATH)
 - Deterministic math hazards: [/determinism/DETERMINISTIC_MATH](/determinism/DETERMINISTIC_MATH)
 - Claim register + evidence: [/determinism/DETERMINISM_CLAIMS_v0.1](/determinism/DETERMINISM_CLAIMS_v0.1)
+- DIND harness: [/determinism/dind-harness](/determinism/dind-harness)
 - Release policy: [/determinism/RELEASE_POLICY](/determinism/RELEASE_POLICY)
 - Benchmark guide: [/benchmarks/BENCHMARK_GUIDE](/benchmarks/BENCHMARK_GUIDE)
 
@@ -82,13 +84,13 @@ flowchart TD
 
 - Contributor playbook: [/workflows](/workflows)
 - PR submission loop: [/procedures/PR-SUBMISSION-REVIEW-LOOP](/procedures/PR-SUBMISSION-REVIEW-LOOP)
-- Dependency DAGs: [/dependency-dags](/dependency-dags)
+- Dependency DAGs: [/method/dependency-dags](/method/dependency-dags)
 - Method backlog: [/method/README](/method/README)
 
 ### Theory / intent
 
 - Architecture outline: [/architecture/outline](/architecture/outline)
-- Continuum foundations bridge: [/continuum-foundations](/continuum-foundations)
+- Continuum foundations bridge: [/architecture/continuum-foundations](/architecture/continuum-foundations)
 - Theory: [/theory/THEORY](/theory/THEORY)
 - Method: [/method/README](/method/README)
 

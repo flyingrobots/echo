@@ -3,7 +3,10 @@
 
 > **Milestone:** Tumble Tower | **Priority:** P2
 >
-> This feature is a skeleton. Tasks will be expanded as the GDD matures.
+> Status: active cool idea. Task DAG issue #237 is still open and blocks
+> the Tumble Tower course track (#238). `docs/guide/tumble-tower.md`
+> defines the visualization/debug-overlay need, but no Tumble Tower physics
+> simulation, browser renderer, or visualization harness exists yet.
 
 # Visualization
 
@@ -20,7 +23,7 @@
     - Contact points (red dots at contact locations, yellow for friction direction).
     - Sleep indicator (dim/grey bodies that are sleeping).
 - R3: Display tick counter, body count, sleeping count, and `physics_fingerprint` in a HUD.
-- R4: Rendering reads state via inspector protocol (read-only).
+- R4: Rendering reads state through a read-only observer/inspector surface.
 
 ## Acceptance Criteria
 

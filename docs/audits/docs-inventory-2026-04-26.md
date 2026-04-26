@@ -909,3 +909,35 @@ audit records rather than rewritten.
 | filepath                                                       | description                        | score | decision | new filepath | remarks                                                                                                                                                                                                                                                 |
 | -------------------------------------------------------------- | ---------------------------------- | ----- | -------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `docs/method/backlog/cool-ideas/PLATFORM_method-mcp-server.md` | Superseded Method MCP server note. | `1/5` | Trash.   | `n/a`        | The requested capability exists in `/Users/james/git/method`: `mcp.ts`, `dist/mcp.*`, and `tests/mcp.test.ts` cover MCP tools including `method_status`, `method_inbox`, `method_pull`, `method_close`, and `method_drift`. Git history is the archive. |
+
+---
+
+## docs/method/backlog/cool-ideas/PLATFORM_reading-envelope-inspector.md
+
+| filepath                                                                | description                             | score | decision          | new filepath                                                            | remarks                                                                                                                                                                                                                                              |
+| ----------------------------------------------------------------------- | --------------------------------------- | ----- | ----------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/backlog/cool-ideas/PLATFORM_reading-envelope-inspector.md` | Active reading-envelope inspector idea. | `4/5` | Keep and correct. | `docs/method/backlog/cool-ideas/PLATFORM_reading-envelope-inspector.md` | `ReadingEnvelope`, observer plan, posture, and witness fields exist in `echo-wasm-abi`, `warp-wasm` emits reading envelopes in observation artifacts, and active boundary docs depend on this surface; no local inspector/debug view renders it yet. |
+
+---
+
+## docs/method/backlog/cool-ideas/PLATFORM_splash-guy-visualization.md
+
+| filepath                                                              | description                           | score | decision          | new filepath                                                          | remarks                                                                                                                                                                                                                           |
+| --------------------------------------------------------------------- | ------------------------------------- | ----- | ----------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/backlog/cool-ideas/PLATFORM_splash-guy-visualization.md` | Active Splash Guy visualization task. | `3/5` | Keep and correct. | `docs/method/backlog/cool-ideas/PLATFORM_splash-guy-visualization.md` | Task DAG issue `#225`, `docs/guide/splash-guy.md`, and the course track keep this operational, but no Splash Guy simulation state, browser renderer, or visualization harness exists. Removed stale skeleton/First Light framing. |
+
+---
+
+## docs/method/backlog/cool-ideas/PLATFORM_streams-inspector.md
+
+| filepath                                                       | description                                 | score | decision          | new filepath                                                   | remarks                                                                                                                                                                                                                                                                                  |
+| -------------------------------------------------------------- | ------------------------------------------- | ----- | ----------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/backlog/cool-ideas/PLATFORM_streams-inspector.md` | Active but stale TT1 stream-inspector task. | `3/5` | Keep and correct. | `docs/method/backlog/cool-ideas/PLATFORM_streams-inspector.md` | Task DAG issues `#170`, `#203`, and `#244`-`#246` remain open, while `#243` now has the fixed-timestep invariant. No `StreamsFrame`, stream/admission inspector frame, or Constraint Lens UI exists yet. Replaced retired spec-path/protocol assumptions with live follow-up references. |
+
+---
+
+## docs/method/backlog/cool-ideas/PLATFORM_tumble-tower-visualization.md
+
+| filepath                                                                | description                             | score | decision          | new filepath                                                            | remarks                                                                                                                                                                                                                     |
+| ----------------------------------------------------------------------- | --------------------------------------- | ----- | ----------------- | ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/backlog/cool-ideas/PLATFORM_tumble-tower-visualization.md` | Active Tumble Tower visualization task. | `3/5` | Keep and correct. | `docs/method/backlog/cool-ideas/PLATFORM_tumble-tower-visualization.md` | Task DAG issue `#237`, `docs/guide/tumble-tower.md`, and the course track keep this operational, but no Tumble Tower physics simulation, browser renderer, or visualization harness exists. Removed stale skeleton framing. |

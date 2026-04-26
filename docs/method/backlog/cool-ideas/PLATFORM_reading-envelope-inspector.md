@@ -3,6 +3,13 @@
 
 # Reading envelope inspector
 
+Status: active cool idea. `ReadingEnvelope` and related observer-plan,
+budget, rights, witness, and residual posture fields exist in
+`echo-wasm-abi`, and `warp-wasm` emits reading envelopes in observation
+artifacts. No local inspector/debug view renders that structure yet.
+This card remains operational because it turns the active
+reading-envelope boundary into a maintainer-facing inspection surface.
+
 This is a local-first inspection surface for making the read-side doctrine
 visible instead of merely asserted.
 

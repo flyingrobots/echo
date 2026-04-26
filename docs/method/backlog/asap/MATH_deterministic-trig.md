@@ -5,9 +5,16 @@
 
 # Deterministic Trig Oracle
 
-Pin error budget and verify the deterministic trig oracle for cross-OS audit. Note: issue #177 is closed, but verification and integration into the release gate remains.
+Pin error budget and verify the deterministic trig oracle for cross-OS audit.
+Issue #177 is closed; this item now tracks the remaining release-gate evidence
+gap rather than the core trig implementation.
 
 **Issues:** #177
+
+Status: mostly implemented. `warp_core::math::trig`, the 2048-vector golden
+test, deterministic-math docs, and Linux/macOS G1 workflow steps exist. The
+remaining work is to align the release claim with explicit Alpine/musl evidence
+or adjust the claim if broad musl CI remains the only Alpine-class coverage.
 
 ---
 
@@ -17,19 +24,28 @@ Pin error budget and verify the deterministic trig oracle for cross-OS audit. No
 
 **Requirements:**
 
-- R1: Extract the existing deterministic trig test vectors from `warp_core::math::trig` and formalize them as a golden test suite.
-- R2: Define the error budget: maximum ULP (units in last place) deviation allowed between the deterministic oracle and reference values (expected: 0 ULP, since the oracle is a software implementation).
-- R3: Add a CI matrix job that runs the trig golden suite on macOS, Ubuntu (glibc), and Alpine (musl).
-- R4: Verify that the oracle's outputs are bit-identical across all three platforms (not just within error budget — must be exact).
-- R5: Document the oracle's algorithm (LUT + refinement) and its determinism guarantees in `docs/determinism/SPEC_DETERMINISTIC_MATH.md`.
+- R1: Keep the existing 2048-vector golden suite in
+  `crates/warp-core/tests/trig_golden_vectors.rs`.
+- R2: Keep the pinned 0-ULP golden-vector budget and <=16 ULP libm reference
+  budget documented in determinism claims.
+- R3: Preserve the existing Linux/macOS G1 workflow coverage and add explicit
+  Alpine/musl evidence if DET-004 continues to claim Alpine.
+- R4: Verify that the oracle's golden-vector outputs are bit-identical on every
+  platform named by DET-004.
+- R5: Keep the LUT-backed algorithm documented in
+  `docs/determinism/SPEC_DETERMINISTIC_MATH.md`.
 
 **Acceptance Criteria:**
 
-- [ ] AC1: Golden test suite covers at least 1000 input values spanning [0, 2pi] for sin and cos.
-- [ ] AC2: All 1000 values produce bit-identical results across macOS, Ubuntu, and Alpine.
-- [ ] AC3: CI matrix job runs on all 3 platforms and gates the release.
-- [ ] AC4: Error budget is documented as "0 ULP (bit-exact)" with rationale.
-- [ ] AC5: Algorithm documentation is added to `docs/determinism/SPEC_DETERMINISTIC_MATH.md`.
+- [x] AC1: Golden test suite covers 2048 input values across `[-2*TAU, 2*TAU]`
+      for sin and cos.
+- [ ] AC2: All 2048 values produce bit-identical results across every platform
+      named by DET-004.
+- [ ] AC3: CI evidence explicitly covers every platform named by DET-004.
+- [x] AC4: Error budget is documented as 0 ULP for golden-vector bit identity,
+      with a separate <=16 ULP budget against the libm reference.
+- [x] AC5: Algorithm documentation exists in
+      `docs/determinism/SPEC_DETERMINISTIC_MATH.md`.
 
 **Definition of Done:**
 

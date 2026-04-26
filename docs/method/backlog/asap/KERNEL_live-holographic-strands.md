@@ -3,6 +3,10 @@
 
 # Live holographic strands
 
+Status: active WARP/Observer implementation backlog. The first settlement
+slice exists; observer/read artifacts still need to consume the same
+live-basis and revalidation posture.
+
 Depends on:
 
 - [0004 — Strand contract](../../../design/0004-strand-contract/design.md)

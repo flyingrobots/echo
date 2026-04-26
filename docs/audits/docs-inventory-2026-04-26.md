@@ -549,3 +549,43 @@ audit records rather than rewritten.
 | filepath                                                 | description                                            | score | decision          | new filepath                                             | remarks                                                                                                                                                                                                                                                                   |
 | -------------------------------------------------------- | ------------------------------------------------------ | ----- | ----------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `docs/method/backlog/asap/KERNEL_determinism-torture.md` | Active kernel task for determinism torture/fuzz gates. | `4/5` | Keep and correct. | `docs/method/backlog/asap/KERNEL_determinism-torture.md` | Issue `#190` remains open in the task DAG; existing determinism tests and DIND infrastructure prove the area is real, while the specific structured 1-thread-vs-N report and snapshot/restore fuzz gate remains useful active work. Added explicit active-backlog status. |
+
+---
+
+## docs/method/backlog/asap/KERNEL_echo-git-warp-compatibility-sanity-check.md
+
+| filepath                                                                      | description                               | score | decision          | new filepath                                                                  | remarks                                                                                                                                                                                                                                                         |
+| ----------------------------------------------------------------------------- | ----------------------------------------- | ----- | ----------------- | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/backlog/asap/KERNEL_echo-git-warp-compatibility-sanity-check.md` | Active cross-substrate compatibility map. | `3/5` | Keep and correct. | `docs/method/backlog/asap/KERNEL_echo-git-warp-compatibility-sanity-check.md` | Useful for Echo/git-warp/warp-ttd/Wesley alignment, but several Echo-side facts had drifted. Corrected Wesley-generation status, strand/settlement rows, and `echo-cas` storage language against current crates, schemas, and strand/settlement implementation. |
+
+---
+
+## docs/method/backlog/asap/KERNEL_live-holographic-strands.md
+
+| filepath                                                      | description                                      | score | decision          | new filepath                                                  | remarks                                                                                                                                                                                                                                                |
+| ------------------------------------------------------------- | ------------------------------------------------ | ----- | ----------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `docs/method/backlog/asap/KERNEL_live-holographic-strands.md` | Active live-basis strand semantics backlog item. | `4/5` | Keep and correct. | `docs/method/backlog/asap/KERNEL_live-holographic-strands.md` | Backed by `crates/warp-core/src/strand.rs`, `settlement.rs`, strand contract/design docs, and the live-basis settlement plan. Added explicit active status; the remaining work is observer/read artifact integration, not free-floating future theory. |
+
+---
+
+## docs/method/backlog/asap/MATH_deterministic-trig.md
+
+| filepath                                              | description                                  | score | decision          | new filepath                                          | remarks                                                                                                                                                                                                                               |
+| ----------------------------------------------------- | -------------------------------------------- | ----- | ----------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/backlog/asap/MATH_deterministic-trig.md` | Deterministic trig release-evidence backlog. | `4/5` | Keep and correct. | `docs/method/backlog/asap/MATH_deterministic-trig.md` | Core trig implementation, 2048-vector golden test, determinism docs, and Linux/macOS G1 workflow coverage exist. Narrowed the task to the remaining DET-004 platform-evidence gap: explicit Alpine/musl evidence or claim adjustment. |
+
+---
+
+## docs/method/backlog/asap/PLATFORM_WESLEY_protocol-consumer-cutover.md
+
+| filepath                                                                | description                                       | score | decision          | new filepath                                                            | remarks                                                                                                                                                                                                                                    |
+| ----------------------------------------------------------------------- | ------------------------------------------------- | ----- | ----------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `docs/method/backlog/asap/PLATFORM_WESLEY_protocol-consumer-cutover.md` | Active Wesley/TTD protocol consumer cutover task. | `4/5` | Keep and correct. | `docs/method/backlog/asap/PLATFORM_WESLEY_protocol-consumer-cutover.md` | Backed by generated `ttd-protocol-rs` and `packages/ttd-protocol-ts`, absent local `schemas/ttd-protocol.graphql`, and current runtime schema fragments. Added active status and called out the missing `xtask wesley sync` tooling drift. |
+
+---
+
+## docs/method/backlog/asap/PLATFORM_ci-det-policy-hardening.md
+
+| filepath                                                       | description                                  | score | decision          | new filepath                                                   | remarks                                                                                                                                                                                                                          |
+| -------------------------------------------------------------- | -------------------------------------------- | ----- | ----------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/method/backlog/asap/PLATFORM_ci-det-policy-hardening.md` | Active determinism-policy CI hardening item. | `4/5` | Keep and correct. | `docs/method/backlog/asap/PLATFORM_ci-det-policy-hardening.md` | Task DAG marks `#285` completed while `#284` and `#286` remain open; `.github/workflows/det-gates.yml` now computes `DETERMINISM_PATHS` from `det-policy.yaml`. Updated the backlog item to reflect completed vs remaining work. |

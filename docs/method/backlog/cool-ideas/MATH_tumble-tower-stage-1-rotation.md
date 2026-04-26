@@ -3,7 +3,10 @@
 
 > **Milestone:** Tumble Tower | **Priority:** P2
 >
-> This feature is a skeleton. Tasks will be expanded as the GDD matures.
+> Status: active cool idea. Task DAG issue #232 is still open and blocked by
+> Stage 0 (#231). `F32Scalar::sin_cos` and trig golden-vector tests exist, but
+> no Tumble Tower OBB, angular dynamics, contact manifold, or torque solver
+> exists yet.
 
 # Stage 1: Rotation
 
@@ -17,7 +20,9 @@
 - R2: Implement OBB-vs-OBB overlap detection using separating axis theorem (4 axes for 2D).
 - R3: Implement contact point computation for OBB pairs (edge-vertex and edge-edge cases).
 - R4: Apply torque from off-center contact forces (moment arm x contact impulse).
-- R5: All trigonometric operations use the deterministic trig backend from `warp_core::math::trig`.
+- R5: All trigonometric operations use `F32Scalar::{sin, cos, sin_cos}` backed
+  by the deterministic LUT trig implementation; do not call platform
+  `f32::{sin, cos}` in authoritative simulation code.
 
 ## Acceptance Criteria
 

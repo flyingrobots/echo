@@ -6,23 +6,27 @@ use blake3::Hasher;
 use echo_wasm_abi::kernel_port as abi;
 use thiserror::Error;
 
+use crate::attachment::{AttachmentOwner, AttachmentValue};
 use crate::clock::{GlobalTick, WorldlineTick};
 use crate::coordinator::{RuntimeError, WorldlineRuntime};
+use crate::footprint::WarpScopedPortKey;
 use crate::ident::Hash;
 use crate::materialization::ChannelId;
 use crate::provenance_store::{
     finalized_channels, replay_artifacts_for_entry, HistoryError, ProvenanceEntry,
     ProvenanceEventKind, ProvenanceRef, ProvenanceService, ProvenanceStore,
 };
+use crate::record::{EdgeRecord, NodeRecord};
 use crate::snapshot::{compute_commit_hash_v2, compute_state_root_for_warp_state};
 use crate::strand::{
     StrandBasisReport, StrandError, StrandId, StrandOverlapRevalidation, StrandRegistry,
     StrandRevalidationState,
 };
-use crate::tick_patch::{TickCommitStatus, WarpTickPatchV1};
+use crate::tick_patch::{SlotId, TickCommitStatus, WarpTickPatchV1};
 use crate::worldline::{
     ApplyError, HashTriplet, WorldlineId, WorldlineTickHeaderV1, WorldlineTickPatchV1,
 };
+use crate::WorldlineState;
 
 const CONFLICT_ARTIFACT_DOMAIN: &[u8] = b"echo:settlement-conflict-artifact:v1\0";
 
@@ -456,10 +460,6 @@ impl SettlementService {
                 .as_deref()
                 .map_or_else(Vec::new, |slots| overlap_slots_for_patch(patch, slots));
             let mut candidate_simulated = simulated.clone();
-            let before_state_root = compute_state_root_for_warp_state(
-                candidate_simulated.warp_state(),
-                candidate_simulated.root(),
-            );
             if patch
                 .apply_to_worldline_state(&mut candidate_simulated)
                 .is_err()
@@ -502,7 +502,11 @@ impl SettlementService {
 
             let overlap_revalidation = if entry_overlap_slots.is_empty() {
                 None
-            } else if actual_state_root == before_state_root {
+            } else if overlap_slots_are_clean(
+                &simulated,
+                &candidate_simulated,
+                &entry_overlap_slots,
+            ) {
                 Some(StrandOverlapRevalidation::Clean {
                     overlapping_slots: entry_overlap_slots,
                 })
@@ -632,7 +636,7 @@ fn ensure_frontier_matches_provenance(
     Ok(frontier_tick)
 }
 
-fn settlement_basis_overlap_slots(report: &StrandBasisReport) -> Option<Vec<crate::SlotId>> {
+fn settlement_basis_overlap_slots(report: &StrandBasisReport) -> Option<Vec<SlotId>> {
     match &report.parent_revalidation {
         StrandRevalidationState::AtAnchor
         | StrandRevalidationState::ParentAdvancedDisjoint { .. } => None,
@@ -644,13 +648,64 @@ fn settlement_basis_overlap_slots(report: &StrandBasisReport) -> Option<Vec<crat
 
 fn overlap_slots_for_patch(
     patch: &WorldlineTickPatchV1,
-    basis_overlap_slots: &[crate::SlotId],
-) -> Vec<crate::SlotId> {
+    basis_overlap_slots: &[SlotId],
+) -> Vec<SlotId> {
     basis_overlap_slots
         .iter()
         .filter(|slot| patch.in_slots.contains(slot) || patch.out_slots.contains(slot))
         .copied()
         .collect()
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum RevalidationSlotValue {
+    Node(Option<NodeRecord>),
+    Edge(Option<EdgeRecord>),
+    Attachment(Option<AttachmentValue>),
+    Port(WarpScopedPortKey),
+}
+
+fn overlap_slots_are_clean(
+    before: &WorldlineState,
+    after: &WorldlineState,
+    overlapping_slots: &[SlotId],
+) -> bool {
+    overlapping_slots
+        .iter()
+        .all(|slot| revalidation_slot_value(before, slot) == revalidation_slot_value(after, slot))
+}
+
+fn revalidation_slot_value(state: &WorldlineState, slot: &SlotId) -> RevalidationSlotValue {
+    match *slot {
+        SlotId::Node(node) => RevalidationSlotValue::Node(
+            state
+                .store(&node.warp_id)
+                .and_then(|store| store.node(&node.local_id))
+                .cloned(),
+        ),
+        SlotId::Edge(edge) => RevalidationSlotValue::Edge(
+            state
+                .store(&edge.warp_id)
+                .and_then(|store| {
+                    store
+                        .iter_edges()
+                        .flat_map(|(_, edges)| edges)
+                        .find(|record| record.id == edge.local_id)
+                })
+                .cloned(),
+        ),
+        SlotId::Attachment(key) => RevalidationSlotValue::Attachment(match key.owner {
+            AttachmentOwner::Node(node) => state
+                .store(&node.warp_id)
+                .and_then(|store| store.node_attachment(&node.local_id))
+                .cloned(),
+            AttachmentOwner::Edge(edge) => state
+                .store(&edge.warp_id)
+                .and_then(|store| store.edge_attachment(&edge.local_id))
+                .cloned(),
+        }),
+        SlotId::Port(port) => RevalidationSlotValue::Port(port),
+    }
 }
 
 fn append_import_candidate(
@@ -999,6 +1054,28 @@ mod tests {
         entry
     }
 
+    fn worldline_patch_from_replay(
+        root: crate::ident::NodeKey,
+        commit_global_tick: GlobalTick,
+        replay_patch: WarpTickPatchV1,
+    ) -> WorldlineTickPatchV1 {
+        WorldlineTickPatchV1 {
+            header: WorldlineTickHeaderV1 {
+                commit_global_tick,
+                policy_id: replay_patch.policy_id(),
+                rule_pack_id: replay_patch.rule_pack_id(),
+                plan_digest: crate::blake3_empty(),
+                decision_digest: crate::blake3_empty(),
+                rewrites_digest: crate::blake3_empty(),
+            },
+            warp_id: root.warp_id,
+            ops: replay_patch.ops().to_vec(),
+            in_slots: replay_patch.in_slots().to_vec(),
+            out_slots: replay_patch.out_slots().to_vec(),
+            patch_digest: replay_patch.digest(),
+        }
+    }
+
     fn node_upsert_patch(
         state: &WorldlineState,
         label: &str,
@@ -1054,21 +1131,73 @@ mod tests {
                 },
             ],
         );
-        WorldlineTickPatchV1 {
-            header: WorldlineTickHeaderV1 {
-                commit_global_tick,
-                policy_id: replay_patch.policy_id(),
-                rule_pack_id: replay_patch.rule_pack_id(),
-                plan_digest: crate::blake3_empty(),
-                decision_digest: crate::blake3_empty(),
-                rewrites_digest: crate::blake3_empty(),
-            },
+        worldline_patch_from_replay(root, commit_global_tick, replay_patch)
+    }
+
+    fn node_record_upsert_patch(
+        state: &WorldlineState,
+        label: &str,
+        node_type_label: &str,
+        commit_global_tick: GlobalTick,
+    ) -> WorldlineTickPatchV1 {
+        let root = *state.root();
+        let node = crate::ident::NodeKey {
             warp_id: root.warp_id,
-            ops: replay_patch.ops().to_vec(),
-            in_slots: replay_patch.in_slots().to_vec(),
-            out_slots: replay_patch.out_slots().to_vec(),
-            patch_digest: replay_patch.digest(),
-        }
+            local_id: make_node_id(label),
+        };
+        let replay_patch = WarpTickPatchV1::new(
+            crate::POLICY_ID_NO_POLICY_V0,
+            crate::blake3_empty(),
+            TickCommitStatus::Committed,
+            Vec::new(),
+            vec![SlotId::Node(node)],
+            vec![WarpOp::UpsertNode {
+                node,
+                record: NodeRecord {
+                    ty: make_type_id(node_type_label),
+                },
+            }],
+        );
+        worldline_patch_from_replay(root, commit_global_tick, replay_patch)
+    }
+
+    fn overlap_plus_disjoint_node_patch(
+        state: &WorldlineState,
+        overlap_label: &str,
+        disjoint_label: &str,
+        commit_global_tick: GlobalTick,
+    ) -> WorldlineTickPatchV1 {
+        let root = *state.root();
+        let overlap_node = crate::ident::NodeKey {
+            warp_id: root.warp_id,
+            local_id: make_node_id(overlap_label),
+        };
+        let disjoint_node = crate::ident::NodeKey {
+            warp_id: root.warp_id,
+            local_id: make_node_id(disjoint_label),
+        };
+        let replay_patch = WarpTickPatchV1::new(
+            crate::POLICY_ID_NO_POLICY_V0,
+            crate::blake3_empty(),
+            TickCommitStatus::Committed,
+            Vec::new(),
+            vec![SlotId::Node(overlap_node), SlotId::Node(disjoint_node)],
+            vec![
+                WarpOp::UpsertNode {
+                    node: overlap_node,
+                    record: NodeRecord {
+                        ty: make_type_id("settlement-node"),
+                    },
+                },
+                WarpOp::UpsertNode {
+                    node: disjoint_node,
+                    record: NodeRecord {
+                        ty: make_type_id("settlement-node"),
+                    },
+                },
+            ],
+        );
+        worldline_patch_from_replay(root, commit_global_tick, replay_patch)
     }
 
     #[derive(Clone, Copy)]
@@ -1076,6 +1205,7 @@ mod tests {
         None,
         Disjoint,
         OverlapSame,
+        OverlapSamePlusDisjointChild,
         OverlapDifferent,
     }
 
@@ -1154,6 +1284,12 @@ mod tests {
             ParentDrift::None => None,
             ParentDrift::Disjoint => Some(node_upsert_patch(&base_state, "base-diverged", gt(2))),
             ParentDrift::OverlapSame => Some(node_upsert_patch(&base_state, "child-node", gt(2))),
+            ParentDrift::OverlapSamePlusDisjointChild => Some(node_record_upsert_patch(
+                &base_state,
+                "overlap-node",
+                "settlement-node",
+                gt(2),
+            )),
             ParentDrift::OverlapDifferent => Some(typed_node_upsert_patch(
                 &base_state,
                 "child-node",
@@ -1202,7 +1338,18 @@ mod tests {
                 .unwrap();
         }
 
-        let child_patch = node_upsert_patch(&child_state, "child-node", gt(3));
+        let child_patch = match parent_drift {
+            ParentDrift::OverlapSamePlusDisjointChild => overlap_plus_disjoint_node_patch(
+                &child_state,
+                "overlap-node",
+                "disjoint-node",
+                gt(3),
+            ),
+            ParentDrift::None
+            | ParentDrift::Disjoint
+            | ParentDrift::OverlapSame
+            | ParentDrift::OverlapDifferent => node_upsert_patch(&child_state, "child-node", gt(3)),
+        };
         append_local_patch(
             &mut child_state,
             &mut provenance,
@@ -1399,6 +1546,80 @@ mod tests {
                 .frontier_tick(),
             wt(3)
         );
+    }
+
+    #[test]
+    fn settlement_imports_disjoint_child_mutation_when_overlap_slot_is_idempotent() {
+        let (mut runtime, mut provenance, strand_id, base_worldline, _) =
+            setup_runtime_with_strand(ParentDrift::OverlapSamePlusDisjointChild);
+        let root = *runtime
+            .worldlines()
+            .get(&base_worldline)
+            .unwrap()
+            .state()
+            .root();
+        let overlap_slot = SlotId::Node(crate::ident::NodeKey {
+            warp_id: root.warp_id,
+            local_id: make_node_id("overlap-node"),
+        });
+
+        let plan = SettlementService::plan(&runtime, &provenance, strand_id).unwrap();
+        assert_eq!(plan.decisions.len(), 1);
+        assert!(matches!(
+            &plan.basis_report.parent_revalidation,
+            StrandRevalidationState::RevalidationRequired {
+                overlapping_slots,
+                ..
+            } if overlapping_slots.as_slice() == [overlap_slot]
+        ));
+        let Some(candidate) = import_candidate(&plan.decisions[0]) else {
+            if let Some(draft) = conflict_artifact(&plan.decisions[0]) {
+                assert_ne!(
+                    draft.reason,
+                    ConflictReason::ParentFootprintOverlap,
+                    "idempotent overlap with disjoint child mutation must remain importable"
+                );
+            }
+            assert!(
+                matches!(&plan.decisions[0], SettlementDecision::ImportCandidate(_)),
+                "expected slot-clean overlap revalidation to plan an import"
+            );
+            return;
+        };
+        let Some(StrandOverlapRevalidation::Clean { overlapping_slots }) =
+            &candidate.overlap_revalidation
+        else {
+            assert!(
+                matches!(
+                    &candidate.overlap_revalidation,
+                    Some(StrandOverlapRevalidation::Clean { .. })
+                ),
+                "expected clean slot-level overlap revalidation"
+            );
+            return;
+        };
+        assert_eq!(overlapping_slots.as_slice(), &[overlap_slot]);
+
+        let result = SettlementService::settle(&mut runtime, &mut provenance, strand_id).unwrap();
+        assert_eq!(result.appended_imports.len(), 1);
+        assert!(result.appended_conflicts.is_empty());
+
+        let imported = provenance.entry(base_worldline, wt(2)).unwrap();
+        assert!(matches!(
+            imported.event_kind,
+            ProvenanceEventKind::MergeImport { .. }
+        ));
+        let store = runtime
+            .worldlines()
+            .get(&base_worldline)
+            .unwrap()
+            .state()
+            .store(&root.warp_id)
+            .unwrap();
+        for label in ["overlap-node", "disjoint-node"] {
+            let node_id = make_node_id(label);
+            assert!(store.node(&node_id).is_some());
+        }
     }
 
     #[test]

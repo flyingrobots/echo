@@ -10,7 +10,7 @@
 //!
 //! # ABI Version
 //!
-//! The current ABI version is [`ABI_VERSION`] (6). All response types are
+//! The current ABI version is [`ABI_VERSION`] (7). All response types are
 //! CBOR-encoded using the canonical rules defined in `docs/spec/js-cbor-mapping.md`.
 //! Breaking changes to response shapes or error codes require a bump to the
 //! ABI version.
@@ -38,7 +38,7 @@ use serde::{
 ///
 /// Increment when response types, error codes, or method signatures change
 /// in a backward-incompatible way.
-pub const ABI_VERSION: u32 = 6;
+pub const ABI_VERSION: u32 = 7;
 
 fn deserialize_opaque_id<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
 where
@@ -892,6 +892,80 @@ pub enum ConflictReason {
     QuantumMismatch,
 }
 
+/// Parent-basis posture used while comparing or planning settlement.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SettlementParentRevalidation {
+    /// The parent remains at the strand's anchor coordinate.
+    AtAnchor,
+    /// The parent advanced outside the strand-owned closed footprint.
+    ParentAdvancedDisjoint {
+        /// Anchor coordinate from which the strand diverged.
+        parent_from: ProvenanceRef,
+        /// Current parent coordinate used as the settlement basis.
+        parent_to: ProvenanceRef,
+    },
+    /// The parent advanced into the strand-owned closed footprint.
+    RevalidationRequired {
+        /// Anchor coordinate from which the strand diverged.
+        parent_from: ProvenanceRef,
+        /// Current parent coordinate that requires overlap revalidation.
+        parent_to: ProvenanceRef,
+        /// Number of overlapping slots in the core artifact.
+        overlapping_slot_count: u64,
+        /// Deterministic digest of the core overlapping slot list.
+        overlapping_slots_digest: Vec<u8>,
+    },
+}
+
+/// Compact basis-relative settlement evidence.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SettlementBasisReport {
+    /// Recorded parent anchor for the strand.
+    pub parent_anchor: BaseRef,
+    /// Child worldline carrying speculative suffix history.
+    pub child_worldline_id: WorldlineId,
+    /// First suffix tick eligible for settlement consideration.
+    pub source_suffix_start_tick: WorldlineTick,
+    /// Last suffix tick currently present on the source worldline, if any.
+    pub source_suffix_end_tick: Option<WorldlineTick>,
+    /// Current parent basis used while producing this report.
+    pub realized_parent_ref: ProvenanceRef,
+    /// Number of unique slots in the strand-owned closed footprint.
+    pub owned_closed_slot_count: u64,
+    /// Number of unique parent-written slots after the strand anchor.
+    pub parent_written_slot_count: u64,
+    /// Parent movement posture relative to the strand-owned footprint.
+    pub parent_revalidation: SettlementParentRevalidation,
+}
+
+/// Outcome of explicitly revalidating an overlapped settlement patch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SettlementOverlapRevalidation {
+    /// Replaying the source patch left the overlapped parent slots unchanged.
+    Clean {
+        /// Number of overlapping slots checked by the core artifact.
+        overlapping_slot_count: u64,
+        /// Deterministic digest of the core overlapping slot list.
+        overlapping_slots_digest: Vec<u8>,
+    },
+    /// Replaying the source patch failed on the current parent basis.
+    Obstructed {
+        /// Number of overlapping slots checked by the core artifact.
+        overlapping_slot_count: u64,
+        /// Deterministic digest of the core overlapping slot list.
+        overlapping_slots_digest: Vec<u8>,
+    },
+    /// Replaying the source patch would mutate overlapped parent slots.
+    Conflict {
+        /// Number of overlapping slots checked by the core artifact.
+        overlapping_slot_count: u64,
+        /// Deterministic digest of the core overlapping slot list.
+        overlapping_slots_digest: Vec<u8>,
+    },
+}
+
 /// Compare output for one strand suffix relative to its recorded base.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SettlementDelta {
@@ -907,6 +981,8 @@ pub struct SettlementDelta {
     pub source_suffix_end_tick: WorldlineTick,
     /// Authoritative source provenance refs in settlement order.
     pub source_entries: Vec<ProvenanceRef>,
+    /// Compact basis-relative evidence used for this comparison.
+    pub basis_report: SettlementBasisReport,
 }
 
 /// One accepted unit of source provenance eligible for import.
@@ -918,6 +994,8 @@ pub struct ImportCandidate {
     pub source_head_key: Option<WriterHeadKey>,
     /// Stable imported operation identifier.
     pub imported_op_id: Vec<u8>,
+    /// Explicit overlap revalidation evidence when this import crossed overlap.
+    pub overlap_revalidation: Option<SettlementOverlapRevalidation>,
 }
 
 /// One unresolved settlement residue draft.
@@ -931,6 +1009,8 @@ pub struct ConflictArtifactDraft {
     pub channel_ids: Vec<Vec<u8>>,
     /// Deterministic reason the source entry was rejected.
     pub reason: ConflictReason,
+    /// Explicit overlap revalidation evidence when overlap caused this residue.
+    pub overlap_revalidation: Option<SettlementOverlapRevalidation>,
 }
 
 /// One deterministic settlement decision.
@@ -958,6 +1038,8 @@ pub struct SettlementPlan {
     pub target_worldline: WorldlineId,
     /// Provenance coordinate the strand claims as its base.
     pub target_base_ref: ProvenanceRef,
+    /// Compact basis-relative evidence used while producing this plan.
+    pub basis_report: SettlementBasisReport,
     /// Ordered import or conflict decisions for the suffix.
     pub decisions: Vec<SettlementDecision>,
 }

@@ -6,7 +6,7 @@ use blake3::Hasher;
 use echo_wasm_abi::kernel_port as abi;
 use thiserror::Error;
 
-use crate::attachment::{AttachmentOwner, AttachmentValue};
+use crate::attachment::{AttachmentOwner, AttachmentPlane, AttachmentValue};
 use crate::clock::{GlobalTick, WorldlineTick};
 use crate::coordinator::{RuntimeError, WorldlineRuntime};
 use crate::footprint::WarpScopedPortKey;
@@ -102,6 +102,7 @@ impl SettlementDelta {
                 .copied()
                 .map(provenance_ref_to_abi)
                 .collect(),
+            basis_report: settlement_basis_report_to_abi(&self.basis_report),
         }
     }
 }
@@ -129,6 +130,7 @@ impl SettlementPlan {
             strand_id: abi::StrandId::from_bytes(*self.strand_id.as_bytes()),
             target_worldline: abi::WorldlineId::from_bytes(*self.target_worldline.as_bytes()),
             target_base_ref: provenance_ref_to_abi(self.target_base_ref),
+            basis_report: settlement_basis_report_to_abi(&self.basis_report),
             decisions: self
                 .decisions
                 .iter()
@@ -181,6 +183,10 @@ impl ImportCandidate {
             source_ref: provenance_ref_to_abi(self.source_ref),
             source_head_key: self.source_head_key.map(writer_head_key_to_abi),
             imported_op_id: self.imported_op_id.to_vec(),
+            overlap_revalidation: self
+                .overlap_revalidation
+                .as_ref()
+                .map(overlap_revalidation_to_abi),
         }
     }
 }
@@ -211,6 +217,10 @@ impl ConflictArtifactDraft {
                 .map(|channel_id| channel_id.0.to_vec())
                 .collect(),
             reason: self.reason.to_abi(),
+            overlap_revalidation: self
+                .overlap_revalidation
+                .as_ref()
+                .map(overlap_revalidation_to_abi),
         }
     }
 }
@@ -255,6 +265,123 @@ fn base_ref_to_abi(base_ref: crate::strand::BaseRef) -> abi::BaseRef {
         commit_hash: base_ref.commit_hash.to_vec(),
         boundary_hash: base_ref.boundary_hash.to_vec(),
         provenance_ref: provenance_ref_to_abi(base_ref.provenance_ref),
+    }
+}
+
+fn settlement_basis_report_to_abi(report: &StrandBasisReport) -> abi::SettlementBasisReport {
+    abi::SettlementBasisReport {
+        parent_anchor: base_ref_to_abi(report.parent_anchor),
+        child_worldline_id: abi::WorldlineId::from_bytes(*report.child_worldline_id.as_bytes()),
+        source_suffix_start_tick: abi::WorldlineTick(report.source_suffix_start_tick.as_u64()),
+        source_suffix_end_tick: report
+            .source_suffix_end_tick
+            .map(|tick| abi::WorldlineTick(tick.as_u64())),
+        realized_parent_ref: provenance_ref_to_abi(report.realized_parent_ref),
+        owned_closed_slot_count: report.owned_divergence.closed_len() as u64,
+        parent_written_slot_count: report.parent_movement.write_len() as u64,
+        parent_revalidation: settlement_parent_revalidation_to_abi(&report.parent_revalidation),
+    }
+}
+
+fn settlement_parent_revalidation_to_abi(
+    revalidation: &StrandRevalidationState,
+) -> abi::SettlementParentRevalidation {
+    match revalidation {
+        StrandRevalidationState::AtAnchor => abi::SettlementParentRevalidation::AtAnchor,
+        StrandRevalidationState::ParentAdvancedDisjoint {
+            parent_from,
+            parent_to,
+        } => abi::SettlementParentRevalidation::ParentAdvancedDisjoint {
+            parent_from: provenance_ref_to_abi(*parent_from),
+            parent_to: provenance_ref_to_abi(*parent_to),
+        },
+        StrandRevalidationState::RevalidationRequired {
+            parent_from,
+            parent_to,
+            overlapping_slots,
+        } => abi::SettlementParentRevalidation::RevalidationRequired {
+            parent_from: provenance_ref_to_abi(*parent_from),
+            parent_to: provenance_ref_to_abi(*parent_to),
+            overlapping_slot_count: overlapping_slots.len() as u64,
+            overlapping_slots_digest: settlement_overlap_slots_digest(overlapping_slots).to_vec(),
+        },
+    }
+}
+
+fn overlap_revalidation_to_abi(
+    revalidation: &StrandOverlapRevalidation,
+) -> abi::SettlementOverlapRevalidation {
+    match revalidation {
+        StrandOverlapRevalidation::Clean { overlapping_slots } => {
+            abi::SettlementOverlapRevalidation::Clean {
+                overlapping_slot_count: overlapping_slots.len() as u64,
+                overlapping_slots_digest: settlement_overlap_slots_digest(overlapping_slots)
+                    .to_vec(),
+            }
+        }
+        StrandOverlapRevalidation::Obstructed { overlapping_slots } => {
+            abi::SettlementOverlapRevalidation::Obstructed {
+                overlapping_slot_count: overlapping_slots.len() as u64,
+                overlapping_slots_digest: settlement_overlap_slots_digest(overlapping_slots)
+                    .to_vec(),
+            }
+        }
+        StrandOverlapRevalidation::Conflict { overlapping_slots } => {
+            abi::SettlementOverlapRevalidation::Conflict {
+                overlapping_slot_count: overlapping_slots.len() as u64,
+                overlapping_slots_digest: settlement_overlap_slots_digest(overlapping_slots)
+                    .to_vec(),
+            }
+        }
+    }
+}
+
+fn settlement_overlap_slots_digest(slots: &[SlotId]) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(b"echo:settlement-overlap-slots:v1\0");
+    hasher.update(&(slots.len() as u64).to_le_bytes());
+    for slot in slots {
+        hash_settlement_slot(&mut hasher, slot);
+    }
+    hasher.finalize().into()
+}
+
+fn hash_settlement_slot(hasher: &mut Hasher, slot: &SlotId) {
+    match slot {
+        SlotId::Node(node) => {
+            hasher.update(&[1]);
+            hasher.update(node.warp_id.as_bytes());
+            hasher.update(node.local_id.as_bytes());
+        }
+        SlotId::Edge(edge) => {
+            hasher.update(&[2]);
+            hasher.update(edge.warp_id.as_bytes());
+            hasher.update(edge.local_id.as_bytes());
+        }
+        SlotId::Attachment(attachment) => {
+            hasher.update(&[3]);
+            match attachment.owner {
+                AttachmentOwner::Node(node) => {
+                    hasher.update(&[1]);
+                    hasher.update(node.warp_id.as_bytes());
+                    hasher.update(node.local_id.as_bytes());
+                }
+                AttachmentOwner::Edge(edge) => {
+                    hasher.update(&[2]);
+                    hasher.update(edge.warp_id.as_bytes());
+                    hasher.update(edge.local_id.as_bytes());
+                }
+            }
+            match attachment.plane {
+                AttachmentPlane::Alpha => hasher.update(&[1]),
+                AttachmentPlane::Beta => hasher.update(&[2]),
+            };
+        }
+        SlotId::Port((warp_id, port_key)) => {
+            hasher.update(&[4]);
+            hasher.update(warp_id.as_bytes());
+            hasher.update(&port_key.to_le_bytes());
+        }
     }
 }
 

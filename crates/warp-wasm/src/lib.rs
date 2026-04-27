@@ -7,7 +7,7 @@
 //! implementation. The boundary is app-agnostic: any kernel that implements
 //! the trait can be installed via [`install_kernel`].
 //!
-//! # ABI Contract (v4)
+//! # ABI Contract (v7)
 //!
 //! All exports return CBOR-encoded bytes wrapped in a success/error envelope:
 //! - Success: `{ "ok": true, ...response_fields }`
@@ -599,9 +599,9 @@ mod init_tests {
         ReadingBudgetPosture, ReadingEnvelope, ReadingObserverBasis, ReadingObserverPlan,
         ReadingResidualPosture, ReadingRightsPosture, ReadingWitnessRef, RegistryInfo,
         ResolvedObservationCoordinate, RunCompletion, RunId, SchedulerMode, SchedulerState,
-        SchedulerStatus, SettlementDecision, SettlementDelta, SettlementPlan, SettlementRequest,
-        SettlementResult, SiteParticipant, SitePlurality, WorkState, WorldlineId, WorldlineTick,
-        ABI_VERSION,
+        SchedulerStatus, SettlementBasisReport, SettlementDecision, SettlementDelta,
+        SettlementParentRevalidation, SettlementPlan, SettlementRequest, SettlementResult,
+        SiteParticipant, SitePlurality, WorkState, WorldlineId, WorldlineTick, ABI_VERSION,
     };
 
     struct StubKernel;
@@ -710,19 +710,20 @@ mod init_tests {
             &self,
             request: SettlementRequest,
         ) -> Result<SettlementDelta, AbiError> {
+            let base_ref = BaseRef {
+                source_worldline_id: WorldlineId::from_bytes([9; 32]),
+                fork_tick: WorldlineTick(0),
+                commit_hash: vec![3; 32],
+                boundary_hash: vec![2; 32],
+                provenance_ref: ProvenanceRef {
+                    worldline_id: WorldlineId::from_bytes([9; 32]),
+                    worldline_tick: WorldlineTick(0),
+                    commit_hash: vec![3; 32],
+                },
+            };
             Ok(SettlementDelta {
                 strand_id: request.strand_id,
-                base_ref: BaseRef {
-                    source_worldline_id: WorldlineId::from_bytes([9; 32]),
-                    fork_tick: WorldlineTick(0),
-                    commit_hash: vec![3; 32],
-                    boundary_hash: vec![2; 32],
-                    provenance_ref: ProvenanceRef {
-                        worldline_id: WorldlineId::from_bytes([9; 32]),
-                        worldline_tick: WorldlineTick(0),
-                        commit_hash: vec![3; 32],
-                    },
-                },
+                base_ref: base_ref.clone(),
                 source_worldline_id: WorldlineId::from_bytes([4; 32]),
                 source_suffix_start_tick: WorldlineTick(1),
                 source_suffix_end_tick: WorldlineTick(1),
@@ -731,17 +732,48 @@ mod init_tests {
                     worldline_tick: WorldlineTick(1),
                     commit_hash: vec![8; 32],
                 }],
+                basis_report: SettlementBasisReport {
+                    parent_anchor: base_ref,
+                    child_worldline_id: WorldlineId::from_bytes([4; 32]),
+                    source_suffix_start_tick: WorldlineTick(1),
+                    source_suffix_end_tick: Some(WorldlineTick(1)),
+                    realized_parent_ref: ProvenanceRef {
+                        worldline_id: WorldlineId::from_bytes([9; 32]),
+                        worldline_tick: WorldlineTick(0),
+                        commit_hash: vec![3; 32],
+                    },
+                    owned_closed_slot_count: 2,
+                    parent_written_slot_count: 0,
+                    parent_revalidation: SettlementParentRevalidation::AtAnchor,
+                },
             })
         }
 
         fn plan_settlement(&self, request: SettlementRequest) -> Result<SettlementPlan, AbiError> {
+            let target_base_ref = ProvenanceRef {
+                worldline_id: WorldlineId::from_bytes([9; 32]),
+                worldline_tick: WorldlineTick(0),
+                commit_hash: vec![3; 32],
+            };
             Ok(SettlementPlan {
                 strand_id: request.strand_id,
                 target_worldline: WorldlineId::from_bytes([9; 32]),
-                target_base_ref: ProvenanceRef {
-                    worldline_id: WorldlineId::from_bytes([9; 32]),
-                    worldline_tick: WorldlineTick(0),
-                    commit_hash: vec![3; 32],
+                target_base_ref: target_base_ref.clone(),
+                basis_report: SettlementBasisReport {
+                    parent_anchor: BaseRef {
+                        source_worldline_id: WorldlineId::from_bytes([9; 32]),
+                        fork_tick: WorldlineTick(0),
+                        commit_hash: vec![3; 32],
+                        boundary_hash: vec![2; 32],
+                        provenance_ref: target_base_ref.clone(),
+                    },
+                    child_worldline_id: WorldlineId::from_bytes([4; 32]),
+                    source_suffix_start_tick: WorldlineTick(1),
+                    source_suffix_end_tick: Some(WorldlineTick(1)),
+                    realized_parent_ref: target_base_ref,
+                    owned_closed_slot_count: 2,
+                    parent_written_slot_count: 0,
+                    parent_revalidation: SettlementParentRevalidation::AtAnchor,
                 },
                 decisions: vec![SettlementDecision::ConflictArtifact {
                     artifact: ConflictArtifactDraft {
@@ -753,6 +785,7 @@ mod init_tests {
                         },
                         channel_ids: vec![vec![6; 32]],
                         reason: ConflictReason::BaseDivergence,
+                        overlap_revalidation: None,
                     },
                 }],
             })

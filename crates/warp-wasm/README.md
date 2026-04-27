@@ -13,11 +13,12 @@ See the repository root `README.md` for the full overview.
   Echo’s deterministic wire protocol can be used from JavaScript/TypeScript in
   web-based tools and playgrounds.
 - Exposes the current observation-first and intent-shaped control surface
-  (`ABI_VERSION` 6 in `echo-wasm-abi`): `observe(...)` is the only public
+  (`ABI_VERSION` 7 in `echo-wasm-abi`): `observe(...)` is the only public
   world-state read export, `scheduler_status()` is the read-only scheduler
   metadata export, and `dispatch_intent(...)` is the write/control ingress.
   The current ABI also publishes strand settlement comparison, planning,
-  execution entrypoints, and read-side basis posture on observation artifacts.
+  execution entrypoints, settlement basis evidence, overlap revalidation
+  evidence, and read-side basis posture on observation artifacts.
 - The engine-backed boundary uses logical clocks only:
   `WorldlineTick` is per-worldline append identity and `GlobalTick` is runtime
   cycle correlation metadata. No wall-clock time enters Echo internals.

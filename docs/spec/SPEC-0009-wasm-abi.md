@@ -3,7 +3,7 @@
 
 # SPEC-0009: WASM ABI Contract
 
-> **Status:** Active | **Current ABI Version:** 6 | **Crate:** `warp-wasm`
+> **Status:** Active | **Current ABI Version:** 7 | **Crate:** `warp-wasm`
 
 ## Overview
 
@@ -15,8 +15,9 @@ epoch for host/runtime mismatch detection, not a promise that older ABI epochs
 remain supported. Historical ABI numbers below are migration breadcrumbs for
 host adapters.
 
-Current ABI version 6 keeps the ABI v3 public export shape and wraps
-observation artifacts in explicit reading-envelope metadata.
+Current ABI version 7 keeps the ABI v3 public export shape, wraps observation
+artifacts in explicit reading-envelope metadata, and exposes compact settlement
+basis and overlap revalidation evidence.
 
 ABI v3 made three boundaries explicit:
 
@@ -78,6 +79,9 @@ All exports are `#[wasm_bindgen]` functions. Return types are CBOR-encoded
 | `init()`                  | `() → Uint8Array`      | `HeadInfo` envelope            |
 | `dispatch_intent(bytes)`  | `(&[u8]) → Uint8Array` | `DispatchResponse` envelope    |
 | `observe(request)`        | `(&[u8]) → Uint8Array` | `ObservationArtifact` envelope |
+| `compare_settlement(req)` | `(&[u8]) → Uint8Array` | `SettlementDelta` envelope     |
+| `plan_settlement(req)`    | `(&[u8]) → Uint8Array` | `SettlementPlan` envelope      |
+| `settle_strand(req)`      | `(&[u8]) → Uint8Array` | `SettlementResult` envelope    |
 | `scheduler_status()`      | `() → Uint8Array`      | `SchedulerStatus` envelope     |
 | `get_registry_info()`     | `() → Uint8Array`      | `RegistryInfo` envelope        |
 | `get_codec_id()`          | `() → JsValue`         | `string \| null`               |
@@ -381,6 +385,34 @@ Current engine-backed behavior:
 | `channel_id` | bytes(32) | Materialization channel identifier |
 | `data`       | bytes     | Raw finalized channel output       |
 
+### Settlement Evidence
+
+`SettlementDelta` and `SettlementPlan` carry `basis_report`. The report is a
+compact summary of the internal `StrandBasisReport`: parent anchor, child
+worldline, suffix tick bounds, realized parent ref, closed-footprint slot count,
+parent-written slot count, and parent revalidation posture.
+
+`SettlementParentRevalidation` is one of:
+
+- `at_anchor`
+- `parent_advanced_disjoint { parent_from, parent_to }`
+- `revalidation_required { parent_from, parent_to, overlapping_slot_count,
+overlapping_slots_digest }`
+
+`ImportCandidate` and `ConflictArtifactDraft` carry
+`overlap_revalidation: SettlementOverlapRevalidation?`. It is present only when
+the decision explicitly revalidated parent movement inside an overlapped
+footprint.
+
+`SettlementOverlapRevalidation` is one of:
+
+- `clean { overlapping_slot_count, overlapping_slots_digest }`
+- `obstructed { overlapping_slot_count, overlapping_slots_digest }`
+- `conflict { overlapping_slot_count, overlapping_slots_digest }`
+
+The ABI intentionally does not expose raw internal slot ids. Overlap evidence
+uses a count plus deterministic digest until a stable public slot DTO exists.
+
 ### RegistryInfo
 
 | Field               | Type    | Description                                   |
@@ -388,7 +420,7 @@ Current engine-backed behavior:
 | `codec_id`          | string? | Codec identifier (e.g. `"cbor-canonical-v1"`) |
 | `registry_version`  | string? | Registry version                              |
 | `schema_sha256_hex` | string? | Schema hash (hex)                             |
-| `abi_version`       | u32     | ABI contract version (currently `6`)          |
+| `abi_version`       | u32     | ABI contract version (currently `7`)          |
 
 ## Error Codes
 

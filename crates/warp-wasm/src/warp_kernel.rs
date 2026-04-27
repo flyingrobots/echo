@@ -635,6 +635,8 @@ mod tests {
             ObservationProjection as AbiObservationProjection,
             ObservationRequest as AbiObservationRequest, RunCompletion, SchedulerMode,
             SchedulerState, SettlementDecision as AbiSettlementDecision,
+            SettlementOverlapRevalidation as AbiSettlementOverlapRevalidation,
+            SettlementParentRevalidation as AbiSettlementParentRevalidation,
             SettlementRequest as AbiSettlementRequest, WorkState, WorldlineId as AbiWorldlineId,
             WorldlineTick as AbiWorldlineTick, WriterHeadKey as AbiWriterHeadKey,
         },
@@ -806,8 +808,15 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Copy)]
+    enum ParentDrift {
+        None,
+        Disjoint,
+        OverlapSame,
+    }
+
     fn setup_runtime_with_strand(
-        base_diverged: bool,
+        parent_drift: ParentDrift,
     ) -> (
         WorldlineRuntime,
         ProvenanceService,
@@ -885,12 +894,16 @@ mod tests {
             })
             .unwrap();
 
-        if base_diverged {
+        let parent_drift_patch = match parent_drift {
+            ParentDrift::None => None,
+            ParentDrift::Disjoint => Some(node_upsert_patch(&base_state, "base-diverged", gt(2))),
+            ParentDrift::OverlapSame => Some(node_upsert_patch(&base_state, "child-node", gt(2))),
+        };
+        if let Some(diverged_patch) = parent_drift_patch {
             let diverged_head = WriterHeadKey {
                 worldline_id: base_worldline,
                 head_id: make_head_id("base-head"),
             };
-            let diverged_patch = node_upsert_patch(&base_state, "base-diverged", gt(2));
             append_local_patch(
                 &mut base_state,
                 &mut provenance,
@@ -1305,7 +1318,7 @@ mod tests {
     fn settlement_publication_returns_import_plan_for_child_suffix() {
         let mut kernel = WarpKernel::new().unwrap();
         let (runtime, provenance, strand_id, base_worldline, child_worldline) =
-            setup_runtime_with_strand(false);
+            setup_runtime_with_strand(ParentDrift::None);
         kernel.runtime = runtime;
         kernel.provenance = provenance;
         kernel.default_worldline = base_worldline;
@@ -1333,7 +1346,8 @@ mod tests {
     #[test]
     fn settlement_publication_imports_when_parent_advanced_disjoint() {
         let mut kernel = WarpKernel::new().unwrap();
-        let (runtime, provenance, strand_id, base_worldline, _) = setup_runtime_with_strand(true);
+        let (runtime, provenance, strand_id, base_worldline, _) =
+            setup_runtime_with_strand(ParentDrift::Disjoint);
         kernel.runtime = runtime;
         kernel.provenance = provenance;
         kernel.default_worldline = base_worldline;
@@ -1341,7 +1355,17 @@ mod tests {
         let request = AbiSettlementRequest {
             strand_id: echo_wasm_abi::kernel_port::StrandId::from_bytes(*strand_id.as_bytes()),
         };
+        let delta = kernel.compare_settlement(request.clone()).unwrap();
+        assert!(matches!(
+            &delta.basis_report.parent_revalidation,
+            AbiSettlementParentRevalidation::ParentAdvancedDisjoint { .. }
+        ));
+
         let plan = kernel.plan_settlement(request.clone()).unwrap();
+        assert!(matches!(
+            &plan.basis_report.parent_revalidation,
+            AbiSettlementParentRevalidation::ParentAdvancedDisjoint { .. }
+        ));
         assert!(matches!(
             &plan.decisions[0],
             AbiSettlementDecision::ImportCandidate { .. }
@@ -1350,6 +1374,56 @@ mod tests {
         let result = kernel.settle_strand(request).unwrap();
         assert_eq!(result.appended_imports.len(), 1);
         assert!(result.appended_conflicts.is_empty());
+    }
+
+    #[test]
+    fn settlement_publication_exposes_overlap_revalidation_evidence() {
+        let mut kernel = WarpKernel::new().unwrap();
+        let (runtime, provenance, strand_id, base_worldline, _) =
+            setup_runtime_with_strand(ParentDrift::OverlapSame);
+        kernel.runtime = runtime;
+        kernel.provenance = provenance;
+        kernel.default_worldline = base_worldline;
+
+        let request = AbiSettlementRequest {
+            strand_id: echo_wasm_abi::kernel_port::StrandId::from_bytes(*strand_id.as_bytes()),
+        };
+        let delta = kernel.compare_settlement(request.clone()).unwrap();
+        let AbiSettlementParentRevalidation::RevalidationRequired {
+            overlapping_slot_count,
+            overlapping_slots_digest,
+            ..
+        } = &delta.basis_report.parent_revalidation
+        else {
+            panic!("expected overlap posture in compare_settlement");
+        };
+        assert!(*overlapping_slot_count > 0);
+        assert_eq!(overlapping_slots_digest.len(), 32);
+
+        let plan = kernel.plan_settlement(request).unwrap();
+        let AbiSettlementParentRevalidation::RevalidationRequired {
+            overlapping_slot_count: plan_overlap_count,
+            overlapping_slots_digest: plan_overlap_digest,
+            ..
+        } = &plan.basis_report.parent_revalidation
+        else {
+            panic!("expected overlap posture in plan_settlement");
+        };
+        assert_eq!(plan_overlap_count, overlapping_slot_count);
+        assert_eq!(plan_overlap_digest, overlapping_slots_digest);
+
+        let AbiSettlementDecision::ImportCandidate { candidate } = &plan.decisions[0] else {
+            panic!("expected overlap-clean import candidate");
+        };
+        let Some(AbiSettlementOverlapRevalidation::Clean {
+            overlapping_slot_count: decision_overlap_count,
+            overlapping_slots_digest: decision_overlap_digest,
+        }) = &candidate.overlap_revalidation
+        else {
+            panic!("expected clean overlap revalidation evidence");
+        };
+        assert_eq!(decision_overlap_count, overlapping_slot_count);
+        assert_eq!(decision_overlap_digest, overlapping_slots_digest);
     }
 
     #[test]

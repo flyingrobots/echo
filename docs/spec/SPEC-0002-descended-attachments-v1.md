@@ -1,250 +1,58 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# SPEC-0002: Descended Attachments v1 — WarpInstances + Flattened Indirection
+# SPEC-0002 - Descended Attachments v1
 
-Status: Draft (Implemented)  
-Date: 2025-12-30  
-Related:
+_Define how an attachment slot can open into another WARP instance without creating hidden edges or recursive hot-path traversal._
 
-- `docs/adr/ADR-0002-warp-instances-descended-attachments.md`
-- `docs/spec/SPEC-0001-attachment-plane-v0-atoms.md`
-- `docs/invariants/warp-two-plane-law.md`
+Legend: KERNEL
 
-## Goal
+Depends on:
 
-Provide a first-class mechanism for descended attachments (“WARPs all the way down”) that:
+- [SPEC-0001 - Attachment Plane v0 Typed Atoms](SPEC-0001-attachment-plane-v0-atoms.md)
+- [WARP Tick Patch](warp-tick-patch.md)
+- [Merkle Commit](merkle-commit.md)
 
-- preserves rewrite hot-path performance (skeleton-only matching/indexing),
-- avoids hidden edges and recursive heap traversal,
-- supports correct determinism, conflict detection (footprints), and slicing.
+## Why this packet exists
 
-## Non-Goals (v1)
+Echo needs nested state without losing deterministic replay or turning payload inspection into implicit graph traversal. Descended attachments solve that by making descent an explicit attachment-slot value and by recording the portal chain as witnessed causality.
 
-- Fine-grained slicing inside atom bytes (attachment “fragments”).
-- Automatic recursive traversal of attachments during matching.
-- Arbitrary cross-instance edges (only descent via attachment slots).
-- Wormholes (history compression) — explicitly out of scope.
+## Human users / jobs / hills
 
-## Definitions
+Human users need nested state that can be inspected, replayed, and explained.
 
-### Planes
+The hill: when a user asks why a value inside a descendant exists, the slice pulls in the portal chain that made the descendant reachable.
 
-- Skeleton plane: explicit graph structure (nodes, edges, ports).
-- Attachment plane: a mapping of attachment slots to values.
+## Agent users / jobs / hills
 
-### Depth
+Agent users need local reasoning. A rule running inside a descendant should not scan the whole runtime to discover how it got there.
 
-- Depth 0: all attachment values are `Atom(...)`.
-- Descended: some attachment values are `Descend(warp_id)` pointing to another WarpInstance.
+The hill: the agent can read `WarpInstance.parent` and the descent stack to find the attachment slots that define reachability.
 
-## Data Model
+## Decision 1: Descent is flattened indirection
 
-### Identifiers (instance-scoped)
+A descended attachment is `AttachmentValue::Descend(WarpId)`. The child instance is recorded separately as `WarpInstance { warp_id, root_node, parent }`.
 
-- `WarpId`: identifies a WARP instance (a “layer” / namespace).
-- `NodeId`, `EdgeId`: local identifiers within an instance.
-- `NodeKey = { warp_id: WarpId, local_id: NodeId }`
-- `EdgeKey = { warp_id: WarpId, local_id: EdgeId }`
+## Decision 2: OpenPortal is the atomic authoring operation
 
-### Attachment identity
+Portal creation must not be split across independent edits. The replayable op is `OpenPortal { key, child_warp, child_root, init }`. Applying it establishes the child instance and writes the descent value into the attachment slot.
 
-`AttachmentPlane`:
+## Decision 3: Descended execution reads the descent chain
 
-- `Alpha` — vertex/node plane (`α`)
-- `Beta` — edge plane (`β`)
+Any match or execution inside a descended instance must include read footprints for every attachment key in the descent stack. A descendant's meaning depends on the portal chain that makes it reachable, so portal changes must conflict with or invalidate descendant work.
 
-`AttachmentOwner`:
+## Decision 4: Matching stays instance-local
 
-- `Node(NodeKey)`
-- `Edge(EdgeKey)`
+The scheduler and matcher operate within a named WARP instance unless a rule explicitly chooses another instance. There is no automatic recursive descent during matching.
 
-`AttachmentKey = { owner: AttachmentOwner, plane: AttachmentPlane }`
+## Decision 5: Slices close over portal producers
 
-### Attachment value
+A slice that demands a slot inside a descendant must include the patches that established the portal chain. Portal slots appear in `in_slots`, so normal backward slice closure pulls in their producers.
 
-`AttachmentValue`:
+## Consequences
 
-- `Atom(AtomPayload)` where `AtomPayload = { type_id: TypeId, bytes: Bytes }`
-- `Descend(WarpId)` (flattened indirection to another instance)
+Nested state is first-class and replayable. Descent does not weaken no-hidden-edges: the portal is an explicit attachment slot, and the child is a named instance with a recorded root.
 
-### Warp instance record
+## Open work
 
-`WarpInstance`:
-
-- `warp_id: WarpId`
-- `root_node: NodeId` (local id within the instance store)
-- `parent: Option<AttachmentKey>`
-    - `None` for the root instance
-    - `Some(k)` for descended instances reached via attachment slot `k`
-
-The `parent` field enables deterministic “include the portal chain” slicing without searching the whole attachment plane.
-
-## Operations
-
-### O1: OpenPortal (atomic authoring)
-
-`OpenPortal(key: AttachmentKey, child_warp: WarpId, child_root: NodeId, init: PortalInit)`
-
-This is the canonical atomic operation for descended attachments. It MUST:
-
-1. ensure `WarpInstance(child_warp)` exists with:
-    - `parent = Some(key)`
-    - `root_node = child_root`
-2. ensure the child root node exists (via `init`)
-3. set `Attachment[key] = Descend(child_warp)`
-
-Validation invariants (post-apply):
-
-- If `Attachment[key] == Descend(child_warp)`, then `WarpInstance(child_warp)` MUST exist.
-- `WarpInstance(child_warp).parent == Some(key)`
-- `WarpInstance(child_warp).root_node == child_root`
-
-`PortalInit` (v1):
-
-- `Empty { root_record }` — create the child instance/root node if missing
-- `RequireExisting` — require that the child instance/root node already exist
-
-ID note (recommended, not required by this spec): `child_warp` should be deterministically authorable without randomness, but MUST be recorded in the op for replay and verification.
-
-### O2: SetAttachment (atoms and clears)
-
-`SetAttachment(key: AttachmentKey, value: Option<AttachmentValue>)`
-
-This is the canonical operation for atom-level attachment writes. It MUST:
-
-1. set `Attachment[key] = value` (or clear when `value` is `None`)
-
-Variants:
-
-- `SetAttachment(key, Some(Atom(...)))` — write an atom payload
-- `SetAttachment(key, None)` — clear the attachment slot
-
-Setting `Descend(child_warp)` via a generic SetAttachment is discouraged in v1; prefer `OpenPortal` so portal creation and instance creation cannot be separated across ticks.
-
-## Slot Model (for patches / footprints / slicing)
-
-To keep slicing replayable without decoding atoms, attachments are treated as first-class slots:
-
-- `SlotId::Node(NodeKey)` — skeleton node record
-- `SlotId::Edge(EdgeKey)` — skeleton edge record
-- `SlotId::Attachment(AttachmentKey)` — attachment slot value (Atom or Descend)
-- `SlotId::Port(PortKey)` — boundary port value (opaque key)
-
-## Footprint Semantics (descent-chain law)
-
-### F1: Descent stack
-
-Execution context carries:
-
-- `descent_stack: Vec<AttachmentKey>`
-
-This is the chain of attachment keys from the root instance down to the current instance.
-
-### F2: Mandatory descent-chain reads
-
-Any match/exec within a descended instance MUST include:
-
-- READ `SlotId::Attachment(k)` for every `k` in `descent_stack`
-
-This is required even if the rule does not otherwise reference those attachments.
-
-Rationale: changing a descent pointer changes reachability/meaning and must invalidate matches deterministically.
-
-### F3: Normal reads/writes
-
-Reads/writes inside the current instance are tracked normally:
-
-- reading nodes/edges/ports => READ those slots
-- mutating nodes/edges/ports => WRITE those slots
-- setting attachments => WRITE `SlotId::Attachment(key)`
-
-## Slicing Semantics (Worldline + DAG)
-
-Paper III’s payload `P` is linear, while Echo history is a DAG.
-
-This spec defines slicing with respect to a chosen **worldline path**:
-
-- `P = (μ0, …, μn-1)` is the patch sequence along that worldline.
-
-### S1: Slice closure includes the portal chain
-
-If a slice demands any slot within instance `W`, the slice must include:
-
-- producers for the demanded slots within `W`, and
-- producers for the attachment chain from root → … → `W`:
-    - the `OpenPortal(...)` ops (and/or `SetAttachment(...Descend...)` legacy) that establish each descent step.
-
-Mechanism:
-
-- descended execution reads the descent stack (F2), so the generic Paper III slice algorithm over `in_slots`/`out_slots` pulls in the chain producers.
-
-### S2: Conservatism rule
-
-- Over-approximate `in_slots` is acceptable (slices get larger but remain correct).
-- Under-approximate `in_slots` is forbidden (slices become incorrect).
-
-### S3: DAG slicing (merge commits)
-
-Worldline slicing is a fast path for single-parent history. For multi-parent history (merge commits), slicing must treat the merge patch as a first-class event.
-
-Given a target commit `C` with parents `P1..Pn` and an initial demand set `D` (unversioned slots):
-
-1. Include in the slice any ops in `C` that write slots in `D`.
-2. For each demanded slot not written in `C`, follow parent provenance:
-    - (a) if exactly one parent can produce it, follow that parent for that slot
-    - (b) if multiple parents can produce it, the merge patch MUST resolve it (M1); otherwise the slice is invalid
-3. For each included op, union its read-set into `D` and repeat until closure.
-4. Portal-chain closure (Stage B1):
-    - if any demanded slot is within a descendant instance `W`, include the portal chain establishing reachability (root → … → W)
-    - in practice this is achieved by the descent-chain footprint law (F2), which ensures portal slots are read and pulled into the slice.
-
-## Matching / Performance Constraints
-
-- Matching/indexing is skeleton-only and scoped to a single `warp_id` instance.
-- No automatic traversal into descended instances during match.
-- Attachment decoding is forbidden in the hot path.
-
-## State Zoom (Tooling, explicitly NOT wormholes)
-
-Tooling may provide a “state zoom” projection (Instance Graph):
-
-- Nodes: `WarpId` (WarpInstances)
-- Edges: derived from explicit `Descend(WarpId)` portals (e.g., via OpenPortal ops or scanning attachment slots)
-- Optional summaries (derived/cache):
-    - node/edge counts per instance
-    - root ids / root hashes
-    - latest tick touching the instance
-
-This is a projection of state structure, not a history compression mechanism.
-
-Wormholes remain a history/payload compression mechanism (tick-range / patch-range compression) and are intentionally distinct from instance zoom.
-
-## Merge Semantics (Multi-Parent DAG)
-
-Echo history is a commit DAG. This spec requires:
-
-### M1: Merge commits are first-class (explicit resolution)
-
-A merge commit with parents `P1..Pn` MUST provide an explicit merge patch that resolves all slot conflicts deterministically.
-
-Definition: a slot conflict exists if two or more parents contain writes to the same `SlotId` (including `SlotId::Attachment(...)`) along the ancestry relevant to the merge.
-
-Requirement:
-
-- If a conflict exists for slot `S`, the merge patch MUST contain a final write to `S`.
-- If parents’ writes are disjoint for all slots in scope, the merge patch MAY be empty.
-
-Rationale:
-
-- We do not allow “implicit winner-by-parent-order” semantics to leak into determinism or slicing.
-- Merge is an authored event, not implicit ancestry magic.
-
-## Acceptance Criteria
-
-1. Changing a portal slot value (including `OpenPortal` / `Descend`) invalidates previously valid matches inside descendant instances (via descent-chain reads).
-2. A slice that demands a slot inside a descendant instance includes the portal chain establishing reachability (root → … → W).
-3. Matching/indexing code paths do not decode atom bytes.
-4. Hash identity changes if `TypeId` changes even with identical bytes.
-5. OpenPortal is atomic: replay never observes `Descend(child_warp)` without a valid `WarpInstance(child_warp)` and root node.
-6. Merge commits with conflicting parent writes to the same slot are invalid unless the merge patch writes the resolved final slot value.
+Finer-grained slicing within atom bytes, cross-instance edges that bypass portals, and history-compression behavior remain out of scope.

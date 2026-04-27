@@ -960,3 +960,17 @@ Resume only when:
 
 Current feature work should proceed with `pnpm docs:build` preserved as a
 gate.
+
+## 2026-04-27 corpus decision update
+
+The guide/course/demo surface and Doghouse product notes were removed from the live documentation corpus after a follow-up corpus review. Historical rows above that recommend keeping those files are superseded by this later decision.
+
+Removed groups:
+
+- Doghouse/tooling product notes under `doghouse/`
+- Demo scaffold `specs/spec-000-rewrite/spec.md`
+- Guide/course/demo docs under `docs/guide/`
+- Docs-site source note `docs/assets/dags/tasks-dag-source.md`
+- Collision asset README `docs/public/assets/collision/README.md`
+
+The live docs map now centers runtime carrier specs, replay/settlement specs, observation/ABI specs, and determinism evidence.

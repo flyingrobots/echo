@@ -1,506 +1,58 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# SPEC-0009: WASM ABI Contract
-
-> **Status:** Active | **Current ABI Version:** 7 | **Crate:** `warp-wasm`
-
-## Overview
-
-This document specifies the current WASM export surface, wire encoding, and
-error protocol for Echo's deterministic simulation boundary.
-
-Echo implements only the current WASM ABI. `ABI_VERSION` is a compatibility
-epoch for host/runtime mismatch detection, not a promise that older ABI epochs
-remain supported. Historical ABI numbers below are migration breadcrumbs for
-host adapters.
-
-Current ABI version 7 keeps the ABI v3 public export shape, wraps observation
-artifacts in explicit reading-envelope metadata, and exposes compact settlement
-basis and overlap revalidation evidence.
-
-ABI v3 made three boundaries explicit:
-
-- `observe(request)` is the only public world-state read export.
-- `dispatch_intent(...)` is the only public write and control ingress surface.
-- `scheduler_status()` is the read-only scheduler metadata export.
-
-Echo internals do not consume wall-clock time. All clocks in this ABI are
-logical monotone integers:
-
-- `WorldlineTick` is per-worldline append identity.
-- `GlobalTick` is runtime cycle correlation metadata.
-- `RunId` is a control-plane generation token.
-
-On the wire, `WorldlineTick`, `GlobalTick`, and `RunId` are canonical-CBOR
-unsigned integers using the smallest legal width for their value. `null`
-represents `Option<...>::None`.
-
-`WorldlineTick(0)` is intentionally overloaded by coordinate type:
-
-- In historical selectors such as `ObservationAt::Tick { worldline_tick: 0 }`,
-  it names the first committed append.
-- In frontier/head metadata such as `HeadInfo`, `HeadObservation`, and
-  `ResolvedObservationCoordinate`, `worldline_tick = 0` with
-  `commit_global_tick = null` means the worldline is still at `U0` and has not
-  committed anything yet.
-
-Scheduler lifecycle requests are carried as privileged control intents through
-the same EINT intake path as domain intents. There is no public `step(...)`,
-poll, or tick hook API in ABI v3.
-
-## Architecture
-
-```text
-┌─────────────────────────────────────────────────┐
-│                 JS / Host Adapter                │
-│  (submits intents, decodes CBOR envelopes)       │
-└───────────────────┬─────────────────────────────┘
-                    │  wasm-bindgen exports
-┌───────────────────▼─────────────────────────────┐
-│              warp-wasm (boundary)                │
-│  thread_local RefCell<Option<Box<dyn KernelPort>>>│
-│  Encodes Result<T, AbiError> → CBOR envelope    │
-└───────────────────┬─────────────────────────────┘
-                    │  KernelPort trait
-┌───────────────────▼─────────────────────────────┐
-│           WarpKernel (engine feature)            │
-│  Wraps warp-core::Engine and ObservationService │
-└─────────────────────────────────────────────────┘
-```
-
-## Exports
-
-All exports are `#[wasm_bindgen]` functions. Return types are CBOR-encoded
-`Uint8Array` unless noted otherwise.
-
-| Export                    | Signature              | Returns                        |
-| ------------------------- | ---------------------- | ------------------------------ |
-| `init()`                  | `() → Uint8Array`      | `HeadInfo` envelope            |
-| `dispatch_intent(bytes)`  | `(&[u8]) → Uint8Array` | `DispatchResponse` envelope    |
-| `observe(request)`        | `(&[u8]) → Uint8Array` | `ObservationArtifact` envelope |
-| `compare_settlement(req)` | `(&[u8]) → Uint8Array` | `SettlementDelta` envelope     |
-| `plan_settlement(req)`    | `(&[u8]) → Uint8Array` | `SettlementPlan` envelope      |
-| `settle_strand(req)`      | `(&[u8]) → Uint8Array` | `SettlementResult` envelope    |
-| `scheduler_status()`      | `() → Uint8Array`      | `SchedulerStatus` envelope     |
-| `get_registry_info()`     | `() → Uint8Array`      | `RegistryInfo` envelope        |
-| `get_codec_id()`          | `() → JsValue`         | `string \| null`               |
-| `get_registry_version()`  | `() → JsValue`         | `string \| null`               |
-| `get_schema_sha256_hex()` | `() → JsValue`         | `string \| null`               |
+# SPEC-0009 - WASM ABI Contract
 
-Removed before or by ABI v3:
+_Define the current deterministic browser boundary for intent ingress, scheduler metadata, and observer-relative reads._
 
-- `drain_view_ops()`
-- `get_head()`
-- `execute_query(id, vars)`
-- `snapshot_at(tick)`
-- `render_snapshot(bytes)`
-- `step(budget)`
+Legend: PLATFORM
 
-## Intent Intake
+Current ABI version: 6
 
-All external writes enter Echo through EINT envelopes.
+Depends on:
 
-- Domain intents use their domain-specific `op_id`.
-- Privileged scheduler/control intents use reserved op id `u32::MAX`
-  (`CONTROL_INTENT_V1_OP_ID`).
+- [JS to Canonical CBOR Mapping](js-cbor-mapping.md)
+- [ABI Golden Vectors](abi-golden-vectors.md)
+- [SPEC-0004 - Worldlines, Playback, and Observation](SPEC-0004-worldlines-playback-truthbus.md)
 
-The EINT v1 byte layout is:
+## Why this packet exists
 
-```text
-"EINT" (4 bytes)
-+ op_id (u32 little-endian)
-+ vars_len (u32 little-endian)
-+ vars (exactly vars_len bytes)
-```
+The WASM boundary is where browser and host code meet the Echo runtime. It must be small, deterministic, and explicit about what kind of operation is crossing: intent admission, scheduler inspection, or observation.
 
-For privileged control intents, `op_id` is always `0xffffffff` and `vars` are
-canonical-CBOR bytes that decode as `ControlIntentV1`.
+ABI version 6 keeps the current export shape and carries reading-envelope metadata for observation artifacts.
 
-Canonical payload shapes:
+## Human users / jobs / hills
 
-- `Start { mode: UntilIdle { cycle_limit: Option<u32> } }`
+Human users need browser tools that do not silently depend on wall-clock timing or unsupported exports.
 
-    ```cbor
-    {
-      "kind": "start",
-      "mode": {
-        "kind": "until_idle",
-        "cycle_limit": <u32 or null>
-      }
-    }
-    ```
+The hill: a UI can submit an intent, ask for scheduler status, or request an observation artifact; it cannot reach around the runtime to step, query, or render private state.
 
-- `Stop`
+## Agent users / jobs / hills
 
-    ```cbor
-    { "kind": "stop" }
-    ```
+Agent users need a stable automation boundary.
 
-- `SetHeadEligibility { head, eligibility }`
+The hill: an agent can generate canonical CBOR, call one export, inspect an `ok` envelope, and correlate the returned reading with logical ticks.
 
-    ```cbor
-    {
-      "kind": "set_head_eligibility",
-      "head": {
-        "worldline_id": WorldlineId,
-        "head_id": HeadId
-      },
-      "eligibility": "dormant" | "admitted"
-    }
-    ```
+## Decision 1: The ABI implements only the current epoch
 
-Notes:
+`ABI_VERSION` detects host/runtime mismatch. It does not promise compatibility with historical export shapes. Current exports are `init`, `dispatch_intent`, `observe`, `scheduler_status`, `get_registry_info`, `get_codec_id`, `get_registry_version`, and `get_schema_sha256_hex`.
 
-- `cycle_limit`, when present, must be non-zero.
-- The current engine-backed implementation supports `UntilIdle` only.
-- No wall-clock scheduler mode exists in ABI v3.
+Removed exports stay removed: `step`, `snapshot_at`, `render_snapshot`, `execute_query`, `get_head`, and `drain_view_ops`.
 
-Concrete `Start { mode: UntilIdle { cycle_limit: Some(1) } }` example:
+## Decision 2: All writes enter through EINT
 
-```text
-ControlIntentV1 payload (canonical CBOR hex):
-a2646b696e64657374617274646d6f6465a2646b696e646a756e74696c5f69646c656b6379636c655f6c696d697401
+`dispatch_intent(bytes)` accepts Echo intent envelopes: `"EINT" || op_id:u32le || vars_len:u32le || vars`.
 
-Packed EINT envelope (hex):
-45494e54ffffffff2f000000a2646b696e64657374617274646d6f6465a2646b696e646a756e74696c5f69646c656b6379636c655f6c696d697401
-```
+## Decision 3: Observation is the only public world-state read
 
-## Wire Envelope
+`observe(request)` returns an observation artifact with resolved coordinate, reading envelope, declared frame, declared projection, artifact hash, and payload.
 
-All `Uint8Array` returns use a CBOR envelope with an `ok` discriminator:
+## Decision 4: The ABI uses logical clocks only
 
-### Success
+The ABI names worldline ticks for append position, global ticks for runtime-cycle correlation, and run ids for control-plane generation. No ABI field depends on wall-clock time for semantics.
 
-```cbor
-{ "ok": true, ...response_fields }
-```
+## Decision 5: Results use canonical CBOR envelopes
 
-### Error
+Byte-returning exports use CBOR result envelopes: `{ "ok": true, ... }` or `{ "ok": false, "code": u32, "message": string }`.
 
-```cbor
-{ "ok": false, "code": <u32>, "message": <string> }
-```
-
-JS callers check `ok` before decoding the rest. The CBOR encoding follows the
-canonical rules in `docs/spec/js-cbor-mapping.md`.
-
-### Typed Field Encoding
-
-The scheduler-facing enums use serde's declared shapes directly:
-
-- `SchedulerState`, `WorkState`, `RunCompletion`, `HeadEligibility`, and
-  `HeadDisposition` serialize as snake_case text strings.
-- `SchedulerMode::UntilIdle { cycle_limit }` serializes as
-  `{ "kind": "until_idle", "cycle_limit": <u32 or null> }`.
-- `WorldlineId` and `HeadId` are typed opaque wrappers that serialize as
-  `bytes(32)`. Array-of-32-integers encodings are invalid for these fields.
-
-Concrete `scheduler_status()` example:
-
-```cbor
-{
-  "state": "inactive",
-  "active_mode": null,
-  "work_state": "quiescent",
-  "run_id": 7,
-  "latest_cycle_global_tick": 9,
-  "latest_commit_global_tick": 8,
-  "last_quiescent_global_tick": 9,
-  "last_run_completion": "quiesced"
-}
-```
-
-Canonical CBOR hex for that payload:
-
-```text
-a865737461746568696e6163746976656672756e5f6964076a776f726b5f737461746569717569657363656e746b6163746976655f6d6f6465f6736c6173745f72756e5f636f6d706c6574696f6e68717569657363656478186c61746573745f6379636c655f676c6f62616c5f7469636b0978196c61746573745f636f6d6d69745f676c6f62616c5f7469636b08781a6c6173745f717569657363656e745f676c6f62616c5f7469636b09
-```
-
-## Response Types
-
-### ObservationRequest
-
-The request payload for `observe(request)` is canonical-CBOR bytes that decode
-to:
-
-- `coordinate.worldline_id: WorldlineId` encoded as `bytes(32)`
-- `coordinate.at: frontier | tick { worldline_tick }`
-- `frame: commit_boundary | recorded_truth | query_view`
-- `projection: head | snapshot | truth_channels | query`
-
-### ObservationArtifact
-
-| Field           | Type                            | Description                                    |
-| --------------- | ------------------------------- | ---------------------------------------------- |
-| `resolved`      | `ResolvedObservationCoordinate` | Explicit resolved coordinate metadata          |
-| `reading`       | `ReadingEnvelope`               | Observer-relative reading-envelope metadata    |
-| `frame`         | enum                            | Declared semantic frame                        |
-| `projection`    | enum                            | Declared projection                            |
-| `artifact_hash` | bytes(32)                       | Canonical observation artifact hash            |
-| `payload`       | tagged union                    | Head, snapshot, recorded truth, or query bytes |
-
-`artifact_hash` is computed as
-`blake3("echo:observation-artifact:v2\0" || canonical_cbor(hash_input))`.
-
-### ObservationBasisPosture
-
-`reading.parent_basis_posture` is the read-side parent/strand posture of the
-observed coordinate:
-
-- `worldline`
-- `strand_historical { strand_id }`
-- `strand_at_anchor { strand_id }`
-- `strand_parent_advanced_disjoint { strand_id, parent_from, parent_to }`
-- `strand_revalidation_required { strand_id, parent_from, parent_to,
-overlapping_slot_count, overlapping_slots_digest }`
-
-The kernel retains the full overlapping slot list internally. The ABI carries a
-count plus deterministic digest until a stable public slot representation is
-introduced.
-
-### ReadingEnvelope
-
-`reading` is the observer-relative envelope around the payload:
-
-| Field                  | Type                      | Description                                              |
-| ---------------------- | ------------------------- | -------------------------------------------------------- |
-| `observer_plan`        | `ReadingObserverPlan`     | Observer plan identity selected for this reading         |
-| `observer_basis`       | `ReadingObserverBasis`    | Native distinctions the emitted reading preserves        |
-| `witness_refs`         | `ReadingWitnessRef[]`     | Provenance or empty-frontier witnesses for the reading   |
-| `parent_basis_posture` | `ObservationBasisPosture` | Parent/strand basis posture used by strand-relative read |
-| `budget_posture`       | `ReadingBudgetPosture`    | Budget posture for this reading                          |
-| `rights_posture`       | `ReadingRightsPosture`    | Rights or revelation posture for this reading            |
-| `residual_posture`     | `ReadingResidualPosture`  | Residual, obstruction, or plurality posture              |
-
-Current built-in one-shot observers use:
-
-- `observer_plan = builtin { plan }`, where `plan` is one of
-  `commit_boundary_head`, `commit_boundary_snapshot`,
-  `recorded_truth_channels`, or `query_bytes`
-- `observer_basis = commit_boundary | recorded_truth | query_view`
-- `budget_posture = unbounded_one_shot`
-- `rights_posture = kernel_public`
-- `residual_posture = complete`
-
-`witness_refs` contains `resolved_commit { reference }` when retained
-provenance witnesses the reading. Empty-frontier commit-boundary reads instead
-carry `empty_frontier { worldline_id, state_root, commit_hash }`.
-
-### ResolvedObservationCoordinate
-
-| Field                        | Type            | Description                                                                                                                                                       |
-| ---------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `observation_version`        | u32             | Observation contract version                                                                                                                                      |
-| `worldline_id`               | `WorldlineId`   | Worldline actually observed; serialized as `bytes(32)`                                                                                                            |
-| `requested_at`               | enum            | Original coordinate selector                                                                                                                                      |
-| `resolved_worldline_tick`    | `WorldlineTick` | Resolved coordinate; historical reads use zero-based committed append indices, while `0` plus `commit_global_tick = null` represents empty `U0` frontier metadata |
-| `commit_global_tick`         | `GlobalTick?`   | Commit cycle stamp for the resolved commit; `null` means the resolved coordinate is empty `U0` rather than a committed append                                     |
-| `observed_after_global_tick` | `GlobalTick?`   | Observation freshness watermark                                                                                                                                   |
-| `state_root`                 | bytes(32)       | Canonical full materialization root hash; empty `U0` observations still carry the deterministic `U0` materialization root                                         |
-| `commit_hash`                | bytes(32)       | Canonical frontier/commit hash at the resolved point; empty `U0` observations still carry the deterministic `U0` frontier snapshot hash                           |
-
-### ObservationProjection
-
-| Variant          | Shape                                                       | Description                                              |
-| ---------------- | ----------------------------------------------------------- | -------------------------------------------------------- |
-| `head`           | `{ "kind": "head" }`                                        | Head metadata projection                                 |
-| `snapshot`       | `{ "kind": "snapshot" }`                                    | Snapshot metadata projection                             |
-| `truth_channels` | `{ "kind": "truth_channels", "channels": bytes(32)[]? }`    | Recorded truth channel filter; `null` means all channels |
-| `query`          | `{ "kind": "query", "query_id": u32, "vars_bytes": bytes }` | Query projection placeholder                             |
-
-### ObservationPayload
-
-| Variant          | Shape                                                     | Description                     |
-| ---------------- | --------------------------------------------------------- | ------------------------------- |
-| `head`           | `{ "kind": "head", "head": HeadObservation }`             | Head metadata payload           |
-| `snapshot`       | `{ "kind": "snapshot", "snapshot": SnapshotObservation }` | Snapshot metadata payload       |
-| `truth_channels` | `{ "kind": "truth_channels", "channels": ChannelData[] }` | Recorded truth channel payloads |
-| `query_bytes`    | `{ "kind": "query_bytes", "data": bytes }`                | Query result bytes              |
-
-### HeadObservation
-
-| Field                | Type            | Description                                                                                                               |
-| -------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `worldline_tick`     | `WorldlineTick` | Frontier coordinate; `0` plus `commit_global_tick = null` means the observed frontier is empty `U0`                       |
-| `commit_global_tick` | `GlobalTick?`   | Commit cycle stamp for the observed frontier; `null` means no committed append yet                                        |
-| `state_root`         | bytes(32)       | Canonical full materialization root hash; empty `U0` observations still carry the deterministic `U0` materialization root |
-| `commit_id`          | bytes(32)       | Canonical frontier hash; empty `U0` observations still carry the deterministic `U0` frontier snapshot hash                |
-
-### SnapshotObservation
-
-| Field                | Type            | Description                                                                                                                    |
-| -------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `worldline_tick`     | `WorldlineTick` | Snapshot coordinate; historical reads use append indices, while frontier snapshot reads may return `0` + `null` for empty `U0` |
-| `commit_global_tick` | `GlobalTick?`   | Commit cycle stamp; `null` is reserved for an empty-frontier `U0` snapshot resolved from `ObservationAt::Frontier`             |
-| `state_root`         | bytes(32)       | Canonical full materialization root hash; empty `U0` snapshots still carry the deterministic `U0` materialization root         |
-| `commit_id`          | bytes(32)       | Canonical snapshot hash; empty `U0` snapshots still carry the deterministic `U0` frontier snapshot hash                        |
-
-### HeadInfo
-
-Returned by `init()`.
-
-| Field                | Type            | Description                                                                                                           |
-| -------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `worldline_tick`     | `WorldlineTick` | Current committed frontier position; `0` plus `commit_global_tick = null` means empty `U0`                            |
-| `commit_global_tick` | `GlobalTick?`   | Cycle stamp for the current commit; `null` means no commits yet                                                       |
-| `state_root`         | bytes(32)       | Canonical full materialization BLAKE3 root hash; empty `U0` still carries the deterministic `U0` materialization root |
-| `commit_id`          | bytes(32)       | Canonical frontier hash; empty `U0` still carries the deterministic `U0` frontier snapshot hash                       |
-
-### DispatchResponse
-
-| Field              | Type              | Description                                    |
-| ------------------ | ----------------- | ---------------------------------------------- |
-| `accepted`         | bool              | `true` if newly accepted, `false` if duplicate |
-| `intent_id`        | bytes(32)         | Content-addressed intent hash                  |
-| `scheduler_status` | `SchedulerStatus` | Scheduler metadata after ingest/apply          |
-
-### SchedulerStatus
-
-| Field                        | Type             | Description                                          |
-| ---------------------------- | ---------------- | ---------------------------------------------------- |
-| `state`                      | `SchedulerState` | Scheduler lifecycle state                            |
-| `active_mode`                | `SchedulerMode?` | Active mode while a run is configured                |
-| `work_state`                 | `WorkState`      | Whether runnable work exists at the current boundary |
-| `run_id`                     | `RunId?`         | Current or latest run generation token               |
-| `latest_cycle_global_tick`   | `GlobalTick?`    | Latest completed runtime cycle                       |
-| `latest_commit_global_tick`  | `GlobalTick?`    | Latest cycle that produced a commit                  |
-| `last_quiescent_global_tick` | `GlobalTick?`    | Most recent transition into quiescence               |
-| `last_run_completion`        | `RunCompletion?` | Why the most recent run ended                        |
-
-Current engine-backed behavior:
-
-- `init()` leaves the runtime inert.
-- `Start { mode: UntilIdle { ... } }` runs synchronously inside the control
-  intent handler and returns after the run completes.
-- `Stop` is a no-op when the scheduler is already inactive; it does not rewrite
-  `last_run_completion` for a finished run.
-- Hosts normally observe `state = inactive` plus `last_run_completion`, not a
-  long-lived running scheduler loop.
-
-### ChannelData
-
-| Field        | Type      | Description                        |
-| ------------ | --------- | ---------------------------------- |
-| `channel_id` | bytes(32) | Materialization channel identifier |
-| `data`       | bytes     | Raw finalized channel output       |
-
-### Settlement Evidence
-
-`SettlementDelta` and `SettlementPlan` carry `basis_report`. The report is a
-compact summary of the internal `StrandBasisReport`: parent anchor, child
-worldline, suffix tick bounds, realized parent ref, closed-footprint slot count,
-parent-written slot count, and parent revalidation posture.
-
-`SettlementParentRevalidation` is one of:
-
-- `at_anchor`
-- `parent_advanced_disjoint { parent_from, parent_to }`
-- `revalidation_required { parent_from, parent_to, overlapping_slot_count,
-overlapping_slots_digest }`
-
-`ImportCandidate` and `ConflictArtifactDraft` carry
-`overlap_revalidation: SettlementOverlapRevalidation?`. It is present only when
-the decision explicitly revalidated parent movement inside an overlapped
-footprint.
-
-`SettlementOverlapRevalidation` is one of:
-
-- `clean { overlapping_slot_count, overlapping_slots_digest }`
-- `obstructed { overlapping_slot_count, overlapping_slots_digest }`
-- `conflict { overlapping_slot_count, overlapping_slots_digest }`
-
-The ABI intentionally does not expose raw internal slot ids. Overlap evidence
-uses a count plus deterministic digest until a stable public slot DTO exists.
-
-### RegistryInfo
-
-| Field               | Type    | Description                                   |
-| ------------------- | ------- | --------------------------------------------- |
-| `codec_id`          | string? | Codec identifier (e.g. `"cbor-canonical-v1"`) |
-| `registry_version`  | string? | Registry version                              |
-| `schema_sha256_hex` | string? | Schema hash (hex)                             |
-| `abi_version`       | u32     | ABI contract version (currently `7`)          |
-
-## Error Codes
-
-| Code | Name                           | Meaning                                                    |
-| ---- | ------------------------------ | ---------------------------------------------------------- |
-| 1    | `NOT_INITIALIZED`              | `init()` not called                                        |
-| 2    | `INVALID_INTENT`               | Malformed EINT intent envelope                             |
-| 3    | `ENGINE_ERROR`                 | Internal engine failure                                    |
-| 4    | `LEGACY_INVALID_TICK`          | Reserved for the removed v1 snapshot adapter               |
-| 5    | `NOT_SUPPORTED`                | Operation not implemented                                  |
-| 6    | `CODEC_ERROR`                  | CBOR encode/decode failure                                 |
-| 7    | `INVALID_PAYLOAD`              | Corrupted input bytes                                      |
-| 8    | `INVALID_WORLDLINE`            | Requested worldline missing                                |
-| 9    | `INVALID_TICK`                 | Requested observation tick missing                         |
-| 10   | `UNSUPPORTED_FRAME_PROJECTION` | Invalid frame/projection pair                              |
-| 11   | `UNSUPPORTED_QUERY`            | Query observation not yet implemented                      |
-| 12   | `OBSERVATION_UNAVAILABLE`      | Valid request but no observation exists at that coordinate |
-| 13   | `INVALID_CONTROL`              | Malformed or invalid control intent                        |
-
-## Rust Boundary
-
-`KernelPort` is the Rust-side ABI contract for `warp-wasm`.
-
-- `dispatch_intent(...)`
-- `observe(...)`
-- `scheduler_status()`
-- `registry_info()`
-
-The trait does not expose the removed v1 read adapters or a public step/pump
-surface. Implementors that need head or snapshot data must derive them from
-their own observation-backed internals rather than adding parallel public read
-methods.
-
-## Historical Migration Notes
-
-These notes explain past breaking contract epochs for host adapters. They do
-not imply that Echo keeps multiple runtime ABI implementations alive.
-
-### From ABI v2 to ABI v3
-
-1. Stop calling `step(...)`; the export is absent in ABI v3.
-2. Continue treating `observe(request)` as the only canonical public
-   world-state read boundary.
-3. Route scheduler lifecycle and admission requests through
-   `dispatch_intent(...)` using `ControlIntentV1` packed into an EINT envelope.
-4. Read `RegistryInfo.abi_version` and reject hosts that still expect older
-   step surface.
-5. Rename host-side field access from bare `tick`-style fields to explicit
-   `worldline_tick`, `commit_global_tick`, and
-   `observed_after_global_tick` fields.
-6. Treat all ABI clocks as logical coordinates only. They are not wall-clock
-   durations, timer inputs, or global ordering cursors.
-7. Expect query-shaped observations to continue returning
-   `UNSUPPORTED_QUERY` until a real observation-backed query implementation
-   lands.
-
-### From ABI v4 to ABI v5
-
-1. Decode `ObservationArtifact.basis_posture` on every observation response.
-2. Include `basis_posture` in any host-side observation artifact hash
-   verification.
-3. Treat `strand_revalidation_required` as a visible read posture, not as a
-   materialized-state failure.
-4. Use `overlapping_slot_count` and `overlapping_slots_digest` as witness
-   metadata only. The stable public slot representation is still deferred.
-
-### From ABI v5 to ABI v6
-
-1. Decode `ObservationArtifact.reading` on every observation response.
-2. Read parent/strand basis posture from
-   `ObservationArtifact.reading.parent_basis_posture`.
-3. Include the full `reading` envelope in host-side observation artifact hash
-   verification.
-4. Treat `observer_plan`, `observer_basis`, `witness_refs`, `budget_posture`,
-   `rights_posture`, and `residual_posture` as stable reading-envelope
-   metadata for built-in one-shot observers.
-
-## Compatibility Note
-
-Only the current ABI is implemented. Version 6 is intentionally breaking
-relative to version 5 for observation responses. Version 3 remains the major
-export-shape break that removed step/pump; version 6 preserves that export
-shape while making observation artifacts explicit reading envelopes.
+Implementation evidence: `crates/warp-wasm/src/lib.rs`, `crates/warp-wasm/src/kernel.rs`, `crates/echo-wasm-abi/src/*`, and `crates/echo-wasm-abi/tests/*`.

@@ -10,10 +10,10 @@
 </p>
 
 <p align="center">
-  <a href="docs/guide/start-here.md">Get Started</a> •
+  <a href="docs/index.md">Docs</a> •
   <a href="docs/architecture/outline.md">Architecture</a> •
   <a href="CONTINUUM.md">Continuum</a> •
-  <a href="docs/index.md">Docs</a> •
+  <a href="docs/spec/warp-core.md">warp-core</a> •
   <a href="https://github.com/flyingrobots/aion">AIΩN Framework</a>
 </p>
 
@@ -265,7 +265,7 @@ cargo xtask dind run
 
 ## Documentation
 
-- **[Guide](./docs/guide/start-here.md)**: Orientation, the fast path, and core concepts.
+- **[Docs](./docs/index.md)**: Live docs map for runtime, replay, observation, and determinism.
 - **[Bearing](./docs/BEARING.md)**: Current repo bearing and near-term priorities.
 - **[Architecture](./docs/architecture/outline.md)**: Architecture map and layer model.
 - **[WARP Drift](./docs/architecture/WARP_DRIFT.md)**: Current doctrine corrections around strands, observation, and suffix admission.

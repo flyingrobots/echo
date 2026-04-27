@@ -4,78 +4,53 @@ import { defineConfig } from "vitepress";
 
 export default defineConfig({
   title: "Echo",
-  description:
-    "Real-Time, Deterministic, Recursive Meta-Graph Simulation Engine",
+  description: "Deterministic WARP runtime docs for Echo",
   cleanUrls: true,
-  srcExclude: ["assets/dags/tasks-dag-source.md"],
+  srcExclude: ["method/**", "design/**"],
   themeConfig: {
-    search: {
-      provider: "local",
-    },
+    search: { provider: "local" },
     nav: [
       { text: "Home", link: "/" },
-      { text: "Start Here", link: "/guide/start-here" },
-      { text: "Docs Map", link: "/" },
-      {
-        text: "Guides",
-        items: [
-          { text: "Echo (ELI5)", link: "/guide/eli5" },
-          { text: "WARP Primer", link: "/guide/warp-primer" },
-          { text: "WVP Demo", link: "/guide/wvp-demo" },
-          { text: "Collision Tour", link: "/guide/collision-tour" },
-        ],
-      },
+      { text: "Runtime Model", link: "/architecture/outline" },
+      { text: "Theory Map", link: "/theory/THEORY" },
       {
         text: "Specs",
         items: [
           { text: "warp-core", link: "/spec/warp-core" },
+          { text: "Scheduler", link: "/spec/scheduler-warp-core" },
           { text: "Tick Patch", link: "/spec/warp-tick-patch" },
-          { text: "Serialization", link: "/spec-serialization-protocol" },
-          { text: "Branch Tree", link: "/spec-branch-tree" },
+          { text: "Merkle Commit", link: "/spec/merkle-commit" },
+          { text: "WASM ABI", link: "/spec/SPEC-0009-wasm-abi" },
           { text: "WVP", link: "/spec/warp-view-protocol" },
         ],
       },
     ],
     sidebar: {
       "/": [
-        {
-          text: "Start Here",
-          items: [
-            { text: "Start Here", link: "/guide/start-here" },
-            { text: "WARP Primer", link: "/guide/warp-primer" },
-            { text: "Docs Map", link: "/" },
-            { text: "Architecture Outline", link: "/architecture/outline" },
-          ],
-        },
-        {
-          text: "WARP",
-          items: [
-            { text: "warp-core Spec", link: "/spec/warp-core" },
-            { text: "Tick Patch Spec", link: "/spec/warp-tick-patch" },
-            { text: "WVP Spec", link: "/spec/warp-view-protocol" },
-            {
-              text: "Serialization Spec",
-              link: "/spec-serialization-protocol",
-            },
-            { text: "Branch Tree Spec", link: "/spec-branch-tree" },
-          ],
-        },
-        {
-          text: "Subsystem Hubs",
-          items: [{ text: "Scheduler", link: "/spec/scheduler-warp-core" }],
-        },
-      ],
-      "/guide/": [
-        {
-          text: "Guide",
-          items: [
-            { text: "Echo (ELI5)", link: "/guide/eli5" },
-            { text: "Start Here", link: "/guide/start-here" },
-            { text: "WARP Primer", link: "/guide/warp-primer" },
-            { text: "WVP Demo", link: "/guide/wvp-demo" },
-            { text: "Collision Tour", link: "/guide/collision-tour" },
-          ],
-        },
+        { text: "Overview", items: [
+          { text: "Docs Map", link: "/" },
+          { text: "Runtime Model", link: "/architecture/outline" },
+          { text: "Theory Map", link: "/theory/THEORY" },
+          { text: "Current Bearing", link: "/BEARING" },
+        ] },
+        { text: "Kernel Specs", items: [
+          { text: "warp-core", link: "/spec/warp-core" },
+          { text: "Attachment Atoms", link: "/spec/SPEC-0001-attachment-plane-v0-atoms" },
+          { text: "Descended Attachments", link: "/spec/SPEC-0002-descended-attachments-v1" },
+          { text: "DPO Litmus", link: "/spec/SPEC-0003-dpo-concurrency-litmus-v0" },
+          { text: "Scheduler", link: "/spec/scheduler-warp-core" },
+          { text: "Tick Patch", link: "/spec/warp-tick-patch" },
+          { text: "Merkle Commit", link: "/spec/merkle-commit" },
+          { text: "Canonical Inbox", link: "/spec/canonical-inbox-sequencing" },
+        ] },
+        { text: "Platform Specs", items: [
+          { text: "Worldlines + Observation", link: "/spec/SPEC-0004-worldlines-playback-truthbus" },
+          { text: "Provenance Payload", link: "/spec/SPEC-0005-provenance-payload" },
+          { text: "WASM ABI", link: "/spec/SPEC-0009-wasm-abi" },
+          { text: "JS/CBOR Mapping", link: "/spec/js-cbor-mapping" },
+          { text: "ABI Golden Vectors", link: "/spec/abi-golden-vectors" },
+          { text: "WARP View Protocol", link: "/spec/warp-view-protocol" },
+        ] },
       ],
     },
   },

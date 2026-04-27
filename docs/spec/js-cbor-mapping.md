@@ -1,59 +1,49 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# JS → Canonical CBOR Mapping Rules (ABI v1)
+# JS to Canonical CBOR Mapping
 
-Status: Current ABI rule document
+_Define how host-side JavaScript values become deterministic ABI bytes._
 
-These rules define how host-side JS/TS values must be mapped into canonical CBOR
-before crossing the ABI boundary. The same rules apply to generated WASM helper
-surfaces such as `encode_command` / `encode_query_vars` and to native tooling
-that emits ABI payloads.
+Legend: PLATFORM
 
-## Scalars
+Depends on:
 
-- `null` → CBOR null
-- `boolean` → CBOR bool
-- `string` → CBOR text (UTF-8)
-- `number`
-    - If integral and `abs(n) <= Number.MAX_SAFE_INTEGER` → CBOR integer (shortest width)
-    - Else → CBOR float (smallest width that round-trips; NaN/±∞ allowed, canonicalized)
-- **Ban** `undefined` (error)
-- **Ban** `BigInt` for P1 (use string/bytes if needed)
+- [SPEC-0009 - WASM ABI Contract](SPEC-0009-wasm-abi.md)
+- [ABI Golden Vectors](abi-golden-vectors.md)
 
-## Bytes
+## Why this packet exists
 
-- `Uint8Array` → CBOR byte string (definite length)
+At the ABI boundary, bytes are the identity surface. JavaScript values have ambient behaviors that are not deterministic enough for hashing, replay, or ledger stamping. This packet defines the allowed mapping into canonical CBOR.
 
-## Arrays
+## Human users / jobs / hills
 
-- JS array → CBOR array (definite length), elements encoded recursively.
+Human users need host adapter bugs to fail before they enter the kernel.
 
-## Objects (Maps)
+The hill: malformed or non-canonical values are rejected at the boundary with a clear ABI error instead of being normalized differently by different hosts.
 
-- Keys **must** be strings; non-string keys are rejected.
-- Encoded as CBOR map with keys sorted by their CBOR byte encoding (canonical).
-- Duplicate keys are rejected.
-- Unknown/extra fields should be rejected at schema validation (Zod/Rust).
+## Agent users / jobs / hills
 
-## Prohibited CBOR features
+Agent users need deterministic payload construction.
 
-- No tags.
-- No indefinite-length strings, arrays, or maps.
-- Shortest encodings required for ints/floats.
+The hill: an agent can encode the same logical value twice and get byte-identical CBOR before submitting it as an intent or observation request.
 
-## Error surface (host-facing)
+## Decision 1: The supported scalar mapping is narrow
 
-- INVALID_INPUT for: undefined, BigInt, non-string map keys, duplicate keys, unknown fields,
-  missing required fields, non-canonical float/int widths, indefinite-length items.
+`null`, booleans, strings, safe integral numbers, and canonical floats are allowed. `undefined` and `BigInt` are rejected for the current ABI mapping.
 
-## Canonical payload identity
+## Decision 2: Bytes and arrays are definite-length only
 
-- The exact CBOR bytes produced by these rules are the authoritative payload for hashing
-  and ledger stamping. Re-encoding the same logical value must yield identical bytes.
+`Uint8Array` maps to a definite-length byte string. JS arrays map to definite-length arrays with recursively encoded elements. Indefinite-length CBOR is never accepted or emitted.
 
-## References
+## Decision 3: Objects map to sorted string-key maps
 
-- `crates/echo-wasm-abi/src/canonical.rs` — canonical encoder/decoder and rejection tests.
-- `crates/echo-wasm-abi/tests/canonical_vectors.rs` — golden vectors and rejection cases.
-- `crates/echo-session-proto/src/wire.rs` — session packet framing that carries canonical CBOR payloads.
+Object keys must be strings. Encoded map keys are sorted by their CBOR byte encoding, not insertion order. Duplicate keys, non-string keys, unknown fields, and missing required fields are schema errors.
+
+## Decision 4: Prohibited CBOR features stay prohibited
+
+The ABI mapping does not use tags, indefinite-length values, non-shortest integer encodings, or non-canonical float encodings.
+
+## Decision 5: Canonical bytes are payload identity
+
+The bytes produced by this mapping are the bytes used for hashing, ledger identity, EINT payloads, and observation requests.

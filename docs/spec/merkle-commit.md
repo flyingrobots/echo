@@ -1,158 +1,50 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# Snapshot Commit Spec (v2)
+# Merkle Commit
 
-> **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
->
-> **Status:** `state_root`, `commit_id` v2, `patch_digest`, `plan_digest`,
-> `decision_digest`, and `rewrites_digest` are implemented in `warp-core`.
+_Define the state and commit hashes that let Echo retain a witnessed history without retaining observer interpretations as canonical state._
 
-This document precisely defines the two hashes produced by the engine when recording state and provenance.
+Legend: KERNEL
 
-- state_root: BLAKE3 of the canonical encoding of the reachable WARP state under the current root (including attachments and descended instances).
-- commit hash (commit_id): BLAKE3 of a header that includes state_root, parent commit(s), the tick patch digest (boundary delta), plus a policy id.
+Depends on:
 
-## 1. Canonical State Encoding (state_root)
+- [WARP Tick Patch](warp-tick-patch.md)
+- [SPEC-0001 - Attachment Plane v0 Typed Atoms](SPEC-0001-attachment-plane-v0-atoms.md)
+- [SPEC-0002 - Descended Attachments v1](SPEC-0002-descended-attachments-v1.md)
 
-Inputs: `WarpState`, root `NodeKey`.
+## Why this packet exists
 
-Deterministic traversal:
+Echo needs stable hash commitments for replay, slicing, and audit. The hash boundary must commit to the witnessed carrier and replayable delta, while leaving observer-relative readings and diagnostic narration outside the commit unless a later version explicitly adds them.
 
-- Reachability: deterministic BFS from the root `NodeKey` across instances:
-    - within an instance: follow outbound skeleton edges
-    - across instances: follow any `AttachmentValue::Descend(child_warp)` encountered on:
-        - reachable nodes (α plane), and
-        - reachable edges (β plane)
-    - descending enqueues the `WarpInstance.root_node` of `child_warp`
-- Warp order: reachable `WarpId` values in ascending order (lexicographic over 32-byte ids).
-- Node order: ascending `NodeId` within each warp (lexicographic over 32-byte ids), filtered to reachable nodes in that warp.
-- Edge order: per reachable source bucket, sort edges by ascending `EdgeId`, and include only edges whose destination node is reachable.
+## Human users / jobs / hills
 
-Identifiers are compared as opaque 32-byte sequences in lexicographic order (bytes[0]..bytes[31]). No integer interpretation is applied during traversal ordering.
+Human users need hash mismatches to mean something concrete.
 
-Encoding (little-endian where applicable):
+The hill: when a state root or commit id changes, a reviewer can trace the change to reachable state, patch bytes, parents, or policy id.
 
-- Root key:
-    - `root_warp_id: 32`
-    - `root_node_id: 32`
-- For each reachable warp (in order):
-    - Instance header:
-        - `warp_id: 32`
-        - `root_node_id: 32` (the instance-local root)
-        - `parent_key_opt`:
-            - `present: u8` (`0` = None, `1` = Some)
-            - when present: `attachment_key` (see below)
-    - For each reachable node in that warp (in order):
-        - `node_id: 32`
-        - `node_type_id: 32`
-        - `attachment_value_opt` for the node’s α-plane slot (see below)
-    - For each reachable source bucket in that warp (in order):
-        - `from_node_id: 32`
-        - `edge_count: u64 LE` (number of included edges after reachability filter)
-        - For each included edge (in order):
-            - `edge_id: 32`
-            - `edge_type_id: 32`
-            - `to_node_id: 32`
-            - `attachment_value_opt` for the edge’s β-plane slot (see below)
+## Agent users / jobs / hills
 
-Where:
+Agent users need deterministic equality tests.
 
-- `attachment_key` encodes the identity of an attachment slot:
-    - `owner_tag: u8` (`1` = Node, `2` = Edge)
-    - `plane_tag: u8` (`1` = Alpha, `2` = Beta)
-    - `owner_warp_id: 32`
-    - `owner_local_id: 32` (raw `NodeId` or `EdgeId` bytes)
-- `attachment_value_opt` encodes the value stored in an attachment slot:
-    - `present: u8` (`0` = None, `1` = Some)
-    - when present:
-        - `value_tag: u8` (`1` = Atom, `2` = Descend)
-        - if Atom: `payload_type_id: 32`, `payload_len: u64 LE`, then raw bytes. A `payload_len` of 0 is valid and indicates an empty payload with no subsequent bytes. Implementations MUST validate that `payload_len` does not exceed a repository-defined maximum before processing.
-        - if Descend: `child_warp_id: 32`
+The hill: an agent can rebuild a state from retained patches and compare the same `state_root` and commit id without access to the original process.
 
-Hash: blake3(encoding) → 32-byte digest.
+## Decision 1: `state_root` commits to reachable WARP state
 
-## 2. Commit Header (commit_id)
+The state root is BLAKE3 over canonical encoding of reachable WARP state from a root `NodeKey`. Reachability follows outbound skeleton edges and descended attachment portals from reachable node/edge slots.
 
-Header fields (v2):
+## Decision 2: `commit_id` v2 commits to replay, not narration
 
-- version: u16 = 2
-- parents: `Vec<Hash>` (length u64 LE, then each 32-byte hash). Genesis commits
-  have zero parents (length = 0). Current `compute_commit_hash_v2()` hashes the
-  parent slice exactly as supplied; callers that admit merge commits are
-  responsible for deterministic parent ordering.
-- state_root: 32 bytes (from section 1)
-- patch_digest: 32 bytes (digest of the tick patch boundary delta)
-- policy_id: u32 (version pin for Aion policy)
+Commit header v2 commits to version, parents, state root, patch digest, and policy id. `patch_digest` is the digest of the replayable tick patch.
 
-Hash: blake3(encode(header)) → commit_id.
+## Decision 3: Diagnostic digests are retained but not committed by v2
 
-### 2.1 patch_digest (Tick patch digest)
+`plan_digest`, `decision_digest`, and `rewrites_digest` are deterministic diagnostics. They are useful witnesses, but commit hash v2 does not include them.
 
-`patch_digest` commits to the tick patch boundary artifact: a replayable delta
-patch with canonical ops and conservative in/out slot sets.
+## Decision 4: Empty list digests are length-prefixed
 
-Canonical encoding for the tick patch (v2) is defined in [WARP Tick Patch](/spec/warp-tick-patch).
+For length-prefixed list digests, `EMPTY_LEN_DIGEST = blake3(0u64.to_le_bytes())`. It is not `blake3(b"")`.
 
----
+## Decision 5: Readings stay outside the commit unless promoted
 
-## 3. Diagnostic Digests (not committed into commit_id v2)
-
-Echo retains several deterministic digests on `Snapshot` for debugging and
-tooling, but commit hash v2 intentionally does **not** commit to them.
-
-### 3.1 plan_digest
-
-`plan_digest` is a deterministic digest of the candidate ready set and its
-canonical ordering (encoded as a length-prefixed list; empty list =
-`EMPTY_LEN_DIGEST`).
-
-### 3.2 decision_digest (Tick receipt digest)
-
-Until Aion integration lands, `decision_digest` commits to the **tick receipt**
-outcomes (accepted vs rejected candidates).
-
-Canonical encoding (v1) for the tick receipt digest:
-
-- If the tick receipt has **0 entries**, `decision_digest` is the canonical empty
-  digest: `EMPTY_LEN_DIGEST` (see section 4).
-- Otherwise, compute `blake3(encoding)` where `encoding` is:
-    - `version: u16 = 1`
-    - `count: u64` number of entries
-    - For each entry (in canonical plan order):
-        - `rule_id: 32`
-        - `scope_hash: 32`
-        - `scope: 32` (raw 32-byte `NodeId` inner value: `NodeId.0`)
-        - `disposition_code: u8`
-            - `1` = Applied
-            - `2` = Rejected(FootprintConflict)
-
-Note: `TickReceipt` may expose additional debugging/provenance metadata (e.g. a
-blocking-causality witness for rejections). `decision_digest` v1 intentionally
-commits only to accepted vs rejected outcomes (and the coarse rejection code),
-not to the blocker metadata.
-
-### 3.3 rewrites_digest
-
-`rewrites_digest` is a deterministic digest of the ordered rewrites applied
-during the tick (encoded as a length-prefixed list; empty list =
-`EMPTY_LEN_DIGEST`).
-
-## 4. Invariants and Notes
-
-Constants:
-
-- `EMPTY_LEN_DIGEST = blake3(0u64.to_le_bytes())` -- used as the canonical digest when a collection contains zero entries. This is the value returned by the engine’s `digest_len0_u64()` helper.
-
-Invariants:
-
-- Any change to ordering, lengths, or endianness breaks all prior hashes.
-- The commit_id (v2) is stable across identical states and patch deltas, independent of runtime.
-- The canonical empty digest for _length-prefixed list digests_ is
-  `EMPTY_LEN_DIGEST` (not `blake3(b"")`). This keeps empty-digest semantics consistent with the
-  encoding strategy (the length prefix is part of the canonical byte stream).
-
-## 5. Future Evolution
-
-- v3 (and later) may add additional fields (e.g., signer, timestamp) and bump header version.
-- Migrations must document how to re-compute commit_id for archival data.
+Observation artifacts, view frames, and session packets are readings over the carrier. They may have their own hashes, but they are not part of `commit_id` v2.

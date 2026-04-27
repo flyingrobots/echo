@@ -1,56 +1,45 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# WARP Stream Wire Protocol
+# WARP View Protocol
 
-> **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
->
-> **Status:** Current wire-schema reference for the WARP stream message types
-> implemented by `crates/echo-session-proto`. This document is scoped to
-> packet/message encoding and does not specify a session hub, viewer binary, or
-> ownership service.
+_Define the current `echo-session-proto` packet schema for sharing renderable WARP readings._
 
-A narrow, deterministic packet schema for sharing **WARP streams**: snapshots
-and diffs over the renderable graph types re-exported from `echo-graph`.
+Legend: PLATFORM
 
-## Goals
+Depends on:
 
-- Stable message names for WARP stream snapshots/diffs.
-- Canonical CBOR payloads with deterministic packet framing.
-- Shared Rust types for browser/session-facing tools that consume
-  `echo-session-proto`.
+- [JS to Canonical CBOR Mapping](js-cbor-mapping.md)
+- [SPEC-0009 - WASM ABI Contract](SPEC-0009-wasm-abi.md)
 
-## Transport
+## Why this packet exists
 
-- Encoding: canonical CBOR via `ciborium` (see `crates/echo-session-proto`).
-- Framing: JS-ABI v1.0 packet framing (`MAGIC || VERSION || FLAGS || LENGTH || PAYLOAD || CHECKSUM`).
-- Payload length: the JS-ABI packet uses a `u32` payload length and a checksum.
-- `Packet::decode_envelope` validates magic, version, payload completeness, and checksum.
+Session tools need a small wire schema for snapshots and diffs over renderable graph types. This packet documents the implemented message set in `echo-session-proto`; it does not define a session hub, ownership service, or kernel replay protocol.
 
-## Message Set
+## Human users / jobs / hills
 
-The current wire schema is intentionally small:
+Human users need viewer tools that can reconnect to a stream and understand the message shape.
 
-- `handshake` / `handshake_ack`
-- `subscribe_warp { warp_id }`
-- `warp_stream { warp_id, frame }`
-    - `frame = Snapshot(WarpSnapshot) | Diff(WarpDiff)`
-- `notification`
-- `error`
+The hill: a tool can decode a packet, identify the WARP stream, and apply a snapshot or diff to its renderable view.
 
-See `crates/echo-session-proto/src/lib.rs` and `crates/echo-session-proto/src/wire.rs` for the canonical Rust types and op strings.
+## Agent users / jobs / hills
 
-## Frame Semantics
+Agent users need stable message names for automation and tests.
 
-- `WarpId` identifies the WARP stream.
-- `WarpFrame` is either `Snapshot(WarpSnapshot)` or `Diff(WarpDiff)`.
-- `WarpSnapshot` is a full renderable graph snapshot for an epoch.
-- `WarpDiff` carries graph operations from one epoch to another.
-- `state_hash` fields are optional integrity hints carried by `echo-graph`
-  snapshot/diff types.
+The hill: an agent can generate a handshake, subscribe to a WARP stream, and decode `warp_stream` frames using shared Rust types.
 
-## Decoder Compatibility
+## Decision 1: This protocol carries readings, not kernel commits
 
-- Encoders emit `subscribe_warp`, `warp_stream`, and `warp_id`.
-- Decoders also accept `subscribe_rmg`, `rmg_stream`, and `rmg_id` because the
-  Rust types intentionally carry those aliases.
+The protocol transports renderable snapshots and diffs from `echo-graph`. Optional state hashes are integrity hints carried by those view types. Kernel replay and commit verification use tick patches and Merkle commits, not view-protocol frames.
+
+## Decision 2: Packet framing is deterministic
+
+Encoding uses canonical CBOR payloads inside the JS-ABI packet frame: `MAGIC || VERSION || FLAGS || LENGTH || PAYLOAD || CHECKSUM`.
+
+## Decision 3: The message set is intentionally small
+
+Current messages are `handshake`, `handshake_ack`, `subscribe_warp`, `warp_stream`, `notification`, and `error`. A `warp_stream` frame is either `Snapshot(WarpSnapshot)` or `Diff(WarpDiff)`.
+
+## Decision 4: Compatibility aliases are decoder-only history
+
+Encoders emit WARP names. Decoders may accept older RMG aliases where the Rust types intentionally support them. New documents and examples should use WARP names only.

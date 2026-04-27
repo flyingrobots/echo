@@ -24,7 +24,7 @@ iterate without turning docs into a museum or a second codebase:
 
 ## What just shipped?
 
-The Continuum cutover is no longer just design text:
+The runtime-doctrine cutover is no longer just design text:
 
 - `0007` has runtime shape through `crates/warp-core/src/neighborhood.rs` and
   `NeighborhoodSiteService`.

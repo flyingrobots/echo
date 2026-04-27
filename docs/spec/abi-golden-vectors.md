@@ -1,81 +1,59 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# ABI Golden Vectors (v1)
+# ABI Golden Vectors
+
+_Define the canonical byte examples that keep host encoders and runtime decoders aligned._
+
+Legend: PLATFORM
 
 Status: Partial Rust-side vector set
 
-These vectors document the **Canonical CBOR subset** used by the WASM ABI.
-Rust-side encoder/decoder checks live in
-`crates/echo-wasm-abi/tests/canonical_vectors.rs`; the canonical JS mapping is
-specified in [`js-cbor-mapping.md`](js-cbor-mapping.md). Host-side
-conformance vectors still need to be expanded before this can be treated as a
-complete cross-language ABI lock.
+Depends on:
 
-## 1. Scalars
+- [SPEC-0009 - WASM ABI Contract](SPEC-0009-wasm-abi.md)
+- [JS to Canonical CBOR Mapping](js-cbor-mapping.md)
 
-| Value   | Hex Encoding | Description      |
-| :------ | :----------- | :--------------- |
-| `null`  | `f6`         | CBOR Null        |
-| `true`  | `f5`         | CBOR True        |
-| `false` | `f4`         | CBOR False       |
-| `0`     | `00`         | Smallest Int     |
-| `-1`    | `20`         | Smallest Neg Int |
-| `23`    | `17`         | Boundary Int     |
-| `24`    | `18 18`      | 1-byte Int       |
-| `255`   | `18 ff`      | 1-byte Int Max   |
-| `256`   | `19 01 00`   | 2-byte Int       |
+## Why this packet exists
 
-## 2. Strings (UTF-8)
+The ABI is a byte contract. Golden vectors are the shared evidence that independent encoders emit the same bytes for the same logical value.
 
-| Value    | Hex Encoding     | Description   |
-| :------- | :--------------- | :------------ |
-| `""`     | `60`             | Empty string  |
-| `"a"`    | `61 61`          | 1-char string |
-| `"echo"` | `64 65 63 68 6f` | 4-char string |
+## Human users / jobs / hills
 
-## 3. Maps (Sorted Keys)
+Human users need ABI failures to be diagnosable.
 
-Maps MUST be sorted by the bytewise representation of their encoded keys.
+The hill: when a host adapter changes, a reviewer can compare expected hex with actual hex and identify whether the drift is key ordering, integer width, definite length, or schema shape.
 
-### Example: `{ "b": 1, "a": 2 }`
+## Agent users / jobs / hills
 
-- Key `"a"` encodes to `61 61`
-- Key `"b"` encodes to `61 62`
-- Correct Order: `"a"`, then `"b"`
-- **Hex**: `a2 61 61 02 61 62 01`
+Agent users need compact fixtures for conformance checks.
 
-### Test-backed vector: `{ "a": 1, "b": true }`
+The hill: an agent can generate a payload, compare it against these vectors, and decide whether it is safe to cross the WASM boundary.
 
-This vector is enforced by `golden_sample_map` in
-`crates/echo-wasm-abi/tests/canonical_vectors.rs`.
+## Decision 1: Golden vectors are evidence, not a second spec
 
-- Key `"a"` encodes to `61 61`
-- Key `"b"` encodes to `61 62`
-- **Hex**: `a2 61 61 01 61 62 f5`
+The mapping rules live in [JS to Canonical CBOR Mapping](js-cbor-mapping.md). This packet gives executable examples aligned with `crates/echo-wasm-abi/tests/canonical_vectors.rs`.
 
-## 4. Nested Structures
+## Decision 2: Scalar vectors cover shortest-width encoding
 
-### AppState Sample
+| Value   | Hex        | Meaning                     |
+| ------- | ---------- | --------------------------- |
+| `null`  | `f6`       | CBOR null                   |
+| `true`  | `f5`       | CBOR true                   |
+| `false` | `f4`       | CBOR false                  |
+| `0`     | `00`       | smallest unsigned integer   |
+| `-1`    | `20`       | smallest negative integer   |
+| `23`    | `17`       | one-byte major-type payload |
+| `24`    | `18 18`    | uint8 boundary              |
+| `255`   | `18 ff`    | uint8 max                   |
+| `256`   | `19 01 00` | uint16 boundary             |
 
-```json
-{
-    "theme": "DARK",
-    "navOpen": true,
-    "routePath": "/"
-}
-```
+## Decision 3: Map vectors cover encoded-key sorting
 
-**Canonical Sort Order** (bytewise on encoded keys):
+Maps sort by the encoded CBOR key bytes. For `{ "b": 1, "a": 2 }`, canonical hex is `a2 61 61 02 61 62 01`. For `{ "a": 1, "b": true }`, canonical hex is `a2 61 61 01 61 62 f5`.
 
-1. `"theme"` (`65 74 68 65 6d 65`)
-2. `"navOpen"` (`67 6e 61 76 4f 70 65 6e`)
-3. `"routePath"` (`69 72 6f 75 74 65 50 61 74 68`)
+## Decision 4: Nested vectors must make order visible
 
-**Hex Encoding**:
-`a3` (map of 3)
-`65 74 68 65 6d 65` ("theme") `64 44 41 52 4b` ("DARK")
-`67 6e 61 76 4f 70 65 6e` ("navOpen") `f5` (true)
-`69 72 6f 75 74 65 50 61 74 68` ("routePath") `61 2f` ("/")
+For `{ "theme": "DARK", "navOpen": true, "routePath": "/" }`, canonical key order is `theme`, `navOpen`, `routePath` by encoded key bytes.
 
-**Full**: `a3 65 74 68 65 6d 65 64 44 41 52 4b 67 6e 61 76 4f 70 65 6e f5 69 72 6f 75 74 65 50 61 74 68 61 2f`
+Canonical hex: `a3 65 74 68 65 6d 65 64 44 41 52 4b 67 6e 61 76 4f 70 65 6e f5 69 72 6f 75 74 65 50 61 74 68 61 2f`.

@@ -154,9 +154,7 @@ Implementation note: the runtime now exposes this distinction via
 settles through a target-local import root. Owned-footprint overlap runs
 explicit settlement revalidation: already-satisfied replay imports as `Clean`,
 apply failure is `Obstructed`, and state-changing replay remains
-`ParentFootprintOverlap` conflict residue. The active decision/implementation
-plan is
-[0010 — Live-basis settlement correction plan](../design/0010-live-basis-settlement-plan/design.md).
+`ParentFootprintOverlap` conflict residue. The active decision/implementation plan is tracked in `docs/design/0010-live-basis-settlement-plan/design.md`.
 
 ### Second: define observer plans and reading artifacts explicitly
 
@@ -189,18 +187,18 @@ after the runtime direction is pinned, not before.
 
 These items now define the reconciliation path:
 
-- [KERNEL_live-holographic-strands](../method/backlog/asap/KERNEL_live-holographic-strands.md)
-- [PLATFORM_observer-plan-reading-artifacts](../method/backlog/asap/PLATFORM_observer-plan-reading-artifacts.md)
-- [PLATFORM_witnessed-suffix-admission-shells](../method/backlog/asap/PLATFORM_witnessed-suffix-admission-shells.md)
+- `docs/method/backlog/asap/KERNEL_live-holographic-strands.md`
+- `docs/method/backlog/asap/PLATFORM_observer-plan-reading-artifacts.md`
+- `docs/method/backlog/asap/PLATFORM_witnessed-suffix-admission-shells.md`
 
 Relevant existing design context:
 
-- [0004 — Strand contract](../design/0004-strand-contract/design.md)
-- [0008 — Strand settlement](../design/0008-strand-settlement/design.md)
-- [0009 — Witnessed causal suffix sync](../design/0009-witnessed-causal-suffix-sync/design.md)
-- [0010 — Live-basis settlement correction plan](../design/0010-live-basis-settlement-plan/design.md)
-- [0011 — Optic and observer runtime doctrine](../design/0011-optic-observer-runtime-doctrine/design.md)
-- [0006 — Echo Continuum alignment](../design/0006-echo-continuum-alignment/design.md)
+- `docs/design/0004-strand-contract/design.md`
+- `docs/design/0008-strand-settlement/design.md`
+- `docs/design/0009-witnessed-causal-suffix-sync/design.md`
+- `docs/design/0010-live-basis-settlement-plan/design.md`
+- `docs/design/0011-optic-observer-runtime-doctrine/design.md`
+- `docs/design/0006-echo-continuum-alignment/design.md`
 
 ## Practical rule
 

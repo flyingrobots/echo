@@ -1,320 +1,56 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# Echo Architecture Specification (Draft)
+# Echo Runtime Model
 
-If you’re new here, start with:
+_Echo is a deterministic WARP runtime for witnessed causal history and bounded observation._
 
-- [/guide/start-here](/guide/start-here)
-- [/guide/warp-primer](/guide/warp-primer)
-- [/architecture/continuum-foundations](/architecture/continuum-foundations)
+## What Echo owns
 
-This document is a high-level architecture and "why" artifact. Many sections are aspirational and
-will lag behind the current Rust-first implementation; prefer WARP specs for the runtime boundary.
+Echo owns the hot runtime path:
 
-Echo is the `hot` runtime within the larger Continuum architecture. This
-document is intentionally Echo-scoped. It does not define the full multi-repo
-platform, the `cold` runtime, or the ownership of every shared contract. For
-that wider system model, see `CONTINUUM.md` in the repo root and
-[/architecture/continuum-foundations](/architecture/continuum-foundations).
+- carrier state in `warp-core`
+- deterministic rewrite settlement
+- replayable tick patches
+- Merkle commitments over state and patch boundaries
+- worldline/provenance retention
+- observation artifacts for public reads
+- WASM and session protocols that expose readings over the carrier
 
-> **Implementation Status Legend:**
->
-> - ✅ **Implemented** — exists in `warp-core` today
-> - ⚠️ **Partial** — some aspects exist, others planned
-> - 🗺️ **Planned** — design only, not yet implemented
+Echo does not own every possible platform noun around WARP. This repo's live docs should describe the implemented Echo runtime first, then name future or external surfaces only when there is a concrete boundary.
 
-## Continuum Context
+## Core nouns
 
-Echo is one runtime temperature in a larger causal computing stack:
+Carrier state: the WARP state held by `warp-core`.
 
-- Echo is the `hot` runtime for deterministic execution under immediate
-  scheduling pressure.
-- `git-warp` is the `cold` runtime for durable asynchronous causal storage and
-  transport.
-- `warp-ttd` is the cross-host observer and control plane.
-- Wesley is the contract compiler and compatibility membrane for shared causal
-  nouns, protocol families, and binary contracts.
-
-This matters because Echo should not be described as if it owns the entire
-platform. It owns the hot path.
-
-## Scope Of This Document
-
-This document should be read as:
-
-- Echo-specific runtime architecture
-- the current `warp-core`-centered kernel story
-- selected future-facing product and adapter ideas
-
-This document should not be read as:
-
-- the canonical definition of Continuum
-- a complete spec for `git-warp`
-- the authoritative contract ownership map for all shared nouns
-- a claim that every planned ECS-style layer below already exists
-
-## What Exists Today
-
-Before the aspirational material below: Echo already has a real deterministic WARP runtime.
-
-- **`warp-core` rewrite engine** ✅: immutable snapshot reads, private deltas,
-  canonical merge, and deterministic scheduling.
-- **Playback / worldlines / provenance** ✅: recorded history, cursor replay,
-  and append-only lineage support.
-- **Renderer / scene boundary** ✅: a deterministic scene port and canonical
-  codec boundary.
-- **Echo-side TTD substrate** ✅: playback, provenance, browser-hostable WASM
-  surfaces, and host-side protocol/runtime surfaces that the larger `warp-ttd`
-  observer plane can consume.
-
-The important framing is simple: Echo already has a real hot runtime. What it
-does not yet have is a fully minimized, fully stabilized product surface around
-that runtime.
-
-Read the current implementation through these docs first:
-
-- [/spec/warp-core](/spec/warp-core)
-- [/spec/scheduler-warp-core](/spec/scheduler-warp-core)
-- [/spec/SPEC-0004-worldlines-playback-truthbus](/spec/SPEC-0004-worldlines-playback-truthbus)
-- [/invariants/warp-two-plane-law](/invariants/warp-two-plane-law)
-
-## Vision
-
-- Make Echo the strongest possible `hot` WARP runtime: deterministic,
-  replayable, inspectable, and fast under real execution pressure.
-- Expose clean renderer, tooling, and host boundaries so simulations, games,
-  diagnostics tools, and future runtimes can consume the same causal kernel
-  without rewriting it.
-- Keep the implementation honest about what is current runtime reality versus
-  future-facing API and product design.
-- Preserve institutional memory without letting architecture docs drift into a
-  parallel universe that no longer matches the code.
-
-## Cultural Principles
-
-- **Just Ship, But Test**: Echo inherits the original “Just do it” ethos while insisting on automated tests and benchmark gates.
-- **Automate the Boring Stuff**: Workflow automation stays core—one-command setup, reproducible builds, scripted lint/format/test pipelines.
-- **Stay Focused**: Every feature must trace back to recorded goals; backlog distractions instead of half-building them.
-- **Have Fun**: Echo should be a playground; tooling, docs, and samples are crafted to keep the work joyful.
-- **Respect the Spine**: Keep `main` stable—feature flags, review gates, and CI guardrails preserve trust.
-
-## Guiding Principles
-
-- **Hexagonal Domain Boundary**: The domain never touches DOM, WebGL, or timers directly; everything outside the core arrives through narrow ports.
-- **Graph-First Internals**: The kernel is a WARP graph runtime first. Any ECS-like facades or storage layers are product/API layers above that kernel, not the core truth.
-- **Predictable Tick Loop**: Fixed-step, deterministic advancement stays primary; interpolation, rollback, speculative branching, and transport layers must preserve causal clarity.
-- **Tooling Is Non-Negotiable**: Replay, diff, inspection, host adapters, and TTD-facing surfaces ship with the runtime instead of being bolted on later.
-- **Extensible By Design**: Every subsystem exposes extension points, configuration, and hooks for optional native/Wasm accelerators.
-- **Operational Transparency**: Metrics, logging, and failure modes are documented; Echo should be debuggable at 3 AM without spelunking source.
-
-## Domain Layers
-
-Before reading the planned layers below, keep one constraint in mind:
-
-The current kernel is `warp-core`, which is a WARP graph rewrite runtime. Large
-parts of the ECS-flavored material below are future product/interface design,
-legacy conceptual scaffolding, or a possible facade over the graph-first
-kernel. They are not the present-tense implementation model.
-
-### Core ECS 🗺️ Planned
-
-> **Note:** The current `warp-core` implementation uses a **WARP graph model** (nodes, edges, rewrite rules), not traditional ECS archetypes. The ECS storage model below is a future design target.
-
-- **Entities**: Numerical IDs with sparse/high-watermark managers; creation returns pooled slots to avoid GC pressure.
-- **Components**: Type-safe registrations with metadata (layout, default state, pooling policy). Storage uses archetype tables or chunked struct-of-arrays chosen at registration time.
-- **Storage Model**:
-    - Archetype chunks sized to fit CPU cache lines (default 16 KB) with columnar component arrays.
-    - Copy-on-write handles for branch persistence; mutate operations clone only touched chunks.
-    - Optional fixed-point pools for deterministic math-heavy components (physics transforms, timers).
-- **ID Services**: Global registries issue deterministic type IDs; component schemas embed serialization hooks and diff strategies.
-- **Systems**: Pure domain functions declaring the signature of components/events they consume. Systems declare schedule phase, dependencies, and whether they run when paused.
-- **Scheduler**: Builds a directed acyclic graph of systems, resolves priorities, batches compatible systems for parallel execution (future feature), and mediates fixed-step ticks.
-- **Scheduler Phases**:
-    1. `initialize` (one-shot setup)
-    2. `pre_update` (input assimilation, Codex’s Baby pre-flush)
-    3. `update` (core systems in DAG order)
-    4. `post_update` (cleanup, late bindings)
-    5. `render_prep` (prepare frame packets for adapters)
-    6. `present` (adapter flush; optional interpolation)
-    7. `timeline_flush` (persist diffs, branch bookkeeping)
-- **Parallelism Hooks**: Systems may declare `parallelizable: true`; scheduler groups disjoint signature systems into jobs respecting dependencies.
-- **Queries**: Precompiled views over component sets; incremental membership tracking uses bitset signatures and dirty queues instead of per-frame scans.
-
-### World & Scene Management 🗺️ Planned
-
-- **World**: Owns entity/component managers, system registry, event bus, and service container. Supports multiple worlds for split-screen or background sims.
-- **Prefabs & Assemblers**: Declarative definitions (JSON/YAML/TS factories) converted into entity creation commands, supporting overrides and inheritance.
-- **Scene Graph / State Machine**: Stack-based and hierarchical scenes with enter/exit hooks, async loading, and transition orchestration. Integrates with scheduler via scene phases.
-- **Simulation Contexts**: Support for deterministic replay, remote authority, and sub-step simulations (physics, AI planning) within world boundaries.
-
-### Time & Simulation ⚠️ Partial
-
-- **Clock Service**: Abstracted time source with fixed-step accumulator, variable-step mode, and manual stepping for tests.
-- **Pause & Slow-Mo**: Pause flag propagates to scheduler; systems opt into running while paused; time scaling applies per system when needed.
-- **Deterministic Replay**: Input/event capture via Codex’s Baby, serialized frame seeds, and re-execution hooks for debugging or multiplayer rollback.
-- **Job Graph Extensions**: Future-ready hooks for job scheduling or thread pools without breaking the single-threaded baseline.
-- **Temporal Axes**:
-    - **Chronos (Sequence)**: Monotonic tick counter; governs simulation ordering and replay.
-    - **Kairos (Possibility)**: Branch identifier; indexes alternate realities at the same Chronos tick.
-    - **Aion (Significance)**: Scalar weight describing narrative gravity/entropy; influences merge priority, NPC memory retention, and paradox severity.
-
-### Temporal Sandbox (Echo Edge) 🗺️ Planned
-
-- **Branchable Timelines**: Worlds can fork into speculative branches mid-frame; scheduler runs branches sequentially or in parallel workers, then reports diffs back to the main timeline.
-- **Frame Scrubbing**: Built-in timeline buffer stores component deltas for the last N frames; editor tooling scrubs, rewinds, and reapplies changes without restarting the sim.
-- **Predictive Queries**: Renderers, netcode, or AI can request projected state N frames ahead using speculative branches, enabling latency hiding and cinematic planning.
-- **Collaborative Simulation**: Multiple clients can author in shared scenes by editing branches; consensus commits merge deterministic deltas back into the root world.
-- **AI Co-Pilot Hooks**: Deterministic branches allow automated agents to propose tweaks, run them in sandboxes, and surface accepted diffs to designers.
-
-## Event Bus ✅ Implemented
-
-> **Note:** The original "Event Bus" spec has been superseded by the implemented `MaterializationBus` in `crates/warp-core/src/materialization/`. Current runtime evidence lives in code and tests:
->
-> - `EmissionPort` trait (hexagonal boundary for rule emissions)
-> - `ScopedEmitter` adapter (auto-fills EmitKey from execution context)
-> - `ReduceOp` enum (8 built-in deterministic reduce operations)
-> - `FinalizeReport` pattern (deterministic batch finalization)
-> - 128 tests covering permutation invariance, reduce algebra, and engine integration
-> - Cross-platform CI (macOS + Linux, weekly via `dind-cross-platform.yml`)
->
-> The old ADR/RFC history is not a live docs route; git history is the archive.
->
-> _The content below is preserved for historical context only._
-
-- **Command Buffers**: Events are POD structs appended to per-type ring buffers during a frame; no immediate callbacks inside hot systems.
-- **Flush Phases**: Scheduler defines flush points (pre-update, post-update, custom phases). Systems subscribe to phases matching their needs.
-- **Handler Contracts**: Handlers receive batched slices; they may mutate components, enqueue new events, or schedule commands. Return values are ignored for deterministic execution.
-- **Immediate Channel**: Opt-in channel for rare “now” operations; instrumented with counters and frame-budget warnings.
-- **Telemetry & Debugging**: Built-in tooling to inspect event queues, handler timings, dropped events, and memory usage.
-- **Integration**: Bridges input devices, networking, scripting, and editor tooling without leaking adapter concerns into the domain.
-- **Inter-Branch Bridge**: Temporal mail service routes events between branches; deliveries create retro branches when targeting past Chronos ticks; paradox guard evaluates conflicts before enqueue.
-
-## Playback & Worldlines ✅ Implemented
-
-> **Reference:** [SPEC-0004 (Worldlines, Playback, TruthBus)](/spec/SPEC-0004-worldlines-playback-truthbus)
-
-SPEC-0004 introduces infrastructure for deterministic materialization, cursor-based replay, and append-only provenance tracking:
-
-- **`crates/warp-core/src/playback.rs`** — `PlaybackCursor` for timeline position, `ViewSession` for materialized viewpoints, `TruthSink` struct for consuming view updates into stable snapshots.
-- **`crates/warp-core/src/worldline.rs`** — `WorldlineId` identifiers, `HashTriplet` for cryptographic tick labeling, `WorldlineTickPatchV1` for append-only tick records; supports multi-branch lineage.
-- **`crates/warp-core/src/provenance_store.rs`** — `ProvenanceStore` trait (hexagonal port), `LocalProvenanceStore` implementation for recording hash signatures and output deltas per tick; enables auditing and determinism validation.
-- **`crates/warp-core/src/retention.rs`** — `RetentionPolicy` enum (variants: `KeepAll`, `CheckpointEvery`, `KeepRecent`, `ArchiveToWormhole`) for garbage collection and storage budgeting; integrates with worldline compaction.
-- **`crates/warp-core/src/materialization/frame_v2.rs`** — V2 packet format with cursor stamps, enabling renderers to correlate frames with logical replay positions and support frame-accurate scrubbing.
-
-## Ports & Adapters 🗺️ Planned
-
-### Renderer Port ✅ Implemented
-
-> **Reference:** `crates/echo-scene-port/` (see crate source and doc comments)
-
-The Renderer Port is implemented as a bit-exact, hexagonal boundary:
-
-- **`echo-scene-port`**: Defines the domain types (`SceneDelta`, `NodeDef`, `EdgeDef`) and the `ScenePort` trait.
-- **`echo-scene-codec`**: Implements the canonical CBOR serialization bridge and a `MockAdapter` for headless testing.
-- **`echo-renderer-three`**: A production-ready Three.js implementation of the `ScenePort` contract.
-- **Responsibilities**: Receives deterministic `SceneDelta` batches, manages GPU resources via Three.js, and maintains bit-exact visual state across replays.
-
-### Time Travel Debugging (TTD) ✅ Implemented
-
-TTD is a first-class citizen in Echo, built on top of the provenance and scene
-port layers.
-
-Within Continuum, the broader cross-host debugger vocabulary belongs to
-`warp-ttd`. This section describes Echo's side of that relationship: the host
-runtime surfaces, generated bridges, privacy controls, and browser-facing tools
-that make Echo inspectable through a shared observer model.
-
-- **`ttd-browser`**: A WASM-compiled engine that manages parallel cursors and worldline forks in the browser.
-- **`echo-wesley-gen`**: Hardened code generator that emits bit-exact Rust/TS bridges from GraphQL schemas.
-- **`PrivacyMask`**: Built-in support for field-level redaction (Public, Pseudonymized, Private) to allow high-integrity debugging without leaking sensitive PII.
-- **Browser delivery ownership**: Echo keeps the browser host bridge and WASM substrate surfaces; the browser debugger product is moving to `warp-ttd`.
-
-### Input Port 🗺️ Planned
-
-- **Responsibilities**: Aggregate device state into consumable snapshots (buttons, axes, gestures) and surface device capabilities.
-- **Polling Model**: Domain polls once per frame; port ensures event strata are coalesced in consistent order. Scripted or network input injects via Codex’s Baby.
-- **Adapters**: Browser (keyboard, mouse, pointer, gamepad), native (SDL), synthetic (playback), test harness stubs.
-
-### Physics Port 🗺️ Planned
-
-- **Responsibilities**: Advance simulation, manage bodies/colliders, and synchronize results back into components.
-- **Integration Strategy**: Dual writes through data bridges. ECS components represent desired state; physics port returns authoritative transforms/velocities at sync points.
-- **Adapters**: Box2D (planar), Rapier (3D/2D), custom deterministic solver, or headless stub for puzzle games.
-- **Advanced Features**: Continuous collision, queries (raycasts, sweeps), event hooks for contacts funneled through Codex’s Baby.
-
-### Networking Port 🗺️ Planned
-
-- **Mode Support**: Single-player (loopback), lockstep peer-to-peer, host-client, dedicated server.
-- **Transport Abstraction**: Reliable/unreliable channels, clock sync, session management. Adapter options: WebRTC, WebSockets, native sockets.
-- **Replication Strategy**: Deterministic event replication using Codex’s Baby ledger; optional materialized frontier checkpoints for fast-forward joins.
-- **Rollback Hooks**: Scheduler exposes rewinding API; networking port coordinates branch rewinds and replays when desync detected.
-- **Security Considerations**: Capability tokens, branch validation, deterministic checksum comparison to detect tampering.
-
-### Audio, Persistence, Telemetry Ports 🗺️ Planned
-
-- **Audio**: Command queue for spatial/ambient playback, timeline control, and crossfade scheduling.
-- **Persistence**: Abstract reader/writer for save games, cloud sync, diagnostics dumps. Supports structured checkpoints, materialized readings, and delta patches.
-- **Telemetry**: Export frame metrics, event traces, and custom probes to external dashboards or editor overlays.
-
-## Cross-Cutting Concerns ⚠️ Partial
-
-- **Bootstrap Pipeline**: Dependency injection container wires ports, services, systems, and configuration before the first tick. Supports editor-time hot reload.
-- **Resource Lifecycle**: Asset handles (textures, meshes, scripts) managed through reference-counted registries and async loaders; domain requests are idempotent.
-- **Serialization & Contracts**: Schema-driven serialization should increasingly flow through Wesley-owned shared contracts where a surface is cross-host or cross-language. Save/load, replication, debugger packets, and state diffing should not each invent their own shadow model.
-- **Deterministic Math**: Echo Math module standardizes vector/matrix/transform operations using reproducible algorithms (configurable precision: fixed-point or IEEE-compliant float32). All systems pull from deterministic PRNG services seeded per branch.
-- **Branch Persistence**:
-    - Persistent archetype arena with structural sharing.
-    - Diff records (component type → entity → before/after) stored per node.
-    - Interval index for quick Chronos/Kairos lookup.
-- **Entropy & Stability**: Global entropy meter tracks paradox risk; exposed to gameplay and tooling with thresholds triggering mitigation quests or stabilizer systems.
-- **Diagnostics**: Unified logging facade, structured trace events, crash-safe dumps, and opt-in assertions for development builds.
-- **Security & Sandbox**: Optional restrictions for user-generated content or multiplayer host/client boundaries; capability-based access to ports.
-- **Extensibility**: Plugins define new components, systems, adapters, or editor tools; registration API enforces namespace isolation and version checks.
-
-## Delivery Roadmap
-
-> **Current Status (2026-04):** `warp-core` is a real deterministic WARP graph
-> runtime. The biggest remaining architecture work is not "invent a core from
-> scratch"; it is converging the public surface, contract boundaries, and
-> future-facing layers around the core that already exists.
-
-- **Phase 0 – Spec Deep Dive** ✅ Implemented: WARP core specs finalized; MaterializationBus implemented (ADR-0003).
-- **Phase 1 – Core EXTRACTION** ✅ Implemented: High-integrity TTD protocols, provenance hardening, and worldline management extracted from spec branch.
-- **Phase 2 – Deterministic Scene Data** ✅ Implemented: Bit-exact renderer port boundary and CBOR codec established.
-- **Phase 3 – Robust Code Generation** ✅ Implemented: Wesley bridge hardened for `no_std` WASM guests.
-- **Phase 4 – Safe WASM FFI & Privacy** ✅ Implemented: Opaque session tokens and field-level redaction (PrivacyMask) implemented.
-- **Phase 5 – Frontend Design System** ✅ Implemented: TTD UI substrate and pnpm workspace configuration restored.
-- **Phase 6 – Real-World UI Binding** ⚠️ Historical prototype: local `ttd-app` validated the WASM TTD engine, but browser debugger delivery is now moving to `warp-ttd`.
-- **Phase 7 – Final Documentation** ⚠️ In Progress: Documentation lock and CI policy reinforcement.
-- **Phase 8 – Echo Core MVP** 🗺️ Planned: Entity/component storage and system scheduler.
-- **Phase 9 – Adapter Foundations** 🗺️ Planned _(Milestone: "Double-Jump")_: Input and physics integration.
-- **Ongoing**: Benchmark suite, community feedback loop, incremental releases.
-
-## Open Questions
-
-- What minimum target hardware do we optimize for (mobile, desktop, consoles)?
-- How aggressive should we be with multi-threading in v1 versus keeping single-thread determinism?
-- Should the renderer port define a common material language or leave it adapter-specific?
-- Do we ship editor tooling (Echo Studio) in v1 or after the core stabilizes?
-- How do we version and distribute optional native/Wasm modules without fragmenting users?
-- What licensing model keeps Echo open yet sustainable for long-term stewardship?
-- How do Chronos/Kairos/Aion weights interplay with gameplay economy (entropy, player agency)?
-- Which temporal mechanics graduate into core APIs versus sample-game features?
-
-## Appendices
-
-- **Glossary**: Mapping of Echo terminology (World, System Graph, Codex’s Baby) to legacy prototype terminology.
-- **Reference Architectures**: Snapshots from Unity DOTS, Bevy, Godot Servers, and custom ECS implementations for comparative insight.
-- **Profiling Plan**: Target frame budgets, benchmark scenarios, and instrumentation strategy for unit and integration testing.
-- **Compatibility Notes**: Guidance for migrating legacy prototypes, bridging Mootools utilities, and reintroducing box2d/pixi demos on modern footing.
-- **Data Structure Sketches**: (pending) diagrams for archetype arena, branch tree, Codex’s Baby queues.
-- **Temporal Mechanic Catalogue**: (pending) curated list of déjà vu, Mandela artifacts, paradox mitigation, multiverse puzzles.
-- **Repository Layout (Current High-Level)**:
-    - `/crates/warp-core` — hot runtime kernel, replay, provenance, scheduling, commit path.
-    - `/crates/echo-session-proto` — retained Echo-side protocol and receipt/frame encodings used by current browser-host surfaces.
-    - `/crates/echo-scene-*` — deterministic scene boundary, codec surface, renderer adapters.
-    - `/crates/ttd-browser`, `/crates/ttd-protocol-rs`, `/packages/ttd-protocol-ts` — current browser-host bridge and generated protocol consumers.
-    - `/crates/echo-dind-*` — determinism harnesses and cross-platform verification support.
-    - `/docs` — specs, guides, ADRs, audits, and architecture memos.
-    - `/scripts` and `/xtask` — verification, repo operations, and local workflow tooling.
+Witness: the retained evidence that a transition or reading came from a specific state, policy, patch, or coordinate.
+
+Shell: a retained boundary artifact such as a tick patch, provenance payload, or boundary record.
+
+Reading: an observer-relative artifact emitted from a coordinate, frame, and projection. Readings are public API values; they are not raw carrier state.
+
+Worldline: the retained ordered history used for replay, slices, and coordinate-based observation.
+
+## Runtime flow
+
+1. External callers submit canonical intents.
+2. Inbox sequencing derives content identity and canonical pending order.
+3. Rules propose candidate rewrites with explicit footprints.
+4. The scheduler admits a deterministic independent subset.
+5. The engine applies admitted rewrites and emits a snapshot, receipt, and tick patch.
+6. Worldline/provenance stores retain patches and expected hashes.
+7. Observation services resolve coordinates and emit readings.
+
+## Current implementation anchors
+
+- [warp-core](../spec/warp-core.md)
+- [Canonical Inbox Sequencing](../spec/canonical-inbox-sequencing.md)
+- [WARP Rewrite Scheduler](../spec/scheduler-warp-core.md)
+- [WARP Tick Patch](../spec/warp-tick-patch.md)
+- [Merkle Commit](../spec/merkle-commit.md)
+- [Worldlines, Playback, and Observation](../spec/SPEC-0004-worldlines-playback-truthbus.md)
+- [WASM ABI Contract](../spec/SPEC-0009-wasm-abi.md)
+
+## Design posture
+
+Describe Echo from code-backed surfaces outward: kernel before platform, witnessed history before graph-shaped view, replayable shell before explanation, observation artifact before UI state, and current ABI before historical ABI numbers.

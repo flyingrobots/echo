@@ -1,182 +1,50 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# Spec: Canonical Inbox Sequencing
+# Canonical Inbox Sequencing
 
-> **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
+_Define intent identity and tick-boundary ordering so arrival order does not become causality._
 
-The content-addressed inbox, idempotent admission, canonical `ingress_id`
-ordering, and append-only ledger/queue-maintenance split are backed by
-`crates/warp-core/src/head_inbox.rs`, `crates/warp-core/src/engine_impl.rs`,
-`crates/warp-core/src/inbox.rs`, and their tests. Rewrite scheduler ordering is
-specified separately in [`scheduler-warp-core.md`](scheduler-warp-core.md).
+Legend: KERNEL
 
-## 0) Purpose
+Depends on:
 
-Guarantee that for a given tick, the full WARP graph is bit-identical across runs
-that ingest the same set of intents in any order.
+- [WARP Rewrite Scheduler](scheduler-warp-core.md)
+- [WARP Tick Patch](warp-tick-patch.md)
+- [Merkle Commit](merkle-commit.md)
 
-This requires:
+## Why this packet exists
 
-- intent identity is content-based, not sequence-based
-- within-tick ordering is canonical (derived), not arrival-based
-- conflict resolution is deterministic and order-independent
-- hashing/enumeration is canonical (sorted)
-- ledger entries are append-only (no event node deletion)
+Echo admits intents from outside the kernel. Arrival order is an observer phenomenon; it must not silently become causal order inside a deterministic tick. The inbox contract turns submitted bytes into content-addressed ingress entries and settles pending work in canonical order.
 
-This spec aligns with ADR-0003: ingress accepts intent_bytes, runtime assigns
-canonical sequence numbers, idempotency is keyed by intent_id = H(intent_bytes),
-and enumerations that influence state are canonical.
+## Human users / jobs / hills
 
-## 1) Terms
+Human users need retries and shuffled submissions to converge.
 
-- intent_bytes: canonical bytes submitted via ingress.
-- intent_id: H(intent_bytes) (content hash).
-- seq: optional canonical sequence number assigned by runtime/kernel for audit
-  only. The current Phase 3 runtime does not require it.
-- tick: a kernel step where rewrites apply and materializations emit.
-- footprint: the read/write set (or conflict domain) used by the scheduler to detect conflicts.
+The hill: submitting the same set of intent bytes in any order produces the same pending set, same canonical tick order, and same committed state when tick membership is held fixed.
 
-## 2) Invariants
+## Agent users / jobs / hills
 
-I1 - Content identity
+Agent users need idempotent intake for automation.
 
-Two intents are the "same intent" iff intent_bytes are byte-identical, therefore
-intent_id matches.
+The hill: an agent can retry a submitted envelope and receive the same identity without duplicating ledger state.
 
-I2 - Idempotent ingress
+## Decision 1: Intent identity is content identity
 
-Ingress must be idempotent by intent_id -> seq_assigned. Retries return the
-original seq.
+Two intents are the same when their canonical bytes are byte-identical: `intent_id = H(intent_bytes)`. Sequence numbers, arrival time, and transport metadata are not identity.
 
-I3 - Arrival order is non-semantic (within a tick)
+## Decision 2: Ingress is idempotent per resolved writer head
 
-Within a tick, the relative ordering of intents MUST NOT depend on arrival
-order, insertion order, hash-map iteration order, or thread interleavings.
+The pending inbox is keyed by `ingress_id` for the resolved writer head. Re-ingesting an already pending or already committed intent must not create a second live entry.
 
-I4 - Canonical enumeration
+## Decision 3: Tick membership is a causality boundary
 
-Any enumeration that influences state, hashing, serialization, or replay MUST
-be in canonical sorted order.
+Permutation-invariance claims require the same set of intents to belong to the same tick. If tick membership differs, the causal history differs.
 
-I5 - Ledger is append-only
+## Decision 4: Pending work is ordered at the tick boundary
 
-Inbox/ledger **event nodes** are immutable and MUST NOT be deleted.
+For a pending set: deduplicate by content identity, sort by ingress/id byte order, and derive audit sequence numbers from that sorted order. The runtime must not use arrival order, hash-map iteration, thread scheduling, or platform timing.
 
-Processing an event is modeled as **queue maintenance**: remove a `pending`
-marker (edge or flag) so the event is no longer considered pending, without
-removing the ledger entry itself.
+## Decision 5: Ledgers are append-only; queues are maintenance state
 
-## 3) Data model requirements
-
-### 3.1 Ledger / Inbox entries
-
-Each pending inbox entry MUST carry:
-
-- intent_id: Hash32
-- intent_bytes: Bytes (canonical)
-- optional: seq: u64 (canonical rank / audit field; see §4)
-- optional: tick_id (if your model persists tick partitioning)
-
-Rule: seq is NOT part of identity. Identity is intent_id.
-
-Minimal implementation model (current Phase 3 runtime):
-
-- Pending membership lives in the resolved writer head's `HeadInbox.pending`
-  map, keyed by `ingress_id`.
-- Live ingress routing is owned by `WorldlineRuntime`, not by graph nodes under
-  `sim/inbox`.
-- Commits may materialize immutable runtime ingress event nodes keyed by
-  `ingress_id` for rule matching, but the live path MUST NOT depend on
-  `edge:pending` or the `sim/inbox` graph spike.
-
-### 3.2 Tick membership (important boundary)
-
-To get bit-identical results under permutations, the set of intents in each tick
-must be the same across runs.
-
-For tests like DIND "permute and converge," enforce one of:
-
-- ingest all intents before starting ticks (single-tick bucket), or
-- include an explicit tick tag/hint inside intent_bytes so membership is
-  deterministic from content.
-
-If membership differs, you changed causality, and bit-identical full graphs are
-not expected.
-
-## 4) Canonical ordering (and optional sequence assignment) algorithm
-
-### 4.1 When ordering/seq is assigned
-
-Canonical order is derived at the tick boundary for the set of pending intents
-for that tick (or for the ledger segment being committed).
-
-If you persist `seq` for auditing/debugging, it is assigned at the same boundary
-and MUST be a deterministic function of the pending set.
-
-### 4.2 Canonical ranking
-
-Given a tick's pending set P:
-
-1. Deduplicate by intent_id (idempotency).
-2. Sort intents by intent_id ascending (bytewise).
-3. (Optional) Assign seq = 1..|P| in that sorted order.
-
-That is the canonical order.
-
-Consequence: ingesting intents in any order yields the same seq assignments, the
-same node/edge insertion schedule, and the same full hash.
-
-### 4.3 Idempotency interaction
-
-If an intent is re-ingested:
-
-- compute intent_id
-- if already pending or already committed for the resolved writer head, return
-  DUPLICATE (and optional seq_assigned if your implementation records one)
-- DO NOT create a new pending entry.
-
-## 5) Scheduler boundary
-
-Inbox sequencing defines which pending ingress envelopes are admitted and in
-what canonical order. Rewrite conflict detection and tie-break behavior belong
-to the `warp-core` rewrite scheduler, which orders pending rewrites by
-`(scope_hash, rule_id, nonce)`.
-
-## 6) Graph construction + hashing canonicalization
-
-To make the whole WARP graph bit-identical, ensure these are canonical:
-
-- node IDs for inbox entries: derive from intent_id alone (not tick_id, not seq).
-  This ensures the same intent always produces the same node ID regardless of when
-  it was ingested.
-- pending edge IDs: derive from (inbox_root, intent_id) or an equivalent stable function
-- edge insertion order: if edges are stored in vectors/lists, insert in canonical
-  sorted order
-- attachment ordering: canonical sort
-- any map iteration: never used directly; materialize keys, sort, then emit
-
-This is the same "sorted enumeration" rule ADR-0003 already states for reads;
-apply it everywhere hashing touches.
-
-## 7) Required tests (prove it suite)
-
-T1 - Permutation invariance (full hash)
-
-- Take a fixed set S of canonical intent bytes.
-- Run N seeds; each seed shuffles ingestion order of S.
-- Enforce same tick membership (e.g., ingest all before first tick).
-- Assert:
-    - full graph hash identical across all seeds
-    - ledger/inbox node IDs identical
-    - seq assignments identical
-
-T2 - Idempotency invariance
-
-- Ingest same intent twice (different arrival times, different threads).
-- Assert no duplicate ledger entry and stable pending state.
-
-## 8) Implementation summary
-
-Move seq assignment from "ingest arrival" to "tick commit canonicalization" and
-keep inbox admission ordered by stable `ingress_id` keys.
+Ingress event records are immutable once committed. Processing an event removes or updates pending membership; it does not delete the historical event.

@@ -3334,7 +3334,7 @@ fn analyze_pr_preflight_scope(changed_files: &[String], full: bool) -> Preflight
     if changed_files.iter().any(|path| {
         matches!(
             path.as_str(),
-            "Cargo.toml" | "Cargo.lock" | "docs/guide/cargo-features.md"
+            "Cargo.toml" | "Cargo.lock" | "docs/workflows.md"
         ) || path.starts_with("crates/echo-runtime-schema/")
             || path.starts_with("crates/echo-wasm-abi/")
     }) {
@@ -7362,7 +7362,7 @@ mod tests {
     fn preflight_scope_for_docs_only_branch_enables_docs_checks() {
         let scope = analyze_pr_preflight_scope(
             &[
-                "docs/workflows.md".to_owned(),
+                "docs/BEARING.md".to_owned(),
                 "scripts/hooks/README.md".to_owned(),
             ],
             false,
@@ -7373,7 +7373,7 @@ mod tests {
         assert_eq!(
             scope.markdown_files,
             Some(vec![
-                "docs/workflows.md".to_owned(),
+                "docs/BEARING.md".to_owned(),
                 "scripts/hooks/README.md".to_owned()
             ])
         );
@@ -7400,7 +7400,7 @@ mod tests {
         let scope = analyze_pr_preflight_scope(
             &[
                 "crates/echo-runtime-schema/src/lib.rs".to_owned(),
-                "docs/guide/cargo-features.md".to_owned(),
+                "docs/workflows.md".to_owned(),
             ],
             false,
         );

@@ -656,8 +656,14 @@ pub enum ReadingRightsPosture {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReadingResidualPosture {
-    /// The built-in observer emitted a complete reading for the requested projection.
+    /// The observer emitted a clean, complete reading for the requested projection.
     Complete,
+    /// The observer emitted a bounded reading with explicit residual outside the payload.
+    Residual,
+    /// The observer preserved lawful plurality instead of collapsing to one reading.
+    Plurality,
+    /// The observer surfaced a lawful obstruction instead of a derived reading.
+    Obstructed,
 }
 
 /// Reading-envelope metadata carried by every observation artifact.

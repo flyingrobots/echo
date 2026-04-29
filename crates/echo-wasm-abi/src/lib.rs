@@ -609,6 +609,29 @@ mod tests {
     }
 
     #[test]
+    fn test_reading_residual_posture_wire_names_are_distinct() {
+        use crate::kernel_port::ReadingResidualPosture;
+        use ciborium::value::Value;
+
+        let cases = [
+            (ReadingResidualPosture::Complete, "complete"),
+            (ReadingResidualPosture::Residual, "residual"),
+            (ReadingResidualPosture::Plurality, "plurality"),
+            (ReadingResidualPosture::Obstructed, "obstructed"),
+        ];
+
+        for (posture, expected_text) in cases {
+            let bytes = encode_cbor(&posture).unwrap();
+            assert_eq!(
+                decode_value(&bytes).unwrap(),
+                Value::Text(expected_text.into())
+            );
+            let decoded: ReadingResidualPosture = decode_cbor(&bytes).unwrap();
+            assert_eq!(decoded, posture);
+        }
+    }
+
+    #[test]
     fn test_unpack_control_intent_rejects_wrong_op_id() {
         use crate::kernel_port::{ControlIntentV1, SchedulerMode};
 

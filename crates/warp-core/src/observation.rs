@@ -438,14 +438,23 @@ impl ReadingRightsPosture {
 /// Residual posture for a reading artifact.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReadingResidualPosture {
-    /// The built-in observer emitted a complete reading for the requested projection.
+    /// The observer emitted a clean, complete reading for the requested projection.
     Complete,
+    /// The observer emitted a bounded reading with explicit residual outside the payload.
+    Residual,
+    /// The observer preserved lawful plurality instead of collapsing to one reading.
+    Plurality,
+    /// The observer surfaced a lawful obstruction instead of a derived reading.
+    Obstructed,
 }
 
 impl ReadingResidualPosture {
     fn to_abi(self) -> abi::ReadingResidualPosture {
         match self {
             Self::Complete => abi::ReadingResidualPosture::Complete,
+            Self::Residual => abi::ReadingResidualPosture::Residual,
+            Self::Plurality => abi::ReadingResidualPosture::Plurality,
+            Self::Obstructed => abi::ReadingResidualPosture::Obstructed,
         }
     }
 }
@@ -1714,6 +1723,36 @@ mod tests {
             artifact.to_abi().reading.parent_basis_posture,
             abi::ObservationBasisPosture::Worldline
         );
+        assert_eq!(
+            artifact.to_abi().reading.residual_posture,
+            abi::ReadingResidualPosture::Complete
+        );
+    }
+
+    #[test]
+    fn reading_residual_postures_convert_to_abi() {
+        let cases = [
+            (
+                ReadingResidualPosture::Complete,
+                abi::ReadingResidualPosture::Complete,
+            ),
+            (
+                ReadingResidualPosture::Residual,
+                abi::ReadingResidualPosture::Residual,
+            ),
+            (
+                ReadingResidualPosture::Plurality,
+                abi::ReadingResidualPosture::Plurality,
+            ),
+            (
+                ReadingResidualPosture::Obstructed,
+                abi::ReadingResidualPosture::Obstructed,
+            ),
+        ];
+
+        for (posture, expected) in cases {
+            assert_eq!(posture.to_abi(), expected);
+        }
     }
 
     #[test]

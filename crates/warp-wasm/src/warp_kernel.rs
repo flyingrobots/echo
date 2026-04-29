@@ -628,12 +628,16 @@ mod tests {
     use super::*;
     use echo_wasm_abi::{
         kernel_port::{
-            ControlIntentV1, GlobalTick as AbiGlobalTick, HeadEligibility as AbiHeadEligibility,
+            BuiltinObserverPlan as AbiBuiltinObserverPlan, ControlIntentV1,
+            GlobalTick as AbiGlobalTick, HeadEligibility as AbiHeadEligibility,
             HeadId as AbiHeadId, ObservationAt as AbiObservationAt,
+            ObservationBasisPosture as AbiObservationBasisPosture,
             ObservationCoordinate as AbiObservationCoordinate,
             ObservationFrame as AbiObservationFrame, ObservationPayload as AbiObservationPayload,
             ObservationProjection as AbiObservationProjection,
-            ObservationRequest as AbiObservationRequest, RunCompletion, SchedulerMode,
+            ObservationRequest as AbiObservationRequest,
+            ReadingObserverPlan as AbiReadingObserverPlan,
+            ReadingResidualPosture as AbiReadingResidualPosture, RunCompletion, SchedulerMode,
             SchedulerState, SettlementDecision as AbiSettlementDecision,
             SettlementOverlapRevalidation as AbiSettlementOverlapRevalidation,
             SettlementParentRevalidation as AbiSettlementParentRevalidation,
@@ -1275,6 +1279,21 @@ mod tests {
             })
             .unwrap();
         let head = kernel.current_head().unwrap();
+
+        assert_eq!(
+            artifact.reading.observer_plan,
+            AbiReadingObserverPlan::Builtin {
+                plan: AbiBuiltinObserverPlan::CommitBoundaryHead,
+            }
+        );
+        assert_eq!(
+            artifact.reading.parent_basis_posture,
+            AbiObservationBasisPosture::Worldline
+        );
+        assert_eq!(
+            artifact.reading.residual_posture,
+            AbiReadingResidualPosture::Complete
+        );
 
         let AbiObservationPayload::Head { head: observed } = artifact.payload else {
             panic!("expected head observation payload");

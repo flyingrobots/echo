@@ -2,4 +2,4 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Static markdown content for Spec-000 displayed in-app.
 
-pub const SPEC_MD: &str = include_str!("../spec.md");
+pub const SPEC_MD: &str = include_str!("../README.md");

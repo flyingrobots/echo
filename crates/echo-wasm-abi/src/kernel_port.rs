@@ -10,7 +10,7 @@
 //!
 //! # ABI Version
 //!
-//! The current ABI version is [`ABI_VERSION`] (7). All response types are
+//! The current ABI version is [`ABI_VERSION`] (8). All response types are
 //! CBOR-encoded using the canonical rules defined in `docs/spec/js-cbor-mapping.md`.
 //! Breaking changes to response shapes or error codes require a bump to the
 //! ABI version.
@@ -38,7 +38,7 @@ use serde::{
 ///
 /// Increment when response types, error codes, or method signatures change
 /// in a backward-incompatible way.
-pub const ABI_VERSION: u32 = 7;
+pub const ABI_VERSION: u32 = 8;
 
 fn deserialize_opaque_id<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
 where
@@ -656,8 +656,14 @@ pub enum ReadingRightsPosture {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReadingResidualPosture {
-    /// The built-in observer emitted a complete reading for the requested projection.
+    /// The observer emitted a clean, complete reading for the requested projection.
     Complete,
+    /// The observer emitted a bounded reading with explicit residual outside the payload.
+    Residual,
+    /// The observer preserved lawful plurality instead of collapsing to one reading.
+    PluralityPreserved,
+    /// The observer surfaced a lawful obstruction instead of a derived reading.
+    Obstructed,
 }
 
 /// Reading-envelope metadata carried by every observation artifact.

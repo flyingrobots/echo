@@ -44,6 +44,8 @@ A playback cursor materializes a worldline at a coordinate without mutating the 
 
 Public reads are expressed through observation artifacts: coordinate resolution, reading-envelope metadata, declared frame, declared projection, artifact hash, and payload. Observation is a reading emitted from an observer basis, not raw access to the causal carrier.
 
+The reading envelope is part of the contract, not decoration: it carries the observer plan, native basis, witness refs, parent/basis posture, budget posture, rights posture, and residual posture that bound the emitted reading.
+
 ## Decision 4: Session output is replace-only
 
 Client-facing frames are authoritative values for a coordinate and channel. A client replaces rendered state from the received reading; it does not infer rollback, replay, or hidden diffs.

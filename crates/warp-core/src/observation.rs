@@ -449,6 +449,18 @@ pub enum ReadingResidualPosture {
 }
 
 impl ReadingResidualPosture {
+    /// Convert this `ReadingResidualPosture` into its ABI representation.
+    ///
+    /// # Returns
+    ///
+    /// The corresponding `abi::ReadingResidualPosture` discriminant.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let abi_val = ReadingResidualPosture::Plurality.to_abi();
+    /// assert_eq!(abi_val, abi::ReadingResidualPosture::Plurality);
+    /// ```
     fn to_abi(self) -> abi::ReadingResidualPosture {
         match self {
             Self::Complete => abi::ReadingResidualPosture::Complete,

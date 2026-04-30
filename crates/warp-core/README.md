@@ -61,8 +61,8 @@ The `warp-core` crate also contains a small “website kernel spike” used by t
 
 - Core engine specs live in `docs/`:
     - `docs/spec/warp-core.md`, `docs/spec/scheduler-warp-core.md`,
-      `docs/spec/canonical-inbox-sequencing.md`, and related architecture
-      documents.
-- The Core booklet (`docs/book/echo/booklet-02-core.tex`) describes the
-  high-level architecture, scheduler flow, ECS storage, and game loop that
-  this crate implements.
+      `docs/spec/canonical-inbox-sequencing.md`, `docs/spec/warp-tick-patch.md`,
+      `docs/spec/merkle-commit.md`, and
+      `docs/spec/SPEC-0004-worldlines-playback-truthbus.md`.
+- Echo architecture and vocabulary live in `docs/architecture/outline.md` and
+  `docs/theory/THEORY.md`.

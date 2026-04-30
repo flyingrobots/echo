@@ -49,12 +49,9 @@ The validator does two narrow jobs:
   local `schemas/runtime/` fragment set.
 
 This keeps Phase 8 moving without pretending Wesley is already stable enough to
-own the runtime freeze loop.
-
-The current Echo-side mismatch inventory lives in:
-
-- [Phase 8 Runtime Schema Conformance Audit](../../docs/plans/phase-8-runtime-schema-conformance.md)
-- [Phase 8 Runtime Schema Mapping Contract](../../docs/plans/phase-8-runtime-schema-mapping-contract.md)
+own the runtime freeze loop. The old mismatch notes are no longer live docs;
+use the Method backlog and the runtime specs for current planning and
+code-backed contract truth.
 
 ## Planned Output Contract
 

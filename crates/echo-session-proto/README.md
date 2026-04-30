@@ -30,10 +30,6 @@ protocol surfaces.
 
 ## Documentation
 
-- The Echo book’s Core booklet (`docs/book/echo/booklet-02-core.tex`) covers
-  these decisions in:
-    - Section `Low-Level Networking: JS-ABI Wire Protocol`
-      (`13-networking-wire-protocol.tex`),
-    - Section `Consuming WARP Streams: Snapshots and Diffs`
-      (`14-warp-stream-consumers.tex`).
+- WARP stream schema: `docs/spec/warp-view-protocol.md`.
 - JS-ABI v1.0 encoding rules: `docs/spec/js-cbor-mapping.md`.
+- Runtime/ABI context: `docs/spec/SPEC-0009-wasm-abi.md`.

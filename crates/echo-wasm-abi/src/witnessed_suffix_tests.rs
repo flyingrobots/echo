@@ -248,10 +248,10 @@ fn witnessed_suffix_response_rejects_zero_outcomes() -> Result<(), serde_json::E
 #[test]
 fn witnessed_suffix_response_rejects_multiple_outcomes() -> Result<(), serde_json::Error> {
     let mut value = serde_json::to_value(response(admitted_outcome()))?;
-    if let Value::Object(fields) = &mut value {
-        if let Some(outcome) = fields.remove("outcome") {
-            fields.insert("outcomes".to_string(), json!([outcome.clone(), outcome]));
-        }
+    if let Value::Object(fields) = &mut value
+        && let Some(outcome) = fields.remove("outcome")
+    {
+        fields.insert("outcomes".to_string(), json!([outcome.clone(), outcome]));
     }
 
     assert!(serde_json::from_value::<WitnessedSuffixAdmissionResponse>(value).is_err());

@@ -138,6 +138,7 @@ mod tick_delta;
 mod tick_patch;
 mod tx;
 mod warp_state;
+mod witnessed_suffix;
 #[cfg(test)]
 mod witnessed_suffix_tests;
 mod worldline;
@@ -248,6 +249,10 @@ pub use tick_patch::{
 };
 pub use tx::TxId;
 pub use warp_state::{WarpInstance, WarpState};
+pub use witnessed_suffix::{
+    WitnessedSuffixAdmissionOutcome, WitnessedSuffixAdmissionRequest,
+    WitnessedSuffixAdmissionResponse, WitnessedSuffixShell,
+};
 pub use worldline::{
     ApplyError, AtomWrite, AtomWriteSet, HashTriplet, OutputFrameSet, WorldlineId,
     WorldlineTickHeaderV1, WorldlineTickPatchV1,

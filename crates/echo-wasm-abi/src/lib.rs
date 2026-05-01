@@ -617,17 +617,31 @@ mod tests {
         use ciborium::value::Value;
 
         let cases = [
-            (ReadingResidualPosture::Complete, "complete"),
-            (ReadingResidualPosture::Residual, "residual"),
+            (
+                ReadingResidualPosture::Complete,
+                "complete",
+                "68636f6d706c657465",
+            ),
+            (
+                ReadingResidualPosture::Residual,
+                "residual",
+                "68726573696475616c",
+            ),
             (
                 ReadingResidualPosture::PluralityPreserved,
                 "plurality_preserved",
+                "73706c7572616c6974795f707265736572766564",
             ),
-            (ReadingResidualPosture::Obstructed, "obstructed"),
+            (
+                ReadingResidualPosture::Obstructed,
+                "obstructed",
+                "6a6f627374727563746564",
+            ),
         ];
 
-        for (posture, expected_text) in cases {
+        for (posture, expected_text, expected_hex) in cases {
             let bytes = encode_cbor(&posture).unwrap();
+            assert_eq!(hex_encode(&bytes), expected_hex);
             assert_eq!(
                 decode_value(&bytes).unwrap(),
                 Value::Text(expected_text.into())

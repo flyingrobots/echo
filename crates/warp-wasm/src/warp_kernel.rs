@@ -636,8 +636,11 @@ mod tests {
             ObservationFrame as AbiObservationFrame, ObservationPayload as AbiObservationPayload,
             ObservationProjection as AbiObservationProjection,
             ObservationRequest as AbiObservationRequest,
+            ReadingBudgetPosture as AbiReadingBudgetPosture,
+            ReadingObserverBasis as AbiReadingObserverBasis,
             ReadingObserverPlan as AbiReadingObserverPlan,
-            ReadingResidualPosture as AbiReadingResidualPosture, RunCompletion, SchedulerMode,
+            ReadingResidualPosture as AbiReadingResidualPosture,
+            ReadingRightsPosture as AbiReadingRightsPosture, RunCompletion, SchedulerMode,
             SchedulerState, SettlementDecision as AbiSettlementDecision,
             SettlementOverlapRevalidation as AbiSettlementOverlapRevalidation,
             SettlementParentRevalidation as AbiSettlementParentRevalidation,
@@ -1289,6 +1292,18 @@ mod tests {
         assert_eq!(
             artifact.reading.parent_basis_posture,
             AbiObservationBasisPosture::Worldline
+        );
+        assert_eq!(
+            artifact.reading.observer_basis,
+            AbiReadingObserverBasis::CommitBoundary
+        );
+        assert_eq!(
+            artifact.reading.budget_posture,
+            AbiReadingBudgetPosture::UnboundedOneShot
+        );
+        assert_eq!(
+            artifact.reading.rights_posture,
+            AbiReadingRightsPosture::KernelPublic
         );
         assert_eq!(
             artifact.reading.residual_posture,

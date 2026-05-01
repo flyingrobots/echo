@@ -32,7 +32,7 @@ The runtime-doctrine cutover is no longer just design text:
   `SettlementService`.
 - `crates/warp-wasm/src/warp_kernel.rs` exposes neighborhood and settlement
   surfaces through the WASM kernel boundary.
-- `crates/echo-wasm-abi/src/kernel_port.rs` is currently ABI version 7 and
+- `crates/echo-wasm-abi/src/kernel_port.rs` is currently ABI version 8 and
   carries `ReadingEnvelope` inside observation artifacts.
 - `docs/spec/SPEC-0009-wasm-abi.md` now documents the current ABI contract
   instead of pretending to preserve ABI v1-v5.

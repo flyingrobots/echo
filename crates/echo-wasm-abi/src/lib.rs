@@ -38,6 +38,9 @@ pub use eintlog::*;
 
 pub mod kernel_port;
 
+#[cfg(test)]
+mod witnessed_suffix_tests;
+
 pub mod ttd;
 pub use ttd::*;
 
@@ -616,7 +619,10 @@ mod tests {
         let cases = [
             (ReadingResidualPosture::Complete, "complete"),
             (ReadingResidualPosture::Residual, "residual"),
-            (ReadingResidualPosture::Plurality, "plurality"),
+            (
+                ReadingResidualPosture::PluralityPreserved,
+                "plurality_preserved",
+            ),
             (ReadingResidualPosture::Obstructed, "obstructed"),
         ];
 

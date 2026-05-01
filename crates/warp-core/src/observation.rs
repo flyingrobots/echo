@@ -443,7 +443,7 @@ pub enum ReadingResidualPosture {
     /// The observer emitted a bounded reading with explicit residual outside the payload.
     Residual,
     /// The observer preserved lawful plurality instead of collapsing to one reading.
-    Plurality,
+    PluralityPreserved,
     /// The observer surfaced a lawful obstruction instead of a derived reading.
     Obstructed,
 }
@@ -453,7 +453,7 @@ impl ReadingResidualPosture {
         match self {
             Self::Complete => abi::ReadingResidualPosture::Complete,
             Self::Residual => abi::ReadingResidualPosture::Residual,
-            Self::Plurality => abi::ReadingResidualPosture::Plurality,
+            Self::PluralityPreserved => abi::ReadingResidualPosture::PluralityPreserved,
             Self::Obstructed => abi::ReadingResidualPosture::Obstructed,
         }
     }
@@ -1741,8 +1741,8 @@ mod tests {
                 abi::ReadingResidualPosture::Residual,
             ),
             (
-                ReadingResidualPosture::Plurality,
-                abi::ReadingResidualPosture::Plurality,
+                ReadingResidualPosture::PluralityPreserved,
+                abi::ReadingResidualPosture::PluralityPreserved,
             ),
             (
                 ReadingResidualPosture::Obstructed,

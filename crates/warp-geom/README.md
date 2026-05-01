@@ -21,7 +21,5 @@ broad-phase scaffolding.
 - Geometry and temporal background is documented in:
     - `docs/determinism/DETERMINISTIC_MATH.md`,
     - `docs/determinism/SPEC_DETERMINISTIC_MATH.md`,
-    - and related math/geometry notes in `docs/`.
-- The Math booklet (`docs/book/echo/booklet-03-math.tex`) provides the
-  conceptual backdrop for these types; future sections may call out `warp-geom`
-  explicitly as the implementation reference.
+    - `docs/invariants/FIXED-TIMESTEP.md`,
+    - and related determinism evidence in `docs/determinism/`.

@@ -10,7 +10,7 @@
 //!
 //! # ABI Version
 //!
-//! The current ABI version is [`ABI_VERSION`] (7). All response types are
+//! The current ABI version is [`ABI_VERSION`] (8). All response types are
 //! CBOR-encoded using the canonical rules defined in `docs/spec/js-cbor-mapping.md`.
 //! Breaking changes to response shapes or error codes require a bump to the
 //! ABI version.
@@ -38,7 +38,7 @@ use serde::{
 ///
 /// Increment when response types, error codes, or method signatures change
 /// in a backward-incompatible way.
-pub const ABI_VERSION: u32 = 7;
+pub const ABI_VERSION: u32 = 8;
 
 fn deserialize_opaque_id<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
 where
@@ -661,7 +661,7 @@ pub enum ReadingResidualPosture {
     /// The observer emitted a bounded reading with explicit residual outside the payload.
     Residual,
     /// The observer preserved lawful plurality instead of collapsing to one reading.
-    Plurality,
+    PluralityPreserved,
     /// The observer surfaced a lawful obstruction instead of a derived reading.
     Obstructed,
 }
@@ -1059,6 +1059,103 @@ pub struct SettlementResult {
     pub appended_imports: Vec<ProvenanceRef>,
     /// Target-worldline refs appended as `ConflictArtifact`.
     pub appended_conflicts: Vec<ProvenanceRef>,
+}
+
+/// Compact shell for judging a witnessed suffix without transport or sync.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WitnessedSuffixShell {
+    /// Worldline carrying the proposed suffix.
+    pub source_worldline_id: WorldlineId,
+    /// First source tick included in the proposed suffix.
+    pub source_suffix_start_tick: WorldlineTick,
+    /// Last source tick included in the proposed suffix, if any.
+    pub source_suffix_end_tick: Option<WorldlineTick>,
+    /// Ordered source provenance coordinates covered by the shell.
+    pub source_entries: Vec<ProvenanceRef>,
+    /// Boundary witness used when the shell has no importable entries yet.
+    pub boundary_witness: Option<ProvenanceRef>,
+    /// Deterministic digest identifying the compact shell evidence.
+    pub witness_digest: Vec<u8>,
+    /// Optional basis-relative settlement evidence reused by the shell.
+    pub basis_report: Option<SettlementBasisReport>,
+}
+
+/// Request to judge a witnessed suffix against a target basis.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WitnessedSuffixAdmissionRequest {
+    /// Source suffix and compact witness material.
+    pub source_suffix: WitnessedSuffixShell,
+    /// Worldline receiving the proposed admission.
+    pub target_worldline_id: WorldlineId,
+    /// Target basis used while judging admission.
+    pub target_basis: ProvenanceRef,
+    /// Optional target-basis evidence for strand/parent realization cases.
+    pub basis_report: Option<SettlementBasisReport>,
+}
+
+/// Response to one witnessed suffix admission request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WitnessedSuffixAdmissionResponse {
+    /// Deterministic digest of the source shell being judged.
+    pub source_shell_digest: Vec<u8>,
+    /// Resolved target basis used for the response.
+    pub target_basis: ProvenanceRef,
+    /// Exactly one top-level admission outcome.
+    pub outcome: WitnessedSuffixAdmissionOutcome,
+}
+
+/// Top-level witnessed suffix admission posture.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum WitnessedSuffixAdmissionOutcome {
+    /// The suffix is admissible on the named target basis.
+    Admitted {
+        /// Target worldline receiving the admissible suffix.
+        target_worldline_id: WorldlineId,
+        /// Target-local provenance coordinates produced or expected by admission.
+        admitted_refs: Vec<ProvenanceRef>,
+        /// Basis evidence used to classify the suffix as admitted.
+        basis_report: Option<SettlementBasisReport>,
+    },
+    /// The suffix is well-formed but retained for later judgment.
+    Staged {
+        /// Source or target coordinates retained while staged.
+        staged_refs: Vec<ProvenanceRef>,
+        /// Basis evidence used to classify the suffix as staged.
+        basis_report: Option<SettlementBasisReport>,
+    },
+    /// The suffix preserves lawful plurality instead of one admitted result.
+    Plural {
+        /// Candidate coordinates that remain lawful plural outcomes.
+        candidate_refs: Vec<ProvenanceRef>,
+        /// Read-side residual posture associated with preserved plurality.
+        residual_posture: ReadingResidualPosture,
+        /// Basis evidence used to classify the suffix as plural.
+        basis_report: Option<SettlementBasisReport>,
+    },
+    /// The suffix conflicts with the target basis under current admission law.
+    Conflict {
+        /// Deterministic reason the suffix conflicts.
+        reason: ConflictReason,
+        /// Source coordinate implicated in the conflict.
+        source_ref: ProvenanceRef,
+        /// Deterministic digest of compact conflict evidence.
+        evidence_digest: Vec<u8>,
+        /// Optional overlap revalidation evidence when footprint overlap caused the conflict.
+        overlap_revalidation: Option<SettlementOverlapRevalidation>,
+    },
+    /// The suffix cannot currently be judged or admitted.
+    Obstructed {
+        /// Source coordinate implicated in the obstruction.
+        source_ref: ProvenanceRef,
+        /// Read-side residual posture associated with the obstruction.
+        residual_posture: ReadingResidualPosture,
+        /// Deterministic digest of compact obstruction evidence.
+        evidence_digest: Vec<u8>,
+    },
 }
 
 /// Registry and handshake metadata.

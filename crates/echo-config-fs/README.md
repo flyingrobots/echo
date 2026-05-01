@@ -19,6 +19,5 @@ Filesystem-backed configuration adapter for Echo tools.
 
 ## Documentation
 
-- See the tool hexagon pattern and crate map in
-  `docs/book/echo/sections/09-tool-hex-pattern.tex` (Echo Editor Tools,
-  "Echo Tool Hexagon Pattern").
+- Echo runtime model: `docs/architecture/outline.md`.
+- Contributor and tool workflow entrypoints: `docs/workflows.md`.

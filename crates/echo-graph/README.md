@@ -21,9 +21,7 @@ Canonical renderable graph format for Echo (nodes/edges + payloads).
 
 ## Documentation
 
-- Conceptual background for WARP graphs and confluence:
-    - `docs/spec/warp-core.md` and related WARP specs in `docs/spec/`.
-- The Core booklet (`docs/book/echo/booklet-02-core.tex`) uses these types in
-  the JS-ABI + WARP streaming sections:
-    - `13-networking-wire-protocol.tex`,
-    - `14-warp-stream-consumers.tex`.
+- Runtime and graph-carrier context: `docs/architecture/outline.md`.
+- Core runtime tour: `docs/spec/warp-core.md`.
+- WARP stream schema: `docs/spec/warp-view-protocol.md`.
+- JS/CBOR encoding rules: `docs/spec/js-cbor-mapping.md`.

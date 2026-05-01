@@ -20,6 +20,5 @@ Shared application services and ports for Echo tools.
 
 ## Documentation
 
-- High-level architecture and tool pattern: see `docs/book/echo/booklet-05-tools.tex`
-  (Echo Editor Tools), especially Section `Echo Tool Hexagon Pattern`
-  (`09-tool-hex-pattern.tex`).
+- Echo runtime model: `docs/architecture/outline.md`.
+- Contributor and tool workflow entrypoints: `docs/workflows.md`.

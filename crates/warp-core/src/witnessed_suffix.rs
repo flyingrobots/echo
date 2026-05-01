@@ -395,8 +395,8 @@ fn hash_settlement_slot(hasher: &mut Hasher, slot: &SlotId) {
 }
 
 fn len_to_u64(len: usize) -> u64 {
-    match u64::try_from(len) {
-        Ok(value) => value,
-        Err(_) => u64::MAX,
+    const {
+        assert!(usize::BITS <= u64::BITS);
     }
+    len as u64
 }

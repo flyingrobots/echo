@@ -138,6 +138,8 @@ mod tick_delta;
 mod tick_patch;
 mod tx;
 mod warp_state;
+#[cfg(test)]
+mod witnessed_suffix_tests;
 mod worldline;
 
 // ADR-0008 runtime primitives (Phases 1–3)

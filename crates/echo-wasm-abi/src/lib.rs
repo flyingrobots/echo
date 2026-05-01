@@ -38,6 +38,9 @@ pub use eintlog::*;
 
 pub mod kernel_port;
 
+#[cfg(test)]
+mod witnessed_suffix_tests;
+
 pub mod ttd;
 pub use ttd::*;
 

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
-use alloc::{string::ToString, vec, vec::Vec};
+use alloc::{vec, vec::Vec};
 
-use serde_json::{Value, json};
+use ciborium::value::Value;
 
 use crate::{
-    decode_cbor, encode_cbor,
+    CanonError, decode_cbor, decode_value, encode_cbor, encode_value,
     kernel_port::{
         BaseRef, ConflictReason, ProvenanceRef, ReadingResidualPosture, SettlementBasisReport,
         SettlementOverlapRevalidation, SettlementParentRevalidation,
@@ -104,8 +104,37 @@ fn assert_response_round_trip(
     Ok(())
 }
 
-fn request_json() -> Result<Value, serde_json::Error> {
-    serde_json::to_value(request())
+fn value_from_cbor<T: serde::Serialize>(value: &T) -> Result<Value, CanonError> {
+    decode_value(&encode_cbor(value)?)
+}
+
+fn request_value() -> Result<Value, CanonError> {
+    value_from_cbor(&request())
+}
+
+fn remove_map_field(value: &mut Value, name: &str) -> Option<Value> {
+    let Value::Map(fields) = value else {
+        return None;
+    };
+    let position = fields
+        .iter()
+        .position(|(key, _)| matches!(key, Value::Text(field) if field == name))?;
+    Some(fields.remove(position).1)
+}
+
+fn insert_map_field(value: &mut Value, name: &str, field_value: Value) -> bool {
+    let Value::Map(fields) = value else {
+        return false;
+    };
+    fields.push((Value::Text(name.into()), field_value));
+    true
+}
+
+fn decode_value_as<T>(value: &Value) -> Result<T, CanonError>
+where
+    T: for<'de> serde::Deserialize<'de>,
+{
+    decode_cbor(&encode_value(value)?)
 }
 
 fn admitted_outcome() -> WitnessedSuffixAdmissionOutcome {
@@ -213,72 +242,73 @@ fn witnessed_suffix_shell_round_trips_boundary_witness_only() -> Result<(), crat
 }
 
 #[test]
-fn witnessed_suffix_request_rejects_missing_source_suffix() -> Result<(), serde_json::Error> {
-    let mut value = request_json()?;
-    if let Value::Object(fields) = &mut value {
-        fields.remove("source_suffix");
-    }
+fn witnessed_suffix_request_rejects_missing_source_suffix() -> Result<(), CanonError> {
+    let mut value = request_value()?;
+    assert!(remove_map_field(&mut value, "source_suffix").is_some());
 
-    assert!(serde_json::from_value::<WitnessedSuffixAdmissionRequest>(value).is_err());
+    assert!(decode_value_as::<WitnessedSuffixAdmissionRequest>(&value).is_err());
     Ok(())
 }
 
 #[test]
-fn witnessed_suffix_request_rejects_missing_target_basis() -> Result<(), serde_json::Error> {
-    let mut value = request_json()?;
-    if let Value::Object(fields) = &mut value {
-        fields.remove("target_basis");
-    }
+fn witnessed_suffix_request_rejects_missing_target_basis() -> Result<(), CanonError> {
+    let mut value = request_value()?;
+    assert!(remove_map_field(&mut value, "target_basis").is_some());
 
-    assert!(serde_json::from_value::<WitnessedSuffixAdmissionRequest>(value).is_err());
+    assert!(decode_value_as::<WitnessedSuffixAdmissionRequest>(&value).is_err());
     Ok(())
 }
 
 #[test]
-fn witnessed_suffix_response_rejects_zero_outcomes() -> Result<(), serde_json::Error> {
-    let mut value = serde_json::to_value(response(admitted_outcome()))?;
-    if let Value::Object(fields) = &mut value {
-        fields.remove("outcome");
-    }
+fn witnessed_suffix_response_rejects_zero_outcomes() -> Result<(), CanonError> {
+    let mut value = value_from_cbor(&response(admitted_outcome()))?;
+    assert!(remove_map_field(&mut value, "outcome").is_some());
 
-    assert!(serde_json::from_value::<WitnessedSuffixAdmissionResponse>(value).is_err());
+    assert!(decode_value_as::<WitnessedSuffixAdmissionResponse>(&value).is_err());
     Ok(())
 }
 
 #[test]
-fn witnessed_suffix_response_rejects_multiple_outcomes() -> Result<(), serde_json::Error> {
-    let mut value = serde_json::to_value(response(admitted_outcome()))?;
-    if let Value::Object(fields) = &mut value
-        && let Some(outcome) = fields.remove("outcome")
-    {
-        fields.insert("outcomes".to_string(), json!([outcome.clone(), outcome]));
-    }
+fn witnessed_suffix_response_rejects_multiple_outcomes() -> Result<(), CanonError> {
+    let mut value = value_from_cbor(&response(admitted_outcome()))?;
+    let Some(outcome) = remove_map_field(&mut value, "outcome") else {
+        return Err(CanonError::Decode("outcome field missing".into()));
+    };
+    assert!(insert_map_field(
+        &mut value,
+        "outcomes",
+        Value::Array(vec![outcome.clone(), outcome])
+    ));
 
-    assert!(serde_json::from_value::<WitnessedSuffixAdmissionResponse>(value).is_err());
+    assert!(decode_value_as::<WitnessedSuffixAdmissionResponse>(&value).is_err());
     Ok(())
 }
 
 #[test]
-fn witnessed_suffix_request_rejects_raw_transport_endpoint() -> Result<(), serde_json::Error> {
-    let mut value = request_json()?;
-    if let Value::Object(fields) = &mut value {
-        fields.insert(
-            "transport_endpoint".to_string(),
-            json!("https://example.invalid/sync"),
-        );
-    }
+fn witnessed_suffix_request_rejects_raw_transport_endpoint() -> Result<(), CanonError> {
+    let mut value = request_value()?;
+    assert!(insert_map_field(
+        &mut value,
+        "transport_endpoint",
+        Value::Text("https://example.invalid/sync".into())
+    ));
 
-    assert!(serde_json::from_value::<WitnessedSuffixAdmissionRequest>(value).is_err());
+    assert!(decode_value_as::<WitnessedSuffixAdmissionRequest>(&value).is_err());
     Ok(())
 }
 
 #[test]
-fn witnessed_suffix_request_rejects_network_sync_api() -> Result<(), serde_json::Error> {
-    let mut value = request_json()?;
-    if let Value::Object(fields) = &mut value {
-        fields.insert("network_sync_api".to_string(), json!({"kind": "pull"}));
-    }
+fn witnessed_suffix_request_rejects_network_sync_api() -> Result<(), CanonError> {
+    let mut value = request_value()?;
+    assert!(insert_map_field(
+        &mut value,
+        "network_sync_api",
+        Value::Map(vec![(
+            Value::Text("kind".into()),
+            Value::Text("pull".into())
+        )])
+    ));
 
-    assert!(serde_json::from_value::<WitnessedSuffixAdmissionRequest>(value).is_err());
+    assert!(decode_value_as::<WitnessedSuffixAdmissionRequest>(&value).is_err());
     Ok(())
 }

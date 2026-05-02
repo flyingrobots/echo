@@ -23,7 +23,7 @@
     <img src="https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-blue" alt="Platforms" />
 </p>
 
-Echo is the hot runtime layer for WARP. It admits causal work into witnessed
+Echo is a Rust implementation of [WARP](https://doi.org/10.5281/zenodo.19751149) It admits causal work into witnessed
 history, lowers bounded optics into outcomes, witnesses, and retained shells,
 emits reading artifacts for observers, and preserves enough structure for
 deterministic replay, settlement, import, and inspection.

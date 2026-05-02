@@ -1,283 +1,122 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
-<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
-
 <p align="center">
-  <img alt="ECHO" src="https://github.com/user-attachments/assets/bef3fab9-cfc7-4601-b246-67ef7416ae75" />
+<img alt="ECHO" src="[https://github.com/user-attachments/assets/bef3fab9-cfc7-4601-b246-67ef7416ae75](https://github.com/user-attachments/assets/bef3fab9-cfc7-4601-b246-67ef7416ae75)" />
 </p>
-
 <p align="center">
-  <strong>A deterministic WARP runtime for witnessed causal history, bounded observation, and graph-shaped readings</strong>
+<strong>A deterministic WARP runtime for witnessed causal history, bounded observation, and graph-shaped readings.</strong>
 </p>
-
 <p align="center">
-  <a href="docs/index.md">Docs</a> •
-  <a href="docs/architecture/outline.md">Architecture</a> •
-  <a href="CONTINUUM.md">Continuum</a> •
-  <a href="docs/spec/warp-core.md">warp-core</a> •
-  <a href="https://github.com/flyingrobots/aion">AIΩN Framework</a>
+<a href="docs/index.md">Docs</a> •
+<a href="docs/architecture/outline.md">Architecture</a> •
+<a href="CONTINUUM.md">Continuum</a> •
+<a href="docs/spec/warp-core.md">warp-core</a> •
+<a href="[https://github.com/flyingrobots/aion](https://github.com/flyingrobots/aion)">AIΩN Framework</a>
 </p>
-
 <p align="center">
-    <a href="https://github.com/flyingrobots/echo/actions/workflows/determinism.yml" ><img src="https://github.com/flyingrobots/echo/actions/workflows/determinism.yml/badge.svg" alt="Determinism CI" /></a>
-    <a href="https://github.com/flyingrobots/echo/actions/workflows/ci.yml" ><img src="https://github.com/flyingrobots/echo/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-    <img src="https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-blue" alt="Platforms" />
+<a href="[https://github.com/flyingrobots/echo/actions/workflows/determinism.yml](https://github.com/flyingrobots/echo/actions/workflows/determinism.yml)" ><img src="[https://github.com/flyingrobots/echo/actions/workflows/determinism.yml/badge.svg](https://github.com/flyingrobots/echo/actions/workflows/determinism.yml/badge.svg)" alt="Determinism CI" /></a>
+<a href="[https://github.com/flyingrobots/echo/actions/workflows/ci.yml](https://github.com/flyingrobots/echo/actions/workflows/ci.yml)" ><img src="[https://github.com/flyingrobots/echo/actions/workflows/ci.yml/badge.svg](https://github.com/flyingrobots/echo/actions/workflows/ci.yml/badge.svg)" alt="CI" /></a>
+<img src="[https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-blue](https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-blue)" alt="Platforms" />
 </p>
-
-Echo is a Rust implementation of [WARP](https://doi.org/10.5281/zenodo.19751149) It admits causal work into witnessed
-history, lowers bounded optics into outcomes, witnesses, and retained shells,
-emits reading artifacts for observers, and preserves enough structure for
-deterministic replay, settlement, import, and inspection.
-
-Echo still uses graph structures where they are the right carrier. The stronger
-doctrine is that a graph is not the only substrate truth. Graph-shaped structure
-is often an observer-relative reading over witnessed causal history.
-
----
-
-## The Problem With Your Runtime
-
-You model state as a hierarchy of mutable containers. You manage concurrency
-through locks, mutexes, and prayer. You "debug" by scattering print statements
-across a non-deterministic execution that will never reproduce the same way
-twice. When something goes wrong, you squint at logs and guess.
-
-Echo moves the hard part to witnessed admission.
-
-Kernel history is immutable once admitted. Parallel work lowers through bounded
-optics, emits private deltas, and merges only when the runtime can prove the
-claims are lawful. There is nothing to lock inside the admitted history, and
-there is no mystery transition: every accepted change carries witness material
-that can be inspected later.
-
----
-
-## WARP Runtime Model
-
-WARP means **W**orldline **A**lgebra for **R**ecursive **P**rovenance.
-
-The runtime model is:
-
-- **Witnessed causal history** is the semantic substrate.
-- **Graph-shaped readings** are observer-relative views over that history.
-- **Optics** define bounded lowering, admission, witness, and retention.
-- **Observers** define what a read can project, preserve, accumulate, and emit.
-- **Shells** are retained carriers that make replay, audit, transport, or
-  revelation possible.
-
-Echo can materialize graphs, snapshots, checkpoints, and deltas as runtime
-carriers. Those carriers are useful, but they are not the whole ontology. The
-durable question is: what was admitted, under what law, with what witness, and
-what can a bounded observer lawfully read from it?
-
----
-
-## How Admission Evolves
-
-When Echo ticks, it does not mutate a canonical global object. Work is lowered
-through an optic:
-
+## What is Echo?
+Echo is a Rust implementation of the WARP (Worldline Algebra for Recursive Provenance) architecture.
+Traditional applications model state as a hierarchy of mutable containers, relying on locks and mutexes to manage concurrency. This approach leads to non-deterministic execution, making bugs difficult to reproduce and debug.
+**Echo fundamentally changes this model:**
+Instead of mutating a global state, Echo treats **witnessed causal history** as the ultimate source of truth. Graph-shaped structures are treated merely as observer-relative *views* over that history, rather than the core reality. Once kernel history is admitted, it is immutable. Parallel work is handled via private deltas that merge only when mathematically proven to be lawful, eliminating the need for runtime locks.
+### At a Glance
+| Feature | How Echo Achieves It |
+|---|---|
+| **Lock-Free Parallelism** | Immutable bases, private deltas, canonical merging, and strict footprint checks. |
+| **0-ULP Determinism** | Platform-invariant math, logical (not system) time, and seeded randomness. |
+| **Witnessed Admission** | Every accepted state transition carries reviewable cryptographic evidence. |
+| **Bounded Optics** | State modifications (lowering) produce an explicit outcome, a witness, and a retained shell. |
+| **Observer-Relative Reads** | Data reads carry coordinates, basis info, witnesses, and context. |
+| **Live Settlement** | Speculative paths (strands) are settled against live evidence before merging. |
+## Core Architecture
+### The WARP Runtime Model
+Echo relies on a specific set of concepts to manage state and history:
+ * **Witnessed Causal History:** The immutable, underlying semantic truth of the system.
+ * **Graph-Shaped Readings:** Filtered, observer-relative views projected from causal history.
+ * **Optics:** The rules defining how changes are lowered, admitted, witnessed, and retained.
+ * **Observers:** The rules defining what a read operation can project, preserve, accumulate, and output.
+ * **Shells:** Retained data packages that enable deterministic replay, auditing, network transport, and state revelation.
+Materialized state in Echo is just a cache, checkpoint, or reading surface—never the definitive source of truth. The only thing that truly matters is what was admitted, the laws governing it, the witness that proves it, and what an observer is allowed to read from it.
+### How State Evolves (Admission)
+When Echo steps forward (ticks), it does not mutate a global object. Instead, work is evaluated through an **Optic**:
 ```text
 Optic = (ObserverPlan, OpticSlice, LoweringSurface, AdmissionLaw, RetentionContract)
 
 Lower(frontier, weave) = (Outcome, Witness, Shell)
 
 Outcome(X) = Derived(X) | Plural(X) | Conflict | Obstruction
+
 ```
-
-DPO-style graph rewriting is one concrete lowering pattern Echo uses. The
-larger runtime contract is more general:
-
-- **Outcome** says what was admitted or why admission did not collapse to a
-  single value.
-- **Witness** carries the evidence needed to review the judgment.
-- **Shell** preserves the carrier required for replay, audit, transport, or
-  later reading.
-
-Materialized state still matters. It is a cache, checkpoint, shell, or reading
-surface. It is not the only source of truth.
-
-## Determinism by Construction
-
-Echo achieves parallelism without making scheduler timing semantically visible.
-Runtime rules read from an immutable basis and write to private deltas. Deltas
-merge in canonical order only after footprint and admission checks pass. The
-result is identical whether the host runs 1 thread or 32.
-
-This is not "mostly deterministic." It is 0-ULP deterministic:
-
-- Bare host floats are banned from deterministic kernel semantics. Echo uses
-  fixed-point or otherwise platform-invariant scalar surfaces.
-- System time is banned. Simulation time is a causal property of the worldline,
-  not a wall-clock reading.
-- Unseeded randomness is banned. If a tick uses randomness, the seed is part of
-  the admitted input.
-
-The same tick hash on Linux, macOS, and Windows. The same tick hash today, next
-year, and on hardware that doesn't exist yet. Given the same admitted input, the
-kernel output is not just likely identical. It is required to converge.
-
-**Footprint enforcement** is the mechanism that makes this survive parallelism.
-Optics declare their bounded regions. The scheduler proves independence. Any
-delta that violates its declared contract is poisoned: not patched, not retried,
-but structurally rejected.
-
----
-
-## Observation and Reading Artifacts
-
-Observation is not a passive state query.
-
-The read side is modeled as:
-
+ * **Outcome:** Determines whether the change was admitted or why it failed.
+ * **Witness:** Provides the evidence required to audit the decision.
+ * **Shell:** Packages the data required for future replays or reads.
+### Observation and Artifacts
+In Echo, observation is an active, structured process, not a passive query.
 ```text
 StructuralObserver = (Projection, ObserverBasis, ObserverState, UpdateLaw, EmissionLaw)
+
 ```
-
-Echo distinguishes:
-
-- **ObserverPlan**: the authored or compiled revelation discipline.
-- **ObserverInstance**: a runtime observer plus accumulated state when
-  observation is stateful.
-- **ReadingArtifact**: the emitted result, with coordinate, payload, witness,
-  basis, budget, rights, and residual posture.
-
-The current WASM ABI wraps observations in `ReadingEnvelope` metadata so host
-tools can see how a read was resolved. A live strand read can report parent
-basis posture. A bounded observer can receive a lawful reading without
-pretending it saw the whole kernel state.
-
-This is the practical version of Echo's holography. Witnessed provenance,
-retained shells, checkpoints, and reading envelopes let tools reconstruct prior
-readings and causal slices according to explicit retention contracts. Time
-travel is not a debugger bolted on afterward. It is a read discipline over
-witnessed history.
-
----
-
-## Settlement, Strands, and WARP
-
-Echo is the engine layer of a larger WARP stack: a recursive witnessed
-admission architecture that governs the transition from private speculation to
-shared causal reality.
-
-The important runtime separations are:
-
-- **Commit / Lower**: judge bounded claims and produce an outcome, witness, and
-  shell.
-- **Fold / Retain**: preserve what replay, audit, transport, or revelation
-  requires.
-- **Reveal / Observe**: emit an observer-relative reading under aperture, basis,
-  budget, and rights.
-- **Settle**: compare speculative or remote claims against a live basis and
-  return import, plurality, conflict, or obstruction.
-
-Strands are live speculative lanes, not just frozen snapshots. Settlement uses
-live-basis reports, parent movement, overlap checks, target-local replay, and
-conflict artifacts to decide whether a suffix can be imported cleanly. Remote
-exchange is witnessed suffix admission, not state sync.
-
----
-
-## Current Runtime Surfaces
-
-| Surface                       | Current role                                                                 |
-| ----------------------------- | ---------------------------------------------------------------------------- |
-| **`warp-core`**               | Hot runtime semantics: worldlines, strands, observation, settlement, ticks.  |
-| **`ObservationService`**      | Canonical read path that emits observation artifacts and reading posture.    |
-| **`SettlementService`**       | Strand comparison, planning, import candidates, and conflict artifacts.      |
-| **`NeighborhoodSiteService`** | Witness-bearing neighborhood/site publication surface.                       |
-| **`echo-wasm-abi`**           | Current ABI DTOs and canonical CBOR boundary.                                |
-| **`warp-wasm`**               | wasm-bindgen host/browser wrapper over the current ABI.                      |
-| **`method` / `xtask`**        | Filesystem Method workflow automation, including `cargo xtask method inbox`. |
-
-The current WASM ABI version is **6**. That number is a compatibility epoch for
-host/runtime mismatch detection, not a support promise for ABI v1 through v5.
-The public world-state read export is `observe(...)`; the write/control ingress
-is `dispatch_intent(...)`; scheduler metadata comes through
-`scheduler_status()`.
-
-Removed or intentionally absent public hooks such as `step(...)`,
-`snapshot_at(...)`, and `render_snapshot(...)` are not the current boundary.
-
----
-
-## In Short
-
-| Property                                | How                                                                 |
-| --------------------------------------- | ------------------------------------------------------------------- |
-| **Parallelism without synchronization** | Immutable bases, private deltas, canonical merge, footprint checks. |
-| **0-ULP cross-platform determinism**    | Platform-invariant math, logical time, seeded randomness.           |
-| **Witnessed admission**                 | Every accepted transition carries reviewable evidence.              |
-| **Bounded optics**                      | Lowering produces outcome, witness, and retained shell.             |
-| **Observer-relative reads**             | Reading artifacts carry coordinate, basis, witness, and posture.    |
-| **Live settlement**                     | Strands and suffixes settle against live basis evidence.            |
-| **Method workflow**                     | Current work is tracked as live operational Markdown plus `xtask`.  |
-
+Observations yield a ReadingArtifact containing the payload, coordinates, basis, budget, and witness. The WASM ABI (currently v6) wraps these in a ReadingEnvelope so host tools understand exactly how a read was resolved. This "holographic" approach allows tools to seamlessly reconstruct prior states or causal slices without bolting on an external debugger.
+## Determinism by Construction
+Echo achieves exact, cross-platform reproducibility (0-ULP determinism). The kernel output will be identical whether running on 1 thread or 32, across Linux, macOS, or Windows, today or ten years from now.
+To enforce this, Echo strictly bans:
+ * **Bare host floats:** All math uses fixed-point or platform-invariant scalars.
+ * **System wall-clock time:** Simulation time is an intrinsic property of the worldline.
+ * **Unseeded randomness:** Any tick utilizing randomness must include the seed as part of the admitted input.
+**Footprint enforcement** ensures parallelism remains deterministic. Optics declare bounded regions; the scheduler proves independence. Any proposed delta that violates its contract is structurally rejected—never patched or retried.
+## Runtime Surfaces & Stack
+Echo serves as the engine layer governing the transition from private speculation (strands) to shared causal reality.
+### Core Components
+| Component | Role |
+|---|---|
+| **warp-core** | Hot runtime kernel handling worldlines, strands, observation, and settlement. |
+| **echo-wasm-abi** | Current ABI v6 DTOs and canonical CBOR boundary. *Note: v6 is a compatibility epoch, not a promise of support for v1-v5.* |
+| **warp-wasm** | wasm-bindgen boundary for browser and JavaScript environments. |
+| **warp-cli** | Native CLI for inspection and verification. |
+| **ObservationService** | Canonical read path emitting observation artifacts. |
+| **SettlementService** | Handles strand comparison, import candidates, and conflicts. |
+| **echo-cas** | Content-addressed storage substrate. |
+| **echo-ttd & ttd-browser** | Time-travel/debugging protocol surfaces and their browser bridges. |
+| **echo-dind-*** | Cross-platform harness for verifying hash convergence. |
 ## Quick Start
-
 ### 1. Repository Setup
-
-Install the guardrails and verify the current Method view.
-
+Install the necessary guardrails and verify the current operational Method view.
 ```bash
 make hooks
 cargo xtask method status --json
+
 ```
-
 ### 2. Run a Fast Runtime Slice
-
-Use the narrow test-slice path for local iteration.
-
+Execute the narrow test-slice path for rapid local iteration.
 ```bash
 cargo xtask test-slice warp-core-smoke
+
 ```
-
-### 3. Keep Docs as a Gate
-
-The docs build is a real regression gate.
-
+### 3. Build Documentation
+The documentation build serves as an active regression gate.
 ```bash
 pnpm docs:build
+
 ```
-
-### 4. Run the Deeper Determinism Harness
-
-Use DIND when you need cross-platform hash convergence evidence.
-
+### 4. Run the Determinism Harness
+Use Docker-in-Docker (DIND) to verify cross-platform hash convergence.
 ```bash
 cargo xtask dind run
+
 ```
-
-## Stack
-
-| Component           | Role                                                                 |
-| :------------------ | :------------------------------------------------------------------- |
-| **`warp-core`**     | Hot runtime kernel for worldlines, strands, observation, settlement. |
-| **`echo-wasm-abi`** | ABI v6 DTOs, canonical CBOR envelopes, host/runtime contract.        |
-| **`warp-wasm`**     | wasm-bindgen boundary for browser and JavaScript tooling.            |
-| **`method`**        | Method workflow automation and backlog file generation.              |
-| **`warp-cli`**      | Native CLI inspection and verification surface.                      |
-| **`echo-cas`**      | Content-addressed storage substrate.                                 |
-| **`echo-ttd`**      | Time-travel/debugging protocol surfaces.                             |
-| **`ttd-browser`**   | Browser-hostable TTD/runtime bridge surfaces over Echo WASM.         |
-| **`echo-dind-*`**   | Cross-platform harness for hash convergence verification.            |
-| **`echo-app-core`** | Application lifecycle, orchestration, and effect pipelines.          |
-
-## Documentation
-
-- **[Docs](./docs/index.md)**: Live docs map for runtime, replay, observation, and determinism.
-- **[Bearing](./docs/BEARING.md)**: Current repo bearing and near-term priorities.
-- **[Architecture](./docs/architecture/outline.md)**: Architecture map and layer model.
-- **[WARP Drift](./docs/architecture/WARP_DRIFT.md)**: Current doctrine corrections around strands, observation, and suffix admission.
-- **[Optic and Observer Doctrine](./docs/design/0011-optic-observer-runtime-doctrine/design.md)**: Runtime noun stack for optics, observers, witnesses, shells, and readings.
-- **[WASM ABI](./docs/spec/SPEC-0009-wasm-abi.md)**: Current ABI v6 contract.
-- **[Method](./docs/method/README.md)**: Operational workflow and backlog automation.
-- **[DIND](./docs/determinism/dind-harness.md)**: Determinism verification and the "Drill Sergeant" discipline.
-- **[Theory](./docs/theory/THEORY.md)**: Theoretical foundations.
-- **[Continuum](./CONTINUUM.md)**: The multi-repo system model and hot-runtime role.
-
----
-
+## Documentation Directory
+ * **Docs**: Main documentation map (runtime, replay, observation).
+ * **Bearing**: Repository direction and near-term priorities.
+ * **Architecture**: System architecture and layer model.
+ * **WARP Drift**: Adjustments regarding strands and suffix admission.
+ * **Optic & Observer Doctrine**: Core definitions for runtime nouns.
+ * **WASM ABI (v6)**: The active host/runtime contract.
+ * **Method**: Operational workflow and backlog automation rules.
+ * **DIND**: Instructions for the determinism testing harness.
+ * **Theory**: Theoretical foundations of the WARP model.
+ * **Continuum**: The multi-repository system model.
 <p align="center">
-  <sub>Built by <a href="https://github.com/flyingrobots">FLYING•ROBOTS</a></sub>
+<sub>Built by <a href="[https://github.com/flyingrobots](https://github.com/flyingrobots)">FLYING•ROBOTS</a></sub>
 </p>

@@ -116,6 +116,81 @@ impl WitnessedSuffixAdmissionResponse {
     }
 }
 
+/// Read-only local evidence source used by witnessed suffix admission evaluation.
+///
+/// This trait is intentionally narrow: it does not expose runtime mutation,
+/// transport, peer identity, sync loops, or raw patch streams.
+pub trait WitnessedSuffixAdmissionContext {
+    /// Returns the locally computed digest for a source shell, when available.
+    fn source_shell_digest(&self, shell: &WitnessedSuffixShell) -> Option<Hash>;
+
+    /// Resolves a target basis against local evidence, when available.
+    fn resolve_target_basis(&self, target_basis: ProvenanceRef) -> Option<ProvenanceRef>;
+
+    /// Reports the local admission posture for a well-formed request.
+    fn local_admission_posture(
+        &self,
+        request: &WitnessedSuffixAdmissionRequest,
+    ) -> WitnessedSuffixLocalAdmissionPosture;
+}
+
+/// Local posture reported by the read-only admission context.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WitnessedSuffixLocalAdmissionPosture {
+    /// Local evidence says the suffix is admissible.
+    Admissible {
+        /// Target-local provenance coordinates produced or expected by admission.
+        admitted_refs: Vec<ProvenanceRef>,
+    },
+    /// Local evidence says the suffix should be retained for later judgment.
+    Staged {
+        /// Source or target coordinates retained while staged.
+        staged_refs: Vec<ProvenanceRef>,
+    },
+    /// Local evidence preserves lawful plurality.
+    Plural {
+        /// Candidate coordinates that remain lawful plural outcomes.
+        candidate_refs: Vec<ProvenanceRef>,
+    },
+    /// Local evidence reports deterministic adverse admission law.
+    Conflict {
+        /// Deterministic reason the suffix conflicts.
+        reason: ConflictReason,
+        /// Source coordinate implicated in the conflict.
+        source_ref: ProvenanceRef,
+        /// Deterministic digest of compact conflict evidence.
+        evidence_digest: Hash,
+    },
+}
+
+/// Evaluates one witnessed suffix admission request against local evidence.
+///
+/// GREEN 1 adds the contract surface only. Later GREEN slices will replace the
+/// conservative obstruction fallback with the full local classification rules.
+#[must_use]
+pub fn evaluate_witnessed_suffix_admission(
+    request: &WitnessedSuffixAdmissionRequest,
+    context: &impl WitnessedSuffixAdmissionContext,
+) -> WitnessedSuffixAdmissionResponse {
+    let source_shell_digest = context
+        .source_shell_digest(&request.source_suffix)
+        .unwrap_or(request.source_suffix.witness_digest);
+    let target_basis = context
+        .resolve_target_basis(request.target_basis)
+        .unwrap_or(request.target_basis);
+    let _local_posture = context.local_admission_posture(request);
+
+    WitnessedSuffixAdmissionResponse {
+        source_shell_digest,
+        target_basis,
+        outcome: WitnessedSuffixAdmissionOutcome::Obstructed {
+            source_ref: obstruction_source_ref(request),
+            residual_posture: ReadingResidualPosture::Obstructed,
+            evidence_digest: source_shell_digest,
+        },
+    }
+}
+
 /// Top-level witnessed suffix admission posture.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WitnessedSuffixAdmissionOutcome {
@@ -164,6 +239,14 @@ pub enum WitnessedSuffixAdmissionOutcome {
         /// Deterministic digest of compact obstruction evidence.
         evidence_digest: Hash,
     },
+}
+
+fn obstruction_source_ref(request: &WitnessedSuffixAdmissionRequest) -> ProvenanceRef {
+    request
+        .source_suffix
+        .boundary_witness
+        .or_else(|| request.source_suffix.source_entries.first().copied())
+        .unwrap_or(request.target_basis)
 }
 
 fn witnessed_suffix_outcome_to_abi(

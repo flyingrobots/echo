@@ -171,6 +171,15 @@ boundaries.
 
 ## Outcome Classification
 
+The evaluator must keep failure categories separate:
+
+- impossible or invalid DTO shape fails during construction or decode
+- well-formed requests with unverifiable local evidence evaluate to `Obstructed`
+- well-formed requests with deterministic adverse admission law evaluate to
+  `Conflict`
+
+That split keeps `Obstructed` from becoming a catch-all failure bucket.
+
 ### `Admitted`
 
 Use `Admitted` when the suffix is locally admissible on the target basis.
@@ -278,8 +287,8 @@ admission, staging, or plurality decision from local evidence.
 
 ### Known Failure Tests
 
-- request with mismatched source shell digest returns `Obstructed` or rejects
-  before classification, depending on the final error posture
+- malformed or impossible request DTO shape fails during construction or decode
+- request with mismatched source shell digest evaluates to `Obstructed`
 - request with inconsistent suffix tick bounds returns `Obstructed`
 - request with source entries outside suffix bounds returns `Obstructed`
 - request with unknown target basis returns `Obstructed`
@@ -380,8 +389,9 @@ Expected implementation:
 - validate digest posture
 - validate boundary witness or entry presence
 - validate target basis availability through local context
-- classify invalid local evidence as obstruction unless the RED tests require a
-  typed construction error
+- fail impossible DTO shapes during construction or decode
+- classify well-formed but unverifiable local evidence as obstruction
+- classify deterministic adverse admission law as conflict
 
 ### GREEN 3
 

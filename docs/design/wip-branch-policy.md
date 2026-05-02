@@ -38,13 +38,13 @@ preserve mechanical hygiene while allowing expected compile/test failure.
 
 Branch namespace defines workflow posture:
 
-| Branch namespace | Meaning                              | Green required?            |
-| ---------------- | ------------------------------------ | -------------------------- |
-| `main`           | Shared integration branch            | Always                     |
-| `feature/*`      | Merge-candidate feature work         | Yes                        |
-| `review/*`       | Review, rescue, or recovery work     | Yes                        |
-| `docs/*`         | Documentation work                   | Yes                        |
-| `wip/*`          | RED, exploratory, backup, or handoff | No, but hygiene still runs |
+| Branch namespace | Meaning                              | Green required?                        |
+| ---------------- | ------------------------------------ | -------------------------------------- |
+| `main`           | Shared integration branch            | Always                                 |
+| `feature/*`      | Merge-candidate feature work         | Yes                                    |
+| `review/*`       | Review, rescue, or recovery work     | Yes                                    |
+| `docs/*`         | Documentation work                   | Docs/hygiene gates unless code changed |
+| `wip/*`          | RED, exploratory, backup, or handoff | No, but hygiene still runs             |
 
 `wip/*` is the only namespace allowed to contain intentional compile, clippy, or
 test failures. A `wip/*` branch is not a merge candidate.
@@ -62,6 +62,8 @@ The workflow must guarantee:
   from the WIP branch after GREEN begins or passes
 - branch rename is not the preferred promotion workflow
 - `main` remains green-only
+- `docs/*` remains green for its changed surface: docs/hygiene gates for
+  docs-only changes, and normal Rust gates when code changes
 
 ## Human User Stories
 
@@ -100,7 +102,7 @@ The workflow must guarantee:
 
 - **Who:** Reviewers and maintainers.
 - **What:** Keep `main`, `feature/*`, `review/*`, and `docs/*` under normal
-  green requirements.
+  changed-surface green requirements.
 - **Wow:** WIP leniency cannot leak into a branch that is eligible for PR/merge.
 
 ### Hill 3: Dangerous Ref Pushes Are Blocked

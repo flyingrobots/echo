@@ -27,10 +27,11 @@
 
 # What is Echo?
 
-Echo is a Rust implementation of the WARP (Worldline Algebra for Recursive Provenance) architecture.
+Echo is a Rust implementation of the [WARP](https://github.com/flyingrobots/aion) (Worldline Algebra for Recursive Provenance) architecture.
+
 Traditional applications model state as a hierarchy of mutable containers, relying on locks and mutexes to manage concurrency. This approach leads to non-deterministic execution, making bugs difficult to reproduce and debug.
-**Echo fundamentally changes this model:**
-Instead of mutating a global state, Echo treats **witnessed causal history** as the ultimate source of truth. Graph-shaped structures are treated merely as observer-relative *views* over that history, rather than the core reality. Once kernel history is admitted, it is immutable. Parallel work is handled via private deltas that merge only when mathematically proven to be lawful, eliminating the need for runtime locks.
+
+**Echo fundamentally changes this model:** Instead of mutating a global state, Echo treats **witnessed causal history** as the ultimate source of truth. Graph-shaped structures are treated merely as observer-relative *views* over that history, rather than the core reality. Once kernel history is admitted, it is immutable. Parallel work is handled via private deltas that merge only when mathematically proven to be lawful, eliminating the need for runtime locks.
 
 # At a Glance
 

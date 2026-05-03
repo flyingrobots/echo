@@ -171,6 +171,16 @@ boundaries.
 
 ## Outcome Classification
 
+The evaluator must keep failure categories separate:
+
+- impossible or invalid ABI DTO shape fails during ABI decode; plain Rust
+  struct construction remains permissive and is checked by evaluator validation
+- well-formed requests with unverifiable local evidence evaluate to `Obstructed`
+- well-formed requests with deterministic adverse admission law evaluate to
+  `Conflict`
+
+That split keeps `Obstructed` from becoming a catch-all failure bucket.
+
 ### `Admitted`
 
 Use `Admitted` when the suffix is locally admissible on the target basis.
@@ -179,7 +189,8 @@ Initial classification shape:
 
 - source shell identity is valid
 - target basis resolves locally
-- source suffix entries are present and ordered
+- source suffix entries are present, on the source worldline, distinct, and
+  canonical ordered
 - basis evidence is clean or absent because no basis drift is involved
 - no conflict or obstruction evidence is found
 
@@ -273,15 +284,22 @@ admission, staging, or plurality decision from local evidence.
 - request with compact conflict evidence evaluates to `Conflict`
 - request with unavailable target basis evaluates to `Obstructed`
 - every evaluator response converts to the existing ABI response shape
-- every evaluator response carries the original source shell digest and resolved
-  target basis
+- every evaluator response carries the locally verified source shell digest and
+  resolved target basis; if local digest evidence is missing, obstruction uses
+  a local obstruction digest instead of the caller-provided witness digest
 
 ### Known Failure Tests
 
-- request with mismatched source shell digest returns `Obstructed` or rejects
-  before classification, depending on the final error posture
+- malformed or impossible request DTO shape fails during ABI decode
+- request with mismatched source shell digest evaluates to `Obstructed`
 - request with inconsistent suffix tick bounds returns `Obstructed`
 - request with source entries outside suffix bounds returns `Obstructed`
+- request with source entries from a foreign worldline returns `Obstructed`
+- request with out-of-order source entries returns `Obstructed`
+- request with duplicate source entries returns `Obstructed`
+- request with missing local source digest does not reuse the caller-provided
+  witness digest as evidence
+- request with stale basis evidence returns `Obstructed`
 - request with unknown target basis returns `Obstructed`
 - response construction cannot produce zero outcomes
 - response construction cannot produce multiple top-level outcomes
@@ -297,6 +315,8 @@ admission, staging, or plurality decision from local evidence.
 - suffix with target basis equal to its boundary witness
 - conflict outcome with clean overlap revalidation absent
 - conflict outcome with conflicting overlap revalidation present
+- admitted, staged, and plural outcomes with basis evidence that matches the
+  resolved target basis
 - plural outcome with `ReadingResidualPosture::PluralityPreserved`
 - obstruction outcome with `ReadingResidualPosture::Obstructed`
 
@@ -380,8 +400,11 @@ Expected implementation:
 - validate digest posture
 - validate boundary witness or entry presence
 - validate target basis availability through local context
-- classify invalid local evidence as obstruction unless the RED tests require a
-  typed construction error
+- fail impossible DTO shapes during ABI decode
+- validate plain Rust request values inside the evaluator before local posture
+  classification
+- classify well-formed but unverifiable local evidence as obstruction
+- classify deterministic adverse admission law as conflict
 
 ### GREEN 3
 

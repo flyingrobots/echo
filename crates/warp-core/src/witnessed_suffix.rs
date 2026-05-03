@@ -7,7 +7,7 @@
 //! remote synchronization, or import execution.
 
 use blake3::Hasher;
-use echo_wasm_abi::kernel_port as abi;
+use echo_wasm_abi::{encode_cbor, kernel_port as abi};
 
 use crate::attachment::{AttachmentOwner, AttachmentPlane};
 use crate::clock::WorldlineTick;
@@ -116,6 +116,137 @@ impl WitnessedSuffixAdmissionResponse {
     }
 }
 
+/// Read-only local evidence source used by witnessed suffix admission evaluation.
+///
+/// This trait is intentionally narrow: it does not expose runtime mutation,
+/// transport, peer identity, sync loops, or raw patch streams.
+pub trait WitnessedSuffixAdmissionContext {
+    /// Returns the locally computed digest for a source shell, when available.
+    fn source_shell_digest(&self, shell: &WitnessedSuffixShell) -> Option<Hash>;
+
+    /// Returns deterministic local obstruction evidence when shell identity is unavailable.
+    fn source_shell_obstruction_digest(&self, shell: &WitnessedSuffixShell) -> Hash {
+        source_shell_obstruction_digest(shell)
+    }
+
+    /// Resolves a target basis against local evidence, when available.
+    fn resolve_target_basis(&self, target_basis: ProvenanceRef) -> Option<ProvenanceRef>;
+
+    /// Reports the local admission posture for a well-formed request.
+    fn local_admission_posture(
+        &self,
+        request: &WitnessedSuffixAdmissionRequest,
+    ) -> WitnessedSuffixLocalAdmissionPosture;
+}
+
+/// Local posture reported by the read-only admission context.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WitnessedSuffixLocalAdmissionPosture {
+    /// Local evidence says the suffix is admissible.
+    Admissible {
+        /// Target-local provenance coordinates produced or expected by admission.
+        admitted_refs: Vec<ProvenanceRef>,
+    },
+    /// Local evidence says the suffix should be retained for later judgment.
+    Staged {
+        /// Source or target coordinates retained while staged.
+        staged_refs: Vec<ProvenanceRef>,
+    },
+    /// Local evidence preserves lawful plurality.
+    Plural {
+        /// Candidate coordinates that remain lawful plural outcomes.
+        candidate_refs: Vec<ProvenanceRef>,
+    },
+    /// Local evidence reports deterministic adverse admission law.
+    Conflict {
+        /// Deterministic reason the suffix conflicts.
+        reason: ConflictReason,
+        /// Source coordinate implicated in the conflict.
+        source_ref: ProvenanceRef,
+        /// Deterministic digest of compact conflict evidence.
+        evidence_digest: Hash,
+        /// Optional overlap revalidation evidence when footprint overlap caused the conflict.
+        overlap_revalidation: Option<StrandOverlapRevalidation>,
+    },
+}
+
+/// Evaluates one witnessed suffix admission request against local evidence.
+///
+/// Performs deterministic local validation before returning the classified
+/// posture reported by the read-only context.
+#[must_use]
+pub fn evaluate_witnessed_suffix_admission(
+    request: &WitnessedSuffixAdmissionRequest,
+    context: &impl WitnessedSuffixAdmissionContext,
+) -> WitnessedSuffixAdmissionResponse {
+    let source_shell_digest = context.source_shell_digest(&request.source_suffix);
+    let target_basis = context.resolve_target_basis(request.target_basis);
+    let response_source_shell_digest = source_shell_digest
+        .unwrap_or_else(|| context.source_shell_obstruction_digest(&request.source_suffix));
+    let response_target_basis = target_basis.unwrap_or(request.target_basis);
+    let source_entry_obstruction_ref = source_entry_obstruction_ref(&request.source_suffix);
+
+    if source_shell_digest != Some(request.source_suffix.witness_digest)
+        || target_basis.is_none()
+        || suffix_bounds_are_inconsistent(&request.source_suffix)
+        || source_entry_obstruction_ref.is_some()
+        || suffix_witness_material_is_missing(&request.source_suffix)
+        || basis_report_is_inconsistent(request, response_target_basis)
+    {
+        return obstructed_response(
+            request,
+            response_source_shell_digest,
+            response_target_basis,
+            source_entry_obstruction_ref,
+        );
+    }
+
+    let normalized_request = WitnessedSuffixAdmissionRequest {
+        target_basis: response_target_basis,
+        ..request.clone()
+    };
+
+    let outcome = match context.local_admission_posture(&normalized_request) {
+        WitnessedSuffixLocalAdmissionPosture::Admissible { admitted_refs } => {
+            WitnessedSuffixAdmissionOutcome::Admitted {
+                target_worldline_id: request.target_worldline_id,
+                admitted_refs: canonical_provenance_refs(admitted_refs),
+                basis_report: response_basis_report(request),
+            }
+        }
+        WitnessedSuffixLocalAdmissionPosture::Staged { staged_refs } => {
+            WitnessedSuffixAdmissionOutcome::Staged {
+                staged_refs: canonical_provenance_refs(staged_refs),
+                basis_report: response_basis_report(request),
+            }
+        }
+        WitnessedSuffixLocalAdmissionPosture::Plural { candidate_refs } => {
+            WitnessedSuffixAdmissionOutcome::Plural {
+                candidate_refs: canonical_provenance_refs(candidate_refs),
+                residual_posture: ReadingResidualPosture::PluralityPreserved,
+                basis_report: response_basis_report(request),
+            }
+        }
+        WitnessedSuffixLocalAdmissionPosture::Conflict {
+            reason,
+            source_ref,
+            evidence_digest,
+            overlap_revalidation,
+        } => WitnessedSuffixAdmissionOutcome::Conflict {
+            reason,
+            source_ref,
+            evidence_digest,
+            overlap_revalidation,
+        },
+    };
+
+    WitnessedSuffixAdmissionResponse {
+        source_shell_digest: response_source_shell_digest,
+        target_basis: response_target_basis,
+        outcome,
+    }
+}
+
 /// Top-level witnessed suffix admission posture.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WitnessedSuffixAdmissionOutcome {
@@ -164,6 +295,149 @@ pub enum WitnessedSuffixAdmissionOutcome {
         /// Deterministic digest of compact obstruction evidence.
         evidence_digest: Hash,
     },
+}
+
+fn obstruction_source_ref(
+    request: &WitnessedSuffixAdmissionRequest,
+    source_entry_obstruction_ref: Option<ProvenanceRef>,
+) -> ProvenanceRef {
+    if let Some(source_ref) = source_entry_obstruction_ref {
+        return source_ref;
+    }
+
+    request
+        .source_suffix
+        .boundary_witness
+        .or_else(|| request.source_suffix.source_entries.first().copied())
+        .unwrap_or(request.target_basis)
+}
+
+fn suffix_bounds_are_inconsistent(shell: &WitnessedSuffixShell) -> bool {
+    shell
+        .source_suffix_end_tick
+        .is_some_and(|end_tick| end_tick.as_u64() < shell.source_suffix_start_tick.as_u64())
+}
+
+fn source_entry_obstruction_ref(shell: &WitnessedSuffixShell) -> Option<ProvenanceRef> {
+    suffix_entry_outside_bounds(shell)
+        .or_else(|| source_entry_from_foreign_worldline(shell))
+        .or_else(|| non_canonical_source_entry(shell))
+}
+
+fn suffix_entry_outside_bounds(shell: &WitnessedSuffixShell) -> Option<ProvenanceRef> {
+    let start_tick = shell.source_suffix_start_tick.as_u64();
+    let end_tick = shell.source_suffix_end_tick.map(WorldlineTick::as_u64);
+
+    shell.source_entries.iter().copied().find(|source_entry| {
+        let entry_tick = source_entry.worldline_tick.as_u64();
+        entry_tick < start_tick || end_tick.is_some_and(|end_tick| entry_tick > end_tick)
+    })
+}
+
+fn source_entry_from_foreign_worldline(shell: &WitnessedSuffixShell) -> Option<ProvenanceRef> {
+    shell
+        .source_entries
+        .iter()
+        .copied()
+        .find(|source_entry| source_entry.worldline_id != shell.source_worldline_id)
+}
+
+fn non_canonical_source_entry(shell: &WitnessedSuffixShell) -> Option<ProvenanceRef> {
+    shell
+        .source_entries
+        .windows(2)
+        .find_map(|pair| (pair[0] >= pair[1]).then_some(pair[1]))
+}
+
+fn suffix_witness_material_is_missing(shell: &WitnessedSuffixShell) -> bool {
+    shell.source_entries.is_empty() && shell.boundary_witness.is_none()
+}
+
+fn basis_report_is_inconsistent(
+    request: &WitnessedSuffixAdmissionRequest,
+    target_basis: ProvenanceRef,
+) -> bool {
+    response_basis_report(request)
+        .as_ref()
+        .is_some_and(|report| report.realized_parent_ref != target_basis)
+}
+
+fn response_basis_report(request: &WitnessedSuffixAdmissionRequest) -> Option<StrandBasisReport> {
+    request
+        .basis_report
+        .clone()
+        .or_else(|| request.source_suffix.basis_report.clone())
+}
+
+fn canonical_provenance_refs(mut refs: Vec<ProvenanceRef>) -> Vec<ProvenanceRef> {
+    refs.sort_unstable();
+    refs
+}
+
+fn obstructed_response(
+    request: &WitnessedSuffixAdmissionRequest,
+    source_shell_digest: Hash,
+    target_basis: ProvenanceRef,
+    source_entry_obstruction_ref: Option<ProvenanceRef>,
+) -> WitnessedSuffixAdmissionResponse {
+    WitnessedSuffixAdmissionResponse {
+        source_shell_digest,
+        target_basis,
+        outcome: WitnessedSuffixAdmissionOutcome::Obstructed {
+            source_ref: obstruction_source_ref(request, source_entry_obstruction_ref),
+            residual_posture: ReadingResidualPosture::Obstructed,
+            evidence_digest: source_shell_digest,
+        },
+    }
+}
+
+fn source_shell_obstruction_digest(shell: &WitnessedSuffixShell) -> Hash {
+    let mut shell_without_claim = shell.to_abi();
+    shell_without_claim.witness_digest.clear();
+
+    let mut hasher = Hasher::new();
+    hasher.update(b"echo:witnessed-suffix-obstruction:v1\0");
+    match encode_cbor(&shell_without_claim) {
+        Ok(encoded_shell) => {
+            hasher.update(&encoded_shell);
+        }
+        Err(_) => hash_source_shell_obstruction_fallback(&mut hasher, shell),
+    }
+    hasher.finalize().into()
+}
+
+fn hash_source_shell_obstruction_fallback(hasher: &mut Hasher, shell: &WitnessedSuffixShell) {
+    hasher.update(shell.source_worldline_id.as_bytes());
+    hasher.update(&shell.source_suffix_start_tick.as_u64().to_le_bytes());
+    match shell.source_suffix_end_tick {
+        Some(end_tick) => {
+            hasher.update(&[1]);
+            hasher.update(&end_tick.as_u64().to_le_bytes());
+        }
+        None => {
+            hasher.update(&[0]);
+        }
+    }
+    hasher.update(&len_to_u64(shell.source_entries.len()).to_le_bytes());
+    for source_entry in &shell.source_entries {
+        hash_provenance_ref(hasher, source_entry);
+    }
+    match shell.boundary_witness {
+        Some(boundary_witness) => {
+            hasher.update(&[1]);
+            hash_provenance_ref(hasher, &boundary_witness);
+        }
+        None => {
+            hasher.update(&[0]);
+        }
+    }
+    hasher.update(&[u8::from(shell.basis_report.is_some())]);
+}
+
+fn hash_provenance_ref(hasher: &mut Hasher, reference: &ProvenanceRef) {
+    hasher.update(reference.worldline_id.as_bytes());
+    hasher.update(&reference.worldline_tick.as_u64().to_le_bytes());
+    hasher.update(&reference.commit_hash);
 }
 
 fn witnessed_suffix_outcome_to_abi(

@@ -536,7 +536,10 @@ store, cache, index, schedule, and observe in the way that fits its purpose.
 
 ### Step 1: Keep This As Doctrine
 
-This packet only aligns Echo's mental model. It does not edit production code.
+This packet aligns Echo's mental model first. It may accompany small,
+test-backed production slices, such as the `witnessed_suffix` evaluator and
+tests, when those slices need doctrine-level determinism, hash, and canonical
+ordering guidance.
 
 ### Step 2: Audit Stale Temperature Language
 

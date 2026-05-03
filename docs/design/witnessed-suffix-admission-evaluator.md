@@ -173,7 +173,8 @@ boundaries.
 
 The evaluator must keep failure categories separate:
 
-- impossible or invalid DTO shape fails during construction or decode
+- impossible or invalid ABI DTO shape fails during ABI decode; plain Rust
+  struct construction remains permissive and is checked by evaluator validation
 - well-formed requests with unverifiable local evidence evaluate to `Obstructed`
 - well-formed requests with deterministic adverse admission law evaluate to
   `Conflict`
@@ -188,7 +189,8 @@ Initial classification shape:
 
 - source shell identity is valid
 - target basis resolves locally
-- source suffix entries are present and ordered
+- source suffix entries are present, on the source worldline, and canonical
+  ordered
 - basis evidence is clean or absent because no basis drift is involved
 - no conflict or obstruction evidence is found
 
@@ -282,15 +284,20 @@ admission, staging, or plurality decision from local evidence.
 - request with compact conflict evidence evaluates to `Conflict`
 - request with unavailable target basis evaluates to `Obstructed`
 - every evaluator response converts to the existing ABI response shape
-- every evaluator response carries the original source shell digest and resolved
-  target basis
+- every evaluator response carries the locally verified source shell digest and
+  resolved target basis; if local digest evidence is missing, obstruction uses
+  a local obstruction digest instead of the caller-provided witness digest
 
 ### Known Failure Tests
 
-- malformed or impossible request DTO shape fails during construction or decode
+- malformed or impossible request DTO shape fails during ABI decode
 - request with mismatched source shell digest evaluates to `Obstructed`
 - request with inconsistent suffix tick bounds returns `Obstructed`
 - request with source entries outside suffix bounds returns `Obstructed`
+- request with source entries from a foreign worldline returns `Obstructed`
+- request with out-of-order source entries returns `Obstructed`
+- request with missing local source digest does not reuse the caller-provided
+  witness digest as evidence
 - request with unknown target basis returns `Obstructed`
 - response construction cannot produce zero outcomes
 - response construction cannot produce multiple top-level outcomes
@@ -389,7 +396,9 @@ Expected implementation:
 - validate digest posture
 - validate boundary witness or entry presence
 - validate target basis availability through local context
-- fail impossible DTO shapes during construction or decode
+- fail impossible DTO shapes during ABI decode
+- validate plain Rust request values inside the evaluator before local posture
+  classification
 - classify well-formed but unverifiable local evidence as obstruction
 - classify deterministic adverse admission law as conflict
 

@@ -259,49 +259,40 @@ fn witnessed_suffix_core_response_converts_obstructed_outcome_to_abi() {
 
 #[test]
 fn witnessed_suffix_local_posture_admissible_constructor_canonicalizes_refs() {
-    let posture = WitnessedSuffixLocalAdmissionPosture::admissible(vec![
-        provenance_ref(30, 12),
-        provenance_ref(30, 10),
-    ])
-    .expect("distinct admitted refs should construct");
-
     assert_eq!(
-        posture,
-        WitnessedSuffixLocalAdmissionPosture::Admissible {
+        WitnessedSuffixLocalAdmissionPosture::admissible(vec![
+            provenance_ref(30, 12),
+            provenance_ref(30, 10),
+        ]),
+        Ok(WitnessedSuffixLocalAdmissionPosture::Admissible {
             admitted_refs: vec![provenance_ref(30, 10), provenance_ref(30, 12)],
-        }
+        })
     );
 }
 
 #[test]
 fn witnessed_suffix_local_posture_staged_constructor_canonicalizes_refs() {
-    let posture = WitnessedSuffixLocalAdmissionPosture::staged(vec![
-        provenance_ref(32, 12),
-        provenance_ref(32, 11),
-    ])
-    .expect("distinct staged refs should construct");
-
     assert_eq!(
-        posture,
-        WitnessedSuffixLocalAdmissionPosture::Staged {
+        WitnessedSuffixLocalAdmissionPosture::staged(vec![
+            provenance_ref(32, 12),
+            provenance_ref(32, 11),
+        ]),
+        Ok(WitnessedSuffixLocalAdmissionPosture::Staged {
             staged_refs: vec![provenance_ref(32, 11), provenance_ref(32, 12)],
-        }
+        })
     );
 }
 
 #[test]
 fn witnessed_suffix_local_posture_plural_constructor_canonicalizes_refs() {
-    let posture = WitnessedSuffixLocalAdmissionPosture::plural(vec![
-        provenance_ref(34, 13),
-        provenance_ref(33, 12),
-    ])
-    .expect("distinct plural refs should construct");
-
     assert_eq!(
-        posture,
-        WitnessedSuffixLocalAdmissionPosture::Plural {
+        WitnessedSuffixLocalAdmissionPosture::plural(vec![
+            provenance_ref(34, 13),
+            provenance_ref(33, 12),
+        ]),
+        Ok(WitnessedSuffixLocalAdmissionPosture::Plural {
             candidate_refs: vec![provenance_ref(33, 12), provenance_ref(34, 13)],
-        }
+        })
     );
 }
 

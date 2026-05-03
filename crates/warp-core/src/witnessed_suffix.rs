@@ -8,6 +8,7 @@
 
 use blake3::Hasher;
 use echo_wasm_abi::{encode_cbor, kernel_port as abi};
+use thiserror::Error;
 
 use crate::attachment::{AttachmentOwner, AttachmentPlane};
 use crate::clock::WorldlineTick;
@@ -139,6 +140,17 @@ pub trait WitnessedSuffixAdmissionContext {
     ) -> WitnessedSuffixLocalAdmissionPosture;
 }
 
+/// Error returned when constructing a canonical local admission posture fails.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
+pub enum WitnessedSuffixLocalAdmissionPostureError {
+    /// A provenance coordinate appeared more than once in a posture vector.
+    #[error("duplicate witnessed suffix local admission provenance ref: {provenance_ref:?}")]
+    DuplicateProvenanceRef {
+        /// Duplicate provenance coordinate.
+        provenance_ref: ProvenanceRef,
+    },
+}
+
 /// Local posture reported by the read-only admission context.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WitnessedSuffixLocalAdmissionPosture {
@@ -168,6 +180,51 @@ pub enum WitnessedSuffixLocalAdmissionPosture {
         /// Optional overlap revalidation evidence when footprint overlap caused the conflict.
         overlap_revalidation: Option<StrandOverlapRevalidation>,
     },
+}
+
+impl WitnessedSuffixLocalAdmissionPosture {
+    /// Builds an admissible posture with canonical admitted refs.
+    pub fn admissible(
+        admitted_refs: Vec<ProvenanceRef>,
+    ) -> Result<Self, WitnessedSuffixLocalAdmissionPostureError> {
+        Ok(Self::Admissible {
+            admitted_refs: canonical_unique_provenance_refs(admitted_refs)?,
+        })
+    }
+
+    /// Builds a staged posture with canonical staged refs.
+    pub fn staged(
+        staged_refs: Vec<ProvenanceRef>,
+    ) -> Result<Self, WitnessedSuffixLocalAdmissionPostureError> {
+        Ok(Self::Staged {
+            staged_refs: canonical_unique_provenance_refs(staged_refs)?,
+        })
+    }
+
+    /// Builds a plural posture with canonical candidate refs.
+    pub fn plural(
+        candidate_refs: Vec<ProvenanceRef>,
+    ) -> Result<Self, WitnessedSuffixLocalAdmissionPostureError> {
+        Ok(Self::Plural {
+            candidate_refs: canonical_unique_provenance_refs(candidate_refs)?,
+        })
+    }
+
+    /// Builds a conflict posture from named conflict evidence.
+    #[must_use]
+    pub fn conflict(
+        reason: ConflictReason,
+        source_ref: ProvenanceRef,
+        evidence_digest: Hash,
+        overlap_revalidation: Option<StrandOverlapRevalidation>,
+    ) -> Self {
+        Self::Conflict {
+            reason,
+            source_ref,
+            evidence_digest,
+            overlap_revalidation,
+        }
+    }
 }
 
 /// Evaluates one witnessed suffix admission request against local evidence.
@@ -372,6 +429,24 @@ fn response_basis_report(request: &WitnessedSuffixAdmissionRequest) -> Option<St
 fn canonical_provenance_refs(mut refs: Vec<ProvenanceRef>) -> Vec<ProvenanceRef> {
     refs.sort_unstable();
     refs
+}
+
+fn canonical_unique_provenance_refs(
+    mut refs: Vec<ProvenanceRef>,
+) -> Result<Vec<ProvenanceRef>, WitnessedSuffixLocalAdmissionPostureError> {
+    refs.sort_unstable();
+
+    for window in refs.windows(2) {
+        if window[0] == window[1] {
+            return Err(
+                WitnessedSuffixLocalAdmissionPostureError::DuplicateProvenanceRef {
+                    provenance_ref: window[0],
+                },
+            );
+        }
+    }
+
+    Ok(refs)
 }
 
 fn obstructed_response(

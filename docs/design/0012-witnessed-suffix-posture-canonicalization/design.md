@@ -31,6 +31,10 @@ reintroduce caller-order leakage or duplicate provenance refs before the
 evaluator gets a chance to normalize the shape. This cycle starts by making
 that missing named construction path executable as RED.
 
+GREEN 1 adds the named constructors and migrates ordinary test fixtures to use
+them. Raw enum construction remains only where a test is asserting raw shape or
+evaluator normalization of raw posture input.
+
 ## Human users / jobs / hills
 
 ### Primary human users
@@ -47,8 +51,8 @@ runtime work.
 
 ### Human hill
 
-A maintainer can see the canonical posture construction contract before any
-production helper is added.
+A maintainer can review the canonical posture construction contract and the
+small helper implementation without transport, sync, or ABI noise.
 
 ## Agent users / jobs / hills
 
@@ -64,8 +68,8 @@ Future coding agents extending witnessed suffix admission call sites.
 
 ### Agent hill
 
-An agent can run a single warp-core witnessed suffix test target and see the
-missing canonical constructor contract fail for the intended reason.
+An agent can run a single warp-core witnessed suffix test target and verify the
+canonical constructor contract.
 
 ## Human playback
 
@@ -79,17 +83,19 @@ missing canonical constructor contract fail for the intended reason.
 ## Agent playback
 
 1. The agent runs `cargo test -p warp-core --lib witnessed_suffix`.
-2. The command fails because the named posture constructors and duplicate-ref
-   error type do not exist yet.
-3. The agent determines the next implementation is local to warp-core
-   witnessed suffix posture construction.
+2. The command passes the constructor contract examples and existing evaluator
+   defense tests.
+3. The agent determines the slice remains local to warp-core witnessed suffix
+   posture construction.
 
 ## Implementation outline
 
-1. RED only: add tests for named canonical construction of admissible, staged,
+1. RED: add tests for named canonical construction of admissible, staged,
    plural, and conflict local postures.
-2. RED only: move the backlog card into this design packet.
-3. Stop before implementing production helpers.
+2. RED: move the backlog card into this design packet.
+3. GREEN 1: add the named constructors and duplicate-ref error.
+4. GREEN 1: keep ordinary fixtures on the canonical constructor path; leave raw
+   enum construction only for raw-shape and evaluator-defense tests.
 
 ## Tests to write first
 
@@ -97,6 +103,7 @@ missing canonical constructor contract fail for the intended reason.
 - constructor canonicalizes staged refs
 - constructor canonicalizes plural candidate refs
 - constructors reject duplicate refs with a named error
+- constructors reject duplicate refs after canonical sorting
 - conflict constructor names reason, source ref, digest, and overlap evidence
 
 ## Risks / unknowns
@@ -105,8 +112,9 @@ missing canonical constructor contract fail for the intended reason.
   and design wording in the same narrow slice.
 - Duplicate handling may need a wider posture validation policy if empty ref
   vectors also become invalid. This RED only demands duplicate rejection.
-- Existing direct enum construction in tests remains as fixture setup until the
-  GREEN cycle decides whether to migrate it.
+- Direct enum construction remains available for tests that deliberately assert
+  raw shape or raw evaluator input. Ordinary clean fixtures should prefer named
+  constructors.
 
 ## Postures
 
@@ -117,7 +125,6 @@ missing canonical constructor contract fail for the intended reason.
 
 ## Non-goals
 
-- Do not implement the constructors in this RED slice.
 - Do not change transport, sync, import execution, or ABI shape.
 - Do not redesign witnessed suffix admission.
 - Do not implement Continuum proof, IPA, or commitment machinery.

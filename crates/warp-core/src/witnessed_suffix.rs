@@ -165,6 +165,8 @@ pub enum WitnessedSuffixLocalAdmissionPosture {
         source_ref: ProvenanceRef,
         /// Deterministic digest of compact conflict evidence.
         evidence_digest: Hash,
+        /// Optional overlap revalidation evidence when footprint overlap caused the conflict.
+        overlap_revalidation: Option<StrandOverlapRevalidation>,
     },
 }
 
@@ -182,15 +184,21 @@ pub fn evaluate_witnessed_suffix_admission(
     let response_source_shell_digest = source_shell_digest
         .unwrap_or_else(|| context.source_shell_obstruction_digest(&request.source_suffix));
     let response_target_basis = target_basis.unwrap_or(request.target_basis);
+    let source_entry_obstruction_ref = source_entry_obstruction_ref(&request.source_suffix);
 
     if source_shell_digest != Some(request.source_suffix.witness_digest)
         || target_basis.is_none()
-        || !source_entries_are_canonical(&request.source_suffix)
         || suffix_bounds_are_inconsistent(&request.source_suffix)
-        || suffix_entries_are_outside_bounds(&request.source_suffix)
+        || source_entry_obstruction_ref.is_some()
         || suffix_witness_material_is_missing(&request.source_suffix)
+        || basis_report_is_inconsistent(request, response_target_basis)
     {
-        return obstructed_response(request, response_source_shell_digest, response_target_basis);
+        return obstructed_response(
+            request,
+            response_source_shell_digest,
+            response_target_basis,
+            source_entry_obstruction_ref,
+        );
     }
 
     let normalized_request = WitnessedSuffixAdmissionRequest {
@@ -203,40 +211,32 @@ pub fn evaluate_witnessed_suffix_admission(
             WitnessedSuffixAdmissionOutcome::Admitted {
                 target_worldline_id: request.target_worldline_id,
                 admitted_refs: canonical_provenance_refs(admitted_refs),
-                basis_report: request
-                    .basis_report
-                    .clone()
-                    .or_else(|| request.source_suffix.basis_report.clone()),
+                basis_report: response_basis_report(request),
             }
         }
         WitnessedSuffixLocalAdmissionPosture::Staged { staged_refs } => {
             WitnessedSuffixAdmissionOutcome::Staged {
                 staged_refs: canonical_provenance_refs(staged_refs),
-                basis_report: request
-                    .basis_report
-                    .clone()
-                    .or_else(|| request.source_suffix.basis_report.clone()),
+                basis_report: response_basis_report(request),
             }
         }
         WitnessedSuffixLocalAdmissionPosture::Plural { candidate_refs } => {
             WitnessedSuffixAdmissionOutcome::Plural {
                 candidate_refs: canonical_provenance_refs(candidate_refs),
                 residual_posture: ReadingResidualPosture::PluralityPreserved,
-                basis_report: request
-                    .basis_report
-                    .clone()
-                    .or_else(|| request.source_suffix.basis_report.clone()),
+                basis_report: response_basis_report(request),
             }
         }
         WitnessedSuffixLocalAdmissionPosture::Conflict {
             reason,
             source_ref,
             evidence_digest,
+            overlap_revalidation,
         } => WitnessedSuffixAdmissionOutcome::Conflict {
             reason,
             source_ref,
             evidence_digest,
-            overlap_revalidation: None,
+            overlap_revalidation,
         },
     };
 
@@ -297,7 +297,14 @@ pub enum WitnessedSuffixAdmissionOutcome {
     },
 }
 
-fn obstruction_source_ref(request: &WitnessedSuffixAdmissionRequest) -> ProvenanceRef {
+fn obstruction_source_ref(
+    request: &WitnessedSuffixAdmissionRequest,
+    source_entry_obstruction_ref: Option<ProvenanceRef>,
+) -> ProvenanceRef {
+    if let Some(source_ref) = source_entry_obstruction_ref {
+        return source_ref;
+    }
+
     request
         .source_suffix
         .boundary_witness
@@ -311,29 +318,55 @@ fn suffix_bounds_are_inconsistent(shell: &WitnessedSuffixShell) -> bool {
         .is_some_and(|end_tick| end_tick.as_u64() < shell.source_suffix_start_tick.as_u64())
 }
 
-fn suffix_entries_are_outside_bounds(shell: &WitnessedSuffixShell) -> bool {
+fn source_entry_obstruction_ref(shell: &WitnessedSuffixShell) -> Option<ProvenanceRef> {
+    suffix_entry_outside_bounds(shell)
+        .or_else(|| source_entry_from_foreign_worldline(shell))
+        .or_else(|| non_canonical_source_entry(shell))
+}
+
+fn suffix_entry_outside_bounds(shell: &WitnessedSuffixShell) -> Option<ProvenanceRef> {
     let start_tick = shell.source_suffix_start_tick.as_u64();
     let end_tick = shell.source_suffix_end_tick.map(WorldlineTick::as_u64);
 
-    shell.source_entries.iter().any(|source_entry| {
+    shell.source_entries.iter().copied().find(|source_entry| {
         let entry_tick = source_entry.worldline_tick.as_u64();
         entry_tick < start_tick || end_tick.is_some_and(|end_tick| entry_tick > end_tick)
     })
 }
 
-fn source_entries_are_canonical(shell: &WitnessedSuffixShell) -> bool {
+fn source_entry_from_foreign_worldline(shell: &WitnessedSuffixShell) -> Option<ProvenanceRef> {
     shell
         .source_entries
         .iter()
-        .all(|source_entry| source_entry.worldline_id == shell.source_worldline_id)
-        && shell
-            .source_entries
-            .windows(2)
-            .all(|pair| pair[0] <= pair[1])
+        .copied()
+        .find(|source_entry| source_entry.worldline_id != shell.source_worldline_id)
+}
+
+fn non_canonical_source_entry(shell: &WitnessedSuffixShell) -> Option<ProvenanceRef> {
+    shell
+        .source_entries
+        .windows(2)
+        .find_map(|pair| (pair[0] >= pair[1]).then_some(pair[1]))
 }
 
 fn suffix_witness_material_is_missing(shell: &WitnessedSuffixShell) -> bool {
     shell.source_entries.is_empty() && shell.boundary_witness.is_none()
+}
+
+fn basis_report_is_inconsistent(
+    request: &WitnessedSuffixAdmissionRequest,
+    target_basis: ProvenanceRef,
+) -> bool {
+    response_basis_report(request)
+        .as_ref()
+        .is_some_and(|report| report.realized_parent_ref != target_basis)
+}
+
+fn response_basis_report(request: &WitnessedSuffixAdmissionRequest) -> Option<StrandBasisReport> {
+    request
+        .basis_report
+        .clone()
+        .or_else(|| request.source_suffix.basis_report.clone())
 }
 
 fn canonical_provenance_refs(mut refs: Vec<ProvenanceRef>) -> Vec<ProvenanceRef> {
@@ -345,12 +378,13 @@ fn obstructed_response(
     request: &WitnessedSuffixAdmissionRequest,
     source_shell_digest: Hash,
     target_basis: ProvenanceRef,
+    source_entry_obstruction_ref: Option<ProvenanceRef>,
 ) -> WitnessedSuffixAdmissionResponse {
     WitnessedSuffixAdmissionResponse {
         source_shell_digest,
         target_basis,
         outcome: WitnessedSuffixAdmissionOutcome::Obstructed {
-            source_ref: obstruction_source_ref(request),
+            source_ref: obstruction_source_ref(request, source_entry_obstruction_ref),
             residual_posture: ReadingResidualPosture::Obstructed,
             evidence_digest: source_shell_digest,
         },

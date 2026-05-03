@@ -189,8 +189,8 @@ Initial classification shape:
 
 - source shell identity is valid
 - target basis resolves locally
-- source suffix entries are present, on the source worldline, and canonical
-  ordered
+- source suffix entries are present, on the source worldline, distinct, and
+  canonical ordered
 - basis evidence is clean or absent because no basis drift is involved
 - no conflict or obstruction evidence is found
 
@@ -296,8 +296,10 @@ admission, staging, or plurality decision from local evidence.
 - request with source entries outside suffix bounds returns `Obstructed`
 - request with source entries from a foreign worldline returns `Obstructed`
 - request with out-of-order source entries returns `Obstructed`
+- request with duplicate source entries returns `Obstructed`
 - request with missing local source digest does not reuse the caller-provided
   witness digest as evidence
+- request with stale basis evidence returns `Obstructed`
 - request with unknown target basis returns `Obstructed`
 - response construction cannot produce zero outcomes
 - response construction cannot produce multiple top-level outcomes
@@ -313,6 +315,8 @@ admission, staging, or plurality decision from local evidence.
 - suffix with target basis equal to its boundary witness
 - conflict outcome with clean overlap revalidation absent
 - conflict outcome with conflicting overlap revalidation present
+- admitted, staged, and plural outcomes with basis evidence that matches the
+  resolved target basis
 - plural outcome with `ReadingResidualPosture::PluralityPreserved`
 - obstruction outcome with `ReadingResidualPosture::Obstructed`
 

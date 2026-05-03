@@ -246,6 +246,79 @@ fn witnessed_suffix_evaluator_stages_boundary_only_suffix() {
 }
 
 #[test]
+fn witnessed_suffix_evaluator_obstructs_empty_suffix_without_boundary_witness() {
+    let mut request = WitnessedSuffixAdmissionRequest {
+        source_suffix: shell_with_entries(Vec::new()),
+        target_worldline_id: worldline(11),
+        target_basis: provenance_ref(12, 9),
+        basis_report: None,
+    };
+    request.source_suffix.boundary_witness = None;
+    let context = clean_context(WitnessedSuffixLocalAdmissionPosture::Staged {
+        staged_refs: Vec::new(),
+    });
+
+    let response = evaluate_witnessed_suffix_admission(&request, &context);
+
+    assert!(matches!(
+        response.outcome,
+        WitnessedSuffixAdmissionOutcome::Obstructed {
+            residual_posture: ReadingResidualPosture::Obstructed,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn witnessed_suffix_evaluator_allows_equal_start_and_end_ticks() {
+    let mut request = request();
+    request.source_suffix.source_suffix_end_tick =
+        Some(request.source_suffix.source_suffix_start_tick);
+    let context = clean_context(WitnessedSuffixLocalAdmissionPosture::Admissible {
+        admitted_refs: vec![provenance_ref(30, 10)],
+    });
+
+    let response = evaluate_witnessed_suffix_admission(&request, &context);
+
+    assert!(matches!(
+        response.outcome,
+        WitnessedSuffixAdmissionOutcome::Admitted {
+            target_worldline_id,
+            admitted_refs,
+            ..
+        } if target_worldline_id == worldline(11)
+            && admitted_refs == vec![provenance_ref(30, 10)]
+    ));
+}
+
+#[test]
+fn witnessed_suffix_evaluator_stages_when_target_basis_is_boundary_witness() {
+    let boundary_witness = provenance_ref(5, 1);
+    let request = WitnessedSuffixAdmissionRequest {
+        source_suffix: shell_with_entries(Vec::new()),
+        target_worldline_id: worldline(11),
+        target_basis: boundary_witness,
+        basis_report: None,
+    };
+    let context = FakeAdmissionContext {
+        expected_shell_digest: Some([6; 32]),
+        resolved_target_basis: Some(boundary_witness),
+        posture: WitnessedSuffixLocalAdmissionPosture::Staged {
+            staged_refs: vec![boundary_witness],
+        },
+    };
+
+    let response = evaluate_witnessed_suffix_admission(&request, &context);
+
+    assert_eq!(response.target_basis, boundary_witness);
+    assert!(matches!(
+        response.outcome,
+        WitnessedSuffixAdmissionOutcome::Staged { staged_refs, .. }
+            if staged_refs == vec![boundary_witness]
+    ));
+}
+
+#[test]
 fn witnessed_suffix_evaluator_preserves_plural_outcome() {
     let request = request();
     let candidates = vec![provenance_ref(33, 12), provenance_ref(34, 13)];
@@ -282,7 +355,7 @@ fn witnessed_suffix_evaluator_conflicts_with_adverse_admission_law() {
             reason: ConflictReason::ParentFootprintOverlap,
             source_ref,
             evidence_digest,
-            ..
+            overlap_revalidation: None,
         } if source_ref == provenance_ref(35, 14) && evidence_digest == [36; 32]
     ));
 }
@@ -360,4 +433,34 @@ fn witnessed_suffix_evaluator_has_no_transport_or_sync_surface() {
     assert!(!source.contains("peer_identity"));
     assert!(!source.contains("sync_daemon"));
     assert!(!source.contains("raw_patch_stream"));
+}
+
+#[test]
+fn witnessed_suffix_evaluator_has_no_status_or_execution_surface() {
+    let source = include_str!("witnessed_suffix.rs");
+    let forbidden = [
+        "status: String",
+        "status: &str",
+        "string_status",
+        "execute_import",
+        "import_executor",
+        "append_local_commit",
+        "append_recorded_event",
+        "append_provenance",
+        "apply_to_worldline_state",
+        "worldline_state_mut",
+        "WorldlineRuntime",
+        "tokio::runtime",
+        "async_runtime",
+        "TcpListener",
+        "UdpSocket",
+        "socket_listener",
+    ];
+
+    for term in forbidden {
+        assert!(
+            !source.contains(term),
+            "forbidden evaluator surface: {term}"
+        );
+    }
 }

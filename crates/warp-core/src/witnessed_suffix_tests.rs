@@ -127,6 +127,8 @@ impl WitnessedSuffixAdmissionContext for TargetBasisEchoAdmissionContext {
         &self,
         request: &WitnessedSuffixAdmissionRequest,
     ) -> WitnessedSuffixLocalAdmissionPosture {
+        // This trait method cannot return Result, so this fixture uses the raw
+        // shape only where the resolved basis is already deterministic.
         WitnessedSuffixLocalAdmissionPosture::Admissible {
             admitted_refs: vec![request.target_basis],
         }

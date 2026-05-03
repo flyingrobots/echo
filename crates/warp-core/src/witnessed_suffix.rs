@@ -152,21 +152,36 @@ pub enum WitnessedSuffixLocalAdmissionPostureError {
 }
 
 /// Local posture reported by the read-only admission context.
+///
+/// Prefer [`Self::admissible`], [`Self::staged`], or [`Self::plural`] for
+/// ordinary construction so ref vectors are sorted canonically and duplicate
+/// provenance refs are rejected before reaching an ABI-visible response. Direct
+/// enum construction remains available for raw-shape tests and defensive
+/// evaluator inputs.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WitnessedSuffixLocalAdmissionPosture {
     /// Local evidence says the suffix is admissible.
     Admissible {
         /// Target-local provenance coordinates produced or expected by admission.
+        ///
+        /// Use [`WitnessedSuffixLocalAdmissionPosture::admissible`] for normal
+        /// construction.
         admitted_refs: Vec<ProvenanceRef>,
     },
     /// Local evidence says the suffix should be retained for later judgment.
     Staged {
         /// Source or target coordinates retained while staged.
+        ///
+        /// Use [`WitnessedSuffixLocalAdmissionPosture::staged`] for normal
+        /// construction.
         staged_refs: Vec<ProvenanceRef>,
     },
     /// Local evidence preserves lawful plurality.
     Plural {
         /// Candidate coordinates that remain lawful plural outcomes.
+        ///
+        /// Use [`WitnessedSuffixLocalAdmissionPosture::plural`] for normal
+        /// construction.
         candidate_refs: Vec<ProvenanceRef>,
     },
     /// Local evidence reports deterministic adverse admission law.

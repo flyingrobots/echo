@@ -3,8 +3,8 @@
 
 # 0012 — Witnessed suffix posture canonicalization
 
-_Add a RED fence for named canonical construction of witnessed suffix local
-admission postures._
+_Add named canonical construction for witnessed suffix local admission
+postures._
 
 Legend: [PLATFORM](../../method/legends/PLATFORM.md)
 
@@ -44,8 +44,7 @@ runtime work.
 
 ### Human jobs
 
-1. Review one focused RED and decide whether the expected posture constructor
-   shape is acceptable.
+1. Review the named constructor API and duplicate-ref error contract.
 2. Confirm the slice does not reopen transport, sync, ABI, or broad Continuum
    design.
 
@@ -73,12 +72,12 @@ canonical constructor contract.
 
 ## Human playback
 
-1. The human reads the RED tests in
+1. The human reads the constructor contract tests in
    `crates/warp-core/src/witnessed_suffix_tests.rs`.
 2. The tests name `admissible`, `staged`, `plural`, and `conflict` constructor
    paths on `WitnessedSuffixLocalAdmissionPosture`.
-3. The human can decide the next GREEN implementation without inspecting
-   transport or ABI code.
+3. The human can verify the GREEN 1 implementation without inspecting transport
+   or ABI code.
 
 ## Agent playback
 
@@ -120,8 +119,9 @@ canonical constructor contract.
 
 - **Accessibility:** Not applicable; this is Rust API/test surface only.
 - **Localization:** Not applicable; no user-facing strings are introduced.
-- **Agent inspectability:** The RED names exact constructor paths and expected
-  failure so future agents can implement without broad repo exploration.
+- **Agent inspectability:** The design and tests name exact constructor paths,
+  duplicate handling, and raw-construction exceptions so future agents can
+  extend call sites without broad repo exploration.
 
 ## Non-goals
 

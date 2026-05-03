@@ -40,7 +40,7 @@ fn shell_with_entries(entries: Vec<ProvenanceRef>) -> WitnessedSuffixShell {
 
 fn request() -> WitnessedSuffixAdmissionRequest {
     WitnessedSuffixAdmissionRequest {
-        source_suffix: shell_with_entries(vec![provenance_ref(4, 3)]),
+        source_suffix: shell_with_entries(vec![provenance_ref(3, 3)]),
         target_worldline_id: worldline(11),
         target_basis: provenance_ref(12, 9),
         basis_report: None,
@@ -78,6 +78,29 @@ impl WitnessedSuffixAdmissionContext for FakeAdmissionContext {
     }
 }
 
+struct TargetBasisEchoAdmissionContext {
+    resolved_target_basis: ProvenanceRef,
+}
+
+impl WitnessedSuffixAdmissionContext for TargetBasisEchoAdmissionContext {
+    fn source_shell_digest(&self, _shell: &WitnessedSuffixShell) -> Option<Hash> {
+        Some([6; 32])
+    }
+
+    fn resolve_target_basis(&self, _target_basis: ProvenanceRef) -> Option<ProvenanceRef> {
+        Some(self.resolved_target_basis)
+    }
+
+    fn local_admission_posture(
+        &self,
+        request: &WitnessedSuffixAdmissionRequest,
+    ) -> WitnessedSuffixLocalAdmissionPosture {
+        WitnessedSuffixLocalAdmissionPosture::Admissible {
+            admitted_refs: vec![request.target_basis],
+        }
+    }
+}
+
 fn clean_context(posture: WitnessedSuffixLocalAdmissionPosture) -> FakeAdmissionContext {
     FakeAdmissionContext {
         expected_shell_digest: Some([6; 32]),
@@ -98,9 +121,9 @@ fn witnessed_suffix_core_request_converts_to_abi_shape() {
     assert_eq!(
         converted.source_suffix.source_entries,
         vec![abi::ProvenanceRef {
-            worldline_id: abi::WorldlineId::from_bytes([4; 32]),
+            worldline_id: abi::WorldlineId::from_bytes([3; 32]),
             worldline_tick: abi::WorldlineTick(3),
-            commit_hash: vec![5; 32],
+            commit_hash: vec![4; 32],
         }]
     );
     assert_eq!(
@@ -274,7 +297,7 @@ fn witnessed_suffix_evaluator_allows_equal_start_and_end_ticks() {
     let mut request = request();
     request.source_suffix.source_suffix_end_tick =
         Some(request.source_suffix.source_suffix_start_tick);
-    request.source_suffix.source_entries = vec![provenance_ref(4, 2)];
+    request.source_suffix.source_entries = vec![provenance_ref(3, 2)];
     let context = clean_context(WitnessedSuffixLocalAdmissionPosture::Admissible {
         admitted_refs: vec![provenance_ref(30, 10)],
     });
@@ -362,6 +385,72 @@ fn witnessed_suffix_evaluator_conflicts_with_adverse_admission_law() {
 }
 
 #[test]
+fn witnessed_suffix_evaluator_classifies_against_resolved_target_basis() {
+    let request = request();
+    let resolved_basis = provenance_ref(44, 20);
+    let context = TargetBasisEchoAdmissionContext {
+        resolved_target_basis: resolved_basis,
+    };
+
+    let response = evaluate_witnessed_suffix_admission(&request, &context);
+
+    assert_eq!(response.target_basis, resolved_basis);
+    assert!(matches!(
+        response.outcome,
+        WitnessedSuffixAdmissionOutcome::Admitted { admitted_refs, .. }
+            if admitted_refs == vec![resolved_basis]
+    ));
+}
+
+#[test]
+fn witnessed_suffix_evaluator_normalizes_admitted_refs() {
+    let request = request();
+    let context = clean_context(WitnessedSuffixLocalAdmissionPosture::Admissible {
+        admitted_refs: vec![provenance_ref(30, 12), provenance_ref(30, 10)],
+    });
+
+    let response = evaluate_witnessed_suffix_admission(&request, &context);
+
+    assert!(matches!(
+        response.outcome,
+        WitnessedSuffixAdmissionOutcome::Admitted { admitted_refs, .. }
+            if admitted_refs == vec![provenance_ref(30, 10), provenance_ref(30, 12)]
+    ));
+}
+
+#[test]
+fn witnessed_suffix_evaluator_normalizes_staged_refs() {
+    let request = request();
+    let context = clean_context(WitnessedSuffixLocalAdmissionPosture::Staged {
+        staged_refs: vec![provenance_ref(32, 12), provenance_ref(32, 11)],
+    });
+
+    let response = evaluate_witnessed_suffix_admission(&request, &context);
+
+    assert!(matches!(
+        response.outcome,
+        WitnessedSuffixAdmissionOutcome::Staged { staged_refs, .. }
+            if staged_refs == vec![provenance_ref(32, 11), provenance_ref(32, 12)]
+    ));
+}
+
+#[test]
+fn witnessed_suffix_evaluator_normalizes_plural_candidate_refs() {
+    let request = request();
+    let context = clean_context(WitnessedSuffixLocalAdmissionPosture::Plural {
+        candidate_refs: vec![provenance_ref(34, 13), provenance_ref(33, 12)],
+    });
+
+    let response = evaluate_witnessed_suffix_admission(&request, &context);
+
+    assert!(matches!(
+        response.outcome,
+        WitnessedSuffixAdmissionOutcome::Plural { candidate_refs, .. }
+            if candidate_refs == vec![provenance_ref(33, 12), provenance_ref(34, 13)]
+    ));
+}
+
+#[test]
 fn witnessed_suffix_evaluator_obstructs_mismatched_digest() {
     let request = request();
     let context = FakeAdmissionContext {
@@ -380,6 +469,34 @@ fn witnessed_suffix_evaluator_obstructs_mismatched_digest() {
             residual_posture: ReadingResidualPosture::Obstructed,
             ..
         }
+    ));
+}
+
+#[test]
+fn witnessed_suffix_evaluator_obstructs_missing_local_source_digest_without_reusing_request_digest()
+{
+    let request = request();
+    let context = FakeAdmissionContext {
+        expected_shell_digest: None,
+        resolved_target_basis: Some(provenance_ref(12, 9)),
+        posture: WitnessedSuffixLocalAdmissionPosture::Admissible {
+            admitted_refs: vec![provenance_ref(30, 10)],
+        },
+    };
+
+    let response = evaluate_witnessed_suffix_admission(&request, &context);
+
+    assert_ne!(
+        response.source_shell_digest,
+        request.source_suffix.witness_digest
+    );
+    assert!(matches!(
+        response.outcome,
+        WitnessedSuffixAdmissionOutcome::Obstructed {
+            evidence_digest,
+            residual_posture: ReadingResidualPosture::Obstructed,
+            ..
+        } if evidence_digest == response.source_shell_digest
     ));
 }
 
@@ -429,7 +546,7 @@ fn witnessed_suffix_evaluator_obstructs_inconsistent_bounds() {
 fn witnessed_suffix_evaluator_obstructs_source_entry_outside_suffix_bounds() {
     for outside_tick in [1, 5] {
         let mut request = request();
-        request.source_suffix.source_entries = vec![provenance_ref(4, outside_tick)];
+        request.source_suffix.source_entries = vec![provenance_ref(3, outside_tick)];
         let context = clean_context(WitnessedSuffixLocalAdmissionPosture::Admissible {
             admitted_refs: vec![provenance_ref(30, 10)],
         });
@@ -444,6 +561,44 @@ fn witnessed_suffix_evaluator_obstructs_source_entry_outside_suffix_bounds() {
             }
         ));
     }
+}
+
+#[test]
+fn witnessed_suffix_evaluator_obstructs_source_entry_from_foreign_worldline() {
+    let mut request = request();
+    request.source_suffix.source_entries = vec![provenance_ref(4, 3)];
+    let context = clean_context(WitnessedSuffixLocalAdmissionPosture::Admissible {
+        admitted_refs: vec![provenance_ref(30, 10)],
+    });
+
+    let response = evaluate_witnessed_suffix_admission(&request, &context);
+
+    assert!(matches!(
+        response.outcome,
+        WitnessedSuffixAdmissionOutcome::Obstructed {
+            residual_posture: ReadingResidualPosture::Obstructed,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn witnessed_suffix_evaluator_obstructs_out_of_order_source_entries() {
+    let mut request = request();
+    request.source_suffix.source_entries = vec![provenance_ref(3, 4), provenance_ref(3, 3)];
+    let context = clean_context(WitnessedSuffixLocalAdmissionPosture::Admissible {
+        admitted_refs: vec![provenance_ref(30, 10)],
+    });
+
+    let response = evaluate_witnessed_suffix_admission(&request, &context);
+
+    assert!(matches!(
+        response.outcome,
+        WitnessedSuffixAdmissionOutcome::Obstructed {
+            residual_posture: ReadingResidualPosture::Obstructed,
+            ..
+        }
+    ));
 }
 
 #[test]

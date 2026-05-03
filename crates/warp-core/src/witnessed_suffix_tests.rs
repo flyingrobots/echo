@@ -9,8 +9,8 @@ use crate::{
     StrandBasisReport, StrandDivergenceFootprint, StrandOverlapRevalidation,
     StrandRevalidationState, WarpId, WitnessedSuffixAdmissionContext,
     WitnessedSuffixAdmissionOutcome, WitnessedSuffixAdmissionRequest,
-    WitnessedSuffixAdmissionResponse, WitnessedSuffixLocalAdmissionPosture, WitnessedSuffixShell,
-    WorldlineId, WorldlineTick,
+    WitnessedSuffixAdmissionResponse, WitnessedSuffixLocalAdmissionPosture,
+    WitnessedSuffixLocalAdmissionPostureError, WitnessedSuffixShell, WorldlineId, WorldlineTick,
 };
 
 fn worldline(seed: u8) -> WorldlineId {
@@ -255,6 +255,98 @@ fn witnessed_suffix_core_response_converts_obstructed_outcome_to_abi() {
             ..
         }
     ));
+}
+
+#[test]
+fn witnessed_suffix_local_posture_admissible_constructor_canonicalizes_refs() {
+    let posture = WitnessedSuffixLocalAdmissionPosture::admissible(vec![
+        provenance_ref(30, 12),
+        provenance_ref(30, 10),
+    ])
+    .expect("distinct admitted refs should construct");
+
+    assert_eq!(
+        posture,
+        WitnessedSuffixLocalAdmissionPosture::Admissible {
+            admitted_refs: vec![provenance_ref(30, 10), provenance_ref(30, 12)],
+        }
+    );
+}
+
+#[test]
+fn witnessed_suffix_local_posture_staged_constructor_canonicalizes_refs() {
+    let posture = WitnessedSuffixLocalAdmissionPosture::staged(vec![
+        provenance_ref(32, 12),
+        provenance_ref(32, 11),
+    ])
+    .expect("distinct staged refs should construct");
+
+    assert_eq!(
+        posture,
+        WitnessedSuffixLocalAdmissionPosture::Staged {
+            staged_refs: vec![provenance_ref(32, 11), provenance_ref(32, 12)],
+        }
+    );
+}
+
+#[test]
+fn witnessed_suffix_local_posture_plural_constructor_canonicalizes_refs() {
+    let posture = WitnessedSuffixLocalAdmissionPosture::plural(vec![
+        provenance_ref(34, 13),
+        provenance_ref(33, 12),
+    ])
+    .expect("distinct plural refs should construct");
+
+    assert_eq!(
+        posture,
+        WitnessedSuffixLocalAdmissionPosture::Plural {
+            candidate_refs: vec![provenance_ref(33, 12), provenance_ref(34, 13)],
+        }
+    );
+}
+
+#[test]
+fn witnessed_suffix_local_posture_constructors_reject_duplicate_refs() {
+    let duplicate_ref = provenance_ref(30, 10);
+
+    for duplicate_result in [
+        WitnessedSuffixLocalAdmissionPosture::admissible(vec![duplicate_ref, duplicate_ref]),
+        WitnessedSuffixLocalAdmissionPosture::staged(vec![duplicate_ref, duplicate_ref]),
+        WitnessedSuffixLocalAdmissionPosture::plural(vec![duplicate_ref, duplicate_ref]),
+    ] {
+        assert_eq!(
+            duplicate_result,
+            Err(
+                WitnessedSuffixLocalAdmissionPostureError::DuplicateProvenanceRef {
+                    provenance_ref: duplicate_ref,
+                }
+            )
+        );
+    }
+}
+
+#[test]
+fn witnessed_suffix_local_posture_conflict_constructor_names_all_evidence() {
+    let overlap_revalidation = StrandOverlapRevalidation::Conflict {
+        overlapping_slots: vec![node_slot("constructor-overlap-a")],
+    };
+
+    let posture = WitnessedSuffixLocalAdmissionPosture::conflict(
+        ConflictReason::ParentFootprintOverlap,
+        provenance_ref(35, 14),
+        [36; 32],
+        Some(overlap_revalidation.clone()),
+    );
+
+    assert_eq!(
+        posture,
+        WitnessedSuffixLocalAdmissionPosture::Conflict {
+            reason: ConflictReason::ParentFootprintOverlap,
+            source_ref: provenance_ref(35, 14),
+            evidence_digest: [36; 32],
+            overlap_revalidation: Some(overlap_revalidation),
+        }
+    );
 }
 
 #[test]

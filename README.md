@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-<strong>A deterministic WARP runtime for witnessed causal history, bounded observation, and graph-shaped readings</strong>
+<h3><strong>A deterministic WARP runtime for witnessed causal history, bounded observation, and graph-shaped readings</strong></h3>
 </p>
 
 <p align="center">

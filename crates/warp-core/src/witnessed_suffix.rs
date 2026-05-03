@@ -181,6 +181,7 @@ pub fn evaluate_witnessed_suffix_admission(
     if source_shell_digest != Some(request.source_suffix.witness_digest)
         || target_basis.is_none()
         || suffix_bounds_are_inconsistent(&request.source_suffix)
+        || suffix_entries_are_outside_bounds(&request.source_suffix)
         || suffix_witness_material_is_missing(&request.source_suffix)
     {
         return obstructed_response(request, response_source_shell_digest, response_target_basis);
@@ -297,6 +298,16 @@ fn suffix_bounds_are_inconsistent(shell: &WitnessedSuffixShell) -> bool {
     shell
         .source_suffix_end_tick
         .is_some_and(|end_tick| end_tick.as_u64() < shell.source_suffix_start_tick.as_u64())
+}
+
+fn suffix_entries_are_outside_bounds(shell: &WitnessedSuffixShell) -> bool {
+    let start_tick = shell.source_suffix_start_tick.as_u64();
+    let end_tick = shell.source_suffix_end_tick.map(WorldlineTick::as_u64);
+
+    shell.source_entries.iter().any(|source_entry| {
+        let entry_tick = source_entry.worldline_tick.as_u64();
+        entry_tick < start_tick || end_tick.is_some_and(|end_tick| entry_tick > end_tick)
+    })
 }
 
 fn suffix_witness_material_is_missing(shell: &WitnessedSuffixShell) -> bool {

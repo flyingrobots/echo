@@ -274,6 +274,7 @@ fn witnessed_suffix_evaluator_allows_equal_start_and_end_ticks() {
     let mut request = request();
     request.source_suffix.source_suffix_end_tick =
         Some(request.source_suffix.source_suffix_start_tick);
+    request.source_suffix.source_entries = vec![provenance_ref(4, 2)];
     let context = clean_context(WitnessedSuffixLocalAdmissionPosture::Admissible {
         admitted_refs: vec![provenance_ref(30, 10)],
     });
@@ -422,6 +423,27 @@ fn witnessed_suffix_evaluator_obstructs_inconsistent_bounds() {
             ..
         }
     ));
+}
+
+#[test]
+fn witnessed_suffix_evaluator_obstructs_source_entry_outside_suffix_bounds() {
+    for outside_tick in [1, 5] {
+        let mut request = request();
+        request.source_suffix.source_entries = vec![provenance_ref(4, outside_tick)];
+        let context = clean_context(WitnessedSuffixLocalAdmissionPosture::Admissible {
+            admitted_refs: vec![provenance_ref(30, 10)],
+        });
+
+        let response = evaluate_witnessed_suffix_admission(&request, &context);
+
+        assert!(matches!(
+            response.outcome,
+            WitnessedSuffixAdmissionOutcome::Obstructed {
+                residual_posture: ReadingResidualPosture::Obstructed,
+                ..
+            }
+        ));
+    }
 }
 
 #[test]

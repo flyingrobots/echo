@@ -3,7 +3,7 @@
 
 # Wesley To Echo Toy Contract Proof
 
-Status: GREEN 1.
+Status: GREEN 2.
 
 Depends on:
 
@@ -58,8 +58,18 @@ GREEN 1 emits raw-vars helpers from `echo-wesley-gen`:
 - query helpers construct `ObservationRequest` using the existing query-view
   projection.
 
-The next proof should compile or consume generated output in a real consumer
-crate and then exercise `dispatch_intent(...)` / `observe(...)` directly.
+GREEN 2 compiles generated output in a temporary standalone consumer crate and
+exercises:
+
+- generated registry metadata;
+- generated EINT packing;
+- EINT unpacking;
+- `KernelPort::dispatch_intent(...)`;
+- generated query `ObservationRequest`;
+- `KernelPort::observe(...)`.
+
+The next proof should wire the same generated surface into an installed Echo or
+application-owned kernel path instead of a toy `KernelPort` implementation.
 
 ## Acceptance criteria
 

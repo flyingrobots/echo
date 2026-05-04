@@ -17,7 +17,7 @@ Depends on:
 
 ## Status
 
-GREEN 1.
+GREEN 2.
 
 ## Hill
 
@@ -112,6 +112,31 @@ cargo test -p echo-wesley-gen test_toy_contract_generates_eint_and_observation_h
 
 Result: passed.
 
+## GREEN 2 witness
+
+Implementation:
+
+- `echo-wesley-gen` now has a consumer smoke test that writes generated Rust
+  into a temporary standalone crate under `target/`.
+- The smoke crate depends on local `echo-wasm-abi` and `echo-registry-api`.
+- The smoke crate compiles the generated output as consumer code.
+- The smoke crate exercises:
+    - generated `REGISTRY` metadata;
+    - generated `pack_increment_intent(...)`;
+    - EINT unpacking through `unpack_intent_v1(...)`;
+    - a toy `KernelPort::dispatch_intent(...)` implementation;
+    - generated `counter_value_observation_request(...)`;
+    - a toy `KernelPort::observe(...)` implementation returning query bytes.
+
+Focused witness:
+
+```sh
+cargo test -p echo-wesley-gen \
+  test_toy_contract_generated_output_compiles_in_consumer_crate
+```
+
+Result: passed.
+
 Broader generator witness:
 
 ```sh
@@ -136,10 +161,12 @@ Implemented shape:
 Still deferred:
 
 - typed vars encoders for operation argument structs;
-- compiled generated output smoke test in a consumer crate;
 - actual `dispatch_intent(...)` integration proof;
 - actual `observe(...)` integration proof;
 - registry metadata handshake proof against an installed kernel.
+
+The phrase "actual integration proof" now means an Echo-installed or
+application-owned kernel path, not a generated-output compile proof.
 
 ## Non-goals
 

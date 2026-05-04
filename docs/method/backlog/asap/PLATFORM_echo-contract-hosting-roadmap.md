@@ -34,6 +34,8 @@ registry model.
     - Design packet:
       [0015 - Registry Provider Host Boundary Decision](../../../design/0015-registry-provider-host-boundary-decision/design.md)
 4. [Wesley to Echo toy contract proof](../up-next/PLATFORM_wesley-to-echo-toy-contract-proof.md)
+    - Design packet:
+      [0016 - Wesley To Echo Toy Contract Proof](../../../design/0016-wesley-to-echo-toy-contract-proof/design.md)
 5. [Contract-aware receipts and readings](../up-next/KERNEL_contract-aware-receipts-and-readings.md)
 6. [Contract artifact retention in echo-cas](../up-next/PLATFORM_contract-artifact-retention-in-echo-cas.md)
 7. [jedit text contract MVP](../up-next/PLATFORM_jedit-text-contract-mvp.md)

@@ -3,11 +3,12 @@
 
 # Wesley To Echo Toy Contract Proof
 
-Status: planned cross-repo proof.
+Status: RED.
 
 Depends on:
 
 - [Registry provider wiring and host boundary decision](../asap/PLATFORM_static-contract-registry-and-host-boundary.md)
+- [0016 - Wesley To Echo Toy Contract Proof](../../../design/0016-wesley-to-echo-toy-contract-proof/design.md)
 - [echo-wesley-gen v2 Update](./PLATFORM_echo-wesley-gen-v2.md)
 - [WESLEY Protocol Consumer Cutover](../asap/PLATFORM_WESLEY_protocol-consumer-cutover.md)
 
@@ -38,6 +39,16 @@ Example domain:
 The exact schema is not important. The proof must exercise generated identity,
 op ids, vars encoding, EINT packing, dispatch, registry metadata, and one
 read/observation path.
+
+## Current RED
+
+The current RED is documented in
+[0016 - Wesley To Echo Toy Contract Proof](../../../design/0016-wesley-to-echo-toy-contract-proof/design.md).
+
+`echo-wesley-gen` already emits op constants, `OPS`, `GeneratedRegistry`, and
+`REGISTRY`. It does not yet emit the first-consumer app-level helper that
+validates/encodes operation vars, packs EINT v1, and maps a generated query/read
+helper to `observe(...)` / `ReadingEnvelope`.
 
 ## Acceptance criteria
 

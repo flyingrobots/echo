@@ -116,6 +116,88 @@ fn test_ops_catalog_present() {
 }
 
 #[test]
+fn test_toy_contract_generates_eint_and_observation_helpers() {
+    let ir = r#"{
+        "ir_version": "echo-ir/v1",
+        "schema_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "codec_id": "cbor-canon-v1",
+        "registry_version": 1,
+        "types": [
+            {
+                "name": "CounterValue",
+                "kind": "OBJECT",
+                "fields": [
+                    { "name": "value", "type": "Int", "required": true }
+                ]
+            },
+            {
+                "name": "IncrementInput",
+                "kind": "INPUT_OBJECT",
+                "fields": [
+                    { "name": "amount", "type": "Int", "required": true }
+                ]
+            },
+            {
+                "name": "Mutation",
+                "kind": "OBJECT",
+                "fields": [
+                    { "name": "increment", "type": "CounterValue", "required": true }
+                ]
+            },
+            {
+                "name": "Query",
+                "kind": "OBJECT",
+                "fields": [
+                    { "name": "counterValue", "type": "CounterValue", "required": true }
+                ]
+            }
+        ],
+        "ops": [
+            {
+                "kind": "MUTATION",
+                "name": "increment",
+                "op_id": 1001,
+                "args": [
+                    { "name": "input", "type": "IncrementInput", "required": true }
+                ],
+                "result_type": "CounterValue"
+            },
+            {
+                "kind": "QUERY",
+                "name": "counterValue",
+                "op_id": 1002,
+                "args": [],
+                "result_type": "CounterValue"
+            }
+        ]
+    }"#;
+
+    let output = run_wesley_gen(ir);
+    assert!(
+        output.status.success(),
+        "CLI failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(stdout.contains("pub const OP_INCREMENT: u32 = 1001"));
+    assert!(stdout.contains("pub const OP_COUNTER_VALUE: u32 = 1002"));
+    assert!(stdout.contains("pub static REGISTRY: GeneratedRegistry"));
+
+    for required in [
+        "use echo_wasm_abi::pack_intent_v1;",
+        "pub fn pack_increment_intent",
+        "pack_intent_v1(OP_INCREMENT",
+        "pub fn counter_value_observation_request",
+    ] {
+        assert!(
+            stdout.contains(required),
+            "generated toy contract output is missing first-consumer bridge: {required}"
+        );
+    }
+}
+
+#[test]
 fn test_generate_no_std_minicbor() {
     let ir = r#"{
         "ir_version": "echo-ir/v1",

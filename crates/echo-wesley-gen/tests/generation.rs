@@ -388,6 +388,89 @@ fn test_toy_contract_generates_eint_and_observation_helpers() {
 }
 
 #[test]
+fn test_query_only_contract_does_not_import_intent_packer() {
+    let ir = r#"{
+        "ir_version": "echo-ir/v1",
+        "schema_sha256": "abc123",
+        "codec_id": "cbor-canon-v1",
+        "registry_version": 1,
+        "types": [],
+        "ops": [
+            { "kind": "QUERY", "name": "counterValue", "op_id": 222, "args": [], "result_type": "Int" }
+        ]
+    }"#;
+
+    let output = run_wesley_gen(ir);
+    assert!(
+        output.status.success(),
+        "CLI failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(stdout.contains("pub fn counter_value_observation_request"));
+    assert!(
+        !stdout.contains("pack_intent_v1"),
+        "query-only generated code should not import or use EINT packing"
+    );
+}
+
+#[test]
+fn test_operation_vars_type_collision_fails_with_clear_diagnostic() {
+    let ir = r#"{
+        "ir_version": "echo-ir/v1",
+        "schema_sha256": "abc123",
+        "codec_id": "cbor-canon-v1",
+        "registry_version": 1,
+        "types": [
+            {
+                "name": "IncrementVars",
+                "kind": "OBJECT",
+                "fields": [
+                    { "name": "value", "type": "Int", "required": true }
+                ]
+            }
+        ],
+        "ops": [
+            { "kind": "MUTATION", "name": "increment", "op_id": 111, "args": [], "result_type": "IncrementVars" }
+        ]
+    }"#;
+
+    let output = run_wesley_gen(ir);
+    assert!(
+        !output.status.success(),
+        "generator should reject duplicate generated item names"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("generated Rust item name collision"));
+    assert!(stderr.contains("IncrementVars"));
+}
+
+#[test]
+fn test_query_mutation_operation_name_collision_fails_with_clear_diagnostic() {
+    let ir = r#"{
+        "ir_version": "echo-ir/v1",
+        "schema_sha256": "abc123",
+        "codec_id": "cbor-canon-v1",
+        "registry_version": 1,
+        "types": [],
+        "ops": [
+            { "kind": "MUTATION", "name": "value", "op_id": 111, "args": [], "result_type": "Int" },
+            { "kind": "QUERY", "name": "value", "op_id": 222, "args": [], "result_type": "Int" }
+        ]
+    }"#;
+
+    let output = run_wesley_gen(ir);
+    assert!(
+        !output.status.success(),
+        "generator should reject duplicate generated operation item names"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("generated Rust item name collision"));
+    assert!(stderr.contains("OP_VALUE"));
+}
+
+#[test]
 fn test_toy_contract_generated_output_compiles_in_consumer_crate() {
     let output = run_wesley_gen(TOY_COUNTER_IR);
     assert!(

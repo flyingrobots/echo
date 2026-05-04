@@ -22,6 +22,8 @@ Echo hosts those contracts through generic intent and observation envelopes.
 ## Sequence
 
 1. [Wesley compiled contract hosting doctrine](./PLATFORM_wesley-compiled-contract-hosting-doctrine.md)
+    - Design packet:
+      [0013 - Wesley Compiled Contract Hosting Doctrine](../../../design/0013-wesley-compiled-contract-hosting-doctrine/design.md)
 2. [Contract-aware intent and observation envelope](./PLATFORM_contract-aware-intent-observation-envelope.md)
 3. [Static contract registry and host boundary](./PLATFORM_static-contract-registry-and-host-boundary.md)
 4. [Wesley to Echo toy contract proof](../up-next/PLATFORM_wesley-to-echo-toy-contract-proof.md)

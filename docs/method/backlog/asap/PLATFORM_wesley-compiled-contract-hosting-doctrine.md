@@ -10,6 +10,10 @@ Depends on:
 - [Echo Continuum Runtime And CAS Readings](../../../design/continuum-runtime-and-cas-readings.md)
 - [0011 - Optic and observer runtime doctrine](../../../design/0011-optic-observer-runtime-doctrine/design.md)
 
+Design packet:
+
+- [0013 - Wesley Compiled Contract Hosting Doctrine](../../../design/0013-wesley-compiled-contract-hosting-doctrine/design.md)
+
 ## Why now
 
 Echo is moving toward observer-relative readings, witnessed suffix admission,

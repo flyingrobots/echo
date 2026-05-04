@@ -164,6 +164,19 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
             });
         }
 
+        if ir.ops.iter().any(|op| op.kind == OpKind::Mutation) {
+            tokens.extend(quote! {
+                /// Error produced while building a generated EINT intent.
+                #[derive(Debug)]
+                pub enum GeneratedIntentError {
+                    /// Operation vars could not be encoded canonically.
+                    EncodeVars(echo_wasm_abi::CanonError),
+                    /// Encoded vars could not be packed into an EINT envelope.
+                    PackEnvelope(echo_wasm_abi::EnvelopeError),
+                }
+            });
+        }
+
         let mut enum_defs: Vec<_> = ir
             .types
             .iter()
@@ -254,21 +267,64 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
         for op in &ops_sorted {
             let const_name = op_const_ident(&op.name, op.op_id);
             let helper_name = format_ident!("{}", to_snake_case(&op.name));
+            let vars_name = format_ident!("{}Vars", to_pascal_case(&op.name));
+            let vars_fields = op.args.iter().map(|a| {
+                let field_name = safe_ident(&a.name);
+                let base_ty = map_type(&a.type_name, args);
+                let list_ty: TokenStream = if a.list {
+                    quote! { Vec<#base_ty> }
+                } else {
+                    quote! { #base_ty }
+                };
+
+                if a.required {
+                    quote! { pub #field_name: #list_ty }
+                } else {
+                    quote! { pub #field_name: Option<#list_ty> }
+                }
+            });
+            let encode_fn_name = format_ident!("encode_{}_vars", helper_name);
+            tokens.extend(quote! {
+                /// Canonical vars payload for this generated operation.
+                #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+                pub struct #vars_name {
+                    #(#vars_fields),*
+                }
+
+                /// Encode this operation's vars using Echo canonical CBOR.
+                pub fn #encode_fn_name(vars: &#vars_name) -> Result<Vec<u8>, echo_wasm_abi::CanonError> {
+                    echo_wasm_abi::encode_cbor(vars)
+                }
+            });
             match op.kind {
                 OpKind::Mutation => {
                     let fn_name = format_ident!("pack_{}_intent", helper_name);
+                    let raw_fn_name = format_ident!("pack_{}_intent_raw_vars", helper_name);
                     tokens.extend(quote! {
-                        /// Pack canonical vars bytes for this generated mutation into an EINT v1 intent.
-                        pub fn #fn_name(vars: &[u8]) -> Result<Vec<u8>, echo_wasm_abi::EnvelopeError> {
+                        /// Encode this mutation's vars and pack them into an EINT v1 intent.
+                        pub fn #fn_name(vars: &#vars_name) -> Result<Vec<u8>, GeneratedIntentError> {
+                            let vars_bytes = #encode_fn_name(vars).map_err(GeneratedIntentError::EncodeVars)?;
+                            pack_intent_v1(#const_name, &vars_bytes).map_err(GeneratedIntentError::PackEnvelope)
+                        }
+
+                        /// Pack already-canonical vars bytes for this generated mutation into EINT v1.
+                        pub fn #raw_fn_name(vars: &[u8]) -> Result<Vec<u8>, echo_wasm_abi::EnvelopeError> {
                             pack_intent_v1(#const_name, vars)
                         }
                     });
                 }
                 OpKind::Query => {
                     let fn_name = format_ident!("{}_observation_request", helper_name);
+                    let raw_fn_name = format_ident!("{}_observation_request_raw_vars", helper_name);
                     tokens.extend(quote! {
-                        /// Build a frontier query-view observation request for this generated query.
-                        pub fn #fn_name(worldline_id: WorldlineId, vars: &[u8]) -> ObservationRequest {
+                        /// Encode this query's vars and build a frontier query-view observation request.
+                        pub fn #fn_name(worldline_id: WorldlineId, vars: &#vars_name) -> Result<ObservationRequest, echo_wasm_abi::CanonError> {
+                            let vars_bytes = #encode_fn_name(vars)?;
+                            Ok(#raw_fn_name(worldline_id, &vars_bytes))
+                        }
+
+                        /// Build a frontier query-view request from already-canonical vars bytes.
+                        pub fn #raw_fn_name(worldline_id: WorldlineId, vars: &[u8]) -> ObservationRequest {
                             ObservationRequest {
                                 coordinate: ObservationCoordinate {
                                     worldline_id,
@@ -367,6 +423,28 @@ fn op_const_ident(name: &str, op_id: u32) -> proc_macro2::Ident {
         return format_ident!("OP_ID_{}", op_id);
     }
     format_ident!("OP_{}", out)
+}
+
+fn to_pascal_case(name: &str) -> String {
+    let mut out = String::new();
+    let mut capitalize_next = true;
+    for c in name.chars() {
+        if c.is_alphanumeric() {
+            if capitalize_next {
+                out.push(c.to_ascii_uppercase());
+                capitalize_next = false;
+            } else {
+                out.push(c);
+            }
+        } else {
+            capitalize_next = true;
+        }
+    }
+    if out.is_empty() {
+        "Op".to_string()
+    } else {
+        out
+    }
 }
 
 fn to_snake_case(name: &str) -> String {

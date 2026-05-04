@@ -79,8 +79,10 @@ mod generated;
 #[cfg(test)]
 mod tests {
     use super::generated::{
-        counter_value_observation_request, pack_increment_intent, CODEC_ID, OP_COUNTER_VALUE,
-        OP_INCREMENT, REGISTRY, REGISTRY_VERSION, SCHEMA_SHA256,
+        counter_value_observation_request, counter_value_observation_request_raw_vars,
+        encode_counter_value_vars, pack_increment_intent, CounterValueVars, IncrementInput,
+        IncrementVars, CODEC_ID, OP_COUNTER_VALUE, OP_INCREMENT, REGISTRY, REGISTRY_VERSION,
+        SCHEMA_SHA256,
     };
     use echo_registry_api::{OpKind, RegistryProvider};
     use echo_wasm_abi::kernel_port::{
@@ -91,7 +93,7 @@ mod tests {
         RegistryInfo, ResolvedObservationCoordinate, RunCompletion, SchedulerState,
         SchedulerStatus, WorkState, WorldlineId, WorldlineTick, ABI_VERSION,
     };
-    use echo_wasm_abi::unpack_intent_v1;
+    use echo_wasm_abi::{decode_cbor, unpack_intent_v1};
 
     #[derive(Default)]
     struct ToyKernel {
@@ -121,7 +123,11 @@ mod tests {
                 message: error.to_string(),
             })?;
             assert_eq!(op_id, OP_INCREMENT);
-            assert_eq!(vars, &[0x2a]);
+            let decoded: IncrementVars = decode_cbor(vars).map_err(|error| AbiError {
+                code: 2,
+                message: error.to_string(),
+            })?;
+            assert_eq!(decoded.input.amount, 42);
             self.accepted_intent_count += 1;
             Ok(DispatchResponse {
                 accepted: true,
@@ -143,7 +149,11 @@ mod tests {
                 panic!("expected query projection");
             };
             assert_eq!(*query_id, OP_COUNTER_VALUE);
-            assert_eq!(vars_bytes, &[0x01, 0x02]);
+            let _decoded: CounterValueVars =
+                decode_cbor(vars_bytes).map_err(|error| AbiError {
+                    code: 3,
+                    message: error.to_string(),
+                })?;
 
             let worldline_id = request.coordinate.worldline_id;
             let state_root = vec![0; 32];
@@ -206,10 +216,14 @@ mod tests {
         assert_eq!(REGISTRY.op_by_id(OP_INCREMENT).unwrap().kind, OpKind::Mutation);
         assert_eq!(REGISTRY.op_by_id(OP_COUNTER_VALUE).unwrap().kind, OpKind::Query);
 
-        let intent = pack_increment_intent(&[0x2a]).unwrap();
+        let intent = pack_increment_intent(&IncrementVars {
+            input: IncrementInput { amount: 42 },
+        })
+        .unwrap();
         let (op_id, vars) = unpack_intent_v1(&intent).unwrap();
         assert_eq!(op_id, OP_INCREMENT);
-        assert_eq!(vars, &[0x2a]);
+        let decoded: IncrementVars = decode_cbor(vars).unwrap();
+        assert_eq!(decoded.input.amount, 42);
 
         let mut kernel = ToyKernel::default();
         let response = KernelPort::dispatch_intent(&mut kernel, &intent).unwrap();
@@ -225,7 +239,12 @@ mod tests {
         assert_eq!(host_registry.schema_sha256_hex.as_deref(), Some(SCHEMA_SHA256));
 
         let worldline_id = WorldlineId::from_bytes([9; 32]);
-        let request = counter_value_observation_request(worldline_id, &[0x01, 0x02]);
+        let query_vars = CounterValueVars {};
+        let encoded_query_vars = encode_counter_value_vars(&query_vars).unwrap();
+        let request = counter_value_observation_request(worldline_id, &query_vars).unwrap();
+        let raw_request =
+            counter_value_observation_request_raw_vars(worldline_id, &encoded_query_vars);
+        assert_eq!(request, raw_request);
         let artifact = KernelPort::observe(&kernel, request).unwrap();
         assert_eq!(artifact.frame, ObservationFrame::QueryView);
         assert_eq!(
@@ -404,9 +423,15 @@ fn test_toy_contract_generates_eint_and_observation_helpers() {
 
     for required in [
         "use echo_wasm_abi::pack_intent_v1;",
+        "pub struct IncrementVars",
+        "pub struct CounterValueVars",
+        "pub fn encode_increment_vars",
+        "pub fn encode_counter_value_vars",
         "pub fn pack_increment_intent",
+        "pub fn pack_increment_intent_raw_vars",
         "pack_intent_v1(OP_INCREMENT",
         "pub fn counter_value_observation_request",
+        "pub fn counter_value_observation_request_raw_vars",
     ] {
         assert!(
             stdout.contains(required),

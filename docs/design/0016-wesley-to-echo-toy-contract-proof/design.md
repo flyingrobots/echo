@@ -17,7 +17,7 @@ Depends on:
 
 ## Status
 
-GREEN 2.
+GREEN 3.
 
 ## Hill
 
@@ -93,13 +93,13 @@ use echo_wasm_abi::pack_intent_v1;
 
 ## GREEN 1 witness
 
-Implementation:
+Historical implementation, superseded by GREEN 3:
 
 - `echo-wesley-gen` now imports `pack_intent_v1(...)` when operations are
   present.
-- Mutation operations emit raw-vars helpers such as
+- Mutation operations originally emitted raw-vars helpers such as
   `pack_increment_intent(vars)`.
-- Query operations emit frontier query-view helpers such as
+- Query operations originally emitted frontier query-view helpers such as
   `counter_value_observation_request(worldline_id, vars)`.
 - Query helpers use the existing `ObservationRequest`,
   `ObservationFrame::QueryView`, and `ObservationProjection::Query` shape.
@@ -137,6 +137,36 @@ cargo test -p echo-wesley-gen \
 
 Result: passed.
 
+## GREEN 3 witness
+
+Implementation:
+
+- `echo-wesley-gen` now emits per-operation vars structs such as
+  `IncrementVars` and `CounterValueVars`.
+- Each generated operation receives a canonical vars encoder such as
+  `encode_increment_vars(...)`.
+- Ergonomic mutation helpers now accept generated vars structs, encode them
+  with Echo canonical CBOR, and then pack EINT v1.
+- Ergonomic query helpers now accept generated vars structs, encode them with
+  Echo canonical CBOR, and then build `ObservationRequest`.
+- Raw-vars helpers remain available only under explicit names such as
+  `pack_increment_intent_raw_vars(...)` and
+  `counter_value_observation_request_raw_vars(...)`.
+
+Focused witness:
+
+```sh
+cargo test -p echo-wesley-gen \
+  test_toy_contract_generated_output_compiles_in_consumer_crate
+```
+
+The smoke kernel now decodes generated EINT vars and query vars through
+`decode_cbor(...)` before asserting the app-level contract values. This closes
+the accidental nondeterminism seam where the app-facing helper accepted
+arbitrary raw vars bytes.
+
+Result: passed.
+
 Broader generator witness:
 
 ```sh
@@ -148,21 +178,23 @@ Result: passed.
 
 ## GREEN direction
 
-GREEN 1 stayed inside `echo-wesley-gen`.
+GREEN stayed inside `echo-wesley-gen`.
 
 Implemented shape:
 
-- generate `pack_<mutation>_intent(...)` helpers that call
-  `pack_intent_v1(OP_..., &vars)`;
+- generate typed operation vars structs and canonical vars encoders;
+- generate `pack_<mutation>_intent(...)` helpers that canonicalize typed vars
+  before calling `pack_intent_v1(OP_..., &vars)`;
+- keep explicit raw-vars helpers for plumbing callers that already hold
+  canonical vars bytes;
 - generate read-helper shapes for query ops that map to `ObservationRequest`;
 - keep Echo core app-agnostic;
 - keep host-side generated payload validation deferred.
 
 Still deferred:
 
-- typed vars encoders for operation argument structs;
-- actual `dispatch_intent(...)` integration proof;
-- actual `observe(...)` integration proof;
+- installed-kernel `dispatch_intent(...)` integration proof;
+- installed-kernel `observe(...)` integration proof;
 - registry metadata handshake proof against an installed kernel.
 
 The phrase "actual integration proof" now means an Echo-installed or

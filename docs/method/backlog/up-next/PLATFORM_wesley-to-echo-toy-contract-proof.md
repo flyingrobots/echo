@@ -3,7 +3,7 @@
 
 # Wesley To Echo Toy Contract Proof
 
-Status: GREEN 2.
+Status: GREEN 3.
 
 Depends on:
 
@@ -52,13 +52,13 @@ helper to `observe(...)` / `ReadingEnvelope`.
 
 ## Current GREEN
 
-GREEN 1 emits raw-vars helpers from `echo-wesley-gen`:
+GREEN 1 emitted raw-vars helpers from `echo-wesley-gen`:
 
 - mutation helpers pack EINT v1 with `pack_intent_v1(...)`;
 - query helpers construct `ObservationRequest` using the existing query-view
   projection.
 
-GREEN 2 compiles generated output in a temporary standalone consumer crate and
+GREEN 2 compiled generated output in a temporary standalone consumer crate and
 exercises:
 
 - generated registry metadata;
@@ -68,6 +68,16 @@ exercises:
 - generated query `ObservationRequest`;
 - `KernelPort::observe(...)`.
 
+GREEN 3 hardens the generated app-facing helper surface:
+
+- generated operations now receive typed vars structs;
+- generated vars are encoded through Echo canonical CBOR before EINT packing or
+  observation request construction;
+- raw-vars helpers remain available only through explicit `_raw_vars` names for
+  callers that already hold canonical vars bytes;
+- the consumer smoke kernel decodes generated vars before asserting app-level
+  values.
+
 The next proof should wire the same generated surface into an installed Echo or
 application-owned kernel path instead of a toy `KernelPort` implementation.
 
@@ -76,8 +86,8 @@ application-owned kernel path instead of a toy `KernelPort` implementation.
 - Wesley compiles the toy GraphQL contract to Echo-consumable Rust artifacts.
 - `echo-wesley-gen` emits op ids, op catalog metadata, and a generated
   `RegistryProvider`.
-- The consumer proof uses `pack_intent_v1(...)` with a generated op id and vars
-  payload.
+- The consumer proof uses a generated typed vars helper that canonicalizes app
+  vars before calling `pack_intent_v1(...)` with a generated op id.
 - `dispatch_intent(...)` admits one valid toy intent.
 - Registry metadata from the installed kernel or app bundle matches the
   generated schema and codec metadata.

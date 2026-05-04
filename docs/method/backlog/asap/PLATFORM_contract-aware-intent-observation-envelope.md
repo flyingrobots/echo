@@ -3,11 +3,12 @@
 
 # Existing EINT, Registry, And Observation Boundary Inventory
 
-Status: active design correction and inventory candidate.
+Status: design packet complete.
 
 Depends on:
 
 - [Wesley compiled contract hosting doctrine](./PLATFORM_wesley-compiled-contract-hosting-doctrine.md)
+- [0014 - EINT, Registry, And Observation Boundary Inventory](../../../design/0014-eint-registry-observation-boundary-inventory/design.md)
 - [Reading envelope family boundary](../up-next/PLATFORM_reading-envelope-family-boundary.md)
 - [Observer plans and reading artifacts](./PLATFORM_observer-plan-reading-artifacts.md)
 
@@ -56,6 +57,9 @@ bridge for Wesley-generated app consumers.
 ## What it should look like
 
 Add a design/inventory packet before writing RED tests.
+
+That packet now exists:
+[0014 - EINT, Registry, And Observation Boundary Inventory](../../../design/0014-eint-registry-observation-boundary-inventory/design.md).
 
 ## Acceptance criteria
 

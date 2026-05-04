@@ -17,8 +17,10 @@
     "asciichart": "^1.5.25",
     "graphql": "16.11.0",
     "markdownlint-cli2": "0.22.0",
+    "mermaid": "^11.14.0",
     "prettier": "3.8.1",
-    "vitepress": "1.6.4"
+    "vitepress": "1.6.4",
+    "vitepress-plugin-mermaid": "^2.0.17"
   },
   "dependencies": {
     "colortap": "^0.3.0"

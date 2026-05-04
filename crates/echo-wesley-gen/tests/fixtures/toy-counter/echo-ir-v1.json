@@ -1,0 +1,74 @@
+{
+  "ir_version": "echo-ir/v1",
+  "schema_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "codec_id": "cbor-canon-v1",
+  "registry_version": 1,
+  "types": [
+    {
+      "name": "CounterValue",
+      "kind": "OBJECT",
+      "fields": [
+        {
+          "name": "value",
+          "type": "Int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "IncrementInput",
+      "kind": "INPUT_OBJECT",
+      "fields": [
+        {
+          "name": "amount",
+          "type": "Int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "Mutation",
+      "kind": "OBJECT",
+      "fields": [
+        {
+          "name": "increment",
+          "type": "CounterValue",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "Query",
+      "kind": "OBJECT",
+      "fields": [
+        {
+          "name": "counterValue",
+          "type": "CounterValue",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "ops": [
+    {
+      "kind": "MUTATION",
+      "name": "increment",
+      "op_id": 1001,
+      "args": [
+        {
+          "name": "input",
+          "type": "IncrementInput",
+          "required": true
+        }
+      ],
+      "result_type": "CounterValue"
+    },
+    {
+      "kind": "QUERY",
+      "name": "counterValue",
+      "op_id": 1002,
+      "args": [],
+      "result_type": "CounterValue"
+    }
+  ]
+}

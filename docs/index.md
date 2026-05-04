@@ -8,6 +8,7 @@ Echo's live documentation centers on the runtime carrier, the retained witnesses
 ## Start Here
 
 - Runtime model: [/architecture/outline](/architecture/outline)
+- Application contract hosting: [/architecture/application-contract-hosting](/architecture/application-contract-hosting)
 - Theory map: [/theory/THEORY](/theory/THEORY)
 - Current bearing: [/BEARING](/BEARING)
 - WARP core runtime: [/spec/warp-core](/spec/warp-core)
@@ -31,6 +32,7 @@ Echo's live documentation centers on the runtime carrier, the retained witnesses
 
 ## Observation And Platform Boundaries
 
+- Application contract hosting: [/architecture/application-contract-hosting](/architecture/application-contract-hosting)
 - Worldlines, playback, and observation: [/spec/SPEC-0004-worldlines-playback-truthbus](/spec/SPEC-0004-worldlines-playback-truthbus)
 - Provenance payload and boundary records: [/spec/SPEC-0005-provenance-payload](/spec/SPEC-0005-provenance-payload)
 - WASM ABI contract: [/spec/SPEC-0009-wasm-abi](/spec/SPEC-0009-wasm-abi)

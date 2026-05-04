@@ -3,11 +3,12 @@
 
 # Registry Provider Wiring And Host Boundary Decision
 
-Status: active planned design decision.
+Status: design packet complete.
 
 Depends on:
 
 - [Existing EINT, registry, and observation boundary inventory](./PLATFORM_contract-aware-intent-observation-envelope.md)
+- [0015 - Registry Provider Host Boundary Decision](../../../design/0015-registry-provider-host-boundary-decision/design.md)
 
 ## Why now
 
@@ -39,6 +40,13 @@ Option B:
 - generated query/read ops get a clear path through `observe(...)`
 
 Either option must preserve Echo's app-agnostic substrate boundary.
+
+That decision now exists:
+[0015 - Registry Provider Host Boundary Decision](../../../design/0015-registry-provider-host-boundary-decision/design.md).
+
+The first consumer uses Option A. Host-side app payload validation is deferred
+until a future RED proves why the Echo boundary must reject generated app
+payloads before ingress.
 
 ## Acceptance criteria
 

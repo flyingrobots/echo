@@ -12,8 +12,14 @@ const TOY_COUNTER_IR: &str = include_str!("fixtures/toy-counter/echo-ir-v1.json"
 
 /// Spawns `cargo run -p echo-wesley-gen --`, pipes `ir` to stdin, and returns the output.
 fn run_wesley_gen(ir: &str) -> Output {
+    run_wesley_gen_with_args(ir, &[])
+}
+
+/// Spawns `cargo run -p echo-wesley-gen -- <args>`, pipes `ir` to stdin, and returns the output.
+fn run_wesley_gen_with_args(ir: &str, args: &[&str]) -> Output {
     let mut child = Command::new("cargo")
         .args(["run", "-p", "echo-wesley-gen", "--"])
+        .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -264,7 +270,7 @@ mod tests {
     crate_dir
 }
 
-fn write_basic_generated_crate(generated: &str, label: &str) -> PathBuf {
+fn write_basic_generated_crate(generated: &str, label: &str, no_std: bool) -> PathBuf {
     let workspace = workspace_root();
     let crate_dir = workspace
         .join("target")
@@ -278,6 +284,33 @@ fn write_basic_generated_crate(generated: &str, label: &str) -> PathBuf {
 
     let registry_path = workspace.join("crates/echo-registry-api");
     let wasm_abi_path = workspace.join("crates/echo-wasm-abi");
+    let registry_dependency = if no_std {
+        format!(
+            r#"echo-registry-api = {{ path = "{}", default-features = false }}"#,
+            registry_path.display()
+        )
+    } else {
+        format!(
+            r#"echo-registry-api = {{ path = "{}" }}"#,
+            registry_path.display()
+        )
+    };
+    let wasm_abi_dependency = if no_std {
+        format!(
+            r#"echo-wasm-abi = {{ path = "{}", default-features = false, features = ["alloc"] }}"#,
+            wasm_abi_path.display()
+        )
+    } else {
+        format!(
+            r#"echo-wasm-abi = {{ path = "{}" }}"#,
+            wasm_abi_path.display()
+        )
+    };
+    let serde_dependency = if no_std {
+        r#"serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }"#
+    } else {
+        r#"serde = { version = "1.0", features = ["derive"] }"#
+    };
     fs::write(
         crate_dir.join("Cargo.toml"),
         format!(
@@ -290,19 +323,25 @@ publish = false
 [workspace]
 
 [dependencies]
-echo-registry-api = {{ path = "{}" }}
-echo-wasm-abi = {{ path = "{}" }}
-serde = {{ version = "1.0", features = ["derive"] }}
+{registry_dependency}
+{wasm_abi_dependency}
+{serde_dependency}
 "#,
-            registry_path.display(),
-            wasm_abi_path.display()
         ),
     )
     .expect("failed to write generated Cargo.toml");
     fs::write(crate_dir.join("src/generated.rs"), generated)
         .expect("failed to write generated module");
-    fs::write(crate_dir.join("src/lib.rs"), "mod generated;\n")
-        .expect("failed to write generated lib.rs");
+    let lib = if no_std {
+        r"#![no_std]
+extern crate alloc;
+
+mod generated;
+"
+    } else {
+        "mod generated;\n"
+    };
+    fs::write(crate_dir.join("src/lib.rs"), lib).expect("failed to write generated lib.rs");
     crate_dir
 }
 
@@ -507,6 +546,7 @@ fn test_operation_vars_type_collision_uses_helper_namespace() {
     assert_generated_crate_checks(&write_basic_generated_crate(
         stdout.as_ref(),
         "vars-collision",
+        false,
     ));
 }
 
@@ -544,6 +584,7 @@ fn test_generated_intent_error_user_type_does_not_collide_with_helper_error() {
     assert_generated_crate_checks(&write_basic_generated_crate(
         stdout.as_ref(),
         "intent-error-collision",
+        false,
     ));
 }
 
@@ -593,6 +634,25 @@ fn test_toy_contract_generated_output_compiles_in_consumer_crate() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[test]
+fn test_toy_contract_no_std_generated_output_checks_in_consumer_crate() {
+    let output = run_wesley_gen_with_args(TOY_COUNTER_IR, &["--no-std"]);
+    assert!(
+        output.status.success(),
+        "CLI failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let generated = String::from_utf8_lossy(&output.stdout);
+    assert!(generated.contains("extern crate alloc;"));
+    assert!(generated.contains("pub mod __echo_wesley_generated"));
+    assert!(generated.contains("use alloc::vec::Vec;"));
+    assert_generated_crate_checks(&write_basic_generated_crate(
+        generated.as_ref(),
+        "toy-no-std",
+        true,
+    ));
 }
 
 #[test]

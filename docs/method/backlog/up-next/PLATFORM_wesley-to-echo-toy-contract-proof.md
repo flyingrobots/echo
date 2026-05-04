@@ -3,7 +3,7 @@
 
 # Wesley To Echo Toy Contract Proof
 
-Status: RED.
+Status: GREEN 1.
 
 Depends on:
 
@@ -42,13 +42,24 @@ read/observation path.
 
 ## Current RED
 
-The current RED is documented in
+The original RED is documented in
 [0016 - Wesley To Echo Toy Contract Proof](../../../design/0016-wesley-to-echo-toy-contract-proof/design.md).
 
 `echo-wesley-gen` already emits op constants, `OPS`, `GeneratedRegistry`, and
 `REGISTRY`. It does not yet emit the first-consumer app-level helper that
 validates/encodes operation vars, packs EINT v1, and maps a generated query/read
 helper to `observe(...)` / `ReadingEnvelope`.
+
+## Current GREEN
+
+GREEN 1 emits raw-vars helpers from `echo-wesley-gen`:
+
+- mutation helpers pack EINT v1 with `pack_intent_v1(...)`;
+- query helpers construct `ObservationRequest` using the existing query-view
+  projection.
+
+The next proof should compile or consume generated output in a real consumer
+crate and then exercise `dispatch_intent(...)` / `observe(...)` directly.
 
 ## Acceptance criteria
 

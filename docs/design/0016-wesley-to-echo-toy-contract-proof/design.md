@@ -17,7 +17,7 @@ Depends on:
 
 ## Status
 
-RED.
+GREEN 1.
 
 ## Hill
 
@@ -91,20 +91,55 @@ generated toy contract output is missing first-consumer bridge:
 use echo_wasm_abi::pack_intent_v1;
 ```
 
+## GREEN 1 witness
+
+Implementation:
+
+- `echo-wesley-gen` now imports `pack_intent_v1(...)` when operations are
+  present.
+- Mutation operations emit raw-vars helpers such as
+  `pack_increment_intent(vars)`.
+- Query operations emit frontier query-view helpers such as
+  `counter_value_observation_request(worldline_id, vars)`.
+- Query helpers use the existing `ObservationRequest`,
+  `ObservationFrame::QueryView`, and `ObservationProjection::Query` shape.
+
+Focused witness:
+
+```sh
+cargo test -p echo-wesley-gen test_toy_contract_generates_eint_and_observation_helpers
+```
+
+Result: passed.
+
+Broader generator witness:
+
+```sh
+cargo test -p echo-wesley-gen
+cargo clippy -p echo-wesley-gen --all-targets -- -D warnings -D missing_docs
+```
+
+Result: passed.
+
 ## GREEN direction
 
-The first GREEN should stay inside `echo-wesley-gen` unless a narrow
-observation-boundary RED proves a missing ABI field.
+GREEN 1 stayed inside `echo-wesley-gen`.
 
-Expected implementation shape:
+Implemented shape:
 
-- generate vars encoder helpers for operation arguments;
 - generate `pack_<mutation>_intent(...)` helpers that call
   `pack_intent_v1(OP_..., &vars)`;
-- generate one read-helper shape for query ops that maps to
-  `ObservationRequest` if possible;
+- generate read-helper shapes for query ops that map to `ObservationRequest`;
 - keep Echo core app-agnostic;
 - keep host-side generated payload validation deferred.
+
+Still deferred:
+
+- typed vars encoders for operation argument structs;
+- compiled generated output smoke test in a consumer crate;
+- actual `dispatch_intent(...)` integration proof;
+- actual `observe(...)` integration proof;
+- registry metadata handshake proof against an installed kernel.
 
 ## Non-goals
 

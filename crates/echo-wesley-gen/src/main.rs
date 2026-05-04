@@ -152,7 +152,17 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
         tokens.extend(quote! {
             // Registry provider types (Echo runtime loads an app-supplied implementation).
             use echo_registry_api::{ArgDef, EnumDef, ObjectDef, OpDef, OpKind, RegistryInfo, RegistryProvider};
+            use echo_wasm_abi::pack_intent_v1;
         });
+
+        if ir.ops.iter().any(|op| op.kind == OpKind::Query) {
+            tokens.extend(quote! {
+                use echo_wasm_abi::kernel_port::{
+                    ObservationAt, ObservationCoordinate, ObservationFrame, ObservationProjection,
+                    ObservationRequest, WorldlineId,
+                };
+            });
+        }
 
         let mut enum_defs: Vec<_> = ir
             .types
@@ -241,6 +251,41 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
             });
         }
 
+        for op in &ops_sorted {
+            let const_name = op_const_ident(&op.name, op.op_id);
+            let helper_name = format_ident!("{}", to_snake_case(&op.name));
+            match op.kind {
+                OpKind::Mutation => {
+                    let fn_name = format_ident!("pack_{}_intent", helper_name);
+                    tokens.extend(quote! {
+                        /// Pack canonical vars bytes for this generated mutation into an EINT v1 intent.
+                        pub fn #fn_name(vars: &[u8]) -> Result<Vec<u8>, echo_wasm_abi::EnvelopeError> {
+                            pack_intent_v1(#const_name, vars)
+                        }
+                    });
+                }
+                OpKind::Query => {
+                    let fn_name = format_ident!("{}_observation_request", helper_name);
+                    tokens.extend(quote! {
+                        /// Build a frontier query-view observation request for this generated query.
+                        pub fn #fn_name(worldline_id: WorldlineId, vars: &[u8]) -> ObservationRequest {
+                            ObservationRequest {
+                                coordinate: ObservationCoordinate {
+                                    worldline_id,
+                                    at: ObservationAt::Frontier,
+                                },
+                                frame: ObservationFrame::QueryView,
+                                projection: ObservationProjection::Query {
+                                    query_id: #const_name,
+                                    vars_bytes: Vec::from(vars),
+                                },
+                            }
+                        }
+                    });
+                }
+            }
+        }
+
         // OPS table (sorted by op_id).
         let ops_entries = ops_sorted.iter().map(|op| {
             let kind = match op.kind {
@@ -322,6 +367,31 @@ fn op_const_ident(name: &str, op_id: u32) -> proc_macro2::Ident {
         return format_ident!("OP_ID_{}", op_id);
     }
     format_ident!("OP_{}", out)
+}
+
+fn to_snake_case(name: &str) -> String {
+    let mut out = String::new();
+    let mut previous_was_separator = true;
+    for (index, c) in name.chars().enumerate() {
+        if c.is_alphanumeric() {
+            if c.is_uppercase() && index > 0 && !previous_was_separator {
+                out.push('_');
+            }
+            out.push(c.to_ascii_lowercase());
+            previous_was_separator = false;
+        } else if !previous_was_separator {
+            out.push('_');
+            previous_was_separator = true;
+        }
+    }
+    while out.ends_with('_') {
+        out.pop();
+    }
+    if out.is_empty() {
+        "op".to_string()
+    } else {
+        out
+    }
 }
 
 fn validate_version(ir: &WesleyIR) -> Result<()> {

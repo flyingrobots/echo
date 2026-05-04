@@ -27,30 +27,61 @@ export default defineConfig({
     ],
     sidebar: {
       "/": [
-        { text: "Overview", items: [
-          { text: "Docs Map", link: "/" },
-          { text: "Runtime Model", link: "/architecture/outline" },
-          { text: "Theory Map", link: "/theory/THEORY" },
-          { text: "Current Bearing", link: "/BEARING" },
-        ] },
-        { text: "Kernel Specs", items: [
-          { text: "warp-core", link: "/spec/warp-core" },
-          { text: "Attachment Atoms", link: "/spec/SPEC-0001-attachment-plane-v0-atoms" },
-          { text: "Descended Attachments", link: "/spec/SPEC-0002-descended-attachments-v1" },
-          { text: "DPO Litmus", link: "/spec/SPEC-0003-dpo-concurrency-litmus-v0" },
-          { text: "Scheduler", link: "/spec/scheduler-warp-core" },
-          { text: "Tick Patch", link: "/spec/warp-tick-patch" },
-          { text: "Merkle Commit", link: "/spec/merkle-commit" },
-          { text: "Canonical Inbox", link: "/spec/canonical-inbox-sequencing" },
-        ] },
-        { text: "Platform Specs", items: [
-          { text: "Worldlines + Observation", link: "/spec/SPEC-0004-worldlines-playback-truthbus" },
-          { text: "Provenance Payload", link: "/spec/SPEC-0005-provenance-payload" },
-          { text: "WASM ABI", link: "/spec/SPEC-0009-wasm-abi" },
-          { text: "JS/CBOR Mapping", link: "/spec/js-cbor-mapping" },
-          { text: "ABI Golden Vectors", link: "/spec/abi-golden-vectors" },
-          { text: "WARP View Protocol", link: "/spec/warp-view-protocol" },
-        ] },
+        {
+          text: "Overview",
+          items: [
+            { text: "Docs Map", link: "/" },
+            { text: "Runtime Model", link: "/architecture/outline" },
+            {
+              text: "Application Contract Hosting",
+              link: "/architecture/application-contract-hosting",
+            },
+            { text: "Theory Map", link: "/theory/THEORY" },
+            { text: "Current Bearing", link: "/BEARING" },
+          ],
+        },
+        {
+          text: "Kernel Specs",
+          items: [
+            { text: "warp-core", link: "/spec/warp-core" },
+            {
+              text: "Attachment Atoms",
+              link: "/spec/SPEC-0001-attachment-plane-v0-atoms",
+            },
+            {
+              text: "Descended Attachments",
+              link: "/spec/SPEC-0002-descended-attachments-v1",
+            },
+            {
+              text: "DPO Litmus",
+              link: "/spec/SPEC-0003-dpo-concurrency-litmus-v0",
+            },
+            { text: "Scheduler", link: "/spec/scheduler-warp-core" },
+            { text: "Tick Patch", link: "/spec/warp-tick-patch" },
+            { text: "Merkle Commit", link: "/spec/merkle-commit" },
+            {
+              text: "Canonical Inbox",
+              link: "/spec/canonical-inbox-sequencing",
+            },
+          ],
+        },
+        {
+          text: "Platform Specs",
+          items: [
+            {
+              text: "Worldlines + Observation",
+              link: "/spec/SPEC-0004-worldlines-playback-truthbus",
+            },
+            {
+              text: "Provenance Payload",
+              link: "/spec/SPEC-0005-provenance-payload",
+            },
+            { text: "WASM ABI", link: "/spec/SPEC-0009-wasm-abi" },
+            { text: "JS/CBOR Mapping", link: "/spec/js-cbor-mapping" },
+            { text: "ABI Golden Vectors", link: "/spec/abi-golden-vectors" },
+            { text: "WARP View Protocol", link: "/spec/warp-view-protocol" },
+          ],
+        },
       ],
     },
   },

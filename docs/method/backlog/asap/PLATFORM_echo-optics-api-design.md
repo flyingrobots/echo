@@ -38,6 +38,9 @@ global graph API or file-handle API.
 12. Add attachment boundary/descent placeholder model.
 13. Add narrow fake/example optic implementation for one simple contract.
 14. Add adapter notes for future editor/debugger/replay consumers.
+15. Add Echo-owned Wesley optic binding spec.
+16. Extend `echo-wesley-gen` with optic request builders.
+17. Add Echo Optics ABI DTOs required by generated bindings.
 
 ## Acceptance criteria
 
@@ -47,6 +50,8 @@ global graph API or file-handle API.
   fallback, and broad host-bag abstractions are rejected.
 - Backlog tasks each name goal, files likely touched, acceptance criteria,
   non-goals, and test expectations.
+- The design explains how Wesley-compiled output becomes typed optic bindings
+  while preserving explicit Echo intent dispatch.
 
 ## Non-goals
 

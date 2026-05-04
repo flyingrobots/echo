@@ -11,6 +11,7 @@ Depends on:
 - [0013 - Wesley Compiled Contract Hosting Doctrine](../0013-wesley-compiled-contract-hosting-doctrine/design.md)
 - [0014 - EINT, Registry, And Observation Boundary Inventory](../0014-eint-registry-observation-boundary-inventory/design.md)
 - [Continuum Runtime And CAS Readings](../continuum-runtime-and-cas-readings.md)
+- [Wesley-Compiled Optic Bindings For Echo](./wesley-compiled-optic-bindings.md)
 - [Echo Optics API sequencing card](../../method/backlog/asap/PLATFORM_echo-optics-api-design.md)
 
 ## Summary
@@ -54,6 +55,12 @@ This design is generic. `jedit` may validate ergonomics as a future consumer,
 but it is not the design target and must not create privileged text APIs in
 Echo core.
 
+Wesley-compiled output should target this model as generated optic bindings.
+Generated bindings may hide byte-level EINT packing from application code, but
+they must not hide intent dispatch from Echo. The request crossing into Echo
+still names optic id, focus, base coordinate, capability, actor/cause, admission
+law, intent family, and proposal payload.
+
 ## Core Doctrine
 
 ```text
@@ -83,6 +90,15 @@ Optic intent dispatch is not mutation by handle. It is proposal against an
 explicit causal basis. Echo may admit, stage, preserve plurality, conflict, or
 obstruct. It must not silently mutate the current frontier when the caller named
 a stale basis.
+
+Generated code may make this ergonomic:
+
+```rust
+text_optic.dispatch_replace_range(port, base_coordinate, vars, actor, cause)
+```
+
+but the generated method must build and submit an explicit
+`DispatchOpticIntentRequest`. It must not become a setter.
 
 ## Optic Model
 
@@ -183,6 +199,47 @@ plumber/debug fallback and pretend the result is a witnessed bounded reading.
 `close_optic` is intentionally weak. It releases session-local descriptor
 resources. It does not mutate the subject, invalidate old readings, revoke
 history, or close a file-like handle.
+
+## Wesley Compiler Extension
+
+Echo owns the Echo-facing Wesley compiler extension in `crates/echo-wesley-gen`.
+That generator should compile Wesley contract operations into typed optic
+bindings, not into Echo-core subclasses or app-specific runtime APIs.
+
+The generated output should provide:
+
+- contract family metadata;
+- generated DTOs and canonical codecs;
+- typed `OpenOpticRequest` builders;
+- typed `ObserveOpticRequest` builders for query/read operations;
+- typed `DispatchOpticIntentRequest` builders for mutation/proposal operations;
+- optional convenience dispatch methods that still require explicit causal
+  basis and call `dispatch_optic_intent`.
+
+Current generated helpers remain useful during migration:
+
+```text
+*_observation_request(...)
+pack_*_intent(...)
+```
+
+The preferred Optics surface should add:
+
+```text
+*_observe_optic_request(...)
+*_dispatch_optic_intent_request(...)
+```
+
+The low-level EINT helper is allowed to be internal to the generated binding.
+The Echo boundary remains explicit:
+
+```text
+EINT bytes are a binding implementation detail.
+Intent dispatch is not an optic implementation detail.
+```
+
+See [Wesley-Compiled Optic Bindings For Echo](./wesley-compiled-optic-bindings.md)
+for the generated API contract.
 
 ## Types And Interfaces
 
@@ -1112,3 +1169,98 @@ Test expectations:
 
 - Docs checks pass.
 - Links from design packet and backlog card resolve in docs build.
+
+### TASK-015: Add Echo-owned Wesley optic binding spec
+
+Title: Add Echo-owned Wesley optic binding spec.
+
+Goal: Specify how `echo-wesley-gen` emits typed optic families and bindings
+without turning Echo core into application subclasses.
+
+Files likely touched:
+
+- `docs/design/0018-echo-optics-api-design/wesley-compiled-optic-bindings.md`
+- `docs/design/0018-echo-optics-api-design/design.md`
+- `docs/method/backlog/asap/PLATFORM_echo-optics-api-design.md`
+
+Acceptance criteria:
+
+- Spec says generated output builds `ObserveOpticRequest` and
+  `DispatchOpticIntentRequest`.
+- Spec says EINT packing may be hidden but intent dispatch remains explicit at
+  the Echo boundary.
+- Spec rejects generated setters and mutable handles.
+
+Non-goals:
+
+- Do not implement generator changes.
+- Do not invent a replacement for EINT v1.
+
+Test expectations:
+
+- Docs checks pass.
+
+### TASK-016: Extend echo-wesley-gen with optic request builders
+
+Title: Extend echo-wesley-gen with optic request builders.
+
+Goal: Generate typed `*_observe_optic_request` and
+`*_dispatch_optic_intent_request` helpers alongside existing compatibility
+helpers.
+
+Files likely touched:
+
+- `crates/echo-wesley-gen/src/main.rs`
+- `crates/echo-wesley-gen/src/ir.rs`
+- `crates/echo-wesley-gen/tests/generation.rs`
+- `crates/echo-wesley-gen/tests/fixtures/toy-counter/echo-ir-v1.json`
+
+Acceptance criteria:
+
+- Query ops emit typed optic observation request builders.
+- Mutation ops emit typed optic dispatch request builders.
+- Mutation builders require explicit base coordinate by default.
+- Existing EINT and `ObservationRequest` helpers remain available.
+- Generated names do not collide with user contract types.
+
+Non-goals:
+
+- Do not remove existing helper surface in this slice.
+- Do not add jedit-specific codegen.
+
+Test expectations:
+
+- Generated std smoke crate compiles.
+- Generated no-std smoke crate compiles where request builders are no-std-safe.
+- Tests assert no generated method uses `set_*` naming.
+
+### TASK-017: Add Echo Optics ABI DTOs required by generated bindings
+
+Title: Add Echo Optics ABI DTOs required by generated bindings.
+
+Goal: Add the minimum ABI DTOs needed for generated optic request builders to
+compile against `echo-wasm-abi`.
+
+Files likely touched:
+
+- `crates/echo-wasm-abi/src/kernel_port.rs`
+- `crates/warp-wasm/src/warp_kernel.rs`
+- `crates/echo-wesley-gen/tests/generation.rs`
+
+Acceptance criteria:
+
+- ABI exposes `OpticId`, `OpticFocus`, `EchoCoordinate`, `OpticAperture`,
+  `ObserveOpticRequest`, `DispatchOpticIntentRequest`,
+  `OpticIntentPayload`, `IntentDispatchResult`, and supporting refs.
+- DTOs serialize deterministically.
+- Generated optic helper smoke crate compiles against the ABI.
+
+Non-goals:
+
+- Do not implement full runtime semantics.
+- Do not add global graph APIs.
+
+Test expectations:
+
+- ABI encode/decode round-trips.
+- Generated consumer crate compiles with generated optic helpers.

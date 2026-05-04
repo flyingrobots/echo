@@ -9,8 +9,8 @@ use crate::{
     StrandBasisReport, StrandDivergenceFootprint, StrandOverlapRevalidation,
     StrandRevalidationState, WarpId, WitnessedSuffixAdmissionContext,
     WitnessedSuffixAdmissionOutcome, WitnessedSuffixAdmissionRequest,
-    WitnessedSuffixAdmissionResponse, WitnessedSuffixLocalAdmissionPosture, WitnessedSuffixShell,
-    WorldlineId, WorldlineTick,
+    WitnessedSuffixAdmissionResponse, WitnessedSuffixLocalAdmissionPosture,
+    WitnessedSuffixLocalAdmissionPostureError, WitnessedSuffixShell, WorldlineId, WorldlineTick,
 };
 
 fn worldline(seed: u8) -> WorldlineId {
@@ -127,6 +127,8 @@ impl WitnessedSuffixAdmissionContext for TargetBasisEchoAdmissionContext {
         &self,
         request: &WitnessedSuffixAdmissionRequest,
     ) -> WitnessedSuffixLocalAdmissionPosture {
+        // This trait method cannot return Result, so this fixture uses the raw
+        // shape only where the resolved basis is already deterministic.
         WitnessedSuffixLocalAdmissionPosture::Admissible {
             admitted_refs: vec![request.target_basis],
         }
@@ -139,6 +141,38 @@ fn clean_context(posture: WitnessedSuffixLocalAdmissionPosture) -> FakeAdmission
         resolved_target_basis: Some(provenance_ref(12, 9)),
         posture,
     }
+}
+
+fn admissible_posture(
+    refs: Vec<ProvenanceRef>,
+) -> Result<WitnessedSuffixLocalAdmissionPosture, WitnessedSuffixLocalAdmissionPostureError> {
+    WitnessedSuffixLocalAdmissionPosture::admissible(refs)
+}
+
+fn staged_posture(
+    refs: Vec<ProvenanceRef>,
+) -> Result<WitnessedSuffixLocalAdmissionPosture, WitnessedSuffixLocalAdmissionPostureError> {
+    WitnessedSuffixLocalAdmissionPosture::staged(refs)
+}
+
+fn plural_posture(
+    refs: Vec<ProvenanceRef>,
+) -> Result<WitnessedSuffixLocalAdmissionPosture, WitnessedSuffixLocalAdmissionPostureError> {
+    WitnessedSuffixLocalAdmissionPosture::plural(refs)
+}
+
+fn conflict_posture(
+    reason: ConflictReason,
+    source_ref: ProvenanceRef,
+    evidence_digest: Hash,
+    overlap_revalidation: Option<StrandOverlapRevalidation>,
+) -> WitnessedSuffixLocalAdmissionPosture {
+    WitnessedSuffixLocalAdmissionPosture::conflict(
+        reason,
+        source_ref,
+        evidence_digest,
+        overlap_revalidation,
+    )
 }
 
 #[test]
@@ -258,11 +292,112 @@ fn witnessed_suffix_core_response_converts_obstructed_outcome_to_abi() {
 }
 
 #[test]
-fn witnessed_suffix_evaluator_admits_clean_suffix() {
+fn witnessed_suffix_local_posture_admissible_constructor_canonicalizes_refs() {
+    assert_eq!(
+        WitnessedSuffixLocalAdmissionPosture::admissible(vec![
+            provenance_ref(30, 12),
+            provenance_ref(30, 10),
+        ]),
+        Ok(WitnessedSuffixLocalAdmissionPosture::Admissible {
+            admitted_refs: vec![provenance_ref(30, 10), provenance_ref(30, 12)],
+        })
+    );
+}
+
+#[test]
+fn witnessed_suffix_local_posture_staged_constructor_canonicalizes_refs() {
+    assert_eq!(
+        WitnessedSuffixLocalAdmissionPosture::staged(vec![
+            provenance_ref(32, 12),
+            provenance_ref(32, 11),
+        ]),
+        Ok(WitnessedSuffixLocalAdmissionPosture::Staged {
+            staged_refs: vec![provenance_ref(32, 11), provenance_ref(32, 12)],
+        })
+    );
+}
+
+#[test]
+fn witnessed_suffix_local_posture_plural_constructor_canonicalizes_refs() {
+    assert_eq!(
+        WitnessedSuffixLocalAdmissionPosture::plural(vec![
+            provenance_ref(34, 13),
+            provenance_ref(33, 12),
+        ]),
+        Ok(WitnessedSuffixLocalAdmissionPosture::Plural {
+            candidate_refs: vec![provenance_ref(33, 12), provenance_ref(34, 13)],
+        })
+    );
+}
+
+#[test]
+fn witnessed_suffix_local_posture_constructors_reject_duplicate_refs() {
+    let duplicate_ref = provenance_ref(30, 10);
+
+    for duplicate_result in [
+        WitnessedSuffixLocalAdmissionPosture::admissible(vec![duplicate_ref, duplicate_ref]),
+        WitnessedSuffixLocalAdmissionPosture::staged(vec![duplicate_ref, duplicate_ref]),
+        WitnessedSuffixLocalAdmissionPosture::plural(vec![duplicate_ref, duplicate_ref]),
+    ] {
+        assert_eq!(
+            duplicate_result,
+            Err(
+                WitnessedSuffixLocalAdmissionPostureError::DuplicateProvenanceRef {
+                    provenance_ref: duplicate_ref,
+                }
+            )
+        );
+    }
+}
+
+#[test]
+fn witnessed_suffix_local_posture_constructors_reject_duplicates_after_sorting() {
+    let duplicate_ref = provenance_ref(30, 10);
+    let intervening_ref = provenance_ref(31, 10);
+
+    assert_eq!(
+        WitnessedSuffixLocalAdmissionPosture::admissible(vec![
+            duplicate_ref,
+            intervening_ref,
+            duplicate_ref,
+        ]),
+        Err(
+            WitnessedSuffixLocalAdmissionPostureError::DuplicateProvenanceRef {
+                provenance_ref: duplicate_ref,
+            },
+        )
+    );
+}
+
+#[test]
+fn witnessed_suffix_local_posture_conflict_constructor_names_all_evidence() {
+    let overlap_revalidation = StrandOverlapRevalidation::Conflict {
+        overlapping_slots: vec![node_slot("constructor-overlap-a")],
+    };
+
+    let posture = WitnessedSuffixLocalAdmissionPosture::conflict(
+        ConflictReason::ParentFootprintOverlap,
+        provenance_ref(35, 14),
+        [36; 32],
+        Some(overlap_revalidation.clone()),
+    );
+
+    assert_eq!(
+        posture,
+        WitnessedSuffixLocalAdmissionPosture::Conflict {
+            reason: ConflictReason::ParentFootprintOverlap,
+            source_ref: provenance_ref(35, 14),
+            evidence_digest: [36; 32],
+            overlap_revalidation: Some(overlap_revalidation),
+        }
+    );
+}
+
+#[test]
+fn witnessed_suffix_evaluator_admits_clean_suffix(
+) -> Result<(), WitnessedSuffixLocalAdmissionPostureError> {
     let request = request();
-    let context = clean_context(WitnessedSuffixLocalAdmissionPosture::Admissible {
-        admitted_refs: vec![provenance_ref(30, 10)],
-    });
+    let context = clean_context(admissible_posture(vec![provenance_ref(30, 10)])?);
 
     let response = evaluate_witnessed_suffix_admission(&request, &context);
 
@@ -277,19 +412,19 @@ fn witnessed_suffix_evaluator_admits_clean_suffix() {
         } if target_worldline_id == worldline(11)
             && admitted_refs == vec![provenance_ref(30, 10)]
     ));
+    Ok(())
 }
 
 #[test]
-fn witnessed_suffix_evaluator_stages_boundary_only_suffix() {
+fn witnessed_suffix_evaluator_stages_boundary_only_suffix(
+) -> Result<(), WitnessedSuffixLocalAdmissionPostureError> {
     let request = WitnessedSuffixAdmissionRequest {
         source_suffix: shell_with_entries(Vec::new()),
         target_worldline_id: worldline(11),
         target_basis: provenance_ref(12, 9),
         basis_report: None,
     };
-    let context = clean_context(WitnessedSuffixLocalAdmissionPosture::Staged {
-        staged_refs: vec![provenance_ref(5, 1)],
-    });
+    let context = clean_context(staged_posture(vec![provenance_ref(5, 1)])?);
 
     let response = evaluate_witnessed_suffix_admission(&request, &context);
 
@@ -298,10 +433,12 @@ fn witnessed_suffix_evaluator_stages_boundary_only_suffix() {
         WitnessedSuffixAdmissionOutcome::Staged { staged_refs, .. }
             if staged_refs == vec![provenance_ref(5, 1)]
     ));
+    Ok(())
 }
 
 #[test]
-fn witnessed_suffix_evaluator_obstructs_empty_suffix_without_boundary_witness() {
+fn witnessed_suffix_evaluator_obstructs_empty_suffix_without_boundary_witness(
+) -> Result<(), WitnessedSuffixLocalAdmissionPostureError> {
     let mut request = WitnessedSuffixAdmissionRequest {
         source_suffix: shell_with_entries(Vec::new()),
         target_worldline_id: worldline(11),
@@ -309,9 +446,7 @@ fn witnessed_suffix_evaluator_obstructs_empty_suffix_without_boundary_witness() 
         basis_report: None,
     };
     request.source_suffix.boundary_witness = None;
-    let context = clean_context(WitnessedSuffixLocalAdmissionPosture::Staged {
-        staged_refs: Vec::new(),
-    });
+    let context = clean_context(staged_posture(Vec::new())?);
 
     let response = evaluate_witnessed_suffix_admission(&request, &context);
 
@@ -322,17 +457,17 @@ fn witnessed_suffix_evaluator_obstructs_empty_suffix_without_boundary_witness() 
             ..
         }
     ));
+    Ok(())
 }
 
 #[test]
-fn witnessed_suffix_evaluator_allows_equal_start_and_end_ticks() {
+fn witnessed_suffix_evaluator_allows_equal_start_and_end_ticks(
+) -> Result<(), WitnessedSuffixLocalAdmissionPostureError> {
     let mut request = request();
     request.source_suffix.source_suffix_end_tick =
         Some(request.source_suffix.source_suffix_start_tick);
     request.source_suffix.source_entries = vec![provenance_ref(3, 2)];
-    let context = clean_context(WitnessedSuffixLocalAdmissionPosture::Admissible {
-        admitted_refs: vec![provenance_ref(30, 10)],
-    });
+    let context = clean_context(admissible_posture(vec![provenance_ref(30, 10)])?);
 
     let response = evaluate_witnessed_suffix_admission(&request, &context);
 
@@ -345,10 +480,12 @@ fn witnessed_suffix_evaluator_allows_equal_start_and_end_ticks() {
         } if target_worldline_id == worldline(11)
             && admitted_refs == vec![provenance_ref(30, 10)]
     ));
+    Ok(())
 }
 
 #[test]
-fn witnessed_suffix_evaluator_stages_when_target_basis_is_boundary_witness() {
+fn witnessed_suffix_evaluator_stages_when_target_basis_is_boundary_witness(
+) -> Result<(), WitnessedSuffixLocalAdmissionPostureError> {
     let boundary_witness = provenance_ref(5, 1);
     let request = WitnessedSuffixAdmissionRequest {
         source_suffix: shell_with_entries(Vec::new()),
@@ -359,9 +496,7 @@ fn witnessed_suffix_evaluator_stages_when_target_basis_is_boundary_witness() {
     let context = FakeAdmissionContext {
         expected_shell_digest: Some([6; 32]),
         resolved_target_basis: Some(boundary_witness),
-        posture: WitnessedSuffixLocalAdmissionPosture::Staged {
-            staged_refs: vec![boundary_witness],
-        },
+        posture: staged_posture(vec![boundary_witness])?,
     };
 
     let response = evaluate_witnessed_suffix_admission(&request, &context);
@@ -372,15 +507,15 @@ fn witnessed_suffix_evaluator_stages_when_target_basis_is_boundary_witness() {
         WitnessedSuffixAdmissionOutcome::Staged { staged_refs, .. }
             if staged_refs == vec![boundary_witness]
     ));
+    Ok(())
 }
 
 #[test]
-fn witnessed_suffix_evaluator_preserves_plural_outcome() {
+fn witnessed_suffix_evaluator_preserves_plural_outcome(
+) -> Result<(), WitnessedSuffixLocalAdmissionPostureError> {
     let request = request();
     let candidates = vec![provenance_ref(33, 12), provenance_ref(34, 13)];
-    let context = clean_context(WitnessedSuffixLocalAdmissionPosture::Plural {
-        candidate_refs: candidates.clone(),
-    });
+    let context = clean_context(plural_posture(candidates.clone())?);
 
     let response = evaluate_witnessed_suffix_admission(&request, &context);
 
@@ -392,17 +527,18 @@ fn witnessed_suffix_evaluator_preserves_plural_outcome() {
             ..
         } if candidate_refs == candidates
     ));
+    Ok(())
 }
 
 #[test]
 fn witnessed_suffix_evaluator_conflicts_with_adverse_admission_law() {
     let request = request();
-    let context = clean_context(WitnessedSuffixLocalAdmissionPosture::Conflict {
-        reason: ConflictReason::ParentFootprintOverlap,
-        source_ref: provenance_ref(35, 14),
-        evidence_digest: [36; 32],
-        overlap_revalidation: None,
-    });
+    let context = clean_context(conflict_posture(
+        ConflictReason::ParentFootprintOverlap,
+        provenance_ref(35, 14),
+        [36; 32],
+        None,
+    ));
 
     let response = evaluate_witnessed_suffix_admission(&request, &context);
 
@@ -423,12 +559,12 @@ fn witnessed_suffix_evaluator_preserves_conflict_overlap_revalidation() {
     let overlap_revalidation = StrandOverlapRevalidation::Conflict {
         overlapping_slots: vec![node_slot("overlap-a"), node_slot("overlap-b")],
     };
-    let context = clean_context(WitnessedSuffixLocalAdmissionPosture::Conflict {
-        reason: ConflictReason::ParentFootprintOverlap,
-        source_ref: provenance_ref(35, 14),
-        evidence_digest: [36; 32],
-        overlap_revalidation: Some(overlap_revalidation.clone()),
-    });
+    let context = clean_context(conflict_posture(
+        ConflictReason::ParentFootprintOverlap,
+        provenance_ref(35, 14),
+        [36; 32],
+        Some(overlap_revalidation.clone()),
+    ));
 
     let response = evaluate_witnessed_suffix_admission(&request, &context);
 
@@ -474,14 +610,13 @@ fn witnessed_suffix_evaluator_classifies_against_resolved_target_basis() {
 }
 
 #[test]
-fn witnessed_suffix_evaluator_preserves_matching_request_basis_report() {
+fn witnessed_suffix_evaluator_preserves_matching_request_basis_report(
+) -> Result<(), WitnessedSuffixLocalAdmissionPostureError> {
     let mut request = request();
     let report = basis_report(provenance_ref(12, 9));
     request.basis_report = Some(report.clone());
     request.source_suffix.basis_report = Some(basis_report(provenance_ref(12, 9)));
-    let context = clean_context(WitnessedSuffixLocalAdmissionPosture::Admissible {
-        admitted_refs: vec![provenance_ref(30, 10)],
-    });
+    let context = clean_context(admissible_posture(vec![provenance_ref(30, 10)])?);
 
     let response = evaluate_witnessed_suffix_admission(&request, &context);
 
@@ -492,16 +627,16 @@ fn witnessed_suffix_evaluator_preserves_matching_request_basis_report() {
             ..
         } if actual == report
     ));
+    Ok(())
 }
 
 #[test]
-fn witnessed_suffix_evaluator_falls_back_to_matching_source_basis_report() {
+fn witnessed_suffix_evaluator_falls_back_to_matching_source_basis_report(
+) -> Result<(), WitnessedSuffixLocalAdmissionPostureError> {
     let mut request = request();
     let report = basis_report(provenance_ref(12, 9));
     request.source_suffix.basis_report = Some(report.clone());
-    let context = clean_context(WitnessedSuffixLocalAdmissionPosture::Staged {
-        staged_refs: vec![provenance_ref(5, 1)],
-    });
+    let context = clean_context(staged_posture(vec![provenance_ref(5, 1)])?);
 
     let response = evaluate_witnessed_suffix_admission(&request, &context);
 
@@ -512,15 +647,15 @@ fn witnessed_suffix_evaluator_falls_back_to_matching_source_basis_report() {
             ..
         } if actual == report
     ));
+    Ok(())
 }
 
 #[test]
-fn witnessed_suffix_evaluator_obstructs_stale_basis_report() {
+fn witnessed_suffix_evaluator_obstructs_stale_basis_report(
+) -> Result<(), WitnessedSuffixLocalAdmissionPostureError> {
     let mut request = request();
     request.basis_report = Some(basis_report(provenance_ref(99, 99)));
-    let context = clean_context(WitnessedSuffixLocalAdmissionPosture::Admissible {
-        admitted_refs: vec![provenance_ref(30, 10)],
-    });
+    let context = clean_context(admissible_posture(vec![provenance_ref(30, 10)])?);
 
     let response = evaluate_witnessed_suffix_admission(&request, &context);
 
@@ -531,10 +666,11 @@ fn witnessed_suffix_evaluator_obstructs_stale_basis_report() {
             ..
         }
     ));
+    Ok(())
 }
 
 #[test]
-fn witnessed_suffix_evaluator_normalizes_admitted_refs() {
+fn witnessed_suffix_evaluator_normalizes_raw_admitted_refs() {
     let request = request();
     let context = clean_context(WitnessedSuffixLocalAdmissionPosture::Admissible {
         admitted_refs: vec![provenance_ref(30, 12), provenance_ref(30, 10)],
@@ -550,7 +686,7 @@ fn witnessed_suffix_evaluator_normalizes_admitted_refs() {
 }
 
 #[test]
-fn witnessed_suffix_evaluator_normalizes_staged_refs() {
+fn witnessed_suffix_evaluator_normalizes_raw_staged_refs() {
     let request = request();
     let context = clean_context(WitnessedSuffixLocalAdmissionPosture::Staged {
         staged_refs: vec![provenance_ref(32, 12), provenance_ref(32, 11)],
@@ -566,7 +702,7 @@ fn witnessed_suffix_evaluator_normalizes_staged_refs() {
 }
 
 #[test]
-fn witnessed_suffix_evaluator_normalizes_plural_candidate_refs() {
+fn witnessed_suffix_evaluator_normalizes_raw_plural_candidate_refs() {
     let request = request();
     let context = clean_context(WitnessedSuffixLocalAdmissionPosture::Plural {
         candidate_refs: vec![provenance_ref(34, 13), provenance_ref(33, 12)],
@@ -582,14 +718,13 @@ fn witnessed_suffix_evaluator_normalizes_plural_candidate_refs() {
 }
 
 #[test]
-fn witnessed_suffix_evaluator_obstructs_mismatched_digest() {
+fn witnessed_suffix_evaluator_obstructs_mismatched_digest(
+) -> Result<(), WitnessedSuffixLocalAdmissionPostureError> {
     let request = request();
     let context = FakeAdmissionContext {
         expected_shell_digest: Some([99; 32]),
         resolved_target_basis: Some(provenance_ref(12, 9)),
-        posture: WitnessedSuffixLocalAdmissionPosture::Admissible {
-            admitted_refs: vec![provenance_ref(30, 10)],
-        },
+        posture: admissible_posture(vec![provenance_ref(30, 10)])?,
     };
 
     let response = evaluate_witnessed_suffix_admission(&request, &context);
@@ -601,18 +736,17 @@ fn witnessed_suffix_evaluator_obstructs_mismatched_digest() {
             ..
         }
     ));
+    Ok(())
 }
 
 #[test]
-fn witnessed_suffix_evaluator_obstructs_missing_local_source_digest_without_reusing_request_digest()
-{
+fn witnessed_suffix_evaluator_obstructs_missing_local_source_digest_without_reusing_request_digest(
+) -> Result<(), WitnessedSuffixLocalAdmissionPostureError> {
     let request = request();
     let context = FakeAdmissionContext {
         expected_shell_digest: None,
         resolved_target_basis: Some(provenance_ref(12, 9)),
-        posture: WitnessedSuffixLocalAdmissionPosture::Admissible {
-            admitted_refs: vec![provenance_ref(30, 10)],
-        },
+        posture: admissible_posture(vec![provenance_ref(30, 10)])?,
     };
 
     let response = evaluate_witnessed_suffix_admission(&request, &context);
@@ -629,17 +763,17 @@ fn witnessed_suffix_evaluator_obstructs_missing_local_source_digest_without_reus
             ..
         } if evidence_digest == response.source_shell_digest
     ));
+    Ok(())
 }
 
 #[test]
-fn witnessed_suffix_evaluator_obstructs_unknown_target_basis() {
+fn witnessed_suffix_evaluator_obstructs_unknown_target_basis(
+) -> Result<(), WitnessedSuffixLocalAdmissionPostureError> {
     let request = request();
     let context = FakeAdmissionContext {
         expected_shell_digest: Some([6; 32]),
         resolved_target_basis: None,
-        posture: WitnessedSuffixLocalAdmissionPosture::Admissible {
-            admitted_refs: vec![provenance_ref(30, 10)],
-        },
+        posture: admissible_posture(vec![provenance_ref(30, 10)])?,
     };
 
     let response = evaluate_witnessed_suffix_admission(&request, &context);
@@ -651,16 +785,16 @@ fn witnessed_suffix_evaluator_obstructs_unknown_target_basis() {
             ..
         }
     ));
+    Ok(())
 }
 
 #[test]
-fn witnessed_suffix_evaluator_obstructs_inconsistent_bounds() {
+fn witnessed_suffix_evaluator_obstructs_inconsistent_bounds(
+) -> Result<(), WitnessedSuffixLocalAdmissionPostureError> {
     let mut request = request();
     request.source_suffix.source_suffix_start_tick = tick(5);
     request.source_suffix.source_suffix_end_tick = Some(tick(4));
-    let context = clean_context(WitnessedSuffixLocalAdmissionPosture::Admissible {
-        admitted_refs: vec![provenance_ref(30, 10)],
-    });
+    let context = clean_context(admissible_posture(vec![provenance_ref(30, 10)])?);
 
     let response = evaluate_witnessed_suffix_admission(&request, &context);
 
@@ -671,17 +805,17 @@ fn witnessed_suffix_evaluator_obstructs_inconsistent_bounds() {
             ..
         }
     ));
+    Ok(())
 }
 
 #[test]
-fn witnessed_suffix_evaluator_obstructs_source_entry_outside_suffix_bounds() {
+fn witnessed_suffix_evaluator_obstructs_source_entry_outside_suffix_bounds(
+) -> Result<(), WitnessedSuffixLocalAdmissionPostureError> {
     for outside_tick in [1, 5] {
         let mut request = request();
         let offending_ref = provenance_ref(3, outside_tick);
         request.source_suffix.source_entries = vec![offending_ref];
-        let context = clean_context(WitnessedSuffixLocalAdmissionPosture::Admissible {
-            admitted_refs: vec![provenance_ref(30, 10)],
-        });
+        let context = clean_context(admissible_posture(vec![provenance_ref(30, 10)])?);
 
         let response = evaluate_witnessed_suffix_admission(&request, &context);
 
@@ -694,16 +828,16 @@ fn witnessed_suffix_evaluator_obstructs_source_entry_outside_suffix_bounds() {
             } if source_ref == offending_ref
         ));
     }
+    Ok(())
 }
 
 #[test]
-fn witnessed_suffix_evaluator_obstructs_source_entry_from_foreign_worldline() {
+fn witnessed_suffix_evaluator_obstructs_source_entry_from_foreign_worldline(
+) -> Result<(), WitnessedSuffixLocalAdmissionPostureError> {
     let mut request = request();
     let offending_ref = provenance_ref(4, 3);
     request.source_suffix.source_entries = vec![offending_ref];
-    let context = clean_context(WitnessedSuffixLocalAdmissionPosture::Admissible {
-        admitted_refs: vec![provenance_ref(30, 10)],
-    });
+    let context = clean_context(admissible_posture(vec![provenance_ref(30, 10)])?);
 
     let response = evaluate_witnessed_suffix_admission(&request, &context);
 
@@ -715,16 +849,16 @@ fn witnessed_suffix_evaluator_obstructs_source_entry_from_foreign_worldline() {
             ..
         } if source_ref == offending_ref
     ));
+    Ok(())
 }
 
 #[test]
-fn witnessed_suffix_evaluator_obstructs_out_of_order_source_entries() {
+fn witnessed_suffix_evaluator_obstructs_out_of_order_source_entries(
+) -> Result<(), WitnessedSuffixLocalAdmissionPostureError> {
     let mut request = request();
     let offending_ref = provenance_ref(3, 3);
     request.source_suffix.source_entries = vec![provenance_ref(3, 4), offending_ref];
-    let context = clean_context(WitnessedSuffixLocalAdmissionPosture::Admissible {
-        admitted_refs: vec![provenance_ref(30, 10)],
-    });
+    let context = clean_context(admissible_posture(vec![provenance_ref(30, 10)])?);
 
     let response = evaluate_witnessed_suffix_admission(&request, &context);
 
@@ -736,16 +870,16 @@ fn witnessed_suffix_evaluator_obstructs_out_of_order_source_entries() {
             ..
         } if source_ref == offending_ref
     ));
+    Ok(())
 }
 
 #[test]
-fn witnessed_suffix_evaluator_obstructs_duplicate_source_entries() {
+fn witnessed_suffix_evaluator_obstructs_duplicate_source_entries(
+) -> Result<(), WitnessedSuffixLocalAdmissionPostureError> {
     let mut request = request();
     let duplicate_ref = provenance_ref(3, 3);
     request.source_suffix.source_entries = vec![duplicate_ref, duplicate_ref];
-    let context = clean_context(WitnessedSuffixLocalAdmissionPosture::Admissible {
-        admitted_refs: vec![provenance_ref(30, 10)],
-    });
+    let context = clean_context(admissible_posture(vec![provenance_ref(30, 10)])?);
 
     let response = evaluate_witnessed_suffix_admission(&request, &context);
 
@@ -757,6 +891,7 @@ fn witnessed_suffix_evaluator_obstructs_duplicate_source_entries() {
             ..
         } if source_ref == duplicate_ref
     ));
+    Ok(())
 }
 
 #[test]

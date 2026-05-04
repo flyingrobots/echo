@@ -252,7 +252,8 @@ pub use warp_state::{WarpInstance, WarpState};
 pub use witnessed_suffix::{
     evaluate_witnessed_suffix_admission, WitnessedSuffixAdmissionContext,
     WitnessedSuffixAdmissionOutcome, WitnessedSuffixAdmissionRequest,
-    WitnessedSuffixAdmissionResponse, WitnessedSuffixLocalAdmissionPosture, WitnessedSuffixShell,
+    WitnessedSuffixAdmissionResponse, WitnessedSuffixLocalAdmissionPosture,
+    WitnessedSuffixLocalAdmissionPostureError, WitnessedSuffixShell,
 };
 pub use worldline::{
     ApplyError, AtomWrite, AtomWriteSet, HashTriplet, OutputFrameSet, WorldlineId,

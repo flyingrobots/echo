@@ -221,9 +221,10 @@ must not hide app mutation in unrecorded global state.
 
 Applications read from Echo by observing.
 
-Generated query helpers should construct `ObservationRequest` values, call
-`observe(...)`, verify enough of the returned `ReadingEnvelope`, and decode the
-payload bytes according to the generated contract.
+Generated query helpers construct `ObservationRequest` values. The application
+adapter, or a future higher-level wrapper, calls `KernelPort::observe(...)`,
+verifies enough of the returned `ReadingEnvelope`, and decodes the payload bytes
+according to the generated contract.
 
 ```mermaid
 sequenceDiagram

@@ -29,7 +29,8 @@ GraphQL / Wesley IR
   -> generated op id and REGISTRY
   -> generated app-level EINT helper
   -> dispatch_intent(...)
-  -> generated read helper over observe(...) / ReadingEnvelope
+  -> generated ObservationRequest helper
+  -> consumer-owned KernelPort::observe(...) / ReadingEnvelope handling
 ```
 
 ## Opening constraint

@@ -14,18 +14,21 @@ debugging, or any other consumer domain.
 Echo is the deterministic witnessed causal substrate.
 
 Wesley authors and compiles contract families from GraphQL into generated Rust,
-ABI codecs, schema identity, and contract dispatch/read surfaces.
+ABI codecs, schema identity, operation catalogs, and app-level helpers.
 
 Applications such as `jedit` own their domain contracts and product behavior.
-Echo hosts those contracts through generic intent and observation envelopes.
+Echo already exposes the generic WASM substrate: EINT `dispatch_intent(...)`,
+`observe(...)`, registry metadata exports, and app-agnostic kernel boundaries.
+The roadmap must extend that existing path, not invent a second envelope or
+registry model.
 
 ## Sequence
 
 1. [Wesley compiled contract hosting doctrine](./PLATFORM_wesley-compiled-contract-hosting-doctrine.md)
     - Design packet:
       [0013 - Wesley Compiled Contract Hosting Doctrine](../../../design/0013-wesley-compiled-contract-hosting-doctrine/design.md)
-2. [Contract-aware intent and observation envelope](./PLATFORM_contract-aware-intent-observation-envelope.md)
-3. [Static contract registry and host boundary](./PLATFORM_static-contract-registry-and-host-boundary.md)
+2. [Existing EINT, registry, and observation boundary inventory](./PLATFORM_contract-aware-intent-observation-envelope.md)
+3. [Registry provider wiring and host boundary decision](./PLATFORM_static-contract-registry-and-host-boundary.md)
 4. [Wesley to Echo toy contract proof](../up-next/PLATFORM_wesley-to-echo-toy-contract-proof.md)
 5. [Contract-aware receipts and readings](../up-next/KERNEL_contract-aware-receipts-and-readings.md)
 6. [Contract artifact retention in echo-cas](../up-next/PLATFORM_contract-artifact-retention-in-echo-cas.md)
@@ -39,6 +42,9 @@ Echo hosts those contracts through generic intent and observation envelopes.
 - Do not add `ReplaceRange`, `BufferWorldline`, or text-editing types to Echo
   core unless they are generated application contract payloads.
 - Do not add a special `jedit` ABI.
+- Do not create a second intent envelope when EINT already exists.
+- Do not create a second registry model when `echo-registry-api` and
+  `echo-wesley-gen` already exist.
 - Do not let Graft mutate Echo state directly.
 - Do not build dynamic plugin loading before static contract hosting works.
 - Do not start IPA, proof systems, or network Continuum protocol work in this

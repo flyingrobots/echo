@@ -7,7 +7,7 @@ Status: planned cross-repo proof.
 
 Depends on:
 
-- [Static contract registry and host boundary](../asap/PLATFORM_static-contract-registry-and-host-boundary.md)
+- [Registry provider wiring and host boundary decision](../asap/PLATFORM_static-contract-registry-and-host-boundary.md)
 - [echo-wesley-gen v2 Update](./PLATFORM_echo-wesley-gen-v2.md)
 - [WESLEY Protocol Consumer Cutover](../asap/PLATFORM_WESLEY_protocol-consumer-cutover.md)
 
@@ -19,8 +19,12 @@ need one tiny contract that proves the full authoring and hosting path.
 This should be deliberately boring. The value is the path:
 
 ```text
-GraphQL -> Wesley IR -> generated Rust -> Echo registry -> dispatch -> observe
+GraphQL -> Wesley IR -> echo-wesley-gen Rust -> EINT -> dispatch -> observe
 ```
+
+This proof should reuse existing pieces: EINT v1, `dispatch_intent(...)`,
+`RegistryInfo`, `echo-registry-api::RegistryProvider`, `GeneratedRegistry`, and
+the current observation/read-envelope boundary.
 
 ## What it should look like
 
@@ -32,18 +36,21 @@ Example domain:
 - `CounterValue`
 
 The exact schema is not important. The proof must exercise generated identity,
-codecs, dispatch, receipt creation, and observation.
+op ids, vars encoding, EINT packing, dispatch, registry metadata, and one
+read/observation path.
 
 ## Acceptance criteria
 
 - Wesley compiles the toy GraphQL contract to Echo-consumable Rust artifacts.
-- Echo statically registers the generated contract.
+- `echo-wesley-gen` emits op ids, op catalog metadata, and a generated
+  `RegistryProvider`.
+- The consumer proof uses `pack_intent_v1(...)` with a generated op id and vars
+  payload.
 - `dispatch_intent(...)` admits one valid toy intent.
-- `observe(...)` returns one contract-defined reading payload.
-- The receipt names contract family, schema hash, intent kind, basis, and
-  payload hash.
-- The reading envelope names contract family, schema hash, observer kind, and
-  basis.
+- Registry metadata from the installed kernel or app bundle matches the
+  generated schema and codec metadata.
+- One read path proves how generated query/observer operations relate to
+  `observe(...)` and `ReadingEnvelope`.
 - Golden ABI vectors are stable.
 
 ## Non-goals
@@ -52,3 +59,4 @@ codecs, dispatch, receipt creation, and observation.
 - Do not add dynamic contract loading.
 - Do not require browser packaging.
 - Do not add Continuum transport.
+- Do not create a second registry or intent envelope.

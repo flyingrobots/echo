@@ -37,14 +37,16 @@ Candidate observations:
 - edit group history
 - checkpoint status
 
-Wesley compiles the contract. Echo registers and hosts it. `jedit` adapts its
-existing hot text runtime port to submit generated contract intents.
+Wesley compiles the contract. `jedit` adapts its existing hot text runtime port
+to use generated app-level code that validates payloads, packs EINT op ids and
+vars, calls Echo's existing `dispatch_intent(...)`, reads registry metadata for
+handshake, and decodes observations.
 
 ## Acceptance criteria
 
 - `jedit` can create a buffer through a contract intent.
 - `jedit` can submit a replace-range intent through Echo.
-- Echo emits a contract-aware receipt for the edit.
+- Echo accepts the generated EINT through the existing WASM intent ingress.
 - `jedit` can observe a buffer reading through Echo.
 - Save checkpoint produces a retained contract artifact.
 - Echo core contains no text-specific APIs outside generated contract payloads.
@@ -53,6 +55,8 @@ existing hot text runtime port to submit generated contract intents.
 
 - Do not add text-editing types to Echo core.
 - Do not add a special `jedit` ABI.
+- Do not move `jedit` payload validation into Echo core unless the registry
+  boundary decision explicitly requires Echo-side validation.
 - Do not wire Graft automation in this card.
 - Do not require multi-buffer collaboration.
 - Do not implement strands or counterfactual refactors here.

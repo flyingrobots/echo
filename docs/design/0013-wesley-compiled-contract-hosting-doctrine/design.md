@@ -67,8 +67,8 @@ or application behavior without relying on chat context or folklore.
 
 ### Primary agent users
 
-- Agents implementing the contract-aware intent envelope.
-- Agents implementing the static contract registry.
+- Agents inventorying the existing EINT, registry, and observation boundary.
+- Agents deciding how generated registries are wired into consumers.
 - Agents wiring Wesley-generated toy contracts into Echo.
 - Agents reviewing future jedit or Graft integration work.
 
@@ -149,8 +149,8 @@ consumers. They should not become substrate-owned Echo runtime nouns.
 The Echo-owned shape is generic:
 
 ```text
-dispatch contract intent
-observe contract reading
+dispatch EINT intent bytes
+observe runtime reading
 retain contract artifact
 admit contract suffix
 settle contract strand
@@ -158,26 +158,58 @@ settle contract strand
 
 ## Contract Hosting Stack
 
-The intended stack is:
+The intended stack extends existing Echo machinery:
 
 ```text
 Application GraphQL contract
   -> Wesley IR
-  -> Wesley generated Rust DTOs, codecs, schema identity, and handlers
-  -> Echo static contract registry
-  -> Echo contract-aware intent and observation envelopes
+  -> Wesley generated Rust DTOs, codecs, schema identity, op catalog, and registry
+  -> app-level generated client / adapter
+  -> EINT v1 op_id + vars
+  -> Echo dispatch_intent(...)
+  -> Echo observe(...)
   -> Echo deterministic admission, receipt, reading, and retention substrate
-  -> Application-generated client or adapter
 ```
 
-The first implementation should use static in-process registration. Dynamic
-loading, network contract distribution, and runtime installation are future
-problems.
+The important correction is that Echo already has the base substrate for this
+path. The next work should not create a second intent envelope or registry.
+
+## Existing Repo Truth
+
+The current codebase already provides these pieces:
+
+- EINT v1 in `echo-wasm-abi`:
+  `"EINT" || op_id:u32le || vars_len:u32le || vars`.
+- `dispatch_intent(...)` in `warp-wasm` as the write/control ingress.
+- `KernelPort::dispatch_intent(...)` as an app-agnostic byte boundary.
+- `RegistryInfo` plus `get_registry_info`, `get_codec_id`,
+  `get_registry_version`, and `get_schema_sha256_hex` exports.
+- `echo-registry-api::RegistryProvider` for app-supplied operation catalogs.
+- `echo-wesley-gen` output that includes op ids, `OPS`, `op_by_id`,
+  `GeneratedRegistry`, and `REGISTRY`.
+- `observe(...)` returning `ObservationArtifact` with `ReadingEnvelope`
+  metadata for built-in observations.
+- `echo-cas` as a content-addressed blob store where semantic domain
+  separation lives above CAS hashes.
+
+The next design question is therefore not "how does Echo accept intents?" or
+"how does Echo expose registry metadata?" Both already exist.
+
+The next design question is where the first consumer should bind generated
+Wesley contracts:
+
+- app-level generated code validates op ids and vars, packs EINT, and calls
+  Echo; or
+- `warp-wasm` / installed kernel links an app-supplied `RegistryProvider` and
+  rejects unsupported op ids or malformed vars at the boundary; or
+- a deliberate hybrid, with app-level validation for ergonomics and
+  Echo-level validation only for installed-registry handshakes.
 
 ## Required Nouns
 
-Future design and implementation cards should converge on these noun families.
-Exact Rust names may differ, but the boundaries should stay visible.
+Future design and implementation cards should reuse the noun families that
+already exist before introducing new ones. Exact Rust names may differ, but
+the boundaries should stay visible.
 
 ### Contract Identity
 
@@ -192,7 +224,7 @@ payloads claim.
 
 ### Intent Dispatch
 
-- `ContractIntentEnvelope`
+- EINT v1
 - `IntentKind`
 - `IntentPayload`
 - `IntentBasis`
@@ -200,13 +232,16 @@ payloads claim.
 - `ContractDispatchContext`
 - `ContractDispatchResult`
 
-These define the generic write-side path. Echo validates envelope shape,
-resolves the registered family, calls generated contract law, and wraps the
-outcome in Echo admission/receipt vocabulary.
+These define the generic write-side path. Echo already validates EINT shape and
+distinguishes privileged control intents from application intents. The open
+question is whether app op ids and vars are validated before dispatch by
+generated application code or inside Echo by consulting an installed
+`RegistryProvider`.
 
 ### Observation
 
-- `ContractObservationEnvelope`
+- `ObservationRequest`
+- `ReadingEnvelope`
 - `ObserverKind`
 - `ObservationBasis`
 - `ObservationAperture`
@@ -214,9 +249,9 @@ outcome in Echo admission/receipt vocabulary.
 - `ContractObservationResult`
 - `ContractReading`
 
-These define the generic read-side path. Echo resolves the generated observer
-or read family and emits an Echo `ReadingEnvelope` around the
-contract-specific payload.
+These define the generic read-side path. Echo already has `ObservationRequest`,
+built-in observer plans, and `ReadingEnvelope`. The open question is how
+Wesley-generated `QUERY` or observer operations map to that read boundary.
 
 ### Witness And Retention
 
@@ -232,12 +267,13 @@ readings with substrate truth.
 
 ### Registry
 
-- `ContractRegistry`
-- `ContractDescriptor`
-- `ContractHandler`
+- `echo-registry-api::RegistryProvider`
+- `echo-registry-api::RegistryInfo`
+- `echo-registry-api::OpDef`
+- generated `REGISTRY`
 
-These define how generated contract families become available to Echo. The
-first cut should be small, static, and deterministic.
+These define the existing registry family. Future work should reuse it or make
+an explicit replacement decision with evidence.
 
 ## Optic Mapping
 
@@ -255,10 +291,11 @@ For a contract intent:
 
 ```text
 slice:
-  resolve contract identity, schema identity, basis, and needed causal evidence
+  parse EINT op id and vars; optionally validate against generated registry;
+  resolve basis and needed causal evidence
 
 lower:
-  run generated contract transition law under Echo admission constraints
+  run app/generated transition law under Echo admission constraints
 
 witness:
   produce admission outcome, receipt identity, payload hash, and witness refs
@@ -271,11 +308,11 @@ For a contract observation:
 
 ```text
 slice:
-  resolve contract identity, schema identity, observer kind, basis, aperture,
+  resolve ObservationRequest or generated query/read operation, basis, aperture,
   rights, and budget
 
 lower:
-  run generated observer or emission law
+  run built-in observer or app/generated observer/emission law
 
 witness:
   produce reading identity, witness refs, residual posture, and payload hash
@@ -328,17 +365,18 @@ observe(bytes) -> bytes
 scheduler_status() -> bytes
 ```
 
-The bytes should increasingly be contract-aware envelopes, not ad hoc payloads.
+`dispatch_intent(bytes)` already accepts EINT v1. New work should prefer
+binding generated app contracts to that existing shape instead of creating a
+parallel contract envelope.
 
-The envelope should name:
+The installed runtime or app-level generated client should expose enough
+handshake metadata to name:
 
-- contract family
+- codec id
+- registry version
 - schema hash
-- intent or observer kind
-- basis or frontier
-- payload or aperture
-- rights posture
-- budget posture
+- op id catalog
+- observation/read posture
 
 The response should name:
 
@@ -346,16 +384,18 @@ The response should name:
 - receipt or reading identity
 - witness refs
 - retained artifact refs where available
-- contract and schema identity
+- schema and registry identity where that identity is part of the installed
+  app bundle or retained artifact
 
 ## Error And Outcome Posture
 
 Echo should keep failure categories separate:
 
 - malformed ABI payload
-- unknown contract family
+- malformed EINT
+- reserved control op id misuse
 - unsupported schema hash
-- unknown intent or observer kind
+- unknown app op id when a generated registry is installed at the boundary
 - malformed contract payload
 - unresolved basis
 - budget obstruction
@@ -372,23 +412,28 @@ These should not collapse into string status fields or generic errors.
 1. A human reviews a proposed `ReplaceRange` API in Echo core.
 2. This design identifies it as application contract behavior, not substrate.
 3. The human redirects it to a `jedit` GraphQL contract compiled by Wesley.
-4. Echo only receives the generated contract family through generic envelopes.
+4. `jedit` app-level code validates and packs the generated op as EINT.
+5. Echo receives canonical EINT bytes through `dispatch_intent(...)`.
 
 ## Agent playback
 
 1. An agent reads this packet and the contract-hosting backlog cards.
-2. The agent creates RED tests for contract-aware envelopes.
-3. The tests mention contract family, schema hash, intent kind, basis, and
-   payload.
+2. The agent inventories existing EINT, registry, and observation surfaces
+   before writing RED tests.
+3. The tests reuse EINT, `RegistryInfo`, and `RegistryProvider` where possible.
 4. The tests do not introduce text, Graft, or `jedit` domain nouns into Echo
    core.
 
 ## Implementation outline
 
-1. Implement contract-aware intent and observation envelope RED tests.
-2. Add a minimal static contract registry with fake handlers.
-3. Prove one Wesley-to-Echo toy contract path.
-4. Extend receipts and readings to carry contract/schema identity.
+1. Inventory existing EINT, registry, generated registry, and observation
+   surfaces.
+2. Decide whether first-consumer op/vars validation lives in app-level
+   generated code, Echo's WASM boundary, or both.
+3. Prove one Wesley-to-Echo toy contract path using existing EINT and generated
+   registry output.
+4. Extend receipts and readings only where existing intent ids and reading
+   envelopes cannot honestly identify the app contract artifact.
 5. Retain contract artifacts in `echo-cas` with honest semantic coordinates.
 6. Let `jedit` define the first serious text editing contract outside Echo
    core.
@@ -398,23 +443,26 @@ These should not collapse into string status fields or generic errors.
 
 ## Tests to write first
 
-- RED: unknown contract family is rejected deterministically.
-- RED: unsupported schema hash is rejected deterministically.
-- RED: malformed contract payload fails before generated handler execution.
-- RED: valid fake contract intent reaches a registered fake handler.
-- RED: valid fake contract observation returns a reading envelope that names
-  contract family, schema hash, observer kind, and basis.
-- RED: no consumer-specific domain types are required to exercise the contract
-  envelope path.
+- Inventory test: current EINT parser rejects malformed envelopes and reserved
+  public control op ids.
+- Inventory test: generated `RegistryProvider` exposes op ids, schema hash,
+  codec id, and operation catalog.
+- RED, if Echo-side validation is chosen: unknown app op id is rejected by
+  consulting an installed `RegistryProvider`.
+- RED, if observe/query bridging is chosen: generated query op maps to a
+  reading artifact without bypassing `observe(...)`.
+- Guard: no consumer-specific domain types are required in Echo core to
+  exercise the generated registry path.
 
 ## Risks / unknowns
 
-- **Wesley IR shape is still moving.** Keep the first Echo registry static and
-  fake-handler-friendly so it can be tested before full generated bundles are
-  stable.
-- **Contract handler shape could become a broad runtime facade.** Keep the
-  boundary limited to dispatch and observe. Do not let it absorb scheduler,
-  CAS, transport, or app runtime behavior.
+- **Wesley IR shape is still moving.** Keep the first proof anchored to the
+  existing `echo-wesley-gen` output before depending on future IR fields.
+- **Duplicate substrate risk.** Do not introduce `ContractIntentEnvelope` or a
+  new registry before proving EINT v1 and `RegistryProvider` are insufficient.
+- **Contract handler shape could become a broad runtime facade.** Keep app
+  transition law in generated/app code. Do not let it absorb scheduler, CAS,
+  transport, or app runtime behavior.
 - **ABI compatibility pressure could preserve old payload forms too long.**
   Treat this as a major boundary clarification. Compatibility shims must not
   become alternate truth paths.

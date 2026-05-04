@@ -18,7 +18,9 @@ but the contract-hosting path needs concrete retention rules for generated
 contract artifacts.
 
 CAS hashes name bytes. Semantic lookup keys name the question those bytes
-answer.
+answer. This matches existing `echo-cas` policy: CAS hashes are content-only,
+while domain separation belongs in typed references and semantic coordinates
+above the blob store.
 
 ## What it should look like
 
@@ -50,3 +52,4 @@ applicable.
 - Do not implement proof-carrying retention.
 - Do not add app-specific indexes.
 - Do not make CAS content hashes stand in for reading identity.
+- Do not change `echo-cas` content-hash policy for contract semantics.

@@ -24,11 +24,14 @@ consumer.
 The corrected model is:
 
 ```text
-GraphQL contract -> Wesley generated Rust -> Echo contract host
+GraphQL contract -> Wesley generated Rust -> EINT / observe -> Echo substrate
 ```
 
-Echo must host generated contract families generically. Domain behavior belongs
-to the authored contract and consuming application.
+Echo must host generated contract families generically, but the existing repo
+already has major pieces of that path: EINT v1, `dispatch_intent(...)`,
+`observe(...)`, `RegistryInfo`, `echo-registry-api::RegistryProvider`, and
+`echo-wesley-gen` generated registry output. Domain behavior belongs to the
+authored contract and consuming application.
 
 ## What it should look like
 
@@ -36,20 +39,22 @@ Write a design packet that defines Echo as a Wesley-compiled contract host.
 
 The packet should name at least:
 
-- `ContractFamilyId`
-- `ContractSchemaHash`
-- `ContractVersion`
-- `IntentEnvelope`
+- EINT v1
+- `RegistryInfo`
+- `RegistryProvider`
+- generated `REGISTRY`
+- schema hash
+- codec id
+- registry version
 - `IntentKind`
 - `IntentPayload`
 - `IntentBasis`
 - `IntentAdmission`
 - `ContractReceipt`
 - `ContractWitnessRef`
-- `ObservationEnvelope`
+- `ObservationRequest`
+- `ReadingEnvelope`
 - `ContractReading`
-- `ContractRuntime`
-- `ContractRegistry`
 
 It should also map those nouns to the existing optic loop:
 
@@ -63,8 +68,9 @@ slice -> lower -> witness -> retain
   the generic optic lifecycle.
 - The doc explicitly says Echo must not add text-editor APIs, Graft APIs, or
   consumer-specific ABI methods.
-- The doc identifies the first implementation cards for contract-aware
-  envelopes and static contract registration.
+- The doc identifies the first implementation cards as existing-boundary
+  inventory and registry-provider wiring decisions, not duplicate envelope or
+  registry construction.
 - The doc distinguishes built-in substrate/debug observers from
   contract-defined application observers.
 

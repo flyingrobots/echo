@@ -766,6 +766,13 @@ No test should call a global graph mutation or direct setter as the public path.
 
 ## Backlog
 
+The executable versions of these tasks are top-level METHOD backlog cards
+linked from
+[PLATFORM_echo-optics-api-design](../../method/backlog/asap/PLATFORM_echo-optics-api-design.md).
+This section records the source task detail for the design packet; it is not
+the scheduling surface. New executable work should be added as a visible card
+with explicit `Depends on:` links.
+
 ### TASK-001: Add Echo Optics doctrine packet
 
 Title: Add Echo Optics doctrine packet.

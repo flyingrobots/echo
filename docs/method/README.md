@@ -130,6 +130,16 @@ PLATFORM_xtask-method-cli.md
 debt-scheduler-god-module.md
 ```
 
+### Visibility
+
+Backlog cards must not hide executable subtasks that need independent
+scheduling or dependency tracking. If a card discovers a sequence of
+implementation slices, promote those slices into visible backlog cards and
+connect them with `Depends on:` links.
+
+A card may remain as an index for a design packet or hill, but that index must
+not be the only place executable work exists.
+
 ### Promoting
 
 When a backlog item is pulled into a cycle, it becomes a design doc:

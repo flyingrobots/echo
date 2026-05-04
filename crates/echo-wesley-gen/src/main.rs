@@ -157,30 +157,6 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
             use echo_registry_api::{ArgDef, EnumDef, ObjectDef, OpDef, OpKind, RegistryInfo, RegistryProvider};
         });
 
-        if ir.ops.iter().any(|op| op.kind == OpKind::Query) {
-            tokens.extend(quote! {
-                use echo_wasm_abi::kernel_port::{
-                    ObservationAt, ObservationCoordinate, ObservationFrame, ObservationProjection,
-                    ObservationRequest, WorldlineId,
-                };
-            });
-        }
-
-        if ir.ops.iter().any(|op| op.kind == OpKind::Mutation) {
-            tokens.extend(quote! {
-                use echo_wasm_abi::pack_intent_v1;
-
-                /// Error produced while building a generated EINT intent.
-                #[derive(Debug)]
-                pub enum GeneratedIntentError {
-                    /// Operation vars could not be encoded canonically.
-                    EncodeVars(echo_wasm_abi::CanonError),
-                    /// Encoded vars could not be packed into an EINT envelope.
-                    PackEnvelope(echo_wasm_abi::EnvelopeError),
-                }
-            });
-        }
-
         let mut enum_defs: Vec<_> = ir
             .types
             .iter()
@@ -268,13 +244,48 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
             });
         }
 
+        let mut helper_prelude = TokenStream::new();
+        let mut helper_tokens = TokenStream::new();
+        let mut helper_exports = Vec::new();
+
+        if args.no_std {
+            helper_prelude.extend(quote! {
+                use alloc::string::String;
+                use alloc::vec::Vec;
+            });
+        }
+
+        if ir.ops.iter().any(|op| op.kind == OpKind::Query) {
+            helper_prelude.extend(quote! {
+                use echo_wasm_abi::kernel_port::{
+                    ObservationAt, ObservationCoordinate, ObservationFrame, ObservationProjection,
+                    ObservationRequest, WorldlineId,
+                };
+            });
+        }
+
+        if ir.ops.iter().any(|op| op.kind == OpKind::Mutation) {
+            helper_prelude.extend(quote! {
+                use echo_wasm_abi::pack_intent_v1;
+
+                /// Error produced while building a generated EINT intent.
+                #[derive(Debug)]
+                pub enum GeneratedIntentError {
+                    /// Operation vars could not be encoded canonically.
+                    EncodeVars(echo_wasm_abi::CanonError),
+                    /// Encoded vars could not be packed into an EINT envelope.
+                    PackEnvelope(echo_wasm_abi::EnvelopeError),
+                }
+            });
+        }
+
         for op in &ops_sorted {
             let const_name = op_const_ident(&op.name, op.op_id);
             let helper_name = format_ident!("{}", to_snake_case(&op.name));
             let vars_name = format_ident!("{}Vars", to_pascal_case(&op.name));
             let vars_fields = op.args.iter().map(|a| {
                 let field_name = safe_ident(&a.name);
-                let base_ty = map_type(&a.type_name, args);
+                let base_ty = map_helper_type(&a.type_name, args);
                 let list_ty: TokenStream = if a.list {
                     quote! { Vec<#base_ty> }
                 } else {
@@ -288,9 +299,10 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
                 }
             });
             let encode_fn_name = format_ident!("encode_{}_vars", helper_name);
-            tokens.extend(quote! {
+            helper_exports.push(encode_fn_name.clone());
+            helper_tokens.extend(quote! {
                 /// Canonical vars payload for this generated operation.
-                #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+                #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
                 pub struct #vars_name {
                     #(#vars_fields),*
                 }
@@ -304,23 +316,27 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
                 OpKind::Mutation => {
                     let fn_name = format_ident!("pack_{}_intent", helper_name);
                     let raw_fn_name = format_ident!("pack_{}_intent_raw_vars", helper_name);
-                    tokens.extend(quote! {
+                    helper_exports.push(fn_name.clone());
+                    helper_exports.push(raw_fn_name.clone());
+                    helper_tokens.extend(quote! {
                         /// Encode this mutation's vars and pack them into an EINT v1 intent.
                         pub fn #fn_name(vars: &#vars_name) -> Result<Vec<u8>, GeneratedIntentError> {
                             let vars_bytes = #encode_fn_name(vars).map_err(GeneratedIntentError::EncodeVars)?;
-                            pack_intent_v1(#const_name, &vars_bytes).map_err(GeneratedIntentError::PackEnvelope)
+                            pack_intent_v1(super::#const_name, &vars_bytes).map_err(GeneratedIntentError::PackEnvelope)
                         }
 
                         /// Pack already-canonical vars bytes for this generated mutation into EINT v1.
                         pub fn #raw_fn_name(vars: &[u8]) -> Result<Vec<u8>, echo_wasm_abi::EnvelopeError> {
-                            pack_intent_v1(#const_name, vars)
+                            pack_intent_v1(super::#const_name, vars)
                         }
                     });
                 }
                 OpKind::Query => {
                     let fn_name = format_ident!("{}_observation_request", helper_name);
                     let raw_fn_name = format_ident!("{}_observation_request_raw_vars", helper_name);
-                    tokens.extend(quote! {
+                    helper_exports.push(fn_name.clone());
+                    helper_exports.push(raw_fn_name.clone());
+                    helper_tokens.extend(quote! {
                         /// Encode this query's vars and build a frontier query-view observation request.
                         pub fn #fn_name(worldline_id: WorldlineId, vars: &#vars_name) -> Result<ObservationRequest, echo_wasm_abi::CanonError> {
                             let vars_bytes = #encode_fn_name(vars)?;
@@ -336,7 +352,7 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
                                 },
                                 frame: ObservationFrame::QueryView,
                                 projection: ObservationProjection::Query {
-                                    query_id: #const_name,
+                                    query_id: super::#const_name,
                                     vars_bytes: Vec::from(vars),
                                 },
                             }
@@ -345,6 +361,22 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
                 }
             }
         }
+
+        tokens.extend(quote! {
+            /// Generated operation helper namespace.
+            ///
+            /// Helper-only types live here so user-controlled Wesley types can
+            /// use names such as `IncrementVars` or `GeneratedIntentError`
+            /// without colliding with generated plumbing.
+            pub mod __echo_wesley_generated {
+                #helper_prelude
+                #helper_tokens
+            }
+
+            pub use __echo_wesley_generated::{
+                #(#helper_exports),*
+            };
+        });
 
         // OPS table (sorted by op_id).
         let ops_entries = ops_sorted.iter().map(|op| {
@@ -433,6 +465,11 @@ fn op_const_name(name: &str, op_id: u32) -> String {
     format!("OP_{out}")
 }
 
+/// Convert a Wesley operation name to a Rust PascalCase stem.
+///
+/// Existing alphanumeric casing is preserved between separators so acronym-heavy
+/// names such as `XMLParser` remain `XMLParser` instead of being normalized to
+/// title case.
 fn to_pascal_case(name: &str) -> String {
     let mut out = String::new();
     let mut capitalize_next = true;
@@ -494,16 +531,21 @@ fn validate_version(ir: &WesleyIR) -> Result<()> {
 }
 
 fn validate_generated_item_names(ir: &WesleyIR) -> Result<()> {
-    let mut items = BTreeMap::new();
+    let mut top_level_items = BTreeMap::new();
+    let mut helper_items = BTreeMap::new();
 
     record_generated_item(
-        &mut items,
+        &mut top_level_items,
         "SCHEMA_SHA256",
         "generated schema hash constant",
     )?;
-    record_generated_item(&mut items, "CODEC_ID", "generated codec id constant")?;
     record_generated_item(
-        &mut items,
+        &mut top_level_items,
+        "CODEC_ID",
+        "generated codec id constant",
+    )?;
+    record_generated_item(
+        &mut top_level_items,
         "REGISTRY_VERSION",
         "generated registry version constant",
     )?;
@@ -512,25 +554,25 @@ fn validate_generated_item_names(ir: &WesleyIR) -> Result<()> {
         match type_def.kind {
             TypeKind::Enum => {
                 record_generated_item(
-                    &mut items,
+                    &mut top_level_items,
                     type_def.name.as_str(),
                     format!("enum type `{}`", type_def.name),
                 )?;
                 record_generated_item(
-                    &mut items,
+                    &mut top_level_items,
                     format!("ENUM_{}_VALUES", type_def.name.to_ascii_uppercase()),
                     format!("enum `{}` values constant", type_def.name),
                 )?;
             }
             TypeKind::Object | TypeKind::InputObject => {
                 record_generated_item(
-                    &mut items,
+                    &mut top_level_items,
                     type_def.name.as_str(),
                     format!("object type `{}`", type_def.name),
                 )?;
                 if type_def.kind == TypeKind::Object {
                     record_generated_item(
-                        &mut items,
+                        &mut top_level_items,
                         format!("OBJ_{}_FIELDS", type_def.name.to_ascii_uppercase()),
                         format!("object `{}` fields constant", type_def.name),
                     )?;
@@ -550,13 +592,19 @@ fn validate_generated_item_names(ir: &WesleyIR) -> Result<()> {
             ("GeneratedRegistry", "generated registry provider type"),
             ("REGISTRY", "generated registry provider value"),
         ] {
-            record_generated_item(&mut items, name, source)?;
+            record_generated_item(&mut top_level_items, name, source)?;
         }
+
+        record_generated_item(
+            &mut top_level_items,
+            "__echo_wesley_generated",
+            "generated operation helper namespace",
+        )?;
     }
 
     if ir.ops.iter().any(|op| op.kind == OpKind::Mutation) {
         record_generated_item(
-            &mut items,
+            &mut helper_items,
             "GeneratedIntentError",
             "generated intent helper error",
         )?;
@@ -568,49 +616,77 @@ fn validate_generated_item_names(ir: &WesleyIR) -> Result<()> {
         let helper_name = to_snake_case(&op.name);
 
         record_generated_item(
-            &mut items,
+            &mut top_level_items,
             const_name.as_str(),
             format!("{kind} operation `{}` id constant", op.name),
         )?;
         record_generated_item(
-            &mut items,
+            &mut top_level_items,
             format!("{const_name}_ARGS"),
             format!("{kind} operation `{}` args constant", op.name),
         )?;
         record_generated_item(
-            &mut items,
+            &mut helper_items,
             format!("{}Vars", to_pascal_case(&op.name)),
             format!("{kind} operation `{}` vars type", op.name),
         )?;
         record_generated_item(
-            &mut items,
+            &mut helper_items,
             format!("encode_{helper_name}_vars"),
             format!("{kind} operation `{}` vars encoder", op.name),
+        )?;
+        record_generated_item(
+            &mut top_level_items,
+            format!("encode_{helper_name}_vars"),
+            format!("{kind} operation `{}` vars encoder re-export", op.name),
         )?;
 
         match op.kind {
             OpKind::Mutation => {
                 record_generated_item(
-                    &mut items,
+                    &mut helper_items,
                     format!("pack_{helper_name}_intent"),
                     format!("mutation operation `{}` EINT helper", op.name),
                 )?;
                 record_generated_item(
-                    &mut items,
+                    &mut helper_items,
                     format!("pack_{helper_name}_intent_raw_vars"),
                     format!("mutation operation `{}` raw EINT helper", op.name),
+                )?;
+                record_generated_item(
+                    &mut top_level_items,
+                    format!("pack_{helper_name}_intent"),
+                    format!("mutation operation `{}` EINT helper re-export", op.name),
+                )?;
+                record_generated_item(
+                    &mut top_level_items,
+                    format!("pack_{helper_name}_intent_raw_vars"),
+                    format!("mutation operation `{}` raw EINT helper re-export", op.name),
                 )?;
             }
             OpKind::Query => {
                 record_generated_item(
-                    &mut items,
+                    &mut helper_items,
                     format!("{helper_name}_observation_request"),
                     format!("query operation `{}` observation helper", op.name),
                 )?;
                 record_generated_item(
-                    &mut items,
+                    &mut helper_items,
                     format!("{helper_name}_observation_request_raw_vars"),
                     format!("query operation `{}` raw observation helper", op.name),
+                )?;
+                record_generated_item(
+                    &mut top_level_items,
+                    format!("{helper_name}_observation_request"),
+                    format!("query operation `{}` observation helper re-export", op.name),
+                )?;
+                record_generated_item(
+                    &mut top_level_items,
+                    format!("{helper_name}_observation_request_raw_vars"),
+                    format!(
+                        "query operation `{}` raw observation helper re-export",
+                        op.name
+                    ),
                 )?;
             }
         }
@@ -662,6 +738,27 @@ fn map_type(gql_type: &str, args: &Args) -> TokenStream {
         other => {
             let ident = safe_ident(other);
             quote! { #ident }
+        }
+    }
+}
+
+/// Map a GraphQL base type name for use inside the generated helper module.
+fn map_helper_type(gql_type: &str, args: &Args) -> TokenStream {
+    match gql_type {
+        "Boolean" => quote! { bool },
+        "String" => quote! { String },
+        "Int" => quote! { i32 },
+        "Float" => quote! { f32 },
+        "ID" => {
+            if args.no_std {
+                quote! { [u8; 32] }
+            } else {
+                quote! { String }
+            }
+        }
+        other => {
+            let ident = safe_ident(other);
+            quote! { super::#ident }
         }
     }
 }

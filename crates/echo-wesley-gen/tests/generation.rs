@@ -81,10 +81,10 @@ mod generated;
 #[cfg(test)]
 mod tests {
     use super::generated::{
+        __echo_wesley_generated::{CounterValueVars, IncrementVars},
         counter_value_observation_request, counter_value_observation_request_raw_vars,
-        encode_counter_value_vars, pack_increment_intent, CounterValueVars, IncrementInput,
-        IncrementVars, CODEC_ID, OP_COUNTER_VALUE, OP_INCREMENT, REGISTRY, REGISTRY_VERSION,
-        SCHEMA_SHA256,
+        encode_counter_value_vars, pack_increment_intent, IncrementInput, CODEC_ID,
+        OP_COUNTER_VALUE, OP_INCREMENT, REGISTRY, REGISTRY_VERSION, SCHEMA_SHA256,
     };
     use echo_registry_api::{OpKind, RegistryProvider};
     use echo_wasm_abi::kernel_port::{
@@ -264,6 +264,63 @@ mod tests {
     crate_dir
 }
 
+fn write_basic_generated_crate(generated: &str, label: &str) -> PathBuf {
+    let workspace = workspace_root();
+    let crate_dir = workspace
+        .join("target")
+        .join("echo-wesley-gen-basic-smoke")
+        .join(std::process::id().to_string())
+        .join(label);
+    if crate_dir.exists() {
+        fs::remove_dir_all(&crate_dir).expect("failed to remove old generated crate");
+    }
+    fs::create_dir_all(crate_dir.join("src")).expect("failed to create generated crate");
+
+    let registry_path = workspace.join("crates/echo-registry-api");
+    let wasm_abi_path = workspace.join("crates/echo-wasm-abi");
+    fs::write(
+        crate_dir.join("Cargo.toml"),
+        format!(
+            r#"[package]
+name = "echo-wesley-gen-basic-smoke-{label}"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+echo-registry-api = {{ path = "{}" }}
+echo-wasm-abi = {{ path = "{}" }}
+serde = {{ version = "1.0", features = ["derive"] }}
+"#,
+            registry_path.display(),
+            wasm_abi_path.display()
+        ),
+    )
+    .expect("failed to write generated Cargo.toml");
+    fs::write(crate_dir.join("src/generated.rs"), generated)
+        .expect("failed to write generated module");
+    fs::write(crate_dir.join("src/lib.rs"), "mod generated;\n")
+        .expect("failed to write generated lib.rs");
+    crate_dir
+}
+
+fn assert_generated_crate_checks(crate_dir: &Path) {
+    let output = Command::new("cargo")
+        .args(["check", "--manifest-path"])
+        .arg(crate_dir.join("Cargo.toml"))
+        .output()
+        .expect("failed to run generated crate check");
+
+    assert!(
+        output.status.success(),
+        "generated crate check failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 #[test]
 fn test_generate_from_json() {
     let ir = r#"{
@@ -370,13 +427,14 @@ fn test_toy_contract_generates_eint_and_observation_helpers() {
 
     for required in [
         "use echo_wasm_abi::pack_intent_v1;",
+        "pub mod __echo_wesley_generated",
         "pub struct IncrementVars",
         "pub struct CounterValueVars",
         "pub fn encode_increment_vars",
         "pub fn encode_counter_value_vars",
         "pub fn pack_increment_intent",
         "pub fn pack_increment_intent_raw_vars",
-        "pack_intent_v1(OP_INCREMENT",
+        "pack_intent_v1(super::OP_INCREMENT",
         "pub fn counter_value_observation_request",
         "pub fn counter_value_observation_request_raw_vars",
     ] {
@@ -416,7 +474,7 @@ fn test_query_only_contract_does_not_import_intent_packer() {
 }
 
 #[test]
-fn test_operation_vars_type_collision_fails_with_clear_diagnostic() {
+fn test_operation_vars_type_collision_uses_helper_namespace() {
     let ir = r#"{
         "ir_version": "echo-ir/v1",
         "schema_sha256": "abc123",
@@ -438,12 +496,55 @@ fn test_operation_vars_type_collision_fails_with_clear_diagnostic() {
 
     let output = run_wesley_gen(ir);
     assert!(
-        !output.status.success(),
-        "generator should reject duplicate generated item names"
+        output.status.success(),
+        "CLI failed: {}",
+        String::from_utf8_lossy(&output.stderr)
     );
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("generated Rust item name collision"));
-    assert!(stderr.contains("IncrementVars"));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("pub struct IncrementVars"));
+    assert!(stdout.contains("pub mod __echo_wesley_generated"));
+    assert!(stdout.contains("pub use __echo_wesley_generated::"));
+    assert_generated_crate_checks(&write_basic_generated_crate(
+        stdout.as_ref(),
+        "vars-collision",
+    ));
+}
+
+#[test]
+fn test_generated_intent_error_user_type_does_not_collide_with_helper_error() {
+    let ir = r#"{
+        "ir_version": "echo-ir/v1",
+        "schema_sha256": "abc123",
+        "codec_id": "cbor-canon-v1",
+        "registry_version": 1,
+        "types": [
+            {
+                "name": "GeneratedIntentError",
+                "kind": "OBJECT",
+                "fields": [
+                    { "name": "message", "type": "String", "required": true }
+                ]
+            }
+        ],
+        "ops": [
+            { "kind": "MUTATION", "name": "increment", "op_id": 111, "args": [], "result_type": "GeneratedIntentError" }
+        ]
+    }"#;
+
+    let output = run_wesley_gen(ir);
+    assert!(
+        output.status.success(),
+        "CLI failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("pub struct GeneratedIntentError"));
+    assert!(stdout.contains("pub enum GeneratedIntentError"));
+    assert!(stdout.contains("pub mod __echo_wesley_generated"));
+    assert_generated_crate_checks(&write_basic_generated_crate(
+        stdout.as_ref(),
+        "intent-error-collision",
+    ));
 }
 
 #[test]

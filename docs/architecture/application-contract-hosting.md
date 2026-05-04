@@ -109,8 +109,10 @@ Applications own:
 
 Use precise names at the boundary.
 
-**Contract operation variables** are typed values generated from a contract
-operation. Example: `IncrementVars { input: IncrementInput { amount: 42 } }`.
+**Contract operation variables** are typed helper values generated from a
+contract operation. Helper-only types live in the generated helper namespace so
+they cannot collide with user contract types. Example:
+`__echo_wesley_generated::IncrementVars { input: IncrementInput { amount: 42 } }`.
 
 **Canonical vars bytes** are the deterministic canonical-CBOR encoding of
 contract operation variables.
@@ -168,7 +170,7 @@ mutation increment(input: IncrementInput): CounterValue
 the generated Rust shape is conceptually:
 
 ```rust
-let intent = pack_increment_intent(&IncrementVars {
+let intent = pack_increment_intent(&__echo_wesley_generated::IncrementVars {
     input: IncrementInput { amount: 42 },
 })?;
 ```
@@ -176,7 +178,7 @@ let intent = pack_increment_intent(&IncrementVars {
 The generated helper performs the deterministic boundary work:
 
 ```text
-IncrementVars
+__echo_wesley_generated::IncrementVars
   -> encode_cbor(...)
   -> canonical vars bytes
   -> pack_intent_v1(OP_INCREMENT, &vars_bytes)
@@ -187,9 +189,18 @@ Echo receives the EINT bytes. Echo does not need to know that the operation was
 called `increment` or that the payload contained an `IncrementInput`. That
 meaning belongs to the generated contract layer and the application.
 
-## Dispatch Is Not A Function Call
+## Dispatch Is Synchronous In Code, Not A Domain RPC
 
-`dispatch_intent(...)` means:
+`KernelPort::dispatch_intent` is a synchronous Rust trait method:
+
+```rust
+fn dispatch_intent(&mut self, intent_bytes: &[u8]) -> Result<DispatchResponse, AbiError>
+```
+
+Implementations such as `WarpKernel` may handle reserved control intents inline
+before returning a `DispatchResponse`.
+
+Its semantic boundary is still:
 
 ```text
 submit canonical causal input
@@ -201,10 +212,10 @@ It does not mean:
 call this application method synchronously and mutate a hidden global state
 ```
 
-Echo returns a `DispatchResponse` that says whether the intent was newly
-accepted, names the content-addressed intent id, and reports scheduler status.
-The application should treat that response as ingress evidence, not as a
-domain-specific result object.
+The application should treat `DispatchResponse` as ingress evidence. It says
+whether the intent was newly accepted, names the content-addressed intent id,
+and reports scheduler status. It is not a domain-specific result object and it
+must not hide app mutation in unrecorded global state.
 
 ## Read Path
 
@@ -218,17 +229,13 @@ payload bytes according to the generated contract.
 sequenceDiagram
     participant UI as Application UI
     participant Gen as Wesley-generated client
-    participant ABI as echo-wasm-abi
     participant Echo as Echo KernelPort
     participant Runtime as Echo runtime
 
     UI->>Gen: request generated query
-    Gen->>ABI: encode_cbor(query variables)
-    ABI-->>Gen: canonical query vars bytes
+    Gen->>Gen: canonicalize query variables
     Gen->>Gen: build ObservationRequest
-    Gen->>ABI: encode_cbor(ObservationRequest)
-    ABI-->>Gen: request bytes
-    Gen->>Echo: observe(request bytes)
+    Gen->>Echo: observe(request)
     Echo->>Runtime: resolve coordinate, frame, projection
     Runtime-->>Echo: ObservationArtifact
     Echo-->>Gen: ReadingEnvelope + payload bytes
@@ -434,12 +441,17 @@ A browser-hosted application should follow this shape:
 6. Call `dispatch_intent(intent_bytes)`.
 7. Decode `DispatchResponse`.
 8. Use generated query helpers to build `ObservationRequest`.
-9. Canonically encode the request.
-10. Call `observe(request_bytes)`.
-11. Decode `ObservationArtifact`.
-12. Inspect the `ReadingEnvelope`.
-13. Decode payload bytes into generated result types.
-14. Render the UI.
+9. Call `observe(request)`.
+10. Decode `ObservationArtifact`.
+11. Inspect the `ReadingEnvelope`.
+12. Decode payload bytes into generated result types.
+13. Render the UI.
+
+For a raw WASM export that accepts bytes, the browser adapter serializes the
+`ObservationRequest` at the ABI boundary using its `Serialize` implementation
+and canonical CBOR. That encoding is transport plumbing; the generated query
+helper still produces an `ObservationRequest`, and the Echo read boundary is
+`KernelPort::observe(request)`.
 
 The UI can be highly application-specific. The Echo calls remain generic.
 
@@ -448,9 +460,11 @@ The UI can be highly application-specific. The Echo calls remain generic.
 A native Rust consumer can operate against `KernelPort` directly:
 
 ```rust
-let intent = generated::pack_increment_intent(&generated::IncrementVars {
-    input: generated::IncrementInput { amount: 42 },
-})?;
+let intent = generated::pack_increment_intent(
+    &generated::__echo_wesley_generated::IncrementVars {
+        input: generated::IncrementInput { amount: 42 },
+    },
+)?;
 
 let response = echo_wasm_abi::kernel_port::KernelPort::dispatch_intent(
     &mut kernel,
@@ -459,7 +473,7 @@ let response = echo_wasm_abi::kernel_port::KernelPort::dispatch_intent(
 
 let request = generated::counter_value_observation_request(
     worldline_id,
-    &generated::CounterValueVars {},
+    &generated::__echo_wesley_generated::CounterValueVars {},
 )?;
 
 let artifact =

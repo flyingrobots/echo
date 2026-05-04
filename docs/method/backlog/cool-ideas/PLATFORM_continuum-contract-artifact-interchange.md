@@ -25,26 +25,32 @@ causal artifacts.
 Continuum artifacts should be able to name:
 
 - contract family
-- schema hash
+- schema codec, schema hash algorithm, and schema hash
 - intent or observer kind
 - basis and frontier
-- payload hash
-- receipt refs
-- witness refs
-- reading refs
+- payload codec, payload hash algorithm, and payload hash
+- receipt refs as codec/hash tuples
+- witness refs as codec/hash tuples
+- reading refs as codec/hash tuples
 - admission posture
-- retained artifact hashes
+- retained artifact codec/hash tuples
 
 Sibling runtimes should exchange protocol-shaped causal artifacts, not runtime
 internals.
+
+Every encoded field that contributes to identity needs a canonical byte
+serialization rule and stable interoperable codec/hash identifiers such as
+multicodec and multihash labels. Semantic names like "schema hash" are not
+enough for cross-runtime verification.
 
 ## Acceptance criteria
 
 - One Echo contract receipt exports as a Continuum-shaped artifact.
 - A second runtime or verifier can inspect the artifact family identity without
   understanding Echo internals.
-- Import uses witnessed suffix admission law instead of state snapshot sync.
-- Missing contract family or schema support yields obstruction, not silent
+- Import is not treated as generic state snapshot sync; it preserves contract
+  artifact identity and admission posture.
+- Missing contract family or schema support is `obstructed`, not silent
   downgrade.
 
 ## Non-goals

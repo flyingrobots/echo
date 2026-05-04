@@ -147,8 +147,9 @@ Result: passed.
 
 Implementation:
 
-- `echo-wesley-gen` now emits per-operation vars structs such as
-  `IncrementVars` and `CounterValueVars`.
+- `echo-wesley-gen` now emits per-operation vars structs in the generated
+  helper namespace, such as `__echo_wesley_generated::IncrementVars` and
+  `__echo_wesley_generated::CounterValueVars`.
 - Each generated operation receives a canonical vars encoder such as
   `encode_increment_vars(...)`.
 - Ergonomic mutation helpers now accept generated vars structs, encode them

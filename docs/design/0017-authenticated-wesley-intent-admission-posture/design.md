@@ -149,14 +149,25 @@ contract_artifact_id =
     ir_digest ||
     registry_digest ||
     codec_id ||
-    compiler_profile_digest ||
-    artifact_trust_posture)
+    compiler_profile_digest)
+
+artifact_attestation =
+  {
+    contract_artifact_id,
+    artifact_trust_posture,
+    attesting_authority,
+    attestation_evidence_digest
+  }
+
+canonical_intent_bytes =
+  SerializeCanonicalIntent(
+    version,
+    contract_artifact_id,
+    op_id,
+    canonical_vars_bytes)
 
 intent_digest =
-  H("echo.intent.v2" ||
-    contract_artifact_id ||
-    op_id ||
-    canonical_vars_digest)
+  H("echo.intent.v2" || canonical_intent_bytes)
 
 admission_id =
   H("echo.intent-admission.v1" ||
@@ -168,8 +179,16 @@ admission_id =
 ```
 
 Those formulas are design sketches, not committed wire formats. The committed
-requirement is domain separation and explicit scope: a digest must say what it
-commits to.
+requirements are domain separation, explicit scope, and stable identity:
+
+- `contract_artifact_id` names stable compiled artifact content only. Trust
+  posture, signer status, or certification evidence belongs in
+  `artifact_attestation` metadata so registry continuity survives posture
+  changes.
+- `intent_digest` commits to the canonical submitted intent bytes, not an ad hoc
+  reconstruction from loose fields. If the future wire format uses a structured
+  envelope, `SerializeCanonicalIntent` must be the exact canonical byte
+  serialization for that envelope.
 
 ## Pre-Tick Admission Pipeline
 

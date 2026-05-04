@@ -8,6 +8,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
+const TOY_COUNTER_IR: &str = include_str!("fixtures/toy-counter/echo-ir-v1.json");
+
 /// Spawns `cargo run -p echo-wesley-gen --`, pipes `ir` to stdin, and returns the output.
 fn run_wesley_gen(ir: &str) -> Output {
     let mut child = Command::new("cargo")
@@ -354,62 +356,7 @@ fn test_ops_catalog_present() {
 
 #[test]
 fn test_toy_contract_generates_eint_and_observation_helpers() {
-    let ir = r#"{
-        "ir_version": "echo-ir/v1",
-        "schema_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        "codec_id": "cbor-canon-v1",
-        "registry_version": 1,
-        "types": [
-            {
-                "name": "CounterValue",
-                "kind": "OBJECT",
-                "fields": [
-                    { "name": "value", "type": "Int", "required": true }
-                ]
-            },
-            {
-                "name": "IncrementInput",
-                "kind": "INPUT_OBJECT",
-                "fields": [
-                    { "name": "amount", "type": "Int", "required": true }
-                ]
-            },
-            {
-                "name": "Mutation",
-                "kind": "OBJECT",
-                "fields": [
-                    { "name": "increment", "type": "CounterValue", "required": true }
-                ]
-            },
-            {
-                "name": "Query",
-                "kind": "OBJECT",
-                "fields": [
-                    { "name": "counterValue", "type": "CounterValue", "required": true }
-                ]
-            }
-        ],
-        "ops": [
-            {
-                "kind": "MUTATION",
-                "name": "increment",
-                "op_id": 1001,
-                "args": [
-                    { "name": "input", "type": "IncrementInput", "required": true }
-                ],
-                "result_type": "CounterValue"
-            },
-            {
-                "kind": "QUERY",
-                "name": "counterValue",
-                "op_id": 1002,
-                "args": [],
-                "result_type": "CounterValue"
-            }
-        ]
-    }"#;
-
-    let output = run_wesley_gen(ir);
+    let output = run_wesley_gen(TOY_COUNTER_IR);
     assert!(
         output.status.success(),
         "CLI failed: {}",
@@ -442,48 +389,7 @@ fn test_toy_contract_generates_eint_and_observation_helpers() {
 
 #[test]
 fn test_toy_contract_generated_output_compiles_in_consumer_crate() {
-    let ir = r#"{
-        "ir_version": "echo-ir/v1",
-        "schema_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        "codec_id": "cbor-canon-v1",
-        "registry_version": 1,
-        "types": [
-            {
-                "name": "CounterValue",
-                "kind": "OBJECT",
-                "fields": [
-                    { "name": "value", "type": "Int", "required": true }
-                ]
-            },
-            {
-                "name": "IncrementInput",
-                "kind": "INPUT_OBJECT",
-                "fields": [
-                    { "name": "amount", "type": "Int", "required": true }
-                ]
-            }
-        ],
-        "ops": [
-            {
-                "kind": "MUTATION",
-                "name": "increment",
-                "op_id": 1001,
-                "args": [
-                    { "name": "input", "type": "IncrementInput", "required": true }
-                ],
-                "result_type": "CounterValue"
-            },
-            {
-                "kind": "QUERY",
-                "name": "counterValue",
-                "op_id": 1002,
-                "args": [],
-                "result_type": "CounterValue"
-            }
-        ]
-    }"#;
-
-    let output = run_wesley_gen(ir);
+    let output = run_wesley_gen(TOY_COUNTER_IR);
     assert!(
         output.status.success(),
         "CLI failed: {}",

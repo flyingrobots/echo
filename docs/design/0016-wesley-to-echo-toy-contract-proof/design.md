@@ -17,7 +17,7 @@ Depends on:
 
 ## Status
 
-GREEN 3.
+GREEN 4.
 
 ## Hill
 
@@ -59,6 +59,12 @@ The test uses a tiny counter contract:
 
 - mutation: `increment(input: IncrementInput): CounterValue`
 - query: `counterValue: CounterValue`
+
+The canonical toy counter IR fixture is:
+
+```text
+crates/echo-wesley-gen/tests/fixtures/toy-counter/echo-ir-v1.json
+```
 
 It first proves current generated output already includes:
 
@@ -164,6 +170,27 @@ The smoke kernel now decodes generated EINT vars and query vars through
 `decode_cbor(...)` before asserting the app-level contract values. This closes
 the accidental nondeterminism seam where the app-facing helper accepted
 arbitrary raw vars bytes.
+
+Result: passed.
+
+## GREEN 4 witness
+
+Implementation:
+
+- The toy counter IR is now a named test fixture at
+  `crates/echo-wesley-gen/tests/fixtures/toy-counter/echo-ir-v1.json`.
+- The fixture has a README that defines the proof boundary and forbids copying
+  the toy IR into new tests.
+- Both toy generator tests now use the same `include_str!(...)` source.
+
+This prevents future installed-host smoke work from creating a third,
+silently-divergent copy of "the toy contract."
+
+Focused witness:
+
+```sh
+cargo test -p echo-wesley-gen
+```
 
 Result: passed.
 

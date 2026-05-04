@@ -3,7 +3,7 @@
 
 # Wesley To Echo Toy Contract Proof
 
-Status: GREEN 3.
+Status: GREEN 4.
 
 Depends on:
 
@@ -78,6 +78,13 @@ GREEN 3 hardens the generated app-facing helper surface:
 - the consumer smoke kernel decodes generated vars before asserting app-level
   values.
 
+GREEN 4 extracts the toy counter IR into a named fixture:
+
+- `crates/echo-wesley-gen/tests/fixtures/toy-counter/echo-ir-v1.json`;
+- `crates/echo-wesley-gen/tests/fixtures/toy-counter/README.md`;
+- both toy generator tests consume the fixture through `include_str!(...)`
+  instead of copying inline JSON.
+
 The next proof should wire the same generated surface into an installed Echo or
 application-owned kernel path instead of a toy `KernelPort` implementation.
 
@@ -94,6 +101,7 @@ application-owned kernel path instead of a toy `KernelPort` implementation.
 - One read path proves how generated query/observer operations relate to
   `observe(...)` and `ReadingEnvelope`.
 - Golden ABI vectors are stable.
+- The toy counter contract is a shared fixture, not duplicated inline JSON.
 
 ## Non-goals
 

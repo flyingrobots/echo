@@ -49,6 +49,7 @@ The design evidence for this boundary lives in these repo-local packets:
 - `docs/design/0014-eint-registry-observation-boundary-inventory/design.md`
 - `docs/design/0015-registry-provider-host-boundary-decision/design.md`
 - `docs/design/0016-wesley-to-echo-toy-contract-proof/design.md`
+- `docs/design/0017-authenticated-wesley-intent-admission-posture/design.md`
 
 ## Ownership Split
 
@@ -298,6 +299,48 @@ operation shape and variables before dispatch. Echo validates EINT shape and
 reserved control-op usage. Host-side generated-payload validation is deferred
 until a RED proves that Echo itself must reject malformed app payloads at the
 host boundary.
+
+## Admission Security Ramp
+
+The registry handshake is compatibility evidence, not production security.
+
+Current EINT dispatch proves that Echo can accept canonical contract-shaped
+bytes. It does not prove that the submitted intent came from an authenticated
+session, that the generated artifact has the required trust posture, or that the
+intent is authorized for a target coordinate.
+
+A production Wesley intent needs a stronger pre-tick admission boundary:
+
+```mermaid
+sequenceDiagram
+    participant Gen as Wesley-generated client
+    participant Host as Echo host boundary
+    participant Policy as Observer/ingress policy
+    participant Echo as Echo runtime
+
+    Gen->>Gen: canonicalize op vars
+    Gen->>Gen: bind op, vars, artifact, target, session
+    Gen->>Host: authenticated intent submission
+    Host->>Policy: verify artifact posture and session authority
+    Policy-->>Host: admission certificate or obstruction
+    Host->>Echo: certified canonical ingress only
+```
+
+The trust ramp should stay explicit:
+
+```text
+local dev -> digest verified -> generated tests verified -> CI attested
+  -> BLADE certified production profile
+```
+
+Holmes, WATSON, Moriarty, generated tests, and BLADE are certification providers
+for later production profiles. Echo should model the posture slots and policy
+requirements first; it should not treat local development trust as equivalent
+to production certification.
+
+Echo must not trust caller-supplied footprint claims. Footprints used for tick
+admission must come from a verified Wesley artifact or another explicitly
+trusted footprint authority.
 
 ## Determinism Boundary
 

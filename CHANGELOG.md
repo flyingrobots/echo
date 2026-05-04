@@ -47,7 +47,8 @@
 
 - Fixed Wesley-generated helper output so helper-only vars and intent error
   types live in a generated namespace instead of colliding with user contract
-  types, while preserving top-level helper function re-exports.
+  types, while preserving top-level helper function re-exports, and added
+  no-std smoke coverage for op-bearing generated helpers.
 - Fixed contract-hosting docs to describe synchronous `KernelPort` dispatch
   accurately, treat `ObservationRequest` as the read boundary, keep artifact
   identity separate from trust posture, hash canonical submitted intent bytes,

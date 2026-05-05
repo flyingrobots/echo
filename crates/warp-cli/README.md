@@ -18,6 +18,8 @@ The binary is named `echo-cli`.
 ### `echo-cli verify <snapshot.wsc>`
 
 Validate WSC snapshot integrity. Loads the file, validates structure, reconstructs the graph, and computes state root hashes.
+Text output stays plain when stdout is not a TTY and decorates pass/fail statuses
+with color when stdout is a terminal.
 
 ```sh
 # Verify a snapshot

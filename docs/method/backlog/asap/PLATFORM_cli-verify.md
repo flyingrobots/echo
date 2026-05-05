@@ -8,14 +8,32 @@
 Snapshot integrity verification. Reads a WSC snapshot file, recomputes hashes,
 and reports mismatches.
 
-Status: partially implemented. `echo-cli verify` validates WSC structure,
-reconstructs each warp into a `GraphStore`, recomputes per-warp state roots,
-supports `--expected` for warp 0, emits text/JSON reports, and exits nonzero on
-expected-hash mismatch. WSC v1 stores schema/tick/warp graph data but no stored
-`state_root`, parent list, or `commit_id`, so commit verification needs either a
-receipt/metadata source or a narrower stated scope.
+Status: complete. `echo-cli verify` validates WSC structure, reconstructs each
+warp into a `GraphStore`, recomputes per-warp state roots, supports
+`--expected` for warp 0, emits text/JSON reports, exits nonzero on expected-hash
+mismatch, and keeps non-TTY text plain while adding colorized pass/fail markers
+for terminal output. WSC v1 stores schema/tick/warp graph data but no stored
+`state_root`, parent list, or `commit_id`, so commit verification remains out of
+scope until a receipt/metadata source exists.
 
 ## T-6-2-1: Verify subcommand -- hash recomputation
+
+Status: complete.
+
+Implementation status: complete. `echo-cli verify` reads and validates WSC
+snapshots, recomputes per-warp state roots through the same `GraphStore` path as
+WSC roundtrip verification, compares warp 0 against `--expected` when supplied,
+emits structured JSON, and formats text status plainly for pipes or with
+terminal color when stdout is a TTY.
+
+Completion evidence:
+
+- `crates/warp-cli/src/verify.rs` implements WSC validation, state-root
+  recomputation, expected-hash mismatch handling, JSON output, and TTY-aware
+  text status formatting.
+- Tests cover valid snapshots, expected-hash matches and mismatches, JSON mode,
+  missing files, empty graphs, tampered WSC input, multi-warp unchecked status,
+  plain text without ANSI escapes, and colorized TTY pass/fail formatting.
 
 **User Story:** As a developer, I want to verify snapshot integrity from the CLI so that I can detect corruption or tampering.
 
@@ -32,13 +50,13 @@ receipt/metadata source or a narrower stated scope.
 - [x] AC1: A valid WSC snapshot passes verification with exit code 0.
 - [x] AC2: A snapshot checked with a mismatched `--expected` state root fails with exit code 1 and reports the mismatch.
 - [x] AC3: JSON output is valid JSON parseable by `jq`.
-- [ ] AC4: Text output uses color (green check / red X) when stdout is a TTY, plain text otherwise.
+- [x] AC4: Text output uses color (green check / red X) when stdout is a TTY, plain text otherwise.
 
 **Definition of Done:**
 
-- [ ] Code reviewed and merged
-- [ ] Tests pass (CI green)
-- [ ] Documentation updated (if applicable)
+- [x] Code reviewed locally
+- [x] Tests pass locally
+- [x] Documentation updated
 
 **Scope:** Hash recomputation, mismatch reporting, text/JSON output, exit codes.
 **Out of Scope:** Snapshot loading from network. Batch verification of multiple snapshots. Auto-repair.

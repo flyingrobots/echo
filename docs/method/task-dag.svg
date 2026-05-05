@@ -39,12 +39,13 @@
 <!-- M001 -->
 <g id="node1" class="node">
 <title>M001</title>
-<g id="a_node1"><a xlink:title="M001 [asap] blocked; blockers=1; T&#45;6&#45;5&#45;1 Man page generation and README examples">
-<path fill="#fff3bf" stroke="#b08900" stroke-width="1.2" d="M561.31,-3233.82C561.31,-3233.82 453.79,-3233.82 453.79,-3233.82 447.79,-3233.82 441.79,-3227.82 441.79,-3221.82 441.79,-3221.82 441.79,-3186.18 441.79,-3186.18 441.79,-3180.18 447.79,-3174.18 453.79,-3174.18 453.79,-3174.18 561.31,-3174.18 561.31,-3174.18 567.31,-3174.18 573.31,-3180.18 573.31,-3186.18 573.31,-3186.18 573.31,-3221.82 573.31,-3221.82 573.31,-3227.82 567.31,-3233.82 561.31,-3233.82"/>
-<text xml:space="preserve" text-anchor="middle" x="507.55" y="-3220" font-family="Inter, Helvetica, Arial" font-size="10.00">M001</text>
-<text xml:space="preserve" text-anchor="middle" x="507.55" y="-3207.25" font-family="Inter, Helvetica, Arial" font-size="10.00">T&#45;6&#45;5&#45;1</text>
-<text xml:space="preserve" text-anchor="middle" x="507.55" y="-3194.5" font-family="Inter, Helvetica, Arial" font-size="10.00">Man page generation and</text>
-<text xml:space="preserve" text-anchor="middle" x="507.55" y="-3181.75" font-family="Inter, Helvetica, Arial" font-size="10.00">README examples</text>
+<g id="a_node1"><a xlink:title="M001 [asap] open; blockers=0; T&#45;6&#45;5&#45;1 Man page generation and README examples">
+<path fill="#bbf7d0" stroke="#15803d" stroke-width="2.8" d="M561.31,-3237.2C561.31,-3237.2 453.79,-3237.2 453.79,-3237.2 447.79,-3237.2 441.79,-3231.2 441.79,-3225.2 441.79,-3225.2 441.79,-3176.8 441.79,-3176.8 441.79,-3170.8 447.79,-3164.8 453.79,-3164.8 453.79,-3164.8 561.31,-3164.8 561.31,-3164.8 567.31,-3164.8 573.31,-3170.8 573.31,-3176.8 573.31,-3176.8 573.31,-3225.2 573.31,-3225.2 573.31,-3231.2 567.31,-3237.2 561.31,-3237.2"/>
+<text xml:space="preserve" text-anchor="middle" x="507.55" y="-3223.38" font-family="Inter, Helvetica, Arial" font-size="10.00">M001</text>
+<text xml:space="preserve" text-anchor="middle" x="507.55" y="-3210.62" font-family="Inter, Helvetica, Arial" font-size="10.00">OPEN</text>
+<text xml:space="preserve" text-anchor="middle" x="507.55" y="-3197.88" font-family="Inter, Helvetica, Arial" font-size="10.00">T&#45;6&#45;5&#45;1</text>
+<text xml:space="preserve" text-anchor="middle" x="507.55" y="-3185.12" font-family="Inter, Helvetica, Arial" font-size="10.00">Man page generation and</text>
+<text xml:space="preserve" text-anchor="middle" x="507.55" y="-3172.38" font-family="Inter, Helvetica, Arial" font-size="10.00">README examples</text>
 </a>
 </g>
 </g>
@@ -221,8 +222,8 @@
 <!-- M010&#45;&gt;M001 -->
 <g id="edge5" class="edge">
 <title>M010&#45;&gt;M001</title>
-<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M363.64,-3084C424.01,-3084 507.09,-3084 507.09,-3084 507.09,-3084 507.09,-3167.71 507.09,-3167.71"/>
-<polygon fill="#94a3b8" stroke="#94a3b8" points="505.52,-3167.71 507.09,-3172.21 508.67,-3167.71 505.52,-3167.71"/>
+<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M363.64,-3084C424.01,-3084 507.09,-3084 507.09,-3084 507.09,-3084 507.09,-3157.65 507.09,-3157.65"/>
+<polygon fill="#94a3b8" stroke="#94a3b8" points="505.52,-3157.65 507.09,-3162.15 508.67,-3157.65 505.52,-3157.65"/>
 </g>
 <!-- M011 -->
 <g id="node11" class="node">
@@ -240,8 +241,8 @@
 <!-- M011&#45;&gt;M001 -->
 <g id="edge6" class="edge">
 <title>M011&#45;&gt;M001</title>
-<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M281.09,-3275.12C281.09,-3253.58 281.09,-3230.61 281.09,-3230.61 281.09,-3230.61 435.43,-3230.61 435.43,-3230.61"/>
-<polygon fill="#94a3b8" stroke="#94a3b8" points="435.43,-3232.19 439.93,-3230.61 435.43,-3229.04 435.43,-3232.19"/>
+<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M281.09,-3275.21C281.09,-3254.54 281.09,-3232.86 281.09,-3232.86 281.09,-3232.86 434.51,-3232.86 434.51,-3232.86"/>
+<polygon fill="#94a3b8" stroke="#94a3b8" points="434.51,-3234.44 439.01,-3232.86 434.51,-3231.29 434.51,-3234.44"/>
 </g>
 <!-- M012 -->
 <g id="node12" class="node">
@@ -278,8 +279,8 @@
 <!-- M013&#45;&gt;M001 -->
 <g id="edge8" class="edge">
 <title>M013&#45;&gt;M001</title>
-<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M166.93,-3227.4C166.93,-3227.4 435.35,-3227.4 435.35,-3227.4"/>
-<polygon fill="#94a3b8" stroke="#94a3b8" points="435.35,-3228.98 439.85,-3227.4 435.35,-3225.83 435.35,-3228.98"/>
+<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M166.93,-3228.53C166.93,-3228.53 434.67,-3228.53 434.67,-3228.53"/>
+<polygon fill="#94a3b8" stroke="#94a3b8" points="434.67,-3230.1 439.17,-3228.53 434.67,-3226.95 434.67,-3230.1"/>
 </g>
 <!-- M013&#45;&gt;M010 -->
 <g id="edge9" class="edge">
@@ -315,10 +316,10 @@
 <!-- M015 -->
 <g id="node15" class="node">
 <title>M015</title>
-<g id="a_node15"><a xlink:title="M015 [asap] open; blockers=0; T&#45;6&#45;2&#45;1 Verify subcommand &#45;&#45; hash recomputation">
-<path fill="#bbf7d0" stroke="#15803d" stroke-width="2.8" d="M362.29,-3224.2C362.29,-3224.2 242.02,-3224.2 242.02,-3224.2 236.02,-3224.2 230.02,-3218.2 230.02,-3212.2 230.02,-3212.2 230.02,-3163.8 230.02,-3163.8 230.02,-3157.8 236.02,-3151.8 242.02,-3151.8 242.02,-3151.8 362.29,-3151.8 362.29,-3151.8 368.29,-3151.8 374.29,-3157.8 374.29,-3163.8 374.29,-3163.8 374.29,-3212.2 374.29,-3212.2 374.29,-3218.2 368.29,-3224.2 362.29,-3224.2"/>
+<g id="a_node15"><a xlink:title="M015 [asap] done; blockers=0; T&#45;6&#45;2&#45;1 Verify subcommand &#45;&#45; hash recomputation">
+<path fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.4" d="M362.29,-3224.2C362.29,-3224.2 242.02,-3224.2 242.02,-3224.2 236.02,-3224.2 230.02,-3218.2 230.02,-3212.2 230.02,-3212.2 230.02,-3163.8 230.02,-3163.8 230.02,-3157.8 236.02,-3151.8 242.02,-3151.8 242.02,-3151.8 362.29,-3151.8 362.29,-3151.8 368.29,-3151.8 374.29,-3157.8 374.29,-3163.8 374.29,-3163.8 374.29,-3212.2 374.29,-3212.2 374.29,-3218.2 368.29,-3224.2 362.29,-3224.2"/>
 <text xml:space="preserve" text-anchor="middle" x="302.16" y="-3210.38" font-family="Inter, Helvetica, Arial" font-size="10.00">M015</text>
-<text xml:space="preserve" text-anchor="middle" x="302.16" y="-3197.62" font-family="Inter, Helvetica, Arial" font-size="10.00">OPEN</text>
+<text xml:space="preserve" text-anchor="middle" x="302.16" y="-3197.62" font-family="Inter, Helvetica, Arial" font-size="10.00">DONE</text>
 <text xml:space="preserve" text-anchor="middle" x="302.16" y="-3184.88" font-family="Inter, Helvetica, Arial" font-size="10.00">T&#45;6&#45;2&#45;1</text>
 <text xml:space="preserve" text-anchor="middle" x="302.16" y="-3172.12" font-family="Inter, Helvetica, Arial" font-size="10.00">Verify subcommand &#45;&#45; hash</text>
 <text xml:space="preserve" text-anchor="middle" x="302.16" y="-3159.38" font-family="Inter, Helvetica, Arial" font-size="10.00">recomputation</text>
@@ -328,14 +329,14 @@
 <!-- M013&#45;&gt;M015 -->
 <g id="edge12" class="edge">
 <title>M013&#45;&gt;M015</title>
-<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M167.13,-3217C167.13,-3217 222.86,-3217 222.86,-3217"/>
-<polygon fill="#94a3b8" stroke="#94a3b8" points="222.86,-3218.58 227.36,-3217 222.86,-3215.43 222.86,-3218.58"/>
+<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M167.13,-3217C167.13,-3217 223.56,-3217 223.56,-3217"/>
+<polygon fill="#94a3b8" stroke="#94a3b8" points="223.56,-3218.58 228.06,-3217 223.56,-3215.43 223.56,-3218.58"/>
 </g>
 <!-- M015&#45;&gt;M001 -->
 <g id="edge13" class="edge">
 <title>M015&#45;&gt;M001</title>
-<path fill="none" stroke="#dc2626" stroke-width="2.6" d="M375.44,-3199.19C375.44,-3199.19 429.54,-3199.19 429.54,-3199.19"/>
-<polygon fill="#dc2626" stroke="#dc2626" stroke-width="2.6" points="429.54,-3201.99 437.54,-3199.19 429.54,-3196.39 429.54,-3201.99"/>
+<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M374.86,-3194.5C374.86,-3194.5 434.42,-3194.5 434.42,-3194.5"/>
+<polygon fill="#94a3b8" stroke="#94a3b8" points="434.42,-3196.08 438.92,-3194.5 434.42,-3192.93 434.42,-3196.08"/>
 </g>
 <!-- M016 -->
 <g id="node16" class="node">

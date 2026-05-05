@@ -6,6 +6,7 @@
 //! each warp, and computes state root hashes. Optionally compares against
 //! an expected hash.
 
+use std::io::IsTerminal as _;
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
@@ -16,6 +17,10 @@ use warp_core::wsc::{validate_wsc, WscFile};
 use crate::cli::OutputFormat;
 use crate::output::{emit, hex_hash};
 use crate::wsc_loader::graph_store_from_warp_view;
+
+const ANSI_GREEN: &str = "\x1b[32m";
+const ANSI_RED: &str = "\x1b[31m";
+const ANSI_RESET: &str = "\x1b[0m";
 
 /// Result of verifying a single warp instance within a WSC file.
 #[derive(Debug, Serialize)]
@@ -113,7 +118,8 @@ pub(crate) fn run(snapshot: &Path, expected: Option<&str>, format: &OutputFormat
     };
 
     // 4. Output.
-    let text = format_text_report(&report);
+    let use_color = matches!(format, OutputFormat::Text) && std::io::stdout().is_terminal();
+    let text = format_text_report(&report, use_color);
     let json = serde_json::to_value(&report).context("failed to serialize verify report")?;
 
     emit(format, &text, &json)?;
@@ -124,7 +130,7 @@ pub(crate) fn run(snapshot: &Path, expected: Option<&str>, format: &OutputFormat
     Ok(())
 }
 
-fn format_text_report(report: &VerifyReport) -> String {
+fn format_text_report(report: &VerifyReport, use_color: bool) -> String {
     use std::fmt::Write;
 
     let mut out = String::new();
@@ -142,12 +148,34 @@ fn format_text_report(report: &VerifyReport) -> String {
         let _ = writeln!(out, "    Nodes:     {}", w.nodes);
         let _ = writeln!(out, "    Edges:     {}", w.edges);
         let _ = writeln!(out, "    State root: {}", w.state_root);
-        let _ = writeln!(out, "    Status:    {}", w.status);
+        let _ = writeln!(
+            out,
+            "    Status:    {}",
+            format_status(&w.status, use_color)
+        );
         let _ = writeln!(out);
     }
 
-    let _ = writeln!(out, "  Result: {}", report.result);
+    let _ = writeln!(
+        out,
+        "  Result: {}",
+        format_status(&report.result, use_color)
+    );
     out
+}
+
+fn format_status(status: &str, use_color: bool) -> String {
+    if !use_color {
+        return status.to_string();
+    }
+
+    if status == "pass" {
+        format!("{ANSI_GREEN}\u{2713} {status}{ANSI_RESET}")
+    } else if status == "fail" || status.starts_with("MISMATCH") {
+        format!("{ANSI_RED}\u{2717} {status}{ANSI_RESET}")
+    } else {
+        status.to_string()
+    }
 }
 
 #[cfg(test)]
@@ -294,7 +322,7 @@ mod tests {
             result: "pass".to_string(),
         };
 
-        let text = format_text_report(&report);
+        let text = format_text_report(&report, false);
         assert!(
             text.contains("unchecked"),
             "multi-warp report should show 'unchecked' for warps 1+: {text}"
@@ -304,6 +332,67 @@ mod tests {
             text.contains("Result: pass"),
             "result should be lowercase 'pass': {text}"
         );
+    }
+
+    #[test]
+    fn plain_text_report_has_no_ansi_or_glyphs() {
+        let report = VerifyReport {
+            file: "test.wsc".to_string(),
+            tick: 1,
+            schema_hash: "abcd".to_string(),
+            warp_count: 1,
+            warps: vec![WarpVerifyResult {
+                warp_id: "0000".to_string(),
+                root_node_id: "1111".to_string(),
+                nodes: 1,
+                edges: 0,
+                state_root: "aaaa".to_string(),
+                status: "pass".to_string(),
+            }],
+            result: "pass".to_string(),
+        };
+
+        let text = format_text_report(&report, false);
+
+        assert!(text.contains("Status:    pass"));
+        assert!(text.contains("Result: pass"));
+        assert!(!text.contains("\x1b["));
+        assert!(!text.contains('\u{2713}'));
+    }
+
+    #[test]
+    fn tty_text_report_colors_pass_and_fail() {
+        let report = VerifyReport {
+            file: "test.wsc".to_string(),
+            tick: 1,
+            schema_hash: "abcd".to_string(),
+            warp_count: 2,
+            warps: vec![
+                WarpVerifyResult {
+                    warp_id: "0000".to_string(),
+                    root_node_id: "1111".to_string(),
+                    nodes: 1,
+                    edges: 0,
+                    state_root: "aaaa".to_string(),
+                    status: "pass".to_string(),
+                },
+                WarpVerifyResult {
+                    warp_id: "2222".to_string(),
+                    root_node_id: "3333".to_string(),
+                    nodes: 1,
+                    edges: 0,
+                    state_root: "bbbb".to_string(),
+                    status: "MISMATCH (expected cccc)".to_string(),
+                },
+            ],
+            result: "fail".to_string(),
+        };
+
+        let text = format_text_report(&report, true);
+
+        assert!(text.contains("\x1b[32m\u{2713} pass\x1b[0m"));
+        assert!(text.contains("\x1b[31m\u{2717} MISMATCH (expected cccc)\x1b[0m"));
+        assert!(text.contains("\x1b[31m\u{2717} fail\x1b[0m"));
     }
 
     #[test]

@@ -707,7 +707,8 @@ mod tests {
             ObservationBasisPosture, OpticId, OpticReadingEnvelope, ProjectionVersion,
             ReadIdentity, ReadingBudgetPosture, ReadingEnvelope, ReadingObserverBasis,
             ReadingObserverPlan, ReadingResidualPosture, ReadingRightsPosture, ReadingWitnessRef,
-            WitnessBasis, WorldlineId, WorldlineTick,
+            RetainedReadingCodecId, RetainedReadingDescriptor, RetainedReadingKey, WitnessBasis,
+            WorldlineId, WorldlineTick,
         };
 
         let reference = crate::kernel_port::ProvenanceRef {
@@ -750,6 +751,17 @@ mod tests {
 
         let decoded: OpticReadingEnvelope = decode_cbor(&encode_cbor(&envelope).unwrap()).unwrap();
         assert_eq!(decoded, envelope);
+
+        let retained = RetainedReadingDescriptor {
+            key: RetainedReadingKey::from_bytes([9; 32]),
+            read_identity: envelope.read_identity,
+            content_hash: vec![10; 32],
+            codec_id: RetainedReadingCodecId::from_bytes([11; 32]),
+            byte_len: 1024,
+        };
+        let decoded: RetainedReadingDescriptor =
+            decode_cbor(&encode_cbor(&retained).unwrap()).unwrap();
+        assert_eq!(decoded, retained);
     }
 
     #[test]

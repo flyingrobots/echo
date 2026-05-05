@@ -202,6 +202,11 @@ opaque_id!(
 );
 
 opaque_id!(
+    /// Opaque stable identifier for the encoding used by a retained reading payload.
+    RetainedReadingCodecId
+);
+
+opaque_id!(
     /// Opaque stable identifier for an intent family allowed through an optic.
     IntentFamilyId
 );
@@ -796,6 +801,21 @@ pub struct OpticReadingEnvelope {
     pub reading: ReadingEnvelope,
     /// Stable read identity for the question this reading answered.
     pub read_identity: ReadIdentity,
+}
+
+/// Descriptor for a retained reading payload.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RetainedReadingDescriptor {
+    /// Stable key derived from semantic read identity and byte identity.
+    pub key: RetainedReadingKey,
+    /// Semantic identity of the question answered by the retained payload.
+    pub read_identity: ReadIdentity,
+    /// Content hash of the retained payload bytes.
+    pub content_hash: Vec<u8>,
+    /// Codec used for the retained payload bytes.
+    pub codec_id: RetainedReadingCodecId,
+    /// Retained payload byte length.
+    pub byte_len: u64,
 }
 
 /// Deterministic reason an optic read or dispatch could not lawfully proceed.

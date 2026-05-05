@@ -3,7 +3,7 @@
 
 # Echo Optics Witness Basis And Retained Key
 
-Status: visible task card.
+Status: complete.
 
 Depends on:
 

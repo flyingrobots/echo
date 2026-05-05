@@ -21,6 +21,7 @@ const OPTIC_ID_DOMAIN: &[u8] = b"echo:optic-id:v1\0";
 const FOCUS_DIGEST_DOMAIN: &[u8] = b"echo:optic-focus:v1\0";
 const APERTURE_DIGEST_DOMAIN: &[u8] = b"echo:optic-aperture:v1\0";
 const READ_IDENTITY_DOMAIN: &[u8] = b"echo:read-identity:v1\0";
+const RETAINED_READING_KEY_DOMAIN: &[u8] = b"echo:retained-reading-key:v1\0";
 
 macro_rules! opaque_id {
     ($(#[$meta:meta])* $name:ident) => {
@@ -59,6 +60,11 @@ opaque_id!(
 opaque_id!(
     /// Stable key for a retained reading.
     RetainedReadingKey
+);
+
+opaque_id!(
+    /// Stable identity for the encoding used by a retained reading payload.
+    RetainedReadingCodecId
 );
 
 opaque_id!(
@@ -917,6 +923,71 @@ impl OpticReadingEnvelope {
     }
 }
 
+impl RetainedReadingKey {
+    /// Derives a retained-reading key from semantic identity and retained bytes.
+    #[must_use]
+    pub fn derive(
+        read_identity: &ReadIdentity,
+        content_hash: Hash,
+        codec_id: RetainedReadingCodecId,
+        byte_len: u64,
+    ) -> Self {
+        derive_retained_reading_key(read_identity, &content_hash, codec_id, byte_len)
+    }
+}
+
+/// Descriptor for a retained reading payload.
+///
+/// The CAS/content hash names bytes. This descriptor's key additionally names
+/// the semantic read identity and codec, so equal bytes answering different
+/// questions do not alias.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct RetainedReadingDescriptor {
+    /// Stable key derived from the semantic read identity and byte identity.
+    pub key: RetainedReadingKey,
+    /// Semantic identity of the question answered by the retained payload.
+    pub read_identity: ReadIdentity,
+    /// Content hash of the retained payload bytes.
+    pub content_hash: Hash,
+    /// Codec used for the retained payload bytes.
+    pub codec_id: RetainedReadingCodecId,
+    /// Retained payload byte length.
+    pub byte_len: u64,
+}
+
+impl RetainedReadingDescriptor {
+    /// Builds a retained-reading descriptor and derives its stable key.
+    #[must_use]
+    pub fn new(
+        read_identity: ReadIdentity,
+        content_hash: Hash,
+        codec_id: RetainedReadingCodecId,
+        byte_len: u64,
+    ) -> Self {
+        let key = RetainedReadingKey::derive(&read_identity, content_hash, codec_id, byte_len);
+        Self {
+            key,
+            read_identity,
+            content_hash,
+            codec_id,
+            byte_len,
+        }
+    }
+
+    /// Converts the descriptor to the shared ABI DTO.
+    #[must_use]
+    pub fn to_abi(&self) -> abi::RetainedReadingDescriptor {
+        abi::RetainedReadingDescriptor {
+            key: retained_reading_key_to_abi(self.key),
+            read_identity: self.read_identity.to_abi(),
+            content_hash: self.content_hash.to_vec(),
+            codec_id: retained_reading_codec_id_to_abi(self.codec_id),
+            byte_len: self.byte_len,
+        }
+    }
+}
+
 /// Deterministic reason an optic read or dispatch could not lawfully proceed.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -1636,6 +1707,21 @@ fn derive_read_identity_hash(
     hasher.finalize().into()
 }
 
+fn derive_retained_reading_key(
+    read_identity: &ReadIdentity,
+    content_hash: &Hash,
+    codec_id: RetainedReadingCodecId,
+    byte_len: u64,
+) -> RetainedReadingKey {
+    let mut hasher = Hasher::new();
+    hasher.update(RETAINED_READING_KEY_DOMAIN);
+    hasher.update(&read_identity.read_identity_hash);
+    hasher.update(content_hash);
+    hasher.update(codec_id.as_bytes());
+    feed_u64(&mut hasher, byte_len);
+    RetainedReadingKey::from_bytes(hasher.finalize().into())
+}
+
 fn feed_tag(hasher: &mut Hasher, tag: u8) {
     hasher.update(&[tag]);
 }
@@ -1756,6 +1842,10 @@ fn braid_id_to_abi(id: BraidId) -> abi::BraidId {
 
 fn retained_reading_key_to_abi(key: RetainedReadingKey) -> abi::RetainedReadingKey {
     abi::RetainedReadingKey::from_bytes(*key.as_bytes())
+}
+
+fn retained_reading_codec_id_to_abi(id: RetainedReadingCodecId) -> abi::RetainedReadingCodecId {
+    abi::RetainedReadingCodecId::from_bytes(*id.as_bytes())
 }
 
 fn intent_family_id_to_abi(id: IntentFamilyId) -> abi::IntentFamilyId {
@@ -1891,6 +1981,10 @@ mod tests {
 
     fn retained(seed: u8) -> RetainedReadingKey {
         RetainedReadingKey::from_bytes([seed; 32])
+    }
+
+    fn retained_codec(seed: u8) -> RetainedReadingCodecId {
+        RetainedReadingCodecId::from_bytes([seed; 32])
     }
 
     fn intent_family(seed: u8) -> IntentFamilyId {
@@ -2360,6 +2454,127 @@ mod tests {
             abi.read_identity.residual_posture,
             echo_wasm_abi::kernel_port::ReadingResidualPosture::Complete
         );
+    }
+
+    #[test]
+    fn retained_reading_key_requires_content_hash_and_read_identity() {
+        let focus = worldline_focus();
+        let coordinate = frontier_coordinate();
+        let aperture = head_aperture();
+        let optic_id = EchoOptic::new(
+            focus.clone(),
+            coordinate.clone(),
+            ProjectionVersion::from_raw(1),
+            None,
+            intent_family(1),
+            capability(2),
+        )
+        .optic_id;
+        let content_hash = [42; 32];
+        let codec_id = retained_codec(7);
+        let first_identity = ReadIdentity::new(
+            optic_id,
+            &focus,
+            coordinate.clone(),
+            &aperture,
+            ProjectionVersion::from_raw(1),
+            None,
+            witness_basis(1, 2),
+            ReadingRightsPosture::KernelPublic,
+            ReadingBudgetPosture::UnboundedOneShot,
+            ReadingResidualPosture::Complete,
+        );
+        let second_identity = ReadIdentity::new(
+            optic_id,
+            &focus,
+            coordinate,
+            &aperture,
+            ProjectionVersion::from_raw(1),
+            None,
+            witness_basis(1, 3),
+            ReadingRightsPosture::KernelPublic,
+            ReadingBudgetPosture::UnboundedOneShot,
+            ReadingResidualPosture::Complete,
+        );
+
+        let first = RetainedReadingDescriptor::new(first_identity, content_hash, codec_id, 128);
+        let second = RetainedReadingDescriptor::new(second_identity, content_hash, codec_id, 128);
+        let content_only_matches = [first.clone(), second.clone()]
+            .iter()
+            .filter(|descriptor| descriptor.content_hash == content_hash)
+            .count();
+
+        assert_ne!(first.key, second.key);
+        assert_eq!(content_only_matches, 2);
+        assert_eq!(first.to_abi().key, retained_reading_key_to_abi(first.key));
+    }
+
+    #[test]
+    fn checkpoint_plus_tail_identity_does_not_collapse_to_checkpoint_hash() {
+        let focus = worldline_focus();
+        let coordinate = frontier_coordinate();
+        let aperture = head_aperture();
+        let optic_id = EchoOptic::new(
+            focus.clone(),
+            coordinate.clone(),
+            ProjectionVersion::from_raw(1),
+            None,
+            intent_family(1),
+            capability(2),
+        )
+        .optic_id;
+        let checkpoint_ref = provenance(4, 10);
+        let checkpoint_hash = [44; 32];
+        let checkpoint_only = WitnessBasis::ResolvedCommit {
+            reference: checkpoint_ref,
+            state_root: checkpoint_hash,
+            commit_hash: checkpoint_hash,
+        };
+        let checkpoint_plus_tail = WitnessBasis::CheckpointPlusTail {
+            checkpoint_ref,
+            checkpoint_hash,
+            tail_witness_refs: vec![provenance(4, 11)],
+            tail_digest: [45; 32],
+        };
+
+        let checkpoint_only_identity = ReadIdentity::new(
+            optic_id,
+            &focus,
+            coordinate.clone(),
+            &aperture,
+            ProjectionVersion::from_raw(1),
+            None,
+            checkpoint_only,
+            ReadingRightsPosture::KernelPublic,
+            ReadingBudgetPosture::UnboundedOneShot,
+            ReadingResidualPosture::Complete,
+        );
+        let live_tail_identity = ReadIdentity::new(
+            optic_id,
+            &focus,
+            coordinate,
+            &aperture,
+            ProjectionVersion::from_raw(1),
+            None,
+            checkpoint_plus_tail,
+            ReadingRightsPosture::KernelPublic,
+            ReadingBudgetPosture::UnboundedOneShot,
+            ReadingResidualPosture::Complete,
+        );
+        let checkpoint_only_retained = RetainedReadingDescriptor::new(
+            checkpoint_only_identity,
+            [55; 32],
+            retained_codec(7),
+            256,
+        );
+        let live_tail_retained =
+            RetainedReadingDescriptor::new(live_tail_identity, [55; 32], retained_codec(7), 256);
+
+        assert_ne!(
+            checkpoint_only_retained.read_identity.read_identity_hash,
+            live_tail_retained.read_identity.read_identity_hash
+        );
+        assert_ne!(checkpoint_only_retained.key, live_tail_retained.key);
     }
 
     #[test]

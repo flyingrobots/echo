@@ -10,6 +10,7 @@
 //! its own repo.
 
 pub mod close;
+pub mod drift;
 pub mod graph;
 pub mod inbox;
 pub mod pull;

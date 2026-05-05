@@ -126,6 +126,8 @@ enum MethodCommand {
     Close(MethodCloseArgs),
     /// Promote a backlog item into the next numbered design cycle.
     Pull(MethodPullArgs),
+    /// Check playback questions against committed tests.
+    Drift(MethodDriftArgs),
     /// Show backlog lanes, active cycles, and legend load.
     Status(MethodStatusArgs),
     /// Regenerate METHOD task matrix markdown and CSV.
@@ -156,6 +158,15 @@ struct MethodCloseArgs {
 struct MethodPullArgs {
     /// Backlog item path, file stem, METHOD task id, or native task id.
     item: String,
+}
+
+#[derive(Args)]
+struct MethodDriftArgs {
+    /// Cycle number or full cycle directory name. Defaults to most recent active cycle.
+    cycle: Option<String>,
+    /// Output as JSON (agent surface).
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Args)]
@@ -760,6 +771,7 @@ fn run_method(args: MethodArgs) -> Result<()> {
         MethodCommand::Inbox(inbox_args) => run_method_inbox(inbox_args),
         MethodCommand::Close(close_args) => run_method_close(close_args),
         MethodCommand::Pull(pull_args) => run_method_pull(pull_args),
+        MethodCommand::Drift(drift_args) => run_method_drift(drift_args),
         MethodCommand::Status(status_args) => run_method_status(status_args),
         MethodCommand::Matrix(matrix_args) => run_method_matrix(matrix_args),
         MethodCommand::Dag(dag_args) => run_method_dag(dag_args),
@@ -820,6 +832,28 @@ fn run_method_pull(args: MethodPullArgs) -> Result<()> {
     Ok(())
 }
 
+fn run_method_drift(args: MethodDriftArgs) -> Result<()> {
+    let workspace = method_workspace()?;
+    let report = method::drift::drift_report(&workspace, args.cycle.as_deref())
+        .map_err(|e| anyhow::anyhow!(e))?;
+
+    if args.json {
+        let json =
+            serde_json::to_string_pretty(&report).context("failed to serialize drift report")?;
+        println!("{json}");
+    } else {
+        print_drift_human(&report);
+    }
+
+    if !report.covered() {
+        bail!(
+            "METHOD drift check failed: {} playback question(s) lack matching tests",
+            report.missing_count()
+        );
+    }
+    Ok(())
+}
+
 fn run_method_status(args: MethodStatusArgs) -> Result<()> {
     let workspace = method_workspace()?;
     let report = method::status::StatusReport::build(&workspace).map_err(|e| anyhow::anyhow!(e))?;
@@ -832,6 +866,24 @@ fn run_method_status(args: MethodStatusArgs) -> Result<()> {
         print_status_human(&report);
     }
     Ok(())
+}
+
+fn print_drift_human(report: &method::drift::DriftReport) {
+    println!("Drift check: {}", report.cycle);
+    println!("  design files: {}", report.design_paths.len());
+    println!("  playback questions: {}", report.questions.len());
+    println!("  missing coverage: {}", report.missing_count());
+    for question in &report.questions {
+        let status = if question.matches.is_empty() {
+            "MISS"
+        } else {
+            "ok"
+        };
+        println!("  {status} {}", question.question);
+        for path in &question.matches {
+            println!("      {}", path.display());
+        }
+    }
 }
 
 fn run_method_matrix(args: MethodMatrixArgs) -> Result<()> {

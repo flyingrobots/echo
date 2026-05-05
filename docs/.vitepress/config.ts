@@ -9,6 +9,11 @@ export default withMermaid(
     description: "Deterministic WARP runtime docs for Echo",
     cleanUrls: true,
     srcExclude: ["method/**", "design/**"],
+    vite: {
+      build: {
+        chunkSizeWarningLimit: 700,
+      },
+    },
     themeConfig: {
       search: { provider: "local" },
       nav: [

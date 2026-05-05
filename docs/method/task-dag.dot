@@ -31,7 +31,7 @@ digraph method_task_dag {
     fontname="Inter, Helvetica, Arial";
     fontsize=16;
     style="rounded";
-    "M001" [label="M001\nT-6-5-1\nMan page generation and\nREADME examples", tooltip="M001 [asap] blocked; blockers=3; T-6-5-1 Man page generation and README examples", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
+    "M001" [label="M001\nT-6-5-1\nMan page generation and\nREADME examples", tooltip="M001 [asap] blocked; blockers=2; T-6-5-1 Man page generation and README examples", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
     "M002" [label="M002\nOPEN\nDocs cleanup", tooltip="M002 [asap] open; blockers=0;  Docs cleanup", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M003" [label="M003\nOPEN\nT-9-1-1\nImplement 1-thread vs\nN-thread determinism\nharness", tooltip="M003 [asap] open; blockers=0; T-9-1-1 Implement 1-thread vs N-thread determinism harness", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M004" [label="M004\nT-9-1-2\nImplement snapshot/restore\nfuzz", tooltip="M004 [asap] blocked; blockers=1; T-9-1-2 Implement snapshot/restore fuzz", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
@@ -41,8 +41,8 @@ digraph method_task_dag {
     "M008" [label="M008\nDONE\nWESLEY Protocol Consumer\nCutover", tooltip="M008 [asap] done; blockers=0;  WESLEY Protocol Consumer Cutover", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M009" [label="M009\nOPEN\nCI det-policy hardening", tooltip="M009 [asap] open; blockers=0;  CI det-policy hardening", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M010" [label="M010\nOPEN\nT-6-3-1\nBench subcommand --\ncriterion invocation and\nreporting", tooltip="M010 [asap] open; blockers=0; T-6-3-1 Bench subcommand -- criterion invocation and reporting", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
-    "M011" [label="M011\nOPEN\nT-6-4-1\nInspect subcommand --\nmetadata and graph stats", tooltip="M011 [asap] open; blockers=0; T-6-4-1 Inspect subcommand -- metadata and graph stats", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
-    "M012" [label="M012\nT-6-4-2\nInspect -- attachment\npayload pretty-printing", tooltip="M012 [asap] blocked; blockers=1; T-6-4-2 Inspect -- attachment payload pretty-printing", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
+    "M011" [label="M011\nDONE\nT-6-4-1\nInspect subcommand --\nmetadata and graph stats", tooltip="M011 [asap] done; blockers=0; T-6-4-1 Inspect subcommand -- metadata and graph stats", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
+    "M012" [label="M012\nOPEN\nT-6-4-2\nInspect -- attachment\npayload pretty-printing", tooltip="M012 [asap] open; blockers=0; T-6-4-2 Inspect -- attachment payload pretty-printing", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M013" [label="M013\nDONE\nT-6-1-1\nclap subcommand structure\nand global flags", tooltip="M013 [asap] done; blockers=0; T-6-1-1 clap subcommand structure and global flags", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M014" [label="M014\nOPEN\nT-6-1-2\nConfig file support and\nshell completions", tooltip="M014 [asap] open; blockers=0; T-6-1-2 Config file support and shell completions", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M015" [label="M015\nOPEN\nT-6-2-1\nVerify subcommand -- hash\nrecomputation", tooltip="M015 [asap] open; blockers=0; T-6-2-1 Verify subcommand -- hash recomputation", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
@@ -251,8 +251,8 @@ digraph method_task_dag {
   "M006" -> "M047" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
   "M008" -> "M079" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
   "M010" -> "M001";
-  "M011" -> "M001";
-  "M011" -> "M012";
+  "M011" -> "M001" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
+  "M011" -> "M012" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
   "M013" -> "M001" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
   "M013" -> "M010" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
   "M013" -> "M011" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];

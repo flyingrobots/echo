@@ -20,7 +20,7 @@ not expanded.
 
 - Matrix rows/columns: 181
 - Direct in-matrix dependency edges: 125
-- Completed backlog tasks: 23
+- Completed backlog tasks: 24
 - `asap` tasks: 43
 - `up-next` tasks: 39
 - `inbox` tasks: 55

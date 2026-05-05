@@ -7,15 +7,32 @@
 
 Snapshot summary, graph statistics, and optional terminal visualization.
 
-Status: partially implemented. `echo-cli inspect` already loads and validates
-WSC files, reports tick/schema hash/warp count plus per-warp IDs, root node,
-state root, node/edge counts, type breakdown, connected components, and optional
-tree output in text or JSON. WSC v1 does not currently store `commit_id`,
-parent list, or `policy_id`, so those fields must not be treated as implemented
-metadata unless the WSC format grows them. The remaining active gap is
-attachment payload display and `--raw`.
+Status: T-6-4-1 complete; T-6-4-2 remains planned. `echo-cli inspect` loads
+and validates WSC files, reports tick/schema hash/warp count plus per-warp IDs,
+root node, state root, node/edge counts, type breakdown, connected components,
+and optional tree output in text or JSON. WSC v1 does not currently store
+`commit_id`, parent list, or `policy_id`, so those fields must not be treated
+as implemented metadata unless the WSC format grows them. The remaining active
+gap is attachment payload display and `--raw`.
 
 ## T-6-4-1: Inspect subcommand -- metadata and graph stats
+
+Status: complete.
+
+Implementation status: complete. `echo-cli inspect` has CLI-level coverage for
+metadata, graph statistics, JSON structure, tree rendering, and corrupt WSC
+failure behavior against a deterministic WSC fixture.
+
+Completion evidence:
+
+- `crates/warp-cli/src/inspect.rs` computes current WSC metadata, per-warp
+  state root, graph counts, type breakdowns, connected component count, and a
+  depth-limited root tree.
+- `crates/warp-cli/tests/cli_integration.rs` runs the real `echo-cli inspect`
+  binary against a generated deterministic snapshot in text/tree and JSON
+  modes.
+- Corrupt snapshot input exits non-zero with an inspect error instead of a
+  panic.
 
 **User Story:** As a developer, I want to inspect a snapshot's metadata and graph structure so that I can debug simulation state without writing code.
 
@@ -35,9 +52,9 @@ attachment payload display and `--raw`.
 
 **Definition of Done:**
 
-- [ ] Code reviewed and merged
-- [ ] Tests pass (CI green)
-- [ ] Documentation updated (if applicable)
+- [x] Code reviewed locally
+- [x] Tests pass locally
+- [x] Documentation updated
 
 **Scope:** Metadata display, graph stats computation, ASCII tree rendering, JSON output.
 **Out of Scope:** Interactive graph exploration (that is the website demo). Diff between two snapshots.

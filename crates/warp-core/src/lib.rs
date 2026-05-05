@@ -263,10 +263,13 @@ pub use tick_patch::{
 pub use tx::TxId;
 pub use warp_state::{WarpInstance, WarpState};
 pub use witnessed_suffix::{
-    evaluate_witnessed_suffix_admission, WitnessedSuffixAdmissionContext,
+    derive_witnessed_suffix_shell_digest, evaluate_witnessed_suffix_admission, export_suffix,
+    import_suffix, CausalSuffixBundle, ExportSuffixObstruction, ExportSuffixRequest,
+    ImportSuffixRequest, ImportSuffixResult, WitnessedSuffixAdmissionContext,
     WitnessedSuffixAdmissionOutcome, WitnessedSuffixAdmissionRequest,
-    WitnessedSuffixAdmissionResponse, WitnessedSuffixLocalAdmissionPosture,
-    WitnessedSuffixLocalAdmissionPostureError, WitnessedSuffixShell,
+    WitnessedSuffixAdmissionResponse, WitnessedSuffixExportContext,
+    WitnessedSuffixLocalAdmissionPosture, WitnessedSuffixLocalAdmissionPostureError,
+    WitnessedSuffixShell,
 };
 pub use worldline::{
     ApplyError, AtomWrite, AtomWriteSet, HashTriplet, OutputFrameSet, WorldlineId,

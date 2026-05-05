@@ -202,6 +202,14 @@ export_suffix(request) -> CausalSuffixBundle
 import_suffix(bundle) -> ImportSuffixResult
 ```
 
+Implementation note: Echo's first Rust/ABI slice now exposes this shape as
+suffix shell construction plus local admission classification. `export_suffix`
+builds a `CausalSuffixBundle` from read-only suffix evidence and derives the
+source shell / bundle identities. `import_suffix` normalizes through the
+existing witnessed suffix admission evaluator and returns `ImportSuffixResult`.
+This is deliberately not transport and deliberately not import execution; it
+does not append target provenance or apply patches directly.
+
 One supporting read surface is also useful:
 
 ```text

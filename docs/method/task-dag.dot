@@ -1,6 +1,6 @@
 digraph method_task_dag {
   graph [
-    label="METHOD Backlog Task Dependency DAG\nopen tasks: 103 / 181; dependency edges: 125",
+    label="METHOD Backlog Task Dependency DAG\nopen tasks: 104 / 181; dependency edges: 125",
     labelloc=t,
     fontsize=24,
     fontname="Inter, Helvetica, Arial",
@@ -55,7 +55,7 @@ digraph method_task_dag {
     "M022" [label="M022\nOPEN\nEcho Optics Attachment\nBoundary Model", tooltip="M022 [asap] open; blockers=0;  Echo Optics Attachment Boundary Model", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M023" [label="M023\nOPEN\nEcho Optics Cached-Reading\nIdentity Tests", tooltip="M023 [asap] open; blockers=0;  Echo Optics Cached-Reading Identity Tests", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M024" [label="M024\nDONE\nEcho Optics Core Nouns And\nIDs", tooltip="M024 [asap] done; blockers=0;  Echo Optics Core Nouns And IDs", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
-    "M025" [label="M025\nEcho Optics Dispatch\nIntent Model", tooltip="M025 [asap] blocked; blockers=1;  Echo Optics Dispatch Intent Model", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
+    "M025" [label="M025\nOPEN\nEcho Optics Dispatch\nIntent Model", tooltip="M025 [asap] open; blockers=0;  Echo Optics Dispatch Intent Model", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M026" [label="M026\nEcho Optics Example\nImplementation", tooltip="M026 [asap] blocked; blockers=3;  Echo Optics Example Implementation", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
     "M027" [label="M027\nOPEN\nEcho Optics Live-Tail\nHonesty Tests", tooltip="M027 [asap] open; blockers=0;  Echo Optics Live-Tail Honesty Tests", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M028" [label="M028\nDONE\nEcho Optics Observe Model", tooltip="M028 [asap] done; blockers=0;  Echo Optics Observe Model", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
@@ -70,7 +70,7 @@ digraph method_task_dag {
     "M037" [label="M037\nOPEN\nCommit-ordered rollback\nplaybooks for TTD\nintegration", tooltip="M037 [asap] open; blockers=0;  Commit-ordered rollback playbooks for TTD integration", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M038" [label="M038\nOPEN\nReconcile TTD protocol\nschemas with warp-ttd", tooltip="M038 [asap] open; blockers=0;  Reconcile TTD protocol schemas with warp-ttd", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M039" [label="M039\nOPEN\nWesley Compiled Contract\nHosting Doctrine", tooltip="M039 [asap] open; blockers=0;  Wesley Compiled Contract Hosting Doctrine", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
-    "M040" [label="M040\nOPEN\nWitnessed suffix admission\nshells", tooltip="M040 [asap] open; blockers=0;  Witnessed suffix admission shells", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
+    "M040" [label="M040\nDONE\nWitnessed suffix admission\nshells", tooltip="M040 [asap] done; blockers=0;  Witnessed suffix admission shells", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M041" [label="M041\nOPEN\nxtask method close", tooltip="M041 [asap] open; blockers=0;  xtask method close", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M042" [label="M042\nOPEN\nxtask method drift", tooltip="M042 [asap] open; blockers=0;  xtask method drift", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M043" [label="M043\nOPEN\nxtask method pull", tooltip="M043 [asap] open; blockers=0;  xtask method pull", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
@@ -104,7 +104,7 @@ digraph method_task_dag {
     "M063" [label="M063\nOPEN\nSplit echo-session-proto\ninto retained bridge\ncontracts vs legacy...", tooltip="M063 [up-next] open; blockers=0;  Split echo-session-proto into retained bridge contracts vs legacy transport residue", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M064" [label="M064\nOPEN\nT-2-4-1\nUpdate echo-wesley-gen IR\ndeserializer for v2 format", tooltip="M064 [up-next] open; blockers=0; T-2-4-1 Update echo-wesley-gen IR deserializer for v2 format", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M065" [label="M065\nGraft Live Frontier\nStructural Readings", tooltip="M065 [up-next] blocked; blockers=1;  Graft Live Frontier Structural Readings", fillcolor="#dbeafe", color="#1d4ed8", penwidth=1.2];
-    "M066" [label="M066\nImport outcome idempotence\nand loop law", tooltip="M066 [up-next] blocked; blockers=1;  Import outcome idempotence and loop law", fillcolor="#dbeafe", color="#1d4ed8", penwidth=1.2];
+    "M066" [label="M066\nOPEN\nImport outcome idempotence\nand loop law", tooltip="M066 [up-next] open; blockers=0;  Import outcome idempotence and loop law", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M067" [label="M067\njedit Text Contract MVP", tooltip="M067 [up-next] blocked; blockers=1;  jedit Text Contract MVP", fillcolor="#dbeafe", color="#1d4ed8", penwidth=1.2];
     "M068" [label="M068\nOPEN\nTriage METHOD drift\nagainst ~/git/method", tooltip="M068 [up-next] open; blockers=0;  Triage METHOD drift against ~/git/method", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M069" [label="M069\nOPEN\nReading envelope family\nboundary", tooltip="M069 [up-next] open; blockers=0;  Reading envelope family boundary", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
@@ -212,7 +212,7 @@ digraph method_task_dag {
     "M155" [label="M155\nOPEN\nStage 1: Rotation", tooltip="M155 [cool-ideas] open; blockers=0;  Stage 1: Rotation", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M156" [label="M156\nOPEN\nStage 2: Friction", tooltip="M156 [cool-ideas] open; blockers=0;  Stage 2: Friction", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M157" [label="M157\nOPEN\nStage 3: Sleeping", tooltip="M157 [cool-ideas] open; blockers=0;  Stage 3: Sleeping", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
-    "M158" [label="M158\nContinuum Contract\nArtifact Interchange", tooltip="M158 [cool-ideas] blocked; blockers=2;  Continuum Contract Artifact Interchange", fillcolor="#ede9fe", color="#7c3aed", penwidth=1.2];
+    "M158" [label="M158\nContinuum Contract\nArtifact Interchange", tooltip="M158 [cool-ideas] blocked; blockers=1;  Continuum Contract Artifact Interchange", fillcolor="#ede9fe", color="#7c3aed", penwidth=1.2];
     "M159" [label="M159\nOPEN\nCross-repo METHOD\ndashboard", tooltip="M159 [cool-ideas] open; blockers=0;  Cross-repo METHOD dashboard", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M160" [label="M160\nOPEN\nT-5-4-1\nArc<[u8]> to bytes::Bytes\nmigration", tooltip="M160 [cool-ideas] open; blockers=0; T-5-4-1 Arc<[u8]> to bytes::Bytes migration", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M161" [label="M161\nT-5-4-2\nAsyncBlobStore trait", tooltip="M161 [cool-ideas] blocked; blockers=2; T-5-4-2 AsyncBlobStore trait", fillcolor="#ede9fe", color="#7c3aed", penwidth=1.2];
@@ -292,9 +292,9 @@ digraph method_task_dag {
   "M035" -> "M069" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
   "M036" -> "M079" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
   "M039" -> "M016" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
-  "M040" -> "M025";
-  "M040" -> "M066";
-  "M040" -> "M158";
+  "M040" -> "M025" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
+  "M040" -> "M066" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
+  "M040" -> "M158" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
   "M045" -> "M053";
   "M045" -> "M058";
   "M046" -> "M158";

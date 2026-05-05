@@ -8,8 +8,9 @@ use ciborium::value::Value;
 use crate::{
     CanonError, decode_cbor, decode_value, encode_cbor, encode_value,
     kernel_port::{
-        BaseRef, ConflictReason, ProvenanceRef, ReadingResidualPosture, SettlementBasisReport,
-        SettlementOverlapRevalidation, SettlementParentRevalidation,
+        BaseRef, CausalSuffixBundle, ConflictReason, ExportSuffixObstruction, ExportSuffixRequest,
+        ImportSuffixRequest, ImportSuffixResult, ProvenanceRef, ReadingResidualPosture,
+        SettlementBasisReport, SettlementOverlapRevalidation, SettlementParentRevalidation,
         WitnessedSuffixAdmissionOutcome, WitnessedSuffixAdmissionRequest,
         WitnessedSuffixAdmissionResponse, WitnessedSuffixShell, WorldlineId, WorldlineTick,
     },
@@ -86,6 +87,40 @@ fn response(outcome: WitnessedSuffixAdmissionOutcome) -> WitnessedSuffixAdmissio
     }
 }
 
+fn export_request() -> ExportSuffixRequest {
+    ExportSuffixRequest {
+        source_worldline_id: worldline(3),
+        base_frontier: provenance_ref(3, 2),
+        target_frontier: Some(provenance_ref(3, 4)),
+        basis_report: Some(basis_report()),
+    }
+}
+
+fn causal_suffix_bundle() -> CausalSuffixBundle {
+    CausalSuffixBundle {
+        base_frontier: provenance_ref(3, 2),
+        target_frontier: provenance_ref(3, 4),
+        source_suffix: shell_with_entries(vec![provenance_ref(3, 3), provenance_ref(3, 4)]),
+        bundle_digest: vec![7; 32],
+    }
+}
+
+fn import_request() -> ImportSuffixRequest {
+    ImportSuffixRequest {
+        bundle: causal_suffix_bundle(),
+        target_worldline_id: worldline(11),
+        target_basis: provenance_ref(12, 9),
+        basis_report: Some(basis_report()),
+    }
+}
+
+fn import_result(outcome: WitnessedSuffixAdmissionOutcome) -> ImportSuffixResult {
+    ImportSuffixResult {
+        bundle_digest: vec![7; 32],
+        admission: response(outcome),
+    }
+}
+
 fn overlap_revalidation() -> SettlementOverlapRevalidation {
     SettlementOverlapRevalidation::Conflict {
         overlapping_slot_count: 2,
@@ -143,6 +178,74 @@ fn admitted_outcome() -> WitnessedSuffixAdmissionOutcome {
         admitted_refs: vec![provenance_ref(30, 10)],
         basis_report: Some(basis_report()),
     }
+}
+
+#[test]
+fn witnessed_suffix_export_request_round_trips() -> Result<(), crate::CanonError> {
+    let original = export_request();
+    let bytes = encode_cbor(&original)?;
+    let decoded: ExportSuffixRequest = decode_cbor(&bytes)?;
+
+    assert_eq!(decoded, original);
+    assert_eq!(decoded.base_frontier, provenance_ref(3, 2));
+    assert_eq!(decoded.target_frontier, Some(provenance_ref(3, 4)));
+    Ok(())
+}
+
+#[test]
+fn witnessed_suffix_causal_bundle_round_trips() -> Result<(), crate::CanonError> {
+    let original = causal_suffix_bundle();
+    let bytes = encode_cbor(&original)?;
+    let decoded: CausalSuffixBundle = decode_cbor(&bytes)?;
+
+    assert_eq!(decoded, original);
+    assert_eq!(decoded.bundle_digest, vec![7; 32]);
+    assert_eq!(
+        decoded.source_suffix.source_entries,
+        vec![provenance_ref(3, 3), provenance_ref(3, 4)]
+    );
+    Ok(())
+}
+
+#[test]
+fn witnessed_suffix_import_request_round_trips() -> Result<(), crate::CanonError> {
+    let original = import_request();
+    let bytes = encode_cbor(&original)?;
+    let decoded: ImportSuffixRequest = decode_cbor(&bytes)?;
+
+    assert_eq!(decoded, original);
+    assert_eq!(decoded.target_basis, provenance_ref(12, 9));
+    assert_eq!(decoded.bundle.bundle_digest, vec![7; 32]);
+    Ok(())
+}
+
+#[test]
+fn witnessed_suffix_import_result_round_trips() -> Result<(), crate::CanonError> {
+    let original = import_result(admitted_outcome());
+    let bytes = encode_cbor(&original)?;
+    let decoded: ImportSuffixResult = decode_cbor(&bytes)?;
+
+    assert_eq!(decoded, original);
+    assert_eq!(decoded.bundle_digest, vec![7; 32]);
+    assert!(matches!(
+        decoded.admission.outcome,
+        WitnessedSuffixAdmissionOutcome::Admitted { .. }
+    ));
+    Ok(())
+}
+
+#[test]
+fn witnessed_suffix_export_obstruction_round_trips() -> Result<(), crate::CanonError> {
+    let original = ExportSuffixObstruction {
+        source_ref: provenance_ref(3, 2),
+        residual_posture: ReadingResidualPosture::Obstructed,
+        evidence_digest: vec![8; 32],
+    };
+    let bytes = encode_cbor(&original)?;
+    let decoded: ExportSuffixObstruction = decode_cbor(&bytes)?;
+
+    assert_eq!(decoded, original);
+    Ok(())
 }
 
 #[test]

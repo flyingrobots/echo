@@ -1949,6 +1949,71 @@ pub struct WitnessedSuffixAdmissionResponse {
     pub outcome: WitnessedSuffixAdmissionOutcome,
 }
 
+/// Request to export a witnessed causal suffix rooted at a known source frontier.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExportSuffixRequest {
+    /// Source worldline carrying the suffix.
+    pub source_worldline_id: WorldlineId,
+    /// Known source basis before the suffix begins.
+    pub base_frontier: ProvenanceRef,
+    /// Optional requested source frontier to export through.
+    pub target_frontier: Option<ProvenanceRef>,
+    /// Optional basis-relative settlement evidence reused by the exported shell.
+    pub basis_report: Option<SettlementBasisReport>,
+}
+
+/// Witnessed suffix bundle exchanged across a hot/cold runtime boundary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CausalSuffixBundle {
+    /// Known source basis before the suffix begins.
+    pub base_frontier: ProvenanceRef,
+    /// Source frontier reached by this exported suffix shell.
+    pub target_frontier: ProvenanceRef,
+    /// Compact source suffix and its witness digest.
+    pub source_suffix: WitnessedSuffixShell,
+    /// Deterministic digest of the bundle identity.
+    pub bundle_digest: Vec<u8>,
+}
+
+/// Obstruction returned when Echo cannot produce a witnessed suffix bundle.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExportSuffixObstruction {
+    /// Source coordinate implicated in the obstruction.
+    pub source_ref: ProvenanceRef,
+    /// Read-side residual posture associated with the obstruction.
+    pub residual_posture: ReadingResidualPosture,
+    /// Deterministic digest of compact obstruction evidence.
+    pub evidence_digest: Vec<u8>,
+}
+
+/// Request to import one witnessed causal suffix bundle by classifying it
+/// against a target basis.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ImportSuffixRequest {
+    /// Source bundle being judged.
+    pub bundle: CausalSuffixBundle,
+    /// Worldline receiving the proposed admission.
+    pub target_worldline_id: WorldlineId,
+    /// Target basis used while judging admission.
+    pub target_basis: ProvenanceRef,
+    /// Optional target-basis evidence for strand/parent realization cases.
+    pub basis_report: Option<SettlementBasisReport>,
+}
+
+/// Result of importing one witnessed causal suffix bundle into local admission.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ImportSuffixResult {
+    /// Bundle identity retained for shell-equivalence and loop-prevention checks.
+    pub bundle_digest: Vec<u8>,
+    /// Admission classifier response for the bundle's source suffix.
+    pub admission: WitnessedSuffixAdmissionResponse,
+}
+
 /// Top-level witnessed suffix admission posture.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]

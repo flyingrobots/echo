@@ -3,11 +3,20 @@
 
 # Witnessed suffix admission shells
 
-Status: active planned design. Echo has settlement, neighborhood publication,
-observer reading envelopes, and design 0009 for witnessed causal suffix sync.
-It does not yet have implemented `ExportSuffixRequest`, `CausalSuffixBundle`,
-`ImportSuffixResult`, `export_suffix`, or `import_suffix` surfaces. This card is
-the execution handle for that gap.
+Status: complete. Echo has settlement, neighborhood publication, observer
+reading envelopes, design 0009 for witnessed causal suffix sync, and the first
+Rust/ABI witnessed suffix export/import shell surfaces.
+
+Implemented surfaces:
+
+- `ExportSuffixRequest`
+- `CausalSuffixBundle`
+- `ExportSuffixObstruction`
+- `ImportSuffixRequest`
+- `ImportSuffixResult`
+- `WitnessedSuffixExportContext`
+- `export_suffix`
+- `import_suffix`
 
 Refines:
 
@@ -64,6 +73,13 @@ older sync contract into its runtime and ABI.
   outcome rather than pretending commutativity
 - the Echo / git-warp boundary speaks in suffix shells and admission
   outcomes, not state snapshots
+
+Evidence:
+
+- `crates/warp-core/src/witnessed_suffix.rs`
+- `crates/warp-core/src/witnessed_suffix_tests.rs`
+- `crates/echo-wasm-abi/src/kernel_port.rs`
+- `crates/echo-wasm-abi/src/witnessed_suffix_tests.rs`
 
 ## Repo evidence
 

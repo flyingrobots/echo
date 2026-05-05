@@ -12,5 +12,6 @@
 pub mod close;
 pub mod graph;
 pub mod inbox;
+pub mod pull;
 pub mod status;
 pub mod workspace;

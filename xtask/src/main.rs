@@ -124,6 +124,8 @@ enum MethodCommand {
     Inbox(MethodInboxArgs),
     /// Scaffold a retro and witness directory for an active cycle.
     Close(MethodCloseArgs),
+    /// Promote a backlog item into the next numbered design cycle.
+    Pull(MethodPullArgs),
     /// Show backlog lanes, active cycles, and legend load.
     Status(MethodStatusArgs),
     /// Regenerate METHOD task matrix markdown and CSV.
@@ -148,6 +150,12 @@ struct MethodInboxArgs {
 struct MethodCloseArgs {
     /// Cycle number or full cycle directory name. Defaults to most recent active cycle.
     cycle: Option<String>,
+}
+
+#[derive(Args)]
+struct MethodPullArgs {
+    /// Backlog item path, file stem, METHOD task id, or native task id.
+    item: String,
 }
 
 #[derive(Args)]
@@ -751,6 +759,7 @@ fn run_method(args: MethodArgs) -> Result<()> {
     match args.command {
         MethodCommand::Inbox(inbox_args) => run_method_inbox(inbox_args),
         MethodCommand::Close(close_args) => run_method_close(close_args),
+        MethodCommand::Pull(pull_args) => run_method_pull(pull_args),
         MethodCommand::Status(status_args) => run_method_status(status_args),
         MethodCommand::Matrix(matrix_args) => run_method_matrix(matrix_args),
         MethodCommand::Dag(dag_args) => run_method_dag(dag_args),
@@ -792,6 +801,22 @@ fn run_method_close(args: MethodCloseArgs) -> Result<()> {
     println!("closed {}", result.cycle);
     println!("retro {}", retro_path.display());
     println!("witness {}", witness_dir.display());
+    Ok(())
+}
+
+fn run_method_pull(args: MethodPullArgs) -> Result<()> {
+    let root = std::env::current_dir().context("failed to get current dir")?;
+    let workspace = method_workspace()?;
+    let result =
+        method::pull::pull_backlog_item(&workspace, &args.item).map_err(|e| anyhow::anyhow!(e))?;
+    let design_path = result
+        .design_path
+        .strip_prefix(&root)
+        .unwrap_or(&result.design_path);
+
+    println!("pulled {}", result.cycle_number);
+    println!("cycle {}", result.cycle);
+    println!("design {}", design_path.display());
     Ok(())
 }
 

@@ -1000,7 +1000,6 @@ impl RetainedReadingDescriptor {
 /// Retention stores bytes and a descriptor only. It does not create substrate
 /// truth and does not mutate the optic subject.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RetainReadingRequest {
     /// Semantic identity of the read question answered by the payload.
     pub read_identity: ReadIdentity,
@@ -1012,7 +1011,6 @@ pub struct RetainReadingRequest {
 
 /// Result of retaining reading payload bytes.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RetainReadingResult {
     /// Descriptor naming both the retained bytes and their semantic read identity.
     pub descriptor: RetainedReadingDescriptor,
@@ -1020,7 +1018,6 @@ pub struct RetainReadingResult {
 
 /// Request to reveal a retained reading payload.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RevealReadingRequest {
     /// Retained-reading key returned by retention.
     pub key: RetainedReadingKey,
@@ -1030,7 +1027,6 @@ pub struct RevealReadingRequest {
 
 /// Result of revealing a retained reading payload.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RevealReadingResult {
     /// Descriptor for the revealed payload.
     pub descriptor: RetainedReadingDescriptor,
@@ -1039,7 +1035,6 @@ pub struct RevealReadingResult {
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct RetainedReadingCacheEntry {
     descriptor: RetainedReadingDescriptor,
     payload: Vec<u8>,
@@ -1051,7 +1046,6 @@ struct RetainedReadingCacheEntry {
 /// the retained-reading key names bytes plus the semantic `ReadIdentity` and
 /// codec. Revealing by content hash alone is not a supported operation.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RetainedReadingCache {
     entries: BTreeMap<RetainedReadingKey, RetainedReadingCacheEntry>,
     content_index: BTreeMap<Hash, BTreeSet<RetainedReadingKey>>,

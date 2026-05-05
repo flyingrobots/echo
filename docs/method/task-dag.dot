@@ -1,6 +1,6 @@
 digraph method_task_dag {
   graph [
-    label="METHOD Backlog Task Dependency DAG\nopen tasks: 100 / 181; dependency edges: 125",
+    label="METHOD Backlog Task Dependency DAG\nopen tasks: 99 / 181; dependency edges: 125",
     labelloc=t,
     fontsize=24,
     fontname="Inter, Helvetica, Arial",
@@ -38,7 +38,7 @@ digraph method_task_dag {
     "M005" [label="M005\nOPEN\nEcho and git-warp\ncompatibility sanity check", tooltip="M005 [asap] open; blockers=0;  Echo and git-warp compatibility sanity check", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M006" [label="M006\nOPEN\nLive holographic strands", tooltip="M006 [asap] open; blockers=0;  Live holographic strands", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M007" [label="M007\nOPEN\nT-9-3-1\nVerify and integrate\ndeterministic trig oracle\ninto release gate", tooltip="M007 [asap] open; blockers=0; T-9-3-1 Verify and integrate deterministic trig oracle into release gate", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
-    "M008" [label="M008\nOPEN\nWESLEY Protocol Consumer\nCutover", tooltip="M008 [asap] open; blockers=0;  WESLEY Protocol Consumer Cutover", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
+    "M008" [label="M008\nDONE\nWESLEY Protocol Consumer\nCutover", tooltip="M008 [asap] done; blockers=0;  WESLEY Protocol Consumer Cutover", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M009" [label="M009\nOPEN\nCI det-policy hardening", tooltip="M009 [asap] open; blockers=0;  CI det-policy hardening", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M010" [label="M010\nT-6-3-1\nBench subcommand --\ncriterion invocation and\nreporting", tooltip="M010 [asap] blocked; blockers=1; T-6-3-1 Bench subcommand -- criterion invocation and reporting", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
     "M011" [label="M011\nT-6-4-1\nInspect subcommand --\nmetadata and graph stats", tooltip="M011 [asap] blocked; blockers=1; T-6-4-1 Inspect subcommand -- metadata and graph stats", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
@@ -117,7 +117,7 @@ digraph method_task_dag {
     "M076" [label="M076\nT-2-2-2\nSwitch-over plan and\ncontract validation", tooltip="M076 [up-next] blocked; blockers=1; T-2-2-2 Switch-over plan and contract validation", fillcolor="#dbeafe", color="#1d4ed8", penwidth=1.2];
     "M077" [label="M077\nOPEN\nT-2-1-1\nGraphQL operation parser\nfor QIR", tooltip="M077 [up-next] open; blockers=0; T-2-1-1 GraphQL operation parser for QIR", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M078" [label="M078\nT-2-1-2\nSQL query plan generation\nfrom QIR", tooltip="M078 [up-next] blocked; blockers=1; T-2-1-2 SQL query plan generation from QIR", fillcolor="#dbeafe", color="#1d4ed8", penwidth=1.2];
-    "M079" [label="M079\nWesley To Echo Toy\nContract Proof", tooltip="M079 [up-next] blocked; blockers=2;  Wesley To Echo Toy Contract Proof", fillcolor="#dbeafe", color="#1d4ed8", penwidth=1.2];
+    "M079" [label="M079\nWesley To Echo Toy\nContract Proof", tooltip="M079 [up-next] blocked; blockers=1;  Wesley To Echo Toy Contract Proof", fillcolor="#dbeafe", color="#1d4ed8", penwidth=1.2];
     "M080" [label="M080\nOPEN\nT-4-4-1\nTypeScript type generation\nfrom Wesley IR", tooltip="M080 [up-next] open; blockers=0; T-4-4-1 TypeScript type generation from Wesley IR", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M081" [label="M081\nT-4-4-2\nZod runtime validators\nfrom Wesley IR", tooltip="M081 [up-next] blocked; blockers=1; T-4-4-2 Zod runtime validators from Wesley IR", fillcolor="#dbeafe", color="#1d4ed8", penwidth=1.2];
     "M082" [label="M082\nT-4-4-3\nCBOR serialization bridge\n(TS types to WASM Rust)", tooltip="M082 [up-next] blocked; blockers=2; T-4-4-3 CBOR serialization bridge (TS types to WASM Rust)", fillcolor="#dbeafe", color="#1d4ed8", penwidth=1.2];
@@ -249,7 +249,7 @@ digraph method_task_dag {
   "M003" -> "M004";
   "M006" -> "M046";
   "M006" -> "M047";
-  "M008" -> "M079";
+  "M008" -> "M079" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
   "M010" -> "M001";
   "M011" -> "M001";
   "M011" -> "M012";

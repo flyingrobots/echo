@@ -10,7 +10,7 @@
 <title>method_task_dag</title>
 <polygon fill="white" stroke="none" points="-4,4 -4,-7693.5 3303.09,-7693.5 3303.09,4 -4,4"/>
 <text xml:space="preserve" text-anchor="middle" x="1649.55" y="-7662.7" font-family="Inter, Helvetica, Arial" font-size="24.00">METHOD Backlog Task Dependency DAG</text>
-<text xml:space="preserve" text-anchor="middle" x="1649.55" y="-7633.45" font-family="Inter, Helvetica, Arial" font-size="24.00">open tasks: 100 / 181; dependency edges: 125</text>
+<text xml:space="preserve" text-anchor="middle" x="1649.55" y="-7633.45" font-family="Inter, Helvetica, Arial" font-size="24.00">open tasks: 99 / 181; dependency edges: 125</text>
 <g id="clust1" class="cluster">
 <title>cluster_asap</title>
 <path fill="white" stroke="#cbd5e1" d="M24.5,-2247C24.5,-2247 1722.93,-2247 1722.93,-2247 1728.93,-2247 1734.93,-2253 1734.93,-2259 1734.93,-2259 1734.93,-3776 1734.93,-3776 1734.93,-3782 1728.93,-3788 1722.93,-3788 1722.93,-3788 24.5,-3788 24.5,-3788 18.5,-3788 12.5,-3782 12.5,-3776 12.5,-3776 12.5,-2259 12.5,-2259 12.5,-2253 18.5,-2247 24.5,-2247"/>
@@ -166,10 +166,10 @@
 <!-- M008 -->
 <g id="node8" class="node">
 <title>M008</title>
-<g id="a_node8"><a xlink:title="M008 [asap] open; blockers=0; &#160;WESLEY Protocol Consumer Cutover">
-<path fill="#bbf7d0" stroke="#15803d" stroke-width="2.8" d="M156.52,-2542.82C156.52,-2542.82 32.5,-2542.82 32.5,-2542.82 26.5,-2542.82 20.5,-2536.82 20.5,-2530.82 20.5,-2530.82 20.5,-2495.18 20.5,-2495.18 20.5,-2489.18 26.5,-2483.18 32.5,-2483.18 32.5,-2483.18 156.52,-2483.18 156.52,-2483.18 162.52,-2483.18 168.52,-2489.18 168.52,-2495.18 168.52,-2495.18 168.52,-2530.82 168.52,-2530.82 168.52,-2536.82 162.52,-2542.82 156.52,-2542.82"/>
+<g id="a_node8"><a xlink:title="M008 [asap] done; blockers=0; &#160;WESLEY Protocol Consumer Cutover">
+<path fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.4" d="M156.52,-2542.82C156.52,-2542.82 32.5,-2542.82 32.5,-2542.82 26.5,-2542.82 20.5,-2536.82 20.5,-2530.82 20.5,-2530.82 20.5,-2495.18 20.5,-2495.18 20.5,-2489.18 26.5,-2483.18 32.5,-2483.18 32.5,-2483.18 156.52,-2483.18 156.52,-2483.18 162.52,-2483.18 168.52,-2489.18 168.52,-2495.18 168.52,-2495.18 168.52,-2530.82 168.52,-2530.82 168.52,-2536.82 162.52,-2542.82 156.52,-2542.82"/>
 <text xml:space="preserve" text-anchor="middle" x="94.51" y="-2529" font-family="Inter, Helvetica, Arial" font-size="10.00">M008</text>
-<text xml:space="preserve" text-anchor="middle" x="94.51" y="-2516.25" font-family="Inter, Helvetica, Arial" font-size="10.00">OPEN</text>
+<text xml:space="preserve" text-anchor="middle" x="94.51" y="-2516.25" font-family="Inter, Helvetica, Arial" font-size="10.00">DONE</text>
 <text xml:space="preserve" text-anchor="middle" x="94.51" y="-2503.5" font-family="Inter, Helvetica, Arial" font-size="10.00">WESLEY Protocol Consumer</text>
 <text xml:space="preserve" text-anchor="middle" x="94.51" y="-2490.75" font-family="Inter, Helvetica, Arial" font-size="10.00">Cutover</text>
 </a>
@@ -178,7 +178,7 @@
 <!-- M079 -->
 <g id="node79" class="node">
 <title>M079</title>
-<g id="a_node79"><a xlink:title="M079 [up&#45;next] blocked; blockers=2; &#160;Wesley To Echo Toy Contract Proof">
+<g id="a_node79"><a xlink:title="M079 [up&#45;next] blocked; blockers=1; &#160;Wesley To Echo Toy Contract Proof">
 <path fill="#dbeafe" stroke="#1d4ed8" stroke-width="1.2" d="M756.96,-609.45C756.96,-609.45 673.44,-609.45 673.44,-609.45 667.44,-609.45 661.44,-603.45 661.44,-597.45 661.44,-597.45 661.44,-574.55 661.44,-574.55 661.44,-568.55 667.44,-562.55 673.44,-562.55 673.44,-562.55 756.96,-562.55 756.96,-562.55 762.96,-562.55 768.96,-568.55 768.96,-574.55 768.96,-574.55 768.96,-597.45 768.96,-597.45 768.96,-603.45 762.96,-609.45 756.96,-609.45"/>
 <text xml:space="preserve" text-anchor="middle" x="715.2" y="-595.62" font-family="Inter, Helvetica, Arial" font-size="10.00">M079</text>
 <text xml:space="preserve" text-anchor="middle" x="715.2" y="-582.88" font-family="Inter, Helvetica, Arial" font-size="10.00">Wesley To Echo Toy</text>
@@ -189,8 +189,8 @@
 <!-- M008&#45;&gt;M079 -->
 <g id="edge4" class="edge">
 <title>M008&#45;&gt;M079</title>
-<path fill="none" stroke="#dc2626" stroke-width="2.6" d="M165.09,-2481.88C165.09,-2289.19 165.09,-1266.81 165.09,-1266.81 165.09,-1266.81 715.09,-1266.81 715.09,-1266.81 715.09,-1266.81 715.09,-621.77 715.09,-621.77"/>
-<polygon fill="#dc2626" stroke="#dc2626" stroke-width="2.6" points="717.89,-621.77 715.09,-613.77 712.29,-621.77 717.89,-621.77"/>
+<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M165.09,-2482.5C165.09,-2291.4 165.09,-1266.81 165.09,-1266.81 165.09,-1266.81 715.09,-1266.81 715.09,-1266.81 715.09,-1266.81 715.09,-615.84 715.09,-615.84"/>
+<polygon fill="#94a3b8" stroke="#94a3b8" points="716.67,-615.84 715.09,-611.34 713.52,-615.84 716.67,-615.84"/>
 </g>
 <!-- M009 -->
 <g id="node9" class="node">

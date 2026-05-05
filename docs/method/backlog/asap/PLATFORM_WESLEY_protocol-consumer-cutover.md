@@ -5,9 +5,21 @@
 
 Coordination: `WESLEY_protocol_surface_cutover`
 
-Status: active and partially implemented. Echo's local TTD protocol
-crates/packages are already marked as generated consumers, but the repo still
-has protocol ownership and regeneration-command drift to reconcile.
+Status: complete. Echo's local TTD protocol crates/packages are marked as
+generated consumers, and the local `cargo xtask wesley sync` check verifies the
+downstream consumer handoff. Full external regeneration from the canonical
+`warp-ttd` bundle remains with `PLATFORM_ttd-schema-reconciliation`.
+
+## Completion evidence
+
+- Added `cargo xtask wesley sync` as a Rust xtask provenance check for the
+  generated protocol consumers.
+- Added `crates/ttd-protocol-rs/README.md` and
+  `packages/ttd-protocol-ts/README.md` to name Echo as a downstream consumer of
+  `warp-ttd/schemas/warp-ttd-protocol.graphql`.
+- The check proves Echo has no local `schemas/ttd-protocol.graphql`, the Rust
+  and TypeScript generated consumers agree on schema hash, and `echo-ttd`
+  runtime compliance stays separate from host-neutral protocol nouns.
 
 Echo still carries local TTD protocol artifacts that predate the current
 Continuum ownership split:
@@ -23,10 +35,11 @@ consumer of the canonical authored schema plus Wesley-generated bundle.
 Current repo truth:
 
 - Echo no longer carries a local `schemas/ttd-protocol.graphql`
-- the remaining drift is ownership language and consumer wiring around the
-  generated crates/packages
-- `crates/ttd-protocol-rs/Cargo.toml` advertises `cargo xtask wesley sync`,
-  but no `xtask wesley` command exists in this repo yet
+- local Rust and TypeScript protocol consumers name the canonical `warp-ttd`
+  schema hash
+- `cargo xtask wesley sync` verifies the consumer handoff locally
+- exact external regeneration from the canonical bundle is tracked separately in
+  `PLATFORM_ttd-schema-reconciliation`
 
 Work:
 

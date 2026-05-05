@@ -846,6 +846,109 @@ mod tests {
     }
 
     #[test]
+    fn test_optic_open_close_models_round_trip() {
+        use crate::kernel_port::{
+            CapabilityPosture, CloseOpticRequest, CloseOpticResult, CoordinateAt, EchoCoordinate,
+            EchoOptic, IntentFamilyId, OpenOpticRequest, OpenOpticResult, OpticActorId,
+            OpticCapability, OpticCapabilityId, OpticCause, OpticFocus, OpticId, OpticObstruction,
+            OpticObstructionKind, OpticOpenError, OpticReadBudget, ProjectionVersion, WorldlineId,
+            WorldlineTick,
+        };
+
+        let worldline_id = WorldlineId::from_bytes([1; 32]);
+        let focus = OpticFocus::Worldline { worldline_id };
+        let coordinate = EchoCoordinate::Worldline {
+            worldline_id,
+            at: CoordinateAt::Frontier,
+        };
+        let actor = OpticActorId::from_bytes([2; 32]);
+        let capability_id = OpticCapabilityId::from_bytes([3; 32]);
+        let intent_family = IntentFamilyId::from_bytes([4; 32]);
+        let issuer_ref = crate::kernel_port::ProvenanceRef {
+            worldline_id,
+            worldline_tick: WorldlineTick(5),
+            commit_hash: vec![6; 32],
+        };
+        let cause = OpticCause {
+            actor,
+            cause_hash: vec![7; 32],
+            label: Some("test open".into()),
+        };
+        let capability = OpticCapability {
+            capability_id,
+            actor,
+            issuer_ref: Some(issuer_ref.clone()),
+            policy_hash: vec![8; 32],
+            allowed_focus: focus.clone(),
+            projection_version: ProjectionVersion(1),
+            reducer_version: None,
+            allowed_intent_family: intent_family,
+            max_budget: OpticReadBudget {
+                max_bytes: Some(4096),
+                max_nodes: Some(64),
+                max_ticks: Some(8),
+                max_attachments: Some(0),
+            },
+        };
+        let request = OpenOpticRequest {
+            focus: focus.clone(),
+            coordinate: coordinate.clone(),
+            projection_version: ProjectionVersion(1),
+            reducer_version: None,
+            intent_family,
+            capability,
+            cause: cause.clone(),
+        };
+        let decoded: OpenOpticRequest = decode_cbor(&encode_cbor(&request).unwrap()).unwrap();
+        assert_eq!(decoded, request);
+
+        let result = OpenOpticResult {
+            optic: EchoOptic {
+                optic_id: OpticId::from_bytes([9; 32]),
+                focus,
+                coordinate: coordinate.clone(),
+                projection_version: ProjectionVersion(1),
+                reducer_version: None,
+                intent_family,
+                capability: capability_id,
+            },
+            capability_posture: CapabilityPosture::Granted {
+                capability_id,
+                actor,
+                issuer_ref: Some(issuer_ref),
+                policy_hash: vec![8; 32],
+            },
+        };
+        let decoded: OpenOpticResult = decode_cbor(&encode_cbor(&result).unwrap()).unwrap();
+        assert_eq!(decoded, result);
+
+        let error = OpticOpenError::Obstructed(OpticObstruction {
+            kind: OpticObstructionKind::CapabilityDenied,
+            optic_id: None,
+            focus: None,
+            coordinate: Some(coordinate),
+            witness_basis: None,
+            message: "capability denied".into(),
+        });
+        let decoded: OpticOpenError = decode_cbor(&encode_cbor(&error).unwrap()).unwrap();
+        assert_eq!(decoded, error);
+
+        let close_request = CloseOpticRequest {
+            optic_id: OpticId::from_bytes([9; 32]),
+            cause,
+        };
+        let decoded: CloseOpticRequest =
+            decode_cbor(&encode_cbor(&close_request).unwrap()).unwrap();
+        assert_eq!(decoded, close_request);
+
+        let close_result = CloseOpticResult {
+            optic_id: OpticId::from_bytes([9; 32]),
+        };
+        let decoded: CloseOpticResult = decode_cbor(&encode_cbor(&close_result).unwrap()).unwrap();
+        assert_eq!(decoded, close_result);
+    }
+
+    #[test]
     fn test_unpack_control_intent_rejects_wrong_op_id() {
         use crate::kernel_port::{ControlIntentV1, SchedulerMode};
 

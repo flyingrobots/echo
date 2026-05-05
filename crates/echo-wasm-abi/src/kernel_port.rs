@@ -212,6 +212,11 @@ opaque_id!(
 );
 
 opaque_id!(
+    /// Opaque stable identifier for an actor opening or using an optic.
+    OpticActorId
+);
+
+opaque_id!(
     /// Opaque stable identifier for a WARP instance.
     WarpId
 );
@@ -951,6 +956,117 @@ pub enum IntentDispatchResult {
     /// Echo found incompatible causal claims under the named admission law.
     Conflict(IntentConflict),
     /// Echo could not lawfully proceed because basis, evidence, rights, or law is missing.
+    Obstructed(OpticObstruction),
+}
+
+/// Auditable cause for opening, closing, observing, or dispatching through an optic.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpticCause {
+    /// Actor associated with the cause.
+    pub actor: OpticActorId,
+    /// Stable digest of the host-level cause or request.
+    pub cause_hash: Vec<u8>,
+    /// Optional diagnostic label for humans.
+    pub label: Option<String>,
+}
+
+/// Capability grant used while validating an optic descriptor.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpticCapability {
+    /// Stable capability identity retained in opened optic descriptors.
+    pub capability_id: OpticCapabilityId,
+    /// Actor to which the capability was issued.
+    pub actor: OpticActorId,
+    /// Provenance ref for the issuer or policy source, when available.
+    pub issuer_ref: Option<ProvenanceRef>,
+    /// Stable digest of the capability policy.
+    pub policy_hash: Vec<u8>,
+    /// Focus this minimal capability authorizes.
+    pub allowed_focus: OpticFocus,
+    /// Projection law version this capability authorizes.
+    pub projection_version: ProjectionVersion,
+    /// Reducer law version this capability authorizes, when required.
+    pub reducer_version: Option<ReducerVersion>,
+    /// Intent family this capability authorizes.
+    pub allowed_intent_family: IntentFamilyId,
+    /// Maximum read budget authorized by this capability.
+    pub max_budget: OpticReadBudget,
+}
+
+/// Capability posture returned after successfully validating an optic descriptor.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CapabilityPosture {
+    /// The descriptor is authorized by the named capability grant.
+    Granted {
+        /// Capability identity retained in the opened descriptor.
+        capability_id: OpticCapabilityId,
+        /// Actor to which the capability was issued.
+        actor: OpticActorId,
+        /// Provenance ref for the issuer or policy source, when available.
+        issuer_ref: Option<ProvenanceRef>,
+        /// Stable digest of the capability policy.
+        policy_hash: Vec<u8>,
+    },
+}
+
+/// Descriptor-validation request for opening a session-local optic resource.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpenOpticRequest {
+    /// Lawful subject being observed or targeted by intent dispatch.
+    pub focus: OpticFocus,
+    /// Explicit causal coordinate for the optic descriptor.
+    pub coordinate: EchoCoordinate,
+    /// Projection law version requested by the descriptor.
+    pub projection_version: ProjectionVersion,
+    /// Reducer law version requested by the descriptor, when present.
+    pub reducer_version: Option<ReducerVersion>,
+    /// Intent family allowed through the opened optic.
+    pub intent_family: IntentFamilyId,
+    /// Capability grant used to validate this descriptor.
+    pub capability: OpticCapability,
+    /// Auditable cause for opening the descriptor.
+    pub cause: OpticCause,
+}
+
+/// Successful descriptor-validation result for opening an optic.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpenOpticResult {
+    /// Opened optic descriptor. This is not a mutable subject handle.
+    pub optic: EchoOptic,
+    /// Capability posture that authorized the descriptor.
+    pub capability_posture: CapabilityPosture,
+}
+
+/// Error returned while opening an optic descriptor.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "obstruction", rename_all = "snake_case")]
+pub enum OpticOpenError {
+    /// Opening failed with a typed obstruction.
+    Obstructed(OpticObstruction),
+}
+
+/// Request for releasing a session-local optic descriptor resource.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloseOpticRequest {
+    /// Optic descriptor to release from the session.
+    pub optic_id: OpticId,
+    /// Auditable cause for closing the descriptor.
+    pub cause: OpticCause,
+}
+
+/// Result for releasing a session-local optic descriptor resource.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloseOpticResult {
+    /// Optic descriptor released from the session.
+    pub optic_id: OpticId,
+}
+
+/// Error returned while closing an optic descriptor.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "obstruction", rename_all = "snake_case")]
+pub enum OpticCloseError {
+    /// Closing failed with a typed obstruction.
     Obstructed(OpticObstruction),
 }
 

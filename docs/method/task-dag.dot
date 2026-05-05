@@ -1,6 +1,6 @@
 digraph method_task_dag {
   graph [
-    label="METHOD Backlog Task Dependency DAG\nopen tasks: 102 / 181; dependency edges: 125",
+    label="METHOD Backlog Task Dependency DAG\nopen tasks: 101 / 181; dependency edges: 125",
     labelloc=t,
     fontsize=24,
     fontname="Inter, Helvetica, Arial",
@@ -55,12 +55,12 @@ digraph method_task_dag {
     "M022" [label="M022\nEcho Optics Attachment\nBoundary Model", tooltip="M022 [asap] blocked; blockers=1;  Echo Optics Attachment Boundary Model", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
     "M023" [label="M023\nEcho Optics Cached-Reading\nIdentity Tests", tooltip="M023 [asap] blocked; blockers=1;  Echo Optics Cached-Reading Identity Tests", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
     "M024" [label="M024\nDONE\nEcho Optics Core Nouns And\nIDs", tooltip="M024 [asap] done; blockers=0;  Echo Optics Core Nouns And IDs", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
-    "M025" [label="M025\nEcho Optics Dispatch\nIntent Model", tooltip="M025 [asap] blocked; blockers=2;  Echo Optics Dispatch Intent Model", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
+    "M025" [label="M025\nEcho Optics Dispatch\nIntent Model", tooltip="M025 [asap] blocked; blockers=1;  Echo Optics Dispatch Intent Model", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
     "M026" [label="M026\nEcho Optics Example\nImplementation", tooltip="M026 [asap] blocked; blockers=4;  Echo Optics Example Implementation", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
     "M027" [label="M027\nEcho Optics Live-Tail\nHonesty Tests", tooltip="M027 [asap] blocked; blockers=1;  Echo Optics Live-Tail Honesty Tests", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
-    "M028" [label="M028\nEcho Optics Observe Model", tooltip="M028 [asap] blocked; blockers=2;  Echo Optics Observe Model", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
+    "M028" [label="M028\nEcho Optics Observe Model", tooltip="M028 [asap] blocked; blockers=1;  Echo Optics Observe Model", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
     "M029" [label="M029\nDONE\nEcho Optics Obstruction\nAnd Admission Results", tooltip="M029 [asap] done; blockers=0;  Echo Optics Obstruction And Admission Results", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
-    "M030" [label="M030\nOPEN\nEcho Optics Open And Close\nModels", tooltip="M030 [asap] open; blockers=0;  Echo Optics Open And Close Models", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
+    "M030" [label="M030\nDONE\nEcho Optics Open And Close\nModels", tooltip="M030 [asap] done; blockers=0;  Echo Optics Open And Close Models", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M031" [label="M031\nDONE\nEcho Optics Reading\nEnvelope And Identity", tooltip="M031 [asap] done; blockers=0;  Echo Optics Reading Envelope And Identity", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M032" [label="M032\nEcho Optics Stale-Basis\nObstruction Tests", tooltip="M032 [asap] blocked; blockers=1;  Echo Optics Stale-Basis Obstruction Tests", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
     "M033" [label="M033\nOPEN\nEcho Optics Witness Basis\nAnd Retained Key", tooltip="M033 [asap] open; blockers=0;  Echo Optics Witness Basis And Retained Key", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
@@ -277,8 +277,8 @@ digraph method_task_dag {
   "M029" -> "M019" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
   "M029" -> "M025" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
   "M029" -> "M030" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
-  "M030" -> "M025";
-  "M030" -> "M028";
+  "M030" -> "M025" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
+  "M030" -> "M028" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
   "M031" -> "M023" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
   "M031" -> "M027" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
   "M031" -> "M028" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];

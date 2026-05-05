@@ -215,10 +215,12 @@ pub use observation::{
     ResolvedObservationCoordinate, WorldlineSnapshot,
 };
 pub use optic::{
-    AdmittedIntent, AttachmentDescentPolicy, BraidId, CoordinateAt, EchoCoordinate, EchoOptic,
-    IntentConflict, IntentConflictReason, IntentDispatchResult, IntentFamilyId,
-    MissingWitnessBasisReason, OpticAperture, OpticApertureShape, OpticCapabilityId, OpticFocus,
-    OpticId, OpticObstruction, OpticObstructionKind, OpticReadBudget, OpticReadingEnvelope,
+    AdmittedIntent, AttachmentDescentPolicy, BraidId, CapabilityPosture, CloseOpticRequest,
+    CloseOpticResult, CoordinateAt, EchoCoordinate, EchoOptic, IntentConflict,
+    IntentConflictReason, IntentDispatchResult, IntentFamilyId, MissingWitnessBasisReason,
+    OpenOpticRequest, OpenOpticResult, OpticActorId, OpticAperture, OpticApertureShape,
+    OpticCapability, OpticCapabilityId, OpticCause, OpticCloseError, OpticFocus, OpticId,
+    OpticObstruction, OpticObstructionKind, OpticOpenError, OpticReadBudget, OpticReadingEnvelope,
     PluralIntent, ProjectionVersion, ReadIdentity, ReducerVersion, RetainedReadingKey,
     StagedIntent, StagedIntentReason, WitnessBasis,
 };

@@ -71,6 +71,11 @@ opaque_id!(
     OpticCapabilityId
 );
 
+opaque_id!(
+    /// Stable identity for an actor opening or using an optic.
+    OpticActorId
+);
+
 /// Version of the projection law used by an optic read.
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
@@ -1220,6 +1225,358 @@ impl IntentDispatchResult {
     }
 }
 
+/// Auditable cause for opening, closing, observing, or dispatching through an optic.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct OpticCause {
+    /// Actor associated with the cause.
+    pub actor: OpticActorId,
+    /// Stable digest of the host-level cause or request.
+    pub cause_hash: Hash,
+    /// Optional diagnostic label for humans.
+    pub label: Option<String>,
+}
+
+impl OpticCause {
+    /// Converts the cause to the shared ABI DTO.
+    #[must_use]
+    pub fn to_abi(&self) -> abi::OpticCause {
+        abi::OpticCause {
+            actor: optic_actor_id_to_abi(self.actor),
+            cause_hash: self.cause_hash.to_vec(),
+            label: self.label.clone(),
+        }
+    }
+}
+
+/// Capability grant used while validating an optic descriptor.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct OpticCapability {
+    /// Stable capability identity retained in opened optic descriptors.
+    pub capability_id: OpticCapabilityId,
+    /// Actor to which the capability was issued.
+    pub actor: OpticActorId,
+    /// Provenance ref for the issuer or policy source, when available.
+    pub issuer_ref: Option<ProvenanceRef>,
+    /// Stable digest of the capability policy.
+    pub policy_hash: Hash,
+    /// Focus this minimal capability authorizes.
+    pub allowed_focus: OpticFocus,
+    /// Projection law version this capability authorizes.
+    pub projection_version: ProjectionVersion,
+    /// Reducer law version this capability authorizes, when required.
+    pub reducer_version: Option<ReducerVersion>,
+    /// Intent family this capability authorizes.
+    pub allowed_intent_family: IntentFamilyId,
+    /// Maximum read budget authorized by this capability.
+    pub max_budget: OpticReadBudget,
+}
+
+impl OpticCapability {
+    /// Converts the capability to the shared ABI DTO.
+    #[must_use]
+    pub fn to_abi(&self) -> abi::OpticCapability {
+        abi::OpticCapability {
+            capability_id: optic_capability_id_to_abi(self.capability_id),
+            actor: optic_actor_id_to_abi(self.actor),
+            issuer_ref: self.issuer_ref.map(provenance_ref_to_abi),
+            policy_hash: self.policy_hash.to_vec(),
+            allowed_focus: self.allowed_focus.to_abi(),
+            projection_version: self.projection_version.to_abi(),
+            reducer_version: self.reducer_version.map(ReducerVersion::to_abi),
+            allowed_intent_family: intent_family_id_to_abi(self.allowed_intent_family),
+            max_budget: self.max_budget.to_abi(),
+        }
+    }
+}
+
+/// Capability posture returned after successfully validating an optic descriptor.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum CapabilityPosture {
+    /// The descriptor is authorized by the named capability grant.
+    Granted {
+        /// Capability identity retained in the opened descriptor.
+        capability_id: OpticCapabilityId,
+        /// Actor to which the capability was issued.
+        actor: OpticActorId,
+        /// Provenance ref for the issuer or policy source, when available.
+        issuer_ref: Option<ProvenanceRef>,
+        /// Stable digest of the capability policy.
+        policy_hash: Hash,
+    },
+}
+
+impl CapabilityPosture {
+    fn to_abi(&self) -> abi::CapabilityPosture {
+        match self {
+            Self::Granted {
+                capability_id,
+                actor,
+                issuer_ref,
+                policy_hash,
+            } => abi::CapabilityPosture::Granted {
+                capability_id: optic_capability_id_to_abi(*capability_id),
+                actor: optic_actor_id_to_abi(*actor),
+                issuer_ref: issuer_ref.map(provenance_ref_to_abi),
+                policy_hash: policy_hash.to_vec(),
+            },
+        }
+    }
+}
+
+/// Descriptor-validation request for opening a session-local optic resource.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct OpenOpticRequest {
+    /// Lawful subject being observed or targeted by intent dispatch.
+    pub focus: OpticFocus,
+    /// Explicit causal coordinate for the optic descriptor.
+    pub coordinate: EchoCoordinate,
+    /// Projection law version requested by the descriptor.
+    pub projection_version: ProjectionVersion,
+    /// Reducer law version requested by the descriptor, when present.
+    pub reducer_version: Option<ReducerVersion>,
+    /// Intent family allowed through the opened optic.
+    pub intent_family: IntentFamilyId,
+    /// Capability grant used to validate this descriptor.
+    pub capability: OpticCapability,
+    /// Auditable cause for opening the descriptor.
+    pub cause: OpticCause,
+}
+
+impl OpenOpticRequest {
+    /// Validates the descriptor and derives the session-local optic identity.
+    ///
+    /// This is descriptor validation only. It does not create a mutable handle
+    /// to the subject and does not mutate causal history.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed obstruction when focus, coordinate, projection law,
+    /// reducer law, intent family, or capability evidence does not line up.
+    pub fn validate_descriptor(&self) -> Result<OpenOpticResult, OpticOpenError> {
+        if !focus_matches_coordinate(&self.focus, &self.coordinate) {
+            return Err(self.open_obstruction(
+                OpticObstructionKind::ConflictingFrontier,
+                "optic focus and coordinate name different subjects",
+            ));
+        }
+
+        if self.capability.actor != self.cause.actor {
+            return Err(self.open_obstruction(
+                OpticObstructionKind::CapabilityDenied,
+                "capability actor does not match optic cause actor",
+            ));
+        }
+
+        if self.capability.allowed_focus != self.focus {
+            return Err(self.open_obstruction(
+                OpticObstructionKind::CapabilityDenied,
+                "capability does not authorize optic focus",
+            ));
+        }
+
+        if self.capability.projection_version != self.projection_version
+            || self.capability.reducer_version != self.reducer_version
+        {
+            return Err(self.open_obstruction(
+                OpticObstructionKind::UnsupportedProjectionLaw,
+                "capability does not authorize projection or reducer law",
+            ));
+        }
+
+        if self.capability.allowed_intent_family != self.intent_family {
+            return Err(self.open_obstruction(
+                OpticObstructionKind::UnsupportedIntentFamily,
+                "capability does not authorize intent family",
+            ));
+        }
+
+        let optic = EchoOptic::new(
+            self.focus.clone(),
+            self.coordinate.clone(),
+            self.projection_version,
+            self.reducer_version,
+            self.intent_family,
+            self.capability.capability_id,
+        );
+        Ok(OpenOpticResult {
+            optic,
+            capability_posture: CapabilityPosture::Granted {
+                capability_id: self.capability.capability_id,
+                actor: self.capability.actor,
+                issuer_ref: self.capability.issuer_ref,
+                policy_hash: self.capability.policy_hash,
+            },
+        })
+    }
+
+    fn open_obstruction(&self, kind: OpticObstructionKind, message: &str) -> OpticOpenError {
+        OpticOpenError::Obstructed(Box::new(OpticObstruction {
+            kind,
+            optic_id: None,
+            focus: Some(self.focus.clone()),
+            coordinate: Some(self.coordinate.clone()),
+            witness_basis: None,
+            message: message.to_owned(),
+        }))
+    }
+
+    /// Converts the request to the shared ABI DTO.
+    #[must_use]
+    pub fn to_abi(&self) -> abi::OpenOpticRequest {
+        abi::OpenOpticRequest {
+            focus: self.focus.to_abi(),
+            coordinate: self.coordinate.to_abi(),
+            projection_version: self.projection_version.to_abi(),
+            reducer_version: self.reducer_version.map(ReducerVersion::to_abi),
+            intent_family: intent_family_id_to_abi(self.intent_family),
+            capability: self.capability.to_abi(),
+            cause: self.cause.to_abi(),
+        }
+    }
+}
+
+/// Successful descriptor-validation result for opening an optic.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct OpenOpticResult {
+    /// Opened optic descriptor. This is not a mutable subject handle.
+    pub optic: EchoOptic,
+    /// Capability posture that authorized the descriptor.
+    pub capability_posture: CapabilityPosture,
+}
+
+impl OpenOpticResult {
+    /// Converts the result to the shared ABI DTO.
+    #[must_use]
+    pub fn to_abi(&self) -> abi::OpenOpticResult {
+        abi::OpenOpticResult {
+            optic: self.optic.to_abi(),
+            capability_posture: self.capability_posture.to_abi(),
+        }
+    }
+}
+
+/// Error returned while opening an optic descriptor.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum OpticOpenError {
+    /// Opening failed with a typed obstruction.
+    Obstructed(Box<OpticObstruction>),
+}
+
+impl OpticOpenError {
+    /// Converts the error to the shared ABI DTO.
+    #[must_use]
+    pub fn to_abi(&self) -> abi::OpticOpenError {
+        match self {
+            Self::Obstructed(obstruction) => abi::OpticOpenError::Obstructed(obstruction.to_abi()),
+        }
+    }
+}
+
+/// Request for releasing a session-local optic descriptor resource.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct CloseOpticRequest {
+    /// Optic descriptor to release from the session.
+    pub optic_id: OpticId,
+    /// Auditable cause for closing the descriptor.
+    pub cause: OpticCause,
+}
+
+impl CloseOpticRequest {
+    /// Builds the close result without naming or mutating any subject coordinate.
+    #[must_use]
+    pub fn close_session_descriptor(&self) -> CloseOpticResult {
+        CloseOpticResult {
+            optic_id: self.optic_id,
+        }
+    }
+
+    /// Converts the request to the shared ABI DTO.
+    #[must_use]
+    pub fn to_abi(&self) -> abi::CloseOpticRequest {
+        abi::CloseOpticRequest {
+            optic_id: optic_id_to_abi(self.optic_id),
+            cause: self.cause.to_abi(),
+        }
+    }
+}
+
+/// Result for releasing a session-local optic descriptor resource.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct CloseOpticResult {
+    /// Optic descriptor released from the session.
+    pub optic_id: OpticId,
+}
+
+impl CloseOpticResult {
+    /// Converts the result to the shared ABI DTO.
+    #[must_use]
+    pub fn to_abi(self) -> abi::CloseOpticResult {
+        abi::CloseOpticResult {
+            optic_id: optic_id_to_abi(self.optic_id),
+        }
+    }
+}
+
+/// Error returned while closing an optic descriptor.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum OpticCloseError {
+    /// Closing failed with a typed obstruction.
+    Obstructed(Box<OpticObstruction>),
+}
+
+impl OpticCloseError {
+    /// Converts the error to the shared ABI DTO.
+    #[must_use]
+    pub fn to_abi(&self) -> abi::OpticCloseError {
+        match self {
+            Self::Obstructed(obstruction) => abi::OpticCloseError::Obstructed(obstruction.to_abi()),
+        }
+    }
+}
+
+fn focus_matches_coordinate(focus: &OpticFocus, coordinate: &EchoCoordinate) -> bool {
+    match (focus, coordinate) {
+        (
+            OpticFocus::Worldline { worldline_id },
+            EchoCoordinate::Worldline {
+                worldline_id: coordinate_worldline,
+                ..
+            },
+        ) => worldline_id == coordinate_worldline,
+        (
+            OpticFocus::Strand { strand_id },
+            EchoCoordinate::Strand {
+                strand_id: coordinate_strand,
+                ..
+            },
+        ) => strand_id == coordinate_strand,
+        (
+            OpticFocus::Braid { braid_id },
+            EchoCoordinate::Braid {
+                braid_id: coordinate_braid,
+                ..
+            },
+        ) => braid_id == coordinate_braid,
+        (
+            OpticFocus::RetainedReading { key },
+            EchoCoordinate::RetainedReading {
+                key: coordinate_key,
+            },
+        ) => key == coordinate_key,
+        (OpticFocus::AttachmentBoundary { .. }, _) => true,
+        _ => false,
+    }
+}
+
 fn derive_optic_id(
     focus: &OpticFocus,
     coordinate: &EchoCoordinate,
@@ -1409,6 +1766,10 @@ fn optic_capability_id_to_abi(id: OpticCapabilityId) -> abi::OpticCapabilityId {
     abi::OpticCapabilityId::from_bytes(*id.as_bytes())
 }
 
+fn optic_actor_id_to_abi(id: OpticActorId) -> abi::OpticActorId {
+    abi::OpticActorId::from_bytes(*id.as_bytes())
+}
+
 fn worldline_id_to_abi(worldline_id: WorldlineId) -> abi::WorldlineId {
     abi::WorldlineId::from_bytes(*worldline_id.as_bytes())
 }
@@ -1540,6 +1901,18 @@ mod tests {
         OpticCapabilityId::from_bytes([seed; 32])
     }
 
+    fn actor(seed: u8) -> OpticActorId {
+        OpticActorId::from_bytes([seed; 32])
+    }
+
+    fn cause(seed: u8) -> OpticCause {
+        OpticCause {
+            actor: actor(seed),
+            cause_hash: [seed.wrapping_add(1); 32],
+            label: Some("test cause".to_owned()),
+        }
+    }
+
     fn node_key(seed: u8) -> NodeKey {
         NodeKey {
             warp_id: WarpId([seed; 32]),
@@ -1610,6 +1983,25 @@ mod tests {
             budget_posture: ReadingBudgetPosture::UnboundedOneShot,
             rights_posture: ReadingRightsPosture::KernelPublic,
             residual_posture: ReadingResidualPosture::Complete,
+        }
+    }
+
+    fn optic_capability(seed: u8, focus: OpticFocus) -> OpticCapability {
+        OpticCapability {
+            capability_id: capability(seed),
+            actor: actor(seed),
+            issuer_ref: Some(provenance(seed, 1)),
+            policy_hash: [seed.wrapping_add(2); 32],
+            allowed_focus: focus,
+            projection_version: ProjectionVersion::from_raw(1),
+            reducer_version: None,
+            allowed_intent_family: intent_family(seed),
+            max_budget: OpticReadBudget {
+                max_bytes: Some(4096),
+                max_nodes: Some(128),
+                max_ticks: Some(8),
+                max_attachments: Some(0),
+            },
         }
     }
 
@@ -2098,5 +2490,99 @@ mod tests {
             outcomes[4].to_abi(),
             echo_wasm_abi::kernel_port::IntentDispatchResult::Obstructed(_)
         ));
+    }
+
+    #[test]
+    fn open_optic_request_validates_descriptor_without_mutable_handle() -> Result<(), String> {
+        let focus = worldline_focus();
+        let coordinate = frontier_coordinate();
+        let grant = optic_capability(11, focus.clone());
+        let request = OpenOpticRequest {
+            focus: focus.clone(),
+            coordinate: coordinate.clone(),
+            projection_version: ProjectionVersion::from_raw(1),
+            reducer_version: None,
+            intent_family: intent_family(11),
+            capability: grant,
+            cause: cause(11),
+        };
+
+        let result = request
+            .validate_descriptor()
+            .map_err(|error| format!("expected valid optic descriptor, got {error:?}"))?;
+
+        assert_eq!(
+            result.optic,
+            EchoOptic::new(
+                focus,
+                coordinate,
+                ProjectionVersion::from_raw(1),
+                None,
+                intent_family(11),
+                capability(11),
+            )
+        );
+        assert_eq!(
+            result.capability_posture,
+            CapabilityPosture::Granted {
+                capability_id: capability(11),
+                actor: actor(11),
+                issuer_ref: Some(provenance(11, 1)),
+                policy_hash: [13; 32],
+            }
+        );
+        assert_eq!(result.to_abi().optic, result.optic.to_abi());
+
+        Ok(())
+    }
+
+    #[test]
+    fn open_optic_denied_capability_returns_typed_obstruction() -> Result<(), String> {
+        let request = OpenOpticRequest {
+            focus: worldline_focus(),
+            coordinate: frontier_coordinate(),
+            projection_version: ProjectionVersion::from_raw(1),
+            reducer_version: None,
+            intent_family: intent_family(12),
+            capability: optic_capability(
+                12,
+                OpticFocus::Strand {
+                    strand_id: strand(2),
+                },
+            ),
+            cause: cause(12),
+        };
+
+        let error = match request.validate_descriptor() {
+            Ok(result) => return Err(format!("expected capability denial, got {result:?}")),
+            Err(error) => error,
+        };
+        let OpticOpenError::Obstructed(obstruction) = error;
+
+        assert_eq!(obstruction.kind, OpticObstructionKind::CapabilityDenied);
+        assert_eq!(obstruction.optic_id, None);
+        assert_eq!(obstruction.focus, Some(worldline_focus()));
+        assert_eq!(obstruction.coordinate, Some(frontier_coordinate()));
+
+        Ok(())
+    }
+
+    #[test]
+    fn close_optic_releases_only_session_descriptor_resource() {
+        let optic_id = OpticId::from_bytes([9; 32]);
+        let request = CloseOpticRequest {
+            optic_id,
+            cause: cause(9),
+        };
+
+        let result = request.close_session_descriptor();
+
+        assert_eq!(result, CloseOpticResult { optic_id });
+        assert_eq!(
+            result.to_abi(),
+            echo_wasm_abi::kernel_port::CloseOpticResult {
+                optic_id: optic_id_to_abi(optic_id),
+            }
+        );
     }
 }

@@ -3,7 +3,7 @@
 
 # Echo Optics Open And Close Models
 
-Status: visible task card.
+Status: complete.
 
 Depends on:
 

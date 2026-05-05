@@ -27,6 +27,13 @@ fn help_shows_all_subcommands() {
 }
 
 #[test]
+fn help_matches_golden() {
+    let assert = echo_cli().arg("--help").assert().success();
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    assert_eq!(stdout, include_str!("golden/echo-cli-help.txt"));
+}
+
+#[test]
 fn verify_help_lists_snapshot_arg() {
     echo_cli()
         .args(["verify", "--help"])

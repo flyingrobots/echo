@@ -119,6 +119,12 @@ mod tests {
     }
 
     #[test]
+    fn invalid_format_is_error() {
+        let result = Cli::try_parse_from(["echo-cli", "--format", "yaml", "bench"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn parse_bench_no_filter() {
         let cli = Cli::try_parse_from(["echo-cli", "bench"]).unwrap();
         match cli.command {

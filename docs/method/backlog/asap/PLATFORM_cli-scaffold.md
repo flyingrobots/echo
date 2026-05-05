@@ -8,20 +8,30 @@
 Subcommand structure and ergonomic defaults for the current clap-based
 `echo-cli`.
 
-Status: partially implemented. `crates/warp-cli/src/cli.rs` and `main.rs`
-already provide the clap subcommand shell for `verify`, `bench`, and `inspect`,
-the global `--format` flag, and the `echo-cli` binary name. The remaining active
-work is narrower: revalidate whether `--verbose` and `--snapshot-dir` are still
-wanted as global flags, then implement config-file defaults and shell
-completions if they remain part of the CLI surface.
+Status: T-6-1-1 complete; T-6-1-2 remains planned. `crates/warp-cli/src/cli.rs`
+and `main.rs` provide the clap subcommand shell for `verify`, `bench`, and
+`inspect`, the global `--format` flag, and the `echo-cli` binary name.
+`--verbose` and `--snapshot-dir` are not part of the current global surface:
+current subcommands take explicit paths, and verbosity/config defaults belong
+to T-6-1-2 if they are still wanted.
 
 ## T-6-1-1: clap subcommand structure and global flags
 
-Implementation status: mostly complete. `clap`, the subcommand enum, binary
-name, no-subcommand error path, unknown-subcommand error path, and global
-`--format` parsing are implemented and tested. `--verbose` and `--snapshot-dir`
-are not implemented and should be revalidated before adding them because the
-current subcommands take explicit paths.
+Status: complete.
+
+Implementation status: complete. `clap`, the subcommand enum, binary name,
+no-subcommand error path, unknown-subcommand error path, global `--format`
+parsing, invalid-format rejection, and the checked-in top-level help golden are
+implemented and tested.
+
+Completion evidence:
+
+- Added `crates/warp-cli/tests/golden/echo-cli-help.txt`.
+- Added an integration test that locks `echo-cli --help` to the golden output.
+- Added parser coverage for invalid `--format` values.
+- Revalidated `--verbose` and `--snapshot-dir` as non-goals for T-6-1-1 because
+  the current command surface has explicit command paths and no shared
+  verbosity behavior.
 
 **User Story:** As a developer, I want a well-structured CLI with `echo verify|bench|inspect` subcommands so that I can interact with Echo from the terminal.
 
@@ -29,7 +39,7 @@ current subcommands take explicit paths.
 
 - R1: Add `clap = { version = "4", features = ["derive"] }` dependency to warp-cli.
 - R2: Define top-level `Cli` struct with `#[command(subcommand)]` and variants: `Verify`, `Bench`, `Inspect`.
-- R3: Global flags: `--format [text|json]` is implemented; `--verbose` and `--snapshot-dir <path>` are candidate residual flags that need a current-use check before implementation.
+- R3: Global flags: `--format [text|json]` is implemented; `--verbose` and `--snapshot-dir <path>` are deferred unless T-6-1-2 proves a current global use.
 - R4: Running `echo` with no subcommand prints help. Unknown subcommands print error + help.
 - R5: Binary name is `echo-cli` (avoid collision with `/bin/echo`).
 
@@ -42,9 +52,9 @@ current subcommands take explicit paths.
 
 **Definition of Done:**
 
-- [ ] Code reviewed and merged
-- [ ] Tests pass (CI green)
-- [ ] Documentation updated (if applicable)
+- [x] Code reviewed locally
+- [x] Tests pass locally
+- [x] Documentation updated
 
 **Scope:** clap setup, subcommand enum, global flags, help text, binary name.
 **Out of Scope:** Subcommand implementations (separate tasks). Config file parsing. Shell completions.

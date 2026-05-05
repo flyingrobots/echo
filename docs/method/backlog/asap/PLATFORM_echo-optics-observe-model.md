@@ -3,7 +3,7 @@
 
 # Echo Optics Observe Model
 
-Status: visible task card.
+Status: complete.
 
 Depends on:
 

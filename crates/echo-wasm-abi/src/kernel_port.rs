@@ -26,6 +26,7 @@
 
 extern crate alloc;
 
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
@@ -818,6 +819,25 @@ pub struct RetainedReadingDescriptor {
     pub byte_len: u64,
 }
 
+/// Bounded read request through an Echo optic.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ObserveOpticRequest {
+    /// Optic being observed.
+    pub optic_id: OpticId,
+    /// Focus being observed.
+    pub focus: OpticFocus,
+    /// Explicit causal coordinate for the read.
+    pub coordinate: EchoCoordinate,
+    /// Bounded aperture selected by the read.
+    pub aperture: OpticAperture,
+    /// Projection law version requested by the read.
+    pub projection_version: ProjectionVersion,
+    /// Reducer law version requested by the read, when present.
+    pub reducer_version: Option<ReducerVersion>,
+    /// Capability basis for the read.
+    pub capability: OpticCapabilityId,
+}
+
 /// Deterministic reason an optic read or dispatch could not lawfully proceed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1088,6 +1108,29 @@ pub struct CloseOpticResult {
 pub enum OpticCloseError {
     /// Closing failed with a typed obstruction.
     Obstructed(OpticObstruction),
+}
+
+/// Successful bounded reading returned through an optic.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpticReading {
+    /// Reading-envelope metadata.
+    pub envelope: ReadingEnvelope,
+    /// Stable read identity for the question this reading answered.
+    pub read_identity: ReadIdentity,
+    /// Observation payload emitted by the observer.
+    pub payload: ObservationPayload,
+    /// Retained reading key, when the payload was retained.
+    pub retained: Option<RetainedReadingKey>,
+}
+
+/// Result of observing an optic.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum ObserveOpticResult {
+    /// The optic emitted a bounded reading.
+    Reading(Box<OpticReading>),
+    /// The optic could not lawfully emit a reading.
+    Obstructed(Box<OpticObstruction>),
 }
 
 /// Coordinate selector for an observation request.

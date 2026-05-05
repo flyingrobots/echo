@@ -10,8 +10,8 @@ use crate::clock::WorldlineTick;
 use crate::ident::{EdgeKey, Hash, NodeKey, TypeId, WarpId};
 use crate::materialization::ChannelId;
 use crate::observation::{
-    ReadingBudgetPosture, ReadingEnvelope, ReadingResidualPosture, ReadingRightsPosture,
-    ReadingWitnessRef,
+    ObservationPayload, ReadingBudgetPosture, ReadingEnvelope, ReadingResidualPosture,
+    ReadingRightsPosture, ReadingWitnessRef,
 };
 use crate::provenance_store::ProvenanceRef;
 use crate::strand::StrandId;
@@ -984,6 +984,92 @@ impl RetainedReadingDescriptor {
             content_hash: self.content_hash.to_vec(),
             codec_id: retained_reading_codec_id_to_abi(self.codec_id),
             byte_len: self.byte_len,
+        }
+    }
+}
+
+/// Bounded read request through an Echo optic.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct ObserveOpticRequest {
+    /// Optic being observed.
+    pub optic_id: OpticId,
+    /// Focus being observed.
+    pub focus: OpticFocus,
+    /// Explicit causal coordinate for the read.
+    pub coordinate: EchoCoordinate,
+    /// Bounded aperture selected by the read.
+    pub aperture: OpticAperture,
+    /// Projection law version requested by the read.
+    pub projection_version: ProjectionVersion,
+    /// Reducer law version requested by the read, when present.
+    pub reducer_version: Option<ReducerVersion>,
+    /// Capability basis for the read.
+    pub capability: OpticCapabilityId,
+}
+
+impl ObserveOpticRequest {
+    /// Converts the request to the shared ABI DTO.
+    #[must_use]
+    pub fn to_abi(&self) -> abi::ObserveOpticRequest {
+        abi::ObserveOpticRequest {
+            optic_id: optic_id_to_abi(self.optic_id),
+            focus: self.focus.to_abi(),
+            coordinate: self.coordinate.to_abi(),
+            aperture: self.aperture.to_abi(),
+            projection_version: self.projection_version.to_abi(),
+            reducer_version: self.reducer_version.map(ReducerVersion::to_abi),
+            capability: optic_capability_id_to_abi(self.capability),
+        }
+    }
+}
+
+/// Successful bounded reading returned through an optic.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct OpticReading {
+    /// Reading-envelope metadata.
+    pub envelope: ReadingEnvelope,
+    /// Stable read identity for the question this reading answered.
+    pub read_identity: ReadIdentity,
+    /// Observation payload emitted by the observer.
+    pub payload: ObservationPayload,
+    /// Retained reading key, when the payload was retained.
+    pub retained: Option<RetainedReadingKey>,
+}
+
+impl OpticReading {
+    /// Converts the reading to the shared ABI DTO.
+    #[must_use]
+    pub fn to_abi(&self) -> abi::OpticReading {
+        abi::OpticReading {
+            envelope: self.envelope.to_abi(),
+            read_identity: self.read_identity.to_abi(),
+            payload: self.payload.to_abi(),
+            retained: self.retained.map(retained_reading_key_to_abi),
+        }
+    }
+}
+
+/// Result of observing an optic.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum ObserveOpticResult {
+    /// The optic emitted a bounded reading.
+    Reading(Box<OpticReading>),
+    /// The optic could not lawfully emit a reading.
+    Obstructed(Box<OpticObstruction>),
+}
+
+impl ObserveOpticResult {
+    /// Converts the result to the shared ABI DTO.
+    #[must_use]
+    pub fn to_abi(&self) -> abi::ObserveOpticResult {
+        match self {
+            Self::Reading(reading) => abi::ObserveOpticResult::Reading(Box::new(reading.to_abi())),
+            Self::Obstructed(obstruction) => {
+                abi::ObserveOpticResult::Obstructed(Box::new(obstruction.to_abi()))
+            }
         }
     }
 }

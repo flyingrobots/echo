@@ -23,6 +23,11 @@ use crate::coordinator::WorldlineRuntime;
 use crate::engine_impl::Engine;
 use crate::ident::Hash;
 use crate::materialization::ChannelId;
+use crate::optic::{
+    CoordinateAt, EchoCoordinate, MissingWitnessBasisReason, ObserveOpticRequest,
+    ObserveOpticResult, OpticApertureShape, OpticFocus, OpticObstruction, OpticObstructionKind,
+    OpticReading, ReadIdentity, WitnessBasis,
+};
 use crate::provenance_store::{ProvenanceRef, ProvenanceService, ProvenanceStore};
 use crate::snapshot::Snapshot;
 use crate::strand::{StrandId, StrandRevalidationState};
@@ -31,6 +36,8 @@ use crate::worldline::WorldlineId;
 
 const OBSERVATION_VERSION: u32 = 2;
 const OBSERVATION_ARTIFACT_DOMAIN: &[u8] = b"echo:observation-artifact:v2\0";
+const OPTIC_OBSERVATION_WITNESS_SET_DOMAIN: &[u8] = b"echo:optic-observation-witness-set:v1\0";
+const OPTIC_METADATA_APERTURE_MIN_BYTES: u64 = 128;
 
 /// Coordinate selector for an observation request.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -562,7 +569,7 @@ pub enum ObservationPayload {
 }
 
 impl ObservationPayload {
-    fn to_abi(&self) -> abi::ObservationPayload {
+    pub(crate) fn to_abi(&self) -> abi::ObservationPayload {
         match self {
             Self::Head(head) => abi::ObservationPayload::Head {
                 head: head.to_abi(),
@@ -750,6 +757,258 @@ impl ObservationService {
             artifact_hash,
             payload,
         })
+    }
+
+    /// Observe a worldline through a bounded optic request.
+    ///
+    /// This is the first narrow bridge from optics into the existing
+    /// observation path. It supports commit-boundary head and snapshot
+    /// apertures and returns typed obstructions for unsupported or unbounded
+    /// reads instead of widening the read behind the caller's back.
+    pub fn observe_optic(
+        runtime: &WorldlineRuntime,
+        provenance: &ProvenanceService,
+        engine: &Engine,
+        request: ObserveOpticRequest,
+    ) -> ObserveOpticResult {
+        match Self::observe_optic_inner(runtime, provenance, engine, &request) {
+            Ok(reading) => ObserveOpticResult::Reading(Box::new(reading)),
+            Err(obstruction) => ObserveOpticResult::Obstructed(obstruction),
+        }
+    }
+
+    fn observe_optic_inner(
+        runtime: &WorldlineRuntime,
+        provenance: &ProvenanceService,
+        engine: &Engine,
+        request: &ObserveOpticRequest,
+    ) -> Result<OpticReading, Box<OpticObstruction>> {
+        Self::validate_optic_budget(request)?;
+        let observation_request = Self::optic_observation_request(request)?;
+        let artifact = Self::observe(runtime, provenance, engine, observation_request)
+            .map_err(|err| Self::optic_observation_error(request, err))?;
+        let witness_basis = Self::optic_witness_basis(&artifact);
+        let read_identity = ReadIdentity::new(
+            request.optic_id,
+            &request.focus,
+            request.coordinate.clone(),
+            &request.aperture,
+            request.projection_version,
+            request.reducer_version,
+            witness_basis,
+            artifact.reading.rights_posture,
+            artifact.reading.budget_posture,
+            artifact.reading.residual_posture,
+        );
+
+        Ok(OpticReading {
+            envelope: artifact.reading,
+            read_identity,
+            payload: artifact.payload,
+            retained: None,
+        })
+    }
+
+    fn validate_optic_budget(request: &ObserveOpticRequest) -> Result<(), Box<OpticObstruction>> {
+        let Some(max_bytes) = request.aperture.budget.max_bytes else {
+            return Err(Self::optic_obstruction(
+                request,
+                OpticObstructionKind::BudgetExceeded,
+                Some(WitnessBasis::Missing {
+                    reason: MissingWitnessBasisReason::BudgetLimited,
+                }),
+                "optic reads must declare a byte budget",
+            ));
+        };
+        if max_bytes == 0 {
+            return Err(Self::optic_obstruction(
+                request,
+                OpticObstructionKind::BudgetExceeded,
+                Some(WitnessBasis::Missing {
+                    reason: MissingWitnessBasisReason::BudgetLimited,
+                }),
+                "optic byte budget is zero",
+            ));
+        }
+
+        match &request.aperture.shape {
+            OpticApertureShape::Head | OpticApertureShape::SnapshotMetadata
+                if max_bytes < OPTIC_METADATA_APERTURE_MIN_BYTES =>
+            {
+                Err(Self::optic_obstruction(
+                    request,
+                    OpticObstructionKind::BudgetExceeded,
+                    Some(WitnessBasis::Missing {
+                        reason: MissingWitnessBasisReason::BudgetLimited,
+                    }),
+                    "optic metadata aperture exceeds the declared byte budget",
+                ))
+            }
+            OpticApertureShape::ByteRange { len, .. } if *len > max_bytes => {
+                Err(Self::optic_obstruction(
+                    request,
+                    OpticObstructionKind::BudgetExceeded,
+                    Some(WitnessBasis::Missing {
+                        reason: MissingWitnessBasisReason::BudgetLimited,
+                    }),
+                    "optic byte-range aperture exceeds the declared byte budget",
+                ))
+            }
+            _ => Ok(()),
+        }
+    }
+
+    fn optic_observation_request(
+        request: &ObserveOpticRequest,
+    ) -> Result<ObservationRequest, Box<OpticObstruction>> {
+        let (
+            OpticFocus::Worldline {
+                worldline_id: focus_worldline,
+            },
+            EchoCoordinate::Worldline { worldline_id, at },
+        ) = (&request.focus, &request.coordinate)
+        else {
+            return Err(Self::optic_obstruction(
+                request,
+                OpticObstructionKind::UnsupportedProjectionLaw,
+                None,
+                "observe_optic currently supports worldline coordinates only",
+            ));
+        };
+
+        if focus_worldline != worldline_id {
+            return Err(Self::optic_obstruction(
+                request,
+                OpticObstructionKind::ConflictingFrontier,
+                None,
+                "optic focus and coordinate name different worldlines",
+            ));
+        }
+
+        let at = Self::optic_coordinate_at(request, *worldline_id, *at)?;
+        let (frame, projection) = match &request.aperture.shape {
+            OpticApertureShape::Head => (
+                ObservationFrame::CommitBoundary,
+                ObservationProjection::Head,
+            ),
+            OpticApertureShape::SnapshotMetadata => (
+                ObservationFrame::CommitBoundary,
+                ObservationProjection::Snapshot,
+            ),
+            OpticApertureShape::QueryBytes { .. } => {
+                return Err(Self::optic_obstruction(
+                    request,
+                    OpticObstructionKind::UnsupportedProjectionLaw,
+                    None,
+                    "contract QueryView optics are not installed yet",
+                ));
+            }
+            _ => {
+                return Err(Self::optic_obstruction(
+                    request,
+                    OpticObstructionKind::UnsupportedAperture,
+                    None,
+                    "this optic aperture is not supported by the observation bridge",
+                ));
+            }
+        };
+
+        Ok(ObservationRequest {
+            coordinate: ObservationCoordinate {
+                worldline_id: *worldline_id,
+                at,
+            },
+            frame,
+            projection,
+        })
+    }
+
+    fn optic_coordinate_at(
+        request: &ObserveOpticRequest,
+        worldline_id: WorldlineId,
+        at: CoordinateAt,
+    ) -> Result<ObservationAt, Box<OpticObstruction>> {
+        match at {
+            CoordinateAt::Frontier => Ok(ObservationAt::Frontier),
+            CoordinateAt::Tick(tick) => Ok(ObservationAt::Tick(tick)),
+            CoordinateAt::Provenance(reference) if reference.worldline_id == worldline_id => {
+                Ok(ObservationAt::Tick(reference.worldline_tick))
+            }
+            CoordinateAt::Provenance(_) => Err(Self::optic_obstruction(
+                request,
+                OpticObstructionKind::ConflictingFrontier,
+                None,
+                "provenance coordinate belongs to a different worldline",
+            )),
+        }
+    }
+
+    fn optic_observation_error(
+        request: &ObserveOpticRequest,
+        error: ObservationError,
+    ) -> Box<OpticObstruction> {
+        match error {
+            ObservationError::InvalidWorldline(_)
+            | ObservationError::InvalidTick { .. }
+            | ObservationError::ObservationUnavailable { .. } => Self::optic_obstruction(
+                request,
+                OpticObstructionKind::MissingWitness,
+                Some(WitnessBasis::Missing {
+                    reason: MissingWitnessBasisReason::EvidenceUnavailable,
+                }),
+                "required observation witness evidence is unavailable",
+            ),
+            ObservationError::UnsupportedFrameProjection { .. } => Self::optic_obstruction(
+                request,
+                OpticObstructionKind::UnsupportedAperture,
+                None,
+                "unsupported optic frame/projection pairing",
+            ),
+            ObservationError::UnsupportedQuery => Self::optic_obstruction(
+                request,
+                OpticObstructionKind::UnsupportedProjectionLaw,
+                None,
+                "contract QueryView optics are not installed yet",
+            ),
+            ObservationError::CodecFailure(_) => Self::optic_obstruction(
+                request,
+                OpticObstructionKind::MissingWitness,
+                Some(WitnessBasis::Missing {
+                    reason: MissingWitnessBasisReason::EvidenceUnavailable,
+                }),
+                "observation artifact could not be encoded as witness evidence",
+            ),
+        }
+    }
+
+    fn optic_obstruction(
+        request: &ObserveOpticRequest,
+        kind: OpticObstructionKind,
+        witness_basis: Option<WitnessBasis>,
+        message: &str,
+    ) -> Box<OpticObstruction> {
+        Box::new(OpticObstruction {
+            kind,
+            optic_id: Some(request.optic_id),
+            focus: Some(request.focus.clone()),
+            coordinate: Some(request.coordinate.clone()),
+            witness_basis,
+            message: message.to_owned(),
+        })
+    }
+
+    fn optic_witness_basis(artifact: &ObservationArtifact) -> WitnessBasis {
+        match artifact.reading.witness_refs.as_slice() {
+            [ReadingWitnessRef::ResolvedCommit { reference }] => WitnessBasis::ResolvedCommit {
+                reference: *reference,
+                state_root: artifact.resolved.state_root,
+                commit_hash: artifact.resolved.commit_hash,
+            },
+            refs => WitnessBasis::WitnessSet {
+                refs: refs.to_vec(),
+                witness_set_hash: optic_witness_refs_hash(refs),
+            },
+        }
     }
 
     fn validate_frame_projection(
@@ -1069,6 +1328,37 @@ fn overlap_slots_digest(slots: &[SlotId]) -> Hash {
     hasher.finalize().into()
 }
 
+fn optic_witness_refs_hash(refs: &[ReadingWitnessRef]) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(OPTIC_OBSERVATION_WITNESS_SET_DOMAIN);
+    hasher.update(&(refs.len() as u64).to_le_bytes());
+    for reference in refs {
+        match reference {
+            ReadingWitnessRef::ResolvedCommit { reference } => {
+                hasher.update(&[1]);
+                hash_provenance_ref(&mut hasher, *reference);
+            }
+            ReadingWitnessRef::EmptyFrontier {
+                worldline_id,
+                state_root,
+                commit_hash,
+            } => {
+                hasher.update(&[2]);
+                hasher.update(worldline_id.as_bytes());
+                hasher.update(state_root);
+                hasher.update(commit_hash);
+            }
+        }
+    }
+    hasher.finalize().into()
+}
+
+fn hash_provenance_ref(hasher: &mut Hasher, reference: ProvenanceRef) {
+    hasher.update(reference.worldline_id.as_bytes());
+    hasher.update(&reference.worldline_tick.as_u64().to_le_bytes());
+    hasher.update(&reference.commit_hash);
+}
+
 fn hash_slot(hasher: &mut Hasher, slot: &SlotId) {
     match slot {
         SlotId::Node(node) => {
@@ -1125,6 +1415,12 @@ mod tests {
     use crate::head_inbox::{make_intent_kind, InboxPolicy, IngressEnvelope, IngressTarget};
     use crate::ident::{make_edge_id, make_node_id, make_type_id, WarpId};
     use crate::materialization::make_channel_id;
+    use crate::optic::{
+        AttachmentDescentPolicy, CoordinateAt, EchoCoordinate, MissingWitnessBasisReason,
+        ObserveOpticRequest, ObserveOpticResult, OpticAperture, OpticApertureShape,
+        OpticCapabilityId, OpticFocus, OpticId, OpticObstructionKind, OpticReadBudget,
+        ProjectionVersion, WitnessBasis,
+    };
     use crate::provenance_store::replay_artifacts_for_entry;
     use crate::receipt::TickReceipt;
     use crate::record::{EdgeRecord, NodeRecord};
@@ -1147,6 +1443,34 @@ mod tests {
 
     fn gt(raw: u64) -> GlobalTick {
         GlobalTick::from_raw(raw)
+    }
+
+    fn optic_request(
+        worldline_id: WorldlineId,
+        shape: OpticApertureShape,
+        max_bytes: Option<u64>,
+    ) -> ObserveOpticRequest {
+        ObserveOpticRequest {
+            optic_id: OpticId::from_bytes([70; 32]),
+            focus: OpticFocus::Worldline { worldline_id },
+            coordinate: EchoCoordinate::Worldline {
+                worldline_id,
+                at: CoordinateAt::Frontier,
+            },
+            aperture: OpticAperture {
+                shape,
+                budget: OpticReadBudget {
+                    max_bytes,
+                    max_nodes: Some(8),
+                    max_ticks: Some(1),
+                    max_attachments: Some(0),
+                },
+                attachment_descent: AttachmentDescentPolicy::BoundaryOnly,
+            },
+            projection_version: ProjectionVersion::from_raw(1),
+            reducer_version: None,
+            capability: OpticCapabilityId::from_bytes([71; 32]),
+        }
     }
 
     fn empty_runtime_fixture() -> (Engine, WorldlineRuntime, ProvenanceService, WorldlineId) {
@@ -1727,6 +2051,100 @@ mod tests {
             artifact.to_abi().reading.residual_posture,
             abi::ReadingResidualPosture::Complete
         );
+    }
+
+    #[test]
+    fn bounded_head_optic_returns_read_identity() -> Result<(), String> {
+        let (engine, runtime, provenance, worldline_id) = one_commit_fixture();
+        let request = optic_request(worldline_id, OpticApertureShape::Head, Some(256));
+        let reading = match ObservationService::observe_optic(
+            &runtime,
+            &provenance,
+            &engine,
+            request.clone(),
+        ) {
+            ObserveOpticResult::Reading(reading) => reading,
+            ObserveOpticResult::Obstructed(obstruction) => {
+                return Err(format!("expected optic reading, got {obstruction:?}"));
+            }
+        };
+
+        assert_eq!(reading.read_identity.optic_id, request.optic_id);
+        assert_eq!(reading.read_identity.coordinate, request.coordinate);
+        assert_eq!(
+            reading.read_identity.aperture_digest,
+            request.aperture.digest()
+        );
+        assert!(matches!(
+            reading.read_identity.witness_basis,
+            WitnessBasis::ResolvedCommit { .. }
+        ));
+        assert!(matches!(reading.payload, ObservationPayload::Head(_)));
+        assert_eq!(reading.retained, None);
+        assert_eq!(
+            reading.to_abi().read_identity.read_identity_hash,
+            reading.read_identity.read_identity_hash.to_vec()
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn bounded_snapshot_optic_returns_read_identity() -> Result<(), String> {
+        let (engine, runtime, provenance, worldline_id) = one_commit_fixture();
+        let request = optic_request(
+            worldline_id,
+            OpticApertureShape::SnapshotMetadata,
+            Some(256),
+        );
+        let reading = match ObservationService::observe_optic(
+            &runtime,
+            &provenance,
+            &engine,
+            request.clone(),
+        ) {
+            ObserveOpticResult::Reading(reading) => reading,
+            ObserveOpticResult::Obstructed(obstruction) => {
+                return Err(format!("expected optic reading, got {obstruction:?}"));
+            }
+        };
+
+        assert_eq!(reading.read_identity.optic_id, request.optic_id);
+        assert_eq!(reading.read_identity.focus_digest, request.focus.digest());
+        assert!(matches!(reading.payload, ObservationPayload::Snapshot(_)));
+        assert!(matches!(
+            reading.read_identity.witness_basis,
+            WitnessBasis::ResolvedCommit { .. }
+        ));
+
+        Ok(())
+    }
+
+    #[test]
+    fn oversized_optic_aperture_returns_budget_obstruction() {
+        let (engine, runtime, provenance, worldline_id) = one_commit_fixture();
+        let request = optic_request(
+            worldline_id,
+            OpticApertureShape::ByteRange {
+                start: 0,
+                len: 4096,
+            },
+            Some(1024),
+        );
+
+        let result = ObservationService::observe_optic(&runtime, &provenance, &engine, request);
+
+        assert!(matches!(
+            result,
+            ObserveOpticResult::Obstructed(ref obstruction)
+                if obstruction.kind == OpticObstructionKind::BudgetExceeded
+                    && matches!(
+                        obstruction.witness_basis,
+                        Some(WitnessBasis::Missing {
+                            reason: MissingWitnessBasisReason::BudgetLimited,
+                        })
+                    )
+        ));
     }
 
     #[test]

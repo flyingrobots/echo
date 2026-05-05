@@ -654,9 +654,9 @@ mod tests {
     #[test]
     fn test_optic_core_dtos_round_trip() {
         use crate::kernel_port::{
-            AttachmentDescentPolicy, BraidId, EchoCoordinate, EchoOptic, OpticAperture,
-            OpticApertureShape, OpticCapabilityId, OpticFocus, OpticId, OpticReadBudget,
-            ProjectionVersion, ReducerVersion, RetainedReadingKey, WorldlineId,
+            AttachmentDescentPolicy, BraidId, EchoCoordinate, EchoOptic, ObserveOpticRequest,
+            OpticAperture, OpticApertureShape, OpticCapabilityId, OpticFocus, OpticId,
+            OpticReadBudget, ProjectionVersion, ReducerVersion, RetainedReadingKey, WorldlineId,
         };
 
         let optic = EchoOptic {
@@ -693,6 +693,18 @@ mod tests {
         let decoded: OpticAperture = decode_cbor(&encode_cbor(&aperture).unwrap()).unwrap();
         assert_eq!(decoded, aperture);
 
+        let observe = ObserveOpticRequest {
+            optic_id: optic.optic_id,
+            focus: optic.focus.clone(),
+            coordinate: optic.coordinate.clone(),
+            aperture,
+            projection_version: optic.projection_version,
+            reducer_version: optic.reducer_version,
+            capability: optic.capability,
+        };
+        let decoded: ObserveOpticRequest = decode_cbor(&encode_cbor(&observe).unwrap()).unwrap();
+        assert_eq!(decoded, observe);
+
         let focus = OpticFocus::Worldline {
             worldline_id: WorldlineId::from_bytes([8; 32]),
         };
@@ -704,12 +716,14 @@ mod tests {
     fn test_optic_read_identity_round_trip() {
         use crate::kernel_port::{
             BuiltinObserverPlan, EchoCoordinate, MissingWitnessBasisReason,
-            ObservationBasisPosture, OpticId, OpticReadingEnvelope, ProjectionVersion,
-            ReadIdentity, ReadingBudgetPosture, ReadingEnvelope, ReadingObserverBasis,
-            ReadingObserverPlan, ReadingResidualPosture, ReadingRightsPosture, ReadingWitnessRef,
-            RetainedReadingCodecId, RetainedReadingDescriptor, RetainedReadingKey, WitnessBasis,
-            WorldlineId, WorldlineTick,
+            ObservationBasisPosture, ObservationPayload, ObserveOpticResult, OpticId, OpticReading,
+            OpticReadingEnvelope, ProjectionVersion, ReadIdentity, ReadingBudgetPosture,
+            ReadingEnvelope, ReadingObserverBasis, ReadingObserverPlan, ReadingResidualPosture,
+            ReadingRightsPosture, ReadingWitnessRef, RetainedReadingCodecId,
+            RetainedReadingDescriptor, RetainedReadingKey, WitnessBasis, WorldlineId,
+            WorldlineTick,
         };
+        use alloc::boxed::Box;
 
         let reference = crate::kernel_port::ProvenanceRef {
             worldline_id: WorldlineId::from_bytes([1; 32]),
@@ -751,6 +765,16 @@ mod tests {
 
         let decoded: OpticReadingEnvelope = decode_cbor(&encode_cbor(&envelope).unwrap()).unwrap();
         assert_eq!(decoded, envelope);
+
+        let optic_result = ObserveOpticResult::Reading(Box::new(OpticReading {
+            envelope: envelope.reading.clone(),
+            read_identity: envelope.read_identity.clone(),
+            payload: ObservationPayload::QueryBytes { data: vec![12, 13] },
+            retained: Some(RetainedReadingKey::from_bytes([9; 32])),
+        }));
+        let decoded: ObserveOpticResult =
+            decode_cbor(&encode_cbor(&optic_result).unwrap()).unwrap();
+        assert_eq!(decoded, optic_result);
 
         let retained = RetainedReadingDescriptor {
             key: RetainedReadingKey::from_bytes([9; 32]),

@@ -390,7 +390,7 @@
 <!-- M019 -->
 <g id="node19" class="node">
 <title>M019</title>
-<g id="a_node19"><a xlink:title="M019 [asap] blocked; blockers=2; &#160;Echo Optics ABI DTOs">
+<g id="a_node19"><a xlink:title="M019 [asap] blocked; blockers=1; &#160;Echo Optics ABI DTOs">
 <path fill="#fff3bf" stroke="#b08900" stroke-width="1.2" d="M1161.75,-3598C1161.75,-3598 1069.23,-3598 1069.23,-3598 1063.23,-3598 1057.23,-3592 1057.23,-3586 1057.23,-3586 1057.23,-3574 1057.23,-3574 1057.23,-3568 1063.23,-3562 1069.23,-3562 1069.23,-3562 1161.75,-3562 1161.75,-3562 1167.75,-3562 1173.75,-3568 1173.75,-3574 1173.75,-3574 1173.75,-3586 1173.75,-3586 1173.75,-3592 1167.75,-3598 1161.75,-3598"/>
 <text xml:space="preserve" text-anchor="middle" x="1115.49" y="-3583.25" font-family="Inter, Helvetica, Arial" font-size="10.00">M019</text>
 <text xml:space="preserve" text-anchor="middle" x="1115.49" y="-3570.5" font-family="Inter, Helvetica, Arial" font-size="10.00">Echo Optics ABI DTOs</text>
@@ -400,7 +400,7 @@
 <!-- M026 -->
 <g id="node26" class="node">
 <title>M026</title>
-<g id="a_node26"><a xlink:title="M026 [asap] blocked; blockers=4; &#160;Echo Optics Example Implementation">
+<g id="a_node26"><a xlink:title="M026 [asap] blocked; blockers=3; &#160;Echo Optics Example Implementation">
 <path fill="#fff3bf" stroke="#b08900" stroke-width="1.2" d="M1339.39,-3554.45C1339.39,-3554.45 1252.12,-3554.45 1252.12,-3554.45 1246.12,-3554.45 1240.12,-3548.45 1240.12,-3542.45 1240.12,-3542.45 1240.12,-3519.55 1240.12,-3519.55 1240.12,-3513.55 1246.12,-3507.55 1252.12,-3507.55 1252.12,-3507.55 1339.39,-3507.55 1339.39,-3507.55 1345.39,-3507.55 1351.39,-3513.55 1351.39,-3519.55 1351.39,-3519.55 1351.39,-3542.45 1351.39,-3542.45 1351.39,-3548.45 1345.39,-3554.45 1339.39,-3554.45"/>
 <text xml:space="preserve" text-anchor="middle" x="1295.76" y="-3540.62" font-family="Inter, Helvetica, Arial" font-size="10.00">M026</text>
 <text xml:space="preserve" text-anchor="middle" x="1295.76" y="-3527.88" font-family="Inter, Helvetica, Arial" font-size="10.00">Echo Optics Example</text>
@@ -473,11 +473,12 @@
 <!-- M022 -->
 <g id="node22" class="node">
 <title>M022</title>
-<g id="a_node22"><a xlink:title="M022 [asap] blocked; blockers=1; &#160;Echo Optics Attachment Boundary Model">
-<path fill="#fff3bf" stroke="#b08900" stroke-width="1.2" d="M1166.25,-3412.45C1166.25,-3412.45 1064.73,-3412.45 1064.73,-3412.45 1058.73,-3412.45 1052.73,-3406.45 1052.73,-3400.45 1052.73,-3400.45 1052.73,-3377.55 1052.73,-3377.55 1052.73,-3371.55 1058.73,-3365.55 1064.73,-3365.55 1064.73,-3365.55 1166.25,-3365.55 1166.25,-3365.55 1172.25,-3365.55 1178.25,-3371.55 1178.25,-3377.55 1178.25,-3377.55 1178.25,-3400.45 1178.25,-3400.45 1178.25,-3406.45 1172.25,-3412.45 1166.25,-3412.45"/>
-<text xml:space="preserve" text-anchor="middle" x="1115.49" y="-3398.62" font-family="Inter, Helvetica, Arial" font-size="10.00">M022</text>
-<text xml:space="preserve" text-anchor="middle" x="1115.49" y="-3385.88" font-family="Inter, Helvetica, Arial" font-size="10.00">Echo Optics Attachment</text>
-<text xml:space="preserve" text-anchor="middle" x="1115.49" y="-3373.12" font-family="Inter, Helvetica, Arial" font-size="10.00">Boundary Model</text>
+<g id="a_node22"><a xlink:title="M022 [asap] open; blockers=0; &#160;Echo Optics Attachment Boundary Model">
+<path fill="#bbf7d0" stroke="#15803d" stroke-width="2.8" d="M1166.25,-3411.82C1166.25,-3411.82 1064.73,-3411.82 1064.73,-3411.82 1058.73,-3411.82 1052.73,-3405.82 1052.73,-3399.82 1052.73,-3399.82 1052.73,-3364.18 1052.73,-3364.18 1052.73,-3358.18 1058.73,-3352.18 1064.73,-3352.18 1064.73,-3352.18 1166.25,-3352.18 1166.25,-3352.18 1172.25,-3352.18 1178.25,-3358.18 1178.25,-3364.18 1178.25,-3364.18 1178.25,-3399.82 1178.25,-3399.82 1178.25,-3405.82 1172.25,-3411.82 1166.25,-3411.82"/>
+<text xml:space="preserve" text-anchor="middle" x="1115.49" y="-3398" font-family="Inter, Helvetica, Arial" font-size="10.00">M022</text>
+<text xml:space="preserve" text-anchor="middle" x="1115.49" y="-3385.25" font-family="Inter, Helvetica, Arial" font-size="10.00">OPEN</text>
+<text xml:space="preserve" text-anchor="middle" x="1115.49" y="-3372.5" font-family="Inter, Helvetica, Arial" font-size="10.00">Echo Optics Attachment</text>
+<text xml:space="preserve" text-anchor="middle" x="1115.49" y="-3359.75" font-family="Inter, Helvetica, Arial" font-size="10.00">Boundary Model</text>
 </a>
 </g>
 </g>
@@ -614,10 +615,10 @@
 <!-- M028 -->
 <g id="node28" class="node">
 <title>M028</title>
-<g id="a_node28"><a xlink:title="M028 [asap] open; blockers=0; &#160;Echo Optics Observe Model">
-<path fill="#bbf7d0" stroke="#15803d" stroke-width="2.8" d="M981.48,-3469.45C981.48,-3469.45 861.96,-3469.45 861.96,-3469.45 855.96,-3469.45 849.96,-3463.45 849.96,-3457.45 849.96,-3457.45 849.96,-3434.55 849.96,-3434.55 849.96,-3428.55 855.96,-3422.55 861.96,-3422.55 861.96,-3422.55 981.48,-3422.55 981.48,-3422.55 987.48,-3422.55 993.48,-3428.55 993.48,-3434.55 993.48,-3434.55 993.48,-3457.45 993.48,-3457.45 993.48,-3463.45 987.48,-3469.45 981.48,-3469.45"/>
+<g id="a_node28"><a xlink:title="M028 [asap] done; blockers=0; &#160;Echo Optics Observe Model">
+<path fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.4" d="M981.48,-3469.45C981.48,-3469.45 861.96,-3469.45 861.96,-3469.45 855.96,-3469.45 849.96,-3463.45 849.96,-3457.45 849.96,-3457.45 849.96,-3434.55 849.96,-3434.55 849.96,-3428.55 855.96,-3422.55 861.96,-3422.55 861.96,-3422.55 981.48,-3422.55 981.48,-3422.55 987.48,-3422.55 993.48,-3428.55 993.48,-3434.55 993.48,-3434.55 993.48,-3457.45 993.48,-3457.45 993.48,-3463.45 987.48,-3469.45 981.48,-3469.45"/>
 <text xml:space="preserve" text-anchor="middle" x="921.72" y="-3455.62" font-family="Inter, Helvetica, Arial" font-size="10.00">M028</text>
-<text xml:space="preserve" text-anchor="middle" x="921.72" y="-3442.88" font-family="Inter, Helvetica, Arial" font-size="10.00">OPEN</text>
+<text xml:space="preserve" text-anchor="middle" x="921.72" y="-3442.88" font-family="Inter, Helvetica, Arial" font-size="10.00">DONE</text>
 <text xml:space="preserve" text-anchor="middle" x="921.72" y="-3430.12" font-family="Inter, Helvetica, Arial" font-size="10.00">Echo Optics Observe Model</text>
 </a>
 </g>
@@ -625,20 +626,20 @@
 <!-- M028&#45;&gt;M019 -->
 <g id="edge26" class="edge">
 <title>M028&#45;&gt;M019</title>
-<path fill="none" stroke="#dc2626" stroke-width="2.6" d="M986.09,-3470.82C986.09,-3506.28 986.09,-3567.2 986.09,-3567.2 986.09,-3567.2 1044.91,-3567.2 1044.91,-3567.2"/>
-<polygon fill="#dc2626" stroke="#dc2626" stroke-width="2.6" points="1044.91,-3570.01 1052.91,-3567.21 1044.91,-3564.41 1044.91,-3570.01"/>
+<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M986.09,-3469.95C986.09,-3505.27 986.09,-3567.2 986.09,-3567.2 986.09,-3567.2 1050.83,-3567.2 1050.83,-3567.2"/>
+<polygon fill="#94a3b8" stroke="#94a3b8" points="1050.83,-3568.78 1055.33,-3567.21 1050.83,-3565.63 1050.83,-3568.78"/>
 </g>
 <!-- M028&#45;&gt;M022 -->
 <g id="edge27" class="edge">
 <title>M028&#45;&gt;M022</title>
-<path fill="none" stroke="#dc2626" stroke-width="2.6" d="M922.09,-3421.28C922.09,-3412.68 922.09,-3405.13 922.09,-3405.13 922.09,-3405.13 1040.23,-3405.13 1040.23,-3405.13"/>
-<polygon fill="#dc2626" stroke="#dc2626" stroke-width="2.6" points="1040.23,-3407.93 1048.23,-3405.13 1040.23,-3402.33 1040.23,-3407.93"/>
+<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M922.09,-3422.05C922.09,-3412.99 922.09,-3404.82 922.09,-3404.82 922.09,-3404.82 1045.34,-3404.82 1045.34,-3404.82"/>
+<polygon fill="#94a3b8" stroke="#94a3b8" points="1045.34,-3406.4 1049.84,-3404.82 1045.34,-3403.25 1045.34,-3406.4"/>
 </g>
 <!-- M028&#45;&gt;M026 -->
 <g id="edge28" class="edge">
 <title>M028&#45;&gt;M026</title>
-<path fill="none" stroke="#dc2626" stroke-width="2.6" d="M990.09,-3470.61C990.09,-3493.4 990.09,-3523.78 990.09,-3523.78 990.09,-3523.78 1227.76,-3523.78 1227.76,-3523.78"/>
-<polygon fill="#dc2626" stroke="#dc2626" stroke-width="2.6" points="1227.76,-3526.58 1235.76,-3523.78 1227.76,-3520.98 1227.76,-3526.58"/>
+<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M990.09,-3469.76C990.09,-3492.63 990.09,-3523.78 990.09,-3523.78 990.09,-3523.78 1233.68,-3523.78 1233.68,-3523.78"/>
+<polygon fill="#94a3b8" stroke="#94a3b8" points="1233.68,-3525.35 1238.18,-3523.78 1233.68,-3522.2 1233.68,-3525.35"/>
 </g>
 <!-- M029&#45;&gt;M019 -->
 <g id="edge29" class="edge">
@@ -667,8 +668,8 @@
 <!-- M030&#45;&gt;M028 -->
 <g id="edge33" class="edge">
 <title>M030&#45;&gt;M028</title>
-<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M790.06,-3480.82C823.32,-3480.82 855.09,-3480.82 855.09,-3480.82 855.09,-3480.82 855.09,-3476.57 855.09,-3476.57"/>
-<polygon fill="#94a3b8" stroke="#94a3b8" points="856.67,-3476.57 855.09,-3472.07 853.52,-3476.57 856.67,-3476.57"/>
+<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M790.06,-3480.82C823.32,-3480.82 855.09,-3480.82 855.09,-3480.82 855.09,-3480.82 855.09,-3475.81 855.09,-3475.81"/>
+<polygon fill="#94a3b8" stroke="#94a3b8" points="856.67,-3475.81 855.09,-3471.31 853.52,-3475.81 856.67,-3475.81"/>
 </g>
 <!-- M031&#45;&gt;M023 -->
 <g id="edge34" class="edge">
@@ -685,8 +686,8 @@
 <!-- M031&#45;&gt;M028 -->
 <g id="edge36" class="edge">
 <title>M031&#45;&gt;M028</title>
-<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M565.57,-3436.73C565.57,-3436.73 842.73,-3436.73 842.73,-3436.73"/>
-<polygon fill="#94a3b8" stroke="#94a3b8" points="842.73,-3438.31 847.23,-3436.73 842.73,-3435.16 842.73,-3438.31"/>
+<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M565.57,-3436.73C565.57,-3436.73 843.46,-3436.73 843.46,-3436.73"/>
+<polygon fill="#94a3b8" stroke="#94a3b8" points="843.46,-3438.31 847.96,-3436.73 843.46,-3435.16 843.46,-3438.31"/>
 </g>
 <!-- M033 -->
 <g id="node33" class="node">
@@ -727,8 +728,8 @@
 <!-- M033&#45;&gt;M028 -->
 <g id="edge41" class="edge">
 <title>M033&#45;&gt;M028</title>
-<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M715.09,-3388.38C715.09,-3407.91 715.09,-3429.64 715.09,-3429.64 715.09,-3429.64 842.56,-3429.64 842.56,-3429.64"/>
-<polygon fill="#94a3b8" stroke="#94a3b8" points="842.56,-3431.22 847.06,-3429.64 842.56,-3428.07 842.56,-3431.22"/>
+<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M715.09,-3388.38C715.09,-3407.91 715.09,-3429.64 715.09,-3429.64 715.09,-3429.64 843.43,-3429.64 843.43,-3429.64"/>
+<polygon fill="#94a3b8" stroke="#94a3b8" points="843.43,-3431.22 847.93,-3429.64 843.43,-3428.07 843.43,-3431.22"/>
 </g>
 <!-- M034&#45;&gt;M020 -->
 <g id="edge42" class="edge">

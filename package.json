@@ -4,7 +4,7 @@
   "type": "module",
   "packageManager": "pnpm@10.23.0",
   "engines": {
-    "node": ">=18 <25"
+    "node": ">=18 <26"
   },
   "scripts": {
     "docs:dev": "vitepress dev docs",

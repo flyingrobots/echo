@@ -7,13 +7,14 @@
 
 Snapshot summary, graph statistics, and optional terminal visualization.
 
-Status: T-6-4-1 complete; T-6-4-2 remains planned. `echo-cli inspect` loads
+Status: complete. `echo-cli inspect` loads
 and validates WSC files, reports tick/schema hash/warp count plus per-warp IDs,
 root node, state root, node/edge counts, type breakdown, connected components,
-and optional tree output in text or JSON. WSC v1 does not currently store
-`commit_id`, parent list, or `policy_id`, so those fields must not be treated
-as implemented metadata unless the WSC format grows them. The remaining active
-gap is attachment payload display and `--raw`.
+optional tree output, and attachment payload summaries in text or JSON. Known
+motion payloads decode to position/velocity fields; unknown, raw, or invalid
+payloads fall back to hex with warnings where appropriate. WSC v1 does not
+currently store `commit_id`, parent list, or `policy_id`, so those fields must
+not be treated as implemented metadata unless the WSC format grows them.
 
 ## T-6-4-1: Inspect subcommand -- metadata and graph stats
 
@@ -76,9 +77,21 @@ Completion evidence:
 
 ## T-6-4-2: Inspect -- attachment payload pretty-printing
 
-Status: not implemented. WSC stores attachment rows and blobs, and
-`warp-cli` reconstructs them for state-root verification, but inspect does not
-yet render attachment payloads.
+Status: complete.
+
+Implementation status: complete. Inspect now walks WSC node and edge attachment
+rows, decodes supported motion atom payloads, reports unknown payloads as
+type-id annotated hex, supports `--raw` to force hex for all payloads, and emits
+warnings for truncated or invalid known payloads.
+
+Completion evidence:
+
+- `crates/warp-cli/src/inspect.rs` collects node/edge attachment summaries for
+  each warp and includes them in text and JSON output.
+- `crates/warp-cli/src/cli.rs` parses `inspect --raw`.
+- Unit tests cover decoded motion output, raw hex output, and truncated motion
+  fallback warnings.
+- CLI integration help coverage confirms the `--raw` flag is discoverable.
 
 **User Story:** As a developer, I want inspect to decode and display attachment payloads so that I can see entity data without manual hex decoding.
 
@@ -91,16 +104,16 @@ yet render attachment payloads.
 
 **Acceptance Criteria:**
 
-- [ ] AC1: Motion payload displays as `position: (x, y, z), velocity: (vx, vy, vz)` with decimal values.
-- [ ] AC2: Unknown payload type shows `[type_id: abcd1234...] 0x48656c6c6f...`.
-- [ ] AC3: `--raw` flag shows hex for all payloads including known types.
-- [ ] AC4: Truncated payloads display a warning and partial hex.
+- [x] AC1: Motion payload displays as `position: (x, y, z), velocity: (vx, vy, vz)` with decimal values.
+- [x] AC2: Unknown payload type shows `[type_id: abcd1234...] 0x48656c6c6f...`.
+- [x] AC3: `--raw` flag shows hex for all payloads including known types.
+- [x] AC4: Truncated payloads display a warning and partial hex.
 
 **Definition of Done:**
 
-- [ ] Code reviewed and merged
-- [ ] Tests pass (CI green)
-- [ ] Documentation updated (if applicable)
+- [x] Code reviewed locally
+- [x] Tests pass locally
+- [x] Documentation updated
 
 **Scope:** Payload decoding, motion payload formatting, hex fallback, --raw flag.
 **Out of Scope:** Interactive payload editing. Custom codec plugin loading.

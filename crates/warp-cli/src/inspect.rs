@@ -10,10 +10,13 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use bytes::Bytes;
 use serde::Serialize;
 
+use warp_core::wsc::types::AttRow;
 use warp_core::wsc::view::WarpView;
 use warp_core::wsc::{validate_wsc, WscFile};
+use warp_core::{decode_motion_atom_payload, AtomPayload, TypeId};
 
 use crate::cli::OutputFormat;
 use crate::output::{emit, hex_hash, short_hex};
@@ -39,6 +42,21 @@ pub(crate) struct WarpStats {
     pub(crate) node_types: BTreeMap<String, usize>,
     pub(crate) edge_types: BTreeMap<String, usize>,
     pub(crate) connected_components: usize,
+    pub(crate) attachments: Vec<AttachmentSummary>,
+}
+
+/// Attachment payload display row.
+#[derive(Debug, Serialize)]
+pub(crate) struct AttachmentSummary {
+    pub(crate) owner: String,
+    pub(crate) owner_id: String,
+    pub(crate) plane: String,
+    pub(crate) kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) type_id: Option<String>,
+    pub(crate) payload: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) warning: Option<String>,
 }
 
 /// Full inspect report.
@@ -64,7 +82,12 @@ pub(crate) struct TreeNode {
 const TREE_MAX_DEPTH: usize = 5;
 
 /// Runs the inspect subcommand.
-pub(crate) fn run(snapshot: &Path, show_tree: bool, format: &OutputFormat) -> Result<()> {
+pub(crate) fn run(
+    snapshot: &Path,
+    show_tree: bool,
+    raw_payloads: bool,
+    format: &OutputFormat,
+) -> Result<()> {
     let file = WscFile::open(snapshot)
         .with_context(|| format!("failed to open WSC file: {}", snapshot.display()))?;
 
@@ -89,7 +112,7 @@ pub(crate) fn run(snapshot: &Path, show_tree: bool, format: &OutputFormat) -> Re
         let store = graph_store_from_warp_view(&view);
         let state_root = store.canonical_state_hash();
 
-        let stats = compute_stats(&view, &state_root);
+        let stats = compute_stats(&view, &state_root, raw_payloads);
         warp_stats.push(stats);
 
         if let Some(ref mut tree_list) = trees {
@@ -111,7 +134,7 @@ pub(crate) fn run(snapshot: &Path, show_tree: bool, format: &OutputFormat) -> Re
     Ok(())
 }
 
-fn compute_stats(view: &WarpView<'_>, state_root: &[u8; 32]) -> WarpStats {
+fn compute_stats(view: &WarpView<'_>, state_root: &[u8; 32], raw_payloads: bool) -> WarpStats {
     let nodes = view.nodes();
     let edges = view.edges();
 
@@ -128,6 +151,7 @@ fn compute_stats(view: &WarpView<'_>, state_root: &[u8; 32]) -> WarpStats {
 
     // Connected components via BFS.
     let connected_components = count_connected_components(view);
+    let attachments = collect_attachments(view, raw_payloads);
 
     WarpStats {
         warp_id: hex_hash(view.warp_id()),
@@ -138,7 +162,115 @@ fn compute_stats(view: &WarpView<'_>, state_root: &[u8; 32]) -> WarpStats {
         node_types,
         edge_types,
         connected_components,
+        attachments,
     }
+}
+
+fn collect_attachments(view: &WarpView<'_>, raw_payloads: bool) -> Vec<AttachmentSummary> {
+    let mut attachments = Vec::new();
+    for (node_ix, node) in view.nodes().iter().enumerate() {
+        for att in view.node_attachments(node_ix) {
+            attachments.push(format_attachment(
+                "node",
+                &node.node_id,
+                "alpha",
+                att,
+                view,
+                raw_payloads,
+            ));
+        }
+    }
+    for (edge_ix, edge) in view.edges().iter().enumerate() {
+        for att in view.edge_attachments(edge_ix) {
+            attachments.push(format_attachment(
+                "edge",
+                &edge.edge_id,
+                "beta",
+                att,
+                view,
+                raw_payloads,
+            ));
+        }
+    }
+    attachments
+}
+
+fn format_attachment(
+    owner: &str,
+    owner_id: &[u8; 32],
+    plane: &str,
+    att: &AttRow,
+    view: &WarpView<'_>,
+    raw_payloads: bool,
+) -> AttachmentSummary {
+    if att.is_descend() {
+        return AttachmentSummary {
+            owner: owner.to_string(),
+            owner_id: short_hex(owner_id),
+            plane: plane.to_string(),
+            kind: "descend".to_string(),
+            type_id: None,
+            payload: format!("warp:{}", hex_hash(&att.type_or_warp)),
+            warning: None,
+        };
+    }
+
+    let type_id = TypeId(att.type_or_warp);
+    let type_id_hex = hex_hash(&att.type_or_warp);
+    let (bytes, missing_blob) = match view.blob_for_attachment(att) {
+        Some(bytes) => (bytes, false),
+        None => (&[][..], true),
+    };
+    let atom = AtomPayload::new(type_id, Bytes::copy_from_slice(bytes));
+    let mut warning = missing_blob.then(|| "warning: missing attachment blob".to_string());
+    let payload = if raw_payloads {
+        hex_payload(&type_id_hex, bytes)
+    } else if let Some((position, velocity)) = decode_motion_atom_payload(&atom) {
+        format!(
+            "position: ({}, {}, {}), velocity: ({}, {}, {})",
+            decimal(position[0]),
+            decimal(position[1]),
+            decimal(position[2]),
+            decimal(velocity[0]),
+            decimal(velocity[1]),
+            decimal(velocity[2])
+        )
+    } else {
+        if is_motion_type(type_id) && warning.is_none() {
+            warning = Some("warning: truncated or invalid motion payload".to_string());
+        }
+        hex_payload(&type_id_hex, bytes)
+    };
+
+    AttachmentSummary {
+        owner: owner.to_string(),
+        owner_id: short_hex(owner_id),
+        plane: plane.to_string(),
+        kind: "atom".to_string(),
+        type_id: Some(type_id_hex),
+        payload,
+        warning,
+    }
+}
+
+fn is_motion_type(type_id: TypeId) -> bool {
+    type_id == warp_core::motion_payload_type_id()
+        || type_id == warp_core::motion_payload_type_id_v0()
+}
+
+fn hex_payload(type_id: &str, bytes: &[u8]) -> String {
+    format!("[type_id: {type_id}] 0x{}", hex::encode(bytes))
+}
+
+fn decimal(value: f32) -> String {
+    let mut text = format!("{value:.6}");
+    while text.contains('.') && text.ends_with('0') {
+        text.pop();
+    }
+    if text.ends_with('.') {
+        text.push('0');
+    }
+    text
 }
 
 /// Counts connected components using BFS on the undirected graph.
@@ -299,6 +431,30 @@ fn format_text_report(report: &InspectReport) -> String {
                 let _ = writeln!(out, "      {ty}: {count}");
             }
         }
+
+        if !w.attachments.is_empty() {
+            let _ = writeln!(out, "    Attachments:");
+            for attachment in &w.attachments {
+                let type_suffix = attachment
+                    .type_id
+                    .as_ref()
+                    .map(|type_id| format!(" type_id={type_id}"))
+                    .unwrap_or_default();
+                let _ = writeln!(
+                    out,
+                    "      {} {} {} {}{}: {}",
+                    attachment.owner,
+                    attachment.owner_id,
+                    attachment.plane,
+                    attachment.kind,
+                    type_suffix,
+                    attachment.payload
+                );
+                if let Some(warning) = &attachment.warning {
+                    let _ = writeln!(out, "        {warning}");
+                }
+            }
+        }
         let _ = writeln!(out);
     }
 
@@ -361,7 +517,8 @@ mod tests {
     use warp_core::wsc::build::build_one_warp_input;
     use warp_core::wsc::write::write_wsc_one_warp;
     use warp_core::{
-        make_edge_id, make_node_id, make_type_id, make_warp_id, EdgeRecord, GraphStore, NodeRecord,
+        encode_motion_atom_payload, make_edge_id, make_node_id, make_type_id, make_warp_id,
+        motion_payload_type_id, AttachmentValue, EdgeRecord, GraphStore, NodeRecord,
     };
 
     fn make_test_graph() -> (GraphStore, warp_core::NodeId) {
@@ -405,6 +562,19 @@ mod tests {
         write_wsc_one_warp(&input, [0u8; 32], 42).expect("WSC write")
     }
 
+    fn make_motion_attachment_wsc(raw_payload: Option<AtomPayload>) -> Vec<u8> {
+        let warp = make_warp_id("test");
+        let node_ty = make_type_id("Actor");
+        let root = make_node_id("root");
+        let mut store = GraphStore::new(warp);
+        store.insert_node(root, NodeRecord { ty: node_ty });
+        let payload = raw_payload
+            .unwrap_or_else(|| encode_motion_atom_payload([1.0, 2.5, -3.0], [0.25, -0.5, 4.0]));
+        store.set_node_attachment(root, Some(AttachmentValue::Atom(payload)));
+        let input = build_one_warp_input(&store, root);
+        write_wsc_one_warp(&input, [0u8; 32], 42).expect("WSC write")
+    }
+
     fn write_temp_wsc(data: &[u8]) -> NamedTempFile {
         let mut f = NamedTempFile::new().expect("tempfile");
         f.write_all(data).expect("write");
@@ -416,7 +586,7 @@ mod tests {
     fn metadata_fields_present() {
         let wsc = make_test_wsc();
         let f = write_temp_wsc(&wsc);
-        let result = run(f.path(), false, &OutputFormat::Text);
+        let result = run(f.path(), false, false, &OutputFormat::Text);
         assert!(result.is_ok());
     }
 
@@ -428,7 +598,7 @@ mod tests {
         let store = graph_store_from_warp_view(&view);
         let state_root = store.canonical_state_hash();
 
-        let stats = compute_stats(&view, &state_root);
+        let stats = compute_stats(&view, &state_root, false);
 
         let node_type_sum: usize = stats.node_types.values().sum();
         assert_eq!(node_type_sum, stats.total_nodes);
@@ -469,8 +639,75 @@ mod tests {
         let wsc = make_test_wsc();
         let f = write_temp_wsc(&wsc);
         // Verify JSON mode doesn't panic.
-        let result = run(f.path(), false, &OutputFormat::Json);
+        let result = run(f.path(), false, false, &OutputFormat::Json);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn motion_attachment_displays_decoded_fields() {
+        let wsc = make_motion_attachment_wsc(None);
+        let file = WscFile::from_bytes(wsc).unwrap();
+        let view = file.warp_view(0).unwrap();
+        let store = graph_store_from_warp_view(&view);
+        let state_root = store.canonical_state_hash();
+
+        let stats = compute_stats(&view, &state_root, false);
+
+        assert_eq!(stats.attachments.len(), 1);
+        assert_eq!(stats.attachments[0].kind, "atom");
+        assert!(stats.attachments[0]
+            .payload
+            .contains("position: (1.0, 2.5, -3.0), velocity: (0.25, -0.5, 4.0)"));
+        assert!(stats.attachments[0].warning.is_none());
+    }
+
+    #[test]
+    fn raw_attachment_displays_hex_for_known_payload() {
+        let wsc = make_motion_attachment_wsc(None);
+        let file = WscFile::from_bytes(wsc).unwrap();
+        let view = file.warp_view(0).unwrap();
+        let store = graph_store_from_warp_view(&view);
+        let state_root = store.canonical_state_hash();
+
+        let stats = compute_stats(&view, &state_root, true);
+
+        assert!(stats.attachments[0].payload.starts_with("[type_id: "));
+        assert!(stats.attachments[0].payload.contains("] 0x"));
+        assert!(!stats.attachments[0].payload.contains("position:"));
+    }
+
+    #[test]
+    fn unknown_attachment_type_displays_type_id_and_hex() {
+        let payload = AtomPayload::new(make_type_id("OtherPayload"), Bytes::from_static(b"Hello"));
+        let wsc = make_motion_attachment_wsc(Some(payload));
+        let file = WscFile::from_bytes(wsc).unwrap();
+        let view = file.warp_view(0).unwrap();
+        let store = graph_store_from_warp_view(&view);
+        let state_root = store.canonical_state_hash();
+
+        let stats = compute_stats(&view, &state_root, false);
+
+        assert!(stats.attachments[0].payload.starts_with("[type_id: "));
+        assert!(stats.attachments[0].payload.ends_with("0x48656c6c6f"));
+        assert!(stats.attachments[0].warning.is_none());
+    }
+
+    #[test]
+    fn truncated_motion_attachment_warns_and_falls_back_to_hex() {
+        let payload = AtomPayload::new(motion_payload_type_id(), Bytes::from_static(&[1, 2, 3]));
+        let wsc = make_motion_attachment_wsc(Some(payload));
+        let file = WscFile::from_bytes(wsc).unwrap();
+        let view = file.warp_view(0).unwrap();
+        let store = graph_store_from_warp_view(&view);
+        let state_root = store.canonical_state_hash();
+
+        let stats = compute_stats(&view, &state_root, false);
+
+        assert_eq!(
+            stats.attachments[0].warning.as_deref(),
+            Some("warning: truncated or invalid motion payload")
+        );
+        assert!(stats.attachments[0].payload.ends_with("0x010203"));
     }
 
     #[test]

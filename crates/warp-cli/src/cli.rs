@@ -60,6 +60,10 @@ pub enum Commands {
         /// Show ASCII tree of graph structure.
         #[arg(long)]
         tree: bool,
+
+        /// Show attachment payload bytes as hex instead of decoding known payloads.
+        #[arg(long)]
+        raw: bool,
     },
 }
 
@@ -169,9 +173,14 @@ mod tests {
     fn parse_inspect_basic() {
         let cli = Cli::try_parse_from(["echo-cli", "inspect", "state.wsc"]).unwrap();
         match cli.command {
-            Commands::Inspect { ref snapshot, tree } => {
+            Commands::Inspect {
+                ref snapshot,
+                tree,
+                raw,
+            } => {
                 assert_eq!(snapshot, &PathBuf::from("state.wsc"));
                 assert!(!tree);
+                assert!(!raw);
             }
             _ => panic!("expected Inspect command"),
         }
@@ -182,6 +191,15 @@ mod tests {
         let cli = Cli::try_parse_from(["echo-cli", "inspect", "state.wsc", "--tree"]).unwrap();
         match cli.command {
             Commands::Inspect { tree, .. } => assert!(tree),
+            _ => panic!("expected Inspect command"),
+        }
+    }
+
+    #[test]
+    fn parse_inspect_with_raw() {
+        let cli = Cli::try_parse_from(["echo-cli", "inspect", "state.wsc", "--raw"]).unwrap();
+        match cli.command {
+            Commands::Inspect { raw, .. } => assert!(raw),
             _ => panic!("expected Inspect command"),
         }
     }

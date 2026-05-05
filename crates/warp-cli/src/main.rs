@@ -8,7 +8,7 @@
 //!
 //! - `echo-cli verify <snapshot>` — validate WSC snapshot integrity
 //! - `echo-cli bench [--filter <pattern>]` — run and format benchmarks
-//! - `echo-cli inspect <snapshot> [--tree]` — display snapshot metadata
+//! - `echo-cli inspect <snapshot> [--tree] [--raw]` — display snapshot metadata
 //!
 //! # Usage
 //! ```text
@@ -39,6 +39,10 @@ fn main() -> Result<()> {
             ref filter,
             ref baseline,
         } => bench::run(filter.as_deref(), baseline.as_deref(), &cli.format),
-        Commands::Inspect { ref snapshot, tree } => inspect::run(snapshot, tree, &cli.format),
+        Commands::Inspect {
+            ref snapshot,
+            tree,
+            raw,
+        } => inspect::run(snapshot, tree, raw, &cli.format),
     }
 }

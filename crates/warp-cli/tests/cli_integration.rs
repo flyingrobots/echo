@@ -110,7 +110,8 @@ fn inspect_help_lists_tree_flag() {
         .args(["inspect", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("tree"));
+        .stdout(predicate::str::contains("tree"))
+        .stdout(predicate::str::contains("raw"));
 }
 
 #[test]

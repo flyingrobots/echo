@@ -50,9 +50,11 @@ echo-cli bench --baseline main
 echo-cli --format json bench
 ```
 
-### `echo-cli inspect <snapshot.wsc> [--tree]`
+### `echo-cli inspect <snapshot.wsc> [--tree] [--raw]`
 
-Display WSC snapshot metadata and graph statistics.
+Display WSC snapshot metadata, graph statistics, and attachment payloads. Known
+motion payloads are decoded by default; unknown or invalid payloads fall back to
+hex.
 
 ```sh
 # Show metadata and stats
@@ -60,6 +62,9 @@ echo-cli inspect state.wsc
 
 # Include ASCII tree of graph structure
 echo-cli inspect state.wsc --tree
+
+# Force all attachment payloads to hex
+echo-cli inspect state.wsc --raw
 
 # JSON output
 echo-cli --format json inspect state.wsc

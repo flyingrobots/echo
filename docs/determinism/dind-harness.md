@@ -59,6 +59,30 @@ The FootprintGuard is active in debug builds unless the `unsafe_graph` feature
 is enabled, meaning undeclared reads or writes surface as a
 `FootprintViolation` before convergence checks can hide the issue.
 
+### Snapshot/Restore Fuzz Gate
+
+`warp-core` also carries a snapshot/restore fuzz gate for replay-state
+serialization determinism:
+
+```sh
+cargo test -p warp-core --test snapshot_restore_fuzz
+```
+
+The gate builds a deterministic 500-tick worldline, snapshots materialized state
+at 50 deterministic pseudo-random coordinates, restores the snapshot from
+canonical WSC bytes, replays the remaining suffix from recorded provenance, and
+compares the restored `state_root` with the uninterrupted run. The report names
+the snapshot tick, restore tick, comparison tick, and expected/actual hashes for
+each iteration.
+
+The current applicable snapshot format is canonical WSC v1. If Echo adds a
+separate debug snapshot encoding later, that format should be added to the same
+matrix rather than becoming an un-gated restore path.
+
+The corruption test flips one stored WSC byte. Passing behavior is either a
+closed restore/validation failure or an explicit suffix-replay hash mismatch;
+silent success is not acceptable.
+
 ## Convergence scope (Invariant B)
 
 For commutative scenarios, `MANIFEST.json` can specify a `converge_scope`

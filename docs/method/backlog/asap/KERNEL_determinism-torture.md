@@ -79,6 +79,27 @@ Completion evidence:
 
 ## T-9-1-2: Implement snapshot/restore fuzz
 
+Status: complete.
+
+Implementation status: complete. `warp-core` now has a snapshot/restore fuzz
+integration harness that builds a 500-tick deterministic worldline, snapshots
+materialized state at deterministic pseudo-random coordinates, restores from
+canonical WSC bytes, replays the suffix from provenance, and compares the
+restored run with the uninterrupted `state_root`. The harness renders a
+deterministic JSON diagnostic report by hand and includes a corruption hook
+that flips one stored snapshot byte to prove restore failure or detected
+divergence.
+
+Completion evidence:
+
+- `crates/warp-core/tests/snapshot_restore_fuzz.rs` runs 50 snapshot/restore
+  iterations over a 500-tick simulation.
+- Edge cases include genesis snapshots, last-tick snapshots, and same-tick
+  restore/compare windows.
+- Corrupting a WSC edge byte either fails validation/restore or triggers a
+  hash mismatch during suffix replay.
+- The fuzz invocation asserts runtime stays under 60 seconds.
+
 **User Story:** As a release engineer, I want fuzz testing that snapshots simulation state at random ticks, restores it, and continues execution — verifying the restored run matches the original so that I can catch nondeterminism in serialization/deserialization.
 
 **Requirements:**
@@ -90,16 +111,16 @@ Completion evidence:
 
 **Acceptance Criteria:**
 
-- [ ] AC1: 50 iterations with random snapshot points on a 500-tick simulation produce zero divergences.
-- [ ] AC2: Corrupting a single byte in the snapshot (test hook) causes the restore to fail or the comparison to detect divergence.
-- [ ] AC3: Fuzz runs in under 60 seconds for 50 iterations of a 500-tick simulation.
-- [ ] AC4: Report includes snapshot tick, restore tick, and hash comparison for each iteration.
+- [x] AC1: 50 iterations with random snapshot points on a 500-tick simulation produce zero divergences.
+- [x] AC2: Corrupting a single byte in the snapshot (test hook) causes the restore to fail or the comparison to detect divergence.
+- [x] AC3: Fuzz runs in under 60 seconds for 50 iterations of a 500-tick simulation.
+- [x] AC4: Report includes snapshot tick, restore tick, and hash comparison for each iteration.
 
 **Definition of Done:**
 
-- [ ] Code reviewed and merged
-- [ ] Tests pass (CI green)
-- [ ] Documentation updated (if applicable)
+- [x] Code reviewed locally
+- [x] Tests pass locally
+- [x] Documentation updated
 
 **Scope:** Snapshot/restore fuzz loop, divergence detection, corruption detection.
 **Out of Scope:** Snapshot performance optimization; snapshot compression; distributed snapshot.

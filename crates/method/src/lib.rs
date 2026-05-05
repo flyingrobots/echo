@@ -9,6 +9,7 @@
 //! It has no dependency on Echo or any other project. It could live in
 //! its own repo.
 
+pub mod graph;
 pub mod inbox;
 pub mod status;
 pub mod workspace;

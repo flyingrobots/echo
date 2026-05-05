@@ -102,6 +102,16 @@ enum MethodCommand {
     Inbox(MethodInboxArgs),
     /// Show backlog lanes, active cycles, and legend load.
     Status(MethodStatusArgs),
+    /// Regenerate METHOD task matrix markdown and CSV.
+    Matrix(MethodMatrixArgs),
+    /// Regenerate METHOD task DAG DOT and SVG.
+    Dag(MethodDagArgs),
+    /// Show tasks with no unresolved backlog-task blockers.
+    Frontier(MethodFrontierArgs),
+    /// Show the unweighted longest dependency chain.
+    CriticalPath(MethodCriticalPathArgs),
+    /// Verify METHOD graph artifacts are up to date.
+    CheckDag(MethodCheckDagArgs),
 }
 
 #[derive(Args)]
@@ -115,6 +125,47 @@ struct MethodStatusArgs {
     /// Output as JSON (agent surface).
     #[arg(long)]
     json: bool,
+}
+
+#[derive(Args)]
+struct MethodMatrixArgs {
+    /// Check generated matrix artifacts without writing them.
+    #[arg(long)]
+    check: bool,
+}
+
+#[derive(Args)]
+struct MethodDagArgs {
+    /// Check generated DAG artifacts without writing them.
+    #[arg(long)]
+    check: bool,
+    /// Skip rendering SVG with Graphviz; write/check DOT only.
+    #[arg(long)]
+    no_render: bool,
+}
+
+#[derive(Args)]
+struct MethodFrontierArgs {
+    /// Output as JSON (agent surface).
+    #[arg(long)]
+    json: bool,
+    /// Maximum number of tasks to print in human mode.
+    #[arg(long, default_value = "25")]
+    limit: usize,
+}
+
+#[derive(Args)]
+struct MethodCriticalPathArgs {
+    /// Output as JSON (agent surface).
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Args)]
+struct MethodCheckDagArgs {
+    /// Skip checking rendered SVG freshness.
+    #[arg(long)]
+    no_render: bool,
 }
 
 #[derive(Args)]
@@ -494,13 +545,22 @@ fn run_method(args: MethodArgs) -> Result<()> {
     match args.command {
         MethodCommand::Inbox(inbox_args) => run_method_inbox(inbox_args),
         MethodCommand::Status(status_args) => run_method_status(status_args),
+        MethodCommand::Matrix(matrix_args) => run_method_matrix(matrix_args),
+        MethodCommand::Dag(dag_args) => run_method_dag(dag_args),
+        MethodCommand::Frontier(frontier_args) => run_method_frontier(frontier_args),
+        MethodCommand::CriticalPath(path_args) => run_method_critical_path(path_args),
+        MethodCommand::CheckDag(check_args) => run_method_check_dag(check_args),
     }
+}
+
+fn method_workspace() -> Result<method::workspace::MethodWorkspace> {
+    let root = std::env::current_dir().context("failed to get current dir")?;
+    method::workspace::MethodWorkspace::discover(&root).map_err(|e| anyhow::anyhow!(e))
 }
 
 fn run_method_inbox(args: MethodInboxArgs) -> Result<()> {
     let root = std::env::current_dir().context("failed to get current dir")?;
-    let workspace =
-        method::workspace::MethodWorkspace::discover(&root).map_err(|e| anyhow::anyhow!(e))?;
+    let workspace = method_workspace()?;
     let path = method::inbox::create_inbox_item(&workspace, &args.title)
         .map_err(|e| anyhow::anyhow!(e))?;
     let display_path = path.strip_prefix(&root).unwrap_or(&path);
@@ -509,9 +569,7 @@ fn run_method_inbox(args: MethodInboxArgs) -> Result<()> {
 }
 
 fn run_method_status(args: MethodStatusArgs) -> Result<()> {
-    let root = std::env::current_dir().context("failed to get current dir")?;
-    let workspace =
-        method::workspace::MethodWorkspace::discover(&root).map_err(|e| anyhow::anyhow!(e))?;
+    let workspace = method_workspace()?;
     let report = method::status::StatusReport::build(&workspace).map_err(|e| anyhow::anyhow!(e))?;
 
     if args.json {
@@ -522,6 +580,199 @@ fn run_method_status(args: MethodStatusArgs) -> Result<()> {
         print_status_human(&report);
     }
     Ok(())
+}
+
+fn run_method_matrix(args: MethodMatrixArgs) -> Result<()> {
+    let workspace = method_workspace()?;
+    let graph = method::graph::TaskGraph::build(&workspace).map_err(|e| anyhow::anyhow!(e))?;
+    let artifacts = method::graph::GraphArtifacts::render(&graph);
+    let paths = method::graph::GraphArtifactPaths::defaults(&workspace);
+
+    let checks = [
+        (
+            "matrix markdown",
+            &paths.matrix_md,
+            artifacts.matrix_md.as_bytes(),
+        ),
+        (
+            "matrix csv",
+            &paths.matrix_csv,
+            artifacts.matrix_csv.as_bytes(),
+        ),
+    ];
+    if args.check {
+        check_artifacts_current(&checks)?;
+        println!("METHOD matrix artifacts are current");
+    } else {
+        write_artifact(&paths.matrix_md, artifacts.matrix_md.as_bytes())?;
+        write_artifact(&paths.matrix_csv, artifacts.matrix_csv.as_bytes())?;
+        println!("wrote {}", paths.matrix_md.display());
+        println!("wrote {}", paths.matrix_csv.display());
+    }
+    Ok(())
+}
+
+fn run_method_dag(args: MethodDagArgs) -> Result<()> {
+    let workspace = method_workspace()?;
+    let graph = method::graph::TaskGraph::build(&workspace).map_err(|e| anyhow::anyhow!(e))?;
+    let artifacts = method::graph::GraphArtifacts::render(&graph);
+    let paths = method::graph::GraphArtifactPaths::defaults(&workspace);
+
+    if args.check {
+        let rendered_svg = if args.no_render {
+            None
+        } else {
+            Some(render_dot_to_svg(&artifacts.dot)?)
+        };
+        let mut checks = vec![("task dag dot", &paths.dot, artifacts.dot.as_bytes())];
+        if let Some(svg) = rendered_svg.as_ref() {
+            checks.push(("task dag svg", &paths.svg, svg.as_slice()));
+        }
+        check_artifacts_current(&checks)?;
+        println!("METHOD DAG artifacts are current");
+    } else {
+        write_artifact(&paths.dot, artifacts.dot.as_bytes())?;
+        println!("wrote {}", paths.dot.display());
+        if !args.no_render {
+            let svg = render_dot_to_svg(&artifacts.dot)?;
+            write_artifact(&paths.svg, &svg)?;
+            println!("wrote {}", paths.svg.display());
+        }
+    }
+    Ok(())
+}
+
+fn run_method_frontier(args: MethodFrontierArgs) -> Result<()> {
+    let workspace = method_workspace()?;
+    let graph = method::graph::TaskGraph::build(&workspace).map_err(|e| anyhow::anyhow!(e))?;
+    let frontier = graph.frontier();
+
+    if args.json {
+        let json =
+            serde_json::to_string_pretty(&frontier).context("failed to serialize frontier")?;
+        println!("{json}");
+        return Ok(());
+    }
+
+    println!("Open frontier: {} task(s)", frontier.len());
+    for task in frontier.into_iter().take(args.limit) {
+        let native = task
+            .task
+            .native_id
+            .as_ref()
+            .map(|id| format!(" {id}"))
+            .unwrap_or_default();
+        println!(
+            "  {} [{}]{} {}",
+            task.task.id, task.task.lane, native, task.task.title
+        );
+        println!(
+            "      unlocks: {}, downstream depth: {}, source: {}",
+            task.downstream_count, task.downstream_depth, task.task.source_path
+        );
+    }
+    Ok(())
+}
+
+fn run_method_critical_path(args: MethodCriticalPathArgs) -> Result<()> {
+    let workspace = method_workspace()?;
+    let graph = method::graph::TaskGraph::build(&workspace).map_err(|e| anyhow::anyhow!(e))?;
+    let path = graph.critical_path();
+
+    if args.json {
+        let json =
+            serde_json::to_string_pretty(&path).context("failed to serialize critical path")?;
+        println!("{json}");
+        return Ok(());
+    }
+
+    println!("Critical path: {} task(s)", path.len());
+    for (idx, task) in path.iter().enumerate() {
+        let native = task
+            .native_id
+            .as_ref()
+            .map(|id| format!(" {id}"))
+            .unwrap_or_default();
+        println!(
+            "  {}. {} [{}]{} {}",
+            idx + 1,
+            task.id,
+            task.lane,
+            native,
+            task.title
+        );
+    }
+    Ok(())
+}
+
+fn run_method_check_dag(args: MethodCheckDagArgs) -> Result<()> {
+    run_method_matrix(MethodMatrixArgs { check: true })?;
+    run_method_dag(MethodDagArgs {
+        check: true,
+        no_render: args.no_render,
+    })
+}
+
+fn write_artifact(path: &Path, bytes: &[u8]) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    std::fs::write(path, bytes).with_context(|| format!("failed to write {}", path.display()))
+}
+
+fn check_artifacts_current(checks: &[(&str, &PathBuf, &[u8])]) -> Result<()> {
+    let mut stale = Vec::new();
+    for (label, path, expected) in checks {
+        match std::fs::read(path) {
+            Ok(actual) if actual == *expected => {}
+            Ok(_) => stale.push(format!("{label}: {} is stale", path.display())),
+            Err(err) => stale.push(format!("{label}: {} missing ({err})", path.display())),
+        }
+    }
+    if stale.is_empty() {
+        Ok(())
+    } else {
+        bail!(
+            "METHOD graph artifacts are not current:\n{}",
+            stale
+                .into_iter()
+                .map(|line| format!("  - {line}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
+    }
+}
+
+fn render_dot_to_svg(dot: &str) -> Result<Vec<u8>> {
+    use std::io::Write;
+
+    let mut child = Command::new("dot")
+        .arg("-Tsvg")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .context("failed to spawn `dot` (is Graphviz installed?)")?;
+
+    {
+        let stdin = child.stdin.as_mut().context("failed to open dot stdin")?;
+        stdin
+            .write_all(dot.as_bytes())
+            .context("failed to write DOT to Graphviz")?;
+    }
+
+    let output = child
+        .wait_with_output()
+        .context("failed to wait for Graphviz")?;
+    if !output.status.success() {
+        bail!(
+            "Graphviz failed (exit status: {}):\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    Ok(output.stdout)
 }
 
 fn print_status_human(report: &method::status::StatusReport) {

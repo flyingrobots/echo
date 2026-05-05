@@ -397,6 +397,11 @@ following commands are implemented:
 | `cargo xtask method inbox "idea"`  | Capture a backlog note in `inbox/`.                      |
 | `cargo xtask method status`        | Summarize backlog lanes, active cycles, and legend load. |
 | `cargo xtask method status --json` | Emit the same status report for agents and tooling.      |
+| `cargo xtask method matrix`        | Regenerate `task-matrix.md` and `task-matrix.csv`.       |
+| `cargo xtask method dag`           | Regenerate `task-dag.dot` and `task-dag.svg`.            |
+| `cargo xtask method frontier`      | Print tasks with no unresolved backlog-task blockers.    |
+| `cargo xtask method critical-path` | Print the unweighted longest dependency chain.           |
+| `cargo xtask method check-dag`     | Fail if graph artifacts are stale or cyclic.             |
 
 The following commands are planned but **not yet implemented**:
 

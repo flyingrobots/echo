@@ -3,7 +3,9 @@
 
 # Echo Optics Stale-Basis Obstruction Tests
 
-Status: visible task card.
+Status: complete. Core optic dispatch proposals can now be validated against a
+known current coordinate, and engine-backed optic dispatch obstructs stale
+worldline bases before staging EINT bytes.
 
 Depends on:
 
@@ -26,6 +28,13 @@ Prove stale base coordinate does not silently mutate current frontier.
 - Dispatch against stale base returns Obstructed, Staged, Plural, Conflict, or
   explicitly law-admitted result.
 - The default path must not mutate latest frontier silently.
+
+Evidence:
+
+- `crates/warp-core/src/optic.rs`
+- `crates/warp-core/tests/optic_dispatch_tests.rs`
+- `crates/echo-wasm-abi/src/kernel_port.rs`
+- `crates/warp-wasm/src/warp_kernel.rs`
 
 ## Non-goals
 

@@ -2225,6 +2225,7 @@ fn optic_dispatch_obstruction(
 
 fn validate_optic_dispatch_request(
     request: &DispatchOpticIntentRequest,
+    current_coordinate: Option<&EchoCoordinate>,
 ) -> Option<IntentDispatchResult> {
     if !optic_focus_matches_coordinate(&request.focus, &request.base_coordinate) {
         return Some(optic_dispatch_obstruction(
@@ -2258,7 +2259,84 @@ fn validate_optic_dispatch_request(
         ));
     }
 
+    if let Some(current_coordinate) = current_coordinate {
+        if !coordinates_name_same_subject(&request.base_coordinate, current_coordinate) {
+            return Some(optic_dispatch_obstruction(
+                request,
+                OpticObstructionKind::ConflictingFrontier,
+                "optic dispatch current coordinate names a different subject",
+            ));
+        }
+
+        if base_coordinate_is_stale(&request.base_coordinate, current_coordinate) {
+            return Some(optic_dispatch_obstruction(
+                request,
+                OpticObstructionKind::StaleBasis,
+                "optic dispatch base coordinate is stale relative to current frontier",
+            ));
+        }
+    }
+
     None
+}
+
+fn coordinates_name_same_subject(base: &EchoCoordinate, current: &EchoCoordinate) -> bool {
+    match (base, current) {
+        (
+            EchoCoordinate::Worldline { worldline_id, .. },
+            EchoCoordinate::Worldline {
+                worldline_id: current_worldline,
+                ..
+            },
+        ) => worldline_id == current_worldline,
+        (
+            EchoCoordinate::Strand { strand_id, .. },
+            EchoCoordinate::Strand {
+                strand_id: current_strand,
+                ..
+            },
+        ) => strand_id == current_strand,
+        (
+            EchoCoordinate::Braid { braid_id, .. },
+            EchoCoordinate::Braid {
+                braid_id: current_braid,
+                ..
+            },
+        ) => braid_id == current_braid,
+        (
+            EchoCoordinate::RetainedReading { key },
+            EchoCoordinate::RetainedReading { key: current_key },
+        ) => key == current_key,
+        _ => false,
+    }
+}
+
+fn base_coordinate_is_stale(base: &EchoCoordinate, current: &EchoCoordinate) -> bool {
+    match (base, current) {
+        (
+            EchoCoordinate::Worldline { at, .. } | EchoCoordinate::Strand { at, .. },
+            EchoCoordinate::Worldline { at: current_at, .. }
+            | EchoCoordinate::Strand { at: current_at, .. },
+        ) => coordinate_at_tick(at).is_some_and(|base_tick| {
+            coordinate_at_tick(current_at).is_some_and(|current_tick| base_tick < current_tick)
+        }),
+        (
+            EchoCoordinate::Braid { member_count, .. },
+            EchoCoordinate::Braid {
+                member_count: current_member_count,
+                ..
+            },
+        ) => member_count < current_member_count,
+        _ => false,
+    }
+}
+
+fn coordinate_at_tick(at: &CoordinateAt) -> Option<u64> {
+    match at {
+        CoordinateAt::Frontier => None,
+        CoordinateAt::Tick { worldline_tick } => Some(worldline_tick.0),
+        CoordinateAt::Provenance { reference } => Some(reference.worldline_tick.0),
+    }
 }
 
 /// App-agnostic kernel boundary for WASM host adapters.
@@ -2286,6 +2364,15 @@ pub trait KernelPort {
     /// newly accepted or a duplicate.
     fn dispatch_intent(&mut self, intent_bytes: &[u8]) -> Result<DispatchResponse, AbiError>;
 
+    /// Returns the current coordinate for an optic focus when the implementation
+    /// can resolve it cheaply enough to validate stale bases.
+    fn current_optic_coordinate(
+        &self,
+        _focus: &OpticFocus,
+    ) -> Result<Option<EchoCoordinate>, AbiError> {
+        Ok(None)
+    }
+
     /// Propose an intent through an explicit optic dispatch request.
     ///
     /// The default implementation validates the generic optic/capability
@@ -2296,7 +2383,14 @@ pub trait KernelPort {
         &mut self,
         request: DispatchOpticIntentRequest,
     ) -> Result<IntentDispatchResult, AbiError> {
-        if let Some(obstruction) = validate_optic_dispatch_request(&request) {
+        if let Some(obstruction) = validate_optic_dispatch_request(&request, None) {
+            return Ok(obstruction);
+        }
+
+        let current_coordinate = self.current_optic_coordinate(&request.focus)?;
+        if let Some(obstruction) =
+            validate_optic_dispatch_request(&request, current_coordinate.as_ref())
+        {
             return Ok(obstruction);
         }
 

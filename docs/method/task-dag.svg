@@ -10,7 +10,7 @@
 <title>method_task_dag</title>
 <polygon fill="white" stroke="none" points="-4,4 -4,-7693.5 3303.09,-7693.5 3303.09,4 -4,4"/>
 <text xml:space="preserve" text-anchor="middle" x="1649.55" y="-7662.7" font-family="Inter, Helvetica, Arial" font-size="24.00">METHOD Backlog Task Dependency DAG</text>
-<text xml:space="preserve" text-anchor="middle" x="1649.55" y="-7633.45" font-family="Inter, Helvetica, Arial" font-size="24.00">open tasks: 105 / 181; dependency edges: 125</text>
+<text xml:space="preserve" text-anchor="middle" x="1649.55" y="-7633.45" font-family="Inter, Helvetica, Arial" font-size="24.00">open tasks: 104 / 181; dependency edges: 125</text>
 <g id="clust1" class="cluster">
 <title>cluster_asap</title>
 <path fill="white" stroke="#cbd5e1" d="M24.5,-2247C24.5,-2247 1722.93,-2247 1722.93,-2247 1728.93,-2247 1734.93,-2253 1734.93,-2259 1734.93,-2259 1734.93,-3776 1734.93,-3776 1734.93,-3782 1728.93,-3788 1722.93,-3788 1722.93,-3788 24.5,-3788 24.5,-3788 18.5,-3788 12.5,-3782 12.5,-3776 12.5,-3776 12.5,-2259 12.5,-2259 12.5,-2253 18.5,-2247 24.5,-2247"/>
@@ -401,7 +401,7 @@
 <!-- M026 -->
 <g id="node26" class="node">
 <title>M026</title>
-<g id="a_node26"><a xlink:title="M026 [asap] blocked; blockers=2; &#160;Echo Optics Example Implementation">
+<g id="a_node26"><a xlink:title="M026 [asap] blocked; blockers=1; &#160;Echo Optics Example Implementation">
 <path fill="#fff3bf" stroke="#b08900" stroke-width="1.2" d="M1339.39,-3548.45C1339.39,-3548.45 1252.12,-3548.45 1252.12,-3548.45 1246.12,-3548.45 1240.12,-3542.45 1240.12,-3536.45 1240.12,-3536.45 1240.12,-3513.55 1240.12,-3513.55 1240.12,-3507.55 1246.12,-3501.55 1252.12,-3501.55 1252.12,-3501.55 1339.39,-3501.55 1339.39,-3501.55 1345.39,-3501.55 1351.39,-3507.55 1351.39,-3513.55 1351.39,-3513.55 1351.39,-3536.45 1351.39,-3536.45 1351.39,-3542.45 1345.39,-3548.45 1339.39,-3548.45"/>
 <text xml:space="preserve" text-anchor="middle" x="1295.76" y="-3534.62" font-family="Inter, Helvetica, Arial" font-size="10.00">M026</text>
 <text xml:space="preserve" text-anchor="middle" x="1295.76" y="-3521.88" font-family="Inter, Helvetica, Arial" font-size="10.00">Echo Optics Example</text>
@@ -576,10 +576,10 @@
 <!-- M032 -->
 <g id="node32" class="node">
 <title>M032</title>
-<g id="a_node32"><a xlink:title="M032 [asap] open; blockers=0; &#160;Echo Optics Stale&#45;Basis Obstruction Tests">
-<path fill="#bbf7d0" stroke="#15803d" stroke-width="2.8" d="M1165.5,-3498.82C1165.5,-3498.82 1065.48,-3498.82 1065.48,-3498.82 1059.48,-3498.82 1053.48,-3492.82 1053.48,-3486.82 1053.48,-3486.82 1053.48,-3451.18 1053.48,-3451.18 1053.48,-3445.18 1059.48,-3439.18 1065.48,-3439.18 1065.48,-3439.18 1165.5,-3439.18 1165.5,-3439.18 1171.5,-3439.18 1177.5,-3445.18 1177.5,-3451.18 1177.5,-3451.18 1177.5,-3486.82 1177.5,-3486.82 1177.5,-3492.82 1171.5,-3498.82 1165.5,-3498.82"/>
+<g id="a_node32"><a xlink:title="M032 [asap] done; blockers=0; &#160;Echo Optics Stale&#45;Basis Obstruction Tests">
+<path fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.4" d="M1165.5,-3498.82C1165.5,-3498.82 1065.48,-3498.82 1065.48,-3498.82 1059.48,-3498.82 1053.48,-3492.82 1053.48,-3486.82 1053.48,-3486.82 1053.48,-3451.18 1053.48,-3451.18 1053.48,-3445.18 1059.48,-3439.18 1065.48,-3439.18 1065.48,-3439.18 1165.5,-3439.18 1165.5,-3439.18 1171.5,-3439.18 1177.5,-3445.18 1177.5,-3451.18 1177.5,-3451.18 1177.5,-3486.82 1177.5,-3486.82 1177.5,-3492.82 1171.5,-3498.82 1165.5,-3498.82"/>
 <text xml:space="preserve" text-anchor="middle" x="1115.49" y="-3485" font-family="Inter, Helvetica, Arial" font-size="10.00">M032</text>
-<text xml:space="preserve" text-anchor="middle" x="1115.49" y="-3472.25" font-family="Inter, Helvetica, Arial" font-size="10.00">OPEN</text>
+<text xml:space="preserve" text-anchor="middle" x="1115.49" y="-3472.25" font-family="Inter, Helvetica, Arial" font-size="10.00">DONE</text>
 <text xml:space="preserve" text-anchor="middle" x="1115.49" y="-3459.5" font-family="Inter, Helvetica, Arial" font-size="10.00">Echo Optics Stale&#45;Basis</text>
 <text xml:space="preserve" text-anchor="middle" x="1115.49" y="-3446.75" font-family="Inter, Helvetica, Arial" font-size="10.00">Obstruction Tests</text>
 </a>
@@ -588,8 +588,8 @@
 <!-- M025&#45;&gt;M032 -->
 <g id="edge23" class="edge">
 <title>M025&#45;&gt;M032</title>
-<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M978.54,-3493C978.54,-3493 1046.19,-3493 1046.19,-3493"/>
-<polygon fill="#94a3b8" stroke="#94a3b8" points="1046.19,-3494.58 1050.69,-3493 1046.19,-3491.43 1046.19,-3494.58"/>
+<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M978.54,-3493C978.54,-3493 1046.88,-3493 1046.88,-3493"/>
+<polygon fill="#94a3b8" stroke="#94a3b8" points="1046.88,-3494.58 1051.38,-3493 1046.88,-3491.43 1046.88,-3494.58"/>
 </g>
 <!-- M026&#45;&gt;M020 -->
 <g id="edge24" class="edge">
@@ -713,8 +713,8 @@
 <!-- M032&#45;&gt;M026 -->
 <g id="edge38" class="edge">
 <title>M032&#45;&gt;M026</title>
-<path fill="none" stroke="#dc2626" stroke-width="2.6" d="M1115.09,-3499.95C1115.09,-3507.21 1115.09,-3512.87 1115.09,-3512.87 1115.09,-3512.87 1227.65,-3512.87 1227.65,-3512.87"/>
-<polygon fill="#dc2626" stroke="#dc2626" stroke-width="2.6" points="1227.65,-3515.67 1235.65,-3512.87 1227.65,-3510.07 1227.65,-3515.67"/>
+<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M1115.09,-3499.47C1115.09,-3506.96 1115.09,-3512.87 1115.09,-3512.87 1115.09,-3512.87 1233.57,-3512.87 1233.57,-3512.87"/>
+<polygon fill="#94a3b8" stroke="#94a3b8" points="1233.57,-3514.45 1238.07,-3512.87 1233.57,-3511.3 1233.57,-3514.45"/>
 </g>
 <!-- M033&#45;&gt;M023 -->
 <g id="edge39" class="edge">

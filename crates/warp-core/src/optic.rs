@@ -1127,6 +1127,35 @@ impl DispatchOpticIntentRequest {
         Ok(())
     }
 
+    /// Validates the proposal against a known current coordinate.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OpticObstructionKind::StaleBasis`] when the request names a
+    /// concrete base coordinate older than the supplied current coordinate.
+    pub fn validate_proposal_against_current(
+        &self,
+        current_coordinate: &EchoCoordinate,
+    ) -> Result<(), Box<OpticObstruction>> {
+        self.validate_proposal()?;
+
+        if !coordinates_name_same_subject(&self.base_coordinate, current_coordinate) {
+            return Err(self.dispatch_obstruction(
+                OpticObstructionKind::ConflictingFrontier,
+                "optic dispatch current coordinate names a different subject",
+            ));
+        }
+
+        if base_coordinate_is_stale(&self.base_coordinate, current_coordinate) {
+            return Err(self.dispatch_obstruction(
+                OpticObstructionKind::StaleBasis,
+                "optic dispatch base coordinate is stale relative to current frontier",
+            ));
+        }
+
+        Ok(())
+    }
+
     fn dispatch_obstruction(
         &self,
         kind: OpticObstructionKind,
@@ -1865,6 +1894,65 @@ fn focus_matches_coordinate(focus: &OpticFocus, coordinate: &EchoCoordinate) -> 
         ) => key == coordinate_key,
         (OpticFocus::AttachmentBoundary { .. }, _) => true,
         _ => false,
+    }
+}
+
+fn coordinates_name_same_subject(base: &EchoCoordinate, current: &EchoCoordinate) -> bool {
+    match (base, current) {
+        (
+            EchoCoordinate::Worldline { worldline_id, .. },
+            EchoCoordinate::Worldline {
+                worldline_id: current_worldline,
+                ..
+            },
+        ) => worldline_id == current_worldline,
+        (
+            EchoCoordinate::Strand { strand_id, .. },
+            EchoCoordinate::Strand {
+                strand_id: current_strand,
+                ..
+            },
+        ) => strand_id == current_strand,
+        (
+            EchoCoordinate::Braid { braid_id, .. },
+            EchoCoordinate::Braid {
+                braid_id: current_braid,
+                ..
+            },
+        ) => braid_id == current_braid,
+        (
+            EchoCoordinate::RetainedReading { key },
+            EchoCoordinate::RetainedReading { key: current_key },
+        ) => key == current_key,
+        _ => false,
+    }
+}
+
+fn base_coordinate_is_stale(base: &EchoCoordinate, current: &EchoCoordinate) -> bool {
+    match (base, current) {
+        (
+            EchoCoordinate::Worldline { at, .. } | EchoCoordinate::Strand { at, .. },
+            EchoCoordinate::Worldline { at: current_at, .. }
+            | EchoCoordinate::Strand { at: current_at, .. },
+        ) => coordinate_at_tick(*at).is_some_and(|base_tick| {
+            coordinate_at_tick(*current_at).is_some_and(|current_tick| base_tick < current_tick)
+        }),
+        (
+            EchoCoordinate::Braid { member_count, .. },
+            EchoCoordinate::Braid {
+                member_count: current_member_count,
+                ..
+            },
+        ) => member_count < current_member_count,
+        _ => false,
+    }
+}
+
+fn coordinate_at_tick(at: CoordinateAt) -> Option<u64> {
+    match at {
+        CoordinateAt::Frontier => None,
+        CoordinateAt::Tick(tick) => Some(tick.as_u64()),
+        CoordinateAt::Provenance(reference) => Some(reference.worldline_tick.as_u64()),
     }
 }
 

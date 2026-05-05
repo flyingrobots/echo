@@ -11,17 +11,19 @@ use std::fmt;
 
 use echo_wasm_abi::kernel_port::{
     error_codes, AbiError, AuthoredObserverPlan as AbiAuthoredObserverPlan, ControlIntentV1,
-    DispatchResponse, GlobalTick as AbiGlobalTick, HeadEligibility as AbiHeadEligibility,
-    HeadId as AbiHeadId, HeadInfo, KernelPort, NeighborhoodSite as AbiNeighborhoodSite,
+    CoordinateAt as AbiCoordinateAt, DispatchResponse, EchoCoordinate as AbiEchoCoordinate,
+    GlobalTick as AbiGlobalTick, HeadEligibility as AbiHeadEligibility, HeadId as AbiHeadId,
+    HeadInfo, KernelPort, NeighborhoodSite as AbiNeighborhoodSite,
     ObservationArtifact as AbiObservationArtifact, ObservationFrame as AbiObservationFrame,
     ObservationProjection as AbiObservationProjection,
     ObservationReadBudget as AbiObservationReadBudget, ObservationRequest as AbiObservationRequest,
     ObservationRights as AbiObservationRights, ObserverInstanceRef as AbiObserverInstanceRef,
-    ReadingObserverPlan as AbiReadingObserverPlan, RegistryInfo, RunCompletion, RunId as AbiRunId,
-    SchedulerMode, SchedulerState, SchedulerStatus, SettlementDelta as AbiSettlementDelta,
-    SettlementPlan as AbiSettlementPlan, SettlementRequest as AbiSettlementRequest,
-    SettlementResult as AbiSettlementResult, WorkState, WorldlineId as AbiWorldlineId,
-    WorldlineTick as AbiWorldlineTick, WriterHeadKey as AbiWriterHeadKey, ABI_VERSION,
+    OpticFocus as AbiOpticFocus, ReadingObserverPlan as AbiReadingObserverPlan, RegistryInfo,
+    RunCompletion, RunId as AbiRunId, SchedulerMode, SchedulerState, SchedulerStatus,
+    SettlementDelta as AbiSettlementDelta, SettlementPlan as AbiSettlementPlan,
+    SettlementRequest as AbiSettlementRequest, SettlementResult as AbiSettlementResult, WorkState,
+    WorldlineId as AbiWorldlineId, WorldlineTick as AbiWorldlineTick,
+    WriterHeadKey as AbiWriterHeadKey, ABI_VERSION,
 };
 use echo_wasm_abi::{unpack_control_intent_v1, unpack_intent_v1, CONTROL_INTENT_V1_OP_ID};
 use warp_core::{
@@ -695,6 +697,28 @@ impl KernelPort for WarpKernel {
         }
     }
 
+    fn current_optic_coordinate(
+        &self,
+        focus: &AbiOpticFocus,
+    ) -> Result<Option<AbiEchoCoordinate>, AbiError> {
+        match focus {
+            AbiOpticFocus::Worldline { worldline_id } => {
+                if Self::to_core_worldline_id(worldline_id) != self.default_worldline {
+                    return Ok(None);
+                }
+
+                let head = self.current_head()?;
+                Ok(Some(AbiEchoCoordinate::Worldline {
+                    worldline_id: *worldline_id,
+                    at: AbiCoordinateAt::Tick {
+                        worldline_tick: head.worldline_tick,
+                    },
+                }))
+            }
+            _ => Ok(None),
+        }
+    }
+
     fn observe(&self, request: AbiObservationRequest) -> Result<AbiObservationArtifact, AbiError> {
         let request = Self::to_core_request(request)?;
         Ok(self.observe_core(request)?.to_abi())
@@ -1239,6 +1263,76 @@ mod tests {
         assert!(r1.accepted);
         assert!(!r2.accepted);
         assert_eq!(r1.intent_id, r2.intent_id);
+    }
+
+    #[test]
+    fn stale_optic_dispatch_obstructs_without_advancing_head_or_provenance() {
+        let mut kernel = WarpKernel::new().unwrap();
+        let intent = pack_intent_v1(1, b"advance").unwrap();
+        kernel.dispatch_intent(&intent).unwrap();
+        start_until_idle(&mut kernel, Some(1));
+
+        let head_before = kernel.current_head().unwrap();
+        let provenance_len_before = kernel.provenance.len(kernel.default_worldline).unwrap();
+        assert_eq!(head_before.worldline_tick, AbiWorldlineTick(1));
+
+        let actor = echo_wasm_abi::kernel_port::OpticActorId::from_bytes([4; 32]);
+        let intent_family = echo_wasm_abi::kernel_port::IntentFamilyId::from_bytes([5; 32]);
+        let worldline_id = abi_worldline_id(kernel.default_worldline);
+        let focus = echo_wasm_abi::kernel_port::OpticFocus::Worldline { worldline_id };
+        let stale_base = echo_wasm_abi::kernel_port::EchoCoordinate::Worldline {
+            worldline_id,
+            at: echo_wasm_abi::kernel_port::CoordinateAt::Tick {
+                worldline_tick: AbiWorldlineTick(0),
+            },
+        };
+        let request = echo_wasm_abi::kernel_port::DispatchOpticIntentRequest {
+            optic_id: echo_wasm_abi::kernel_port::OpticId::from_bytes([1; 32]),
+            base_coordinate: stale_base.clone(),
+            intent_family,
+            focus: focus.clone(),
+            cause: echo_wasm_abi::kernel_port::OpticCause {
+                actor,
+                cause_hash: vec![6; 32],
+                label: Some("stale optic dispatch".into()),
+            },
+            capability: echo_wasm_abi::kernel_port::OpticCapability {
+                capability_id: echo_wasm_abi::kernel_port::OpticCapabilityId::from_bytes([7; 32]),
+                actor,
+                issuer_ref: None,
+                policy_hash: vec![8; 32],
+                allowed_focus: focus,
+                projection_version: echo_wasm_abi::kernel_port::ProjectionVersion(1),
+                reducer_version: None,
+                allowed_intent_family: intent_family,
+                max_budget: echo_wasm_abi::kernel_port::OpticReadBudget {
+                    max_bytes: Some(4096),
+                    max_nodes: Some(64),
+                    max_ticks: Some(8),
+                    max_attachments: Some(0),
+                },
+            },
+            admission_law: echo_wasm_abi::kernel_port::AdmissionLawId::from_bytes([9; 32]),
+            payload: echo_wasm_abi::kernel_port::OpticIntentPayload::EintV1 {
+                bytes: pack_intent_v1(2, b"stale-write").unwrap(),
+            },
+        };
+
+        let result = kernel.dispatch_optic_intent(request).unwrap();
+        assert!(matches!(
+            result,
+            echo_wasm_abi::kernel_port::IntentDispatchResult::Obstructed(obstruction)
+                if obstruction.kind == echo_wasm_abi::kernel_port::OpticObstructionKind::StaleBasis
+                    && obstruction.coordinate == Some(stale_base)
+        ));
+
+        let head_after = kernel.current_head().unwrap();
+        assert_eq!(head_after.worldline_tick, head_before.worldline_tick);
+        assert_eq!(head_after.commit_id, head_before.commit_id);
+        assert_eq!(
+            kernel.provenance.len(kernel.default_worldline).unwrap(),
+            provenance_len_before
+        );
     }
 
     #[test]

@@ -596,6 +596,12 @@ ingests into the runtime inbox instead of proving a committed tick/receipt, the
 optic result is `IntentDispatchResult::Staged` with an explicit stage ref and
 reason, not a fabricated `Admitted` result.
 
+Stale-basis validation is explicit. Core proposals can be checked against a
+known current coordinate, and engine-backed dispatch resolves the current
+worldline coordinate before staging. If the proposal names an older concrete
+base, dispatch returns `OpticObstructionKind::StaleBasis`; it does not enqueue
+the EINT or advance current provenance.
+
 ## Admission Outcomes
 
 Admission outcomes are not `Ok/Err`.

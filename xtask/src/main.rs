@@ -122,6 +122,8 @@ struct WesleySyncArgs {
 enum MethodCommand {
     /// Capture a backlog note in inbox/.
     Inbox(MethodInboxArgs),
+    /// Scaffold a retro and witness directory for an active cycle.
+    Close(MethodCloseArgs),
     /// Show backlog lanes, active cycles, and legend load.
     Status(MethodStatusArgs),
     /// Regenerate METHOD task matrix markdown and CSV.
@@ -140,6 +142,12 @@ enum MethodCommand {
 struct MethodInboxArgs {
     /// Idea title or one-line note to capture.
     title: String,
+}
+
+#[derive(Args)]
+struct MethodCloseArgs {
+    /// Cycle number or full cycle directory name. Defaults to most recent active cycle.
+    cycle: Option<String>,
 }
 
 #[derive(Args)]
@@ -742,6 +750,7 @@ fn is_sha256_hex(candidate: &str) -> bool {
 fn run_method(args: MethodArgs) -> Result<()> {
     match args.command {
         MethodCommand::Inbox(inbox_args) => run_method_inbox(inbox_args),
+        MethodCommand::Close(close_args) => run_method_close(close_args),
         MethodCommand::Status(status_args) => run_method_status(status_args),
         MethodCommand::Matrix(matrix_args) => run_method_matrix(matrix_args),
         MethodCommand::Dag(dag_args) => run_method_dag(dag_args),
@@ -763,6 +772,26 @@ fn run_method_inbox(args: MethodInboxArgs) -> Result<()> {
         .map_err(|e| anyhow::anyhow!(e))?;
     let display_path = path.strip_prefix(&root).unwrap_or(&path);
     println!("{}", display_path.display());
+    Ok(())
+}
+
+fn run_method_close(args: MethodCloseArgs) -> Result<()> {
+    let root = std::env::current_dir().context("failed to get current dir")?;
+    let workspace = method_workspace()?;
+    let result = method::close::close_cycle(&workspace, args.cycle.as_deref())
+        .map_err(|e| anyhow::anyhow!(e))?;
+    let retro_path = result
+        .retro_path
+        .strip_prefix(&root)
+        .unwrap_or(&result.retro_path);
+    let witness_dir = result
+        .witness_dir
+        .strip_prefix(&root)
+        .unwrap_or(&result.witness_dir);
+
+    println!("closed {}", result.cycle);
+    println!("retro {}", retro_path.display());
+    println!("witness {}", witness_dir.display());
     Ok(())
 }
 

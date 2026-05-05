@@ -1,6 +1,6 @@
 digraph method_task_dag {
   graph [
-    label="METHOD Backlog Task Dependency DAG\nopen tasks: 101 / 181; dependency edges: 125",
+    label="METHOD Backlog Task Dependency DAG\nopen tasks: 100 / 181; dependency edges: 125",
     labelloc=t,
     fontsize=24,
     fontname="Inter, Helvetica, Arial",
@@ -71,7 +71,7 @@ digraph method_task_dag {
     "M038" [label="M038\nOPEN\nReconcile TTD protocol\nschemas with warp-ttd", tooltip="M038 [asap] open; blockers=0;  Reconcile TTD protocol schemas with warp-ttd", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M039" [label="M039\nOPEN\nWesley Compiled Contract\nHosting Doctrine", tooltip="M039 [asap] open; blockers=0;  Wesley Compiled Contract Hosting Doctrine", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M040" [label="M040\nDONE\nWitnessed suffix admission\nshells", tooltip="M040 [asap] done; blockers=0;  Witnessed suffix admission shells", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
-    "M041" [label="M041\nOPEN\nxtask method close", tooltip="M041 [asap] open; blockers=0;  xtask method close", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
+    "M041" [label="M041\nDONE\nxtask method close", tooltip="M041 [asap] done; blockers=0;  xtask method close", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M042" [label="M042\nOPEN\nxtask method drift", tooltip="M042 [asap] open; blockers=0;  xtask method drift", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M043" [label="M043\nOPEN\nxtask method pull", tooltip="M043 [asap] open; blockers=0;  xtask method pull", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
   }

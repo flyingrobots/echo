@@ -346,6 +346,272 @@ mod generated;
     crate_dir
 }
 
+fn write_optic_binding_smoke_crate() -> PathBuf {
+    let workspace = workspace_root();
+    let crate_dir = workspace
+        .join("target")
+        .join("echo-wesley-gen-optic-binding-smoke")
+        .join(std::process::id().to_string());
+    if crate_dir.exists() {
+        fs::remove_dir_all(&crate_dir).expect("failed to remove old optic smoke crate");
+    }
+    fs::create_dir_all(crate_dir.join("src")).expect("failed to create optic smoke crate");
+
+    let wasm_abi_path = workspace.join("crates/echo-wasm-abi");
+    fs::write(
+        crate_dir.join("Cargo.toml"),
+        format!(
+            r#"[package]
+name = "echo-wesley-gen-optic-binding-smoke"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+echo-wasm-abi = {{ path = "{}" }}
+serde = {{ version = "1.0", features = ["derive"] }}
+"#,
+            wasm_abi_path.display()
+        ),
+    )
+    .expect("failed to write optic smoke Cargo.toml");
+
+    fs::write(
+        crate_dir.join("src/generated.rs"),
+        r"
+use echo_wasm_abi::kernel_port::{
+    AdmissionLawId, AttachmentDescentPolicy, DispatchOpticIntentRequest, EchoCoordinate,
+    IntentFamilyId, ObserveOpticRequest, OpticAperture, OpticApertureShape, OpticCapability,
+    OpticCause, OpticFocus, OpticId, OpticIntentPayload, OpticReadBudget, ProjectionVersion,
+    ReducerVersion,
+};
+use echo_wasm_abi::pack_intent_v1;
+
+pub const OP_INCREMENT: u32 = 1001;
+pub const OP_COUNTER_VALUE: u32 = 1002;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IncrementVars {
+    pub amount: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CounterValueVars {}
+
+#[derive(Debug)]
+pub enum GeneratedOpticIntentError {
+    EncodeVars(echo_wasm_abi::CanonError),
+    PackEnvelope(echo_wasm_abi::EnvelopeError),
+}
+
+pub fn encode_increment_vars(vars: &IncrementVars) -> Result<Vec<u8>, echo_wasm_abi::CanonError> {
+    echo_wasm_abi::encode_cbor(vars)
+}
+
+pub fn encode_counter_value_vars(
+    vars: &CounterValueVars,
+) -> Result<Vec<u8>, echo_wasm_abi::CanonError> {
+    echo_wasm_abi::encode_cbor(vars)
+}
+
+fn generated_vars_digest(vars_bytes: &[u8]) -> Vec<u8> {
+    let mut digest = vec![0u8; 32];
+    for (index, byte) in vars_bytes.iter().enumerate() {
+        digest[index % 32] ^= *byte;
+    }
+    digest
+}
+
+pub fn counter_value_observe_optic_request(
+    optic_id: OpticId,
+    focus: OpticFocus,
+    coordinate: EchoCoordinate,
+    capability: echo_wasm_abi::kernel_port::OpticCapabilityId,
+    projection_version: ProjectionVersion,
+    reducer_version: Option<ReducerVersion>,
+    budget: OpticReadBudget,
+    vars: &CounterValueVars,
+) -> Result<ObserveOpticRequest, echo_wasm_abi::CanonError> {
+    let vars_bytes = encode_counter_value_vars(vars)?;
+    let vars_digest = generated_vars_digest(&vars_bytes);
+    Ok(counter_value_observe_optic_request_raw_vars_digest(
+        optic_id,
+        focus,
+        coordinate,
+        capability,
+        projection_version,
+        reducer_version,
+        budget,
+        vars_digest,
+    ))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn counter_value_observe_optic_request_raw_vars_digest(
+    optic_id: OpticId,
+    focus: OpticFocus,
+    coordinate: EchoCoordinate,
+    capability: echo_wasm_abi::kernel_port::OpticCapabilityId,
+    projection_version: ProjectionVersion,
+    reducer_version: Option<ReducerVersion>,
+    budget: OpticReadBudget,
+    vars_digest: Vec<u8>,
+) -> ObserveOpticRequest {
+    ObserveOpticRequest {
+        optic_id,
+        focus,
+        coordinate,
+        aperture: OpticAperture {
+            shape: OpticApertureShape::QueryBytes {
+                query_id: OP_COUNTER_VALUE,
+                vars_digest,
+            },
+            budget,
+            attachment_descent: AttachmentDescentPolicy::BoundaryOnly,
+        },
+        projection_version,
+        reducer_version,
+        capability,
+    }
+}
+
+pub fn increment_dispatch_optic_intent_request(
+    optic_id: OpticId,
+    base_coordinate: EchoCoordinate,
+    intent_family: IntentFamilyId,
+    focus: OpticFocus,
+    cause: OpticCause,
+    capability: OpticCapability,
+    admission_law: AdmissionLawId,
+    vars: &IncrementVars,
+) -> Result<DispatchOpticIntentRequest, GeneratedOpticIntentError> {
+    let vars_bytes = encode_increment_vars(vars).map_err(GeneratedOpticIntentError::EncodeVars)?;
+    let bytes =
+        pack_intent_v1(OP_INCREMENT, &vars_bytes).map_err(GeneratedOpticIntentError::PackEnvelope)?;
+    Ok(DispatchOpticIntentRequest {
+        optic_id,
+        base_coordinate,
+        intent_family,
+        focus,
+        cause,
+        capability,
+        admission_law,
+        payload: OpticIntentPayload::EintV1 { bytes },
+    })
+}
+",
+    )
+    .expect("failed to write optic generated module");
+
+    fs::write(
+        crate_dir.join("src/lib.rs"),
+        r#"
+mod generated;
+
+#[cfg(test)]
+mod tests {
+    use super::generated::{
+        counter_value_observe_optic_request, encode_counter_value_vars,
+        increment_dispatch_optic_intent_request, CounterValueVars, IncrementVars, OP_COUNTER_VALUE,
+        OP_INCREMENT,
+    };
+    use echo_wasm_abi::kernel_port::{
+        AdmissionLawId, CoordinateAt, DispatchOpticIntentRequest, EchoCoordinate, IntentFamilyId,
+        ObserveOpticRequest, OpticActorId, OpticCapability, OpticCapabilityId, OpticCause,
+        OpticFocus, OpticId, OpticIntentPayload, OpticReadBudget, OpticApertureShape,
+        ProjectionVersion, WorldlineId,
+    };
+    use echo_wasm_abi::{decode_cbor, encode_cbor, unpack_intent_v1};
+
+    #[test]
+    fn generated_optic_helpers_build_abi_requests() {
+        let worldline_id = WorldlineId::from_bytes([1; 32]);
+        let optic_id = OpticId::from_bytes([2; 32]);
+        let capability_id = OpticCapabilityId::from_bytes([3; 32]);
+        let actor = OpticActorId::from_bytes([4; 32]);
+        let intent_family = IntentFamilyId::from_bytes([5; 32]);
+        let focus = OpticFocus::Worldline { worldline_id };
+        let coordinate = EchoCoordinate::Worldline {
+            worldline_id,
+            at: CoordinateAt::Frontier,
+        };
+        let budget = OpticReadBudget {
+            max_bytes: Some(4096),
+            max_nodes: Some(64),
+            max_ticks: Some(8),
+            max_attachments: Some(0),
+        };
+
+        let query_vars = CounterValueVars {};
+        let observe = counter_value_observe_optic_request(
+            optic_id,
+            focus.clone(),
+            coordinate.clone(),
+            capability_id,
+            ProjectionVersion(1),
+            None,
+            budget,
+            &query_vars,
+        )
+        .unwrap();
+        let decoded: ObserveOpticRequest = decode_cbor(&encode_cbor(&observe).unwrap()).unwrap();
+        assert_eq!(decoded, observe);
+        assert_eq!(observe.optic_id, optic_id);
+        assert!(matches!(
+            observe.aperture.shape,
+            OpticApertureShape::QueryBytes { query_id, ref vars_digest }
+                if query_id == OP_COUNTER_VALUE
+                    && vars_digest.len() == 32
+                    && vars_digest != &encode_counter_value_vars(&query_vars).unwrap()
+        ));
+
+        let capability = OpticCapability {
+            capability_id,
+            actor,
+            issuer_ref: None,
+            policy_hash: vec![6; 32],
+            allowed_focus: focus.clone(),
+            projection_version: ProjectionVersion(1),
+            reducer_version: None,
+            allowed_intent_family: intent_family,
+            max_budget: budget,
+        };
+        let cause = OpticCause {
+            actor,
+            cause_hash: vec![7; 32],
+            label: Some("generated optic dispatch".into()),
+        };
+        let dispatch = increment_dispatch_optic_intent_request(
+            optic_id,
+            coordinate.clone(),
+            intent_family,
+            focus,
+            cause,
+            capability,
+            AdmissionLawId::from_bytes([8; 32]),
+            &IncrementVars { amount: 42 },
+        )
+        .unwrap();
+        let decoded: DispatchOpticIntentRequest =
+            decode_cbor(&encode_cbor(&dispatch).unwrap()).unwrap();
+        assert_eq!(decoded, dispatch);
+        assert_eq!(dispatch.base_coordinate, coordinate);
+        let OpticIntentPayload::EintV1 { bytes } = &dispatch.payload;
+        let (op_id, vars_bytes) = unpack_intent_v1(bytes).unwrap();
+        assert_eq!(op_id, OP_INCREMENT);
+        let vars: IncrementVars = decode_cbor(vars_bytes).unwrap();
+        assert_eq!(vars.amount, 42);
+    }
+}
+"#,
+    )
+    .expect("failed to write optic smoke lib.rs");
+
+    crate_dir
+}
+
 fn assert_generated_crate_checks(crate_dir: &Path) {
     let output = Command::new("cargo")
         .args(["check", "--manifest-path"])
@@ -356,6 +622,23 @@ fn assert_generated_crate_checks(crate_dir: &Path) {
     assert!(
         output.status.success(),
         "generated crate check failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn test_generated_optic_helper_shape_compiles_against_abi() {
+    let crate_dir = write_optic_binding_smoke_crate();
+    let output = Command::new("cargo")
+        .args(["test", "--manifest-path"])
+        .arg(crate_dir.join("Cargo.toml"))
+        .output()
+        .expect("failed to run optic generated smoke crate");
+
+    assert!(
+        output.status.success(),
+        "optic generated smoke crate failed\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );

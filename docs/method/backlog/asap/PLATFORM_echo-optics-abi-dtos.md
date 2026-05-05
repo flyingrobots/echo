@@ -3,7 +3,10 @@
 
 # Echo Optics ABI DTOs
 
-Status: visible task card.
+Status: complete. The ABI exposes the optic DTO surface needed by generated
+request builders, round-trips the required observe/dispatch DTO set
+deterministically, and has a generated-helper-shaped smoke crate compiling
+against `echo-wasm-abi`.
 
 Depends on:
 
@@ -32,6 +35,12 @@ against `echo-wasm-abi`.
   `IntentDispatchResult`, and supporting refs.
 - DTOs serialize deterministically.
 - Generated optic helper smoke crate compiles against the ABI.
+
+Evidence:
+
+- `crates/echo-wasm-abi/src/kernel_port.rs`
+- `crates/echo-wasm-abi/src/lib.rs`
+- `crates/echo-wesley-gen/tests/generation.rs`
 
 ## Non-goals
 

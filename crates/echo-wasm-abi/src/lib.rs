@@ -713,6 +713,114 @@ mod tests {
     }
 
     #[test]
+    fn test_optic_generated_binding_dtos_serialize_deterministically() {
+        use crate::kernel_port::{
+            AdmissionLawId, AttachmentDescentPolicy, BraidId, CoordinateAt,
+            DispatchOpticIntentRequest, EchoCoordinate, IntentFamilyId, ObserveOpticRequest,
+            OpticActorId, OpticAperture, OpticApertureShape, OpticCapability, OpticCapabilityId,
+            OpticCause, OpticFocus, OpticId, OpticIntentPayload, OpticReadBudget,
+            ProjectionVersion, ProvenanceRef, ReducerVersion, RetainedReadingKey, StrandId,
+            WorldlineId, WorldlineTick,
+        };
+
+        let worldline_id = WorldlineId::from_bytes([1; 32]);
+        let strand_id = StrandId::from_bytes([2; 32]);
+        let braid_id = BraidId::from_bytes([3; 32]);
+        let retained_key = RetainedReadingKey::from_bytes([4; 32]);
+        let optic_id = OpticId::from_bytes([5; 32]);
+        let capability_id = OpticCapabilityId::from_bytes([6; 32]);
+        let intent_family = IntentFamilyId::from_bytes([7; 32]);
+        let actor = OpticActorId::from_bytes([8; 32]);
+        let cause = OpticCause {
+            actor,
+            cause_hash: vec![9; 32],
+            label: Some("generated optic helper".into()),
+        };
+        let focus = OpticFocus::Worldline { worldline_id };
+        let coordinate = EchoCoordinate::Worldline {
+            worldline_id,
+            at: CoordinateAt::Provenance {
+                reference: ProvenanceRef {
+                    worldline_id,
+                    worldline_tick: WorldlineTick(11),
+                    commit_hash: vec![12; 32],
+                },
+            },
+        };
+        let aperture = OpticAperture {
+            shape: OpticApertureShape::QueryBytes {
+                query_id: 1002,
+                vars_digest: vec![13; 32],
+            },
+            budget: OpticReadBudget {
+                max_bytes: Some(4096),
+                max_nodes: Some(64),
+                max_ticks: Some(16),
+                max_attachments: Some(0),
+            },
+            attachment_descent: AttachmentDescentPolicy::BoundaryOnly,
+        };
+        let observe = ObserveOpticRequest {
+            optic_id,
+            focus: focus.clone(),
+            coordinate: coordinate.clone(),
+            aperture,
+            projection_version: ProjectionVersion(1),
+            reducer_version: Some(ReducerVersion(2)),
+            capability: capability_id,
+        };
+        let capability = OpticCapability {
+            capability_id,
+            actor,
+            issuer_ref: None,
+            policy_hash: vec![14; 32],
+            allowed_focus: focus.clone(),
+            projection_version: ProjectionVersion(1),
+            reducer_version: Some(ReducerVersion(2)),
+            allowed_intent_family: intent_family,
+            max_budget: OpticReadBudget {
+                max_bytes: Some(4096),
+                max_nodes: Some(64),
+                max_ticks: Some(16),
+                max_attachments: Some(0),
+            },
+        };
+        let dispatch = DispatchOpticIntentRequest {
+            optic_id,
+            base_coordinate: coordinate,
+            intent_family,
+            focus,
+            cause,
+            capability,
+            admission_law: AdmissionLawId::from_bytes([15; 32]),
+            payload: OpticIntentPayload::EintV1 {
+                bytes: pack_intent_v1(1001, b"optic-vars").unwrap(),
+            },
+        };
+
+        let observe_bytes = encode_cbor(&observe).unwrap();
+        assert_eq!(observe_bytes, encode_cbor(&observe).unwrap());
+        let decoded: ObserveOpticRequest = decode_cbor(&observe_bytes).unwrap();
+        assert_eq!(decoded, observe);
+
+        let dispatch_bytes = encode_cbor(&dispatch).unwrap();
+        assert_eq!(dispatch_bytes, encode_cbor(&dispatch).unwrap());
+        let decoded: DispatchOpticIntentRequest = decode_cbor(&dispatch_bytes).unwrap();
+        assert_eq!(decoded, dispatch);
+
+        for dto in [
+            OpticFocus::Strand { strand_id },
+            OpticFocus::Braid { braid_id },
+            OpticFocus::RetainedReading { key: retained_key },
+        ] {
+            assert_eq!(
+                decode_cbor::<OpticFocus>(&encode_cbor(&dto).unwrap()).unwrap(),
+                dto
+            );
+        }
+    }
+
+    #[test]
     fn test_optic_read_identity_round_trip() {
         use crate::kernel_port::{
             AuthoredObserverPlan, BuiltinObserverPlan, EchoCoordinate, MissingWitnessBasisReason,

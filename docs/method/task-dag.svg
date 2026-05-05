@@ -390,10 +390,10 @@
 <!-- M019 -->
 <g id="node19" class="node">
 <title>M019</title>
-<g id="a_node19"><a xlink:title="M019 [asap] open; blockers=0; &#160;Echo Optics ABI DTOs">
-<path fill="#bbf7d0" stroke="#15803d" stroke-width="2.8" d="M1161.75,-3597.45C1161.75,-3597.45 1069.23,-3597.45 1069.23,-3597.45 1063.23,-3597.45 1057.23,-3591.45 1057.23,-3585.45 1057.23,-3585.45 1057.23,-3562.55 1057.23,-3562.55 1057.23,-3556.55 1063.23,-3550.55 1069.23,-3550.55 1069.23,-3550.55 1161.75,-3550.55 1161.75,-3550.55 1167.75,-3550.55 1173.75,-3556.55 1173.75,-3562.55 1173.75,-3562.55 1173.75,-3585.45 1173.75,-3585.45 1173.75,-3591.45 1167.75,-3597.45 1161.75,-3597.45"/>
+<g id="a_node19"><a xlink:title="M019 [asap] done; blockers=0; &#160;Echo Optics ABI DTOs">
+<path fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.4" d="M1161.75,-3597.45C1161.75,-3597.45 1069.23,-3597.45 1069.23,-3597.45 1063.23,-3597.45 1057.23,-3591.45 1057.23,-3585.45 1057.23,-3585.45 1057.23,-3562.55 1057.23,-3562.55 1057.23,-3556.55 1063.23,-3550.55 1069.23,-3550.55 1069.23,-3550.55 1161.75,-3550.55 1161.75,-3550.55 1167.75,-3550.55 1173.75,-3556.55 1173.75,-3562.55 1173.75,-3562.55 1173.75,-3585.45 1173.75,-3585.45 1173.75,-3591.45 1167.75,-3597.45 1161.75,-3597.45"/>
 <text xml:space="preserve" text-anchor="middle" x="1115.49" y="-3583.62" font-family="Inter, Helvetica, Arial" font-size="10.00">M019</text>
-<text xml:space="preserve" text-anchor="middle" x="1115.49" y="-3570.88" font-family="Inter, Helvetica, Arial" font-size="10.00">OPEN</text>
+<text xml:space="preserve" text-anchor="middle" x="1115.49" y="-3570.88" font-family="Inter, Helvetica, Arial" font-size="10.00">DONE</text>
 <text xml:space="preserve" text-anchor="middle" x="1115.49" y="-3558.12" font-family="Inter, Helvetica, Arial" font-size="10.00">Echo Optics ABI DTOs</text>
 </a>
 </g>
@@ -401,44 +401,45 @@
 <!-- M026 -->
 <g id="node26" class="node">
 <title>M026</title>
-<g id="a_node26"><a xlink:title="M026 [asap] blocked; blockers=1; &#160;Echo Optics Example Implementation">
-<path fill="#fff3bf" stroke="#b08900" stroke-width="1.2" d="M1339.39,-3548.45C1339.39,-3548.45 1252.12,-3548.45 1252.12,-3548.45 1246.12,-3548.45 1240.12,-3542.45 1240.12,-3536.45 1240.12,-3536.45 1240.12,-3513.55 1240.12,-3513.55 1240.12,-3507.55 1246.12,-3501.55 1252.12,-3501.55 1252.12,-3501.55 1339.39,-3501.55 1339.39,-3501.55 1345.39,-3501.55 1351.39,-3507.55 1351.39,-3513.55 1351.39,-3513.55 1351.39,-3536.45 1351.39,-3536.45 1351.39,-3542.45 1345.39,-3548.45 1339.39,-3548.45"/>
-<text xml:space="preserve" text-anchor="middle" x="1295.76" y="-3534.62" font-family="Inter, Helvetica, Arial" font-size="10.00">M026</text>
-<text xml:space="preserve" text-anchor="middle" x="1295.76" y="-3521.88" font-family="Inter, Helvetica, Arial" font-size="10.00">Echo Optics Example</text>
-<text xml:space="preserve" text-anchor="middle" x="1295.76" y="-3509.12" font-family="Inter, Helvetica, Arial" font-size="10.00">Implementation</text>
+<g id="a_node26"><a xlink:title="M026 [asap] open; blockers=0; &#160;Echo Optics Example Implementation">
+<path fill="#bbf7d0" stroke="#15803d" stroke-width="2.8" d="M1339.39,-3547.82C1339.39,-3547.82 1252.12,-3547.82 1252.12,-3547.82 1246.12,-3547.82 1240.12,-3541.82 1240.12,-3535.82 1240.12,-3535.82 1240.12,-3500.18 1240.12,-3500.18 1240.12,-3494.18 1246.12,-3488.18 1252.12,-3488.18 1252.12,-3488.18 1339.39,-3488.18 1339.39,-3488.18 1345.39,-3488.18 1351.39,-3494.18 1351.39,-3500.18 1351.39,-3500.18 1351.39,-3535.82 1351.39,-3535.82 1351.39,-3541.82 1345.39,-3547.82 1339.39,-3547.82"/>
+<text xml:space="preserve" text-anchor="middle" x="1295.76" y="-3534" font-family="Inter, Helvetica, Arial" font-size="10.00">M026</text>
+<text xml:space="preserve" text-anchor="middle" x="1295.76" y="-3521.25" font-family="Inter, Helvetica, Arial" font-size="10.00">OPEN</text>
+<text xml:space="preserve" text-anchor="middle" x="1295.76" y="-3508.5" font-family="Inter, Helvetica, Arial" font-size="10.00">Echo Optics Example</text>
+<text xml:space="preserve" text-anchor="middle" x="1295.76" y="-3495.75" font-family="Inter, Helvetica, Arial" font-size="10.00">Implementation</text>
 </a>
 </g>
 </g>
 <!-- M019&#45;&gt;M026 -->
 <g id="edge15" class="edge">
 <title>M019&#45;&gt;M026</title>
-<path fill="none" stroke="#dc2626" stroke-width="2.6" d="M1175.12,-3566.18C1227.73,-3566.18 1296.09,-3566.18 1296.09,-3566.18 1296.09,-3566.18 1296.09,-3560.89 1296.09,-3560.89"/>
-<polygon fill="#dc2626" stroke="#dc2626" stroke-width="2.6" points="1298.89,-3560.89 1296.09,-3552.89 1293.29,-3560.89 1298.89,-3560.89"/>
+<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M1174.12,-3563.85C1226.86,-3563.85 1296.09,-3563.85 1296.09,-3563.85 1296.09,-3563.85 1296.09,-3555.11 1296.09,-3555.11"/>
+<polygon fill="#94a3b8" stroke="#94a3b8" points="1297.67,-3555.11 1296.09,-3550.61 1294.52,-3555.11 1297.67,-3555.11"/>
 </g>
 <!-- M034 -->
 <g id="node34" class="node">
 <title>M034</title>
-<g id="a_node34"><a xlink:title="M034 [asap] blocked; blockers=2; &#160;Echo Wesley Gen Optic Request Builders">
-<path fill="#fff3bf" stroke="#b08900" stroke-width="1.2" d="M1521.91,-3597.45C1521.91,-3597.45 1423.39,-3597.45 1423.39,-3597.45 1417.39,-3597.45 1411.39,-3591.45 1411.39,-3585.45 1411.39,-3585.45 1411.39,-3562.55 1411.39,-3562.55 1411.39,-3556.55 1417.39,-3550.55 1423.39,-3550.55 1423.39,-3550.55 1521.91,-3550.55 1521.91,-3550.55 1527.91,-3550.55 1533.91,-3556.55 1533.91,-3562.55 1533.91,-3562.55 1533.91,-3585.45 1533.91,-3585.45 1533.91,-3591.45 1527.91,-3597.45 1521.91,-3597.45"/>
-<text xml:space="preserve" text-anchor="middle" x="1472.65" y="-3583.62" font-family="Inter, Helvetica, Arial" font-size="10.00">M034</text>
-<text xml:space="preserve" text-anchor="middle" x="1472.65" y="-3570.88" font-family="Inter, Helvetica, Arial" font-size="10.00">Echo Wesley Gen Optic</text>
-<text xml:space="preserve" text-anchor="middle" x="1472.65" y="-3558.12" font-family="Inter, Helvetica, Arial" font-size="10.00">Request Builders</text>
+<g id="a_node34"><a xlink:title="M034 [asap] blocked; blockers=1; &#160;Echo Wesley Gen Optic Request Builders">
+<path fill="#fff3bf" stroke="#b08900" stroke-width="1.2" d="M1521.91,-3590.45C1521.91,-3590.45 1423.39,-3590.45 1423.39,-3590.45 1417.39,-3590.45 1411.39,-3584.45 1411.39,-3578.45 1411.39,-3578.45 1411.39,-3555.55 1411.39,-3555.55 1411.39,-3549.55 1417.39,-3543.55 1423.39,-3543.55 1423.39,-3543.55 1521.91,-3543.55 1521.91,-3543.55 1527.91,-3543.55 1533.91,-3549.55 1533.91,-3555.55 1533.91,-3555.55 1533.91,-3578.45 1533.91,-3578.45 1533.91,-3584.45 1527.91,-3590.45 1521.91,-3590.45"/>
+<text xml:space="preserve" text-anchor="middle" x="1472.65" y="-3576.62" font-family="Inter, Helvetica, Arial" font-size="10.00">M034</text>
+<text xml:space="preserve" text-anchor="middle" x="1472.65" y="-3563.88" font-family="Inter, Helvetica, Arial" font-size="10.00">Echo Wesley Gen Optic</text>
+<text xml:space="preserve" text-anchor="middle" x="1472.65" y="-3551.12" font-family="Inter, Helvetica, Arial" font-size="10.00">Request Builders</text>
 </a>
 </g>
 </g>
 <!-- M019&#45;&gt;M034 -->
 <g id="edge16" class="edge">
 <title>M019&#45;&gt;M034</title>
-<path fill="none" stroke="#dc2626" stroke-width="2.6" d="M1174.86,-3581.82C1174.86,-3581.82 1399.1,-3581.82 1399.1,-3581.82"/>
-<polygon fill="#dc2626" stroke="#dc2626" stroke-width="2.6" points="1399.1,-3584.62 1407.1,-3581.82 1399.1,-3579.02 1399.1,-3584.62"/>
+<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M1174.06,-3577.15C1174.06,-3577.15 1405.03,-3577.15 1405.03,-3577.15"/>
+<polygon fill="#94a3b8" stroke="#94a3b8" points="1405.03,-3578.72 1409.53,-3577.15 1405.03,-3575.57 1405.03,-3578.72"/>
 </g>
 <!-- M020 -->
 <g id="node20" class="node">
 <title>M020</title>
 <g id="a_node20"><a xlink:title="M020 [asap] blocked; blockers=2; &#160;Echo Optics Adapter Notes">
-<path fill="#fff3bf" stroke="#b08900" stroke-width="1.2" d="M1714.93,-3567C1714.93,-3567 1599.91,-3567 1599.91,-3567 1593.91,-3567 1587.91,-3561 1587.91,-3555 1587.91,-3555 1587.91,-3543 1587.91,-3543 1587.91,-3537 1593.91,-3531 1599.91,-3531 1599.91,-3531 1714.93,-3531 1714.93,-3531 1720.93,-3531 1726.93,-3537 1726.93,-3543 1726.93,-3543 1726.93,-3555 1726.93,-3555 1726.93,-3561 1720.93,-3567 1714.93,-3567"/>
-<text xml:space="preserve" text-anchor="middle" x="1657.42" y="-3552.25" font-family="Inter, Helvetica, Arial" font-size="10.00">M020</text>
-<text xml:space="preserve" text-anchor="middle" x="1657.42" y="-3539.5" font-family="Inter, Helvetica, Arial" font-size="10.00">Echo Optics Adapter Notes</text>
+<path fill="#fff3bf" stroke="#b08900" stroke-width="1.2" d="M1714.93,-3560C1714.93,-3560 1599.91,-3560 1599.91,-3560 1593.91,-3560 1587.91,-3554 1587.91,-3548 1587.91,-3548 1587.91,-3536 1587.91,-3536 1587.91,-3530 1593.91,-3524 1599.91,-3524 1599.91,-3524 1714.93,-3524 1714.93,-3524 1720.93,-3524 1726.93,-3530 1726.93,-3536 1726.93,-3536 1726.93,-3548 1726.93,-3548 1726.93,-3554 1720.93,-3560 1714.93,-3560"/>
+<text xml:space="preserve" text-anchor="middle" x="1657.42" y="-3545.25" font-family="Inter, Helvetica, Arial" font-size="10.00">M020</text>
+<text xml:space="preserve" text-anchor="middle" x="1657.42" y="-3532.5" font-family="Inter, Helvetica, Arial" font-size="10.00">Echo Optics Adapter Notes</text>
 </a>
 </g>
 </g>
@@ -564,14 +565,14 @@
 <!-- M025&#45;&gt;M019 -->
 <g id="edge21" class="edge">
 <title>M025&#45;&gt;M019</title>
-<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M922.09,-3547.36C922.09,-3556.28 922.09,-3563.69 922.09,-3563.69 922.09,-3563.69 1049.87,-3563.69 1049.87,-3563.69"/>
-<polygon fill="#94a3b8" stroke="#94a3b8" points="1049.87,-3565.26 1054.37,-3563.69 1049.87,-3562.11 1049.87,-3565.26"/>
+<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M922.09,-3547.36C922.09,-3556.28 922.09,-3563.69 922.09,-3563.69 922.09,-3563.69 1050.66,-3563.69 1050.66,-3563.69"/>
+<polygon fill="#94a3b8" stroke="#94a3b8" points="1050.66,-3565.26 1055.16,-3563.69 1050.66,-3562.11 1050.66,-3565.26"/>
 </g>
 <!-- M025&#45;&gt;M026 -->
 <g id="edge22" class="edge">
 <title>M025&#45;&gt;M026</title>
-<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M978.52,-3535.5C978.52,-3535.5 1233.62,-3535.5 1233.62,-3535.5"/>
-<polygon fill="#94a3b8" stroke="#94a3b8" points="1233.62,-3537.08 1238.12,-3535.5 1233.62,-3533.93 1233.62,-3537.08"/>
+<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M978.52,-3530.82C978.52,-3530.82 1233.01,-3530.82 1233.01,-3530.82"/>
+<polygon fill="#94a3b8" stroke="#94a3b8" points="1233.01,-3532.4 1237.51,-3530.82 1233.01,-3529.25 1233.01,-3532.4"/>
 </g>
 <!-- M032 -->
 <g id="node32" class="node">
@@ -594,14 +595,14 @@
 <!-- M026&#45;&gt;M020 -->
 <g id="edge24" class="edge">
 <title>M026&#45;&gt;M020</title>
-<path fill="none" stroke="#dc2626" stroke-width="2.6" d="M1351.87,-3536.82C1351.87,-3536.82 1575.59,-3536.82 1575.59,-3536.82"/>
-<polygon fill="#dc2626" stroke="#dc2626" stroke-width="2.6" points="1575.59,-3539.62 1583.59,-3536.82 1575.59,-3534.02 1575.59,-3539.62"/>
+<path fill="none" stroke="#dc2626" stroke-width="2.6" d="M1352.66,-3530.52C1352.66,-3530.52 1575.59,-3530.52 1575.59,-3530.52"/>
+<polygon fill="#dc2626" stroke="#dc2626" stroke-width="2.6" points="1575.59,-3533.32 1583.59,-3530.52 1575.59,-3527.72 1575.59,-3533.32"/>
 </g>
 <!-- M026&#45;&gt;M034 -->
 <g id="edge25" class="edge">
 <title>M026&#45;&gt;M034</title>
-<path fill="none" stroke="#dc2626" stroke-width="2.6" d="M1351.7,-3542.63C1383.12,-3542.63 1416.09,-3542.63 1416.09,-3542.63 1416.09,-3542.63 1416.09,-3543.39 1416.09,-3543.39"/>
-<polygon fill="#dc2626" stroke="#dc2626" stroke-width="2.6" points="1413.29,-3538.29 1416.09,-3546.29 1418.89,-3538.29 1413.29,-3538.29"/>
+<path fill="none" stroke="#dc2626" stroke-width="2.6" d="M1352.75,-3537.04C1383.85,-3537.04 1416.09,-3537.04 1416.09,-3537.04 1416.09,-3537.04 1416.09,-3537.64 1416.09,-3537.64"/>
+<polygon fill="#dc2626" stroke="#dc2626" stroke-width="2.6" points="1413.29,-3531.16 1416.09,-3539.16 1418.89,-3531.17 1413.29,-3531.16"/>
 </g>
 <!-- M027 -->
 <g id="node27" class="node">
@@ -629,8 +630,8 @@
 <!-- M028&#45;&gt;M019 -->
 <g id="edge26" class="edge">
 <title>M028&#45;&gt;M019</title>
-<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M986.09,-3461.02C986.09,-3496.07 986.09,-3557.12 986.09,-3557.12 986.09,-3557.12 1050.08,-3557.12 1050.08,-3557.12"/>
-<polygon fill="#94a3b8" stroke="#94a3b8" points="1050.08,-3558.7 1054.58,-3557.12 1050.08,-3555.55 1050.08,-3558.7"/>
+<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M986.09,-3461.02C986.09,-3496.07 986.09,-3557.12 986.09,-3557.12 986.09,-3557.12 1050.83,-3557.12 1050.83,-3557.12"/>
+<polygon fill="#94a3b8" stroke="#94a3b8" points="1050.83,-3558.7 1055.33,-3557.12 1050.83,-3555.55 1050.83,-3558.7"/>
 </g>
 <!-- M028&#45;&gt;M022 -->
 <g id="edge27" class="edge">
@@ -641,14 +642,14 @@
 <!-- M028&#45;&gt;M026 -->
 <g id="edge28" class="edge">
 <title>M028&#45;&gt;M026</title>
-<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M990.09,-3460.82C990.09,-3486.64 990.09,-3524.19 990.09,-3524.19 990.09,-3524.19 1233.68,-3524.19 1233.68,-3524.19"/>
-<polygon fill="#94a3b8" stroke="#94a3b8" points="1233.68,-3525.76 1238.18,-3524.19 1233.68,-3522.61 1233.68,-3525.76"/>
+<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M990.09,-3460.77C990.09,-3483.66 990.09,-3514.82 990.09,-3514.82 990.09,-3514.82 1232.96,-3514.82 1232.96,-3514.82"/>
+<polygon fill="#94a3b8" stroke="#94a3b8" points="1232.96,-3516.4 1237.46,-3514.82 1232.96,-3513.25 1232.96,-3516.4"/>
 </g>
 <!-- M029&#45;&gt;M019 -->
 <g id="edge29" class="edge">
 <title>M029&#45;&gt;M019</title>
-<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M571.17,-3570.25C571.17,-3570.25 1049.95,-3570.25 1049.95,-3570.25"/>
-<polygon fill="#94a3b8" stroke="#94a3b8" points="1049.95,-3571.83 1054.45,-3570.25 1049.95,-3568.68 1049.95,-3571.83"/>
+<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M571.17,-3570.25C571.17,-3570.25 1050.83,-3570.25 1050.83,-3570.25"/>
+<polygon fill="#94a3b8" stroke="#94a3b8" points="1050.83,-3571.83 1055.33,-3570.25 1050.83,-3568.68 1050.83,-3571.83"/>
 </g>
 <!-- M029&#45;&gt;M025 -->
 <g id="edge30" class="edge">
@@ -713,8 +714,8 @@
 <!-- M032&#45;&gt;M026 -->
 <g id="edge38" class="edge">
 <title>M032&#45;&gt;M026</title>
-<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M1115.09,-3499.47C1115.09,-3506.96 1115.09,-3512.87 1115.09,-3512.87 1115.09,-3512.87 1233.57,-3512.87 1233.57,-3512.87"/>
-<polygon fill="#94a3b8" stroke="#94a3b8" points="1233.57,-3514.45 1238.07,-3512.87 1233.57,-3511.3 1233.57,-3514.45"/>
+<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M1178.03,-3493.5C1178.03,-3493.5 1232.74,-3493.5 1232.74,-3493.5"/>
+<polygon fill="#94a3b8" stroke="#94a3b8" points="1232.74,-3495.08 1237.24,-3493.5 1232.74,-3491.93 1232.74,-3495.08"/>
 </g>
 <!-- M033&#45;&gt;M023 -->
 <g id="edge39" class="edge">
@@ -737,8 +738,8 @@
 <!-- M034&#45;&gt;M020 -->
 <g id="edge42" class="edge">
 <title>M034&#45;&gt;M020</title>
-<path fill="none" stroke="#dc2626" stroke-width="2.6" d="M1534.43,-3558.78C1534.43,-3558.78 1575.47,-3558.78 1575.47,-3558.78"/>
-<polygon fill="#dc2626" stroke="#dc2626" stroke-width="2.6" points="1575.47,-3561.58 1583.47,-3558.78 1575.47,-3555.98 1575.47,-3561.58"/>
+<path fill="none" stroke="#dc2626" stroke-width="2.6" d="M1534.43,-3551.78C1534.43,-3551.78 1575.47,-3551.78 1575.47,-3551.78"/>
+<polygon fill="#dc2626" stroke="#dc2626" stroke-width="2.6" points="1575.47,-3554.58 1583.47,-3551.78 1575.47,-3548.98 1575.47,-3554.58"/>
 </g>
 <!-- M035 -->
 <g id="node35" class="node">

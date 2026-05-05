@@ -602,6 +602,13 @@ worldline coordinate before staging. If the proposal names an older concrete
 base, dispatch returns `OpticObstructionKind::StaleBasis`; it does not enqueue
 the EINT or advance current provenance.
 
+Generated-binding readiness is ABI-level, not a generator promise. The current
+`echo-wasm-abi` DTO set exposes the optic ids, focus/coordinate/aperture
+models, observe and dispatch requests, EINT payload wrapper, typed admission
+result, and support refs needed by generated helper code. `echo-wesley-gen`
+tests include a hand-written generated-helper-shaped smoke crate so ABI drift
+breaks before the generator implementation task.
+
 ## Admission Outcomes
 
 Admission outcomes are not `Ok/Err`.

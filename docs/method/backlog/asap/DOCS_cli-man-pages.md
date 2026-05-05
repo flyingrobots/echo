@@ -7,12 +7,14 @@
 
 CLI documentation: man pages, usage examples, and integration with the docs site.
 
-Status: partially implemented. `clap_mangen`, `cargo xtask man-pages`, and the
-checked-in `docs/man/echo-cli*.1` pages exist. The remaining work is README
-copy-paste examples plus a CI freshness gate that regenerates and diffs the
-man pages.
+Status: complete. `clap_mangen`, `cargo xtask man-pages`, checked-in
+`docs/man/echo-cli*.1` pages, root README examples, and
+`cargo xtask man-pages --check` are implemented. CI now verifies that committed
+man pages stay fresh against the current clap surface.
 
 ## T-6-5-1: Man page generation and README examples
+
+Status: complete.
 
 **User Story:** As a developer, I want `man echo-cli` to work and the README to have copy-pasteable examples so that CLI usage is discoverable.
 
@@ -27,16 +29,16 @@ man pages.
 
 **Acceptance Criteria:**
 
-- [ ] AC1: `man docs/man/echo-cli.1` renders correctly in a terminal.
-- [ ] AC2: `man docs/man/echo-cli-verify.1` shows verify-specific options and examples.
-- [ ] AC3: CI fails if someone changes clap args without regenerating man pages.
-- [ ] AC4: README examples are copy-pasteable and exit 0 when run against a valid fixture.
+- [x] AC1: `man docs/man/echo-cli.1` renders correctly in a terminal.
+- [x] AC2: `man docs/man/echo-cli-verify.1` shows verify-specific options and examples.
+- [x] AC3: CI fails if someone changes clap args without regenerating man pages.
+- [x] AC4: README examples are copy-pasteable and exit 0 when run against a valid fixture.
 
 **Definition of Done:**
 
-- [ ] Code reviewed and merged
-- [ ] Tests pass (CI green)
-- [ ] Documentation updated (if applicable)
+- [x] Code reviewed locally
+- [x] Tests pass locally
+- [x] Documentation updated
 
 **Scope:** Man page generation, xtask integration, README section, CI freshness check.
 **Out of Scope:** mdbook integration. Online docs site deployment. Localization.

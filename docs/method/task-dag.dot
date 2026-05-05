@@ -1,6 +1,6 @@
 digraph method_task_dag {
   graph [
-    label="METHOD Backlog Task Dependency DAG\nopen tasks: 98 / 181; dependency edges: 125",
+    label="METHOD Backlog Task Dependency DAG\nopen tasks: 97 / 181; dependency edges: 125",
     labelloc=t,
     fontsize=24,
     fontname="Inter, Helvetica, Arial",
@@ -31,7 +31,7 @@ digraph method_task_dag {
     fontname="Inter, Helvetica, Arial";
     fontsize=16;
     style="rounded";
-    "M001" [label="M001\nOPEN\nT-6-5-1\nMan page generation and\nREADME examples", tooltip="M001 [asap] open; blockers=0; T-6-5-1 Man page generation and README examples", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
+    "M001" [label="M001\nDONE\nT-6-5-1\nMan page generation and\nREADME examples", tooltip="M001 [asap] done; blockers=0; T-6-5-1 Man page generation and README examples", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M002" [label="M002\nOPEN\nDocs cleanup", tooltip="M002 [asap] open; blockers=0;  Docs cleanup", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M003" [label="M003\nDONE\nT-9-1-1\nImplement 1-thread vs\nN-thread determinism\nharness", tooltip="M003 [asap] done; blockers=0; T-9-1-1 Implement 1-thread vs N-thread determinism harness", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M004" [label="M004\nOPEN\nT-9-1-2\nImplement snapshot/restore\nfuzz", tooltip="M004 [asap] open; blockers=0; T-9-1-2 Implement snapshot/restore fuzz", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];

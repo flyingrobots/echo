@@ -403,6 +403,9 @@ struct ManPagesArgs {
     /// Output directory for generated man pages.
     #[arg(long, default_value = "docs/man")]
     out: std::path::PathBuf,
+    /// Check committed man pages without writing.
+    #[arg(long)]
+    check: bool,
 }
 
 #[derive(Args)]
@@ -6091,9 +6094,24 @@ fn run_docs_lint(args: DocsLintArgs) -> Result<()> {
 }
 
 fn run_man_pages(args: ManPagesArgs) -> Result<()> {
-    use clap::CommandFactory;
-
     let out_dir = &args.out;
+    let pages = render_man_pages()?;
+
+    if args.check {
+        let checks = pages
+            .iter()
+            .map(|(filename, bytes)| (filename.as_str(), out_dir.join(filename), bytes.as_slice()))
+            .collect::<Vec<_>>();
+        let checks = checks
+            .iter()
+            .map(|(label, path, bytes)| (*label, path, *bytes))
+            .collect::<Vec<_>>();
+        check_artifacts_current(&checks)?;
+        check_no_stale_man_pages(out_dir, &pages)?;
+        println!("Man pages are current in {}", out_dir.display());
+        return Ok(());
+    }
+
     std::fs::create_dir_all(out_dir)
         .with_context(|| format!("failed to create output directory: {}", out_dir.display()))?;
 
@@ -6113,14 +6131,29 @@ fn run_man_pages(args: ManPagesArgs) -> Result<()> {
         }
     }
 
+    for (filename, bytes) in pages {
+        let path = out_dir.join(&filename);
+        std::fs::write(&path, &bytes)
+            .with_context(|| format!("failed to write {}", path.display()))?;
+        println!("  wrote {}", path.display());
+    }
+
+    println!("Man pages generated in {}", out_dir.display());
+    Ok(())
+}
+
+fn render_man_pages() -> Result<Vec<(String, Vec<u8>)>> {
+    use clap::CommandFactory;
+
     let cmd = warp_cli::cli::Cli::command();
+    let mut pages = Vec::new();
+
     let man = clap_mangen::Man::new(cmd.clone());
     let mut buf: Vec<u8> = Vec::new();
     man.render(&mut buf)
         .context("failed to render echo-cli.1")?;
-    let path = out_dir.join("echo-cli.1");
-    std::fs::write(&path, &buf).with_context(|| format!("failed to write {}", path.display()))?;
-    println!("  wrote {}", path.display());
+    trim_trailing_ascii_whitespace(&mut buf);
+    pages.push(("echo-cli.1".to_string(), buf));
 
     for sub in cmd.get_subcommands() {
         let sub_name = sub.get_name().to_string();
@@ -6132,15 +6165,64 @@ fn run_man_pages(args: ManPagesArgs) -> Result<()> {
         let mut buf: Vec<u8> = Vec::new();
         man.render(&mut buf)
             .with_context(|| format!("failed to render echo-cli-{sub_name}.1"))?;
-        let filename = format!("echo-cli-{sub_name}.1");
-        let path = out_dir.join(&filename);
-        std::fs::write(&path, &buf)
-            .with_context(|| format!("failed to write {}", path.display()))?;
-        println!("  wrote {}", path.display());
+        trim_trailing_ascii_whitespace(&mut buf);
+        pages.push((format!("echo-cli-{sub_name}.1"), buf));
     }
 
-    println!("Man pages generated in {}", out_dir.display());
-    Ok(())
+    Ok(pages)
+}
+
+fn trim_trailing_ascii_whitespace(bytes: &mut Vec<u8>) {
+    let mut out = Vec::with_capacity(bytes.len());
+    for line in bytes.split_inclusive(|byte| *byte == b'\n') {
+        let has_newline = line.last() == Some(&b'\n');
+        let body = if has_newline {
+            &line[..line.len() - 1]
+        } else {
+            line
+        };
+        let trimmed_len = body
+            .iter()
+            .rposition(|byte| !byte.is_ascii_whitespace())
+            .map_or(0, |idx| idx + 1);
+        out.extend_from_slice(&body[..trimmed_len]);
+        if has_newline {
+            out.push(b'\n');
+        }
+    }
+    *bytes = out;
+}
+
+fn check_no_stale_man_pages(out_dir: &Path, pages: &[(String, Vec<u8>)]) -> Result<()> {
+    let expected = pages
+        .iter()
+        .map(|(filename, _)| filename.as_str())
+        .collect::<BTreeSet<_>>();
+    let mut stale = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(out_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with("echo-cli")
+                && name.ends_with(".1")
+                && !expected.contains(name.as_ref())
+            {
+                stale.push(entry.path());
+            }
+        }
+    }
+    if stale.is_empty() {
+        Ok(())
+    } else {
+        bail!(
+            "stale man page(s):\n{}",
+            stale
+                .into_iter()
+                .map(|path| format!("  - {}", path.display()))
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
+    }
 }
 
 #[cfg(test)]
@@ -6166,6 +6248,20 @@ mod tests {
             .map(|value| value.to_string_lossy().into_owned())
             .collect();
         (program, args)
+    }
+
+    #[test]
+    fn man_pages_render_top_level_and_subcommands() {
+        let pages = assert_ok(render_man_pages(), "man pages should render");
+        let filenames = pages
+            .iter()
+            .map(|(filename, _)| filename.as_str())
+            .collect::<BTreeSet<_>>();
+
+        assert!(filenames.contains("echo-cli.1"));
+        assert!(filenames.contains("echo-cli-verify.1"));
+        assert!(filenames.contains("echo-cli-bench.1"));
+        assert!(filenames.contains("echo-cli-inspect.1"));
     }
 
     #[test]

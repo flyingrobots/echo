@@ -9,11 +9,18 @@ use crate::attachment::{AttachmentKey, AttachmentOwner, AttachmentPlane};
 use crate::clock::WorldlineTick;
 use crate::ident::{EdgeKey, Hash, NodeKey, TypeId, WarpId};
 use crate::materialization::ChannelId;
+use crate::observation::{
+    ReadingBudgetPosture, ReadingEnvelope, ReadingResidualPosture, ReadingRightsPosture,
+    ReadingWitnessRef,
+};
 use crate::provenance_store::ProvenanceRef;
 use crate::strand::StrandId;
 use crate::worldline::WorldlineId;
 
 const OPTIC_ID_DOMAIN: &[u8] = b"echo:optic-id:v1\0";
+const FOCUS_DIGEST_DOMAIN: &[u8] = b"echo:optic-focus:v1\0";
+const APERTURE_DIGEST_DOMAIN: &[u8] = b"echo:optic-aperture:v1\0";
+const READ_IDENTITY_DOMAIN: &[u8] = b"echo:read-identity:v1\0";
 
 macro_rules! opaque_id {
     ($(#[$meta:meta])* $name:ident) => {
@@ -171,6 +178,15 @@ impl OpticFocus {
                 key: attachment_key_to_abi(*key),
             },
         }
+    }
+
+    /// Returns a stable digest of this focus for read-identity construction.
+    #[must_use]
+    pub fn digest(&self) -> Hash {
+        let mut hasher = Hasher::new();
+        hasher.update(FOCUS_DIGEST_DOMAIN);
+        self.feed_hash(&mut hasher);
+        hasher.finalize().into()
     }
 
     fn feed_hash(&self, hasher: &mut Hasher) {
@@ -506,7 +522,15 @@ impl OpticAperture {
         }
     }
 
-    #[allow(dead_code)]
+    /// Returns a stable digest of this aperture for read-identity construction.
+    #[must_use]
+    pub fn digest(&self) -> Hash {
+        let mut hasher = Hasher::new();
+        hasher.update(APERTURE_DIGEST_DOMAIN);
+        self.feed_hash(&mut hasher);
+        hasher.finalize().into()
+    }
+
     fn feed_hash(&self, hasher: &mut Hasher) {
         self.shape.feed_hash(hasher);
         self.budget.feed_hash(hasher);
@@ -579,6 +603,315 @@ impl EchoOptic {
     }
 }
 
+/// Reason an optic read identity cannot name a complete witness basis yet.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum MissingWitnessBasisReason {
+    /// Required witness evidence is unavailable.
+    EvidenceUnavailable,
+    /// The requested read exceeded its declared budget.
+    BudgetLimited,
+    /// The current capability does not permit revealing the basis.
+    RightsLimited,
+    /// The requested basis posture is not supported by this projection law.
+    UnsupportedBasis,
+}
+
+impl MissingWitnessBasisReason {
+    fn to_abi(self) -> abi::MissingWitnessBasisReason {
+        match self {
+            Self::EvidenceUnavailable => abi::MissingWitnessBasisReason::EvidenceUnavailable,
+            Self::BudgetLimited => abi::MissingWitnessBasisReason::BudgetLimited,
+            Self::RightsLimited => abi::MissingWitnessBasisReason::RightsLimited,
+            Self::UnsupportedBasis => abi::MissingWitnessBasisReason::UnsupportedBasis,
+        }
+    }
+
+    fn feed_hash(self, hasher: &mut Hasher) {
+        match self {
+            Self::EvidenceUnavailable => feed_tag(hasher, 1),
+            Self::BudgetLimited => feed_tag(hasher, 2),
+            Self::RightsLimited => feed_tag(hasher, 3),
+            Self::UnsupportedBasis => feed_tag(hasher, 4),
+        }
+    }
+}
+
+/// Witness basis named by a read identity.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum WitnessBasis {
+    /// One resolved provenance commit witnesses the reading.
+    ResolvedCommit {
+        /// Provenance coordinate that witnesses the reading.
+        reference: ProvenanceRef,
+        /// State root at the witness coordinate.
+        state_root: Hash,
+        /// Commit hash at the witness coordinate.
+        commit_hash: Hash,
+    },
+    /// A checkpoint plus explicit live-tail witness set witnesses the reading.
+    CheckpointPlusTail {
+        /// Checkpoint coordinate used as the cold basis.
+        checkpoint_ref: ProvenanceRef,
+        /// Checkpoint content hash.
+        checkpoint_hash: Hash,
+        /// Live-tail provenance refs reduced after the checkpoint.
+        tail_witness_refs: Vec<ProvenanceRef>,
+        /// Digest of the live-tail witness set.
+        tail_digest: Hash,
+    },
+    /// A witness set whose exact semantics are named by the contained refs and digest.
+    WitnessSet {
+        /// Witness refs supporting the read.
+        refs: Vec<ReadingWitnessRef>,
+        /// Digest over the witness set.
+        witness_set_hash: Hash,
+    },
+    /// The basis is missing; callers must treat the read as obstructed or incomplete.
+    Missing {
+        /// Deterministic reason the basis is missing.
+        reason: MissingWitnessBasisReason,
+    },
+}
+
+impl WitnessBasis {
+    /// Converts the witness basis to the shared ABI DTO.
+    #[must_use]
+    pub fn to_abi(&self) -> abi::WitnessBasis {
+        match self {
+            Self::ResolvedCommit {
+                reference,
+                state_root,
+                commit_hash,
+            } => abi::WitnessBasis::ResolvedCommit {
+                reference: provenance_ref_to_abi(*reference),
+                state_root: state_root.to_vec(),
+                commit_hash: commit_hash.to_vec(),
+            },
+            Self::CheckpointPlusTail {
+                checkpoint_ref,
+                checkpoint_hash,
+                tail_witness_refs,
+                tail_digest,
+            } => abi::WitnessBasis::CheckpointPlusTail {
+                checkpoint_ref: provenance_ref_to_abi(*checkpoint_ref),
+                checkpoint_hash: checkpoint_hash.to_vec(),
+                tail_witness_refs: tail_witness_refs
+                    .iter()
+                    .copied()
+                    .map(provenance_ref_to_abi)
+                    .collect(),
+                tail_digest: tail_digest.to_vec(),
+            },
+            Self::WitnessSet {
+                refs,
+                witness_set_hash,
+            } => abi::WitnessBasis::WitnessSet {
+                refs: refs.iter().map(reading_witness_ref_to_abi).collect(),
+                witness_set_hash: witness_set_hash.to_vec(),
+            },
+            Self::Missing { reason } => abi::WitnessBasis::Missing {
+                reason: reason.to_abi(),
+            },
+        }
+    }
+
+    fn feed_hash(&self, hasher: &mut Hasher) {
+        match self {
+            Self::ResolvedCommit {
+                reference,
+                state_root,
+                commit_hash,
+            } => {
+                feed_tag(hasher, 1);
+                feed_provenance_ref(hasher, *reference);
+                hasher.update(state_root);
+                hasher.update(commit_hash);
+            }
+            Self::CheckpointPlusTail {
+                checkpoint_ref,
+                checkpoint_hash,
+                tail_witness_refs,
+                tail_digest,
+            } => {
+                feed_tag(hasher, 2);
+                feed_provenance_ref(hasher, *checkpoint_ref);
+                hasher.update(checkpoint_hash);
+                feed_u64(hasher, tail_witness_refs.len() as u64);
+                for reference in tail_witness_refs {
+                    feed_provenance_ref(hasher, *reference);
+                }
+                hasher.update(tail_digest);
+            }
+            Self::WitnessSet {
+                refs,
+                witness_set_hash,
+            } => {
+                feed_tag(hasher, 3);
+                feed_u64(hasher, refs.len() as u64);
+                for reference in refs {
+                    feed_reading_witness_ref(hasher, reference);
+                }
+                hasher.update(witness_set_hash);
+            }
+            Self::Missing { reason } => {
+                feed_tag(hasher, 4);
+                reason.feed_hash(hasher);
+            }
+        }
+    }
+}
+
+/// Stable identity of the question an optic read answered.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct ReadIdentity {
+    /// Stable hash over all identity fields.
+    pub read_identity_hash: Hash,
+    /// Optic being observed.
+    pub optic_id: OpticId,
+    /// Digest of the focus named by the read.
+    pub focus_digest: Hash,
+    /// Coordinate named by the read.
+    pub coordinate: EchoCoordinate,
+    /// Digest of the aperture named by the read.
+    pub aperture_digest: Hash,
+    /// Projection law version.
+    pub projection_version: ProjectionVersion,
+    /// Reducer law version, if present.
+    pub reducer_version: Option<ReducerVersion>,
+    /// Witness basis used by the read.
+    pub witness_basis: WitnessBasis,
+    /// Rights posture of the emitted reading.
+    pub rights_posture: ReadingRightsPosture,
+    /// Budget posture of the emitted reading.
+    pub budget_posture: ReadingBudgetPosture,
+    /// Residual posture of the emitted reading.
+    pub residual_posture: ReadingResidualPosture,
+}
+
+impl ReadIdentity {
+    /// Builds a read identity from the full question and evidence posture.
+    #[allow(clippy::too_many_arguments)]
+    #[must_use]
+    pub fn new(
+        optic_id: OpticId,
+        focus: &OpticFocus,
+        coordinate: EchoCoordinate,
+        aperture: &OpticAperture,
+        projection_version: ProjectionVersion,
+        reducer_version: Option<ReducerVersion>,
+        witness_basis: WitnessBasis,
+        rights_posture: ReadingRightsPosture,
+        budget_posture: ReadingBudgetPosture,
+        residual_posture: ReadingResidualPosture,
+    ) -> Self {
+        let focus_digest = focus.digest();
+        let aperture_digest = aperture.digest();
+        let read_identity_hash = derive_read_identity_hash(
+            optic_id,
+            &focus_digest,
+            &coordinate,
+            &aperture_digest,
+            projection_version,
+            reducer_version,
+            &witness_basis,
+            rights_posture,
+            budget_posture,
+            residual_posture,
+        );
+        Self {
+            read_identity_hash,
+            optic_id,
+            focus_digest,
+            coordinate,
+            aperture_digest,
+            projection_version,
+            reducer_version,
+            witness_basis,
+            rights_posture,
+            budget_posture,
+            residual_posture,
+        }
+    }
+
+    /// Builds a compatible identity using posture fields from an existing reading envelope.
+    #[allow(clippy::too_many_arguments)]
+    #[must_use]
+    pub fn from_reading_envelope(
+        optic_id: OpticId,
+        focus: &OpticFocus,
+        coordinate: EchoCoordinate,
+        aperture: &OpticAperture,
+        projection_version: ProjectionVersion,
+        reducer_version: Option<ReducerVersion>,
+        witness_basis: WitnessBasis,
+        reading: &ReadingEnvelope,
+    ) -> Self {
+        Self::new(
+            optic_id,
+            focus,
+            coordinate,
+            aperture,
+            projection_version,
+            reducer_version,
+            witness_basis,
+            reading.rights_posture,
+            reading.budget_posture,
+            reading.residual_posture,
+        )
+    }
+
+    /// Converts the read identity to the shared ABI DTO.
+    #[must_use]
+    pub fn to_abi(&self) -> abi::ReadIdentity {
+        abi::ReadIdentity {
+            read_identity_hash: self.read_identity_hash.to_vec(),
+            optic_id: optic_id_to_abi(self.optic_id),
+            focus_digest: self.focus_digest.to_vec(),
+            coordinate: self.coordinate.to_abi(),
+            aperture_digest: self.aperture_digest.to_vec(),
+            projection_version: self.projection_version.to_abi(),
+            reducer_version: self.reducer_version.map(ReducerVersion::to_abi),
+            witness_basis: self.witness_basis.to_abi(),
+            rights_posture: reading_rights_posture_to_abi(self.rights_posture),
+            budget_posture: reading_budget_posture_to_abi(self.budget_posture),
+            residual_posture: reading_residual_posture_to_abi(self.residual_posture),
+        }
+    }
+}
+
+/// Reading envelope plus first-class optic read identity.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct OpticReadingEnvelope {
+    /// Existing observation reading envelope.
+    pub reading: ReadingEnvelope,
+    /// Stable read identity for the question this reading answered.
+    pub read_identity: ReadIdentity,
+}
+
+impl OpticReadingEnvelope {
+    /// Builds an optic reading envelope from an existing reading envelope and identity.
+    #[must_use]
+    pub fn new(reading: ReadingEnvelope, read_identity: ReadIdentity) -> Self {
+        Self {
+            reading,
+            read_identity,
+        }
+    }
+
+    /// Converts the envelope to the shared ABI DTO.
+    #[must_use]
+    pub fn to_abi(&self) -> abi::OpticReadingEnvelope {
+        abi::OpticReadingEnvelope {
+            reading: self.reading.to_abi(),
+            read_identity: self.read_identity.to_abi(),
+        }
+    }
+}
+
 fn derive_optic_id(
     focus: &OpticFocus,
     coordinate: &EchoCoordinate,
@@ -602,6 +935,40 @@ fn derive_optic_id(
     hasher.update(intent_family.as_bytes());
     hasher.update(capability.as_bytes());
     OpticId::from_bytes(hasher.finalize().into())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn derive_read_identity_hash(
+    optic_id: OpticId,
+    focus_digest: &Hash,
+    coordinate: &EchoCoordinate,
+    aperture_digest: &Hash,
+    projection_version: ProjectionVersion,
+    reducer_version: Option<ReducerVersion>,
+    witness_basis: &WitnessBasis,
+    rights_posture: ReadingRightsPosture,
+    budget_posture: ReadingBudgetPosture,
+    residual_posture: ReadingResidualPosture,
+) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(READ_IDENTITY_DOMAIN);
+    hasher.update(optic_id.as_bytes());
+    hasher.update(focus_digest);
+    coordinate.feed_hash(&mut hasher);
+    hasher.update(aperture_digest);
+    feed_u32(&mut hasher, projection_version.as_u32());
+    match reducer_version {
+        Some(version) => {
+            feed_tag(&mut hasher, 1);
+            feed_u32(&mut hasher, version.as_u32());
+        }
+        None => feed_tag(&mut hasher, 0),
+    }
+    witness_basis.feed_hash(&mut hasher);
+    feed_reading_rights_posture(&mut hasher, rights_posture);
+    feed_reading_budget_posture(&mut hasher, budget_posture);
+    feed_reading_residual_posture(&mut hasher, residual_posture);
+    hasher.finalize().into()
 }
 
 fn feed_tag(hasher: &mut Hasher, tag: u8) {
@@ -653,6 +1020,46 @@ fn feed_provenance_ref(hasher: &mut Hasher, reference: ProvenanceRef) {
     hasher.update(reference.worldline_id.as_bytes());
     feed_u64(hasher, reference.worldline_tick.as_u64());
     hasher.update(&reference.commit_hash);
+}
+
+fn feed_reading_witness_ref(hasher: &mut Hasher, reference: &ReadingWitnessRef) {
+    match reference {
+        ReadingWitnessRef::ResolvedCommit { reference } => {
+            feed_tag(hasher, 1);
+            feed_provenance_ref(hasher, *reference);
+        }
+        ReadingWitnessRef::EmptyFrontier {
+            worldline_id,
+            state_root,
+            commit_hash,
+        } => {
+            feed_tag(hasher, 2);
+            hasher.update(worldline_id.as_bytes());
+            hasher.update(state_root);
+            hasher.update(commit_hash);
+        }
+    }
+}
+
+fn feed_reading_budget_posture(hasher: &mut Hasher, posture: ReadingBudgetPosture) {
+    match posture {
+        ReadingBudgetPosture::UnboundedOneShot => feed_tag(hasher, 1),
+    }
+}
+
+fn feed_reading_rights_posture(hasher: &mut Hasher, posture: ReadingRightsPosture) {
+    match posture {
+        ReadingRightsPosture::KernelPublic => feed_tag(hasher, 1),
+    }
+}
+
+fn feed_reading_residual_posture(hasher: &mut Hasher, posture: ReadingResidualPosture) {
+    match posture {
+        ReadingResidualPosture::Complete => feed_tag(hasher, 1),
+        ReadingResidualPosture::Residual => feed_tag(hasher, 2),
+        ReadingResidualPosture::PluralityPreserved => feed_tag(hasher, 3),
+        ReadingResidualPosture::Obstructed => feed_tag(hasher, 4),
+    }
 }
 
 fn feed_attachment_key(hasher: &mut Hasher, key: AttachmentKey) {
@@ -714,6 +1121,46 @@ fn provenance_ref_to_abi(reference: ProvenanceRef) -> abi::ProvenanceRef {
     }
 }
 
+fn reading_witness_ref_to_abi(reference: &ReadingWitnessRef) -> abi::ReadingWitnessRef {
+    match reference {
+        ReadingWitnessRef::ResolvedCommit { reference } => abi::ReadingWitnessRef::ResolvedCommit {
+            reference: provenance_ref_to_abi(*reference),
+        },
+        ReadingWitnessRef::EmptyFrontier {
+            worldline_id,
+            state_root,
+            commit_hash,
+        } => abi::ReadingWitnessRef::EmptyFrontier {
+            worldline_id: worldline_id_to_abi(*worldline_id),
+            state_root: state_root.to_vec(),
+            commit_hash: commit_hash.to_vec(),
+        },
+    }
+}
+
+fn reading_budget_posture_to_abi(posture: ReadingBudgetPosture) -> abi::ReadingBudgetPosture {
+    match posture {
+        ReadingBudgetPosture::UnboundedOneShot => abi::ReadingBudgetPosture::UnboundedOneShot,
+    }
+}
+
+fn reading_rights_posture_to_abi(posture: ReadingRightsPosture) -> abi::ReadingRightsPosture {
+    match posture {
+        ReadingRightsPosture::KernelPublic => abi::ReadingRightsPosture::KernelPublic,
+    }
+}
+
+fn reading_residual_posture_to_abi(posture: ReadingResidualPosture) -> abi::ReadingResidualPosture {
+    match posture {
+        ReadingResidualPosture::Complete => abi::ReadingResidualPosture::Complete,
+        ReadingResidualPosture::Residual => abi::ReadingResidualPosture::Residual,
+        ReadingResidualPosture::PluralityPreserved => {
+            abi::ReadingResidualPosture::PluralityPreserved
+        }
+        ReadingResidualPosture::Obstructed => abi::ReadingResidualPosture::Obstructed,
+    }
+}
+
 fn warp_id_to_abi(warp_id: WarpId) -> abi::WarpId {
     abi::WarpId::from_bytes(*warp_id.as_bytes())
 }
@@ -753,6 +1200,10 @@ mod tests {
     use super::*;
     use crate::attachment::{AttachmentKey, AttachmentOwner, AttachmentPlane};
     use crate::ident::{EdgeId, EdgeKey, NodeId, NodeKey, TypeId, WarpId};
+    use crate::observation::{
+        BuiltinObserverPlan, ObservationBasisPosture, ReadingBudgetPosture, ReadingObserverBasis,
+        ReadingObserverPlan, ReadingResidualPosture, ReadingRightsPosture, ReadingWitnessRef,
+    };
     use crate::provenance_store::ProvenanceRef;
     use crate::strand::StrandId;
     use crate::worldline::WorldlineId;
@@ -792,6 +1243,65 @@ mod tests {
         EdgeKey {
             warp_id: WarpId([seed; 32]),
             local_id: EdgeId([seed.wrapping_add(1); 32]),
+        }
+    }
+
+    fn provenance(seed: u8, tick: u64) -> ProvenanceRef {
+        ProvenanceRef {
+            worldline_id: worldline(seed),
+            worldline_tick: crate::clock::WorldlineTick::from_raw(tick),
+            commit_hash: [seed.wrapping_add(1); 32],
+        }
+    }
+
+    fn worldline_focus() -> OpticFocus {
+        OpticFocus::Worldline {
+            worldline_id: worldline(1),
+        }
+    }
+
+    fn frontier_coordinate() -> EchoCoordinate {
+        EchoCoordinate::Worldline {
+            worldline_id: worldline(1),
+            at: CoordinateAt::Frontier,
+        }
+    }
+
+    fn head_aperture() -> OpticAperture {
+        OpticAperture {
+            shape: OpticApertureShape::Head,
+            budget: OpticReadBudget {
+                max_bytes: Some(512),
+                max_nodes: Some(8),
+                max_ticks: Some(1),
+                max_attachments: Some(0),
+            },
+            attachment_descent: AttachmentDescentPolicy::BoundaryOnly,
+        }
+    }
+
+    fn witness_basis(seed: u8, tick: u64) -> WitnessBasis {
+        let reference = provenance(seed, tick);
+        WitnessBasis::ResolvedCommit {
+            reference,
+            state_root: [seed.wrapping_add(2); 32],
+            commit_hash: reference.commit_hash,
+        }
+    }
+
+    fn reading_envelope() -> ReadingEnvelope {
+        ReadingEnvelope {
+            observer_plan: ReadingObserverPlan::Builtin {
+                plan: BuiltinObserverPlan::CommitBoundaryHead,
+            },
+            observer_basis: ReadingObserverBasis::CommitBoundary,
+            witness_refs: vec![ReadingWitnessRef::ResolvedCommit {
+                reference: provenance(1, 2),
+            }],
+            parent_basis_posture: ObservationBasisPosture::Worldline,
+            budget_posture: ReadingBudgetPosture::UnboundedOneShot,
+            rights_posture: ReadingRightsPosture::KernelPublic,
+            residual_posture: ReadingResidualPosture::Complete,
         }
     }
 
@@ -965,6 +1475,190 @@ mod tests {
                     [3; 32]
                 )]),
             }
+        );
+    }
+
+    #[test]
+    fn read_identity_is_stable_for_same_read_question() {
+        let focus = worldline_focus();
+        let coordinate = frontier_coordinate();
+        let aperture = head_aperture();
+        let optic = EchoOptic::new(
+            focus.clone(),
+            coordinate.clone(),
+            ProjectionVersion::from_raw(1),
+            None,
+            intent_family(1),
+            capability(2),
+        );
+
+        let first = ReadIdentity::new(
+            optic.optic_id,
+            &focus,
+            coordinate.clone(),
+            &aperture,
+            ProjectionVersion::from_raw(1),
+            None,
+            witness_basis(1, 2),
+            ReadingRightsPosture::KernelPublic,
+            ReadingBudgetPosture::UnboundedOneShot,
+            ReadingResidualPosture::Complete,
+        );
+        let second = ReadIdentity::new(
+            optic.optic_id,
+            &focus,
+            coordinate,
+            &aperture,
+            ProjectionVersion::from_raw(1),
+            None,
+            witness_basis(1, 2),
+            ReadingRightsPosture::KernelPublic,
+            ReadingBudgetPosture::UnboundedOneShot,
+            ReadingResidualPosture::Complete,
+        );
+
+        assert_eq!(first, second);
+        assert_eq!(first.read_identity_hash, second.read_identity_hash);
+        assert_eq!(first.focus_digest, focus.digest());
+        assert_eq!(first.aperture_digest, aperture.digest());
+    }
+
+    #[test]
+    fn read_identity_changes_when_question_or_witness_changes() {
+        let focus = worldline_focus();
+        let coordinate = frontier_coordinate();
+        let aperture = head_aperture();
+        let optic_id = EchoOptic::new(
+            focus.clone(),
+            coordinate.clone(),
+            ProjectionVersion::from_raw(1),
+            None,
+            intent_family(1),
+            capability(2),
+        )
+        .optic_id;
+
+        let base = ReadIdentity::new(
+            optic_id,
+            &focus,
+            coordinate.clone(),
+            &aperture,
+            ProjectionVersion::from_raw(1),
+            None,
+            witness_basis(1, 2),
+            ReadingRightsPosture::KernelPublic,
+            ReadingBudgetPosture::UnboundedOneShot,
+            ReadingResidualPosture::Complete,
+        );
+        let changed_coordinate = ReadIdentity::new(
+            optic_id,
+            &focus,
+            EchoCoordinate::Worldline {
+                worldline_id: worldline(1),
+                at: CoordinateAt::Tick(crate::clock::WorldlineTick::from_raw(3)),
+            },
+            &aperture,
+            ProjectionVersion::from_raw(1),
+            None,
+            witness_basis(1, 2),
+            ReadingRightsPosture::KernelPublic,
+            ReadingBudgetPosture::UnboundedOneShot,
+            ReadingResidualPosture::Complete,
+        );
+        let changed_aperture = ReadIdentity::new(
+            optic_id,
+            &focus,
+            coordinate.clone(),
+            &OpticAperture {
+                shape: OpticApertureShape::SnapshotMetadata,
+                budget: aperture.budget,
+                attachment_descent: aperture.attachment_descent,
+            },
+            ProjectionVersion::from_raw(1),
+            None,
+            witness_basis(1, 2),
+            ReadingRightsPosture::KernelPublic,
+            ReadingBudgetPosture::UnboundedOneShot,
+            ReadingResidualPosture::Complete,
+        );
+        let changed_projection = ReadIdentity::new(
+            optic_id,
+            &focus,
+            coordinate.clone(),
+            &aperture,
+            ProjectionVersion::from_raw(2),
+            None,
+            witness_basis(1, 2),
+            ReadingRightsPosture::KernelPublic,
+            ReadingBudgetPosture::UnboundedOneShot,
+            ReadingResidualPosture::Complete,
+        );
+        let changed_witness = ReadIdentity::new(
+            optic_id,
+            &focus,
+            coordinate,
+            &aperture,
+            ProjectionVersion::from_raw(1),
+            None,
+            witness_basis(1, 3),
+            ReadingRightsPosture::KernelPublic,
+            ReadingBudgetPosture::UnboundedOneShot,
+            ReadingResidualPosture::Complete,
+        );
+
+        assert_ne!(
+            base.read_identity_hash,
+            changed_coordinate.read_identity_hash
+        );
+        assert_ne!(base.read_identity_hash, changed_aperture.read_identity_hash);
+        assert_ne!(
+            base.read_identity_hash,
+            changed_projection.read_identity_hash
+        );
+        assert_ne!(base.read_identity_hash, changed_witness.read_identity_hash);
+    }
+
+    #[test]
+    fn existing_reading_envelope_can_carry_compatible_optic_identity() {
+        let focus = worldline_focus();
+        let coordinate = frontier_coordinate();
+        let aperture = head_aperture();
+        let reading = reading_envelope();
+        let optic_id = EchoOptic::new(
+            focus.clone(),
+            coordinate.clone(),
+            ProjectionVersion::from_raw(1),
+            None,
+            intent_family(1),
+            capability(2),
+        )
+        .optic_id;
+
+        let identity = ReadIdentity::from_reading_envelope(
+            optic_id,
+            &focus,
+            coordinate,
+            &aperture,
+            ProjectionVersion::from_raw(1),
+            None,
+            witness_basis(1, 2),
+            &reading,
+        );
+        let envelope = OpticReadingEnvelope::new(reading, identity);
+        let abi = envelope.to_abi();
+
+        assert_eq!(abi.read_identity.optic_id, optic_id_to_abi(optic_id));
+        assert_eq!(
+            abi.read_identity.rights_posture,
+            echo_wasm_abi::kernel_port::ReadingRightsPosture::KernelPublic
+        );
+        assert_eq!(
+            abi.read_identity.budget_posture,
+            echo_wasm_abi::kernel_port::ReadingBudgetPosture::UnboundedOneShot
+        );
+        assert_eq!(
+            abi.read_identity.residual_posture,
+            echo_wasm_abi::kernel_port::ReadingResidualPosture::Complete
         );
     }
 }

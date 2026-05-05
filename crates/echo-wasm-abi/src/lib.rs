@@ -701,6 +701,58 @@ mod tests {
     }
 
     #[test]
+    fn test_optic_read_identity_round_trip() {
+        use crate::kernel_port::{
+            BuiltinObserverPlan, EchoCoordinate, MissingWitnessBasisReason,
+            ObservationBasisPosture, OpticId, OpticReadingEnvelope, ProjectionVersion,
+            ReadIdentity, ReadingBudgetPosture, ReadingEnvelope, ReadingObserverBasis,
+            ReadingObserverPlan, ReadingResidualPosture, ReadingRightsPosture, ReadingWitnessRef,
+            WitnessBasis, WorldlineId, WorldlineTick,
+        };
+
+        let reference = crate::kernel_port::ProvenanceRef {
+            worldline_id: WorldlineId::from_bytes([1; 32]),
+            worldline_tick: WorldlineTick(7),
+            commit_hash: vec![2; 32],
+        };
+        let identity = ReadIdentity {
+            read_identity_hash: vec![3; 32],
+            optic_id: OpticId::from_bytes([4; 32]),
+            focus_digest: vec![5; 32],
+            coordinate: EchoCoordinate::Worldline {
+                worldline_id: WorldlineId::from_bytes([1; 32]),
+                at: crate::kernel_port::CoordinateAt::Frontier,
+            },
+            aperture_digest: vec![6; 32],
+            projection_version: ProjectionVersion(1),
+            reducer_version: None,
+            witness_basis: WitnessBasis::Missing {
+                reason: MissingWitnessBasisReason::EvidenceUnavailable,
+            },
+            rights_posture: ReadingRightsPosture::KernelPublic,
+            budget_posture: ReadingBudgetPosture::UnboundedOneShot,
+            residual_posture: ReadingResidualPosture::Obstructed,
+        };
+        let envelope = OpticReadingEnvelope {
+            reading: ReadingEnvelope {
+                observer_plan: ReadingObserverPlan::Builtin {
+                    plan: BuiltinObserverPlan::CommitBoundaryHead,
+                },
+                observer_basis: ReadingObserverBasis::CommitBoundary,
+                witness_refs: vec![ReadingWitnessRef::ResolvedCommit { reference }],
+                parent_basis_posture: ObservationBasisPosture::Worldline,
+                budget_posture: ReadingBudgetPosture::UnboundedOneShot,
+                rights_posture: ReadingRightsPosture::KernelPublic,
+                residual_posture: ReadingResidualPosture::Obstructed,
+            },
+            read_identity: identity,
+        };
+
+        let decoded: OpticReadingEnvelope = decode_cbor(&encode_cbor(&envelope).unwrap()).unwrap();
+        assert_eq!(decoded, envelope);
+    }
+
+    #[test]
     fn test_unpack_control_intent_rejects_wrong_op_id() {
         use crate::kernel_port::{ControlIntentV1, SchedulerMode};
 

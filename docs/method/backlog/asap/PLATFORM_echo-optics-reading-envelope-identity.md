@@ -3,7 +3,7 @@
 
 # Echo Optics Reading Envelope And Identity
 
-Status: visible task card.
+Status: complete.
 
 Depends on:
 

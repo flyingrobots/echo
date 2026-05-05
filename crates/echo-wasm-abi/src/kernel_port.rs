@@ -705,6 +705,94 @@ pub struct EchoOptic {
     pub capability: OpticCapabilityId,
 }
 
+/// Reason an optic read identity cannot name a complete witness basis yet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MissingWitnessBasisReason {
+    /// Required witness evidence is unavailable.
+    EvidenceUnavailable,
+    /// The requested read exceeded its declared budget.
+    BudgetLimited,
+    /// The current capability does not permit revealing the basis.
+    RightsLimited,
+    /// The requested basis posture is not supported by this projection law.
+    UnsupportedBasis,
+}
+
+/// Witness basis named by a read identity.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum WitnessBasis {
+    /// One resolved provenance commit witnesses the reading.
+    ResolvedCommit {
+        /// Provenance coordinate that witnesses the reading.
+        reference: ProvenanceRef,
+        /// State root at the witness coordinate.
+        state_root: Vec<u8>,
+        /// Commit hash at the witness coordinate.
+        commit_hash: Vec<u8>,
+    },
+    /// A checkpoint plus explicit live-tail witness set witnesses the reading.
+    CheckpointPlusTail {
+        /// Checkpoint coordinate used as the cold basis.
+        checkpoint_ref: ProvenanceRef,
+        /// Checkpoint content hash.
+        checkpoint_hash: Vec<u8>,
+        /// Live-tail provenance refs reduced after the checkpoint.
+        tail_witness_refs: Vec<ProvenanceRef>,
+        /// Digest of the live-tail witness set.
+        tail_digest: Vec<u8>,
+    },
+    /// A witness set whose exact semantics are named by the contained refs and digest.
+    WitnessSet {
+        /// Witness refs supporting the read.
+        refs: Vec<ReadingWitnessRef>,
+        /// Digest over the witness set.
+        witness_set_hash: Vec<u8>,
+    },
+    /// The basis is missing; callers must treat the read as obstructed or incomplete.
+    Missing {
+        /// Deterministic reason the basis is missing.
+        reason: MissingWitnessBasisReason,
+    },
+}
+
+/// Stable identity of the question an optic read answered.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReadIdentity {
+    /// Stable hash over all identity fields.
+    pub read_identity_hash: Vec<u8>,
+    /// Optic being observed.
+    pub optic_id: OpticId,
+    /// Digest of the focus named by the read.
+    pub focus_digest: Vec<u8>,
+    /// Coordinate named by the read.
+    pub coordinate: EchoCoordinate,
+    /// Digest of the aperture named by the read.
+    pub aperture_digest: Vec<u8>,
+    /// Projection law version.
+    pub projection_version: ProjectionVersion,
+    /// Reducer law version, if present.
+    pub reducer_version: Option<ReducerVersion>,
+    /// Witness basis used by the read.
+    pub witness_basis: WitnessBasis,
+    /// Rights posture of the emitted reading.
+    pub rights_posture: ReadingRightsPosture,
+    /// Budget posture of the emitted reading.
+    pub budget_posture: ReadingBudgetPosture,
+    /// Residual posture of the emitted reading.
+    pub residual_posture: ReadingResidualPosture,
+}
+
+/// Existing reading envelope plus first-class optic read identity.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpticReadingEnvelope {
+    /// Existing observation reading envelope.
+    pub reading: ReadingEnvelope,
+    /// Stable read identity for the question this reading answered.
+    pub read_identity: ReadIdentity,
+}
+
 /// Coordinate selector for an observation request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ObservationCoordinate {

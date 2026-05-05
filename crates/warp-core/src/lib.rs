@@ -216,8 +216,9 @@ pub use observation::{
 };
 pub use optic::{
     AttachmentDescentPolicy, BraidId, CoordinateAt, EchoCoordinate, EchoOptic, IntentFamilyId,
-    OpticAperture, OpticApertureShape, OpticCapabilityId, OpticFocus, OpticId, OpticReadBudget,
-    ProjectionVersion, ReducerVersion, RetainedReadingKey,
+    MissingWitnessBasisReason, OpticAperture, OpticApertureShape, OpticCapabilityId, OpticFocus,
+    OpticId, OpticReadBudget, OpticReadingEnvelope, ProjectionVersion, ReadIdentity,
+    ReducerVersion, RetainedReadingKey, WitnessBasis,
 };
 pub use playback::{CursorReceipt, TruthFrame, TruthSink};
 pub use provenance_store::{

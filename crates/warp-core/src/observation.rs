@@ -479,7 +479,7 @@ pub struct ReadingEnvelope {
 }
 
 impl ReadingEnvelope {
-    fn to_abi(&self) -> abi::ReadingEnvelope {
+    pub(crate) fn to_abi(&self) -> abi::ReadingEnvelope {
         abi::ReadingEnvelope {
             observer_plan: self.observer_plan.to_abi(),
             observer_basis: self.observer_basis.to_abi(),

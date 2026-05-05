@@ -3,7 +3,7 @@
 
 # Echo Wesley Gen Optic Request Builders
 
-Status: visible task card.
+Status: complete.
 
 Depends on:
 
@@ -45,3 +45,17 @@ helpers.
 - Generated std smoke crate compiles.
 - Generated no-std smoke crate compiles where request builders are no-std-safe.
 - Tests assert no generated method uses `set_*` naming.
+
+## Completion evidence
+
+- `echo-wesley-gen` now emits query `*_observe_optic_request` and
+  `*_observe_optic_request_raw_vars` helpers alongside existing
+  `*_observation_request` compatibility helpers.
+- Mutation ops now emit `*_dispatch_optic_intent_request` and
+  `*_dispatch_optic_intent_request_raw_vars` helpers that require explicit
+  `base_coordinate`, focus, intent family, cause, capability, and admission law.
+- The generated EINT pack helpers remain available and are used as the inner
+  payload for optic dispatch requests.
+- Setter-like mutation names are rewritten for optic helpers as proposal
+  builders, for example `propose_set_theme_dispatch_optic_intent_request`.
+- Std and no-std generated smoke crates compile with the new helper surface.

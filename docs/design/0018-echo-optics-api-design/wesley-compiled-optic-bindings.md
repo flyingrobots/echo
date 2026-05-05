@@ -328,6 +328,13 @@ ObservationRequest helpers are compatibility helpers.
 ObserveOpticRequest helpers are the preferred generated read surface.
 ```
 
+Implementation note: `echo-wesley-gen` now emits both helper families. Query
+ops keep `*_observation_request` and `*_observation_request_raw_vars` while also
+emitting `*_observe_optic_request` and `*_observe_optic_request_raw_vars`.
+The optic helpers require an optic id, focus, coordinate, capability, projection
+version, optional reducer version, and explicit read budget, then build a
+bounded QueryBytes aperture.
+
 ## Mutation Helper Migration
 
 Current `echo-wesley-gen` emits:
@@ -354,6 +361,15 @@ Migration rule:
 EINT pack helpers are low-level payload helpers.
 DispatchOpticIntentRequest helpers are the preferred generated proposal surface.
 ```
+
+Implementation note: mutation ops now emit
+`*_dispatch_optic_intent_request` and
+`*_dispatch_optic_intent_request_raw_vars` beside existing
+`pack_*_intent` helpers. The generated dispatch builders require an explicit
+base coordinate by default and keep EINT v1 as the inner payload. Setter-like
+operation names are not emitted as `set_*` optic methods; a `setTheme` mutation
+becomes a proposal builder such as
+`propose_set_theme_dispatch_optic_intent_request`.
 
 ## Echo-Owned IR Requirements
 

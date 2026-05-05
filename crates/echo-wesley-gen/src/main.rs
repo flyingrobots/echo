@@ -255,16 +255,37 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
             });
         }
 
-        if ir.ops.iter().any(|op| op.kind == OpKind::Query) {
+        let has_query_ops = ir.ops.iter().any(|op| op.kind == OpKind::Query);
+        let has_mutation_ops = ir.ops.iter().any(|op| op.kind == OpKind::Mutation);
+
+        if has_query_ops {
             helper_prelude.extend(quote! {
                 use echo_wasm_abi::kernel_port::{
+                    AttachmentDescentPolicy, EchoCoordinate, ObserveOpticRequest, OpticAperture,
+                    OpticApertureShape, OpticCapabilityId, OpticFocus, OpticId, OpticReadBudget,
                     ObservationAt, ObservationCoordinate, ObservationFrame, ObservationProjection,
-                    ObservationRequest, WorldlineId,
+                    ObservationRequest, ProjectionVersion, ReducerVersion, WorldlineId,
                 };
             });
         }
 
-        if ir.ops.iter().any(|op| op.kind == OpKind::Mutation) {
+        if has_mutation_ops {
+            if has_query_ops {
+                helper_prelude.extend(quote! {
+                    use echo_wasm_abi::kernel_port::{
+                        AdmissionLawId, DispatchOpticIntentRequest, IntentFamilyId,
+                        OpticCapability, OpticCause, OpticIntentPayload,
+                    };
+                });
+            } else {
+                helper_prelude.extend(quote! {
+                    use echo_wasm_abi::kernel_port::{
+                        AdmissionLawId, DispatchOpticIntentRequest, EchoCoordinate,
+                        IntentFamilyId, OpticCapability, OpticCause, OpticFocus, OpticId,
+                        OpticIntentPayload,
+                    };
+                });
+            }
             helper_prelude.extend(quote! {
                 use echo_wasm_abi::pack_intent_v1;
 
@@ -279,9 +300,28 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
             });
         }
 
+        if has_query_ops {
+            helper_tokens.extend(quote! {
+                fn generated_vars_digest(vars_bytes: &[u8]) -> Vec<u8> {
+                    let mut digest = Vec::new();
+                    digest.resize(32, 0u8);
+                    for (index, byte) in vars_bytes.iter().copied().enumerate() {
+                        let slot = index % 32;
+                        digest[slot] = digest[slot].wrapping_add(byte);
+                        digest[(slot + 13) % 32] ^= byte.rotate_left((index % 8) as u32);
+                    }
+                    for (index, byte) in (vars_bytes.len() as u64).to_le_bytes().iter().copied().enumerate() {
+                        digest[index] ^= byte;
+                    }
+                    digest
+                }
+            });
+        }
+
         for op in &ops_sorted {
             let const_name = op_const_ident(&op.name, op.op_id);
-            let helper_name = format_ident!("{}", to_snake_case(&op.name));
+            let helper_name_string = to_snake_case(&op.name);
+            let helper_name = format_ident!("{}", helper_name_string);
             let vars_name = format_ident!("{}Vars", to_pascal_case(&op.name));
             let vars_fields = op.args.iter().map(|a| {
                 let field_name = safe_ident(&a.name);
@@ -316,8 +356,18 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
                 OpKind::Mutation => {
                     let fn_name = format_ident!("pack_{}_intent", helper_name);
                     let raw_fn_name = format_ident!("pack_{}_intent_raw_vars", helper_name);
+                    let optic_helper_name =
+                        format_ident!("{}", optic_mutation_helper_stem(&op.name));
+                    let optic_fn_name =
+                        format_ident!("{}_dispatch_optic_intent_request", optic_helper_name);
+                    let optic_raw_fn_name = format_ident!(
+                        "{}_dispatch_optic_intent_request_raw_vars",
+                        optic_helper_name
+                    );
                     helper_exports.push(fn_name.clone());
                     helper_exports.push(raw_fn_name.clone());
+                    helper_exports.push(optic_fn_name.clone());
+                    helper_exports.push(optic_raw_fn_name.clone());
                     helper_tokens.extend(quote! {
                         /// Encode this mutation's vars and pack them into an EINT v1 intent.
                         pub fn #fn_name(vars: &#vars_name) -> Result<Vec<u8>, GeneratedIntentError> {
@@ -329,13 +379,69 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
                         pub fn #raw_fn_name(vars: &[u8]) -> Result<Vec<u8>, echo_wasm_abi::EnvelopeError> {
                             pack_intent_v1(super::#const_name, vars)
                         }
+
+                        /// Build an optic intent-dispatch request for this mutation.
+                        #[allow(clippy::too_many_arguments)]
+                        pub fn #optic_fn_name(
+                            optic_id: OpticId,
+                            base_coordinate: EchoCoordinate,
+                            intent_family: IntentFamilyId,
+                            focus: OpticFocus,
+                            cause: OpticCause,
+                            capability: OpticCapability,
+                            admission_law: AdmissionLawId,
+                            vars: &#vars_name,
+                        ) -> Result<DispatchOpticIntentRequest, GeneratedIntentError> {
+                            let vars_bytes = #encode_fn_name(vars).map_err(GeneratedIntentError::EncodeVars)?;
+                            #optic_raw_fn_name(
+                                optic_id,
+                                base_coordinate,
+                                intent_family,
+                                focus,
+                                cause,
+                                capability,
+                                admission_law,
+                                &vars_bytes,
+                            )
+                        }
+
+                        /// Build an optic intent-dispatch request from already-canonical vars bytes.
+                        #[allow(clippy::too_many_arguments)]
+                        pub fn #optic_raw_fn_name(
+                            optic_id: OpticId,
+                            base_coordinate: EchoCoordinate,
+                            intent_family: IntentFamilyId,
+                            focus: OpticFocus,
+                            cause: OpticCause,
+                            capability: OpticCapability,
+                            admission_law: AdmissionLawId,
+                            vars: &[u8],
+                        ) -> Result<DispatchOpticIntentRequest, GeneratedIntentError> {
+                            let bytes = pack_intent_v1(super::#const_name, vars)
+                                .map_err(GeneratedIntentError::PackEnvelope)?;
+                            Ok(DispatchOpticIntentRequest {
+                                optic_id,
+                                base_coordinate,
+                                intent_family,
+                                focus,
+                                cause,
+                                capability,
+                                admission_law,
+                                payload: OpticIntentPayload::EintV1 { bytes },
+                            })
+                        }
                     });
                 }
                 OpKind::Query => {
                     let fn_name = format_ident!("{}_observation_request", helper_name);
                     let raw_fn_name = format_ident!("{}_observation_request_raw_vars", helper_name);
+                    let optic_fn_name = format_ident!("{}_observe_optic_request", helper_name);
+                    let optic_raw_fn_name =
+                        format_ident!("{}_observe_optic_request_raw_vars", helper_name);
                     helper_exports.push(fn_name.clone());
                     helper_exports.push(raw_fn_name.clone());
+                    helper_exports.push(optic_fn_name.clone());
+                    helper_exports.push(optic_raw_fn_name.clone());
                     helper_tokens.extend(quote! {
                         /// Encode this query's vars and build a frontier query-view observation request.
                         pub fn #fn_name(worldline_id: WorldlineId, vars: &#vars_name) -> Result<ObservationRequest, echo_wasm_abi::CanonError> {
@@ -356,6 +462,61 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
                                     vars_bytes: Vec::from(vars),
                                 },
                             )
+                        }
+
+                        /// Encode this query's vars and build a bounded optic read request.
+                        #[allow(clippy::too_many_arguments)]
+                        pub fn #optic_fn_name(
+                            optic_id: OpticId,
+                            focus: OpticFocus,
+                            coordinate: EchoCoordinate,
+                            capability: OpticCapabilityId,
+                            projection_version: ProjectionVersion,
+                            reducer_version: Option<ReducerVersion>,
+                            budget: OpticReadBudget,
+                            vars: &#vars_name,
+                        ) -> Result<ObserveOpticRequest, echo_wasm_abi::CanonError> {
+                            let vars_bytes = #encode_fn_name(vars)?;
+                            Ok(#optic_raw_fn_name(
+                                optic_id,
+                                focus,
+                                coordinate,
+                                capability,
+                                projection_version,
+                                reducer_version,
+                                budget,
+                                &vars_bytes,
+                            ))
+                        }
+
+                        /// Build a bounded optic read request from already-canonical vars bytes.
+                        #[allow(clippy::too_many_arguments)]
+                        pub fn #optic_raw_fn_name(
+                            optic_id: OpticId,
+                            focus: OpticFocus,
+                            coordinate: EchoCoordinate,
+                            capability: OpticCapabilityId,
+                            projection_version: ProjectionVersion,
+                            reducer_version: Option<ReducerVersion>,
+                            budget: OpticReadBudget,
+                            vars: &[u8],
+                        ) -> ObserveOpticRequest {
+                            ObserveOpticRequest {
+                                optic_id,
+                                focus,
+                                coordinate,
+                                aperture: OpticAperture {
+                                    shape: OpticApertureShape::QueryBytes {
+                                        query_id: super::#const_name,
+                                        vars_digest: generated_vars_digest(vars),
+                                    },
+                                    budget,
+                                    attachment_descent: AttachmentDescentPolicy::BoundaryOnly,
+                                },
+                                projection_version,
+                                reducer_version,
+                                capability,
+                            }
                         }
                     });
                 }
@@ -517,6 +678,15 @@ fn to_snake_case(name: &str) -> String {
     }
 }
 
+fn optic_mutation_helper_stem(name: &str) -> String {
+    let stem = to_snake_case(name);
+    if stem == "set" || stem.starts_with("set_") {
+        format!("propose_{stem}")
+    } else {
+        stem
+    }
+}
+
 fn validate_version(ir: &WesleyIR) -> Result<()> {
     const SUPPORTED: &str = "echo-ir/v1";
     match ir.ir_version.as_deref() {
@@ -609,11 +779,19 @@ fn validate_generated_item_names(ir: &WesleyIR) -> Result<()> {
             "generated intent helper error",
         )?;
     }
+    if ir.ops.iter().any(|op| op.kind == OpKind::Query) {
+        record_generated_item(
+            &mut helper_items,
+            "generated_vars_digest",
+            "generated optic query vars digest helper",
+        )?;
+    }
 
     for op in &ir.ops {
         let kind = op_kind_name(&op.kind);
         let const_name = op_const_name(&op.name, op.op_id);
         let helper_name = to_snake_case(&op.name);
+        let optic_mutation_helper_name = optic_mutation_helper_stem(&op.name);
 
         record_generated_item(
             &mut top_level_items,
@@ -663,6 +841,32 @@ fn validate_generated_item_names(ir: &WesleyIR) -> Result<()> {
                     format!("pack_{helper_name}_intent_raw_vars"),
                     format!("mutation operation `{}` raw EINT helper re-export", op.name),
                 )?;
+                record_generated_item(
+                    &mut helper_items,
+                    format!("{optic_mutation_helper_name}_dispatch_optic_intent_request"),
+                    format!("mutation operation `{}` optic dispatch helper", op.name),
+                )?;
+                record_generated_item(
+                    &mut helper_items,
+                    format!("{optic_mutation_helper_name}_dispatch_optic_intent_request_raw_vars"),
+                    format!("mutation operation `{}` raw optic dispatch helper", op.name),
+                )?;
+                record_generated_item(
+                    &mut top_level_items,
+                    format!("{optic_mutation_helper_name}_dispatch_optic_intent_request"),
+                    format!(
+                        "mutation operation `{}` optic dispatch helper re-export",
+                        op.name
+                    ),
+                )?;
+                record_generated_item(
+                    &mut top_level_items,
+                    format!("{optic_mutation_helper_name}_dispatch_optic_intent_request_raw_vars"),
+                    format!(
+                        "mutation operation `{}` raw optic dispatch helper re-export",
+                        op.name
+                    ),
+                )?;
             }
             OpKind::Query => {
                 record_generated_item(
@@ -685,6 +889,32 @@ fn validate_generated_item_names(ir: &WesleyIR) -> Result<()> {
                     format!("{helper_name}_observation_request_raw_vars"),
                     format!(
                         "query operation `{}` raw observation helper re-export",
+                        op.name
+                    ),
+                )?;
+                record_generated_item(
+                    &mut helper_items,
+                    format!("{helper_name}_observe_optic_request"),
+                    format!("query operation `{}` optic observe helper", op.name),
+                )?;
+                record_generated_item(
+                    &mut helper_items,
+                    format!("{helper_name}_observe_optic_request_raw_vars"),
+                    format!("query operation `{}` raw optic observe helper", op.name),
+                )?;
+                record_generated_item(
+                    &mut top_level_items,
+                    format!("{helper_name}_observe_optic_request"),
+                    format!(
+                        "query operation `{}` optic observe helper re-export",
+                        op.name
+                    ),
+                )?;
+                record_generated_item(
+                    &mut top_level_items,
+                    format!("{helper_name}_observe_optic_request_raw_vars"),
+                    format!(
+                        "query operation `{}` raw optic observe helper re-export",
                         op.name
                     ),
                 )?;

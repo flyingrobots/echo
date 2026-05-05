@@ -89,19 +89,24 @@ mod tests {
     use super::generated::{
         __echo_wesley_generated::{CounterValueVars, IncrementVars},
         counter_value_observation_request, counter_value_observation_request_raw_vars,
-        encode_counter_value_vars, pack_increment_intent, IncrementInput, CODEC_ID,
-        OP_COUNTER_VALUE, OP_INCREMENT, REGISTRY, REGISTRY_VERSION, SCHEMA_SHA256,
+        counter_value_observe_optic_request, counter_value_observe_optic_request_raw_vars,
+        encode_counter_value_vars, increment_dispatch_optic_intent_request, pack_increment_intent,
+        IncrementInput, CODEC_ID, OP_COUNTER_VALUE, OP_INCREMENT, REGISTRY, REGISTRY_VERSION,
+        SCHEMA_SHA256,
     };
     use echo_registry_api::{OpKind, RegistryProvider};
     use echo_wasm_abi::kernel_port::{
-        AbiError, BuiltinObserverPlan, DispatchResponse, KernelPort, ObservationArtifact,
+        AbiError, AdmissionLawId, BuiltinObserverPlan, CoordinateAt, DispatchOpticIntentRequest,
+        DispatchResponse, EchoCoordinate, IntentFamilyId, KernelPort, ObservationArtifact,
         ObservationAt, ObservationBasisPosture, ObservationFrame, ObservationPayload,
-        ObservationProjection, ReadingBudgetPosture, ReadingEnvelope, ReadingObserverBasis,
-        ReadingObserverPlan, ReadingResidualPosture, ReadingRightsPosture, ReadingWitnessRef,
-        RegistryInfo, ResolvedObservationCoordinate, RunCompletion, SchedulerState,
-        SchedulerStatus, WorkState, WorldlineId, WorldlineTick, ABI_VERSION,
+        ObservationProjection, ObserveOpticRequest, OpticActorId, OpticApertureShape,
+        OpticCapability, OpticCapabilityId, OpticCause, OpticFocus, OpticIntentPayload,
+        OpticReadBudget, ProjectionVersion, ReadingBudgetPosture, ReadingEnvelope,
+        ReadingObserverBasis, ReadingObserverPlan, ReadingResidualPosture, ReadingRightsPosture,
+        ReadingWitnessRef, RegistryInfo, ResolvedObservationCoordinate, RunCompletion,
+        SchedulerState, SchedulerStatus, WorkState, WorldlineId, WorldlineTick, ABI_VERSION,
     };
-    use echo_wasm_abi::{decode_cbor, unpack_intent_v1};
+    use echo_wasm_abi::{decode_cbor, encode_cbor, unpack_intent_v1};
 
     #[derive(Default)]
     struct ToyKernel {
@@ -262,6 +267,93 @@ mod tests {
                 data: b"counter=42".to_vec()
             }
         );
+
+        let optic_id = echo_wasm_abi::kernel_port::OpticId::from_bytes([10; 32]);
+        let capability_id = OpticCapabilityId::from_bytes([11; 32]);
+        let actor = OpticActorId::from_bytes([12; 32]);
+        let intent_family = IntentFamilyId::from_bytes([13; 32]);
+        let focus = OpticFocus::Worldline { worldline_id };
+        let coordinate = EchoCoordinate::Worldline {
+            worldline_id,
+            at: CoordinateAt::Frontier,
+        };
+        let budget = OpticReadBudget {
+            max_bytes: Some(4096),
+            max_nodes: Some(64),
+            max_ticks: Some(8),
+            max_attachments: Some(0),
+        };
+        let optic_read = counter_value_observe_optic_request(
+            optic_id,
+            focus.clone(),
+            coordinate.clone(),
+            capability_id,
+            ProjectionVersion(1),
+            None,
+            budget,
+            &query_vars,
+        )
+        .unwrap();
+        let raw_optic_read = counter_value_observe_optic_request_raw_vars(
+            optic_id,
+            focus.clone(),
+            coordinate.clone(),
+            capability_id,
+            ProjectionVersion(1),
+            None,
+            budget,
+            &encoded_query_vars,
+        );
+        assert_eq!(optic_read, raw_optic_read);
+        let decoded_read: ObserveOpticRequest =
+            decode_cbor(&encode_cbor(&optic_read).unwrap()).unwrap();
+        assert_eq!(decoded_read, optic_read);
+        assert!(matches!(
+            optic_read.aperture.shape,
+            OpticApertureShape::QueryBytes { query_id, ref vars_digest }
+                if query_id == OP_COUNTER_VALUE
+                    && vars_digest.len() == 32
+                    && vars_digest != &encoded_query_vars
+        ));
+
+        let capability = OpticCapability {
+            capability_id,
+            actor,
+            issuer_ref: None,
+            policy_hash: vec![14; 32],
+            allowed_focus: focus.clone(),
+            projection_version: ProjectionVersion(1),
+            reducer_version: None,
+            allowed_intent_family: intent_family,
+            max_budget: budget,
+        };
+        let cause = OpticCause {
+            actor,
+            cause_hash: vec![15; 32],
+            label: Some("generated optic dispatch".into()),
+        };
+        let dispatch = increment_dispatch_optic_intent_request(
+            optic_id,
+            coordinate.clone(),
+            intent_family,
+            focus,
+            cause,
+            capability,
+            AdmissionLawId::from_bytes([16; 32]),
+            &IncrementVars {
+                input: IncrementInput { amount: 42 },
+            },
+        )
+        .unwrap();
+        let decoded_dispatch: DispatchOpticIntentRequest =
+            decode_cbor(&encode_cbor(&dispatch).unwrap()).unwrap();
+        assert_eq!(decoded_dispatch, dispatch);
+        assert_eq!(dispatch.base_coordinate, coordinate);
+        let OpticIntentPayload::EintV1 { bytes } = &dispatch.payload;
+        let (op_id, vars_bytes) = unpack_intent_v1(bytes).unwrap();
+        assert_eq!(op_id, OP_INCREMENT);
+        let decoded: IncrementVars = decode_cbor(vars_bytes).unwrap();
+        assert_eq!(decoded.input.amount, 42);
     }
 }
 "#,
@@ -706,6 +798,11 @@ fn test_generate_from_json() {
     assert!(stdout.contains("use echo_registry_api::{"));
     assert!(stdout.contains("pub const OPS: &[OpDef]"));
     assert!(stdout.contains("pub static REGISTRY: GeneratedRegistry"));
+    assert!(stdout.contains("pub fn propose_set_theme_dispatch_optic_intent_request"));
+    assert!(
+        !stdout.contains("pub fn set_theme_dispatch_optic_intent_request"),
+        "setter-like mutation names must be proposal builders, not set_* helpers"
+    );
 }
 
 #[test]
@@ -760,12 +857,23 @@ fn test_toy_contract_generates_eint_and_observation_helpers() {
         "pack_intent_v1(super::OP_INCREMENT",
         "pub fn counter_value_observation_request",
         "pub fn counter_value_observation_request_raw_vars",
+        "pub fn counter_value_observe_optic_request",
+        "pub fn counter_value_observe_optic_request_raw_vars",
+        "pub fn increment_dispatch_optic_intent_request",
+        "pub fn increment_dispatch_optic_intent_request_raw_vars",
+        "DispatchOpticIntentRequest",
+        "ObserveOpticRequest",
+        "base_coordinate: EchoCoordinate",
     ] {
         assert!(
             stdout.contains(required),
             "generated toy contract output is missing first-consumer bridge: {required}"
         );
     }
+    assert!(
+        !stdout.contains("pub fn set_"),
+        "generated optic helpers should not expose setter-style function names"
+    );
 }
 
 #[test]
@@ -790,6 +898,7 @@ fn test_query_only_contract_does_not_import_intent_packer() {
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     assert!(stdout.contains("pub fn counter_value_observation_request"));
+    assert!(stdout.contains("pub fn counter_value_observe_optic_request"));
     assert!(
         !stdout.contains("pack_intent_v1"),
         "query-only generated code should not import or use EINT packing"
@@ -932,6 +1041,8 @@ fn test_toy_contract_no_std_generated_output_checks_in_consumer_crate() {
     assert!(generated.contains("extern crate alloc;"));
     assert!(generated.contains("pub mod __echo_wesley_generated"));
     assert!(generated.contains("use alloc::vec::Vec;"));
+    assert!(generated.contains("pub fn counter_value_observe_optic_request"));
+    assert!(generated.contains("pub fn increment_dispatch_optic_intent_request"));
     assert_generated_crate_checks(&write_basic_generated_crate(
         generated.as_ref(),
         "toy-no-std",

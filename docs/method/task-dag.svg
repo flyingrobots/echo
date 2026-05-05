@@ -10,7 +10,7 @@
 <title>method_task_dag</title>
 <polygon fill="white" stroke="none" points="-4,4 -4,-7693.5 3303.09,-7693.5 3303.09,4 -4,4"/>
 <text xml:space="preserve" text-anchor="middle" x="1649.55" y="-7662.7" font-family="Inter, Helvetica, Arial" font-size="24.00">METHOD Backlog Task Dependency DAG</text>
-<text xml:space="preserve" text-anchor="middle" x="1649.55" y="-7633.45" font-family="Inter, Helvetica, Arial" font-size="24.00">open tasks: 103 / 181; dependency edges: 125</text>
+<text xml:space="preserve" text-anchor="middle" x="1649.55" y="-7633.45" font-family="Inter, Helvetica, Arial" font-size="24.00">open tasks: 102 / 181; dependency edges: 125</text>
 <g id="clust1" class="cluster">
 <title>cluster_asap</title>
 <path fill="white" stroke="#cbd5e1" d="M24.5,-2247C24.5,-2247 1722.93,-2247 1722.93,-2247 1728.93,-2247 1734.93,-2253 1734.93,-2259 1734.93,-2259 1734.93,-3776 1734.93,-3776 1734.93,-3782 1728.93,-3788 1722.93,-3788 1722.93,-3788 24.5,-3788 24.5,-3788 18.5,-3788 12.5,-3782 12.5,-3776 12.5,-3776 12.5,-2259 12.5,-2259 12.5,-2253 18.5,-2247 24.5,-2247"/>
@@ -609,10 +609,10 @@
 <!-- M027 -->
 <g id="node27" class="node">
 <title>M027</title>
-<g id="a_node27"><a xlink:title="M027 [asap] open; blockers=0; &#160;Echo Optics Live&#45;Tail Honesty Tests">
-<path fill="#bbf7d0" stroke="#15803d" stroke-width="2.8" d="M964.98,-3307.82C964.98,-3307.82 878.46,-3307.82 878.46,-3307.82 872.46,-3307.82 866.46,-3301.82 866.46,-3295.82 866.46,-3295.82 866.46,-3260.18 866.46,-3260.18 866.46,-3254.18 872.46,-3248.18 878.46,-3248.18 878.46,-3248.18 964.98,-3248.18 964.98,-3248.18 970.98,-3248.18 976.98,-3254.18 976.98,-3260.18 976.98,-3260.18 976.98,-3295.82 976.98,-3295.82 976.98,-3301.82 970.98,-3307.82 964.98,-3307.82"/>
+<g id="a_node27"><a xlink:title="M027 [asap] done; blockers=0; &#160;Echo Optics Live&#45;Tail Honesty Tests">
+<path fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.4" d="M964.98,-3307.82C964.98,-3307.82 878.46,-3307.82 878.46,-3307.82 872.46,-3307.82 866.46,-3301.82 866.46,-3295.82 866.46,-3295.82 866.46,-3260.18 866.46,-3260.18 866.46,-3254.18 872.46,-3248.18 878.46,-3248.18 878.46,-3248.18 964.98,-3248.18 964.98,-3248.18 970.98,-3248.18 976.98,-3254.18 976.98,-3260.18 976.98,-3260.18 976.98,-3295.82 976.98,-3295.82 976.98,-3301.82 970.98,-3307.82 964.98,-3307.82"/>
 <text xml:space="preserve" text-anchor="middle" x="921.72" y="-3294" font-family="Inter, Helvetica, Arial" font-size="10.00">M027</text>
-<text xml:space="preserve" text-anchor="middle" x="921.72" y="-3281.25" font-family="Inter, Helvetica, Arial" font-size="10.00">OPEN</text>
+<text xml:space="preserve" text-anchor="middle" x="921.72" y="-3281.25" font-family="Inter, Helvetica, Arial" font-size="10.00">DONE</text>
 <text xml:space="preserve" text-anchor="middle" x="921.72" y="-3268.5" font-family="Inter, Helvetica, Arial" font-size="10.00">Echo Optics Live&#45;Tail</text>
 <text xml:space="preserve" text-anchor="middle" x="921.72" y="-3255.75" font-family="Inter, Helvetica, Arial" font-size="10.00">Honesty Tests</text>
 </a>
@@ -686,8 +686,8 @@
 <!-- M031&#45;&gt;M027 -->
 <g id="edge35" class="edge">
 <title>M031&#45;&gt;M027</title>
-<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M565.57,-3401.07C596.03,-3401.07 627.09,-3401.07 627.09,-3401.07 627.09,-3401.07 627.09,-3287.39 627.09,-3287.39 627.09,-3287.39 859.24,-3287.39 859.24,-3287.39"/>
-<polygon fill="#94a3b8" stroke="#94a3b8" points="859.24,-3288.97 863.74,-3287.39 859.24,-3285.82 859.24,-3288.97"/>
+<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M565.57,-3401.07C596.03,-3401.07 627.09,-3401.07 627.09,-3401.07 627.09,-3401.07 627.09,-3287.39 627.09,-3287.39 627.09,-3287.39 859.94,-3287.39 859.94,-3287.39"/>
+<polygon fill="#94a3b8" stroke="#94a3b8" points="859.94,-3288.97 864.44,-3287.39 859.94,-3285.82 859.94,-3288.97"/>
 </g>
 <!-- M031&#45;&gt;M028 -->
 <g id="edge36" class="edge">
@@ -728,8 +728,8 @@
 <!-- M033&#45;&gt;M027 -->
 <g id="edge40" class="edge">
 <title>M033&#45;&gt;M027</title>
-<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M715.09,-3326.61C715.09,-3311.99 715.09,-3297.61 715.09,-3297.61 715.09,-3297.61 859.24,-3297.61 859.24,-3297.61"/>
-<polygon fill="#94a3b8" stroke="#94a3b8" points="859.24,-3299.18 863.74,-3297.61 859.24,-3296.03 859.24,-3299.18"/>
+<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M715.09,-3326.61C715.09,-3311.99 715.09,-3297.61 715.09,-3297.61 715.09,-3297.61 859.79,-3297.61 859.79,-3297.61"/>
+<polygon fill="#94a3b8" stroke="#94a3b8" points="859.79,-3299.18 864.29,-3297.61 859.79,-3296.03 859.79,-3299.18"/>
 </g>
 <!-- M033&#45;&gt;M028 -->
 <g id="edge41" class="edge">

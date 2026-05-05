@@ -1,6 +1,6 @@
 digraph method_task_dag {
   graph [
-    label="METHOD Backlog Task Dependency DAG\nopen tasks: 103 / 181; dependency edges: 125",
+    label="METHOD Backlog Task Dependency DAG\nopen tasks: 102 / 181; dependency edges: 125",
     labelloc=t,
     fontsize=24,
     fontname="Inter, Helvetica, Arial",
@@ -57,7 +57,7 @@ digraph method_task_dag {
     "M024" [label="M024\nDONE\nEcho Optics Core Nouns And\nIDs", tooltip="M024 [asap] done; blockers=0;  Echo Optics Core Nouns And IDs", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M025" [label="M025\nDONE\nEcho Optics Dispatch\nIntent Model", tooltip="M025 [asap] done; blockers=0;  Echo Optics Dispatch Intent Model", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M026" [label="M026\nDONE\nEcho Optics Example\nImplementation", tooltip="M026 [asap] done; blockers=0;  Echo Optics Example Implementation", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
-    "M027" [label="M027\nOPEN\nEcho Optics Live-Tail\nHonesty Tests", tooltip="M027 [asap] open; blockers=0;  Echo Optics Live-Tail Honesty Tests", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
+    "M027" [label="M027\nDONE\nEcho Optics Live-Tail\nHonesty Tests", tooltip="M027 [asap] done; blockers=0;  Echo Optics Live-Tail Honesty Tests", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M028" [label="M028\nDONE\nEcho Optics Observe Model", tooltip="M028 [asap] done; blockers=0;  Echo Optics Observe Model", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M029" [label="M029\nDONE\nEcho Optics Obstruction\nAnd Admission Results", tooltip="M029 [asap] done; blockers=0;  Echo Optics Obstruction And Admission Results", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M030" [label="M030\nDONE\nEcho Optics Open And Close\nModels", tooltip="M030 [asap] done; blockers=0;  Echo Optics Open And Close Models", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];

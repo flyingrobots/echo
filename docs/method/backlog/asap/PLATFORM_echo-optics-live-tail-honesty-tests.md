@@ -3,7 +3,15 @@
 
 # Echo Optics Live-Tail Honesty Tests
 
-Status: visible task card.
+Status: complete.
+
+## Completion evidence
+
+- Added `crates/warp-core/tests/optic_live_tail_tests.rs`.
+- Added a regression proving a frontier read after checkpoint plus live-tail
+  commit names `WitnessBasis::CheckpointPlusTail`.
+- The live-tail witness set records the checkpoint basis, tail provenance refs,
+  and non-empty tail digest instead of reusing a checkpoint-only identity.
 
 Depends on:
 

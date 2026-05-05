@@ -707,6 +707,13 @@ checkpoint_hash != live_read_identity
 unless the read identity also proves there is no live tail or names the exact
 tail witness set included in the reading.
 
+The initial `observe_optic` bridge uses the second honest option when a replay
+checkpoint exists behind the live frontier: the `ReadIdentity` witness basis is
+`CheckpointPlusTail`, with the checkpoint basis, post-checkpoint provenance refs,
+and a tail digest. If that tail cannot be enumerated within the requested tick
+budget, the read must fail closed instead of identifying the live result with
+the checkpoint alone.
+
 ## Attachments And Recursive Apertures
 
 Attachments are aperture boundaries.

@@ -37,6 +37,7 @@ use crate::worldline::WorldlineId;
 const OBSERVATION_VERSION: u32 = 2;
 const OBSERVATION_ARTIFACT_DOMAIN: &[u8] = b"echo:observation-artifact:v2\0";
 const OPTIC_OBSERVATION_WITNESS_SET_DOMAIN: &[u8] = b"echo:optic-observation-witness-set:v1\0";
+const OPTIC_LIVE_TAIL_WITNESS_SET_DOMAIN: &[u8] = b"echo:optic-live-tail-witness-set:v1\0";
 const OPTIC_METADATA_APERTURE_MIN_BYTES: u64 = 128;
 
 macro_rules! opaque_id {
@@ -1044,7 +1045,7 @@ impl ObservationService {
         let observation_request = Self::optic_observation_request(request)?;
         let artifact = Self::observe(runtime, provenance, engine, observation_request)
             .map_err(|err| Self::optic_observation_error(request, err))?;
-        let witness_basis = Self::optic_witness_basis(&artifact);
+        let witness_basis = Self::optic_witness_basis(provenance, request, &artifact)?;
         let read_identity = ReadIdentity::new(
             request.optic_id,
             &request.focus,
@@ -1277,7 +1278,21 @@ impl ObservationService {
         })
     }
 
-    fn optic_witness_basis(artifact: &ObservationArtifact) -> WitnessBasis {
+    fn optic_witness_basis(
+        provenance: &ProvenanceService,
+        request: &ObserveOpticRequest,
+        artifact: &ObservationArtifact,
+    ) -> Result<WitnessBasis, Box<OpticObstruction>> {
+        if let Some(witness_basis) =
+            Self::checkpoint_plus_tail_witness_basis(provenance, request, artifact)?
+        {
+            return Ok(witness_basis);
+        }
+
+        Ok(Self::artifact_witness_basis(artifact))
+    }
+
+    fn artifact_witness_basis(artifact: &ObservationArtifact) -> WitnessBasis {
         match artifact.reading.witness_refs.as_slice() {
             [ReadingWitnessRef::ResolvedCommit { reference }] => WitnessBasis::ResolvedCommit {
                 reference: *reference,
@@ -1289,6 +1304,127 @@ impl ObservationService {
                 witness_set_hash: optic_witness_refs_hash(refs),
             },
         }
+    }
+
+    fn checkpoint_plus_tail_witness_basis(
+        provenance: &ProvenanceService,
+        request: &ObserveOpticRequest,
+        artifact: &ObservationArtifact,
+    ) -> Result<Option<WitnessBasis>, Box<OpticObstruction>> {
+        let EchoCoordinate::Worldline { worldline_id, .. } = request.coordinate else {
+            return Ok(None);
+        };
+        let [ReadingWitnessRef::ResolvedCommit { .. }] = artifact.reading.witness_refs.as_slice()
+        else {
+            return Ok(None);
+        };
+        let materialized_tick = artifact.resolved.resolved_worldline_tick;
+        if materialized_tick == WorldlineTick::ZERO {
+            return Ok(None);
+        }
+        let Some(checkpoint) = provenance.checkpoint_before(worldline_id, materialized_tick) else {
+            return Ok(None);
+        };
+        if checkpoint.worldline_tick == WorldlineTick::ZERO {
+            return Ok(None);
+        }
+        if checkpoint.worldline_tick >= materialized_tick {
+            return Ok(None);
+        }
+
+        let tail_start = checkpoint.worldline_tick.as_u64();
+        let tail_end = materialized_tick
+            .checked_sub(1)
+            .map(WorldlineTick::as_u64)
+            .ok_or_else(|| {
+                Self::optic_obstruction(
+                    request,
+                    OpticObstructionKind::LiveTailRequiresReduction,
+                    Some(WitnessBasis::Missing {
+                        reason: MissingWitnessBasisReason::EvidenceUnavailable,
+                    }),
+                    "live-tail witness span has no commit boundary",
+                )
+            })?;
+        if tail_start > tail_end {
+            return Ok(None);
+        }
+        let tail_len = tail_end
+            .checked_sub(tail_start)
+            .and_then(|len| len.checked_add(1))
+            .ok_or_else(|| {
+                Self::optic_obstruction(
+                    request,
+                    OpticObstructionKind::LiveTailRequiresReduction,
+                    Some(WitnessBasis::Missing {
+                        reason: MissingWitnessBasisReason::EvidenceUnavailable,
+                    }),
+                    "live-tail witness span overflowed",
+                )
+            })?;
+        if tail_len > request.aperture.budget.max_ticks.unwrap_or(u64::MAX) {
+            return Err(Self::optic_obstruction(
+                request,
+                OpticObstructionKind::LiveTailRequiresReduction,
+                Some(WitnessBasis::Missing {
+                    reason: MissingWitnessBasisReason::BudgetLimited,
+                }),
+                "live-tail witness set exceeds the declared tick budget",
+            ));
+        }
+
+        let checkpoint_commit_tick = checkpoint.worldline_tick.checked_sub(1).ok_or_else(|| {
+            Self::optic_obstruction(
+                request,
+                OpticObstructionKind::MissingWitness,
+                Some(WitnessBasis::Missing {
+                    reason: MissingWitnessBasisReason::EvidenceUnavailable,
+                }),
+                "checkpoint witness coordinate is unavailable",
+            )
+        })?;
+        let checkpoint_entry = provenance
+            .entry(worldline_id, checkpoint_commit_tick)
+            .map_err(|_| {
+                Self::optic_obstruction(
+                    request,
+                    OpticObstructionKind::MissingWitness,
+                    Some(WitnessBasis::Missing {
+                        reason: MissingWitnessBasisReason::EvidenceUnavailable,
+                    }),
+                    "checkpoint provenance witness entry is unavailable",
+                )
+            })?;
+        let mut tail_witness_refs = Vec::new();
+        for raw_tick in tail_start..=tail_end {
+            let tick = WorldlineTick::from_raw(raw_tick);
+            let entry = provenance.entry(worldline_id, tick).map_err(|_| {
+                Self::optic_obstruction(
+                    request,
+                    OpticObstructionKind::MissingWitness,
+                    Some(WitnessBasis::Missing {
+                        reason: MissingWitnessBasisReason::EvidenceUnavailable,
+                    }),
+                    "live-tail provenance witness entry is unavailable",
+                )
+            })?;
+            tail_witness_refs.push(ProvenanceRef {
+                worldline_id,
+                worldline_tick: tick,
+                commit_hash: entry.expected.commit_hash,
+            });
+        }
+
+        Ok(Some(WitnessBasis::CheckpointPlusTail {
+            checkpoint_ref: ProvenanceRef {
+                worldline_id,
+                worldline_tick: checkpoint_commit_tick,
+                commit_hash: checkpoint_entry.expected.commit_hash,
+            },
+            checkpoint_hash: checkpoint.state_hash,
+            tail_digest: optic_tail_witness_refs_hash(&tail_witness_refs),
+            tail_witness_refs,
+        }))
     }
 
     fn validate_frame_projection(
@@ -1725,6 +1861,16 @@ fn optic_witness_refs_hash(refs: &[ReadingWitnessRef]) -> Hash {
                 hasher.update(commit_hash);
             }
         }
+    }
+    hasher.finalize().into()
+}
+
+fn optic_tail_witness_refs_hash(refs: &[ProvenanceRef]) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(OPTIC_LIVE_TAIL_WITNESS_SET_DOMAIN);
+    hasher.update(&(refs.len() as u64).to_le_bytes());
+    for reference in refs {
+        hash_provenance_ref(&mut hasher, *reference);
     }
     hasher.finalize().into()
 }

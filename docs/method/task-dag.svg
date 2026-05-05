@@ -10,7 +10,7 @@
 <title>method_task_dag</title>
 <polygon fill="white" stroke="none" points="-4,4 -4,-7693.5 3303.09,-7693.5 3303.09,4 -4,4"/>
 <text xml:space="preserve" text-anchor="middle" x="1649.55" y="-7662.7" font-family="Inter, Helvetica, Arial" font-size="24.00">METHOD Backlog Task Dependency DAG</text>
-<text xml:space="preserve" text-anchor="middle" x="1649.55" y="-7633.45" font-family="Inter, Helvetica, Arial" font-size="24.00">open tasks: 101 / 181; dependency edges: 125</text>
+<text xml:space="preserve" text-anchor="middle" x="1649.55" y="-7633.45" font-family="Inter, Helvetica, Arial" font-size="24.00">open tasks: 100 / 181; dependency edges: 125</text>
 <g id="clust1" class="cluster">
 <title>cluster_asap</title>
 <path fill="white" stroke="#cbd5e1" d="M24.5,-2247C24.5,-2247 1722.93,-2247 1722.93,-2247 1728.93,-2247 1734.93,-2253 1734.93,-2259 1734.93,-2259 1734.93,-3776 1734.93,-3776 1734.93,-3782 1728.93,-3788 1722.93,-3788 1722.93,-3788 24.5,-3788 24.5,-3788 18.5,-3788 12.5,-3782 12.5,-3776 12.5,-3776 12.5,-2259 12.5,-2259 12.5,-2253 18.5,-2247 24.5,-2247"/>
@@ -437,10 +437,10 @@
 <!-- M020 -->
 <g id="node20" class="node">
 <title>M020</title>
-<g id="a_node20"><a xlink:title="M020 [asap] open; blockers=0; &#160;Echo Optics Adapter Notes">
-<path fill="#bbf7d0" stroke="#15803d" stroke-width="2.8" d="M1714.93,-3574.45C1714.93,-3574.45 1599.91,-3574.45 1599.91,-3574.45 1593.91,-3574.45 1587.91,-3568.45 1587.91,-3562.45 1587.91,-3562.45 1587.91,-3539.55 1587.91,-3539.55 1587.91,-3533.55 1593.91,-3527.55 1599.91,-3527.55 1599.91,-3527.55 1714.93,-3527.55 1714.93,-3527.55 1720.93,-3527.55 1726.93,-3533.55 1726.93,-3539.55 1726.93,-3539.55 1726.93,-3562.45 1726.93,-3562.45 1726.93,-3568.45 1720.93,-3574.45 1714.93,-3574.45"/>
+<g id="a_node20"><a xlink:title="M020 [asap] done; blockers=0; &#160;Echo Optics Adapter Notes">
+<path fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.4" d="M1714.93,-3574.45C1714.93,-3574.45 1599.91,-3574.45 1599.91,-3574.45 1593.91,-3574.45 1587.91,-3568.45 1587.91,-3562.45 1587.91,-3562.45 1587.91,-3539.55 1587.91,-3539.55 1587.91,-3533.55 1593.91,-3527.55 1599.91,-3527.55 1599.91,-3527.55 1714.93,-3527.55 1714.93,-3527.55 1720.93,-3527.55 1726.93,-3533.55 1726.93,-3539.55 1726.93,-3539.55 1726.93,-3562.45 1726.93,-3562.45 1726.93,-3568.45 1720.93,-3574.45 1714.93,-3574.45"/>
 <text xml:space="preserve" text-anchor="middle" x="1657.42" y="-3560.62" font-family="Inter, Helvetica, Arial" font-size="10.00">M020</text>
-<text xml:space="preserve" text-anchor="middle" x="1657.42" y="-3547.88" font-family="Inter, Helvetica, Arial" font-size="10.00">OPEN</text>
+<text xml:space="preserve" text-anchor="middle" x="1657.42" y="-3547.88" font-family="Inter, Helvetica, Arial" font-size="10.00">DONE</text>
 <text xml:space="preserve" text-anchor="middle" x="1657.42" y="-3535.12" font-family="Inter, Helvetica, Arial" font-size="10.00">Echo Optics Adapter Notes</text>
 </a>
 </g>
@@ -597,8 +597,8 @@
 <!-- M026&#45;&gt;M020 -->
 <g id="edge24" class="edge">
 <title>M026&#45;&gt;M020</title>
-<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M1351.87,-3534.76C1351.87,-3534.76 1580.54,-3534.76 1580.54,-3534.76"/>
-<polygon fill="#94a3b8" stroke="#94a3b8" points="1580.54,-3536.34 1585.04,-3534.76 1580.54,-3533.19 1580.54,-3536.34"/>
+<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M1351.87,-3534.76C1351.87,-3534.76 1581.51,-3534.76 1581.51,-3534.76"/>
+<polygon fill="#94a3b8" stroke="#94a3b8" points="1581.51,-3536.34 1586.01,-3534.76 1581.51,-3533.19 1581.51,-3536.34"/>
 </g>
 <!-- M026&#45;&gt;M034 -->
 <g id="edge25" class="edge">
@@ -740,8 +740,8 @@
 <!-- M034&#45;&gt;M020 -->
 <g id="edge42" class="edge">
 <title>M034&#45;&gt;M020</title>
-<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M1534.43,-3561.81C1534.43,-3561.81 1580.75,-3561.81 1580.75,-3561.81"/>
-<polygon fill="#94a3b8" stroke="#94a3b8" points="1580.75,-3563.39 1585.25,-3561.81 1580.75,-3560.24 1580.75,-3563.39"/>
+<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M1534.43,-3561.81C1534.43,-3561.81 1581.39,-3561.81 1581.39,-3561.81"/>
+<polygon fill="#94a3b8" stroke="#94a3b8" points="1581.39,-3563.39 1585.89,-3561.81 1581.39,-3560.24 1581.39,-3563.39"/>
 </g>
 <!-- M035 -->
 <g id="node35" class="node">

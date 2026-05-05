@@ -12,6 +12,7 @@ Depends on:
 - [0014 - EINT, Registry, And Observation Boundary Inventory](../0014-eint-registry-observation-boundary-inventory/design.md)
 - [Continuum Runtime And CAS Readings](../continuum-runtime-and-cas-readings.md)
 - [Wesley-Compiled Optic Bindings For Echo](./wesley-compiled-optic-bindings.md)
+- [Echo Optics Adapter Notes](../../architecture/echo-optics-adapter-notes.md)
 - [Echo Optics API sequencing card](../../method/backlog/asap/PLATFORM_echo-optics-api-design.md)
 
 ## Summary

@@ -1,6 +1,6 @@
 digraph method_task_dag {
   graph [
-    label="METHOD Backlog Task Dependency DAG\nopen tasks: 101 / 181; dependency edges: 125",
+    label="METHOD Backlog Task Dependency DAG\nopen tasks: 100 / 181; dependency edges: 125",
     labelloc=t,
     fontsize=24,
     fontname="Inter, Helvetica, Arial",
@@ -50,7 +50,7 @@ digraph method_task_dag {
     "M017" [label="M017\nOPEN\nT-279-1\nMake decoder control\ncoverage auditable", tooltip="M017 [asap] open; blockers=0; T-279-1 Make decoder control coverage auditable", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M018" [label="M018\nOPEN\nEcho Contract Hosting\nRoadmap", tooltip="M018 [asap] open; blockers=0;  Echo Contract Hosting Roadmap", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M019" [label="M019\nDONE\nEcho Optics ABI DTOs", tooltip="M019 [asap] done; blockers=0;  Echo Optics ABI DTOs", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
-    "M020" [label="M020\nOPEN\nEcho Optics Adapter Notes", tooltip="M020 [asap] open; blockers=0;  Echo Optics Adapter Notes", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
+    "M020" [label="M020\nDONE\nEcho Optics Adapter Notes", tooltip="M020 [asap] done; blockers=0;  Echo Optics Adapter Notes", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M021" [label="M021\nDONE\nEcho Optics API Design", tooltip="M021 [asap] done; blockers=0;  Echo Optics API Design", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M022" [label="M022\nDONE\nEcho Optics Attachment\nBoundary Model", tooltip="M022 [asap] done; blockers=0;  Echo Optics Attachment Boundary Model", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M023" [label="M023\nDONE\nEcho Optics Cached-Reading\nIdentity Tests", tooltip="M023 [asap] done; blockers=0;  Echo Optics Cached-Reading Identity Tests", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];

@@ -3,7 +3,14 @@
 
 # Echo Optics Adapter Notes
 
-Status: visible task card.
+Status: complete.
+
+## Completion evidence
+
+- Added [Echo Optics Adapter Notes](../../../architecture/echo-optics-adapter-notes.md).
+- The note keeps GraphQL as an adapter/authoring illustration, rejects global
+  state adapters and host-bag abstractions, and names `jedit` only as an
+  ergonomic example consumer.
 
 Depends on:
 

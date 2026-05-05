@@ -24,9 +24,9 @@ use crate::engine_impl::Engine;
 use crate::ident::Hash;
 use crate::materialization::ChannelId;
 use crate::optic::{
-    CoordinateAt, EchoCoordinate, MissingWitnessBasisReason, ObserveOpticRequest,
-    ObserveOpticResult, OpticApertureShape, OpticCapabilityId, OpticFocus, OpticObstruction,
-    OpticObstructionKind, OpticReading, ReadIdentity, WitnessBasis,
+    AttachmentDescentPolicy, CoordinateAt, EchoCoordinate, MissingWitnessBasisReason,
+    ObserveOpticRequest, ObserveOpticResult, OpticApertureShape, OpticCapabilityId, OpticFocus,
+    OpticObstruction, OpticObstructionKind, OpticReading, ReadIdentity, WitnessBasis,
 };
 use crate::provenance_store::{ProvenanceRef, ProvenanceService, ProvenanceStore};
 use crate::snapshot::Snapshot;
@@ -1042,6 +1042,9 @@ impl ObservationService {
         request: &ObserveOpticRequest,
     ) -> Result<OpticReading, Box<OpticObstruction>> {
         Self::validate_optic_budget(request)?;
+        if let Some(obstruction) = Self::attachment_boundary_obstruction(request) {
+            return Err(obstruction);
+        }
         let observation_request = Self::optic_observation_request(request)?;
         let artifact = Self::observe(runtime, provenance, engine, observation_request)
             .map_err(|err| Self::optic_observation_error(request, err))?;
@@ -1113,6 +1116,57 @@ impl ObservationService {
                 ))
             }
             _ => Ok(()),
+        }
+    }
+
+    fn attachment_boundary_obstruction(
+        request: &ObserveOpticRequest,
+    ) -> Option<Box<OpticObstruction>> {
+        if !matches!(request.focus, OpticFocus::AttachmentBoundary { .. }) {
+            return None;
+        }
+
+        match (&request.aperture.shape, request.aperture.attachment_descent) {
+            (OpticApertureShape::AttachmentBoundary, AttachmentDescentPolicy::BoundaryOnly) => {
+                Some(Self::optic_obstruction(
+                    request,
+                    OpticObstructionKind::AttachmentDescentRequired,
+                    Some(WitnessBasis::Missing {
+                        reason: MissingWitnessBasisReason::UnsupportedBasis,
+                    }),
+                    "optic read reached an attachment boundary; recursive descent requires an explicit aperture, capability, budget, and law",
+                ))
+            }
+            (OpticApertureShape::AttachmentBoundary, AttachmentDescentPolicy::Explicit)
+                if request.aperture.budget.max_attachments.unwrap_or(0) == 0 =>
+            {
+                Some(Self::optic_obstruction(
+                    request,
+                    OpticObstructionKind::BudgetExceeded,
+                    Some(WitnessBasis::Missing {
+                        reason: MissingWitnessBasisReason::BudgetLimited,
+                    }),
+                    "explicit attachment descent requires a positive attachment budget",
+                ))
+            }
+            (OpticApertureShape::AttachmentBoundary, AttachmentDescentPolicy::Explicit) => {
+                Some(Self::optic_obstruction(
+                    request,
+                    OpticObstructionKind::AttachmentDescentDenied,
+                    Some(WitnessBasis::Missing {
+                        reason: MissingWitnessBasisReason::RightsLimited,
+                    }),
+                    "explicit attachment descent has no installed capability checker or projection law",
+                ))
+            }
+            _ => Some(Self::optic_obstruction(
+                request,
+                OpticObstructionKind::UnsupportedAperture,
+                Some(WitnessBasis::Missing {
+                    reason: MissingWitnessBasisReason::UnsupportedBasis,
+                }),
+                "attachment boundary focus requires an attachment-boundary aperture",
+            )),
         }
     }
 

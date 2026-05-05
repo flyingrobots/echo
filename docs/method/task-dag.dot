@@ -1,6 +1,6 @@
 digraph method_task_dag {
   graph [
-    label="METHOD Backlog Task Dependency DAG\nopen tasks: 102 / 181; dependency edges: 125",
+    label="METHOD Backlog Task Dependency DAG\nopen tasks: 101 / 181; dependency edges: 125",
     labelloc=t,
     fontsize=24,
     fontname="Inter, Helvetica, Arial",
@@ -52,7 +52,7 @@ digraph method_task_dag {
     "M019" [label="M019\nDONE\nEcho Optics ABI DTOs", tooltip="M019 [asap] done; blockers=0;  Echo Optics ABI DTOs", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M020" [label="M020\nOPEN\nEcho Optics Adapter Notes", tooltip="M020 [asap] open; blockers=0;  Echo Optics Adapter Notes", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M021" [label="M021\nDONE\nEcho Optics API Design", tooltip="M021 [asap] done; blockers=0;  Echo Optics API Design", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
-    "M022" [label="M022\nOPEN\nEcho Optics Attachment\nBoundary Model", tooltip="M022 [asap] open; blockers=0;  Echo Optics Attachment Boundary Model", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
+    "M022" [label="M022\nDONE\nEcho Optics Attachment\nBoundary Model", tooltip="M022 [asap] done; blockers=0;  Echo Optics Attachment Boundary Model", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M023" [label="M023\nDONE\nEcho Optics Cached-Reading\nIdentity Tests", tooltip="M023 [asap] done; blockers=0;  Echo Optics Cached-Reading Identity Tests", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M024" [label="M024\nDONE\nEcho Optics Core Nouns And\nIDs", tooltip="M024 [asap] done; blockers=0;  Echo Optics Core Nouns And IDs", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M025" [label="M025\nDONE\nEcho Optics Dispatch\nIntent Model", tooltip="M025 [asap] done; blockers=0;  Echo Optics Dispatch Intent Model", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];

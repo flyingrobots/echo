@@ -10,7 +10,7 @@
 <title>method_task_dag</title>
 <polygon fill="white" stroke="none" points="-4,4 -4,-7693.5 3303.09,-7693.5 3303.09,4 -4,4"/>
 <text xml:space="preserve" text-anchor="middle" x="1649.55" y="-7662.7" font-family="Inter, Helvetica, Arial" font-size="24.00">METHOD Backlog Task Dependency DAG</text>
-<text xml:space="preserve" text-anchor="middle" x="1649.55" y="-7633.45" font-family="Inter, Helvetica, Arial" font-size="24.00">open tasks: 102 / 181; dependency edges: 125</text>
+<text xml:space="preserve" text-anchor="middle" x="1649.55" y="-7633.45" font-family="Inter, Helvetica, Arial" font-size="24.00">open tasks: 101 / 181; dependency edges: 125</text>
 <g id="clust1" class="cluster">
 <title>cluster_asap</title>
 <path fill="white" stroke="#cbd5e1" d="M24.5,-2247C24.5,-2247 1722.93,-2247 1722.93,-2247 1728.93,-2247 1734.93,-2253 1734.93,-2259 1734.93,-2259 1734.93,-3776 1734.93,-3776 1734.93,-3782 1728.93,-3788 1722.93,-3788 1722.93,-3788 24.5,-3788 24.5,-3788 18.5,-3788 12.5,-3782 12.5,-3776 12.5,-3776 12.5,-2259 12.5,-2259 12.5,-2253 18.5,-2247 24.5,-2247"/>
@@ -477,10 +477,10 @@
 <!-- M022 -->
 <g id="node22" class="node">
 <title>M022</title>
-<g id="a_node22"><a xlink:title="M022 [asap] open; blockers=0; &#160;Echo Optics Attachment Boundary Model">
-<path fill="#bbf7d0" stroke="#15803d" stroke-width="2.8" d="M1166.25,-3391.82C1166.25,-3391.82 1064.73,-3391.82 1064.73,-3391.82 1058.73,-3391.82 1052.73,-3385.82 1052.73,-3379.82 1052.73,-3379.82 1052.73,-3344.18 1052.73,-3344.18 1052.73,-3338.18 1058.73,-3332.18 1064.73,-3332.18 1064.73,-3332.18 1166.25,-3332.18 1166.25,-3332.18 1172.25,-3332.18 1178.25,-3338.18 1178.25,-3344.18 1178.25,-3344.18 1178.25,-3379.82 1178.25,-3379.82 1178.25,-3385.82 1172.25,-3391.82 1166.25,-3391.82"/>
+<g id="a_node22"><a xlink:title="M022 [asap] done; blockers=0; &#160;Echo Optics Attachment Boundary Model">
+<path fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.4" d="M1166.25,-3391.82C1166.25,-3391.82 1064.73,-3391.82 1064.73,-3391.82 1058.73,-3391.82 1052.73,-3385.82 1052.73,-3379.82 1052.73,-3379.82 1052.73,-3344.18 1052.73,-3344.18 1052.73,-3338.18 1058.73,-3332.18 1064.73,-3332.18 1064.73,-3332.18 1166.25,-3332.18 1166.25,-3332.18 1172.25,-3332.18 1178.25,-3338.18 1178.25,-3344.18 1178.25,-3344.18 1178.25,-3379.82 1178.25,-3379.82 1178.25,-3385.82 1172.25,-3391.82 1166.25,-3391.82"/>
 <text xml:space="preserve" text-anchor="middle" x="1115.49" y="-3378" font-family="Inter, Helvetica, Arial" font-size="10.00">M022</text>
-<text xml:space="preserve" text-anchor="middle" x="1115.49" y="-3365.25" font-family="Inter, Helvetica, Arial" font-size="10.00">OPEN</text>
+<text xml:space="preserve" text-anchor="middle" x="1115.49" y="-3365.25" font-family="Inter, Helvetica, Arial" font-size="10.00">DONE</text>
 <text xml:space="preserve" text-anchor="middle" x="1115.49" y="-3352.5" font-family="Inter, Helvetica, Arial" font-size="10.00">Echo Optics Attachment</text>
 <text xml:space="preserve" text-anchor="middle" x="1115.49" y="-3339.75" font-family="Inter, Helvetica, Arial" font-size="10.00">Boundary Model</text>
 </a>
@@ -638,8 +638,8 @@
 <!-- M028&#45;&gt;M022 -->
 <g id="edge27" class="edge">
 <title>M028&#45;&gt;M022</title>
-<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M994,-3430.87C1048.92,-3430.87 1115.09,-3430.87 1115.09,-3430.87 1115.09,-3430.87 1115.09,-3399.22 1115.09,-3399.22"/>
-<polygon fill="#94a3b8" stroke="#94a3b8" points="1116.67,-3399.22 1115.09,-3394.72 1113.52,-3399.22 1116.67,-3399.22"/>
+<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M994,-3430.87C1048.92,-3430.87 1115.09,-3430.87 1115.09,-3430.87 1115.09,-3430.87 1115.09,-3398.42 1115.09,-3398.42"/>
+<polygon fill="#94a3b8" stroke="#94a3b8" points="1116.67,-3398.42 1115.09,-3393.92 1113.52,-3398.42 1116.67,-3398.42"/>
 </g>
 <!-- M028&#45;&gt;M026 -->
 <g id="edge28" class="edge">

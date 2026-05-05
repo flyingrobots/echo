@@ -733,6 +733,14 @@ Recursive descent into attachments requires:
 This applies equally to content blobs, causal artifacts, retained readings,
 receipt/witness refs, foreign suffix shells, and future nested WARP coordinates.
 
+The initial bridge implements the boundary as a typed fail-closed posture:
+`AttachmentBoundary` focus with `BoundaryOnly` descent returns
+`AttachmentDescentRequired`, carrying the attachment key in the obstruction
+focus. `Explicit` descent requires a positive attachment budget and then returns
+`AttachmentDescentDenied` until an attachment projection law and capability
+checker are installed. No nested WARP or attachment payload is materialized by
+default.
+
 ## Capability Model
 
 Capabilities limit both reveal and proposal.
@@ -775,6 +783,12 @@ This design aligns with existing Echo doctrine:
   ticks, receipts, and witness refs.
 - **echo-cas as retention, not ontology:** CAS stores bytes; `ReadIdentity`
   stores semantic meaning.
+- **Deterministic boundaries:** serde may exist on non-authoritative adapter or
+  diagnostic shapes, but it must not be the authority for intents,
+  graph-preserved facts, receipts, witness material, read identity, retained
+  reading identity, or causal history. Those surfaces enter Echo as
+  domain-separated canonical bytes, and values with nondeterministic encodings
+  such as floats must be normalized before admission or retention.
 - **Echo as peer Continuum runtime:** optics are Echo-local runtime/API law.
   They do not make Echo subordinate to git-warp and do not require a git-warp
   dependency.
@@ -862,8 +876,9 @@ Files likely touched:
 
 Acceptance criteria:
 
-- DTOs are deterministic, serializable where ABI-facing, and domain-separated
-  where hashed.
+- DTOs are deterministic, canonical where ABI-facing, and domain-separated where
+  hashed. Serde is not the authoritative encoding for any causal or retained
+  identity surface.
 - Focus covers worldline, strand, braid, retained reading, and attachment
   boundary without exposing a global graph handle.
 
@@ -1303,7 +1318,7 @@ Acceptance criteria:
 - ABI exposes `OpticId`, `OpticFocus`, `EchoCoordinate`, `OpticAperture`,
   `ObserveOpticRequest`, `DispatchOpticIntentRequest`,
   `OpticIntentPayload`, `IntentDispatchResult`, and supporting refs.
-- DTOs serialize deterministically.
+- DTOs encode deterministically across the ABI boundary.
 - Generated optic helper smoke crate compiles against the ABI.
 
 Non-goals:

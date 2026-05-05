@@ -3,7 +3,17 @@
 
 # Echo Optics Attachment Boundary Model
 
-Status: visible task card.
+Status: complete.
+
+## Completion evidence
+
+- Added `crates/warp-core/tests/optic_attachment_tests.rs`.
+- Attachment-boundary reads with `BoundaryOnly` now return typed
+  `AttachmentDescentRequired` posture instead of falling through to generic
+  unsupported projection.
+- Explicit attachment descent requires positive attachment budget and otherwise
+  returns typed `AttachmentDescentDenied` until a capability checker and
+  projection law are installed.
 
 Depends on:
 

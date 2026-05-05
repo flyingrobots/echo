@@ -609,6 +609,15 @@ result, and support refs needed by generated helper code. `echo-wesley-gen`
 tests include a hand-written generated-helper-shaped smoke crate so ABI drift
 breaks before the generator implementation task.
 
+The first concrete implementation is deliberately narrow. `WorldlineHeadOptic`
+is a generic request-builder example over a worldline head, not a mutable handle
+and not a universal optic engine. It builds bounded head-read requests,
+QueryBytes-shaped requests that currently return typed projection-law
+obstructions when no contract observer is installed, and EINT v1 dispatch
+requests with explicit base coordinates. Engine-backed `warp-wasm` now exposes
+`observe_optic` beside `dispatch_optic_intent`, so the example validates the
+same ABI/kernel boundary future generated bindings will use.
+
 ## Admission Outcomes
 
 Admission outcomes are not `Ok/Err`.

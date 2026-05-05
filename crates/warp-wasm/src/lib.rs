@@ -31,7 +31,7 @@ use wasm_bindgen::JsValue;
 use echo_wasm_abi::kernel_port::HeadInfo;
 use echo_wasm_abi::kernel_port::{
     self, AbiError, DispatchOpticIntentRequest, ErrEnvelope, KernelPort, ObservationRequest,
-    OkEnvelope, SettlementRequest,
+    ObserveOpticRequest, OkEnvelope, SettlementRequest,
 };
 
 use std::cell::RefCell;
@@ -261,6 +261,23 @@ pub fn dispatch_optic_intent(request_bytes: &[u8]) -> Uint8Array {
         }
     };
     encode_result(with_kernel(|k| k.dispatch_optic_intent(request)))
+}
+
+/// Observe through an explicit optic request.
+///
+/// The request bytes must decode as canonical-CBOR `ObserveOpticRequest`.
+#[wasm_bindgen]
+pub fn observe_optic(request_bytes: &[u8]) -> Uint8Array {
+    let request = match echo_wasm_abi::decode_cbor::<ObserveOpticRequest>(request_bytes) {
+        Ok(request) => request,
+        Err(err) => {
+            return encode_err(&AbiError {
+                code: kernel_port::error_codes::INVALID_PAYLOAD,
+                message: format!("invalid optic observe request payload: {err}"),
+            })
+        }
+    };
+    encode_result(with_kernel_ref(|k| k.observe_optic(request)))
 }
 
 /// Observe a worldline at an explicit coordinate, frame, and projection.

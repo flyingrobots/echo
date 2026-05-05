@@ -10,33 +10,41 @@
 use std::fmt;
 
 use echo_wasm_abi::kernel_port::{
-    error_codes, AbiError, AuthoredObserverPlan as AbiAuthoredObserverPlan, ControlIntentV1,
-    CoordinateAt as AbiCoordinateAt, DispatchResponse, EchoCoordinate as AbiEchoCoordinate,
-    GlobalTick as AbiGlobalTick, HeadEligibility as AbiHeadEligibility, HeadId as AbiHeadId,
-    HeadInfo, KernelPort, NeighborhoodSite as AbiNeighborhoodSite,
-    ObservationArtifact as AbiObservationArtifact, ObservationFrame as AbiObservationFrame,
-    ObservationProjection as AbiObservationProjection,
+    error_codes, AbiError, AttachmentDescentPolicy as AbiAttachmentDescentPolicy,
+    AttachmentKey as AbiAttachmentKey, AttachmentOwnerRef as AbiAttachmentOwnerRef,
+    AttachmentPlane as AbiAttachmentPlane, AuthoredObserverPlan as AbiAuthoredObserverPlan,
+    BraidId as AbiBraidId, ControlIntentV1, CoordinateAt as AbiCoordinateAt, DispatchResponse,
+    EchoCoordinate as AbiEchoCoordinate, GlobalTick as AbiGlobalTick,
+    HeadEligibility as AbiHeadEligibility, HeadId as AbiHeadId, HeadInfo, KernelPort,
+    NeighborhoodSite as AbiNeighborhoodSite, ObservationArtifact as AbiObservationArtifact,
+    ObservationFrame as AbiObservationFrame, ObservationProjection as AbiObservationProjection,
     ObservationReadBudget as AbiObservationReadBudget, ObservationRequest as AbiObservationRequest,
-    ObservationRights as AbiObservationRights, ObserverInstanceRef as AbiObserverInstanceRef,
-    OpticFocus as AbiOpticFocus, ReadingObserverPlan as AbiReadingObserverPlan, RegistryInfo,
-    RunCompletion, RunId as AbiRunId, SchedulerMode, SchedulerState, SchedulerStatus,
-    SettlementDelta as AbiSettlementDelta, SettlementPlan as AbiSettlementPlan,
-    SettlementRequest as AbiSettlementRequest, SettlementResult as AbiSettlementResult, WorkState,
-    WorldlineId as AbiWorldlineId, WorldlineTick as AbiWorldlineTick,
-    WriterHeadKey as AbiWriterHeadKey, ABI_VERSION,
+    ObservationRights as AbiObservationRights, ObserveOpticRequest as AbiObserveOpticRequest,
+    ObserveOpticResult as AbiObserveOpticResult, ObserverInstanceRef as AbiObserverInstanceRef,
+    OpticAperture as AbiOpticAperture, OpticApertureShape as AbiOpticApertureShape,
+    OpticFocus as AbiOpticFocus, ProjectionVersion as AbiProjectionVersion,
+    ReadingObserverPlan as AbiReadingObserverPlan, ReducerVersion as AbiReducerVersion,
+    RegistryInfo, RetainedReadingKey as AbiRetainedReadingKey, RunCompletion, RunId as AbiRunId,
+    SchedulerMode, SchedulerState, SchedulerStatus, SettlementDelta as AbiSettlementDelta,
+    SettlementPlan as AbiSettlementPlan, SettlementRequest as AbiSettlementRequest,
+    SettlementResult as AbiSettlementResult, WorkState, WorldlineId as AbiWorldlineId,
+    WorldlineTick as AbiWorldlineTick, WriterHeadKey as AbiWriterHeadKey, ABI_VERSION,
 };
 use echo_wasm_abi::{unpack_control_intent_v1, unpack_intent_v1, CONTROL_INTENT_V1_OP_ID};
 use warp_core::{
-    make_head_id, make_intent_kind, make_node_id, make_type_id, AuthoredObserverPlan, Engine,
-    EngineBuilder, GlobalTick, GraphStore, HeadEligibility, HeadId, HistoryError,
-    IngressDisposition, IngressEnvelope, IngressTarget, NeighborhoodError, NeighborhoodSiteService,
-    NodeRecord, ObservationAt, ObservationCoordinate, ObservationError, ObservationFrame,
-    ObservationPayload, ObservationProjection, ObservationReadBudget, ObservationRequest,
-    ObservationRights, ObservationService, ObserverInstanceId, ObserverInstanceRef, ObserverPlanId,
-    OpticCapabilityId, PlaybackMode, ProvenanceService, ReadingObserverPlan, RunId, RuntimeError,
-    SchedulerCoordinator, SchedulerKind, SettlementError, SettlementService, StrandId, WorldlineId,
-    WorldlineRuntime, WorldlineState, WorldlineStateError, WorldlineTick, WriterHead,
-    WriterHeadKey,
+    make_head_id, make_intent_kind, make_node_id, make_type_id, AttachmentDescentPolicy,
+    AttachmentKey, AttachmentOwner, AttachmentPlane, AuthoredObserverPlan, BraidId, CoordinateAt,
+    EchoCoordinate, EdgeKey, Engine, EngineBuilder, GlobalTick, GraphStore, HeadEligibility,
+    HeadId, HistoryError, IngressDisposition, IngressEnvelope, IngressTarget, NeighborhoodError,
+    NeighborhoodSiteService, NodeKey, NodeRecord, ObservationAt, ObservationCoordinate,
+    ObservationError, ObservationFrame, ObservationPayload, ObservationProjection,
+    ObservationReadBudget, ObservationRequest, ObservationRights, ObservationService,
+    ObserveOpticRequest, ObserverInstanceId, ObserverInstanceRef, ObserverPlanId, OpticAperture,
+    OpticApertureShape, OpticCapabilityId, OpticFocus, OpticReadBudget, PlaybackMode,
+    ProjectionVersion, ProvenanceRef, ProvenanceService, ReadingObserverPlan, ReducerVersion,
+    RetainedReadingKey, RunId, RuntimeError, SchedulerCoordinator, SchedulerKind, SettlementError,
+    SettlementService, StrandId, TypeId, WorldlineId, WorldlineRuntime, WorldlineState,
+    WorldlineStateError, WorldlineTick, WriterHead, WriterHeadKey,
 };
 
 /// Error returned when a [`WarpKernel`] cannot be initialized from a caller-supplied engine.
@@ -337,6 +345,181 @@ impl WarpKernel {
             budget,
             rights,
         })
+    }
+
+    fn to_core_observe_optic_request(
+        request: AbiObserveOpticRequest,
+    ) -> Result<ObserveOpticRequest, AbiError> {
+        Ok(ObserveOpticRequest {
+            optic_id: warp_core::OpticId::from_bytes(*request.optic_id.as_bytes()),
+            focus: Self::to_core_optic_focus(request.focus)?,
+            coordinate: Self::to_core_echo_coordinate(request.coordinate)?,
+            aperture: Self::to_core_optic_aperture(request.aperture)?,
+            projection_version: Self::to_core_projection_version(request.projection_version),
+            reducer_version: request.reducer_version.map(Self::to_core_reducer_version),
+            capability: OpticCapabilityId::from_bytes(*request.capability.as_bytes()),
+        })
+    }
+
+    fn to_core_optic_focus(focus: AbiOpticFocus) -> Result<OpticFocus, AbiError> {
+        Ok(match focus {
+            AbiOpticFocus::Worldline { worldline_id } => OpticFocus::Worldline {
+                worldline_id: Self::to_core_worldline_id(&worldline_id),
+            },
+            AbiOpticFocus::Strand { strand_id } => OpticFocus::Strand {
+                strand_id: Self::to_core_strand_id(&strand_id),
+            },
+            AbiOpticFocus::Braid { braid_id } => OpticFocus::Braid {
+                braid_id: Self::to_core_braid_id(&braid_id),
+            },
+            AbiOpticFocus::RetainedReading { key } => OpticFocus::RetainedReading {
+                key: Self::to_core_retained_reading_key(&key),
+            },
+            AbiOpticFocus::AttachmentBoundary { key } => OpticFocus::AttachmentBoundary {
+                key: Self::to_core_attachment_key(key)?,
+            },
+        })
+    }
+
+    fn to_core_echo_coordinate(coordinate: AbiEchoCoordinate) -> Result<EchoCoordinate, AbiError> {
+        Ok(match coordinate {
+            AbiEchoCoordinate::Worldline { worldline_id, at } => EchoCoordinate::Worldline {
+                worldline_id: Self::to_core_worldline_id(&worldline_id),
+                at: Self::to_core_coordinate_at(at)?,
+            },
+            AbiEchoCoordinate::Strand {
+                strand_id,
+                at,
+                parent_basis,
+            } => EchoCoordinate::Strand {
+                strand_id: Self::to_core_strand_id(&strand_id),
+                at: Self::to_core_coordinate_at(at)?,
+                parent_basis: parent_basis.map(Self::to_core_provenance_ref).transpose()?,
+            },
+            AbiEchoCoordinate::Braid {
+                braid_id,
+                projection_digest,
+                member_count,
+            } => EchoCoordinate::Braid {
+                braid_id: Self::to_core_braid_id(&braid_id),
+                projection_digest: Self::hash_from_vec(
+                    "braid projection digest",
+                    projection_digest,
+                )?,
+                member_count,
+            },
+            AbiEchoCoordinate::RetainedReading { key } => EchoCoordinate::RetainedReading {
+                key: Self::to_core_retained_reading_key(&key),
+            },
+        })
+    }
+
+    fn to_core_coordinate_at(at: AbiCoordinateAt) -> Result<CoordinateAt, AbiError> {
+        Ok(match at {
+            AbiCoordinateAt::Frontier => CoordinateAt::Frontier,
+            AbiCoordinateAt::Tick { worldline_tick } => {
+                CoordinateAt::Tick(WorldlineTick::from_raw(worldline_tick.0))
+            }
+            AbiCoordinateAt::Provenance { reference } => {
+                CoordinateAt::Provenance(Self::to_core_provenance_ref(reference)?)
+            }
+        })
+    }
+
+    fn to_core_provenance_ref(
+        reference: echo_wasm_abi::kernel_port::ProvenanceRef,
+    ) -> Result<ProvenanceRef, AbiError> {
+        Ok(ProvenanceRef {
+            worldline_id: Self::to_core_worldline_id(&reference.worldline_id),
+            worldline_tick: WorldlineTick::from_raw(reference.worldline_tick.0),
+            commit_hash: Self::hash_from_vec("provenance commit hash", reference.commit_hash)?,
+        })
+    }
+
+    fn to_core_optic_aperture(aperture: AbiOpticAperture) -> Result<OpticAperture, AbiError> {
+        Ok(OpticAperture {
+            shape: Self::to_core_optic_aperture_shape(aperture.shape)?,
+            budget: OpticReadBudget {
+                max_bytes: aperture.budget.max_bytes,
+                max_nodes: aperture.budget.max_nodes,
+                max_ticks: aperture.budget.max_ticks,
+                max_attachments: aperture.budget.max_attachments,
+            },
+            attachment_descent: match aperture.attachment_descent {
+                AbiAttachmentDescentPolicy::BoundaryOnly => AttachmentDescentPolicy::BoundaryOnly,
+                AbiAttachmentDescentPolicy::Explicit => AttachmentDescentPolicy::Explicit,
+            },
+        })
+    }
+
+    fn to_core_optic_aperture_shape(
+        shape: AbiOpticApertureShape,
+    ) -> Result<OpticApertureShape, AbiError> {
+        Ok(match shape {
+            AbiOpticApertureShape::Head => OpticApertureShape::Head,
+            AbiOpticApertureShape::SnapshotMetadata => OpticApertureShape::SnapshotMetadata,
+            AbiOpticApertureShape::TruthChannels { channels } => {
+                OpticApertureShape::TruthChannels {
+                    channels: channels.map(|ids| {
+                        ids.into_iter()
+                            .map(|id| TypeId(*id.as_bytes()))
+                            .collect::<Vec<_>>()
+                    }),
+                }
+            }
+            AbiOpticApertureShape::QueryBytes {
+                query_id,
+                vars_digest,
+            } => OpticApertureShape::QueryBytes {
+                query_id,
+                vars_digest: Self::hash_from_vec("optic query vars digest", vars_digest)?,
+            },
+            AbiOpticApertureShape::ByteRange { start, len } => {
+                OpticApertureShape::ByteRange { start, len }
+            }
+            AbiOpticApertureShape::AttachmentBoundary => OpticApertureShape::AttachmentBoundary,
+        })
+    }
+
+    fn to_core_projection_version(version: AbiProjectionVersion) -> ProjectionVersion {
+        ProjectionVersion::from_raw(version.0)
+    }
+
+    fn to_core_reducer_version(version: AbiReducerVersion) -> ReducerVersion {
+        ReducerVersion::from_raw(version.0)
+    }
+
+    fn to_core_braid_id(id: &AbiBraidId) -> BraidId {
+        BraidId::from_bytes(*id.as_bytes())
+    }
+
+    fn to_core_retained_reading_key(id: &AbiRetainedReadingKey) -> RetainedReadingKey {
+        RetainedReadingKey::from_bytes(*id.as_bytes())
+    }
+
+    fn to_core_attachment_key(key: AbiAttachmentKey) -> Result<AttachmentKey, AbiError> {
+        let owner = match key.owner {
+            AbiAttachmentOwnerRef::Node { warp_id, node_id } => AttachmentOwner::Node(NodeKey {
+                warp_id: warp_core::WarpId(*warp_id.as_bytes()),
+                local_id: warp_core::NodeId(*node_id.as_bytes()),
+            }),
+            AbiAttachmentOwnerRef::Edge { warp_id, edge_id } => AttachmentOwner::Edge(EdgeKey {
+                warp_id: warp_core::WarpId(*warp_id.as_bytes()),
+                local_id: warp_core::EdgeId(*edge_id.as_bytes()),
+            }),
+        };
+        let plane = match key.plane {
+            AbiAttachmentPlane::Alpha => AttachmentPlane::Alpha,
+            AbiAttachmentPlane::Beta => AttachmentPlane::Beta,
+        };
+        let key = AttachmentKey { owner, plane };
+        if !key.is_plane_valid() {
+            return Err(AbiError {
+                code: error_codes::INVALID_PAYLOAD,
+                message: "attachment key plane does not match owner kind".into(),
+            });
+        }
+        Ok(key)
     }
 
     fn to_core_observer_plan(
@@ -719,6 +902,20 @@ impl KernelPort for WarpKernel {
         }
     }
 
+    fn observe_optic(
+        &self,
+        request: AbiObserveOpticRequest,
+    ) -> Result<AbiObserveOpticResult, AbiError> {
+        let request = Self::to_core_observe_optic_request(request)?;
+        Ok(ObservationService::observe_optic(
+            &self.runtime,
+            &self.provenance,
+            &self.engine,
+            request,
+        )
+        .to_abi())
+    }
+
     fn observe(&self, request: AbiObservationRequest) -> Result<AbiObservationArtifact, AbiError> {
         let request = Self::to_core_request(request)?;
         Ok(self.observe_core(request)?.to_abi())
@@ -802,11 +999,13 @@ mod tests {
     };
     use warp_core::{
         compute_commit_hash_v2, make_edge_id, make_head_id, make_node_id, make_strand_id,
-        make_type_id, make_warp_id, materialization::make_channel_id, BaseRef, EdgeRecord,
-        GlobalTick, GraphStore, HashTriplet, InboxPolicy, NodeKey, NodeRecord, PlaybackMode,
-        ProvenanceEntry, ProvenanceService, ProvenanceStore, SlotId, Strand, StrandId,
-        TickCommitStatus, WarpOp, WarpTickPatchV1, WorldlineRuntime, WorldlineState, WorldlineTick,
-        WorldlineTickHeaderV1, WorldlineTickPatchV1, WriterHead, WriterHeadKey,
+        make_type_id, make_warp_id, materialization::make_channel_id, AdmissionLawId, BaseRef,
+        CoordinateAt, EchoCoordinate, EdgeRecord, GlobalTick, GraphStore, HashTriplet, InboxPolicy,
+        IntentFamilyId, NodeKey, NodeRecord, OpticActorId, OpticCapabilityId, OpticCause,
+        OpticReadBudget, PlaybackMode, ProvenanceEntry, ProvenanceService, ProvenanceStore, SlotId,
+        Strand, StrandId, TickCommitStatus, WarpOp, WarpTickPatchV1, WorldlineHeadOptic,
+        WorldlineRuntime, WorldlineState, WorldlineTick, WorldlineTickHeaderV1,
+        WorldlineTickPatchV1, WriterHead, WriterHeadKey,
     };
 
     fn start_until_idle(kernel: &mut WarpKernel, cycle_limit: Option<u32>) -> DispatchResponse {
@@ -1129,6 +1328,72 @@ mod tests {
         assert_eq!(head.commit_global_tick, None);
         assert_eq!(head.state_root.len(), 32);
         assert_eq!(head.commit_id.len(), 32);
+    }
+
+    #[test]
+    fn worldline_head_optic_example_reads_and_dispatches_through_kernel() {
+        let mut kernel = WarpKernel::new().unwrap();
+        let worldline_id = kernel.default_worldline;
+        let actor = OpticActorId::from_bytes([41; 32]);
+        let optic = WorldlineHeadOptic::open(
+            worldline_id,
+            CoordinateAt::Frontier,
+            actor,
+            OpticCapabilityId::from_bytes([42; 32]),
+            IntentFamilyId::from_bytes([43; 32]),
+            [44; 32],
+        )
+        .unwrap();
+
+        let observe = optic
+            .observe_head_request(OpticReadBudget {
+                max_bytes: Some(1024),
+                max_nodes: Some(8),
+                max_ticks: Some(4),
+                max_attachments: Some(0),
+            })
+            .to_abi();
+        let reading = kernel.observe_optic(observe).unwrap();
+        match reading {
+            AbiObserveOpticResult::Reading(reading) => {
+                assert_eq!(
+                    reading.read_identity.optic_id,
+                    echo_wasm_abi::kernel_port::OpticId::from_bytes(
+                        *optic.optic.optic_id.as_bytes()
+                    )
+                );
+                assert!(matches!(
+                    reading.payload,
+                    AbiObservationPayload::Head { .. }
+                ));
+            }
+            AbiObserveOpticResult::Obstructed(obstruction) => {
+                panic!("worldline head optic should read through kernel, got {obstruction:?}");
+            }
+        }
+
+        let base_coordinate = EchoCoordinate::Worldline {
+            worldline_id,
+            at: CoordinateAt::Tick(WorldlineTick::from_raw(0)),
+        };
+        let dispatch = optic
+            .dispatch_eint_v1_request(
+                base_coordinate,
+                OpticCause {
+                    actor,
+                    cause_hash: [45; 32],
+                    label: Some("kernel optic example".to_owned()),
+                },
+                AdmissionLawId::from_bytes([46; 32]),
+                pack_intent_v1(88, b"kernel-optic-example").unwrap(),
+            )
+            .to_abi();
+
+        let dispatch = kernel.dispatch_optic_intent(dispatch).unwrap();
+        assert!(matches!(
+            dispatch,
+            echo_wasm_abi::kernel_port::IntentDispatchResult::Staged(_)
+        ));
     }
 
     /// Regression: init() must return real 32-byte hashes, not empty vecs.

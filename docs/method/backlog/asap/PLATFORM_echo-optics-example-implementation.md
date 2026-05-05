@@ -3,7 +3,7 @@
 
 # Echo Optics Example Implementation
 
-Status: visible task card.
+Status: complete.
 
 Depends on:
 
@@ -40,3 +40,15 @@ abstraction.
 ## Test expectations
 
 - Read, dispatch, stale-basis, and obstruction tests pass on the example.
+
+## Completion evidence
+
+- Added `WorldlineHeadOptic` as a narrow generic request-builder example in
+  `crates/warp-core/src/optic.rs`.
+- Added `KernelPort::observe_optic` and the `warp-wasm` `observe_optic` export
+  so the example read path crosses the same ABI boundary as dispatch.
+- Added `crates/warp-core/tests/optic_example_tests.rs` for bounded head reads,
+  QueryBytes-style typed obstruction, EINT proposal construction, and
+  stale-basis obstruction.
+- Added an engine-backed `warp-wasm` test proving the example reads and stages
+  an EINT proposal through `WarpKernel`.

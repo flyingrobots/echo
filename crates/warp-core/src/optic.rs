@@ -1863,6 +1863,155 @@ impl OpticCloseError {
     }
 }
 
+/// Narrow built-in example optic over a worldline head.
+///
+/// This type exists to validate the ergonomics of the generic optics API
+/// without introducing a universal optic engine or an application-specific
+/// substrate. It is still only a request builder: reads go through
+/// `observe_optic`, and proposals go through `dispatch_optic_intent`.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct WorldlineHeadOptic {
+    /// Opened optic descriptor. This is not a mutable handle.
+    pub optic: EchoOptic,
+    /// Capability grant that authorized the descriptor.
+    pub capability: OpticCapability,
+}
+
+impl WorldlineHeadOptic {
+    /// Opens a narrow worldline-head optic descriptor.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same typed open obstruction as [`OpenOpticRequest`] when
+    /// descriptor fields or capability evidence do not line up.
+    pub fn open(
+        worldline_id: WorldlineId,
+        coordinate_at: CoordinateAt,
+        actor: OpticActorId,
+        capability_id: OpticCapabilityId,
+        intent_family: IntentFamilyId,
+        policy_hash: Hash,
+    ) -> Result<Self, OpticOpenError> {
+        let focus = OpticFocus::Worldline { worldline_id };
+        let coordinate = EchoCoordinate::Worldline {
+            worldline_id,
+            at: coordinate_at,
+        };
+        let capability = OpticCapability {
+            capability_id,
+            actor,
+            issuer_ref: None,
+            policy_hash,
+            allowed_focus: focus.clone(),
+            projection_version: ProjectionVersion::from_raw(1),
+            reducer_version: None,
+            allowed_intent_family: intent_family,
+            max_budget: OpticReadBudget {
+                max_bytes: Some(4096),
+                max_nodes: Some(64),
+                max_ticks: Some(16),
+                max_attachments: Some(0),
+            },
+        };
+        let cause = OpticCause {
+            actor,
+            cause_hash: derive_example_cause_hash(
+                worldline_id,
+                coordinate_at,
+                intent_family,
+                capability_id,
+            ),
+            label: Some("worldline head optic example".to_owned()),
+        };
+        let request = OpenOpticRequest {
+            focus,
+            coordinate,
+            projection_version: ProjectionVersion::from_raw(1),
+            reducer_version: None,
+            intent_family,
+            capability: capability.clone(),
+            cause,
+        };
+        let result = request.validate_descriptor()?;
+        Ok(Self {
+            optic: result.optic,
+            capability,
+        })
+    }
+
+    /// Builds a bounded head read request for this optic.
+    #[must_use]
+    pub fn observe_head_request(&self, budget: OpticReadBudget) -> ObserveOpticRequest {
+        ObserveOpticRequest {
+            optic_id: self.optic.optic_id,
+            focus: self.optic.focus.clone(),
+            coordinate: self.optic.coordinate.clone(),
+            aperture: OpticAperture {
+                shape: OpticApertureShape::Head,
+                budget,
+                attachment_descent: AttachmentDescentPolicy::BoundaryOnly,
+            },
+            projection_version: self.optic.projection_version,
+            reducer_version: self.optic.reducer_version,
+            capability: self.capability.capability_id,
+        }
+    }
+
+    /// Builds a QueryBytes-shaped read request against this optic.
+    ///
+    /// The current example host does not install a contract query observer, so
+    /// executing this request should produce a typed projection-law obstruction.
+    #[must_use]
+    pub fn observe_query_bytes_request(
+        &self,
+        query_id: u32,
+        vars_digest: Hash,
+        budget: OpticReadBudget,
+    ) -> ObserveOpticRequest {
+        ObserveOpticRequest {
+            optic_id: self.optic.optic_id,
+            focus: self.optic.focus.clone(),
+            coordinate: self.optic.coordinate.clone(),
+            aperture: OpticAperture {
+                shape: OpticApertureShape::QueryBytes {
+                    query_id,
+                    vars_digest,
+                },
+                budget,
+                attachment_descent: AttachmentDescentPolicy::BoundaryOnly,
+            },
+            projection_version: self.optic.projection_version,
+            reducer_version: self.optic.reducer_version,
+            capability: self.capability.capability_id,
+        }
+    }
+
+    /// Builds an EINT v1 proposal request with an explicit causal basis.
+    ///
+    /// This is intentionally not named `set`: the returned value is a proposal
+    /// request that must be passed to `dispatch_optic_intent`.
+    #[must_use]
+    pub fn dispatch_eint_v1_request(
+        &self,
+        base_coordinate: EchoCoordinate,
+        cause: OpticCause,
+        admission_law: AdmissionLawId,
+        bytes: Vec<u8>,
+    ) -> DispatchOpticIntentRequest {
+        DispatchOpticIntentRequest {
+            optic_id: self.optic.optic_id,
+            base_coordinate,
+            intent_family: self.optic.intent_family,
+            focus: self.optic.focus.clone(),
+            cause,
+            capability: self.capability.clone(),
+            admission_law,
+            payload: OpticIntentPayload::EintV1 { bytes },
+        }
+    }
+}
+
 fn focus_matches_coordinate(focus: &OpticFocus, coordinate: &EchoCoordinate) -> bool {
     match (focus, coordinate) {
         (
@@ -1979,6 +2128,21 @@ fn derive_optic_id(
     hasher.update(intent_family.as_bytes());
     hasher.update(capability.as_bytes());
     OpticId::from_bytes(hasher.finalize().into())
+}
+
+fn derive_example_cause_hash(
+    worldline_id: WorldlineId,
+    coordinate_at: CoordinateAt,
+    intent_family: IntentFamilyId,
+    capability_id: OpticCapabilityId,
+) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(b"echo:worldline-head-optic-example-cause:v1\0");
+    hasher.update(worldline_id.as_bytes());
+    coordinate_at.feed_hash(&mut hasher);
+    hasher.update(intent_family.as_bytes());
+    hasher.update(capability_id.as_bytes());
+    hasher.finalize().into()
 }
 
 #[allow(clippy::too_many_arguments)]

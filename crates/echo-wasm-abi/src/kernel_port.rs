@@ -2416,6 +2416,17 @@ pub trait KernelPort {
         }
     }
 
+    /// Observe through an explicit optic request.
+    ///
+    /// The default implementation reports that optic reads are not supported by
+    /// this kernel implementation.
+    fn observe_optic(&self, _request: ObserveOpticRequest) -> Result<ObserveOpticResult, AbiError> {
+        Err(AbiError {
+            code: error_codes::NOT_SUPPORTED,
+            message: "observe_optic is not supported by this kernel".into(),
+        })
+    }
+
     /// Observe a worldline at an explicit coordinate and frame.
     ///
     /// This is the canonical world-state read entrypoint. The

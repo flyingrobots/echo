@@ -50,13 +50,13 @@ digraph method_task_dag {
     "M017" [label="M017\nOPEN\nT-279-1\nMake decoder control\ncoverage auditable", tooltip="M017 [asap] open; blockers=0; T-279-1 Make decoder control coverage auditable", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M018" [label="M018\nOPEN\nEcho Contract Hosting\nRoadmap", tooltip="M018 [asap] open; blockers=0;  Echo Contract Hosting Roadmap", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M019" [label="M019\nDONE\nEcho Optics ABI DTOs", tooltip="M019 [asap] done; blockers=0;  Echo Optics ABI DTOs", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
-    "M020" [label="M020\nEcho Optics Adapter Notes", tooltip="M020 [asap] blocked; blockers=2;  Echo Optics Adapter Notes", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
+    "M020" [label="M020\nEcho Optics Adapter Notes", tooltip="M020 [asap] blocked; blockers=1;  Echo Optics Adapter Notes", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
     "M021" [label="M021\nDONE\nEcho Optics API Design", tooltip="M021 [asap] done; blockers=0;  Echo Optics API Design", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M022" [label="M022\nOPEN\nEcho Optics Attachment\nBoundary Model", tooltip="M022 [asap] open; blockers=0;  Echo Optics Attachment Boundary Model", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M023" [label="M023\nOPEN\nEcho Optics Cached-Reading\nIdentity Tests", tooltip="M023 [asap] open; blockers=0;  Echo Optics Cached-Reading Identity Tests", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M024" [label="M024\nDONE\nEcho Optics Core Nouns And\nIDs", tooltip="M024 [asap] done; blockers=0;  Echo Optics Core Nouns And IDs", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M025" [label="M025\nDONE\nEcho Optics Dispatch\nIntent Model", tooltip="M025 [asap] done; blockers=0;  Echo Optics Dispatch Intent Model", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
-    "M026" [label="M026\nOPEN\nEcho Optics Example\nImplementation", tooltip="M026 [asap] open; blockers=0;  Echo Optics Example Implementation", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
+    "M026" [label="M026\nDONE\nEcho Optics Example\nImplementation", tooltip="M026 [asap] done; blockers=0;  Echo Optics Example Implementation", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M027" [label="M027\nOPEN\nEcho Optics Live-Tail\nHonesty Tests", tooltip="M027 [asap] open; blockers=0;  Echo Optics Live-Tail Honesty Tests", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M028" [label="M028\nDONE\nEcho Optics Observe Model", tooltip="M028 [asap] done; blockers=0;  Echo Optics Observe Model", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M029" [label="M029\nDONE\nEcho Optics Obstruction\nAnd Admission Results", tooltip="M029 [asap] done; blockers=0;  Echo Optics Obstruction And Admission Results", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
@@ -64,7 +64,7 @@ digraph method_task_dag {
     "M031" [label="M031\nDONE\nEcho Optics Reading\nEnvelope And Identity", tooltip="M031 [asap] done; blockers=0;  Echo Optics Reading Envelope And Identity", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M032" [label="M032\nDONE\nEcho Optics Stale-Basis\nObstruction Tests", tooltip="M032 [asap] done; blockers=0;  Echo Optics Stale-Basis Obstruction Tests", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M033" [label="M033\nDONE\nEcho Optics Witness Basis\nAnd Retained Key", tooltip="M033 [asap] done; blockers=0;  Echo Optics Witness Basis And Retained Key", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
-    "M034" [label="M034\nEcho Wesley Gen Optic\nRequest Builders", tooltip="M034 [asap] blocked; blockers=1;  Echo Wesley Gen Optic Request Builders", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
+    "M034" [label="M034\nOPEN\nEcho Wesley Gen Optic\nRequest Builders", tooltip="M034 [asap] open; blockers=0;  Echo Wesley Gen Optic Request Builders", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M035" [label="M035\nDONE\nObserver plans and reading\nartifacts", tooltip="M035 [asap] done; blockers=0;  Observer plans and reading artifacts", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M036" [label="M036\nDONE\nRegistry Provider Wiring\nAnd Host Boundary Decision", tooltip="M036 [asap] done; blockers=0;  Registry Provider Wiring And Host Boundary Decision", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M037" [label="M037\nOPEN\nCommit-ordered rollback\nplaybooks for TTD\nintegration", tooltip="M037 [asap] open; blockers=0;  Commit-ordered rollback playbooks for TTD integration", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
@@ -269,8 +269,8 @@ digraph method_task_dag {
   "M025" -> "M019" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
   "M025" -> "M026" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
   "M025" -> "M032" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
-  "M026" -> "M020";
-  "M026" -> "M034";
+  "M026" -> "M020" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
+  "M026" -> "M034" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
   "M028" -> "M019" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
   "M028" -> "M022" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
   "M028" -> "M026" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];

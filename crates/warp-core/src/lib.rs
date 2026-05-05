@@ -225,7 +225,7 @@ pub use optic::{
     OpticObstruction, OpticObstructionKind, OpticOpenError, OpticReadBudget, OpticReading,
     OpticReadingEnvelope, PluralIntent, ProjectionVersion, ReadIdentity, ReducerVersion,
     RetainedReadingCodecId, RetainedReadingDescriptor, RetainedReadingKey, StagedIntent,
-    StagedIntentReason, WitnessBasis,
+    StagedIntentReason, WitnessBasis, WorldlineHeadOptic,
 };
 pub use playback::{CursorReceipt, TruthFrame, TruthSink};
 pub use provenance_store::{

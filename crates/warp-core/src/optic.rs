@@ -1881,6 +1881,18 @@ fn feed_reading_witness_ref(hasher: &mut Hasher, reference: &ReadingWitnessRef) 
 fn feed_reading_budget_posture(hasher: &mut Hasher, posture: ReadingBudgetPosture) {
     match posture {
         ReadingBudgetPosture::UnboundedOneShot => feed_tag(hasher, 1),
+        ReadingBudgetPosture::Bounded {
+            max_payload_bytes,
+            payload_bytes,
+            max_witness_refs,
+            witness_refs,
+        } => {
+            feed_tag(hasher, 2);
+            feed_u64(hasher, max_payload_bytes);
+            feed_u64(hasher, payload_bytes);
+            feed_u64(hasher, max_witness_refs);
+            feed_u64(hasher, witness_refs);
+        }
     }
 }
 
@@ -1986,6 +1998,17 @@ fn reading_witness_ref_to_abi(reference: &ReadingWitnessRef) -> abi::ReadingWitn
 fn reading_budget_posture_to_abi(posture: ReadingBudgetPosture) -> abi::ReadingBudgetPosture {
     match posture {
         ReadingBudgetPosture::UnboundedOneShot => abi::ReadingBudgetPosture::UnboundedOneShot,
+        ReadingBudgetPosture::Bounded {
+            max_payload_bytes,
+            payload_bytes,
+            max_witness_refs,
+            witness_refs,
+        } => abi::ReadingBudgetPosture::Bounded {
+            max_payload_bytes,
+            payload_bytes,
+            max_witness_refs,
+            witness_refs,
+        },
     }
 }
 
@@ -2155,6 +2178,7 @@ mod tests {
             observer_plan: ReadingObserverPlan::Builtin {
                 plan: BuiltinObserverPlan::CommitBoundaryHead,
             },
+            observer_instance: None,
             observer_basis: ReadingObserverBasis::CommitBoundary,
             witness_refs: vec![ReadingWitnessRef::ResolvedCommit {
                 reference: provenance(1, 2),

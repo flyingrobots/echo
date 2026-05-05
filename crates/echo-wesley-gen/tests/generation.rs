@@ -181,6 +181,7 @@ mod tests {
                     observer_plan: ReadingObserverPlan::Builtin {
                         plan: BuiltinObserverPlan::QueryBytes,
                     },
+                    observer_instance: None,
                     observer_basis: ReadingObserverBasis::QueryView,
                     witness_refs: vec![ReadingWitnessRef::EmptyFrontier {
                         worldline_id,

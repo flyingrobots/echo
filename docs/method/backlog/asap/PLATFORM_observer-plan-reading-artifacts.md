@@ -3,11 +3,13 @@
 
 # Observer plans and reading artifacts
 
-Status: active and partially implemented. `ObservationService` and the ABI now
-emit one-shot built-in observation artifacts with `ReadingEnvelope` metadata.
-The remaining gap is authored `ObserverPlan` support plus hosted/stateful
-observer instances; query-shaped reads still exist only as a placeholder plan
-and return unsupported at runtime.
+Status: complete. `ObservationService` and the ABI now emit one-shot built-in
+observation artifacts with `ReadingEnvelope` metadata, and observation
+requests explicitly name observer plan, optional hosted observer instance,
+budget, and rights posture. Authored plans and hosted/stateful observer
+instances are typed at the boundary and fail closed until an installed observer
+host exists; query-shaped reads still exist only as a placeholder plan and
+return unsupported at runtime.
 
 Depends on:
 
@@ -40,10 +42,12 @@ Echo needs an explicit observer-plan boundary instead of letting
 "observation" collapse back into ad hoc materialization.
 
 Current implementation note: `ObservationArtifact` now carries ABI-visible
-`reading: ReadingEnvelope`, which covers built-in observer plan identity,
-observer basis, witness refs, parent-basis posture, budget posture, rights
-posture, and residual posture for one-shot observations. Authored
-`ObserverPlan` and hosted/stateful observer instances are still open.
+`reading: ReadingEnvelope`, which covers observer plan identity, optional
+observer instance, observer basis, witness refs, parent-basis posture, budget
+posture, rights posture, and residual posture for one-shot observations.
+Authored `ObserverPlan` and hosted/stateful observer instances are represented
+as boundary nouns and return typed unsupported errors until a contract observer
+host is installed.
 
 ## What it should look like
 

@@ -654,6 +654,7 @@ mod init_tests {
                     observer_plan: ReadingObserverPlan::Builtin {
                         plan: BuiltinObserverPlan::CommitBoundaryHead,
                     },
+                    observer_instance: None,
                     observer_basis: ReadingObserverBasis::CommitBoundary,
                     witness_refs: vec![ReadingWitnessRef::EmptyFrontier {
                         worldline_id: WorldlineId::from_bytes([9; 32]),
@@ -868,14 +869,14 @@ mod init_tests {
     fn neighborhood_observation_uses_installed_kernel() {
         clear_kernel();
         install_kernel(Box::new(StubKernel));
-        let request = ObservationRequest {
-            coordinate: kernel_port::ObservationCoordinate {
+        let request = ObservationRequest::builtin_one_shot(
+            kernel_port::ObservationCoordinate {
                 worldline_id: WorldlineId::from_bytes([9; 32]),
                 at: ObservationAt::Frontier,
             },
-            frame: ObservationFrame::CommitBoundary,
-            projection: ObservationProjection::Head,
-        };
+            ObservationFrame::CommitBoundary,
+            ObservationProjection::Head,
+        );
         let site = with_kernel_ref(|k| k.observe_neighborhood_site(request)).unwrap();
         assert_eq!(site.plurality, SitePlurality::Singleton);
         assert_eq!(site.participants.len(), 1);

@@ -10,7 +10,7 @@
 //!
 //! # ABI Version
 //!
-//! The current ABI version is [`ABI_VERSION`] (8). All response types are
+//! The current ABI version is [`ABI_VERSION`] (9). All response types are
 //! CBOR-encoded using the canonical rules defined in `docs/spec/js-cbor-mapping.md`.
 //! Breaking changes to response shapes or error codes require a bump to the
 //! ABI version.
@@ -39,7 +39,7 @@ use serde::{
 ///
 /// Increment when response types, error codes, or method signatures change
 /// in a backward-incompatible way.
-pub const ABI_VERSION: u32 = 8;
+pub const ABI_VERSION: u32 = 9;
 
 fn deserialize_opaque_id<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
 where
@@ -223,6 +223,16 @@ opaque_id!(
 );
 
 opaque_id!(
+    /// Opaque stable identifier for an authored or kernel observer plan.
+    ObserverPlanId
+);
+
+opaque_id!(
+    /// Opaque stable identifier for a hosted observer instance.
+    ObserverInstanceId
+);
+
+opaque_id!(
     /// Opaque stable identifier for a WARP instance.
     WarpId
 );
@@ -292,6 +302,14 @@ pub mod error_codes {
     pub const INVALID_CONTROL: u32 = 13;
     /// The requested strand is not registered.
     pub const INVALID_STRAND: u32 = 14;
+    /// The requested observer plan is not available in this kernel.
+    pub const UNSUPPORTED_OBSERVER_PLAN: u32 = 15;
+    /// The requested observer instance is not available in this kernel.
+    pub const UNSUPPORTED_OBSERVER_INSTANCE: u32 = 16;
+    /// The requested observation rights posture is not available in this kernel.
+    pub const UNSUPPORTED_OBSERVATION_RIGHTS: u32 = 17;
+    /// The requested observation exceeded its explicit read budget.
+    pub const OBSERVATION_BUDGET_EXCEEDED: u32 = 18;
 }
 
 // ---------------------------------------------------------------------------
@@ -1200,6 +1218,58 @@ pub struct ObservationRequest {
     pub frame: ObservationFrame,
     /// Requested projection within that frame.
     pub projection: ObservationProjection,
+    /// Observer plan the caller is explicitly invoking.
+    pub observer_plan: ReadingObserverPlan,
+    /// Hosted observer instance state, when this is not a one-shot read.
+    pub observer_instance: Option<ObserverInstanceRef>,
+    /// Declared read budget.
+    pub budget: ObservationReadBudget,
+    /// Declared rights posture for the read.
+    pub rights: ObservationRights,
+}
+
+impl ObservationRequest {
+    /// Builds a one-shot built-in observation request for the frame/projection pair.
+    #[must_use]
+    pub fn builtin_one_shot(
+        coordinate: ObservationCoordinate,
+        frame: ObservationFrame,
+        projection: ObservationProjection,
+    ) -> Self {
+        let observer_plan = ReadingObserverPlan::Builtin {
+            plan: builtin_observer_plan_for(&frame, &projection),
+        };
+        Self {
+            coordinate,
+            frame,
+            projection,
+            observer_plan,
+            observer_instance: None,
+            budget: ObservationReadBudget::UnboundedOneShot,
+            rights: ObservationRights::KernelPublic,
+        }
+    }
+}
+
+fn builtin_observer_plan_for(
+    frame: &ObservationFrame,
+    projection: &ObservationProjection,
+) -> BuiltinObserverPlan {
+    match (frame, projection) {
+        (&ObservationFrame::CommitBoundary, ObservationProjection::Head) => {
+            BuiltinObserverPlan::CommitBoundaryHead
+        }
+        (&ObservationFrame::CommitBoundary, ObservationProjection::Snapshot) => {
+            BuiltinObserverPlan::CommitBoundarySnapshot
+        }
+        (&ObservationFrame::RecordedTruth, ObservationProjection::TruthChannels { .. }) => {
+            BuiltinObserverPlan::RecordedTruthChannels
+        }
+        (&ObservationFrame::QueryView, ObservationProjection::Query { .. }) => {
+            BuiltinObserverPlan::QueryBytes
+        }
+        _ => BuiltinObserverPlan::QueryBytes,
+    }
 }
 
 /// Resolved coordinate returned with every observation artifact.
@@ -1290,6 +1360,23 @@ pub enum BuiltinObserverPlan {
     QueryBytes,
 }
 
+/// Authored observer plan identity.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthoredObserverPlan {
+    /// Stable plan identity.
+    pub plan_id: ObserverPlanId,
+    /// Hash of the generated or installed observer artifact.
+    pub artifact_hash: Vec<u8>,
+    /// Hash of the authored schema or contract family.
+    pub schema_hash: Vec<u8>,
+    /// Hash of the observer state schema.
+    pub state_schema_hash: Vec<u8>,
+    /// Hash of the observer update law.
+    pub update_law_hash: Vec<u8>,
+    /// Hash of the observer emission law.
+    pub emission_law_hash: Vec<u8>,
+}
+
 /// Observer plan identity for a reading artifact.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -1299,6 +1386,22 @@ pub enum ReadingObserverPlan {
         /// Built-in plan selected by the observation frame/projection pair.
         plan: BuiltinObserverPlan,
     },
+    /// Authored/generated observer plan.
+    Authored {
+        /// Authored plan identity and law hashes.
+        plan: Box<AuthoredObserverPlan>,
+    },
+}
+
+/// Hosted observer instance identity.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ObserverInstanceRef {
+    /// Runtime instance identity.
+    pub instance_id: ObserverInstanceId,
+    /// Plan that owns this instance.
+    pub plan_id: ObserverPlanId,
+    /// Hash of the accumulated observer state.
+    pub state_hash: Vec<u8>,
 }
 
 /// Native observer basis used by the emitted reading.
@@ -1311,6 +1414,35 @@ pub enum ReadingObserverBasis {
     RecordedTruth,
     /// Query-view observer basis.
     QueryView,
+}
+
+/// Read budget requested by an observation caller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ObservationReadBudget {
+    /// One-shot built-in observer with no caller-specified slice budget.
+    UnboundedOneShot,
+    /// Caller-bounded read budget.
+    Bounded {
+        /// Maximum encoded payload bytes the caller is willing to receive.
+        max_payload_bytes: u64,
+        /// Maximum witness references the caller is willing to accept.
+        max_witness_refs: u64,
+    },
+}
+
+/// Rights posture requested by an observation caller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ObservationRights {
+    /// Kernel-public read.
+    KernelPublic,
+    /// Capability-scoped read. Echo carries this now but does not execute it
+    /// until a capability checker is installed for the observer family.
+    CapabilityScoped {
+        /// Capability basis named by the caller.
+        capability: OpticCapabilityId,
+    },
 }
 
 /// Witness reference carried by a reading artifact.
@@ -1339,6 +1471,17 @@ pub enum ReadingWitnessRef {
 pub enum ReadingBudgetPosture {
     /// One-shot built-in observer with no caller-specified slice budget.
     UnboundedOneShot,
+    /// Caller-bounded reading that remained within budget.
+    Bounded {
+        /// Requested encoded payload byte limit.
+        max_payload_bytes: u64,
+        /// Encoded payload bytes emitted.
+        payload_bytes: u64,
+        /// Requested witness-reference limit.
+        max_witness_refs: u64,
+        /// Witness references emitted.
+        witness_refs: u64,
+    },
 }
 
 /// Rights posture for a reading artifact.
@@ -1368,6 +1511,8 @@ pub enum ReadingResidualPosture {
 pub struct ReadingEnvelope {
     /// Observer plan identity.
     pub observer_plan: ReadingObserverPlan,
+    /// Hosted observer instance, when the reading used accumulated observer state.
+    pub observer_instance: Option<ObserverInstanceRef>,
     /// Native observer basis used by the reading.
     pub observer_basis: ReadingObserverBasis,
     /// Witnesses or shell references that support the reading.

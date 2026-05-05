@@ -25,8 +25,8 @@ use crate::ident::Hash;
 use crate::materialization::ChannelId;
 use crate::optic::{
     CoordinateAt, EchoCoordinate, MissingWitnessBasisReason, ObserveOpticRequest,
-    ObserveOpticResult, OpticApertureShape, OpticFocus, OpticObstruction, OpticObstructionKind,
-    OpticReading, ReadIdentity, WitnessBasis,
+    ObserveOpticResult, OpticApertureShape, OpticCapabilityId, OpticFocus, OpticObstruction,
+    OpticObstructionKind, OpticReading, ReadIdentity, WitnessBasis,
 };
 use crate::provenance_store::{ProvenanceRef, ProvenanceService, ProvenanceStore};
 use crate::snapshot::Snapshot;
@@ -39,6 +39,40 @@ const OBSERVATION_ARTIFACT_DOMAIN: &[u8] = b"echo:observation-artifact:v2\0";
 const OPTIC_OBSERVATION_WITNESS_SET_DOMAIN: &[u8] = b"echo:optic-observation-witness-set:v1\0";
 const OPTIC_METADATA_APERTURE_MIN_BYTES: u64 = 128;
 
+macro_rules! opaque_id {
+    ($(#[$meta:meta])* $name:ident) => {
+        $(#[$meta])*
+        #[repr(transparent)]
+        #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+        #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+        pub struct $name([u8; 32]);
+
+        impl $name {
+            /// Reconstructs the id from canonical bytes.
+            #[must_use]
+            pub const fn from_bytes(bytes: [u8; 32]) -> Self {
+                Self(bytes)
+            }
+
+            /// Returns the canonical byte representation.
+            #[must_use]
+            pub const fn as_bytes(&self) -> &[u8; 32] {
+                &self.0
+            }
+        }
+    };
+}
+
+opaque_id!(
+    /// Stable identity for an authored or kernel observer plan.
+    ObserverPlanId
+);
+
+opaque_id!(
+    /// Stable identity for a hosted observer instance.
+    ObserverInstanceId
+);
+
 /// Coordinate selector for an observation request.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ObservationCoordinate {
@@ -46,6 +80,15 @@ pub struct ObservationCoordinate {
     pub worldline_id: WorldlineId,
     /// Requested coordinate within the worldline.
     pub at: ObservationAt,
+}
+
+impl ObservationCoordinate {
+    fn to_abi(&self) -> abi::ObservationCoordinate {
+        abi::ObservationCoordinate {
+            worldline_id: abi::WorldlineId::from_bytes(*self.worldline_id.as_bytes()),
+            at: self.at.to_abi(),
+        }
+    }
 }
 
 /// Requested position within a worldline.
@@ -193,6 +236,52 @@ pub struct ObservationRequest {
     pub frame: ObservationFrame,
     /// Requested projection within that frame.
     pub projection: ObservationProjection,
+    /// Observer plan the caller is explicitly invoking.
+    pub observer_plan: ReadingObserverPlan,
+    /// Hosted observer instance state, when this is not a one-shot read.
+    pub observer_instance: Option<ObserverInstanceRef>,
+    /// Declared read budget.
+    pub budget: ObservationReadBudget,
+    /// Declared rights posture for the read.
+    pub rights: ObservationRights,
+}
+
+impl ObservationRequest {
+    /// Builds a one-shot built-in observation request for the frame/projection pair.
+    #[must_use]
+    pub fn builtin_one_shot(
+        coordinate: ObservationCoordinate,
+        frame: ObservationFrame,
+        projection: ObservationProjection,
+    ) -> Self {
+        let observer_plan = builtin_observer_plan_for(frame, projection.kind());
+        Self {
+            coordinate,
+            frame,
+            projection,
+            observer_plan,
+            observer_instance: None,
+            budget: ObservationReadBudget::UnboundedOneShot,
+            rights: ObservationRights::KernelPublic,
+        }
+    }
+
+    /// Converts the request to the shared ABI DTO.
+    #[must_use]
+    pub fn to_abi(&self) -> abi::ObservationRequest {
+        abi::ObservationRequest {
+            coordinate: self.coordinate.to_abi(),
+            frame: self.frame.to_abi(),
+            projection: self.projection.to_abi(),
+            observer_plan: self.observer_plan.to_abi(),
+            observer_instance: self
+                .observer_instance
+                .as_ref()
+                .map(ObserverInstanceRef::to_abi),
+            budget: self.budget.to_abi(),
+            rights: self.rights.to_abi(),
+        }
+    }
 }
 
 /// Fully resolved coordinate returned with every observation.
@@ -333,6 +422,36 @@ impl BuiltinObserverPlan {
     }
 }
 
+/// Authored observer plan identity.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AuthoredObserverPlan {
+    /// Stable plan identity.
+    pub plan_id: ObserverPlanId,
+    /// Hash of the generated or installed observer artifact.
+    pub artifact_hash: Hash,
+    /// Hash of the authored schema or contract family.
+    pub schema_hash: Hash,
+    /// Hash of the observer state schema.
+    pub state_schema_hash: Hash,
+    /// Hash of the observer update law.
+    pub update_law_hash: Hash,
+    /// Hash of the observer emission law.
+    pub emission_law_hash: Hash,
+}
+
+impl AuthoredObserverPlan {
+    fn to_abi(&self) -> abi::AuthoredObserverPlan {
+        abi::AuthoredObserverPlan {
+            plan_id: observer_plan_id_to_abi(self.plan_id),
+            artifact_hash: self.artifact_hash.to_vec(),
+            schema_hash: self.schema_hash.to_vec(),
+            state_schema_hash: self.state_schema_hash.to_vec(),
+            update_law_hash: self.update_law_hash.to_vec(),
+            emission_law_hash: self.emission_law_hash.to_vec(),
+        }
+    }
+}
+
 /// Observer plan identity for a reading artifact.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ReadingObserverPlan {
@@ -340,6 +459,11 @@ pub enum ReadingObserverPlan {
     Builtin {
         /// Built-in plan selected by the observation frame/projection pair.
         plan: BuiltinObserverPlan,
+    },
+    /// Authored/generated observer plan.
+    Authored {
+        /// Authored plan identity and law hashes.
+        plan: Box<AuthoredObserverPlan>,
     },
 }
 
@@ -349,6 +473,39 @@ impl ReadingObserverPlan {
             Self::Builtin { plan } => abi::ReadingObserverPlan::Builtin {
                 plan: plan.to_abi(),
             },
+            Self::Authored { plan } => abi::ReadingObserverPlan::Authored {
+                plan: Box::new(plan.to_abi()),
+            },
+        }
+    }
+}
+
+fn builtin_observer_plan_for(
+    frame: ObservationFrame,
+    projection: ObservationProjectionKind,
+) -> ReadingObserverPlan {
+    ReadingObserverPlan::Builtin {
+        plan: ObservationService::builtin_observer_plan(frame, projection),
+    }
+}
+
+/// Hosted observer instance identity.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ObserverInstanceRef {
+    /// Runtime instance identity.
+    pub instance_id: ObserverInstanceId,
+    /// Plan that owns this instance.
+    pub plan_id: ObserverPlanId,
+    /// Hash of the accumulated observer state.
+    pub state_hash: Hash,
+}
+
+impl ObserverInstanceRef {
+    fn to_abi(&self) -> abi::ObserverInstanceRef {
+        abi::ObserverInstanceRef {
+            instance_id: observer_instance_id_to_abi(self.instance_id),
+            plan_id: observer_plan_id_to_abi(self.plan_id),
+            state_hash: self.state_hash.to_vec(),
         }
     }
 }
@@ -370,6 +527,59 @@ impl ReadingObserverBasis {
             Self::CommitBoundary => abi::ReadingObserverBasis::CommitBoundary,
             Self::RecordedTruth => abi::ReadingObserverBasis::RecordedTruth,
             Self::QueryView => abi::ReadingObserverBasis::QueryView,
+        }
+    }
+}
+
+/// Read budget requested by an observation caller.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ObservationReadBudget {
+    /// One-shot built-in observer with no caller-specified slice budget.
+    UnboundedOneShot,
+    /// Caller-bounded read budget.
+    Bounded {
+        /// Maximum encoded payload bytes the caller is willing to receive.
+        max_payload_bytes: u64,
+        /// Maximum witness references the caller is willing to accept.
+        max_witness_refs: u64,
+    },
+}
+
+impl ObservationReadBudget {
+    fn to_abi(self) -> abi::ObservationReadBudget {
+        match self {
+            Self::UnboundedOneShot => abi::ObservationReadBudget::UnboundedOneShot,
+            Self::Bounded {
+                max_payload_bytes,
+                max_witness_refs,
+            } => abi::ObservationReadBudget::Bounded {
+                max_payload_bytes,
+                max_witness_refs,
+            },
+        }
+    }
+}
+
+/// Rights posture requested by an observation caller.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ObservationRights {
+    /// Kernel-public read.
+    KernelPublic,
+    /// Capability-scoped read. Echo carries this now but does not execute it
+    /// until a capability checker is installed for the observer family.
+    CapabilityScoped {
+        /// Capability basis named by the caller.
+        capability: OpticCapabilityId,
+    },
+}
+
+impl ObservationRights {
+    fn to_abi(self) -> abi::ObservationRights {
+        match self {
+            Self::KernelPublic => abi::ObservationRights::KernelPublic,
+            Self::CapabilityScoped { capability } => abi::ObservationRights::CapabilityScoped {
+                capability: abi::OpticCapabilityId::from_bytes(*capability.as_bytes()),
+            },
         }
     }
 }
@@ -417,12 +627,34 @@ impl ReadingWitnessRef {
 pub enum ReadingBudgetPosture {
     /// One-shot built-in observer with no caller-specified slice budget.
     UnboundedOneShot,
+    /// Caller-bounded reading that remained within budget.
+    Bounded {
+        /// Requested encoded payload byte limit.
+        max_payload_bytes: u64,
+        /// Encoded payload bytes emitted.
+        payload_bytes: u64,
+        /// Requested witness-reference limit.
+        max_witness_refs: u64,
+        /// Witness references emitted.
+        witness_refs: u64,
+    },
 }
 
 impl ReadingBudgetPosture {
     fn to_abi(self) -> abi::ReadingBudgetPosture {
         match self {
             Self::UnboundedOneShot => abi::ReadingBudgetPosture::UnboundedOneShot,
+            Self::Bounded {
+                max_payload_bytes,
+                payload_bytes,
+                max_witness_refs,
+                witness_refs,
+            } => abi::ReadingBudgetPosture::Bounded {
+                max_payload_bytes,
+                payload_bytes,
+                max_witness_refs,
+                witness_refs,
+            },
         }
     }
 }
@@ -471,6 +703,8 @@ impl ReadingResidualPosture {
 pub struct ReadingEnvelope {
     /// Observer plan identity.
     pub observer_plan: ReadingObserverPlan,
+    /// Hosted observer instance, when the reading used accumulated observer state.
+    pub observer_instance: Option<ObserverInstanceRef>,
     /// Native observer basis used by the reading.
     pub observer_basis: ReadingObserverBasis,
     /// Witnesses or shell references that support the reading.
@@ -489,6 +723,10 @@ impl ReadingEnvelope {
     pub(crate) fn to_abi(&self) -> abi::ReadingEnvelope {
         abi::ReadingEnvelope {
             observer_plan: self.observer_plan.to_abi(),
+            observer_instance: self
+                .observer_instance
+                .as_ref()
+                .map(ObserverInstanceRef::to_abi),
             observer_basis: self.observer_basis.to_abi(),
             witness_refs: self
                 .witness_refs
@@ -648,6 +886,29 @@ pub enum ObservationError {
     /// Query observation is not implemented yet.
     #[error("query observation is not supported in phase 5")]
     UnsupportedQuery,
+    /// The requested observer plan is not installed or executable.
+    #[error("unsupported observer plan: {0:?}")]
+    UnsupportedObserverPlan(ReadingObserverPlan),
+    /// The requested hosted observer instance is not installed or executable.
+    #[error("unsupported observer instance: {0:?}")]
+    UnsupportedObserverInstance(ObserverInstanceRef),
+    /// The requested observation rights posture is not executable.
+    #[error("unsupported observation rights posture: {0:?}")]
+    UnsupportedRights(ObservationRights),
+    /// The requested observation exceeded its declared budget.
+    #[error(
+        "observation budget exceeded: payload {payload_bytes}/{max_payload_bytes} bytes, witness refs {witness_refs}/{max_witness_refs}"
+    )]
+    BudgetExceeded {
+        /// Declared payload byte limit.
+        max_payload_bytes: u64,
+        /// Encoded payload bytes produced by the observer.
+        payload_bytes: u64,
+        /// Declared witness-reference limit.
+        max_witness_refs: u64,
+        /// Witness references needed by the reading.
+        witness_refs: u64,
+    },
     /// The requested observation cannot be produced at this coordinate.
     #[error("observation unavailable for worldline {worldline_id:?} at {at:?}")]
     ObservationUnavailable {
@@ -686,6 +947,7 @@ impl ObservationService {
             return Err(ObservationError::InvalidWorldline(worldline_id));
         }
         Self::validate_frame_projection(request.frame, &request.projection)?;
+        Self::validate_observer_contract(&request)?;
         if matches!(request.frame, ObservationFrame::QueryView) {
             return Err(ObservationError::UnsupportedQuery);
         }
@@ -693,12 +955,6 @@ impl ObservationService {
         let resolved = Self::resolve_coordinate(runtime, provenance, engine, &request)?;
         let parent_basis_posture =
             Self::basis_posture(runtime, provenance, worldline_id, request.coordinate.at)?;
-        let reading = Self::reading_envelope(
-            &resolved,
-            parent_basis_posture,
-            request.frame,
-            &request.projection,
-        );
         let payload = match (&request.frame, &request.projection) {
             (ObservationFrame::CommitBoundary, ObservationProjection::Head) => {
                 ObservationPayload::Head(HeadObservation {
@@ -741,6 +997,7 @@ impl ObservationService {
             }
             _ => unreachable!("validity matrix must reject unsupported combinations"),
         };
+        let reading = Self::reading_envelope(&resolved, parent_basis_posture, &request, &payload)?;
 
         let artifact_hash = Self::compute_artifact_hash(
             &resolved,
@@ -913,14 +1170,21 @@ impl ObservationService {
             }
         };
 
-        Ok(ObservationRequest {
-            coordinate: ObservationCoordinate {
+        let mut observation_request = ObservationRequest::builtin_one_shot(
+            ObservationCoordinate {
                 worldline_id: *worldline_id,
                 at,
             },
             frame,
             projection,
-        })
+        );
+        if let Some(max_payload_bytes) = request.aperture.budget.max_bytes {
+            observation_request.budget = ObservationReadBudget::Bounded {
+                max_payload_bytes,
+                max_witness_refs: request.aperture.budget.max_ticks.unwrap_or(u64::MAX),
+            };
+        }
+        Ok(observation_request)
     }
 
     fn optic_coordinate_at(
@@ -964,11 +1228,27 @@ impl ObservationService {
                 None,
                 "unsupported optic frame/projection pairing",
             ),
-            ObservationError::UnsupportedQuery => Self::optic_obstruction(
+            ObservationError::UnsupportedQuery
+            | ObservationError::UnsupportedObserverPlan(_)
+            | ObservationError::UnsupportedObserverInstance(_) => Self::optic_obstruction(
                 request,
                 OpticObstructionKind::UnsupportedProjectionLaw,
                 None,
                 "contract QueryView optics are not installed yet",
+            ),
+            ObservationError::UnsupportedRights(_) => Self::optic_obstruction(
+                request,
+                OpticObstructionKind::CapabilityDenied,
+                None,
+                "observation rights posture is not authorized",
+            ),
+            ObservationError::BudgetExceeded { .. } => Self::optic_obstruction(
+                request,
+                OpticObstructionKind::BudgetExceeded,
+                Some(WitnessBasis::Missing {
+                    reason: MissingWitnessBasisReason::BudgetLimited,
+                }),
+                "optic observation exceeded the declared read budget",
             ),
             ObservationError::CodecFailure(_) => Self::optic_obstruction(
                 request,
@@ -1037,6 +1317,35 @@ impl ObservationService {
                 projection: projection_kind,
             })
         }
+    }
+
+    fn validate_observer_contract(request: &ObservationRequest) -> Result<(), ObservationError> {
+        let expected = Self::observer_plan(request.frame, request.projection.kind());
+        match &request.observer_plan {
+            ReadingObserverPlan::Builtin { .. } if request.observer_plan != expected => {
+                return Err(ObservationError::UnsupportedObserverPlan(
+                    request.observer_plan.clone(),
+                ));
+            }
+            ReadingObserverPlan::Builtin { .. } => {}
+            ReadingObserverPlan::Authored { .. } => {
+                return Err(ObservationError::UnsupportedObserverPlan(
+                    request.observer_plan.clone(),
+                ));
+            }
+        }
+
+        if let Some(instance) = &request.observer_instance {
+            return Err(ObservationError::UnsupportedObserverInstance(
+                instance.clone(),
+            ));
+        }
+
+        if let ObservationRights::CapabilityScoped { .. } = request.rights {
+            return Err(ObservationError::UnsupportedRights(request.rights));
+        }
+
+        Ok(())
     }
 
     fn resolve_coordinate(
@@ -1183,17 +1492,70 @@ impl ObservationService {
     fn reading_envelope(
         resolved: &ResolvedObservationCoordinate,
         parent_basis_posture: ObservationBasisPosture,
-        frame: ObservationFrame,
-        projection: &ObservationProjection,
-    ) -> ReadingEnvelope {
-        ReadingEnvelope {
-            observer_plan: Self::observer_plan(frame, projection.kind()),
-            observer_basis: Self::observer_basis(frame),
-            witness_refs: Self::witness_refs(resolved, frame),
+        request: &ObservationRequest,
+        payload: &ObservationPayload,
+    ) -> Result<ReadingEnvelope, ObservationError> {
+        let witness_refs = Self::witness_refs(resolved, request.frame);
+        let budget_posture = Self::budget_posture(request.budget, payload, witness_refs.len())?;
+        Ok(ReadingEnvelope {
+            observer_plan: request.observer_plan.clone(),
+            observer_instance: request.observer_instance.clone(),
+            observer_basis: Self::observer_basis(request.frame),
+            witness_refs,
             parent_basis_posture,
-            budget_posture: ReadingBudgetPosture::UnboundedOneShot,
-            rights_posture: ReadingRightsPosture::KernelPublic,
+            budget_posture,
+            rights_posture: Self::rights_posture(request.rights),
             residual_posture: ReadingResidualPosture::Complete,
+        })
+    }
+
+    fn budget_posture(
+        budget: ObservationReadBudget,
+        payload: &ObservationPayload,
+        witness_ref_count: usize,
+    ) -> Result<ReadingBudgetPosture, ObservationError> {
+        match budget {
+            ObservationReadBudget::UnboundedOneShot => Ok(ReadingBudgetPosture::UnboundedOneShot),
+            ObservationReadBudget::Bounded {
+                max_payload_bytes,
+                max_witness_refs,
+            } => {
+                let payload_bytes = Self::payload_wire_len(payload)?;
+                let witness_refs = witness_ref_count as u64;
+                if payload_bytes > max_payload_bytes || witness_refs > max_witness_refs {
+                    return Err(ObservationError::BudgetExceeded {
+                        max_payload_bytes,
+                        payload_bytes,
+                        max_witness_refs,
+                        witness_refs,
+                    });
+                }
+                Ok(ReadingBudgetPosture::Bounded {
+                    max_payload_bytes,
+                    payload_bytes,
+                    max_witness_refs,
+                    witness_refs,
+                })
+            }
+        }
+    }
+
+    fn payload_wire_len(payload: &ObservationPayload) -> Result<u64, ObservationError> {
+        let bytes = echo_wasm_abi::encode_cbor(&payload.to_abi())
+            .map_err(|err| ObservationError::CodecFailure(err.to_string()))?;
+        Ok(bytes.len() as u64)
+    }
+
+    fn rights_posture(rights: ObservationRights) -> ReadingRightsPosture {
+        match rights {
+            ObservationRights::KernelPublic => ReadingRightsPosture::KernelPublic,
+            ObservationRights::CapabilityScoped { .. } => {
+                debug_assert!(
+                    false,
+                    "capability-scoped observation rights must be rejected before reading"
+                );
+                ReadingRightsPosture::KernelPublic
+            }
         }
     }
 
@@ -1201,7 +1563,14 @@ impl ObservationService {
         frame: ObservationFrame,
         projection: ObservationProjectionKind,
     ) -> ReadingObserverPlan {
-        let plan = match (frame, projection) {
+        builtin_observer_plan_for(frame, projection)
+    }
+
+    fn builtin_observer_plan(
+        frame: ObservationFrame,
+        projection: ObservationProjectionKind,
+    ) -> BuiltinObserverPlan {
+        match (frame, projection) {
             (ObservationFrame::CommitBoundary, ObservationProjectionKind::Head) => {
                 BuiltinObserverPlan::CommitBoundaryHead
             }
@@ -1221,8 +1590,7 @@ impl ObservationService {
                 );
                 BuiltinObserverPlan::QueryBytes
             }
-        };
-        ReadingObserverPlan::Builtin { plan }
+        }
     }
 
     fn observer_basis(frame: ObservationFrame) -> ReadingObserverBasis {
@@ -1316,6 +1684,14 @@ fn provenance_ref_to_abi(reference: crate::provenance_store::ProvenanceRef) -> a
         worldline_tick: abi::WorldlineTick(reference.worldline_tick.as_u64()),
         commit_hash: reference.commit_hash.to_vec(),
     }
+}
+
+fn observer_plan_id_to_abi(plan_id: ObserverPlanId) -> abi::ObserverPlanId {
+    abi::ObserverPlanId::from_bytes(*plan_id.as_bytes())
+}
+
+fn observer_instance_id_to_abi(instance_id: ObserverInstanceId) -> abi::ObserverInstanceId {
+    abi::ObserverInstanceId::from_bytes(*instance_id.as_bytes())
 }
 
 fn overlap_slots_digest(slots: &[SlotId]) -> Hash {
@@ -1470,6 +1846,19 @@ mod tests {
             projection_version: ProjectionVersion::from_raw(1),
             reducer_version: None,
             capability: OpticCapabilityId::from_bytes([71; 32]),
+        }
+    }
+
+    fn authored_observer_plan() -> ReadingObserverPlan {
+        ReadingObserverPlan::Authored {
+            plan: Box::new(AuthoredObserverPlan {
+                plan_id: ObserverPlanId::from_bytes([80; 32]),
+                artifact_hash: [81; 32],
+                schema_hash: [82; 32],
+                state_schema_hash: [83; 32],
+                update_law_hash: [84; 32],
+                emission_law_hash: [85; 32],
+            }),
         }
     }
 
@@ -1891,14 +2280,14 @@ mod tests {
             &runtime,
             &provenance,
             &engine,
-            ObservationRequest {
-                coordinate: ObservationCoordinate {
+            ObservationRequest::builtin_one_shot(
+                ObservationCoordinate {
                     worldline_id,
                     at: ObservationAt::Frontier,
                 },
-                frame: ObservationFrame::CommitBoundary,
-                projection: ObservationProjection::Head,
-            },
+                ObservationFrame::CommitBoundary,
+                ObservationProjection::Head,
+            ),
         )
         .unwrap();
 
@@ -1925,14 +2314,14 @@ mod tests {
             &runtime,
             &provenance,
             &engine,
-            ObservationRequest {
-                coordinate: ObservationCoordinate {
+            ObservationRequest::builtin_one_shot(
+                ObservationCoordinate {
                     worldline_id,
                     at: ObservationAt::Frontier,
                 },
-                frame: ObservationFrame::RecordedTruth,
-                projection: ObservationProjection::TruthChannels { channels: None },
-            },
+                ObservationFrame::RecordedTruth,
+                ObservationProjection::TruthChannels { channels: None },
+            ),
         )
         .unwrap_err();
         assert_eq!(
@@ -1951,14 +2340,14 @@ mod tests {
             &runtime,
             &provenance,
             &engine,
-            ObservationRequest {
-                coordinate: ObservationCoordinate {
+            ObservationRequest::builtin_one_shot(
+                ObservationCoordinate {
                     worldline_id,
                     at: ObservationAt::Frontier,
                 },
-                frame: ObservationFrame::RecordedTruth,
-                projection: ObservationProjection::TruthChannels { channels: None },
-            },
+                ObservationFrame::RecordedTruth,
+                ObservationProjection::TruthChannels { channels: None },
+            ),
         )
         .unwrap();
         let channels = if let ObservationPayload::TruthChannels(channels) = artifact.payload {
@@ -1973,14 +2362,14 @@ mod tests {
     #[test]
     fn identical_requests_produce_stable_artifact_hashes() {
         let (engine, runtime, provenance, worldline_id) = one_commit_fixture();
-        let request = ObservationRequest {
-            coordinate: ObservationCoordinate {
+        let request = ObservationRequest::builtin_one_shot(
+            ObservationCoordinate {
                 worldline_id,
                 at: ObservationAt::Frontier,
             },
-            frame: ObservationFrame::CommitBoundary,
-            projection: ObservationProjection::Head,
-        };
+            ObservationFrame::CommitBoundary,
+            ObservationProjection::Head,
+        );
         let first =
             ObservationService::observe(&runtime, &provenance, &engine, request.clone()).unwrap();
         let second = ObservationService::observe(&runtime, &provenance, &engine, request).unwrap();
@@ -1995,14 +2384,14 @@ mod tests {
             &runtime,
             &provenance,
             &engine,
-            ObservationRequest {
-                coordinate: ObservationCoordinate {
+            ObservationRequest::builtin_one_shot(
+                ObservationCoordinate {
                     worldline_id,
                     at: ObservationAt::Frontier,
                 },
-                frame: ObservationFrame::CommitBoundary,
-                projection: ObservationProjection::Head,
-            },
+                ObservationFrame::CommitBoundary,
+                ObservationProjection::Head,
+            ),
         )
         .unwrap();
 
@@ -2051,6 +2440,139 @@ mod tests {
             artifact.to_abi().reading.residual_posture,
             abi::ReadingResidualPosture::Complete
         );
+    }
+
+    #[test]
+    fn explicit_bounded_observer_request_returns_bounded_reading_artifact() -> Result<(), String> {
+        let (engine, runtime, provenance, worldline_id) = one_commit_fixture();
+        let mut request = ObservationRequest::builtin_one_shot(
+            ObservationCoordinate {
+                worldline_id,
+                at: ObservationAt::Frontier,
+            },
+            ObservationFrame::CommitBoundary,
+            ObservationProjection::Head,
+        );
+        request.budget = ObservationReadBudget::Bounded {
+            max_payload_bytes: 512,
+            max_witness_refs: 1,
+        };
+
+        let artifact = ObservationService::observe(&runtime, &provenance, &engine, request.clone())
+            .map_err(|err| err.to_string())?;
+
+        assert_eq!(artifact.reading.observer_plan, request.observer_plan);
+        assert_eq!(artifact.reading.observer_instance, None);
+        assert!(matches!(
+            artifact.reading.budget_posture,
+            ReadingBudgetPosture::Bounded {
+                max_payload_bytes: 512,
+                payload_bytes: 1..=512,
+                max_witness_refs: 1,
+                witness_refs: 1,
+            }
+        ));
+        assert!(matches!(
+            request.to_abi().budget,
+            abi::ObservationReadBudget::Bounded {
+                max_payload_bytes: 512,
+                max_witness_refs: 1,
+            }
+        ));
+
+        Ok(())
+    }
+
+    #[test]
+    fn authored_observer_plan_obstructs_without_hidden_builtin_fallback() {
+        let (engine, runtime, provenance, worldline_id) = one_commit_fixture();
+        let mut request = ObservationRequest::builtin_one_shot(
+            ObservationCoordinate {
+                worldline_id,
+                at: ObservationAt::Frontier,
+            },
+            ObservationFrame::CommitBoundary,
+            ObservationProjection::Head,
+        );
+        let authored = authored_observer_plan();
+        request.observer_plan = authored.clone();
+
+        let err = ObservationService::observe(&runtime, &provenance, &engine, request).unwrap_err();
+
+        assert_eq!(err, ObservationError::UnsupportedObserverPlan(authored));
+    }
+
+    #[test]
+    fn hosted_observer_instance_obstructs_without_stateful_fallback() {
+        let (engine, runtime, provenance, worldline_id) = one_commit_fixture();
+        let mut request = ObservationRequest::builtin_one_shot(
+            ObservationCoordinate {
+                worldline_id,
+                at: ObservationAt::Frontier,
+            },
+            ObservationFrame::CommitBoundary,
+            ObservationProjection::Head,
+        );
+        let instance = ObserverInstanceRef {
+            instance_id: ObserverInstanceId::from_bytes([86; 32]),
+            plan_id: ObserverPlanId::from_bytes([80; 32]),
+            state_hash: [87; 32],
+        };
+        request.observer_instance = Some(instance.clone());
+
+        let err = ObservationService::observe(&runtime, &provenance, &engine, request).unwrap_err();
+
+        assert_eq!(err, ObservationError::UnsupportedObserverInstance(instance));
+    }
+
+    #[test]
+    fn capability_scoped_observer_rights_obstruct_without_public_fallback() {
+        let (engine, runtime, provenance, worldline_id) = one_commit_fixture();
+        let mut request = ObservationRequest::builtin_one_shot(
+            ObservationCoordinate {
+                worldline_id,
+                at: ObservationAt::Frontier,
+            },
+            ObservationFrame::CommitBoundary,
+            ObservationProjection::Head,
+        );
+        let rights = ObservationRights::CapabilityScoped {
+            capability: OpticCapabilityId::from_bytes([88; 32]),
+        };
+        request.rights = rights;
+
+        let err = ObservationService::observe(&runtime, &provenance, &engine, request).unwrap_err();
+
+        assert_eq!(err, ObservationError::UnsupportedRights(rights));
+    }
+
+    #[test]
+    fn observation_budget_obstructs_instead_of_emitting_oversized_reading() {
+        let (engine, runtime, provenance, worldline_id) = one_commit_fixture();
+        let mut request = ObservationRequest::builtin_one_shot(
+            ObservationCoordinate {
+                worldline_id,
+                at: ObservationAt::Frontier,
+            },
+            ObservationFrame::CommitBoundary,
+            ObservationProjection::Head,
+        );
+        request.budget = ObservationReadBudget::Bounded {
+            max_payload_bytes: 1,
+            max_witness_refs: 1,
+        };
+
+        let err = ObservationService::observe(&runtime, &provenance, &engine, request).unwrap_err();
+
+        assert!(matches!(
+            err,
+            ObservationError::BudgetExceeded {
+                max_payload_bytes: 1,
+                payload_bytes: 2..,
+                max_witness_refs: 1,
+                witness_refs: 1,
+            }
+        ));
     }
 
     #[test]
@@ -2181,14 +2703,14 @@ mod tests {
             &runtime,
             &provenance,
             &engine,
-            ObservationRequest {
-                coordinate: ObservationCoordinate {
+            ObservationRequest::builtin_one_shot(
+                ObservationCoordinate {
                     worldline_id: child_worldline,
                     at: ObservationAt::Frontier,
                 },
-                frame: ObservationFrame::CommitBoundary,
-                projection: ObservationProjection::Snapshot,
-            },
+                ObservationFrame::CommitBoundary,
+                ObservationProjection::Snapshot,
+            ),
         )
         .unwrap();
 
@@ -2209,28 +2731,28 @@ mod tests {
             &anchor_runtime,
             &anchor_provenance,
             &anchor_engine,
-            ObservationRequest {
-                coordinate: ObservationCoordinate {
+            ObservationRequest::builtin_one_shot(
+                ObservationCoordinate {
                     worldline_id: anchor_child,
                     at: ObservationAt::Frontier,
                 },
-                frame: ObservationFrame::CommitBoundary,
-                projection: ObservationProjection::Snapshot,
-            },
+                ObservationFrame::CommitBoundary,
+                ObservationProjection::Snapshot,
+            ),
         )
         .unwrap();
         let artifact = ObservationService::observe(
             &runtime,
             &provenance,
             &engine,
-            ObservationRequest {
-                coordinate: ObservationCoordinate {
+            ObservationRequest::builtin_one_shot(
+                ObservationCoordinate {
                     worldline_id: child_worldline,
                     at: ObservationAt::Frontier,
                 },
-                frame: ObservationFrame::CommitBoundary,
-                projection: ObservationProjection::Snapshot,
-            },
+                ObservationFrame::CommitBoundary,
+                ObservationProjection::Snapshot,
+            ),
         )
         .unwrap();
 
@@ -2256,14 +2778,14 @@ mod tests {
             &runtime,
             &provenance,
             &engine,
-            ObservationRequest {
-                coordinate: ObservationCoordinate {
+            ObservationRequest::builtin_one_shot(
+                ObservationCoordinate {
                     worldline_id: child_worldline,
                     at: ObservationAt::Frontier,
                 },
-                frame: ObservationFrame::CommitBoundary,
-                projection: ObservationProjection::Snapshot,
-            },
+                ObservationFrame::CommitBoundary,
+                ObservationProjection::Snapshot,
+            ),
         )
         .unwrap();
 
@@ -2304,14 +2826,14 @@ mod tests {
             &runtime,
             &provenance,
             &engine,
-            ObservationRequest {
-                coordinate: ObservationCoordinate {
+            ObservationRequest::builtin_one_shot(
+                ObservationCoordinate {
                     worldline_id,
                     at: ObservationAt::Tick(wt(0)),
                 },
-                frame: ObservationFrame::CommitBoundary,
-                projection: ObservationProjection::Snapshot,
-            },
+                ObservationFrame::CommitBoundary,
+                ObservationProjection::Snapshot,
+            ),
         )
         .unwrap();
 

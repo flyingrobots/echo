@@ -715,10 +715,13 @@ mod tests {
     #[test]
     fn test_optic_read_identity_round_trip() {
         use crate::kernel_port::{
-            BuiltinObserverPlan, EchoCoordinate, MissingWitnessBasisReason,
-            ObservationBasisPosture, ObservationPayload, ObserveOpticResult, OpticId, OpticReading,
-            OpticReadingEnvelope, ProjectionVersion, ReadIdentity, ReadingBudgetPosture,
-            ReadingEnvelope, ReadingObserverBasis, ReadingObserverPlan, ReadingResidualPosture,
+            AuthoredObserverPlan, BuiltinObserverPlan, EchoCoordinate, MissingWitnessBasisReason,
+            ObservationAt, ObservationBasisPosture, ObservationCoordinate, ObservationFrame,
+            ObservationPayload, ObservationProjection, ObservationReadBudget, ObservationRequest,
+            ObservationRights, ObserveOpticResult, ObserverInstanceId, ObserverInstanceRef,
+            ObserverPlanId, OpticCapabilityId, OpticId, OpticReading, OpticReadingEnvelope,
+            ProjectionVersion, ReadIdentity, ReadingBudgetPosture, ReadingEnvelope,
+            ReadingObserverBasis, ReadingObserverPlan, ReadingResidualPosture,
             ReadingRightsPosture, ReadingWitnessRef, RetainedReadingCodecId,
             RetainedReadingDescriptor, RetainedReadingKey, WitnessBasis, WorldlineId,
             WorldlineTick,
@@ -753,6 +756,7 @@ mod tests {
                 observer_plan: ReadingObserverPlan::Builtin {
                     plan: BuiltinObserverPlan::CommitBoundaryHead,
                 },
+                observer_instance: None,
                 observer_basis: ReadingObserverBasis::CommitBoundary,
                 witness_refs: vec![ReadingWitnessRef::ResolvedCommit { reference }],
                 parent_basis_posture: ObservationBasisPosture::Worldline,
@@ -786,6 +790,60 @@ mod tests {
         let decoded: RetainedReadingDescriptor =
             decode_cbor(&encode_cbor(&retained).unwrap()).unwrap();
         assert_eq!(decoded, retained);
+
+        let authored = AuthoredObserverPlan {
+            plan_id: ObserverPlanId::from_bytes([13; 32]),
+            artifact_hash: vec![14; 32],
+            schema_hash: vec![15; 32],
+            state_schema_hash: vec![16; 32],
+            update_law_hash: vec![17; 32],
+            emission_law_hash: vec![18; 32],
+        };
+        let instance = ObserverInstanceRef {
+            instance_id: ObserverInstanceId::from_bytes([19; 32]),
+            plan_id: authored.plan_id,
+            state_hash: vec![20; 32],
+        };
+        let authored_request = ObservationRequest {
+            coordinate: ObservationCoordinate {
+                worldline_id: WorldlineId::from_bytes([21; 32]),
+                at: ObservationAt::Frontier,
+            },
+            frame: ObservationFrame::QueryView,
+            projection: ObservationProjection::Query {
+                query_id: 9,
+                vars_bytes: vec![1, 2, 3],
+            },
+            observer_plan: ReadingObserverPlan::Authored {
+                plan: Box::new(authored),
+            },
+            observer_instance: Some(instance),
+            budget: ObservationReadBudget::Bounded {
+                max_payload_bytes: 4096,
+                max_witness_refs: 4,
+            },
+            rights: ObservationRights::CapabilityScoped {
+                capability: OpticCapabilityId::from_bytes([22; 32]),
+            },
+        };
+        let decoded: ObservationRequest =
+            decode_cbor(&encode_cbor(&authored_request).unwrap()).unwrap();
+        assert_eq!(decoded, authored_request);
+
+        let builtin_request = ObservationRequest::builtin_one_shot(
+            ObservationCoordinate {
+                worldline_id: WorldlineId::from_bytes([23; 32]),
+                at: ObservationAt::Frontier,
+            },
+            ObservationFrame::CommitBoundary,
+            ObservationProjection::Head,
+        );
+        assert!(matches!(
+            builtin_request.observer_plan,
+            ReadingObserverPlan::Builtin {
+                plan: BuiltinObserverPlan::CommitBoundaryHead
+            }
+        ));
     }
 
     #[test]

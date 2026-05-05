@@ -345,17 +345,17 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
 
                         /// Build a frontier query-view request from already-canonical vars bytes.
                         pub fn #raw_fn_name(worldline_id: WorldlineId, vars: &[u8]) -> ObservationRequest {
-                            ObservationRequest {
-                                coordinate: ObservationCoordinate {
+                            ObservationRequest::builtin_one_shot(
+                                ObservationCoordinate {
                                     worldline_id,
                                     at: ObservationAt::Frontier,
                                 },
-                                frame: ObservationFrame::QueryView,
-                                projection: ObservationProjection::Query {
+                                ObservationFrame::QueryView,
+                                ObservationProjection::Query {
                                     query_id: super::#const_name,
                                     vars_bytes: Vec::from(vars),
                                 },
-                            }
+                            )
                         }
                     });
                 }

@@ -207,12 +207,13 @@ pub use neighborhood::{
     ParticipantRole, SiteParticipant, SitePlurality,
 };
 pub use observation::{
-    BuiltinObserverPlan, HeadObservation, ObservationArtifact, ObservationAt,
+    AuthoredObserverPlan, BuiltinObserverPlan, HeadObservation, ObservationArtifact, ObservationAt,
     ObservationBasisPosture, ObservationCoordinate, ObservationError, ObservationFrame,
-    ObservationPayload, ObservationProjection, ObservationProjectionKind, ObservationRequest,
-    ObservationService, ReadingBudgetPosture, ReadingEnvelope, ReadingObserverBasis,
-    ReadingObserverPlan, ReadingResidualPosture, ReadingRightsPosture, ReadingWitnessRef,
-    ResolvedObservationCoordinate, WorldlineSnapshot,
+    ObservationPayload, ObservationProjection, ObservationProjectionKind, ObservationReadBudget,
+    ObservationRequest, ObservationRights, ObservationService, ObserverInstanceId,
+    ObserverInstanceRef, ObserverPlanId, ReadingBudgetPosture, ReadingEnvelope,
+    ReadingObserverBasis, ReadingObserverPlan, ReadingResidualPosture, ReadingRightsPosture,
+    ReadingWitnessRef, ResolvedObservationCoordinate, WorldlineSnapshot,
 };
 pub use optic::{
     AdmittedIntent, AttachmentDescentPolicy, BraidId, CapabilityPosture, CloseOpticRequest,

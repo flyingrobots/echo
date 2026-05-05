@@ -3,9 +3,22 @@
 
 # Live holographic strands
 
-Status: active WARP/Observer implementation backlog. The first settlement
-slice exists; observer/read artifacts still need to consume the same
-live-basis and revalidation posture.
+Status: complete. The first live-basis strand slice is implemented across
+strand reports, settlement planning, observation/read artifacts, and the
+normative strand invariant.
+
+## Completion evidence
+
+- `Strand::live_basis_report(...)` reports parent basis movement, owned
+  divergence footprint, and revalidation posture.
+- Settlement planning imports disjoint parent movement, revalidates clean
+  overlap, and records `ParentFootprintOverlap` conflict residue when parent
+  movement changes owned state.
+- Observation artifacts expose `StrandAtAnchor`,
+  `StrandParentAdvancedDisjoint`, and `StrandRevalidationRequired` basis
+  postures with ABI evidence.
+- `docs/invariants/STRAND-CONTRACT.md` now defines strands by live-basis
+  semantics rather than treating prefix-copy child worldlines as the ontology.
 
 Depends on:
 
@@ -69,9 +82,9 @@ The first slice is now deliberately smaller than the full target:
     - replay that would mutate overlapped parent state is `Conflict` residue
       under `ParentFootprintOverlap`
 
-The runtime settlement path now has the first concrete overlap revalidation
-law. Observer/read artifacts still need to consume the same posture instead of
-inventing a separate reading law. The full decision record and runway live in
+The runtime settlement path has the first concrete overlap revalidation law,
+and observer/read artifacts consume the same posture instead of inventing a
+separate reading law. The full decision record and runway live in
 [0010 — Live-basis settlement correction plan](../../../design/0010-live-basis-settlement-plan/design.md).
 
 ## Done looks like

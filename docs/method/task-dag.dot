@@ -36,7 +36,7 @@ digraph method_task_dag {
     "M003" [label="M003\nOPEN\nT-9-1-1\nImplement 1-thread vs\nN-thread determinism\nharness", tooltip="M003 [asap] open; blockers=0; T-9-1-1 Implement 1-thread vs N-thread determinism harness", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M004" [label="M004\nT-9-1-2\nImplement snapshot/restore\nfuzz", tooltip="M004 [asap] blocked; blockers=1; T-9-1-2 Implement snapshot/restore fuzz", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
     "M005" [label="M005\nOPEN\nEcho and git-warp\ncompatibility sanity check", tooltip="M005 [asap] open; blockers=0;  Echo and git-warp compatibility sanity check", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
-    "M006" [label="M006\nOPEN\nLive holographic strands", tooltip="M006 [asap] open; blockers=0;  Live holographic strands", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
+    "M006" [label="M006\nDONE\nLive holographic strands", tooltip="M006 [asap] done; blockers=0;  Live holographic strands", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M007" [label="M007\nOPEN\nT-9-3-1\nVerify and integrate\ndeterministic trig oracle\ninto release gate", tooltip="M007 [asap] open; blockers=0; T-9-3-1 Verify and integrate deterministic trig oracle into release gate", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M008" [label="M008\nDONE\nWESLEY Protocol Consumer\nCutover", tooltip="M008 [asap] done; blockers=0;  WESLEY Protocol Consumer Cutover", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M009" [label="M009\nOPEN\nCI det-policy hardening", tooltip="M009 [asap] open; blockers=0;  CI det-policy hardening", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
@@ -84,8 +84,8 @@ digraph method_task_dag {
     style="rounded";
     "M044" [label="M044\nOPEN\nCompliance reporting as a\nTTD protocol extension", tooltip="M044 [up-next] open; blockers=0;  Compliance reporting as a TTD protocol extension", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M045" [label="M045\nContract-Aware Receipts\nAnd Readings", tooltip="M045 [up-next] blocked; blockers=2;  Contract-Aware Receipts And Readings", fillcolor="#dbeafe", color="#1d4ed8", penwidth=1.2];
-    "M046" [label="M046\nContract Strands And\nCounterfactuals", tooltip="M046 [up-next] blocked; blockers=2;  Contract Strands And Counterfactuals", fillcolor="#dbeafe", color="#1d4ed8", penwidth=1.2];
-    "M047" [label="M047\nParent drift and\nowned-footprint\nrevalidation", tooltip="M047 [up-next] blocked; blockers=1;  Parent drift and owned-footprint revalidation", fillcolor="#dbeafe", color="#1d4ed8", penwidth=1.2];
+    "M046" [label="M046\nContract Strands And\nCounterfactuals", tooltip="M046 [up-next] blocked; blockers=1;  Contract Strands And Counterfactuals", fillcolor="#dbeafe", color="#1d4ed8", penwidth=1.2];
+    "M047" [label="M047\nOPEN\nParent drift and\nowned-footprint\nrevalidation", tooltip="M047 [up-next] open; blockers=0;  Parent drift and owned-footprint revalidation", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M048" [label="M048\nOPEN\nT-2-5-1\nSHA-256 to BLAKE3\nmigration spec", tooltip="M048 [up-next] open; blockers=0; T-2-5-1 SHA-256 to BLAKE3 migration spec", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M049" [label="M049\nOPEN\nT-7-1-1\nSpec — HistoryTime vs\nHostTime field\nclassification (#191)", tooltip="M049 [up-next] open; blockers=0; T-7-1-1 Spec — HistoryTime vs HostTime field classification (#191)", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M050" [label="M050\nT-7-1-2\nSpec — TTL/deadline\nsemantics are ticks only\n(#192)", tooltip="M050 [up-next] blocked; blockers=1; T-7-1-2 Spec — TTL/deadline semantics are ticks only (#192)", fillcolor="#dbeafe", color="#1d4ed8", penwidth=1.2];
@@ -247,8 +247,8 @@ digraph method_task_dag {
   }
 
   "M003" -> "M004";
-  "M006" -> "M046";
-  "M006" -> "M047";
+  "M006" -> "M046" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
+  "M006" -> "M047" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
   "M008" -> "M079" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
   "M010" -> "M001";
   "M011" -> "M001";

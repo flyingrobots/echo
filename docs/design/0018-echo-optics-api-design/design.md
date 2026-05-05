@@ -680,6 +680,12 @@ the returned identity names that relation.
 `retain_reading` and `reveal_reading` belong to retention, not optic mutation.
 They must not create or alter substrate truth.
 
+The initial core surface is intentionally small: `RetainedReadingCache` stores
+encoded reading bytes under a `RetainedReadingDescriptor`, and
+`reveal_reading` succeeds only when the retained key and exact `ReadIdentity`
+match. A content hash can index candidate retained readings for diagnostics, but
+it is not reveal authority and is not the cache key.
+
 ## Live Tail Honesty
 
 An optic read must not return a stale checkpoint hash as if it identified the

@@ -10,7 +10,7 @@
 <title>method_task_dag</title>
 <polygon fill="white" stroke="none" points="-4,4 -4,-7693.5 3303.09,-7693.5 3303.09,4 -4,4"/>
 <text xml:space="preserve" text-anchor="middle" x="1649.55" y="-7662.7" font-family="Inter, Helvetica, Arial" font-size="24.00">METHOD Backlog Task Dependency DAG</text>
-<text xml:space="preserve" text-anchor="middle" x="1649.55" y="-7633.45" font-family="Inter, Helvetica, Arial" font-size="24.00">open tasks: 104 / 181; dependency edges: 125</text>
+<text xml:space="preserve" text-anchor="middle" x="1649.55" y="-7633.45" font-family="Inter, Helvetica, Arial" font-size="24.00">open tasks: 103 / 181; dependency edges: 125</text>
 <g id="clust1" class="cluster">
 <title>cluster_asap</title>
 <path fill="white" stroke="#cbd5e1" d="M24.5,-2247C24.5,-2247 1722.93,-2247 1722.93,-2247 1728.93,-2247 1734.93,-2253 1734.93,-2259 1734.93,-2259 1734.93,-3776 1734.93,-3776 1734.93,-3782 1728.93,-3788 1722.93,-3788 1722.93,-3788 24.5,-3788 24.5,-3788 18.5,-3788 12.5,-3782 12.5,-3776 12.5,-3776 12.5,-2259 12.5,-2259 12.5,-2253 18.5,-2247 24.5,-2247"/>
@@ -489,10 +489,10 @@
 <!-- M023 -->
 <g id="node23" class="node">
 <title>M023</title>
-<g id="a_node23"><a xlink:title="M023 [asap] open; blockers=0; &#160;Echo Optics Cached&#45;Reading Identity Tests">
-<path fill="#bbf7d0" stroke="#15803d" stroke-width="2.8" d="M984.85,-3392.82C984.85,-3392.82 858.58,-3392.82 858.58,-3392.82 852.58,-3392.82 846.58,-3386.82 846.58,-3380.82 846.58,-3380.82 846.58,-3345.18 846.58,-3345.18 846.58,-3339.18 852.58,-3333.18 858.58,-3333.18 858.58,-3333.18 984.85,-3333.18 984.85,-3333.18 990.85,-3333.18 996.85,-3339.18 996.85,-3345.18 996.85,-3345.18 996.85,-3380.82 996.85,-3380.82 996.85,-3386.82 990.85,-3392.82 984.85,-3392.82"/>
+<g id="a_node23"><a xlink:title="M023 [asap] done; blockers=0; &#160;Echo Optics Cached&#45;Reading Identity Tests">
+<path fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.4" d="M984.85,-3392.82C984.85,-3392.82 858.58,-3392.82 858.58,-3392.82 852.58,-3392.82 846.58,-3386.82 846.58,-3380.82 846.58,-3380.82 846.58,-3345.18 846.58,-3345.18 846.58,-3339.18 852.58,-3333.18 858.58,-3333.18 858.58,-3333.18 984.85,-3333.18 984.85,-3333.18 990.85,-3333.18 996.85,-3339.18 996.85,-3345.18 996.85,-3345.18 996.85,-3380.82 996.85,-3380.82 996.85,-3386.82 990.85,-3392.82 984.85,-3392.82"/>
 <text xml:space="preserve" text-anchor="middle" x="921.72" y="-3379" font-family="Inter, Helvetica, Arial" font-size="10.00">M023</text>
-<text xml:space="preserve" text-anchor="middle" x="921.72" y="-3366.25" font-family="Inter, Helvetica, Arial" font-size="10.00">OPEN</text>
+<text xml:space="preserve" text-anchor="middle" x="921.72" y="-3366.25" font-family="Inter, Helvetica, Arial" font-size="10.00">DONE</text>
 <text xml:space="preserve" text-anchor="middle" x="921.72" y="-3353.5" font-family="Inter, Helvetica, Arial" font-size="10.00">Echo Optics Cached&#45;Reading</text>
 <text xml:space="preserve" text-anchor="middle" x="921.72" y="-3340.75" font-family="Inter, Helvetica, Arial" font-size="10.00">Identity Tests</text>
 </a>
@@ -680,8 +680,8 @@
 <!-- M031&#45;&gt;M023 -->
 <g id="edge34" class="edge">
 <title>M031&#45;&gt;M023</title>
-<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M565.63,-3409.31C679.71,-3409.31 922.09,-3409.31 922.09,-3409.31 922.09,-3409.31 922.09,-3400.16 922.09,-3400.16"/>
-<polygon fill="#94a3b8" stroke="#94a3b8" points="923.67,-3400.16 922.09,-3395.66 920.52,-3400.16 923.67,-3400.16"/>
+<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M565.63,-3409.31C679.71,-3409.31 922.09,-3409.31 922.09,-3409.31 922.09,-3409.31 922.09,-3399.39 922.09,-3399.39"/>
+<polygon fill="#94a3b8" stroke="#94a3b8" points="923.67,-3399.39 922.09,-3394.89 920.52,-3399.39 923.67,-3399.39"/>
 </g>
 <!-- M031&#45;&gt;M027 -->
 <g id="edge35" class="edge">
@@ -722,8 +722,8 @@
 <!-- M033&#45;&gt;M023 -->
 <g id="edge39" class="edge">
 <title>M033&#45;&gt;M023</title>
-<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M784.25,-3360C784.25,-3360 839.24,-3360 839.24,-3360"/>
-<polygon fill="#94a3b8" stroke="#94a3b8" points="839.24,-3361.58 843.74,-3360 839.24,-3358.43 839.24,-3361.58"/>
+<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M784.25,-3360C784.25,-3360 839.96,-3360 839.96,-3360"/>
+<polygon fill="#94a3b8" stroke="#94a3b8" points="839.96,-3361.58 844.46,-3360 839.96,-3358.43 839.96,-3361.58"/>
 </g>
 <!-- M033&#45;&gt;M027 -->
 <g id="edge40" class="edge">

@@ -2,6 +2,8 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Generic Echo optic nouns and deterministic identifiers.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use blake3::Hasher;
 use echo_wasm_abi::kernel_port as abi;
 
@@ -990,6 +992,151 @@ impl RetainedReadingDescriptor {
             codec_id: retained_reading_codec_id_to_abi(self.codec_id),
             byte_len: self.byte_len,
         }
+    }
+}
+
+/// Request to retain reading payload bytes under a semantic read identity.
+///
+/// Retention stores bytes and a descriptor only. It does not create substrate
+/// truth and does not mutate the optic subject.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct RetainReadingRequest {
+    /// Semantic identity of the read question answered by the payload.
+    pub read_identity: ReadIdentity,
+    /// Codec used to encode the retained payload bytes.
+    pub codec_id: RetainedReadingCodecId,
+    /// Encoded reading payload bytes.
+    pub payload: Vec<u8>,
+}
+
+/// Result of retaining reading payload bytes.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct RetainReadingResult {
+    /// Descriptor naming both the retained bytes and their semantic read identity.
+    pub descriptor: RetainedReadingDescriptor,
+}
+
+/// Request to reveal a retained reading payload.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct RevealReadingRequest {
+    /// Retained-reading key returned by retention.
+    pub key: RetainedReadingKey,
+    /// Exact semantic identity the caller is authorized to reveal.
+    pub read_identity: ReadIdentity,
+}
+
+/// Result of revealing a retained reading payload.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct RevealReadingResult {
+    /// Descriptor for the revealed payload.
+    pub descriptor: RetainedReadingDescriptor,
+    /// Encoded retained payload bytes.
+    pub payload: Vec<u8>,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+struct RetainedReadingCacheEntry {
+    descriptor: RetainedReadingDescriptor,
+    payload: Vec<u8>,
+}
+
+/// In-memory semantic cache for retained optic readings.
+///
+/// This cache is intentionally above CAS. The content hash names bytes, while
+/// the retained-reading key names bytes plus the semantic `ReadIdentity` and
+/// codec. Revealing by content hash alone is not a supported operation.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct RetainedReadingCache {
+    entries: BTreeMap<RetainedReadingKey, RetainedReadingCacheEntry>,
+    content_index: BTreeMap<Hash, BTreeSet<RetainedReadingKey>>,
+}
+
+impl RetainedReadingCache {
+    /// Returns the number of retained semantic readings.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Returns `true` when the cache has no retained readings.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// Retains encoded reading bytes under their semantic read identity.
+    ///
+    /// The derived key includes the content hash, codec, byte length, and exact
+    /// read identity. Equal bytes answering different questions therefore retain
+    /// under different keys.
+    pub fn retain_reading(&mut self, request: RetainReadingRequest) -> RetainReadingResult {
+        let content_hash = retained_payload_hash(&request.payload);
+        let byte_len = request.payload.len() as u64;
+        let descriptor = RetainedReadingDescriptor::new(
+            request.read_identity,
+            content_hash,
+            request.codec_id,
+            byte_len,
+        );
+        self.content_index
+            .entry(content_hash)
+            .or_default()
+            .insert(descriptor.key);
+        self.entries.insert(
+            descriptor.key,
+            RetainedReadingCacheEntry {
+                descriptor: descriptor.clone(),
+                payload: request.payload,
+            },
+        );
+        RetainReadingResult { descriptor }
+    }
+
+    /// Reveals retained reading bytes only when key and read identity both match.
+    ///
+    /// A content hash alone cannot reveal payload bytes because it does not name
+    /// the coordinate, aperture, witness basis, projection/reducer versions,
+    /// rights posture, budget posture, or residual posture the bytes answer.
+    pub fn reveal_reading(
+        &self,
+        request: &RevealReadingRequest,
+    ) -> Result<RevealReadingResult, Box<OpticObstruction>> {
+        let Some(entry) = self.entries.get(&request.key) else {
+            return Err(retained_reading_obstruction(
+                request.key,
+                &request.read_identity,
+                "retained reading key was not found",
+            ));
+        };
+        if entry.descriptor.read_identity != request.read_identity {
+            return Err(retained_reading_obstruction(
+                request.key,
+                &request.read_identity,
+                "retained reading identity mismatch; reveal requires the exact read identity",
+            ));
+        }
+
+        Ok(RevealReadingResult {
+            descriptor: entry.descriptor.clone(),
+            payload: entry.payload.clone(),
+        })
+    }
+
+    /// Returns retained-reading keys that share the same byte content hash.
+    ///
+    /// This is an index/diagnostic query, not reveal authority. Callers must use
+    /// [`Self::reveal_reading`] with an exact `ReadIdentity` to obtain bytes.
+    #[must_use]
+    pub fn keys_for_content_hash(&self, content_hash: Hash) -> Vec<RetainedReadingKey> {
+        self.content_index
+            .get(&content_hash)
+            .map_or_else(Vec::new, |keys| keys.iter().copied().collect())
     }
 }
 
@@ -2192,6 +2339,25 @@ fn derive_retained_reading_key(
     hasher.update(codec_id.as_bytes());
     feed_u64(&mut hasher, byte_len);
     RetainedReadingKey::from_bytes(hasher.finalize().into())
+}
+
+fn retained_payload_hash(payload: &[u8]) -> Hash {
+    blake3::hash(payload).into()
+}
+
+fn retained_reading_obstruction(
+    key: RetainedReadingKey,
+    read_identity: &ReadIdentity,
+    message: impl Into<String>,
+) -> Box<OpticObstruction> {
+    Box::new(OpticObstruction {
+        kind: OpticObstructionKind::MissingRetainedReading,
+        optic_id: Some(read_identity.optic_id),
+        focus: Some(OpticFocus::RetainedReading { key }),
+        coordinate: Some(EchoCoordinate::RetainedReading { key }),
+        witness_basis: Some(read_identity.witness_basis.clone()),
+        message: message.into(),
+    })
 }
 
 fn feed_tag(hasher: &mut Hasher, tag: u8) {

@@ -3,7 +3,16 @@
 
 # Echo Optics Cached-Reading Identity Tests
 
-Status: visible task card.
+Status: complete.
+
+## Completion evidence
+
+- Added `RetainedReadingCache` plus retain/reveal request/result models in
+  `warp-core`.
+- Added regression tests proving same content bytes under different coordinates
+  or apertures receive distinct retained keys.
+- Added reveal tests proving content-hash-only lookup misses and exact
+  `ReadIdentity` is required to reveal retained payload bytes.
 
 Depends on:
 

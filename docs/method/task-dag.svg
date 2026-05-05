@@ -10,7 +10,7 @@
 <title>method_task_dag</title>
 <polygon fill="white" stroke="none" points="-4,4 -4,-7693.5 3303.09,-7693.5 3303.09,4 -4,4"/>
 <text xml:space="preserve" text-anchor="middle" x="1649.55" y="-7662.7" font-family="Inter, Helvetica, Arial" font-size="24.00">METHOD Backlog Task Dependency DAG</text>
-<text xml:space="preserve" text-anchor="middle" x="1649.55" y="-7633.45" font-family="Inter, Helvetica, Arial" font-size="24.00">open tasks: 102 / 181; dependency edges: 125</text>
+<text xml:space="preserve" text-anchor="middle" x="1649.55" y="-7633.45" font-family="Inter, Helvetica, Arial" font-size="24.00">open tasks: 101 / 181; dependency edges: 125</text>
 <g id="clust1" class="cluster">
 <title>cluster_asap</title>
 <path fill="white" stroke="#cbd5e1" d="M24.5,-2247C24.5,-2247 1722.93,-2247 1722.93,-2247 1728.93,-2247 1734.93,-2253 1734.93,-2259 1734.93,-2259 1734.93,-3776 1734.93,-3776 1734.93,-3782 1728.93,-3788 1722.93,-3788 1722.93,-3788 24.5,-3788 24.5,-3788 18.5,-3788 12.5,-3782 12.5,-3776 12.5,-3776 12.5,-2259 12.5,-2259 12.5,-2253 18.5,-2247 24.5,-2247"/>
@@ -39,7 +39,7 @@
 <!-- M001 -->
 <g id="node1" class="node">
 <title>M001</title>
-<g id="a_node1"><a xlink:title="M001 [asap] blocked; blockers=2; T&#45;6&#45;5&#45;1 Man page generation and README examples">
+<g id="a_node1"><a xlink:title="M001 [asap] blocked; blockers=1; T&#45;6&#45;5&#45;1 Man page generation and README examples">
 <path fill="#fff3bf" stroke="#b08900" stroke-width="1.2" d="M561.31,-3233.82C561.31,-3233.82 453.79,-3233.82 453.79,-3233.82 447.79,-3233.82 441.79,-3227.82 441.79,-3221.82 441.79,-3221.82 441.79,-3186.18 441.79,-3186.18 441.79,-3180.18 447.79,-3174.18 453.79,-3174.18 453.79,-3174.18 561.31,-3174.18 561.31,-3174.18 567.31,-3174.18 573.31,-3180.18 573.31,-3186.18 573.31,-3186.18 573.31,-3221.82 573.31,-3221.82 573.31,-3227.82 567.31,-3233.82 561.31,-3233.82"/>
 <text xml:space="preserve" text-anchor="middle" x="507.55" y="-3220" font-family="Inter, Helvetica, Arial" font-size="10.00">M001</text>
 <text xml:space="preserve" text-anchor="middle" x="507.55" y="-3207.25" font-family="Inter, Helvetica, Arial" font-size="10.00">T&#45;6&#45;5&#45;1</text>
@@ -207,10 +207,10 @@
 <!-- M010 -->
 <g id="node10" class="node">
 <title>M010</title>
-<g id="a_node10"><a xlink:title="M010 [asap] open; blockers=0; T&#45;6&#45;3&#45;1 Bench subcommand &#45;&#45; criterion invocation and reporting">
-<path fill="#bbf7d0" stroke="#15803d" stroke-width="2.8" d="M351.04,-3126.57C351.04,-3126.57 253.27,-3126.57 253.27,-3126.57 247.27,-3126.57 241.27,-3120.57 241.27,-3114.57 241.27,-3114.57 241.27,-3053.43 241.27,-3053.43 241.27,-3047.43 247.27,-3041.43 253.27,-3041.43 253.27,-3041.43 351.04,-3041.43 351.04,-3041.43 357.04,-3041.43 363.04,-3047.43 363.04,-3053.43 363.04,-3053.43 363.04,-3114.57 363.04,-3114.57 363.04,-3120.57 357.04,-3126.57 351.04,-3126.57"/>
+<g id="a_node10"><a xlink:title="M010 [asap] done; blockers=0; T&#45;6&#45;3&#45;1 Bench subcommand &#45;&#45; criterion invocation and reporting">
+<path fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.4" d="M351.04,-3126.57C351.04,-3126.57 253.27,-3126.57 253.27,-3126.57 247.27,-3126.57 241.27,-3120.57 241.27,-3114.57 241.27,-3114.57 241.27,-3053.43 241.27,-3053.43 241.27,-3047.43 247.27,-3041.43 253.27,-3041.43 253.27,-3041.43 351.04,-3041.43 351.04,-3041.43 357.04,-3041.43 363.04,-3047.43 363.04,-3053.43 363.04,-3053.43 363.04,-3114.57 363.04,-3114.57 363.04,-3120.57 357.04,-3126.57 351.04,-3126.57"/>
 <text xml:space="preserve" text-anchor="middle" x="302.16" y="-3112.75" font-family="Inter, Helvetica, Arial" font-size="10.00">M010</text>
-<text xml:space="preserve" text-anchor="middle" x="302.16" y="-3100" font-family="Inter, Helvetica, Arial" font-size="10.00">OPEN</text>
+<text xml:space="preserve" text-anchor="middle" x="302.16" y="-3100" font-family="Inter, Helvetica, Arial" font-size="10.00">DONE</text>
 <text xml:space="preserve" text-anchor="middle" x="302.16" y="-3087.25" font-family="Inter, Helvetica, Arial" font-size="10.00">T&#45;6&#45;3&#45;1</text>
 <text xml:space="preserve" text-anchor="middle" x="302.16" y="-3074.5" font-family="Inter, Helvetica, Arial" font-size="10.00">Bench subcommand &#45;&#45;</text>
 <text xml:space="preserve" text-anchor="middle" x="302.16" y="-3061.75" font-family="Inter, Helvetica, Arial" font-size="10.00">criterion invocation and</text>
@@ -221,8 +221,8 @@
 <!-- M010&#45;&gt;M001 -->
 <g id="edge5" class="edge">
 <title>M010&#45;&gt;M001</title>
-<path fill="none" stroke="#dc2626" stroke-width="2.6" d="M364.2,-3084C424.52,-3084 507.09,-3084 507.09,-3084 507.09,-3084 507.09,-3161.78 507.09,-3161.78"/>
-<polygon fill="#dc2626" stroke="#dc2626" stroke-width="2.6" points="504.29,-3161.78 507.09,-3169.78 509.89,-3161.78 504.29,-3161.78"/>
+<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M363.64,-3084C424.01,-3084 507.09,-3084 507.09,-3084 507.09,-3084 507.09,-3167.71 507.09,-3167.71"/>
+<polygon fill="#94a3b8" stroke="#94a3b8" points="505.52,-3167.71 507.09,-3172.21 508.67,-3167.71 505.52,-3167.71"/>
 </g>
 <!-- M011 -->
 <g id="node11" class="node">
@@ -284,8 +284,8 @@
 <!-- M013&#45;&gt;M010 -->
 <g id="edge9" class="edge">
 <title>M013&#45;&gt;M010</title>
-<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M158.09,-3209.15C158.09,-3168.41 158.09,-3108.48 158.09,-3108.48 158.09,-3108.48 234.21,-3108.48 234.21,-3108.48"/>
-<polygon fill="#94a3b8" stroke="#94a3b8" points="234.21,-3110.05 238.71,-3108.48 234.21,-3106.9 234.21,-3110.05"/>
+<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M158.09,-3209.15C158.09,-3168.41 158.09,-3108.48 158.09,-3108.48 158.09,-3108.48 234.63,-3108.48 234.63,-3108.48"/>
+<polygon fill="#94a3b8" stroke="#94a3b8" points="234.63,-3110.05 239.13,-3108.48 234.63,-3106.9 234.63,-3110.05"/>
 </g>
 <!-- M013&#45;&gt;M011 -->
 <g id="edge10" class="edge">

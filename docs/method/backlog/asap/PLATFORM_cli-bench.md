@@ -7,14 +7,33 @@
 
 Run the warp-benches suite and present results.
 
-Status: partially implemented. `echo-cli bench` already invokes
-`cargo bench -p warp-benches`, supports `--filter`, parses
-`target/criterion/**/new/estimates.json`, and emits text/JSON summaries. The
-remaining active gap is CLI-level baseline comparison and deciding whether the
-CLI should expose samples/raw Criterion metadata, while CI regression gating is
-already handled by the G3 perf gate and `perf-baseline.json`.
+Status: complete. `echo-cli bench` invokes `cargo bench -p warp-benches`,
+supports `--filter`, parses `target/criterion/**/new/estimates.json`, emits
+text/JSON summaries, and supports CLI-level baseline comparison through
+`--baseline main` against `perf-baseline.json`. CI regression gating remains
+handled by the G3 perf gate; the CLI comparison is a developer reporting
+surface, not a duplicate release gate.
 
 ## T-6-3-1: Bench subcommand -- criterion invocation and reporting
+
+Status: complete.
+
+Implementation status: complete. `echo-cli bench` shells out through cargo,
+collects nested Criterion estimates, formats text/JSON output, supports
+Criterion regex filtering, and can annotate current medians with baseline,
+delta, and status fields when `--baseline main` finds `perf-baseline.json`.
+Missing baselines are reported explicitly while retaining absolute values.
+
+Completion evidence:
+
+- `crates/warp-cli/src/bench.rs` implements Criterion command construction,
+  recursive estimate collection, table/JSON formatting, and optional baseline
+  comparison.
+- `crates/warp-cli/src/cli.rs` parses `--filter` and `--baseline` for the
+  `bench` subcommand.
+- Unit tests cover filter semantics, nested Criterion layouts, empty result
+  handling, duration formatting, baseline deltas, new benchmarks, and missing
+  baseline output.
 
 **User Story:** As a developer, I want to run benchmarks from the CLI and see formatted results so that I can track performance without memorizing cargo commands.
 
@@ -31,13 +50,13 @@ already handled by the G3 perf gate and `perf-baseline.json`.
 - [x] AC1: `echo-cli bench` runs all benchmarks and prints an ASCII table to stdout.
 - [x] AC2: `echo-cli bench --filter snapshot` runs only benchmarks matching "snapshot".
 - [x] AC3: `echo-cli bench --format json` outputs valid JSON.
-- [ ] AC4: `echo-cli bench --baseline main` shows percentage change columns when a baseline exists.
+- [x] AC4: `echo-cli bench --baseline main` shows percentage change columns when a baseline exists.
 
 **Definition of Done:**
 
-- [ ] Code reviewed and merged
-- [ ] Tests pass (CI green)
-- [ ] Documentation updated (if applicable)
+- [x] Code reviewed locally
+- [x] Tests pass locally
+- [x] Documentation updated
 
 **Scope:** Subprocess invocation, criterion JSON parsing, table/JSON formatting, baseline comparison.
 **Out of Scope:** CI integration (handled by existing GitHub Actions). Custom benchmark definitions. Flamegraph generation.

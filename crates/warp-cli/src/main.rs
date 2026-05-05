@@ -35,7 +35,10 @@ fn main() -> Result<()> {
             ref snapshot,
             ref expected,
         } => verify::run(snapshot, expected.as_deref(), &cli.format),
-        Commands::Bench { ref filter } => bench::run(filter.as_deref(), &cli.format),
+        Commands::Bench {
+            ref filter,
+            ref baseline,
+        } => bench::run(filter.as_deref(), baseline.as_deref(), &cli.format),
         Commands::Inspect { ref snapshot, tree } => inspect::run(snapshot, tree, &cli.format),
     }
 }

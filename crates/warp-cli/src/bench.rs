@@ -6,7 +6,8 @@
 //! JSON from `target/criterion/**/new/estimates.json`, and renders an ASCII
 //! table or JSON array.
 
-use std::path::Path;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{bail, Context, Result};
@@ -23,6 +24,20 @@ pub(crate) struct BenchResult {
     pub(crate) mean_ns: f64,
     pub(crate) median_ns: f64,
     pub(crate) stddev_ns: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) baseline_ns: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) delta_pct: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) baseline_status: Option<String>,
+}
+
+/// Baseline metadata included in JSON output when `--baseline` is supplied.
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct BaselineInfo {
+    pub(crate) name: String,
+    pub(crate) path: String,
+    pub(crate) found: bool,
 }
 
 /// Raw Criterion estimates JSON structure.
@@ -73,7 +88,11 @@ pub(crate) fn build_bench_command(filter: Option<&str>) -> Command {
 }
 
 /// Runs the bench subcommand.
-pub(crate) fn run(filter: Option<&str>, format: &OutputFormat) -> Result<()> {
+pub(crate) fn run(
+    filter: Option<&str>,
+    baseline: Option<&str>,
+    format: &OutputFormat,
+) -> Result<()> {
     // 1. Shell out to cargo bench.
     let mut cmd = build_bench_command(filter);
 
@@ -90,20 +109,25 @@ pub(crate) fn run(filter: Option<&str>, format: &OutputFormat) -> Result<()> {
     }
 
     // 2. Parse Criterion JSON results.
-    let results = collect_criterion_results(Path::new("target/criterion"), filter)?;
+    let mut results = collect_criterion_results(Path::new("target/criterion"), filter)?;
+    let baseline_info = if let Some(name) = baseline {
+        Some(apply_named_baseline(name, &mut results)?)
+    } else {
+        None
+    };
 
     if results.is_empty() {
         let text = "No benchmark results found.\n";
-        let json = serde_json::json!({ "benchmarks": [], "message": "no results found" });
+        let json = serde_json::json!({ "benchmarks": [], "baseline": baseline_info, "message": "no results found" });
         eprintln!("warning: no benchmark results found in target/criterion/");
         emit(format, text, &json)?;
         return Ok(());
     }
 
     // 3. Format output.
-    let text = format_table(&results);
+    let text = format_table(&results, baseline_info.as_ref());
     let json = serde_json::to_value(&results).context("failed to serialize bench results")?;
-    let json = serde_json::json!({ "benchmarks": json });
+    let json = serde_json::json!({ "benchmarks": json, "baseline": baseline_info });
 
     emit(format, &text, &json)?;
     Ok(())
@@ -204,25 +228,123 @@ pub(crate) fn parse_estimates(name: &str, path: &Path) -> Result<BenchResult> {
         mean_ns: estimates.mean.point_estimate,
         median_ns: estimates.median.point_estimate,
         stddev_ns: estimates.std_dev.point_estimate,
+        baseline_ns: None,
+        delta_pct: None,
+        baseline_status: None,
     })
 }
 
+fn baseline_path(name: &str) -> PathBuf {
+    if name == "main" {
+        PathBuf::from("perf-baseline.json")
+    } else {
+        PathBuf::from(format!("perf-baseline.{name}.json"))
+    }
+}
+
+fn apply_named_baseline(name: &str, results: &mut [BenchResult]) -> Result<BaselineInfo> {
+    let path = baseline_path(name);
+    let info = BaselineInfo {
+        name: name.to_string(),
+        path: path.display().to_string(),
+        found: path.is_file(),
+    };
+
+    if !info.found {
+        return Ok(info);
+    }
+
+    let baseline = load_baseline(&path)?;
+    apply_baseline(results, &baseline);
+    Ok(info)
+}
+
+fn load_baseline(path: &Path) -> Result<BTreeMap<String, f64>> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read baseline {}", path.display()))?;
+    serde_json::from_str(&content)
+        .with_context(|| format!("failed to parse baseline {}", path.display()))
+}
+
+fn apply_baseline(results: &mut [BenchResult], baseline: &BTreeMap<String, f64>) {
+    for result in results {
+        let Some(base) = baseline.get(&result.name).copied() else {
+            result.baseline_status = Some("NEW".to_string());
+            continue;
+        };
+
+        result.baseline_ns = Some(base);
+        if base > 0.0 && base.is_finite() {
+            result.delta_pct = Some(((result.median_ns - base) / base) * 100.0);
+            result.baseline_status = Some("OK".to_string());
+        } else {
+            result.baseline_status = Some("INVALID_BASELINE".to_string());
+        }
+    }
+}
+
 /// Formats benchmark results as an ASCII table.
-pub(crate) fn format_table(results: &[BenchResult]) -> String {
+pub(crate) fn format_table(results: &[BenchResult], baseline: Option<&BaselineInfo>) -> String {
+    use std::fmt::Write as _;
+
     let mut table = Table::new();
     table.set_content_arrangement(ContentArrangement::Dynamic);
-    table.set_header(vec!["Benchmark", "Mean", "Median", "Std Dev"]);
+    let show_baseline = baseline.is_some_and(|info| info.found);
+    if show_baseline {
+        table.set_header(vec![
+            "Benchmark",
+            "Mean",
+            "Median",
+            "Std Dev",
+            "Baseline",
+            "Delta",
+            "Status",
+        ]);
+    } else {
+        table.set_header(vec!["Benchmark", "Mean", "Median", "Std Dev"]);
+    }
 
     for r in results {
-        table.add_row(vec![
+        let mut row = vec![
             r.name.clone(),
             format_duration(r.mean_ns),
             format_duration(r.median_ns),
             format_duration(r.stddev_ns),
-        ]);
+        ];
+        if show_baseline {
+            row.push(
+                r.baseline_ns
+                    .map_or_else(|| "\u{2014}".to_string(), format_duration),
+            );
+            row.push(
+                r.delta_pct
+                    .map_or_else(|| "\u{2014}".to_string(), |delta| format!("{delta:+.1}%")),
+            );
+            row.push(
+                r.baseline_status
+                    .as_deref()
+                    .unwrap_or("\u{2014}")
+                    .to_string(),
+            );
+        }
+        table.add_row(row);
     }
 
-    format!("{table}\n")
+    let mut out = String::new();
+    if let Some(info) = baseline {
+        if info.found {
+            let _ = writeln!(out, "Baseline: {} ({})", info.name, info.path);
+        } else {
+            let _ = writeln!(
+                out,
+                "No baseline found at {}; showing absolute values only.",
+                info.path
+            );
+        }
+        let _ = writeln!(out);
+    }
+    let _ = writeln!(out, "{table}");
+    out
 }
 
 /// Formats nanosecond durations in human-readable form.
@@ -286,16 +408,22 @@ mod tests {
                 mean_ns: 1_230_000.0,
                 median_ns: 1_210_000.0,
                 stddev_ns: 120_000.0,
+                baseline_ns: None,
+                delta_pct: None,
+                baseline_status: None,
             },
             BenchResult {
                 name: "materialize".to_string(),
                 mean_ns: 456_700.0,
                 median_ns: 450_200.0,
                 stddev_ns: 32_100.0,
+                baseline_ns: None,
+                delta_pct: None,
+                baseline_status: None,
             },
         ];
 
-        let table = format_table(&results);
+        let table = format_table(&results, None);
         assert!(
             table.contains("tick_pipeline"),
             "table should contain bench name"
@@ -314,6 +442,9 @@ mod tests {
             mean_ns: 100.0,
             median_ns: 95.0,
             stddev_ns: 5.0,
+            baseline_ns: None,
+            delta_pct: None,
+            baseline_status: None,
         }];
 
         let json = serde_json::to_value(&results).unwrap();
@@ -478,5 +609,101 @@ mod tests {
             !args.contains(&std::ffi::OsStr::new("--")),
             "command without filter should not contain '--'"
         );
+    }
+
+    #[test]
+    fn baseline_path_main_uses_repo_baseline() {
+        assert_eq!(baseline_path("main"), PathBuf::from("perf-baseline.json"));
+        assert_eq!(
+            baseline_path("feature"),
+            PathBuf::from("perf-baseline.feature.json")
+        );
+    }
+
+    #[test]
+    fn apply_baseline_adds_delta_status() {
+        let mut results = vec![BenchResult {
+            name: "tick_pipeline".to_string(),
+            mean_ns: 120.0,
+            median_ns: 110.0,
+            stddev_ns: 3.0,
+            baseline_ns: None,
+            delta_pct: None,
+            baseline_status: None,
+        }];
+        let baseline = BTreeMap::from([("tick_pipeline".to_string(), 100.0)]);
+
+        apply_baseline(&mut results, &baseline);
+
+        assert_eq!(results[0].baseline_ns, Some(100.0));
+        assert_eq!(results[0].delta_pct, Some(10.0));
+        assert_eq!(results[0].baseline_status.as_deref(), Some("OK"));
+    }
+
+    #[test]
+    fn apply_baseline_marks_new_benchmark() {
+        let mut results = vec![BenchResult {
+            name: "new_bench".to_string(),
+            mean_ns: 120.0,
+            median_ns: 110.0,
+            stddev_ns: 3.0,
+            baseline_ns: None,
+            delta_pct: None,
+            baseline_status: None,
+        }];
+        apply_baseline(&mut results, &BTreeMap::new());
+
+        assert_eq!(results[0].baseline_ns, None);
+        assert_eq!(results[0].delta_pct, None);
+        assert_eq!(results[0].baseline_status.as_deref(), Some("NEW"));
+    }
+
+    #[test]
+    fn table_with_baseline_shows_delta_columns() {
+        let results = vec![BenchResult {
+            name: "tick_pipeline".to_string(),
+            mean_ns: 120.0,
+            median_ns: 110.0,
+            stddev_ns: 3.0,
+            baseline_ns: Some(100.0),
+            delta_pct: Some(10.0),
+            baseline_status: Some("OK".to_string()),
+        }];
+        let info = BaselineInfo {
+            name: "main".to_string(),
+            path: "perf-baseline.json".to_string(),
+            found: true,
+        };
+
+        let table = format_table(&results, Some(&info));
+
+        assert!(table.contains("Baseline: main (perf-baseline.json)"));
+        assert!(table.contains("Delta"));
+        assert!(table.contains("+10.0%"));
+        assert!(table.contains("OK"));
+    }
+
+    #[test]
+    fn missing_baseline_keeps_absolute_table() {
+        let results = vec![BenchResult {
+            name: "tick_pipeline".to_string(),
+            mean_ns: 120.0,
+            median_ns: 110.0,
+            stddev_ns: 3.0,
+            baseline_ns: None,
+            delta_pct: None,
+            baseline_status: None,
+        }];
+        let info = BaselineInfo {
+            name: "main".to_string(),
+            path: "perf-baseline.json".to_string(),
+            found: false,
+        };
+
+        let table = format_table(&results, Some(&info));
+
+        assert!(table.contains("No baseline found at perf-baseline.json"));
+        assert!(!table.contains("Delta"));
+        assert!(table.contains("tick_pipeline"));
     }
 }

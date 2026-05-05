@@ -30,7 +30,7 @@ echo-cli verify state.wsc --expected abcd1234...
 echo-cli --format json verify state.wsc
 ```
 
-### `echo-cli bench [--filter <pattern>]`
+### `echo-cli bench [--filter <pattern>] [--baseline <name>]`
 
 Run Criterion benchmarks, parse JSON results, and format as an ASCII table.
 
@@ -40,6 +40,9 @@ echo-cli bench
 
 # Filter by name
 echo-cli bench --filter hotpath
+
+# Compare current medians against perf-baseline.json
+echo-cli bench --baseline main
 
 # JSON output for CI
 echo-cli --format json bench

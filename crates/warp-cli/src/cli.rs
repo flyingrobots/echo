@@ -46,6 +46,10 @@ pub enum Commands {
         /// Filter benchmarks by pattern.
         #[arg(long)]
         filter: Option<String>,
+
+        /// Compare current medians against a saved baseline.
+        #[arg(long)]
+        baseline: Option<String>,
     },
 
     /// Inspect a WSC snapshot.
@@ -128,7 +132,13 @@ mod tests {
     fn parse_bench_no_filter() {
         let cli = Cli::try_parse_from(["echo-cli", "bench"]).unwrap();
         match cli.command {
-            Commands::Bench { ref filter } => assert!(filter.is_none()),
+            Commands::Bench {
+                ref filter,
+                ref baseline,
+            } => {
+                assert!(filter.is_none());
+                assert!(baseline.is_none());
+            }
             _ => panic!("expected Bench command"),
         }
     }
@@ -137,8 +147,19 @@ mod tests {
     fn parse_bench_with_filter() {
         let cli = Cli::try_parse_from(["echo-cli", "bench", "--filter", "hotpath"]).unwrap();
         match cli.command {
-            Commands::Bench { ref filter } => {
+            Commands::Bench { ref filter, .. } => {
                 assert_eq!(filter.as_deref(), Some("hotpath"));
+            }
+            _ => panic!("expected Bench command"),
+        }
+    }
+
+    #[test]
+    fn parse_bench_with_baseline() {
+        let cli = Cli::try_parse_from(["echo-cli", "bench", "--baseline", "main"]).unwrap();
+        match cli.command {
+            Commands::Bench { ref baseline, .. } => {
+                assert_eq!(baseline.as_deref(), Some("main"));
             }
             _ => panic!("expected Bench command"),
         }

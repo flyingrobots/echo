@@ -100,7 +100,8 @@ fn bench_help_lists_filter() {
         .args(["bench", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("filter"));
+        .stdout(predicate::str::contains("filter"))
+        .stdout(predicate::str::contains("baseline"));
 }
 
 #[test]

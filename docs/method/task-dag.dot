@@ -33,8 +33,8 @@ digraph method_task_dag {
     style="rounded";
     "M001" [label="M001\nOPEN\nT-6-5-1\nMan page generation and\nREADME examples", tooltip="M001 [asap] open; blockers=0; T-6-5-1 Man page generation and README examples", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M002" [label="M002\nOPEN\nDocs cleanup", tooltip="M002 [asap] open; blockers=0;  Docs cleanup", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
-    "M003" [label="M003\nOPEN\nT-9-1-1\nImplement 1-thread vs\nN-thread determinism\nharness", tooltip="M003 [asap] open; blockers=0; T-9-1-1 Implement 1-thread vs N-thread determinism harness", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
-    "M004" [label="M004\nT-9-1-2\nImplement snapshot/restore\nfuzz", tooltip="M004 [asap] blocked; blockers=1; T-9-1-2 Implement snapshot/restore fuzz", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
+    "M003" [label="M003\nDONE\nT-9-1-1\nImplement 1-thread vs\nN-thread determinism\nharness", tooltip="M003 [asap] done; blockers=0; T-9-1-1 Implement 1-thread vs N-thread determinism harness", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
+    "M004" [label="M004\nOPEN\nT-9-1-2\nImplement snapshot/restore\nfuzz", tooltip="M004 [asap] open; blockers=0; T-9-1-2 Implement snapshot/restore fuzz", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M005" [label="M005\nOPEN\nEcho and git-warp\ncompatibility sanity check", tooltip="M005 [asap] open; blockers=0;  Echo and git-warp compatibility sanity check", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M006" [label="M006\nDONE\nLive holographic strands", tooltip="M006 [asap] done; blockers=0;  Live holographic strands", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M007" [label="M007\nOPEN\nT-9-3-1\nVerify and integrate\ndeterministic trig oracle\ninto release gate", tooltip="M007 [asap] open; blockers=0; T-9-3-1 Verify and integrate deterministic trig oracle into release gate", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
@@ -246,7 +246,7 @@ digraph method_task_dag {
     "M181" [label="M181\nOPEN\nxtask main.rs is a god\nfile", tooltip="M181 [bad-code] open; blockers=0;  xtask main.rs is a god file", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
   }
 
-  "M003" -> "M004";
+  "M003" -> "M004" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
   "M006" -> "M046" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
   "M006" -> "M047" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
   "M008" -> "M079" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];

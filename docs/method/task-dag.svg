@@ -63,10 +63,10 @@
 <!-- M003 -->
 <g id="node3" class="node">
 <title>M003</title>
-<g id="a_node3"><a xlink:title="M003 [asap] open; blockers=0; T&#45;9&#45;1&#45;1 Implement 1&#45;thread vs N&#45;thread determinism harness">
-<path fill="#bbf7d0" stroke="#15803d" stroke-width="2.8" d="M140.77,-3184.57C140.77,-3184.57 48.25,-3184.57 48.25,-3184.57 42.25,-3184.57 36.25,-3178.57 36.25,-3172.57 36.25,-3172.57 36.25,-3111.43 36.25,-3111.43 36.25,-3105.43 42.25,-3099.43 48.25,-3099.43 48.25,-3099.43 140.77,-3099.43 140.77,-3099.43 146.77,-3099.43 152.77,-3105.43 152.77,-3111.43 152.77,-3111.43 152.77,-3172.57 152.77,-3172.57 152.77,-3178.57 146.77,-3184.57 140.77,-3184.57"/>
+<g id="a_node3"><a xlink:title="M003 [asap] done; blockers=0; T&#45;9&#45;1&#45;1 Implement 1&#45;thread vs N&#45;thread determinism harness">
+<path fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.4" d="M140.77,-3184.57C140.77,-3184.57 48.25,-3184.57 48.25,-3184.57 42.25,-3184.57 36.25,-3178.57 36.25,-3172.57 36.25,-3172.57 36.25,-3111.43 36.25,-3111.43 36.25,-3105.43 42.25,-3099.43 48.25,-3099.43 48.25,-3099.43 140.77,-3099.43 140.77,-3099.43 146.77,-3099.43 152.77,-3105.43 152.77,-3111.43 152.77,-3111.43 152.77,-3172.57 152.77,-3172.57 152.77,-3178.57 146.77,-3184.57 140.77,-3184.57"/>
 <text xml:space="preserve" text-anchor="middle" x="94.51" y="-3170.75" font-family="Inter, Helvetica, Arial" font-size="10.00">M003</text>
-<text xml:space="preserve" text-anchor="middle" x="94.51" y="-3158" font-family="Inter, Helvetica, Arial" font-size="10.00">OPEN</text>
+<text xml:space="preserve" text-anchor="middle" x="94.51" y="-3158" font-family="Inter, Helvetica, Arial" font-size="10.00">DONE</text>
 <text xml:space="preserve" text-anchor="middle" x="94.51" y="-3145.25" font-family="Inter, Helvetica, Arial" font-size="10.00">T&#45;9&#45;1&#45;1</text>
 <text xml:space="preserve" text-anchor="middle" x="94.51" y="-3132.5" font-family="Inter, Helvetica, Arial" font-size="10.00">Implement 1&#45;thread vs</text>
 <text xml:space="preserve" text-anchor="middle" x="94.51" y="-3119.75" font-family="Inter, Helvetica, Arial" font-size="10.00">N&#45;thread determinism</text>
@@ -77,20 +77,21 @@
 <!-- M004 -->
 <g id="node4" class="node">
 <title>M004</title>
-<g id="a_node4"><a xlink:title="M004 [asap] blocked; blockers=1; T&#45;9&#45;1&#45;2 Implement snapshot/restore fuzz">
-<path fill="#fff3bf" stroke="#b08900" stroke-width="1.2" d="M362.67,-3016.82C362.67,-3016.82 241.65,-3016.82 241.65,-3016.82 235.65,-3016.82 229.65,-3010.82 229.65,-3004.82 229.65,-3004.82 229.65,-2969.18 229.65,-2969.18 229.65,-2963.18 235.65,-2957.18 241.65,-2957.18 241.65,-2957.18 362.67,-2957.18 362.67,-2957.18 368.67,-2957.18 374.67,-2963.18 374.67,-2969.18 374.67,-2969.18 374.67,-3004.82 374.67,-3004.82 374.67,-3010.82 368.67,-3016.82 362.67,-3016.82"/>
-<text xml:space="preserve" text-anchor="middle" x="302.16" y="-3003" font-family="Inter, Helvetica, Arial" font-size="10.00">M004</text>
-<text xml:space="preserve" text-anchor="middle" x="302.16" y="-2990.25" font-family="Inter, Helvetica, Arial" font-size="10.00">T&#45;9&#45;1&#45;2</text>
-<text xml:space="preserve" text-anchor="middle" x="302.16" y="-2977.5" font-family="Inter, Helvetica, Arial" font-size="10.00">Implement snapshot/restore</text>
-<text xml:space="preserve" text-anchor="middle" x="302.16" y="-2964.75" font-family="Inter, Helvetica, Arial" font-size="10.00">fuzz</text>
+<g id="a_node4"><a xlink:title="M004 [asap] open; blockers=0; T&#45;9&#45;1&#45;2 Implement snapshot/restore fuzz">
+<path fill="#bbf7d0" stroke="#15803d" stroke-width="2.8" d="M362.67,-3016.2C362.67,-3016.2 241.65,-3016.2 241.65,-3016.2 235.65,-3016.2 229.65,-3010.2 229.65,-3004.2 229.65,-3004.2 229.65,-2955.8 229.65,-2955.8 229.65,-2949.8 235.65,-2943.8 241.65,-2943.8 241.65,-2943.8 362.67,-2943.8 362.67,-2943.8 368.67,-2943.8 374.67,-2949.8 374.67,-2955.8 374.67,-2955.8 374.67,-3004.2 374.67,-3004.2 374.67,-3010.2 368.67,-3016.2 362.67,-3016.2"/>
+<text xml:space="preserve" text-anchor="middle" x="302.16" y="-3002.38" font-family="Inter, Helvetica, Arial" font-size="10.00">M004</text>
+<text xml:space="preserve" text-anchor="middle" x="302.16" y="-2989.62" font-family="Inter, Helvetica, Arial" font-size="10.00">OPEN</text>
+<text xml:space="preserve" text-anchor="middle" x="302.16" y="-2976.88" font-family="Inter, Helvetica, Arial" font-size="10.00">T&#45;9&#45;1&#45;2</text>
+<text xml:space="preserve" text-anchor="middle" x="302.16" y="-2964.12" font-family="Inter, Helvetica, Arial" font-size="10.00">Implement snapshot/restore</text>
+<text xml:space="preserve" text-anchor="middle" x="302.16" y="-2951.38" font-family="Inter, Helvetica, Arial" font-size="10.00">fuzz</text>
 </a>
 </g>
 </g>
 <!-- M003&#45;&gt;M004 -->
 <g id="edge1" class="edge">
 <title>M003&#45;&gt;M004</title>
-<path fill="none" stroke="#dc2626" stroke-width="2.6" d="M154.14,-3117.52C192.84,-3117.52 236.09,-3117.52 236.09,-3117.52 236.09,-3117.52 236.09,-3029.21 236.09,-3029.21"/>
-<polygon fill="#dc2626" stroke="#dc2626" stroke-width="2.6" points="238.89,-3029.21 236.09,-3021.21 233.29,-3029.21 238.89,-3029.21"/>
+<path fill="none" stroke="#94a3b8" stroke-dasharray="5,2" d="M153.32,-3117.52C192.22,-3117.52 236.09,-3117.52 236.09,-3117.52 236.09,-3117.52 236.09,-3023.59 236.09,-3023.59"/>
+<polygon fill="#94a3b8" stroke="#94a3b8" points="237.67,-3023.59 236.09,-3019.09 234.52,-3023.59 237.67,-3023.59"/>
 </g>
 <!-- M005 -->
 <g id="node5" class="node">

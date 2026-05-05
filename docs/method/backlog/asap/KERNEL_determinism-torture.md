@@ -9,13 +9,32 @@ Prove that single-threaded and multi-threaded execution produce identical result
 
 **Issues:** #190
 
-Status: active backlog item. Existing determinism gates cover many related
-cases; this item is specifically for the remaining 1-thread vs N-thread report
-and snapshot/restore fuzz gate.
+Status: active backlog item. T-9-1-1 is complete; T-9-1-2 remains. Existing
+determinism gates cover many related cases; this item is specifically for the
+remaining 1-thread vs N-thread report and snapshot/restore fuzz gate.
 
 ---
 
 ## T-9-1-1: Implement 1-thread vs N-thread determinism harness
+
+Status: complete.
+
+Implementation status: complete. `warp-core` now has a test-only thread-count
+determinism report harness that compares a 1-worker baseline against 1, 2, 4,
+and 8 worker executions for existing parallel harness scenarios. The harness
+reports deterministic JSON text without adding `serde_json` to `warp-core`,
+compares `state_root`, `patch_digest`, computed `commit_id`, and scalar digest
+per tick, and includes an injected divergence hook proving mismatched canonical
+ordering is detected.
+
+Completion evidence:
+
+- `crates/warp-core/tests/determinism_thread_harness.rs` builds deterministic
+  per-tick comparison reports over `common::parallel_harness()`.
+- The default lane covers `F32Scalar` scenarios and zero-tick behavior.
+- The `det_fixed` feature lane covers the `DFix64` backend.
+- The injected divergence test mutates a worker-specific patch digest and
+  reports the first divergent tick and mismatched fields.
 
 **User Story:** As a release engineer, I want an automated harness that runs the same simulation single-threaded and multi-threaded and proves they produce identical state hashes so that I can gate releases on determinism.
 
@@ -29,16 +48,16 @@ and snapshot/restore fuzz gate.
 
 **Acceptance Criteria:**
 
-- [ ] AC1: Harness passes with 0 divergences on the existing golden test scenarios from MS-1.
-- [ ] AC2: Harness passes for 1, 2, 4, and 8 thread configurations.
-- [ ] AC3: Harness passes for both `F32Scalar` and `DFix64` backends.
-- [ ] AC4: Intentionally breaking scheduler ordering (test hook) causes the harness to detect divergence.
+- [x] AC1: Harness passes with 0 divergences on the existing golden test scenarios from MS-1.
+- [x] AC2: Harness passes for 1, 2, 4, and 8 thread configurations.
+- [x] AC3: Harness passes for both `F32Scalar` and `DFix64` backends.
+- [x] AC4: Intentionally breaking scheduler ordering (test hook) causes the harness to detect divergence.
 
 **Definition of Done:**
 
-- [ ] Code reviewed and merged
-- [ ] Tests pass (CI green)
-- [ ] Documentation updated (if applicable)
+- [x] Code reviewed locally
+- [x] Tests pass locally
+- [x] Documentation updated
 
 **Scope:** Thread-count comparison harness, structured report, both scalar backends.
 **Out of Scope:** GPU determinism; WASM vs native comparison (separate concern); performance benchmarking.

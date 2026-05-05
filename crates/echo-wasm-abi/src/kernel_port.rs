@@ -186,6 +186,67 @@ logical_counter!(
     RunId
 );
 
+opaque_id!(
+    /// Opaque stable identifier for an Echo optic descriptor.
+    OpticId
+);
+
+opaque_id!(
+    /// Opaque stable identifier for a generic braid.
+    BraidId
+);
+
+opaque_id!(
+    /// Opaque stable identifier for a retained reading key.
+    RetainedReadingKey
+);
+
+opaque_id!(
+    /// Opaque stable identifier for an intent family allowed through an optic.
+    IntentFamilyId
+);
+
+opaque_id!(
+    /// Opaque stable identifier for an optic capability basis.
+    OpticCapabilityId
+);
+
+opaque_id!(
+    /// Opaque stable identifier for a WARP instance.
+    WarpId
+);
+
+opaque_id!(
+    /// Opaque stable identifier for a node within a WARP instance.
+    NodeId
+);
+
+opaque_id!(
+    /// Opaque stable identifier for an edge within a WARP instance.
+    EdgeId
+);
+
+opaque_id!(
+    /// Opaque stable identifier for a materialization channel.
+    ChannelId
+);
+
+/// Version of the projection law used by an optic read.
+#[repr(transparent)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
+#[serde(transparent)]
+pub struct ProjectionVersion(pub u32);
+
+/// Version of the reducer law used by an optic read, when a reducer is present.
+#[repr(transparent)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
+#[serde(transparent)]
+pub struct ReducerVersion(pub u32);
+
 // ---------------------------------------------------------------------------
 // Error codes
 // ---------------------------------------------------------------------------
@@ -434,6 +495,214 @@ pub struct ChannelData {
     pub channel_id: Vec<u8>,
     /// Raw finalized data for this channel.
     pub data: Vec<u8>,
+}
+
+/// Attachment plane selector for optic boundary reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AttachmentPlane {
+    /// Vertex/node attachment plane.
+    Alpha,
+    /// Edge attachment plane.
+    Beta,
+}
+
+/// Attachment owner reference for optic boundary reads.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AttachmentOwnerRef {
+    /// Node-owned attachment.
+    Node {
+        /// WARP instance containing the node.
+        warp_id: WarpId,
+        /// Node identity within that WARP instance.
+        node_id: NodeId,
+    },
+    /// Edge-owned attachment.
+    Edge {
+        /// WARP instance containing the edge.
+        warp_id: WarpId,
+        /// Edge identity within that WARP instance.
+        edge_id: EdgeId,
+    },
+}
+
+/// First-class reference to an attachment boundary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AttachmentKey {
+    /// Owner of the attachment slot.
+    pub owner: AttachmentOwnerRef,
+    /// Attachment plane selector.
+    pub plane: AttachmentPlane,
+}
+
+/// Lawful subject named by an optic.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum OpticFocus {
+    /// A whole worldline.
+    Worldline {
+        /// Target worldline.
+        worldline_id: WorldlineId,
+    },
+    /// A live or retained strand.
+    Strand {
+        /// Target strand.
+        strand_id: StrandId,
+    },
+    /// A generic braid projection.
+    Braid {
+        /// Target braid.
+        braid_id: BraidId,
+    },
+    /// A previously retained reading.
+    RetainedReading {
+        /// Retained reading key.
+        key: RetainedReadingKey,
+    },
+    /// An explicit attachment boundary.
+    AttachmentBoundary {
+        /// Attachment boundary key.
+        key: AttachmentKey,
+    },
+}
+
+/// Coordinate selector used by generic optics.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CoordinateAt {
+    /// Current frontier at observation or dispatch time.
+    Frontier,
+    /// Specific committed tick.
+    Tick {
+        /// Per-worldline append identity.
+        worldline_tick: WorldlineTick,
+    },
+    /// Full provenance coordinate.
+    Provenance {
+        /// Provenance coordinate reference.
+        reference: ProvenanceRef,
+    },
+}
+
+/// Causal coordinate named by an optic.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum EchoCoordinate {
+    /// Coordinate on a worldline.
+    Worldline {
+        /// Target worldline.
+        worldline_id: WorldlineId,
+        /// Requested position.
+        at: CoordinateAt,
+    },
+    /// Coordinate on a strand.
+    Strand {
+        /// Target strand.
+        strand_id: StrandId,
+        /// Requested position.
+        at: CoordinateAt,
+        /// Optional parent basis that makes the strand read honest.
+        parent_basis: Option<ProvenanceRef>,
+    },
+    /// Coordinate on a braid projection.
+    Braid {
+        /// Target braid.
+        braid_id: BraidId,
+        /// Projection digest at the named member frontier.
+        projection_digest: Vec<u8>,
+        /// Number of members included in the projection.
+        member_count: u64,
+    },
+    /// Coordinate of a retained reading.
+    RetainedReading {
+        /// Retained reading key.
+        key: RetainedReadingKey,
+    },
+}
+
+/// Attachment recursion policy for an optic aperture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AttachmentDescentPolicy {
+    /// Stop at the attachment boundary and expose only the boundary reference.
+    BoundaryOnly,
+    /// Recursive descent was explicitly requested and remains budget/capability checked.
+    Explicit,
+}
+
+/// Budget bound for an optic read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct OpticReadBudget {
+    /// Maximum payload bytes to produce.
+    pub max_bytes: Option<u64>,
+    /// Maximum graph nodes or entities to visit.
+    pub max_nodes: Option<u64>,
+    /// Maximum causal ticks to reduce.
+    pub max_ticks: Option<u64>,
+    /// Maximum attachment boundaries to descend through.
+    pub max_attachments: Option<u64>,
+}
+
+/// Bounded aperture shape selected by an optic read.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum OpticApertureShape {
+    /// Head/frontier metadata only.
+    Head,
+    /// Snapshot metadata only.
+    SnapshotMetadata,
+    /// Recorded truth channels.
+    TruthChannels {
+        /// Optional channel filter. `None` means all recorded channels within budget.
+        channels: Option<Vec<ChannelId>>,
+    },
+    /// Contract query bytes identified by query id and vars digest.
+    QueryBytes {
+        /// Stable query identifier.
+        query_id: u32,
+        /// Hash of canonical query variables.
+        vars_digest: Vec<u8>,
+    },
+    /// Bounded byte range aperture.
+    ByteRange {
+        /// Start byte offset.
+        start: u64,
+        /// Maximum byte length to return.
+        len: u64,
+    },
+    /// Explicit attachment boundary.
+    AttachmentBoundary,
+}
+
+/// Complete aperture for one optic read.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpticAperture {
+    /// Shape of the read aperture.
+    pub shape: OpticApertureShape,
+    /// Read budget.
+    pub budget: OpticReadBudget,
+    /// Attachment recursion policy.
+    pub attachment_descent: AttachmentDescentPolicy,
+}
+
+/// Opened optic descriptor. This is not a mutable handle.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EchoOptic {
+    /// Stable optic identity derived by the core host.
+    pub optic_id: OpticId,
+    /// Lawful subject being observed or targeted by intent dispatch.
+    pub focus: OpticFocus,
+    /// Explicit causal coordinate.
+    pub coordinate: EchoCoordinate,
+    /// Projection law version.
+    pub projection_version: ProjectionVersion,
+    /// Reducer law version, if a reducer participates.
+    pub reducer_version: Option<ReducerVersion>,
+    /// Intent family allowed through this optic.
+    pub intent_family: IntentFamilyId,
+    /// Capability basis under which the optic was opened.
+    pub capability: OpticCapabilityId,
 }
 
 /// Coordinate selector for an observation request.

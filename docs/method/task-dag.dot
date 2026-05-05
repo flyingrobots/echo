@@ -1,6 +1,6 @@
 digraph method_task_dag {
   graph [
-    label="METHOD Backlog Task Dependency DAG\nopen tasks: 101 / 181; dependency edges: 125",
+    label="METHOD Backlog Task Dependency DAG\nopen tasks: 102 / 181; dependency edges: 125",
     labelloc=t,
     fontsize=24,
     fontname="Inter, Helvetica, Arial",
@@ -54,14 +54,14 @@ digraph method_task_dag {
     "M021" [label="M021\nDONE\nEcho Optics API Design", tooltip="M021 [asap] done; blockers=0;  Echo Optics API Design", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M022" [label="M022\nEcho Optics Attachment\nBoundary Model", tooltip="M022 [asap] blocked; blockers=1;  Echo Optics Attachment Boundary Model", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
     "M023" [label="M023\nEcho Optics Cached-Reading\nIdentity Tests", tooltip="M023 [asap] blocked; blockers=2;  Echo Optics Cached-Reading Identity Tests", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
-    "M024" [label="M024\nOPEN\nEcho Optics Core Nouns And\nIDs", tooltip="M024 [asap] open; blockers=0;  Echo Optics Core Nouns And IDs", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
+    "M024" [label="M024\nDONE\nEcho Optics Core Nouns And\nIDs", tooltip="M024 [asap] done; blockers=0;  Echo Optics Core Nouns And IDs", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M025" [label="M025\nEcho Optics Dispatch\nIntent Model", tooltip="M025 [asap] blocked; blockers=3;  Echo Optics Dispatch Intent Model", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
     "M026" [label="M026\nEcho Optics Example\nImplementation", tooltip="M026 [asap] blocked; blockers=4;  Echo Optics Example Implementation", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
     "M027" [label="M027\nEcho Optics Live-Tail\nHonesty Tests", tooltip="M027 [asap] blocked; blockers=2;  Echo Optics Live-Tail Honesty Tests", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
     "M028" [label="M028\nEcho Optics Observe Model", tooltip="M028 [asap] blocked; blockers=3;  Echo Optics Observe Model", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
-    "M029" [label="M029\nEcho Optics Obstruction\nAnd Admission Results", tooltip="M029 [asap] blocked; blockers=1;  Echo Optics Obstruction And Admission Results", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
-    "M030" [label="M030\nEcho Optics Open And Close\nModels", tooltip="M030 [asap] blocked; blockers=2;  Echo Optics Open And Close Models", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
-    "M031" [label="M031\nEcho Optics Reading\nEnvelope And Identity", tooltip="M031 [asap] blocked; blockers=1;  Echo Optics Reading Envelope And Identity", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
+    "M029" [label="M029\nOPEN\nEcho Optics Obstruction\nAnd Admission Results", tooltip="M029 [asap] open; blockers=0;  Echo Optics Obstruction And Admission Results", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
+    "M030" [label="M030\nEcho Optics Open And Close\nModels", tooltip="M030 [asap] blocked; blockers=1;  Echo Optics Open And Close Models", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
+    "M031" [label="M031\nOPEN\nEcho Optics Reading\nEnvelope And Identity", tooltip="M031 [asap] open; blockers=0;  Echo Optics Reading Envelope And Identity", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M032" [label="M032\nEcho Optics Stale-Basis\nObstruction Tests", tooltip="M032 [asap] blocked; blockers=1;  Echo Optics Stale-Basis Obstruction Tests", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
     "M033" [label="M033\nEcho Optics Witness Basis\nAnd Retained Key", tooltip="M033 [asap] blocked; blockers=1;  Echo Optics Witness Basis And Retained Key", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
     "M034" [label="M034\nEcho Wesley Gen Optic\nRequest Builders", tooltip="M034 [asap] blocked; blockers=2;  Echo Wesley Gen Optic Request Builders", fillcolor="#fff3bf", color="#b08900", penwidth=1.2];
@@ -263,9 +263,9 @@ digraph method_task_dag {
   "M019" -> "M026";
   "M019" -> "M034";
   "M021" -> "M024" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
-  "M024" -> "M029";
-  "M024" -> "M030";
-  "M024" -> "M031";
+  "M024" -> "M029" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
+  "M024" -> "M030" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
+  "M024" -> "M031" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
   "M025" -> "M019";
   "M025" -> "M026";
   "M025" -> "M032";

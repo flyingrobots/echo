@@ -98,6 +98,7 @@ pub mod inbox;
 pub mod materialization;
 mod neighborhood;
 mod observation;
+mod optic;
 /// Parallel execution module.
 ///
 /// Provides both serial and parallel execution strategies for rewrite rules,
@@ -212,6 +213,11 @@ pub use observation::{
     ObservationService, ReadingBudgetPosture, ReadingEnvelope, ReadingObserverBasis,
     ReadingObserverPlan, ReadingResidualPosture, ReadingRightsPosture, ReadingWitnessRef,
     ResolvedObservationCoordinate, WorldlineSnapshot,
+};
+pub use optic::{
+    AttachmentDescentPolicy, BraidId, CoordinateAt, EchoCoordinate, EchoOptic, IntentFamilyId,
+    OpticAperture, OpticApertureShape, OpticCapabilityId, OpticFocus, OpticId, OpticReadBudget,
+    ProjectionVersion, ReducerVersion, RetainedReadingKey,
 };
 pub use playback::{CursorReceipt, TruthFrame, TruthSink};
 pub use provenance_store::{

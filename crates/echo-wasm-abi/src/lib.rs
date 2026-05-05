@@ -652,6 +652,55 @@ mod tests {
     }
 
     #[test]
+    fn test_optic_core_dtos_round_trip() {
+        use crate::kernel_port::{
+            AttachmentDescentPolicy, BraidId, EchoCoordinate, EchoOptic, OpticAperture,
+            OpticApertureShape, OpticCapabilityId, OpticFocus, OpticId, OpticReadBudget,
+            ProjectionVersion, ReducerVersion, RetainedReadingKey, WorldlineId,
+        };
+
+        let optic = EchoOptic {
+            optic_id: OpticId::from_bytes([1; 32]),
+            focus: OpticFocus::Braid {
+                braid_id: BraidId::from_bytes([2; 32]),
+            },
+            coordinate: EchoCoordinate::RetainedReading {
+                key: RetainedReadingKey::from_bytes([3; 32]),
+            },
+            projection_version: ProjectionVersion(4),
+            reducer_version: Some(ReducerVersion(5)),
+            intent_family: crate::kernel_port::IntentFamilyId::from_bytes([6; 32]),
+            capability: OpticCapabilityId::from_bytes([7; 32]),
+        };
+
+        let bytes = encode_cbor(&optic).unwrap();
+        let decoded: EchoOptic = decode_cbor(&bytes).unwrap();
+        assert_eq!(decoded, optic);
+
+        let aperture = OpticAperture {
+            shape: OpticApertureShape::QueryBytes {
+                query_id: 42,
+                vars_digest: vec![9; 32],
+            },
+            budget: OpticReadBudget {
+                max_bytes: Some(1024),
+                max_nodes: Some(64),
+                max_ticks: Some(8),
+                max_attachments: Some(0),
+            },
+            attachment_descent: AttachmentDescentPolicy::BoundaryOnly,
+        };
+        let decoded: OpticAperture = decode_cbor(&encode_cbor(&aperture).unwrap()).unwrap();
+        assert_eq!(decoded, aperture);
+
+        let focus = OpticFocus::Worldline {
+            worldline_id: WorldlineId::from_bytes([8; 32]),
+        };
+        let decoded: OpticFocus = decode_cbor(&encode_cbor(&focus).unwrap()).unwrap();
+        assert_eq!(decoded, focus);
+    }
+
+    #[test]
     fn test_unpack_control_intent_rejects_wrong_op_id() {
         use crate::kernel_port::{ControlIntentV1, SchedulerMode};
 

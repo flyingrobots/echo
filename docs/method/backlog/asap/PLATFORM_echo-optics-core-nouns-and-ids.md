@@ -3,7 +3,7 @@
 
 # Echo Optics Core Nouns And IDs
 
-Status: visible task card.
+Status: complete.
 
 Depends on:
 

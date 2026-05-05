@@ -912,6 +912,314 @@ impl OpticReadingEnvelope {
     }
 }
 
+/// Deterministic reason an optic read or dispatch could not lawfully proceed.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum OpticObstructionKind {
+    /// Required witness evidence is unavailable.
+    MissingWitness,
+    /// A retained reading named by the optic cannot be found or revealed.
+    MissingRetainedReading,
+    /// The dispatch named a base coordinate that is no longer the admitted basis.
+    StaleBasis,
+    /// The capability basis does not authorize the requested read or dispatch.
+    CapabilityDenied,
+    /// The declared read or dispatch budget was exceeded.
+    BudgetExceeded,
+    /// The requested aperture is not supported by this optic or projection law.
+    UnsupportedAperture,
+    /// The requested projection law/version is not available.
+    UnsupportedProjectionLaw,
+    /// The requested intent family is not available through this optic.
+    UnsupportedIntentFamily,
+    /// The read reached an attachment boundary and explicit descent is required.
+    AttachmentDescentRequired,
+    /// The requested attachment descent is not authorized.
+    AttachmentDescentDenied,
+    /// A live-tail read requires additional bounded reduction before it is honest.
+    LiveTailRequiresReduction,
+    /// The requested coordinate names an incompatible frontier.
+    ConflictingFrontier,
+    /// The request would collapse plurality without an explicit policy.
+    PluralityRequiresExplicitPolicy,
+}
+
+impl OpticObstructionKind {
+    fn to_abi(self) -> abi::OpticObstructionKind {
+        match self {
+            Self::MissingWitness => abi::OpticObstructionKind::MissingWitness,
+            Self::MissingRetainedReading => abi::OpticObstructionKind::MissingRetainedReading,
+            Self::StaleBasis => abi::OpticObstructionKind::StaleBasis,
+            Self::CapabilityDenied => abi::OpticObstructionKind::CapabilityDenied,
+            Self::BudgetExceeded => abi::OpticObstructionKind::BudgetExceeded,
+            Self::UnsupportedAperture => abi::OpticObstructionKind::UnsupportedAperture,
+            Self::UnsupportedProjectionLaw => abi::OpticObstructionKind::UnsupportedProjectionLaw,
+            Self::UnsupportedIntentFamily => abi::OpticObstructionKind::UnsupportedIntentFamily,
+            Self::AttachmentDescentRequired => abi::OpticObstructionKind::AttachmentDescentRequired,
+            Self::AttachmentDescentDenied => abi::OpticObstructionKind::AttachmentDescentDenied,
+            Self::LiveTailRequiresReduction => abi::OpticObstructionKind::LiveTailRequiresReduction,
+            Self::ConflictingFrontier => abi::OpticObstructionKind::ConflictingFrontier,
+            Self::PluralityRequiresExplicitPolicy => {
+                abi::OpticObstructionKind::PluralityRequiresExplicitPolicy
+            }
+        }
+    }
+}
+
+/// Typed obstruction returned instead of a hidden fallback or fake success.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct OpticObstruction {
+    /// Deterministic obstruction kind.
+    pub kind: OpticObstructionKind,
+    /// Optic implicated by the obstruction, when known.
+    pub optic_id: Option<OpticId>,
+    /// Focus implicated by the obstruction, when known.
+    pub focus: Option<OpticFocus>,
+    /// Coordinate implicated by the obstruction, when known.
+    pub coordinate: Option<EchoCoordinate>,
+    /// Witness basis posture that explains evidence availability, when known.
+    pub witness_basis: Option<WitnessBasis>,
+    /// Human-readable diagnostic text.
+    pub message: String,
+}
+
+impl OpticObstruction {
+    /// Converts the obstruction to the shared ABI DTO.
+    #[must_use]
+    pub fn to_abi(&self) -> abi::OpticObstruction {
+        abi::OpticObstruction {
+            kind: self.kind.to_abi(),
+            optic_id: self.optic_id.map(optic_id_to_abi),
+            focus: self.focus.as_ref().map(OpticFocus::to_abi),
+            coordinate: self.coordinate.as_ref().map(EchoCoordinate::to_abi),
+            witness_basis: self.witness_basis.as_ref().map(WitnessBasis::to_abi),
+            message: self.message.clone(),
+        }
+    }
+}
+
+/// Admission result for an optic intent that Echo accepted into witnessed history.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct AdmittedIntent {
+    /// Optic through which the intent was dispatched.
+    pub optic_id: OpticId,
+    /// Explicit causal basis named by the dispatch.
+    pub base_coordinate: EchoCoordinate,
+    /// Intent family admitted through the optic.
+    pub intent_family: IntentFamilyId,
+    /// Provenance coordinate produced or identified by admission.
+    pub admitted_ref: ProvenanceRef,
+    /// Receipt digest witnessing the admission outcome.
+    pub receipt_hash: Hash,
+}
+
+impl AdmittedIntent {
+    /// Converts the admitted outcome to the shared ABI DTO.
+    #[must_use]
+    pub fn to_abi(&self) -> abi::AdmittedIntent {
+        abi::AdmittedIntent {
+            optic_id: optic_id_to_abi(self.optic_id),
+            base_coordinate: self.base_coordinate.to_abi(),
+            intent_family: intent_family_id_to_abi(self.intent_family),
+            admitted_ref: provenance_ref_to_abi(self.admitted_ref),
+            receipt_hash: self.receipt_hash.to_vec(),
+        }
+    }
+}
+
+/// Reason an optic intent is staged instead of admitted immediately.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum StagedIntentReason {
+    /// The proposal needs an explicit rebase before admission can proceed.
+    RebaseRequired,
+    /// The proposal is waiting for additional capability evidence.
+    AwaitingCapability,
+    /// The proposal is waiting for additional witness evidence.
+    AwaitingWitness,
+    /// The proposal was deliberately staged for later explicit admission.
+    AwaitingExplicitAdmission,
+}
+
+impl StagedIntentReason {
+    fn to_abi(self) -> abi::StagedIntentReason {
+        match self {
+            Self::RebaseRequired => abi::StagedIntentReason::RebaseRequired,
+            Self::AwaitingCapability => abi::StagedIntentReason::AwaitingCapability,
+            Self::AwaitingWitness => abi::StagedIntentReason::AwaitingWitness,
+            Self::AwaitingExplicitAdmission => abi::StagedIntentReason::AwaitingExplicitAdmission,
+        }
+    }
+}
+
+/// Admission result for an optic intent retained without mutating the frontier.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct StagedIntent {
+    /// Optic through which the intent was dispatched.
+    pub optic_id: OpticId,
+    /// Explicit causal basis named by the dispatch.
+    pub base_coordinate: EchoCoordinate,
+    /// Intent family proposed through the optic.
+    pub intent_family: IntentFamilyId,
+    /// Stable digest or storage key for the staged proposal.
+    pub stage_ref: Hash,
+    /// Deterministic reason the proposal is staged.
+    pub reason: StagedIntentReason,
+}
+
+impl StagedIntent {
+    /// Converts the staged outcome to the shared ABI DTO.
+    #[must_use]
+    pub fn to_abi(&self) -> abi::StagedIntent {
+        abi::StagedIntent {
+            optic_id: optic_id_to_abi(self.optic_id),
+            base_coordinate: self.base_coordinate.to_abi(),
+            intent_family: intent_family_id_to_abi(self.intent_family),
+            stage_ref: self.stage_ref.to_vec(),
+            reason: self.reason.to_abi(),
+        }
+    }
+}
+
+/// Admission result that preserves lawful plurality instead of selecting one winner.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct PluralIntent {
+    /// Optic through which the intent was dispatched.
+    pub optic_id: OpticId,
+    /// Explicit causal basis named by the dispatch.
+    pub base_coordinate: EchoCoordinate,
+    /// Intent family proposed through the optic.
+    pub intent_family: IntentFamilyId,
+    /// Candidate coordinates that remain lawful plural outcomes.
+    pub candidate_refs: Vec<ProvenanceRef>,
+    /// Residual posture associated with the preserved plurality.
+    pub residual_posture: ReadingResidualPosture,
+}
+
+impl PluralIntent {
+    /// Converts the plural outcome to the shared ABI DTO.
+    #[must_use]
+    pub fn to_abi(&self) -> abi::PluralIntent {
+        abi::PluralIntent {
+            optic_id: optic_id_to_abi(self.optic_id),
+            base_coordinate: self.base_coordinate.to_abi(),
+            intent_family: intent_family_id_to_abi(self.intent_family),
+            candidate_refs: self
+                .candidate_refs
+                .iter()
+                .copied()
+                .map(provenance_ref_to_abi)
+                .collect(),
+            residual_posture: reading_residual_posture_to_abi(self.residual_posture),
+        }
+    }
+}
+
+/// Deterministic conflict reason for an optic intent dispatch.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum IntentConflictReason {
+    /// The named base coordinate is no longer the applicable basis.
+    StaleBasis,
+    /// The request conflicts with the named or observed frontier.
+    ConflictingFrontier,
+    /// Capability evidence conflicts with the requested operation.
+    CapabilityConflict,
+    /// The verified footprint conflicts with concurrent causal claims.
+    FootprintConflict,
+    /// The requested admission law conflicts with the available host law.
+    AdmissionLawConflict,
+    /// The request needs an explicit plurality policy before admission.
+    UnsupportedPluralityPolicy,
+}
+
+impl IntentConflictReason {
+    fn to_abi(self) -> abi::IntentConflictReason {
+        match self {
+            Self::StaleBasis => abi::IntentConflictReason::StaleBasis,
+            Self::ConflictingFrontier => abi::IntentConflictReason::ConflictingFrontier,
+            Self::CapabilityConflict => abi::IntentConflictReason::CapabilityConflict,
+            Self::FootprintConflict => abi::IntentConflictReason::FootprintConflict,
+            Self::AdmissionLawConflict => abi::IntentConflictReason::AdmissionLawConflict,
+            Self::UnsupportedPluralityPolicy => {
+                abi::IntentConflictReason::UnsupportedPluralityPolicy
+            }
+        }
+    }
+}
+
+/// Admission result for incompatible causal claims under an optic dispatch.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct IntentConflict {
+    /// Optic through which the intent was dispatched.
+    pub optic_id: OpticId,
+    /// Explicit causal basis named by the dispatch.
+    pub base_coordinate: EchoCoordinate,
+    /// Intent family proposed through the optic.
+    pub intent_family: IntentFamilyId,
+    /// Deterministic conflict reason.
+    pub reason: IntentConflictReason,
+    /// Provenance coordinate implicated by the conflict, when known.
+    pub conflict_ref: Option<ProvenanceRef>,
+    /// Digest of compact conflict evidence.
+    pub evidence_digest: Hash,
+    /// Human-readable diagnostic text.
+    pub message: String,
+}
+
+impl IntentConflict {
+    /// Converts the conflict outcome to the shared ABI DTO.
+    #[must_use]
+    pub fn to_abi(&self) -> abi::IntentConflict {
+        abi::IntentConflict {
+            optic_id: optic_id_to_abi(self.optic_id),
+            base_coordinate: self.base_coordinate.to_abi(),
+            intent_family: intent_family_id_to_abi(self.intent_family),
+            reason: self.reason.to_abi(),
+            conflict_ref: self.conflict_ref.map(provenance_ref_to_abi),
+            evidence_digest: self.evidence_digest.to_vec(),
+            message: self.message.clone(),
+        }
+    }
+}
+
+/// Typed top-level result for dispatching an intent through an optic.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum IntentDispatchResult {
+    /// Echo accepted the intent into witnessed history.
+    Admitted(AdmittedIntent),
+    /// Echo retained the proposal without mutating the named frontier.
+    Staged(StagedIntent),
+    /// Echo preserved lawful plurality instead of selecting a single result.
+    Plural(PluralIntent),
+    /// Echo found incompatible causal claims under the named admission law.
+    Conflict(IntentConflict),
+    /// Echo could not lawfully proceed because basis, evidence, rights, or law is missing.
+    Obstructed(OpticObstruction),
+}
+
+impl IntentDispatchResult {
+    /// Converts the dispatch result to the shared ABI DTO.
+    #[must_use]
+    pub fn to_abi(&self) -> abi::IntentDispatchResult {
+        match self {
+            Self::Admitted(outcome) => abi::IntentDispatchResult::Admitted(outcome.to_abi()),
+            Self::Staged(outcome) => abi::IntentDispatchResult::Staged(outcome.to_abi()),
+            Self::Plural(outcome) => abi::IntentDispatchResult::Plural(outcome.to_abi()),
+            Self::Conflict(outcome) => abi::IntentDispatchResult::Conflict(outcome.to_abi()),
+            Self::Obstructed(obstruction) => {
+                abi::IntentDispatchResult::Obstructed(obstruction.to_abi())
+            }
+        }
+    }
+}
+
 fn derive_optic_id(
     focus: &OpticFocus,
     coordinate: &EchoCoordinate,
@@ -1660,5 +1968,135 @@ mod tests {
             abi.read_identity.residual_posture,
             echo_wasm_abi::kernel_port::ReadingResidualPosture::Complete
         );
+    }
+
+    #[test]
+    fn optic_obstruction_kinds_keep_fail_closed_cases_distinct() {
+        use std::collections::BTreeSet;
+
+        let required = [
+            (
+                OpticObstructionKind::StaleBasis,
+                echo_wasm_abi::kernel_port::OpticObstructionKind::StaleBasis,
+            ),
+            (
+                OpticObstructionKind::MissingWitness,
+                echo_wasm_abi::kernel_port::OpticObstructionKind::MissingWitness,
+            ),
+            (
+                OpticObstructionKind::BudgetExceeded,
+                echo_wasm_abi::kernel_port::OpticObstructionKind::BudgetExceeded,
+            ),
+            (
+                OpticObstructionKind::CapabilityDenied,
+                echo_wasm_abi::kernel_port::OpticObstructionKind::CapabilityDenied,
+            ),
+            (
+                OpticObstructionKind::AttachmentDescentRequired,
+                echo_wasm_abi::kernel_port::OpticObstructionKind::AttachmentDescentRequired,
+            ),
+        ];
+
+        let mut names = BTreeSet::new();
+        for (core, expected) in required {
+            let abi = core.to_abi();
+            assert_eq!(abi, expected);
+            assert!(names.insert(format!("{abi:?}")));
+        }
+
+        assert_eq!(names.len(), required.len());
+    }
+
+    #[test]
+    fn intent_dispatch_result_matching_is_variant_exhaustive() {
+        fn classify(result: &IntentDispatchResult) -> &'static str {
+            match result {
+                IntentDispatchResult::Admitted(_) => "admitted",
+                IntentDispatchResult::Staged(_) => "staged",
+                IntentDispatchResult::Plural(_) => "plural",
+                IntentDispatchResult::Conflict(_) => "conflict",
+                IntentDispatchResult::Obstructed(_) => "obstructed",
+            }
+        }
+
+        let optic = EchoOptic::new(
+            worldline_focus(),
+            frontier_coordinate(),
+            ProjectionVersion::from_raw(1),
+            None,
+            intent_family(1),
+            capability(2),
+        );
+        let base_coordinate = frontier_coordinate();
+        let family = intent_family(1);
+        let admitted_ref = provenance(1, 3);
+        let obstruction = OpticObstruction {
+            kind: OpticObstructionKind::StaleBasis,
+            optic_id: Some(optic.optic_id),
+            focus: Some(worldline_focus()),
+            coordinate: Some(base_coordinate.clone()),
+            witness_basis: Some(WitnessBasis::Missing {
+                reason: MissingWitnessBasisReason::EvidenceUnavailable,
+            }),
+            message: "base coordinate is stale".to_owned(),
+        };
+        let outcomes = vec![
+            IntentDispatchResult::Admitted(AdmittedIntent {
+                optic_id: optic.optic_id,
+                base_coordinate: base_coordinate.clone(),
+                intent_family: family,
+                admitted_ref,
+                receipt_hash: [4; 32],
+            }),
+            IntentDispatchResult::Staged(StagedIntent {
+                optic_id: optic.optic_id,
+                base_coordinate: base_coordinate.clone(),
+                intent_family: family,
+                stage_ref: [5; 32],
+                reason: StagedIntentReason::RebaseRequired,
+            }),
+            IntentDispatchResult::Plural(PluralIntent {
+                optic_id: optic.optic_id,
+                base_coordinate: base_coordinate.clone(),
+                intent_family: family,
+                candidate_refs: vec![admitted_ref, provenance(1, 4)],
+                residual_posture: ReadingResidualPosture::PluralityPreserved,
+            }),
+            IntentDispatchResult::Conflict(IntentConflict {
+                optic_id: optic.optic_id,
+                base_coordinate,
+                intent_family: family,
+                reason: IntentConflictReason::StaleBasis,
+                conflict_ref: Some(admitted_ref),
+                evidence_digest: [6; 32],
+                message: "base conflicts with frontier".to_owned(),
+            }),
+            IntentDispatchResult::Obstructed(obstruction),
+        ];
+
+        assert_eq!(
+            outcomes.iter().map(classify).collect::<Vec<_>>(),
+            vec!["admitted", "staged", "plural", "conflict", "obstructed"]
+        );
+        assert!(matches!(
+            outcomes[0].to_abi(),
+            echo_wasm_abi::kernel_port::IntentDispatchResult::Admitted(_)
+        ));
+        assert!(matches!(
+            outcomes[1].to_abi(),
+            echo_wasm_abi::kernel_port::IntentDispatchResult::Staged(_)
+        ));
+        assert!(matches!(
+            outcomes[2].to_abi(),
+            echo_wasm_abi::kernel_port::IntentDispatchResult::Plural(_)
+        ));
+        assert!(matches!(
+            outcomes[3].to_abi(),
+            echo_wasm_abi::kernel_port::IntentDispatchResult::Conflict(_)
+        ));
+        assert!(matches!(
+            outcomes[4].to_abi(),
+            echo_wasm_abi::kernel_port::IntentDispatchResult::Obstructed(_)
+        ));
     }
 }

@@ -793,6 +793,167 @@ pub struct OpticReadingEnvelope {
     pub read_identity: ReadIdentity,
 }
 
+/// Deterministic reason an optic read or dispatch could not lawfully proceed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OpticObstructionKind {
+    /// Required witness evidence is unavailable.
+    MissingWitness,
+    /// A retained reading named by the optic cannot be found or revealed.
+    MissingRetainedReading,
+    /// The dispatch named a base coordinate that is no longer the admitted basis.
+    StaleBasis,
+    /// The capability basis does not authorize the requested read or dispatch.
+    CapabilityDenied,
+    /// The declared read or dispatch budget was exceeded.
+    BudgetExceeded,
+    /// The requested aperture is not supported by this optic or projection law.
+    UnsupportedAperture,
+    /// The requested projection law/version is not available.
+    UnsupportedProjectionLaw,
+    /// The requested intent family is not available through this optic.
+    UnsupportedIntentFamily,
+    /// The read reached an attachment boundary and explicit descent is required.
+    AttachmentDescentRequired,
+    /// The requested attachment descent is not authorized.
+    AttachmentDescentDenied,
+    /// A live-tail read requires additional bounded reduction before it is honest.
+    LiveTailRequiresReduction,
+    /// The requested coordinate names an incompatible frontier.
+    ConflictingFrontier,
+    /// The request would collapse plurality without an explicit policy.
+    PluralityRequiresExplicitPolicy,
+}
+
+/// Typed obstruction returned instead of a hidden fallback or fake success.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpticObstruction {
+    /// Deterministic obstruction kind.
+    pub kind: OpticObstructionKind,
+    /// Optic implicated by the obstruction, when known.
+    pub optic_id: Option<OpticId>,
+    /// Focus implicated by the obstruction, when known.
+    pub focus: Option<OpticFocus>,
+    /// Coordinate implicated by the obstruction, when known.
+    pub coordinate: Option<EchoCoordinate>,
+    /// Witness basis posture that explains evidence availability, when known.
+    pub witness_basis: Option<WitnessBasis>,
+    /// Human-readable diagnostic text.
+    pub message: String,
+}
+
+/// Admission result for an optic intent that Echo accepted into witnessed history.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AdmittedIntent {
+    /// Optic through which the intent was dispatched.
+    pub optic_id: OpticId,
+    /// Explicit causal basis named by the dispatch.
+    pub base_coordinate: EchoCoordinate,
+    /// Intent family admitted through the optic.
+    pub intent_family: IntentFamilyId,
+    /// Provenance coordinate produced or identified by admission.
+    pub admitted_ref: ProvenanceRef,
+    /// Receipt digest witnessing the admission outcome.
+    pub receipt_hash: Vec<u8>,
+}
+
+/// Reason an optic intent is staged instead of admitted immediately.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StagedIntentReason {
+    /// The proposal needs an explicit rebase before admission can proceed.
+    RebaseRequired,
+    /// The proposal is waiting for additional capability evidence.
+    AwaitingCapability,
+    /// The proposal is waiting for additional witness evidence.
+    AwaitingWitness,
+    /// The proposal was deliberately staged for later explicit admission.
+    AwaitingExplicitAdmission,
+}
+
+/// Admission result for an optic intent retained without mutating the frontier.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StagedIntent {
+    /// Optic through which the intent was dispatched.
+    pub optic_id: OpticId,
+    /// Explicit causal basis named by the dispatch.
+    pub base_coordinate: EchoCoordinate,
+    /// Intent family proposed through the optic.
+    pub intent_family: IntentFamilyId,
+    /// Stable digest or storage key for the staged proposal.
+    pub stage_ref: Vec<u8>,
+    /// Deterministic reason the proposal is staged.
+    pub reason: StagedIntentReason,
+}
+
+/// Admission result that preserves lawful plurality instead of selecting one winner.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluralIntent {
+    /// Optic through which the intent was dispatched.
+    pub optic_id: OpticId,
+    /// Explicit causal basis named by the dispatch.
+    pub base_coordinate: EchoCoordinate,
+    /// Intent family proposed through the optic.
+    pub intent_family: IntentFamilyId,
+    /// Candidate coordinates that remain lawful plural outcomes.
+    pub candidate_refs: Vec<ProvenanceRef>,
+    /// Residual posture associated with the preserved plurality.
+    pub residual_posture: ReadingResidualPosture,
+}
+
+/// Deterministic conflict reason for an optic intent dispatch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IntentConflictReason {
+    /// The named base coordinate is no longer the applicable basis.
+    StaleBasis,
+    /// The request conflicts with the named or observed frontier.
+    ConflictingFrontier,
+    /// Capability evidence conflicts with the requested operation.
+    CapabilityConflict,
+    /// The verified footprint conflicts with concurrent causal claims.
+    FootprintConflict,
+    /// The requested admission law conflicts with the available host law.
+    AdmissionLawConflict,
+    /// The request needs an explicit plurality policy before admission.
+    UnsupportedPluralityPolicy,
+}
+
+/// Admission result for incompatible causal claims under an optic dispatch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IntentConflict {
+    /// Optic through which the intent was dispatched.
+    pub optic_id: OpticId,
+    /// Explicit causal basis named by the dispatch.
+    pub base_coordinate: EchoCoordinate,
+    /// Intent family proposed through the optic.
+    pub intent_family: IntentFamilyId,
+    /// Deterministic conflict reason.
+    pub reason: IntentConflictReason,
+    /// Provenance coordinate implicated by the conflict, when known.
+    pub conflict_ref: Option<ProvenanceRef>,
+    /// Digest of compact conflict evidence.
+    pub evidence_digest: Vec<u8>,
+    /// Human-readable diagnostic text.
+    pub message: String,
+}
+
+/// Typed top-level result for dispatching an intent through an optic.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "outcome", rename_all = "snake_case")]
+pub enum IntentDispatchResult {
+    /// Echo accepted the intent into witnessed history.
+    Admitted(AdmittedIntent),
+    /// Echo retained the proposal without mutating the named frontier.
+    Staged(StagedIntent),
+    /// Echo preserved lawful plurality instead of selecting a single result.
+    Plural(PluralIntent),
+    /// Echo found incompatible causal claims under the named admission law.
+    Conflict(IntentConflict),
+    /// Echo could not lawfully proceed because basis, evidence, rights, or law is missing.
+    Obstructed(OpticObstruction),
+}
+
 /// Coordinate selector for an observation request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ObservationCoordinate {

@@ -753,6 +753,99 @@ mod tests {
     }
 
     #[test]
+    fn test_optic_intent_dispatch_result_variants_round_trip() {
+        use crate::kernel_port::{
+            AdmittedIntent, CoordinateAt, EchoCoordinate, IntentConflict, IntentConflictReason,
+            IntentDispatchResult, IntentFamilyId, MissingWitnessBasisReason, OpticFocus, OpticId,
+            OpticObstruction, OpticObstructionKind, PluralIntent, ReadingResidualPosture,
+            StagedIntent, StagedIntentReason, StrandId, WitnessBasis, WorldlineId, WorldlineTick,
+        };
+
+        fn classify(result: &IntentDispatchResult) -> &'static str {
+            match result {
+                IntentDispatchResult::Admitted(_) => "admitted",
+                IntentDispatchResult::Staged(_) => "staged",
+                IntentDispatchResult::Plural(_) => "plural",
+                IntentDispatchResult::Conflict(_) => "conflict",
+                IntentDispatchResult::Obstructed(_) => "obstructed",
+            }
+        }
+
+        let optic_id = OpticId::from_bytes([1; 32]);
+        let intent_family = IntentFamilyId::from_bytes([2; 32]);
+        let worldline_id = WorldlineId::from_bytes([3; 32]);
+        let base_coordinate = EchoCoordinate::Worldline {
+            worldline_id,
+            at: CoordinateAt::Frontier,
+        };
+        let admitted_ref = crate::kernel_port::ProvenanceRef {
+            worldline_id,
+            worldline_tick: WorldlineTick(4),
+            commit_hash: vec![5; 32],
+        };
+
+        let outcomes = vec![
+            IntentDispatchResult::Admitted(AdmittedIntent {
+                optic_id,
+                base_coordinate: base_coordinate.clone(),
+                intent_family,
+                admitted_ref: admitted_ref.clone(),
+                receipt_hash: vec![6; 32],
+            }),
+            IntentDispatchResult::Staged(StagedIntent {
+                optic_id,
+                base_coordinate: base_coordinate.clone(),
+                intent_family,
+                stage_ref: vec![7; 32],
+                reason: StagedIntentReason::AwaitingWitness,
+            }),
+            IntentDispatchResult::Plural(PluralIntent {
+                optic_id,
+                base_coordinate: base_coordinate.clone(),
+                intent_family,
+                candidate_refs: vec![admitted_ref.clone()],
+                residual_posture: ReadingResidualPosture::PluralityPreserved,
+            }),
+            IntentDispatchResult::Conflict(IntentConflict {
+                optic_id,
+                base_coordinate: base_coordinate.clone(),
+                intent_family,
+                reason: IntentConflictReason::ConflictingFrontier,
+                conflict_ref: Some(admitted_ref),
+                evidence_digest: vec![8; 32],
+                message: "frontier conflict".into(),
+            }),
+            IntentDispatchResult::Obstructed(OpticObstruction {
+                kind: OpticObstructionKind::AttachmentDescentRequired,
+                optic_id: Some(optic_id),
+                focus: Some(OpticFocus::Strand {
+                    strand_id: StrandId::from_bytes([9; 32]),
+                }),
+                coordinate: Some(base_coordinate),
+                witness_basis: Some(WitnessBasis::Missing {
+                    reason: MissingWitnessBasisReason::EvidenceUnavailable,
+                }),
+                message: "explicit attachment descent required".into(),
+            }),
+        ];
+
+        let decoded_labels = outcomes
+            .iter()
+            .map(|outcome| {
+                let decoded: IntentDispatchResult =
+                    decode_cbor(&encode_cbor(outcome).unwrap()).unwrap();
+                assert_eq!(&decoded, outcome);
+                classify(&decoded)
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            decoded_labels,
+            vec!["admitted", "staged", "plural", "conflict", "obstructed"]
+        );
+    }
+
+    #[test]
     fn test_unpack_control_intent_rejects_wrong_op_id() {
         use crate::kernel_port::{ControlIntentV1, SchedulerMode};
 

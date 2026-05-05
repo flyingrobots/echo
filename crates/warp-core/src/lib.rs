@@ -215,10 +215,12 @@ pub use observation::{
     ResolvedObservationCoordinate, WorldlineSnapshot,
 };
 pub use optic::{
-    AttachmentDescentPolicy, BraidId, CoordinateAt, EchoCoordinate, EchoOptic, IntentFamilyId,
+    AdmittedIntent, AttachmentDescentPolicy, BraidId, CoordinateAt, EchoCoordinate, EchoOptic,
+    IntentConflict, IntentConflictReason, IntentDispatchResult, IntentFamilyId,
     MissingWitnessBasisReason, OpticAperture, OpticApertureShape, OpticCapabilityId, OpticFocus,
-    OpticId, OpticReadBudget, OpticReadingEnvelope, ProjectionVersion, ReadIdentity,
-    ReducerVersion, RetainedReadingKey, WitnessBasis,
+    OpticId, OpticObstruction, OpticObstructionKind, OpticReadBudget, OpticReadingEnvelope,
+    PluralIntent, ProjectionVersion, ReadIdentity, ReducerVersion, RetainedReadingKey,
+    StagedIntent, StagedIntentReason, WitnessBasis,
 };
 pub use playback::{CursorReceipt, TruthFrame, TruthSink};
 pub use provenance_store::{

@@ -3,7 +3,7 @@
 
 # Echo Optics Obstruction And Admission Results
 
-Status: visible task card.
+Status: complete.
 
 Depends on:
 

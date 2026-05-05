@@ -73,6 +73,11 @@ opaque_id!(
 );
 
 opaque_id!(
+    /// Stable identity for an admission law used by optic dispatch.
+    AdmissionLawId
+);
+
+opaque_id!(
     /// Stable identity for an optic capability basis.
     OpticCapabilityId
 );
@@ -1024,6 +1029,135 @@ impl ObserveOpticRequest {
     }
 }
 
+/// Intent payload dispatched through an optic.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum OpticIntentPayload {
+    /// Canonical Echo intent v1 bytes.
+    EintV1 {
+        /// Complete EINT v1 envelope bytes.
+        bytes: Vec<u8>,
+    },
+}
+
+impl OpticIntentPayload {
+    /// Converts the payload to the shared ABI DTO.
+    #[must_use]
+    pub fn to_abi(&self) -> abi::OpticIntentPayload {
+        match self {
+            Self::EintV1 { bytes } => abi::OpticIntentPayload::EintV1 {
+                bytes: bytes.clone(),
+            },
+        }
+    }
+}
+
+/// Write-side proposal request through an Echo optic.
+///
+/// This is not a setter. It names an explicit causal basis and carries an
+/// intent payload for normal Echo admission.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct DispatchOpticIntentRequest {
+    /// Optic being used as the proposal boundary.
+    pub optic_id: OpticId,
+    /// Explicit causal basis for the proposal.
+    pub base_coordinate: EchoCoordinate,
+    /// Intent family being proposed.
+    pub intent_family: IntentFamilyId,
+    /// Focus targeted by the proposal.
+    pub focus: OpticFocus,
+    /// Actor/cause associated with the proposal.
+    pub cause: OpticCause,
+    /// Capability basis for the proposal.
+    pub capability: OpticCapability,
+    /// Admission law requested for the proposal.
+    pub admission_law: AdmissionLawId,
+    /// Intent payload carried by the proposal.
+    pub payload: OpticIntentPayload,
+}
+
+impl DispatchOpticIntentRequest {
+    /// Validates the generic optic proposal boundary without dispatching it.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed obstruction when focus, base coordinate, actor,
+    /// capability, intent family, or payload evidence does not line up.
+    pub fn validate_proposal(&self) -> Result<(), Box<OpticObstruction>> {
+        if !focus_matches_coordinate(&self.focus, &self.base_coordinate) {
+            return Err(self.dispatch_obstruction(
+                OpticObstructionKind::ConflictingFrontier,
+                "optic dispatch focus and base coordinate name different subjects",
+            ));
+        }
+
+        if self.capability.actor != self.cause.actor {
+            return Err(self.dispatch_obstruction(
+                OpticObstructionKind::CapabilityDenied,
+                "optic dispatch capability actor does not match cause actor",
+            ));
+        }
+
+        if self.capability.allowed_focus != self.focus {
+            return Err(self.dispatch_obstruction(
+                OpticObstructionKind::CapabilityDenied,
+                "optic dispatch capability does not authorize focus",
+            ));
+        }
+
+        if self.capability.allowed_intent_family != self.intent_family {
+            return Err(self.dispatch_obstruction(
+                OpticObstructionKind::UnsupportedIntentFamily,
+                "optic dispatch capability does not authorize intent family",
+            ));
+        }
+
+        match &self.payload {
+            OpticIntentPayload::EintV1 { bytes } => {
+                if let Err(error) = echo_wasm_abi::unpack_intent_v1(bytes) {
+                    return Err(self.dispatch_obstruction(
+                        OpticObstructionKind::UnsupportedIntentFamily,
+                        format!("optic dispatch EINT v1 payload is malformed: {error}"),
+                    ));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn dispatch_obstruction(
+        &self,
+        kind: OpticObstructionKind,
+        message: impl Into<String>,
+    ) -> Box<OpticObstruction> {
+        Box::new(OpticObstruction {
+            kind,
+            optic_id: Some(self.optic_id),
+            focus: Some(self.focus.clone()),
+            coordinate: Some(self.base_coordinate.clone()),
+            witness_basis: None,
+            message: message.into(),
+        })
+    }
+
+    /// Converts the request to the shared ABI DTO.
+    #[must_use]
+    pub fn to_abi(&self) -> abi::DispatchOpticIntentRequest {
+        abi::DispatchOpticIntentRequest {
+            optic_id: optic_id_to_abi(self.optic_id),
+            base_coordinate: self.base_coordinate.to_abi(),
+            intent_family: intent_family_id_to_abi(self.intent_family),
+            focus: self.focus.to_abi(),
+            cause: self.cause.to_abi(),
+            capability: self.capability.to_abi(),
+            admission_law: admission_law_id_to_abi(self.admission_law),
+            payload: self.payload.to_abi(),
+        }
+    }
+}
+
 /// Successful bounded reading returned through an optic.
 #[derive(Clone, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -1950,6 +2084,10 @@ fn intent_family_id_to_abi(id: IntentFamilyId) -> abi::IntentFamilyId {
     abi::IntentFamilyId::from_bytes(*id.as_bytes())
 }
 
+fn admission_law_id_to_abi(id: AdmissionLawId) -> abi::AdmissionLawId {
+    abi::AdmissionLawId::from_bytes(*id.as_bytes())
+}
+
 fn optic_capability_id_to_abi(id: OpticCapabilityId) -> abi::OpticCapabilityId {
     abi::OpticCapabilityId::from_bytes(*id.as_bytes())
 }
@@ -2102,6 +2240,10 @@ mod tests {
 
     fn capability(seed: u8) -> OpticCapabilityId {
         OpticCapabilityId::from_bytes([seed; 32])
+    }
+
+    fn admission_law(seed: u8) -> AdmissionLawId {
+        AdmissionLawId::from_bytes([seed; 32])
     }
 
     fn actor(seed: u8) -> OpticActorId {
@@ -2815,6 +2957,77 @@ mod tests {
             outcomes[4].to_abi(),
             echo_wasm_abi::kernel_port::IntentDispatchResult::Obstructed(_)
         ));
+    }
+
+    #[test]
+    fn dispatch_optic_intent_request_carries_eint_v1_with_explicit_base() -> Result<(), String> {
+        let focus = worldline_focus();
+        let base_coordinate = frontier_coordinate();
+        let payload_bytes = echo_wasm_abi::pack_intent_v1(77, b"optic-vars")
+            .map_err(|error| format!("failed to pack EINT fixture: {error:?}"))?;
+        let request = DispatchOpticIntentRequest {
+            optic_id: OpticId::from_bytes([1; 32]),
+            base_coordinate: base_coordinate.clone(),
+            intent_family: intent_family(2),
+            focus: focus.clone(),
+            cause: cause(2),
+            capability: optic_capability(2, focus),
+            admission_law: admission_law(4),
+            payload: OpticIntentPayload::EintV1 {
+                bytes: payload_bytes.clone(),
+            },
+        };
+
+        request
+            .validate_proposal()
+            .map_err(|obstruction| format!("expected valid optic dispatch, got {obstruction:?}"))?;
+
+        let abi = request.to_abi();
+        assert_eq!(
+            abi.optic_id,
+            echo_wasm_abi::kernel_port::OpticId::from_bytes([1; 32])
+        );
+        assert_eq!(abi.base_coordinate, base_coordinate.to_abi());
+        assert_eq!(
+            abi.admission_law,
+            echo_wasm_abi::kernel_port::AdmissionLawId::from_bytes([4; 32])
+        );
+        assert!(matches!(
+            abi.payload,
+            echo_wasm_abi::kernel_port::OpticIntentPayload::EintV1 { ref bytes }
+                if bytes == &payload_bytes
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn dispatch_optic_intent_request_rejects_capability_bypass() -> Result<(), String> {
+        let request = DispatchOpticIntentRequest {
+            optic_id: OpticId::from_bytes([1; 32]),
+            base_coordinate: frontier_coordinate(),
+            intent_family: intent_family(99),
+            focus: worldline_focus(),
+            cause: cause(2),
+            capability: optic_capability(2, worldline_focus()),
+            admission_law: admission_law(4),
+            payload: OpticIntentPayload::EintV1 {
+                bytes: echo_wasm_abi::pack_intent_v1(77, b"optic-vars")
+                    .map_err(|error| format!("failed to pack EINT fixture: {error:?}"))?,
+            },
+        };
+
+        let obstruction = request
+            .validate_proposal()
+            .err()
+            .ok_or_else(|| "capability mismatch should obstruct dispatch".to_owned())?;
+
+        assert_eq!(
+            obstruction.kind,
+            OpticObstructionKind::UnsupportedIntentFamily
+        );
+        assert_eq!(obstruction.optic_id, Some(OpticId::from_bytes([1; 32])));
+        assert_eq!(obstruction.coordinate, Some(frontier_coordinate()));
+        Ok(())
     }
 
     #[test]

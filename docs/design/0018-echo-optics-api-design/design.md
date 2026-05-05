@@ -587,6 +587,15 @@ outer admission certificate may bind capability, contract identity, and causal
 basis, but that certificate must remain explicit. It must not become hidden
 host-side mutation authority.
 
+Implementation note: the first Rust/ABI slice now exposes
+`DispatchOpticIntentRequest`, `OpticIntentPayload::EintV1`, and
+`AdmissionLawId`. The shared `KernelPort` default validates focus, base
+coordinate, capability, actor/cause, and intent family before routing EINT v1
+bytes through the existing `dispatch_intent` path. Because that existing path
+ingests into the runtime inbox instead of proving a committed tick/receipt, the
+optic result is `IntentDispatchResult::Staged` with an explicit stage ref and
+reason, not a fabricated `Admitted` result.
+
 ## Admission Outcomes
 
 Admission outcomes are not `Ok/Err`.

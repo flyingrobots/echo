@@ -30,7 +30,8 @@ use wasm_bindgen::JsValue;
 #[cfg(feature = "engine")]
 use echo_wasm_abi::kernel_port::HeadInfo;
 use echo_wasm_abi::kernel_port::{
-    self, AbiError, ErrEnvelope, KernelPort, ObservationRequest, OkEnvelope, SettlementRequest,
+    self, AbiError, DispatchOpticIntentRequest, ErrEnvelope, KernelPort, ObservationRequest,
+    OkEnvelope, SettlementRequest,
 };
 
 use std::cell::RefCell;
@@ -243,6 +244,23 @@ pub fn init() -> Uint8Array {
 #[wasm_bindgen]
 pub fn dispatch_intent(intent_bytes: &[u8]) -> Uint8Array {
     encode_result(with_kernel(|k| k.dispatch_intent(intent_bytes)))
+}
+
+/// Propose an intent through an explicit optic dispatch request.
+///
+/// The request bytes must decode as canonical-CBOR `DispatchOpticIntentRequest`.
+#[wasm_bindgen]
+pub fn dispatch_optic_intent(request_bytes: &[u8]) -> Uint8Array {
+    let request = match echo_wasm_abi::decode_cbor::<DispatchOpticIntentRequest>(request_bytes) {
+        Ok(request) => request,
+        Err(err) => {
+            return encode_err(&AbiError {
+                code: kernel_port::error_codes::INVALID_PAYLOAD,
+                message: format!("invalid optic dispatch request payload: {err}"),
+            })
+        }
+    };
+    encode_result(with_kernel(|k| k.dispatch_optic_intent(request)))
 }
 
 /// Observe a worldline at an explicit coordinate, frame, and projection.

@@ -940,6 +940,199 @@ mod tests {
     }
 
     #[test]
+    fn test_dispatch_optic_intent_request_round_trip_and_requires_base_coordinate()
+    -> Result<(), String> {
+        use crate::kernel_port::{
+            AdmissionLawId, CoordinateAt, DispatchOpticIntentRequest, EchoCoordinate,
+            IntentFamilyId, OpticActorId, OpticCapability, OpticCapabilityId, OpticCause,
+            OpticFocus, OpticId, OpticIntentPayload, OpticReadBudget, ProjectionVersion,
+            WorldlineId,
+        };
+        use ciborium::value::Value;
+
+        let worldline_id = WorldlineId::from_bytes([3; 32]);
+        let focus = OpticFocus::Worldline { worldline_id };
+        let base_coordinate = EchoCoordinate::Worldline {
+            worldline_id,
+            at: CoordinateAt::Frontier,
+        };
+        let actor = OpticActorId::from_bytes([4; 32]);
+        let intent_family = IntentFamilyId::from_bytes([5; 32]);
+        let payload_bytes = pack_intent_v1(77, b"optic-vars").unwrap();
+        let request = DispatchOpticIntentRequest {
+            optic_id: OpticId::from_bytes([1; 32]),
+            base_coordinate,
+            intent_family,
+            focus: focus.clone(),
+            cause: OpticCause {
+                actor,
+                cause_hash: vec![6; 32],
+                label: Some("optic dispatch".into()),
+            },
+            capability: OpticCapability {
+                capability_id: OpticCapabilityId::from_bytes([7; 32]),
+                actor,
+                issuer_ref: None,
+                policy_hash: vec![8; 32],
+                allowed_focus: focus,
+                projection_version: ProjectionVersion(1),
+                reducer_version: None,
+                allowed_intent_family: intent_family,
+                max_budget: OpticReadBudget {
+                    max_bytes: Some(4096),
+                    max_nodes: Some(64),
+                    max_ticks: Some(8),
+                    max_attachments: Some(0),
+                },
+            },
+            admission_law: AdmissionLawId::from_bytes([9; 32]),
+            payload: OpticIntentPayload::EintV1 {
+                bytes: payload_bytes.clone(),
+            },
+        };
+
+        let decoded: DispatchOpticIntentRequest =
+            decode_cbor(&encode_cbor(&request).unwrap()).unwrap();
+        assert_eq!(decoded, request);
+        assert!(matches!(
+            decoded.payload,
+            OpticIntentPayload::EintV1 { bytes } if bytes == payload_bytes
+        ));
+
+        let mut value = decode_value(&encode_cbor(&request).unwrap()).unwrap();
+        let Value::Map(fields) = &mut value else {
+            return Err(String::from("encoded request should be a map"));
+        };
+        let position = fields
+            .iter()
+            .position(|(key, _)| matches!(key, Value::Text(field) if field == "base_coordinate"))
+            .unwrap();
+        fields.remove(position);
+
+        assert!(decode_cbor::<DispatchOpticIntentRequest>(&encode_value(&value).unwrap()).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_kernel_port_dispatch_optic_intent_routes_eint_v1_as_staged_admission() {
+        use crate::kernel_port::{
+            AdmissionLawId, CoordinateAt, DispatchOpticIntentRequest, DispatchResponse,
+            EchoCoordinate, GlobalTick, IntentDispatchResult, IntentFamilyId, KernelPort,
+            OpticActorId, OpticCapability, OpticCapabilityId, OpticCause, OpticFocus, OpticId,
+            OpticIntentPayload, OpticReadBudget, ProjectionVersion, RunCompletion, RunId,
+            SchedulerMode, SchedulerState, SchedulerStatus, StagedIntentReason, WorkState,
+            WorldlineId,
+        };
+
+        struct RecordingKernel {
+            dispatched: Vec<u8>,
+        }
+
+        impl KernelPort for RecordingKernel {
+            fn dispatch_intent(
+                &mut self,
+                intent_bytes: &[u8],
+            ) -> Result<DispatchResponse, kernel_port::AbiError> {
+                self.dispatched = intent_bytes.to_vec();
+                Ok(DispatchResponse {
+                    accepted: true,
+                    intent_id: vec![10; 32],
+                    scheduler_status: SchedulerStatus {
+                        state: SchedulerState::Inactive,
+                        active_mode: Some(SchedulerMode::UntilIdle {
+                            cycle_limit: Some(1),
+                        }),
+                        work_state: WorkState::Quiescent,
+                        run_id: Some(RunId(1)),
+                        latest_cycle_global_tick: Some(GlobalTick(1)),
+                        latest_commit_global_tick: Some(GlobalTick(1)),
+                        last_quiescent_global_tick: Some(GlobalTick(1)),
+                        last_run_completion: Some(RunCompletion::Quiesced),
+                    },
+                })
+            }
+
+            fn registry_info(&self) -> kernel_port::RegistryInfo {
+                kernel_port::RegistryInfo {
+                    codec_id: None,
+                    registry_version: None,
+                    schema_sha256_hex: None,
+                    abi_version: kernel_port::ABI_VERSION,
+                }
+            }
+
+            fn scheduler_status(&self) -> Result<SchedulerStatus, kernel_port::AbiError> {
+                Ok(SchedulerStatus {
+                    state: SchedulerState::Inactive,
+                    active_mode: None,
+                    work_state: WorkState::Quiescent,
+                    run_id: None,
+                    latest_cycle_global_tick: None,
+                    latest_commit_global_tick: None,
+                    last_quiescent_global_tick: None,
+                    last_run_completion: None,
+                })
+            }
+        }
+
+        let worldline_id = WorldlineId::from_bytes([3; 32]);
+        let focus = OpticFocus::Worldline { worldline_id };
+        let base_coordinate = EchoCoordinate::Worldline {
+            worldline_id,
+            at: CoordinateAt::Frontier,
+        };
+        let actor = OpticActorId::from_bytes([4; 32]);
+        let intent_family = IntentFamilyId::from_bytes([5; 32]);
+        let payload_bytes = pack_intent_v1(77, b"optic-vars").unwrap();
+        let request = DispatchOpticIntentRequest {
+            optic_id: OpticId::from_bytes([1; 32]),
+            base_coordinate: base_coordinate.clone(),
+            intent_family,
+            focus: focus.clone(),
+            cause: OpticCause {
+                actor,
+                cause_hash: vec![6; 32],
+                label: Some("optic dispatch".into()),
+            },
+            capability: OpticCapability {
+                capability_id: OpticCapabilityId::from_bytes([7; 32]),
+                actor,
+                issuer_ref: None,
+                policy_hash: vec![8; 32],
+                allowed_focus: focus,
+                projection_version: ProjectionVersion(1),
+                reducer_version: None,
+                allowed_intent_family: intent_family,
+                max_budget: OpticReadBudget {
+                    max_bytes: Some(4096),
+                    max_nodes: Some(64),
+                    max_ticks: Some(8),
+                    max_attachments: Some(0),
+                },
+            },
+            admission_law: AdmissionLawId::from_bytes([9; 32]),
+            payload: OpticIntentPayload::EintV1 {
+                bytes: payload_bytes.clone(),
+            },
+        };
+        let mut kernel = RecordingKernel {
+            dispatched: Vec::new(),
+        };
+
+        let result = kernel.dispatch_optic_intent(request).unwrap();
+
+        assert_eq!(kernel.dispatched, payload_bytes);
+        assert!(matches!(
+            result,
+            IntentDispatchResult::Staged(staged)
+                if staged.base_coordinate == base_coordinate
+                    && staged.intent_family == intent_family
+                    && staged.stage_ref == vec![10; 32]
+                    && staged.reason == StagedIntentReason::AwaitingExplicitAdmission
+        ));
+    }
+
+    #[test]
     fn test_optic_open_close_models_round_trip() {
         use crate::kernel_port::{
             CapabilityPosture, CloseOpticRequest, CloseOpticResult, CoordinateAt, EchoCoordinate,

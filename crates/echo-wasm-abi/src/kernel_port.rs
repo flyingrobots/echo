@@ -27,6 +27,7 @@
 extern crate alloc;
 
 use alloc::boxed::Box;
+use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
@@ -210,6 +211,11 @@ opaque_id!(
 opaque_id!(
     /// Opaque stable identifier for an intent family allowed through an optic.
     IntentFamilyId
+);
+
+opaque_id!(
+    /// Opaque stable identifier for an admission law used by optic dispatch.
+    AdmissionLawId
 );
 
 opaque_id!(
@@ -854,6 +860,39 @@ pub struct ObserveOpticRequest {
     pub reducer_version: Option<ReducerVersion>,
     /// Capability basis for the read.
     pub capability: OpticCapabilityId,
+}
+
+/// Intent payload dispatched through an optic.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum OpticIntentPayload {
+    /// Canonical Echo intent v1 bytes.
+    EintV1 {
+        /// Complete EINT v1 envelope bytes.
+        bytes: Vec<u8>,
+    },
+}
+
+/// Write-side proposal request through an Echo optic.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DispatchOpticIntentRequest {
+    /// Optic being used as the proposal boundary.
+    pub optic_id: OpticId,
+    /// Explicit causal basis for the proposal.
+    pub base_coordinate: EchoCoordinate,
+    /// Intent family being proposed.
+    pub intent_family: IntentFamilyId,
+    /// Focus targeted by the proposal.
+    pub focus: OpticFocus,
+    /// Actor/cause associated with the proposal.
+    pub cause: OpticCause,
+    /// Capability basis for the proposal.
+    pub capability: OpticCapability,
+    /// Admission law requested for the proposal.
+    pub admission_law: AdmissionLawId,
+    /// Intent payload carried by the proposal.
+    pub payload: OpticIntentPayload,
 }
 
 /// Deterministic reason an optic read or dispatch could not lawfully proceed.
@@ -2135,6 +2174,93 @@ impl ErrEnvelope {
 // KernelPort trait
 // ---------------------------------------------------------------------------
 
+fn optic_focus_matches_coordinate(focus: &OpticFocus, coordinate: &EchoCoordinate) -> bool {
+    match (focus, coordinate) {
+        (
+            OpticFocus::Worldline { worldline_id },
+            EchoCoordinate::Worldline {
+                worldline_id: coordinate_worldline,
+                ..
+            },
+        ) => worldline_id == coordinate_worldline,
+        (
+            OpticFocus::Strand { strand_id },
+            EchoCoordinate::Strand {
+                strand_id: coordinate_strand,
+                ..
+            },
+        ) => strand_id == coordinate_strand,
+        (
+            OpticFocus::Braid { braid_id },
+            EchoCoordinate::Braid {
+                braid_id: coordinate_braid,
+                ..
+            },
+        ) => braid_id == coordinate_braid,
+        (
+            OpticFocus::RetainedReading { key },
+            EchoCoordinate::RetainedReading {
+                key: coordinate_key,
+            },
+        ) => key == coordinate_key,
+        (OpticFocus::AttachmentBoundary { .. }, _) => true,
+        _ => false,
+    }
+}
+
+fn optic_dispatch_obstruction(
+    request: &DispatchOpticIntentRequest,
+    kind: OpticObstructionKind,
+    message: impl Into<String>,
+) -> IntentDispatchResult {
+    IntentDispatchResult::Obstructed(OpticObstruction {
+        kind,
+        optic_id: Some(request.optic_id),
+        focus: Some(request.focus.clone()),
+        coordinate: Some(request.base_coordinate.clone()),
+        witness_basis: None,
+        message: message.into(),
+    })
+}
+
+fn validate_optic_dispatch_request(
+    request: &DispatchOpticIntentRequest,
+) -> Option<IntentDispatchResult> {
+    if !optic_focus_matches_coordinate(&request.focus, &request.base_coordinate) {
+        return Some(optic_dispatch_obstruction(
+            request,
+            OpticObstructionKind::ConflictingFrontier,
+            "optic dispatch focus and base coordinate name different subjects",
+        ));
+    }
+
+    if request.capability.actor != request.cause.actor {
+        return Some(optic_dispatch_obstruction(
+            request,
+            OpticObstructionKind::CapabilityDenied,
+            "optic dispatch capability actor does not match cause actor",
+        ));
+    }
+
+    if request.capability.allowed_focus != request.focus {
+        return Some(optic_dispatch_obstruction(
+            request,
+            OpticObstructionKind::CapabilityDenied,
+            "optic dispatch capability does not authorize focus",
+        ));
+    }
+
+    if request.capability.allowed_intent_family != request.intent_family {
+        return Some(optic_dispatch_obstruction(
+            request,
+            OpticObstructionKind::UnsupportedIntentFamily,
+            "optic dispatch capability does not authorize intent family",
+        ));
+    }
+
+    None
+}
+
 /// App-agnostic kernel boundary for WASM host adapters.
 ///
 /// Implementors wrap a specific simulation engine and expose the byte-level
@@ -2159,6 +2285,42 @@ pub trait KernelPort {
     /// The kernel content-addresses the intent and returns whether it was
     /// newly accepted or a duplicate.
     fn dispatch_intent(&mut self, intent_bytes: &[u8]) -> Result<DispatchResponse, AbiError>;
+
+    /// Propose an intent through an explicit optic dispatch request.
+    ///
+    /// The default implementation validates the generic optic/capability
+    /// request and routes `EintV1` payloads into [`KernelPort::dispatch_intent`].
+    /// Because that existing path only ingests an intent into the runtime inbox,
+    /// the resulting optic outcome is `Staged`, not a fabricated admitted tick.
+    fn dispatch_optic_intent(
+        &mut self,
+        request: DispatchOpticIntentRequest,
+    ) -> Result<IntentDispatchResult, AbiError> {
+        if let Some(obstruction) = validate_optic_dispatch_request(&request) {
+            return Ok(obstruction);
+        }
+
+        match &request.payload {
+            OpticIntentPayload::EintV1 { bytes } => {
+                if let Err(error) = crate::unpack_intent_v1(bytes) {
+                    return Ok(optic_dispatch_obstruction(
+                        &request,
+                        OpticObstructionKind::UnsupportedIntentFamily,
+                        format!("optic dispatch EINT v1 payload is malformed: {error}"),
+                    ));
+                }
+
+                let dispatch = self.dispatch_intent(bytes)?;
+                Ok(IntentDispatchResult::Staged(StagedIntent {
+                    optic_id: request.optic_id,
+                    base_coordinate: request.base_coordinate,
+                    intent_family: request.intent_family,
+                    stage_ref: dispatch.intent_id,
+                    reason: StagedIntentReason::AwaitingExplicitAdmission,
+                }))
+            }
+        }
+    }
 
     /// Observe a worldline at an explicit coordinate and frame.
     ///

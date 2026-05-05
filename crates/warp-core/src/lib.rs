@@ -216,15 +216,16 @@ pub use observation::{
     ReadingWitnessRef, ResolvedObservationCoordinate, WorldlineSnapshot,
 };
 pub use optic::{
-    AdmittedIntent, AttachmentDescentPolicy, BraidId, CapabilityPosture, CloseOpticRequest,
-    CloseOpticResult, CoordinateAt, EchoCoordinate, EchoOptic, IntentConflict,
-    IntentConflictReason, IntentDispatchResult, IntentFamilyId, MissingWitnessBasisReason,
-    ObserveOpticRequest, ObserveOpticResult, OpenOpticRequest, OpenOpticResult, OpticActorId,
-    OpticAperture, OpticApertureShape, OpticCapability, OpticCapabilityId, OpticCause,
-    OpticCloseError, OpticFocus, OpticId, OpticObstruction, OpticObstructionKind, OpticOpenError,
-    OpticReadBudget, OpticReading, OpticReadingEnvelope, PluralIntent, ProjectionVersion,
-    ReadIdentity, ReducerVersion, RetainedReadingCodecId, RetainedReadingDescriptor,
-    RetainedReadingKey, StagedIntent, StagedIntentReason, WitnessBasis,
+    AdmissionLawId, AdmittedIntent, AttachmentDescentPolicy, BraidId, CapabilityPosture,
+    CloseOpticRequest, CloseOpticResult, CoordinateAt, DispatchOpticIntentRequest, EchoCoordinate,
+    EchoOptic, IntentConflict, IntentConflictReason, IntentDispatchResult, IntentFamilyId,
+    MissingWitnessBasisReason, ObserveOpticRequest, ObserveOpticResult, OpenOpticRequest,
+    OpenOpticResult, OpticActorId, OpticAperture, OpticApertureShape, OpticCapability,
+    OpticCapabilityId, OpticCause, OpticCloseError, OpticFocus, OpticId, OpticIntentPayload,
+    OpticObstruction, OpticObstructionKind, OpticOpenError, OpticReadBudget, OpticReading,
+    OpticReadingEnvelope, PluralIntent, ProjectionVersion, ReadIdentity, ReducerVersion,
+    RetainedReadingCodecId, RetainedReadingDescriptor, RetainedReadingKey, StagedIntent,
+    StagedIntentReason, WitnessBasis,
 };
 pub use playback::{CursorReceipt, TruthFrame, TruthSink};
 pub use provenance_store::{

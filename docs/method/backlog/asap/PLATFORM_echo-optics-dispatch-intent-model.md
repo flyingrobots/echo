@@ -3,7 +3,10 @@
 
 # Echo Optics Dispatch Intent Model
 
-Status: visible task card.
+Status: complete. Echo now has typed core/ABI optic dispatch request models,
+an EINT v1 optic payload, an admission-law id, and a KernelPort route that
+validates the optic proposal and carries EINT v1 through the existing
+`dispatch_intent` path as a typed staged admission posture.
 
 Depends on:
 
@@ -32,6 +35,13 @@ optic dispatch model.
   capability, admission law, and payload.
 - Current EINT v1 payloads can be carried.
 - Dispatch outcome is typed.
+
+Evidence:
+
+- `crates/warp-core/src/optic.rs`
+- `crates/echo-wasm-abi/src/kernel_port.rs`
+- `crates/warp-wasm/src/lib.rs`
+- `crates/echo-wasm-abi/src/lib.rs`
 
 ## Non-goals
 

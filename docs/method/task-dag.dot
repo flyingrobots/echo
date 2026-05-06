@@ -1,6 +1,6 @@
 digraph method_task_dag {
   graph [
-    label="METHOD Backlog Task Dependency DAG\nopen tasks: 97 / 181; dependency edges: 125",
+    label="METHOD Backlog Task Dependency DAG\nopen tasks: 95 / 181; dependency edges: 125",
     labelloc=t,
     fontsize=24,
     fontname="Inter, Helvetica, Arial",
@@ -90,7 +90,7 @@ digraph method_task_dag {
     "M049" [label="M049\nDONE\nT-7-1-1\nSpec — HistoryTime vs\nHostTime field\nclassification (#191)", tooltip="M049 [up-next] done; blockers=0; T-7-1-1 Spec — HistoryTime vs HostTime field classification (#191)", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M050" [label="M050\nDONE\nT-7-1-2\nSpec — TTL/deadline\nsemantics are ticks only\n(#192)", tooltip="M050 [up-next] done; blockers=0; T-7-1-2 Spec — TTL/deadline semantics are ticks only (#192)", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M051" [label="M051\nOPEN\nSecurity/capabilities for\nfork/rewind/merge", tooltip="M051 [up-next] open; blockers=0;  Security/capabilities for fork/rewind/merge", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
-    "M052" [label="M052\nOPEN\nTimeStream retention +\nspool compaction +\nwormhole density", tooltip="M052 [up-next] open; blockers=0;  TimeStream retention + spool compaction + wormhole density", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
+    "M052" [label="M052\nDONE\nTimeStream retention +\nspool compaction +\nwormhole density", tooltip="M052 [up-next] done; blockers=0;  TimeStream retention + spool compaction + wormhole density", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M053" [label="M053\nAuthenticated Wesley\nIntent Admission Posture", tooltip="M053 [up-next] blocked; blockers=2;  Authenticated Wesley Intent Admission Posture", fillcolor="#dbeafe", color="#1d4ed8", penwidth=1.2];
     "M054" [label="M054\nT-4-2-1\nCanvas graph renderer\n(static materialized\nreading)", tooltip="M054 [up-next] blocked; blockers=2; T-4-2-1 Canvas graph renderer (static materialized reading)", fillcolor="#dbeafe", color="#1d4ed8", penwidth=1.2];
     "M055" [label="M055\nT-4-2-2\nLive tick playback and\nrewrite animation", tooltip="M055 [up-next] blocked; blockers=2; T-4-2-2 Live tick playback and rewrite animation", fillcolor="#dbeafe", color="#1d4ed8", penwidth=1.2];
@@ -102,7 +102,7 @@ digraph method_task_dag {
     "M061" [label="M061\nT-4-3-2\nJS bindings for CAS\nstore/retrieve", tooltip="M061 [up-next] blocked; blockers=1; T-4-3-2 JS bindings for CAS store/retrieve", fillcolor="#dbeafe", color="#1d4ed8", penwidth=1.2];
     "M062" [label="M062\nOPEN\nEcho / git-warp witnessed\nsuffix sync", tooltip="M062 [up-next] open; blockers=0;  Echo / git-warp witnessed suffix sync", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M063" [label="M063\nOPEN\nSplit echo-session-proto\ninto retained bridge\ncontracts vs legacy...", tooltip="M063 [up-next] open; blockers=0;  Split echo-session-proto into retained bridge contracts vs legacy transport residue", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
-    "M064" [label="M064\nOPEN\nT-2-4-1\nUpdate echo-wesley-gen IR\ndeserializer for v2 format", tooltip="M064 [up-next] open; blockers=0; T-2-4-1 Update echo-wesley-gen IR deserializer for v2 format", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
+    "M064" [label="M064\nDONE\nT-2-4-1\nUpdate echo-wesley-gen IR\ndeserializer for v2 format", tooltip="M064 [up-next] done; blockers=0; T-2-4-1 Update echo-wesley-gen IR deserializer for v2 format", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M065" [label="M065\nGraft Live Frontier\nStructural Readings", tooltip="M065 [up-next] blocked; blockers=1;  Graft Live Frontier Structural Readings", fillcolor="#dbeafe", color="#1d4ed8", penwidth=1.2];
     "M066" [label="M066\nOPEN\nImport outcome idempotence\nand loop law", tooltip="M066 [up-next] open; blockers=0;  Import outcome idempotence and loop law", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M067" [label="M067\njedit Text Contract MVP", tooltip="M067 [up-next] blocked; blockers=1;  jedit Text Contract MVP", fillcolor="#dbeafe", color="#1d4ed8", penwidth=1.2];
@@ -117,7 +117,7 @@ digraph method_task_dag {
     "M076" [label="M076\nT-2-2-2\nSwitch-over plan and\ncontract validation", tooltip="M076 [up-next] blocked; blockers=1; T-2-2-2 Switch-over plan and contract validation", fillcolor="#dbeafe", color="#1d4ed8", penwidth=1.2];
     "M077" [label="M077\nOPEN\nT-2-1-1\nGraphQL operation parser\nfor QIR", tooltip="M077 [up-next] open; blockers=0; T-2-1-1 GraphQL operation parser for QIR", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M078" [label="M078\nT-2-1-2\nSQL query plan generation\nfrom QIR", tooltip="M078 [up-next] blocked; blockers=1; T-2-1-2 SQL query plan generation from QIR", fillcolor="#dbeafe", color="#1d4ed8", penwidth=1.2];
-    "M079" [label="M079\nWesley To Echo Toy\nContract Proof", tooltip="M079 [up-next] blocked; blockers=1;  Wesley To Echo Toy Contract Proof", fillcolor="#dbeafe", color="#1d4ed8", penwidth=1.2];
+    "M079" [label="M079\nOPEN\nWesley To Echo Toy\nContract Proof", tooltip="M079 [up-next] open; blockers=0;  Wesley To Echo Toy Contract Proof", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M080" [label="M080\nOPEN\nT-4-4-1\nTypeScript type generation\nfrom Wesley IR", tooltip="M080 [up-next] open; blockers=0; T-4-4-1 TypeScript type generation from Wesley IR", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M081" [label="M081\nT-4-4-2\nZod runtime validators\nfrom Wesley IR", tooltip="M081 [up-next] blocked; blockers=1; T-4-4-2 Zod runtime validators from Wesley IR", fillcolor="#dbeafe", color="#1d4ed8", penwidth=1.2];
     "M082" [label="M082\nT-4-4-3\nCBOR serialization bridge\n(TS types to WASM Rust)", tooltip="M082 [up-next] blocked; blockers=2; T-4-4-3 CBOR serialization bridge (TS types to WASM Rust)", fillcolor="#dbeafe", color="#1d4ed8", penwidth=1.2];
@@ -227,11 +227,11 @@ digraph method_task_dag {
     "M170" [label="M170\nOPEN\nMethod drift check as\npre-push hook", tooltip="M170 [cool-ideas] open; blockers=0;  Method drift check as pre-push hook", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M171" [label="M171\nOPEN\nReading envelope inspector", tooltip="M171 [cool-ideas] open; blockers=0;  Reading envelope inspector", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M172" [label="M172\nOPEN\nVisualization", tooltip="M172 [cool-ideas] open; blockers=0;  Visualization", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
-    "M173" [label="M173\nOPEN\nT-7-2-1\nSpec — dt policy: fixed\ntimestep vs admitted dt\nstream (#243)", tooltip="M173 [cool-ideas] open; blockers=0; T-7-2-1 Spec — dt policy: fixed timestep vs admitted dt stream (#243)", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
-    "M174" [label="M174\nOPEN\nT-7-2-2\nSpec — TimeStream\nretention, spool\ncompaction, wormhole...", tooltip="M174 [cool-ideas] open; blockers=0; T-7-2-2 Spec — TimeStream retention, spool compaction, wormhole density (#244)", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
+    "M173" [label="M173\nDONE\nT-7-2-1\nSpec — dt policy: fixed\ntimestep vs admitted dt\nstream (#243)", tooltip="M173 [cool-ideas] done; blockers=0; T-7-2-1 Spec — dt policy: fixed timestep vs admitted dt stream (#243)", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
+    "M174" [label="M174\nDONE\nT-7-2-2\nSpec — TimeStream\nretention, spool\ncompaction, wormhole...", tooltip="M174 [cool-ideas] done; blockers=0; T-7-2-2 Spec — TimeStream retention, spool compaction, wormhole density (#244)", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
     "M175" [label="M175\nOPEN\nT-7-2-3\nSpec — Merge semantics\nfor admitted stream facts\nacross worldlines (#245)", tooltip="M175 [cool-ideas] open; blockers=0; T-7-2-3 Spec — Merge semantics for admitted stream facts across worldlines (#245)", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
-    "M176" [label="M176\nT-7-2-4\nSpec —\nSecurity/capabilities for\nfork/rewind/merge in...", tooltip="M176 [cool-ideas] blocked; blockers=2; T-7-2-4 Spec — Security/capabilities for fork/rewind/merge in multiplayer (#246)", fillcolor="#ede9fe", color="#7c3aed", penwidth=1.2];
-    "M177" [label="M177\nT-7-2-5\nImplement StreamsFrame\ninspector support (#170)", tooltip="M177 [cool-ideas] blocked; blockers=4; T-7-2-5 Implement StreamsFrame inspector support (#170)", fillcolor="#ede9fe", color="#7c3aed", penwidth=1.2];
+    "M176" [label="M176\nOPEN\nT-7-2-4\nSpec —\nSecurity/capabilities for\nfork/rewind/merge in...", tooltip="M176 [cool-ideas] open; blockers=0; T-7-2-4 Spec — Security/capabilities for fork/rewind/merge in multiplayer (#246)", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
+    "M177" [label="M177\nT-7-2-5\nImplement StreamsFrame\ninspector support (#170)", tooltip="M177 [cool-ideas] blocked; blockers=2; T-7-2-5 Implement StreamsFrame inspector support (#170)", fillcolor="#ede9fe", color="#7c3aed", penwidth=1.2];
     "M178" [label="M178\nT-7-2-6\nImplement Constraint Lens\npanel — admission\nexplain-why +...", tooltip="M178 [cool-ideas] blocked; blockers=1; T-7-2-6 Implement Constraint Lens panel — admission explain-why + counterfactual sliders (#203)", fillcolor="#ede9fe", color="#7c3aed", penwidth=1.2];
     "M179" [label="M179\nOPEN\nVisualization", tooltip="M179 [cool-ideas] open; blockers=0;  Visualization", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
   }
@@ -311,7 +311,7 @@ digraph method_task_dag {
   "M060" -> "M058";
   "M060" -> "M061";
   "M061" -> "M058";
-  "M064" -> "M079";
+  "M064" -> "M079" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
   "M065" -> "M046";
   "M067" -> "M065";
   "M069" -> "M016" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
@@ -360,10 +360,10 @@ digraph method_task_dag {
   "M164" -> "M166";
   "M165" -> "M166";
   "M167" -> "M168";
-  "M173" -> "M176";
-  "M173" -> "M177";
-  "M174" -> "M176";
-  "M174" -> "M177";
+  "M173" -> "M176" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
+  "M173" -> "M177" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
+  "M174" -> "M176" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
+  "M174" -> "M177" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
   "M175" -> "M148";
   "M175" -> "M177";
   "M176" -> "M148";

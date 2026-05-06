@@ -5,22 +5,38 @@
 
 # TT1 — Streams Inspector Frame
 
-Status: active but stale cool idea. Task DAG issues #170, #203, and
-the #244-#246 set remain open, while #243 now has the fixed-timestep
-invariant in `docs/invariants/FIXED-TIMESTEP.md`. No `StreamsFrame`,
-inspector stream frame, or Constraint Lens UI exists yet. This card
-remains operational as the handle for turning current
-playback/provenance/checkpoint substrate into a stream/admission inspection
-surface; it is not implemented protocol truth.
+Status: active but stale cool idea. Task DAG issues #170, #203, #245,
+and #246 remain open. #243 is fixed by the fixed-timestep invariant in
+`docs/invariants/FIXED-TIMESTEP.md`; #244 is obsolete and must not be
+implemented with the retired retention vocabulary below. No `StreamsFrame`,
+inspector stream frame, or Constraint Lens UI exists yet. This card remains
+operational as the handle for turning current playback/provenance/checkpoint
+substrate into an admission inspection surface; it is not implemented protocol
+truth.
 
-Define the stream/admission inspector surface and resolve the remaining TT1
-design questions (#244, #245, #246) required before the time-travel MVP.
+Define the admission inspector surface and resolve the remaining TT1 design
+questions (#245, #246) required before the time-travel MVP.
 
 **Issues:** #170, #203, #243, #244, #245, #246
 
 ---
 
 ## T-7-2-1: Spec — dt policy: fixed timestep vs admitted dt stream (#243)
+
+Status: complete.
+
+Resolution: fixed and closed under the current fixed-timestep invariant. Echo
+does not admit per-tick variable `dt` as a causal fact. Adapter-local real time
+may cause a host to propose Intents, but replay and deterministic history
+consume admitted causal ticks and receipts only.
+
+Completion evidence:
+
+- `docs/invariants/FIXED-TIMESTEP.md` states fixed timestep as the normative
+  model and rejects admitted variable `dt`.
+- `scripts/tests/fixed_timestep_invariant_test.sh` guards the invariant.
+- Downstream TT1 work must follow fixed ticks, admitted timer Intents, and typed
+  admission outcomes.
 
 **User Story:** As an engine architect, I want a locked design decision on whether Echo uses a fixed timestep or variable dt admitted as a stream so that all downstream code (physics, animation, admission budgets) can commit to one model.
 
@@ -35,17 +51,17 @@ design questions (#244, #245, #246) required before the time-travel MVP.
 
 **Acceptance Criteria:**
 
-- [ ] AC1: The fixed-timestep invariant remains the normative decision.
-- [ ] AC2: TT1 follow-up docs do not reintroduce per-tick or admitted
+- [x] AC1: The fixed-timestep invariant remains the normative decision.
+- [x] AC2: TT1 follow-up docs do not reintroduce per-tick or admitted
       variable `dt`.
-- [ ] AC3: Catch-up/checkpoint implications are covered by the current
-      time-model or retention docs.
+- [x] AC3: Catch-up/checkpoint implications are covered by the current
+      time-model and optics/CAS retention doctrine.
 
 **Definition of Done:**
 
-- [ ] Code reviewed and merged
-- [ ] Tests pass (CI green)
-- [ ] Documentation updated (if applicable)
+- [x] Code reviewed locally
+- [x] Tests pass locally
+- [x] Documentation updated
 
 **Scope:** Verify downstream TT1 alignment with the fixed-timestep invariant.
 **Out of Scope:** Reopening variable-dt support; changes to the scheduler.
@@ -67,6 +83,25 @@ design questions (#244, #245, #246) required before the time-travel MVP.
 
 ## T-7-2-2: Spec — TimeStream retention, spool compaction, wormhole density (#244)
 
+Status: complete.
+
+Resolution: obsolete. Do not implement this task as written, do not resurrect
+the old target spec, and do not treat the retired vocabulary in this section as
+protocol truth. The modern concern is bounded holographic retention: Echo keeps
+witnessed causal history as truth, observes bounded slices through optics,
+caches retained readings in `echo-cas` by semantic read identity plus content
+hash, and returns obstruction or rehydration-required posture when required
+evidence is missing.
+
+Completion evidence:
+
+- `docs/design/continuum-runtime-and-cas-readings.md` carries the current
+  optics/CAS reading doctrine.
+- `docs/method/backlog/up-next/PLATFORM_contract-artifact-retention-in-echo-cas.md`
+  carries the active retention implementation follow-up.
+- The deprecated retention wording here is closed as stale archaeology rather
+  than rewritten.
+
 **User Story:** As an operator deploying Echo sessions, I want documented policies for how long TimeStream spools are retained, when compaction occurs, and how wormhole density is managed so that I can size storage and predict seek latency.
 
 **Requirements:**
@@ -80,16 +115,20 @@ design questions (#244, #245, #246) required before the time-travel MVP.
 
 **Acceptance Criteria:**
 
-- [ ] AC1: Retention tiers are defined with default thresholds.
-- [ ] AC2: Compaction triggers are enumerable and configurable.
-- [ ] AC3: Wormhole density policy includes a default N value and explains the tradeoff.
-- [ ] AC4: A "replay cost" formula or heuristic is documented.
+- [x] AC1: Superseded. Retention policy now belongs to optics/CAS reading
+      doctrine, not this retired task vocabulary.
+- [x] AC2: Superseded. Compaction/eviction is storage policy and must not
+      mutate witnessed causal truth.
+- [x] AC3: Obsolete. The checkpoint tradeoff must be stated as bounded replay
+      and retained reading identity, not as a density rule from this old card.
+- [x] AC4: Superseded. Replay cost belongs to bounded slice/reveal policy and
+      explicit missing-evidence obstruction.
 
 **Definition of Done:**
 
-- [ ] Code reviewed and merged
-- [ ] Tests pass (CI green)
-- [ ] Documentation updated (if applicable)
+- [x] Code reviewed locally
+- [x] Tests pass locally
+- [x] Documentation updated
 
 **Scope:** Policy spec for retention, compaction, and wormhole density.
 **Out of Scope:** Implementation of tiered storage (that is echo-cas work); GC runtime code.

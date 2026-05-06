@@ -12,8 +12,8 @@ The `M###` identifiers are generated METHOD DAG row ids. The GitHub `GH-###` sec
 
 | Field                  | Value |
 | ---------------------- | ----- |
-| GitHub issues          | 53    |
-| METHOD DAG rows        | 146   |
+| GitHub issues          | 51    |
+| METHOD DAG rows        | 142   |
 | Active design cycles   | 14    |
 | METHOD graveyard notes | 7     |
 
@@ -609,42 +609,6 @@ GH issue createdAt: #246: 2026-01-03T01:20:55Z
 
 <hr />
 
-## M052 - TimeStream retention + spool compaction + wormhole density
-
-Ref: #244
-
-### Decision
-
-> [!danger] Delete?
->
-> - [ ] Yes, Delete
-> - [ ] No, keep
-
-### Info
-
-Best guess: keep. This is currently available on the METHOD frontier because all direct blockers are complete or absent.
-
-DAG blocked by: none
-DAG chain depth: downstream 1; upstream 1
-GH issue #: #244
-GH issue createdAt: #244: 2026-01-03T01:20:24Z
-
-| Field                    | Value                                                      |
-| ------------------------ | ---------------------------------------------------------- |
-| Source                   | METHOD task matrix                                         |
-| METHOD id                | M052                                                       |
-| Native id                | none                                                       |
-| Lane                     | up-next                                                    |
-| Status                   | open                                                       |
-| Completed                | no                                                         |
-| Source path              | docs/method/backlog/up-next/KERNEL_timestream-retention.md |
-| Anchor/link              | docs/method/backlog/up-next/KERNEL_timestream-retention.md |
-| Direct blockers          | none                                                       |
-| Direct dependents        | none                                                       |
-| Referenced GitHub issues | #244                                                       |
-
-<hr />
-
 ## M053 - Authenticated Wesley Intent Admission Posture
 
 Status: proposed security hardening.
@@ -1043,42 +1007,6 @@ GH issue createdAt: n/a
 | Direct blockers          | none                                                             |
 | Direct dependents        | none                                                             |
 | Referenced GitHub issues | none                                                             |
-
-<hr />
-
-## M064 - Update echo-wesley-gen IR deserializer for v2 format
-
-**User Story:** As an Echo developer, I want echo-wesley-gen to consume the v2 IR format so that new Wesley features (QIR operations, migration metadata) are available in generated Rust types.
-
-### Decision
-
-> [!danger] Delete?
->
-> - [ ] Yes, Delete
-> - [ ] No, keep
-
-### Info
-
-Best guess: keep. This is currently available on the METHOD frontier because all direct blockers are complete or absent.
-
-DAG blocked by: none
-DAG chain depth: downstream 8; upstream 1
-GH issue #: none
-GH issue createdAt: n/a
-
-| Field                    | Value                                                                                                                   |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| Source                   | METHOD task matrix                                                                                                      |
-| METHOD id                | M064                                                                                                                    |
-| Native id                | T-2-4-1                                                                                                                 |
-| Lane                     | up-next                                                                                                                 |
-| Status                   | open                                                                                                                    |
-| Completed                | no                                                                                                                      |
-| Source path              | docs/method/backlog/up-next/PLATFORM_echo-wesley-gen-v2.md                                                              |
-| Anchor/link              | docs/method/backlog/up-next/PLATFORM_echo-wesley-gen-v2.md#t-2-4-1-update-echo-wesley-gen-ir-deserializer-for-v2-format |
-| Direct blockers          | none                                                                                                                    |
-| Direct dependents        | M079 (Wesley To Echo Toy Contract Proof)                                                                                |
-| Referenced GitHub issues | none                                                                                                                    |
 
 <hr />
 
@@ -1602,26 +1530,26 @@ Status: GREEN 4.
 
 ### Info
 
-Best guess: keep. It is still part of the dependency graph and has explicit unresolved blockers.
+Best guess: keep. This is currently available on the METHOD frontier because all direct blockers are complete or absent.
 
-DAG blocked by: M008 (WESLEY Protocol Consumer Cutover), M036 (Registry Provider Wiring And Host Boundary Decision), M064 (Update echo-wesley-gen IR deserializer for v2 format)
+DAG blocked by: none
 DAG chain depth: downstream 7; upstream 5
 GH issue #: none
 GH issue createdAt: n/a
 
-| Field                    | Value                                                                                                                                                            |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Source                   | METHOD task matrix                                                                                                                                               |
-| METHOD id                | M079                                                                                                                                                             |
-| Native id                | none                                                                                                                                                             |
-| Lane                     | up-next                                                                                                                                                          |
-| Status                   | blocked                                                                                                                                                          |
-| Completed                | no                                                                                                                                                               |
-| Source path              | docs/method/backlog/up-next/PLATFORM_wesley-to-echo-toy-contract-proof.md                                                                                        |
-| Anchor/link              | docs/method/backlog/up-next/PLATFORM_wesley-to-echo-toy-contract-proof.md                                                                                        |
-| Direct blockers          | M008 (WESLEY Protocol Consumer Cutover), M036 (Registry Provider Wiring And Host Boundary Decision), M064 (Update echo-wesley-gen IR deserializer for v2 format) |
-| Direct dependents        | M045 (Contract-Aware Receipts And Readings), M053 (Authenticated Wesley Intent Admission Posture)                                                                |
-| Referenced GitHub issues | none                                                                                                                                                             |
+| Field                    | Value                                                                                             |
+| ------------------------ | ------------------------------------------------------------------------------------------------- |
+| Source                   | METHOD task matrix                                                                                |
+| METHOD id                | M079                                                                                              |
+| Native id                | none                                                                                              |
+| Lane                     | up-next                                                                                           |
+| Status                   | open                                                                                              |
+| Completed                | no                                                                                                |
+| Source path              | docs/method/backlog/up-next/PLATFORM_wesley-to-echo-toy-contract-proof.md                         |
+| Anchor/link              | docs/method/backlog/up-next/PLATFORM_wesley-to-echo-toy-contract-proof.md                         |
+| Direct blockers          | none                                                                                              |
+| Direct dependents        | M045 (Contract-Aware Receipts And Readings), M053 (Authenticated Wesley Intent Admission Posture) |
+| Referenced GitHub issues | none                                                                                              |
 
 <hr />
 
@@ -5084,78 +5012,6 @@ GH issue createdAt: #225: 2026-01-02T22:11:36Z, #226: 2026-01-02T22:11:50Z
 
 <hr />
 
-## M173 - Spec — dt policy: fixed timestep vs admitted dt stream (#243)
-
-**User Story:** As an engine architect, I want a locked design decision on whether Echo uses a fixed timestep or variable dt admitted as a stream so that all downstream code (physics, animation, admission budgets) can commit to one model.
-
-### Decision
-
-> [!danger] Delete?
->
-> - [ ] Yes, Delete
-> - [ ] No, keep
-
-### Info
-
-Best guess: triage before keeping. This is tracked as a lower-commitment idea and should survive only if it still points at a real future hill.
-
-DAG blocked by: M049 (Spec — HistoryTime vs HostTime field classification (#191)), M050 (Spec — TTL/deadline semantics are ticks only (#192))
-DAG chain depth: downstream 8; upstream 3
-GH issue #: #243
-GH issue createdAt: #243: 2026-01-03T01:20:09Z
-
-| Field                    | Value                                                                                                                                   |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Source                   | METHOD task matrix                                                                                                                      |
-| METHOD id                | M173                                                                                                                                    |
-| Native id                | T-7-2-1                                                                                                                                 |
-| Lane                     | cool-ideas                                                                                                                              |
-| Status                   | blocked                                                                                                                                 |
-| Completed                | no                                                                                                                                      |
-| Source path              | docs/method/backlog/cool-ideas/PLATFORM_streams-inspector.md                                                                            |
-| Anchor/link              | docs/method/backlog/cool-ideas/PLATFORM_streams-inspector.md#t-7-2-1-spec-dt-policy-fixed-timestep-vs-admitted-dt-stream-243            |
-| Direct blockers          | M049 (Spec — HistoryTime vs HostTime field classification (#191)), M050 (Spec — TTL/deadline semantics are ticks only (#192))           |
-| Direct dependents        | M176 (Spec — Security/capabilities for fork/rewind/merge in multiplayer (#246)), M177 (Implement StreamsFrame inspector support (#170)) |
-| Referenced GitHub issues | #243                                                                                                                                    |
-
-<hr />
-
-## M174 - Spec — TimeStream retention, spool compaction, wormhole density (#244)
-
-**User Story:** As an operator deploying Echo sessions, I want documented policies for how long TimeStream spools are retained, when compaction occurs, and how wormhole density is managed so that I can size storage and predict seek latency.
-
-### Decision
-
-> [!danger] Delete?
->
-> - [ ] Yes, Delete
-> - [ ] No, keep
-
-### Info
-
-Best guess: triage before keeping. This is tracked as a lower-commitment idea and should survive only if it still points at a real future hill.
-
-DAG blocked by: M049 (Spec — HistoryTime vs HostTime field classification (#191)), M050 (Spec — TTL/deadline semantics are ticks only (#192))
-DAG chain depth: downstream 8; upstream 3
-GH issue #: #244
-GH issue createdAt: #244: 2026-01-03T01:20:24Z
-
-| Field                    | Value                                                                                                                                   |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Source                   | METHOD task matrix                                                                                                                      |
-| METHOD id                | M174                                                                                                                                    |
-| Native id                | T-7-2-2                                                                                                                                 |
-| Lane                     | cool-ideas                                                                                                                              |
-| Status                   | blocked                                                                                                                                 |
-| Completed                | no                                                                                                                                      |
-| Source path              | docs/method/backlog/cool-ideas/PLATFORM_streams-inspector.md                                                                            |
-| Anchor/link              | docs/method/backlog/cool-ideas/PLATFORM_streams-inspector.md#t-7-2-2-spec-timestream-retention-spool-compaction-wormhole-density-244    |
-| Direct blockers          | M049 (Spec — HistoryTime vs HostTime field classification (#191)), M050 (Spec — TTL/deadline semantics are ticks only (#192))           |
-| Direct dependents        | M176 (Spec — Security/capabilities for fork/rewind/merge in multiplayer (#246)), M177 (Implement StreamsFrame inspector support (#170)) |
-| Referenced GitHub issues | #244                                                                                                                                    |
-
-<hr />
-
 ## M175 - Spec — Merge semantics for admitted stream facts across worldlines (#245)
 
 **User Story:** As a multiplayer game developer, I want clear merge semantics for when worldlines rejoin so that buffered "future" events are handled deterministically and I can reason about conflict resolution.
@@ -5169,9 +5025,9 @@ GH issue createdAt: #244: 2026-01-03T01:20:24Z
 
 ### Info
 
-Best guess: triage before keeping. This is tracked as a lower-commitment idea and should survive only if it still points at a real future hill.
+Best guess: triage before keeping. This is currently available on the METHOD frontier because all direct blockers are complete or absent.
 
-DAG blocked by: M049 (Spec — HistoryTime vs HostTime field classification (#191)), M050 (Spec — TTL/deadline semantics are ticks only (#192))
+DAG blocked by: none
 DAG chain depth: downstream 7; upstream 3
 GH issue #: #245
 GH issue createdAt: #245: 2026-01-03T01:20:40Z
@@ -5182,11 +5038,11 @@ GH issue createdAt: #245: 2026-01-03T01:20:40Z
 | METHOD id                | M175                                                                                                                                      |
 | Native id                | T-7-2-3                                                                                                                                   |
 | Lane                     | cool-ideas                                                                                                                                |
-| Status                   | blocked                                                                                                                                   |
+| Status                   | open                                                                                                                                      |
 | Completed                | no                                                                                                                                        |
 | Source path              | docs/method/backlog/cool-ideas/PLATFORM_streams-inspector.md                                                                              |
 | Anchor/link              | docs/method/backlog/cool-ideas/PLATFORM_streams-inspector.md#t-7-2-3-spec-merge-semantics-for-admitted-stream-facts-across-worldlines-245 |
-| Direct blockers          | M049 (Spec — HistoryTime vs HostTime field classification (#191)), M050 (Spec — TTL/deadline semantics are ticks only (#192))             |
+| Direct blockers          | none                                                                                                                                      |
 | Direct dependents        | M148 (Implement time travel core — pause/rewind/buffer/catch-up (#171)), M177 (Implement StreamsFrame inspector support (#170))           |
 | Referenced GitHub issues | #245                                                                                                                                      |
 
@@ -5205,26 +5061,26 @@ GH issue createdAt: #245: 2026-01-03T01:20:40Z
 
 ### Info
 
-Best guess: triage before keeping. This is tracked as a lower-commitment idea and should survive only if it still points at a real future hill.
+Best guess: triage before keeping. This is currently available on the METHOD frontier because all direct blockers are complete or absent.
 
-DAG blocked by: M173 (Spec — dt policy: fixed timestep vs admitted dt stream (#243)), M174 (Spec — TimeStream retention, spool compaction, wormhole density (#244))
+DAG blocked by: none
 DAG chain depth: downstream 7; upstream 4
 GH issue #: #246
 GH issue createdAt: #246: 2026-01-03T01:20:55Z
 
-| Field                    | Value                                                                                                                                               |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Source                   | METHOD task matrix                                                                                                                                  |
-| METHOD id                | M176                                                                                                                                                |
-| Native id                | T-7-2-4                                                                                                                                             |
-| Lane                     | cool-ideas                                                                                                                                          |
-| Status                   | blocked                                                                                                                                             |
-| Completed                | no                                                                                                                                                  |
-| Source path              | docs/method/backlog/cool-ideas/PLATFORM_streams-inspector.md                                                                                        |
-| Anchor/link              | docs/method/backlog/cool-ideas/PLATFORM_streams-inspector.md#t-7-2-4-spec-securitycapabilities-for-forkrewindmerge-in-multiplayer-246               |
-| Direct blockers          | M173 (Spec — dt policy: fixed timestep vs admitted dt stream (#243)), M174 (Spec — TimeStream retention, spool compaction, wormhole density (#244)) |
-| Direct dependents        | M148 (Implement time travel core — pause/rewind/buffer/catch-up (#171)), M177 (Implement StreamsFrame inspector support (#170))                     |
-| Referenced GitHub issues | #246                                                                                                                                                |
+| Field                    | Value                                                                                                                                 |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Source                   | METHOD task matrix                                                                                                                    |
+| METHOD id                | M176                                                                                                                                  |
+| Native id                | T-7-2-4                                                                                                                               |
+| Lane                     | cool-ideas                                                                                                                            |
+| Status                   | open                                                                                                                                  |
+| Completed                | no                                                                                                                                    |
+| Source path              | docs/method/backlog/cool-ideas/PLATFORM_streams-inspector.md                                                                          |
+| Anchor/link              | docs/method/backlog/cool-ideas/PLATFORM_streams-inspector.md#t-7-2-4-spec-securitycapabilities-for-forkrewindmerge-in-multiplayer-246 |
+| Direct blockers          | none                                                                                                                                  |
+| Direct dependents        | M148 (Implement time travel core — pause/rewind/buffer/catch-up (#171)), M177 (Implement StreamsFrame inspector support (#170))       |
+| Referenced GitHub issues | #246                                                                                                                                  |
 
 <hr />
 
@@ -5243,24 +5099,24 @@ GH issue createdAt: #246: 2026-01-03T01:20:55Z
 
 Best guess: triage before keeping. This is tracked as a lower-commitment idea and should survive only if it still points at a real future hill.
 
-DAG blocked by: M173 (Spec — dt policy: fixed timestep vs admitted dt stream (#243)), M174 (Spec — TimeStream retention, spool compaction, wormhole density (#244)), M175 (Spec — Merge semantics for admitted stream facts across worldlines (#245)), M176 (Spec — Security/capabilities for fork/rewind/merge in multiplayer (#246))
+DAG blocked by: M175 (Spec — Merge semantics for admitted stream facts across worldlines (#245)), M176 (Spec — Security/capabilities for fork/rewind/merge in multiplayer (#246))
 DAG chain depth: downstream 6; upstream 5
 GH issue #: #170
 GH issue createdAt: #170: 2026-01-01T19:24:38Z
 
-| Field                    | Value                                                                                                                                                                                                                                                                                                                  |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Source                   | METHOD task matrix                                                                                                                                                                                                                                                                                                     |
-| METHOD id                | M177                                                                                                                                                                                                                                                                                                                   |
-| Native id                | T-7-2-5                                                                                                                                                                                                                                                                                                                |
-| Lane                     | cool-ideas                                                                                                                                                                                                                                                                                                             |
-| Status                   | blocked                                                                                                                                                                                                                                                                                                                |
-| Completed                | no                                                                                                                                                                                                                                                                                                                     |
-| Source path              | docs/method/backlog/cool-ideas/PLATFORM_streams-inspector.md                                                                                                                                                                                                                                                           |
-| Anchor/link              | docs/method/backlog/cool-ideas/PLATFORM_streams-inspector.md#t-7-2-5-implement-streamsframe-inspector-support-170                                                                                                                                                                                                      |
-| Direct blockers          | M173 (Spec — dt policy: fixed timestep vs admitted dt stream (#243)), M174 (Spec — TimeStream retention, spool compaction, wormhole density (#244)), M175 (Spec — Merge semantics for admitted stream facts across worldlines (#245)), M176 (Spec — Security/capabilities for fork/rewind/merge in multiplayer (#246)) |
-| Direct dependents        | M148 (Implement time travel core — pause/rewind/buffer/catch-up (#171)), M178 (Implement Constraint Lens panel — admission explain-why + counterfactual sliders (#203))                                                                                                                                                |
-| Referenced GitHub issues | #170                                                                                                                                                                                                                                                                                                                   |
+| Field                    | Value                                                                                                                                                                   |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Source                   | METHOD task matrix                                                                                                                                                      |
+| METHOD id                | M177                                                                                                                                                                    |
+| Native id                | T-7-2-5                                                                                                                                                                 |
+| Lane                     | cool-ideas                                                                                                                                                              |
+| Status                   | blocked                                                                                                                                                                 |
+| Completed                | no                                                                                                                                                                      |
+| Source path              | docs/method/backlog/cool-ideas/PLATFORM_streams-inspector.md                                                                                                            |
+| Anchor/link              | docs/method/backlog/cool-ideas/PLATFORM_streams-inspector.md#t-7-2-5-implement-streamsframe-inspector-support-170                                                       |
+| Direct blockers          | M175 (Spec — Merge semantics for admitted stream facts across worldlines (#245)), M176 (Spec — Security/capabilities for fork/rewind/merge in multiplayer (#246))       |
+| Direct dependents        | M148 (Implement time travel core — pause/rewind/buffer/catch-up (#171)), M178 (Implement Constraint Lens panel — admission explain-why + counterfactual sliders (#203)) |
+| Referenced GitHub issues | #170                                                                                                                                                                    |
 
 <hr />
 
@@ -5868,7 +5724,7 @@ Links
 
 Best guess: keep. The GitHub issue is open and has METHOD backlog coverage.
 
-DAG blocked by: M173 (Spec — dt policy: fixed timestep vs admitted dt stream (#243)), M174 (Spec — TimeStream retention, spool compaction, wormhole density (#244)), M175 (Spec — Merge semantics for admitted stream facts across worldlines (#245)), M176 (Spec — Security/capabilities for fork/rewind/merge in multiplayer (#246))
+DAG blocked by: M175 (Spec — Merge semantics for admitted stream facts across worldlines (#245)), M176 (Spec — Security/capabilities for fork/rewind/merge in multiplayer (#246))
 DAG chain depth: downstream max 6; upstream max 5
 GH issue #: #170
 GH issue createdAt: 2026-01-01T19:24:38Z
@@ -5911,7 +5767,7 @@ Scope
 
 Exit Criteria
 
-- A user can rewind locally while network keeps spooling, then either catch up or resync without paradox.
+- A user can rewind locally while network input continues, then either catch up or resync without paradox.
 - Tooling/inspector can show the backlog and admission decisions (depends on TT1).
 
 Links
@@ -7465,94 +7321,6 @@ GH issue createdAt: 2026-01-02T22:43:10Z
 
 <hr />
 
-## GH-243 - TT1: dt policy (fixed timestep vs admitted dt stream)
-
-From `docs/spec-time-streams-and-wormholes.md`: clarify whether simulation `dt` is fixed (Chronos tick implies fixed delta) or whether `dt` is itself an admitted stream.
-
-Scope:
-
-- Decide on default policy for Echo (likely fixed timestep), and define the rule for allowing variable dt (if allowed) as a TimeStream + StreamAdmissionDecision.
-- Specify how dt interacts with determinism, replay, and catch-up predicates.
-- Update relevant specs + docs.
-
-Acceptance:
-
-- Spec defines dt semantics in ticks/epochs, with explicit HostTime boundary and decision-record requirements if variable.
-
-### Decision
-
-> [!danger] Delete?
->
-> - [ ] Yes, Delete
-> - [ ] No, keep
-
-### Info
-
-Best guess: keep. The GitHub issue is open and has METHOD backlog coverage.
-
-DAG blocked by: M049 (Spec — HistoryTime vs HostTime field classification (#191)), M050 (Spec — TTL/deadline semantics are ticks only (#192))
-DAG chain depth: downstream max 8; upstream max 3
-GH issue #: #243
-GH issue createdAt: 2026-01-03T01:20:09Z
-
-| Field               | Value                                           |
-| ------------------- | ----------------------------------------------- |
-| Source              | GitHub issue                                    |
-| GH issue #          | #243                                            |
-| State               | OPEN                                            |
-| Author              | flyingrobots                                    |
-| Created at          | 2026-01-03T01:20:09Z                            |
-| Updated at          | 2026-01-03T01:20:09Z                            |
-| URL                 | https://github.com/flyingrobots/echo/issues/243 |
-| Labels              | feature, spec                                   |
-| Mapped METHOD tasks | M173                                            |
-
-<hr />
-
-## GH-244 - TT1: TimeStream retention + spool compaction + wormhole density
-
-From `docs/spec-time-streams-and-wormholes.md`: define retention and compaction behavior for TimeStreams (backlogs/spools) and how they relate to wormholes/checkpoints and durability/WAL epochs.
-
-Scope:
-
-- Define retention periods and compaction rules for stream payloads (semantic envelopes vs raw bytes).
-- Define how spools are represented on disk and how they interact with wormhole segments / checkpointing.
-- Define minimal invariants for replay correctness when compaction occurs.
-
-Acceptance:
-
-- Spec section defines retention/compaction and how replays validate digests across compacted segments.
-
-### Decision
-
-> [!danger] Delete?
->
-> - [ ] Yes, Delete
-> - [ ] No, keep
-
-### Info
-
-Best guess: keep. The GitHub issue is open and has METHOD backlog coverage.
-
-DAG blocked by: M049 (Spec — HistoryTime vs HostTime field classification (#191)), M050 (Spec — TTL/deadline semantics are ticks only (#192))
-DAG chain depth: downstream max 8; upstream max 3
-GH issue #: #244
-GH issue createdAt: 2026-01-03T01:20:24Z
-
-| Field               | Value                                           |
-| ------------------- | ----------------------------------------------- |
-| Source              | GitHub issue                                    |
-| GH issue #          | #244                                            |
-| State               | OPEN                                            |
-| Author              | flyingrobots                                    |
-| Created at          | 2026-01-03T01:20:24Z                            |
-| Updated at          | 2026-01-03T01:20:24Z                            |
-| URL                 | https://github.com/flyingrobots/echo/issues/244 |
-| Labels              | feature, spec                                   |
-| Mapped METHOD tasks | M052, M174                                      |
-
-<hr />
-
 ## GH-245 - TT1: Merge semantics for admitted stream facts across worldlines
 
 From `docs/spec-time-streams-and-wormholes.md`: clarify merge semantics for stream-derived observation facts when clients buffer "future" events and later fork/merge/resync.
@@ -7578,7 +7346,7 @@ Acceptance:
 
 Best guess: keep. The GitHub issue is open and has METHOD backlog coverage.
 
-DAG blocked by: M049 (Spec — HistoryTime vs HostTime field classification (#191)), M050 (Spec — TTL/deadline semantics are ticks only (#192))
+DAG blocked by: none
 DAG chain depth: downstream max 7; upstream max 3
 GH issue #: #245
 GH issue createdAt: 2026-01-03T01:20:40Z
@@ -7622,7 +7390,7 @@ Acceptance:
 
 Best guess: keep. The GitHub issue is open and has METHOD backlog coverage.
 
-DAG blocked by: M173 (Spec — dt policy: fixed timestep vs admitted dt stream (#243)), M174 (Spec — TimeStream retention, spool compaction, wormhole density (#244))
+DAG blocked by: none
 DAG chain depth: downstream max 7; upstream max 4
 GH issue #: #246
 GH issue createdAt: 2026-01-03T01:20:55Z

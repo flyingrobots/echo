@@ -183,6 +183,67 @@ Example coordinate components:
 `echo-cas` may retain the answer. It must not become the semantic authority for
 the question.
 
+## Holographic Retention Pressure
+
+Echo should assume memory and local disk are finite.
+
+The answer is not to materialize a full graph state at every tick. Echo should
+retain witnessed causal history and enough boundary artifacts to support
+bounded replay, bounded reveal, and honest obstruction. Optics then read by
+slicing the required causal history, lowering only the focused aperture, and
+optionally retaining the emitted reading.
+
+For example, an optic that asks for `x` at coordinate `n+2` should be able to
+use an index to find the nearest retained basis that affects `x`, stream the
+required causal slice, lower the value, and retain the answer under a semantic
+read key such as:
+
+```text
+focus=x
+coordinate=n+2
+aperture=value
+witness_basis=...
+projection_version=...
+reducer_version=...
+```
+
+The retained bytes may live in `echo-cas` under a content hash, but the lookup
+key is the read identity. A later optic that asks the same question may reveal
+the retained bytes directly. A different coordinate, aperture, witness basis,
+projection version, reducer version, rights posture, or budget posture is a
+different question even if it happens to emit identical bytes.
+
+Indexes that make this fast are performance aids. They should be streamable and
+should not assume the full graph, full provenance log, or full index can fit in
+memory at once. If the necessary retained basis or causal evidence is no longer
+available locally, the read must return an obstruction or a rehydration-required
+posture rather than secretly materializing unrelated state or pretending a cache
+hit answers a different question.
+
+Cache pressure is storage policy:
+
+- evicting a cached reading does not rewrite history
+- evicting an index shard does not invalidate receipts
+- deleting unpinned CAS cache bytes may make a fast reveal unavailable
+- deleting required witness material requires either rehydration or obstruction
+- durable archival policy is separate from the content hash itself
+
+`echo-cas` implementations may use content-defined chunking to reduce storage.
+For large blobs or retained readings, a CAS tier may split bytes into variable
+chunks chosen by content, MIME type, layout hints, or storage policy; buzhash
+chunking is one plausible implementation technique. This can deduplicate
+repeated substrings or common retained regions across related readings.
+
+Chunking policy must remain below causal semantics:
+
+- chunk boundaries are storage layout, not read identity
+- changing a chunker must not change Intent identity, tick identity, receipt
+  identity, admission outcome, or replay result
+- semantic references above CAS must still name contract/schema/type/layout
+  information where that information is required
+- canonical byte encodings used by Echo history remain canonical before bytes
+  enter retention
+
 ## Cached Reading Invalidation
 
 Cached readings are immutable answers at a named basis. Echo should not mutate

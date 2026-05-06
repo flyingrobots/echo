@@ -15,12 +15,19 @@ Depends on:
 
 Echo's doctrine says `echo-cas` stores retained witnesses and cached readings,
 but the contract-hosting path needs concrete retention rules for generated
-contract artifacts.
+contract artifacts and bounded optic readings.
 
 CAS hashes name bytes. Semantic lookup keys name the question those bytes
 answer. This matches existing `echo-cas` policy: CAS hashes are content-only,
 while domain separation belongs in typed references and semantic coordinates
 above the blob store.
+
+This card also carries the modern replacement for the retired retention wording
+in #244: Echo should stay holographic. It should retain witnesses, receipts,
+coordinates, and cached bounded readings; it should not materialize the entire
+graph state every tick. When memory or disk pressure appears, cache and index
+eviction is legal storage policy, but required evidence must either be
+rehydrated or produce an explicit obstruction.
 
 ## What it should look like
 
@@ -37,6 +44,12 @@ Semantic lookup should include contract identity, schema hash, basis, observer
 or intent kind, aperture or payload identity, and law/projection version where
 applicable.
 
+Storage tiers may use content-defined chunking for large retained artifacts or
+reading payloads. Variable chunk sizes, MIME-aware chunk policy, and buzhash-like
+chunk boundary selection are implementation options for deduplication and space
+savings. Those choices are not causal semantics and must not affect Intent
+identity, tick identity, receipt identity, read identity, or replay outcome.
+
 ## Acceptance criteria
 
 - Stored contract receipt can be loaded by content hash.
@@ -44,6 +57,10 @@ applicable.
 - Semantic lookup includes contract and schema identity.
 - Cached reading is not reused for a newer live frontier unless a proof of
   containment or equivalent witness relation exists.
+- Large retained payloads may be stored through chunked CAS layout without
+  changing their semantic read identity.
+- Missing locally retained witness material returns obstruction or
+  rehydration-required posture, not a fake cache hit.
 - Garbage collection remains storage policy and does not mutate truth.
 
 ## Non-goals

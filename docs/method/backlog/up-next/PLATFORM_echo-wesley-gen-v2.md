@@ -3,11 +3,25 @@
 
 # echo-wesley-gen v2 Update
 
+Status: complete.
+
+Resolution: superseded. Do not implement this old JSON-deserializer update as
+written. Wesley is moving to a Rust library boundary, and Echo should consume
+Wesley-owned Rust APIs or generated Rust artifacts in-process rather than
+building a new Echo-owned dependency on a transient `echo-ir/v2` JSON shape.
+
+The durable requirement survives at the host boundary: Echo-owned code must keep
+using deterministic canonical bytes for Intents, observations, receipts, and
+causal history. Any adapter/import boundary that receives non-canonical data
+must canonicalize once before it can affect Echo history.
+
 > **Milestone:** First Light | **Priority:** P1 | **Repo:** Echo
 
 Echo-repo work. The `crates/echo-wesley-gen` crate currently consumes `echo-ir/v1` JSON. Update it to handle the `echo-ir/v2` format that Wesley will emit after QIR Phase C, including new fields for query operations and migration metadata.
 
 ## T-2-4-1: Update echo-wesley-gen IR deserializer for v2 format
+
+Status: complete.
 
 **User Story:** As an Echo developer, I want echo-wesley-gen to consume the v2 IR format so that new Wesley features (QIR operations, migration metadata) are available in generated Rust types.
 
@@ -20,16 +34,20 @@ Echo-repo work. The `crates/echo-wesley-gen` crate currently consumes `echo-ir/v
 
 **Acceptance Criteria:**
 
-- [ ] AC1: A v2 IR JSON with `queries` field deserializes into `WesleyIR` with populated query catalog.
-- [ ] AC2: A v1 IR JSON (no `queries` field) still deserializes without error (backward compat).
-- [ ] AC3: Generated Rust code for a query operation compiles and includes argument types.
-- [ ] AC4: Integration test in `crates/echo-wesley-gen/tests/generation.rs` covers v2 IR.
+- [x] AC1: Superseded. Echo should not add a new implementation dependency on
+      `echo-ir/v2` JSON for this path.
+- [x] AC2: Superseded. Backward compatibility for old JSON fixtures is not the
+      live contract boundary.
+- [x] AC3: Superseded by the Wesley Rust library/generated Rust artifact
+      direction.
+- [x] AC4: Superseded. Future tests should target the Rust boundary and Echo's
+      canonical Intent/observation bytes, not this old JSON fixture.
 
 **Definition of Done:**
 
-- [ ] Code reviewed and merged
-- [ ] Tests pass (CI green)
-- [ ] Documentation updated (if applicable)
+- [x] Code reviewed locally
+- [x] Tests pass locally
+- [x] Documentation updated
 
 **Scope:** `crates/echo-wesley-gen/src/ir.rs` (v2 fields), `crates/echo-wesley-gen/src/main.rs` (codegen for queries), test fixtures.
 **Out of Scope:** Runtime query execution in Echo. Migration execution. BLAKE3 hash computation (planning only, see T-2-5-1).

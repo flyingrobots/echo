@@ -61,9 +61,10 @@ Completion evidence:
       entries.
 - [x] AC3: The decision-record rule is stated as a normative MUST/MUST NOT
       requirement.
-- [x] AC4: Local stale-task review checked the classification against
-      `echo-session-proto`, generated TTD protocol surfaces, runtime schema
-      fragments, and the static wall-clock ban script.
+- [x] AC4: Superseded. The compressed stale-task audit checked the
+      classification against `echo-session-proto`, generated TTD protocol
+      surfaces, runtime schema fragments, and the static wall-clock ban script.
+      No separate reviewer confirmation was claimed for this closure.
 
 **Definition of Done:**
 

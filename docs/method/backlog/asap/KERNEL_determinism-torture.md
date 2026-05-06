@@ -98,9 +98,10 @@ Completion evidence:
   restore/compare windows.
 - Corrupting a WSC edge byte either fails validation/restore or triggers a
   hash mismatch during suffix replay.
-- The harness keeps deterministic fixed iteration/tick bounds; wall-clock timing
-  is intentionally left to the external test runner so deterministic crate tests
-  do not call `Instant::now`.
+- The harness keeps deterministic fixed iteration/tick bounds. Runtime budget
+  enforcement belongs to the external test runner, CI timeout, nextest profile,
+  or wrapper script; deterministic crate tests intentionally do not call
+  `Instant::now`.
 
 **User Story:** As a release engineer, I want fuzz testing that snapshots simulation state at random ticks, restores it, and continues execution — verifying the restored run matches the original so that I can catch nondeterminism in serialization/deserialization.
 
@@ -115,9 +116,10 @@ Completion evidence:
 
 - [x] AC1: 50 iterations with random snapshot points on a 500-tick simulation produce zero divergences.
 - [x] AC2: Corrupting a single byte in the snapshot (test hook) causes the restore to fail or the comparison to detect divergence.
-- [x] AC3: Fuzz runs 50 iterations over a 500-tick simulation with fixed bounds;
-      local verification has stayed under the intended runtime budget without
-      embedding wall-clock APIs in the deterministic crate test.
+- [x] AC3: Fuzz runs 50 iterations over a 500-tick simulation with fixed bounds.
+      The intended runtime budget is enforced outside determinism-critical crate
+      tests by the test runner, CI timeout, nextest profile, or wrapper script,
+      not by embedding wall-clock APIs in the deterministic crate test.
 - [x] AC4: Report includes snapshot tick, restore tick, and hash comparison for each iteration.
 
 **Definition of Done:**

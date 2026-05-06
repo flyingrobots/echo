@@ -13,6 +13,7 @@ Depends on:
 - [Merkle Commit](merkle-commit.md)
 - [Provenance Payload](SPEC-0005-provenance-payload.md)
 - [WASM ABI Contract](SPEC-0009-wasm-abi.md)
+- [FIXED-TIMESTEP](../invariants/FIXED-TIMESTEP.md)
 
 ## Why this packet exists
 
@@ -39,6 +40,10 @@ The worldline is not itself the observer. It is the carrier that makes replay, a
 ## Decision 2: PlaybackCursor is a viewpoint
 
 A playback cursor materializes a worldline at a coordinate without mutating the writer head unless it is explicitly acting as the writer. Seeking replays recorded patches and verifies expected hashes. It does not re-run rules.
+
+Playback coordinates follow the [FIXED-TIMESTEP](../invariants/FIXED-TIMESTEP.md)
+invariant: ticks are HistoryTime coordinates, and HostTime cannot affect replay
+or coordinate identity except through an admitted canonical decision record.
 
 ## Decision 3: Observation is the public read contract
 

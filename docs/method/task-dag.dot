@@ -87,8 +87,8 @@ digraph method_task_dag {
     "M046" [label="M046\nContract Strands And\nCounterfactuals", tooltip="M046 [up-next] blocked; blockers=1;  Contract Strands And Counterfactuals", fillcolor="#dbeafe", color="#1d4ed8", penwidth=1.2];
     "M047" [label="M047\nOPEN\nParent drift and\nowned-footprint\nrevalidation", tooltip="M047 [up-next] open; blockers=0;  Parent drift and owned-footprint revalidation", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M048" [label="M048\nOPEN\nT-2-5-1\nSHA-256 to BLAKE3\nmigration spec", tooltip="M048 [up-next] open; blockers=0; T-2-5-1 SHA-256 to BLAKE3 migration spec", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
-    "M049" [label="M049\nOPEN\nT-7-1-1\nSpec — HistoryTime vs\nHostTime field\nclassification (#191)", tooltip="M049 [up-next] open; blockers=0; T-7-1-1 Spec — HistoryTime vs HostTime field classification (#191)", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
-    "M050" [label="M050\nT-7-1-2\nSpec — TTL/deadline\nsemantics are ticks only\n(#192)", tooltip="M050 [up-next] blocked; blockers=1; T-7-1-2 Spec — TTL/deadline semantics are ticks only (#192)", fillcolor="#dbeafe", color="#1d4ed8", penwidth=1.2];
+    "M049" [label="M049\nDONE\nT-7-1-1\nSpec — HistoryTime vs\nHostTime field\nclassification (#191)", tooltip="M049 [up-next] done; blockers=0; T-7-1-1 Spec — HistoryTime vs HostTime field classification (#191)", fillcolor="#f1f5f9", color="#94a3b8", penwidth=1.4];
+    "M050" [label="M050\nOPEN\nT-7-1-2\nSpec — TTL/deadline\nsemantics are ticks only\n(#192)", tooltip="M050 [up-next] open; blockers=0; T-7-1-2 Spec — TTL/deadline semantics are ticks only (#192)", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M051" [label="M051\nOPEN\nSecurity/capabilities for\nfork/rewind/merge", tooltip="M051 [up-next] open; blockers=0;  Security/capabilities for fork/rewind/merge", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M052" [label="M052\nOPEN\nTimeStream retention +\nspool compaction +\nwormhole density", tooltip="M052 [up-next] open; blockers=0;  TimeStream retention + spool compaction + wormhole density", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M053" [label="M053\nAuthenticated Wesley\nIntent Admission Posture", tooltip="M053 [up-next] blocked; blockers=2;  Authenticated Wesley Intent Admission Posture", fillcolor="#dbeafe", color="#1d4ed8", penwidth=1.2];
@@ -227,9 +227,9 @@ digraph method_task_dag {
     "M170" [label="M170\nOPEN\nMethod drift check as\npre-push hook", tooltip="M170 [cool-ideas] open; blockers=0;  Method drift check as pre-push hook", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M171" [label="M171\nOPEN\nReading envelope inspector", tooltip="M171 [cool-ideas] open; blockers=0;  Reading envelope inspector", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M172" [label="M172\nOPEN\nVisualization", tooltip="M172 [cool-ideas] open; blockers=0;  Visualization", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
-    "M173" [label="M173\nT-7-2-1\nSpec — dt policy: fixed\ntimestep vs admitted dt\nstream (#243)", tooltip="M173 [cool-ideas] blocked; blockers=2; T-7-2-1 Spec — dt policy: fixed timestep vs admitted dt stream (#243)", fillcolor="#ede9fe", color="#7c3aed", penwidth=1.2];
-    "M174" [label="M174\nT-7-2-2\nSpec — TimeStream\nretention, spool\ncompaction, wormhole...", tooltip="M174 [cool-ideas] blocked; blockers=2; T-7-2-2 Spec — TimeStream retention, spool compaction, wormhole density (#244)", fillcolor="#ede9fe", color="#7c3aed", penwidth=1.2];
-    "M175" [label="M175\nT-7-2-3\nSpec — Merge semantics\nfor admitted stream facts\nacross worldlines (#245)", tooltip="M175 [cool-ideas] blocked; blockers=2; T-7-2-3 Spec — Merge semantics for admitted stream facts across worldlines (#245)", fillcolor="#ede9fe", color="#7c3aed", penwidth=1.2];
+    "M173" [label="M173\nT-7-2-1\nSpec — dt policy: fixed\ntimestep vs admitted dt\nstream (#243)", tooltip="M173 [cool-ideas] blocked; blockers=1; T-7-2-1 Spec — dt policy: fixed timestep vs admitted dt stream (#243)", fillcolor="#ede9fe", color="#7c3aed", penwidth=1.2];
+    "M174" [label="M174\nT-7-2-2\nSpec — TimeStream\nretention, spool\ncompaction, wormhole...", tooltip="M174 [cool-ideas] blocked; blockers=1; T-7-2-2 Spec — TimeStream retention, spool compaction, wormhole density (#244)", fillcolor="#ede9fe", color="#7c3aed", penwidth=1.2];
+    "M175" [label="M175\nT-7-2-3\nSpec — Merge semantics\nfor admitted stream facts\nacross worldlines (#245)", tooltip="M175 [cool-ideas] blocked; blockers=1; T-7-2-3 Spec — Merge semantics for admitted stream facts across worldlines (#245)", fillcolor="#ede9fe", color="#7c3aed", penwidth=1.2];
     "M176" [label="M176\nT-7-2-4\nSpec —\nSecurity/capabilities for\nfork/rewind/merge in...", tooltip="M176 [cool-ideas] blocked; blockers=2; T-7-2-4 Spec — Security/capabilities for fork/rewind/merge in multiplayer (#246)", fillcolor="#ede9fe", color="#7c3aed", penwidth=1.2];
     "M177" [label="M177\nT-7-2-5\nImplement StreamsFrame\ninspector support (#170)", tooltip="M177 [cool-ideas] blocked; blockers=4; T-7-2-5 Implement StreamsFrame inspector support (#170)", fillcolor="#ede9fe", color="#7c3aed", penwidth=1.2];
     "M178" [label="M178\nT-7-2-6\nImplement Constraint Lens\npanel — admission\nexplain-why +...", tooltip="M178 [cool-ideas] blocked; blockers=1; T-7-2-6 Implement Constraint Lens panel — admission explain-why + counterfactual sliders (#203)", fillcolor="#ede9fe", color="#7c3aed", penwidth=1.2];
@@ -298,10 +298,10 @@ digraph method_task_dag {
   "M045" -> "M053";
   "M045" -> "M058";
   "M046" -> "M158";
-  "M049" -> "M050";
-  "M049" -> "M173";
-  "M049" -> "M174";
-  "M049" -> "M175";
+  "M049" -> "M050" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
+  "M049" -> "M173" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
+  "M049" -> "M174" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
+  "M049" -> "M175" [color="#94a3b8", penwidth=1.0, arrowsize=0.45, style=dashed];
   "M050" -> "M173";
   "M050" -> "M174";
   "M050" -> "M175";

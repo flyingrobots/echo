@@ -50,10 +50,12 @@ state. Timers are expressed as tick counts or epoch counts.
 ### R6 — HostTime enters only through canonical decisions
 
 HostTime (wall-clock, frame time, real-time telemetry) MUST NOT
-influence simulation semantics directly. HostTime MAY influence
-semantics only through a recorded canonical decision — an adapter
-emits a deterministic decision record before the simulation consumes
-the result. The decision record is the artifact of record, not the
+influence simulation semantics directly. HostTime MUST NOT directly
+affect admission, commit identity, read identity, replay outcome, or
+causal ordering. HostTime MAY influence semantics only through a
+recorded canonical decision — an adapter emits a deterministic
+decision record before the simulation consumes the result. The
+admitted decision record is the artifact of record, not the
 wall-clock value that motivated it.
 
 ### R7 — Cross-worldline operations require identical tick_quantum
@@ -63,6 +65,49 @@ Cross-worldline compare and settlement MUST require identical
 between worldlines with different quanta MUST be rejected in v1.
 Equal tick numbers represent equal elapsed simulation time only
 when the quanta match.
+
+## Time field classification
+
+Echo distinguishes deterministic causal time from host-observed time.
+
+- **HistoryTime** names deterministic causal coordinates: ticks,
+  worldline append positions, runtime scheduler cycle coordinates,
+  receipt ticks, and tick-denominated deadlines.
+- **HostTime** names wall-clock, monotonic host clocks, browser
+  timestamps, adapter-local timestamps, pacing durations, logging
+  timestamps, and UI telemetry.
+
+This classification is about semantic authority. A HistoryTime field
+may still be diagnostic metadata rather than a commit hash input; a
+HostTime field may still be useful telemetry. The boundary is that
+HostTime is never consumed as deterministic history unless it first
+becomes an admitted canonical decision record.
+
+| Surface / field                                                        | Class       | Rationale                                                                  |
+| ---------------------------------------------------------------------- | ----------- | -------------------------------------------------------------------------- |
+| `WorldlineTick`                                                        | HistoryTime | Per-worldline logical append coordinate; explicitly not wall-clock time.   |
+| `GlobalTick`                                                           | HistoryTime | Runtime-cycle logical correlation coordinate; no wall-clock semantics.     |
+| `SchedulerStatus.latestCycleGlobalTick`                                | HistoryTime | Reports the latest runtime scheduler cycle coordinate.                     |
+| `SchedulerStatus.latestCommitGlobalTick`                               | HistoryTime | Reports the scheduler cycle coordinate that produced the latest commit.    |
+| `SchedulerStatus.lastQuiescentGlobalTick`                              | HistoryTime | Reports the scheduler cycle coordinate at quiescence.                      |
+| `TtdrHeader.tick`                                                      | HistoryTime | Tick receipt coordinate for witnessed deterministic verification.          |
+| TTD protocol `tick` / `fromTick` / `toTick` / `targetTick` fields      | HistoryTime | Cursor, seek, violation, snapshot, and truth-frame coordinates.            |
+| TTD protocol `initialTick` / `finalTick` fields                        | HistoryTime | Cursor lifecycle tick coordinates, not host timestamps.                    |
+| TTD protocol `deadlineTick` fields                                     | HistoryTime | Deadlines are tick-denominated semantic time.                              |
+| Legacy `OpEnvelope.ts`                                                 | HostTime    | Monotonic per-host transport timestamp; must not order causal history.     |
+| Generated TTD protocol `timestamp` / `Timestamp` fields                | HostTime    | Milliseconds-since-epoch event telemetry; not replay/admission authority.  |
+| Hook, CI, and verification timing fields such as `elapsed_ms` or dates | HostTime    | Tooling telemetry and audit logs; outside the deterministic history plane. |
+
+## Static enforcement
+
+The current static guard is `scripts/ban-nondeterminism.sh`. It scans
+determinism-critical crate paths and bans wall-clock and pacing APIs
+including `std::time::SystemTime`, `SystemTime::now`,
+`std::time::Instant`, `Instant::now`, `std::thread::sleep`, and
+async runtime sleep calls. The release allowlist rules in
+`docs/determinism/RELEASE_POLICY.md` require every exemption to prove
+that the nondeterministic API cannot reach the deterministic engine
+loop.
 
 ## Rationale
 

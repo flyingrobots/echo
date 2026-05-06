@@ -80,13 +80,40 @@ assert "ruling 7: identical tick_quantum for cross-worldline" \
 
 # --- Cross-references ---
 echo ""
-echo "4. Cross-references"
+echo "4. HistoryTime / HostTime classification"
+assert "classifies HistoryTime" \
+  grep -q "HistoryTime" "${invariant}"
+assert "classifies HostTime" \
+  grep -q "HostTime" "${invariant}"
+assert "legacy OpEnvelope timestamp is HostTime" \
+  grep -q "Legacy \`OpEnvelope.ts\`.*HostTime" "${invariant}"
+assert "deadlineTick is HistoryTime" \
+  grep -q "deadlineTick.*HistoryTime" "${invariant}"
+
+# --- Cross-references ---
+echo ""
+echo "5. Cross-references"
 assert "SPEC-0004 references the invariant" \
   grep -qi "FIXED-TIMESTEP" "${spec004}"
+assert "static nondeterminism guard is referenced" \
+  grep -q "scripts/ban-nondeterminism.sh" "${invariant}"
+assert "release allowlist policy is referenced" \
+  grep -q "docs/determinism/RELEASE_POLICY.md" "${invariant}"
+
+# --- Static wall-clock guard ---
+echo ""
+echo "6. Static wall-clock guard"
+guard="${repo_root}/scripts/ban-nondeterminism.sh"
+assert "ban-nondeterminism guard exists" \
+  test -x "${guard}"
+assert "ban-nondeterminism bans SystemTime" \
+  grep -q "SystemTime" "${guard}"
+assert "ban-nondeterminism bans Instant" \
+  grep -q "Instant" "${guard}"
 
 # --- Negative test: no variable-dt concepts in crates ---
 echo ""
-echo "5. Negative test: variable-dt concepts absent from crates"
+echo "7. Negative test: variable-dt concepts absent from crates"
 assert_not "no 'variable_dt' in crates/" \
   grep -r "variable_dt" "${repo_root}/crates/"
 assert_not "no 'dt_stream' in crates/" \

@@ -18,7 +18,6 @@
 mod common;
 
 use std::fmt::Write as _;
-use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use common::{append_fixture_entry, hex32, register_fixture_worldline, test_warp_id, XorShift64};
@@ -34,7 +33,6 @@ use warp_core::{
 
 const TOTAL_TICKS: u64 = 500;
 const FUZZ_ITERATIONS: usize = 50;
-const MAX_FUZZ_DURATION: Duration = Duration::from_secs(60);
 const SNAPSHOT_SCHEMA_HASH: Hash = [0x5A; 32];
 
 type TestResult<T> = Result<T, String>;
@@ -557,17 +555,11 @@ fn corrupt_first_edge_id_byte(bytes: &mut [u8]) -> TestResult<()> {
 
 #[test]
 fn snapshot_restore_fuzz_matches_uninterrupted_run() {
-    let started = Instant::now();
     let report = run_snapshot_restore_fuzz().expect("snapshot/restore fuzz should run");
-    let elapsed = started.elapsed();
     let json = report.to_json();
 
     assert_eq!(report.iterations.len(), FUZZ_ITERATIONS, "{json}");
     assert_eq!(report.divergence_count(), 0, "{json}");
-    assert!(
-        elapsed < MAX_FUZZ_DURATION,
-        "snapshot/restore fuzz should finish under {MAX_FUZZ_DURATION:?}, elapsed {elapsed:?}\n{json}"
-    );
     assert!(json.contains("\"iteration_count\": 50"));
     assert!(json.contains("\"format\": \"canonical_wsc_v1\""));
     assert!(json.contains("\"snapshot_tick\":"));

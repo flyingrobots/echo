@@ -1790,18 +1790,18 @@ GH issue createdAt: n/a
 
 ## M049 - Spec — HistoryTime vs HostTime field classification (#191)
 
-**User Story:** As a contributor implementing time-aware adapters, I want a single authoritative document that classifies every session-stream time field as HistoryTime (deterministic, ordering/replay) or HostTime (telemetry only) so that I never accidentally introduce nondeterminism through a time field.
+Status: complete. This stale task was compressed into current invariant doctrine rather than implemented against the obsolete `docs/spec-time-streams-and-wormholes.md` target. The current source is `docs/invariants/FIXED-TIMESTEP.md`: R5 covers tick-denominated TTL/deadline semantics, R6 forbids HostTime from directly affecting admission, commit identity, read identity, replay outcome, or causal ordering, and the Time Field Classification section names the obvious HistoryTime and HostTime surfaces. Static evidence is `scripts/ban-nondeterminism.sh`, which bans wall-clock APIs in determinism-critical crate paths.
 
 ### Decision
 
 > [!danger] Delete?
 >
 > - [ ] Yes, Delete
-> - [ ] No, keep
+> - [x] No, keep
 
 ### Info
 
-Best guess: keep. This is currently available on the METHOD frontier because all direct blockers are complete or absent.
+Best guess: keep as an audit trail. The old full-table task is closed as compressed/superseded, but the doctrine is load-bearing and now lives in the current invariant doc.
 
 DAG blocked by: none
 DAG chain depth: downstream 10; upstream 1
@@ -1814,8 +1814,8 @@ GH issue createdAt: #191: 2026-01-02T16:56:17Z
 | METHOD id                | M049                                                                                                                                                                                                                                                                                              |
 | Native id                | T-7-1-1                                                                                                                                                                                                                                                                                           |
 | Lane                     | up-next                                                                                                                                                                                                                                                                                           |
-| Status                   | open                                                                                                                                                                                                                                                                                              |
-| Completed                | no                                                                                                                                                                                                                                                                                                |
+| Status                   | done                                                                                                                                                                                                                                                                                              |
+| Completed                | yes                                                                                                                                                                                                                                                                                               |
 | Source path              | docs/method/backlog/up-next/KERNEL_time-model-spec.md                                                                                                                                                                                                                                             |
 | Anchor/link              | docs/method/backlog/up-next/KERNEL_time-model-spec.md#t-7-1-1-spec-historytime-vs-hosttime-field-classification-191                                                                                                                                                                               |
 | Direct blockers          | none                                                                                                                                                                                                                                                                                              |

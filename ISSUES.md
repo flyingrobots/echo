@@ -12,7 +12,7 @@ The `M###` identifiers are generated METHOD DAG row ids. The GitHub `GH-###` sec
 
 | Field                  | Value |
 | ---------------------- | ----- |
-| GitHub issues          | 54    |
+| GitHub issues          | 53    |
 | METHOD DAG rows        | 146   |
 | Active design cycles   | 14    |
 | METHOD graveyard notes | 7     |
@@ -6215,59 +6215,6 @@ GH issue createdAt: 2026-01-02T16:51:37Z
 | URL                 | https://github.com/flyingrobots/echo/issues/190 |
 | Labels              | tooling, runtime, core                          |
 | Mapped METHOD tasks | none                                            |
-
-<hr />
-
-## GH-191 - TT0: Session stream time fields (HistoryTime ordering vs HostTime telemetry)
-
-Decision (2026-01-02): kernel semantics are defined only in ticks/epochs (HistoryTime). HostTime never changes semantic state.
-
-Goal
-
-- Make the time model in session streams explicit: correctness uses HistoryTime fields; HostTime is telemetry only.
-
-Scope
-
-- Define/confirm canonical fields for stream correctness: `epoch`/`seq`/`tick`.
-- If a host timestamp is present (e.g. `ts`), explicitly define it as HostTime telemetry and forbid using it for ordering/dedup/gap enforcement.
-- Update docs/specs and add regression tests in session pipeline where applicable.
-
-Acceptance criteria
-
-- Spec clarifies ordering keys vs telemetry.
-- Tests prove hash/digest outcomes are invariant to HostTime differences.
-
-Parent
-
-- Child of #166 (TT0).
-
-### Decision
-
-> [!danger] Delete?
->
-> - [ ] Yes, Delete
-> - [ ] No, keep
-
-### Info
-
-Best guess: keep. The GitHub issue is open and has METHOD backlog coverage.
-
-DAG blocked by: none
-DAG chain depth: downstream max 10; upstream max 1
-GH issue #: #191
-GH issue createdAt: 2026-01-02T16:56:17Z
-
-| Field               | Value                                           |
-| ------------------- | ----------------------------------------------- |
-| Source              | GitHub issue                                    |
-| GH issue #          | #191                                            |
-| State               | OPEN                                            |
-| Author              | flyingrobots                                    |
-| Created at          | 2026-01-02T16:56:17Z                            |
-| Updated at          | 2026-01-02T16:56:17Z                            |
-| URL                 | https://github.com/flyingrobots/echo/issues/191 |
-| Labels              | spec, tooling                                   |
-| Mapped METHOD tasks | M049                                            |
 
 <hr />
 

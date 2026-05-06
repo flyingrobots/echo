@@ -325,6 +325,7 @@ If you can answer these questions by reading the repo, you do not need
 a standup:
 
 - What is everyone working on? → active design docs in `docs/design/`
+  that do not have a matching `docs/method/retro/<cycle>/retro.md`
 - What is committed? → each design doc names its sponsors and hill
 - What is next? → `ls docs/method/backlog/asap/`
 - What closed, failed, or drifted? → `ls docs/method/retro/`

@@ -4,7 +4,7 @@
 
 # ISSUES
 
-Generated inventory for tracked Echo work. Sources: GitHub issues via `gh issue list --state all --limit 1000`, METHOD task rows from `docs/method/task-matrix.csv`, active METHOD design cycles under `docs/design/*/design.md`, and local METHOD graveyard notes under `docs/method/graveyard/*.md`.
+Generated inventory for tracked Echo work. Sources: GitHub issues via `gh issue list --state all --limit 1000`, METHOD task rows from `docs/method/task-matrix.csv`, active METHOD design cycles under `docs/design/*/design.md` without a matching `docs/method/retro/<cycle>/retro.md`, and local METHOD graveyard notes under `docs/method/graveyard/*.md`.
 
 The `M###` identifiers are generated METHOD DAG row ids. The GitHub `GH-###` sections are separate on purpose, even when a METHOD row references the same GitHub issue, so both tracking systems can be pruned deliberately.
 
@@ -14,7 +14,7 @@ The `M###` identifiers are generated METHOD DAG row ids. The GitHub `GH-###` sec
 | ---------------------- | ----- |
 | GitHub issues          | 55    |
 | METHOD DAG rows        | 147   |
-| Active design cycles   | 16    |
+| Active design cycles   | 14    |
 | METHOD graveyard notes | 7     |
 
 <hr />
@@ -8037,67 +8037,6 @@ GH issue createdAt: 2026-02-15T18:49:18Z
 <hr />
 
 # Active Design Cycles
-
-## DESIGN-0003 - Lock the dt policy
-
-_Ratify fixed timestep as a history-plane invariant: dt is fixed per
-worldline, no committed tick carries its own dt, and wall-clock time
-never enters semantic history._
-
-### Decision
-
-> [!danger] Delete?
->
-> - [ ] Yes, Delete
-> - [ ] No, keep
-
-### Info
-
-Best guess: keep while the design cycle remains active; delete or move only through the METHOD close/pivot process.
-
-DAG blocked by: n/a; active design cycles are outside `task-matrix.csv`
-DAG chain depth: n/a; active design cycles are outside `task-matrix.csv`
-GH issue #: #243
-GH issue createdAt: #243: 2026-01-03T01:20:09Z
-
-| Field                    | Value                                |
-| ------------------------ | ------------------------------------ |
-| Source                   | METHOD active design cycle           |
-| Design id                | DESIGN-0003                          |
-| Source path              | docs/design/0003-dt-policy/design.md |
-| Referenced GitHub issues | #243                                 |
-
-<hr />
-
-## DESIGN-0004 - Strand contract
-
-_Define the strand as a first-class relation in Echo with exact fields,
-invariants, lifecycle, and TTD mapping._
-
-### Decision
-
-> [!danger] Delete?
->
-> - [ ] Yes, Delete
-> - [ ] No, keep
-
-### Info
-
-Best guess: keep while the design cycle remains active; delete or move only through the METHOD close/pivot process.
-
-DAG blocked by: n/a; active design cycles are outside `task-matrix.csv`
-DAG chain depth: n/a; active design cycles are outside `task-matrix.csv`
-GH issue #: none
-GH issue createdAt: n/a
-
-| Field                    | Value                                      |
-| ------------------------ | ------------------------------------------ |
-| Source                   | METHOD active design cycle                 |
-| Design id                | DESIGN-0004                                |
-| Source path              | docs/design/0004-strand-contract/design.md |
-| Referenced GitHub issues | none                                       |
-
-<hr />
 
 ## DESIGN-0005 - Echo TTD witness surface
 

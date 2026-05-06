@@ -12,8 +12,8 @@ The `M###` identifiers are generated METHOD DAG row ids. The GitHub `GH-###` sec
 
 | Field                  | Value |
 | ---------------------- | ----- |
-| GitHub issues          | 55    |
-| METHOD DAG rows        | 147   |
+| GitHub issues          | 54    |
+| METHOD DAG rows        | 146   |
 | Active design cycles   | 14    |
 | METHOD graveyard notes | 7     |
 
@@ -570,42 +570,6 @@ GH issue createdAt: n/a
 | Direct blockers          | none                                                                                         |
 | Direct dependents        | none                                                                                         |
 | Referenced GitHub issues | none                                                                                         |
-
-<hr />
-
-## M050 - Spec — TTL/deadline semantics are ticks only (#192)
-
-**User Story:** As a game designer using Echo, I want certainty that all TTL and deadline semantics use deterministic tick/epoch counts so that my game logic replays identically regardless of host performance.
-
-### Decision
-
-> [!danger] Delete?
->
-> - [ ] Yes, Delete
-> - [ ] No, keep
-
-### Info
-
-Best guess: keep. It is still part of the dependency graph and has explicit unresolved blockers.
-
-DAG blocked by: M049 (Spec — HistoryTime vs HostTime field classification (#191))
-DAG chain depth: downstream 9; upstream 2
-GH issue #: #192
-GH issue createdAt: #192: 2026-01-02T16:56:18Z
-
-| Field                    | Value                                                                                                                                                                                                                                 |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Source                   | METHOD task matrix                                                                                                                                                                                                                    |
-| METHOD id                | M050                                                                                                                                                                                                                                  |
-| Native id                | T-7-1-2                                                                                                                                                                                                                               |
-| Lane                     | up-next                                                                                                                                                                                                                               |
-| Status                   | blocked                                                                                                                                                                                                                               |
-| Completed                | no                                                                                                                                                                                                                                    |
-| Source path              | docs/method/backlog/up-next/KERNEL_time-model-spec.md                                                                                                                                                                                 |
-| Anchor/link              | docs/method/backlog/up-next/KERNEL_time-model-spec.md#t-7-1-2-spec-ttldeadline-semantics-are-ticks-only-192                                                                                                                           |
-| Direct blockers          | M049 (Spec — HistoryTime vs HostTime field classification (#191))                                                                                                                                                                     |
-| Direct dependents        | M173 (Spec — dt policy: fixed timestep vs admitted dt stream (#243)), M174 (Spec — TimeStream retention, spool compaction, wormhole density (#244)), M175 (Spec — Merge semantics for admitted stream facts across worldlines (#245)) |
-| Referenced GitHub issues | #192                                                                                                                                                                                                                                  |
 
 <hr />
 
@@ -6304,58 +6268,6 @@ GH issue createdAt: 2026-01-02T16:56:17Z
 | URL                 | https://github.com/flyingrobots/echo/issues/191 |
 | Labels              | spec, tooling                                   |
 | Mapped METHOD tasks | M049                                            |
-
-<hr />
-
-## GH-192 - TT0: TTL/deadline semantics are ticks/epochs only (no host-time semantic deadlines)
-
-Decision (2026-01-02): kernel semantics are defined only in ticks/epochs.
-
-Goal
-
-- Remove ambiguity around TTL: if TTL affects semantics, it is expressed only in HistoryTime (ticks/epochs). HostTime-based TTL is allowed only as non-semantic retention policy.
-
-Scope
-
-- Define semantic TTL as `expires_at_tick` (or equivalent) in specs.
-- Explicitly separate operational retention (tool/hub memory policy) from semantic expiry.
-
-Acceptance criteria
-
-- TT0 docs updated with crisp definitions and examples.
-- Any future implementation work references this definition.
-
-Parent
-
-- Child of #166 (TT0).
-
-### Decision
-
-> [!danger] Delete?
->
-> - [ ] Yes, Delete
-> - [ ] No, keep
-
-### Info
-
-Best guess: keep. The GitHub issue is open and has METHOD backlog coverage.
-
-DAG blocked by: M049 (Spec — HistoryTime vs HostTime field classification (#191))
-DAG chain depth: downstream max 9; upstream max 2
-GH issue #: #192
-GH issue createdAt: 2026-01-02T16:56:18Z
-
-| Field               | Value                                           |
-| ------------------- | ----------------------------------------------- |
-| Source              | GitHub issue                                    |
-| GH issue #          | #192                                            |
-| State               | OPEN                                            |
-| Author              | flyingrobots                                    |
-| Created at          | 2026-01-02T16:56:18Z                            |
-| Updated at          | 2026-01-02T16:56:18Z                            |
-| URL                 | https://github.com/flyingrobots/echo/issues/192 |
-| Labels              | spec                                            |
-| Mapped METHOD tasks | M050                                            |
 
 <hr />
 

@@ -44,6 +44,9 @@ A playback cursor materializes a worldline at a coordinate without mutating the 
 Playback coordinates follow the [FIXED-TIMESTEP](../invariants/FIXED-TIMESTEP.md)
 invariant: ticks are HistoryTime coordinates, and HostTime cannot affect replay
 or coordinate identity except through an admitted canonical decision record.
+Timer starts, fires, expiries, and cancellations follow the same law: an Intent
+is only a proposal, and only an admitted tick plus receipt becomes replayable
+timer history.
 
 ## Decision 3: Observation is the public read contract
 

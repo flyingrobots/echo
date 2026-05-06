@@ -92,6 +92,30 @@ Completion evidence:
 
 ## T-7-1-2: Spec — TTL/deadline semantics are ticks only (#192)
 
+Status: complete.
+
+Resolution: compressed into current invariant doctrine rather than implemented
+against the obsolete `docs/spec-time-streams-and-wormholes.md` target. The
+canonical home is now `docs/invariants/FIXED-TIMESTEP.md`. R5 states that TTL,
+deadline, retry, and expiry semantics are HistoryTime-only unless represented by
+admitted timer-event history. The timer doctrine makes the scheduler/admission
+boundary explicit: submitting `timer.start` or `timer.fire` only proposes an
+Intent; only an admitted tick plus receipt arms or fires the semantic timer.
+HostTime may wake an adapter and cause it to propose a timer Intent, but replay,
+rewind, fork, and read identity consume the admitted causal events rather than
+elapsed wall-clock time.
+
+Completion evidence:
+
+- `docs/invariants/FIXED-TIMESTEP.md` now contains the timer and deadline
+  doctrine, worked example, TTL/deadline touch point table, paused-view edge
+  rule, and violation checklist.
+- `docs/spec/SPEC-0004-worldlines-playback-truthbus.md` cross-references the
+  admitted timer history rule from the playback coordinate section.
+- `scripts/tests/fixed_timestep_invariant_test.sh` now checks the timer doctrine,
+  typed admission outcome language, touch point table, paused-view edge, and
+  violation checklist.
+
 **User Story:** As a game designer using Echo, I want certainty that all TTL and deadline semantics use deterministic tick/epoch counts so that my game logic replays identically regardless of host performance.
 
 **Requirements:**
@@ -103,16 +127,21 @@ Completion evidence:
 
 **Acceptance Criteria:**
 
-- [ ] AC1: Normative "no wall-clock TTL" rule is present in the spec.
-- [ ] AC2: Timer-as-stream pattern is documented with a minimal worked example.
-- [ ] AC3: At least 4 known TTL/deadline touch points are enumerated and confirmed tick-only.
-- [ ] AC4: Violation checklist has at least 3 items.
+- [x] AC1: Superseded target path; the normative no-wall-clock TTL rule is
+      present in `docs/invariants/FIXED-TIMESTEP.md`.
+- [x] AC2: Timer-as-admitted-events pattern is documented with a minimal worked
+      example for `timer.start` and `timer.fire`.
+- [x] AC3: Six known TTL/deadline touch points are enumerated and classified:
+      session keep-alive, admission budgets, retry policies,
+      wormhole/checkpoint retention, cached/retained readings, and
+      adapter-driven real-time timers.
+- [x] AC4: The violation checklist has five items.
 
 **Definition of Done:**
 
-- [ ] Code reviewed and merged
-- [ ] Tests pass (CI green)
-- [ ] Documentation updated (if applicable)
+- [x] Code reviewed locally
+- [x] Tests pass locally
+- [x] Documentation updated
 
 **Scope:** Spec text and worked example for tick-only deadlines.
 **Out of Scope:** Runtime linting or compile-time enforcement; changes to adapter implementations.

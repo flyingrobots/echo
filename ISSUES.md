@@ -29,7 +29,7 @@ Status: complete.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -103,7 +103,7 @@ Status: complete.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -139,7 +139,7 @@ Status: complete.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -215,7 +215,7 @@ normative strand invariant.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -287,7 +287,7 @@ Coordination: `WESLEY_protocol_surface_cutover`
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -359,7 +359,7 @@ Status: complete.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -395,7 +395,7 @@ Status: complete.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -431,7 +431,7 @@ Status: complete.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -467,7 +467,7 @@ Status: complete.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -539,7 +539,7 @@ Status: complete.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -575,7 +575,7 @@ Status: design packet complete.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -688,7 +688,7 @@ against `echo-wasm-abi`.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -724,7 +724,7 @@ Status: complete.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -760,7 +760,7 @@ Status: design/spec packet complete; executable work split into visible cards.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -796,7 +796,7 @@ Status: complete.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -832,7 +832,7 @@ Status: complete.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -868,7 +868,7 @@ Status: complete.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -907,7 +907,7 @@ validates the optic proposal and carries EINT v1 through the existing
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -943,7 +943,7 @@ Status: complete.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -979,7 +979,7 @@ Status: complete.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -1015,7 +1015,7 @@ Status: complete.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -1051,7 +1051,7 @@ Status: complete.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -1087,7 +1087,7 @@ Status: complete.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -1123,7 +1123,7 @@ Status: complete.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -1161,7 +1161,7 @@ worldline bases before staging EINT bytes.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -1197,7 +1197,7 @@ Status: complete.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -1233,7 +1233,7 @@ Status: complete.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -1275,7 +1275,7 @@ return unsupported at runtime.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -1311,7 +1311,7 @@ Status: design packet complete.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -1461,7 +1461,7 @@ Rust/ABI witnessed suffix export/import shell surfaces.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -1500,7 +1500,7 @@ full cycle selector, and refuses to overwrite existing retro material.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -1539,7 +1539,7 @@ playback question lacks visible test coverage.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -1578,7 +1578,7 @@ prefixes from the design filename, and refuses ambiguous or missing selectors.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -1796,8 +1796,8 @@ Status: complete. This stale task was compressed into current invariant doctrine
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
-> - [x] No, keep
+> - [x] Yes, Delete
+> - [ ] No, keep
 
 ### Info
 
@@ -6718,7 +6718,7 @@ Scope: 64-byte header (counts/offsets/flags), ULEB128 indices, property table (K
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -6820,7 +6820,7 @@ Criterion-based benches with JSON output, P50/P95/P99 metrics, and CI thresholds
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -6854,7 +6854,7 @@ Scaffold rmg-cli: `verify` (snapshot integrity), `bench` (run criterion + collec
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -6956,7 +6956,7 @@ C ABI v0 for plugins: lifecycle, capability tokens, version negotiation, error c
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -6990,7 +6990,7 @@ JSON+hex fixtures covering header and minimal tables.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -7024,7 +7024,7 @@ Create docs/spec-persistent-store.md with diagrams and encoding details.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -7058,7 +7058,7 @@ Small Rust module writing header + string pool.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -7092,7 +7092,7 @@ Small Rust module reading header + string pool.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -7126,7 +7126,7 @@ Link spec from snapshot docs; add entry to decision-log.md.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -7160,7 +7160,7 @@ Create docs/spec-commit-signing.md with canonicalization rules.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -7330,7 +7330,7 @@ Create docs/spec-security-contexts.md with defaults and error codes.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -7364,7 +7364,7 @@ Enforce memory/time/recursion caps; UTF-8, path checks, safe math.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -7398,7 +7398,7 @@ Buffer length checks and guard rails in rmg-wasm.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -7432,7 +7432,7 @@ Cover overflow/invalid inputs across FFI/WASM.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -7466,7 +7466,7 @@ Document defaults and toggles.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -7500,7 +7500,7 @@ Set up Criterion workspace crate.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -7534,7 +7534,7 @@ Benchmark compute_state_root over sample graphs.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -7568,7 +7568,7 @@ Benchmark DeterministicScheduler::drain_for_tx.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -7602,7 +7602,7 @@ Write report and upload as artifact.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -7636,7 +7636,7 @@ Fail CI on >X% regression; script in scripts/.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -7670,7 +7670,7 @@ Add verify/bench/inspect to rmg-cli.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -7704,7 +7704,7 @@ Snapshot hash and signature checks (when enabled).
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -7738,7 +7738,7 @@ Invoke benches; print summary and path to JSON.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -7772,7 +7772,7 @@ Print snapshot summary and basic graph stats.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -7806,7 +7806,7 @@ Update README and help text.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -7840,7 +7840,7 @@ Small Rust module writing header + string pool.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -7874,7 +7874,7 @@ Small Rust module reading header + string pool.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -7908,7 +7908,7 @@ Link spec from snapshot docs; add entry to decision-log.md.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -7942,7 +7942,7 @@ Create docs/spec-commit-signing.md with canonicalization rules.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -7976,7 +7976,7 @@ Add job to produce detached signatures for artifacts.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -8010,7 +8010,7 @@ Add 'echo verify --sig' to check signatures.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -8044,7 +8044,7 @@ Describe key storage/rotation and env secrets.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -8078,7 +8078,7 @@ Add verification gate for uploaded artifacts.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -8112,7 +8112,7 @@ Create docs/spec-security-contexts.md with defaults and error codes.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -8146,7 +8146,7 @@ Enforce memory/time/recursion caps; UTF-8, path checks, safe math.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -8180,7 +8180,7 @@ Buffer length checks and guard rails in rmg-wasm.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -8214,7 +8214,7 @@ Cover overflow/invalid inputs across FFI/WASM.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -8248,7 +8248,7 @@ Document defaults and toggles.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -8282,7 +8282,7 @@ Set up Criterion workspace crate.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -8316,7 +8316,7 @@ Benchmark compute_state_root over sample graphs.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -8350,7 +8350,7 @@ Benchmark DeterministicScheduler::drain_for_tx.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -8384,7 +8384,7 @@ Write report and upload as artifact.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -8418,7 +8418,7 @@ Fail CI on >X% regression; script in scripts/.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -8452,7 +8452,7 @@ Add verify/bench/inspect to rmg-cli.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -8486,7 +8486,7 @@ Snapshot hash and signature checks (when enabled).
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -8520,7 +8520,7 @@ Invoke benches; print summary and path to JSON.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -8554,7 +8554,7 @@ Print snapshot summary and basic graph stats.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -8588,7 +8588,7 @@ Update README and help text.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -8690,7 +8690,7 @@ Engine wrapper with version counter + deferred cleanup.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -8724,7 +8724,7 @@ cfg(editor); unit tests for swap behavior.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -8792,7 +8792,7 @@ docs/spec-importer-turtlgraph.md with mapping tables.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -8826,7 +8826,7 @@ Parse string pool and property KVs from bundle.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -8860,7 +8860,7 @@ Materialize nodes/edges payloads from parsed data.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -8894,7 +8894,7 @@ Check BLAKE3 digests; fail on mismatch.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -8928,7 +8928,7 @@ Add tiny sample bundle and unit tests.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -8996,7 +8996,7 @@ Provide header; load/unload minimal plugin.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -9030,7 +9030,7 @@ Implement and test version handshake.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -9064,7 +9064,7 @@ Deny registration without required tokens.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -9098,7 +9098,7 @@ Build toy plugin and CI test.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -9132,7 +9132,7 @@ Add JSON golden fixtures and minimal harness for motion rule; ensure bytes round
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -9166,7 +9166,7 @@ Adopt a repo-wide policy that every PR must be tied to a GitHub Issue, and PR de
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -9214,7 +9214,7 @@ Acceptance
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -9256,7 +9256,7 @@ Deliver:
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -9294,7 +9294,7 @@ Implement deterministic `sin`/`cos` via LUT+refinement.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -9330,7 +9330,7 @@ Port motion rule to use `Scalar`. Introduce payload v2 (Q32.32) with dual decode
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -9366,7 +9366,7 @@ Add feature flags and CI matrix lanes for both scalar backends across OS targets
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -9402,7 +9402,7 @@ Enforce that engine crates call deterministic wrappers only.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -9436,7 +9436,7 @@ Add tests to validate bit‑stable results across glibc/musl/macOS for both back
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -9488,7 +9488,7 @@ GH issue createdAt: 2025-11-02T06:56:06Z
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -9534,7 +9534,7 @@ Define `Scalar` trait
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -9578,7 +9578,7 @@ _No response_
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -9626,7 +9626,7 @@ A simple trick for this is result `+ 0.0`, which converts `-0.0` to `+0.0`.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -9672,7 +9672,7 @@ GH issue createdAt: 2025-11-03T03:40:03Z
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -9706,7 +9706,7 @@ This tracks performance work around the deterministic O(n) radix drain in the sc
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -9772,7 +9772,7 @@ _No response_
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -9816,7 +9816,7 @@ Apache 2.0 OR MIND-UCAL for everything that is not code
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -9861,7 +9861,7 @@ Just NaNs
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -9905,7 +9905,7 @@ Whatever is needed to pass the "freaky numbers" test suite.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -9954,7 +9954,7 @@ instantiate an F32Scalar without passing through the canonicalization logic.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -9998,7 +9998,7 @@ _No response_
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -10046,7 +10046,7 @@ Acceptance:
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -10094,7 +10094,7 @@ Acceptance:
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -10138,7 +10138,7 @@ Scope:
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -10193,7 +10193,7 @@ Implementation outline
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -10233,7 +10233,7 @@ This issue tracks replacing the v0 placeholder with real policy semantics.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -10275,7 +10275,7 @@ Acceptance:
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -10315,7 +10315,7 @@ Rationale: avoid drift between helper-based equality and the struct definition; 
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -10357,7 +10357,7 @@ This is mechanical hygiene to keep the tick patch boundary deterministic and har
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -10407,7 +10407,7 @@ Docs:
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -10441,7 +10441,7 @@ Track adding a WARP Foundations paraphrase doc (Papers I–IV) with explicit "Ec
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -10493,7 +10493,7 @@ Refs
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -10543,7 +10543,7 @@ After CodeRabbit posts review comments, follow `/Users/james/git/jitos/docs/proc
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -10577,7 +10577,7 @@ Context\n- We are formalizing time travel semantics for Echo (multi-stream time 
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -10636,7 +10636,7 @@ Links
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -10697,7 +10697,7 @@ Links
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -11032,7 +11032,7 @@ Notes:
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -11084,7 +11084,7 @@ Refs
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -11135,7 +11135,7 @@ Notes
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -11190,7 +11190,7 @@ Notes
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -11238,7 +11238,7 @@ Acceptance criteria
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -11340,7 +11340,7 @@ Acceptance criteria
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -11391,7 +11391,7 @@ Acceptance criteria
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -11746,7 +11746,7 @@ Acceptance criteria
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -11902,7 +11902,7 @@ Acceptance:
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -12209,7 +12209,7 @@ Acceptance criteria
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -12318,7 +12318,7 @@ Acceptance:
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -12363,7 +12363,7 @@ Acceptance:
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -12405,7 +12405,7 @@ Acceptance:
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -12464,7 +12464,7 @@ Code pointer: `origin_allowed` around line ~1156.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -12522,7 +12522,7 @@ Add a Playwright job to CI, with a cautious default to avoid flakiness / long ru
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -12574,7 +12574,7 @@ We want this to be a hard rule: **no merge to `main` until CodeRabbitAI has appr
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -12619,7 +12619,7 @@ Acceptance criteria
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -12889,7 +12889,7 @@ We currently ack review-thread actionables by replying inline to each GitHub rev
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -12939,7 +12939,7 @@ Acceptance criteria
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -13414,7 +13414,7 @@ Acceptance criteria:
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -13637,7 +13637,7 @@ Acceptance
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -13697,7 +13697,7 @@ This phase wires everything into the main engine loop.
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -13768,7 +13768,7 @@ Implement SPEC-0004 (Worldlines, Playback, TruthBus) on the `graph-boaw` branch,
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -13802,7 +13802,7 @@ Owner: CI Engineer\nEstimate: 6h\nAC:\n- CI matrix includes macOS+Linux parity s
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -13836,7 +13836,7 @@ Owner: CI Engineer\nEstimate: 4h\nAC:\n- VERIFIED requires workflow/job, run ID,
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -13870,7 +13870,7 @@ Owner: Architect\nEstimate: 3h\nAC:\n- every crate classified once: DET_CRITICAL
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -13904,7 +13904,7 @@ Owner: CI Engineer\nEstimate: 3h\nDepends on: det-policy.yaml\nAC:\n- DET_CRITIC
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -13972,7 +13972,7 @@ Owner: Performance Engineer\nEstimate: 7h\nAC:\n- criterion harness for hot path
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info
@@ -14248,7 +14248,7 @@ Add a section to `docs/RELEASE_POLICY.md` documenting:
 
 > [!danger] Delete?
 >
-> - [ ] Yes, Delete
+> - [x] Yes, Delete
 > - [ ] No, keep
 
 ### Info

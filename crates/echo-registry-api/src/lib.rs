@@ -54,6 +54,12 @@ pub struct OpDef {
     pub args: &'static [ArgDef],
     /// Result type name (GraphQL return type).
     pub result_ty: &'static str,
+    /// Preserved operation directive metadata as JSON.
+    ///
+    /// Echo-specific admission tooling can interpret entries such as
+    /// `wes_footprint`; the generic registry API only carries the authored
+    /// directive data.
+    pub directives_json: &'static str,
 }
 
 /// Argument descriptor (flat; sufficient for strict object validation).

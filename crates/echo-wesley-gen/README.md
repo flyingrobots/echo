@@ -20,5 +20,7 @@ cat ir.json | cargo run -p echo-wesley-gen -- --out generated.rs
 ## Notes
 
 - Supports ENUM and OBJECT kinds from Wesley IR.
+- Preserves per-operation directive metadata as `OpDef::directives_json`; Echo
+  admission tooling owns any interpretation of `wes_footprint`.
 - Optional fields become `Option<T>`; lists become `Vec<T>` (wrapped in Option when not required).
 - Unknown scalar names are emitted as identifiers as-is (so ensure upstream IR types are valid Rust idents).

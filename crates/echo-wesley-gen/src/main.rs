@@ -540,17 +540,30 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
         });
 
         // OPS table (sorted by op_id).
-        let ops_entries = ops_sorted.iter().map(|op| {
-            let kind = match op.kind {
-                OpKind::Query => quote! { OpKind::Query },
-                OpKind::Mutation => quote! { OpKind::Mutation },
-            };
-            let name = &op.name;
-            let op_id = op.op_id;
-            let args_name = format_ident!("{}_ARGS", op_const_ident(&op.name, op.op_id));
-            let result_ty = &op.result_type;
-            quote! { OpDef { kind: #kind, name: #name, op_id: #op_id, args: #args_name, result_ty: #result_ty } }
-        });
+        let ops_entries = ops_sorted
+            .iter()
+            .map(|op| {
+                let kind = match op.kind {
+                    OpKind::Query => quote! { OpKind::Query },
+                    OpKind::Mutation => quote! { OpKind::Mutation },
+                };
+                let name = &op.name;
+                let op_id = op.op_id;
+                let args_name = format_ident!("{}_ARGS", op_const_ident(&op.name, op.op_id));
+                let result_ty = &op.result_type;
+                let directives_json = op_directives_json(op)?;
+                Ok(quote! {
+                    OpDef {
+                        kind: #kind,
+                        name: #name,
+                        op_id: #op_id,
+                        args: #args_name,
+                        result_ty: #result_ty,
+                        directives_json: #directives_json,
+                    }
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
 
         tokens.extend(quote! {
             pub const OPS: &[OpDef] = &[
@@ -606,6 +619,10 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
 
 fn op_const_ident(name: &str, op_id: u32) -> proc_macro2::Ident {
     format_ident!("{}", op_const_name(name, op_id))
+}
+
+fn op_directives_json(op: &ir::OpDefinition) -> Result<String> {
+    serde_json::to_string(&op.directives).map_err(Into::into)
 }
 
 fn op_const_name(name: &str, op_id: u32) -> String {

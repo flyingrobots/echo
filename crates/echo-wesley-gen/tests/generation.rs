@@ -228,6 +228,13 @@ mod tests {
         assert_eq!(registry_info.registry_version, REGISTRY_VERSION);
         assert_eq!(registry_info.schema_sha256_hex, SCHEMA_SHA256);
         assert_eq!(REGISTRY.op_by_id(OP_INCREMENT).unwrap().kind, OpKind::Mutation);
+        assert!(
+            REGISTRY
+                .op_by_id(OP_INCREMENT)
+                .unwrap()
+                .directives_json
+                .contains("\"wes_footprint\"")
+        );
         assert_eq!(REGISTRY.op_by_id(OP_COUNTER_VALUE).unwrap().kind, OpKind::Query);
 
         let intent = pack_increment_intent(&IncrementVars {
@@ -844,6 +851,8 @@ fn test_toy_contract_generates_eint_and_observation_helpers() {
     assert!(stdout.contains("pub const OP_INCREMENT: u32 = 1001"));
     assert!(stdout.contains("pub const OP_COUNTER_VALUE: u32 = 1002"));
     assert!(stdout.contains("pub static REGISTRY: GeneratedRegistry"));
+    assert!(stdout.contains("directives_json:"));
+    assert!(stdout.contains("\\\"wes_footprint\\\""));
 
     for required in [
         "use echo_wasm_abi::pack_intent_v1;",

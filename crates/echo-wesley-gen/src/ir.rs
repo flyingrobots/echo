@@ -4,6 +4,10 @@
 
 use serde::Deserialize;
 
+fn empty_directives() -> serde_json::Value {
+    serde_json::Value::Object(serde_json::Map::new())
+}
+
 /// Root Wesley IR payload consumed by `echo-wesley-gen`.
 ///
 /// This is a minimal, serde-friendly representation of the IR JSON emitted by
@@ -104,6 +108,9 @@ pub struct OpDefinition {
     pub args: Vec<ArgDefinition>,
     /// GraphQL result type name.
     pub result_type: String,
+    /// Generic operation directive metadata preserved for Echo-owned admission tooling.
+    #[serde(default = "empty_directives")]
+    pub directives: serde_json::Value,
 }
 
 /// Argument definition (used for both operation args and object fields).

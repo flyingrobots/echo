@@ -125,8 +125,8 @@ individual ticks.
    rulings, rationale, and consequences.
 3. Cross-reference from SPEC-0004 (worldlines) — add a one-line
    normative reference to the invariant.
-4. Cross-reference from `CONTINUUM.md` — note that the hot runtime's
-   time model is fixed-quantum.
+4. Cross-reference from the current runtime/invariant docs — note that the hot
+   runtime's time model is fixed-quantum.
 5. Verify that `warp_geom::Tick` doc comment is consistent with the
    invariant (it already says "fixed `dt` per branch").
 6. Update the strand-contract and strand-settlement backlog items

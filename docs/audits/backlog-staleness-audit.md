@@ -17,7 +17,7 @@ Source snapshot:
 
 - `docs/method/task-matrix.md`
 - `docs/method/task-dag.dot`
-- `docs/method/stale-task-triage.md`
+- `docs/audits/suspicious-stuff.md`
 
 ## Staleness Labels
 

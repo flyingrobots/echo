@@ -13,7 +13,7 @@
 <p align="center">
 <a href="docs/index.md">Docs</a> •
 <a href="docs/architecture/outline.md">Architecture</a> •
-<a href="CONTINUUM.md">Continuum</a> •
+<a href="docs/architecture/continuum-foundations.md">Continuum</a> •
 <a href="docs/spec/warp-core.md">warp-core</a> •
 <a href="https://github.com/flyingrobots/aion">AIΩN Framework</a>
 </p>

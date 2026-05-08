@@ -235,5 +235,6 @@ as uniform integers with no per-tick metadata.
 
 - [SPEC-0004 — Worldlines, Playback, and Observation](../spec/SPEC-0004-worldlines-playback-truthbus.md)
 - [SPEC-0005 — Provenance Payload](../spec/SPEC-0005-provenance-payload.md)
-- `CONTINUUM.md` — repo-root hot runtime time model
+- [Continuum foundations](../architecture/continuum-foundations.md) — archived
+  bridge note for older Continuum framing
 - `warp_geom::Tick` — code-level precedent

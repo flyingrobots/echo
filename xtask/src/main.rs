@@ -6487,10 +6487,10 @@ mod tests {
     fn public_asset_resolution() {
         let source = Path::new("docs/index.md");
         let docs_root = Path::new("docs");
-        let candidates = build_candidates(source, "/collision-dpo-tour.html", docs_root);
+        let candidates = build_candidates(source, "/example-public-asset.html", docs_root);
         assert!(candidates
             .iter()
-            .any(|p| p.ends_with("docs/public/collision-dpo-tour.html")));
+            .any(|p| p.ends_with("docs/public/example-public-asset.html")));
     }
 
     // ── pr_status helpers ────────────────────────────────────────────

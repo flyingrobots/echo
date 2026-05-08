@@ -827,7 +827,7 @@ No test should call a global graph mutation or direct setter as the public path.
 The executable versions of these tasks were split into top-level METHOD backlog
 cards. Completed backlog cards are pruned from `docs/method/backlog/**`; current
 unresolved work is visible through `cargo xtask method status` and
-`docs/method/backlog-staleness-audit.md`. This section records the source task
+`docs/audits/backlog-staleness-audit.md`. This section records the source task
 detail for the design packet; it is not the scheduling surface. New executable
 work should be added as a visible card with explicit `Depends on:` links.
 

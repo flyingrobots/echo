@@ -69,10 +69,6 @@ crates:
     class: DET_CRITICAL
     owner_role: "Architect"
     paths: ["crates/ttd-protocol-rs/**"]
-  ttd-manifest:
-    class: DET_CRITICAL
-    owner_role: "Architect"
-    paths: ["crates/ttd-manifest/**"]
   ci:
     class: DET_CRITICAL
     owner_role: "CI Engineer"

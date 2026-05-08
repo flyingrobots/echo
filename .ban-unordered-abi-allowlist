@@ -1,7 +1,6 @@
 # Non-ABI crates and internal state where HashMap/HashSet are acceptable.
 **/warp-viewer/**
 **/echo-session-service/**
-**/echo-session-ws-gateway/**
 **/warp-core/src/engine_impl.rs
 **/warp-core/src/attachment.rs
 **/echo-wasm-abi/src/lib.rs

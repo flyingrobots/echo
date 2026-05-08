@@ -10,10 +10,6 @@ tone_instructions: >-
 reviews:
   profile: "assertive"
 
-  path_filters:
-    # Archived docs are frozen historical records — don't review them.
-    - "!docs/archive/**"
-
   path_instructions:
     - path: "docs/spec-*.md"
       instructions: >-

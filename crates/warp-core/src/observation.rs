@@ -2578,6 +2578,47 @@ mod tests {
     }
 
     #[test]
+    fn reading_envelope_posture_participates_in_artifact_identity() {
+        let (engine, runtime, provenance, worldline_id) = one_commit_fixture();
+        let unbounded_request = ObservationRequest::builtin_one_shot(
+            ObservationCoordinate {
+                worldline_id,
+                at: ObservationAt::Frontier,
+            },
+            ObservationFrame::CommitBoundary,
+            ObservationProjection::Head,
+        );
+        let mut bounded_request = unbounded_request.clone();
+        bounded_request.budget = ObservationReadBudget::Bounded {
+            max_payload_bytes: 512,
+            max_witness_refs: 1,
+        };
+
+        let unbounded =
+            ObservationService::observe(&runtime, &provenance, &engine, unbounded_request).unwrap();
+        let bounded =
+            ObservationService::observe(&runtime, &provenance, &engine, bounded_request).unwrap();
+
+        assert_eq!(unbounded.resolved, bounded.resolved);
+        assert_eq!(unbounded.payload, bounded.payload);
+        assert_ne!(unbounded.reading, bounded.reading);
+        assert_ne!(unbounded.artifact_hash, bounded.artifact_hash);
+        assert_eq!(
+            unbounded.reading.budget_posture,
+            ReadingBudgetPosture::UnboundedOneShot
+        );
+        assert!(matches!(
+            bounded.reading.budget_posture,
+            ReadingBudgetPosture::Bounded {
+                max_payload_bytes: 512,
+                payload_bytes: 1..=512,
+                max_witness_refs: 1,
+                witness_refs: 1,
+            }
+        ));
+    }
+
+    #[test]
     fn ordinary_worldline_observation_reports_worldline_posture() {
         let (engine, runtime, provenance, worldline_id) = one_commit_fixture();
         let artifact = ObservationService::observe(

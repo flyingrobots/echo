@@ -132,7 +132,8 @@ contract query operations onto this request shape when possible.
 
 **ReadingEnvelope** is the read-side evidence envelope. It carries observer
 plan, basis, witness refs, budget posture, rights posture, and residual,
-plural, or obstructed posture.
+plural, or obstructed posture. The current family boundary is named in
+`docs/design/0019-reading-envelope-family-boundary/reading-envelope-family-boundary.md`.
 
 ## Write Path
 

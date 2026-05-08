@@ -35,6 +35,9 @@ The runtime-doctrine cutover is no longer just design text:
 - `crates/echo-wasm-abi/src/kernel_port.rs` is currently ABI version 9 and
   makes observation requests name observer plan, optional instance, budget, and
   rights while carrying `ReadingEnvelope` inside observation artifacts.
+- `docs/design/0019-reading-envelope-family-boundary/reading-envelope-family-boundary.md`
+  names the shared read-side family boundary for authored observer plans,
+  installed artifacts, runtime reading values, and retained reading identity.
 - `docs/spec/SPEC-0009-wasm-abi.md` now documents the current ABI contract
   instead of pretending to preserve ABI v1-v5.
 
@@ -47,8 +50,8 @@ The runtime-doctrine cutover is no longer just design text:
    anchored by `docs/design/0011-optic-observer-runtime-doctrine/design.md`.
 3. Improve local iteration by separating quick doc/code lanes from full release
    gates while keeping full verification before publication.
-4. Keep hardening the reading envelope and basis-posture surfaces until the
-   observer contract is boring, current, and test-backed.
+4. Implement QueryView observers against the accepted reading-envelope family
+   boundary instead of adding a parallel read-result wrapper.
 
 ## What feels wrong?
 

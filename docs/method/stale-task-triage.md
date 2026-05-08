@@ -12,6 +12,9 @@ in the source backlog cards under `docs/method/backlog/**`, GitHub issues, or
 retrospectives. After a triage decision is applied to the real source, remove it
 from this note.
 
+For the full M001-M181 feature grouping and staleness pass, see
+[Backlog Staleness Audit](./backlog-staleness-audit.md).
+
 ## Captured From Deleted ISSUES Scratchpad
 
 | Task | Decision        | Follow-up                                                                                                                                                                              |

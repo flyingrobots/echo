@@ -5,7 +5,6 @@
 
 Depends on:
 
-- [KERNEL_live-holographic-strands](../asap/KERNEL_live-holographic-strands.md)
 - [0010 — Live-basis settlement correction plan](../../../design/0010-live-basis-settlement-plan/design.md)
 
 ## Why now

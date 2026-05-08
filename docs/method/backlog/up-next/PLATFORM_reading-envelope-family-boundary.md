@@ -5,7 +5,6 @@
 
 Depends on:
 
-- [PLATFORM_observer-plan-reading-artifacts](../asap/PLATFORM_observer-plan-reading-artifacts.md)
 - [0011 — Optic and observer runtime doctrine](../../../design/0011-optic-observer-runtime-doctrine/design.md)
 
 ## Why now

@@ -59,9 +59,6 @@ declared rewrite rules and scheduling policy.
 
 ## Current cycle and backlog
 
-- latest completed cycle: (none under METHOD yet)
-- live backlog:
-    - `asap/KERNEL_determinism-torture.md`
-    - `asap/KERNEL_domain-separated-hashes.md`
-    - `up-next/KERNEL_sha256-blake3.md`
-    - `up-next/KERNEL_time-model-spec.md`
+- Use `cargo xtask method status` for the current live backlog.
+- Completed backlog cards are removed from `docs/method/backlog/**`; git
+  history and retros are the archive.

@@ -32,5 +32,5 @@ Work:
   backup protocol owners.
 - Verify generated types still satisfy the `echo-ttd` compliance checker and
   local browser adapter surfaces.
-- Coordinate with `PLATFORM_WESLEY_protocol-consumer-cutover` instead of
+- Preserve the completed WESLEY protocol consumer cutover decision instead of
   reopening protocol ownership from scratch.

@@ -56,14 +56,6 @@ failing, and what to work on next.
 
 ## Current cycle and backlog
 
-- active cycle:
-    - `0002-xtask-method-status` (in design)
-- live backlog:
-    - `asap/PLATFORM_benchmarks-cleanup.md`
-    - `asap/PLATFORM_cli-bench.md`
-    - `asap/PLATFORM_cli-inspect.md`
-    - `asap/PLATFORM_cli-scaffold.md`
-    - `asap/PLATFORM_cli-verify.md`
-    - `asap/PLATFORM_xtask-method-close.md`
-    - `asap/PLATFORM_xtask-method-drift.md`
-    - `asap/PLATFORM_xtask-method-pull.md`
+- Use `cargo xtask method status` for the current live backlog.
+- Completed backlog cards are removed from `docs/method/backlog/**`; git
+  history and retros are the archive.

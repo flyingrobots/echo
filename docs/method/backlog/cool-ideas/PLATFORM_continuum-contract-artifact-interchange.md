@@ -8,7 +8,6 @@ Status: cool idea, future protocol lane.
 Depends on:
 
 - [Contract strands and counterfactuals](../up-next/KERNEL_contract-strands-and-counterfactuals.md)
-- [Witnessed suffix admission shells](../asap/PLATFORM_witnessed-suffix-admission-shells.md)
 - external Continuum protocol publication work
 
 ## Why later

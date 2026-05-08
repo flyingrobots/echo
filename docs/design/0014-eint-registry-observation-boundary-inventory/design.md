@@ -11,8 +11,6 @@ Legend: [PLATFORM](../../method/legends/PLATFORM.md)
 Depends on:
 
 - [0013 - Wesley Compiled Contract Hosting Doctrine](../0013-wesley-compiled-contract-hosting-doctrine/design.md)
-- [Existing EINT, Registry, And Observation Boundary Inventory](../../method/backlog/asap/PLATFORM_contract-aware-intent-observation-envelope.md)
-- [Registry Provider Wiring And Host Boundary Decision](../../method/backlog/asap/PLATFORM_static-contract-registry-and-host-boundary.md)
 
 ## Why this packet exists
 

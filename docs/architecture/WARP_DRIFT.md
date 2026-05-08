@@ -183,17 +183,15 @@ distance:
 The bootstrap strand contract and README language should be revised only
 after the runtime direction is pinned, not before.
 
-## ASAP backlog items
+## Relevant design context
 
-These items now define the reconciliation path:
-
-- `docs/method/backlog/asap/KERNEL_live-holographic-strands.md`
-- `docs/method/backlog/asap/PLATFORM_observer-plan-reading-artifacts.md`
-- `docs/method/backlog/asap/PLATFORM_witnessed-suffix-admission-shells.md`
-
-Relevant existing design context:
+These packets define the reconciliation path now that completed backlog cards
+are pruned from `docs/method/backlog/**`:
 
 - `docs/design/0004-strand-contract/design.md`
+- `docs/design/0009-witnessed-causal-suffix-sync/design.md`
+- `docs/design/0010-live-basis-settlement-plan/design.md`
+- `docs/design/0011-optic-observer-runtime-doctrine/design.md`
 - `docs/design/0008-strand-settlement/design.md`
 - `docs/design/0009-witnessed-causal-suffix-sync/design.md`
 - `docs/design/0010-live-basis-settlement-plan/design.md`

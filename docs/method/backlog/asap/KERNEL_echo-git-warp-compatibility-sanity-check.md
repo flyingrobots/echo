@@ -153,8 +153,8 @@ Both substrates use Wesley for schema compilation, but:
 
 ### Medium term (design decisions needed)
 
-- Finish live holographic strand semantics in Echo's canonical/deterministic
-  model (see `KERNEL_live-holographic-strands` backlog item)
+- Build on the live-basis strand semantics captured in
+  `docs/design/0010-live-basis-settlement-plan/design.md`
 - Design compliance reporting as a protocol extension
   (see `KERNEL_compliance-protocol-envelope` backlog item)
 - Evaluate `ttd-browser` crate overlap with warp-ttd's browser story

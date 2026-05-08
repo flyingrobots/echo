@@ -13,7 +13,6 @@ Depends on:
 - [Continuum Runtime And CAS Readings](../continuum-runtime-and-cas-readings.md)
 - [Wesley-Compiled Optic Bindings For Echo](./wesley-compiled-optic-bindings.md)
 - [Echo Optics Adapter Notes](../../architecture/echo-optics-adapter-notes.md)
-- [Echo Optics API sequencing card](../../method/backlog/asap/PLATFORM_echo-optics-api-design.md)
 
 ## Summary
 
@@ -825,12 +824,12 @@ No test should call a global graph mutation or direct setter as the public path.
 
 ## Backlog
 
-The executable versions of these tasks are top-level METHOD backlog cards
-linked from
-[PLATFORM_echo-optics-api-design](../../method/backlog/asap/PLATFORM_echo-optics-api-design.md).
-This section records the source task detail for the design packet; it is not
-the scheduling surface. New executable work should be added as a visible card
-with explicit `Depends on:` links.
+The executable versions of these tasks were split into top-level METHOD backlog
+cards. Completed backlog cards are pruned from `docs/method/backlog/**`; current
+unresolved work is visible through `cargo xtask method status` and
+`docs/method/backlog-staleness-audit.md`. This section records the source task
+detail for the design packet; it is not the scheduling surface. New executable
+work should be added as a visible card with explicit `Depends on:` links.
 
 ### TASK-001: Add Echo Optics doctrine packet
 
@@ -843,7 +842,6 @@ Files likely touched:
 
 - `docs/design/0018-echo-optics-api-design/design.md`
 - `docs/design/0018-echo-optics-api-design/request.md`
-- `docs/method/backlog/asap/PLATFORM_echo-optics-api-design.md`
 
 Acceptance criteria:
 
@@ -1248,7 +1246,6 @@ Files likely touched:
 
 - `docs/design/0018-echo-optics-api-design/wesley-compiled-optic-bindings.md`
 - `docs/design/0018-echo-optics-api-design/design.md`
-- `docs/method/backlog/asap/PLATFORM_echo-optics-api-design.md`
 
 Acceptance criteria:
 

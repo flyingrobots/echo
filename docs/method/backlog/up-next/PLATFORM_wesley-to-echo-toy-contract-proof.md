@@ -7,10 +7,8 @@ Status: GREEN 4.
 
 Depends on:
 
-- [Registry provider wiring and host boundary decision](../asap/PLATFORM_static-contract-registry-and-host-boundary.md)
+- [0015 - Registry Provider Host Boundary Decision](../../../design/0015-registry-provider-host-boundary-decision/design.md)
 - [0016 - Wesley To Echo Toy Contract Proof](../../../design/0016-wesley-to-echo-toy-contract-proof/design.md)
-- [echo-wesley-gen v2 Update](./PLATFORM_echo-wesley-gen-v2.md)
-- [WESLEY Protocol Consumer Cutover](../asap/PLATFORM_WESLEY_protocol-consumer-cutover.md)
 
 ## Why now
 

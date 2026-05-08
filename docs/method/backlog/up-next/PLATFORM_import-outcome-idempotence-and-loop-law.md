@@ -3,10 +3,6 @@
 
 # Import outcome idempotence and loop law
 
-Depends on:
-
-- [PLATFORM_witnessed-suffix-admission-shells](../asap/PLATFORM_witnessed-suffix-admission-shells.md)
-
 ## Why now
 
 Suffix-shell work already says the right big thing:

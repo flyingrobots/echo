@@ -17,7 +17,6 @@ Depends on:
 - [0009 — Witnessed causal suffix export and import](../0009-witnessed-causal-suffix-sync/design.md)
 - [0010 — Live-basis settlement correction plan](../0010-live-basis-settlement-plan/design.md)
 - [Continuum Foundations](../../architecture/continuum-foundations.md)
-- [Observer plans and reading artifacts](../../method/backlog/asap/PLATFORM_observer-plan-reading-artifacts.md)
 
 Source theory inputs:
 
@@ -350,7 +349,7 @@ Current implementation evidence:
 ### Step 4: Witnessed suffix shells
 
 Status: planned by
-[Witnessed suffix admission shells](../../method/backlog/asap/PLATFORM_witnessed-suffix-admission-shells.md).
+[0009 — Witnessed causal suffix export and import](../0009-witnessed-causal-suffix-sync/design.md).
 
 Scope:
 

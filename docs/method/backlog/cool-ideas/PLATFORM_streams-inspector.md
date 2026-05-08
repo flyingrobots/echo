@@ -5,146 +5,17 @@
 
 # TT1 — Streams Inspector Frame
 
-Status: active but stale cool idea. Task DAG issues #170, #203, #245,
-and #246 remain open. #243 is fixed by the fixed-timestep invariant in
-`docs/invariants/FIXED-TIMESTEP.md`; #244 is obsolete and must not be
-implemented with the retired retention vocabulary below. No `StreamsFrame`,
-inspector stream frame, or Constraint Lens UI exists yet. This card remains
-operational as the handle for turning current playback/provenance/checkpoint
-substrate into an admission inspection surface; it is not implemented protocol
-truth.
+Status: active but stale cool idea. Task DAG issues #170, #203, #245, and #246
+remain open. Completed dt-policy and TimeStream-retention work has been removed
+from this backlog card; no `StreamsFrame`, inspector stream frame, or Constraint
+Lens UI exists yet. This card remains operational only as a handle for turning
+current playback/provenance/checkpoint substrate into an admission inspection
+surface; it is not implemented protocol truth.
 
 Define the admission inspector surface and resolve the remaining TT1 design
 questions (#245, #246) required before the time-travel MVP.
 
-**Issues:** #170, #203, #243, #244, #245, #246
-
----
-
-## T-7-2-1: Spec — dt policy: fixed timestep vs admitted dt stream (#243)
-
-Status: complete.
-
-Resolution: fixed and closed under the current fixed-timestep invariant. Echo
-does not admit per-tick variable `dt` as a causal fact. Adapter-local real time
-may cause a host to propose Intents, but replay and deterministic history
-consume admitted causal ticks and receipts only.
-
-Completion evidence:
-
-- `docs/invariants/FIXED-TIMESTEP.md` states fixed timestep as the normative
-  model and rejects admitted variable `dt`.
-- `scripts/tests/fixed_timestep_invariant_test.sh` guards the invariant.
-- Downstream TT1 work must follow fixed ticks, admitted timer Intents, and typed
-  admission outcomes.
-
-**User Story:** As an engine architect, I want a locked design decision on whether Echo uses a fixed timestep or variable dt admitted as a stream so that all downstream code (physics, animation, admission budgets) can commit to one model.
-
-**Requirements:**
-
-- R1: Treat `docs/invariants/FIXED-TIMESTEP.md` as the current decision
-  artifact.
-- R2: Confirm downstream TT1 work follows the locked decision: fixed
-  timestep is default; `dt` is not an admitted stream fact.
-- R3: Document any remaining catch-up/checkpoint implications in the
-  time-model or retention follow-up docs rather than reopening dt policy.
-
-**Acceptance Criteria:**
-
-- [x] AC1: The fixed-timestep invariant remains the normative decision.
-- [x] AC2: TT1 follow-up docs do not reintroduce per-tick or admitted
-      variable `dt`.
-- [x] AC3: Catch-up/checkpoint implications are covered by the current
-      time-model and optics/CAS retention doctrine.
-
-**Definition of Done:**
-
-- [x] Code reviewed locally
-- [x] Tests pass locally
-- [x] Documentation updated
-
-**Scope:** Verify downstream TT1 alignment with the fixed-timestep invariant.
-**Out of Scope:** Reopening variable-dt support; changes to the scheduler.
-
-**Test Plan:**
-
-- **Goldens:** n/a (spec-only)
-- **Failures:** n/a
-- **Edges:** What happens when variable-dt admission is disabled mid-session (answer: revert to fixed timestep, document the transition).
-- **Fuzz/Stress:** n/a
-
-**Blocked By:** T-7-1-1, T-7-1-2
-**Blocking:** T-7-2-4
-
-**Est. Hours:** 3h
-**Expected Complexity:** ~100 LoC (markdown)
-
----
-
-## T-7-2-2: Spec — TimeStream retention, spool compaction, wormhole density (#244)
-
-Status: complete.
-
-Resolution: obsolete. Do not implement this task as written, do not resurrect
-the old target spec, and do not treat the retired vocabulary in this section as
-protocol truth. The modern concern is bounded holographic retention: Echo keeps
-witnessed causal history as truth, observes bounded slices through optics,
-caches retained readings in `echo-cas` by semantic read identity plus content
-hash, and returns obstruction or rehydration-required posture when required
-evidence is missing.
-
-Completion evidence:
-
-- `docs/design/continuum-runtime-and-cas-readings.md` carries the current
-  optics/CAS reading doctrine.
-- `docs/method/backlog/up-next/PLATFORM_contract-artifact-retention-in-echo-cas.md`
-  carries the active retention implementation follow-up.
-- The deprecated retention wording here is closed as stale archaeology rather
-  than rewritten.
-
-**User Story:** As an operator deploying Echo sessions, I want documented policies for how long TimeStream spools are retained, when compaction occurs, and how wormhole density is managed so that I can size storage and predict seek latency.
-
-**Requirements:**
-
-- R1: Define retention tiers: hot (in-memory ring buffer), warm (on-disk WAL), cold (CAS archive).
-- R2: Specify compaction triggers: tick count threshold, byte budget, or explicit GC request.
-- R3: Define wormhole density policy: minimum one wormhole checkpoint per N ticks (configurable), plus mandatory checkpoints at branch/merge points.
-- R4: Document the relationship between retention and replay cost (seek latency formula).
-- R5: Align with `docs/method/backlog/up-next/KERNEL_timestream-retention.md`
-  and the existing `ProvenanceStore::checkpoint_before()` seam.
-
-**Acceptance Criteria:**
-
-- [x] AC1: Superseded. Retention policy now belongs to optics/CAS reading
-      doctrine, not this retired task vocabulary.
-- [x] AC2: Superseded. Compaction/eviction is storage policy and must not
-      mutate witnessed causal truth.
-- [x] AC3: Obsolete. The checkpoint tradeoff must be stated as bounded replay
-      and retained reading identity, not as a density rule from this old card.
-- [x] AC4: Superseded. Replay cost belongs to bounded slice/reveal policy and
-      explicit missing-evidence obstruction.
-
-**Definition of Done:**
-
-- [x] Code reviewed locally
-- [x] Tests pass locally
-- [x] Documentation updated
-
-**Scope:** Policy spec for retention, compaction, and wormhole density.
-**Out of Scope:** Implementation of tiered storage (that is echo-cas work); GC runtime code.
-
-**Test Plan:**
-
-- **Goldens:** n/a (spec-only)
-- **Failures:** n/a
-- **Edges:** What happens when compaction runs during an active rewind (answer: compaction must not remove ticks reachable from any active view cursor).
-- **Fuzz/Stress:** n/a
-
-**Blocked By:** T-7-1-1, T-7-1-2
-**Blocking:** T-7-2-4
-
-**Est. Hours:** 4h
-**Expected Complexity:** ~200 LoC (markdown)
+**Issues:** #170, #203, #245, #246
 
 ---
 
@@ -184,7 +55,7 @@ Completion evidence:
 - **Edges:** What if a merged branch contains an observation fact referencing a stream seq that the canonical branch also admitted at a different tick (answer: seq collision detection, documented).
 - **Fuzz/Stress:** n/a
 
-**Blocked By:** T-7-1-1, T-7-1-2
+**Blocked By:** none
 **Blocking:** T-7-3-1
 
 **Est. Hours:** 4h
@@ -229,7 +100,7 @@ Completion evidence:
 - **Edges:** What happens when a player's capability is revoked while they have an active forked branch (answer: branch is quarantined, not silently destroyed).
 - **Fuzz/Stress:** n/a
 
-**Blocked By:** T-7-2-1, T-7-2-2
+**Blocked By:** none
 **Blocking:** T-7-3-1
 
 **Est. Hours:** 4h
@@ -283,7 +154,7 @@ density metrics (deferred to TT2).
 - **Edges:** Stream with exactly one event admitted at the current tick (boundary between empty and non-empty backlog).
 - **Fuzz/Stress:** Property test: random stream/cursor configurations produce valid serialized frames.
 
-**Blocked By:** T-7-2-1, T-7-2-2, T-7-2-3, T-7-2-4
+**Blocked By:** T-7-2-3, T-7-2-4
 **Blocking:** T-7-2-6, T-7-3-1
 
 **Est. Hours:** 6h

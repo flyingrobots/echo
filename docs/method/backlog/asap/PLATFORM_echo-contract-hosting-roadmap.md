@@ -27,11 +27,11 @@ registry model.
 1. [Wesley compiled contract hosting doctrine](./PLATFORM_wesley-compiled-contract-hosting-doctrine.md)
     - Design packet:
       [0013 - Wesley Compiled Contract Hosting Doctrine](../../../design/0013-wesley-compiled-contract-hosting-doctrine/design.md)
-2. [Existing EINT, registry, and observation boundary inventory](./PLATFORM_contract-aware-intent-observation-envelope.md)
-    - Design packet:
+2. Existing EINT, registry, and observation boundary inventory
+    - Completed design packet:
       [0014 - EINT, Registry, And Observation Boundary Inventory](../../../design/0014-eint-registry-observation-boundary-inventory/design.md)
-3. [Registry provider wiring and host boundary decision](./PLATFORM_static-contract-registry-and-host-boundary.md)
-    - Design packet:
+3. Registry provider wiring and host boundary decision
+    - Completed design packet:
       [0015 - Registry Provider Host Boundary Decision](../../../design/0015-registry-provider-host-boundary-decision/design.md)
 4. [Wesley to Echo toy contract proof](../up-next/PLATFORM_wesley-to-echo-toy-contract-proof.md)
     - Design packet:

@@ -9,7 +9,7 @@ Depends on:
 
 - [Contract-aware receipts and readings](./KERNEL_contract-aware-receipts-and-readings.md)
 - [Echo Continuum Runtime And CAS Readings](../../../design/continuum-runtime-and-cas-readings.md)
-- [echo-cas Browser](./PLATFORM_echo-cas-browser.md)
+- [echo-cas Browser Integration](../../../design/0020-echo-cas-browser/echo-cas-browser.md)
 
 ## Why now
 

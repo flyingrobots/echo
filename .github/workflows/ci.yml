@@ -73,6 +73,23 @@ jobs:
             - name: cargo test (workspace sans warp-core)
               run: cargo test --workspace --exclude warp-core
 
+    build-echo-cas-wasm:
+        name: Build echo-cas (wasm32)
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  submodules: false
+            - uses: dtolnay/rust-toolchain@1.90.0
+              with:
+                  targets: wasm32-unknown-unknown
+            - uses: Swatinem/rust-cache@v2
+              with:
+                  workspaces: |
+                      .
+            - name: cargo build (echo-cas, wasm32)
+              run: cargo build --target wasm32-unknown-unknown -p echo-cas
+
     test-warp-core:
         name: Tests (warp-core)
         runs-on: ubuntu-latest

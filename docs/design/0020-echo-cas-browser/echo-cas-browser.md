@@ -7,6 +7,12 @@
 
 Validate and wire MemoryTier in the WASM context. echo-cas Phase 1 provides `MemoryTier` (in-memory, `HashMap`-backed). This feature confirms it compiles to WASM, exposes JS bindings for store/retrieve, and validates blob integrity in-browser.
 
+Status:
+
+- `T-4-3-1` is accepted in this cycle.
+- `T-4-3-2` remains deferred as a separate backlog item:
+  [`PLATFORM_echo-cas-js-bindings.md`](../../method/backlog/up-next/PLATFORM_echo-cas-js-bindings.md).
+
 ## T-4-3-1: MemoryTier WASM compilation gate
 
 **User Story:** As a developer, I want echo-cas to compile to `wasm32-unknown-unknown` so that the browser demo can use content-addressed storage.
@@ -20,9 +26,9 @@ Validate and wire MemoryTier in the WASM context. echo-cas Phase 1 provides `Mem
 
 **Acceptance Criteria:**
 
-- [ ] AC1: `cargo build --target wasm32-unknown-unknown -p echo-cas` exits 0 in CI.
-- [ ] AC2: All existing echo-cas tests still pass on native (`cargo test -p echo-cas`).
-- [ ] AC3: CI matrix includes the WASM target check.
+- [x] AC1: `cargo build --target wasm32-unknown-unknown -p echo-cas` exits 0 in CI.
+- [x] AC2: All existing echo-cas tests still pass on native (`cargo test -p echo-cas`).
+- [x] AC3: CI matrix includes the WASM target check.
 
 **Definition of Done:**
 
@@ -32,6 +38,24 @@ Validate and wire MemoryTier in the WASM context. echo-cas Phase 1 provides `Mem
 
 **Scope:** WASM compilation verification, CI gate, any necessary `cfg` adjustments to echo-cas.
 **Out of Scope:** JS bindings (T-4-3-2). Async API. DiskTier (MS-5).
+
+### Result
+
+- `MemoryTier` builds for `wasm32-unknown-unknown` without collection `cfg`
+  substitutions.
+- `blake3` and `thiserror` compile in the `echo-cas` WASM build lane as-is.
+- CI now includes `Build echo-cas (wasm32)`, which runs:
+
+```sh
+cargo build --target wasm32-unknown-unknown -p echo-cas
+```
+
+Local witnesses:
+
+```sh
+cargo build --target wasm32-unknown-unknown -p echo-cas
+cargo test -p echo-cas
+```
 
 **Test Plan:**
 
@@ -49,6 +73,9 @@ Validate and wire MemoryTier in the WASM context. echo-cas Phase 1 provides `Mem
 ---
 
 ## T-4-3-2: JS bindings for CAS store/retrieve
+
+Status: deferred back to the backlog as
+[`PLATFORM_echo-cas-js-bindings.md`](../../method/backlog/up-next/PLATFORM_echo-cas-js-bindings.md).
 
 **User Story:** As a web developer, I want to store and retrieve blobs from JavaScript so that the demo can persist simulation snapshots in content-addressed storage.
 

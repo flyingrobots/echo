@@ -3,6 +3,8 @@
 
 # Parent drift and owned-footprint revalidation
 
+Status: accepted as existing implementation/evidence consolidation.
+
 Depends on:
 
 - [0010 — Live-basis settlement correction plan](../../../design/0010-live-basis-settlement-plan/design.md)
@@ -37,7 +39,7 @@ two bad outcomes:
     - explicit conflict
 - the revalidation state is inspectable and not just an internal retry loop
 
-## Current implementation consequence
+## Accepted implementation consequence
 
 The runtime can now distinguish the two parent-drift classes, and settlement
 has the first explicit overlap revalidation law:
@@ -51,10 +53,38 @@ has the first explicit overlap revalidation law:
 - overlapped replay that would mutate target state remains
   `ParentFootprintOverlap` residue with `Conflict` revalidation metadata
 
-Owned-footprint overlap still needs the same posture threaded into observer and
-bounded-read artifacts. The current tests cover no-overlap, disjoint parent
-advance, clean overlap, and conflicting overlap; an obstruction-specific fixture
-should be added when a natural patch-level obstruction case is available.
+Observation artifacts also carry the same parent-basis posture for live strand
+frontier reads:
+
+- ordinary worldline reads remain `Worldline`
+- non-frontier strand reads are `StrandHistorical`
+- live strand frontier reads at the anchor are `StrandAtAnchor`
+- live strand frontier reads after disjoint parent movement are
+  `StrandParentAdvancedDisjoint`
+- live strand frontier reads after parent movement inside the owned footprint
+  are `StrandRevalidationRequired`, with deterministic overlap slot evidence
+
+The current tests cover no-overlap, disjoint parent advance, clean overlap, and
+conflicting overlap. An obstruction-specific fixture can still be added later
+when a natural patch-level obstruction case is available.
+
+## Evidence
+
+- `crates/warp-core/src/strand.rs` defines
+  `StrandRevalidationState`, `StrandOverlapRevalidation`, and
+  `Strand::live_basis_report(...)`.
+- `crates/warp-core/src/settlement.rs` carries overlap revalidation metadata on
+  import candidates and conflict artifact drafts.
+- `crates/warp-core/src/witnessed_suffix.rs` preserves settlement basis and
+  overlap revalidation posture through witnessed-suffix ABI conversion.
+- `crates/warp-core/src/observation.rs` carries `ObservationBasisPosture` on
+  reading artifacts and converts it to ABI.
+- Targeted witnesses:
+
+```sh
+cargo test -p warp-core live_basis_report
+cargo test -p warp-core strand_frontier_observation_reports_overlap_revalidation_posture
+```
 
 ## Done looks like
 

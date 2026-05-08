@@ -3,6 +3,8 @@
 
 # Contract Strands And Counterfactuals
 
+Folded from: #245
+
 Status: planned kernel/runtime implementation.
 
 Depends on:
@@ -31,6 +33,20 @@ Add generic contract-aware strand operations:
 - compare strand with parent basis
 - admit, preserve plurality, conflict, obstruct, or discard
 
+## Merge and settlement semantics
+
+The old TT1 framing asked about merging debugger-era per-source admission
+records across worldlines. The current Echo substrate should not preserve that
+as a special ontology. The useful requirement belongs here:
+
+- divergent work is represented as worldline/strand/braid history
+- each member has an explicit causal basis and actor/cause evidence
+- settlement is an Intent/admission operation, not a direct service mutation
+- independent work may admit, stage, preserve plurality, conflict, or obstruct
+- conflicts are typed by contract law and witness basis, not by host-time order
+- adapters such as `warp-ttd` can explain these outcomes, but Echo owns the
+  substrate decision and receipt evidence
+
 ## Acceptance criteria
 
 - A fake contract intent can be applied inside a strand without changing the
@@ -39,6 +55,8 @@ Add generic contract-aware strand operations:
   contract identity.
 - Parent movement outside owned divergence revalidates cleanly.
 - Parent overlap returns explicit conflict or obstruction.
+- Settlement of divergent contract work produces a typed admission posture and
+  receipt/witness evidence.
 - `jedit` and Graft examples remain consumer-level, not Echo core APIs.
 
 ## Non-goals
@@ -47,3 +65,4 @@ Add generic contract-aware strand operations:
 - Do not implement semantic refactor prediction here.
 - Do not add text or Graft domain types to Echo core.
 - Do not require durable strand persistence in the first slice.
+- Do not model historical stream/debugger frame names as Echo core nouns.

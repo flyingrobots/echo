@@ -79,24 +79,19 @@ cargo xtask dags --snapshot-label 2026-01-02
 
 ---
 
-## Tasks DAG (derived from `docs/assets/dags/tasks-dag-source.md`)
+## METHOD Backlog DAG
 
-![Tasks DAG](../assets/dags/tasks-dag.svg)
+The old `docs/assets/dags/tasks-dag-source.md` issue sketch is retired. Current
+task scheduling lives in the METHOD backlog artifacts:
 
-Sources:
+- DOT: `docs/method/task-dag.dot`
+- SVG: `docs/method/task-dag.svg`
+- Matrix: `docs/method/task-matrix.md`
+- CSV: `docs/method/task-matrix.csv`
 
-- Source data: `docs/assets/dags/tasks-dag-source.md`
-- Generator: `scripts/generate-tasks-dag.js` (scheduled by the GitHub workflow `.github/workflows/refresh-dependency-dags.yml` to keep the rendered output aligned with `docs/assets/dags/tasks-dag-source.md`)
-- DOT: `docs/assets/dags/tasks-dag.dot`
-- SVG: `docs/assets/dags/tasks-dag.svg`
-
-This DAG visualizes inferred issue dependencies that contributors log in `docs/assets/dags/tasks-dag-source.md`, offering a quick comparison point against the curated milestone/issue graphs above.
-By design, isolated nodes (no incoming/outgoing edges) are filtered out to reduce clutter; the generator computes `connectedNodeIds` / `filteredNodes` and logs the drop counts during render.
-
-## Regenerating the Tasks DAG
+Regenerate the current DAG with:
 
 ```sh
-node scripts/generate-tasks-dag.js
+cargo xtask method matrix
+cargo xtask method dag
 ```
-
-Ensure Node.js and Graphviz (`dot`) are installed before running manually, or trigger the scheduled workflow (which now includes this script) to refresh the assets automatically.

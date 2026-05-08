@@ -1,6 +1,6 @@
 digraph method_task_dag {
   graph [
-    label="METHOD Backlog Task Dependency DAG\nopen tasks: 95 / 142; dependency edges: 63",
+    label="METHOD Backlog Task Dependency DAG\nopen tasks: 94 / 138; dependency edges: 56",
     labelloc=t,
     fontsize=24,
     fontname="Inter, Helvetica, Arial",
@@ -165,8 +165,8 @@ digraph method_task_dag {
     "M108" [label="M108\nOPEN\nControlled Desync", tooltip="M108 [cool-ideas] open; blockers=0;  Controlled Desync", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M109" [label="M109\nOPEN\nLockstep Protocol", tooltip="M109 [cool-ideas] open; blockers=0;  Lockstep Protocol", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M110" [label="M110\nOPEN\nRules & State Model", tooltip="M110 [cool-ideas] open; blockers=0;  Rules & State Model", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
-    "M111" [label="M111\nT-7-3-1\nImplement time travel core\n—\npause/rewind/buffer/catch-up...", tooltip="M111 [cool-ideas] blocked; blockers=3; T-7-3-1 Implement time travel core — pause/rewind/buffer/catch-up (#171)", fillcolor="#ede9fe", color="#7c3aed", penwidth=1.2];
-    "M112" [label="M112\nT-7-3-2\nImplement Reliving\ndebugger MVP — scrub\ntimeline + causal slice +...", tooltip="M112 [cool-ideas] blocked; blockers=2; T-7-3-2 Implement Reliving debugger MVP — scrub timeline + causal slice + fork branch (#205)", fillcolor="#ede9fe", color="#7c3aed", penwidth=1.2];
+    "M111" [label="M111\nOPEN\nT-7-3-1\nImplement time travel core\n—\npause/rewind/buffer/catch-up...", tooltip="M111 [cool-ideas] open; blockers=0; T-7-3-1 Implement time travel core — pause/rewind/buffer/catch-up (#171)", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
+    "M112" [label="M112\nT-7-3-2\nImplement Reliving\ndebugger MVP — scrub\ntimeline + causal slice +...", tooltip="M112 [cool-ideas] blocked; blockers=1; T-7-3-2 Implement Reliving debugger MVP — scrub timeline + causal slice + fork branch (#205)", fillcolor="#ede9fe", color="#7c3aed", penwidth=1.2];
     "M113" [label="M113\nOPEN\nDesync Breakers", tooltip="M113 [cool-ideas] open; blockers=0;  Desync Breakers", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M114" [label="M114\nOPEN\nLockstep Harness", tooltip="M114 [cool-ideas] open; blockers=0;  Lockstep Harness", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M115" [label="M115\nOPEN\nT-9-2-1\nImplement\nreplay-from-checkpoint\nconvergence tests", tooltip="M115 [cool-ideas] open; blockers=0; T-9-2-1 Implement replay-from-checkpoint convergence tests", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
@@ -190,11 +190,7 @@ digraph method_task_dag {
     "M133" [label="M133\nOPEN\nMethod drift check as\npre-push hook", tooltip="M133 [cool-ideas] open; blockers=0;  Method drift check as pre-push hook", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M134" [label="M134\nOPEN\nReading envelope inspector", tooltip="M134 [cool-ideas] open; blockers=0;  Reading envelope inspector", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M135" [label="M135\nOPEN\nVisualization", tooltip="M135 [cool-ideas] open; blockers=0;  Visualization", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
-    "M136" [label="M136\nOPEN\nT-7-2-3\nSpec — Merge semantics\nfor admitted stream facts\nacross worldlines (#245)", tooltip="M136 [cool-ideas] open; blockers=0; T-7-2-3 Spec — Merge semantics for admitted stream facts across worldlines (#245)", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
-    "M137" [label="M137\nOPEN\nT-7-2-4\nSpec —\nSecurity/capabilities for\nfork/rewind/merge in...", tooltip="M137 [cool-ideas] open; blockers=0; T-7-2-4 Spec — Security/capabilities for fork/rewind/merge in multiplayer (#246)", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
-    "M138" [label="M138\nT-7-2-5\nImplement StreamsFrame\ninspector support (#170)", tooltip="M138 [cool-ideas] blocked; blockers=2; T-7-2-5 Implement StreamsFrame inspector support (#170)", fillcolor="#ede9fe", color="#7c3aed", penwidth=1.2];
-    "M139" [label="M139\nT-7-2-6\nImplement Constraint Lens\npanel — admission\nexplain-why +...", tooltip="M139 [cool-ideas] blocked; blockers=1; T-7-2-6 Implement Constraint Lens panel — admission explain-why + counterfactual sliders (#203)", fillcolor="#ede9fe", color="#7c3aed", penwidth=1.2];
-    "M140" [label="M140\nOPEN\nVisualization", tooltip="M140 [cool-ideas] open; blockers=0;  Visualization", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
+    "M136" [label="M136\nOPEN\nVisualization", tooltip="M136 [cool-ideas] open; blockers=0;  Visualization", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
   }
 
   subgraph "cluster_bad_code" {
@@ -203,8 +199,8 @@ digraph method_task_dag {
     fontname="Inter, Helvetica, Arial";
     fontsize=16;
     style="rounded";
-    "M141" [label="M141\nOPEN\nRED/GREEN can't be\nseparate commits", tooltip="M141 [bad-code] open; blockers=0;  RED/GREEN can't be separate commits", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
-    "M142" [label="M142\nOPEN\nxtask main.rs is a god\nfile", tooltip="M142 [bad-code] open; blockers=0;  xtask main.rs is a god file", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
+    "M137" [label="M137\nOPEN\nRED/GREEN can't be\nseparate commits", tooltip="M137 [bad-code] open; blockers=0;  RED/GREEN can't be separate commits", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
+    "M138" [label="M138\nOPEN\nxtask main.rs is a god\nfile", tooltip="M138 [bad-code] open; blockers=0;  xtask main.rs is a god file", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
   }
 
   "M012" -> "M017";
@@ -263,11 +259,4 @@ digraph method_task_dag {
   "M127" -> "M129";
   "M128" -> "M129";
   "M130" -> "M131";
-  "M136" -> "M111";
-  "M136" -> "M138";
-  "M137" -> "M111";
-  "M137" -> "M138";
-  "M138" -> "M111";
-  "M138" -> "M139";
-  "M139" -> "M112";
 }

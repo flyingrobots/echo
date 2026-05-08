@@ -33,18 +33,17 @@ Source snapshot:
 
 ## High-Signal Cuts
 
-- Rewrite or close the remaining stale inspector stream cards: `M136`, `M137`,
-  `M138`, and `M139`. The useful concern is admission explanation,
-  capabilities, and worldline/strand merge posture; the stale `StreamsFrame` /
-  `stream facts` framing should not drive protocol design.
+- The stale inspector stream card was removed from the live backlog. The useful
+  capability concern now lives in `M016`; the useful merge/settlement concern
+  now lives in `M013`; debugger UI/protocol work belongs in `warp-ttd`.
 - Rewrite or close Echo-core cards that still name Graft, direct editor
   hot-reload, or Shadow REALM as substrate work: `M028`, `M062`, `M063`, `M064`,
   and `M099`.
 - Review Wesley/browser GraphQL, QIR, and typegen cards before pulling:
   `M040`, `M041`, `M043`, `M044`, and `M045`. Echo should own canonical
   Intent/observation boundaries, not a GraphQL-first runtime substrate.
-- Treat `M016`, `M137`, and `M088` as consolidation candidates around one
-  capability doctrine rather than separate drifting cards.
+- Treat `M016` and `M088` as consolidation candidates around one capability
+  doctrine rather than separate drifting cards.
 
 ## Current Pull Bias
 
@@ -93,9 +92,9 @@ Good current pulls include `M001`, `M002`, `M003`, `M004`, `M005`, `M006`,
 - `M132` `Future-park` - Extract METHOD crate to its own repo.
 - `M133` `Current-after-tightening` - METHOD drift check as pre-push hook. Keep
   opt-in or clearly bounded.
-- `M141` `Review-before-pull` - RED/GREEN cannot be separate commits. Reconcile
+- `M137` `Review-before-pull` - RED/GREEN cannot be separate commits. Reconcile
   with RED-first practice and the never-amend git rule.
-- `M142` `Current` - `xtask main.rs` is a god file.
+- `M138` `Current` - `xtask main.rs` is a god file.
 
 ### CLI, Inspect, Verify, And Agent Surface
 
@@ -173,16 +172,12 @@ Good current pulls include `M001`, `M002`, `M003`, `M004`, `M005`, `M006`,
 ### Strands, Braids, Settlement, And Capability-Scoped Forking
 
 - `M013` `Current` - Contract strands and counterfactuals.
-- `M016` `Merge-or-close` - Security/capabilities for fork/rewind/merge. Likely
-  overlaps the Optics capability model and `M137`.
+- `M016` `Current-after-tightening` - Security/capabilities for
+  fork/rewind/merge. Keep as the canonical Echo capability-law card; align it
+  with the Optics capability model.
 - `M028` `Stale-close` - Graft live frontier structural readings. Rewrite
   generically or close.
 - `M104` `Future-park` - Parallel execution counterfactuals.
-- `M136` `Merge-or-close` - Merge semantics for admitted stream facts across
-  worldlines. Move the useful part to generic worldline/strand/braid admission
-  and settlement semantics.
-- `M137` `Merge-or-close` - Security/capabilities for fork/rewind/merge in
-  multiplayer. Consolidate with `M016` and the Optics capability model.
 
 ### Retention, CAS, Deep Storage, And Cached Readings
 
@@ -273,11 +268,6 @@ Good current pulls include `M001`, `M002`, `M003`, `M004`, `M005`, `M006`,
 - `M111` `Current-after-tightening` - Time travel core. Reframe around fixed
   ticks, playback coordinates, bounded reveal, and admitted timer history.
 - `M112` `Future-park` - Reliving debugger MVP.
-- `M138` `Stale-close` - StreamsFrame inspector support. Rename or replace with
-  generic admission/reading inspector; do not implement `StreamsFrame` as
-  protocol truth.
-- `M139` `Future-park` - Constraint Lens panel. Let it consume typed admission
-  explanations after the substrate exists.
 
 ### Example Apps, Game Fixtures, And Course Material
 
@@ -295,4 +285,4 @@ Good current pulls include `M001`, `M002`, `M003`, `M004`, `M005`, `M006`,
 - `M119` `Future-park` - Tumble Tower stage 2 friction.
 - `M120` `Future-park` - Tumble Tower stage 3 sleeping.
 - `M135` `Future-park` - Splash Guy visualization.
-- `M140` `Future-park` - Tumble Tower visualization.
+- `M136` `Future-park` - Tumble Tower visualization.

@@ -19,8 +19,8 @@ Echo's hardest open problem is canonical cross-worldline settlement.
 The settlement backlog says Echo needs "one deterministic result, not
 eventual convergence." If ticks can carry different durations, then
 equal tick counts stop meaning equal simulated time, and
-compare/braid/settle gets uglier fast. Issue #243 blocks TT1
-StreamsFrame work, so this is exactly the kind of foundational
+compare/braid/settle gets uglier fast. Issue #243 blocks older
+time-travel inspector planning, so this is exactly the kind of foundational
 invariant worth locking early instead of letting it leak everywhere
 later.
 

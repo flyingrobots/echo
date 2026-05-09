@@ -14,6 +14,7 @@
 <a href="docs/index.md">Docs</a> •
 <a href="docs/architecture/outline.md">Architecture</a> •
 <a href="docs/architecture/there-is-no-graph.md">There Is No Graph</a> •
+<a href="docs/architecture/continuum-transport.md">Continuum</a> •
 <a href="docs/architecture/wsc-verkle-ipa-retained-readings.md">WSC / Verkle / IPA</a> •
 <a href="docs/spec/warp-core.md">warp-core</a>
 </p>
@@ -74,6 +75,33 @@ witnessed suffix + optic -> new reading
 The result is not "no state." State-like values still exist everywhere. The
 difference is authority: materialized state is a chart, cache, viewport, or
 hologram. It is not the territory.
+
+## WARP And Continuum
+
+WARP is the runtime/optic model used here. A WARP optic is a bounded,
+law-governed participant over causal history. It can observe, admit, retain,
+reveal, import, materialize, or verify readings, but it does not own a canonical
+global graph.
+
+Continuum is the compatibility layer between WARP participants. It is not Echo,
+not "the Echo protocol," and not a second runtime that owns the truth. It is the
+shared transport vocabulary for exchanging enough causal evidence for another
+optic to produce a compatible local reading:
+
+- causal suffixes;
+- coordinates and frontiers;
+- witnesses, receipts, and support obligations;
+- hologram and reading boundaries;
+- optic, rule, schema, and artifact identifiers.
+
+Echo is one Continuum-speaking WARP participant. `git-warp`, Wesley, Graft,
+WARPDrive, `warp-ttd`, and application tools such as `jedit` can also be WARP
+participants when they exchange witnessed causal structure instead of pretending
+to pass around a privileged graph object.
+
+The payload is not "the graph." The payload is the causal suffix, coordinate,
+support, and witness material needed for another optic to construct its own
+lawful reading.
 
 ## Core Ontology
 
@@ -272,6 +300,7 @@ cargo run -p warp-cli -- --format json verify "$SNAPSHOT"
 - [Current bearing](docs/BEARING.md)
 - [Runtime model](docs/architecture/outline.md)
 - [There Is No Graph](docs/architecture/there-is-no-graph.md)
+- [Continuum Transport](docs/architecture/continuum-transport.md)
 - [Application Contract Hosting](docs/architecture/application-contract-hosting.md)
 - [WSC, Verkle, IPA, And Retained Readings](docs/architecture/wsc-verkle-ipa-retained-readings.md)
 - [warp-core spec](docs/spec/warp-core.md)

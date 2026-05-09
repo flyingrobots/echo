@@ -166,9 +166,13 @@ mod tests {
         counter_value_observe_optic_request, counter_value_observe_optic_request_raw_vars,
         encode_counter_value_vars, increment_dispatch_optic_intent_request, pack_increment_intent,
         IncrementInput, CODEC_ID, OP_COUNTER_VALUE, OP_INCREMENT,
-        OP_INCREMENT_FOOTPRINT_CERTIFICATE_HASH, REGISTRY, REGISTRY_VERSION, SCHEMA_SHA256,
+        OP_INCREMENT_FOOTPRINT_ARTIFACT_HASH, OP_INCREMENT_FOOTPRINT_CERTIFICATE_HASH, REGISTRY,
+        REGISTRY_VERSION, SCHEMA_SHA256,
     };
-    use echo_registry_api::{OpKind, RegistryProvider};
+    use echo_registry_api::{
+        verify_contract_artifact, ContractArtifactTrustPosture, ContractArtifactVerificationPolicy,
+        ExpectedFootprintCertificate, OpKind, RegistryProvider,
+    };
     use echo_wasm_abi::kernel_port::{
         AbiError, AdmissionLawId, BuiltinObserverPlan, CoordinateAt, DispatchOpticIntentRequest,
         DispatchResponse, EchoCoordinate, IntentFamilyId, KernelPort, ObservationArtifact,
@@ -331,6 +335,24 @@ mod tests {
             .footprint_certificate_matches(SCHEMA_SHA256, "wrong-hash"));
         assert_eq!(increment_certificate.reads, &["CounterValue"]);
         assert_eq!(increment_certificate.writes, &["CounterValue"]);
+        let expected_certificates = [ExpectedFootprintCertificate {
+            op_id: OP_INCREMENT,
+            certificate_hash_hex: OP_INCREMENT_FOOTPRINT_CERTIFICATE_HASH,
+            artifact_hash_hex: Some(OP_INCREMENT_FOOTPRINT_ARTIFACT_HASH),
+        }];
+        let artifact_policy = ContractArtifactVerificationPolicy {
+            codec_id: CODEC_ID,
+            registry_version: REGISTRY_VERSION,
+            schema_sha256_hex: SCHEMA_SHA256,
+            footprint_certificates: &expected_certificates,
+            require_mutation_footprint_certificates: true,
+        };
+        let verified_artifact = verify_contract_artifact(&REGISTRY, &artifact_policy)
+            .expect("generated contract artifact should verify");
+        assert_eq!(
+            verified_artifact.posture,
+            ContractArtifactTrustPosture::CompileTimeCertified
+        );
         assert_eq!(REGISTRY.op_by_id(OP_COUNTER_VALUE).unwrap().kind, OpKind::Query);
         assert_eq!(
             REGISTRY

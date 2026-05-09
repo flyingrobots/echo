@@ -109,6 +109,11 @@ Initial Echo-side runway landed:
   certificate hashes from `@wes_footprint` metadata.
 - Generated registry consumers can compare a certificate hash at load time via
   `OpDef::footprint_certificate_matches(...)`.
+- Hosts can verify a generated registry artifact with
+  `echo_registry_api::verify_contract_artifact(...)`, which checks schema,
+  codec, registry layout, expected footprint certificate hashes, optional
+  generated artifact hashes, and a policy requiring mutation operations to be
+  backed by expected certificates.
 
 This is not the full closeout. The remaining hardening is the real
 compile-time capability boundary and cross-artifact Rust/TypeScript compiled

@@ -7,6 +7,12 @@
 
 ### Added
 
+- `echo-registry-api::verify_contract_artifact(...)` — generic load-time
+  verification for Wesley-generated registries, including schema/codec/layout
+  checks, expected footprint certificate hashes, optional generated artifact
+  hashes, and a policy switch requiring all mutation operations to be backed by
+  an expected certificate before the artifact is treated as
+  compile-time-certified.
 - Cycle 0003 (dt policy) — ratify fixed timestep as default, variable-dt
   as opt-in admitted stream, braidability constraint for settlement.
 - `KERNEL_strand-contract` backlog item — strand as a first-class

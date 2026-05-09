@@ -47,14 +47,9 @@ fn run_wesley_gen_schema(schema_path: &Path) -> Output {
 
 fn generated_str_const<'a>(source: &'a str, name: &str) -> &'a str {
     let prefix = format!("pub const {name}: &str = \"");
-    let start = source
-        .find(&prefix)
-        .unwrap_or_else(|| panic!("missing generated const `{name}`"))
-        + prefix.len();
+    let start = source.find(&prefix).expect("missing generated const") + prefix.len();
     let rest = &source[start..];
-    let end = rest
-        .find('"')
-        .unwrap_or_else(|| panic!("generated const `{name}` is not closed"));
+    let end = rest.find('"').expect("generated const is not closed");
     &rest[..end]
 }
 

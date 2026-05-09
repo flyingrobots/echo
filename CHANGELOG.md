@@ -70,6 +70,10 @@
 - Split the large `warp-core` optic module test body into `optic/tests.rs` and
   added a hook guard so production optic code is no longer buried under the
   test suite.
+- Verified imported witnessed causal suffix bundle digests before admission and
+  reject forged retained-shell identities.
+- Validated exported witnessed suffix boundary witnesses against the source
+  worldline and resolved base/target frontier range.
 - Fixed Wesley-generated helper output so helper-only vars and intent error
   types live in a generated namespace instead of colliding with user contract
   types, while preserving top-level helper function re-exports, and added

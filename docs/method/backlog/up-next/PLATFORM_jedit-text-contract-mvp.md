@@ -9,6 +9,7 @@ Depends on:
 
 - [Contract artifact retention in echo-cas](./PLATFORM_contract-artifact-retention-in-echo-cas.md)
 - [Wesley footprint honesty artifact attestation](./PLATFORM_wesley-footprint-honesty-artifact-attestation.md)
+- [WSC, Verkle, IPA, And Retained Readings](../../../architecture/wsc-verkle-ipa-retained-readings.md)
 - external `jedit` Text File Optic contract surface
 - external `jedit` hot text runtime port
 - external Wesley contract authoring support
@@ -57,6 +58,20 @@ consumer evidence, not Echo-owned source authority: it should be refreshed from
 the external `jedit` contract generation path and used only to prove generic
 host behavior.
 
+For retained text readings and checkpoints, `jedit` owns the hot rope model.
+Echo's future generic storage/proof direction is WSC-backed retained readings:
+the rope projects to canonical WSC bytes, `echo-cas` stores those bytes, and
+future Verkle/IPA proof-carrying apertures can verify selected buffer ranges or
+rope leaves without materializing the full reading.
+
+## Progress notes
+
+- Echo now has a generic `echo_registry_api::verify_contract_artifact(...)`
+  load-time verifier. This is the host-side check `jedit` needs before Echo
+  treats a generated registry's footprint certificate as compile-time-certified.
+- `echo-wesley-gen` smoke coverage proves the verifier works against generated
+  registry output without adding text-editing or `jedit`-specific code to Echo.
+
 ## Acceptance criteria
 
 - Echo can install or accept registry metadata for an externally generated
@@ -70,6 +85,8 @@ host behavior.
   ingress without adding text-specific code paths.
 - Echo emits contract-aware receipts and readings whose identity includes the
   external contract and operation/query basis.
+- Echo can retain a jedit buffer reading or checkpoint as generic WSC/CAS bytes
+  when the external jedit runtime supplies that artifact.
 - Echo can return a typed obstruction for stale basis, unsupported query,
   missing witness, or unavailable retained artifact.
 - `jedit` can create a buffer, submit a replace-range intent, and observe a

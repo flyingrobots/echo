@@ -410,6 +410,12 @@ and cached materialized readings.
 CAS content hashes are not semantic truth by themselves. Meaning lives in the
 typed coordinate or reference above the CAS blob.
 
+For future retained readings, the preferred payload direction is documented in
+[WSC, Verkle, IPA, And Retained Readings](wsc-verkle-ipa-retained-readings.md):
+WSC supplies canonical columnar reading bytes, Verkle-style roots may
+authenticate those bytes, IPA-style proofs may support bounded apertures, and
+`echo-cas` remains content-addressed byte retention.
+
 ```mermaid
 flowchart TB
     history["Witnessed causal history"]

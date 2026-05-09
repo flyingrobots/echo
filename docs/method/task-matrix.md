@@ -319,10 +319,13 @@ a task row in `docs/method/backlog/**`.
 - `M010` Depends on: `../../../design/continuum-runtime-and-cas-readings.md`
 - `M013` Depends on: `../../../design/0010-live-basis-settlement-plan/design.md`
 - `M016` Depends on: `../../../design/0022-continuum-transport-identity/design.md`
+- `M023` Depends on: `../../../architecture/wsc-verkle-ipa-retained-readings.md`
 - `M023` Depends on: `../../../design/0020-echo-cas-browser/echo-cas-browser.md`
 - `M023` Depends on: `../../../design/continuum-runtime-and-cas-readings.md`
 - `M025` Depends on: `../../../design/0020-echo-cas-browser/echo-cas-browser.md`
 - `M030` Depends on: `../asap/PLATFORM_import-transport-intent-admission-path.md`
+- `M032` Depends on: `../../../architecture/wsc-verkle-ipa-retained-readings.md`
+- `M131` Depends on: `../../../architecture/wsc-verkle-ipa-retained-readings.md`
 - `M135` Depends on: `../../../architecture/continuum-transport.md`
 - `M135` Depends on: `../../../architecture/there-is-no-graph.md`
 - `M135` Depends on: `../../../design/0018-echo-optics-api-design/design.md`

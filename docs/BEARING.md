@@ -3,7 +3,7 @@
 
 # BEARING
 
-Last updated: 2026-04-26.
+Last updated: 2026-05-09.
 
 This signpost summarizes current direction. It does not create commitments or
 replace backlog items, design docs, retros, or CLI status. If it disagrees with
@@ -18,6 +18,9 @@ iterate without turning docs into a museum or a second codebase:
 - Echo exposes current browser-hostable substrate through the WASM ABI, not a
   pile of historical ABI versions.
 - Observer-relative reading metadata travels in `ReadingEnvelope`.
+- Retained holograms should converge on WSC-backed bytes, CAS retention, and
+  future Verkle/IPA-style proof-carrying apertures without making any storage or
+  proof layer the ontology.
 - Method cycles and dated audit ledgers track planning decisions.
 - Local iteration speed is a first-class hill, because slow gates make every
   design/code/doc correction more expensive.
@@ -38,6 +41,10 @@ The runtime-doctrine cutover is no longer just design text:
 - `docs/design/0019-reading-envelope-family-boundary/reading-envelope-family-boundary.md`
   names the shared read-side family boundary for authored observer plans,
   installed artifacts, runtime reading values, and retained reading identity.
+- `docs/architecture/wsc-verkle-ipa-retained-readings.md` locks the future
+  retained-reading stack: WSC as canonical columnar reading bytes, Verkle as
+  authenticated commitment/index, IPA as compact aperture proof, and `echo-cas`
+  as byte retention.
 - `docs/spec/SPEC-0009-wasm-abi.md` now documents the current ABI contract
   instead of pretending to preserve ABI v1-v5.
 
@@ -52,6 +59,9 @@ The runtime-doctrine cutover is no longer just design text:
    gates while keeping full verification before publication.
 4. Implement QueryView observers against the accepted reading-envelope family
    boundary instead of adding a parallel read-result wrapper.
+5. Keep the first `jedit` contract-hosting proof generic: `jedit` owns the hot
+   rope model, Echo retains WSC/proof-ready readings by generic CAS and reading
+   identity surfaces.
 
 ## What feels wrong?
 

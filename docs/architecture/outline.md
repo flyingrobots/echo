@@ -9,6 +9,13 @@ Core doctrine: [there is no graph](there-is-no-graph.md). Graph-like structure
 is an observer-relative holographic reading over witnessed causal history, not a
 canonical substrate-owned object.
 
+Retained-reading direction:
+[WSC, Verkle, IPA, And Retained Readings](wsc-verkle-ipa-retained-readings.md)
+defines WSC as the canonical columnar byte layout for retained readings,
+Verkle-style commitments as the future authenticated index over those bytes,
+IPA-style openings as compact aperture support, and `echo-cas` as byte
+retention.
+
 Echo itself is a WARP optic for real-time deterministic simulation. It admits,
 observes, retains, and reveals witnessed causal history through its local
 runtime law; it is not an implementation of a hidden global graph.
@@ -67,6 +74,7 @@ Worldline: the retained ordered history used for replay, slices, and coordinate-
 - [Worldlines, Playback, and Observation](../spec/SPEC-0004-worldlines-playback-truthbus.md)
 - [WASM ABI Contract](../spec/SPEC-0009-wasm-abi.md)
 - [There Is No Graph](there-is-no-graph.md)
+- [WSC, Verkle, IPA, And Retained Readings](wsc-verkle-ipa-retained-readings.md)
 - [Continuum Transport](continuum-transport.md)
 
 ## Design posture

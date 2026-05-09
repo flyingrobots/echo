@@ -47,6 +47,10 @@ export default withMermaid(
                 text: "Application Contract Hosting",
                 link: "/architecture/application-contract-hosting",
               },
+              {
+                text: "WSC + Verkle + IPA",
+                link: "/architecture/wsc-verkle-ipa-retained-readings",
+              },
               { text: "Theory Map", link: "/theory/THEORY" },
               { text: "Current Bearing", link: "/BEARING" },
             ],

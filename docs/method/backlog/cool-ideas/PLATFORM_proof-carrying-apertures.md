@@ -9,6 +9,7 @@ Depends on:
 
 - [Contract-aware receipts and readings](../up-next/KERNEL_contract-aware-receipts-and-readings.md)
 - [Contract artifact retention in echo-cas](../up-next/PLATFORM_contract-artifact-retention-in-echo-cas.md)
+- [WSC, Verkle, IPA, And Retained Readings](../../../architecture/wsc-verkle-ipa-retained-readings.md)
 - [WARPDrive POSIX Materialization Optic](./PLATFORM_warpdrive-posix-optic.md)
 
 ## Why later
@@ -55,6 +56,11 @@ WSC is the natural future payload layout for WARP-shaped committed structure.
 `echo-cas` stores bytes. WSC provides canonical columnar state/read-model bytes.
 Merkle, Verkle, IPA, SNARK, STARK, or related proof families may sit above those
 bytes as proof backends over retained holograms.
+
+The current architectural direction is captured in
+[WSC, Verkle, IPA, And Retained Readings](../../../architecture/wsc-verkle-ipa-retained-readings.md):
+WSC gives the table, Verkle gives the root, IPA gives the aperture proof, and
+`echo-cas` stores the bytes.
 
 ## Acceptance criteria
 

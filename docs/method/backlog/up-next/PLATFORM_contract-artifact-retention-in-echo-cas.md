@@ -10,6 +10,7 @@ Depends on:
 - [Contract-aware receipts and readings](./KERNEL_contract-aware-receipts-and-readings.md)
 - [Echo Continuum Runtime And CAS Readings](../../../design/continuum-runtime-and-cas-readings.md)
 - [echo-cas Browser Integration](../../../design/0020-echo-cas-browser/echo-cas-browser.md)
+- [WSC, Verkle, IPA, And Retained Readings](../../../architecture/wsc-verkle-ipa-retained-readings.md)
 
 ## Why now
 
@@ -49,6 +50,11 @@ reading payloads. Variable chunk sizes, MIME-aware chunk policy, and buzhash-lik
 chunk boundary selection are implementation options for deduplication and space
 savings. Those choices are not causal semantics and must not affect Intent
 identity, tick identity, receipt identity, read identity, or replay outcome.
+
+The future retained-reading stack is WSC-backed and proof-ready: WSC provides
+canonical columnar reading/checkpoint bytes, Verkle-style commitments may
+authenticate WSC coordinates, IPA-style openings may support bounded apertures,
+and `echo-cas` remains byte retention only.
 
 ## Acceptance criteria
 

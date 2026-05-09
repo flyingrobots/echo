@@ -67,6 +67,9 @@
   frame/projection pairs instead of silently falling back to `QueryBytes`.
 - Restored the CodeRabbit archive path filter and added a hook regression guard
   so frozen `docs/archive/**` files stay out of automated review.
+- Split the large `warp-core` optic module test body into `optic/tests.rs` and
+  added a hook guard so production optic code is no longer buried under the
+  test suite.
 - Fixed Wesley-generated helper output so helper-only vars and intent error
   types live in a generated namespace instead of colliding with user contract
   types, while preserving top-level helper function re-exports, and added

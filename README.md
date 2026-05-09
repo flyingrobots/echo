@@ -161,6 +161,22 @@ witnessed causal structure through explicit laws.
 Applications talk to Echo through generated contracts, not app-specific runtime
 APIs.
 
+Wesley is the compiler optic for those contracts. Application authors describe
+their domain operations and readings in GraphQL SDL; Wesley lowers that
+authored contract into generated helpers, registries, codecs, operation ids,
+artifact metadata, and footprint certificates. Echo then hosts the generated
+contract through generic dispatch and observation boundaries.
+
+Wesley exists because Echo's runtime boundary is intentionally generic. Echo
+should not learn what `increment`, `ReplaceRange`, `CounterValue`, or
+`JeditBuffer` mean. Generated Wesley code gives applications a typed surface
+while preserving Echo's substrate rule:
+
+```text
+Application nouns live in contracts.
+Echo receives canonical intents and returns witnessed readings.
+```
+
 The current shape is:
 
 ```text
@@ -182,6 +198,81 @@ generic. Echo hosts the generated contract, verifies artifact metadata, admits
 intents, emits readings, and retains bytes. It does not become a text editor.
 
 See [Application Contract Hosting](docs/architecture/application-contract-hosting.md).
+
+## Writing An Echo Application
+
+The normal authoring loop is contract-first:
+
+1. Author a GraphQL SDL contract in the application repo.
+2. Declare operation/read names with `@wes_op`.
+3. Declare deterministic access footprints with `@wes_footprint` when the
+   operation mutates or observes application state.
+4. Run `echo-wesley-gen` to generate Rust contract helpers.
+5. Have the host verify the generated registry/artifact metadata.
+6. Use generated helpers to pack EINT intent bytes and build observation
+   requests.
+7. Let Echo admit the intent, emit receipts, retain witnesses, and return a
+   `ReadingEnvelope`.
+8. Decode and present the result in the application.
+
+A tiny contract looks like this:
+
+```graphql
+directive @wes_op(name: String!) on FIELD_DEFINITION
+directive @wes_footprint(
+    reads: [String!]
+    writes: [String!]
+) on FIELD_DEFINITION
+
+type CounterValue {
+    value: Int!
+}
+
+input IncrementInput {
+    amount: Int!
+}
+
+type Query {
+    counterValue: CounterValue! @wes_op(name: "counterValue")
+}
+
+type Mutation {
+    increment(input: IncrementInput!): CounterValue!
+        @wes_op(name: "increment")
+        @wes_footprint(reads: ["CounterValue"], writes: ["CounterValue"])
+}
+```
+
+Generate the Rust contract surface:
+
+```bash
+cargo run -p echo-wesley-gen -- --schema counter.graphql --out generated.rs
+```
+
+Application code should use generated helpers rather than hand-rolling Echo
+wire bytes. Conceptually:
+
+```rust
+let intent = generated::pack_increment_intent(
+    &generated::__echo_wesley_generated::IncrementVars {
+        input: generated::IncrementInput { amount: 1 },
+    },
+)?;
+
+let response = echo_wasm_abi::kernel_port::KernelPort::dispatch_intent(
+    &mut kernel,
+    &intent,
+)?;
+```
+
+For reads, generated query helpers build `ObservationRequest` values. Echo
+returns an `ObservationArtifact` containing payload bytes plus a
+`ReadingEnvelope`; the application should inspect that envelope before treating
+the reading as complete.
+
+Current checked-in generation is Rust-first. TypeScript/browser generation
+should follow the same contract identity, registry, artifact-verification, and
+footprint-honesty rules rather than inventing a separate Echo API.
 
 ## Retained Readings: WSC, Verkle, IPA, CAS
 
@@ -302,6 +393,7 @@ cargo run -p warp-cli -- --format json verify "$SNAPSHOT"
 - [There Is No Graph](docs/architecture/there-is-no-graph.md)
 - [Continuum Transport](docs/architecture/continuum-transport.md)
 - [Application Contract Hosting](docs/architecture/application-contract-hosting.md)
+- [echo-wesley-gen CLI](crates/echo-wesley-gen/README.md)
 - [WSC, Verkle, IPA, And Retained Readings](docs/architecture/wsc-verkle-ipa-retained-readings.md)
 - [warp-core spec](docs/spec/warp-core.md)
 - [WASM ABI contract](docs/spec/SPEC-0009-wasm-abi.md)

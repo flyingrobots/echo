@@ -37,5 +37,8 @@ cat ir.json | cargo run -p echo-wesley-gen -- --out generated.rs
   operation argument shape, and hosts can verify them through
   `echo_registry_api::verify_contract_artifact` before treating the generated
   artifact as compile-time-certified.
+- GraphQL SDL operation ids are derived deterministically and fail closed on
+  collision. The generator never increments a collided id because operation ids
+  are persisted ABI.
 - Optional fields become `Option<T>`; lists become `Vec<T>` (wrapped in Option when not required).
 - Unknown scalar names are emitted as identifiers as-is (so ensure upstream IR types are valid Rust idents).

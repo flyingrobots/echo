@@ -127,6 +127,45 @@ type Mutation {
     assert!(stdout.contains("footprint_certificate: Some(&OP_INCREMENT_FOOTPRINT_CERTIFICATE)"));
 }
 
+#[test]
+fn test_schema_operation_id_collision_fails_closed() {
+    let workspace = workspace_root();
+    let fixture_dir = workspace
+        .join("target")
+        .join("echo-wesley-gen-schema-fixture")
+        .join(format!("{}-collision", std::process::id()));
+    fs::create_dir_all(&fixture_dir).expect("failed to create schema fixture dir");
+    let schema_path = fixture_dir.join("counter.graphql");
+    fs::write(
+        &schema_path,
+        r#"
+directive @wes_op(name: String!) on FIELD_DEFINITION
+
+type CounterValue {
+  value: Int!
+}
+
+type Query {
+  qbkxqtpuqmzm1zzt: CounterValue! @wes_op(name: "qbkxqtpuqmzm1zzt")
+  qgcpfdz1bsy: CounterValue! @wes_op(name: "qgcpfdz1bsy")
+}
+"#,
+    )
+    .expect("failed to write schema fixture");
+
+    let output = run_wesley_gen_schema(&schema_path);
+
+    assert!(
+        !output.status.success(),
+        "schema op id collision should fail closed"
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("operation id collision"),
+        "stderr did not explain collision: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 fn write_consumer_smoke_crate(generated: &str) -> PathBuf {
     let workspace = workspace_root();
     let crate_dir = workspace

@@ -59,6 +59,8 @@
 - Strengthened Wesley footprint certificate artifact hashes so they incorporate
   a generated Rust artifact manifest hash and operation argument shape instead
   of only the declared read/write footprint.
+- Changed GraphQL SDL operation id generation to fail closed on derived id
+  collisions instead of silently incrementing persisted ABI ids.
 - Fixed Wesley-generated helper output so helper-only vars and intent error
   types live in a generated namespace instead of colliding with user contract
   types, while preserving top-level helper function re-exports, and added

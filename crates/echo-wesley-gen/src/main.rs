@@ -7,7 +7,7 @@ use anyhow::{bail, Result};
 use clap::Parser;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::io::{self, Read};
 use std::path::PathBuf;
 
@@ -81,14 +81,31 @@ fn echo_ir_from_schema_sdl(schema_sdl: &str) -> Result<WesleyIR> {
     let mut operations = wesley_core::list_schema_operations_sdl(schema_sdl)?;
     operations.sort_by_key(operation_sort_key);
 
-    let mut used_op_ids = BTreeSet::new();
+    let mut used_op_ids = BTreeMap::new();
     let mut ops = Vec::with_capacity(operations.len());
     for operation in operations {
-        let mut op_id = stable_op_id(&operation.operation_type, &operation.field_name);
-        while op_id == 0 || used_op_ids.contains(&op_id) {
-            op_id = op_id.wrapping_add(1);
+        let op_id = stable_op_id(&operation.operation_type, &operation.field_name);
+        if op_id == 0 {
+            bail!(
+                "generated operation id collision sentinel for {:?} `{}`; \
+                 add explicit operation ids upstream before generating Echo artifacts",
+                operation.operation_type,
+                operation.field_name
+            );
         }
-        used_op_ids.insert(op_id);
+        if let Some((existing_type, existing_name)) = used_op_ids.insert(
+            op_id,
+            (operation.operation_type, operation.field_name.clone()),
+        ) {
+            bail!(
+                "generated operation id collision: {:?} `{}` and {:?} `{}` both map to {op_id}; \
+                 add explicit operation ids upstream before generating Echo artifacts",
+                existing_type,
+                existing_name,
+                operation.operation_type,
+                operation.field_name
+            );
+        }
 
         ops.push(ir::OpDefinition {
             kind: op_kind_from_wesley(operation.operation_type),

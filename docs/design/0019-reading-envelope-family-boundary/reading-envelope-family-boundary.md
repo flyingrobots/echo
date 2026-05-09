@@ -90,6 +90,9 @@ Rules:
 - Stateful observer reads must name the observer instance and state hash.
 - Echo must reject unsupported observer plans or instances instead of falling
   back to a built-in read.
+- Built-in one-shot request helpers must fail closed when the frame/projection
+  pair is invalid. They must not silently relabel an invalid request as
+  `QueryBytes`, because the observer plan participates in the reading contract.
 
 ### Runtime Emitted Value Family
 
@@ -226,6 +229,7 @@ Current test anchors:
 - `explicit_bounded_observer_request_returns_bounded_reading_artifact`
 - `authored_observer_plan_obstructs_without_hidden_builtin_fallback`
 - `hosted_observer_instance_obstructs_without_stateful_fallback`
+- `builtin_one_shot_rejects_invalid_frame_projection`
 - `capability_scoped_observer_rights_obstruct_without_public_fallback`
 - `bounded_head_optic_returns_read_identity`
 - `read_identity_is_stable_for_same_read_question`

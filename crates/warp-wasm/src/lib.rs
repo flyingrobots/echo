@@ -963,7 +963,8 @@ mod init_tests {
             },
             ObservationFrame::CommitBoundary,
             ObservationProjection::Head,
-        );
+        )
+        .unwrap();
         let site = with_kernel_ref(|k| k.observe_neighborhood_site(request)).unwrap();
         assert_eq!(site.plurality, SitePlurality::Singleton);
         assert_eq!(site.participants.len(), 1);

@@ -533,7 +533,7 @@ pub struct ChannelData {
 }
 
 /// Attachment plane selector for optic boundary reads.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AttachmentPlane {
     /// Vertex/node attachment plane.
@@ -657,7 +657,7 @@ pub enum EchoCoordinate {
 }
 
 /// Attachment recursion policy for an optic aperture.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AttachmentDescentPolicy {
     /// Stop at the attachment boundary and expose only the boundary reference.
@@ -1248,6 +1248,46 @@ pub enum ObservationProjection {
     },
 }
 
+/// Lightweight projection kind used in frame/projection validation errors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ObservationProjectionKind {
+    /// Head metadata projection.
+    Head,
+    /// Snapshot metadata projection.
+    Snapshot,
+    /// Recorded-truth channels projection.
+    TruthChannels,
+    /// Query byte projection.
+    Query,
+}
+
+impl ObservationProjection {
+    /// Returns the projection kind without retaining projection payload bytes.
+    #[must_use]
+    pub fn kind(&self) -> ObservationProjectionKind {
+        match self {
+            Self::Head => ObservationProjectionKind::Head,
+            Self::Snapshot => ObservationProjectionKind::Snapshot,
+            Self::TruthChannels { .. } => ObservationProjectionKind::TruthChannels,
+            Self::Query { .. } => ObservationProjectionKind::Query,
+        }
+    }
+}
+
+/// Invalid one-shot built-in observation request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ObservationRequestError {
+    /// The declared frame does not support the requested projection kind.
+    UnsupportedFrameProjection {
+        /// Declared frame.
+        frame: ObservationFrame,
+        /// Requested projection kind.
+        projection: ObservationProjectionKind,
+    },
+}
+
 /// Canonical observation request DTO.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ObservationRequest {
@@ -1269,16 +1309,15 @@ pub struct ObservationRequest {
 
 impl ObservationRequest {
     /// Builds a one-shot built-in observation request for the frame/projection pair.
-    #[must_use]
     pub fn builtin_one_shot(
         coordinate: ObservationCoordinate,
         frame: ObservationFrame,
         projection: ObservationProjection,
-    ) -> Self {
+    ) -> Result<Self, ObservationRequestError> {
         let observer_plan = ReadingObserverPlan::Builtin {
-            plan: builtin_observer_plan_for(&frame, &projection),
+            plan: builtin_observer_plan_for(&frame, &projection)?,
         };
-        Self {
+        Ok(Self {
             coordinate,
             frame,
             projection,
@@ -1286,28 +1325,58 @@ impl ObservationRequest {
             observer_instance: None,
             budget: ObservationReadBudget::UnboundedOneShot,
             rights: ObservationRights::KernelPublic,
-        }
+        })
     }
 }
 
 fn builtin_observer_plan_for(
     frame: &ObservationFrame,
     projection: &ObservationProjection,
-) -> BuiltinObserverPlan {
+) -> Result<BuiltinObserverPlan, ObservationRequestError> {
     match (frame, projection) {
         (&ObservationFrame::CommitBoundary, ObservationProjection::Head) => {
-            BuiltinObserverPlan::CommitBoundaryHead
+            Ok(BuiltinObserverPlan::CommitBoundaryHead)
         }
         (&ObservationFrame::CommitBoundary, ObservationProjection::Snapshot) => {
-            BuiltinObserverPlan::CommitBoundarySnapshot
+            Ok(BuiltinObserverPlan::CommitBoundarySnapshot)
         }
         (&ObservationFrame::RecordedTruth, ObservationProjection::TruthChannels { .. }) => {
-            BuiltinObserverPlan::RecordedTruthChannels
+            Ok(BuiltinObserverPlan::RecordedTruthChannels)
         }
         (&ObservationFrame::QueryView, ObservationProjection::Query { .. }) => {
-            BuiltinObserverPlan::QueryBytes
+            Ok(BuiltinObserverPlan::QueryBytes)
         }
-        _ => BuiltinObserverPlan::QueryBytes,
+        _ => Err(ObservationRequestError::UnsupportedFrameProjection {
+            frame: frame.clone(),
+            projection: projection.kind(),
+        }),
+    }
+}
+
+#[cfg(test)]
+mod observation_request_tests {
+    use super::{
+        ObservationAt, ObservationCoordinate, ObservationFrame, ObservationProjection,
+        ObservationRequest, WorldlineId,
+    };
+
+    #[test]
+    fn builtin_one_shot_rejects_invalid_frame_projection() {
+        let result = ObservationRequest::builtin_one_shot(
+            ObservationCoordinate {
+                worldline_id: WorldlineId::from_bytes([1; 32]),
+                at: ObservationAt::Frontier,
+            },
+            ObservationFrame::RecordedTruth,
+            ObservationProjection::Head,
+        );
+        assert!(matches!(
+            result,
+            Err(super::ObservationRequestError::UnsupportedFrameProjection {
+                frame: ObservationFrame::RecordedTruth,
+                projection: super::ObservationProjectionKind::Head,
+            })
+        ));
     }
 }
 

@@ -634,16 +634,16 @@ impl WarpKernel {
     }
 
     pub(crate) fn current_head(&self) -> Result<HeadInfo, AbiError> {
-        Self::head_info_from_observation(self.observe_core(
-            ObservationRequest::builtin_one_shot(
-                ObservationCoordinate {
-                    worldline_id: self.default_worldline,
-                    at: ObservationAt::Frontier,
-                },
-                ObservationFrame::CommitBoundary,
-                ObservationProjection::Head,
-            ),
-        )?)
+        let request = ObservationRequest::builtin_one_shot(
+            ObservationCoordinate {
+                worldline_id: self.default_worldline,
+                at: ObservationAt::Frontier,
+            },
+            ObservationFrame::CommitBoundary,
+            ObservationProjection::Head,
+        )
+        .map_err(Self::map_observation_error)?;
+        Self::head_info_from_observation(self.observe_core(request)?)
     }
 
     fn head_info_from_observation(
@@ -1041,6 +1041,14 @@ mod tests {
 
     fn start_until_idle(kernel: &mut WarpKernel, cycle_limit: Option<u32>) -> DispatchResponse {
         start_until_idle_result(kernel, cycle_limit).unwrap()
+    }
+
+    fn abi_builtin_one_shot(
+        coordinate: AbiObservationCoordinate,
+        frame: AbiObservationFrame,
+        projection: AbiObservationProjection,
+    ) -> AbiObservationRequest {
+        AbiObservationRequest::builtin_one_shot(coordinate, frame, projection).unwrap()
     }
 
     fn start_until_idle_result(
@@ -1875,7 +1883,7 @@ mod tests {
     fn observe_invalid_tick_returns_observation_error_code() {
         let kernel = WarpKernel::new().unwrap();
         let err = kernel
-            .observe(AbiObservationRequest::builtin_one_shot(
+            .observe(abi_builtin_one_shot(
                 AbiObservationCoordinate {
                     worldline_id: abi_worldline_id(kernel.default_worldline),
                     at: AbiObservationAt::Tick {
@@ -1896,7 +1904,7 @@ mod tests {
         kernel.dispatch_intent(&intent).unwrap();
         start_until_idle(&mut kernel, Some(1));
         let artifact = kernel
-            .observe(AbiObservationRequest::builtin_one_shot(
+            .observe(abi_builtin_one_shot(
                 AbiObservationCoordinate {
                     worldline_id: abi_worldline_id(kernel.default_worldline),
                     at: AbiObservationAt::Tick {
@@ -1921,7 +1929,7 @@ mod tests {
     fn observe_frontier_head_matches_current_head() {
         let kernel = WarpKernel::new().unwrap();
         let artifact = kernel
-            .observe(AbiObservationRequest::builtin_one_shot(
+            .observe(abi_builtin_one_shot(
                 AbiObservationCoordinate {
                     worldline_id: abi_worldline_id(kernel.default_worldline),
                     at: AbiObservationAt::Frontier,
@@ -1972,7 +1980,7 @@ mod tests {
     fn observe_neighborhood_site_returns_singleton_site_for_default_worldline() {
         let kernel = WarpKernel::new().unwrap();
         let site = kernel
-            .observe_neighborhood_site(AbiObservationRequest::builtin_one_shot(
+            .observe_neighborhood_site(abi_builtin_one_shot(
                 AbiObservationCoordinate {
                     worldline_id: abi_worldline_id(kernel.default_worldline),
                     at: AbiObservationAt::Frontier,
@@ -2113,7 +2121,7 @@ mod tests {
     fn observe_frontier_snapshot_reports_u0_without_fake_sentinels() {
         let kernel = WarpKernel::new().unwrap();
         let artifact = kernel
-            .observe(AbiObservationRequest::builtin_one_shot(
+            .observe(abi_builtin_one_shot(
                 AbiObservationCoordinate {
                     worldline_id: abi_worldline_id(kernel.default_worldline),
                     at: AbiObservationAt::Frontier,
@@ -2143,7 +2151,7 @@ mod tests {
 
         let head_before = kernel.current_head().unwrap();
         let _ = kernel
-            .observe(AbiObservationRequest::builtin_one_shot(
+            .observe(abi_builtin_one_shot(
                 AbiObservationCoordinate {
                     worldline_id: abi_worldline_id(kernel.default_worldline),
                     at: AbiObservationAt::Frontier,
@@ -2193,7 +2201,7 @@ mod tests {
         kernel.provenance = provenance;
 
         let artifact = kernel
-            .observe(AbiObservationRequest::builtin_one_shot(
+            .observe(abi_builtin_one_shot(
                 AbiObservationCoordinate {
                     worldline_id: abi_worldline_id(kernel.default_worldline),
                     at: AbiObservationAt::Tick {

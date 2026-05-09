@@ -658,6 +658,7 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
                                     vars_bytes: Vec::from(vars),
                                 },
                             )
+                            .expect("generated query observation request uses a valid frame/projection pair")
                         }
 
                         /// Encode this query's vars and build a bounded optic read request.

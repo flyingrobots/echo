@@ -63,6 +63,8 @@
   collisions instead of silently incrementing persisted ABI ids.
 - Replaced generated query optic variable digests with Echo ABI's
   domain-separated BLAKE3 `query_vars_digest_v1(...)` helper.
+- Made built-in observation request helpers fail closed on invalid
+  frame/projection pairs instead of silently falling back to `QueryBytes`.
 - Fixed Wesley-generated helper output so helper-only vars and intent error
   types live in a generated namespace instead of colliding with user contract
   types, while preserving top-level helper function re-exports, and added

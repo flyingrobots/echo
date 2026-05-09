@@ -1085,7 +1085,8 @@ mod tests {
             },
             ObservationFrame::CommitBoundary,
             ObservationProjection::Head,
-        );
+        )
+        .unwrap();
         assert!(matches!(
             builtin_request.observer_plan,
             ReadingObserverPlan::Builtin {

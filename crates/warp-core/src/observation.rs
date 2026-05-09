@@ -249,14 +249,13 @@ pub struct ObservationRequest {
 
 impl ObservationRequest {
     /// Builds a one-shot built-in observation request for the frame/projection pair.
-    #[must_use]
     pub fn builtin_one_shot(
         coordinate: ObservationCoordinate,
         frame: ObservationFrame,
         projection: ObservationProjection,
-    ) -> Self {
-        let observer_plan = builtin_observer_plan_for(frame, projection.kind());
-        Self {
+    ) -> Result<Self, ObservationError> {
+        let observer_plan = builtin_observer_plan_for(frame, projection.kind())?;
+        Ok(Self {
             coordinate,
             frame,
             projection,
@@ -264,7 +263,7 @@ impl ObservationRequest {
             observer_instance: None,
             budget: ObservationReadBudget::UnboundedOneShot,
             rights: ObservationRights::KernelPublic,
-        }
+        })
     }
 
     /// Converts the request to the shared ABI DTO.
@@ -484,10 +483,10 @@ impl ReadingObserverPlan {
 fn builtin_observer_plan_for(
     frame: ObservationFrame,
     projection: ObservationProjectionKind,
-) -> ReadingObserverPlan {
-    ReadingObserverPlan::Builtin {
-        plan: ObservationService::builtin_observer_plan(frame, projection),
-    }
+) -> Result<ReadingObserverPlan, ObservationError> {
+    Ok(ReadingObserverPlan::Builtin {
+        plan: ObservationService::builtin_observer_plan(frame, projection)?,
+    })
 }
 
 /// Hosted observer instance identity.
@@ -1225,14 +1224,17 @@ impl ObservationService {
             }
         };
 
-        let mut observation_request = ObservationRequest::builtin_one_shot(
+        let mut observation_request = match ObservationRequest::builtin_one_shot(
             ObservationCoordinate {
                 worldline_id: *worldline_id,
                 at,
             },
             frame,
             projection,
-        );
+        ) {
+            Ok(request) => request,
+            Err(err) => return Err(Self::optic_observation_error(request, err)),
+        };
         if let Some(max_payload_bytes) = request.aperture.budget.max_bytes {
             observation_request.budget = ObservationReadBudget::Bounded {
                 max_payload_bytes,
@@ -1510,7 +1512,7 @@ impl ObservationService {
     }
 
     fn validate_observer_contract(request: &ObservationRequest) -> Result<(), ObservationError> {
-        let expected = Self::observer_plan(request.frame, request.projection.kind());
+        let expected = Self::observer_plan(request.frame, request.projection.kind())?;
         match &request.observer_plan {
             ReadingObserverPlan::Builtin { .. } if request.observer_plan != expected => {
                 return Err(ObservationError::UnsupportedObserverPlan(
@@ -1752,34 +1754,28 @@ impl ObservationService {
     fn observer_plan(
         frame: ObservationFrame,
         projection: ObservationProjectionKind,
-    ) -> ReadingObserverPlan {
+    ) -> Result<ReadingObserverPlan, ObservationError> {
         builtin_observer_plan_for(frame, projection)
     }
 
     fn builtin_observer_plan(
         frame: ObservationFrame,
         projection: ObservationProjectionKind,
-    ) -> BuiltinObserverPlan {
+    ) -> Result<BuiltinObserverPlan, ObservationError> {
         match (frame, projection) {
             (ObservationFrame::CommitBoundary, ObservationProjectionKind::Head) => {
-                BuiltinObserverPlan::CommitBoundaryHead
+                Ok(BuiltinObserverPlan::CommitBoundaryHead)
             }
             (ObservationFrame::CommitBoundary, ObservationProjectionKind::Snapshot) => {
-                BuiltinObserverPlan::CommitBoundarySnapshot
+                Ok(BuiltinObserverPlan::CommitBoundarySnapshot)
             }
             (ObservationFrame::RecordedTruth, ObservationProjectionKind::TruthChannels) => {
-                BuiltinObserverPlan::RecordedTruthChannels
+                Ok(BuiltinObserverPlan::RecordedTruthChannels)
             }
             (ObservationFrame::QueryView, ObservationProjectionKind::Query) => {
-                BuiltinObserverPlan::QueryBytes
+                Ok(BuiltinObserverPlan::QueryBytes)
             }
-            _ => {
-                debug_assert!(
-                    false,
-                    "observer_plan requires a valid frame/projection pair"
-                );
-                BuiltinObserverPlan::QueryBytes
-            }
+            _ => Err(ObservationError::UnsupportedFrameProjection { frame, projection }),
         }
     }
 
@@ -2015,6 +2011,14 @@ mod tests {
 
     fn wt(raw: u64) -> WorldlineTick {
         WorldlineTick::from_raw(raw)
+    }
+
+    fn builtin_one_shot(
+        coordinate: ObservationCoordinate,
+        frame: ObservationFrame,
+        projection: ObservationProjection,
+    ) -> ObservationRequest {
+        ObservationRequest::builtin_one_shot(coordinate, frame, projection).unwrap()
     }
 
     fn gt(raw: u64) -> GlobalTick {
@@ -2474,13 +2478,34 @@ mod tests {
     }
 
     #[test]
+    fn builtin_one_shot_rejects_invalid_frame_projection() {
+        let err = ObservationRequest::builtin_one_shot(
+            ObservationCoordinate {
+                worldline_id: wl(1),
+                at: ObservationAt::Frontier,
+            },
+            ObservationFrame::RecordedTruth,
+            ObservationProjection::Head,
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            err,
+            ObservationError::UnsupportedFrameProjection {
+                frame: ObservationFrame::RecordedTruth,
+                projection: ObservationProjectionKind::Head,
+            }
+        );
+    }
+
+    #[test]
     fn frontier_head_matches_live_frontier_snapshot() {
         let (engine, runtime, provenance, worldline_id) = one_commit_fixture();
         let artifact = ObservationService::observe(
             &runtime,
             &provenance,
             &engine,
-            ObservationRequest::builtin_one_shot(
+            builtin_one_shot(
                 ObservationCoordinate {
                     worldline_id,
                     at: ObservationAt::Frontier,
@@ -2514,7 +2539,7 @@ mod tests {
             &runtime,
             &provenance,
             &engine,
-            ObservationRequest::builtin_one_shot(
+            builtin_one_shot(
                 ObservationCoordinate {
                     worldline_id,
                     at: ObservationAt::Frontier,
@@ -2540,7 +2565,7 @@ mod tests {
             &runtime,
             &provenance,
             &engine,
-            ObservationRequest::builtin_one_shot(
+            builtin_one_shot(
                 ObservationCoordinate {
                     worldline_id,
                     at: ObservationAt::Frontier,
@@ -2562,7 +2587,7 @@ mod tests {
     #[test]
     fn identical_requests_produce_stable_artifact_hashes() {
         let (engine, runtime, provenance, worldline_id) = one_commit_fixture();
-        let request = ObservationRequest::builtin_one_shot(
+        let request = builtin_one_shot(
             ObservationCoordinate {
                 worldline_id,
                 at: ObservationAt::Frontier,
@@ -2580,7 +2605,7 @@ mod tests {
     #[test]
     fn reading_envelope_posture_participates_in_artifact_identity() {
         let (engine, runtime, provenance, worldline_id) = one_commit_fixture();
-        let unbounded_request = ObservationRequest::builtin_one_shot(
+        let unbounded_request = builtin_one_shot(
             ObservationCoordinate {
                 worldline_id,
                 at: ObservationAt::Frontier,
@@ -2625,7 +2650,7 @@ mod tests {
             &runtime,
             &provenance,
             &engine,
-            ObservationRequest::builtin_one_shot(
+            builtin_one_shot(
                 ObservationCoordinate {
                     worldline_id,
                     at: ObservationAt::Frontier,
@@ -2686,7 +2711,7 @@ mod tests {
     #[test]
     fn explicit_bounded_observer_request_returns_bounded_reading_artifact() -> Result<(), String> {
         let (engine, runtime, provenance, worldline_id) = one_commit_fixture();
-        let mut request = ObservationRequest::builtin_one_shot(
+        let mut request = builtin_one_shot(
             ObservationCoordinate {
                 worldline_id,
                 at: ObservationAt::Frontier,
@@ -2727,7 +2752,7 @@ mod tests {
     #[test]
     fn authored_observer_plan_obstructs_without_hidden_builtin_fallback() {
         let (engine, runtime, provenance, worldline_id) = one_commit_fixture();
-        let mut request = ObservationRequest::builtin_one_shot(
+        let mut request = builtin_one_shot(
             ObservationCoordinate {
                 worldline_id,
                 at: ObservationAt::Frontier,
@@ -2746,7 +2771,7 @@ mod tests {
     #[test]
     fn hosted_observer_instance_obstructs_without_stateful_fallback() {
         let (engine, runtime, provenance, worldline_id) = one_commit_fixture();
-        let mut request = ObservationRequest::builtin_one_shot(
+        let mut request = builtin_one_shot(
             ObservationCoordinate {
                 worldline_id,
                 at: ObservationAt::Frontier,
@@ -2769,7 +2794,7 @@ mod tests {
     #[test]
     fn capability_scoped_observer_rights_obstruct_without_public_fallback() {
         let (engine, runtime, provenance, worldline_id) = one_commit_fixture();
-        let mut request = ObservationRequest::builtin_one_shot(
+        let mut request = builtin_one_shot(
             ObservationCoordinate {
                 worldline_id,
                 at: ObservationAt::Frontier,
@@ -2790,7 +2815,7 @@ mod tests {
     #[test]
     fn observation_budget_obstructs_instead_of_emitting_oversized_reading() {
         let (engine, runtime, provenance, worldline_id) = one_commit_fixture();
-        let mut request = ObservationRequest::builtin_one_shot(
+        let mut request = builtin_one_shot(
             ObservationCoordinate {
                 worldline_id,
                 at: ObservationAt::Frontier,
@@ -2944,7 +2969,7 @@ mod tests {
             &runtime,
             &provenance,
             &engine,
-            ObservationRequest::builtin_one_shot(
+            builtin_one_shot(
                 ObservationCoordinate {
                     worldline_id: child_worldline,
                     at: ObservationAt::Frontier,
@@ -2972,7 +2997,7 @@ mod tests {
             &anchor_runtime,
             &anchor_provenance,
             &anchor_engine,
-            ObservationRequest::builtin_one_shot(
+            builtin_one_shot(
                 ObservationCoordinate {
                     worldline_id: anchor_child,
                     at: ObservationAt::Frontier,
@@ -2986,7 +3011,7 @@ mod tests {
             &runtime,
             &provenance,
             &engine,
-            ObservationRequest::builtin_one_shot(
+            builtin_one_shot(
                 ObservationCoordinate {
                     worldline_id: child_worldline,
                     at: ObservationAt::Frontier,
@@ -3019,7 +3044,7 @@ mod tests {
             &runtime,
             &provenance,
             &engine,
-            ObservationRequest::builtin_one_shot(
+            builtin_one_shot(
                 ObservationCoordinate {
                     worldline_id: child_worldline,
                     at: ObservationAt::Frontier,
@@ -3067,7 +3092,7 @@ mod tests {
             &runtime,
             &provenance,
             &engine,
-            ObservationRequest::builtin_one_shot(
+            builtin_one_shot(
                 ObservationCoordinate {
                     worldline_id,
                     at: ObservationAt::Tick(wt(0)),

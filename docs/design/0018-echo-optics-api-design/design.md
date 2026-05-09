@@ -18,6 +18,8 @@ Depends on:
 
 An Echo Optic is the first-class API noun for bounded, capability-scoped,
 coordinate-anchored observation and intent dispatch over Echo causal history.
+It is Echo's local API cut of the broader WARP optic: a bounded, law-named
+operation over witnessed causal history that produces a hologram.
 
 An optic is:
 
@@ -27,6 +29,15 @@ Optic = capability + focus + coordinate + projection law + intent family
 
 An optic is not a mutable handle. It is not a file handle, graph handle, object
 handle, editor handle, or hidden materialization cursor.
+
+There is no substrate-owned graph behind the optic. A graph-shaped result is a
+holographic reading emitted by an observer or optic over witnessed causal
+history.
+
+This scales up. Echo itself is a WARP optic for real-time deterministic
+simulation. `warp-ttd`, `git-warp`, and Wesley are other WARP optics with
+different projection/admission targets. The Optics API is Echo's local public
+cut of that broader pattern.
 
 An optic names two lawful things:
 
@@ -70,6 +81,16 @@ Echo admits.
 Receipt witnesses.
 ```
 
+The deeper WARP doctrine is:
+
+```text
+There is witnessed causal history.
+WARP optics chart it.
+Holograms witness those charts.
+Materialized graphs are optional readings.
+Continuum is the protocol for lawful causal-history exchange.
+```
+
 The prohibitions are part of the API contract:
 
 - no direct setters;
@@ -85,6 +106,11 @@ The prohibitions are part of the API contract:
 
 Optic read truth is observer-relative and witness-backed. Substrate truth remains
 the witnessed causal history and admitted receipts.
+
+Every successful read, admission, materialization, retention, or obstruction
+produces a hologram: a witnessed artifact that names basis, law, aperture,
+identity, evidence, and posture. Some holograms are admitted history. Some are
+readings. Some are retained materializations. None is a mutable graph handle.
 
 Optic intent dispatch is not mutation by handle. It is proposal against an
 explicit causal basis. Echo may admit, stage, preserve plurality, conflict, or

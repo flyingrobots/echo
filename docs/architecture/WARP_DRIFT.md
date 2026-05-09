@@ -17,6 +17,18 @@ The relevant baseline is now:
 - **There is no canonical materialized graph.** The substrate is
   witnessed causal history. Graph-like structure is an
   observer-relative reading over that history.
+- **All public WARP surfaces are optics producing holograms.** Admission,
+  observation, topology change, transport import, slicing, materialization, and
+  retention all choose a bounded causal basis/site, apply a law, and produce a
+  witnessed artifact with explicit posture.
+- **Continuum is a protocol, not a graph model.** Echo and `git-warp` are
+  compatible because they can exchange witnessed causal-history artifacts
+  through shared Continuum families, not because either runtime owns "the
+  graph."
+- **Runtimes and tools can themselves be WARP optics.** Echo is the real-time
+  simulation optic; `warp-ttd` is a debugger optic; `git-warp` is a Git
+  projection/retention optic; Wesley is a compiler rewrite optic from authored
+  schema to IR and artifacts.
 - **A strand is a real speculative lane, not a frozen snapshot.**
   Its realized state is resolved against inherited parent history at a
   chosen basis, and bounded reads should materialize only the backward

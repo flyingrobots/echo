@@ -8,6 +8,11 @@ families. It does not synchronize materialized state._
 
 ## Boundary Rule
 
+Continuum is the shared WARP protocol layer. Like HTTP, it lets independent
+runtimes exchange lawful boundary artifacts without sharing implementation
+internals. Unlike a graph database protocol, it does not claim there is one
+canonical graph to synchronize.
+
 Continuum transport uses Echo's witnessed suffix evidence model:
 
 ```text
@@ -40,6 +45,10 @@ Wesley compiles the authored family. It does not define transport semantics.
 Other Continuum-speaking tools may consume the family, but they do not get to
 weaken the causal evidence contract into state snapshots, summary strings, or
 host-time ordering.
+
+Echo and `git-warp` are compatible because they exchange witnessed causal
+history through Continuum-shaped families. They are not compatible because they
+both model "the graph." There is no substrate-owned graph.
 
 ## Transport Object
 
@@ -136,6 +145,12 @@ slice/project/normalise -> lower/admit -> pack/retain
 
 Distribution changes the basis construction and transport path. It does not
 create a second admission law.
+
+More generally, tick admission, transport import, fork, merge, braid,
+settlement, support mutation, inverse admission, observation, materialization,
+and hologram slicing are all WARP optic operations over witnessed causal
+history. Their outputs are holograms with different effect postures: admitted
+history, observer-relative reading, retained artifact, or obstruction.
 
 ## Current Design Packet
 

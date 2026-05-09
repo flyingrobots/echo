@@ -17,6 +17,11 @@ Scope: doctrine and implementation runway only
 
 Echo is a peer Continuum runtime implementation.
 
+Echo itself is a WARP optic for real-time deterministic simulation. `warp-ttd`
+is a WARP optic for debugger inspection. `git-warp` is a WARP optic that
+projects witnessed causal history onto Git as a primitive substrate. Wesley is
+a WARP optic that rewrites authored schema input into IR and output artifacts.
+
 Echo stores, executes, admits, observes, exports, imports, and retains
 witnessed causal history in its own runtime style. Echo may use `echo-cas`,
 indexes, checkpoints, and cached materialized readings for performance and
@@ -39,6 +44,22 @@ The substrate is witnessed causal history:
 
 State-like values are observer-relative readings over that history.
 
+There is no privileged graph object behind those readings. The graph is a
+coordinate chart emitted by an observer or optic over witnessed causal history.
+
+All public WARP surfaces share one shape:
+
+```text
+bounded causal basis/site
++ law
++ capability, budget, and evidence posture
+-> witnessed hologram
+```
+
+An admission hologram may extend history. A reading hologram observes history. A
+retained hologram caches or reveals a derived artifact. None of those
+holograms becomes canonical substrate truth merely by existing.
+
 ## Doctrine Correction
 
 Older Continuum and Echo docs sometimes describe Echo as the hot side and
@@ -60,9 +81,19 @@ Echo does not produce facts for `git-warp`. Echo and `git-warp` both produce,
 admit, retain, and observe witnessed causal history. They interoperate by
 exchanging protocol-shaped causal artifacts, not by sharing runtime internals.
 
-The browser analogy is the useful one: Continuum is the shared protocol and
-contract law; Echo and `git-warp` are independent implementations with their
-own engines, caches, storage models, and developer surfaces.
+The browser analogy is the useful one. More directly, Continuum is HTTP-like:
+it is the shared WARP protocol and contract law that lets independent runtimes
+exchange lawful causal-history artifacts. Echo and `git-warp` are independent
+implementations with their own engines, caches, storage models, and developer
+surfaces.
+
+Echo and `git-warp` are compatible because they can speak this protocol. They
+are not compatible because they both model a canonical graph. There is no
+canonical graph.
+
+`warp-ttd` and Wesley fit the same frame. They may speak shared Continuum
+families where that is useful, but their compatibility comes from lawful
+causal/artifact exchange, not from sharing an internal graph representation.
 
 ## Echo As A Continuum Runtime
 
@@ -143,6 +174,10 @@ graph.
 
 No public API should imply that Echo owns one canonical graph or state object
 that all observers secretly read.
+
+Canonical architecture note:
+
+- [There Is No Graph](../architecture/there-is-no-graph.md)
 
 ## echo-cas Role
 
@@ -592,6 +627,12 @@ They do not exchange:
 
 The shared law is witnessed causal admission. Each runtime remains free to
 store, cache, index, schedule, and observe in the way that fits its purpose.
+
+Continuum therefore sits at the protocol boundary, not below the runtime as a
+shared storage engine. It standardizes the lawful causal-history exchange, the
+admission/reading families, and the evidence carried across boundaries. It does
+not standardize an internal graph representation because WARP has no privileged
+graph representation to standardize.
 
 ## Implementation Runway
 

@@ -40,6 +40,10 @@ export default withMermaid(
               { text: "Docs Map", link: "/" },
               { text: "Runtime Model", link: "/architecture/outline" },
               {
+                text: "There Is No Graph",
+                link: "/architecture/there-is-no-graph",
+              },
+              {
                 text: "Application Contract Hosting",
                 link: "/architecture/application-contract-hosting",
               },

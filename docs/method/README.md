@@ -130,6 +130,16 @@ PLATFORM_xtask-method-cli.md
 debt-scheduler-god-module.md
 ```
 
+### Visibility
+
+Backlog cards must not hide executable subtasks that need independent
+scheduling or dependency tracking. If a card discovers a sequence of
+implementation slices, promote those slices into visible backlog cards and
+connect them with `Depends on:` links.
+
+A card may remain as an index for a design packet or hill, but that index must
+not be the only place executable work exists.
+
 ### Promoting
 
 When a backlog item is pulled into a cycle, it becomes a design doc:
@@ -315,6 +325,7 @@ If you can answer these questions by reading the repo, you do not need
 a standup:
 
 - What is everyone working on? → active design docs in `docs/design/`
+  that do not have a matching `docs/method/retro/<cycle>/retro.md`
 - What is committed? → each design doc names its sponsors and hill
 - What is next? → `ls docs/method/backlog/asap/`
 - What closed, failed, or drifted? → `ls docs/method/retro/`
@@ -387,6 +398,11 @@ following commands are implemented:
 | `cargo xtask method inbox "idea"`  | Capture a backlog note in `inbox/`.                      |
 | `cargo xtask method status`        | Summarize backlog lanes, active cycles, and legend load. |
 | `cargo xtask method status --json` | Emit the same status report for agents and tooling.      |
+| `cargo xtask method matrix`        | Regenerate `task-matrix.md` and `task-matrix.csv`.       |
+| `cargo xtask method dag`           | Regenerate `task-dag.dot` and `task-dag.svg`.            |
+| `cargo xtask method frontier`      | Print tasks with no unresolved backlog-task blockers.    |
+| `cargo xtask method critical-path` | Print the unweighted longest dependency chain.           |
+| `cargo xtask method check-dag`     | Fail if graph artifacts are stale or cyclic.             |
 
 The following commands are planned but **not yet implemented**:
 

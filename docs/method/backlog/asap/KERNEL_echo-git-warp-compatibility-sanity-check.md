@@ -22,6 +22,12 @@ Status: active coordination backlog. This is a compatibility map, not an
 implementation spec; keep it aligned with current Echo runtime facts before
 using it to drive cross-repo protocol work.
 
+Triage update: keep this card, but sharpen the next pass around causal-history
+interchange. The live question is no longer just whether Echo and git-warp can
+share a debugger, protocol, and schema compiler; it is whether they can share
+witnessed causal history through Continuum transport without making either
+runtime subordinate to the other.
+
 ## Where they align
 
 ### Causal model
@@ -135,6 +141,9 @@ Both substrates use Wesley for schema compilation, but:
 
 ### Short term (coordinate, don't build)
 
+- Verify whether Echo and git-warp can exchange witnessed causal history through
+  Continuum transport while preserving each runtime's local admission law,
+  receipt semantics, and storage model.
 - Audit whether Echo's WASM ABI surface is sufficient for a warp-ttd
   host adapter (see `PLATFORM_echo-ttd-host-adapter` backlog item)
 - Reconcile TTD protocol types — one schema, one source of truth
@@ -144,8 +153,8 @@ Both substrates use Wesley for schema compilation, but:
 
 ### Medium term (design decisions needed)
 
-- Finish live holographic strand semantics in Echo's canonical/deterministic
-  model (see `KERNEL_live-holographic-strands` backlog item)
+- Build on the live-basis strand semantics captured in
+  `docs/design/0010-live-basis-settlement-plan/design.md`
 - Design compliance reporting as a protocol extension
   (see `KERNEL_compliance-protocol-envelope` backlog item)
 - Evaluate `ttd-browser` crate overlap with warp-ttd's browser story

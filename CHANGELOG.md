@@ -7,6 +7,12 @@
 
 ### Added
 
+- `echo-registry-api::verify_contract_artifact(...)` — generic load-time
+  verification for Wesley-generated registries, including schema/codec/layout
+  checks, expected footprint certificate hashes, optional generated artifact
+  hashes, and a policy switch requiring all mutation operations to be backed by
+  an expected certificate before the artifact is treated as
+  compile-time-certified.
 - Cycle 0003 (dt policy) — ratify fixed timestep as default, variable-dt
   as opt-in admitted stream, braidability constraint for settlement.
 - `KERNEL_strand-contract` backlog item — strand as a first-class
@@ -45,6 +51,29 @@
 
 ### Fixed (PR #326 follow-up)
 
+- Added regression coverage that rejects trailing whitespace in the committed
+  `echo-cli --help` golden fixture, and cleaned the existing padded blank line.
+- Split generated contract artifact verification into `MetadataVerified` and
+  `CompileTimeCertified` postures so weak or metadata-only host policies cannot
+  accidentally enable the trusted footprint fast path.
+- Strengthened Wesley footprint certificate artifact hashes so they incorporate
+  a generated Rust artifact manifest hash and operation argument shape instead
+  of only the declared read/write footprint.
+- Changed GraphQL SDL operation id generation to fail closed on derived id
+  collisions instead of silently incrementing persisted ABI ids.
+- Replaced generated query optic variable digests with Echo ABI's
+  domain-separated BLAKE3 `query_vars_digest_v1(...)` helper.
+- Made built-in observation request helpers fail closed on invalid
+  frame/projection pairs instead of silently falling back to `QueryBytes`.
+- Restored the CodeRabbit archive path filter and added a hook regression guard
+  so frozen `docs/archive/**` files stay out of automated review.
+- Split the large `warp-core` optic module test body into `optic/tests.rs` and
+  added a hook guard so production optic code is no longer buried under the
+  test suite.
+- Verified imported witnessed causal suffix bundle digests before admission and
+  reject forged retained-shell identities.
+- Validated exported witnessed suffix boundary witnesses against the source
+  worldline and resolved base/target frontier range.
 - Fixed Wesley-generated helper output so helper-only vars and intent error
   types live in a generated namespace instead of colliding with user contract
   types, while preserving top-level helper function re-exports, and added

@@ -7,8 +7,10 @@ Status: planned kernel hardening.
 
 Depends on:
 
-- [Wesley to Echo toy contract proof](./PLATFORM_wesley-to-echo-toy-contract-proof.md)
-- [Reading envelope family boundary](./PLATFORM_reading-envelope-family-boundary.md)
+- Accepted
+  [0016 - Wesley To Echo Toy Contract Proof](../../../design/0016-wesley-to-echo-toy-contract-proof/design.md)
+- Accepted
+  [0019 - Reading Envelope Family Boundary](../../../design/0019-reading-envelope-family-boundary/reading-envelope-family-boundary.md)
 
 ## Why now
 

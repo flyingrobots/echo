@@ -3,7 +3,7 @@
 
 import { execFileSync } from "node:child_process";
 
-const files = ["AGENTS.md", "docs/assets/dags/tasks-dag-source.md"];
+const files = ["AGENTS.md"];
 
 const args = process.argv.slice(2);
 const baseArgIndex = args.indexOf("--base");

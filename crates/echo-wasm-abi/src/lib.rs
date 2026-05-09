@@ -28,6 +28,33 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
+/// Domain separator for query variable digests used by generated optic helpers.
+pub const QUERY_VARS_DIGEST_V1_DOMAIN: &[u8] = b"echo-wesley-query-vars/v1\0";
+
+/// Hash canonical query variables for `QueryBytes` optic apertures.
+#[must_use]
+pub fn query_vars_digest_v1(vars_bytes: &[u8]) -> Vec<u8> {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(QUERY_VARS_DIGEST_V1_DOMAIN);
+    hasher.update(vars_bytes);
+    hasher.finalize().as_bytes().to_vec()
+}
+
+#[cfg(test)]
+mod query_vars_digest_tests {
+    use super::{QUERY_VARS_DIGEST_V1_DOMAIN, query_vars_digest_v1};
+
+    #[test]
+    fn query_vars_digest_is_domain_separated_blake3() {
+        let vars = b"\xa1evalue\x18*";
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(QUERY_VARS_DIGEST_V1_DOMAIN);
+        hasher.update(vars);
+
+        assert_eq!(query_vars_digest_v1(vars), hasher.finalize().as_bytes());
+    }
+}
+
 pub mod canonical;
 pub use canonical::{CanonError, decode_value, encode_value};
 
@@ -49,6 +76,12 @@ pub mod codec;
 
 /// Reserved EINT op id for privileged control intents.
 pub const CONTROL_INTENT_V1_OP_ID: u32 = u32::MAX;
+
+/// Reserved Echo-owned EINT op id for proposing witnessed suffix import.
+///
+/// Transport arrival is host I/O until the bundle is wrapped in this canonical
+/// intent envelope and admitted through Echo scheduling.
+pub const IMPORT_SUFFIX_INTENT_V1_OP_ID: u32 = u32::MAX - 1;
 
 /// Errors produced by the Intent Envelope parser.
 #[derive(Debug, PartialEq, Eq)]
@@ -177,6 +210,45 @@ pub fn unpack_control_intent_v1(
 ) -> Result<kernel_port::ControlIntentV1, EnvelopeError> {
     let (op_id, vars) = unpack_intent_v1(bytes)?;
     if op_id != CONTROL_INTENT_V1_OP_ID {
+        return Err(EnvelopeError::Malformed);
+    }
+    decode_cbor(vars).map_err(|_| EnvelopeError::Malformed)
+}
+
+/// Packs a witnessed suffix import proposal into an Echo-owned EINT envelope.
+///
+/// The payload is the canonical byte representation of
+/// [`kernel_port::ImportSuffixRequest`]. Decoding this envelope only validates
+/// the proposal shape; admission still happens through Echo's causal scheduler.
+///
+/// # Errors
+///
+/// Returns [`EnvelopeError::Malformed`] if the request cannot be encoded as
+/// canonical CBOR. Returns [`EnvelopeError::PayloadTooLarge`] if the encoded
+/// payload exceeds the EINT v1 `u32` length field.
+pub fn pack_import_suffix_intent_v1(
+    request: &kernel_port::ImportSuffixRequest,
+) -> Result<Vec<u8>, EnvelopeError> {
+    let bytes = encode_cbor(request).map_err(|_| EnvelopeError::Malformed)?;
+    pack_intent_v1(IMPORT_SUFFIX_INTENT_V1_OP_ID, &bytes)
+}
+
+/// Unpacks and validates a witnessed suffix import proposal from EINT v1 bytes.
+///
+/// The envelope must use [`IMPORT_SUFFIX_INTENT_V1_OP_ID`]. Successful decoding
+/// means the payload is a canonical import request, not that the proposed suffix
+/// has been admitted.
+///
+/// # Errors
+///
+/// Returns envelope parse errors from [`unpack_intent_v1`]. Returns
+/// [`EnvelopeError::Malformed`] when the op id is not the import op id or the
+/// payload is not valid canonical CBOR for [`kernel_port::ImportSuffixRequest`].
+pub fn unpack_import_suffix_intent_v1(
+    bytes: &[u8],
+) -> Result<kernel_port::ImportSuffixRequest, EnvelopeError> {
+    let (op_id, vars) = unpack_intent_v1(bytes)?;
+    if op_id != IMPORT_SUFFIX_INTENT_V1_OP_ID {
         return Err(EnvelopeError::Malformed);
     }
     decode_cbor(vars).map_err(|_| EnvelopeError::Malformed)
@@ -484,6 +556,74 @@ mod tests {
         );
     }
 
+    fn sample_provenance_ref(seed: u8, tick: u64) -> kernel_port::ProvenanceRef {
+        kernel_port::ProvenanceRef {
+            worldline_id: kernel_port::WorldlineId::from_bytes([seed; 32]),
+            worldline_tick: kernel_port::WorldlineTick(tick),
+            commit_hash: vec![seed.wrapping_add(1); 32],
+        }
+    }
+
+    fn sample_import_suffix_request() -> kernel_port::ImportSuffixRequest {
+        let base_frontier = sample_provenance_ref(1, 0);
+        let target_frontier = sample_provenance_ref(1, 2);
+        let source_suffix = kernel_port::WitnessedSuffixShell {
+            source_worldline_id: kernel_port::WorldlineId::from_bytes([1; 32]),
+            source_suffix_start_tick: kernel_port::WorldlineTick(1),
+            source_suffix_end_tick: Some(kernel_port::WorldlineTick(2)),
+            source_entries: vec![sample_provenance_ref(1, 1), target_frontier.clone()],
+            boundary_witness: Some(base_frontier.clone()),
+            witness_digest: vec![7; 32],
+            basis_report: None,
+        };
+
+        kernel_port::ImportSuffixRequest {
+            bundle: kernel_port::CausalSuffixBundle {
+                base_frontier,
+                target_frontier,
+                source_suffix,
+                bundle_digest: vec![8; 32],
+            },
+            target_worldline_id: kernel_port::WorldlineId::from_bytes([9; 32]),
+            target_basis: sample_provenance_ref(9, 0),
+            basis_report: None,
+        }
+    }
+
+    #[test]
+    fn test_import_suffix_intent_round_trip() {
+        let request = sample_import_suffix_request();
+        let packed = pack_import_suffix_intent_v1(&request).unwrap();
+
+        let (op_id, vars) = unpack_intent_v1(&packed).unwrap();
+        assert_eq!(op_id, IMPORT_SUFFIX_INTENT_V1_OP_ID);
+        assert!(!vars.is_empty());
+
+        let unpacked = unpack_import_suffix_intent_v1(&packed).unwrap();
+        assert_eq!(unpacked, request);
+    }
+
+    #[test]
+    fn test_import_suffix_intent_rejects_wrong_op_id() {
+        let payload = encode_cbor(&sample_import_suffix_request()).unwrap();
+        let packed = pack_intent_v1(77, &payload).unwrap();
+
+        assert_eq!(
+            unpack_import_suffix_intent_v1(&packed),
+            Err(EnvelopeError::Malformed)
+        );
+    }
+
+    #[test]
+    fn test_import_suffix_intent_rejects_malformed_payload() {
+        let packed = pack_intent_v1(IMPORT_SUFFIX_INTENT_V1_OP_ID, &[0xff]).unwrap();
+
+        assert_eq!(
+            unpack_import_suffix_intent_v1(&packed),
+            Err(EnvelopeError::Malformed)
+        );
+    }
+
     #[test]
     fn test_worldline_id_round_trip_uses_cbor_bytes() {
         use crate::kernel_port::WorldlineId;
@@ -649,6 +789,699 @@ mod tests {
             let decoded: ReadingResidualPosture = decode_cbor(&bytes).unwrap();
             assert_eq!(decoded, posture);
         }
+    }
+
+    #[test]
+    fn test_optic_core_dtos_round_trip() {
+        use crate::kernel_port::{
+            AttachmentDescentPolicy, BraidId, EchoCoordinate, EchoOptic, ObserveOpticRequest,
+            OpticAperture, OpticApertureShape, OpticCapabilityId, OpticFocus, OpticId,
+            OpticReadBudget, ProjectionVersion, ReducerVersion, RetainedReadingKey, WorldlineId,
+        };
+
+        let optic = EchoOptic {
+            optic_id: OpticId::from_bytes([1; 32]),
+            focus: OpticFocus::Braid {
+                braid_id: BraidId::from_bytes([2; 32]),
+            },
+            coordinate: EchoCoordinate::RetainedReading {
+                key: RetainedReadingKey::from_bytes([3; 32]),
+            },
+            projection_version: ProjectionVersion(4),
+            reducer_version: Some(ReducerVersion(5)),
+            intent_family: crate::kernel_port::IntentFamilyId::from_bytes([6; 32]),
+            capability: OpticCapabilityId::from_bytes([7; 32]),
+        };
+
+        let bytes = encode_cbor(&optic).unwrap();
+        let decoded: EchoOptic = decode_cbor(&bytes).unwrap();
+        assert_eq!(decoded, optic);
+
+        let aperture = OpticAperture {
+            shape: OpticApertureShape::QueryBytes {
+                query_id: 42,
+                vars_digest: vec![9; 32],
+            },
+            budget: OpticReadBudget {
+                max_bytes: Some(1024),
+                max_nodes: Some(64),
+                max_ticks: Some(8),
+                max_attachments: Some(0),
+            },
+            attachment_descent: AttachmentDescentPolicy::BoundaryOnly,
+        };
+        let decoded: OpticAperture = decode_cbor(&encode_cbor(&aperture).unwrap()).unwrap();
+        assert_eq!(decoded, aperture);
+
+        let observe = ObserveOpticRequest {
+            optic_id: optic.optic_id,
+            focus: optic.focus.clone(),
+            coordinate: optic.coordinate.clone(),
+            aperture,
+            projection_version: optic.projection_version,
+            reducer_version: optic.reducer_version,
+            capability: optic.capability,
+        };
+        let decoded: ObserveOpticRequest = decode_cbor(&encode_cbor(&observe).unwrap()).unwrap();
+        assert_eq!(decoded, observe);
+
+        let focus = OpticFocus::Worldline {
+            worldline_id: WorldlineId::from_bytes([8; 32]),
+        };
+        let decoded: OpticFocus = decode_cbor(&encode_cbor(&focus).unwrap()).unwrap();
+        assert_eq!(decoded, focus);
+    }
+
+    #[test]
+    fn test_optic_generated_binding_dtos_serialize_deterministically() {
+        use crate::kernel_port::{
+            AdmissionLawId, AttachmentDescentPolicy, BraidId, CoordinateAt,
+            DispatchOpticIntentRequest, EchoCoordinate, IntentFamilyId, ObserveOpticRequest,
+            OpticActorId, OpticAperture, OpticApertureShape, OpticCapability, OpticCapabilityId,
+            OpticCause, OpticFocus, OpticId, OpticIntentPayload, OpticReadBudget,
+            ProjectionVersion, ProvenanceRef, ReducerVersion, RetainedReadingKey, StrandId,
+            WorldlineId, WorldlineTick,
+        };
+
+        let worldline_id = WorldlineId::from_bytes([1; 32]);
+        let strand_id = StrandId::from_bytes([2; 32]);
+        let braid_id = BraidId::from_bytes([3; 32]);
+        let retained_key = RetainedReadingKey::from_bytes([4; 32]);
+        let optic_id = OpticId::from_bytes([5; 32]);
+        let capability_id = OpticCapabilityId::from_bytes([6; 32]);
+        let intent_family = IntentFamilyId::from_bytes([7; 32]);
+        let actor = OpticActorId::from_bytes([8; 32]);
+        let cause = OpticCause {
+            actor,
+            cause_hash: vec![9; 32],
+            label: Some("generated optic helper".into()),
+        };
+        let focus = OpticFocus::Worldline { worldline_id };
+        let coordinate = EchoCoordinate::Worldline {
+            worldline_id,
+            at: CoordinateAt::Provenance {
+                reference: ProvenanceRef {
+                    worldline_id,
+                    worldline_tick: WorldlineTick(11),
+                    commit_hash: vec![12; 32],
+                },
+            },
+        };
+        let aperture = OpticAperture {
+            shape: OpticApertureShape::QueryBytes {
+                query_id: 1002,
+                vars_digest: vec![13; 32],
+            },
+            budget: OpticReadBudget {
+                max_bytes: Some(4096),
+                max_nodes: Some(64),
+                max_ticks: Some(16),
+                max_attachments: Some(0),
+            },
+            attachment_descent: AttachmentDescentPolicy::BoundaryOnly,
+        };
+        let observe = ObserveOpticRequest {
+            optic_id,
+            focus: focus.clone(),
+            coordinate: coordinate.clone(),
+            aperture,
+            projection_version: ProjectionVersion(1),
+            reducer_version: Some(ReducerVersion(2)),
+            capability: capability_id,
+        };
+        let capability = OpticCapability {
+            capability_id,
+            actor,
+            issuer_ref: None,
+            policy_hash: vec![14; 32],
+            allowed_focus: focus.clone(),
+            projection_version: ProjectionVersion(1),
+            reducer_version: Some(ReducerVersion(2)),
+            allowed_intent_family: intent_family,
+            max_budget: OpticReadBudget {
+                max_bytes: Some(4096),
+                max_nodes: Some(64),
+                max_ticks: Some(16),
+                max_attachments: Some(0),
+            },
+        };
+        let dispatch = DispatchOpticIntentRequest {
+            optic_id,
+            base_coordinate: coordinate,
+            intent_family,
+            focus,
+            cause,
+            capability,
+            admission_law: AdmissionLawId::from_bytes([15; 32]),
+            payload: OpticIntentPayload::EintV1 {
+                bytes: pack_intent_v1(1001, b"optic-vars").unwrap(),
+            },
+        };
+
+        let observe_bytes = encode_cbor(&observe).unwrap();
+        assert_eq!(observe_bytes, encode_cbor(&observe).unwrap());
+        let decoded: ObserveOpticRequest = decode_cbor(&observe_bytes).unwrap();
+        assert_eq!(decoded, observe);
+
+        let dispatch_bytes = encode_cbor(&dispatch).unwrap();
+        assert_eq!(dispatch_bytes, encode_cbor(&dispatch).unwrap());
+        let decoded: DispatchOpticIntentRequest = decode_cbor(&dispatch_bytes).unwrap();
+        assert_eq!(decoded, dispatch);
+
+        for dto in [
+            OpticFocus::Strand { strand_id },
+            OpticFocus::Braid { braid_id },
+            OpticFocus::RetainedReading { key: retained_key },
+        ] {
+            assert_eq!(
+                decode_cbor::<OpticFocus>(&encode_cbor(&dto).unwrap()).unwrap(),
+                dto
+            );
+        }
+    }
+
+    #[test]
+    fn test_optic_read_identity_round_trip() {
+        use crate::kernel_port::{
+            AuthoredObserverPlan, BuiltinObserverPlan, EchoCoordinate, MissingWitnessBasisReason,
+            ObservationAt, ObservationBasisPosture, ObservationCoordinate, ObservationFrame,
+            ObservationPayload, ObservationProjection, ObservationReadBudget, ObservationRequest,
+            ObservationRights, ObserveOpticResult, ObserverInstanceId, ObserverInstanceRef,
+            ObserverPlanId, OpticCapabilityId, OpticId, OpticReading, OpticReadingEnvelope,
+            ProjectionVersion, ReadIdentity, ReadingBudgetPosture, ReadingEnvelope,
+            ReadingObserverBasis, ReadingObserverPlan, ReadingResidualPosture,
+            ReadingRightsPosture, ReadingWitnessRef, RetainedReadingCodecId,
+            RetainedReadingDescriptor, RetainedReadingKey, WitnessBasis, WorldlineId,
+            WorldlineTick,
+        };
+        use alloc::boxed::Box;
+
+        let reference = crate::kernel_port::ProvenanceRef {
+            worldline_id: WorldlineId::from_bytes([1; 32]),
+            worldline_tick: WorldlineTick(7),
+            commit_hash: vec![2; 32],
+        };
+        let identity = ReadIdentity {
+            read_identity_hash: vec![3; 32],
+            optic_id: OpticId::from_bytes([4; 32]),
+            focus_digest: vec![5; 32],
+            coordinate: EchoCoordinate::Worldline {
+                worldline_id: WorldlineId::from_bytes([1; 32]),
+                at: crate::kernel_port::CoordinateAt::Frontier,
+            },
+            aperture_digest: vec![6; 32],
+            projection_version: ProjectionVersion(1),
+            reducer_version: None,
+            witness_basis: WitnessBasis::Missing {
+                reason: MissingWitnessBasisReason::EvidenceUnavailable,
+            },
+            rights_posture: ReadingRightsPosture::KernelPublic,
+            budget_posture: ReadingBudgetPosture::UnboundedOneShot,
+            residual_posture: ReadingResidualPosture::Obstructed,
+        };
+        let envelope = OpticReadingEnvelope {
+            reading: ReadingEnvelope {
+                observer_plan: ReadingObserverPlan::Builtin {
+                    plan: BuiltinObserverPlan::CommitBoundaryHead,
+                },
+                observer_instance: None,
+                observer_basis: ReadingObserverBasis::CommitBoundary,
+                witness_refs: vec![ReadingWitnessRef::ResolvedCommit { reference }],
+                parent_basis_posture: ObservationBasisPosture::Worldline,
+                budget_posture: ReadingBudgetPosture::UnboundedOneShot,
+                rights_posture: ReadingRightsPosture::KernelPublic,
+                residual_posture: ReadingResidualPosture::Obstructed,
+            },
+            read_identity: identity,
+        };
+
+        let decoded: OpticReadingEnvelope = decode_cbor(&encode_cbor(&envelope).unwrap()).unwrap();
+        assert_eq!(decoded, envelope);
+
+        let optic_result = ObserveOpticResult::Reading(Box::new(OpticReading {
+            envelope: envelope.reading.clone(),
+            read_identity: envelope.read_identity.clone(),
+            payload: ObservationPayload::QueryBytes { data: vec![12, 13] },
+            retained: Some(RetainedReadingKey::from_bytes([9; 32])),
+        }));
+        let decoded: ObserveOpticResult =
+            decode_cbor(&encode_cbor(&optic_result).unwrap()).unwrap();
+        assert_eq!(decoded, optic_result);
+
+        let retained = RetainedReadingDescriptor {
+            key: RetainedReadingKey::from_bytes([9; 32]),
+            read_identity: envelope.read_identity,
+            content_hash: vec![10; 32],
+            codec_id: RetainedReadingCodecId::from_bytes([11; 32]),
+            byte_len: 1024,
+        };
+        let decoded: RetainedReadingDescriptor =
+            decode_cbor(&encode_cbor(&retained).unwrap()).unwrap();
+        assert_eq!(decoded, retained);
+
+        let authored = AuthoredObserverPlan {
+            plan_id: ObserverPlanId::from_bytes([13; 32]),
+            artifact_hash: vec![14; 32],
+            schema_hash: vec![15; 32],
+            state_schema_hash: vec![16; 32],
+            update_law_hash: vec![17; 32],
+            emission_law_hash: vec![18; 32],
+        };
+        let instance = ObserverInstanceRef {
+            instance_id: ObserverInstanceId::from_bytes([19; 32]),
+            plan_id: authored.plan_id,
+            state_hash: vec![20; 32],
+        };
+        let authored_request = ObservationRequest {
+            coordinate: ObservationCoordinate {
+                worldline_id: WorldlineId::from_bytes([21; 32]),
+                at: ObservationAt::Frontier,
+            },
+            frame: ObservationFrame::QueryView,
+            projection: ObservationProjection::Query {
+                query_id: 9,
+                vars_bytes: vec![1, 2, 3],
+            },
+            observer_plan: ReadingObserverPlan::Authored {
+                plan: Box::new(authored),
+            },
+            observer_instance: Some(instance),
+            budget: ObservationReadBudget::Bounded {
+                max_payload_bytes: 4096,
+                max_witness_refs: 4,
+            },
+            rights: ObservationRights::CapabilityScoped {
+                capability: OpticCapabilityId::from_bytes([22; 32]),
+            },
+        };
+        let decoded: ObservationRequest =
+            decode_cbor(&encode_cbor(&authored_request).unwrap()).unwrap();
+        assert_eq!(decoded, authored_request);
+
+        let builtin_request = ObservationRequest::builtin_one_shot(
+            ObservationCoordinate {
+                worldline_id: WorldlineId::from_bytes([23; 32]),
+                at: ObservationAt::Frontier,
+            },
+            ObservationFrame::CommitBoundary,
+            ObservationProjection::Head,
+        )
+        .unwrap();
+        assert!(matches!(
+            builtin_request.observer_plan,
+            ReadingObserverPlan::Builtin {
+                plan: BuiltinObserverPlan::CommitBoundaryHead
+            }
+        ));
+    }
+
+    #[test]
+    fn test_optic_intent_dispatch_result_variants_round_trip() {
+        use crate::kernel_port::{
+            AdmittedIntent, CoordinateAt, EchoCoordinate, IntentConflict, IntentConflictReason,
+            IntentDispatchResult, IntentFamilyId, MissingWitnessBasisReason, OpticFocus, OpticId,
+            OpticObstruction, OpticObstructionKind, PluralIntent, ReadingResidualPosture,
+            StagedIntent, StagedIntentReason, StrandId, WitnessBasis, WorldlineId, WorldlineTick,
+        };
+
+        fn classify(result: &IntentDispatchResult) -> &'static str {
+            match result {
+                IntentDispatchResult::Admitted(_) => "admitted",
+                IntentDispatchResult::Staged(_) => "staged",
+                IntentDispatchResult::Plural(_) => "plural",
+                IntentDispatchResult::Conflict(_) => "conflict",
+                IntentDispatchResult::Obstructed(_) => "obstructed",
+            }
+        }
+
+        let optic_id = OpticId::from_bytes([1; 32]);
+        let intent_family = IntentFamilyId::from_bytes([2; 32]);
+        let worldline_id = WorldlineId::from_bytes([3; 32]);
+        let base_coordinate = EchoCoordinate::Worldline {
+            worldline_id,
+            at: CoordinateAt::Frontier,
+        };
+        let admitted_ref = crate::kernel_port::ProvenanceRef {
+            worldline_id,
+            worldline_tick: WorldlineTick(4),
+            commit_hash: vec![5; 32],
+        };
+
+        let outcomes = vec![
+            IntentDispatchResult::Admitted(AdmittedIntent {
+                optic_id,
+                base_coordinate: base_coordinate.clone(),
+                intent_family,
+                admitted_ref: admitted_ref.clone(),
+                receipt_hash: vec![6; 32],
+            }),
+            IntentDispatchResult::Staged(StagedIntent {
+                optic_id,
+                base_coordinate: base_coordinate.clone(),
+                intent_family,
+                stage_ref: vec![7; 32],
+                reason: StagedIntentReason::AwaitingWitness,
+            }),
+            IntentDispatchResult::Plural(PluralIntent {
+                optic_id,
+                base_coordinate: base_coordinate.clone(),
+                intent_family,
+                candidate_refs: vec![admitted_ref.clone()],
+                residual_posture: ReadingResidualPosture::PluralityPreserved,
+            }),
+            IntentDispatchResult::Conflict(IntentConflict {
+                optic_id,
+                base_coordinate: base_coordinate.clone(),
+                intent_family,
+                reason: IntentConflictReason::ConflictingFrontier,
+                conflict_ref: Some(admitted_ref),
+                evidence_digest: vec![8; 32],
+                message: "frontier conflict".into(),
+            }),
+            IntentDispatchResult::Obstructed(OpticObstruction {
+                kind: OpticObstructionKind::AttachmentDescentRequired,
+                optic_id: Some(optic_id),
+                focus: Some(OpticFocus::Strand {
+                    strand_id: StrandId::from_bytes([9; 32]),
+                }),
+                coordinate: Some(base_coordinate),
+                witness_basis: Some(WitnessBasis::Missing {
+                    reason: MissingWitnessBasisReason::EvidenceUnavailable,
+                }),
+                message: "explicit attachment descent required".into(),
+            }),
+        ];
+
+        let decoded_labels = outcomes
+            .iter()
+            .map(|outcome| {
+                let decoded: IntentDispatchResult =
+                    decode_cbor(&encode_cbor(outcome).unwrap()).unwrap();
+                assert_eq!(&decoded, outcome);
+                classify(&decoded)
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            decoded_labels,
+            vec!["admitted", "staged", "plural", "conflict", "obstructed"]
+        );
+    }
+
+    #[test]
+    fn test_dispatch_optic_intent_request_round_trip_and_requires_base_coordinate()
+    -> Result<(), String> {
+        use crate::kernel_port::{
+            AdmissionLawId, CoordinateAt, DispatchOpticIntentRequest, EchoCoordinate,
+            IntentFamilyId, OpticActorId, OpticCapability, OpticCapabilityId, OpticCause,
+            OpticFocus, OpticId, OpticIntentPayload, OpticReadBudget, ProjectionVersion,
+            WorldlineId,
+        };
+        use ciborium::value::Value;
+
+        let worldline_id = WorldlineId::from_bytes([3; 32]);
+        let focus = OpticFocus::Worldline { worldline_id };
+        let base_coordinate = EchoCoordinate::Worldline {
+            worldline_id,
+            at: CoordinateAt::Frontier,
+        };
+        let actor = OpticActorId::from_bytes([4; 32]);
+        let intent_family = IntentFamilyId::from_bytes([5; 32]);
+        let payload_bytes = pack_intent_v1(77, b"optic-vars").unwrap();
+        let request = DispatchOpticIntentRequest {
+            optic_id: OpticId::from_bytes([1; 32]),
+            base_coordinate,
+            intent_family,
+            focus: focus.clone(),
+            cause: OpticCause {
+                actor,
+                cause_hash: vec![6; 32],
+                label: Some("optic dispatch".into()),
+            },
+            capability: OpticCapability {
+                capability_id: OpticCapabilityId::from_bytes([7; 32]),
+                actor,
+                issuer_ref: None,
+                policy_hash: vec![8; 32],
+                allowed_focus: focus,
+                projection_version: ProjectionVersion(1),
+                reducer_version: None,
+                allowed_intent_family: intent_family,
+                max_budget: OpticReadBudget {
+                    max_bytes: Some(4096),
+                    max_nodes: Some(64),
+                    max_ticks: Some(8),
+                    max_attachments: Some(0),
+                },
+            },
+            admission_law: AdmissionLawId::from_bytes([9; 32]),
+            payload: OpticIntentPayload::EintV1 {
+                bytes: payload_bytes.clone(),
+            },
+        };
+
+        let decoded: DispatchOpticIntentRequest =
+            decode_cbor(&encode_cbor(&request).unwrap()).unwrap();
+        assert_eq!(decoded, request);
+        assert!(matches!(
+            decoded.payload,
+            OpticIntentPayload::EintV1 { bytes } if bytes == payload_bytes
+        ));
+
+        let mut value = decode_value(&encode_cbor(&request).unwrap()).unwrap();
+        let Value::Map(fields) = &mut value else {
+            return Err(String::from("encoded request should be a map"));
+        };
+        let position = fields
+            .iter()
+            .position(|(key, _)| matches!(key, Value::Text(field) if field == "base_coordinate"))
+            .unwrap();
+        fields.remove(position);
+
+        assert!(decode_cbor::<DispatchOpticIntentRequest>(&encode_value(&value).unwrap()).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_kernel_port_dispatch_optic_intent_routes_eint_v1_as_staged_admission() {
+        use crate::kernel_port::{
+            AdmissionLawId, CoordinateAt, DispatchOpticIntentRequest, DispatchResponse,
+            EchoCoordinate, GlobalTick, IntentDispatchResult, IntentFamilyId, KernelPort,
+            OpticActorId, OpticCapability, OpticCapabilityId, OpticCause, OpticFocus, OpticId,
+            OpticIntentPayload, OpticReadBudget, ProjectionVersion, RunCompletion, RunId,
+            SchedulerMode, SchedulerState, SchedulerStatus, StagedIntentReason, WorkState,
+            WorldlineId,
+        };
+
+        struct RecordingKernel {
+            dispatched: Vec<u8>,
+        }
+
+        impl KernelPort for RecordingKernel {
+            fn dispatch_intent(
+                &mut self,
+                intent_bytes: &[u8],
+            ) -> Result<DispatchResponse, kernel_port::AbiError> {
+                self.dispatched = intent_bytes.to_vec();
+                Ok(DispatchResponse {
+                    accepted: true,
+                    intent_id: vec![10; 32],
+                    scheduler_status: SchedulerStatus {
+                        state: SchedulerState::Inactive,
+                        active_mode: Some(SchedulerMode::UntilIdle {
+                            cycle_limit: Some(1),
+                        }),
+                        work_state: WorkState::Quiescent,
+                        run_id: Some(RunId(1)),
+                        latest_cycle_global_tick: Some(GlobalTick(1)),
+                        latest_commit_global_tick: Some(GlobalTick(1)),
+                        last_quiescent_global_tick: Some(GlobalTick(1)),
+                        last_run_completion: Some(RunCompletion::Quiesced),
+                    },
+                })
+            }
+
+            fn registry_info(&self) -> kernel_port::RegistryInfo {
+                kernel_port::RegistryInfo {
+                    codec_id: None,
+                    registry_version: None,
+                    schema_sha256_hex: None,
+                    abi_version: kernel_port::ABI_VERSION,
+                }
+            }
+
+            fn scheduler_status(&self) -> Result<SchedulerStatus, kernel_port::AbiError> {
+                Ok(SchedulerStatus {
+                    state: SchedulerState::Inactive,
+                    active_mode: None,
+                    work_state: WorkState::Quiescent,
+                    run_id: None,
+                    latest_cycle_global_tick: None,
+                    latest_commit_global_tick: None,
+                    last_quiescent_global_tick: None,
+                    last_run_completion: None,
+                })
+            }
+        }
+
+        let worldline_id = WorldlineId::from_bytes([3; 32]);
+        let focus = OpticFocus::Worldline { worldline_id };
+        let base_coordinate = EchoCoordinate::Worldline {
+            worldline_id,
+            at: CoordinateAt::Frontier,
+        };
+        let actor = OpticActorId::from_bytes([4; 32]);
+        let intent_family = IntentFamilyId::from_bytes([5; 32]);
+        let payload_bytes = pack_intent_v1(77, b"optic-vars").unwrap();
+        let request = DispatchOpticIntentRequest {
+            optic_id: OpticId::from_bytes([1; 32]),
+            base_coordinate: base_coordinate.clone(),
+            intent_family,
+            focus: focus.clone(),
+            cause: OpticCause {
+                actor,
+                cause_hash: vec![6; 32],
+                label: Some("optic dispatch".into()),
+            },
+            capability: OpticCapability {
+                capability_id: OpticCapabilityId::from_bytes([7; 32]),
+                actor,
+                issuer_ref: None,
+                policy_hash: vec![8; 32],
+                allowed_focus: focus,
+                projection_version: ProjectionVersion(1),
+                reducer_version: None,
+                allowed_intent_family: intent_family,
+                max_budget: OpticReadBudget {
+                    max_bytes: Some(4096),
+                    max_nodes: Some(64),
+                    max_ticks: Some(8),
+                    max_attachments: Some(0),
+                },
+            },
+            admission_law: AdmissionLawId::from_bytes([9; 32]),
+            payload: OpticIntentPayload::EintV1 {
+                bytes: payload_bytes.clone(),
+            },
+        };
+        let mut kernel = RecordingKernel {
+            dispatched: Vec::new(),
+        };
+
+        let result = kernel.dispatch_optic_intent(request).unwrap();
+
+        assert_eq!(kernel.dispatched, payload_bytes);
+        assert!(matches!(
+            result,
+            IntentDispatchResult::Staged(staged)
+                if staged.base_coordinate == base_coordinate
+                    && staged.intent_family == intent_family
+                    && staged.stage_ref == vec![10; 32]
+                    && staged.reason == StagedIntentReason::AwaitingExplicitAdmission
+        ));
+    }
+
+    #[test]
+    fn test_optic_open_close_models_round_trip() {
+        use crate::kernel_port::{
+            CapabilityPosture, CloseOpticRequest, CloseOpticResult, CoordinateAt, EchoCoordinate,
+            EchoOptic, IntentFamilyId, OpenOpticRequest, OpenOpticResult, OpticActorId,
+            OpticCapability, OpticCapabilityId, OpticCause, OpticFocus, OpticId, OpticObstruction,
+            OpticObstructionKind, OpticOpenError, OpticReadBudget, ProjectionVersion, WorldlineId,
+            WorldlineTick,
+        };
+
+        let worldline_id = WorldlineId::from_bytes([1; 32]);
+        let focus = OpticFocus::Worldline { worldline_id };
+        let coordinate = EchoCoordinate::Worldline {
+            worldline_id,
+            at: CoordinateAt::Frontier,
+        };
+        let actor = OpticActorId::from_bytes([2; 32]);
+        let capability_id = OpticCapabilityId::from_bytes([3; 32]);
+        let intent_family = IntentFamilyId::from_bytes([4; 32]);
+        let issuer_ref = crate::kernel_port::ProvenanceRef {
+            worldline_id,
+            worldline_tick: WorldlineTick(5),
+            commit_hash: vec![6; 32],
+        };
+        let cause = OpticCause {
+            actor,
+            cause_hash: vec![7; 32],
+            label: Some("test open".into()),
+        };
+        let capability = OpticCapability {
+            capability_id,
+            actor,
+            issuer_ref: Some(issuer_ref.clone()),
+            policy_hash: vec![8; 32],
+            allowed_focus: focus.clone(),
+            projection_version: ProjectionVersion(1),
+            reducer_version: None,
+            allowed_intent_family: intent_family,
+            max_budget: OpticReadBudget {
+                max_bytes: Some(4096),
+                max_nodes: Some(64),
+                max_ticks: Some(8),
+                max_attachments: Some(0),
+            },
+        };
+        let request = OpenOpticRequest {
+            focus: focus.clone(),
+            coordinate: coordinate.clone(),
+            projection_version: ProjectionVersion(1),
+            reducer_version: None,
+            intent_family,
+            capability,
+            cause: cause.clone(),
+        };
+        let decoded: OpenOpticRequest = decode_cbor(&encode_cbor(&request).unwrap()).unwrap();
+        assert_eq!(decoded, request);
+
+        let result = OpenOpticResult {
+            optic: EchoOptic {
+                optic_id: OpticId::from_bytes([9; 32]),
+                focus,
+                coordinate: coordinate.clone(),
+                projection_version: ProjectionVersion(1),
+                reducer_version: None,
+                intent_family,
+                capability: capability_id,
+            },
+            capability_posture: CapabilityPosture::Granted {
+                capability_id,
+                actor,
+                issuer_ref: Some(issuer_ref),
+                policy_hash: vec![8; 32],
+            },
+        };
+        let decoded: OpenOpticResult = decode_cbor(&encode_cbor(&result).unwrap()).unwrap();
+        assert_eq!(decoded, result);
+
+        let error = OpticOpenError::Obstructed(OpticObstruction {
+            kind: OpticObstructionKind::CapabilityDenied,
+            optic_id: None,
+            focus: None,
+            coordinate: Some(coordinate),
+            witness_basis: None,
+            message: "capability denied".into(),
+        });
+        let decoded: OpticOpenError = decode_cbor(&encode_cbor(&error).unwrap()).unwrap();
+        assert_eq!(decoded, error);
+
+        let close_request = CloseOpticRequest {
+            optic_id: OpticId::from_bytes([9; 32]),
+            cause,
+        };
+        let decoded: CloseOpticRequest =
+            decode_cbor(&encode_cbor(&close_request).unwrap()).unwrap();
+        assert_eq!(decoded, close_request);
+
+        let close_result = CloseOpticResult {
+            optic_id: OpticId::from_bytes([9; 32]),
+        };
+        let decoded: CloseOpticResult = decode_cbor(&encode_cbor(&close_result).unwrap()).unwrap();
+        assert_eq!(decoded, close_result);
     }
 
     #[test]

@@ -7,7 +7,7 @@ _Define the current deterministic browser boundary for intent ingress, scheduler
 
 Legend: PLATFORM
 
-Current ABI version: 8
+Current ABI version: 9
 
 Depends on:
 
@@ -19,7 +19,10 @@ Depends on:
 
 The WASM boundary is where browser and host code meet the Echo runtime. It must be small, deterministic, and explicit about what kind of operation is crossing: intent admission, scheduler inspection, or observation.
 
-ABI version 8 keeps the current export shape and carries richer reading-envelope metadata for observation artifacts.
+ABI version 9 keeps the current export shape and makes observation requests
+name their observer plan, optional hosted observer instance, read budget, and
+rights posture explicitly. Observation artifacts continue to carry
+reading-envelope metadata for emitted readings.
 
 ## Human users / jobs / hills
 
@@ -47,7 +50,14 @@ Removed exports stay removed: `step`, `snapshot_at`, `render_snapshot`, `execute
 
 `observe(request)` returns an observation artifact with resolved coordinate, reading envelope, declared frame, declared projection, artifact hash, and payload.
 
-The reading envelope names the observer plan, native observer basis, witness refs, parent/basis posture, budget posture, rights posture, and residual posture. Built-in observations currently emit `complete` residual posture for clean derived readings. The ABI also names `residual`, `plurality_preserved`, and `obstructed` so external consumers can recognize bounded non-clean readings without treating the payload as a generic state read.
+The observation request names the observer plan, optional hosted observer
+instance, read budget, and rights posture. The reading envelope names the
+observer plan, hosted observer instance when present, native observer basis,
+witness refs, parent/basis posture, budget posture, rights posture, and
+residual posture. Built-in observations currently emit `complete` residual
+posture for clean derived readings. The ABI also names `residual`,
+`plurality_preserved`, and `obstructed` so external consumers can recognize
+bounded non-clean readings without treating the payload as a generic state read.
 
 ## Decision 4: The ABI uses logical clocks only
 

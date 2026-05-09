@@ -18,6 +18,8 @@ The binary is named `echo-cli`.
 ### `echo-cli verify <snapshot.wsc>`
 
 Validate WSC snapshot integrity. Loads the file, validates structure, reconstructs the graph, and computes state root hashes.
+Text output stays plain when stdout is not a TTY and decorates pass/fail statuses
+with color when stdout is a terminal.
 
 ```sh
 # Verify a snapshot
@@ -30,7 +32,7 @@ echo-cli verify state.wsc --expected abcd1234...
 echo-cli --format json verify state.wsc
 ```
 
-### `echo-cli bench [--filter <pattern>]`
+### `echo-cli bench [--filter <pattern>] [--baseline <name>]`
 
 Run Criterion benchmarks, parse JSON results, and format as an ASCII table.
 
@@ -41,13 +43,18 @@ echo-cli bench
 # Filter by name
 echo-cli bench --filter hotpath
 
+# Compare current medians against perf-baseline.json
+echo-cli bench --baseline main
+
 # JSON output for CI
 echo-cli --format json bench
 ```
 
-### `echo-cli inspect <snapshot.wsc> [--tree]`
+### `echo-cli inspect <snapshot.wsc> [--tree] [--raw]`
 
-Display WSC snapshot metadata and graph statistics.
+Display WSC snapshot metadata, graph statistics, and attachment payloads. Known
+motion payloads are decoded by default; unknown or invalid payloads fall back to
+hex.
 
 ```sh
 # Show metadata and stats
@@ -55,6 +62,9 @@ echo-cli inspect state.wsc
 
 # Include ASCII tree of graph structure
 echo-cli inspect state.wsc --tree
+
+# Force all attachment payloads to hex
+echo-cli inspect state.wsc --raw
 
 # JSON output
 echo-cli --format json inspect state.wsc
@@ -74,6 +84,10 @@ Generate man pages via xtask:
 cargo xtask man-pages
 # Output: docs/man/echo-cli.1, echo-cli-verify.1, etc.
 ```
+
+CLI help goldens are committed as plain text fixtures and must not contain
+trailing whitespace. The integration suite enforces this so snapshot updates do
+not smuggle editor or generator padding into review diffs.
 
 ## Documentation
 

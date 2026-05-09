@@ -17,8 +17,8 @@ Current integration seams:
 - `crates/ttd-protocol-rs` and `packages/ttd-protocol-ts` are generated
   protocol consumers.
 - `crates/echo-ttd` owns Echo-side compliance and violation reporting.
-- `crates/ttd-browser`, `apps/ttd-app`, and `crates/echo-wasm-bindings/src/ttd.rs`
-  are local browser/debugger adapter surfaces.
+- `crates/ttd-browser` and `crates/echo-wasm-bindings/src/ttd.rs` are local
+  browser/debugger adapter surfaces.
 - `warp-ttd` owns debugger protocol semantics; Echo owns generated consumer
   wiring and substrate-side compatibility.
 

@@ -4,16 +4,14 @@
   "type": "module",
   "packageManager": "pnpm@10.23.0",
   "engines": {
-    "node": ">=18 <25"
+    "node": ">=18 <26"
   },
   "scripts": {
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
-    "test:e2e": "playwright test",
     "schema:runtime:check": "node scripts/validate-runtime-schema-fragments.mjs"
   },
   "devDependencies": {
-    "@playwright/test": "^1.48.0",
     "asciichart": "^1.5.25",
     "graphql": "16.11.0",
     "markdownlint-cli2": "0.22.0",

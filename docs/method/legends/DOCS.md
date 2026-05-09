@@ -57,7 +57,6 @@ actually shipped.
 
 ## Current cycle and backlog
 
-- latest completed cycle: (none under METHOD yet)
-- live backlog:
-    - `asap/DOCS_docs-cleanup.md`
-    - `asap/DOCS_cli-man-pages.md`
+- Use `cargo xtask method status` for the current live backlog.
+- Completed backlog cards are removed from `docs/method/backlog/**`; git
+  history and retros are the archive.

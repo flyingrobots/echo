@@ -10,26 +10,45 @@
 use std::fmt;
 
 use echo_wasm_abi::kernel_port::{
-    error_codes, AbiError, ControlIntentV1, DispatchResponse, GlobalTick as AbiGlobalTick,
+    error_codes, AbiError, AttachmentDescentPolicy as AbiAttachmentDescentPolicy,
+    AttachmentKey as AbiAttachmentKey, AttachmentOwnerRef as AbiAttachmentOwnerRef,
+    AttachmentPlane as AbiAttachmentPlane, AuthoredObserverPlan as AbiAuthoredObserverPlan,
+    BraidId as AbiBraidId, ControlIntentV1, CoordinateAt as AbiCoordinateAt, DispatchResponse,
+    EchoCoordinate as AbiEchoCoordinate, GlobalTick as AbiGlobalTick,
     HeadEligibility as AbiHeadEligibility, HeadId as AbiHeadId, HeadInfo, KernelPort,
     NeighborhoodSite as AbiNeighborhoodSite, ObservationArtifact as AbiObservationArtifact,
     ObservationFrame as AbiObservationFrame, ObservationProjection as AbiObservationProjection,
-    ObservationRequest as AbiObservationRequest, RegistryInfo, RunCompletion, RunId as AbiRunId,
+    ObservationReadBudget as AbiObservationReadBudget, ObservationRequest as AbiObservationRequest,
+    ObservationRights as AbiObservationRights, ObserveOpticRequest as AbiObserveOpticRequest,
+    ObserveOpticResult as AbiObserveOpticResult, ObserverInstanceRef as AbiObserverInstanceRef,
+    OpticAperture as AbiOpticAperture, OpticApertureShape as AbiOpticApertureShape,
+    OpticFocus as AbiOpticFocus, ProjectionVersion as AbiProjectionVersion,
+    ReadingObserverPlan as AbiReadingObserverPlan, ReducerVersion as AbiReducerVersion,
+    RegistryInfo, RetainedReadingKey as AbiRetainedReadingKey, RunCompletion, RunId as AbiRunId,
     SchedulerMode, SchedulerState, SchedulerStatus, SettlementDelta as AbiSettlementDelta,
     SettlementPlan as AbiSettlementPlan, SettlementRequest as AbiSettlementRequest,
     SettlementResult as AbiSettlementResult, WorkState, WorldlineId as AbiWorldlineId,
     WorldlineTick as AbiWorldlineTick, WriterHeadKey as AbiWriterHeadKey, ABI_VERSION,
 };
-use echo_wasm_abi::{unpack_control_intent_v1, unpack_intent_v1, CONTROL_INTENT_V1_OP_ID};
+use echo_wasm_abi::{
+    unpack_control_intent_v1, unpack_import_suffix_intent_v1, unpack_intent_v1,
+    CONTROL_INTENT_V1_OP_ID, IMPORT_SUFFIX_INTENT_V1_OP_ID,
+};
 use warp_core::{
-    make_head_id, make_intent_kind, make_node_id, make_type_id, Engine, EngineBuilder, GlobalTick,
-    GraphStore, HeadEligibility, HeadId, HistoryError, IngressDisposition, IngressEnvelope,
-    IngressTarget, NeighborhoodError, NeighborhoodSiteService, NodeRecord, ObservationAt,
+    make_head_id, make_intent_kind, make_node_id, make_type_id, AttachmentDescentPolicy,
+    AttachmentKey, AttachmentOwner, AttachmentPlane, AuthoredObserverPlan, BraidId, CoordinateAt,
+    EchoCoordinate, EdgeKey, Engine, EngineBuilder, EngineError, GlobalTick, GraphStore,
+    HeadEligibility, HeadId, HistoryError, IngressDisposition, IngressEnvelope, IngressTarget,
+    NeighborhoodError, NeighborhoodSiteService, NodeKey, NodeRecord, ObservationAt,
     ObservationCoordinate, ObservationError, ObservationFrame, ObservationPayload,
-    ObservationProjection, ObservationRequest, ObservationService, PlaybackMode, ProvenanceService,
-    RunId, RuntimeError, SchedulerCoordinator, SchedulerKind, SettlementError, SettlementService,
-    StrandId, WorldlineId, WorldlineRuntime, WorldlineState, WorldlineStateError, WorldlineTick,
-    WriterHead, WriterHeadKey,
+    ObservationProjection, ObservationReadBudget, ObservationRequest, ObservationRights,
+    ObservationService, ObserveOpticRequest, ObserverInstanceId, ObserverInstanceRef,
+    ObserverPlanId, OpticAperture, OpticApertureShape, OpticCapabilityId, OpticFocus,
+    OpticReadBudget, PlaybackMode, ProjectionVersion, ProvenanceRef, ProvenanceService,
+    ReadingObserverPlan, ReducerVersion, RetainedReadingKey, RunId, RuntimeError,
+    SchedulerCoordinator, SchedulerKind, SettlementError, SettlementService, StrandId, TypeId,
+    WorldlineId, WorldlineRuntime, WorldlineState, WorldlineStateError, WorldlineTick, WriterHead,
+    WriterHeadKey,
 };
 
 /// Error returned when a [`WarpKernel`] cannot be initialized from a caller-supplied engine.
@@ -43,6 +62,8 @@ pub enum KernelInitError {
     Provenance(HistoryError),
     /// Runtime registration failed while installing the default worldline/head.
     Runtime(RuntimeError),
+    /// Kernel-owned command rule registration failed.
+    Engine(EngineError),
 }
 
 impl fmt::Display for KernelInitError {
@@ -52,6 +73,7 @@ impl fmt::Display for KernelInitError {
             Self::WorldlineState(err) => err.fmt(f),
             Self::Provenance(err) => err.fmt(f),
             Self::Runtime(err) => err.fmt(f),
+            Self::Engine(err) => err.fmt(f),
         }
     }
 }
@@ -76,6 +98,12 @@ impl From<HistoryError> for KernelInitError {
     }
 }
 
+impl From<EngineError> for KernelInitError {
+    fn from(value: EngineError) -> Self {
+        Self::Engine(value)
+    }
+}
+
 /// App-agnostic kernel wrapping a `warp-core::Engine`.
 ///
 /// Constructed via [`WarpKernel::new`] (default empty engine) or
@@ -94,8 +122,8 @@ pub struct WarpKernel {
 impl WarpKernel {
     /// Create a new kernel with a minimal empty engine.
     ///
-    /// The engine has a single root node and no rewrite rules.
-    /// Useful for testing the boundary or as a starting point.
+    /// The engine starts with a single root node; [`Self::with_engine`]
+    /// installs the generic Echo command rules used by the boundary.
     pub fn new() -> Result<Self, KernelInitError> {
         let mut store = GraphStore::default();
         let root = make_node_id("root");
@@ -128,10 +156,14 @@ impl WarpKernel {
     /// The engine must be fresh: `WarpKernel` can mirror graph state into the
     /// default worldline runtime, but it cannot reconstruct prior tick history
     /// or materialization state from an already-advanced engine.
-    pub fn with_engine(engine: Engine, registry: RegistryInfo) -> Result<Self, KernelInitError> {
+    pub fn with_engine(
+        mut engine: Engine,
+        registry: RegistryInfo,
+    ) -> Result<Self, KernelInitError> {
         if !engine.is_fresh_runtime_state() {
             return Err(KernelInitError::NonFreshEngine);
         }
+        engine.register_rule(warp_core::import_suffix_intent_rule())?;
         let root = engine.root_key();
         let default_worldline = WorldlineId::from_bytes(root.warp_id.0);
         let mut runtime = WorldlineRuntime::new();
@@ -223,6 +255,29 @@ impl WarpKernel {
                 code: error_codes::UNSUPPORTED_QUERY,
                 message: "query observation is not supported by this kernel".into(),
             },
+            ObservationError::UnsupportedObserverPlan(plan) => AbiError {
+                code: error_codes::UNSUPPORTED_OBSERVER_PLAN,
+                message: format!("unsupported observer plan: {plan:?}"),
+            },
+            ObservationError::UnsupportedObserverInstance(instance) => AbiError {
+                code: error_codes::UNSUPPORTED_OBSERVER_INSTANCE,
+                message: format!("unsupported observer instance: {instance:?}"),
+            },
+            ObservationError::UnsupportedRights(rights) => AbiError {
+                code: error_codes::UNSUPPORTED_OBSERVATION_RIGHTS,
+                message: format!("unsupported observation rights posture: {rights:?}"),
+            },
+            ObservationError::BudgetExceeded {
+                max_payload_bytes,
+                payload_bytes,
+                max_witness_refs,
+                witness_refs,
+            } => AbiError {
+                code: error_codes::OBSERVATION_BUDGET_EXCEEDED,
+                message: format!(
+                    "observation budget exceeded: payload {payload_bytes}/{max_payload_bytes} bytes, witness refs {witness_refs}/{max_witness_refs}"
+                ),
+            },
             ObservationError::ObservationUnavailable { worldline_id, at } => AbiError {
                 code: error_codes::OBSERVATION_UNAVAILABLE,
                 message: format!(
@@ -291,10 +346,282 @@ impl WarpKernel {
                 vars_bytes,
             },
         };
+        let observer_plan = Self::to_core_observer_plan(request.observer_plan)?;
+        let observer_instance = request
+            .observer_instance
+            .map(Self::to_core_observer_instance)
+            .transpose()?;
+        let budget = Self::to_core_observation_budget(request.budget);
+        let rights = Self::to_core_observation_rights(request.rights);
         Ok(ObservationRequest {
             coordinate: ObservationCoordinate { worldline_id, at },
             frame,
             projection,
+            observer_plan,
+            observer_instance,
+            budget,
+            rights,
+        })
+    }
+
+    fn to_core_observe_optic_request(
+        request: AbiObserveOpticRequest,
+    ) -> Result<ObserveOpticRequest, AbiError> {
+        Ok(ObserveOpticRequest {
+            optic_id: warp_core::OpticId::from_bytes(*request.optic_id.as_bytes()),
+            focus: Self::to_core_optic_focus(request.focus)?,
+            coordinate: Self::to_core_echo_coordinate(request.coordinate)?,
+            aperture: Self::to_core_optic_aperture(request.aperture)?,
+            projection_version: Self::to_core_projection_version(request.projection_version),
+            reducer_version: request.reducer_version.map(Self::to_core_reducer_version),
+            capability: OpticCapabilityId::from_bytes(*request.capability.as_bytes()),
+        })
+    }
+
+    fn to_core_optic_focus(focus: AbiOpticFocus) -> Result<OpticFocus, AbiError> {
+        Ok(match focus {
+            AbiOpticFocus::Worldline { worldline_id } => OpticFocus::Worldline {
+                worldline_id: Self::to_core_worldline_id(&worldline_id),
+            },
+            AbiOpticFocus::Strand { strand_id } => OpticFocus::Strand {
+                strand_id: Self::to_core_strand_id(&strand_id),
+            },
+            AbiOpticFocus::Braid { braid_id } => OpticFocus::Braid {
+                braid_id: Self::to_core_braid_id(&braid_id),
+            },
+            AbiOpticFocus::RetainedReading { key } => OpticFocus::RetainedReading {
+                key: Self::to_core_retained_reading_key(&key),
+            },
+            AbiOpticFocus::AttachmentBoundary { key } => OpticFocus::AttachmentBoundary {
+                key: Self::to_core_attachment_key(key)?,
+            },
+        })
+    }
+
+    fn to_core_echo_coordinate(coordinate: AbiEchoCoordinate) -> Result<EchoCoordinate, AbiError> {
+        Ok(match coordinate {
+            AbiEchoCoordinate::Worldline { worldline_id, at } => EchoCoordinate::Worldline {
+                worldline_id: Self::to_core_worldline_id(&worldline_id),
+                at: Self::to_core_coordinate_at(at)?,
+            },
+            AbiEchoCoordinate::Strand {
+                strand_id,
+                at,
+                parent_basis,
+            } => EchoCoordinate::Strand {
+                strand_id: Self::to_core_strand_id(&strand_id),
+                at: Self::to_core_coordinate_at(at)?,
+                parent_basis: parent_basis.map(Self::to_core_provenance_ref).transpose()?,
+            },
+            AbiEchoCoordinate::Braid {
+                braid_id,
+                projection_digest,
+                member_count,
+            } => EchoCoordinate::Braid {
+                braid_id: Self::to_core_braid_id(&braid_id),
+                projection_digest: Self::hash_from_vec(
+                    "braid projection digest",
+                    projection_digest,
+                )?,
+                member_count,
+            },
+            AbiEchoCoordinate::RetainedReading { key } => EchoCoordinate::RetainedReading {
+                key: Self::to_core_retained_reading_key(&key),
+            },
+        })
+    }
+
+    fn to_core_coordinate_at(at: AbiCoordinateAt) -> Result<CoordinateAt, AbiError> {
+        Ok(match at {
+            AbiCoordinateAt::Frontier => CoordinateAt::Frontier,
+            AbiCoordinateAt::Tick { worldline_tick } => {
+                CoordinateAt::Tick(WorldlineTick::from_raw(worldline_tick.0))
+            }
+            AbiCoordinateAt::Provenance { reference } => {
+                CoordinateAt::Provenance(Self::to_core_provenance_ref(reference)?)
+            }
+        })
+    }
+
+    fn to_core_provenance_ref(
+        reference: echo_wasm_abi::kernel_port::ProvenanceRef,
+    ) -> Result<ProvenanceRef, AbiError> {
+        Ok(ProvenanceRef {
+            worldline_id: Self::to_core_worldline_id(&reference.worldline_id),
+            worldline_tick: WorldlineTick::from_raw(reference.worldline_tick.0),
+            commit_hash: Self::hash_from_vec("provenance commit hash", reference.commit_hash)?,
+        })
+    }
+
+    fn to_core_optic_aperture(aperture: AbiOpticAperture) -> Result<OpticAperture, AbiError> {
+        Ok(OpticAperture {
+            shape: Self::to_core_optic_aperture_shape(aperture.shape)?,
+            budget: OpticReadBudget {
+                max_bytes: aperture.budget.max_bytes,
+                max_nodes: aperture.budget.max_nodes,
+                max_ticks: aperture.budget.max_ticks,
+                max_attachments: aperture.budget.max_attachments,
+            },
+            attachment_descent: match aperture.attachment_descent {
+                AbiAttachmentDescentPolicy::BoundaryOnly => AttachmentDescentPolicy::BoundaryOnly,
+                AbiAttachmentDescentPolicy::Explicit => AttachmentDescentPolicy::Explicit,
+            },
+        })
+    }
+
+    fn to_core_optic_aperture_shape(
+        shape: AbiOpticApertureShape,
+    ) -> Result<OpticApertureShape, AbiError> {
+        Ok(match shape {
+            AbiOpticApertureShape::Head => OpticApertureShape::Head,
+            AbiOpticApertureShape::SnapshotMetadata => OpticApertureShape::SnapshotMetadata,
+            AbiOpticApertureShape::TruthChannels { channels } => {
+                OpticApertureShape::TruthChannels {
+                    channels: channels.map(|ids| {
+                        ids.into_iter()
+                            .map(|id| TypeId(*id.as_bytes()))
+                            .collect::<Vec<_>>()
+                    }),
+                }
+            }
+            AbiOpticApertureShape::QueryBytes {
+                query_id,
+                vars_digest,
+            } => OpticApertureShape::QueryBytes {
+                query_id,
+                vars_digest: Self::hash_from_vec("optic query vars digest", vars_digest)?,
+            },
+            AbiOpticApertureShape::ByteRange { start, len } => {
+                OpticApertureShape::ByteRange { start, len }
+            }
+            AbiOpticApertureShape::AttachmentBoundary => OpticApertureShape::AttachmentBoundary,
+        })
+    }
+
+    fn to_core_projection_version(version: AbiProjectionVersion) -> ProjectionVersion {
+        ProjectionVersion::from_raw(version.0)
+    }
+
+    fn to_core_reducer_version(version: AbiReducerVersion) -> ReducerVersion {
+        ReducerVersion::from_raw(version.0)
+    }
+
+    fn to_core_braid_id(id: &AbiBraidId) -> BraidId {
+        BraidId::from_bytes(*id.as_bytes())
+    }
+
+    fn to_core_retained_reading_key(id: &AbiRetainedReadingKey) -> RetainedReadingKey {
+        RetainedReadingKey::from_bytes(*id.as_bytes())
+    }
+
+    fn to_core_attachment_key(key: AbiAttachmentKey) -> Result<AttachmentKey, AbiError> {
+        let owner = match key.owner {
+            AbiAttachmentOwnerRef::Node { warp_id, node_id } => AttachmentOwner::Node(NodeKey {
+                warp_id: warp_core::WarpId(*warp_id.as_bytes()),
+                local_id: warp_core::NodeId(*node_id.as_bytes()),
+            }),
+            AbiAttachmentOwnerRef::Edge { warp_id, edge_id } => AttachmentOwner::Edge(EdgeKey {
+                warp_id: warp_core::WarpId(*warp_id.as_bytes()),
+                local_id: warp_core::EdgeId(*edge_id.as_bytes()),
+            }),
+        };
+        let plane = match key.plane {
+            AbiAttachmentPlane::Alpha => AttachmentPlane::Alpha,
+            AbiAttachmentPlane::Beta => AttachmentPlane::Beta,
+        };
+        let key = AttachmentKey { owner, plane };
+        if !key.is_plane_valid() {
+            return Err(AbiError {
+                code: error_codes::INVALID_PAYLOAD,
+                message: "attachment key plane does not match owner kind".into(),
+            });
+        }
+        Ok(key)
+    }
+
+    fn to_core_observer_plan(
+        plan: AbiReadingObserverPlan,
+    ) -> Result<ReadingObserverPlan, AbiError> {
+        match plan {
+            AbiReadingObserverPlan::Builtin { plan } => Ok(ReadingObserverPlan::Builtin {
+                plan: match plan {
+                    echo_wasm_abi::kernel_port::BuiltinObserverPlan::CommitBoundaryHead => {
+                        warp_core::BuiltinObserverPlan::CommitBoundaryHead
+                    }
+                    echo_wasm_abi::kernel_port::BuiltinObserverPlan::CommitBoundarySnapshot => {
+                        warp_core::BuiltinObserverPlan::CommitBoundarySnapshot
+                    }
+                    echo_wasm_abi::kernel_port::BuiltinObserverPlan::RecordedTruthChannels => {
+                        warp_core::BuiltinObserverPlan::RecordedTruthChannels
+                    }
+                    echo_wasm_abi::kernel_port::BuiltinObserverPlan::QueryBytes => {
+                        warp_core::BuiltinObserverPlan::QueryBytes
+                    }
+                },
+            }),
+            AbiReadingObserverPlan::Authored { plan } => Ok(ReadingObserverPlan::Authored {
+                plan: Box::new(Self::to_core_authored_observer_plan(*plan)?),
+            }),
+        }
+    }
+
+    fn to_core_authored_observer_plan(
+        plan: AbiAuthoredObserverPlan,
+    ) -> Result<AuthoredObserverPlan, AbiError> {
+        Ok(AuthoredObserverPlan {
+            plan_id: ObserverPlanId::from_bytes(*plan.plan_id.as_bytes()),
+            artifact_hash: Self::hash_from_vec("observer artifact hash", plan.artifact_hash)?,
+            schema_hash: Self::hash_from_vec("observer schema hash", plan.schema_hash)?,
+            state_schema_hash: Self::hash_from_vec(
+                "observer state schema hash",
+                plan.state_schema_hash,
+            )?,
+            update_law_hash: Self::hash_from_vec("observer update law hash", plan.update_law_hash)?,
+            emission_law_hash: Self::hash_from_vec(
+                "observer emission law hash",
+                plan.emission_law_hash,
+            )?,
+        })
+    }
+
+    fn to_core_observer_instance(
+        instance: AbiObserverInstanceRef,
+    ) -> Result<ObserverInstanceRef, AbiError> {
+        Ok(ObserverInstanceRef {
+            instance_id: ObserverInstanceId::from_bytes(*instance.instance_id.as_bytes()),
+            plan_id: ObserverPlanId::from_bytes(*instance.plan_id.as_bytes()),
+            state_hash: Self::hash_from_vec("observer state hash", instance.state_hash)?,
+        })
+    }
+
+    fn to_core_observation_budget(budget: AbiObservationReadBudget) -> ObservationReadBudget {
+        match budget {
+            AbiObservationReadBudget::UnboundedOneShot => ObservationReadBudget::UnboundedOneShot,
+            AbiObservationReadBudget::Bounded {
+                max_payload_bytes,
+                max_witness_refs,
+            } => ObservationReadBudget::Bounded {
+                max_payload_bytes,
+                max_witness_refs,
+            },
+        }
+    }
+
+    fn to_core_observation_rights(rights: AbiObservationRights) -> ObservationRights {
+        match rights {
+            AbiObservationRights::KernelPublic => ObservationRights::KernelPublic,
+            AbiObservationRights::CapabilityScoped { capability } => {
+                ObservationRights::CapabilityScoped {
+                    capability: OpticCapabilityId::from_bytes(*capability.as_bytes()),
+                }
+            }
+        }
+    }
+
+    fn hash_from_vec(label: &str, bytes: Vec<u8>) -> Result<warp_core::Hash, AbiError> {
+        bytes.try_into().map_err(|bytes: Vec<u8>| AbiError {
+            code: error_codes::INVALID_PAYLOAD,
+            message: format!("{label} must be exactly 32 bytes, got {}", bytes.len()),
         })
     }
 
@@ -307,14 +634,16 @@ impl WarpKernel {
     }
 
     pub(crate) fn current_head(&self) -> Result<HeadInfo, AbiError> {
-        Self::head_info_from_observation(self.observe_core(ObservationRequest {
-            coordinate: ObservationCoordinate {
+        let request = ObservationRequest::builtin_one_shot(
+            ObservationCoordinate {
                 worldline_id: self.default_worldline,
                 at: ObservationAt::Frontier,
             },
-            frame: ObservationFrame::CommitBoundary,
-            projection: ObservationProjection::Head,
-        })?)
+            ObservationFrame::CommitBoundary,
+            ObservationProjection::Head,
+        )
+        .map_err(Self::map_observation_error)?;
+        Self::head_info_from_observation(self.observe_core(request)?)
     }
 
     fn head_info_from_observation(
@@ -543,6 +872,13 @@ impl KernelPort for WarpKernel {
             });
         }
 
+        if op_id == IMPORT_SUFFIX_INTENT_V1_OP_ID {
+            unpack_import_suffix_intent_v1(intent_bytes).map_err(|_| AbiError {
+                code: error_codes::INVALID_INTENT,
+                message: "invalid import suffix intent envelope".into(),
+            })?;
+        }
+
         let envelope = IngressEnvelope::local_intent(
             IngressTarget::DefaultWriter {
                 worldline_id: self.default_worldline,
@@ -566,6 +902,42 @@ impl KernelPort for WarpKernel {
                 message: e.to_string(),
             }),
         }
+    }
+
+    fn current_optic_coordinate(
+        &self,
+        focus: &AbiOpticFocus,
+    ) -> Result<Option<AbiEchoCoordinate>, AbiError> {
+        match focus {
+            AbiOpticFocus::Worldline { worldline_id } => {
+                if Self::to_core_worldline_id(worldline_id) != self.default_worldline {
+                    return Ok(None);
+                }
+
+                let head = self.current_head()?;
+                Ok(Some(AbiEchoCoordinate::Worldline {
+                    worldline_id: *worldline_id,
+                    at: AbiCoordinateAt::Tick {
+                        worldline_tick: head.worldline_tick,
+                    },
+                }))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    fn observe_optic(
+        &self,
+        request: AbiObserveOpticRequest,
+    ) -> Result<AbiObserveOpticResult, AbiError> {
+        let request = Self::to_core_observe_optic_request(request)?;
+        Ok(ObservationService::observe_optic(
+            &self.runtime,
+            &self.provenance,
+            &self.engine,
+            request,
+        )
+        .to_abi())
     }
 
     fn observe(&self, request: AbiObservationRequest) -> Result<AbiObservationArtifact, AbiError> {
@@ -627,15 +999,18 @@ impl KernelPort for WarpKernel {
 mod tests {
     use super::*;
     use echo_wasm_abi::{
+        decode_cbor,
         kernel_port::{
-            BuiltinObserverPlan as AbiBuiltinObserverPlan, ControlIntentV1,
+            BuiltinObserverPlan as AbiBuiltinObserverPlan,
+            CausalSuffixBundle as AbiCausalSuffixBundle, ControlIntentV1,
             GlobalTick as AbiGlobalTick, HeadEligibility as AbiHeadEligibility,
-            HeadId as AbiHeadId, ObservationAt as AbiObservationAt,
+            HeadId as AbiHeadId, ImportSuffixRequest as AbiImportSuffixRequest,
+            ImportSuffixResult as AbiImportSuffixResult, ObservationAt as AbiObservationAt,
             ObservationBasisPosture as AbiObservationBasisPosture,
             ObservationCoordinate as AbiObservationCoordinate,
             ObservationFrame as AbiObservationFrame, ObservationPayload as AbiObservationPayload,
             ObservationProjection as AbiObservationProjection,
-            ObservationRequest as AbiObservationRequest,
+            ObservationRequest as AbiObservationRequest, ProvenanceRef as AbiProvenanceRef,
             ReadingBudgetPosture as AbiReadingBudgetPosture,
             ReadingObserverBasis as AbiReadingObserverBasis,
             ReadingObserverPlan as AbiReadingObserverPlan,
@@ -644,22 +1019,36 @@ mod tests {
             SchedulerState, SettlementDecision as AbiSettlementDecision,
             SettlementOverlapRevalidation as AbiSettlementOverlapRevalidation,
             SettlementParentRevalidation as AbiSettlementParentRevalidation,
-            SettlementRequest as AbiSettlementRequest, WorkState, WorldlineId as AbiWorldlineId,
-            WorldlineTick as AbiWorldlineTick, WriterHeadKey as AbiWriterHeadKey,
+            SettlementRequest as AbiSettlementRequest,
+            WitnessedSuffixAdmissionOutcome as AbiWitnessedSuffixAdmissionOutcome,
+            WitnessedSuffixShell as AbiWitnessedSuffixShell, WorkState,
+            WorldlineId as AbiWorldlineId, WorldlineTick as AbiWorldlineTick,
+            WriterHeadKey as AbiWriterHeadKey,
         },
-        pack_control_intent_v1, pack_intent_v1,
+        pack_control_intent_v1, pack_import_suffix_intent_v1, pack_intent_v1,
+        IMPORT_SUFFIX_INTENT_V1_OP_ID,
     };
     use warp_core::{
         compute_commit_hash_v2, make_edge_id, make_head_id, make_node_id, make_strand_id,
-        make_type_id, make_warp_id, materialization::make_channel_id, BaseRef, EdgeRecord,
-        GlobalTick, GraphStore, HashTriplet, InboxPolicy, NodeKey, NodeRecord, PlaybackMode,
-        ProvenanceEntry, ProvenanceService, ProvenanceStore, SlotId, Strand, StrandId,
-        TickCommitStatus, WarpOp, WarpTickPatchV1, WorldlineRuntime, WorldlineState, WorldlineTick,
-        WorldlineTickHeaderV1, WorldlineTickPatchV1, WriterHead, WriterHeadKey,
+        make_type_id, make_warp_id, materialization::make_channel_id, AdmissionLawId, BaseRef,
+        CoordinateAt, EchoCoordinate, EdgeRecord, GlobalTick, GraphStore, HashTriplet, InboxPolicy,
+        IntentFamilyId, NodeId, NodeKey, NodeRecord, OpticActorId, OpticCapabilityId, OpticCause,
+        OpticReadBudget, PlaybackMode, ProvenanceEntry, ProvenanceService, ProvenanceStore, SlotId,
+        Strand, StrandId, TickCommitStatus, WarpOp, WarpTickPatchV1, WorldlineHeadOptic,
+        WorldlineRuntime, WorldlineState, WorldlineTick, WorldlineTickHeaderV1,
+        WorldlineTickPatchV1, WriterHead, WriterHeadKey,
     };
 
     fn start_until_idle(kernel: &mut WarpKernel, cycle_limit: Option<u32>) -> DispatchResponse {
         start_until_idle_result(kernel, cycle_limit).unwrap()
+    }
+
+    fn abi_builtin_one_shot(
+        coordinate: AbiObservationCoordinate,
+        frame: AbiObservationFrame,
+        projection: AbiObservationProjection,
+    ) -> AbiObservationRequest {
+        AbiObservationRequest::builtin_one_shot(coordinate, frame, projection).unwrap()
     }
 
     fn start_until_idle_result(
@@ -679,6 +1068,41 @@ mod tests {
 
     fn abi_head_id(head_id: HeadId) -> AbiHeadId {
         AbiHeadId::from_bytes(*head_id.as_bytes())
+    }
+
+    fn abi_provenance_ref(worldline_id: WorldlineId, tick: u64, seed: u8) -> AbiProvenanceRef {
+        AbiProvenanceRef {
+            worldline_id: abi_worldline_id(worldline_id),
+            worldline_tick: AbiWorldlineTick(tick),
+            commit_hash: vec![seed; 32],
+        }
+    }
+
+    fn sample_import_suffix_request(kernel: &WarpKernel) -> AbiImportSuffixRequest {
+        let worldline_id = kernel.default_worldline;
+        let base_frontier = abi_provenance_ref(worldline_id, 0, 1);
+        let target_frontier = abi_provenance_ref(worldline_id, 1, 2);
+        let source_suffix = AbiWitnessedSuffixShell {
+            source_worldline_id: abi_worldline_id(worldline_id),
+            source_suffix_start_tick: AbiWorldlineTick(1),
+            source_suffix_end_tick: Some(AbiWorldlineTick(1)),
+            source_entries: vec![target_frontier.clone()],
+            boundary_witness: Some(base_frontier.clone()),
+            witness_digest: vec![3; 32],
+            basis_report: None,
+        };
+
+        AbiImportSuffixRequest {
+            bundle: AbiCausalSuffixBundle {
+                base_frontier,
+                target_frontier,
+                source_suffix,
+                bundle_digest: vec![4; 32],
+            },
+            target_worldline_id: abi_worldline_id(worldline_id),
+            target_basis: abi_provenance_ref(worldline_id, 0, 1),
+            basis_report: None,
+        }
     }
 
     fn wl(n: u8) -> WorldlineId {
@@ -980,6 +1404,72 @@ mod tests {
         assert_eq!(head.commit_id.len(), 32);
     }
 
+    #[test]
+    fn worldline_head_optic_example_reads_and_dispatches_through_kernel() {
+        let mut kernel = WarpKernel::new().unwrap();
+        let worldline_id = kernel.default_worldline;
+        let actor = OpticActorId::from_bytes([41; 32]);
+        let optic = WorldlineHeadOptic::open(
+            worldline_id,
+            CoordinateAt::Frontier,
+            actor,
+            OpticCapabilityId::from_bytes([42; 32]),
+            IntentFamilyId::from_bytes([43; 32]),
+            [44; 32],
+        )
+        .unwrap();
+
+        let observe = optic
+            .observe_head_request(OpticReadBudget {
+                max_bytes: Some(1024),
+                max_nodes: Some(8),
+                max_ticks: Some(4),
+                max_attachments: Some(0),
+            })
+            .to_abi();
+        let reading = kernel.observe_optic(observe).unwrap();
+        match reading {
+            AbiObserveOpticResult::Reading(reading) => {
+                assert_eq!(
+                    reading.read_identity.optic_id,
+                    echo_wasm_abi::kernel_port::OpticId::from_bytes(
+                        *optic.optic.optic_id.as_bytes()
+                    )
+                );
+                assert!(matches!(
+                    reading.payload,
+                    AbiObservationPayload::Head { .. }
+                ));
+            }
+            AbiObserveOpticResult::Obstructed(obstruction) => {
+                panic!("worldline head optic should read through kernel, got {obstruction:?}");
+            }
+        }
+
+        let base_coordinate = EchoCoordinate::Worldline {
+            worldline_id,
+            at: CoordinateAt::Tick(WorldlineTick::from_raw(0)),
+        };
+        let dispatch = optic
+            .dispatch_eint_v1_request(
+                base_coordinate,
+                OpticCause {
+                    actor,
+                    cause_hash: [45; 32],
+                    label: Some("kernel optic example".to_owned()),
+                },
+                AdmissionLawId::from_bytes([46; 32]),
+                pack_intent_v1(88, b"kernel-optic-example").unwrap(),
+            )
+            .to_abi();
+
+        let dispatch = kernel.dispatch_optic_intent(dispatch).unwrap();
+        assert!(matches!(
+            dispatch,
+            echo_wasm_abi::kernel_port::IntentDispatchResult::Staged(_)
+        ));
+    }
+
     /// Regression: init() must return real 32-byte hashes, not empty vecs.
     /// The init() WASM export reads the initial frontier head before boxing the
     /// kernel. This test verifies that the observation-backed head helper
@@ -1115,6 +1605,173 @@ mod tests {
     }
 
     #[test]
+    fn import_suffix_intent_rejects_malformed_payload_without_ingress() {
+        let mut kernel = WarpKernel::new().unwrap();
+        let head_before = kernel.current_head().unwrap();
+        let provenance_len_before = kernel.provenance.len(kernel.default_worldline).unwrap();
+        let intent = pack_intent_v1(IMPORT_SUFFIX_INTENT_V1_OP_ID, &[0xff]).unwrap();
+
+        let error = kernel.dispatch_intent(&intent).unwrap_err();
+
+        assert_eq!(error.code, error_codes::INVALID_INTENT);
+        assert!(error.message.contains("invalid import suffix intent"));
+        assert_eq!(kernel.current_head().unwrap(), head_before);
+        assert_eq!(
+            kernel.provenance.len(kernel.default_worldline).unwrap(),
+            provenance_len_before
+        );
+    }
+
+    #[test]
+    fn import_suffix_intent_enters_ingress_and_scheduler() {
+        let mut kernel = WarpKernel::new().unwrap();
+        let request = sample_import_suffix_request(&kernel);
+        let intent = pack_import_suffix_intent_v1(&request).unwrap();
+
+        let dispatch = kernel.dispatch_intent(&intent).unwrap();
+        assert!(dispatch.accepted);
+        assert_eq!(dispatch.intent_id.len(), 32);
+
+        let response = start_until_idle(&mut kernel, Some(1));
+        let head = kernel.current_head().unwrap();
+        assert_eq!(
+            response.scheduler_status.last_run_completion,
+            Some(RunCompletion::Quiesced)
+        );
+        assert_eq!(head.worldline_tick, AbiWorldlineTick(1));
+
+        let event_id = NodeId(dispatch.intent_id.as_slice().try_into().unwrap());
+        let result_id = warp_core::import_suffix_result_node_id(&event_id);
+        let frontier = kernel
+            .runtime
+            .worldlines()
+            .get(&kernel.default_worldline)
+            .unwrap();
+        let frontier_state = frontier.state();
+        let root_warp = frontier_state.root().warp_id;
+        let store = frontier_state.store(&root_warp).unwrap();
+        let result_node = store.node(&result_id);
+        assert!(result_node.is_some());
+
+        let result_attachment = store
+            .node_attachment(&result_id)
+            .expect("import suffix result attachment should be recorded");
+        let warp_core::AttachmentValue::Atom(atom) = result_attachment else {
+            panic!("import suffix result must be a typed atom");
+        };
+        assert_eq!(
+            atom.type_id,
+            make_type_id(warp_core::IMPORT_SUFFIX_RESULT_ATTACHMENT_TYPE)
+        );
+
+        let result: AbiImportSuffixResult = decode_cbor(atom.bytes.as_ref()).unwrap();
+        assert_eq!(result.bundle_digest, request.bundle.bundle_digest);
+        assert_eq!(
+            result.admission.source_shell_digest,
+            request.bundle.source_suffix.witness_digest
+        );
+        assert_eq!(result.admission.target_basis, request.target_basis);
+        match result.admission.outcome {
+            AbiWitnessedSuffixAdmissionOutcome::Staged { staged_refs, .. } => {
+                assert_eq!(staged_refs, request.bundle.source_suffix.source_entries);
+            }
+            other => panic!("expected staged import result, got {other:?}"),
+        }
+
+        let entry = kernel
+            .provenance
+            .entry(kernel.default_worldline, WorldlineTick::ZERO)
+            .unwrap();
+        let patch = entry.patch.expect("import tick should record a patch");
+        assert!(patch.ops.iter().any(|op| {
+            matches!(
+                op,
+                WarpOp::UpsertNode { node, .. } if node.local_id == result_id
+            )
+        }));
+        assert!(patch.ops.iter().any(|op| {
+            matches!(
+                op,
+                WarpOp::SetAttachment { key, .. }
+                    if *key == AttachmentKey::node_alpha(NodeKey {
+                        warp_id: root_warp,
+                        local_id: result_id,
+                    })
+            )
+        }));
+    }
+
+    #[test]
+    fn stale_optic_dispatch_obstructs_without_advancing_head_or_provenance() {
+        let mut kernel = WarpKernel::new().unwrap();
+        let intent = pack_intent_v1(1, b"advance").unwrap();
+        kernel.dispatch_intent(&intent).unwrap();
+        start_until_idle(&mut kernel, Some(1));
+
+        let head_before = kernel.current_head().unwrap();
+        let provenance_len_before = kernel.provenance.len(kernel.default_worldline).unwrap();
+        assert_eq!(head_before.worldline_tick, AbiWorldlineTick(1));
+
+        let actor = echo_wasm_abi::kernel_port::OpticActorId::from_bytes([4; 32]);
+        let intent_family = echo_wasm_abi::kernel_port::IntentFamilyId::from_bytes([5; 32]);
+        let worldline_id = abi_worldline_id(kernel.default_worldline);
+        let focus = echo_wasm_abi::kernel_port::OpticFocus::Worldline { worldline_id };
+        let stale_base = echo_wasm_abi::kernel_port::EchoCoordinate::Worldline {
+            worldline_id,
+            at: echo_wasm_abi::kernel_port::CoordinateAt::Tick {
+                worldline_tick: AbiWorldlineTick(0),
+            },
+        };
+        let request = echo_wasm_abi::kernel_port::DispatchOpticIntentRequest {
+            optic_id: echo_wasm_abi::kernel_port::OpticId::from_bytes([1; 32]),
+            base_coordinate: stale_base.clone(),
+            intent_family,
+            focus: focus.clone(),
+            cause: echo_wasm_abi::kernel_port::OpticCause {
+                actor,
+                cause_hash: vec![6; 32],
+                label: Some("stale optic dispatch".into()),
+            },
+            capability: echo_wasm_abi::kernel_port::OpticCapability {
+                capability_id: echo_wasm_abi::kernel_port::OpticCapabilityId::from_bytes([7; 32]),
+                actor,
+                issuer_ref: None,
+                policy_hash: vec![8; 32],
+                allowed_focus: focus,
+                projection_version: echo_wasm_abi::kernel_port::ProjectionVersion(1),
+                reducer_version: None,
+                allowed_intent_family: intent_family,
+                max_budget: echo_wasm_abi::kernel_port::OpticReadBudget {
+                    max_bytes: Some(4096),
+                    max_nodes: Some(64),
+                    max_ticks: Some(8),
+                    max_attachments: Some(0),
+                },
+            },
+            admission_law: echo_wasm_abi::kernel_port::AdmissionLawId::from_bytes([9; 32]),
+            payload: echo_wasm_abi::kernel_port::OpticIntentPayload::EintV1 {
+                bytes: pack_intent_v1(2, b"stale-write").unwrap(),
+            },
+        };
+
+        let result = kernel.dispatch_optic_intent(request).unwrap();
+        assert!(matches!(
+            result,
+            echo_wasm_abi::kernel_port::IntentDispatchResult::Obstructed(obstruction)
+                if obstruction.kind == echo_wasm_abi::kernel_port::OpticObstructionKind::StaleBasis
+                    && obstruction.coordinate == Some(stale_base)
+        ));
+
+        let head_after = kernel.current_head().unwrap();
+        assert_eq!(head_after.worldline_tick, head_before.worldline_tick);
+        assert_eq!(head_after.commit_id, head_before.commit_id);
+        assert_eq!(
+            kernel.provenance.len(kernel.default_worldline).unwrap(),
+            provenance_len_before
+        );
+    }
+
+    #[test]
     fn dispatch_then_start_changes_state() {
         let mut kernel = WarpKernel::new().unwrap();
         let head_before = kernel.current_head().unwrap();
@@ -1226,16 +1883,16 @@ mod tests {
     fn observe_invalid_tick_returns_observation_error_code() {
         let kernel = WarpKernel::new().unwrap();
         let err = kernel
-            .observe(AbiObservationRequest {
-                coordinate: AbiObservationCoordinate {
+            .observe(abi_builtin_one_shot(
+                AbiObservationCoordinate {
                     worldline_id: abi_worldline_id(kernel.default_worldline),
                     at: AbiObservationAt::Tick {
                         worldline_tick: AbiWorldlineTick(999),
                     },
                 },
-                frame: AbiObservationFrame::CommitBoundary,
-                projection: AbiObservationProjection::Snapshot,
-            })
+                AbiObservationFrame::CommitBoundary,
+                AbiObservationProjection::Snapshot,
+            ))
             .unwrap_err();
         assert_eq!(err.code, error_codes::INVALID_TICK);
     }
@@ -1247,16 +1904,16 @@ mod tests {
         kernel.dispatch_intent(&intent).unwrap();
         start_until_idle(&mut kernel, Some(1));
         let artifact = kernel
-            .observe(AbiObservationRequest {
-                coordinate: AbiObservationCoordinate {
+            .observe(abi_builtin_one_shot(
+                AbiObservationCoordinate {
                     worldline_id: abi_worldline_id(kernel.default_worldline),
                     at: AbiObservationAt::Tick {
                         worldline_tick: AbiWorldlineTick(0),
                     },
                 },
-                frame: AbiObservationFrame::CommitBoundary,
-                projection: AbiObservationProjection::Snapshot,
-            })
+                AbiObservationFrame::CommitBoundary,
+                AbiObservationProjection::Snapshot,
+            ))
             .unwrap();
 
         let AbiObservationPayload::Snapshot { snapshot } = artifact.payload else {
@@ -1272,14 +1929,14 @@ mod tests {
     fn observe_frontier_head_matches_current_head() {
         let kernel = WarpKernel::new().unwrap();
         let artifact = kernel
-            .observe(AbiObservationRequest {
-                coordinate: AbiObservationCoordinate {
+            .observe(abi_builtin_one_shot(
+                AbiObservationCoordinate {
                     worldline_id: abi_worldline_id(kernel.default_worldline),
                     at: AbiObservationAt::Frontier,
                 },
-                frame: AbiObservationFrame::CommitBoundary,
-                projection: AbiObservationProjection::Head,
-            })
+                AbiObservationFrame::CommitBoundary,
+                AbiObservationProjection::Head,
+            ))
             .unwrap();
         let head = kernel.current_head().unwrap();
 
@@ -1323,14 +1980,14 @@ mod tests {
     fn observe_neighborhood_site_returns_singleton_site_for_default_worldline() {
         let kernel = WarpKernel::new().unwrap();
         let site = kernel
-            .observe_neighborhood_site(AbiObservationRequest {
-                coordinate: AbiObservationCoordinate {
+            .observe_neighborhood_site(abi_builtin_one_shot(
+                AbiObservationCoordinate {
                     worldline_id: abi_worldline_id(kernel.default_worldline),
                     at: AbiObservationAt::Frontier,
                 },
-                frame: AbiObservationFrame::CommitBoundary,
-                projection: AbiObservationProjection::Head,
-            })
+                AbiObservationFrame::CommitBoundary,
+                AbiObservationProjection::Head,
+            ))
             .unwrap();
 
         assert_eq!(
@@ -1464,14 +2121,14 @@ mod tests {
     fn observe_frontier_snapshot_reports_u0_without_fake_sentinels() {
         let kernel = WarpKernel::new().unwrap();
         let artifact = kernel
-            .observe(AbiObservationRequest {
-                coordinate: AbiObservationCoordinate {
+            .observe(abi_builtin_one_shot(
+                AbiObservationCoordinate {
                     worldline_id: abi_worldline_id(kernel.default_worldline),
                     at: AbiObservationAt::Frontier,
                 },
-                frame: AbiObservationFrame::CommitBoundary,
-                projection: AbiObservationProjection::Snapshot,
-            })
+                AbiObservationFrame::CommitBoundary,
+                AbiObservationProjection::Snapshot,
+            ))
             .unwrap();
 
         let AbiObservationPayload::Snapshot { snapshot } = artifact.payload else {
@@ -1494,14 +2151,14 @@ mod tests {
 
         let head_before = kernel.current_head().unwrap();
         let _ = kernel
-            .observe(AbiObservationRequest {
-                coordinate: AbiObservationCoordinate {
+            .observe(abi_builtin_one_shot(
+                AbiObservationCoordinate {
                     worldline_id: abi_worldline_id(kernel.default_worldline),
                     at: AbiObservationAt::Frontier,
                 },
-                frame: AbiObservationFrame::RecordedTruth,
-                projection: AbiObservationProjection::TruthChannels { channels: None },
-            })
+                AbiObservationFrame::RecordedTruth,
+                AbiObservationProjection::TruthChannels { channels: None },
+            ))
             .unwrap();
         let head_after = kernel.current_head().unwrap();
 
@@ -1544,16 +2201,16 @@ mod tests {
         kernel.provenance = provenance;
 
         let artifact = kernel
-            .observe(AbiObservationRequest {
-                coordinate: AbiObservationCoordinate {
+            .observe(abi_builtin_one_shot(
+                AbiObservationCoordinate {
                     worldline_id: abi_worldline_id(kernel.default_worldline),
                     at: AbiObservationAt::Tick {
                         worldline_tick: AbiWorldlineTick(1),
                     },
                 },
-                frame: AbiObservationFrame::RecordedTruth,
-                projection: AbiObservationProjection::TruthChannels { channels: None },
-            })
+                AbiObservationFrame::RecordedTruth,
+                AbiObservationProjection::TruthChannels { channels: None },
+            ))
             .unwrap();
         let AbiObservationPayload::TruthChannels { channels } = artifact.payload else {
             panic!("expected recorded-truth payload");

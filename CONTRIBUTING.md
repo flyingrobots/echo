@@ -59,11 +59,9 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
   `warp-core` integration-test binary before applying that runtime filter.
 - The broader local gate must pass before PR submission.
 - Add unit/integration coverage for new logic; Rhai/TypeScript tooling will regain coverage when reintroduced.
-- For WASM / living specs:
-    - Install toolchain target: `rustup target add wasm32-unknown-unknown`.
-    - Install Trunk once: `cargo install --locked trunk`.
-    - Dev loop for Spec-000: from repo root run `make spec-000-dev` (hot reload at `http://127.0.0.1:8080`).
-    - Release build: `make spec-000-build` (outputs to `specs/spec-000-rewrite/dist/`).
+- For WASM work, install the required target with
+  `rustup target add wasm32-unknown-unknown` and use the crate-specific build
+  instructions for the surface you are changing.
 
 ## Documentation & Telemetry
 

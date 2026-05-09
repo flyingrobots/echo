@@ -44,5 +44,5 @@ A maintainer can inspect one reading envelope and immediately see:
 
 ## Repo evidence
 
-- `docs/method/backlog/asap/PLATFORM_observer-plan-reading-artifacts.md`
+- `docs/design/0011-optic-observer-runtime-doctrine/design.md`
 - `docs/method/backlog/up-next/PLATFORM_reading-envelope-family-boundary.md`

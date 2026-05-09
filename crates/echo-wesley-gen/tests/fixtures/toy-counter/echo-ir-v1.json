@@ -61,7 +61,20 @@
           "required": true
         }
       ],
-      "result_type": "CounterValue"
+      "result_type": "CounterValue",
+      "directives": {
+        "wes_op": {
+          "name": "increment"
+        },
+        "wes_footprint": {
+          "reads": [
+            "CounterValue"
+          ],
+          "writes": [
+            "CounterValue"
+          ]
+        }
+      }
     },
     {
       "kind": "QUERY",

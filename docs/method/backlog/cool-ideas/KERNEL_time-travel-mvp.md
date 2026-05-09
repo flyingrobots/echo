@@ -26,7 +26,7 @@ for timeline scrubbing and causal slicing.
 **Requirements:**
 
 - R1: Define and implement pause-buffer admission policy: freeze
-  simulation-view cursors while tool-view cursors remain live; stream events
+  simulation-view cursors while tool-view cursors remain live; source events
   accumulate in backlog.
 - R2: Implement a capability-gated `Fork(worldline, tick)` operation that
   creates a new worldline fork/branch at the specified tick.
@@ -38,12 +38,13 @@ for timeline scrubbing and causal slicing.
   compute budget is exhausted.
 - R5: All operations emit deterministic decision/provenance records into the
   authoritative worldline history.
-- R6: Inspector/stream frames reflect paused/buffered state accurately during
-  time travel.
+- R6: Typed admission and observation evidence reflects paused/buffered state
+  accurately during time travel.
 
 **Acceptance Criteria:**
 
-- [ ] AC1: Unit test: pause a 2-stream simulation at tick 50, verify tool-view cursors advance while sim-view cursors are frozen.
+- [ ] AC1: Unit test: pause a simulation with two input sources at tick 50,
+      verify tool-view cursors advance while sim-view cursors are frozen.
 - [ ] AC2: Unit test: fork at tick 20, advance the fork to tick 25 with independent state, verify original worldline is unaffected.
 - [ ] AC3: Integration test: rewind from tick 100 to tick 10 using a checkpoint, verify state matches the original tick-10 snapshot hash.
 - [ ] AC4: Integration test: catch-up from tick 10 to tick 100 via
@@ -71,7 +72,9 @@ checks.
 - **Edges:** Fork at tick 0 (genesis); rewind to current tick (no-op); catch-up when already at target.
 - **Fuzz/Stress:** Property test: fork-then-catchup from random tick pairs produces state hashes matching the original worldline.
 
-**Blocked By:** T-7-2-5, T-7-2-3, T-7-2-4
+**Blocked By:**
+`docs/method/backlog/up-next/KERNEL_time-travel-capabilities.md`,
+`docs/method/backlog/up-next/KERNEL_contract-strands-and-counterfactuals.md`
 **Blocking:** T-7-3-2, T-7-4-1
 
 **Est. Hours:** 6h
@@ -121,7 +124,7 @@ checks.
 - **Edges:** Scrub to tick 0 (genesis); scrub to the head tick; fork from genesis.
 - **Fuzz/Stress:** Rapid scrubbing across 10,000 ticks without UI freeze (debounced seek, < 16ms frame time).
 
-**Blocked By:** T-7-3-1, T-7-2-6
+**Blocked By:** T-7-3-1
 **Blocking:** T-7-4-1
 
 **Est. Hours:** 6h

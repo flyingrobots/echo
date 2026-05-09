@@ -4,12 +4,14 @@
 use echo_wasm_abi::kernel_port as abi;
 
 use crate::{
-    evaluate_witnessed_suffix_admission, make_node_id, make_strand_id, BaseRef, ConflictReason,
-    Hash, NodeKey, ParentMovementFootprint, ProvenanceRef, ReadingResidualPosture, SlotId,
-    StrandBasisReport, StrandDivergenceFootprint, StrandOverlapRevalidation,
-    StrandRevalidationState, WarpId, WitnessedSuffixAdmissionContext,
-    WitnessedSuffixAdmissionOutcome, WitnessedSuffixAdmissionRequest,
-    WitnessedSuffixAdmissionResponse, WitnessedSuffixLocalAdmissionPosture,
+    derive_witnessed_suffix_shell_digest, evaluate_witnessed_suffix_admission, export_suffix,
+    import_suffix, make_node_id, make_strand_id, BaseRef, CausalSuffixBundle, ConflictReason,
+    ExportSuffixRequest, Hash, ImportSuffixRequest, ImportSuffixResult, NodeKey,
+    ParentMovementFootprint, ProvenanceRef, ReadingResidualPosture, SlotId, StrandBasisReport,
+    StrandDivergenceFootprint, StrandOverlapRevalidation, StrandRevalidationState, WarpId,
+    WitnessedSuffixAdmissionContext, WitnessedSuffixAdmissionOutcome,
+    WitnessedSuffixAdmissionRequest, WitnessedSuffixAdmissionResponse,
+    WitnessedSuffixExportContext, WitnessedSuffixLocalAdmissionPosture,
     WitnessedSuffixLocalAdmissionPostureError, WitnessedSuffixShell, WorldlineId, WorldlineTick,
 };
 
@@ -115,8 +117,8 @@ struct TargetBasisEchoAdmissionContext {
 }
 
 impl WitnessedSuffixAdmissionContext for TargetBasisEchoAdmissionContext {
-    fn source_shell_digest(&self, _shell: &WitnessedSuffixShell) -> Option<Hash> {
-        Some([6; 32])
+    fn source_shell_digest(&self, shell: &WitnessedSuffixShell) -> Option<Hash> {
+        Some(shell.witness_digest)
     }
 
     fn resolve_target_basis(&self, _target_basis: ProvenanceRef) -> Option<ProvenanceRef> {
@@ -135,11 +137,44 @@ impl WitnessedSuffixAdmissionContext for TargetBasisEchoAdmissionContext {
     }
 }
 
+struct FakeExportContext {
+    source_entries: Option<Vec<ProvenanceRef>>,
+    boundary_witness: Option<ProvenanceRef>,
+}
+
+impl WitnessedSuffixExportContext for FakeExportContext {
+    fn source_entries(&self, _request: &ExportSuffixRequest) -> Option<Vec<ProvenanceRef>> {
+        self.source_entries.clone()
+    }
+
+    fn boundary_witness(&self, _request: &ExportSuffixRequest) -> Option<ProvenanceRef> {
+        self.boundary_witness
+    }
+}
+
 fn clean_context(posture: WitnessedSuffixLocalAdmissionPosture) -> FakeAdmissionContext {
     FakeAdmissionContext {
         expected_shell_digest: Some([6; 32]),
         resolved_target_basis: Some(provenance_ref(12, 9)),
         posture,
+    }
+}
+
+fn export_request() -> ExportSuffixRequest {
+    ExportSuffixRequest {
+        source_worldline_id: worldline(3),
+        base_frontier: provenance_ref(3, 2),
+        target_frontier: Some(provenance_ref(3, 4)),
+        basis_report: None,
+    }
+}
+
+fn import_request(bundle: CausalSuffixBundle) -> ImportSuffixRequest {
+    ImportSuffixRequest {
+        bundle,
+        target_worldline_id: worldline(11),
+        target_basis: provenance_ref(12, 9),
+        basis_report: None,
     }
 }
 
@@ -200,6 +235,194 @@ fn witnessed_suffix_core_request_converts_to_abi_shape() {
             commit_hash: vec![13; 32],
         }
     );
+}
+
+#[test]
+fn witnessed_suffix_export_produces_typed_causal_suffix_bundle() -> Result<(), String> {
+    let request = export_request();
+    let context = FakeExportContext {
+        source_entries: Some(vec![provenance_ref(3, 4), provenance_ref(3, 3)]),
+        boundary_witness: Some(provenance_ref(3, 2)),
+    };
+
+    let bundle = export_suffix(&request, &context).map_err(|obstruction| {
+        format!("export should produce a suffix bundle, got {obstruction:?}")
+    })?;
+
+    assert_eq!(bundle.base_frontier, provenance_ref(3, 2));
+    assert_eq!(bundle.target_frontier, provenance_ref(3, 4));
+    assert_eq!(
+        bundle.source_suffix.source_entries,
+        vec![provenance_ref(3, 3), provenance_ref(3, 4)]
+    );
+    assert_eq!(
+        bundle.source_suffix.witness_digest,
+        derive_witnessed_suffix_shell_digest(&bundle.source_suffix)
+    );
+    assert_eq!(bundle.shell_equivalence_digest(), bundle.bundle_digest);
+    Ok(())
+}
+
+#[test]
+fn witnessed_suffix_export_obstructs_missing_witness_material() -> Result<(), String> {
+    let request = export_request();
+    let context = FakeExportContext {
+        source_entries: Some(Vec::new()),
+        boundary_witness: None,
+    };
+
+    let obstruction = export_suffix(&request, &context)
+        .err()
+        .ok_or_else(|| "empty export without a boundary witness must obstruct".to_owned())?;
+
+    assert_eq!(obstruction.source_ref, provenance_ref(3, 2));
+    assert_eq!(
+        obstruction.residual_posture,
+        ReadingResidualPosture::Obstructed
+    );
+    Ok(())
+}
+
+#[test]
+fn witnessed_suffix_export_rejects_invalid_boundary_witnesses() {
+    let request = ExportSuffixRequest {
+        target_frontier: Some(provenance_ref(3, 2)),
+        ..export_request()
+    };
+
+    for boundary_witness in [provenance_ref(4, 2), provenance_ref(3, 9)] {
+        let context = FakeExportContext {
+            source_entries: Some(Vec::new()),
+            boundary_witness: Some(boundary_witness),
+        };
+
+        assert!(
+            export_suffix(&request, &context).is_err(),
+            "invalid boundary witness {boundary_witness:?} must obstruct export"
+        );
+    }
+}
+
+#[test]
+fn witnessed_suffix_import_normalizes_to_comparable_frontier_before_deciding() {
+    let source_suffix = shell_with_entries(vec![provenance_ref(3, 3)]);
+    let bundle = CausalSuffixBundle::new(provenance_ref(3, 2), provenance_ref(3, 3), source_suffix);
+    let resolved_basis = provenance_ref(44, 20);
+    let context = TargetBasisEchoAdmissionContext {
+        resolved_target_basis: resolved_basis,
+    };
+
+    let result = import_suffix(&import_request(bundle.clone()), &context);
+
+    assert_eq!(result.bundle_digest, bundle.bundle_digest);
+    assert_eq!(result.admission.target_basis, resolved_basis);
+    assert!(matches!(
+        result.admission.outcome,
+        WitnessedSuffixAdmissionOutcome::Admitted { admitted_refs, .. }
+            if admitted_refs == vec![resolved_basis]
+    ));
+}
+
+#[test]
+fn witnessed_suffix_import_obstructs_forged_bundle_digest(
+) -> Result<(), WitnessedSuffixLocalAdmissionPostureError> {
+    let source_suffix = shell_with_entries(vec![provenance_ref(3, 3)]);
+    let mut bundle =
+        CausalSuffixBundle::new(provenance_ref(3, 2), provenance_ref(3, 3), source_suffix);
+    let canonical_bundle_digest = bundle.bundle_digest;
+    bundle.bundle_digest = [99; 32];
+    let context = FakeAdmissionContext {
+        expected_shell_digest: Some(bundle.source_suffix.witness_digest),
+        resolved_target_basis: Some(provenance_ref(12, 9)),
+        posture: admissible_posture(vec![provenance_ref(30, 10)])?,
+    };
+
+    let result = import_suffix(&import_request(bundle), &context);
+
+    assert_eq!(result.bundle_digest, canonical_bundle_digest);
+    assert!(matches!(
+        result.admission.outcome,
+        WitnessedSuffixAdmissionOutcome::Obstructed {
+            residual_posture: ReadingResidualPosture::Obstructed,
+            ..
+        }
+    ));
+    Ok(())
+}
+
+#[test]
+fn witnessed_suffix_import_order_produces_same_retained_shell_equivalence_set(
+) -> Result<(), WitnessedSuffixLocalAdmissionPostureError> {
+    let bundle_a = CausalSuffixBundle::new(
+        provenance_ref(3, 2),
+        provenance_ref(3, 3),
+        shell_with_entries(vec![provenance_ref(3, 3)]),
+    );
+    let bundle_b = CausalSuffixBundle::new(
+        provenance_ref(3, 3),
+        provenance_ref(3, 4),
+        shell_with_entries(vec![provenance_ref(3, 4)]),
+    );
+    let context_a = FakeAdmissionContext {
+        expected_shell_digest: Some(bundle_a.source_suffix.witness_digest),
+        resolved_target_basis: Some(provenance_ref(12, 9)),
+        posture: admissible_posture(vec![provenance_ref(30, 10)])?,
+    };
+    let context_b = FakeAdmissionContext {
+        expected_shell_digest: Some(bundle_b.source_suffix.witness_digest),
+        resolved_target_basis: Some(provenance_ref(12, 9)),
+        posture: admissible_posture(vec![provenance_ref(31, 10)])?,
+    };
+
+    let mut forward = vec![
+        import_suffix(&import_request(bundle_a.clone()), &context_a),
+        import_suffix(&import_request(bundle_b.clone()), &context_b),
+    ]
+    .into_iter()
+    .map(|result: ImportSuffixResult| result.retained_shell_equivalence_digest())
+    .collect::<Vec<_>>();
+    let mut reverse = vec![
+        import_suffix(&import_request(bundle_b), &context_b),
+        import_suffix(&import_request(bundle_a), &context_a),
+    ]
+    .into_iter()
+    .map(|result: ImportSuffixResult| result.retained_shell_equivalence_digest())
+    .collect::<Vec<_>>();
+
+    forward.sort_unstable();
+    reverse.sort_unstable();
+
+    assert_eq!(forward, reverse);
+    Ok(())
+}
+
+#[test]
+fn witnessed_suffix_import_preserves_non_independent_conflict() {
+    let source_suffix = shell_with_entries(vec![provenance_ref(3, 3)]);
+    let source_ref = provenance_ref(35, 14);
+    let bundle = CausalSuffixBundle::new(provenance_ref(3, 2), provenance_ref(3, 3), source_suffix);
+    let context = FakeAdmissionContext {
+        expected_shell_digest: Some(bundle.source_suffix.witness_digest),
+        resolved_target_basis: Some(provenance_ref(12, 9)),
+        posture: conflict_posture(
+            ConflictReason::ParentFootprintOverlap,
+            source_ref,
+            [36; 32],
+            None,
+        ),
+    };
+
+    let result = import_suffix(&import_request(bundle), &context);
+
+    assert!(matches!(
+        result.admission.outcome,
+        WitnessedSuffixAdmissionOutcome::Conflict {
+            reason: ConflictReason::ParentFootprintOverlap,
+            source_ref: actual_source_ref,
+            evidence_digest,
+            ..
+        } if actual_source_ref == source_ref && evidence_digest == [36; 32]
+    ));
 }
 
 #[test]

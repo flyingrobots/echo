@@ -17,7 +17,6 @@ members = [
     "crates/echo-dind-tests",
     "crates/echo-wasm-abi",
     "crates/echo-registry-api",
-    "specs/spec-000-rewrite",
     "crates/echo-wasm-bindings",
     "crates/echo-wesley-gen",
     "crates/echo-dry-tests",

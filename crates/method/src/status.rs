@@ -24,7 +24,7 @@ pub struct StatusReport {
 }
 
 /// An active (not yet retro'd) cycle.
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct ActiveCycle {
     /// Cycle number (e.g., "0002").
     pub number: String,

@@ -3,8 +3,9 @@
 //! Shape-only witnessed suffix admission vocabulary.
 //!
 //! This module names the first admission shell skeleton. It deliberately carries
-//! compact provenance and basis evidence only; it does not implement transport,
-//! remote synchronization, or import execution.
+//! compact provenance and basis evidence only; export/import here means suffix
+//! shell construction and admission classification, not transport, remote
+//! synchronization, or import execution.
 
 use blake3::Hasher;
 use echo_wasm_abi::{encode_cbor, kernel_port as abi};
@@ -117,6 +118,182 @@ impl WitnessedSuffixAdmissionResponse {
     }
 }
 
+/// Request to export a witnessed causal suffix rooted at a known source frontier.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExportSuffixRequest {
+    /// Source worldline carrying the suffix.
+    pub source_worldline_id: WorldlineId,
+    /// Known source basis before the suffix begins.
+    pub base_frontier: ProvenanceRef,
+    /// Optional requested source frontier to export through. If omitted, the
+    /// export context may expose the current known suffix frontier.
+    pub target_frontier: Option<ProvenanceRef>,
+    /// Optional basis-relative settlement evidence reused by the exported shell.
+    pub basis_report: Option<StrandBasisReport>,
+}
+
+impl ExportSuffixRequest {
+    /// Converts the export request into its ABI DTO.
+    #[must_use]
+    pub fn to_abi(&self) -> abi::ExportSuffixRequest {
+        abi::ExportSuffixRequest {
+            source_worldline_id: worldline_id_to_abi(self.source_worldline_id),
+            base_frontier: provenance_ref_to_abi(self.base_frontier),
+            target_frontier: self.target_frontier.map(provenance_ref_to_abi),
+            basis_report: self
+                .basis_report
+                .as_ref()
+                .map(settlement_basis_report_to_abi),
+        }
+    }
+}
+
+/// Witnessed suffix bundle exchanged across a hot/cold runtime boundary.
+///
+/// The bundle is a compact causal shell. It is not a materialized state
+/// snapshot, not a raw patch stream, and not a transport endpoint.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CausalSuffixBundle {
+    /// Known source basis before the suffix begins.
+    pub base_frontier: ProvenanceRef,
+    /// Source frontier reached by this exported suffix shell.
+    pub target_frontier: ProvenanceRef,
+    /// Compact source suffix and its witness digest.
+    pub source_suffix: WitnessedSuffixShell,
+    /// Deterministic digest of the bundle identity used for retained shell
+    /// equivalence and loop-prevention surfaces.
+    pub bundle_digest: Hash,
+}
+
+impl CausalSuffixBundle {
+    /// Builds a bundle and derives canonical source-shell and bundle digests.
+    #[must_use]
+    pub fn new(
+        base_frontier: ProvenanceRef,
+        target_frontier: ProvenanceRef,
+        mut source_suffix: WitnessedSuffixShell,
+    ) -> Self {
+        source_suffix.witness_digest = derive_witnessed_suffix_shell_digest(&source_suffix);
+        let bundle_digest =
+            derive_causal_suffix_bundle_digest(base_frontier, target_frontier, &source_suffix);
+        Self {
+            base_frontier,
+            target_frontier,
+            source_suffix,
+            bundle_digest,
+        }
+    }
+
+    /// Returns the deterministic digest used to compare retained shell results.
+    #[must_use]
+    pub const fn shell_equivalence_digest(&self) -> Hash {
+        self.bundle_digest
+    }
+
+    /// Converts the bundle into its ABI DTO.
+    #[must_use]
+    pub fn to_abi(&self) -> abi::CausalSuffixBundle {
+        abi::CausalSuffixBundle {
+            base_frontier: provenance_ref_to_abi(self.base_frontier),
+            target_frontier: provenance_ref_to_abi(self.target_frontier),
+            source_suffix: self.source_suffix.to_abi(),
+            bundle_digest: self.bundle_digest.to_vec(),
+        }
+    }
+}
+
+/// Obstruction returned when Echo cannot produce a witnessed suffix bundle.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExportSuffixObstruction {
+    /// Source coordinate implicated in the obstruction.
+    pub source_ref: ProvenanceRef,
+    /// Read-side residual posture associated with the obstruction.
+    pub residual_posture: ReadingResidualPosture,
+    /// Deterministic digest of compact obstruction evidence.
+    pub evidence_digest: Hash,
+}
+
+impl ExportSuffixObstruction {
+    /// Converts the obstruction into its ABI DTO.
+    #[must_use]
+    pub fn to_abi(&self) -> abi::ExportSuffixObstruction {
+        abi::ExportSuffixObstruction {
+            source_ref: provenance_ref_to_abi(self.source_ref),
+            residual_posture: reading_residual_posture_to_abi(self.residual_posture),
+            evidence_digest: self.evidence_digest.to_vec(),
+        }
+    }
+}
+
+/// Request to import one witnessed causal suffix bundle by classifying it
+/// against a target basis.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ImportSuffixRequest {
+    /// Source bundle being judged.
+    pub bundle: CausalSuffixBundle,
+    /// Worldline receiving the proposed admission.
+    pub target_worldline_id: WorldlineId,
+    /// Target basis used while judging admission.
+    pub target_basis: ProvenanceRef,
+    /// Optional target-basis evidence for strand/parent realization cases.
+    pub basis_report: Option<StrandBasisReport>,
+}
+
+impl ImportSuffixRequest {
+    /// Converts the import request into its ABI DTO.
+    #[must_use]
+    pub fn to_abi(&self) -> abi::ImportSuffixRequest {
+        abi::ImportSuffixRequest {
+            bundle: self.bundle.to_abi(),
+            target_worldline_id: worldline_id_to_abi(self.target_worldline_id),
+            target_basis: provenance_ref_to_abi(self.target_basis),
+            basis_report: self
+                .basis_report
+                .as_ref()
+                .map(settlement_basis_report_to_abi),
+        }
+    }
+}
+
+/// Result of importing one witnessed causal suffix bundle into local admission.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ImportSuffixResult {
+    /// Bundle identity retained for shell-equivalence and loop-prevention checks.
+    pub bundle_digest: Hash,
+    /// Admission classifier response for the bundle's source suffix.
+    pub admission: WitnessedSuffixAdmissionResponse,
+}
+
+impl ImportSuffixResult {
+    /// Returns the deterministic digest used to compare retained shell results.
+    #[must_use]
+    pub const fn retained_shell_equivalence_digest(&self) -> Hash {
+        self.bundle_digest
+    }
+
+    /// Converts the import result into its ABI DTO.
+    #[must_use]
+    pub fn to_abi(&self) -> abi::ImportSuffixResult {
+        abi::ImportSuffixResult {
+            bundle_digest: self.bundle_digest.to_vec(),
+            admission: self.admission.to_abi(),
+        }
+    }
+}
+
+/// Read-only export evidence source used by witnessed suffix bundle construction.
+///
+/// This trait is intentionally narrow. It supplies suffix coordinates and
+/// boundary witness material, but exposes no runtime mutation, network
+/// transport, patch stream, or sync loop.
+pub trait WitnessedSuffixExportContext {
+    /// Returns the source provenance coordinates covered by the requested suffix.
+    fn source_entries(&self, request: &ExportSuffixRequest) -> Option<Vec<ProvenanceRef>>;
+
+    /// Returns a boundary witness when the suffix has no importable entries yet.
+    fn boundary_witness(&self, request: &ExportSuffixRequest) -> Option<ProvenanceRef>;
+}
+
 /// Read-only local evidence source used by witnessed suffix admission evaluation.
 ///
 /// This trait is intentionally narrow: it does not expose runtime mutation,
@@ -138,6 +315,163 @@ pub trait WitnessedSuffixAdmissionContext {
         &self,
         request: &WitnessedSuffixAdmissionRequest,
     ) -> WitnessedSuffixLocalAdmissionPosture;
+}
+
+/// Exports a witnessed causal suffix bundle from local read-only evidence.
+///
+/// This constructs a causal shell and witness digest. It does not execute
+/// transport and does not mutate any receiving worldline.
+pub fn export_suffix(
+    request: &ExportSuffixRequest,
+    context: &impl WitnessedSuffixExportContext,
+) -> Result<CausalSuffixBundle, ExportSuffixObstruction> {
+    if request.base_frontier.worldline_id != request.source_worldline_id {
+        return Err(export_obstruction(request));
+    }
+    if let Some(target_frontier) = request.target_frontier {
+        if target_frontier.worldline_id != request.source_worldline_id
+            || target_frontier.worldline_tick.as_u64()
+                < request.base_frontier.worldline_tick.as_u64()
+        {
+            return Err(export_obstruction(request));
+        }
+    }
+
+    let Some(entries) = context.source_entries(request) else {
+        return Err(export_obstruction(request));
+    };
+    let Ok(entries) = canonical_unique_provenance_refs(entries) else {
+        return Err(export_obstruction(request));
+    };
+    let boundary_witness = context.boundary_witness(request);
+
+    if entries.is_empty() && boundary_witness.is_none() {
+        return Err(export_obstruction(request));
+    }
+
+    for source_entry in &entries {
+        if source_entry.worldline_id != request.source_worldline_id
+            || source_entry.worldline_tick.as_u64() <= request.base_frontier.worldline_tick.as_u64()
+            || request.target_frontier.is_some_and(|target_frontier| {
+                source_entry.worldline_tick.as_u64() > target_frontier.worldline_tick.as_u64()
+            })
+        {
+            return Err(export_obstruction(request));
+        }
+    }
+
+    let derived_target_frontier = match (entries.last().copied(), request.target_frontier) {
+        (Some(last_entry), Some(target_frontier)) if last_entry == target_frontier => {
+            target_frontier
+        }
+        (None, Some(target_frontier)) if target_frontier == request.base_frontier => {
+            target_frontier
+        }
+        (Some(_) | None, Some(_)) => return Err(export_obstruction(request)),
+        (Some(last_entry), None) => last_entry,
+        (None, None) => request.base_frontier,
+    };
+    if boundary_witness.is_some_and(|boundary_witness| {
+        boundary_witness_is_outside_export_bounds(
+            boundary_witness,
+            request.source_worldline_id,
+            request.base_frontier,
+            derived_target_frontier,
+        )
+    }) {
+        return Err(export_obstruction(request));
+    }
+
+    let source_suffix_start_tick = entries
+        .first()
+        .map_or(request.base_frontier.worldline_tick, |entry| {
+            entry.worldline_tick
+        });
+    let source_suffix_end_tick = entries.last().map(|entry| entry.worldline_tick);
+    let source_suffix = WitnessedSuffixShell {
+        source_worldline_id: request.source_worldline_id,
+        source_suffix_start_tick,
+        source_suffix_end_tick,
+        source_entries: entries,
+        boundary_witness,
+        witness_digest: [0; 32],
+        basis_report: request.basis_report.clone(),
+    };
+
+    Ok(CausalSuffixBundle::new(
+        request.base_frontier,
+        derived_target_frontier,
+        source_suffix,
+    ))
+}
+
+fn boundary_witness_is_outside_export_bounds(
+    boundary_witness: ProvenanceRef,
+    source_worldline_id: WorldlineId,
+    base_frontier: ProvenanceRef,
+    target_frontier: ProvenanceRef,
+) -> bool {
+    if boundary_witness.worldline_id != source_worldline_id {
+        return true;
+    }
+
+    let boundary_tick = boundary_witness.worldline_tick.as_u64();
+    let base_tick = base_frontier.worldline_tick.as_u64();
+    let target_tick = target_frontier.worldline_tick.as_u64();
+
+    boundary_tick < base_tick
+        || boundary_tick > target_tick
+        || (boundary_tick == base_tick && boundary_witness != base_frontier)
+        || (boundary_tick == target_tick && boundary_witness != target_frontier)
+}
+
+/// Imports one witnessed causal suffix bundle by classifying it against the
+/// local target basis.
+///
+/// The returned result is an admission shell result. It does not append
+/// provenance or apply patches directly.
+#[must_use]
+pub fn import_suffix(
+    request: &ImportSuffixRequest,
+    context: &impl WitnessedSuffixAdmissionContext,
+) -> ImportSuffixResult {
+    let bundle_digest = derive_causal_suffix_bundle_digest(
+        request.bundle.base_frontier,
+        request.bundle.target_frontier,
+        &request.bundle.source_suffix,
+    );
+    let admission_request = WitnessedSuffixAdmissionRequest {
+        source_suffix: request.bundle.source_suffix.clone(),
+        target_worldline_id: request.target_worldline_id,
+        target_basis: request.target_basis,
+        basis_report: request.basis_report.clone(),
+    };
+    if request.bundle.bundle_digest != bundle_digest {
+        let source_shell_digest = context
+            .source_shell_digest(&admission_request.source_suffix)
+            .unwrap_or_else(|| {
+                context.source_shell_obstruction_digest(&admission_request.source_suffix)
+            });
+        let target_basis = context
+            .resolve_target_basis(admission_request.target_basis)
+            .unwrap_or(admission_request.target_basis);
+        return ImportSuffixResult {
+            bundle_digest,
+            admission: obstructed_response(
+                &admission_request,
+                source_shell_digest,
+                target_basis,
+                None,
+            ),
+        };
+    }
+
+    let admission = evaluate_witnessed_suffix_admission(&admission_request, context);
+
+    ImportSuffixResult {
+        bundle_digest,
+        admission,
+    }
 }
 
 /// Error returned when constructing a canonical local admission posture fails.
@@ -479,6 +813,65 @@ fn obstructed_response(
             evidence_digest: source_shell_digest,
         },
     }
+}
+
+/// Derives the canonical digest for a witnessed suffix shell.
+///
+/// The shell's caller-supplied `witness_digest` field is ignored while deriving
+/// identity so export does not trust a prefilled claim.
+#[must_use]
+pub fn derive_witnessed_suffix_shell_digest(shell: &WitnessedSuffixShell) -> Hash {
+    let mut shell_without_claim = shell.to_abi();
+    shell_without_claim.witness_digest.clear();
+
+    let mut hasher = Hasher::new();
+    hasher.update(b"echo:witnessed-suffix-shell:v1\0");
+    match encode_cbor(&shell_without_claim) {
+        Ok(encoded_shell) => {
+            hasher.update(&encoded_shell);
+        }
+        Err(_) => hash_source_shell_obstruction_fallback(&mut hasher, shell),
+    }
+    hasher.finalize().into()
+}
+
+fn derive_causal_suffix_bundle_digest(
+    base_frontier: ProvenanceRef,
+    target_frontier: ProvenanceRef,
+    source_suffix: &WitnessedSuffixShell,
+) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(b"echo:causal-suffix-bundle:v1\0");
+    hash_provenance_ref(&mut hasher, &base_frontier);
+    hash_provenance_ref(&mut hasher, &target_frontier);
+    hasher.update(&source_suffix.witness_digest);
+    hasher.finalize().into()
+}
+
+fn export_obstruction(request: &ExportSuffixRequest) -> ExportSuffixObstruction {
+    ExportSuffixObstruction {
+        source_ref: request.base_frontier,
+        residual_posture: ReadingResidualPosture::Obstructed,
+        evidence_digest: export_suffix_obstruction_digest(request),
+    }
+}
+
+fn export_suffix_obstruction_digest(request: &ExportSuffixRequest) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(b"echo:export-suffix-obstruction:v1\0");
+    hasher.update(request.source_worldline_id.as_bytes());
+    hash_provenance_ref(&mut hasher, &request.base_frontier);
+    match request.target_frontier {
+        Some(target_frontier) => {
+            hasher.update(&[1]);
+            hash_provenance_ref(&mut hasher, &target_frontier);
+        }
+        None => {
+            hasher.update(&[0]);
+        }
+    }
+    hasher.update(&[u8::from(request.basis_report.is_some())]);
+    hasher.finalize().into()
 }
 
 fn source_shell_obstruction_digest(shell: &WitnessedSuffixShell) -> Hash {

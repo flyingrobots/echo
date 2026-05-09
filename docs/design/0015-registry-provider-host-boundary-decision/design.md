@@ -12,7 +12,6 @@ Depends on:
 
 - [0013 - Wesley Compiled Contract Hosting Doctrine](../0013-wesley-compiled-contract-hosting-doctrine/design.md)
 - [0014 - EINT, Registry, And Observation Boundary Inventory](../0014-eint-registry-observation-boundary-inventory/design.md)
-- [Registry Provider Wiring And Host Boundary Decision](../../method/backlog/asap/PLATFORM_static-contract-registry-and-host-boundary.md)
 
 ## Decision
 

@@ -19,7 +19,13 @@ use clap::{Parser, Subcommand, ValueEnum};
 )]
 pub struct Cli {
     /// Output format (text or json).
-    #[arg(long, global = true, default_value = "text", value_enum)]
+    #[arg(
+        long,
+        global = true,
+        default_value = "text",
+        value_enum,
+        hide_possible_values = true
+    )]
     pub format: OutputFormat,
 
     /// Subcommand to execute.
@@ -46,6 +52,10 @@ pub enum Commands {
         /// Filter benchmarks by pattern.
         #[arg(long)]
         filter: Option<String>,
+
+        /// Compare current medians against a saved baseline.
+        #[arg(long)]
+        baseline: Option<String>,
     },
 
     /// Inspect a WSC snapshot.
@@ -56,6 +66,10 @@ pub enum Commands {
         /// Show ASCII tree of graph structure.
         #[arg(long)]
         tree: bool,
+
+        /// Show attachment payload bytes as hex instead of decoding known payloads.
+        #[arg(long)]
+        raw: bool,
     },
 }
 
@@ -119,10 +133,22 @@ mod tests {
     }
 
     #[test]
+    fn invalid_format_is_error() {
+        let result = Cli::try_parse_from(["echo-cli", "--format", "yaml", "bench"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn parse_bench_no_filter() {
         let cli = Cli::try_parse_from(["echo-cli", "bench"]).unwrap();
         match cli.command {
-            Commands::Bench { ref filter } => assert!(filter.is_none()),
+            Commands::Bench {
+                ref filter,
+                ref baseline,
+            } => {
+                assert!(filter.is_none());
+                assert!(baseline.is_none());
+            }
             _ => panic!("expected Bench command"),
         }
     }
@@ -131,8 +157,19 @@ mod tests {
     fn parse_bench_with_filter() {
         let cli = Cli::try_parse_from(["echo-cli", "bench", "--filter", "hotpath"]).unwrap();
         match cli.command {
-            Commands::Bench { ref filter } => {
+            Commands::Bench { ref filter, .. } => {
                 assert_eq!(filter.as_deref(), Some("hotpath"));
+            }
+            _ => panic!("expected Bench command"),
+        }
+    }
+
+    #[test]
+    fn parse_bench_with_baseline() {
+        let cli = Cli::try_parse_from(["echo-cli", "bench", "--baseline", "main"]).unwrap();
+        match cli.command {
+            Commands::Bench { ref baseline, .. } => {
+                assert_eq!(baseline.as_deref(), Some("main"));
             }
             _ => panic!("expected Bench command"),
         }
@@ -142,9 +179,14 @@ mod tests {
     fn parse_inspect_basic() {
         let cli = Cli::try_parse_from(["echo-cli", "inspect", "state.wsc"]).unwrap();
         match cli.command {
-            Commands::Inspect { ref snapshot, tree } => {
+            Commands::Inspect {
+                ref snapshot,
+                tree,
+                raw,
+            } => {
                 assert_eq!(snapshot, &PathBuf::from("state.wsc"));
                 assert!(!tree);
+                assert!(!raw);
             }
             _ => panic!("expected Inspect command"),
         }
@@ -155,6 +197,15 @@ mod tests {
         let cli = Cli::try_parse_from(["echo-cli", "inspect", "state.wsc", "--tree"]).unwrap();
         match cli.command {
             Commands::Inspect { tree, .. } => assert!(tree),
+            _ => panic!("expected Inspect command"),
+        }
+    }
+
+    #[test]
+    fn parse_inspect_with_raw() {
+        let cli = Cli::try_parse_from(["echo-cli", "inspect", "state.wsc", "--raw"]).unwrap();
+        match cli.command {
+            Commands::Inspect { raw, .. } => assert!(raw),
             _ => panic!("expected Inspect command"),
         }
     }

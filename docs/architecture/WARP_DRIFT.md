@@ -17,6 +17,22 @@ The relevant baseline is now:
 - **There is no canonical materialized graph.** The substrate is
   witnessed causal history. Graph-like structure is an
   observer-relative reading over that history.
+- **All public WARP surfaces are optics producing holograms.** Admission,
+  observation, topology change, transport import, slicing, materialization, and
+  retention all choose a bounded causal basis/site, apply a law, and produce a
+  witnessed artifact with explicit posture.
+- **Continuum is a protocol, not a graph model.** Echo and `git-warp` are
+  compatible because they can exchange witnessed causal-history artifacts
+  through shared Continuum families, not because either runtime owns "the
+  graph."
+- **Runtimes and tools can themselves be WARP optics.** Echo is the real-time
+  simulation optic; `warp-ttd` is a debugger optic; `git-warp` is a Git
+  projection/retention optic; Wesley is a compiler rewrite optic from authored
+  schema to IR and artifacts.
+- **Those labels are product roles, not ontological categories.** Graft is an
+  aperture/support-obligation optic, WARPDrive is a POSIX materialization
+  optic, and `jedit` is a human-facing console over readings and admission.
+  They remain WARP optics rather than privileged graph owners.
 - **A strand is a real speculative lane, not a frozen snapshot.**
   Its realized state is resolved against inherited parent history at a
   chosen basis, and bounded reads should materialize only the backward
@@ -175,29 +191,40 @@ distance:
 
 - normalize to a comparable frontier
 - carry the transported local situation in a witness-bearing shell
+- submit inbound transport admission as an Intent against an explicit basis
 - return explicit import outcomes
 - preserve the shell-equivalence story for independent imports
+
+Implementation note: the runtime now treats Echo's `WitnessedSuffixShell`,
+`CausalSuffixBundle`, and `ImportSuffixResult` shapes as the source model for
+the Continuum runtime-boundary family. Continuum should change to match this
+typed evidence model instead of requiring Echo to adapt to a weaker
+`SuffixShell` placeholder.
+
+The same Intent-only rule applies to external forking, merging, braiding,
+settlement, support mutation, and inverse operations. Existing internal services
+may remain implementation details, but they are not public mutation authority.
 
 ### Fourth: update the docs/invariants to match the corrected runtime
 
 The bootstrap strand contract and README language should be revised only
 after the runtime direction is pinned, not before.
 
-## ASAP backlog items
+## Relevant design context
 
-These items now define the reconciliation path:
-
-- `docs/method/backlog/asap/KERNEL_live-holographic-strands.md`
-- `docs/method/backlog/asap/PLATFORM_observer-plan-reading-artifacts.md`
-- `docs/method/backlog/asap/PLATFORM_witnessed-suffix-admission-shells.md`
-
-Relevant existing design context:
+These packets define the reconciliation path now that completed backlog cards
+are pruned from `docs/method/backlog/**`:
 
 - `docs/design/0004-strand-contract/design.md`
+- `docs/design/0009-witnessed-causal-suffix-sync/design.md`
+- `docs/design/0010-live-basis-settlement-plan/design.md`
+- `docs/design/0011-optic-observer-runtime-doctrine/design.md`
 - `docs/design/0008-strand-settlement/design.md`
 - `docs/design/0009-witnessed-causal-suffix-sync/design.md`
 - `docs/design/0010-live-basis-settlement-plan/design.md`
 - `docs/design/0011-optic-observer-runtime-doctrine/design.md`
+- `docs/design/0022-continuum-transport-identity/design.md`
+- `docs/architecture/continuum-transport.md`
 - `docs/design/0006-echo-continuum-alignment/design.md`
 
 ## Practical rule

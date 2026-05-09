@@ -1,0 +1,13 @@
+Echo developer CLI
+
+Usage: echo-cli [OPTIONS] <COMMAND>
+
+Commands:
+  verify   Verify hash integrity of a WSC snapshot
+  bench    Run benchmarks and format results
+  inspect  Inspect a WSC snapshot
+
+Options:
+      --format <FORMAT>  Output format (text or json) [default: text]
+  -h, --help             Print help
+  -V, --version          Print version

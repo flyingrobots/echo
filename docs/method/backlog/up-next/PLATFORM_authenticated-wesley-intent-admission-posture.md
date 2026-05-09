@@ -7,7 +7,8 @@ Status: proposed security hardening.
 
 Depends on:
 
-- [Wesley to Echo toy contract proof](./PLATFORM_wesley-to-echo-toy-contract-proof.md)
+- Accepted
+  [0016 - Wesley To Echo Toy Contract Proof](../../../design/0016-wesley-to-echo-toy-contract-proof/design.md)
 - [Contract-aware receipts and readings](./KERNEL_contract-aware-receipts-and-readings.md)
 - [0017 - Authenticated Wesley Intent Admission Posture](../../../design/0017-authenticated-wesley-intent-admission-posture/design.md)
 

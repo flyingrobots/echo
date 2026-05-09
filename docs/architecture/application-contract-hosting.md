@@ -132,7 +132,8 @@ contract query operations onto this request shape when possible.
 
 **ReadingEnvelope** is the read-side evidence envelope. It carries observer
 plan, basis, witness refs, budget posture, rights posture, and residual,
-plural, or obstructed posture.
+plural, or obstructed posture. The current family boundary is named in
+`docs/design/0019-reading-envelope-family-boundary/reading-envelope-family-boundary.md`.
 
 ## Write Path
 
@@ -408,6 +409,12 @@ and cached materialized readings.
 
 CAS content hashes are not semantic truth by themselves. Meaning lives in the
 typed coordinate or reference above the CAS blob.
+
+For future retained readings, the preferred payload direction is documented in
+[WSC, Verkle, IPA, And Retained Readings](wsc-verkle-ipa-retained-readings.md):
+WSC supplies canonical columnar reading bytes, Verkle-style roots may
+authenticate those bytes, IPA-style proofs may support bounded apertures, and
+`echo-cas` remains content-addressed byte retention.
 
 ```mermaid
 flowchart TB

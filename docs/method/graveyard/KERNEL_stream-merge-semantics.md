@@ -1,13 +1,16 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# Merge semantics for admitted stream facts across worldlines
+# Superseded merge semantics note
 
-Ref: #245
+Folded from: #245
 
-When two forked worldlines are merged, how do admitted stream facts
-(channel emissions, provenance entries) combine? This is the hardest
-design question in Echo's strand/braiding story.
+This old issue asked how debugger-era per-source admission records combine when
+two forked worldlines merge. The old noun framing is obsolete. The remaining
+valid concern is folded into
+`docs/method/backlog/up-next/KERNEL_contract-strands-and-counterfactuals.md`:
+settlement is a generic worldline/strand/braid admission law with typed
+admitted, staged, plural, conflict, or obstructed outcomes.
 
 git-warp uses CRDT convergence (OR-Set + LWW). Echo needs canonical
 merge — one deterministic result, not eventual convergence. The

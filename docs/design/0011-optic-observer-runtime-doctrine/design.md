@@ -17,7 +17,6 @@ Depends on:
 - [0009 — Witnessed causal suffix export and import](../0009-witnessed-causal-suffix-sync/design.md)
 - [0010 — Live-basis settlement correction plan](../0010-live-basis-settlement-plan/design.md)
 - [Continuum Foundations](../../architecture/continuum-foundations.md)
-- [Observer plans and reading artifacts](../../method/backlog/asap/PLATFORM_observer-plan-reading-artifacts.md)
 
 Source theory inputs:
 
@@ -221,8 +220,10 @@ ReadingArtifact {
 
 The first implementation slice exposed parent-basis posture. The second slice
 wraps observation artifacts in `ReadingEnvelope`, includes it in
-`ObservationHashInput`, and makes built-in observer plan, observer basis,
-witness refs, budget posture, rights posture, and residual posture ABI-visible.
+`ObservationHashInput`, and makes observer plan, optional hosted observer
+instance, observer basis, witness refs, budget posture, rights posture, and
+residual posture ABI-visible. `ObservationRequest` also names observer plan,
+optional instance, read budget, and rights posture explicitly.
 The kernel keeps full overlap slots internally; the ABI carries overlap count
 plus a deterministic slot digest until a stable public slot representation
 exists.
@@ -348,7 +349,7 @@ Current implementation evidence:
 ### Step 4: Witnessed suffix shells
 
 Status: planned by
-[Witnessed suffix admission shells](../../method/backlog/asap/PLATFORM_witnessed-suffix-admission-shells.md).
+[0009 — Witnessed causal suffix export and import](../0009-witnessed-causal-suffix-sync/design.md).
 
 Scope:
 

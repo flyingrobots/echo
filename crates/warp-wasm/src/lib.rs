@@ -30,7 +30,8 @@ use wasm_bindgen::JsValue;
 #[cfg(feature = "engine")]
 use echo_wasm_abi::kernel_port::HeadInfo;
 use echo_wasm_abi::kernel_port::{
-    self, AbiError, ErrEnvelope, KernelPort, ObservationRequest, OkEnvelope, SettlementRequest,
+    self, AbiError, DispatchOpticIntentRequest, ErrEnvelope, KernelPort, ObservationRequest,
+    ObserveOpticRequest, OkEnvelope, SettlementRequest,
 };
 
 use std::cell::RefCell;
@@ -55,6 +56,42 @@ pub fn install_kernel(kernel: Box<dyn KernelPort>) {
     KERNEL.with(|cell| {
         *cell.borrow_mut() = Some(kernel);
     });
+}
+
+/// Dispatch intent bytes through the installed kernel and return a CBOR
+/// success/error envelope as raw bytes.
+///
+/// This is the native Rust equivalent of the `dispatch_intent` WASM export. It
+/// keeps generated-contract smoke tests off `js_sys::Uint8Array` while
+/// exercising the same installed-kernel envelope contract.
+pub fn dispatch_intent_cbor(intent_bytes: &[u8]) -> Vec<u8> {
+    encode_result_bytes(with_kernel(|k| k.dispatch_intent(intent_bytes)))
+}
+
+/// Observe through the installed kernel and return a CBOR success/error
+/// envelope as raw bytes.
+///
+/// `request_bytes` must decode as canonical-CBOR [`ObservationRequest`]. This
+/// mirrors the `observe` WASM export without requiring JavaScript bindings in
+/// native tests.
+pub fn observe_cbor(request_bytes: &[u8]) -> Vec<u8> {
+    let request = match echo_wasm_abi::decode_cbor::<ObservationRequest>(request_bytes) {
+        Ok(request) => request,
+        Err(err) => {
+            return encode_err_bytes(&AbiError {
+                code: kernel_port::error_codes::INVALID_PAYLOAD,
+                message: format!("invalid observation request payload: {err}"),
+            })
+        }
+    };
+    encode_result_bytes(with_kernel_ref(|k| k.observe(request)))
+}
+
+/// Return installed registry metadata as a CBOR success/error envelope.
+///
+/// This is the native Rust equivalent of the `get_registry_info` WASM export.
+pub fn get_registry_info_cbor() -> Vec<u8> {
+    encode_result_bytes(with_kernel_ref(|k| Ok(k.registry_info())))
 }
 
 /// Remove any installed kernel from the WASM boundary.
@@ -104,10 +141,14 @@ where
 
 /// Encode a successful result as a CBOR Uint8Array with `{ ok: true, ...data }`.
 fn encode_ok<T: serde::Serialize>(value: &T) -> Uint8Array {
+    bytes_to_uint8array(&encode_ok_bytes(value))
+}
+
+fn encode_ok_bytes<T: serde::Serialize>(value: &T) -> Vec<u8> {
     let envelope = OkEnvelope::new(value);
     match echo_wasm_abi::encode_cbor(&envelope) {
-        Ok(bytes) => bytes_to_uint8array(&bytes),
-        Err(_) => encode_err_raw(
+        Ok(bytes) => bytes,
+        Err(_) => encode_err_raw_bytes(
             kernel_port::error_codes::CODEC_ERROR,
             "failed to encode response",
         ),
@@ -116,16 +157,21 @@ fn encode_ok<T: serde::Serialize>(value: &T) -> Uint8Array {
 
 /// Encode an error as a CBOR Uint8Array with `{ ok: false, code, message }`.
 fn encode_err(err: &AbiError) -> Uint8Array {
-    encode_err_raw(err.code, &err.message)
+    bytes_to_uint8array(&encode_err_bytes(err))
+}
+
+fn encode_err_bytes(err: &AbiError) -> Vec<u8> {
+    encode_err_raw_bytes(err.code, &err.message)
 }
 
 /// Low-level error encoding that cannot itself fail (falls back to empty array).
 fn encode_err_raw(code: u32, message: &str) -> Uint8Array {
+    bytes_to_uint8array(&encode_err_raw_bytes(code, message))
+}
+
+fn encode_err_raw_bytes(code: u32, message: &str) -> Vec<u8> {
     let envelope = ErrEnvelope::new(code, message.into());
-    match echo_wasm_abi::encode_cbor(&envelope) {
-        Ok(bytes) => bytes_to_uint8array(&bytes),
-        Err(_) => Uint8Array::new_with_length(0),
-    }
+    echo_wasm_abi::encode_cbor(&envelope).unwrap_or_default()
 }
 
 /// Encode a `Result<T, AbiError>` into a CBOR Uint8Array envelope.
@@ -133,6 +179,13 @@ fn encode_result<T: serde::Serialize>(result: Result<T, AbiError>) -> Uint8Array
     match result {
         Ok(ref val) => encode_ok(val),
         Err(ref err) => encode_err(err),
+    }
+}
+
+fn encode_result_bytes<T: serde::Serialize>(result: Result<T, AbiError>) -> Vec<u8> {
+    match result {
+        Ok(ref val) => encode_ok_bytes(val),
+        Err(ref err) => encode_err_bytes(err),
     }
 }
 
@@ -243,6 +296,40 @@ pub fn init() -> Uint8Array {
 #[wasm_bindgen]
 pub fn dispatch_intent(intent_bytes: &[u8]) -> Uint8Array {
     encode_result(with_kernel(|k| k.dispatch_intent(intent_bytes)))
+}
+
+/// Propose an intent through an explicit optic dispatch request.
+///
+/// The request bytes must decode as canonical-CBOR `DispatchOpticIntentRequest`.
+#[wasm_bindgen]
+pub fn dispatch_optic_intent(request_bytes: &[u8]) -> Uint8Array {
+    let request = match echo_wasm_abi::decode_cbor::<DispatchOpticIntentRequest>(request_bytes) {
+        Ok(request) => request,
+        Err(err) => {
+            return encode_err(&AbiError {
+                code: kernel_port::error_codes::INVALID_PAYLOAD,
+                message: format!("invalid optic dispatch request payload: {err}"),
+            })
+        }
+    };
+    encode_result(with_kernel(|k| k.dispatch_optic_intent(request)))
+}
+
+/// Observe through an explicit optic request.
+///
+/// The request bytes must decode as canonical-CBOR `ObserveOpticRequest`.
+#[wasm_bindgen]
+pub fn observe_optic(request_bytes: &[u8]) -> Uint8Array {
+    let request = match echo_wasm_abi::decode_cbor::<ObserveOpticRequest>(request_bytes) {
+        Ok(request) => request,
+        Err(err) => {
+            return encode_err(&AbiError {
+                code: kernel_port::error_codes::INVALID_PAYLOAD,
+                message: format!("invalid optic observe request payload: {err}"),
+            })
+        }
+    };
+    encode_result(with_kernel_ref(|k| k.observe_optic(request)))
 }
 
 /// Observe a worldline at an explicit coordinate, frame, and projection.
@@ -654,6 +741,7 @@ mod init_tests {
                     observer_plan: ReadingObserverPlan::Builtin {
                         plan: BuiltinObserverPlan::CommitBoundaryHead,
                     },
+                    observer_instance: None,
                     observer_basis: ReadingObserverBasis::CommitBoundary,
                     witness_refs: vec![ReadingWitnessRef::EmptyFrontier {
                         worldline_id: WorldlineId::from_bytes([9; 32]),
@@ -868,14 +956,15 @@ mod init_tests {
     fn neighborhood_observation_uses_installed_kernel() {
         clear_kernel();
         install_kernel(Box::new(StubKernel));
-        let request = ObservationRequest {
-            coordinate: kernel_port::ObservationCoordinate {
+        let request = ObservationRequest::builtin_one_shot(
+            kernel_port::ObservationCoordinate {
                 worldline_id: WorldlineId::from_bytes([9; 32]),
                 at: ObservationAt::Frontier,
             },
-            frame: ObservationFrame::CommitBoundary,
-            projection: ObservationProjection::Head,
-        };
+            ObservationFrame::CommitBoundary,
+            ObservationProjection::Head,
+        )
+        .unwrap();
         let site = with_kernel_ref(|k| k.observe_neighborhood_site(request)).unwrap();
         assert_eq!(site.plurality, SitePlurality::Singleton);
         assert_eq!(site.participants.len(), 1);

@@ -1,16 +1,19 @@
 .ie \n(.g .ds Aq \(aq
 .el .ds Aq '
-.TH echo-cli-bench 1  "echo-cli-bench " 
+.TH echo-cli-bench 1  "echo-cli-bench "
 .SH NAME
 echo\-cli\-bench \- Run benchmarks and format results
 .SH SYNOPSIS
-\fBecho\-cli\-bench\fR [\fB\-\-filter\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+\fBecho\-cli\-bench\fR [\fB\-\-filter\fR] [\fB\-\-baseline\fR] [\fB\-h\fR|\fB\-\-help\fR]
 .SH DESCRIPTION
 Run benchmarks and format results
 .SH OPTIONS
 .TP
 \fB\-\-filter\fR \fI<FILTER>\fR
 Filter benchmarks by pattern
+.TP
+\fB\-\-baseline\fR \fI<BASELINE>\fR
+Compare current medians against a saved baseline
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help

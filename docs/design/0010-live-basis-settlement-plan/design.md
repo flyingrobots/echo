@@ -288,8 +288,7 @@ Likely code surfaces:
 ### Step 4: Observer plans and bounded reading artifacts
 
 Status: partially implemented by `ObservationArtifact::reading`; authored
-observer plans remain planned by
-[PLATFORM_observer-plan-reading-artifacts](../../method/backlog/asap/PLATFORM_observer-plan-reading-artifacts.md).
+observer plans remain follow-up work.
 Doctrine: [0011 — Optic and observer runtime doctrine](../0011-optic-observer-runtime-doctrine/design.md).
 
 Required behavior:
@@ -309,9 +308,7 @@ Current implementation evidence:
 
 ### Step 5: Witnessed suffix admission shells
 
-Status: planned by
-[PLATFORM_witnessed-suffix-admission-shells](../../method/backlog/asap/PLATFORM_witnessed-suffix-admission-shells.md)
-and [0009](../0009-witnessed-causal-suffix-sync/design.md).
+Status: planned by [0009](../0009-witnessed-causal-suffix-sync/design.md).
 
 Required behavior:
 

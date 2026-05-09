@@ -13,6 +13,7 @@ Depends on:
 - [Merkle Commit](merkle-commit.md)
 - [Provenance Payload](SPEC-0005-provenance-payload.md)
 - [WASM ABI Contract](SPEC-0009-wasm-abi.md)
+- [FIXED-TIMESTEP](../invariants/FIXED-TIMESTEP.md)
 
 ## Why this packet exists
 
@@ -40,11 +41,21 @@ The worldline is not itself the observer. It is the carrier that makes replay, a
 
 A playback cursor materializes a worldline at a coordinate without mutating the writer head unless it is explicitly acting as the writer. Seeking replays recorded patches and verifies expected hashes. It does not re-run rules.
 
+Playback coordinates follow the [FIXED-TIMESTEP](../invariants/FIXED-TIMESTEP.md)
+invariant: ticks are HistoryTime coordinates, and HostTime cannot affect replay
+or coordinate identity except through an admitted canonical decision record.
+Timer starts, fires, expiries, and cancellations follow the same law: an Intent
+is only a proposal, and only an admitted tick plus receipt becomes replayable
+timer history.
+
 ## Decision 3: Observation is the public read contract
 
 Public reads are expressed through observation artifacts: coordinate resolution, reading-envelope metadata, declared frame, declared projection, artifact hash, and payload. Observation is a reading emitted from an observer basis, not raw access to the causal carrier.
 
-The reading envelope is part of the contract, not decoration: it carries the observer plan, native basis, witness refs, parent/basis posture, budget posture, rights posture, and residual posture that bound the emitted reading.
+The reading envelope is part of the contract, not decoration: it carries the
+observer plan, optional hosted observer instance, native basis, witness refs,
+parent/basis posture, budget posture, rights posture, and residual posture that
+bound the emitted reading.
 
 ## Decision 4: Session output is replace-only
 

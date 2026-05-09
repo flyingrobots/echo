@@ -35,6 +35,11 @@ impl MethodWorkspace {
         self.root.join("docs/method/backlog")
     }
 
+    /// Return the path to the METHOD docs root.
+    pub fn method_root(&self) -> PathBuf {
+        self.root.join("docs/method")
+    }
+
     /// Return the path to the design docs root.
     pub fn design_root(&self) -> PathBuf {
         self.root.join("docs/design")

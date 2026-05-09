@@ -9,6 +9,11 @@ export default withMermaid(
     description: "Deterministic WARP runtime docs for Echo",
     cleanUrls: true,
     srcExclude: ["method/**", "design/**"],
+    vite: {
+      build: {
+        chunkSizeWarningLimit: 700,
+      },
+    },
     themeConfig: {
       search: { provider: "local" },
       nav: [
@@ -35,8 +40,16 @@ export default withMermaid(
               { text: "Docs Map", link: "/" },
               { text: "Runtime Model", link: "/architecture/outline" },
               {
+                text: "There Is No Graph",
+                link: "/architecture/there-is-no-graph",
+              },
+              {
                 text: "Application Contract Hosting",
                 link: "/architecture/application-contract-hosting",
+              },
+              {
+                text: "WSC + Verkle + IPA",
+                link: "/architecture/wsc-verkle-ipa-retained-readings",
               },
               { text: "Theory Map", link: "/theory/THEORY" },
               { text: "Current Bearing", link: "/BEARING" },

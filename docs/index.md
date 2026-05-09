@@ -8,6 +8,7 @@ Echo's live documentation centers on the runtime carrier, the retained witnesses
 ## Start Here
 
 - Runtime model: [/architecture/outline](/architecture/outline)
+- WSC, Verkle, IPA, and retained readings: [/architecture/wsc-verkle-ipa-retained-readings](/architecture/wsc-verkle-ipa-retained-readings)
 - Application contract hosting: [/architecture/application-contract-hosting](/architecture/application-contract-hosting)
 - Theory map: [/theory/THEORY](/theory/THEORY)
 - Current bearing: [/BEARING](/BEARING)
@@ -39,6 +40,7 @@ Echo's live documentation centers on the runtime carrier, the retained witnesses
 - JS to canonical CBOR mapping: [/spec/js-cbor-mapping](/spec/js-cbor-mapping)
 - ABI golden vectors: [/spec/abi-golden-vectors](/spec/abi-golden-vectors)
 - WARP view protocol: [/spec/warp-view-protocol](/spec/warp-view-protocol)
+- WSC, Verkle, IPA, and retained readings: [/architecture/wsc-verkle-ipa-retained-readings](/architecture/wsc-verkle-ipa-retained-readings)
 
 ## Determinism Evidence
 

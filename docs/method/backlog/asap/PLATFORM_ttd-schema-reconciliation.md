@@ -4,11 +4,10 @@
 # Reconcile TTD protocol schemas with warp-ttd
 
 Status: active and partially implemented. Echo's generated Rust and TypeScript
-protocol consumers are already labeled as generated from the canonical
-`warp-ttd` protocol. The remaining gap is provenance/tooling: the advertised
-regeneration command does not exist locally, and Echo still needs a verified
-handoff from the external canonical schema to the checked-in generated
-artifacts.
+protocol consumers are labeled as generated from the canonical `warp-ttd`
+protocol, and `cargo xtask wesley sync` now verifies local downstream-consumer
+provenance. The remaining gap is the full external handoff from the canonical
+schema bundle to checked-in generated artifacts.
 
 Echo has local TTD protocol artifacts that must stay downstream of `warp-ttd`:
 
@@ -24,13 +23,14 @@ acting as a backup schema owner.
 
 Work:
 
-- Reconcile `crates/ttd-protocol-rs/Cargo.toml` advertising
-  `cargo xtask wesley sync` with the actual repo tooling.
+- Extend the current `cargo xtask wesley sync` provenance check into a
+  regeneration or bundle-ingest path once the external canonical bundle is
+  published for Echo consumption.
 - Point protocol generation at the canonical `warp-ttd` schema or document the
   exact external bundle handoff if generation stays outside this repo.
 - Keep generated crates/packages clearly marked as downstream consumers, not
   backup protocol owners.
 - Verify generated types still satisfy the `echo-ttd` compliance checker and
   local browser adapter surfaces.
-- Coordinate with `PLATFORM_WESLEY_protocol-consumer-cutover` instead of
+- Preserve the completed WESLEY protocol consumer cutover decision instead of
   reopening protocol ownership from scratch.

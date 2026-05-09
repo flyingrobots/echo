@@ -98,6 +98,7 @@ pub mod inbox;
 pub mod materialization;
 mod neighborhood;
 mod observation;
+mod optic;
 /// Parallel execution module.
 ///
 /// Provides both serial and parallel execution strategies for rewrite rules,
@@ -158,6 +159,11 @@ pub use attachment::{
     CodecRegistry, DecodeError, ErasedCodec, RegistryError,
 };
 pub use clock::{GlobalTick, RunId, WorldlineTick};
+pub use cmd::{
+    import_suffix_intent_rule, import_suffix_result_edge_id, import_suffix_result_node_id,
+    IMPORT_SUFFIX_INTENT_RULE_NAME, IMPORT_SUFFIX_RESULT_ATTACHMENT_TYPE,
+    IMPORT_SUFFIX_RESULT_EDGE_TYPE, IMPORT_SUFFIX_RESULT_NODE_TYPE,
+};
 pub use constants::{blake3_empty, digest_len0_u64, POLICY_ID_NO_POLICY_V0};
 pub use engine_impl::{
     scope_hash, ApplyResult, CommitOutcome, DispatchDisposition, Engine, EngineBuilder,
@@ -206,12 +212,26 @@ pub use neighborhood::{
     ParticipantRole, SiteParticipant, SitePlurality,
 };
 pub use observation::{
-    BuiltinObserverPlan, HeadObservation, ObservationArtifact, ObservationAt,
+    AuthoredObserverPlan, BuiltinObserverPlan, HeadObservation, ObservationArtifact, ObservationAt,
     ObservationBasisPosture, ObservationCoordinate, ObservationError, ObservationFrame,
-    ObservationPayload, ObservationProjection, ObservationProjectionKind, ObservationRequest,
-    ObservationService, ReadingBudgetPosture, ReadingEnvelope, ReadingObserverBasis,
-    ReadingObserverPlan, ReadingResidualPosture, ReadingRightsPosture, ReadingWitnessRef,
-    ResolvedObservationCoordinate, WorldlineSnapshot,
+    ObservationPayload, ObservationProjection, ObservationProjectionKind, ObservationReadBudget,
+    ObservationRequest, ObservationRights, ObservationService, ObserverInstanceId,
+    ObserverInstanceRef, ObserverPlanId, ReadingBudgetPosture, ReadingEnvelope,
+    ReadingObserverBasis, ReadingObserverPlan, ReadingResidualPosture, ReadingRightsPosture,
+    ReadingWitnessRef, ResolvedObservationCoordinate, WorldlineSnapshot,
+};
+pub use optic::{
+    AdmissionLawId, AdmittedIntent, AttachmentDescentPolicy, BraidId, CapabilityPosture,
+    CloseOpticRequest, CloseOpticResult, CoordinateAt, DispatchOpticIntentRequest, EchoCoordinate,
+    EchoOptic, IntentConflict, IntentConflictReason, IntentDispatchResult, IntentFamilyId,
+    MissingWitnessBasisReason, ObserveOpticRequest, ObserveOpticResult, OpenOpticRequest,
+    OpenOpticResult, OpticActorId, OpticAperture, OpticApertureShape, OpticCapability,
+    OpticCapabilityId, OpticCause, OpticCloseError, OpticFocus, OpticId, OpticIntentPayload,
+    OpticObstruction, OpticObstructionKind, OpticOpenError, OpticReadBudget, OpticReading,
+    OpticReadingEnvelope, PluralIntent, ProjectionVersion, ReadIdentity, ReducerVersion,
+    RetainReadingRequest, RetainReadingResult, RetainedReadingCache, RetainedReadingCodecId,
+    RetainedReadingDescriptor, RetainedReadingKey, RevealReadingRequest, RevealReadingResult,
+    StagedIntent, StagedIntentReason, WitnessBasis, WorldlineHeadOptic,
 };
 pub use playback::{CursorReceipt, TruthFrame, TruthSink};
 pub use provenance_store::{
@@ -250,10 +270,13 @@ pub use tick_patch::{
 pub use tx::TxId;
 pub use warp_state::{WarpInstance, WarpState};
 pub use witnessed_suffix::{
-    evaluate_witnessed_suffix_admission, WitnessedSuffixAdmissionContext,
+    derive_witnessed_suffix_shell_digest, evaluate_witnessed_suffix_admission, export_suffix,
+    import_suffix, CausalSuffixBundle, ExportSuffixObstruction, ExportSuffixRequest,
+    ImportSuffixRequest, ImportSuffixResult, WitnessedSuffixAdmissionContext,
     WitnessedSuffixAdmissionOutcome, WitnessedSuffixAdmissionRequest,
-    WitnessedSuffixAdmissionResponse, WitnessedSuffixLocalAdmissionPosture,
-    WitnessedSuffixLocalAdmissionPostureError, WitnessedSuffixShell,
+    WitnessedSuffixAdmissionResponse, WitnessedSuffixExportContext,
+    WitnessedSuffixLocalAdmissionPosture, WitnessedSuffixLocalAdmissionPostureError,
+    WitnessedSuffixShell,
 };
 pub use worldline::{
     ApplyError, AtomWrite, AtomWriteSet, HashTriplet, OutputFrameSet, WorldlineId,

@@ -131,13 +131,16 @@ to the transitions themselves.
 ### 3. `ImportSuffixResult`
 
 Echo should surface the same honest outcome categories it already uses for
-admission and settlement-style plurality:
+admission and settlement-style plurality. Older sketches used `Braided` as a
+top-level result word, but the current law is stricter: braid membership is a
+possible local realization of preserved plurality, not a transport kind and not
+the incoming bundle itself.
 
 ```text
 ImportSuffixResult =
     Admitted { frontier, receipt }
   | Staged { lane_id, reason, receipt }
-  | Braided { braid_id, cells, receipt }
+  | Plural { candidate_refs, residual_posture, receipt }
   | Conflict { artifact, receipt }
   | Obstructed { witness, receipt }
 ```
@@ -201,6 +204,38 @@ The first honest runtime surface should be narrow:
 export_suffix(request) -> CausalSuffixBundle
 import_suffix(bundle) -> ImportSuffixResult
 ```
+
+Implementation note: Echo's first Rust/ABI slice exposes this shape as suffix
+shell construction plus local admission classification. `export_suffix` builds a
+`CausalSuffixBundle` from read-only suffix evidence and derives the source shell
+/ bundle identities. `import_suffix` normalizes through the existing witnessed
+suffix admission evaluator and returns `ImportSuffixResult`.
+
+For external mutation, that evaluator is not the public mutation path. Inbound
+transport admission must be submitted as an Intent:
+
+```text
+CausalSuffixBundle
+-> canonical import Intent
+-> dispatch_intent
+-> ingress / scheduler / admission
+-> tick + receipt / witness
+```
+
+The same rule applies to external forking, merging, braiding, settlement,
+support mutation, and inverse operations. Internal services may remain
+implementation details, but no public direct mutation API is the authority for
+these topology-changing operations.
+
+This is deliberately not import execution by side effect; it does not append
+target provenance or apply patches directly outside admission.
+
+The active transport-identity decision for M027 is stricter: Continuum's shared
+runtime-boundary family should now promote Echo's witnessed suffix model
+directly. The canonical shared names are `WitnessedSuffixShell`,
+`CausalSuffixBundle`, `WitnessedSuffixAdmissionResponse`, and `ImportOutcome`;
+the older `SuffixShell` wording is only a historical placeholder. See
+`docs/design/0022-continuum-transport-identity/design.md`.
 
 One supporting read surface is also useful:
 

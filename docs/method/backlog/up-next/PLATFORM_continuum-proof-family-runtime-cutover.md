@@ -37,6 +37,8 @@ For the first cut, the proof slice should cover:
 - one rewrite op with declared footprint
 - one valid implementation
 - one invalid compile-fail implementation
+- one generated artifact hash / footprint certificate that Echo can check at
+  load time
 
 ## Done looks like
 
@@ -44,6 +46,8 @@ For the first cut, the proof slice should cover:
 - handwritten proof-slice ABI/runtime DTOs are removed or proven isomorphic
   temporary shims
 - one invalid rewrite that exceeds its declared footprint fails to compile
+- the generated proof slice exposes a stable artifact hash or certificate hash
+  that Echo can compare before trusting the optimized path
 - runtime guards remain as second-line safety, not the only proof
 - the browser/WASM host bridge is still able to publish the resulting proof
   family

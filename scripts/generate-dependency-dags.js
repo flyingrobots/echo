@@ -103,7 +103,7 @@ function parseArgs(argv) {
     milestonesJson: ".cache/echo/deps/milestones-all.json",
     configJson: "docs/assets/dags/deps-config.json",
     outDir: "docs/assets/dags",
-    tasksDagPath: path.join("docs", "assets", "dags", "tasks-dag-source.md"),
+    tasksDagPath: null,
     snapshot: null,
     snapshotLabelMode: "auto",
   };
@@ -138,7 +138,7 @@ function parseArgs(argv) {
           "  --milestones-json <path> Read/write milestones snapshot JSON",
           "  --config <path>         Dependency config (edges) JSON",
           "  --out-dir <dir>         Output directory for DOT/SVG",
-          "  --tasks-dag <path>      Path to docs/assets/dags/tasks-dag-source.md (reality edges)",
+          "  --tasks-dag <path>      Optional reality-edge source to compare against plan edges",
           "  --snapshot <YYYY-MM-DD> Override label date in output graphs (legacy; prefer --snapshot-label)",
           "  --snapshot-label <mode> Snapshot label: auto|none|rolling|YYYY-MM-DD",
           "",
@@ -284,9 +284,9 @@ function emitIssueDot({ issues, issueEdges, snapshotLabel, realityEdges }) {
   }
 
   if (realityEdges) {
-    // Add nodes for reality-only edges (tasks-dag-source.md) when both endpoints
-    // exist and the edge is absent from configuredEdges, so red “missing from
-    // plan” edges can render.
+    // Add nodes for reality-only edges when both endpoints exist and the edge
+    // is absent from configuredEdges, so red "missing from plan" edges can
+    // render.
     for (const edgeKey of realityEdges) {
       const realityEdge = safeParseEdgeKey(edgeKey, "reality edge");
       if (!realityEdge) continue;
@@ -335,10 +335,13 @@ function emitIssueDot({ issues, issueEdges, snapshotLabel, realityEdges }) {
     snapshotLabel == null
       ? "Echo — Issue Dependency Sketch"
       : `Echo — Issue Dependency Sketch (snapshot: ${snapshotLabel})`;
+  const realityLegend = realityEdges
+    ? "\\nGreen = Confirmed in optional reality edges; Red = In optional reality edges but missing from Plan."
+    : "";
   lines.push(
     `  label="${escapeDotString(
       title,
-    )}\\nEdge direction: prerequisite → dependent (do tail before head)\\nEdge styles encode confidence (solid=strong, dashed=medium, dotted=weak).\\nGreen = Confirmed in tasks-dag-source.md; Red = In tasks-dag-source.md but missing from Plan.";`,
+    )}\\nEdge direction: prerequisite → dependent (do tail before head)\\nEdge styles encode confidence (solid=strong, dashed=medium, dotted=weak).${realityLegend}";`,
   );
   lines.push("");
 
@@ -351,18 +354,20 @@ function emitIssueDot({ issues, issueEdges, snapshotLabel, realityEdges }) {
   lines.push('    L2 [label="medium", fillcolor="#ffffff"];');
   lines.push('    L3 [label="weak", fillcolor="#ffffff"];');
   lines.push(
-    '    LG [label="confirmed (reality)", color="green", fontcolor="green"];',
-  );
-  lines.push(
-    '    LR [label="missing from plan", color="red", fontcolor="red"];',
-  );
-  lines.push(
     `    L1 -> L2 [arrowhead=none, ${confidenceEdgeAttrs("strong")}];`,
   );
   lines.push(
     `    L2 -> L3 [arrowhead=none, ${confidenceEdgeAttrs("medium")}];`,
   );
-  lines.push('    LG -> LR [arrowhead=none, color="red", style="dashed"];');
+  if (realityEdges) {
+    lines.push(
+      '    LG [label="confirmed (reality)", color="green", fontcolor="green"];',
+    );
+    lines.push(
+      '    LR [label="missing from plan", color="red", fontcolor="red"];',
+    );
+    lines.push('    LG -> LR [arrowhead=none, color="red", style="dashed"];');
+  }
   lines.push("  }");
   lines.push("");
 
@@ -394,6 +399,7 @@ function emitIssueDot({ issues, issueEdges, snapshotLabel, realityEdges }) {
   }
 
   for (const { from, to, confidence, note } of issueEdges) {
+    if (!byNum.has(from) || !byNum.has(to)) continue;
     const edgeKey = `${from}->${to}`;
     const inReality = realityEdges && realityEdges.has(edgeKey);
     if (inReality && confidence !== "strong") {
@@ -419,7 +425,7 @@ function emitIssueDot({ issues, issueEdges, snapshotLabel, realityEdges }) {
         const { from: u, to: v } = realityEdge;
         if (byNum.has(u) && byNum.has(v)) {
           lines.push(
-            `  i${u} -> i${v} [color="red", penwidth=2.0, style="dashed", tooltip="Inferred from tasks-dag-source.md (missing from Plan)"];`,
+            `  i${u} -> i${v} [color="red", penwidth=2.0, style="dashed", tooltip="Inferred from optional reality edges (missing from Plan)"];`,
           );
         }
       }
@@ -561,19 +567,25 @@ function main() {
   );
 
   let realityEdges = null;
-  const tasksDagPath = path.resolve(process.cwd(), args.tasksDagPath);
-  if (fs.existsSync(tasksDagPath)) {
-    try {
-      const tasksDagContent = fs.readFileSync(tasksDagPath, "utf8");
-      const { edges: tasksDagEdges } = parseTasksDag(tasksDagContent);
-      realityEdges = new Set(
-        tasksDagEdges.map((edge) => `${edge.from}->${edge.to}`),
-      );
-    } catch (err) {
+  if (args.tasksDagPath) {
+    const tasksDagPath = path.resolve(process.cwd(), args.tasksDagPath);
+    if (!fs.existsSync(tasksDagPath)) {
       console.warn(
-        `Warning: failed to parse ${tasksDagPath} for reality edges: ${err?.message ?? err}`,
+        `Warning: optional reality-edge source not found: ${tasksDagPath}`,
       );
-      realityEdges = null;
+    } else {
+      try {
+        const tasksDagContent = fs.readFileSync(tasksDagPath, "utf8");
+        const { edges: tasksDagEdges } = parseTasksDag(tasksDagContent);
+        realityEdges = new Set(
+          tasksDagEdges.map((edge) => `${edge.from}->${edge.to}`),
+        );
+      } catch (err) {
+        console.warn(
+          `Warning: failed to parse ${tasksDagPath} for reality edges: ${err?.message ?? err}`,
+        );
+        realityEdges = null;
+      }
     }
   }
 

@@ -10,7 +10,7 @@
 //!
 //! # ABI Version
 //!
-//! The current ABI version is [`ABI_VERSION`] (8). All response types are
+//! The current ABI version is [`ABI_VERSION`] (9). All response types are
 //! CBOR-encoded using the canonical rules defined in `docs/spec/js-cbor-mapping.md`.
 //! Breaking changes to response shapes or error codes require a bump to the
 //! ABI version.
@@ -26,6 +26,8 @@
 
 extern crate alloc;
 
+use alloc::boxed::Box;
+use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
@@ -38,7 +40,7 @@ use serde::{
 ///
 /// Increment when response types, error codes, or method signatures change
 /// in a backward-incompatible way.
-pub const ABI_VERSION: u32 = 8;
+pub const ABI_VERSION: u32 = 9;
 
 fn deserialize_opaque_id<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
 where
@@ -186,6 +188,92 @@ logical_counter!(
     RunId
 );
 
+opaque_id!(
+    /// Opaque stable identifier for an Echo optic descriptor.
+    OpticId
+);
+
+opaque_id!(
+    /// Opaque stable identifier for a generic braid.
+    BraidId
+);
+
+opaque_id!(
+    /// Opaque stable identifier for a retained reading key.
+    RetainedReadingKey
+);
+
+opaque_id!(
+    /// Opaque stable identifier for the encoding used by a retained reading payload.
+    RetainedReadingCodecId
+);
+
+opaque_id!(
+    /// Opaque stable identifier for an intent family allowed through an optic.
+    IntentFamilyId
+);
+
+opaque_id!(
+    /// Opaque stable identifier for an admission law used by optic dispatch.
+    AdmissionLawId
+);
+
+opaque_id!(
+    /// Opaque stable identifier for an optic capability basis.
+    OpticCapabilityId
+);
+
+opaque_id!(
+    /// Opaque stable identifier for an actor opening or using an optic.
+    OpticActorId
+);
+
+opaque_id!(
+    /// Opaque stable identifier for an authored or kernel observer plan.
+    ObserverPlanId
+);
+
+opaque_id!(
+    /// Opaque stable identifier for a hosted observer instance.
+    ObserverInstanceId
+);
+
+opaque_id!(
+    /// Opaque stable identifier for a WARP instance.
+    WarpId
+);
+
+opaque_id!(
+    /// Opaque stable identifier for a node within a WARP instance.
+    NodeId
+);
+
+opaque_id!(
+    /// Opaque stable identifier for an edge within a WARP instance.
+    EdgeId
+);
+
+opaque_id!(
+    /// Opaque stable identifier for a materialization channel.
+    ChannelId
+);
+
+/// Version of the projection law used by an optic read.
+#[repr(transparent)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
+#[serde(transparent)]
+pub struct ProjectionVersion(pub u32);
+
+/// Version of the reducer law used by an optic read, when a reducer is present.
+#[repr(transparent)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
+#[serde(transparent)]
+pub struct ReducerVersion(pub u32);
+
 // ---------------------------------------------------------------------------
 // Error codes
 // ---------------------------------------------------------------------------
@@ -220,6 +308,14 @@ pub mod error_codes {
     pub const INVALID_CONTROL: u32 = 13;
     /// The requested strand is not registered.
     pub const INVALID_STRAND: u32 = 14;
+    /// The requested observer plan is not available in this kernel.
+    pub const UNSUPPORTED_OBSERVER_PLAN: u32 = 15;
+    /// The requested observer instance is not available in this kernel.
+    pub const UNSUPPORTED_OBSERVER_INSTANCE: u32 = 16;
+    /// The requested observation rights posture is not available in this kernel.
+    pub const UNSUPPORTED_OBSERVATION_RIGHTS: u32 = 17;
+    /// The requested observation exceeded its explicit read budget.
+    pub const OBSERVATION_BUDGET_EXCEEDED: u32 = 18;
 }
 
 // ---------------------------------------------------------------------------
@@ -436,6 +532,664 @@ pub struct ChannelData {
     pub data: Vec<u8>,
 }
 
+/// Attachment plane selector for optic boundary reads.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AttachmentPlane {
+    /// Vertex/node attachment plane.
+    Alpha,
+    /// Edge attachment plane.
+    Beta,
+}
+
+/// Attachment owner reference for optic boundary reads.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AttachmentOwnerRef {
+    /// Node-owned attachment.
+    Node {
+        /// WARP instance containing the node.
+        warp_id: WarpId,
+        /// Node identity within that WARP instance.
+        node_id: NodeId,
+    },
+    /// Edge-owned attachment.
+    Edge {
+        /// WARP instance containing the edge.
+        warp_id: WarpId,
+        /// Edge identity within that WARP instance.
+        edge_id: EdgeId,
+    },
+}
+
+/// First-class reference to an attachment boundary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AttachmentKey {
+    /// Owner of the attachment slot.
+    pub owner: AttachmentOwnerRef,
+    /// Attachment plane selector.
+    pub plane: AttachmentPlane,
+}
+
+/// Lawful subject named by an optic.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum OpticFocus {
+    /// A whole worldline.
+    Worldline {
+        /// Target worldline.
+        worldline_id: WorldlineId,
+    },
+    /// A live or retained strand.
+    Strand {
+        /// Target strand.
+        strand_id: StrandId,
+    },
+    /// A generic braid projection.
+    Braid {
+        /// Target braid.
+        braid_id: BraidId,
+    },
+    /// A previously retained reading.
+    RetainedReading {
+        /// Retained reading key.
+        key: RetainedReadingKey,
+    },
+    /// An explicit attachment boundary.
+    AttachmentBoundary {
+        /// Attachment boundary key.
+        key: AttachmentKey,
+    },
+}
+
+/// Coordinate selector used by generic optics.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CoordinateAt {
+    /// Current frontier at observation or dispatch time.
+    Frontier,
+    /// Specific committed tick.
+    Tick {
+        /// Per-worldline append identity.
+        worldline_tick: WorldlineTick,
+    },
+    /// Full provenance coordinate.
+    Provenance {
+        /// Provenance coordinate reference.
+        reference: ProvenanceRef,
+    },
+}
+
+/// Causal coordinate named by an optic.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum EchoCoordinate {
+    /// Coordinate on a worldline.
+    Worldline {
+        /// Target worldline.
+        worldline_id: WorldlineId,
+        /// Requested position.
+        at: CoordinateAt,
+    },
+    /// Coordinate on a strand.
+    Strand {
+        /// Target strand.
+        strand_id: StrandId,
+        /// Requested position.
+        at: CoordinateAt,
+        /// Optional parent basis that makes the strand read honest.
+        parent_basis: Option<ProvenanceRef>,
+    },
+    /// Coordinate on a braid projection.
+    Braid {
+        /// Target braid.
+        braid_id: BraidId,
+        /// Projection digest at the named member frontier.
+        projection_digest: Vec<u8>,
+        /// Number of members included in the projection.
+        member_count: u64,
+    },
+    /// Coordinate of a retained reading.
+    RetainedReading {
+        /// Retained reading key.
+        key: RetainedReadingKey,
+    },
+}
+
+/// Attachment recursion policy for an optic aperture.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AttachmentDescentPolicy {
+    /// Stop at the attachment boundary and expose only the boundary reference.
+    BoundaryOnly,
+    /// Recursive descent was explicitly requested and remains budget/capability checked.
+    Explicit,
+}
+
+/// Budget bound for an optic read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct OpticReadBudget {
+    /// Maximum payload bytes to produce.
+    pub max_bytes: Option<u64>,
+    /// Maximum graph nodes or entities to visit.
+    pub max_nodes: Option<u64>,
+    /// Maximum causal ticks to reduce.
+    pub max_ticks: Option<u64>,
+    /// Maximum attachment boundaries to descend through.
+    pub max_attachments: Option<u64>,
+}
+
+/// Bounded aperture shape selected by an optic read.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum OpticApertureShape {
+    /// Head/frontier metadata only.
+    Head,
+    /// Snapshot metadata only.
+    SnapshotMetadata,
+    /// Recorded truth channels.
+    TruthChannels {
+        /// Optional channel filter. `None` means all recorded channels within budget.
+        channels: Option<Vec<ChannelId>>,
+    },
+    /// Contract query bytes identified by query id and vars digest.
+    QueryBytes {
+        /// Stable query identifier.
+        query_id: u32,
+        /// Hash of canonical query variables.
+        vars_digest: Vec<u8>,
+    },
+    /// Bounded byte range aperture.
+    ByteRange {
+        /// Start byte offset.
+        start: u64,
+        /// Maximum byte length to return.
+        len: u64,
+    },
+    /// Explicit attachment boundary.
+    AttachmentBoundary,
+}
+
+/// Complete aperture for one optic read.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpticAperture {
+    /// Shape of the read aperture.
+    pub shape: OpticApertureShape,
+    /// Read budget.
+    pub budget: OpticReadBudget,
+    /// Attachment recursion policy.
+    pub attachment_descent: AttachmentDescentPolicy,
+}
+
+/// Opened optic descriptor. This is not a mutable handle.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EchoOptic {
+    /// Stable optic identity derived by the core host.
+    pub optic_id: OpticId,
+    /// Lawful subject being observed or targeted by intent dispatch.
+    pub focus: OpticFocus,
+    /// Explicit causal coordinate.
+    pub coordinate: EchoCoordinate,
+    /// Projection law version.
+    pub projection_version: ProjectionVersion,
+    /// Reducer law version, if a reducer participates.
+    pub reducer_version: Option<ReducerVersion>,
+    /// Intent family allowed through this optic.
+    pub intent_family: IntentFamilyId,
+    /// Capability basis under which the optic was opened.
+    pub capability: OpticCapabilityId,
+}
+
+/// Reason an optic read identity cannot name a complete witness basis yet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MissingWitnessBasisReason {
+    /// Required witness evidence is unavailable.
+    EvidenceUnavailable,
+    /// The requested read exceeded its declared budget.
+    BudgetLimited,
+    /// The current capability does not permit revealing the basis.
+    RightsLimited,
+    /// The requested basis posture is not supported by this projection law.
+    UnsupportedBasis,
+}
+
+/// Witness basis named by a read identity.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum WitnessBasis {
+    /// One resolved provenance commit witnesses the reading.
+    ResolvedCommit {
+        /// Provenance coordinate that witnesses the reading.
+        reference: ProvenanceRef,
+        /// State root at the witness coordinate.
+        state_root: Vec<u8>,
+        /// Commit hash at the witness coordinate.
+        commit_hash: Vec<u8>,
+    },
+    /// A checkpoint plus explicit live-tail witness set witnesses the reading.
+    CheckpointPlusTail {
+        /// Checkpoint coordinate used as the cold basis.
+        checkpoint_ref: ProvenanceRef,
+        /// Checkpoint content hash.
+        checkpoint_hash: Vec<u8>,
+        /// Live-tail provenance refs reduced after the checkpoint.
+        tail_witness_refs: Vec<ProvenanceRef>,
+        /// Digest of the live-tail witness set.
+        tail_digest: Vec<u8>,
+    },
+    /// A witness set whose exact semantics are named by the contained refs and digest.
+    WitnessSet {
+        /// Witness refs supporting the read.
+        refs: Vec<ReadingWitnessRef>,
+        /// Digest over the witness set.
+        witness_set_hash: Vec<u8>,
+    },
+    /// The basis is missing; callers must treat the read as obstructed or incomplete.
+    Missing {
+        /// Deterministic reason the basis is missing.
+        reason: MissingWitnessBasisReason,
+    },
+}
+
+/// Stable identity of the question an optic read answered.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReadIdentity {
+    /// Stable hash over all identity fields.
+    pub read_identity_hash: Vec<u8>,
+    /// Optic being observed.
+    pub optic_id: OpticId,
+    /// Digest of the focus named by the read.
+    pub focus_digest: Vec<u8>,
+    /// Coordinate named by the read.
+    pub coordinate: EchoCoordinate,
+    /// Digest of the aperture named by the read.
+    pub aperture_digest: Vec<u8>,
+    /// Projection law version.
+    pub projection_version: ProjectionVersion,
+    /// Reducer law version, if present.
+    pub reducer_version: Option<ReducerVersion>,
+    /// Witness basis used by the read.
+    pub witness_basis: WitnessBasis,
+    /// Rights posture of the emitted reading.
+    pub rights_posture: ReadingRightsPosture,
+    /// Budget posture of the emitted reading.
+    pub budget_posture: ReadingBudgetPosture,
+    /// Residual posture of the emitted reading.
+    pub residual_posture: ReadingResidualPosture,
+}
+
+/// Existing reading envelope plus first-class optic read identity.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpticReadingEnvelope {
+    /// Existing observation reading envelope.
+    pub reading: ReadingEnvelope,
+    /// Stable read identity for the question this reading answered.
+    pub read_identity: ReadIdentity,
+}
+
+/// Descriptor for a retained reading payload.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RetainedReadingDescriptor {
+    /// Stable key derived from semantic read identity and byte identity.
+    pub key: RetainedReadingKey,
+    /// Semantic identity of the question answered by the retained payload.
+    pub read_identity: ReadIdentity,
+    /// Content hash of the retained payload bytes.
+    pub content_hash: Vec<u8>,
+    /// Codec used for the retained payload bytes.
+    pub codec_id: RetainedReadingCodecId,
+    /// Retained payload byte length.
+    pub byte_len: u64,
+}
+
+/// Bounded read request through an Echo optic.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ObserveOpticRequest {
+    /// Optic being observed.
+    pub optic_id: OpticId,
+    /// Focus being observed.
+    pub focus: OpticFocus,
+    /// Explicit causal coordinate for the read.
+    pub coordinate: EchoCoordinate,
+    /// Bounded aperture selected by the read.
+    pub aperture: OpticAperture,
+    /// Projection law version requested by the read.
+    pub projection_version: ProjectionVersion,
+    /// Reducer law version requested by the read, when present.
+    pub reducer_version: Option<ReducerVersion>,
+    /// Capability basis for the read.
+    pub capability: OpticCapabilityId,
+}
+
+/// Intent payload dispatched through an optic.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum OpticIntentPayload {
+    /// Canonical Echo intent v1 bytes.
+    EintV1 {
+        /// Complete EINT v1 envelope bytes.
+        bytes: Vec<u8>,
+    },
+}
+
+/// Write-side proposal request through an Echo optic.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DispatchOpticIntentRequest {
+    /// Optic being used as the proposal boundary.
+    pub optic_id: OpticId,
+    /// Explicit causal basis for the proposal.
+    pub base_coordinate: EchoCoordinate,
+    /// Intent family being proposed.
+    pub intent_family: IntentFamilyId,
+    /// Focus targeted by the proposal.
+    pub focus: OpticFocus,
+    /// Actor/cause associated with the proposal.
+    pub cause: OpticCause,
+    /// Capability basis for the proposal.
+    pub capability: OpticCapability,
+    /// Admission law requested for the proposal.
+    pub admission_law: AdmissionLawId,
+    /// Intent payload carried by the proposal.
+    pub payload: OpticIntentPayload,
+}
+
+/// Deterministic reason an optic read or dispatch could not lawfully proceed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OpticObstructionKind {
+    /// Required witness evidence is unavailable.
+    MissingWitness,
+    /// A retained reading named by the optic cannot be found or revealed.
+    MissingRetainedReading,
+    /// The dispatch named a base coordinate that is no longer the admitted basis.
+    StaleBasis,
+    /// The capability basis does not authorize the requested read or dispatch.
+    CapabilityDenied,
+    /// The declared read or dispatch budget was exceeded.
+    BudgetExceeded,
+    /// The requested aperture is not supported by this optic or projection law.
+    UnsupportedAperture,
+    /// The requested projection law/version is not available.
+    UnsupportedProjectionLaw,
+    /// The requested intent family is not available through this optic.
+    UnsupportedIntentFamily,
+    /// The read reached an attachment boundary and explicit descent is required.
+    AttachmentDescentRequired,
+    /// The requested attachment descent is not authorized.
+    AttachmentDescentDenied,
+    /// A live-tail read requires additional bounded reduction before it is honest.
+    LiveTailRequiresReduction,
+    /// The requested coordinate names an incompatible frontier.
+    ConflictingFrontier,
+    /// The request would collapse plurality without an explicit policy.
+    PluralityRequiresExplicitPolicy,
+}
+
+/// Typed obstruction returned instead of a hidden fallback or fake success.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpticObstruction {
+    /// Deterministic obstruction kind.
+    pub kind: OpticObstructionKind,
+    /// Optic implicated by the obstruction, when known.
+    pub optic_id: Option<OpticId>,
+    /// Focus implicated by the obstruction, when known.
+    pub focus: Option<OpticFocus>,
+    /// Coordinate implicated by the obstruction, when known.
+    pub coordinate: Option<EchoCoordinate>,
+    /// Witness basis posture that explains evidence availability, when known.
+    pub witness_basis: Option<WitnessBasis>,
+    /// Human-readable diagnostic text.
+    pub message: String,
+}
+
+/// Admission result for an optic intent that Echo accepted into witnessed history.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AdmittedIntent {
+    /// Optic through which the intent was dispatched.
+    pub optic_id: OpticId,
+    /// Explicit causal basis named by the dispatch.
+    pub base_coordinate: EchoCoordinate,
+    /// Intent family admitted through the optic.
+    pub intent_family: IntentFamilyId,
+    /// Provenance coordinate produced or identified by admission.
+    pub admitted_ref: ProvenanceRef,
+    /// Receipt digest witnessing the admission outcome.
+    pub receipt_hash: Vec<u8>,
+}
+
+/// Reason an optic intent is staged instead of admitted immediately.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StagedIntentReason {
+    /// The proposal needs an explicit rebase before admission can proceed.
+    RebaseRequired,
+    /// The proposal is waiting for additional capability evidence.
+    AwaitingCapability,
+    /// The proposal is waiting for additional witness evidence.
+    AwaitingWitness,
+    /// The proposal was deliberately staged for later explicit admission.
+    AwaitingExplicitAdmission,
+}
+
+/// Admission result for an optic intent retained without mutating the frontier.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StagedIntent {
+    /// Optic through which the intent was dispatched.
+    pub optic_id: OpticId,
+    /// Explicit causal basis named by the dispatch.
+    pub base_coordinate: EchoCoordinate,
+    /// Intent family proposed through the optic.
+    pub intent_family: IntentFamilyId,
+    /// Stable digest or storage key for the staged proposal.
+    pub stage_ref: Vec<u8>,
+    /// Deterministic reason the proposal is staged.
+    pub reason: StagedIntentReason,
+}
+
+/// Admission result that preserves lawful plurality instead of selecting one winner.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluralIntent {
+    /// Optic through which the intent was dispatched.
+    pub optic_id: OpticId,
+    /// Explicit causal basis named by the dispatch.
+    pub base_coordinate: EchoCoordinate,
+    /// Intent family proposed through the optic.
+    pub intent_family: IntentFamilyId,
+    /// Candidate coordinates that remain lawful plural outcomes.
+    pub candidate_refs: Vec<ProvenanceRef>,
+    /// Residual posture associated with the preserved plurality.
+    pub residual_posture: ReadingResidualPosture,
+}
+
+/// Deterministic conflict reason for an optic intent dispatch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IntentConflictReason {
+    /// The named base coordinate is no longer the applicable basis.
+    StaleBasis,
+    /// The request conflicts with the named or observed frontier.
+    ConflictingFrontier,
+    /// Capability evidence conflicts with the requested operation.
+    CapabilityConflict,
+    /// The verified footprint conflicts with concurrent causal claims.
+    FootprintConflict,
+    /// The requested admission law conflicts with the available host law.
+    AdmissionLawConflict,
+    /// The request needs an explicit plurality policy before admission.
+    UnsupportedPluralityPolicy,
+}
+
+/// Admission result for incompatible causal claims under an optic dispatch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IntentConflict {
+    /// Optic through which the intent was dispatched.
+    pub optic_id: OpticId,
+    /// Explicit causal basis named by the dispatch.
+    pub base_coordinate: EchoCoordinate,
+    /// Intent family proposed through the optic.
+    pub intent_family: IntentFamilyId,
+    /// Deterministic conflict reason.
+    pub reason: IntentConflictReason,
+    /// Provenance coordinate implicated by the conflict, when known.
+    pub conflict_ref: Option<ProvenanceRef>,
+    /// Digest of compact conflict evidence.
+    pub evidence_digest: Vec<u8>,
+    /// Human-readable diagnostic text.
+    pub message: String,
+}
+
+/// Typed top-level result for dispatching an intent through an optic.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "outcome", rename_all = "snake_case")]
+pub enum IntentDispatchResult {
+    /// Echo accepted the intent into witnessed history.
+    Admitted(AdmittedIntent),
+    /// Echo retained the proposal without mutating the named frontier.
+    Staged(StagedIntent),
+    /// Echo preserved lawful plurality instead of selecting a single result.
+    Plural(PluralIntent),
+    /// Echo found incompatible causal claims under the named admission law.
+    Conflict(IntentConflict),
+    /// Echo could not lawfully proceed because basis, evidence, rights, or law is missing.
+    Obstructed(OpticObstruction),
+}
+
+/// Auditable cause for opening, closing, observing, or dispatching through an optic.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpticCause {
+    /// Actor associated with the cause.
+    pub actor: OpticActorId,
+    /// Stable digest of the host-level cause or request.
+    pub cause_hash: Vec<u8>,
+    /// Optional diagnostic label for humans.
+    pub label: Option<String>,
+}
+
+/// Capability grant used while validating an optic descriptor.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpticCapability {
+    /// Stable capability identity retained in opened optic descriptors.
+    pub capability_id: OpticCapabilityId,
+    /// Actor to which the capability was issued.
+    pub actor: OpticActorId,
+    /// Provenance ref for the issuer or policy source, when available.
+    pub issuer_ref: Option<ProvenanceRef>,
+    /// Stable digest of the capability policy.
+    pub policy_hash: Vec<u8>,
+    /// Focus this minimal capability authorizes.
+    pub allowed_focus: OpticFocus,
+    /// Projection law version this capability authorizes.
+    pub projection_version: ProjectionVersion,
+    /// Reducer law version this capability authorizes, when required.
+    pub reducer_version: Option<ReducerVersion>,
+    /// Intent family this capability authorizes.
+    pub allowed_intent_family: IntentFamilyId,
+    /// Maximum read budget authorized by this capability.
+    pub max_budget: OpticReadBudget,
+}
+
+/// Capability posture returned after successfully validating an optic descriptor.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CapabilityPosture {
+    /// The descriptor is authorized by the named capability grant.
+    Granted {
+        /// Capability identity retained in the opened descriptor.
+        capability_id: OpticCapabilityId,
+        /// Actor to which the capability was issued.
+        actor: OpticActorId,
+        /// Provenance ref for the issuer or policy source, when available.
+        issuer_ref: Option<ProvenanceRef>,
+        /// Stable digest of the capability policy.
+        policy_hash: Vec<u8>,
+    },
+}
+
+/// Descriptor-validation request for opening a session-local optic resource.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpenOpticRequest {
+    /// Lawful subject being observed or targeted by intent dispatch.
+    pub focus: OpticFocus,
+    /// Explicit causal coordinate for the optic descriptor.
+    pub coordinate: EchoCoordinate,
+    /// Projection law version requested by the descriptor.
+    pub projection_version: ProjectionVersion,
+    /// Reducer law version requested by the descriptor, when present.
+    pub reducer_version: Option<ReducerVersion>,
+    /// Intent family allowed through the opened optic.
+    pub intent_family: IntentFamilyId,
+    /// Capability grant used to validate this descriptor.
+    pub capability: OpticCapability,
+    /// Auditable cause for opening the descriptor.
+    pub cause: OpticCause,
+}
+
+/// Successful descriptor-validation result for opening an optic.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpenOpticResult {
+    /// Opened optic descriptor. This is not a mutable subject handle.
+    pub optic: EchoOptic,
+    /// Capability posture that authorized the descriptor.
+    pub capability_posture: CapabilityPosture,
+}
+
+/// Error returned while opening an optic descriptor.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "obstruction", rename_all = "snake_case")]
+pub enum OpticOpenError {
+    /// Opening failed with a typed obstruction.
+    Obstructed(OpticObstruction),
+}
+
+/// Request for releasing a session-local optic descriptor resource.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloseOpticRequest {
+    /// Optic descriptor to release from the session.
+    pub optic_id: OpticId,
+    /// Auditable cause for closing the descriptor.
+    pub cause: OpticCause,
+}
+
+/// Result for releasing a session-local optic descriptor resource.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloseOpticResult {
+    /// Optic descriptor released from the session.
+    pub optic_id: OpticId,
+}
+
+/// Error returned while closing an optic descriptor.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "obstruction", rename_all = "snake_case")]
+pub enum OpticCloseError {
+    /// Closing failed with a typed obstruction.
+    Obstructed(OpticObstruction),
+}
+
+/// Successful bounded reading returned through an optic.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpticReading {
+    /// Reading-envelope metadata.
+    pub envelope: ReadingEnvelope,
+    /// Stable read identity for the question this reading answered.
+    pub read_identity: ReadIdentity,
+    /// Observation payload emitted by the observer.
+    pub payload: ObservationPayload,
+    /// Retained reading key, when the payload was retained.
+    pub retained: Option<RetainedReadingKey>,
+}
+
+/// Result of observing an optic.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum ObserveOpticResult {
+    /// The optic emitted a bounded reading.
+    Reading(Box<OpticReading>),
+    /// The optic could not lawfully emit a reading.
+    Obstructed(Box<OpticObstruction>),
+}
+
 /// Coordinate selector for an observation request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ObservationCoordinate {
@@ -494,6 +1248,46 @@ pub enum ObservationProjection {
     },
 }
 
+/// Lightweight projection kind used in frame/projection validation errors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ObservationProjectionKind {
+    /// Head metadata projection.
+    Head,
+    /// Snapshot metadata projection.
+    Snapshot,
+    /// Recorded-truth channels projection.
+    TruthChannels,
+    /// Query byte projection.
+    Query,
+}
+
+impl ObservationProjection {
+    /// Returns the projection kind without retaining projection payload bytes.
+    #[must_use]
+    pub fn kind(&self) -> ObservationProjectionKind {
+        match self {
+            Self::Head => ObservationProjectionKind::Head,
+            Self::Snapshot => ObservationProjectionKind::Snapshot,
+            Self::TruthChannels { .. } => ObservationProjectionKind::TruthChannels,
+            Self::Query { .. } => ObservationProjectionKind::Query,
+        }
+    }
+}
+
+/// Invalid one-shot built-in observation request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ObservationRequestError {
+    /// The declared frame does not support the requested projection kind.
+    UnsupportedFrameProjection {
+        /// Declared frame.
+        frame: ObservationFrame,
+        /// Requested projection kind.
+        projection: ObservationProjectionKind,
+    },
+}
+
 /// Canonical observation request DTO.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ObservationRequest {
@@ -503,6 +1297,87 @@ pub struct ObservationRequest {
     pub frame: ObservationFrame,
     /// Requested projection within that frame.
     pub projection: ObservationProjection,
+    /// Observer plan the caller is explicitly invoking.
+    pub observer_plan: ReadingObserverPlan,
+    /// Hosted observer instance state, when this is not a one-shot read.
+    pub observer_instance: Option<ObserverInstanceRef>,
+    /// Declared read budget.
+    pub budget: ObservationReadBudget,
+    /// Declared rights posture for the read.
+    pub rights: ObservationRights,
+}
+
+impl ObservationRequest {
+    /// Builds a one-shot built-in observation request for the frame/projection pair.
+    pub fn builtin_one_shot(
+        coordinate: ObservationCoordinate,
+        frame: ObservationFrame,
+        projection: ObservationProjection,
+    ) -> Result<Self, ObservationRequestError> {
+        let observer_plan = ReadingObserverPlan::Builtin {
+            plan: builtin_observer_plan_for(&frame, &projection)?,
+        };
+        Ok(Self {
+            coordinate,
+            frame,
+            projection,
+            observer_plan,
+            observer_instance: None,
+            budget: ObservationReadBudget::UnboundedOneShot,
+            rights: ObservationRights::KernelPublic,
+        })
+    }
+}
+
+fn builtin_observer_plan_for(
+    frame: &ObservationFrame,
+    projection: &ObservationProjection,
+) -> Result<BuiltinObserverPlan, ObservationRequestError> {
+    match (frame, projection) {
+        (&ObservationFrame::CommitBoundary, ObservationProjection::Head) => {
+            Ok(BuiltinObserverPlan::CommitBoundaryHead)
+        }
+        (&ObservationFrame::CommitBoundary, ObservationProjection::Snapshot) => {
+            Ok(BuiltinObserverPlan::CommitBoundarySnapshot)
+        }
+        (&ObservationFrame::RecordedTruth, ObservationProjection::TruthChannels { .. }) => {
+            Ok(BuiltinObserverPlan::RecordedTruthChannels)
+        }
+        (&ObservationFrame::QueryView, ObservationProjection::Query { .. }) => {
+            Ok(BuiltinObserverPlan::QueryBytes)
+        }
+        _ => Err(ObservationRequestError::UnsupportedFrameProjection {
+            frame: frame.clone(),
+            projection: projection.kind(),
+        }),
+    }
+}
+
+#[cfg(test)]
+mod observation_request_tests {
+    use super::{
+        ObservationAt, ObservationCoordinate, ObservationFrame, ObservationProjection,
+        ObservationRequest, WorldlineId,
+    };
+
+    #[test]
+    fn builtin_one_shot_rejects_invalid_frame_projection() {
+        let result = ObservationRequest::builtin_one_shot(
+            ObservationCoordinate {
+                worldline_id: WorldlineId::from_bytes([1; 32]),
+                at: ObservationAt::Frontier,
+            },
+            ObservationFrame::RecordedTruth,
+            ObservationProjection::Head,
+        );
+        assert!(matches!(
+            result,
+            Err(super::ObservationRequestError::UnsupportedFrameProjection {
+                frame: ObservationFrame::RecordedTruth,
+                projection: super::ObservationProjectionKind::Head,
+            })
+        ));
+    }
 }
 
 /// Resolved coordinate returned with every observation artifact.
@@ -593,6 +1468,23 @@ pub enum BuiltinObserverPlan {
     QueryBytes,
 }
 
+/// Authored observer plan identity.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthoredObserverPlan {
+    /// Stable plan identity.
+    pub plan_id: ObserverPlanId,
+    /// Hash of the generated or installed observer artifact.
+    pub artifact_hash: Vec<u8>,
+    /// Hash of the authored schema or contract family.
+    pub schema_hash: Vec<u8>,
+    /// Hash of the observer state schema.
+    pub state_schema_hash: Vec<u8>,
+    /// Hash of the observer update law.
+    pub update_law_hash: Vec<u8>,
+    /// Hash of the observer emission law.
+    pub emission_law_hash: Vec<u8>,
+}
+
 /// Observer plan identity for a reading artifact.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -602,6 +1494,22 @@ pub enum ReadingObserverPlan {
         /// Built-in plan selected by the observation frame/projection pair.
         plan: BuiltinObserverPlan,
     },
+    /// Authored/generated observer plan.
+    Authored {
+        /// Authored plan identity and law hashes.
+        plan: Box<AuthoredObserverPlan>,
+    },
+}
+
+/// Hosted observer instance identity.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ObserverInstanceRef {
+    /// Runtime instance identity.
+    pub instance_id: ObserverInstanceId,
+    /// Plan that owns this instance.
+    pub plan_id: ObserverPlanId,
+    /// Hash of the accumulated observer state.
+    pub state_hash: Vec<u8>,
 }
 
 /// Native observer basis used by the emitted reading.
@@ -614,6 +1522,35 @@ pub enum ReadingObserverBasis {
     RecordedTruth,
     /// Query-view observer basis.
     QueryView,
+}
+
+/// Read budget requested by an observation caller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ObservationReadBudget {
+    /// One-shot built-in observer with no caller-specified slice budget.
+    UnboundedOneShot,
+    /// Caller-bounded read budget.
+    Bounded {
+        /// Maximum encoded payload bytes the caller is willing to receive.
+        max_payload_bytes: u64,
+        /// Maximum witness references the caller is willing to accept.
+        max_witness_refs: u64,
+    },
+}
+
+/// Rights posture requested by an observation caller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ObservationRights {
+    /// Kernel-public read.
+    KernelPublic,
+    /// Capability-scoped read. Echo carries this now but does not execute it
+    /// until a capability checker is installed for the observer family.
+    CapabilityScoped {
+        /// Capability basis named by the caller.
+        capability: OpticCapabilityId,
+    },
 }
 
 /// Witness reference carried by a reading artifact.
@@ -642,6 +1579,17 @@ pub enum ReadingWitnessRef {
 pub enum ReadingBudgetPosture {
     /// One-shot built-in observer with no caller-specified slice budget.
     UnboundedOneShot,
+    /// Caller-bounded reading that remained within budget.
+    Bounded {
+        /// Requested encoded payload byte limit.
+        max_payload_bytes: u64,
+        /// Encoded payload bytes emitted.
+        payload_bytes: u64,
+        /// Requested witness-reference limit.
+        max_witness_refs: u64,
+        /// Witness references emitted.
+        witness_refs: u64,
+    },
 }
 
 /// Rights posture for a reading artifact.
@@ -671,6 +1619,8 @@ pub enum ReadingResidualPosture {
 pub struct ReadingEnvelope {
     /// Observer plan identity.
     pub observer_plan: ReadingObserverPlan,
+    /// Hosted observer instance, when the reading used accumulated observer state.
+    pub observer_instance: Option<ObserverInstanceRef>,
     /// Native observer basis used by the reading.
     pub observer_basis: ReadingObserverBasis,
     /// Witnesses or shell references that support the reading.
@@ -1107,6 +2057,71 @@ pub struct WitnessedSuffixAdmissionResponse {
     pub outcome: WitnessedSuffixAdmissionOutcome,
 }
 
+/// Request to export a witnessed causal suffix rooted at a known source frontier.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExportSuffixRequest {
+    /// Source worldline carrying the suffix.
+    pub source_worldline_id: WorldlineId,
+    /// Known source basis before the suffix begins.
+    pub base_frontier: ProvenanceRef,
+    /// Optional requested source frontier to export through.
+    pub target_frontier: Option<ProvenanceRef>,
+    /// Optional basis-relative settlement evidence reused by the exported shell.
+    pub basis_report: Option<SettlementBasisReport>,
+}
+
+/// Witnessed suffix bundle exchanged across a hot/cold runtime boundary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CausalSuffixBundle {
+    /// Known source basis before the suffix begins.
+    pub base_frontier: ProvenanceRef,
+    /// Source frontier reached by this exported suffix shell.
+    pub target_frontier: ProvenanceRef,
+    /// Compact source suffix and its witness digest.
+    pub source_suffix: WitnessedSuffixShell,
+    /// Deterministic digest of the bundle identity.
+    pub bundle_digest: Vec<u8>,
+}
+
+/// Obstruction returned when Echo cannot produce a witnessed suffix bundle.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExportSuffixObstruction {
+    /// Source coordinate implicated in the obstruction.
+    pub source_ref: ProvenanceRef,
+    /// Read-side residual posture associated with the obstruction.
+    pub residual_posture: ReadingResidualPosture,
+    /// Deterministic digest of compact obstruction evidence.
+    pub evidence_digest: Vec<u8>,
+}
+
+/// Request to import one witnessed causal suffix bundle by classifying it
+/// against a target basis.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ImportSuffixRequest {
+    /// Source bundle being judged.
+    pub bundle: CausalSuffixBundle,
+    /// Worldline receiving the proposed admission.
+    pub target_worldline_id: WorldlineId,
+    /// Target basis used while judging admission.
+    pub target_basis: ProvenanceRef,
+    /// Optional target-basis evidence for strand/parent realization cases.
+    pub basis_report: Option<SettlementBasisReport>,
+}
+
+/// Result of importing one witnessed causal suffix bundle into local admission.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ImportSuffixResult {
+    /// Bundle identity retained for shell-equivalence and loop-prevention checks.
+    pub bundle_digest: Vec<u8>,
+    /// Admission classifier response for the bundle's source suffix.
+    pub admission: WitnessedSuffixAdmissionResponse,
+}
+
 /// Top-level witnessed suffix admission posture.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -1228,6 +2243,171 @@ impl ErrEnvelope {
 // KernelPort trait
 // ---------------------------------------------------------------------------
 
+fn optic_focus_matches_coordinate(focus: &OpticFocus, coordinate: &EchoCoordinate) -> bool {
+    match (focus, coordinate) {
+        (
+            OpticFocus::Worldline { worldline_id },
+            EchoCoordinate::Worldline {
+                worldline_id: coordinate_worldline,
+                ..
+            },
+        ) => worldline_id == coordinate_worldline,
+        (
+            OpticFocus::Strand { strand_id },
+            EchoCoordinate::Strand {
+                strand_id: coordinate_strand,
+                ..
+            },
+        ) => strand_id == coordinate_strand,
+        (
+            OpticFocus::Braid { braid_id },
+            EchoCoordinate::Braid {
+                braid_id: coordinate_braid,
+                ..
+            },
+        ) => braid_id == coordinate_braid,
+        (
+            OpticFocus::RetainedReading { key },
+            EchoCoordinate::RetainedReading {
+                key: coordinate_key,
+            },
+        ) => key == coordinate_key,
+        (OpticFocus::AttachmentBoundary { .. }, _) => true,
+        _ => false,
+    }
+}
+
+fn optic_dispatch_obstruction(
+    request: &DispatchOpticIntentRequest,
+    kind: OpticObstructionKind,
+    message: impl Into<String>,
+) -> IntentDispatchResult {
+    IntentDispatchResult::Obstructed(OpticObstruction {
+        kind,
+        optic_id: Some(request.optic_id),
+        focus: Some(request.focus.clone()),
+        coordinate: Some(request.base_coordinate.clone()),
+        witness_basis: None,
+        message: message.into(),
+    })
+}
+
+fn validate_optic_dispatch_request(
+    request: &DispatchOpticIntentRequest,
+    current_coordinate: Option<&EchoCoordinate>,
+) -> Option<IntentDispatchResult> {
+    if !optic_focus_matches_coordinate(&request.focus, &request.base_coordinate) {
+        return Some(optic_dispatch_obstruction(
+            request,
+            OpticObstructionKind::ConflictingFrontier,
+            "optic dispatch focus and base coordinate name different subjects",
+        ));
+    }
+
+    if request.capability.actor != request.cause.actor {
+        return Some(optic_dispatch_obstruction(
+            request,
+            OpticObstructionKind::CapabilityDenied,
+            "optic dispatch capability actor does not match cause actor",
+        ));
+    }
+
+    if request.capability.allowed_focus != request.focus {
+        return Some(optic_dispatch_obstruction(
+            request,
+            OpticObstructionKind::CapabilityDenied,
+            "optic dispatch capability does not authorize focus",
+        ));
+    }
+
+    if request.capability.allowed_intent_family != request.intent_family {
+        return Some(optic_dispatch_obstruction(
+            request,
+            OpticObstructionKind::UnsupportedIntentFamily,
+            "optic dispatch capability does not authorize intent family",
+        ));
+    }
+
+    if let Some(current_coordinate) = current_coordinate {
+        if !coordinates_name_same_subject(&request.base_coordinate, current_coordinate) {
+            return Some(optic_dispatch_obstruction(
+                request,
+                OpticObstructionKind::ConflictingFrontier,
+                "optic dispatch current coordinate names a different subject",
+            ));
+        }
+
+        if base_coordinate_is_stale(&request.base_coordinate, current_coordinate) {
+            return Some(optic_dispatch_obstruction(
+                request,
+                OpticObstructionKind::StaleBasis,
+                "optic dispatch base coordinate is stale relative to current frontier",
+            ));
+        }
+    }
+
+    None
+}
+
+fn coordinates_name_same_subject(base: &EchoCoordinate, current: &EchoCoordinate) -> bool {
+    match (base, current) {
+        (
+            EchoCoordinate::Worldline { worldline_id, .. },
+            EchoCoordinate::Worldline {
+                worldline_id: current_worldline,
+                ..
+            },
+        ) => worldline_id == current_worldline,
+        (
+            EchoCoordinate::Strand { strand_id, .. },
+            EchoCoordinate::Strand {
+                strand_id: current_strand,
+                ..
+            },
+        ) => strand_id == current_strand,
+        (
+            EchoCoordinate::Braid { braid_id, .. },
+            EchoCoordinate::Braid {
+                braid_id: current_braid,
+                ..
+            },
+        ) => braid_id == current_braid,
+        (
+            EchoCoordinate::RetainedReading { key },
+            EchoCoordinate::RetainedReading { key: current_key },
+        ) => key == current_key,
+        _ => false,
+    }
+}
+
+fn base_coordinate_is_stale(base: &EchoCoordinate, current: &EchoCoordinate) -> bool {
+    match (base, current) {
+        (
+            EchoCoordinate::Worldline { at, .. } | EchoCoordinate::Strand { at, .. },
+            EchoCoordinate::Worldline { at: current_at, .. }
+            | EchoCoordinate::Strand { at: current_at, .. },
+        ) => coordinate_at_tick(at).is_some_and(|base_tick| {
+            coordinate_at_tick(current_at).is_some_and(|current_tick| base_tick < current_tick)
+        }),
+        (
+            EchoCoordinate::Braid { member_count, .. },
+            EchoCoordinate::Braid {
+                member_count: current_member_count,
+                ..
+            },
+        ) => member_count < current_member_count,
+        _ => false,
+    }
+}
+
+fn coordinate_at_tick(at: &CoordinateAt) -> Option<u64> {
+    match at {
+        CoordinateAt::Frontier => None,
+        CoordinateAt::Tick { worldline_tick } => Some(worldline_tick.0),
+        CoordinateAt::Provenance { reference } => Some(reference.worldline_tick.0),
+    }
+}
+
 /// App-agnostic kernel boundary for WASM host adapters.
 ///
 /// Implementors wrap a specific simulation engine and expose the byte-level
@@ -1252,6 +2432,69 @@ pub trait KernelPort {
     /// The kernel content-addresses the intent and returns whether it was
     /// newly accepted or a duplicate.
     fn dispatch_intent(&mut self, intent_bytes: &[u8]) -> Result<DispatchResponse, AbiError>;
+
+    /// Returns the current coordinate for an optic focus when the implementation
+    /// can resolve it cheaply enough to validate stale bases.
+    fn current_optic_coordinate(
+        &self,
+        _focus: &OpticFocus,
+    ) -> Result<Option<EchoCoordinate>, AbiError> {
+        Ok(None)
+    }
+
+    /// Propose an intent through an explicit optic dispatch request.
+    ///
+    /// The default implementation validates the generic optic/capability
+    /// request and routes `EintV1` payloads into [`KernelPort::dispatch_intent`].
+    /// Because that existing path only ingests an intent into the runtime inbox,
+    /// the resulting optic outcome is `Staged`, not a fabricated admitted tick.
+    fn dispatch_optic_intent(
+        &mut self,
+        request: DispatchOpticIntentRequest,
+    ) -> Result<IntentDispatchResult, AbiError> {
+        if let Some(obstruction) = validate_optic_dispatch_request(&request, None) {
+            return Ok(obstruction);
+        }
+
+        let current_coordinate = self.current_optic_coordinate(&request.focus)?;
+        if let Some(obstruction) =
+            validate_optic_dispatch_request(&request, current_coordinate.as_ref())
+        {
+            return Ok(obstruction);
+        }
+
+        match &request.payload {
+            OpticIntentPayload::EintV1 { bytes } => {
+                if let Err(error) = crate::unpack_intent_v1(bytes) {
+                    return Ok(optic_dispatch_obstruction(
+                        &request,
+                        OpticObstructionKind::UnsupportedIntentFamily,
+                        format!("optic dispatch EINT v1 payload is malformed: {error}"),
+                    ));
+                }
+
+                let dispatch = self.dispatch_intent(bytes)?;
+                Ok(IntentDispatchResult::Staged(StagedIntent {
+                    optic_id: request.optic_id,
+                    base_coordinate: request.base_coordinate,
+                    intent_family: request.intent_family,
+                    stage_ref: dispatch.intent_id,
+                    reason: StagedIntentReason::AwaitingExplicitAdmission,
+                }))
+            }
+        }
+    }
+
+    /// Observe through an explicit optic request.
+    ///
+    /// The default implementation reports that optic reads are not supported by
+    /// this kernel implementation.
+    fn observe_optic(&self, _request: ObserveOpticRequest) -> Result<ObserveOpticResult, AbiError> {
+        Err(AbiError {
+            code: error_codes::NOT_SUPPORTED,
+            message: "observe_optic is not supported by this kernel".into(),
+        })
+    }
 
     /// Observe a worldline at an explicit coordinate and frame.
     ///

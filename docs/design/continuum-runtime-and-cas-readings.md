@@ -17,6 +17,11 @@ Scope: doctrine and implementation runway only
 
 Echo is a peer Continuum runtime implementation.
 
+Echo itself is a WARP optic for real-time deterministic simulation. `warp-ttd`
+is a WARP optic for debugger inspection. `git-warp` is a WARP optic that
+projects witnessed causal history onto Git as a primitive substrate. Wesley is
+a WARP optic that rewrites authored schema input into IR and output artifacts.
+
 Echo stores, executes, admits, observes, exports, imports, and retains
 witnessed causal history in its own runtime style. Echo may use `echo-cas`,
 indexes, checkpoints, and cached materialized readings for performance and
@@ -39,6 +44,22 @@ The substrate is witnessed causal history:
 
 State-like values are observer-relative readings over that history.
 
+There is no privileged graph object behind those readings. The graph is a
+coordinate chart emitted by an observer or optic over witnessed causal history.
+
+All public WARP surfaces share one shape:
+
+```text
+bounded causal basis/site
++ law
++ capability, budget, and evidence posture
+-> witnessed hologram
+```
+
+An admission hologram may extend history. A reading hologram observes history. A
+retained hologram caches or reveals a derived artifact. None of those
+holograms becomes canonical substrate truth merely by existing.
+
 ## Doctrine Correction
 
 Older Continuum and Echo docs sometimes describe Echo as the hot side and
@@ -60,9 +81,19 @@ Echo does not produce facts for `git-warp`. Echo and `git-warp` both produce,
 admit, retain, and observe witnessed causal history. They interoperate by
 exchanging protocol-shaped causal artifacts, not by sharing runtime internals.
 
-The browser analogy is the useful one: Continuum is the shared protocol and
-contract law; Echo and `git-warp` are independent implementations with their
-own engines, caches, storage models, and developer surfaces.
+The browser analogy is the useful one. More directly, Continuum is HTTP-like:
+it is the shared WARP protocol and contract law that lets independent runtimes
+exchange lawful causal-history artifacts. Echo and `git-warp` are independent
+implementations with their own engines, caches, storage models, and developer
+surfaces.
+
+Echo and `git-warp` are compatible because they can speak this protocol. They
+are not compatible because they both model a canonical graph. There is no
+canonical graph.
+
+`warp-ttd` and Wesley fit the same frame. They may speak shared Continuum
+families where that is useful, but their compatibility comes from lawful
+causal/artifact exchange, not from sharing an internal graph representation.
 
 ## Echo As A Continuum Runtime
 
@@ -144,6 +175,10 @@ graph.
 No public API should imply that Echo owns one canonical graph or state object
 that all observers secretly read.
 
+Canonical architecture note:
+
+- [There Is No Graph](../architecture/there-is-no-graph.md)
+
 ## echo-cas Role
 
 `echo-cas` is Echo's content-addressed retention layer. It may store:
@@ -182,6 +217,67 @@ Example coordinate components:
 
 `echo-cas` may retain the answer. It must not become the semantic authority for
 the question.
+
+## Holographic Retention Pressure
+
+Echo should assume memory and local disk are finite.
+
+The answer is not to materialize a full graph state at every tick. Echo should
+retain witnessed causal history and enough boundary artifacts to support
+bounded replay, bounded reveal, and honest obstruction. Optics then read by
+slicing the required causal history, lowering only the focused aperture, and
+optionally retaining the emitted reading.
+
+For example, an optic that asks for `x` at coordinate `n+2` should be able to
+use an index to find the nearest retained basis that affects `x`, stream the
+required causal slice, lower the value, and retain the answer under a semantic
+read key such as:
+
+```text
+focus=x
+coordinate=n+2
+aperture=value
+witness_basis=...
+projection_version=...
+reducer_version=...
+```
+
+The retained bytes may live in `echo-cas` under a content hash, but the lookup
+key is the read identity. A later optic that asks the same question may reveal
+the retained bytes directly. A different coordinate, aperture, witness basis,
+projection version, reducer version, rights posture, or budget posture is a
+different question even if it happens to emit identical bytes.
+
+Indexes that make this fast are performance aids. They should be streamable and
+should not assume the full graph, full provenance log, or full index can fit in
+memory at once. If the necessary retained basis or causal evidence is no longer
+available locally, the read must return an obstruction or a rehydration-required
+posture rather than secretly materializing unrelated state or pretending a cache
+hit answers a different question.
+
+Cache pressure is storage policy:
+
+- evicting a cached reading does not rewrite history
+- evicting an index shard does not invalidate receipts
+- deleting unpinned CAS cache bytes may make a fast reveal unavailable
+- deleting required witness material requires either rehydration or obstruction
+- durable archival policy is separate from the content hash itself
+
+`echo-cas` implementations may use content-defined chunking to reduce storage.
+For large blobs or retained readings, a CAS tier may split bytes into variable
+chunks chosen by content, MIME type, layout hints, or storage policy; buzhash
+chunking is one plausible implementation technique. This can deduplicate
+repeated substrings or common retained regions across related readings.
+
+Chunking policy must remain below causal semantics:
+
+- chunk boundaries are storage layout, not read identity
+- changing a chunker must not change Intent identity, tick identity, receipt
+  identity, admission outcome, or replay result
+- semantic references above CAS must still name contract/schema/type/layout
+  information where that information is required
+- canonical byte encodings used by Echo history remain canonical before bytes
+  enter retention
 
 ## Cached Reading Invalidation
 
@@ -531,6 +627,12 @@ They do not exchange:
 
 The shared law is witnessed causal admission. Each runtime remains free to
 store, cache, index, schedule, and observe in the way that fits its purpose.
+
+Continuum therefore sits at the protocol boundary, not below the runtime as a
+shared storage engine. It standardizes the lawful causal-history exchange, the
+admission/reading families, and the evidence carried across boundaries. It does
+not standardize an internal graph representation because WARP has no privileged
+graph representation to standardize.
 
 ## Implementation Runway
 

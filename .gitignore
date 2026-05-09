@@ -48,10 +48,6 @@ artifacts/pr-review/
 __pycache__/
 *.pyc
 
-# Playwright artifacts
-test-results
-playwright-report
-
 # LaTeX build artifacts (keep PDFs tracked)
 *.aux
 *.log

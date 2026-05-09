@@ -8,6 +8,7 @@ Status: planned Echo host integration proof.
 Depends on:
 
 - [Contract artifact retention in echo-cas](./PLATFORM_contract-artifact-retention-in-echo-cas.md)
+- [Wesley footprint honesty artifact attestation](./PLATFORM_wesley-footprint-honesty-artifact-attestation.md)
 - external `jedit` Text File Optic contract surface
 - external `jedit` hot text runtime port
 - external Wesley contract authoring support
@@ -60,6 +61,9 @@ host behavior.
 
 - Echo can install or accept registry metadata for an externally generated
   `jedit` contract artifact.
+- Echo can verify the loaded generated `jedit` artifact or footprint
+  certificate hash before treating its declared footprint as compile-time
+  certified.
 - Echo integration tests can exercise generated `jedit` Wesley fixture output
   without requiring Echo to author text-editing SDL.
 - Echo accepts generated `jedit` EINT bytes through the existing WASM intent

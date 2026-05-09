@@ -1,6 +1,6 @@
 digraph method_task_dag {
   graph [
-    label="METHOD Backlog Task Dependency DAG\nopen tasks: 93 / 135; dependency edges: 53",
+    label="METHOD Backlog Task Dependency DAG\nopen tasks: 94 / 136; dependency edges: 53",
     labelloc=t,
     fontsize=24,
     fontname="Inter, Helvetica, Arial",
@@ -188,6 +188,7 @@ digraph method_task_dag {
     "M131" [label="M131\nOPEN\nReading envelope inspector", tooltip="M131 [cool-ideas] open; blockers=0;  Reading envelope inspector", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M132" [label="M132\nOPEN\nVisualization", tooltip="M132 [cool-ideas] open; blockers=0;  Visualization", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M133" [label="M133\nOPEN\nVisualization", tooltip="M133 [cool-ideas] open; blockers=0;  Visualization", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
+    "M134" [label="M134\nOPEN\nWARPDrive POSIX\nMaterialization Optic", tooltip="M134 [cool-ideas] open; blockers=0;  WARPDrive POSIX Materialization Optic", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
   }
 
   subgraph "cluster_bad_code" {
@@ -196,8 +197,8 @@ digraph method_task_dag {
     fontname="Inter, Helvetica, Arial";
     fontsize=16;
     style="rounded";
-    "M134" [label="M134\nOPEN\nRED/GREEN can't be\nseparate commits", tooltip="M134 [bad-code] open; blockers=0;  RED/GREEN can't be separate commits", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
-    "M135" [label="M135\nOPEN\nxtask main.rs is a god\nfile", tooltip="M135 [bad-code] open; blockers=0;  xtask main.rs is a god file", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
+    "M135" [label="M135\nOPEN\nRED/GREEN can't be\nseparate commits", tooltip="M135 [bad-code] open; blockers=0;  RED/GREEN can't be separate commits", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
+    "M136" [label="M136\nOPEN\nxtask main.rs is a god\nfile", tooltip="M136 [bad-code] open; blockers=0;  xtask main.rs is a god file", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
   }
 
   "M012" -> "M017";

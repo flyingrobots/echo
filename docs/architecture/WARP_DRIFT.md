@@ -29,6 +29,10 @@ The relevant baseline is now:
   simulation optic; `warp-ttd` is a debugger optic; `git-warp` is a Git
   projection/retention optic; Wesley is a compiler rewrite optic from authored
   schema to IR and artifacts.
+- **Those labels are product roles, not ontological categories.** Graft is an
+  aperture/support-obligation optic, WARPDrive is a POSIX materialization
+  optic, and `jedit` is a human-facing console over readings and admission.
+  They remain WARP optics rather than privileged graph owners.
 - **A strand is a real speculative lane, not a frozen snapshot.**
   Its realized state is resolved against inherited parent history at a
   chosen basis, and bounded reads should materialize only the backward

@@ -13,11 +13,11 @@ Depends on:
 - [0013 - Wesley Compiled Contract Hosting Doctrine](../0013-wesley-compiled-contract-hosting-doctrine/design.md)
 - [0014 - EINT, Registry, And Observation Boundary Inventory](../0014-eint-registry-observation-boundary-inventory/design.md)
 - [0015 - Registry Provider Host Boundary Decision](../0015-registry-provider-host-boundary-decision/design.md)
-- [Wesley To Echo Toy Contract Proof](../../method/backlog/up-next/PLATFORM_wesley-to-echo-toy-contract-proof.md)
+- [Retro: 0016 - Wesley To Echo Toy Contract Proof](../../method/retro/0016-wesley-to-echo-toy-contract-proof/retro.md)
 
 ## Status
 
-GREEN 4.
+Accepted.
 
 ## Hill
 
@@ -205,6 +205,38 @@ cargo clippy -p echo-wesley-gen --all-targets -- -D warnings -D missing_docs
 
 Result: passed.
 
+## GREEN 5 witness
+
+Implementation:
+
+- `warp-wasm` now exposes native Rust CBOR-envelope helpers matching the
+  installed-kernel WASM boundary:
+    - `dispatch_intent_cbor(...)`;
+    - `observe_cbor(...)`;
+    - `get_registry_info_cbor()`.
+- These helpers do not change the `wasm_bindgen` exports. They make the
+  installed-kernel envelope path testable without `js_sys::Uint8Array`.
+- The generated toy consumer smoke crate now depends on local `warp-wasm`.
+- The smoke crate installs its application-owned `ToyKernel` with
+  `warp_wasm::install_kernel(...)`.
+- The smoke crate then verifies:
+    - installed registry metadata matches generated `CODEC_ID`,
+      `REGISTRY_VERSION`, and `SCHEMA_SHA256`;
+    - generated `pack_increment_intent(...)` bytes dispatch through
+      `warp_wasm::dispatch_intent_cbor(...)`;
+    - generated `counter_value_observation_request(...)` bytes observe through
+      `warp_wasm::observe_cbor(...)`;
+    - the returned read is a `QueryBytes` `ObservationArtifact`.
+
+Focused witness:
+
+```sh
+cargo test -p echo-wesley-gen \
+  test_toy_contract_generated_output_compiles_in_consumer_crate
+```
+
+Result: passed.
+
 ## GREEN direction
 
 GREEN stayed inside `echo-wesley-gen`.
@@ -218,16 +250,20 @@ Implemented shape:
   canonical vars bytes;
 - generate read-helper shapes for query ops that map to `ObservationRequest`;
 - keep Echo core app-agnostic;
-- keep host-side generated payload validation deferred.
+- keep host-side generated payload validation deferred;
+- prove installed-kernel dispatch, observation, and registry metadata through
+  `warp-wasm` native CBOR envelope helpers.
 
-Still deferred:
+Still deferred to follow-on cards:
 
-- installed-kernel `dispatch_intent(...)` integration proof;
-- installed-kernel `observe(...)` integration proof;
-- registry metadata handshake proof against an installed kernel.
+- contract-aware receipt and reading identity;
+- contract artifact retention in `echo-cas`;
+- real `jedit` generated fixture hosting;
+- dynamic contract loading.
 
 The phrase "actual integration proof" now means an Echo-installed or
-application-owned kernel path, not a generated-output compile proof.
+application-owned kernel path. This cycle closes that proof for the toy counter
+contract without adding app-specific Echo APIs.
 
 ## Non-goals
 
@@ -242,7 +278,10 @@ application-owned kernel path, not a generated-output compile proof.
 
 ## Remaining design question
 
-The RED deliberately includes a generated query/read helper. If the current
-`ObservationRequest` shape cannot honestly express the toy query, the next
-GREEN should stop at the precise missing observation bridge instead of
-inventing a broad `query_contract(...)` ABI.
+Resolved for the toy proof. `ObservationRequest` can honestly carry the toy
+query as `ObservationFrame::QueryView` plus `ObservationProjection::Query`, and
+the generated optic read helper can carry it as
+`OpticApertureShape::QueryBytes`.
+
+Follow-on cards still need to harden the identity and retention semantics of
+those readings before `jedit` uses the path as a serious consumer.

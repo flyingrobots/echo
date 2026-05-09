@@ -56,6 +56,7 @@ fn write_consumer_smoke_crate(generated: &str) -> PathBuf {
 
     let registry_path = workspace.join("crates/echo-registry-api");
     let wasm_abi_path = workspace.join("crates/echo-wasm-abi");
+    let warp_wasm_path = workspace.join("crates/warp-wasm");
     fs::write(
         crate_dir.join("Cargo.toml"),
         format!(
@@ -70,10 +71,12 @@ publish = false
 [dependencies]
 echo-registry-api = {{ path = "{}" }}
 echo-wasm-abi = {{ path = "{}" }}
+warp-wasm = {{ path = "{}" }}
 serde = {{ version = "1.0", features = ["derive"] }}
 "#,
             registry_path.display(),
-            wasm_abi_path.display()
+            wasm_abi_path.display(),
+            warp_wasm_path.display()
         ),
     )
     .expect("failed to write smoke Cargo.toml");
@@ -103,7 +106,7 @@ mod tests {
         OpticCapability, OpticCapabilityId, OpticCause, OpticFocus, OpticIntentPayload,
         OpticReadBudget, ProjectionVersion, ReadingBudgetPosture, ReadingEnvelope,
         ReadingObserverBasis, ReadingObserverPlan, ReadingResidualPosture, ReadingRightsPosture,
-        ReadingWitnessRef, RegistryInfo, ResolvedObservationCoordinate, RunCompletion,
+        ReadingWitnessRef, RegistryInfo, ResolvedObservationCoordinate, RunCompletion, OkEnvelope,
         SchedulerState, SchedulerStatus, WorkState, WorldlineId, WorldlineTick, ABI_VERSION,
     };
     use echo_wasm_abi::{decode_cbor, encode_cbor, unpack_intent_v1};
@@ -361,6 +364,47 @@ mod tests {
         assert_eq!(op_id, OP_INCREMENT);
         let decoded: IncrementVars = decode_cbor(vars_bytes).unwrap();
         assert_eq!(decoded.input.amount, 42);
+    }
+
+    #[test]
+    fn generated_contract_runs_through_installed_warp_wasm_kernel() {
+        let kernel = ToyKernel::default();
+        warp_wasm::install_kernel(Box::new(kernel));
+
+        let registry_envelope: OkEnvelope<RegistryInfo> =
+            decode_cbor(&warp_wasm::get_registry_info_cbor()).unwrap();
+        assert_eq!(registry_envelope.data.codec_id.as_deref(), Some(CODEC_ID));
+        assert_eq!(
+            registry_envelope.data.registry_version.as_deref(),
+            Some(REGISTRY_VERSION.to_string().as_str())
+        );
+        assert_eq!(
+            registry_envelope.data.schema_sha256_hex.as_deref(),
+            Some(SCHEMA_SHA256)
+        );
+
+        let intent = pack_increment_intent(&IncrementVars {
+            input: IncrementInput { amount: 42 },
+        })
+        .unwrap();
+        let dispatch_envelope: OkEnvelope<DispatchResponse> =
+            decode_cbor(&warp_wasm::dispatch_intent_cbor(&intent)).unwrap();
+        assert!(dispatch_envelope.data.accepted);
+        assert_eq!(dispatch_envelope.data.intent_id, vec![7; 32]);
+
+        let worldline_id = WorldlineId::from_bytes([9; 32]);
+        let request = counter_value_observation_request(worldline_id, &CounterValueVars {})
+            .unwrap();
+        let request_bytes = encode_cbor(&request).unwrap();
+        let observe_envelope: OkEnvelope<ObservationArtifact> =
+            decode_cbor(&warp_wasm::observe_cbor(&request_bytes)).unwrap();
+        assert_eq!(observe_envelope.data.frame, ObservationFrame::QueryView);
+        assert_eq!(
+            observe_envelope.data.payload,
+            ObservationPayload::QueryBytes {
+                data: b"counter=42".to_vec()
+            }
+        );
     }
 }
 "#,

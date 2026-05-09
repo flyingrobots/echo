@@ -156,6 +156,58 @@ State-equivalent but witness-distinct imports are not duplicates. They may be
 support supplements, alternate support paths, lawful plural history, conflicts,
 or obstructions depending on evidence and policy.
 
+## Intent-Driven Mutation Law
+
+Incoming transport arrival is host I/O. It is not Echo causal history by
+itself.
+
+The causal path is:
+
+```text
+transport adapter receives bytes
+-> adapter forms a canonical import proposal
+-> dispatch_intent(EINT import intent)
+-> ingress envelope
+-> scheduler/admission
+-> tick + receipt/witness
+```
+
+The same rule applies to all external topology-changing surfaces:
+
+- fork worldline / create strand
+- append braid member
+- collapse or settle braid
+- merge / settlement import
+- pin or unpin support when exposed to application flows
+- admit transported causal suffix
+- append inverse / compensating operation
+
+External callers do not receive setters or direct mutation handles for these
+operations. They submit Intents against explicit causal bases. Echo's scheduler
+and admission law decide whether the proposal is admitted, staged, plural,
+conflicted, or obstructed.
+
+Internal services may still perform the implementation work after admission, but
+they are not public mutation authority.
+
+## Transport, Strands, And Braids
+
+Incoming transport is not itself a strand.
+Incoming transport is not itself a braid.
+Incoming transport is a witnessed suffix claim.
+
+Admission may realize that claim as:
+
+- target-lane suffix history
+- staged shell evidence
+- preserved plurality, including a braid member when the local projection law
+  calls for one
+- conflict artifact
+- obstruction
+
+The property "braided" belongs to the local admission/projection result. It is
+not a wire-level or bundle-level transport kind.
+
 ## Continuum Runtime-Boundary Cut
 
 Continuum's `continuum-runtime-boundary-family.graphql` should use Echo's
@@ -192,6 +244,10 @@ behavior:
 6. Obstruction and conflict evidence remain typed and deterministic.
 7. Continuum-compiled runtime-boundary artifacts expose the same suffix nouns
    that Echo consumes.
+8. Inbound transport affects Echo only through an admitted import Intent.
+9. Forking, merging, braiding, settlement, support mutation, and inverse
+   operations have Intent-level external paths and no public direct mutation
+   setter.
 
 ## Non-Goals
 

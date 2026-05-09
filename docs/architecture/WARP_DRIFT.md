@@ -175,6 +175,7 @@ distance:
 
 - normalize to a comparable frontier
 - carry the transported local situation in a witness-bearing shell
+- submit inbound transport admission as an Intent against an explicit basis
 - return explicit import outcomes
 - preserve the shell-equivalence story for independent imports
 
@@ -183,6 +184,10 @@ Implementation note: the runtime now treats Echo's `WitnessedSuffixShell`,
 the Continuum runtime-boundary family. Continuum should change to match this
 typed evidence model instead of requiring Echo to adapt to a weaker
 `SuffixShell` placeholder.
+
+The same Intent-only rule applies to external forking, merging, braiding,
+settlement, support mutation, and inverse operations. Existing internal services
+may remain implementation details, but they are not public mutation authority.
 
 ### Fourth: update the docs/invariants to match the corrected runtime
 

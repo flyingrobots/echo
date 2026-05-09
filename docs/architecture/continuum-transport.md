@@ -64,6 +64,16 @@ It is not:
 
 Import is ordinary admission at a distance.
 
+Inbound transport admission is Intent-driven:
+
+```text
+transport adapter receives bytes
+-> adapter forms a canonical import proposal
+-> dispatch_intent(EINT import intent)
+-> ingress / scheduler / admission
+-> tick + receipt / witness
+```
+
 The runtime must:
 
 1. Verify the source shell and bundle identities.
@@ -80,6 +90,30 @@ The runtime must not:
 - dedupe by runtime-local tick, Lamport clock, or receipt hash alone
 - hide self-history loops as new remote work
 - collapse alternate support paths into no-op folklore
+
+The host adapter may receive, decode, retain, and cache transported bytes. It
+must not mutate worldlines, strands, braids, settlement state, provenance, or
+retained import outcomes directly. A transported suffix affects Echo history
+only when an import Intent is admitted.
+
+## Causal Mutation Rule
+
+The same rule applies to every external topology-changing operation:
+
+- fork worldline / create strand
+- append braid member
+- collapse or settle braid
+- merge / settlement import
+- pin or unpin support when exposed to application flows
+- admit transported causal suffix
+- append inverse / compensating operation
+
+External callers propose these operations as Intents against explicit causal
+bases. Echo admits, stages, pluralizes, conflicts, or obstructs them under a
+named law and emits receipts.
+
+Internal services and evaluators may remain implementation details. They are not
+public mutation authority.
 
 ## Idempotence
 

@@ -371,6 +371,16 @@ pub fn export_suffix(
         (Some(last_entry), None) => last_entry,
         (None, None) => request.base_frontier,
     };
+    if boundary_witness.is_some_and(|boundary_witness| {
+        boundary_witness_is_outside_export_bounds(
+            boundary_witness,
+            request.source_worldline_id,
+            request.base_frontier,
+            derived_target_frontier,
+        )
+    }) {
+        return Err(export_obstruction(request));
+    }
 
     let source_suffix_start_tick = entries
         .first()
@@ -393,6 +403,26 @@ pub fn export_suffix(
         derived_target_frontier,
         source_suffix,
     ))
+}
+
+fn boundary_witness_is_outside_export_bounds(
+    boundary_witness: ProvenanceRef,
+    source_worldline_id: WorldlineId,
+    base_frontier: ProvenanceRef,
+    target_frontier: ProvenanceRef,
+) -> bool {
+    if boundary_witness.worldline_id != source_worldline_id {
+        return true;
+    }
+
+    let boundary_tick = boundary_witness.worldline_tick.as_u64();
+    let base_tick = base_frontier.worldline_tick.as_u64();
+    let target_tick = target_frontier.worldline_tick.as_u64();
+
+    boundary_tick < base_tick
+        || boundary_tick > target_tick
+        || (boundary_tick == base_tick && boundary_witness != base_frontier)
+        || (boundary_tick == target_tick && boundary_witness != target_frontier)
 }
 
 /// Imports one witnessed causal suffix bundle by classifying it against the

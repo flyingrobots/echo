@@ -242,7 +242,7 @@ fn witnessed_suffix_export_produces_typed_causal_suffix_bundle() -> Result<(), S
     let request = export_request();
     let context = FakeExportContext {
         source_entries: Some(vec![provenance_ref(3, 4), provenance_ref(3, 3)]),
-        boundary_witness: Some(provenance_ref(5, 1)),
+        boundary_witness: Some(provenance_ref(3, 2)),
     };
 
     let bundle = export_suffix(&request, &context).map_err(|obstruction| {
@@ -281,6 +281,26 @@ fn witnessed_suffix_export_obstructs_missing_witness_material() -> Result<(), St
         ReadingResidualPosture::Obstructed
     );
     Ok(())
+}
+
+#[test]
+fn witnessed_suffix_export_rejects_invalid_boundary_witnesses() {
+    let request = ExportSuffixRequest {
+        target_frontier: Some(provenance_ref(3, 2)),
+        ..export_request()
+    };
+
+    for boundary_witness in [provenance_ref(4, 2), provenance_ref(3, 9)] {
+        let context = FakeExportContext {
+            source_entries: Some(Vec::new()),
+            boundary_witness: Some(boundary_witness),
+        };
+
+        assert!(
+            export_suffix(&request, &context).is_err(),
+            "invalid boundary witness {boundary_witness:?} must obstruct export"
+        );
+    }
 }
 
 #[test]

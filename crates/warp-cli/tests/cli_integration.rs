@@ -79,10 +79,45 @@ fn help_shows_all_subcommands() {
 }
 
 #[test]
+fn help_output_has_no_trailing_whitespace() {
+    let assert = echo_cli().arg("--help").assert().success();
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let offenders = stdout
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| line.ends_with(' '))
+        .map(|(index, _)| format!("line {}", index + 1))
+        .collect::<Vec<_>>();
+
+    assert!(
+        offenders.is_empty(),
+        "help output contains trailing whitespace on {}",
+        offenders.join(", ")
+    );
+}
+
+#[test]
 fn help_matches_golden() {
     let assert = echo_cli().arg("--help").assert().success();
     let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
     assert_eq!(stdout, include_str!("golden/echo-cli-help.txt"));
+}
+
+#[test]
+fn help_golden_has_no_trailing_whitespace() {
+    let golden = include_str!("golden/echo-cli-help.txt");
+    let offenders = golden
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| line.ends_with(' '))
+        .map(|(index, _)| format!("line {}", index + 1))
+        .collect::<Vec<_>>();
+
+    assert!(
+        offenders.is_empty(),
+        "help golden contains trailing whitespace on {}",
+        offenders.join(", ")
+    );
 }
 
 #[test]

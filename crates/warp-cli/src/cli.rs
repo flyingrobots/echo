@@ -19,7 +19,13 @@ use clap::{Parser, Subcommand, ValueEnum};
 )]
 pub struct Cli {
     /// Output format (text or json).
-    #[arg(long, global = true, default_value = "text", value_enum)]
+    #[arg(
+        long,
+        global = true,
+        default_value = "text",
+        value_enum,
+        hide_possible_values = true
+    )]
     pub format: OutputFormat,
 
     /// Subcommand to execute.

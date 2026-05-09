@@ -51,6 +51,8 @@
 
 ### Fixed (PR #326 follow-up)
 
+- Added regression coverage that rejects trailing whitespace in the committed
+  `echo-cli --help` golden fixture, and cleaned the existing padded blank line.
 - Fixed Wesley-generated helper output so helper-only vars and intent error
   types live in a generated namespace instead of colliding with user contract
   types, while preserving top-level helper function re-exports, and added

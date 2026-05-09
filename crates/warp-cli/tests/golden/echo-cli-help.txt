@@ -8,17 +8,6 @@ Commands:
   inspect  Inspect a WSC snapshot
 
 Options:
-      --format <FORMAT>
-          Output format (text or json)
-
-          Possible values:
-          - text: Human-readable text output
-          - json: Machine-readable JSON output
-          
-          [default: text]
-
-  -h, --help
-          Print help (see a summary with '-h')
-
-  -V, --version
-          Print version
+      --format <FORMAT>  Output format (text or json) [default: text]
+  -h, --help             Print help
+  -V, --version          Print version

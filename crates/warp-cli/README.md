@@ -85,6 +85,10 @@ cargo xtask man-pages
 # Output: docs/man/echo-cli.1, echo-cli-verify.1, etc.
 ```
 
+CLI help goldens are committed as plain text fixtures and must not contain
+trailing whitespace. The integration suite enforces this so snapshot updates do
+not smuggle editor or generator padding into review diffs.
+
 ## Documentation
 
 See the root `README.md` and `docs/spec/` for architecture context.

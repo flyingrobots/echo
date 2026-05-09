@@ -106,7 +106,8 @@ Initial Echo-side runway landed:
 - `echo-registry-api::OpDef` can carry an optional no-std
   `FootprintCertificate`.
 - `echo-wesley-gen` emits deterministic per-operation footprint artifact and
-  certificate hashes from `@wes_footprint` metadata.
+  certificate hashes from `@wes_footprint` metadata, operation argument shape,
+  and the generated Rust artifact manifest hash.
 - Generated registry consumers can compare a certificate hash at load time via
   `OpDef::footprint_certificate_matches(...)`.
 - Hosts can verify a generated registry artifact with

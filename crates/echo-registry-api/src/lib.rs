@@ -219,7 +219,12 @@ pub struct FootprintCertificate {
     pub op_name: &'static str,
     /// Hex-encoded schema hash used as the certificate basis.
     pub schema_sha256_hex: &'static str,
-    /// Lowercase hex BLAKE3 hash of the generated artifact footprint preimage.
+    /// Lowercase hex BLAKE3 hash of the generated operation artifact manifest.
+    ///
+    /// This is intentionally stronger than the declared read/write footprint: it
+    /// is expected to include the generated artifact family identity that
+    /// produced the operation helper, plus the operation shape covered by this
+    /// certificate.
     pub artifact_hash_hex: &'static str,
     /// Lowercase hex BLAKE3 hash of the full footprint certificate preimage.
     pub certificate_hash_hex: &'static str,

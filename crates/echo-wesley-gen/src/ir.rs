@@ -2,7 +2,7 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Minimal Wesley IR structs used by echo-wesley-gen.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 fn empty_directives() -> serde_json::Value {
     serde_json::Value::Object(serde_json::Map::new())
@@ -14,7 +14,7 @@ fn empty_directives() -> serde_json::Value {
 /// the upstream generator. Unknown fields are ignored by serde; missing fields
 /// are defaulted where sensible so the CLI can be tolerant of additive schema
 /// changes.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct WesleyIR {
     /// IR schema version tag (e.g. `"echo-ir/v1"`).
     #[serde(default)]
@@ -41,7 +41,7 @@ pub struct WesleyIR {
 }
 
 /// Generator provenance metadata embedded in the IR.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[allow(dead_code)] // Part of IR spec, present for deserialization
 pub struct GeneratedBy {
     /// Tool name (package/binary) that produced this IR.
@@ -52,7 +52,7 @@ pub struct GeneratedBy {
 }
 
 /// Type definition in the IR type catalog.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct TypeDefinition {
     /// GraphQL type name.
     pub name: String,
@@ -67,7 +67,7 @@ pub struct TypeDefinition {
 }
 
 /// Kind tag for IR type definitions.
-#[derive(Debug, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TypeKind {
     /// GraphQL object type.
@@ -85,7 +85,7 @@ pub enum TypeKind {
 }
 
 /// Operation kind (query or mutation).
-#[derive(Debug, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum OpKind {
     /// Read-only operation.
@@ -95,7 +95,7 @@ pub enum OpKind {
 }
 
 /// Operation definition in the IR operation catalog.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct OpDefinition {
     /// Operation kind.
     pub kind: OpKind,
@@ -119,7 +119,7 @@ pub struct OpDefinition {
 /// the same shape (name + base type + required + list). We keep distinct Rust
 /// wrapper types (`ArgDefinition` and `FieldDefinition`) so call sites can
 /// remain semantically explicit even if the JSON schema evolves.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ArgDefinition {
     /// Field/argument name.
     pub name: String,
@@ -134,7 +134,7 @@ pub struct ArgDefinition {
 }
 
 /// Object field definition (same schema as [`ArgDefinition`]; kept for semantic clarity).
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct FieldDefinition {
     /// Field name.
     pub name: String,

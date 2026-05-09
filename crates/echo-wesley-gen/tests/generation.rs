@@ -45,6 +45,19 @@ fn run_wesley_gen_schema(schema_path: &Path) -> Output {
         .expect("failed to run cargo run")
 }
 
+fn generated_str_const<'a>(source: &'a str, name: &str) -> &'a str {
+    let prefix = format!("pub const {name}: &str = \"");
+    let start = source
+        .find(&prefix)
+        .unwrap_or_else(|| panic!("missing generated const `{name}`"))
+        + prefix.len();
+    let rest = &source[start..];
+    let end = rest
+        .find('"')
+        .unwrap_or_else(|| panic!("generated const `{name}` is not closed"));
+    &rest[..end]
+}
+
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
@@ -1016,6 +1029,7 @@ fn test_toy_contract_generates_eint_and_observation_helpers() {
 
     assert!(stdout.contains("pub const OP_INCREMENT: u32 = 1001"));
     assert!(stdout.contains("pub const OP_COUNTER_VALUE: u32 = 1002"));
+    assert!(stdout.contains("pub const GENERATED_RUST_ARTIFACT_HASH: &str"));
     assert!(stdout.contains("pub static REGISTRY: GeneratedRegistry"));
     assert!(stdout.contains("directives_json:"));
     assert!(stdout.contains("\\\"wes_footprint\\\""));
@@ -1055,6 +1069,88 @@ fn test_toy_contract_generates_eint_and_observation_helpers() {
     assert!(
         !stdout.contains("pub fn set_"),
         "generated optic helpers should not expose setter-style function names"
+    );
+}
+
+#[test]
+fn test_footprint_artifact_hash_changes_when_generated_args_change() {
+    let without_arg = r#"{
+        "ir_version": "echo-ir/v1",
+        "schema_sha256": "abc123",
+        "codec_id": "cbor-canon-v1",
+        "registry_version": 1,
+        "types": [
+            { "name": "CounterValue", "kind": "OBJECT", "fields": [
+                { "name": "value", "type": "Int", "required": true }
+            ] }
+        ],
+        "ops": [
+            {
+                "kind": "MUTATION",
+                "name": "increment",
+                "op_id": 1001,
+                "args": [],
+                "result_type": "CounterValue",
+                "directives": {
+                    "wes_footprint": {
+                        "reads": ["CounterValue"],
+                        "writes": ["CounterValue"]
+                    }
+                }
+            }
+        ]
+    }"#;
+    let with_arg = r#"{
+        "ir_version": "echo-ir/v1",
+        "schema_sha256": "abc123",
+        "codec_id": "cbor-canon-v1",
+        "registry_version": 1,
+        "types": [
+            { "name": "CounterValue", "kind": "OBJECT", "fields": [
+                { "name": "value", "type": "Int", "required": true }
+            ] },
+            { "name": "IncrementInput", "kind": "INPUT_OBJECT", "fields": [
+                { "name": "amount", "type": "Int", "required": true }
+            ] }
+        ],
+        "ops": [
+            {
+                "kind": "MUTATION",
+                "name": "increment",
+                "op_id": 1001,
+                "args": [
+                    { "name": "input", "type": "IncrementInput", "required": true }
+                ],
+                "result_type": "CounterValue",
+                "directives": {
+                    "wes_footprint": {
+                        "reads": ["CounterValue"],
+                        "writes": ["CounterValue"]
+                    }
+                }
+            }
+        ]
+    }"#;
+
+    let without_output = run_wesley_gen(without_arg);
+    assert!(
+        without_output.status.success(),
+        "CLI failed: {}",
+        String::from_utf8_lossy(&without_output.stderr)
+    );
+    let with_output = run_wesley_gen(with_arg);
+    assert!(
+        with_output.status.success(),
+        "CLI failed: {}",
+        String::from_utf8_lossy(&with_output.stderr)
+    );
+    let without_stdout = String::from_utf8_lossy(&without_output.stdout);
+    let with_stdout = String::from_utf8_lossy(&with_output.stdout);
+
+    assert_ne!(
+        generated_str_const(&without_stdout, "OP_INCREMENT_FOOTPRINT_ARTIFACT_HASH"),
+        generated_str_const(&with_stdout, "OP_INCREMENT_FOOTPRINT_ARTIFACT_HASH"),
+        "footprint artifact identity must change when generated operation args change"
     );
 }
 

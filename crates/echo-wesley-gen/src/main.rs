@@ -222,11 +222,13 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
     let schema_sha = ir.schema_sha256.as_deref().unwrap_or("");
     let codec_id = ir.codec_id.as_deref().unwrap_or("cbor-canon-v1");
     let registry_version = ir.registry_version.unwrap_or(1);
+    let generated_rust_artifact_hash = generated_rust_artifact_hash(ir, args)?;
 
     tokens.extend(quote! {
         pub const SCHEMA_SHA256: &str = #schema_sha;
         pub const CODEC_ID: &str = #codec_id;
         pub const REGISTRY_VERSION: u32 = #registry_version;
+        pub const GENERATED_RUST_ARTIFACT_HASH: &str = #generated_rust_artifact_hash;
     });
 
     for type_def in &ir.types {
@@ -292,7 +294,7 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
         let footprint_certificates = ops_sorted
             .iter()
             .map(|op| {
-                let certificate = op_footprint_certificate(ir, op)?;
+                let certificate = op_footprint_certificate(ir, op, &generated_rust_artifact_hash)?;
                 Ok((op.op_id, certificate))
             })
             .collect::<Result<BTreeMap<_, _>>>()?;
@@ -824,6 +826,50 @@ fn op_directives_json(op: &ir::OpDefinition) -> Result<String> {
     serde_json::to_string(&op.directives).map_err(Into::into)
 }
 
+fn generated_rust_artifact_hash(ir: &WesleyIR, args: &Args) -> Result<String> {
+    let mut type_defs = ir.types.iter().collect::<Vec<_>>();
+    type_defs.sort_unstable_by(|a, b| a.name.cmp(&b.name));
+    let mut op_defs = ir.ops.iter().collect::<Vec<_>>();
+    op_defs.sort_unstable_by_key(|op| op.op_id);
+
+    let type_catalog_json = serde_json::to_string(&type_defs)?;
+    let op_catalog_json = serde_json::to_string(&op_defs)?;
+    let schema_sha = ir.schema_sha256.as_deref().unwrap_or("");
+    let codec_id = ir.codec_id.as_deref().unwrap_or(DEFAULT_CODEC_ID);
+    let registry_version = ir.registry_version.unwrap_or(DEFAULT_REGISTRY_VERSION);
+    let ir_version = ir.ir_version.as_deref().unwrap_or("");
+    let generated_by_json = serde_json::to_string(&ir.generated_by)?;
+
+    let preimage = format!(
+        concat!(
+            "echo-wesley-rust-artifact/v1\n",
+            "generator=echo-wesley-gen\n",
+            "generator_version={generator_version}\n",
+            "ir_version={ir_version}\n",
+            "schema_sha256={schema_sha}\n",
+            "codec_id={codec_id}\n",
+            "registry_version={registry_version}\n",
+            "no_std={no_std}\n",
+            "minicbor={minicbor}\n",
+            "generated_by={generated_by_json}\n",
+            "types={type_catalog_json}\n",
+            "ops={op_catalog_json}\n",
+        ),
+        generator_version = env!("CARGO_PKG_VERSION"),
+        ir_version = ir_version,
+        schema_sha = schema_sha,
+        codec_id = codec_id,
+        registry_version = registry_version,
+        no_std = args.no_std,
+        minicbor = args.minicbor,
+        generated_by_json = generated_by_json,
+        type_catalog_json = type_catalog_json,
+        op_catalog_json = op_catalog_json,
+    );
+
+    Ok(blake3_hex(preimage.as_bytes()))
+}
+
 #[derive(Debug, Clone)]
 struct GeneratedFootprintCertificate {
     reads: Vec<String>,
@@ -835,6 +881,7 @@ struct GeneratedFootprintCertificate {
 fn op_footprint_certificate(
     ir: &WesleyIR,
     op: &ir::OpDefinition,
+    generated_rust_artifact_hash: &str,
 ) -> Result<Option<GeneratedFootprintCertificate>> {
     let Some(footprint) = op.directives.get("wes_footprint") else {
         return Ok(None);
@@ -844,6 +891,7 @@ fn op_footprint_certificate(
     let writes = footprint_string_items(footprint, "writes", &op.name)?;
     let reads_json = serde_json::to_string(&reads)?;
     let writes_json = serde_json::to_string(&writes)?;
+    let args_json = serde_json::to_string(&op.args)?;
     let directives_json = op_directives_json(op)?;
     let schema_sha = ir.schema_sha256.as_deref().unwrap_or("");
     let codec_id = ir.codec_id.as_deref().unwrap_or(DEFAULT_CODEC_ID);
@@ -863,6 +911,8 @@ fn op_footprint_certificate(
             "op_id={op_id}\n",
             "op_name={op_name}\n",
             "result_type={result_type}\n",
+            "args={args_json}\n",
+            "generated_rust_artifact_hash={generated_rust_artifact_hash}\n",
             "reads={reads_json}\n",
             "writes={writes_json}\n",
         ),
@@ -873,6 +923,8 @@ fn op_footprint_certificate(
         op_id = op.op_id,
         op_name = op.name,
         result_type = op.result_type,
+        args_json = args_json,
+        generated_rust_artifact_hash = generated_rust_artifact_hash,
         reads_json = reads_json,
         writes_json = writes_json,
     );

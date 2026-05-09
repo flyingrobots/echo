@@ -56,6 +56,9 @@
 - Split generated contract artifact verification into `MetadataVerified` and
   `CompileTimeCertified` postures so weak or metadata-only host policies cannot
   accidentally enable the trusted footprint fast path.
+- Strengthened Wesley footprint certificate artifact hashes so they incorporate
+  a generated Rust artifact manifest hash and operation argument shape instead
+  of only the declared read/write footprint.
 - Fixed Wesley-generated helper output so helper-only vars and intent error
   types live in a generated namespace instead of colliding with user contract
   types, while preserving top-level helper function re-exports, and added

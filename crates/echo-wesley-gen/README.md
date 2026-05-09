@@ -40,5 +40,8 @@ cat ir.json | cargo run -p echo-wesley-gen -- --out generated.rs
 - GraphQL SDL operation ids are derived deterministically and fail closed on
   collision. The generator never increments a collided id because operation ids
   are persisted ABI.
+- Generated query optic helpers use Echo ABI's domain-separated BLAKE3
+  `query_vars_digest_v1(...)`; ad hoc variable digests are not accepted for
+  retained reading identity.
 - Optional fields become `Option<T>`; lists become `Vec<T>` (wrapped in Option when not required).
 - Unknown scalar names are emitted as identifiers as-is (so ensure upstream IR types are valid Rust idents).

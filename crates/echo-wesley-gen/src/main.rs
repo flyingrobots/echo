@@ -509,17 +509,7 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
         if has_query_ops {
             helper_tokens.extend(quote! {
                 fn generated_vars_digest(vars_bytes: &[u8]) -> Vec<u8> {
-                    let mut digest = Vec::new();
-                    digest.resize(32, 0u8);
-                    for (index, byte) in vars_bytes.iter().copied().enumerate() {
-                        let slot = index % 32;
-                        digest[slot] = digest[slot].wrapping_add(byte);
-                        digest[(slot + 13) % 32] ^= byte.rotate_left((index % 8) as u32);
-                    }
-                    for (index, byte) in (vars_bytes.len() as u64).to_le_bytes().iter().copied().enumerate() {
-                        digest[index] ^= byte;
-                    }
-                    digest
+                    echo_wasm_abi::query_vars_digest_v1(vars_bytes)
                 }
             });
         }

@@ -195,8 +195,9 @@ publish = false
 echo-registry-api = {{ path = "{}" }}
 echo-wasm-abi = {{ path = "{}" }}
 warp-wasm = {{ path = "{}" }}
+blake3 = "1"
 serde = {{ version = "1.0", features = ["derive"] }}
-"#,
+    "#,
             registry_path.display(),
             wasm_abi_path.display(),
             warp_wasm_path.display()
@@ -489,6 +490,10 @@ mod tests {
             &encoded_query_vars,
         );
         assert_eq!(optic_read, raw_optic_read);
+        let mut expected_vars_hasher = blake3::Hasher::new();
+        expected_vars_hasher.update(b"echo-wesley-query-vars/v1\0");
+        expected_vars_hasher.update(&encoded_query_vars);
+        let expected_vars_digest = expected_vars_hasher.finalize().as_bytes().to_vec();
         let decoded_read: ObserveOpticRequest =
             decode_cbor(&encode_cbor(&optic_read).unwrap()).unwrap();
         assert_eq!(decoded_read, optic_read);
@@ -496,8 +501,7 @@ mod tests {
             optic_read.aperture.shape,
             OpticApertureShape::QueryBytes { query_id, ref vars_digest }
                 if query_id == OP_COUNTER_VALUE
-                    && vars_digest.len() == 32
-                    && vars_digest != &encoded_query_vars
+                    && vars_digest == &expected_vars_digest
         ));
 
         let capability = OpticCapability {

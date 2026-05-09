@@ -28,6 +28,33 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
+/// Domain separator for query variable digests used by generated optic helpers.
+pub const QUERY_VARS_DIGEST_V1_DOMAIN: &[u8] = b"echo-wesley-query-vars/v1\0";
+
+/// Hash canonical query variables for `QueryBytes` optic apertures.
+#[must_use]
+pub fn query_vars_digest_v1(vars_bytes: &[u8]) -> Vec<u8> {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(QUERY_VARS_DIGEST_V1_DOMAIN);
+    hasher.update(vars_bytes);
+    hasher.finalize().as_bytes().to_vec()
+}
+
+#[cfg(test)]
+mod query_vars_digest_tests {
+    use super::{QUERY_VARS_DIGEST_V1_DOMAIN, query_vars_digest_v1};
+
+    #[test]
+    fn query_vars_digest_is_domain_separated_blake3() {
+        let vars = b"\xa1evalue\x18*";
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(QUERY_VARS_DIGEST_V1_DOMAIN);
+        hasher.update(vars);
+
+        assert_eq!(query_vars_digest_v1(vars), hasher.finalize().as_bytes());
+    }
+}
+
 pub mod canonical;
 pub use canonical::{CanonError, decode_value, encode_value};
 

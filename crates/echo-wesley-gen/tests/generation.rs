@@ -110,6 +110,8 @@ type Mutation {
     assert!(stdout.contains("pub fn increment_dispatch_optic_intent_request"));
     assert!(stdout.contains("directives_json:"));
     assert!(stdout.contains("\\\"wes_footprint\\\""));
+    assert!(stdout.contains("OP_INCREMENT_FOOTPRINT_CERTIFICATE"));
+    assert!(stdout.contains("footprint_certificate: Some(&OP_INCREMENT_FOOTPRINT_CERTIFICATE)"));
 }
 
 fn write_consumer_smoke_crate(generated: &str) -> PathBuf {
@@ -163,8 +165,8 @@ mod tests {
         counter_value_observation_request, counter_value_observation_request_raw_vars,
         counter_value_observe_optic_request, counter_value_observe_optic_request_raw_vars,
         encode_counter_value_vars, increment_dispatch_optic_intent_request, pack_increment_intent,
-        IncrementInput, CODEC_ID, OP_COUNTER_VALUE, OP_INCREMENT, REGISTRY, REGISTRY_VERSION,
-        SCHEMA_SHA256,
+        IncrementInput, CODEC_ID, OP_COUNTER_VALUE, OP_INCREMENT,
+        OP_INCREMENT_FOOTPRINT_CERTIFICATE_HASH, REGISTRY, REGISTRY_VERSION, SCHEMA_SHA256,
     };
     use echo_registry_api::{OpKind, RegistryProvider};
     use echo_wasm_abi::kernel_port::{
@@ -307,7 +309,36 @@ mod tests {
                 .directives_json
                 .contains("\"wes_footprint\"")
         );
+        let increment_certificate = REGISTRY
+            .op_by_id(OP_INCREMENT)
+            .unwrap()
+            .footprint_certificate
+            .expect("increment operation must carry a footprint certificate");
+        assert_eq!(increment_certificate.op_id, OP_INCREMENT);
+        assert_eq!(increment_certificate.op_name, "increment");
+        assert_eq!(increment_certificate.schema_sha256_hex, SCHEMA_SHA256);
+        assert_eq!(
+            increment_certificate.certificate_hash_hex,
+            OP_INCREMENT_FOOTPRINT_CERTIFICATE_HASH
+        );
+        assert!(REGISTRY
+            .op_by_id(OP_INCREMENT)
+            .unwrap()
+            .footprint_certificate_matches(SCHEMA_SHA256, OP_INCREMENT_FOOTPRINT_CERTIFICATE_HASH));
+        assert!(!REGISTRY
+            .op_by_id(OP_INCREMENT)
+            .unwrap()
+            .footprint_certificate_matches(SCHEMA_SHA256, "wrong-hash"));
+        assert_eq!(increment_certificate.reads, &["CounterValue"]);
+        assert_eq!(increment_certificate.writes, &["CounterValue"]);
         assert_eq!(REGISTRY.op_by_id(OP_COUNTER_VALUE).unwrap().kind, OpKind::Query);
+        assert_eq!(
+            REGISTRY
+                .op_by_id(OP_COUNTER_VALUE)
+                .unwrap()
+                .footprint_certificate,
+            None
+        );
 
         let intent = pack_increment_intent(&IncrementVars {
             input: IncrementInput { amount: 42 },
@@ -966,6 +997,13 @@ fn test_toy_contract_generates_eint_and_observation_helpers() {
     assert!(stdout.contains("pub static REGISTRY: GeneratedRegistry"));
     assert!(stdout.contains("directives_json:"));
     assert!(stdout.contains("\\\"wes_footprint\\\""));
+    assert!(stdout.contains("pub const OP_INCREMENT_FOOTPRINT_READS: &[&str]"));
+    assert!(stdout.contains("pub const OP_INCREMENT_FOOTPRINT_WRITES: &[&str]"));
+    assert!(stdout.contains("pub const OP_INCREMENT_FOOTPRINT_ARTIFACT_HASH: &str"));
+    assert!(stdout.contains("pub const OP_INCREMENT_FOOTPRINT_CERTIFICATE_HASH: &str"));
+    assert!(stdout.contains("pub const OP_INCREMENT_FOOTPRINT_CERTIFICATE: FootprintCertificate"));
+    assert!(stdout.contains("footprint_certificate: Some(&OP_INCREMENT_FOOTPRINT_CERTIFICATE)"));
+    assert!(stdout.contains("footprint_certificate: None"));
 
     for required in [
         "use echo_wasm_abi::pack_intent_v1;",

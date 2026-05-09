@@ -60,6 +60,62 @@ pub struct OpDef {
     /// `wes_footprint`; the generic registry API only carries the authored
     /// directive data.
     pub directives_json: &'static str,
+    /// Optional compile-time footprint certificate emitted by Wesley tooling.
+    ///
+    /// Hosts can compare the certificate hash during registry load and treat a
+    /// match as the proof that this generated artifact is carrying the declared
+    /// footprint it was compiled with. Echo core still treats the footprint as
+    /// data; domain-specific meaning belongs to the generated application/module.
+    pub footprint_certificate: Option<&'static FootprintCertificate>,
+}
+
+/// Compile-time footprint certificate for one generated operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FootprintCertificate {
+    /// Operation identifier covered by this certificate.
+    pub op_id: u32,
+    /// Operation name covered by this certificate.
+    pub op_name: &'static str,
+    /// Hex-encoded schema hash used as the certificate basis.
+    pub schema_sha256_hex: &'static str,
+    /// Lowercase hex BLAKE3 hash of the generated artifact footprint preimage.
+    pub artifact_hash_hex: &'static str,
+    /// Lowercase hex BLAKE3 hash of the full footprint certificate preimage.
+    pub certificate_hash_hex: &'static str,
+    /// Declared read resources, sorted and deduplicated by the generator.
+    pub reads: &'static [&'static str],
+    /// Declared write resources, sorted and deduplicated by the generator.
+    pub writes: &'static [&'static str],
+}
+
+impl OpDef {
+    /// Return true when this operation carries a footprint certificate matching
+    /// the expected certificate hash and the registry schema hash.
+    ///
+    /// Hosts call this once while loading a generated registry artifact. A
+    /// successful match means the operation's declared footprint was certified
+    /// against the same schema hash the registry reports.
+    pub fn footprint_certificate_matches(
+        &self,
+        schema_sha256_hex: &str,
+        expected_certificate_hash_hex: &str,
+    ) -> bool {
+        let Some(certificate) = self.footprint_certificate else {
+            return false;
+        };
+
+        if certificate.op_id != self.op_id {
+            return false;
+        }
+        if certificate.op_name != self.name {
+            return false;
+        }
+        if certificate.schema_sha256_hex != schema_sha256_hex {
+            return false;
+        }
+
+        certificate.certificate_hash_hex == expected_certificate_hash_hex
+    }
 }
 
 /// Argument descriptor (flat; sufficient for strict object validation).

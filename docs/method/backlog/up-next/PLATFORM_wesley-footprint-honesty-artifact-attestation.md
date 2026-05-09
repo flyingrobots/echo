@@ -101,6 +101,19 @@ load. After that:
 
 ## Notes
 
+Initial Echo-side runway landed:
+
+- `echo-registry-api::OpDef` can carry an optional no-std
+  `FootprintCertificate`.
+- `echo-wesley-gen` emits deterministic per-operation footprint artifact and
+  certificate hashes from `@wes_footprint` metadata.
+- Generated registry consumers can compare a certificate hash at load time via
+  `OpDef::footprint_certificate_matches(...)`.
+
+This is not the full closeout. The remaining hardening is the real
+compile-time capability boundary and cross-artifact Rust/TypeScript compiled
+artifact identity.
+
 The expected posture vocabulary is:
 
 ```text

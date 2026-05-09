@@ -3,7 +3,7 @@
 #![allow(clippy::print_stdout, clippy::print_stderr)]
 //! CLI that reads Wesley IR JSON from stdin and emits Rust structs/enums for Echo.
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use clap::Parser;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -287,10 +287,28 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
     }
 
     if !ir.ops.is_empty() {
-        tokens.extend(quote! {
-            // Registry provider types (Echo runtime loads an app-supplied implementation).
-            use echo_registry_api::{ArgDef, EnumDef, ObjectDef, OpDef, OpKind, RegistryInfo, RegistryProvider};
-        });
+        let mut ops_sorted: Vec<_> = ir.ops.iter().collect();
+        ops_sorted.sort_unstable_by_key(|op| op.op_id);
+        let footprint_certificates = ops_sorted
+            .iter()
+            .map(|op| {
+                let certificate = op_footprint_certificate(ir, op)?;
+                Ok((op.op_id, certificate))
+            })
+            .collect::<Result<BTreeMap<_, _>>>()?;
+        let has_footprint_certificates = footprint_certificates.values().any(Option::is_some);
+
+        if has_footprint_certificates {
+            tokens.extend(quote! {
+                // Registry provider types (Echo runtime loads an app-supplied implementation).
+                use echo_registry_api::{ArgDef, EnumDef, FootprintCertificate, ObjectDef, OpDef, OpKind, RegistryInfo, RegistryProvider};
+            });
+        } else {
+            tokens.extend(quote! {
+                // Registry provider types (Echo runtime loads an app-supplied implementation).
+                use echo_registry_api::{ArgDef, EnumDef, ObjectDef, OpDef, OpKind, RegistryInfo, RegistryProvider};
+            });
+        }
 
         let mut enum_defs: Vec<_> = ir
             .types
@@ -356,10 +374,8 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
             ];
         });
 
-        let mut ops_sorted: Vec<_> = ir.ops.iter().collect();
-        ops_sorted.sort_unstable_by_key(|op| op.op_id);
-
-        // Op ID constants + arg descriptors (sorted by op_id for deterministic iteration).
+        // Op ID constants + arg descriptors + footprint certificates
+        // (sorted by op_id for deterministic iteration).
         for op in &ops_sorted {
             let const_name = op_const_ident(&op.name, op.op_id);
             let args_name = format_ident!("{}_ARGS", const_name);
@@ -377,6 +393,42 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
                     #(#args),*
                 ];
             });
+
+            if let Some(certificate) = footprint_certificates
+                .get(&op.op_id)
+                .and_then(|value| value.as_ref())
+            {
+                let reads_name = format_ident!("{}_FOOTPRINT_READS", const_name);
+                let writes_name = format_ident!("{}_FOOTPRINT_WRITES", const_name);
+                let artifact_hash_name = format_ident!("{}_FOOTPRINT_ARTIFACT_HASH", const_name);
+                let certificate_hash_name =
+                    format_ident!("{}_FOOTPRINT_CERTIFICATE_HASH", const_name);
+                let certificate_name = format_ident!("{}_FOOTPRINT_CERTIFICATE", const_name);
+                let op_name = &op.name;
+                let reads = certificate.reads.iter();
+                let writes = certificate.writes.iter();
+                let artifact_hash = certificate.artifact_hash_hex.as_str();
+                let certificate_hash = certificate.certificate_hash_hex.as_str();
+                tokens.extend(quote! {
+                    pub const #reads_name: &[&str] = &[
+                        #(#reads),*
+                    ];
+                    pub const #writes_name: &[&str] = &[
+                        #(#writes),*
+                    ];
+                    pub const #artifact_hash_name: &str = #artifact_hash;
+                    pub const #certificate_hash_name: &str = #certificate_hash;
+                    pub const #certificate_name: FootprintCertificate = FootprintCertificate {
+                        op_id: #const_name,
+                        op_name: #op_name,
+                        schema_sha256_hex: SCHEMA_SHA256,
+                        artifact_hash_hex: #artifact_hash_name,
+                        certificate_hash_hex: #certificate_hash_name,
+                        reads: #reads_name,
+                        writes: #writes_name,
+                    };
+                });
+            }
         }
 
         let mut helper_prelude = TokenStream::new();
@@ -687,6 +739,17 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
                 let args_name = format_ident!("{}_ARGS", op_const_ident(&op.name, op.op_id));
                 let result_ty = &op.result_type;
                 let directives_json = op_directives_json(op)?;
+                let footprint_certificate = if footprint_certificates
+                    .get(&op.op_id)
+                    .and_then(|value| value.as_ref())
+                    .is_some()
+                {
+                    let const_name = op_const_ident(&op.name, op.op_id);
+                    let certificate_name = format_ident!("{}_FOOTPRINT_CERTIFICATE", const_name);
+                    quote! { Some(&#certificate_name) }
+                } else {
+                    quote! { None }
+                };
                 Ok(quote! {
                     OpDef {
                         kind: #kind,
@@ -695,6 +758,7 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
                         args: #args_name,
                         result_ty: #result_ty,
                         directives_json: #directives_json,
+                        footprint_certificate: #footprint_certificate,
                     }
                 })
             })
@@ -758,6 +822,120 @@ fn op_const_ident(name: &str, op_id: u32) -> proc_macro2::Ident {
 
 fn op_directives_json(op: &ir::OpDefinition) -> Result<String> {
     serde_json::to_string(&op.directives).map_err(Into::into)
+}
+
+#[derive(Debug, Clone)]
+struct GeneratedFootprintCertificate {
+    reads: Vec<String>,
+    writes: Vec<String>,
+    artifact_hash_hex: String,
+    certificate_hash_hex: String,
+}
+
+fn op_footprint_certificate(
+    ir: &WesleyIR,
+    op: &ir::OpDefinition,
+) -> Result<Option<GeneratedFootprintCertificate>> {
+    let Some(footprint) = op.directives.get("wes_footprint") else {
+        return Ok(None);
+    };
+
+    let reads = footprint_string_items(footprint, "reads", &op.name)?;
+    let writes = footprint_string_items(footprint, "writes", &op.name)?;
+    let reads_json = serde_json::to_string(&reads)?;
+    let writes_json = serde_json::to_string(&writes)?;
+    let directives_json = op_directives_json(op)?;
+    let schema_sha = ir.schema_sha256.as_deref().unwrap_or("");
+    let codec_id = ir.codec_id.as_deref().unwrap_or(DEFAULT_CODEC_ID);
+    let registry_version = ir.registry_version.unwrap_or(DEFAULT_REGISTRY_VERSION);
+    let kind = match op.kind {
+        OpKind::Query => "QUERY",
+        OpKind::Mutation => "MUTATION",
+    };
+
+    let artifact_preimage = format!(
+        concat!(
+            "echo-wesley-footprint-artifact/v1\n",
+            "schema_sha256={schema_sha}\n",
+            "codec_id={codec_id}\n",
+            "registry_version={registry_version}\n",
+            "op_kind={kind}\n",
+            "op_id={op_id}\n",
+            "op_name={op_name}\n",
+            "result_type={result_type}\n",
+            "reads={reads_json}\n",
+            "writes={writes_json}\n",
+        ),
+        schema_sha = schema_sha,
+        codec_id = codec_id,
+        registry_version = registry_version,
+        kind = kind,
+        op_id = op.op_id,
+        op_name = op.name,
+        result_type = op.result_type,
+        reads_json = reads_json,
+        writes_json = writes_json,
+    );
+    let artifact_hash_hex = blake3_hex(artifact_preimage.as_bytes());
+    let certificate_preimage = format!(
+        concat!(
+            "echo-wesley-footprint-certificate/v1\n",
+            "generator=echo-wesley-gen\n",
+            "generator_version={generator_version}\n",
+            "artifact_hash={artifact_hash_hex}\n",
+            "directives_json={directives_json}\n",
+        ),
+        generator_version = env!("CARGO_PKG_VERSION"),
+        artifact_hash_hex = artifact_hash_hex,
+        directives_json = directives_json,
+    );
+    let certificate_hash_hex = blake3_hex(certificate_preimage.as_bytes());
+
+    Ok(Some(GeneratedFootprintCertificate {
+        reads,
+        writes,
+        artifact_hash_hex,
+        certificate_hash_hex,
+    }))
+}
+
+fn footprint_string_items(
+    footprint: &serde_json::Value,
+    key: &str,
+    op_name: &str,
+) -> Result<Vec<String>> {
+    let Some(value) = footprint_argument_value(footprint, key) else {
+        return Ok(Vec::new());
+    };
+    let serde_json::Value::Array(items) = value else {
+        bail!("wes_footprint.{key} for operation `{op_name}` must be an array of strings");
+    };
+
+    let mut values = Vec::with_capacity(items.len());
+    for item in items {
+        let Some(item) = item.as_str() else {
+            bail!("wes_footprint.{key} for operation `{op_name}` must contain only strings");
+        };
+        values.push(item.to_string());
+    }
+    values.sort();
+    values.dedup();
+    Ok(values)
+}
+
+fn footprint_argument_value<'a>(
+    footprint: &'a serde_json::Value,
+    key: &str,
+) -> Option<&'a serde_json::Value> {
+    footprint.get(key).or_else(|| {
+        footprint
+            .get("arguments")
+            .and_then(|arguments| arguments.get(key))
+    })
+}
+
+fn blake3_hex(input: &[u8]) -> String {
+    blake3::hash(input).to_hex().to_string()
 }
 
 fn op_const_name(name: &str, op_id: u32) -> String {

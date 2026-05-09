@@ -405,16 +405,41 @@ pub fn import_suffix(
     request: &ImportSuffixRequest,
     context: &impl WitnessedSuffixAdmissionContext,
 ) -> ImportSuffixResult {
+    let bundle_digest = derive_causal_suffix_bundle_digest(
+        request.bundle.base_frontier,
+        request.bundle.target_frontier,
+        &request.bundle.source_suffix,
+    );
     let admission_request = WitnessedSuffixAdmissionRequest {
         source_suffix: request.bundle.source_suffix.clone(),
         target_worldline_id: request.target_worldline_id,
         target_basis: request.target_basis,
         basis_report: request.basis_report.clone(),
     };
+    if request.bundle.bundle_digest != bundle_digest {
+        let source_shell_digest = context
+            .source_shell_digest(&admission_request.source_suffix)
+            .unwrap_or_else(|| {
+                context.source_shell_obstruction_digest(&admission_request.source_suffix)
+            });
+        let target_basis = context
+            .resolve_target_basis(admission_request.target_basis)
+            .unwrap_or(admission_request.target_basis);
+        return ImportSuffixResult {
+            bundle_digest,
+            admission: obstructed_response(
+                &admission_request,
+                source_shell_digest,
+                target_basis,
+                None,
+            ),
+        };
+    }
+
     let admission = evaluate_witnessed_suffix_admission(&admission_request, context);
 
     ImportSuffixResult {
-        bundle_digest: request.bundle.bundle_digest,
+        bundle_digest,
         admission,
     }
 }

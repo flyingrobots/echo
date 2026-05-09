@@ -304,6 +304,33 @@ fn witnessed_suffix_import_normalizes_to_comparable_frontier_before_deciding() {
 }
 
 #[test]
+fn witnessed_suffix_import_obstructs_forged_bundle_digest(
+) -> Result<(), WitnessedSuffixLocalAdmissionPostureError> {
+    let source_suffix = shell_with_entries(vec![provenance_ref(3, 3)]);
+    let mut bundle =
+        CausalSuffixBundle::new(provenance_ref(3, 2), provenance_ref(3, 3), source_suffix);
+    let canonical_bundle_digest = bundle.bundle_digest;
+    bundle.bundle_digest = [99; 32];
+    let context = FakeAdmissionContext {
+        expected_shell_digest: Some(bundle.source_suffix.witness_digest),
+        resolved_target_basis: Some(provenance_ref(12, 9)),
+        posture: admissible_posture(vec![provenance_ref(30, 10)])?,
+    };
+
+    let result = import_suffix(&import_request(bundle), &context);
+
+    assert_eq!(result.bundle_digest, canonical_bundle_digest);
+    assert!(matches!(
+        result.admission.outcome,
+        WitnessedSuffixAdmissionOutcome::Obstructed {
+            residual_posture: ReadingResidualPosture::Obstructed,
+            ..
+        }
+    ));
+    Ok(())
+}
+
+#[test]
 fn witnessed_suffix_import_order_produces_same_retained_shell_equivalence_set(
 ) -> Result<(), WitnessedSuffixLocalAdmissionPostureError> {
     let bundle_a = CausalSuffixBundle::new(

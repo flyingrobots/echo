@@ -159,6 +159,11 @@ pub use attachment::{
     CodecRegistry, DecodeError, ErasedCodec, RegistryError,
 };
 pub use clock::{GlobalTick, RunId, WorldlineTick};
+pub use cmd::{
+    import_suffix_intent_rule, import_suffix_result_edge_id, import_suffix_result_node_id,
+    IMPORT_SUFFIX_INTENT_RULE_NAME, IMPORT_SUFFIX_RESULT_ATTACHMENT_TYPE,
+    IMPORT_SUFFIX_RESULT_EDGE_TYPE, IMPORT_SUFFIX_RESULT_NODE_TYPE,
+};
 pub use constants::{blake3_empty, digest_len0_u64, POLICY_ID_NO_POLICY_V0};
 pub use engine_impl::{
     scope_hash, ApplyResult, CommitOutcome, DispatchDisposition, Engine, EngineBuilder,

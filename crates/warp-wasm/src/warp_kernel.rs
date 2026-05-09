@@ -30,21 +30,25 @@ use echo_wasm_abi::kernel_port::{
     SettlementResult as AbiSettlementResult, WorkState, WorldlineId as AbiWorldlineId,
     WorldlineTick as AbiWorldlineTick, WriterHeadKey as AbiWriterHeadKey, ABI_VERSION,
 };
-use echo_wasm_abi::{unpack_control_intent_v1, unpack_intent_v1, CONTROL_INTENT_V1_OP_ID};
+use echo_wasm_abi::{
+    unpack_control_intent_v1, unpack_import_suffix_intent_v1, unpack_intent_v1,
+    CONTROL_INTENT_V1_OP_ID, IMPORT_SUFFIX_INTENT_V1_OP_ID,
+};
 use warp_core::{
     make_head_id, make_intent_kind, make_node_id, make_type_id, AttachmentDescentPolicy,
     AttachmentKey, AttachmentOwner, AttachmentPlane, AuthoredObserverPlan, BraidId, CoordinateAt,
-    EchoCoordinate, EdgeKey, Engine, EngineBuilder, GlobalTick, GraphStore, HeadEligibility,
-    HeadId, HistoryError, IngressDisposition, IngressEnvelope, IngressTarget, NeighborhoodError,
-    NeighborhoodSiteService, NodeKey, NodeRecord, ObservationAt, ObservationCoordinate,
-    ObservationError, ObservationFrame, ObservationPayload, ObservationProjection,
-    ObservationReadBudget, ObservationRequest, ObservationRights, ObservationService,
-    ObserveOpticRequest, ObserverInstanceId, ObserverInstanceRef, ObserverPlanId, OpticAperture,
-    OpticApertureShape, OpticCapabilityId, OpticFocus, OpticReadBudget, PlaybackMode,
-    ProjectionVersion, ProvenanceRef, ProvenanceService, ReadingObserverPlan, ReducerVersion,
-    RetainedReadingKey, RunId, RuntimeError, SchedulerCoordinator, SchedulerKind, SettlementError,
-    SettlementService, StrandId, TypeId, WorldlineId, WorldlineRuntime, WorldlineState,
-    WorldlineStateError, WorldlineTick, WriterHead, WriterHeadKey,
+    EchoCoordinate, EdgeKey, Engine, EngineBuilder, EngineError, GlobalTick, GraphStore,
+    HeadEligibility, HeadId, HistoryError, IngressDisposition, IngressEnvelope, IngressTarget,
+    NeighborhoodError, NeighborhoodSiteService, NodeKey, NodeRecord, ObservationAt,
+    ObservationCoordinate, ObservationError, ObservationFrame, ObservationPayload,
+    ObservationProjection, ObservationReadBudget, ObservationRequest, ObservationRights,
+    ObservationService, ObserveOpticRequest, ObserverInstanceId, ObserverInstanceRef,
+    ObserverPlanId, OpticAperture, OpticApertureShape, OpticCapabilityId, OpticFocus,
+    OpticReadBudget, PlaybackMode, ProjectionVersion, ProvenanceRef, ProvenanceService,
+    ReadingObserverPlan, ReducerVersion, RetainedReadingKey, RunId, RuntimeError,
+    SchedulerCoordinator, SchedulerKind, SettlementError, SettlementService, StrandId, TypeId,
+    WorldlineId, WorldlineRuntime, WorldlineState, WorldlineStateError, WorldlineTick, WriterHead,
+    WriterHeadKey,
 };
 
 /// Error returned when a [`WarpKernel`] cannot be initialized from a caller-supplied engine.
@@ -58,6 +62,8 @@ pub enum KernelInitError {
     Provenance(HistoryError),
     /// Runtime registration failed while installing the default worldline/head.
     Runtime(RuntimeError),
+    /// Kernel-owned command rule registration failed.
+    Engine(EngineError),
 }
 
 impl fmt::Display for KernelInitError {
@@ -67,6 +73,7 @@ impl fmt::Display for KernelInitError {
             Self::WorldlineState(err) => err.fmt(f),
             Self::Provenance(err) => err.fmt(f),
             Self::Runtime(err) => err.fmt(f),
+            Self::Engine(err) => err.fmt(f),
         }
     }
 }
@@ -91,6 +98,12 @@ impl From<HistoryError> for KernelInitError {
     }
 }
 
+impl From<EngineError> for KernelInitError {
+    fn from(value: EngineError) -> Self {
+        Self::Engine(value)
+    }
+}
+
 /// App-agnostic kernel wrapping a `warp-core::Engine`.
 ///
 /// Constructed via [`WarpKernel::new`] (default empty engine) or
@@ -109,8 +122,8 @@ pub struct WarpKernel {
 impl WarpKernel {
     /// Create a new kernel with a minimal empty engine.
     ///
-    /// The engine has a single root node and no rewrite rules.
-    /// Useful for testing the boundary or as a starting point.
+    /// The engine starts with a single root node; [`Self::with_engine`]
+    /// installs the generic Echo command rules used by the boundary.
     pub fn new() -> Result<Self, KernelInitError> {
         let mut store = GraphStore::default();
         let root = make_node_id("root");
@@ -143,10 +156,14 @@ impl WarpKernel {
     /// The engine must be fresh: `WarpKernel` can mirror graph state into the
     /// default worldline runtime, but it cannot reconstruct prior tick history
     /// or materialization state from an already-advanced engine.
-    pub fn with_engine(engine: Engine, registry: RegistryInfo) -> Result<Self, KernelInitError> {
+    pub fn with_engine(
+        mut engine: Engine,
+        registry: RegistryInfo,
+    ) -> Result<Self, KernelInitError> {
         if !engine.is_fresh_runtime_state() {
             return Err(KernelInitError::NonFreshEngine);
         }
+        engine.register_rule(warp_core::import_suffix_intent_rule())?;
         let root = engine.root_key();
         let default_worldline = WorldlineId::from_bytes(root.warp_id.0);
         let mut runtime = WorldlineRuntime::new();
@@ -855,6 +872,13 @@ impl KernelPort for WarpKernel {
             });
         }
 
+        if op_id == IMPORT_SUFFIX_INTENT_V1_OP_ID {
+            unpack_import_suffix_intent_v1(intent_bytes).map_err(|_| AbiError {
+                code: error_codes::INVALID_INTENT,
+                message: "invalid import suffix intent envelope".into(),
+            })?;
+        }
+
         let envelope = IngressEnvelope::local_intent(
             IngressTarget::DefaultWriter {
                 worldline_id: self.default_worldline,
@@ -975,15 +999,18 @@ impl KernelPort for WarpKernel {
 mod tests {
     use super::*;
     use echo_wasm_abi::{
+        decode_cbor,
         kernel_port::{
-            BuiltinObserverPlan as AbiBuiltinObserverPlan, ControlIntentV1,
+            BuiltinObserverPlan as AbiBuiltinObserverPlan,
+            CausalSuffixBundle as AbiCausalSuffixBundle, ControlIntentV1,
             GlobalTick as AbiGlobalTick, HeadEligibility as AbiHeadEligibility,
-            HeadId as AbiHeadId, ObservationAt as AbiObservationAt,
+            HeadId as AbiHeadId, ImportSuffixRequest as AbiImportSuffixRequest,
+            ImportSuffixResult as AbiImportSuffixResult, ObservationAt as AbiObservationAt,
             ObservationBasisPosture as AbiObservationBasisPosture,
             ObservationCoordinate as AbiObservationCoordinate,
             ObservationFrame as AbiObservationFrame, ObservationPayload as AbiObservationPayload,
             ObservationProjection as AbiObservationProjection,
-            ObservationRequest as AbiObservationRequest,
+            ObservationRequest as AbiObservationRequest, ProvenanceRef as AbiProvenanceRef,
             ReadingBudgetPosture as AbiReadingBudgetPosture,
             ReadingObserverBasis as AbiReadingObserverBasis,
             ReadingObserverPlan as AbiReadingObserverPlan,
@@ -992,16 +1019,20 @@ mod tests {
             SchedulerState, SettlementDecision as AbiSettlementDecision,
             SettlementOverlapRevalidation as AbiSettlementOverlapRevalidation,
             SettlementParentRevalidation as AbiSettlementParentRevalidation,
-            SettlementRequest as AbiSettlementRequest, WorkState, WorldlineId as AbiWorldlineId,
-            WorldlineTick as AbiWorldlineTick, WriterHeadKey as AbiWriterHeadKey,
+            SettlementRequest as AbiSettlementRequest,
+            WitnessedSuffixAdmissionOutcome as AbiWitnessedSuffixAdmissionOutcome,
+            WitnessedSuffixShell as AbiWitnessedSuffixShell, WorkState,
+            WorldlineId as AbiWorldlineId, WorldlineTick as AbiWorldlineTick,
+            WriterHeadKey as AbiWriterHeadKey,
         },
-        pack_control_intent_v1, pack_intent_v1,
+        pack_control_intent_v1, pack_import_suffix_intent_v1, pack_intent_v1,
+        IMPORT_SUFFIX_INTENT_V1_OP_ID,
     };
     use warp_core::{
         compute_commit_hash_v2, make_edge_id, make_head_id, make_node_id, make_strand_id,
         make_type_id, make_warp_id, materialization::make_channel_id, AdmissionLawId, BaseRef,
         CoordinateAt, EchoCoordinate, EdgeRecord, GlobalTick, GraphStore, HashTriplet, InboxPolicy,
-        IntentFamilyId, NodeKey, NodeRecord, OpticActorId, OpticCapabilityId, OpticCause,
+        IntentFamilyId, NodeId, NodeKey, NodeRecord, OpticActorId, OpticCapabilityId, OpticCause,
         OpticReadBudget, PlaybackMode, ProvenanceEntry, ProvenanceService, ProvenanceStore, SlotId,
         Strand, StrandId, TickCommitStatus, WarpOp, WarpTickPatchV1, WorldlineHeadOptic,
         WorldlineRuntime, WorldlineState, WorldlineTick, WorldlineTickHeaderV1,
@@ -1029,6 +1060,41 @@ mod tests {
 
     fn abi_head_id(head_id: HeadId) -> AbiHeadId {
         AbiHeadId::from_bytes(*head_id.as_bytes())
+    }
+
+    fn abi_provenance_ref(worldline_id: WorldlineId, tick: u64, seed: u8) -> AbiProvenanceRef {
+        AbiProvenanceRef {
+            worldline_id: abi_worldline_id(worldline_id),
+            worldline_tick: AbiWorldlineTick(tick),
+            commit_hash: vec![seed; 32],
+        }
+    }
+
+    fn sample_import_suffix_request(kernel: &WarpKernel) -> AbiImportSuffixRequest {
+        let worldline_id = kernel.default_worldline;
+        let base_frontier = abi_provenance_ref(worldline_id, 0, 1);
+        let target_frontier = abi_provenance_ref(worldline_id, 1, 2);
+        let source_suffix = AbiWitnessedSuffixShell {
+            source_worldline_id: abi_worldline_id(worldline_id),
+            source_suffix_start_tick: AbiWorldlineTick(1),
+            source_suffix_end_tick: Some(AbiWorldlineTick(1)),
+            source_entries: vec![target_frontier.clone()],
+            boundary_witness: Some(base_frontier.clone()),
+            witness_digest: vec![3; 32],
+            basis_report: None,
+        };
+
+        AbiImportSuffixRequest {
+            bundle: AbiCausalSuffixBundle {
+                base_frontier,
+                target_frontier,
+                source_suffix,
+                bundle_digest: vec![4; 32],
+            },
+            target_worldline_id: abi_worldline_id(worldline_id),
+            target_basis: abi_provenance_ref(worldline_id, 0, 1),
+            basis_report: None,
+        }
     }
 
     fn wl(n: u8) -> WorldlineId {
@@ -1528,6 +1594,103 @@ mod tests {
         assert!(r1.accepted);
         assert!(!r2.accepted);
         assert_eq!(r1.intent_id, r2.intent_id);
+    }
+
+    #[test]
+    fn import_suffix_intent_rejects_malformed_payload_without_ingress() {
+        let mut kernel = WarpKernel::new().unwrap();
+        let head_before = kernel.current_head().unwrap();
+        let provenance_len_before = kernel.provenance.len(kernel.default_worldline).unwrap();
+        let intent = pack_intent_v1(IMPORT_SUFFIX_INTENT_V1_OP_ID, &[0xff]).unwrap();
+
+        let error = kernel.dispatch_intent(&intent).unwrap_err();
+
+        assert_eq!(error.code, error_codes::INVALID_INTENT);
+        assert!(error.message.contains("invalid import suffix intent"));
+        assert_eq!(kernel.current_head().unwrap(), head_before);
+        assert_eq!(
+            kernel.provenance.len(kernel.default_worldline).unwrap(),
+            provenance_len_before
+        );
+    }
+
+    #[test]
+    fn import_suffix_intent_enters_ingress_and_scheduler() {
+        let mut kernel = WarpKernel::new().unwrap();
+        let request = sample_import_suffix_request(&kernel);
+        let intent = pack_import_suffix_intent_v1(&request).unwrap();
+
+        let dispatch = kernel.dispatch_intent(&intent).unwrap();
+        assert!(dispatch.accepted);
+        assert_eq!(dispatch.intent_id.len(), 32);
+
+        let response = start_until_idle(&mut kernel, Some(1));
+        let head = kernel.current_head().unwrap();
+        assert_eq!(
+            response.scheduler_status.last_run_completion,
+            Some(RunCompletion::Quiesced)
+        );
+        assert_eq!(head.worldline_tick, AbiWorldlineTick(1));
+
+        let event_id = NodeId(dispatch.intent_id.as_slice().try_into().unwrap());
+        let result_id = warp_core::import_suffix_result_node_id(&event_id);
+        let frontier = kernel
+            .runtime
+            .worldlines()
+            .get(&kernel.default_worldline)
+            .unwrap();
+        let frontier_state = frontier.state();
+        let root_warp = frontier_state.root().warp_id;
+        let store = frontier_state.store(&root_warp).unwrap();
+        let result_node = store.node(&result_id);
+        assert!(result_node.is_some());
+
+        let result_attachment = store
+            .node_attachment(&result_id)
+            .expect("import suffix result attachment should be recorded");
+        let warp_core::AttachmentValue::Atom(atom) = result_attachment else {
+            panic!("import suffix result must be a typed atom");
+        };
+        assert_eq!(
+            atom.type_id,
+            make_type_id(warp_core::IMPORT_SUFFIX_RESULT_ATTACHMENT_TYPE)
+        );
+
+        let result: AbiImportSuffixResult = decode_cbor(atom.bytes.as_ref()).unwrap();
+        assert_eq!(result.bundle_digest, request.bundle.bundle_digest);
+        assert_eq!(
+            result.admission.source_shell_digest,
+            request.bundle.source_suffix.witness_digest
+        );
+        assert_eq!(result.admission.target_basis, request.target_basis);
+        match result.admission.outcome {
+            AbiWitnessedSuffixAdmissionOutcome::Staged { staged_refs, .. } => {
+                assert_eq!(staged_refs, request.bundle.source_suffix.source_entries);
+            }
+            other => panic!("expected staged import result, got {other:?}"),
+        }
+
+        let entry = kernel
+            .provenance
+            .entry(kernel.default_worldline, WorldlineTick::ZERO)
+            .unwrap();
+        let patch = entry.patch.expect("import tick should record a patch");
+        assert!(patch.ops.iter().any(|op| {
+            matches!(
+                op,
+                WarpOp::UpsertNode { node, .. } if node.local_id == result_id
+            )
+        }));
+        assert!(patch.ops.iter().any(|op| {
+            matches!(
+                op,
+                WarpOp::SetAttachment { key, .. }
+                    if *key == AttachmentKey::node_alpha(NodeKey {
+                        warp_id: root_warp,
+                        local_id: result_id,
+                    })
+            )
+        }));
     }
 
     #[test]

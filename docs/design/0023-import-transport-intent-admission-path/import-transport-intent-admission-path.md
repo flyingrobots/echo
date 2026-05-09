@@ -3,7 +3,7 @@
 
 # Import transport Intent admission path
 
-Status: planned implementation slice.
+Status: implemented initial staged admission path.
 
 Depends on:
 
@@ -86,3 +86,26 @@ networking, or full idempotence indexing.
 - One passing test proves the same import proposal goes through EINT,
   `dispatch_intent`, ingress, scheduler/admission, and returns a typed outcome.
 - One malformed-payload test proves no direct mutation or fake success occurs.
+
+## Implementation notes
+
+This slice landed the first causal runtime path, deliberately stopping at a
+typed `Staged` result instead of pretending full remote import/settlement
+admission is done.
+
+- `echo-wasm-abi` now defines `IMPORT_SUFFIX_INTENT_V1_OP_ID` and canonical
+  pack/unpack helpers for `ImportSuffixRequest`.
+- `WarpKernel::dispatch_intent` validates the Echo-owned import payload before
+  accepting it into ingress. Malformed import payloads fail closed and do not
+  advance the worldline or provenance.
+- `warp-core` registers a generic `cmd/import_suffix_intent` handler through the
+  engine-backed kernel. The handler preserves the original ingress event and
+  writes a deterministic result node carrying canonical CBOR
+  `ImportSuffixResult`.
+- The initial result outcome is `WitnessedSuffixAdmissionOutcome::Staged`. That
+  is the honest posture until later slices add basis-aware remote admission,
+  novelty indexes, and settlement/collapse behavior.
+
+The important invariant is now executable: transport arrival is still host I/O,
+but transport admission enters Echo only after it is wrapped as an EINT intent
+and chosen by the scheduler into witnessed causal history.

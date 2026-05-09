@@ -50,6 +50,12 @@ pub mod codec;
 /// Reserved EINT op id for privileged control intents.
 pub const CONTROL_INTENT_V1_OP_ID: u32 = u32::MAX;
 
+/// Reserved Echo-owned EINT op id for proposing witnessed suffix import.
+///
+/// Transport arrival is host I/O until the bundle is wrapped in this canonical
+/// intent envelope and admitted through Echo scheduling.
+pub const IMPORT_SUFFIX_INTENT_V1_OP_ID: u32 = u32::MAX - 1;
+
 /// Errors produced by the Intent Envelope parser.
 #[derive(Debug, PartialEq, Eq)]
 pub enum EnvelopeError {
@@ -177,6 +183,45 @@ pub fn unpack_control_intent_v1(
 ) -> Result<kernel_port::ControlIntentV1, EnvelopeError> {
     let (op_id, vars) = unpack_intent_v1(bytes)?;
     if op_id != CONTROL_INTENT_V1_OP_ID {
+        return Err(EnvelopeError::Malformed);
+    }
+    decode_cbor(vars).map_err(|_| EnvelopeError::Malformed)
+}
+
+/// Packs a witnessed suffix import proposal into an Echo-owned EINT envelope.
+///
+/// The payload is the canonical byte representation of
+/// [`kernel_port::ImportSuffixRequest`]. Decoding this envelope only validates
+/// the proposal shape; admission still happens through Echo's causal scheduler.
+///
+/// # Errors
+///
+/// Returns [`EnvelopeError::Malformed`] if the request cannot be encoded as
+/// canonical CBOR. Returns [`EnvelopeError::PayloadTooLarge`] if the encoded
+/// payload exceeds the EINT v1 `u32` length field.
+pub fn pack_import_suffix_intent_v1(
+    request: &kernel_port::ImportSuffixRequest,
+) -> Result<Vec<u8>, EnvelopeError> {
+    let bytes = encode_cbor(request).map_err(|_| EnvelopeError::Malformed)?;
+    pack_intent_v1(IMPORT_SUFFIX_INTENT_V1_OP_ID, &bytes)
+}
+
+/// Unpacks and validates a witnessed suffix import proposal from EINT v1 bytes.
+///
+/// The envelope must use [`IMPORT_SUFFIX_INTENT_V1_OP_ID`]. Successful decoding
+/// means the payload is a canonical import request, not that the proposed suffix
+/// has been admitted.
+///
+/// # Errors
+///
+/// Returns envelope parse errors from [`unpack_intent_v1`]. Returns
+/// [`EnvelopeError::Malformed`] when the op id is not the import op id or the
+/// payload is not valid canonical CBOR for [`kernel_port::ImportSuffixRequest`].
+pub fn unpack_import_suffix_intent_v1(
+    bytes: &[u8],
+) -> Result<kernel_port::ImportSuffixRequest, EnvelopeError> {
+    let (op_id, vars) = unpack_intent_v1(bytes)?;
+    if op_id != IMPORT_SUFFIX_INTENT_V1_OP_ID {
         return Err(EnvelopeError::Malformed);
     }
     decode_cbor(vars).map_err(|_| EnvelopeError::Malformed)
@@ -481,6 +526,74 @@ mod tests {
                 },
                 eligibility: crate::kernel_port::HeadEligibility::Dormant,
             }
+        );
+    }
+
+    fn sample_provenance_ref(seed: u8, tick: u64) -> kernel_port::ProvenanceRef {
+        kernel_port::ProvenanceRef {
+            worldline_id: kernel_port::WorldlineId::from_bytes([seed; 32]),
+            worldline_tick: kernel_port::WorldlineTick(tick),
+            commit_hash: vec![seed.wrapping_add(1); 32],
+        }
+    }
+
+    fn sample_import_suffix_request() -> kernel_port::ImportSuffixRequest {
+        let base_frontier = sample_provenance_ref(1, 0);
+        let target_frontier = sample_provenance_ref(1, 2);
+        let source_suffix = kernel_port::WitnessedSuffixShell {
+            source_worldline_id: kernel_port::WorldlineId::from_bytes([1; 32]),
+            source_suffix_start_tick: kernel_port::WorldlineTick(1),
+            source_suffix_end_tick: Some(kernel_port::WorldlineTick(2)),
+            source_entries: vec![sample_provenance_ref(1, 1), target_frontier.clone()],
+            boundary_witness: Some(base_frontier.clone()),
+            witness_digest: vec![7; 32],
+            basis_report: None,
+        };
+
+        kernel_port::ImportSuffixRequest {
+            bundle: kernel_port::CausalSuffixBundle {
+                base_frontier,
+                target_frontier,
+                source_suffix,
+                bundle_digest: vec![8; 32],
+            },
+            target_worldline_id: kernel_port::WorldlineId::from_bytes([9; 32]),
+            target_basis: sample_provenance_ref(9, 0),
+            basis_report: None,
+        }
+    }
+
+    #[test]
+    fn test_import_suffix_intent_round_trip() {
+        let request = sample_import_suffix_request();
+        let packed = pack_import_suffix_intent_v1(&request).unwrap();
+
+        let (op_id, vars) = unpack_intent_v1(&packed).unwrap();
+        assert_eq!(op_id, IMPORT_SUFFIX_INTENT_V1_OP_ID);
+        assert!(!vars.is_empty());
+
+        let unpacked = unpack_import_suffix_intent_v1(&packed).unwrap();
+        assert_eq!(unpacked, request);
+    }
+
+    #[test]
+    fn test_import_suffix_intent_rejects_wrong_op_id() {
+        let payload = encode_cbor(&sample_import_suffix_request()).unwrap();
+        let packed = pack_intent_v1(77, &payload).unwrap();
+
+        assert_eq!(
+            unpack_import_suffix_intent_v1(&packed),
+            Err(EnvelopeError::Malformed)
+        );
+    }
+
+    #[test]
+    fn test_import_suffix_intent_rejects_malformed_payload() {
+        let packed = pack_intent_v1(IMPORT_SUFFIX_INTENT_V1_OP_ID, &[0xff]).unwrap();
+
+        assert_eq!(
+            unpack_import_suffix_intent_v1(&packed),
+            Err(EnvelopeError::Malformed)
         );
     }
 

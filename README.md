@@ -50,6 +50,41 @@ reading. Files are readings. Build outputs are readings. Debugger views are
 readings. Echo exists to make those readings lawful, witnessed, and
 replayable.
 
+## Thirty Second Version
+
+Echo is a deterministic runtime for admitting canonical intents and producing
+witnessed readings.
+
+Most applications do not call Echo with application objects directly. They:
+
+```text
+author GraphQL contract
+  -> compile with Wesley
+  -> use generated helpers
+  -> dispatch canonical EINT intents
+  -> observe ReadingEnvelope-backed results
+```
+
+Echo handles causal admission, receipts, witnesses, retention, replay, and
+bounded observations. The application owns domain semantics. Wesley bridges the
+two by turning authored contracts into typed generated surfaces.
+
+## Reader Paths
+
+- **Write an app:** start with
+  [Writing An Echo Application](#writing-an-echo-application), then read
+  [Application Contract Hosting](docs/architecture/application-contract-hosting.md).
+- **Understand the model:** read [WARP And Continuum](#warp-and-continuum),
+  [Core Ontology](#core-ontology), and
+  [There Is No Graph](docs/architecture/there-is-no-graph.md).
+- **Generate contracts:** use
+  [echo-wesley-gen](crates/echo-wesley-gen/README.md) with a GraphQL SDL
+  contract.
+- **Hack the runtime:** start with [Core Crates](#core-crates), then run the
+  [Quick Start](#quick-start) checks.
+- **Follow retained readings and proofs:** read
+  [WSC, Verkle, IPA, And Retained Readings](docs/architecture/wsc-verkle-ipa-retained-readings.md).
+
 ## Why It Exists
 
 Traditional systems pretend there is one mutable global state:
@@ -215,6 +250,20 @@ The normal authoring loop is contract-first:
    `ReadingEnvelope`.
 8. Decode and present the result in the application.
 
+The end-to-end shape is:
+
+```text
+counter.graphql
+  -> echo-wesley-gen
+  -> generated.rs
+  -> verify_contract_artifact(...)
+  -> pack_increment_intent(...)
+  -> dispatch_intent(...)
+  -> counter_value_observation_request(...)
+  -> observe(...)
+  -> inspect ReadingEnvelope
+```
+
 A tiny contract looks like this:
 
 ```graphql
@@ -274,6 +323,73 @@ Current checked-in generation is Rust-first. TypeScript/browser generation
 should follow the same contract identity, registry, artifact-verification, and
 footprint-honesty rules rather than inventing a separate Echo API.
 
+### Boundary Vocabulary
+
+- **GraphQL SDL contract:** the application-owned declaration of types,
+  operations, reads, and metadata.
+- **Wesley:** the compiler optic that lowers the contract into generated Echo
+  helpers and registry metadata.
+- **EINT:** Echo's canonical intent envelope. Generated helpers pack operation
+  variables into this shape.
+- **ObservationRequest:** the generic Echo read request produced by generated
+  query helpers.
+- **ReadingEnvelope:** the evidence wrapper around a returned reading. It names
+  basis, observer, projection, witness references, and whether the reading is
+  complete, residual, obstructed, or otherwise limited.
+- **Artifact verification:** the host check that a generated contract registry
+  matches the expected schema, codec, registry version, and certificate
+  posture.
+
+## What Not To Put In Echo
+
+Echo is generic substrate. Keep application semantics above the generated
+contract boundary.
+
+Do not add:
+
+- app-specific runtime APIs such as `replace_range(...)`,
+  `increment_counter(...)`, `rename_symbol(...)`, or `save_buffer(...)`;
+- application-owned structs as core Echo state;
+- GraphQL execution as Echo's runtime language;
+- hand-rolled EINT packing in product code when generated helpers exist;
+- jedit, Graft, Wesley, Continuum, or `git-warp` ownership inside Echo core.
+
+The operational anchor is:
+
+```text
+big ontology claim: there is no privileged graph
+runtime consequence: Echo stores witnessed causal history and serves readings
+through explicit dispatch and observation boundaries
+```
+
+## jedit Boundary
+
+`jedit` is expected to be a serious Echo consumer, not an Echo submodule.
+
+`jedit` owns:
+
+- rope model and buffer semantics;
+- edit group law;
+- dirty state and checkpoint policy;
+- editor UI and user interaction policy;
+- the external text GraphQL contract.
+
+Wesley owns:
+
+- compiling that external GraphQL contract into generated helpers;
+- carrying contract identity, schema identity, operation ids, registry
+  metadata, and footprint certificates.
+
+Echo owns:
+
+- generic contract hosting;
+- intent admission and scheduling;
+- receipts, witnesses, and retained bytes;
+- contract-aware readings and `ReadingEnvelope` posture.
+
+Echo tests may use generated `jedit` Wesley output as a fixture. Echo should not
+author the `jedit` contract or grow text-editor APIs.
+
 ## Retained Readings: WSC, Verkle, IPA, CAS
 
 Echo's retained-reading direction is:
@@ -313,6 +429,30 @@ Verkle is not truth. IPA is not storage. CAS is not semantic identity.
 
 See [WSC, Verkle, IPA, And Retained Readings](docs/architecture/wsc-verkle-ipa-retained-readings.md).
 
+## Current Reality
+
+Works today:
+
+- Rust contract generation from GraphQL SDL through `echo-wesley-gen`;
+- generated registry metadata and operation descriptors;
+- generated footprint certificate constants for `@wes_footprint`;
+- host-side contract artifact verification through `echo-registry-api`;
+- generic EINT dispatch and observation plumbing;
+- WSC writing, validation, inspection, and borrowed views in `warp-core`;
+- content-addressed byte retention in `echo-cas`;
+- docs and Method backlog tracking for active contract-hosting work.
+
+Designed or in progress:
+
+- TypeScript/browser generator parity;
+- generated `jedit` contract fixtures as Echo integration evidence;
+- contract-aware receipts and readings with full application identity;
+- WSC-backed retained readings and checkpoints;
+- Verkle or equivalent authenticated retained-reading indexes;
+- IPA or equivalent proof-carrying aperture openings;
+- full Continuum interchange across Echo, `git-warp`, Wesley, Graft,
+  WARPDrive, and `warp-ttd`.
+
 ## Determinism Posture
 
 Echo is built around exact replay and cross-platform convergence.
@@ -349,6 +489,8 @@ is lawful for the current basis.
 
 ## Quick Start
 
+### Hacking Echo
+
 Install hooks and check the current Method view:
 
 ```bash
@@ -362,6 +504,13 @@ Run a fast runtime slice:
 cargo xtask test-slice warp-core-smoke
 ```
 
+Run focused generated-contract checks:
+
+```bash
+cargo test -p echo-wesley-gen
+cargo test -p echo-registry-api
+```
+
 Build the docs:
 
 ```bash
@@ -373,6 +522,22 @@ Run the determinism harness:
 ```bash
 cargo xtask dind run
 ```
+
+### Generating A Contract
+
+Generate a Rust contract surface from GraphQL SDL:
+
+```bash
+cargo run -p echo-wesley-gen -- --schema counter.graphql --out generated.rs
+```
+
+Generate to stdout while iterating:
+
+```bash
+cargo run -p echo-wesley-gen -- --schema counter.graphql
+```
+
+### Inspecting WSC
 
 Inspect a WSC snapshot:
 

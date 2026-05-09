@@ -22,6 +22,10 @@ pub struct RegistryInfo {
 /// Trust posture assigned after a generated contract artifact has been verified.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContractArtifactTrustPosture {
+    /// The registry artifact matched expected schema, codec, and registry
+    /// version, but the host policy did not request or prove the stronger
+    /// compile-time footprint certificate posture.
+    MetadataVerified,
     /// The registry artifact matched the expected schema, codec, registry
     /// version, and footprint certificate set supplied by the host policy.
     CompileTimeCertified,
@@ -372,10 +376,13 @@ pub fn verify_contract_artifact<'a>(
         }
     }
 
-    Ok(VerifiedContractArtifact {
-        info,
-        posture: ContractArtifactTrustPosture::CompileTimeCertified,
-    })
+    let posture = if policy.require_mutation_footprint_certificates {
+        ContractArtifactTrustPosture::CompileTimeCertified
+    } else {
+        ContractArtifactTrustPosture::MetadataVerified
+    };
+
+    Ok(VerifiedContractArtifact { info, posture })
 }
 
 fn verify_expected_footprint_certificate<'a>(
@@ -494,6 +501,15 @@ mod tests {
         directives_json: "{}",
         footprint_certificate: None,
     }];
+    static OPS_QUERY_ONLY: &[OpDef] = &[OpDef {
+        kind: OpKind::Query,
+        name: "counterValue",
+        op_id: 1002,
+        args: &[],
+        result_ty: "CounterValue",
+        directives_json: "{}",
+        footprint_certificate: None,
+    }];
 
     struct StaticRegistry {
         ops: &'static [OpDef],
@@ -583,6 +599,50 @@ mod tests {
                     actual: CERTIFICATE_HASH_HEX,
                 }
             )
+        );
+    }
+
+    #[test]
+    fn verifier_does_not_compile_time_certify_empty_policy() {
+        let registry = StaticRegistry {
+            ops: OPS_QUERY_ONLY,
+        };
+        let policy = ContractArtifactVerificationPolicy {
+            codec_id: "cbor-canon-v1",
+            registry_version: 1,
+            schema_sha256_hex: SCHEMA_SHA256_HEX,
+            footprint_certificates: &[],
+            require_mutation_footprint_certificates: false,
+        };
+
+        assert_eq!(
+            verify_contract_artifact(&registry, &policy),
+            Ok(VerifiedContractArtifact {
+                info: registry.info(),
+                posture: ContractArtifactTrustPosture::MetadataVerified,
+            })
+        );
+    }
+
+    #[test]
+    fn verifier_does_not_compile_time_certify_weak_mutation_policy() {
+        let registry = StaticRegistry {
+            ops: OPS_WITH_CERTIFICATE,
+        };
+        let policy = ContractArtifactVerificationPolicy {
+            codec_id: "cbor-canon-v1",
+            registry_version: 1,
+            schema_sha256_hex: SCHEMA_SHA256_HEX,
+            footprint_certificates: &[],
+            require_mutation_footprint_certificates: false,
+        };
+
+        assert_eq!(
+            verify_contract_artifact(&registry, &policy),
+            Ok(VerifiedContractArtifact {
+                info: registry.info(),
+                posture: ContractArtifactTrustPosture::MetadataVerified,
+            })
         );
     }
 

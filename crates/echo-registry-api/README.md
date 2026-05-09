@@ -15,8 +15,8 @@ carries the data so the generic runtime boundary stays application-neutral.
 ## Contract artifact verification
 
 Hosts can call `verify_contract_artifact(...)` against a generated
-`RegistryProvider` before treating a Wesley-generated artifact as
-compile-time-certified. The verification policy compares:
+`RegistryProvider` before deciding how much trust to assign to a
+Wesley-generated artifact. The verification policy compares:
 
 - codec id;
 - registry layout version;
@@ -24,6 +24,12 @@ compile-time-certified. The verification policy compares:
 - expected per-operation footprint certificate hashes;
 - optional per-operation generated artifact hashes;
 - whether every mutation must carry a footprint certificate named by policy.
+
+A policy that checks only schema, codec, and layout returns
+`MetadataVerified`. The stronger `CompileTimeCertified` posture is reserved for
+policies that also require mutation footprint certificates and successfully
+verify the expected certificate set. Release fast paths must key off the
+posture, not merely on successful metadata verification.
 
 The verifier returns a typed `ContractArtifactRejection` on mismatch. It does
 not validate application payload semantics or execute an operation; generated

@@ -53,6 +53,9 @@
 
 - Added regression coverage that rejects trailing whitespace in the committed
   `echo-cli --help` golden fixture, and cleaned the existing padded blank line.
+- Split generated contract artifact verification into `MetadataVerified` and
+  `CompileTimeCertified` postures so weak or metadata-only host policies cannot
+  accidentally enable the trusted footprint fast path.
 - Fixed Wesley-generated helper output so helper-only vars and intent error
   types live in a generated namespace instead of colliding with user contract
   types, while preserving top-level helper function re-exports, and added

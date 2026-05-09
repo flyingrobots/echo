@@ -7,8 +7,9 @@ use anyhow::Result;
 use clap::Parser;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, Read};
+use std::path::PathBuf;
 
 /// Create an identifier safely, falling back to a raw identifier for Rust keywords.
 fn safe_ident(name: &str) -> proc_macro2::Ident {
@@ -19,6 +20,11 @@ fn safe_ident(name: &str) -> proc_macro2::Ident {
 mod ir;
 use ir::{OpKind, TypeKind, WesleyIR};
 
+const ECHO_IR_VERSION: &str = "echo-ir/v1";
+const DEFAULT_CODEC_ID: &str = "cbor-canon-v1";
+const DEFAULT_REGISTRY_VERSION: u32 = 1;
+const WESLEY_CORE_VERSION: &str = "0.0.2";
+
 #[derive(Parser)]
 #[command(
     author,
@@ -26,9 +32,13 @@ use ir::{OpKind, TypeKind, WesleyIR};
     about = "Generates Echo Rust artifacts from Wesley IR"
 )]
 struct Args {
+    /// Read GraphQL SDL directly and lower it with wesley-core.
+    #[arg(long)]
+    schema: Option<PathBuf>,
+
     /// Optional output path (defaults to stdout)
     #[arg(short, long)]
-    out: Option<std::path::PathBuf>,
+    out: Option<PathBuf>,
 
     /// Emit code compatible with no_std environments
     #[arg(long, default_value_t = false)]
@@ -42,11 +52,18 @@ struct Args {
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    let mut buffer = String::new();
-    io::stdin().read_to_string(&mut buffer)?;
+    let ir = if let Some(schema_path) = &args.schema {
+        let schema_sdl = std::fs::read_to_string(schema_path)?;
+        echo_ir_from_schema_sdl(&schema_sdl)?
+    } else {
+        let mut buffer = String::new();
+        io::stdin().read_to_string(&mut buffer)?;
 
-    let ir: WesleyIR = serde_json::from_str(&buffer)?;
-    validate_version(&ir)?;
+        let ir: WesleyIR = serde_json::from_str(&buffer)?;
+        validate_version(&ir)?;
+        ir
+    };
+
     let code = generate_rust(&ir, &args)?;
 
     if let Some(path) = args.out {
@@ -56,6 +73,124 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn echo_ir_from_schema_sdl(schema_sdl: &str) -> Result<WesleyIR> {
+    let l1_ir = wesley_core::lower_schema_sdl(schema_sdl)?;
+    let schema_sha256 = wesley_core::compute_registry_hash(&l1_ir)?;
+    let mut operations = wesley_core::list_schema_operations_sdl(schema_sdl)?;
+    operations.sort_by_key(operation_sort_key);
+
+    let mut used_op_ids = BTreeSet::new();
+    let mut ops = Vec::with_capacity(operations.len());
+    for operation in operations {
+        let mut op_id = stable_op_id(&operation.operation_type, &operation.field_name);
+        while op_id == 0 || used_op_ids.contains(&op_id) {
+            op_id = op_id.wrapping_add(1);
+        }
+        used_op_ids.insert(op_id);
+
+        ops.push(ir::OpDefinition {
+            kind: op_kind_from_wesley(operation.operation_type),
+            name: operation.field_name,
+            op_id,
+            args: operation
+                .arguments
+                .into_iter()
+                .map(|argument| ir::ArgDefinition {
+                    name: argument.name,
+                    type_name: argument.r#type.base,
+                    required: !argument.r#type.nullable,
+                    list: argument.r#type.is_list,
+                })
+                .collect(),
+            result_type: operation.result_type.base,
+            directives: serde_json::to_value(operation.directives)?,
+        });
+    }
+
+    Ok(WesleyIR {
+        ir_version: Some(ECHO_IR_VERSION.to_string()),
+        generated_by: Some(ir::GeneratedBy {
+            tool: "wesley-core".to_string(),
+            version: Some(WESLEY_CORE_VERSION.to_string()),
+        }),
+        schema_sha256: Some(schema_sha256),
+        types: l1_ir
+            .types
+            .into_iter()
+            .map(type_definition_from_wesley)
+            .collect(),
+        ops,
+        codec_id: Some(DEFAULT_CODEC_ID.to_string()),
+        registry_version: Some(DEFAULT_REGISTRY_VERSION),
+    })
+}
+
+fn operation_sort_key(operation: &wesley_core::SchemaOperation) -> (u8, String) {
+    (
+        operation_type_rank(operation.operation_type),
+        operation.field_name.clone(),
+    )
+}
+
+fn operation_type_rank(operation_type: wesley_core::OperationType) -> u8 {
+    match operation_type {
+        wesley_core::OperationType::Query => 0,
+        wesley_core::OperationType::Mutation => 1,
+        wesley_core::OperationType::Subscription => 2,
+    }
+}
+
+fn op_kind_from_wesley(operation_type: wesley_core::OperationType) -> OpKind {
+    match operation_type {
+        wesley_core::OperationType::Query | wesley_core::OperationType::Subscription => {
+            OpKind::Query
+        }
+        wesley_core::OperationType::Mutation => OpKind::Mutation,
+    }
+}
+
+fn type_definition_from_wesley(type_definition: wesley_core::TypeDefinition) -> ir::TypeDefinition {
+    ir::TypeDefinition {
+        name: type_definition.name,
+        kind: type_kind_from_wesley(type_definition.kind),
+        fields: type_definition
+            .fields
+            .into_iter()
+            .map(|field| ir::FieldDefinition {
+                name: field.name,
+                type_name: field.r#type.base,
+                required: !field.r#type.nullable,
+                list: field.r#type.is_list,
+            })
+            .collect(),
+        values: type_definition.enum_values,
+    }
+}
+
+fn type_kind_from_wesley(type_kind: wesley_core::TypeKind) -> TypeKind {
+    match type_kind {
+        wesley_core::TypeKind::Object => TypeKind::Object,
+        wesley_core::TypeKind::Interface => TypeKind::Interface,
+        wesley_core::TypeKind::Union => TypeKind::Union,
+        wesley_core::TypeKind::Enum => TypeKind::Enum,
+        wesley_core::TypeKind::Scalar => TypeKind::Scalar,
+        wesley_core::TypeKind::InputObject => TypeKind::InputObject,
+    }
+}
+
+fn stable_op_id(operation_type: &wesley_core::OperationType, field_name: &str) -> u32 {
+    let mut hash = 2_166_136_261_u32;
+    hash = fnv1a_step(hash, operation_type_rank(*operation_type));
+    for byte in field_name.as_bytes() {
+        hash = fnv1a_step(hash, *byte);
+    }
+    hash
+}
+
+fn fnv1a_step(hash: u32, byte: u8) -> u32 {
+    hash.wrapping_mul(16_777_619) ^ u32::from(byte)
 }
 
 fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {

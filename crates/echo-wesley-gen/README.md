@@ -3,13 +3,23 @@
 
 # echo-wesley-gen
 
-CLI tool that reads Wesley IR (JSON) from stdin and emits Rust structs/enums
-for Echo. Intended to be driven by the JavaScript generator (packages/wesley-generator-echo)
-which now outputs `ir.json` instead of handwritten Rust.
+CLI tool that emits Echo Rust structs, operation registries, and optic helper
+functions from Wesley contract data.
+
+The preferred input is GraphQL SDL lowered directly through the published
+`wesley-core` crate. The older `echo-ir/v1` JSON stdin path is retained for
+fixtures and compatibility while consumers move off the historical JavaScript
+generator.
 
 ## Usage
 
 ```bash
+# Generate Rust code directly from GraphQL SDL
+cargo run -p echo-wesley-gen -- --schema schema.graphql
+
+# Write generated Rust from GraphQL SDL to a file
+cargo run -p echo-wesley-gen -- --schema schema.graphql --out generated.rs
+
 # Generate Rust code to stdout
 cat ir.json | cargo run -p echo-wesley-gen --
 

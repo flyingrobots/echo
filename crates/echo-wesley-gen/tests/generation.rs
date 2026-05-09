@@ -35,12 +35,81 @@ fn run_wesley_gen_with_args(ir: &str, args: &[&str]) -> Output {
     child.wait_with_output().expect("failed to wait on child")
 }
 
+fn run_wesley_gen_schema(schema_path: &Path) -> Output {
+    Command::new("cargo")
+        .args(["run", "-p", "echo-wesley-gen", "--", "--schema"])
+        .arg(schema_path)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to run cargo run")
+}
+
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
         .nth(2)
         .expect("workspace root ancestor missing")
         .to_path_buf()
+}
+
+#[test]
+fn test_generate_from_graphql_schema_uses_wesley_core() {
+    let workspace = workspace_root();
+    let fixture_dir = workspace
+        .join("target")
+        .join("echo-wesley-gen-schema-fixture")
+        .join(std::process::id().to_string());
+    fs::create_dir_all(&fixture_dir).expect("failed to create schema fixture dir");
+    let schema_path = fixture_dir.join("counter.graphql");
+    fs::write(
+        &schema_path,
+        r#"
+directive @wes_op(name: String!) on FIELD_DEFINITION
+directive @wes_footprint(reads: [String!], writes: [String!]) on FIELD_DEFINITION
+
+type CounterValue {
+  value: Int!
+}
+
+input IncrementInput {
+  amount: Int!
+}
+
+type Query {
+  counterValue: CounterValue! @wes_op(name: "counterValue")
+}
+
+type Mutation {
+  increment(input: IncrementInput!): CounterValue!
+    @wes_op(name: "increment")
+    @wes_footprint(reads: ["CounterValue"], writes: ["CounterValue"])
+}
+"#,
+    )
+    .expect("failed to write schema fixture");
+
+    let output = run_wesley_gen_schema(&schema_path);
+
+    assert!(
+        output.status.success(),
+        "CLI failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(stdout.contains("pub struct CounterValue"));
+    assert!(stdout.contains("pub struct IncrementInput"));
+    assert!(stdout.contains("pub const CODEC_ID: &str = \"cbor-canon-v1\""));
+    assert!(stdout.contains("pub const REGISTRY_VERSION: u32 = 1"));
+    assert!(stdout.contains("pub const OP_COUNTER_VALUE: u32 ="));
+    assert!(stdout.contains("pub const OP_INCREMENT: u32 ="));
+    assert!(stdout.contains("pub struct CounterValueVars"));
+    assert!(stdout.contains("pub struct IncrementVars"));
+    assert!(stdout.contains("pub fn counter_value_observe_optic_request"));
+    assert!(stdout.contains("pub fn increment_dispatch_optic_intent_request"));
+    assert!(stdout.contains("directives_json:"));
+    assert!(stdout.contains("\\\"wes_footprint\\\""));
 }
 
 fn write_consumer_smoke_crate(generated: &str) -> PathBuf {

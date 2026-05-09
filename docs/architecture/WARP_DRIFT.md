@@ -178,6 +178,12 @@ distance:
 - return explicit import outcomes
 - preserve the shell-equivalence story for independent imports
 
+Implementation note: the runtime now treats Echo's `WitnessedSuffixShell`,
+`CausalSuffixBundle`, and `ImportSuffixResult` shapes as the source model for
+the Continuum runtime-boundary family. Continuum should change to match this
+typed evidence model instead of requiring Echo to adapt to a weaker
+`SuffixShell` placeholder.
+
 ### Fourth: update the docs/invariants to match the corrected runtime
 
 The bootstrap strand contract and README language should be revised only
@@ -196,6 +202,8 @@ are pruned from `docs/method/backlog/**`:
 - `docs/design/0009-witnessed-causal-suffix-sync/design.md`
 - `docs/design/0010-live-basis-settlement-plan/design.md`
 - `docs/design/0011-optic-observer-runtime-doctrine/design.md`
+- `docs/design/0022-continuum-transport-identity/design.md`
+- `docs/architecture/continuum-transport.md`
 - `docs/design/0006-echo-continuum-alignment/design.md`
 
 ## Practical rule

@@ -50,6 +50,7 @@ Worldline: the retained ordered history used for replay, slices, and coordinate-
 - [Merkle Commit](../spec/merkle-commit.md)
 - [Worldlines, Playback, and Observation](../spec/SPEC-0004-worldlines-playback-truthbus.md)
 - [WASM ABI Contract](../spec/SPEC-0009-wasm-abi.md)
+- [Continuum Transport](continuum-transport.md)
 
 ## Design posture
 

@@ -44,7 +44,24 @@ That is not strong enough for the runtime boundary Echo now wants to expose.
 - the runtime can explain why a bundle was not novel without collapsing into
   silent "no-op" folklore
 
+## Locked decision
+
+The task design is now captured in:
+
+- `docs/design/0022-continuum-transport-identity/design.md`
+- `docs/architecture/continuum-transport.md`
+
+For this card, Echo's witnessed suffix model is the source shape for the shared
+Continuum transport family. Continuum should promote Echo's
+`WitnessedSuffixShell`, `CausalSuffixBundle`, `ImportSuffixResult`, and typed
+admission outcome family instead of preserving the older thin `SuffixShell`
+placeholder. Import idempotence is shell equivalence under retained causal
+evidence, not visible-state equality, host-time ordering, summary strings, or
+runtime-local Lamport/tick hashes.
+
 ## Repo evidence
 
 - `docs/design/0009-witnessed-causal-suffix-sync/design.md`
+- `docs/design/0022-continuum-transport-identity/design.md`
+- `docs/architecture/continuum-transport.md`
 - `docs/architecture/WARP_DRIFT.md`

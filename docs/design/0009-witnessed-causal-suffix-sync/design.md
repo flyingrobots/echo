@@ -210,6 +210,13 @@ existing witnessed suffix admission evaluator and returns `ImportSuffixResult`.
 This is deliberately not transport and deliberately not import execution; it
 does not append target provenance or apply patches directly.
 
+The active transport-identity decision for M027 is stricter: Continuum's shared
+runtime-boundary family should now promote Echo's witnessed suffix model
+directly. The canonical shared names are `WitnessedSuffixShell`,
+`CausalSuffixBundle`, `WitnessedSuffixAdmissionResponse`, and `ImportOutcome`;
+the older `SuffixShell` wording is only a historical placeholder. See
+`docs/design/0022-continuum-transport-identity/design.md`.
+
 One supporting read surface is also useful:
 
 ```text

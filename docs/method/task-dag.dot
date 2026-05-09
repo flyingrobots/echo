@@ -1,6 +1,6 @@
 digraph method_task_dag {
   graph [
-    label="METHOD Backlog Task Dependency DAG\nopen tasks: 95 / 135; dependency edges: 50",
+    label="METHOD Backlog Task Dependency DAG\nopen tasks: 95 / 136; dependency edges: 53",
     labelloc=t,
     fontsize=24,
     fontname="Inter, Helvetica, Arial",
@@ -184,10 +184,11 @@ digraph method_task_dag {
     "M127" [label="M127\nT-5-3-2\nRequest/response protocol\nand backpressure", tooltip="M127 [cool-ideas] blocked; blockers=1; T-5-3-2 Request/response protocol and backpressure", fillcolor="#ede9fe", color="#7c3aed", penwidth=1.2];
     "M128" [label="M128\nOPEN\nExtract method crate to\nits own repo", tooltip="M128 [cool-ideas] open; blockers=0;  Extract method crate to its own repo", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M129" [label="M129\nOPEN\nMethod drift check as\npre-push hook", tooltip="M129 [cool-ideas] open; blockers=0;  Method drift check as pre-push hook", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
-    "M130" [label="M130\nOPEN\nReading envelope inspector", tooltip="M130 [cool-ideas] open; blockers=0;  Reading envelope inspector", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
-    "M131" [label="M131\nOPEN\nVisualization", tooltip="M131 [cool-ideas] open; blockers=0;  Visualization", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
+    "M130" [label="M130\nProof-Carrying Apertures", tooltip="M130 [cool-ideas] blocked; blockers=3;  Proof-Carrying Apertures", fillcolor="#ede9fe", color="#7c3aed", penwidth=1.2];
+    "M131" [label="M131\nOPEN\nReading envelope inspector", tooltip="M131 [cool-ideas] open; blockers=0;  Reading envelope inspector", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M132" [label="M132\nOPEN\nVisualization", tooltip="M132 [cool-ideas] open; blockers=0;  Visualization", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
-    "M133" [label="M133\nOPEN\nWARPDrive POSIX\nMaterialization Optic", tooltip="M133 [cool-ideas] open; blockers=0;  WARPDrive POSIX Materialization Optic", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
+    "M133" [label="M133\nOPEN\nVisualization", tooltip="M133 [cool-ideas] open; blockers=0;  Visualization", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
+    "M134" [label="M134\nOPEN\nWARPDrive POSIX\nMaterialization Optic", tooltip="M134 [cool-ideas] open; blockers=0;  WARPDrive POSIX Materialization Optic", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
   }
 
   subgraph "cluster_bad_code" {
@@ -196,11 +197,12 @@ digraph method_task_dag {
     fontname="Inter, Helvetica, Arial";
     fontsize=16;
     style="rounded";
-    "M134" [label="M134\nOPEN\nRED/GREEN can't be\nseparate commits", tooltip="M134 [bad-code] open; blockers=0;  RED/GREEN can't be separate commits", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
-    "M135" [label="M135\nOPEN\nxtask main.rs is a god\nfile", tooltip="M135 [bad-code] open; blockers=0;  xtask main.rs is a god file", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
+    "M135" [label="M135\nOPEN\nRED/GREEN can't be\nseparate commits", tooltip="M135 [bad-code] open; blockers=0;  RED/GREEN can't be separate commits", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
+    "M136" [label="M136\nOPEN\nxtask main.rs is a god\nfile", tooltip="M136 [bad-code] open; blockers=0;  xtask main.rs is a god file", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
   }
 
   "M012" -> "M023";
+  "M012" -> "M130";
   "M013" -> "M117";
   "M015" -> "M034";
   "M016" -> "M018";
@@ -209,6 +211,7 @@ digraph method_task_dag {
   "M019" -> "M020";
   "M020" -> "M021";
   "M023" -> "M032";
+  "M023" -> "M130";
   "M028" -> "M013";
   "M032" -> "M028";
   "M034" -> "M018";
@@ -250,4 +253,5 @@ digraph method_task_dag {
   "M123" -> "M125";
   "M124" -> "M125";
   "M126" -> "M127";
+  "M134" -> "M130";
 }

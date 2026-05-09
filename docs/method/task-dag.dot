@@ -70,7 +70,7 @@ digraph method_task_dag {
     "M029" [label="M029\nOPEN\nImport outcome idempotence\nand loop law", tooltip="M029 [up-next] open; blockers=0;  Import outcome idempotence and loop law", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M030" [label="M030\nOPEN\nImport outcome retention\nand novelty index", tooltip="M030 [up-next] open; blockers=0;  Import outcome retention and novelty index", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M031" [label="M031\nInverse operation Intent\npath", tooltip="M031 [up-next] blocked; blockers=1;  Inverse operation Intent path", fillcolor="#dbeafe", color="#1d4ed8", penwidth=1.2];
-    "M032" [label="M032\njedit Text Contract MVP", tooltip="M032 [up-next] blocked; blockers=1;  jedit Text Contract MVP", fillcolor="#dbeafe", color="#1d4ed8", penwidth=1.2];
+    "M032" [label="M032\njedit Text Contract\nHosting MVP", tooltip="M032 [up-next] blocked; blockers=1;  jedit Text Contract Hosting MVP", fillcolor="#dbeafe", color="#1d4ed8", penwidth=1.2];
     "M033" [label="M033\nOPEN\nTriage METHOD drift\nagainst ~/git/method", tooltip="M033 [up-next] open; blockers=0;  Triage METHOD drift against ~/git/method", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];
     "M034" [label="M034\nStrand and support Intent\npaths", tooltip="M034 [up-next] blocked; blockers=2;  Strand and support Intent paths", fillcolor="#dbeafe", color="#1d4ed8", penwidth=1.2];
     "M035" [label="M035\nOPEN\nNarrow ttd-browser into an\nEcho browser host bridge", tooltip="M035 [up-next] open; blockers=0;  Narrow ttd-browser into an Echo browser host bridge", fillcolor="#bbf7d0", color="#15803d", penwidth=2.8];

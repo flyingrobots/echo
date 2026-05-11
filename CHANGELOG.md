@@ -7,6 +7,13 @@
 
 ### Added
 
+- Echo-owned WASM package boundary tooling: `scripts/build-warp-wasm-package.sh`
+  now builds `crates/warp-wasm/pkg` with the bundler target and the package
+  export smoke test imports `pkg/rmg_wasm.js` to verify the JavaScript byte ABI
+  surface expected by consumers.
+- The WASM package export smoke test now runs through
+  `scripts/tests/warp_wasm_package_exports_test.sh`, which rebuilds the package
+  before importing it so the export witness cannot pass against a stale package.
 - Stack Witness 0001 drift lock — `warp-wasm` now mirrors Wesley's fixture
   vectors for the jedit-through-Echo walking skeleton and verifies Echo's
   fixture op ids, buffer-inclusive fixture vars bytes, the

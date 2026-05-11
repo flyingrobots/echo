@@ -239,6 +239,31 @@ jobs:
                   set -euo pipefail
                   bash scripts/tests/check_task_lists_test.sh
 
+    wasm-package-boundary:
+        name: WASM Package Boundary
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  submodules: false
+            - uses: dtolnay/rust-toolchain@1.90.0
+            - uses: Swatinem/rust-cache@v2
+              with:
+                  workspaces: |
+                      .
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+            - name: Install wasm32 target
+              run: rustup target add wasm32-unknown-unknown
+            - name: Install wasm-pack
+              run: cargo install wasm-pack --version 0.14.0 --locked
+            - name: WASM package export smoke test
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  bash scripts/tests/warp_wasm_package_exports_test.sh
+
     man-pages:
         name: Man Pages Freshness
         runs-on: ubuntu-latest

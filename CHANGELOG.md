@@ -9,8 +9,8 @@
 
 - Echo-owned WASM package boundary tooling: `scripts/build-warp-wasm-package.sh`
   now builds `crates/warp-wasm/pkg` with the bundler target and the package
-  export smoke test imports `pkg/rmg_wasm.js` to verify the JavaScript byte ABI
-  surface expected by consumers.
+  export smoke test imports `crates/warp-wasm/pkg/rmg_wasm.js` to verify the
+  JavaScript byte ABI surface expected by consumers.
 - The WASM package export smoke test now runs through
   `scripts/tests/warp_wasm_package_exports_test.sh`, which rebuilds the package
   before importing it so the export witness cannot pass against a stale package.

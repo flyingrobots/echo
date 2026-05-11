@@ -34,12 +34,14 @@ Echo owns the WASM package build ritual for downstream consumers. Build the
 bundler package with:
 
 ```sh
+# from repository root
 scripts/build-warp-wasm-package.sh
 ```
 
 The command refreshes `crates/warp-wasm/pkg` with:
 
 ```sh
+# equivalent underlying invocation from crates/warp-wasm/
 wasm-pack build --target bundler --out-dir pkg --out-name rmg_wasm -- --features engine
 ```
 
@@ -47,6 +49,7 @@ The package export smoke test imports `crates/warp-wasm/pkg/rmg_wasm.js` and
 asserts the byte ABI export surface:
 
 ```sh
+# from repository root
 scripts/tests/warp_wasm_package_exports_test.sh
 ```
 

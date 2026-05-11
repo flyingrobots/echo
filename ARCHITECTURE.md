@@ -42,7 +42,7 @@ flowchart TD
 - **Structural Determinism**: Concurrency is structurally prevented by the snapshot-delta-merge model. Same rules + same hashes = same result.
 - **WARP Substrate**: State is a typed, directed multigraph. Time is a hash chain of ticks.
 - **Genealogy of Reality**: Every state transition traces back to a causal receipt. Provenance is a first-class citizen.
-- **0-ULP Inevitability**: Cross-platform math convergence is enforced at the binary level. No standard floats, no system time.
+- **0-ULP Inevitability**: Cross-platform math convergence is enforced for consensus/default execution paths at the binary level; standard floats are excluded there, and wall-clock time is not part of state transition semantics.
 
 ## Internal Pipeline (Hot Path)
 
@@ -64,4 +64,4 @@ Echo uses **WARP Graphs**—a worldline algebra for recursive provenance.
 
 ---
 
-**The goal is inevitably. Every state transition is a provable consequence of its causal history.**
+**The goal is inevitability. Every state transition is a provable consequence of its causal history.**

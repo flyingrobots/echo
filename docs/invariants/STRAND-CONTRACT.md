@@ -28,9 +28,9 @@ RFC 2119 convention.
 
 ### INV-S1 — Immutable parent anchor
 
-A strand's `base_ref` MUST NOT change after creation. The `BaseRef`
+A strand's `fork_basis_ref` MUST NOT change after creation. The `ForkBasisRef`
 pins the exact provenance coordinate the strand was forked from:
-source worldline ID, fork tick (last included tick in the copied
+source lane ID, fork tick (last included tick in the copied
 prefix), commit hash at fork tick, output boundary hash (state root
 after applying the patch), and a `ProvenanceRef` handle.
 
@@ -55,9 +55,9 @@ strand persistence across sessions.
 A strand's worldline MUST NOT be ticked by the live scheduler. It MUST
 advance only through ordinary ingress + `super_tick()` coordination.
 
-### INV-S5 — Complete base_ref
+### INV-S5 — Complete fork_basis_ref
 
-`base_ref` MUST pin: source worldline ID, fork tick, commit hash,
+`fork_basis_ref` MUST pin: source lane ID, fork tick, commit hash,
 boundary hash, and provenance ref. All fields MUST agree with the
 provenance store at construction time. If any field disagrees,
 construction MUST fail.
@@ -70,7 +70,7 @@ change its quantum.
 
 ### INV-S7 — Distinct worldlines
 
-`child_worldline_id` MUST NOT equal `base_ref.source_worldline_id`.
+`child_worldline_id` MUST NOT equal `fork_basis_ref.source_lane_id`.
 A strand is always a distinct worldline from its base.
 
 ### INV-S8 — Head ownership

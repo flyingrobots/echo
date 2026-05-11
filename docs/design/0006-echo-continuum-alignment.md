@@ -6,7 +6,7 @@
 _Decide what Echo must change so Continuum tools can consume one honest shared
 observer/debugger noun stack without flattening Echo’s runtime-specific truth._
 
-Legend: [PLATFORM](../../method/legends/PLATFORM.md)
+Legend: [PLATFORM](../method/legends/PLATFORM.md)
 
 Depends on:
 

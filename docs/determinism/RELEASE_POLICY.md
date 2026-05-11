@@ -118,6 +118,13 @@ configuration, **do not allowlist it. Refactor instead.**
 - The `check_task_lists.sh` pre-commit hook does **not** cover allowlist
   auditing; this is a manual review gate.
 
+## Declarative Rule Authorship Governance
+
+Release decisions that touch runtime rule authoring must preserve
+[`DECLARATIVE-RULE-AUTHORSHIP`](../invariants/DECLARATIVE-RULE-AUTHORSHIP.md):
+default public APIs expose Wesley-compiled declarative IR surfaces, while
+native callback rule authoring remains bootstrap-only and feature-gated.
+
 ## Escalation
 
 If staging/prod blocker state conflicts with recommendation:

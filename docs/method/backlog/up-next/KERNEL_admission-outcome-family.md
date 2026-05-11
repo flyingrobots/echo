@@ -3,10 +3,10 @@
 
 # KERNEL - Admission Outcome Family
 
-Echo currently has outcome-shaped truth spread across tick receipts, settlement
-reason classes, and braid/collapse language, but it still lacks one explicit
-admission outcome family that the runtime, docs, and future shared publication
-surface can all point to.
+Echo now has an explicit `AdmissionOutcomeKind` family, but outcome-shaped truth
+still needs to be threaded consistently across tick receipts, settlement reason
+classes, and braid/collapse language so the runtime, docs, and future shared
+publication surface all point to the same causal vocabulary.
 
 This cycle should define and thread one lawful outcome algebra through Echo:
 
@@ -15,5 +15,6 @@ This cycle should define and thread one lawful outcome algebra through Echo:
 - `Conflict`
 - `Obstruction`
 
-The first cut does not need to rewire every subsystem. It does need to stop the
-runtime from speaking different dialects about the same causal fact.
+The remaining work does not need to rewire every subsystem at once. It does
+need to finish removing older dialects so `Derived`, `Plural`, `Conflict`, and
+`Obstruction` remain the shared causal fact family.

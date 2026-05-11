@@ -25,7 +25,7 @@ assert() {
 }
 
 invariant="${repo_root}/docs/invariants/DECLARATIVE-RULE-AUTHORSHIP.md"
-release_policy="${repo_root}/docs/RELEASE_POLICY.md"
+release_policy="${repo_root}/docs/determinism/RELEASE_POLICY.md"
 warp_core_lib="${repo_root}/crates/warp-core/src/lib.rs"
 
 echo "=== DECLARATIVE-RULE-AUTHORSHIP invariant tests ==="

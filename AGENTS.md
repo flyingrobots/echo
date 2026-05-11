@@ -87,4 +87,4 @@ After altering files:
 
 ---
 
-**The goal is inevitably. Every feature is defined by its tests.**
+**The goal is inevitability. Every feature is defined by its tests.**

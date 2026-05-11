@@ -28,7 +28,7 @@ An observer is a structural five-tuple (Projection, Basis, State, Update, Emissi
 - **[warp-core spec](./docs/spec-warp-core.md)**: The transactional kernel and commit semantics.
 - **[Tick Patch spec](./docs/spec-warp-tick-patch.md)**: The binary boundary for causal transitions.
 - **[Merkle Commit](./docs/spec-merkle-commit.md)**: Snapshot hashing and state integrity.
-- **[Deterministic Math](./docs/SPEC_DETERMINISTIC_MATH.md)**: Rules for 0-ULP cross-platform math.
+- **[Deterministic Math](./docs/determinism/SPEC_DETERMINISTIC_MATH.md)**: Rules for 0-ULP cross-platform math.
 
 ## Deterministic Policy
 
@@ -54,4 +54,4 @@ Echo uses **WSC (Write-Streaming Columnar)**, a zero-copy snapshot format for fa
 
 ---
 
-**The goal is inevitably. Every continuation from the past is explicit, capability-gated, and provenance-bearing.**
+**The goal is inevitability. Every continuation from the past is explicit, capability-gated, and provenance-bearing.**

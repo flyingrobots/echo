@@ -62,4 +62,4 @@ If you are just starting, use the [README.md](./README.md) and the orientation t
 
 ---
 
-**The goal is inevitably. Every state transition is a provable consequence of its causal history.**
+**The goal is inevitability. Every state transition is a provable consequence of its causal history.**

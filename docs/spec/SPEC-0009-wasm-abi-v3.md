@@ -12,7 +12,7 @@ error protocol for Echo's deterministic simulation boundary.
 
 ABI v3 makes three boundaries explicit:
 
-- `observe(request)` is the only public world-state read export.
+- `observe(request)` is the canonical generic world-state read export; neighborhood-specific read exports expose bounded site/core views.
 - `dispatch_intent(...)` is the only public write and control ingress surface.
 - `scheduler_status()` is the read-only scheduler metadata export.
 
@@ -376,8 +376,9 @@ methods.
 ### From ABI v2 to ABI v3
 
 1. Stop calling `step(...)`; the export is absent in ABI v3.
-2. Continue treating `observe(request)` as the only canonical public
-   world-state read boundary.
+2. Continue treating `observe(request)` as the canonical generic world-state
+   read boundary, with neighborhood-specific read exports reserved for bounded
+   site/core views.
 3. Route scheduler lifecycle and admission requests through
    `dispatch_intent(...)` using `ControlIntentV1` packed into an EINT envelope.
 4. Read `RegistryInfo.abi_version` and reject hosts that still expect the v2

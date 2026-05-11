@@ -54,4 +54,4 @@ The engine is built for the systems engineer. Strict lints, panic-free paths (Mr
 
 ---
 
-**The goal is inevitably. Every state transition is a provable consequence of its causal history.**
+**The goal is inevitability. Every state transition is a provable consequence of its causal history.**

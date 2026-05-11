@@ -93,5 +93,5 @@ Echo through optics without:
 - `crates/warp-wasm/src/lib.rs`
 - `docs/design/0012-dynamic-footprint-binding-runtime.md`
 - `docs/invariants/DECLARATIVE-RULE-AUTHORSHIP.md`
-- `/Users/james/git/aion-paper-07/optics/warp-optic.pdf`
+- external Continuum optics paper: `optics/warp-optic.pdf`
 - `docs/design/0013-generic-observer-api-and-plan.md`

@@ -5,7 +5,7 @@
 
 _Define how Echo's current runtime objects map to `warp-ttd` neighborhood core, reintegration detail, and receipt shell._
 
-Legend: [PLATFORM](../../method/legends/PLATFORM.md)
+Legend: [PLATFORM](../method/legends/PLATFORM.md)
 
 Depends on:
 

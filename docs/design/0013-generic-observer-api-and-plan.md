@@ -199,3 +199,88 @@ The next substrate-facing implementation move should be:
 The first application-facing proving target should be a `jedit`
 `worldlineSnapshot` observer compiled into a generic observer plan rather than
 a handwritten Echo method.
+
+## Human users / jobs / hills
+
+### Primary human users
+
+- app/runtime developers wiring observer reads into Echo-backed tools
+- debugger users who need stable readings without app-specific substrate APIs
+
+### Human jobs
+
+1. Request a current or historical reading through one generic observer shape.
+2. Distinguish tick admission from later observer-relative reading.
+
+### Human hill
+
+A human can request a lawful observer reading without asking Echo to grow a new
+handwritten app method.
+
+## Agent users / jobs / hills
+
+### Primary agent users
+
+- codegen agents compiling observer plans from app contracts
+- verification agents auditing read boundaries and exposure constraints
+
+### Agent jobs
+
+1. Generate a generic observer plan from app-owned semantics.
+2. Verify that reading production is bounded by compiled exposure and slice
+   policy.
+
+### Agent hill
+
+An agent can inspect one observer plan and determine which generic runtime
+operation and slice policy it requires.
+
+## Human playback
+
+1. The human submits an intent and receives a tick result.
+2. The human requests a reading through an observer plan.
+3. The output shows the reading envelope without exposing an app-specific Echo
+   method.
+
+## Agent playback
+
+1. The agent reads the observer plan.
+2. The agent maps it to one-shot or hosted observer execution.
+3. The agent verifies the reading envelope against the plan identity and slice
+   policy.
+
+## Implementation outline
+
+1. Define the generic observer plan and reading envelope shape.
+2. Add one one-shot observer path over a bounded hologram/frontier input.
+3. Add one hosted observer path with explicit observer state.
+4. Prove a `jedit` worldline snapshot observer through the generic path.
+
+## Tests to write first
+
+- one-shot memoryless observer returns a deterministic reading envelope
+- hosted observer advances state across two frontiers
+- observer execution rejects readings outside compiled exposure/slice policy
+
+## Risks / unknowns
+
+- The first plan shape may be too narrow for accumulative observers; keep the
+  first proof small and version the plan envelope.
+- Slice policy may need tighter accounting before large hologram inputs are
+  safe to expose.
+
+## Postures
+
+- **Accessibility:** Observer output should preserve machine-readable labels so
+  host UIs can expose accessible readings.
+- **Localization:** Reading payload semantics remain app-owned; Echo should not
+  localize generic envelopes.
+- **Agent inspectability:** Plan identity, slice policy, and reading envelope
+  hashes must stay explicit.
+
+## Non-goals
+
+- This cycle does not add handwritten app-specific observer methods.
+- This cycle does not replace the current `ObservationRequest` bridge in one
+  step.
+- This cycle does not define every Continuum observer payload.

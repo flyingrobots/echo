@@ -9,7 +9,7 @@ Legend: [DX — Developer Experience]
 
 Traditional profiling is non-deterministic. Echo has the unique capability to know exactly which rule touched which graph region.
 
-Integrate a deterministic profiler into the scheduler that records execution time (in CPU cycles) per rule emission. Export this data as a "Causal Flamegraph" where the Y-axis is the rule dependency stack and the X-axis is the deterministic cost.
+Integrate a deterministic profiler into the scheduler that records canonical rule cost units per emission rather than wall-clock time or host CPU cycles. Export this data as a "Causal Flamegraph" where the Y-axis is the rule dependency stack and the X-axis is the deterministic cost.
 
 ## Why
 
@@ -19,4 +19,4 @@ Integrate a deterministic profiler into the scheduler that records execution tim
 
 ## Effort
 
-Medium-Large — requires Cycle-counter integration in the scheduler and a data-export adapter.
+Medium-Large — requires canonical cost instrumentation in the scheduler and a data-export adapter.

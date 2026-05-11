@@ -9,7 +9,7 @@ Legend: [RE — Runtime Engine]
 
 The `SnapshotAccumulator` currently re-calculates the BLAKE3 hash for the entire graph hierarchy on every tick. In systems with very deep WARP nesting (graphs all the way down), this results in redundant hashing of unchanged sub-graphs.
 
-Implement a memoization strategy: cache the hash of each `WarpInstance` keyed by its own internal tick/hash triplet. If a sub-graph was not modified during the current tick (determined by its footprint), reuse the cached hash instead of descending.
+Implement a memoization strategy: cache the hash of each `WarpInstance` keyed by `(WarpId, content_fingerprint)`. If a sub-graph was not modified during the current tick (determined by its footprint), reuse the cached hash instead of descending.
 
 ## Why
 

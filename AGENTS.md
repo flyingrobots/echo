@@ -48,6 +48,34 @@ When starting a new session or recovering from context loss:
 3. **Check `backlog/asap/`** for imminent work.
 4. **Check `git log -n 5` and `git status`** to verify the current branch state.
 
+## Executable Claim Protocol
+
+Engineering work must converge around executable evidence, not broad repository
+interpretation. Before editing code, reduce the task to one executable claim:
+
+1. **Bound the Claim**: State the behavior, invariant, or artifact that must
+   change.
+2. **Name the Witness**: Identify the smallest test, check, script, compile
+   contract, golden vector, schema validation, or artifact inspection that can
+   prove the claim.
+3. **Run the Witness When Feasible**: Prefer a failing witness before the fix.
+   If the witness cannot execute because the repository is already broken,
+   repair only the minimal compile/runtime blocker required to run it.
+4. **Do Not Expand from an Unblocker**: Do not turn a compile blocker into
+   nearby architecture cleanup, docs cleanup, lint cleanup, migration sweep, or
+   opportunistic refactor.
+5. **Green the Claim**: Implement the smallest fix, rerun the witness, and run
+   only directly relevant surrounding checks unless broader validation is
+   explicitly requested.
+6. **Stop on Green**: When the witness passes and the requested scope is
+   satisfied, stop. Do not inspect more PR comments, audit more files, or clean
+   unrelated residue without a new executable claim.
+
+If unrelated failures remain, isolate them in the final report instead of
+absorbing them into the task. Report files changed, symbols or behavior changed,
+witness commands, pass/fail results, and intentional non-actions such as no
+commit, no push, or no PR comment.
+
 ## End of Turn Checklist
 
 After altering files:

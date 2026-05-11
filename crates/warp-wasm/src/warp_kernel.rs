@@ -122,9 +122,39 @@ pub struct WarpKernel {
 
 const STACK_WITNESS_CONTRACT_OP_ID_MASK: u32 = 0xffff_0000;
 const STACK_WITNESS_CONTRACT_OP_ID_PREFIX: u32 = 0x5357_0000;
+const STACK_WITNESS_CREATE_BUFFER_OP_ID: u32 = 0x5357_0001;
+const STACK_WITNESS_REPLACE_RANGE_OP_ID: u32 = 0x5357_0002;
 
 fn is_stack_witness_contract_op_id(op_id: u32) -> bool {
     op_id & STACK_WITNESS_CONTRACT_OP_ID_MASK == STACK_WITNESS_CONTRACT_OP_ID_PREFIX
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FixtureContractOperationKind {
+    Mutation,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct FixtureContractOperation {
+    op_id: u32,
+    name: &'static str,
+    kind: FixtureContractOperationKind,
+}
+
+fn stack_witness_fixture_operation(op_id: u32) -> Option<FixtureContractOperation> {
+    match op_id {
+        STACK_WITNESS_CREATE_BUFFER_OP_ID => Some(FixtureContractOperation {
+            op_id,
+            name: "createBuffer",
+            kind: FixtureContractOperationKind::Mutation,
+        }),
+        STACK_WITNESS_REPLACE_RANGE_OP_ID => Some(FixtureContractOperation {
+            op_id,
+            name: "replaceRange",
+            kind: FixtureContractOperationKind::Mutation,
+        }),
+        _ => None,
+    }
 }
 
 impl WarpKernel {
@@ -887,11 +917,23 @@ impl KernelPort for WarpKernel {
             })?;
         }
 
-        if is_stack_witness_contract_op_id(op_id) {
+        if is_stack_witness_contract_op_id(op_id)
+            && stack_witness_fixture_operation(op_id).is_none()
+        {
             return Err(AbiError {
                 code: error_codes::NOT_SUPPORTED,
                 message: format!(
                     "contract artifact is not installed for Stack Witness 0001 op id {op_id}"
+                ),
+            });
+        }
+
+        if let Some(operation) = stack_witness_fixture_operation(op_id) {
+            return Err(AbiError {
+                code: error_codes::NOT_SUPPORTED,
+                message: format!(
+                    "contract artifact is registered for Stack Witness 0001 operation {}, but its fixture handler is not installed",
+                    operation.name
                 ),
             });
         }
@@ -1105,8 +1147,7 @@ mod tests {
         }
     }
 
-    const STACK_WITNESS_CREATE_BUFFER_OP_ID: u32 = 0x5357_0001;
-    const STACK_WITNESS_REPLACE_RANGE_OP_ID: u32 = 0x5357_0002;
+    const STACK_WITNESS_UNKNOWN_OP_ID: u32 = 0x5357_00ff;
     const STACK_WITNESS_TEXT_WINDOW_QUERY_ID: u32 = 0x5357_1001;
 
     fn stack_witness_create_buffer_vars() -> Vec<u8> {
@@ -1121,6 +1162,30 @@ mod tests {
     fn stack_witness_text_window_vars() -> Vec<u8> {
         b"stack-witness-0001/textWindow;basis=B1;coord=utf8-bytes;start=0;length=5;artifact=fixture-file-history-v0"
             .to_vec()
+    }
+
+    #[test]
+    fn stack_witness_fixture_registry_names_mutations() {
+        assert_eq!(
+            stack_witness_fixture_operation(STACK_WITNESS_CREATE_BUFFER_OP_ID),
+            Some(FixtureContractOperation {
+                op_id: STACK_WITNESS_CREATE_BUFFER_OP_ID,
+                name: "createBuffer",
+                kind: FixtureContractOperationKind::Mutation,
+            })
+        );
+        assert_eq!(
+            stack_witness_fixture_operation(STACK_WITNESS_REPLACE_RANGE_OP_ID),
+            Some(FixtureContractOperation {
+                op_id: STACK_WITNESS_REPLACE_RANGE_OP_ID,
+                name: "replaceRange",
+                kind: FixtureContractOperationKind::Mutation,
+            })
+        );
+        assert_eq!(
+            stack_witness_fixture_operation(STACK_WITNESS_UNKNOWN_OP_ID),
+            None
+        );
     }
 
     fn sample_import_suffix_request(kernel: &WarpKernel) -> AbiImportSuffixRequest {
@@ -1653,7 +1718,7 @@ mod tests {
     fn stack_witness_contract_intent_without_installed_artifact_obstructs() {
         let mut kernel = WarpKernel::new().unwrap();
         let intent = pack_intent_v1(
-            STACK_WITNESS_CREATE_BUFFER_OP_ID,
+            STACK_WITNESS_UNKNOWN_OP_ID,
             &stack_witness_create_buffer_vars(),
         )
         .unwrap();

@@ -5,7 +5,8 @@
     "artifactId": "fixture-file-history-v0",
     "version": "0"
   },
-  "canonicalVarsEncoding": "utf8-semicolon-kv/v0",
+  "fixtureVarsEncoding": "utf8-semicolon-kv/v0",
+  "targetCodec": "wesley-binary/v0",
   "operations": [
     {
       "name": "createBuffer",
@@ -13,7 +14,7 @@
       "opIdHex": "0x53570001",
       "opIdDecimal": 1398210561,
       "helperKind": "EINT",
-      "canonicalVarsBytes": "stack-witness-0001/createBuffer;name=demo.txt;artifact=fixture-file-history-v0",
+      "fixtureVarsBytes": "stack-witness-0001/createBuffer;name=demo.txt;artifact=fixture-file-history-v0",
       "declaredFootprint": {
         "reads": [],
         "writes": [],
@@ -26,7 +27,7 @@
         "fields": [
           "contract_artifact_id",
           "operation_id",
-          "canonical_vars_bytes",
+          "fixture_vars_bytes",
           "declared_footprint"
         ]
       }
@@ -37,7 +38,7 @@
       "opIdHex": "0x53570002",
       "opIdDecimal": 1398210562,
       "helperKind": "EINT",
-      "canonicalVarsBytes": "stack-witness-0001/replaceRange;bufferId=demo.txt;basis=B0;coord=utf8-bytes;start=0;end=0;text=hello;artifact=fixture-file-history-v0",
+      "fixtureVarsBytes": "stack-witness-0001/replaceRange;bufferId=demo.txt;basis=B0;coord=utf8-bytes;start=0;end=0;text=hello;artifact=fixture-file-history-v0",
       "declaredFootprint": {
         "reads": ["Buffer"],
         "writes": ["Buffer"],
@@ -50,7 +51,7 @@
         "fields": [
           "contract_artifact_id",
           "operation_id",
-          "canonical_vars_bytes",
+          "fixture_vars_bytes",
           "declared_footprint"
         ]
       }
@@ -61,7 +62,7 @@
       "opIdHex": "0x53571001",
       "opIdDecimal": 1398214657,
       "helperKind": "QueryView",
-      "canonicalVarsBytes": "stack-witness-0001/textWindow;bufferId=demo.txt;basis=B1;coord=utf8-bytes;start=0;length=5;artifact=fixture-file-history-v0",
+      "fixtureVarsBytes": "stack-witness-0001/textWindow;bufferId=demo.txt;basis=B1;coord=utf8-bytes;start=0;length=5;artifact=fixture-file-history-v0",
       "payloadCodec": "QueryBytes",
       "envelope": "ReadingEnvelope",
       "expectedQueryBytesHex": "68656c6c6f",
@@ -77,7 +78,7 @@
         "fields": [
           "contract_artifact_id",
           "query_id",
-          "canonical_vars_bytes",
+          "fixture_vars_bytes",
           "reading_envelope",
           "query_bytes"
         ]

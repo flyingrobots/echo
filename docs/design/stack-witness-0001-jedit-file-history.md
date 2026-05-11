@@ -44,11 +44,25 @@ expected to generate:
 
 - manifest or artifact id;
 - operation ids;
-- canonical vars bytes;
+- fixture vars bytes;
+- target codec metadata;
 - declared footprints;
 - mutation handler;
 - query handler;
 - artifact identity.
+
+## Fixture Encoding vs Target Codec
+
+Stack Witness 0001 currently uses `fixtureVarsEncoding:
+utf8-semicolon-kv/v0` and `fixtureVarsBytes` only as temporary,
+human-readable fixture metadata. These semicolon-kv strings are not Wesley's
+runtime codec and should not fossilize as the architecture's canonical variable
+representation.
+
+The durable target is `targetCodec: wesley-binary/v0`: Wesley-generated
+deterministic binary codecs shared by Rust and TypeScript. Echo consumes bytes
+plus artifact identity and should not care whether those bytes came from Rust,
+TypeScript, WASM, CLI, or network transport.
 
 ## Operation Surface
 
@@ -61,7 +75,8 @@ Minimum variables:
 - `name = "demo.txt"`;
 - contract artifact id;
 - operation id;
-- canonical vars bytes.
+- fixture vars bytes for this witness, later Wesley-generated binary codec
+  bytes.
 
 ### `replaceRange`
 
@@ -199,11 +214,11 @@ skeleton for this witness:
 - the fixture observer enforces bounded payload budgets and obstructs if the
   caller budgets fewer than five payload bytes;
 - the fixture observer carries a deterministic BLAKE3 artifact hash over the
-  fixture artifact id, query id, canonical vars, and payload bytes;
+  fixture artifact id, query id, fixture vars bytes, and payload bytes;
 - Echo mirrors Wesley's Stack Witness 0001 fixture vector and verifies artifact
   family/schema/version, op ids, helper entrypoints, helper fields,
-  buffer-inclusive canonical vars, declared footprints, and expected query bytes
-  against that artifact shape;
+  buffer-inclusive fixture vars bytes, target codec, declared footprints, and
+  expected query bytes against that artifact shape;
 - Echo core still does not expose public jedit, editor, rope, buffer, cursor,
   or selection APIs.
 
@@ -247,7 +262,8 @@ from this state. The next stack move is to replace more of the hand-authored
 fixture assumption with generated helpers:
 
 - operation ids;
-- canonical vars;
+- fixture vars bytes;
+- `targetCodec: wesley-binary/v0`;
 - footprints;
 - EINT helpers;
 - QueryView helper;
@@ -269,8 +285,8 @@ The witness should eventually produce one stack trace:
 
 Each repo can consume or produce part of this trace:
 
-- Wesley produces generated helpers, canonical vars, operation ids, footprint
-  hashes, and fixture vectors.
+- Wesley produces generated helpers, fixture vectors, operation ids, footprint
+  hashes, and eventually the canonical binary codecs named by `targetCodec`.
 - Echo admits intents, retains provenance, observes QueryView, and emits the
   reading artifact.
 - jedit consumes generated helpers and renders the bounded payload.

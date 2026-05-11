@@ -133,7 +133,7 @@ const STACK_WITNESS_REPLACE_RANGE_OP_ID: u32 = 0x5357_0002;
 const STACK_WITNESS_TEXT_WINDOW_QUERY_ID: u32 = 0x5357_1001;
 const STACK_WITNESS_FIXTURE_ARTIFACT_ID: &str = "fixture-file-history-v0";
 #[cfg(test)]
-const STACK_WITNESS_CANONICAL_VARS_ENCODING: &str = "utf8-semicolon-kv/v0";
+const STACK_WITNESS_FIXTURE_VARS_ENCODING: &str = "utf8-semicolon-kv/v0";
 #[cfg(test)]
 const STACK_WITNESS_CREATE_BUFFER_VARS: &[u8] =
     b"stack-witness-0001/createBuffer;name=demo.txt;artifact=fixture-file-history-v0";
@@ -1285,16 +1285,17 @@ mod tests {
     const STACK_WITNESS_FIXTURE_FAMILY_ID: &str = "stack-witness-0001.file-history";
     const STACK_WITNESS_FIXTURE_SCHEMA_ID: &str = "stack-witness-0001.file-history.v0";
     const STACK_WITNESS_FIXTURE_VERSION: &str = "0";
+    const STACK_WITNESS_TARGET_CODEC: &str = "wesley-binary/v0";
     const STACK_WITNESS_HELPER_MUTATION_FIELDS: &[&str] = &[
         "contract_artifact_id",
         "operation_id",
-        "canonical_vars_bytes",
+        "fixture_vars_bytes",
         "declared_footprint",
     ];
     const STACK_WITNESS_HELPER_QUERY_FIELDS: &[&str] = &[
         "contract_artifact_id",
         "query_id",
-        "canonical_vars_bytes",
+        "fixture_vars_bytes",
         "reading_envelope",
         "query_bytes",
     ];
@@ -1323,9 +1324,10 @@ mod tests {
         assert_string_field(vectors, "version", STACK_WITNESS_FIXTURE_VERSION);
         assert_string_field(
             vectors,
-            "canonicalVarsEncoding",
-            STACK_WITNESS_CANONICAL_VARS_ENCODING,
+            "fixtureVarsEncoding",
+            STACK_WITNESS_FIXTURE_VARS_ENCODING,
         );
+        assert_string_field(vectors, "targetCodec", STACK_WITNESS_TARGET_CODEC);
 
         assert_stack_witness_vector(
             vectors,
@@ -1336,7 +1338,7 @@ mod tests {
                 helper_kind: "EINT",
                 helper_frame: "EINT",
                 helper_entrypoint: "dispatch_intent",
-                canonical_vars: STACK_WITNESS_CREATE_BUFFER_VARS,
+                fixture_vars: STACK_WITNESS_CREATE_BUFFER_VARS,
                 footprint_reads: &[],
                 footprint_writes: &[],
                 footprint_creates: &["Buffer"],
@@ -1353,7 +1355,7 @@ mod tests {
                 helper_kind: "EINT",
                 helper_frame: "EINT",
                 helper_entrypoint: "dispatch_intent",
-                canonical_vars: STACK_WITNESS_REPLACE_RANGE_VARS,
+                fixture_vars: STACK_WITNESS_REPLACE_RANGE_VARS,
                 footprint_reads: &["Buffer"],
                 footprint_writes: &["Buffer"],
                 footprint_creates: &["Tick", "Receipt"],
@@ -1370,7 +1372,7 @@ mod tests {
                 helper_kind: "QueryView",
                 helper_frame: "QueryView",
                 helper_entrypoint: "observe",
-                canonical_vars: STACK_WITNESS_TEXT_WINDOW_VARS,
+                fixture_vars: STACK_WITNESS_TEXT_WINDOW_VARS,
                 footprint_reads: &["Buffer", "Tick", "Receipt"],
                 footprint_writes: &[],
                 footprint_creates: &[],
@@ -1396,7 +1398,7 @@ mod tests {
         helper_kind: &'static str,
         helper_frame: &'static str,
         helper_entrypoint: &'static str,
-        canonical_vars: &'static [u8],
+        fixture_vars: &'static [u8],
         footprint_reads: &'static [&'static str],
         footprint_writes: &'static [&'static str],
         footprint_creates: &'static [&'static str],
@@ -1414,9 +1416,9 @@ mod tests {
         assert_string_field(vector, "entrypoint", expected.helper_entrypoint);
         assert_string_field(
             vector,
-            "canonicalVarsBytes",
-            std::str::from_utf8(expected.canonical_vars)
-                .expect("Stack Witness canonical vars should be UTF-8 fixture bytes"),
+            "fixtureVarsBytes",
+            std::str::from_utf8(expected.fixture_vars)
+                .expect("Stack Witness fixture vars should be UTF-8 fixture bytes"),
         );
         assert_string_array_field(vector, "reads", expected.footprint_reads);
         assert_string_array_field(vector, "writes", expected.footprint_writes);

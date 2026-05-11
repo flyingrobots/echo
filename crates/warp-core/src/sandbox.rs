@@ -3,6 +3,7 @@
 
 //! Lightweight sandbox utilities for spinning up isolated Echo instances (Engine + `GraphStore`)
 //! with configurable scheduler and seeds for determinism tests and A/B comparisons.
+#![cfg_attr(not(feature = "native_rule_bootstrap"), allow(dead_code))]
 
 use std::sync::Arc;
 

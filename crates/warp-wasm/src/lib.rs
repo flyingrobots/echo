@@ -366,6 +366,23 @@ pub fn observe_neighborhood_site(request_bytes: &[u8]) -> Uint8Array {
     encode_result(with_kernel_ref(|k| k.observe_neighborhood_site(request)))
 }
 
+/// Publish the shared neighborhood-core projection for an explicit observation request.
+///
+/// The request bytes must decode as canonical-CBOR `ObservationRequest`.
+#[wasm_bindgen]
+pub fn observe_neighborhood_core(request_bytes: &[u8]) -> Uint8Array {
+    let request = match echo_wasm_abi::decode_cbor::<ObservationRequest>(request_bytes) {
+        Ok(request) => request,
+        Err(err) => {
+            return encode_err(&AbiError {
+                code: kernel_port::error_codes::INVALID_PAYLOAD,
+                message: format!("invalid observation request payload: {err}"),
+            })
+        }
+    };
+    encode_result(with_kernel_ref(|k| k.observe_neighborhood_core(request)))
+}
+
 /// Compare a strand suffix against its recorded base coordinate.
 ///
 /// The request bytes must decode as canonical-CBOR `SettlementRequest`.
@@ -679,16 +696,18 @@ mod schema_validation_tests {
 mod init_tests {
     use super::*;
     use echo_wasm_abi::kernel_port::{
-        BaseRef, BuiltinObserverPlan, ConflictArtifactDraft, ConflictReason, DispatchResponse,
-        GlobalTick, HeadInfo, HeadObservation, NeighborhoodSite, NeighborhoodSiteId,
-        ObservationArtifact, ObservationAt, ObservationBasisPosture, ObservationFrame,
-        ObservationPayload, ObservationProjection, ParticipantRole, ProvenanceRef,
-        ReadingBudgetPosture, ReadingEnvelope, ReadingObserverBasis, ReadingObserverPlan,
-        ReadingResidualPosture, ReadingRightsPosture, ReadingWitnessRef, RegistryInfo,
-        ResolvedObservationCoordinate, RunCompletion, RunId, SchedulerMode, SchedulerState,
-        SchedulerStatus, SettlementBasisReport, SettlementDecision, SettlementDelta,
-        SettlementParentRevalidation, SettlementPlan, SettlementRequest, SettlementResult,
-        SiteParticipant, SitePlurality, WorkState, WorldlineId, WorldlineTick, ABI_VERSION,
+        AdmissionOutcomeKind, BaseRef, BuiltinObserverPlan, ConflictArtifactDraft, ConflictReason,
+        DispatchResponse, GlobalTick, HeadInfo, HeadObservation, NeighborhoodCore,
+        NeighborhoodParticipant, NeighborhoodParticipantRole, NeighborhoodPlurality,
+        NeighborhoodSite, NeighborhoodSiteId, ObservationArtifact, ObservationAt,
+        ObservationBasisPosture, ObservationFrame, ObservationPayload, ObservationProjection,
+        ParticipantRole, ProvenanceRef, ReadingBudgetPosture, ReadingEnvelope,
+        ReadingObserverBasis, ReadingObserverPlan, ReadingResidualPosture, ReadingRightsPosture,
+        ReadingWitnessRef, RegistryInfo, ResolvedObservationCoordinate, RunCompletion, RunId,
+        SchedulerMode, SchedulerState, SchedulerStatus, SettlementBasisReport, SettlementDecision,
+        SettlementDelta, SettlementParentRevalidation, SettlementPlan, SettlementRequest,
+        SettlementResult, SiteParticipant, SitePlurality, WorkState, WorldlineId, WorldlineTick,
+        ABI_VERSION,
     };
 
     struct StubKernel;
@@ -791,6 +810,29 @@ mod init_tests {
                     tick: WorldlineTick(0),
                     state_hash: vec![2; 32],
                 }],
+            })
+        }
+
+        fn observe_neighborhood_core(
+            &self,
+            _request: ObservationRequest,
+        ) -> Result<NeighborhoodCore, AbiError> {
+            Ok(NeighborhoodCore {
+                site_id: "site:stub".into(),
+                anchor_lane_id: "wl:stub".into(),
+                anchor_frame_index: 0,
+                anchor_head_id: None,
+                outcome_kind: AdmissionOutcomeKind::Derived,
+                plurality: NeighborhoodPlurality::Singleton,
+                participants: vec![NeighborhoodParticipant {
+                    participant_id: "participant:stub:primary:0".into(),
+                    lane_id: "wl:stub".into(),
+                    strand_id: None,
+                    role: NeighborhoodParticipantRole::Primary,
+                    frame_index: 0,
+                    state_hash: "02".repeat(32),
+                }],
+                summary: "Stub neighborhood core".into(),
             })
         }
 
@@ -969,6 +1011,28 @@ mod init_tests {
         assert_eq!(site.plurality, SitePlurality::Singleton);
         assert_eq!(site.participants.len(), 1);
         assert_eq!(site.participants[0].role, ParticipantRole::Primary);
+    }
+
+    #[test]
+    fn neighborhood_core_publication_uses_installed_kernel() {
+        clear_kernel();
+        install_kernel(Box::new(StubKernel));
+        let request = ObservationRequest {
+            coordinate: kernel_port::ObservationCoordinate {
+                worldline_id: WorldlineId::from_bytes([9; 32]),
+                at: ObservationAt::Frontier,
+            },
+            frame: ObservationFrame::CommitBoundary,
+            projection: ObservationProjection::Head,
+        };
+        let core = with_kernel_ref(|k| k.observe_neighborhood_core(request)).unwrap();
+        assert_eq!(core.outcome_kind, AdmissionOutcomeKind::Derived);
+        assert_eq!(core.plurality, NeighborhoodPlurality::Singleton);
+        assert_eq!(core.participants.len(), 1);
+        assert_eq!(
+            core.participants[0].role,
+            NeighborhoodParticipantRole::Primary
+        );
     }
 
     #[test]

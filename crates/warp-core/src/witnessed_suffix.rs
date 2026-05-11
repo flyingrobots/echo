@@ -17,7 +17,7 @@ use crate::ident::Hash;
 use crate::provenance_store::ProvenanceRef;
 use crate::settlement::ConflictReason;
 use crate::strand::{
-    BaseRef, StrandBasisReport, StrandOverlapRevalidation, StrandRevalidationState,
+    ForkBasisRef, StrandBasisReport, StrandOverlapRevalidation, StrandRevalidationState,
 };
 use crate::tick_patch::SlotId;
 use crate::worldline::WorldlineId;
@@ -991,7 +991,7 @@ fn witnessed_suffix_outcome_to_abi(
 
 fn settlement_basis_report_to_abi(report: &StrandBasisReport) -> abi::SettlementBasisReport {
     abi::SettlementBasisReport {
-        parent_anchor: base_ref_to_abi(report.parent_anchor),
+        parent_anchor: fork_basis_ref_to_abi(report.parent_anchor),
         child_worldline_id: worldline_id_to_abi(report.child_worldline_id),
         source_suffix_start_tick: worldline_tick_to_abi(report.source_suffix_start_tick),
         source_suffix_end_tick: report.source_suffix_end_tick.map(worldline_tick_to_abi),
@@ -1055,13 +1055,13 @@ fn overlap_revalidation_to_abi(
     }
 }
 
-fn base_ref_to_abi(base_ref: BaseRef) -> abi::BaseRef {
+fn fork_basis_ref_to_abi(fork_basis_ref: ForkBasisRef) -> abi::BaseRef {
     abi::BaseRef {
-        source_worldline_id: worldline_id_to_abi(base_ref.source_worldline_id),
-        fork_tick: worldline_tick_to_abi(base_ref.fork_tick),
-        commit_hash: base_ref.commit_hash.to_vec(),
-        boundary_hash: base_ref.boundary_hash.to_vec(),
-        provenance_ref: provenance_ref_to_abi(base_ref.provenance_ref),
+        source_worldline_id: worldline_id_to_abi(fork_basis_ref.source_lane_id),
+        fork_tick: worldline_tick_to_abi(fork_basis_ref.fork_tick),
+        commit_hash: fork_basis_ref.commit_hash.to_vec(),
+        boundary_hash: fork_basis_ref.boundary_hash.to_vec(),
+        provenance_ref: provenance_ref_to_abi(fork_basis_ref.provenance_ref),
     }
 }
 

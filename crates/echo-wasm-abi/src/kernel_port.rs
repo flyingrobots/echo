@@ -1799,6 +1799,82 @@ pub struct NeighborhoodSite {
     pub participants: Vec<SiteParticipant>,
 }
 
+/// Shared lawful outcome kind for observer/debugger publication families.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum AdmissionOutcomeKind {
+    /// One lawful derived result exists.
+    Derived,
+    /// Multiple lawful results coexist.
+    Plural,
+    /// A lawful conflict artifact was produced.
+    Conflict,
+    /// Lawful admission was obstructed.
+    Obstruction,
+}
+
+/// Shared plurality for one published neighborhood core.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum NeighborhoodPlurality {
+    /// Only the primary lane participates.
+    Singleton,
+    /// Multiple lanes participate in the local site.
+    Plural,
+}
+
+/// Shared participant role for one published neighborhood core.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum NeighborhoodParticipantRole {
+    /// The directly observed lane.
+    Primary,
+    /// The fork/source lane anchoring the primary strand.
+    BasisAnchor,
+    /// A read-only support lane.
+    Support,
+}
+
+/// Shared participant for one published neighborhood core.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NeighborhoodParticipant {
+    /// Stable participant identity within the published site.
+    pub participant_id: String,
+    /// Stable lane identity for the participant carrier.
+    pub lane_id: String,
+    /// Optional strand identity when the participant is strand-backed.
+    pub strand_id: Option<String>,
+    /// Participant role within the site.
+    pub role: NeighborhoodParticipantRole,
+    /// Exact participant frame index.
+    pub frame_index: u64,
+    /// Canonical state hash for the participant at that frame.
+    pub state_hash: String,
+}
+
+/// Shared observer/debugger publication for one local neighborhood core.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NeighborhoodCore {
+    /// Stable identity for this published neighborhood core.
+    pub site_id: String,
+    /// Stable lane identity for the anchor worldline.
+    pub anchor_lane_id: String,
+    /// Exact resolved anchor frame index.
+    pub anchor_frame_index: u64,
+    /// Optional anchor head identity, when the kernel publishes one truthfully.
+    pub anchor_head_id: Option<String>,
+    /// Top-level lawful outcome kind for the site.
+    pub outcome_kind: AdmissionOutcomeKind,
+    /// Shared singleton-vs-plural truth.
+    pub plurality: NeighborhoodPlurality,
+    /// Participating lanes for the published site.
+    pub participants: Vec<NeighborhoodParticipant>,
+    /// Narrow human-readable summary for debugger surfaces.
+    pub summary: String,
+}
+
 /// Request payload for strand settlement publication.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SettlementRequest {
@@ -2520,6 +2596,22 @@ pub trait KernelPort {
         Err(AbiError {
             code: error_codes::NOT_SUPPORTED,
             message: "observe_neighborhood_site is not supported by this kernel".into(),
+        })
+    }
+
+    /// Publish the shared neighborhood-core family projection for an explicit
+    /// observation request.
+    ///
+    /// This is the canonical shared observer/debugger read for the first
+    /// neighborhood-core family slice. The default implementation reports that
+    /// this projection is not supported by the kernel implementation.
+    fn observe_neighborhood_core(
+        &self,
+        _request: ObservationRequest,
+    ) -> Result<NeighborhoodCore, AbiError> {
+        Err(AbiError {
+            code: error_codes::NOT_SUPPORTED,
+            message: "observe_neighborhood_core is not supported by this kernel".into(),
         })
     }
 

@@ -4,6 +4,7 @@
 name = "echo-dind-tests"
 version = "0.1.0"
 edition = "2021"
+publish = false
 rust-version = "1.90.0"
 license = "Apache-2.0"
 description = "Determinism test kernel for DIND scenarios"
@@ -16,7 +17,7 @@ categories = ["development-tools"]
 path = "src/lib.rs"
 
 [dependencies]
-warp-core = { workspace = true }
+warp-core = { workspace = true, features = ["native_rule_bootstrap"] }
 echo-dry-tests = { workspace = true }
 echo-wasm-abi = { workspace = true }
 bytes = "1.0"

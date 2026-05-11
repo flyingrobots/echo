@@ -32,12 +32,14 @@ pub mod math;
 /// WSC (Write-Streaming Columnar) snapshot format for deterministic serialization.
 pub mod wsc;
 
+mod admission;
 mod attachment;
 mod clock;
 mod cmd;
 mod constants;
 /// Domain separation prefixes for hashing.
 pub mod domain;
+mod dynamic_binding;
 mod engine_impl;
 mod footprint;
 /// Footprint enforcement guard for parallel execution.
@@ -154,6 +156,10 @@ mod worldline_registry;
 mod worldline_state;
 
 // Re-exports for stable public API
+pub use admission::{
+    AdmissionOutcome, AdmissionOutcomeKind, AdmissionPolicyRef, AffectedRegion, BoundedSite,
+    PluralArtifact, ReintegrationBoundary,
+};
 pub use attachment::{
     AtomPayload, AttachmentKey, AttachmentOwner, AttachmentPlane, AttachmentValue, Codec,
     CodecRegistry, DecodeError, ErasedCodec, RegistryError,
@@ -165,6 +171,12 @@ pub use cmd::{
     IMPORT_SUFFIX_RESULT_EDGE_TYPE, IMPORT_SUFFIX_RESULT_NODE_TYPE,
 };
 pub use constants::{blake3_empty, digest_len0_u64, POLICY_ID_NO_POLICY_V0};
+pub use dynamic_binding::{
+    BoundNodeRef, ClosureMemberBinding, DirectSlotBinding, DynamicBindingError,
+    DynamicBindingRuntimeError, RangeClosureBindingRequest, RelationSlotBinding,
+    ResolvedClosureBinding, ResolvedSlotBinding, StructuredBindingResolver,
+    StructuredBindingRuntime, StructuredRuntimeBindings,
+};
 pub use engine_impl::{
     scope_hash, ApplyResult, CommitOutcome, DispatchDisposition, Engine, EngineBuilder,
     EngineError, ExistingState, FreshStore, IngestDisposition,
@@ -208,7 +220,8 @@ pub use playback::{
 pub use playback::{SessionId, ViewSession};
 // --- Truth delivery ---
 pub use neighborhood::{
-    NeighborhoodError, NeighborhoodSite, NeighborhoodSiteId, NeighborhoodSiteService,
+    NeighborhoodCore, NeighborhoodError, NeighborhoodParticipant, NeighborhoodParticipantRole,
+    NeighborhoodPlurality, NeighborhoodSite, NeighborhoodSiteId, NeighborhoodSiteService,
     ParticipantRole, SiteParticipant, SitePlurality,
 };
 pub use observation::{
@@ -241,8 +254,11 @@ pub use provenance_store::{
 };
 pub use receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection};
 pub use record::{EdgeRecord, NodeRecord};
+#[cfg(feature = "native_rule_bootstrap")]
 pub use rule::{ConflictPolicy, ExecuteFn, MatchFn, PatternGraph, RewriteRule};
-pub use sandbox::{build_engine, run_pair_determinism, DeterminismError, EchoConfig};
+pub use sandbox::DeterminismError;
+#[cfg(feature = "native_rule_bootstrap")]
+pub use sandbox::{build_engine, run_pair_determinism, EchoConfig};
 pub use scheduler::SchedulerKind;
 #[cfg(feature = "serde")]
 pub use serializable::{
@@ -257,7 +273,7 @@ pub use snapshot::{
     compute_state_root_for_warp_store, compute_tick_commit_hash_v2, OpEmissionEntry, Snapshot,
 };
 pub use strand::{
-    make_strand_id, BaseRef, DropReceipt, ParentMovementFootprint, Strand, StrandBasisReport,
+    make_strand_id, DropReceipt, ForkBasisRef, ParentMovementFootprint, Strand, StrandBasisReport,
     StrandDivergenceFootprint, StrandError, StrandId, StrandOverlapRevalidation, StrandRegistry,
     StrandRevalidationState, SupportPin,
 };
@@ -287,7 +303,8 @@ pub use worldline::{
 ///
 /// Prefer this coordinator/runtime API for new stepping and routing code.
 pub use coordinator::{
-    IngressDisposition, RuntimeError, SchedulerCoordinator, StepRecord, WorldlineRuntime,
+    ForkStrandReceipt, ForkStrandRequest, IngressDisposition, RuntimeError, SchedulerCoordinator,
+    StepRecord, WorldlineRuntime,
 };
 /// Writer-head registry and routing primitives used by the runtime-owned ingress path.
 pub use head::{

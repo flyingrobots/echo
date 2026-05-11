@@ -81,7 +81,7 @@ fn intersects_btree<T: Ord>(a: &BTreeSet<T>, b: &BTreeSet<T>) -> bool {
 ///
 /// Each entry is a `NodeKey` containing both `warp_id` and `local_id`, ensuring
 /// nodes in different warps don't cause false conflicts during scheduling.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct NodeSet(BTreeSet<NodeKey>);
 
 impl NodeSet {
@@ -123,7 +123,7 @@ impl NodeSet {
 ///
 /// Each entry is an `EdgeKey` containing both `warp_id` and `local_id`, ensuring
 /// edges in different warps don't cause false conflicts during scheduling.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct EdgeSet(BTreeSet<EdgeKey>);
 
 impl EdgeSet {
@@ -165,7 +165,7 @@ impl EdgeSet {
 ///
 /// Each entry is a `(WarpId, PortKey)` tuple ensuring ports in different warps
 /// don't cause false conflicts during scheduling.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PortSet(BTreeSet<WarpScopedPortKey>);
 
 impl PortSet {
@@ -212,7 +212,7 @@ impl PortSet {
 /// Ordered set of attachment slots.
 ///
 /// [`AttachmentKey`] is already warp-scoped (contains [`NodeKey`] or [`EdgeKey`]).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct AttachmentSet(BTreeSet<AttachmentKey>);
 
 impl AttachmentSet {
@@ -251,7 +251,7 @@ impl AttachmentSet {
 /// All resource sets are warp-scoped to prevent false conflicts between
 /// rewrites in different warps that happen to touch resources with the
 /// same local identifier.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Footprint {
     /// Nodes read by the rewrite (warp-scoped).
     pub n_read: NodeSet,
@@ -274,6 +274,16 @@ pub struct Footprint {
 }
 
 impl Footprint {
+    /// Derives the admission-side bounded site for this footprint.
+    ///
+    /// The first cut preserves the full declared claim and derives the site's
+    /// affected region and reintegration boundary directly from the existing
+    /// footprint model rather than introducing a competing geometry.
+    #[must_use]
+    pub fn bounded_site(&self) -> crate::admission::BoundedSite {
+        crate::admission::BoundedSite::from(self)
+    }
+
     /// Returns `true` when this footprint is independent of `other`.
     ///
     /// Fast path checks the factor mask; then boundary ports; then edges and

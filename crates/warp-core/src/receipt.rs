@@ -13,9 +13,14 @@
 //!
 //! Today (engine spike), the only rejection reason is footprint conflict with
 //! previously accepted rewrites in the same tick.
+//!
+//! A [`TickReceipt`] is one shell family in Echo's broader admission
+//! architecture. It should not be mistaken for the universal carrier of every
+//! witness-bearing publication the runtime may emit.
 
 use blake3::Hasher;
 
+use crate::admission::AdmissionOutcomeKind;
 use crate::ident::{Hash, NodeKey};
 use crate::tx::TxId;
 
@@ -141,6 +146,20 @@ pub enum TickReceiptDisposition {
     Rejected(TickReceiptRejection),
 }
 
+impl TickReceiptDisposition {
+    /// Maps the tick-local disposition into Echo's shared lawful outcome family.
+    ///
+    /// A rejected candidate in the current tick kernel is obstructed rather than
+    /// transformed into explicit conflict residue.
+    #[must_use]
+    pub fn admission_outcome_kind(self) -> AdmissionOutcomeKind {
+        match self {
+            Self::Applied => AdmissionOutcomeKind::Derived,
+            Self::Rejected(_) => AdmissionOutcomeKind::Obstruction,
+        }
+    }
+}
+
 /// Why a tick candidate was rejected.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -237,5 +256,18 @@ mod tests {
         let digest_a = compute_tick_receipt_digest(&entries_a);
         let digest_b = compute_tick_receipt_digest(&entries_b);
         assert_ne!(digest_a, digest_b);
+    }
+
+    #[test]
+    fn tick_receipt_disposition_maps_to_shared_admission_outcome_kind() {
+        assert_eq!(
+            TickReceiptDisposition::Applied.admission_outcome_kind(),
+            AdmissionOutcomeKind::Derived
+        );
+        assert_eq!(
+            TickReceiptDisposition::Rejected(TickReceiptRejection::FootprintConflict)
+                .admission_outcome_kind(),
+            AdmissionOutcomeKind::Obstruction
+        );
     }
 }

@@ -30,6 +30,17 @@ An observer is a structural five-tuple (Projection, Basis, State, Update, Emissi
 - **[Merkle Commit](./docs/spec-merkle-commit.md)**: Snapshot hashing and state integrity.
 - **[Deterministic Math](./docs/SPEC_DETERMINISTIC_MATH.md)**: Rules for 0-ULP cross-platform math.
 
+## Deterministic Policy
+
+Echo enforces a strict **'No-Network'** and **'No-Entropy'** policy in core paths to preserve causal replayability. This is verified in CI via `scripts/ban-nondeterminism.sh`.
+
+### Prohibited Patterns
+
+- **Network I/O**: `std::net`, `reqwest`, `ureq`, and other network crates are banned from deterministic paths. Causal history must be self-contained.
+- **Entropy & Time**: `std::time::SystemTime`, `Instant::now`, `rand`, and `getrandom` are prohibited. Use the deterministic `Tick` and `Seed` provided by the kernel.
+- **Unordered Collections**: `std::collections::HashMap` and `HashSet` are banned due to iteration order nondeterminism (DoS resistance/hashing variability). Use `BTreeMap`, `BTreeSet`, or specialized ordered maps.
+- **Floating Point**: Direct use of `sin`, `cos`, `sqrt`, etc., is restricted. Use the `FixedTrig` oracles to ensure bit-exact convergence across platforms.
+
 ## Wesley Integration
 
 The simulation protocol and graph schemas are increasingly defined via Wesley.

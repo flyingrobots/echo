@@ -50,12 +50,11 @@ set to the child worldline.
 A strand MUST NOT outlive the session that created it (v1). No
 strand persistence across sessions.
 
-### INV-S4 — Manual tick
+### INV-S4 — Deterministic Tick
 
-A strand's writer heads MUST be created with
-`HeadEligibility::Dormant` and `PlaybackMode::Paused`. They are
-ticked only by explicit external command, never by the live
-scheduler. Dormant heads do not appear in the `RunnableWriterSet`.
+A strand's worldline MUST NOT be ticked by the live scheduler. It advances
+only through ordinary ingress events (per its local footprint) and
+explicit `super_tick()` coordination.
 
 ### INV-S5 — Complete base_ref
 

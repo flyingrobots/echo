@@ -66,6 +66,10 @@
   schema, version, declared footprints, and generated helper field shapes.
 - Corrected Stack Witness 0001 terminology so the current semicolon-kv byte
   strings are fixture vars only, not Wesley's future runtime codec bytes.
+- Hardened Stack Witness 0001 fixture integrity by validating fixture vars
+  before admission, requiring fixture intents to commit before `textWindow`
+  materializes, and rejecting fixture `QueryView` reads for non-default
+  worldlines.
 
 ### Fixed (PR #326 follow-up)
 

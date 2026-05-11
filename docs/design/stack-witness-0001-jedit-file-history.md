@@ -174,19 +174,57 @@ test_text_window_contract
 
 ## Initial RED Witnesses
 
-The first RED tests should prove:
+The first RED tests proved:
 
 1. Contract-shaped EINT must not silently enter Echo as an unauthenticated
    generic inbox event when no generated contract artifact is installed.
 2. QueryView/textWindow must return `ReadingEnvelope + QueryBytes`, not
    `UnsupportedQuery` or naked payload bytes.
 
-Suggested targeted commands:
+## Current GREEN State
+
+As of branch `wip/stack-witness-0001`, Echo has a fixture-backed walking
+skeleton for this witness:
+
+- a static/as-if-generated fixture registry exists for `createBuffer` and
+  `replaceRange`;
+- unknown Stack Witness contract op ids obstruct with a contract/missing
+  artifact error;
+- `createBuffer` and `replaceRange("hello")` enter through `dispatch_intent`
+  and the existing scheduler path;
+- the Stack Witness `textWindow` QueryView routes to a fixture observer;
+- the fixture observer returns `ReadingEnvelope + QueryBytes("hello")`;
+- Echo core still does not expose public jedit, editor, rope, buffer, cursor,
+  or selection APIs.
+
+Targeted command:
 
 ```sh
-cargo test -p warp-wasm stack_witness_contract_intent_without_installed_artifact_obstructs
-cargo test -p warp-wasm stack_witness_text_window_query_returns_reading_envelope_and_query_bytes
+cargo test -p warp-wasm --features engine stack_witness_
 ```
+
+Current result:
+
+```text
+running 4 tests
+test warp_kernel::tests::stack_witness_fixture_registry_names_mutations ... ok
+test warp_kernel::tests::stack_witness_contract_intent_without_installed_artifact_obstructs ... ok
+test warp_kernel::tests::stack_witness_create_buffer_and_replace_range_enter_dispatch_intent ... ok
+test warp_kernel::tests::stack_witness_text_window_query_returns_reading_envelope_and_query_bytes ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 44 filtered out
+```
+
+This is intentionally fixture scaffolding. Do not generalize Echo further from
+this state. The next stack move is for Wesley to replace the cardboard cutout
+with a generated fixture artifact shape:
+
+- operation ids;
+- canonical vars;
+- footprints;
+- EINT helpers;
+- QueryView helper;
+- artifact identity.
 
 ## Golden Trace Shape
 

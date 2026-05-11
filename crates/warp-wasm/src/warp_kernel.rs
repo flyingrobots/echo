@@ -120,6 +120,13 @@ pub struct WarpKernel {
     registry: RegistryInfo,
 }
 
+const STACK_WITNESS_CONTRACT_OP_ID_MASK: u32 = 0xffff_0000;
+const STACK_WITNESS_CONTRACT_OP_ID_PREFIX: u32 = 0x5357_0000;
+
+fn is_stack_witness_contract_op_id(op_id: u32) -> bool {
+    op_id & STACK_WITNESS_CONTRACT_OP_ID_MASK == STACK_WITNESS_CONTRACT_OP_ID_PREFIX
+}
+
 impl WarpKernel {
     /// Create a new kernel with a minimal empty engine.
     ///
@@ -878,6 +885,15 @@ impl KernelPort for WarpKernel {
                 code: error_codes::INVALID_INTENT,
                 message: "invalid import suffix intent envelope".into(),
             })?;
+        }
+
+        if is_stack_witness_contract_op_id(op_id) {
+            return Err(AbiError {
+                code: error_codes::NOT_SUPPORTED,
+                message: format!(
+                    "contract artifact is not installed for Stack Witness 0001 op id {op_id}"
+                ),
+            });
         }
 
         let envelope = IngressEnvelope::local_intent(

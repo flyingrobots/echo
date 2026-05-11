@@ -7,6 +7,10 @@
 
 ### Added
 
+- Stack Witness 0001 drift lock — `warp-wasm` now mirrors Wesley's fixture
+  vectors for the jedit-through-Echo walking skeleton and verifies Echo's
+  fixture op ids, buffer-inclusive canonical vars, helper entrypoints, and
+  expected `QueryBytes("hello")` payload bytes against that vector.
 - `echo-registry-api::verify_contract_artifact(...)` — generic load-time
   verification for Wesley-generated registries, including schema/codec/layout
   checks, expected footprint certificate hashes, optional generated artifact

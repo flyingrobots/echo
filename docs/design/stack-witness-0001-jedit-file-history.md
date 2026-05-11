@@ -194,6 +194,9 @@ skeleton for this witness:
   and the existing scheduler path;
 - the Stack Witness `textWindow` QueryView routes to a fixture observer;
 - the fixture observer returns `ReadingEnvelope + QueryBytes("hello")`;
+- Echo mirrors Wesley's Stack Witness 0001 fixture vector and verifies op ids,
+  helper entrypoints, buffer-inclusive canonical vars, and expected query bytes
+  against that artifact shape;
 - Echo core still does not expose public jedit, editor, rope, buffer, cursor,
   or selection APIs.
 

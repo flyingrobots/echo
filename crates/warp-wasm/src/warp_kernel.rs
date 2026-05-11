@@ -137,8 +137,8 @@ const STACK_WITNESS_CANONICAL_VARS_ENCODING: &str = "utf8-semicolon-kv/v0";
 const STACK_WITNESS_CREATE_BUFFER_VARS: &[u8] =
     b"stack-witness-0001/createBuffer;name=demo.txt;artifact=fixture-file-history-v0";
 #[cfg(test)]
-const STACK_WITNESS_REPLACE_RANGE_VARS: &[u8] = b"stack-witness-0001/replaceRange;basis=B0;coord=utf8-bytes;start=0;end=0;text=hello;artifact=fixture-file-history-v0";
-const STACK_WITNESS_TEXT_WINDOW_VARS: &[u8] = b"stack-witness-0001/textWindow;basis=B1;coord=utf8-bytes;start=0;length=5;artifact=fixture-file-history-v0";
+const STACK_WITNESS_REPLACE_RANGE_VARS: &[u8] = b"stack-witness-0001/replaceRange;bufferId=demo.txt;basis=B0;coord=utf8-bytes;start=0;end=0;text=hello;artifact=fixture-file-history-v0";
+const STACK_WITNESS_TEXT_WINDOW_VARS: &[u8] = b"stack-witness-0001/textWindow;bufferId=demo.txt;basis=B1;coord=utf8-bytes;start=0;length=5;artifact=fixture-file-history-v0";
 const STACK_WITNESS_TEXT_WINDOW_BYTES: &[u8] = b"hello";
 
 fn is_stack_witness_contract_op_id(op_id: u32) -> bool {
@@ -1234,12 +1234,12 @@ mod tests {
     }
 
     fn stack_witness_replace_range_vars() -> Vec<u8> {
-        b"stack-witness-0001/replaceRange;basis=B0;coord=utf8-bytes;start=0;end=0;text=hello;artifact=fixture-file-history-v0"
+        b"stack-witness-0001/replaceRange;bufferId=demo.txt;basis=B0;coord=utf8-bytes;start=0;end=0;text=hello;artifact=fixture-file-history-v0"
             .to_vec()
     }
 
     fn stack_witness_text_window_vars() -> Vec<u8> {
-        b"stack-witness-0001/textWindow;basis=B1;coord=utf8-bytes;start=0;length=5;artifact=fixture-file-history-v0"
+        b"stack-witness-0001/textWindow;bufferId=demo.txt;basis=B1;coord=utf8-bytes;start=0;length=5;artifact=fixture-file-history-v0"
             .to_vec()
     }
 
@@ -1302,6 +1302,10 @@ mod tests {
             text_window["envelope"],
             serde_json::json!("ReadingEnvelope")
         );
+        assert_eq!(
+            text_window["expectedQueryBytesHex"],
+            serde_json::json!(lower_hex(STACK_WITNESS_TEXT_WINDOW_BYTES))
+        );
     }
 
     struct StackWitnessVectorExpectation {
@@ -1356,6 +1360,10 @@ mod tests {
             .iter()
             .find(|operation| operation["name"].as_str() == Some(name))
             .expect("Stack Witness operation vector should exist")
+    }
+
+    fn lower_hex(bytes: &[u8]) -> String {
+        bytes.iter().map(|byte| format!("{byte:02x}")).collect()
     }
 
     #[test]

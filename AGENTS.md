@@ -5,6 +5,44 @@
 
 This guide is for AI agents and human operators recovering context in the Echo repository.
 
+## Architecture North Star
+
+Echo is not a graph database, app framework, sync daemon, or mutable state
+server. Echo is a deterministic WARP runtime over witnessed causal history.
+
+The durable territory is admitted causal history: transitions, frontiers, lane
+identities, payload hashes, receipts, witnesses, checkpoints, suffixes, and
+retained boundary artifacts. Graphs, files, editor buffers, UI state, and debug
+views are materialized readings emitted by observers or optics over that
+history. They may be cached, retained, transported, compared, or revealed, but
+they are not the substrate ontology.
+
+Public Echo surfaces should follow the WARP optic shape:
+
+```text
+explicit causal basis/site
++ bounded aperture
++ law
++ support, capability, budget, and evidence posture
+-> witnessed hologram
+```
+
+External callers propose explicit-base intents or observe through bounded
+optics. Echo admits, stages, pluralizes, conflicts, or obstructs those claims
+under named law and emits receipts, reading envelopes, witnesses, or retained
+shells. Transport is witnessed suffix admission, not state sync. Application
+nouns belong in authored contracts and generated adapters, not in Echo core.
+
+Keep these sentences in view when changing architecture, docs, or APIs:
+
+```text
+There is witnessed causal history.
+WARP optics chart it.
+Holograms witness those charts.
+Materialized graphs are optional readings.
+Continuum is the protocol for lawful causal-history exchange.
+```
+
 ## Git Rules
 
 - **NEVER** amend commits.

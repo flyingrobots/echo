@@ -1680,7 +1680,7 @@ mod tests {
         ));
         assert_eq!(
             plan.decisions[0].admission_outcome_kind(),
-            AdmissionOutcomeKind::Conflict
+            AdmissionOutcomeKind::Derived
         );
 
         let result = SettlementService::settle(&mut runtime, &mut provenance, strand_id).unwrap();

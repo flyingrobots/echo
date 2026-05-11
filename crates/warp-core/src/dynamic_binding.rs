@@ -476,6 +476,12 @@ impl StructuredRuntimeBindings {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    reason = "dynamic binding tests use direct assertion-style extraction"
+)]
 mod tests {
     use super::*;
     use crate::ident::{make_node_id, make_warp_id};

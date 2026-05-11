@@ -7,6 +7,11 @@
 
 ### Added
 
+- Stack Witness 0001 drift lock — `warp-wasm` now mirrors Wesley's fixture
+  vectors for the jedit-through-Echo walking skeleton and verifies Echo's
+  fixture op ids, buffer-inclusive fixture vars bytes, the
+  `wesley-binary/v0` target codec marker, helper entrypoints, and expected
+  `QueryBytes("hello")` payload bytes against that vector.
 - `echo-registry-api::verify_contract_artifact(...)` — generic load-time
   verification for Wesley-generated registries, including schema/codec/layout
   checks, expected footprint certificate hashes, optional generated artifact
@@ -48,6 +53,23 @@
   downstream code that depended on the C FFI surface.
 
 ### Changed
+
+### Fixed
+
+- Stack Witness 0001 fixture observations now require the fixture
+  `createBuffer` and `replaceRange("hello")` history to be admitted and
+  materialized before `textWindow` can return `QueryBytes("hello")`.
+- Stack Witness 0001 `textWindow` observations now fail closed when the bounded
+  read budget is smaller than the returned payload and carry a deterministic
+  BLAKE3 artifact hash instead of a dummy reading identity.
+- Strengthened Echo's Wesley fixture-vector drift lock to cover artifact family,
+  schema, version, declared footprints, and generated helper field shapes.
+- Corrected Stack Witness 0001 terminology so the current semicolon-kv byte
+  strings are fixture vars only, not Wesley's future runtime codec bytes.
+- Hardened Stack Witness 0001 fixture integrity by validating fixture vars
+  before admission, requiring fixture intents to commit before `textWindow`
+  materializes, and rejecting fixture `QueryView` reads for non-default
+  worldlines.
 
 ### Fixed (PR #326 follow-up)
 

@@ -18,15 +18,19 @@ use echo_wasm_abi::kernel_port::{
     HeadEligibility as AbiHeadEligibility, HeadId as AbiHeadId, HeadInfo, KernelPort,
     NeighborhoodCore as AbiNeighborhoodCore, NeighborhoodSite as AbiNeighborhoodSite,
     ObservationArtifact as AbiObservationArtifact, ObservationFrame as AbiObservationFrame,
-    ObservationProjection as AbiObservationProjection,
+    ObservationPayload as AbiObservationPayload, ObservationProjection as AbiObservationProjection,
     ObservationReadBudget as AbiObservationReadBudget, ObservationRequest as AbiObservationRequest,
     ObservationRights as AbiObservationRights, ObserveOpticRequest as AbiObserveOpticRequest,
     ObserveOpticResult as AbiObserveOpticResult, ObserverInstanceRef as AbiObserverInstanceRef,
     OpticAperture as AbiOpticAperture, OpticApertureShape as AbiOpticApertureShape,
     OpticFocus as AbiOpticFocus, ProjectionVersion as AbiProjectionVersion,
-    ReadingObserverPlan as AbiReadingObserverPlan, ReducerVersion as AbiReducerVersion,
-    RegistryInfo, RetainedReadingKey as AbiRetainedReadingKey, RunCompletion, RunId as AbiRunId,
-    SchedulerMode, SchedulerState, SchedulerStatus, SettlementDelta as AbiSettlementDelta,
+    ReadingBudgetPosture as AbiReadingBudgetPosture,
+    ReadingObserverBasis as AbiReadingObserverBasis, ReadingObserverPlan as AbiReadingObserverPlan,
+    ReadingResidualPosture as AbiReadingResidualPosture,
+    ReadingRightsPosture as AbiReadingRightsPosture, ReducerVersion as AbiReducerVersion,
+    RegistryInfo, ResolvedObservationCoordinate as AbiResolvedObservationCoordinate,
+    RetainedReadingKey as AbiRetainedReadingKey, RunCompletion, RunId as AbiRunId, SchedulerMode,
+    SchedulerState, SchedulerStatus, SettlementDelta as AbiSettlementDelta,
     SettlementPlan as AbiSettlementPlan, SettlementRequest as AbiSettlementRequest,
     SettlementResult as AbiSettlementResult, WorkState, WorldlineId as AbiWorldlineId,
     WorldlineTick as AbiWorldlineTick, WriterHeadKey as AbiWriterHeadKey, ABI_VERSION,
@@ -118,6 +122,63 @@ pub struct WarpKernel {
     next_run_id: RunId,
     /// Registry metadata (injected at construction, immutable after).
     registry: RegistryInfo,
+    stack_witness_create_buffer_admitted_at: Option<AbiWorldlineTick>,
+    stack_witness_replace_range_admitted_at: Option<AbiWorldlineTick>,
+}
+
+const STACK_WITNESS_CONTRACT_OP_ID_MASK: u32 = 0xffff_0000;
+const STACK_WITNESS_CONTRACT_OP_ID_PREFIX: u32 = 0x5357_0000;
+const STACK_WITNESS_CREATE_BUFFER_OP_ID: u32 = 0x5357_0001;
+const STACK_WITNESS_REPLACE_RANGE_OP_ID: u32 = 0x5357_0002;
+const STACK_WITNESS_TEXT_WINDOW_QUERY_ID: u32 = 0x5357_1001;
+const STACK_WITNESS_FIXTURE_ARTIFACT_ID: &str = "fixture-file-history-v0";
+#[cfg(test)]
+const STACK_WITNESS_FIXTURE_VARS_ENCODING: &str = "utf8-semicolon-kv/v0";
+const STACK_WITNESS_CREATE_BUFFER_VARS: &[u8] =
+    b"stack-witness-0001/createBuffer;name=demo.txt;artifact=fixture-file-history-v0";
+const STACK_WITNESS_REPLACE_RANGE_VARS: &[u8] = b"stack-witness-0001/replaceRange;bufferId=demo.txt;basis=B0;coord=utf8-bytes;start=0;end=0;text=hello;artifact=fixture-file-history-v0";
+const STACK_WITNESS_TEXT_WINDOW_VARS: &[u8] = b"stack-witness-0001/textWindow;bufferId=demo.txt;basis=B1;coord=utf8-bytes;start=0;length=5;artifact=fixture-file-history-v0";
+const STACK_WITNESS_TEXT_WINDOW_BYTES: &[u8] = b"hello";
+
+fn is_stack_witness_contract_op_id(op_id: u32) -> bool {
+    op_id & STACK_WITNESS_CONTRACT_OP_ID_MASK == STACK_WITNESS_CONTRACT_OP_ID_PREFIX
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FixtureContractOperationKind {
+    Mutation,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct FixtureContractOperation {
+    op_id: u32,
+    name: &'static str,
+    kind: FixtureContractOperationKind,
+}
+
+fn stack_witness_fixture_operation(op_id: u32) -> Option<FixtureContractOperation> {
+    match op_id {
+        STACK_WITNESS_CREATE_BUFFER_OP_ID => Some(FixtureContractOperation {
+            op_id,
+            name: "createBuffer",
+            kind: FixtureContractOperationKind::Mutation,
+        }),
+        STACK_WITNESS_REPLACE_RANGE_OP_ID => Some(FixtureContractOperation {
+            op_id,
+            name: "replaceRange",
+            kind: FixtureContractOperationKind::Mutation,
+        }),
+        _ => None,
+    }
+}
+
+fn stack_witness_text_window_artifact_hash() -> Vec<u8> {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(STACK_WITNESS_FIXTURE_ARTIFACT_ID.as_bytes());
+    hasher.update(&STACK_WITNESS_TEXT_WINDOW_QUERY_ID.to_le_bytes());
+    hasher.update(STACK_WITNESS_TEXT_WINDOW_VARS);
+    hasher.update(STACK_WITNESS_TEXT_WINDOW_BYTES);
+    hasher.finalize().as_bytes().to_vec()
 }
 
 impl WarpKernel {
@@ -200,6 +261,8 @@ impl WarpKernel {
             },
             next_run_id: RunId::from_raw(1),
             registry,
+            stack_witness_create_buffer_admitted_at: None,
+            stack_witness_replace_range_admitted_at: None,
         })
     }
 
@@ -634,6 +697,148 @@ impl WarpKernel {
             .map_err(Self::map_observation_error)
     }
 
+    fn observe_stack_witness_fixture(
+        &self,
+        request: &AbiObservationRequest,
+    ) -> Result<Option<AbiObservationArtifact>, AbiError> {
+        let AbiObservationProjection::Query {
+            query_id,
+            vars_bytes,
+        } = &request.projection
+        else {
+            return Ok(None);
+        };
+        if request.frame != AbiObservationFrame::QueryView
+            || *query_id != STACK_WITNESS_TEXT_WINDOW_QUERY_ID
+            || vars_bytes.as_slice() != STACK_WITNESS_TEXT_WINDOW_VARS
+        {
+            return Ok(None);
+        }
+
+        if !matches!(request.rights, AbiObservationRights::KernelPublic) {
+            return Err(AbiError {
+                code: error_codes::UNSUPPORTED_OBSERVATION_RIGHTS,
+                message: "Stack Witness 0001 fixture observer requires kernel-public rights".into(),
+            });
+        }
+        if Self::to_core_worldline_id(&request.coordinate.worldline_id) != self.default_worldline {
+            return Err(AbiError {
+                code: error_codes::OBSERVATION_UNAVAILABLE,
+                message: "Stack Witness 0001 fixture observer requires the default worldline"
+                    .into(),
+            });
+        }
+
+        let head = self.current_head()?;
+        if !self.stack_witness_fixture_history_is_materialized(&head) {
+            return Err(AbiError {
+                code: error_codes::OBSERVATION_UNAVAILABLE,
+                message: "Stack Witness 0001 textWindow requires admitted createBuffer and replaceRange history".into(),
+            });
+        }
+
+        let payload_bytes = STACK_WITNESS_TEXT_WINDOW_BYTES.len() as u64;
+        if let AbiObservationReadBudget::Bounded {
+            max_payload_bytes, ..
+        } = request.budget
+        {
+            if payload_bytes > max_payload_bytes {
+                return Err(AbiError {
+                    code: error_codes::OBSERVATION_BUDGET_EXCEEDED,
+                    message: format!(
+                        "Stack Witness 0001 textWindow payload requires {payload_bytes} bytes but budget allows {max_payload_bytes}"
+                    ),
+                });
+            }
+        }
+
+        let budget_posture = match request.budget {
+            AbiObservationReadBudget::UnboundedOneShot => AbiReadingBudgetPosture::UnboundedOneShot,
+            AbiObservationReadBudget::Bounded {
+                max_payload_bytes,
+                max_witness_refs,
+            } => AbiReadingBudgetPosture::Bounded {
+                max_payload_bytes,
+                payload_bytes,
+                max_witness_refs,
+                witness_refs: 0,
+            },
+        };
+
+        Ok(Some(AbiObservationArtifact {
+            resolved: AbiResolvedObservationCoordinate {
+                observation_version: 2,
+                worldline_id: request.coordinate.worldline_id,
+                requested_at: request.coordinate.at.clone(),
+                resolved_worldline_tick: head.worldline_tick,
+                commit_global_tick: head.commit_global_tick,
+                observed_after_global_tick: head.commit_global_tick,
+                state_root: head.state_root,
+                commit_hash: head.commit_id,
+            },
+            reading: echo_wasm_abi::kernel_port::ReadingEnvelope {
+                observer_plan: request.observer_plan.clone(),
+                observer_instance: request.observer_instance.clone(),
+                observer_basis: AbiReadingObserverBasis::QueryView,
+                witness_refs: Vec::new(),
+                parent_basis_posture:
+                    echo_wasm_abi::kernel_port::ObservationBasisPosture::Worldline,
+                budget_posture,
+                rights_posture: AbiReadingRightsPosture::KernelPublic,
+                residual_posture: AbiReadingResidualPosture::Complete,
+            },
+            frame: request.frame.clone(),
+            projection: request.projection.clone(),
+            artifact_hash: stack_witness_text_window_artifact_hash(),
+            payload: AbiObservationPayload::QueryBytes {
+                data: STACK_WITNESS_TEXT_WINDOW_BYTES.to_vec(),
+            },
+        }))
+    }
+
+    fn stack_witness_fixture_history_is_materialized(&self, head: &HeadInfo) -> bool {
+        let Some(create_buffer_admitted_at) = self.stack_witness_create_buffer_admitted_at else {
+            return false;
+        };
+        let Some(replace_range_admitted_at) = self.stack_witness_replace_range_admitted_at else {
+            return false;
+        };
+        head.worldline_tick.0 > create_buffer_admitted_at.0
+            && head.worldline_tick.0 > replace_range_admitted_at.0
+    }
+
+    fn validate_stack_witness_fixture_vars(op_id: u32, vars: &[u8]) -> Result<(), AbiError> {
+        let expected = match op_id {
+            STACK_WITNESS_CREATE_BUFFER_OP_ID => STACK_WITNESS_CREATE_BUFFER_VARS,
+            STACK_WITNESS_REPLACE_RANGE_OP_ID => STACK_WITNESS_REPLACE_RANGE_VARS,
+            _ => return Ok(()),
+        };
+        if vars != expected {
+            return Err(AbiError {
+                code: error_codes::INVALID_INTENT,
+                message: "Stack Witness 0001 fixture vars do not match installed artifact".into(),
+            });
+        }
+        Ok(())
+    }
+
+    fn record_stack_witness_fixture_admission(
+        &mut self,
+        op_id: u32,
+        vars: &[u8],
+        admitted_at: AbiWorldlineTick,
+    ) {
+        match op_id {
+            STACK_WITNESS_CREATE_BUFFER_OP_ID if vars == STACK_WITNESS_CREATE_BUFFER_VARS => {
+                self.stack_witness_create_buffer_admitted_at = Some(admitted_at);
+            }
+            STACK_WITNESS_REPLACE_RANGE_OP_ID if vars == STACK_WITNESS_REPLACE_RANGE_VARS => {
+                self.stack_witness_replace_range_admitted_at = Some(admitted_at);
+            }
+            _ => {}
+        }
+    }
+
     pub(crate) fn current_head(&self) -> Result<HeadInfo, AbiError> {
         let request = ObservationRequest::builtin_one_shot(
             ObservationCoordinate {
@@ -830,7 +1035,7 @@ impl WarpKernel {
 
 impl KernelPort for WarpKernel {
     fn dispatch_intent(&mut self, intent_bytes: &[u8]) -> Result<DispatchResponse, AbiError> {
-        let (op_id, _vars) = unpack_intent_v1(intent_bytes).map_err(|e| AbiError {
+        let (op_id, vars) = unpack_intent_v1(intent_bytes).map_err(|e| AbiError {
             code: error_codes::INVALID_INTENT,
             message: format!(
                 "malformed EINT envelope ({} bytes): {e}",
@@ -880,6 +1085,18 @@ impl KernelPort for WarpKernel {
             })?;
         }
 
+        if is_stack_witness_contract_op_id(op_id)
+            && stack_witness_fixture_operation(op_id).is_none()
+        {
+            return Err(AbiError {
+                code: error_codes::NOT_SUPPORTED,
+                message: format!(
+                    "contract artifact is not installed for Stack Witness 0001 op id {op_id}"
+                ),
+            });
+        }
+        Self::validate_stack_witness_fixture_vars(op_id, vars)?;
+
         let envelope = IngressEnvelope::local_intent(
             IngressTarget::DefaultWriter {
                 worldline_id: self.default_worldline,
@@ -891,6 +1108,10 @@ impl KernelPort for WarpKernel {
         match self.runtime.ingest(envelope) {
             Ok(disposition) => {
                 let accepted = matches!(disposition, IngressDisposition::Accepted { .. });
+                if accepted {
+                    let admitted_at = self.current_head()?.worldline_tick;
+                    self.record_stack_witness_fixture_admission(op_id, vars, admitted_at);
+                }
                 self.refresh_scheduler_status();
                 Ok(DispatchResponse {
                     accepted,
@@ -942,6 +1163,9 @@ impl KernelPort for WarpKernel {
     }
 
     fn observe(&self, request: AbiObservationRequest) -> Result<AbiObservationArtifact, AbiError> {
+        if let Some(artifact) = self.observe_stack_witness_fixture(&request)? {
+            return Ok(artifact);
+        }
         let request = Self::to_core_request(request)?;
         Ok(self.observe_core(request)?.to_abi())
     }
@@ -1087,6 +1311,234 @@ mod tests {
             worldline_tick: AbiWorldlineTick(tick),
             commit_hash: vec![seed; 32],
         }
+    }
+
+    const STACK_WITNESS_UNKNOWN_OP_ID: u32 = 0x5357_00ff;
+    const STACK_WITNESS_FIXTURE_FAMILY_ID: &str = "stack-witness-0001.file-history";
+    const STACK_WITNESS_FIXTURE_SCHEMA_ID: &str = "stack-witness-0001.file-history.v0";
+    const STACK_WITNESS_FIXTURE_VERSION: &str = "0";
+    const STACK_WITNESS_TARGET_CODEC: &str = "wesley-binary/v0";
+    const STACK_WITNESS_HELPER_MUTATION_FIELDS: &[&str] = &[
+        "contract_artifact_id",
+        "operation_id",
+        "fixture_vars_bytes",
+        "declared_footprint",
+    ];
+    const STACK_WITNESS_HELPER_QUERY_FIELDS: &[&str] = &[
+        "contract_artifact_id",
+        "query_id",
+        "fixture_vars_bytes",
+        "reading_envelope",
+        "query_bytes",
+    ];
+    const STACK_WITNESS_FORBIDDEN_FOOTPRINTS: &[&str] =
+        &["AstState", "Diagnostics", "GitWitness", "UiState"];
+
+    fn stack_witness_create_buffer_vars() -> Vec<u8> {
+        STACK_WITNESS_CREATE_BUFFER_VARS.to_vec()
+    }
+
+    fn stack_witness_replace_range_vars() -> Vec<u8> {
+        STACK_WITNESS_REPLACE_RANGE_VARS.to_vec()
+    }
+
+    fn stack_witness_text_window_vars() -> Vec<u8> {
+        STACK_WITNESS_TEXT_WINDOW_VARS.to_vec()
+    }
+
+    #[test]
+    fn stack_witness_fixture_vectors_match_wesley_artifact_shape() {
+        let vectors = include_str!("../test/fixtures/stack-witness-0001-vectors.json");
+
+        assert_string_field(vectors, "familyId", STACK_WITNESS_FIXTURE_FAMILY_ID);
+        assert_string_field(vectors, "schemaId", STACK_WITNESS_FIXTURE_SCHEMA_ID);
+        assert_string_field(vectors, "artifactId", STACK_WITNESS_FIXTURE_ARTIFACT_ID);
+        assert_string_field(vectors, "version", STACK_WITNESS_FIXTURE_VERSION);
+        assert_string_field(
+            vectors,
+            "fixtureVarsEncoding",
+            STACK_WITNESS_FIXTURE_VARS_ENCODING,
+        );
+        assert_string_field(vectors, "targetCodec", STACK_WITNESS_TARGET_CODEC);
+
+        assert_stack_witness_vector(
+            vectors,
+            StackWitnessVectorExpectation {
+                name: "createBuffer",
+                operation_type: "MUTATION",
+                op_id: STACK_WITNESS_CREATE_BUFFER_OP_ID,
+                helper_kind: "EINT",
+                helper_frame: "EINT",
+                helper_entrypoint: "dispatch_intent",
+                fixture_vars: STACK_WITNESS_CREATE_BUFFER_VARS,
+                footprint_reads: &[],
+                footprint_writes: &[],
+                footprint_creates: &["Buffer"],
+                footprint_forbids: STACK_WITNESS_FORBIDDEN_FOOTPRINTS,
+                helper_fields: STACK_WITNESS_HELPER_MUTATION_FIELDS,
+            },
+        );
+        assert_stack_witness_vector(
+            vectors,
+            StackWitnessVectorExpectation {
+                name: "replaceRange",
+                operation_type: "MUTATION",
+                op_id: STACK_WITNESS_REPLACE_RANGE_OP_ID,
+                helper_kind: "EINT",
+                helper_frame: "EINT",
+                helper_entrypoint: "dispatch_intent",
+                fixture_vars: STACK_WITNESS_REPLACE_RANGE_VARS,
+                footprint_reads: &["Buffer"],
+                footprint_writes: &["Buffer"],
+                footprint_creates: &["Tick", "Receipt"],
+                footprint_forbids: STACK_WITNESS_FORBIDDEN_FOOTPRINTS,
+                helper_fields: STACK_WITNESS_HELPER_MUTATION_FIELDS,
+            },
+        );
+        assert_stack_witness_vector(
+            vectors,
+            StackWitnessVectorExpectation {
+                name: "textWindow",
+                operation_type: "QUERY",
+                op_id: STACK_WITNESS_TEXT_WINDOW_QUERY_ID,
+                helper_kind: "QueryView",
+                helper_frame: "QueryView",
+                helper_entrypoint: "observe",
+                fixture_vars: STACK_WITNESS_TEXT_WINDOW_VARS,
+                footprint_reads: &["Buffer", "Tick", "Receipt"],
+                footprint_writes: &[],
+                footprint_creates: &[],
+                footprint_forbids: STACK_WITNESS_FORBIDDEN_FOOTPRINTS,
+                helper_fields: STACK_WITNESS_HELPER_QUERY_FIELDS,
+            },
+        );
+
+        let text_window = stack_witness_vector(vectors, "textWindow");
+        assert_string_field(text_window, "payloadCodec", "QueryBytes");
+        assert_string_field(text_window, "envelope", "ReadingEnvelope");
+        assert_string_field(
+            text_window,
+            "expectedQueryBytesHex",
+            &lower_hex(STACK_WITNESS_TEXT_WINDOW_BYTES),
+        );
+    }
+
+    struct StackWitnessVectorExpectation {
+        name: &'static str,
+        operation_type: &'static str,
+        op_id: u32,
+        helper_kind: &'static str,
+        helper_frame: &'static str,
+        helper_entrypoint: &'static str,
+        fixture_vars: &'static [u8],
+        footprint_reads: &'static [&'static str],
+        footprint_writes: &'static [&'static str],
+        footprint_creates: &'static [&'static str],
+        footprint_forbids: &'static [&'static str],
+        helper_fields: &'static [&'static str],
+    }
+
+    fn assert_stack_witness_vector(vectors: &str, expected: StackWitnessVectorExpectation) {
+        let vector = stack_witness_vector(vectors, expected.name);
+        assert_string_field(vector, "operationType", expected.operation_type);
+        assert_number_field(vector, "opIdDecimal", expected.op_id);
+        assert_string_field(vector, "opIdHex", &format!("0x{:08x}", expected.op_id));
+        assert_string_field(vector, "helperKind", expected.helper_kind);
+        assert_string_field(vector, "frame", expected.helper_frame);
+        assert_string_field(vector, "entrypoint", expected.helper_entrypoint);
+        assert_string_field(
+            vector,
+            "fixtureVarsBytes",
+            std::str::from_utf8(expected.fixture_vars)
+                .expect("Stack Witness fixture vars should be UTF-8 fixture bytes"),
+        );
+        assert_string_array_field(vector, "reads", expected.footprint_reads);
+        assert_string_array_field(vector, "writes", expected.footprint_writes);
+        assert_string_array_field(vector, "creates", expected.footprint_creates);
+        assert_string_array_field(vector, "forbids", expected.footprint_forbids);
+        assert_ordered_field_values(vector, "fields", expected.helper_fields);
+    }
+
+    fn stack_witness_vector<'a>(vectors: &'a str, name: &str) -> &'a str {
+        let name_pattern = format!(r#""name": "{name}""#);
+        let start = vectors
+            .find(&name_pattern)
+            .expect("Stack Witness operation vector should exist");
+        let end = vectors[start..]
+            .find("\n    }")
+            .expect("Stack Witness operation vector should close");
+        &vectors[start..start + end]
+    }
+
+    fn lower_hex(bytes: &[u8]) -> String {
+        bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+
+    fn assert_string_field(document: &str, field: &str, expected: &str) {
+        let needle = format!(r#""{field}": "{expected}""#);
+        assert!(
+            document.contains(&needle),
+            "fixture vector should contain string field {field}={expected}"
+        );
+    }
+
+    fn assert_number_field(document: &str, field: &str, expected: u32) {
+        let needle = format!(r#""{field}": {expected}"#);
+        assert!(
+            document.contains(&needle),
+            "fixture vector should contain numeric field {field}={expected}"
+        );
+    }
+
+    fn assert_string_array_field(document: &str, field: &str, expected: &[&str]) {
+        let items = expected
+            .iter()
+            .map(|item| format!(r#""{item}""#))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let needle = format!(r#""{field}": [{items}]"#);
+        assert!(
+            document.contains(&needle),
+            "fixture vector should contain string array field {field}"
+        );
+    }
+
+    fn assert_ordered_field_values(document: &str, field: &str, expected: &[&str]) {
+        let field_pattern = format!(r#""{field}": ["#);
+        let mut cursor = document
+            .find(&field_pattern)
+            .expect("fixture vector should contain ordered field list");
+        for item in expected {
+            let item_pattern = format!(r#""{item}""#);
+            let relative = document[cursor..]
+                .find(&item_pattern)
+                .expect("fixture vector field item should appear in order");
+            cursor += relative + item_pattern.len();
+        }
+    }
+
+    #[test]
+    fn stack_witness_fixture_registry_names_mutations() {
+        assert_eq!(
+            stack_witness_fixture_operation(STACK_WITNESS_CREATE_BUFFER_OP_ID),
+            Some(FixtureContractOperation {
+                op_id: STACK_WITNESS_CREATE_BUFFER_OP_ID,
+                name: "createBuffer",
+                kind: FixtureContractOperationKind::Mutation,
+            })
+        );
+        assert_eq!(
+            stack_witness_fixture_operation(STACK_WITNESS_REPLACE_RANGE_OP_ID),
+            Some(FixtureContractOperation {
+                op_id: STACK_WITNESS_REPLACE_RANGE_OP_ID,
+                name: "replaceRange",
+                kind: FixtureContractOperationKind::Mutation,
+            })
+        );
+        assert_eq!(
+            stack_witness_fixture_operation(STACK_WITNESS_UNKNOWN_OP_ID),
+            None
+        );
     }
 
     fn sample_import_suffix_request(kernel: &WarpKernel) -> AbiImportSuffixRequest {
@@ -1616,6 +2068,268 @@ mod tests {
     }
 
     #[test]
+    fn stack_witness_contract_intent_without_installed_artifact_obstructs() {
+        let mut kernel = WarpKernel::new().unwrap();
+        let intent = pack_intent_v1(
+            STACK_WITNESS_UNKNOWN_OP_ID,
+            &stack_witness_create_buffer_vars(),
+        )
+        .unwrap();
+
+        let error = kernel.dispatch_intent(&intent).expect_err(
+            "contract-shaped EINT must obstruct until a generated artifact is installed",
+        );
+
+        assert_eq!(error.code, error_codes::NOT_SUPPORTED);
+        assert!(
+            error.message.contains("contract"),
+            "obstruction should explain the missing contract artifact"
+        );
+    }
+
+    #[test]
+    fn stack_witness_create_buffer_and_replace_range_enter_dispatch_intent() {
+        let mut kernel = WarpKernel::new().unwrap();
+
+        admit_stack_witness_create_buffer(&mut kernel);
+        admit_stack_witness_replace_range(&mut kernel);
+    }
+
+    fn advance_non_fixture_tick(kernel: &mut WarpKernel, vars: &[u8]) {
+        let intent = pack_intent_v1(1, vars).unwrap();
+        let dispatch = kernel.dispatch_intent(&intent).unwrap();
+        assert!(dispatch.accepted);
+        let run = start_until_idle(kernel, Some(4));
+        assert_eq!(
+            run.scheduler_status.last_run_completion,
+            Some(RunCompletion::Quiesced)
+        );
+    }
+
+    fn admit_stack_witness_create_buffer(kernel: &mut WarpKernel) {
+        let create_buffer = pack_intent_v1(
+            STACK_WITNESS_CREATE_BUFFER_OP_ID,
+            &stack_witness_create_buffer_vars(),
+        )
+        .unwrap();
+        let create = kernel.dispatch_intent(&create_buffer).unwrap();
+        assert!(create.accepted);
+        assert_eq!(create.intent_id.len(), 32);
+        let create_run = start_until_idle(kernel, Some(4));
+        assert_eq!(
+            create_run.scheduler_status.last_run_completion,
+            Some(RunCompletion::Quiesced)
+        );
+    }
+
+    fn admit_stack_witness_replace_range(kernel: &mut WarpKernel) {
+        let replace_range = pack_intent_v1(
+            STACK_WITNESS_REPLACE_RANGE_OP_ID,
+            &stack_witness_replace_range_vars(),
+        )
+        .unwrap();
+        let replace = kernel.dispatch_intent(&replace_range).unwrap();
+        assert!(replace.accepted);
+        assert_eq!(replace.intent_id.len(), 32);
+        let replace_run = start_until_idle(kernel, Some(4));
+        assert_eq!(
+            replace_run.scheduler_status.last_run_completion,
+            Some(RunCompletion::Quiesced)
+        );
+    }
+
+    fn admit_stack_witness_fixture_history(kernel: &mut WarpKernel) {
+        admit_stack_witness_create_buffer(kernel);
+        admit_stack_witness_replace_range(kernel);
+    }
+
+    fn stack_witness_text_window_request(kernel: &WarpKernel) -> AbiObservationRequest {
+        abi_builtin_one_shot(
+            AbiObservationCoordinate {
+                worldline_id: abi_worldline_id(kernel.default_worldline),
+                at: echo_wasm_abi::kernel_port::ObservationAt::Frontier,
+            },
+            AbiObservationFrame::QueryView,
+            AbiObservationProjection::Query {
+                query_id: STACK_WITNESS_TEXT_WINDOW_QUERY_ID,
+                vars_bytes: stack_witness_text_window_vars(),
+            },
+        )
+    }
+
+    fn stack_witness_text_window_request_for_worldline(
+        worldline_id: WorldlineId,
+    ) -> AbiObservationRequest {
+        abi_builtin_one_shot(
+            AbiObservationCoordinate {
+                worldline_id: abi_worldline_id(worldline_id),
+                at: echo_wasm_abi::kernel_port::ObservationAt::Frontier,
+            },
+            AbiObservationFrame::QueryView,
+            AbiObservationProjection::Query {
+                query_id: STACK_WITNESS_TEXT_WINDOW_QUERY_ID,
+                vars_bytes: stack_witness_text_window_vars(),
+            },
+        )
+    }
+
+    fn expected_stack_witness_text_window_artifact_hash() -> Vec<u8> {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(STACK_WITNESS_FIXTURE_ARTIFACT_ID.as_bytes());
+        hasher.update(&STACK_WITNESS_TEXT_WINDOW_QUERY_ID.to_le_bytes());
+        hasher.update(STACK_WITNESS_TEXT_WINDOW_VARS);
+        hasher.update(STACK_WITNESS_TEXT_WINDOW_BYTES);
+        hasher.finalize().as_bytes().to_vec()
+    }
+
+    #[test]
+    fn stack_witness_text_window_obstructs_without_fixture_history() {
+        let kernel = WarpKernel::new().unwrap();
+        let request = stack_witness_text_window_request(&kernel);
+
+        let error = kernel
+            .observe(request)
+            .expect_err("textWindow must not materialize without fixture mutation history");
+
+        assert_eq!(error.code, error_codes::OBSERVATION_UNAVAILABLE);
+    }
+
+    #[test]
+    fn stack_witness_text_window_obstructs_wrong_worldline() {
+        let mut kernel = WarpKernel::new().unwrap();
+        admit_stack_witness_fixture_history(&mut kernel);
+        let request = stack_witness_text_window_request_for_worldline(wl(99));
+
+        let error = kernel
+            .observe(request)
+            .expect_err("textWindow must not materialize for a non-default worldline");
+
+        assert_eq!(error.code, error_codes::OBSERVATION_UNAVAILABLE);
+    }
+
+    #[test]
+    fn stack_witness_text_window_obstructs_pending_fixture_history_on_advanced_head() {
+        let mut kernel = WarpKernel::new().unwrap();
+        advance_non_fixture_tick(&mut kernel, b"advance-a");
+        advance_non_fixture_tick(&mut kernel, b"advance-b");
+        assert_eq!(
+            kernel.current_head().unwrap().worldline_tick,
+            AbiWorldlineTick(2)
+        );
+
+        let create_buffer = pack_intent_v1(
+            STACK_WITNESS_CREATE_BUFFER_OP_ID,
+            &stack_witness_create_buffer_vars(),
+        )
+        .unwrap();
+        let replace_range = pack_intent_v1(
+            STACK_WITNESS_REPLACE_RANGE_OP_ID,
+            &stack_witness_replace_range_vars(),
+        )
+        .unwrap();
+        assert!(kernel.dispatch_intent(&create_buffer).unwrap().accepted);
+        assert!(kernel.dispatch_intent(&replace_range).unwrap().accepted);
+        let request = stack_witness_text_window_request(&kernel);
+
+        let error = kernel
+            .observe(request)
+            .expect_err("textWindow must not materialize before fixture intents commit");
+
+        assert_eq!(error.code, error_codes::OBSERVATION_UNAVAILABLE);
+    }
+
+    #[test]
+    fn stack_witness_fixture_mutations_reject_wrong_fixture_vars() {
+        let mut kernel = WarpKernel::new().unwrap();
+        for (op_id, vars) in [
+            (
+                STACK_WITNESS_CREATE_BUFFER_OP_ID,
+                b"wrong-create".as_slice(),
+            ),
+            (
+                STACK_WITNESS_REPLACE_RANGE_OP_ID,
+                b"wrong-replace".as_slice(),
+            ),
+        ] {
+            let intent = pack_intent_v1(op_id, vars).unwrap();
+            let error = kernel
+                .dispatch_intent(&intent)
+                .expect_err("fixture mutation vars must match the installed fixture bytes");
+            assert_eq!(error.code, error_codes::INVALID_INTENT);
+        }
+    }
+
+    #[test]
+    fn stack_witness_text_window_respects_bounded_payload_budget() {
+        let mut kernel = WarpKernel::new().unwrap();
+        admit_stack_witness_fixture_history(&mut kernel);
+        let mut request = stack_witness_text_window_request(&kernel);
+        request.budget = AbiObservationReadBudget::Bounded {
+            max_payload_bytes: 4,
+            max_witness_refs: 0,
+        };
+
+        let error = kernel
+            .observe(request)
+            .expect_err("textWindow must obstruct when payload exceeds the read budget");
+
+        assert_eq!(error.code, error_codes::OBSERVATION_BUDGET_EXCEEDED);
+    }
+
+    #[test]
+    fn stack_witness_text_window_artifact_hash_is_deterministic_identity() {
+        let mut kernel = WarpKernel::new().unwrap();
+        admit_stack_witness_fixture_history(&mut kernel);
+        let request = stack_witness_text_window_request(&kernel);
+
+        let artifact = kernel
+            .observe(request)
+            .expect("textWindow QueryView should return a reading artifact");
+
+        assert_eq!(
+            artifact.artifact_hash,
+            expected_stack_witness_text_window_artifact_hash()
+        );
+    }
+
+    #[test]
+    fn stack_witness_text_window_query_returns_reading_envelope_and_query_bytes() {
+        let mut kernel = WarpKernel::new().unwrap();
+        admit_stack_witness_fixture_history(&mut kernel);
+        let request = stack_witness_text_window_request(&kernel);
+
+        let artifact = kernel
+            .observe(request)
+            .expect("textWindow QueryView should return ReadingEnvelope + QueryBytes");
+
+        let AbiObservationPayload::QueryBytes { data } = artifact.payload else {
+            panic!("textWindow should return QueryBytes");
+        };
+
+        assert_eq!(data, b"hello");
+        assert_eq!(
+            artifact.reading.observer_basis,
+            AbiReadingObserverBasis::QueryView
+        );
+        assert_eq!(
+            artifact.reading.budget_posture,
+            AbiReadingBudgetPosture::UnboundedOneShot
+        );
+        assert_eq!(
+            artifact.reading.rights_posture,
+            AbiReadingRightsPosture::KernelPublic
+        );
+        assert_eq!(
+            artifact.reading.residual_posture,
+            AbiReadingResidualPosture::Complete
+        );
+        assert_eq!(
+            artifact.artifact_hash,
+            expected_stack_witness_text_window_artifact_hash()
+        );
+    }
+
+    #[test]
     fn import_suffix_intent_rejects_malformed_payload_without_ingress() {
         let mut kernel = WarpKernel::new().unwrap();
         let head_before = kernel.current_head().unwrap();
@@ -2020,14 +2734,14 @@ mod tests {
     fn observe_neighborhood_core_returns_shared_projection_for_default_worldline() {
         let kernel = WarpKernel::new().unwrap();
         let core = kernel
-            .observe_neighborhood_core(AbiObservationRequest {
-                coordinate: AbiObservationCoordinate {
+            .observe_neighborhood_core(abi_builtin_one_shot(
+                AbiObservationCoordinate {
                     worldline_id: abi_worldline_id(kernel.default_worldline),
                     at: AbiObservationAt::Frontier,
                 },
-                frame: AbiObservationFrame::CommitBoundary,
-                projection: AbiObservationProjection::Head,
-            })
+                AbiObservationFrame::CommitBoundary,
+                AbiObservationProjection::Head,
+            ))
             .unwrap();
 
         assert_eq!(

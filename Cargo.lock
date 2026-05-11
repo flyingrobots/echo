@@ -2077,6 +2077,7 @@ dependencies = [
 name = "warp-wasm"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "console_error_panic_hook",
  "echo-registry-api",
  "echo-wasm-abi",

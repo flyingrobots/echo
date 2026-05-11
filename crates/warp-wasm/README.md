@@ -47,7 +47,7 @@ The package export smoke test imports `crates/warp-wasm/pkg/rmg_wasm.js` and
 asserts the byte ABI export surface:
 
 ```sh
-node --test scripts/tests/warp_wasm_package_exports_test.mjs
+scripts/tests/warp_wasm_package_exports_test.sh
 ```
 
 Consumer-facing app code should not depend on Echo's internal default

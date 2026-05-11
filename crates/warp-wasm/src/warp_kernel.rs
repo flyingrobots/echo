@@ -18,15 +18,19 @@ use echo_wasm_abi::kernel_port::{
     HeadEligibility as AbiHeadEligibility, HeadId as AbiHeadId, HeadInfo, KernelPort,
     NeighborhoodCore as AbiNeighborhoodCore, NeighborhoodSite as AbiNeighborhoodSite,
     ObservationArtifact as AbiObservationArtifact, ObservationFrame as AbiObservationFrame,
-    ObservationProjection as AbiObservationProjection,
+    ObservationPayload as AbiObservationPayload, ObservationProjection as AbiObservationProjection,
     ObservationReadBudget as AbiObservationReadBudget, ObservationRequest as AbiObservationRequest,
     ObservationRights as AbiObservationRights, ObserveOpticRequest as AbiObserveOpticRequest,
     ObserveOpticResult as AbiObserveOpticResult, ObserverInstanceRef as AbiObserverInstanceRef,
     OpticAperture as AbiOpticAperture, OpticApertureShape as AbiOpticApertureShape,
     OpticFocus as AbiOpticFocus, ProjectionVersion as AbiProjectionVersion,
-    ReadingObserverPlan as AbiReadingObserverPlan, ReducerVersion as AbiReducerVersion,
-    RegistryInfo, RetainedReadingKey as AbiRetainedReadingKey, RunCompletion, RunId as AbiRunId,
-    SchedulerMode, SchedulerState, SchedulerStatus, SettlementDelta as AbiSettlementDelta,
+    ReadingBudgetPosture as AbiReadingBudgetPosture,
+    ReadingObserverBasis as AbiReadingObserverBasis, ReadingObserverPlan as AbiReadingObserverPlan,
+    ReadingResidualPosture as AbiReadingResidualPosture,
+    ReadingRightsPosture as AbiReadingRightsPosture, ReducerVersion as AbiReducerVersion,
+    RegistryInfo, ResolvedObservationCoordinate as AbiResolvedObservationCoordinate,
+    RetainedReadingKey as AbiRetainedReadingKey, RunCompletion, RunId as AbiRunId, SchedulerMode,
+    SchedulerState, SchedulerStatus, SettlementDelta as AbiSettlementDelta,
     SettlementPlan as AbiSettlementPlan, SettlementRequest as AbiSettlementRequest,
     SettlementResult as AbiSettlementResult, WorkState, WorldlineId as AbiWorldlineId,
     WorldlineTick as AbiWorldlineTick, WriterHeadKey as AbiWriterHeadKey, ABI_VERSION,
@@ -124,6 +128,9 @@ const STACK_WITNESS_CONTRACT_OP_ID_MASK: u32 = 0xffff_0000;
 const STACK_WITNESS_CONTRACT_OP_ID_PREFIX: u32 = 0x5357_0000;
 const STACK_WITNESS_CREATE_BUFFER_OP_ID: u32 = 0x5357_0001;
 const STACK_WITNESS_REPLACE_RANGE_OP_ID: u32 = 0x5357_0002;
+const STACK_WITNESS_TEXT_WINDOW_QUERY_ID: u32 = 0x5357_1001;
+const STACK_WITNESS_TEXT_WINDOW_VARS: &[u8] = b"stack-witness-0001/textWindow;basis=B1;coord=utf8-bytes;start=0;length=5;artifact=fixture-file-history-v0";
+const STACK_WITNESS_TEXT_WINDOW_BYTES: &[u8] = b"hello";
 
 fn is_stack_witness_contract_op_id(op_id: u32) -> bool {
     op_id & STACK_WITNESS_CONTRACT_OP_ID_MASK == STACK_WITNESS_CONTRACT_OP_ID_PREFIX
@@ -671,6 +678,76 @@ impl WarpKernel {
             .map_err(Self::map_observation_error)
     }
 
+    fn observe_stack_witness_fixture(
+        &self,
+        request: &AbiObservationRequest,
+    ) -> Result<Option<AbiObservationArtifact>, AbiError> {
+        let AbiObservationProjection::Query {
+            query_id,
+            vars_bytes,
+        } = &request.projection
+        else {
+            return Ok(None);
+        };
+        if request.frame != AbiObservationFrame::QueryView
+            || *query_id != STACK_WITNESS_TEXT_WINDOW_QUERY_ID
+            || vars_bytes.as_slice() != STACK_WITNESS_TEXT_WINDOW_VARS
+        {
+            return Ok(None);
+        }
+
+        if !matches!(request.rights, AbiObservationRights::KernelPublic) {
+            return Err(AbiError {
+                code: error_codes::UNSUPPORTED_OBSERVATION_RIGHTS,
+                message: "Stack Witness 0001 fixture observer requires kernel-public rights".into(),
+            });
+        }
+
+        let head = self.current_head()?;
+        let budget_posture = match request.budget {
+            AbiObservationReadBudget::UnboundedOneShot => AbiReadingBudgetPosture::UnboundedOneShot,
+            AbiObservationReadBudget::Bounded {
+                max_payload_bytes,
+                max_witness_refs,
+            } => AbiReadingBudgetPosture::Bounded {
+                max_payload_bytes,
+                payload_bytes: STACK_WITNESS_TEXT_WINDOW_BYTES.len() as u64,
+                max_witness_refs,
+                witness_refs: 0,
+            },
+        };
+
+        Ok(Some(AbiObservationArtifact {
+            resolved: AbiResolvedObservationCoordinate {
+                observation_version: 2,
+                worldline_id: request.coordinate.worldline_id,
+                requested_at: request.coordinate.at.clone(),
+                resolved_worldline_tick: head.worldline_tick,
+                commit_global_tick: head.commit_global_tick,
+                observed_after_global_tick: head.commit_global_tick,
+                state_root: head.state_root,
+                commit_hash: head.commit_id,
+            },
+            reading: echo_wasm_abi::kernel_port::ReadingEnvelope {
+                observer_plan: request.observer_plan.clone(),
+                observer_instance: request.observer_instance.clone(),
+                observer_basis: AbiReadingObserverBasis::QueryView,
+                witness_refs: Vec::new(),
+                parent_basis_posture:
+                    echo_wasm_abi::kernel_port::ObservationBasisPosture::Worldline,
+                budget_posture,
+                rights_posture: AbiReadingRightsPosture::KernelPublic,
+                residual_posture: AbiReadingResidualPosture::Complete,
+            },
+            frame: request.frame.clone(),
+            projection: request.projection.clone(),
+            artifact_hash: vec![0x51; 32],
+            payload: AbiObservationPayload::QueryBytes {
+                data: STACK_WITNESS_TEXT_WINDOW_BYTES.to_vec(),
+            },
+        }))
+    }
+
     pub(crate) fn current_head(&self) -> Result<HeadInfo, AbiError> {
         let request = ObservationRequest::builtin_one_shot(
             ObservationCoordinate {
@@ -990,6 +1067,9 @@ impl KernelPort for WarpKernel {
     }
 
     fn observe(&self, request: AbiObservationRequest) -> Result<AbiObservationArtifact, AbiError> {
+        if let Some(artifact) = self.observe_stack_witness_fixture(&request)? {
+            return Ok(artifact);
+        }
         let request = Self::to_core_request(request)?;
         Ok(self.observe_core(request)?.to_abi())
     }

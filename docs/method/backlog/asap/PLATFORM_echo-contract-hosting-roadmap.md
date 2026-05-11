@@ -45,6 +45,9 @@ registry model.
 8. [Graft live frontier structural readings](../up-next/PLATFORM_graft-live-frontier-structural-readings.md)
 9. [Contract strands and counterfactuals](../up-next/KERNEL_contract-strands-and-counterfactuals.md)
 10. [Continuum contract artifact interchange](../cool-ideas/PLATFORM_continuum-contract-artifact-interchange.md)
+11. [Contract-hosted file history substrate](./PLATFORM_contract-hosted-file-history-substrate.md)
+    - Design packet:
+      [0018 - Contract-Hosted File History Substrate](../../../design/0018-contract-hosted-file-history-substrate/design.md)
 
 ## Non-goals
 

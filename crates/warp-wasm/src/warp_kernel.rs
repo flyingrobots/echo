@@ -928,16 +928,6 @@ impl KernelPort for WarpKernel {
             });
         }
 
-        if let Some(operation) = stack_witness_fixture_operation(op_id) {
-            return Err(AbiError {
-                code: error_codes::NOT_SUPPORTED,
-                message: format!(
-                    "contract artifact is registered for Stack Witness 0001 operation {}, but its fixture handler is not installed",
-                    operation.name
-                ),
-            });
-        }
-
         let envelope = IngressEnvelope::local_intent(
             IngressTarget::DefaultWriter {
                 worldline_id: self.default_worldline,
@@ -1731,6 +1721,39 @@ mod tests {
         assert!(
             error.message.contains("contract"),
             "obstruction should explain the missing contract artifact"
+        );
+    }
+
+    #[test]
+    fn stack_witness_create_buffer_and_replace_range_enter_dispatch_intent() {
+        let mut kernel = WarpKernel::new().unwrap();
+        let create_buffer = pack_intent_v1(
+            STACK_WITNESS_CREATE_BUFFER_OP_ID,
+            &stack_witness_create_buffer_vars(),
+        )
+        .unwrap();
+        let replace_range = pack_intent_v1(
+            STACK_WITNESS_REPLACE_RANGE_OP_ID,
+            &stack_witness_replace_range_vars(),
+        )
+        .unwrap();
+
+        let create = kernel.dispatch_intent(&create_buffer).unwrap();
+        assert!(create.accepted);
+        assert_eq!(create.intent_id.len(), 32);
+        let create_run = start_until_idle(&mut kernel, Some(4));
+        assert_eq!(
+            create_run.scheduler_status.last_run_completion,
+            Some(RunCompletion::Quiesced)
+        );
+
+        let replace = kernel.dispatch_intent(&replace_range).unwrap();
+        assert!(replace.accepted);
+        assert_eq!(replace.intent_id.len(), 32);
+        let replace_run = start_until_idle(&mut kernel, Some(4));
+        assert_eq!(
+            replace_run.scheduler_status.last_run_completion,
+            Some(RunCompletion::Quiesced)
         );
     }
 

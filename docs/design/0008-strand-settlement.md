@@ -10,10 +10,10 @@ Legend: KERNEL
 
 Depends on:
 
-- [0004 — Strand contract](./0004-strand-contract.md)
-- [0007 — Braid geometry and neighborhood publication](./0007-braid-geometry-and-neighborhood-publication.md)
-- [0006 — Echo Continuum alignment](./0006-echo-continuum-alignment.md)
-- [0010 — Bounded site and admission policy](./0010-bounded-site-and-admission-policy.md)
+- [0004 — Strand contract](/docs/design/0004-strand-contract.md)
+- [0007 — Braid geometry and neighborhood publication](/docs/design/0007-braid-geometry-and-neighborhood-publication.md)
+- [0006 — Echo Continuum alignment](/docs/design/0006-echo-continuum-alignment.md)
+- [0010 — Bounded site and admission policy](/docs/design/0010-bounded-site-and-admission-policy.md)
 
 ## Why this cycle exists
 

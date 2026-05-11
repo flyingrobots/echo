@@ -27,7 +27,6 @@ Do not audit the repository by recursively walking the filesystem. Follow the au
 - **`ARCHITECTURE.md`**: Authoritative structural reference (Hexagonal, Core, Memory).
 - **`VISION.md`**: Core tenets and the causal mission.
 - **`METHOD.md`**: Repo work doctrine (Backlog lanes, Cycle loop).
-- **`CONTINUUM.md`**: Platform memo (hot/cold/shared contracts).
 
 ### 3. The Direction
 

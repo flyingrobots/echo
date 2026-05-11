@@ -22,7 +22,7 @@ flowchart TD
         MATH[Deterministic Math]
         MBUS[Materialization Bus]
     end
-    subgraph Memory["WARP (Memory)"]
+    subgraph Memory["Memory"]
         WL[Worldlines]
         RCP[Tick Receipts]
         PROV[Provenance Store]

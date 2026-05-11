@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 #![allow(clippy::expect_used, clippy::unwrap_used)]
+#![allow(clippy::needless_raw_string_hashes)]
 //! Consumer-side proof that Echo can compile against Wesley's bounded rewrite API.
 
 use std::fs::{create_dir_all, remove_dir_all, write};

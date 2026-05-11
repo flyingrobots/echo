@@ -628,7 +628,15 @@ mod tests {
                             reference: source.kind.clone(),
                         })?;
 
-                    if request.start > request.end || request.end > base_head.byte_length {
+                    if request.start > request.end {
+                        return Err(DynamicBindingRuntimeError::InvalidClosureRange {
+                            slot: request.slot.to_owned(),
+                            start: request.start,
+                            end: request.end,
+                            limit: base_head.byte_length,
+                        });
+                    }
+                    if request.end > base_head.byte_length {
                         return Err(DynamicBindingRuntimeError::InvalidClosureRange {
                             slot: request.slot.to_owned(),
                             start: request.start,

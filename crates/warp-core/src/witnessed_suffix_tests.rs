@@ -5,8 +5,8 @@ use echo_wasm_abi::kernel_port as abi;
 
 use crate::{
     derive_witnessed_suffix_shell_digest, evaluate_witnessed_suffix_admission, export_suffix,
-    import_suffix, make_node_id, make_strand_id, BaseRef, CausalSuffixBundle, ConflictReason,
-    ExportSuffixRequest, Hash, ImportSuffixRequest, ImportSuffixResult, NodeKey,
+    import_suffix, make_node_id, make_strand_id, CausalSuffixBundle, ConflictReason,
+    ExportSuffixRequest, ForkBasisRef, Hash, ImportSuffixRequest, ImportSuffixResult, NodeKey,
     ParentMovementFootprint, ProvenanceRef, ReadingResidualPosture, SlotId, StrandBasisReport,
     StrandDivergenceFootprint, StrandOverlapRevalidation, StrandRevalidationState, WarpId,
     WitnessedSuffixAdmissionContext, WitnessedSuffixAdmissionOutcome,
@@ -43,8 +43,8 @@ fn basis_report(realized_parent_ref: ProvenanceRef) -> StrandBasisReport {
 
     StrandBasisReport {
         strand_id: make_strand_id("witnessed-suffix-test"),
-        parent_anchor: BaseRef {
-            source_worldline_id: parent_anchor.worldline_id,
+        parent_anchor: ForkBasisRef {
+            source_lane_id: parent_anchor.worldline_id,
             fork_tick: parent_anchor.worldline_tick,
             commit_hash: parent_anchor.commit_hash,
             boundary_hash: [21; 32],

@@ -1997,7 +1997,7 @@ mod tests {
     use crate::receipt::TickReceipt;
     use crate::record::{EdgeRecord, NodeRecord};
     use crate::snapshot::compute_commit_hash_v2;
-    use crate::strand::{make_strand_id, BaseRef, Strand};
+    use crate::strand::{make_strand_id, ForkBasisRef, Strand};
     use crate::tick_patch::{SlotId, TickCommitStatus, WarpOp, WarpTickPatchV1};
     use crate::worldline::{HashTriplet, WorldlineTickHeaderV1, WorldlineTickPatchV1};
     use crate::{
@@ -2338,8 +2338,8 @@ mod tests {
         runtime
             .register_strand(Strand {
                 strand_id,
-                base_ref: BaseRef {
-                    source_worldline_id: base_worldline,
+                fork_basis_ref: ForkBasisRef {
+                    source_lane_id: base_worldline,
                     fork_tick: wt(0),
                     commit_hash: base_entry.expected.commit_hash,
                     boundary_hash: base_entry.expected.state_root,

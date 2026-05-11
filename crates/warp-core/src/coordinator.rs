@@ -335,6 +335,11 @@ impl WorldlineRuntime {
                     .ok_or(RuntimeError::UnknownWorldline(request.source_lane_id))?
                     .state()
                     .clone();
+                let historical_source_state = provenance.replay_worldline_state_at(
+                    request.source_lane_id,
+                    &source_state,
+                    request.fork_tick,
+                )?;
 
                 provenance.fork(
                     request.source_lane_id,
@@ -347,7 +352,7 @@ impl WorldlineRuntime {
                 )?;
                 let child_state = provenance.replay_worldline_state_at(
                     request.child_worldline_id,
-                    &source_state,
+                    &historical_source_state,
                     child_target_tick,
                 )?;
 
@@ -960,6 +965,82 @@ mod tests {
         assert_eq!(receipt.child_worldline_id, child_worldline_id);
         assert_eq!(receipt.writer_heads, vec![child_head_key]);
         assert!(runtime.heads().get(&child_head_key).is_some());
+        assert_eq!(provenance.len(child_worldline_id).unwrap(), 1);
+    }
+
+    #[test]
+    fn fork_strand_from_non_tip_tick_materializes_historical_basis() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        let source_lane_id = wl(1);
+        let child_worldline_id = wl(2);
+        let strand_id = make_strand_id("fork-non-tip");
+
+        runtime
+            .register_worldline(source_lane_id, WorldlineState::empty())
+            .unwrap();
+        register_head(
+            &mut runtime,
+            source_lane_id,
+            "source-default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+
+        let mut provenance = mirrored_provenance(&runtime);
+        commit_one_tick(
+            &mut runtime,
+            &mut provenance,
+            &mut engine,
+            source_lane_id,
+            "fork-source-commit-a",
+        );
+        let historical_state = provenance
+            .replay_worldline_state_at(
+                source_lane_id,
+                runtime.worldlines().get(&source_lane_id).unwrap().state(),
+                wt(1),
+            )
+            .unwrap();
+        commit_one_tick(
+            &mut runtime,
+            &mut provenance,
+            &mut engine,
+            source_lane_id,
+            "fork-source-commit-b",
+        );
+
+        let child_head_key = WriterHeadKey {
+            worldline_id: child_worldline_id,
+            head_id: make_head_id("child-default"),
+        };
+        runtime
+            .fork_strand(
+                &mut provenance,
+                ForkStrandRequest {
+                    strand_id,
+                    source_lane_id,
+                    fork_tick: wt(0),
+                    child_worldline_id,
+                    writer_heads: vec![WriterHead::with_routing(
+                        child_head_key,
+                        PlaybackMode::Play,
+                        InboxPolicy::AcceptAll,
+                        None,
+                        true,
+                    )],
+                },
+            )
+            .unwrap();
+
+        let child_frontier = runtime.worldlines().get(&child_worldline_id).unwrap();
+        assert_eq!(child_frontier.frontier_tick(), wt(1));
+        assert_eq!(child_frontier.state().current_tick(), wt(1));
+        assert_eq!(
+            child_frontier.state().state_root(),
+            historical_state.state_root()
+        );
         assert_eq!(provenance.len(child_worldline_id).unwrap(), 1);
     }
 

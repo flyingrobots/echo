@@ -56,12 +56,32 @@ echo "4. Default public API does not export native rule authoring"
 assert "default lib.rs does not unconditionally pub use RewriteRule" \
   awk '
     /^#\[cfg\(feature = "native_rule_bootstrap"\)\]$/ { gated = 1; next }
+    gated && (/^[[:space:]]*$/ || /^[[:space:]]*\/\//) { next }
     /^pub use rule::\{ConflictPolicy, ExecuteFn, MatchFn, PatternGraph, RewriteRule\};$/ {
       if (!gated) exit 1
     }
     { gated = 0 }
     END { exit 0 }
   ' "${warp_core_lib}"
+
+tmp_gated_export="$(mktemp)"
+cat >"${tmp_gated_export}" <<'EOF'
+#[cfg(feature = "native_rule_bootstrap")]
+
+// bootstrap export stays gated even when separated by a comment
+pub use rule::{ConflictPolicy, ExecuteFn, MatchFn, PatternGraph, RewriteRule};
+EOF
+assert "native bootstrap cfg gate survives blank/comment separation" \
+  awk '
+    /^#\[cfg\(feature = "native_rule_bootstrap"\)\]$/ { gated = 1; next }
+    gated && (/^[[:space:]]*$/ || /^[[:space:]]*\/\//) { next }
+    /^pub use rule::\{ConflictPolicy, ExecuteFn, MatchFn, PatternGraph, RewriteRule\};$/ {
+      if (!gated) exit 1
+    }
+    { gated = 0 }
+    END { exit 0 }
+  ' "${tmp_gated_export}"
+rm -f "${tmp_gated_export}"
 
 echo ""
 echo "=== Results: ${passed} passed, ${failed} failed ==="

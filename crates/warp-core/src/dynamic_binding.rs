@@ -355,11 +355,12 @@ where
                 })
             })
             .transpose()?;
-        let members = self.runtime.resolve_range_closure(
+        let mut members = self.runtime.resolve_range_closure(
             &request,
             source.binding(),
             related.map(ResolvedSlotBinding::binding),
         )?;
+        members.sort();
         self.bindings
             .bind_closure(request.slot, request.from_slot, request.operator, members)?;
         Ok(())
@@ -387,13 +388,17 @@ impl StructuredRuntimeBindings {
         binding: BoundNodeRef,
     ) -> Result<(), DynamicBindingError> {
         let slot = slot.into();
-        let error_slot = slot.clone();
-        match self.slots.insert(
-            slot.clone(),
-            ResolvedSlotBinding::Direct(DirectSlotBinding { slot, binding }),
-        ) {
-            Some(_) => Err(DynamicBindingError::DuplicateSlot { slot: error_slot }),
-            None => Ok(()),
+        match self.slots.entry(slot.clone()) {
+            std::collections::btree_map::Entry::Occupied(_) => {
+                Err(DynamicBindingError::DuplicateSlot { slot })
+            }
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(ResolvedSlotBinding::Direct(DirectSlotBinding {
+                    slot,
+                    binding,
+                }));
+                Ok(())
+            }
         }
     }
 
@@ -406,18 +411,19 @@ impl StructuredRuntimeBindings {
         binding: BoundNodeRef,
     ) -> Result<(), DynamicBindingError> {
         let slot = slot.into();
-        let error_slot = slot.clone();
-        match self.slots.insert(
-            slot.clone(),
-            ResolvedSlotBinding::Relation(RelationSlotBinding {
-                slot,
-                from_slot: from_slot.into(),
-                relation: relation.into(),
-                binding,
-            }),
-        ) {
-            Some(_) => Err(DynamicBindingError::DuplicateSlot { slot: error_slot }),
-            None => Ok(()),
+        match self.slots.entry(slot.clone()) {
+            std::collections::btree_map::Entry::Occupied(_) => {
+                Err(DynamicBindingError::DuplicateSlot { slot })
+            }
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(ResolvedSlotBinding::Relation(RelationSlotBinding {
+                    slot,
+                    from_slot: from_slot.into(),
+                    relation: relation.into(),
+                    binding,
+                }));
+                Ok(())
+            }
         }
     }
 
@@ -430,18 +436,19 @@ impl StructuredRuntimeBindings {
         members: Vec<ClosureMemberBinding>,
     ) -> Result<(), DynamicBindingError> {
         let slot = slot.into();
-        let error_slot = slot.clone();
-        match self.closures.insert(
-            slot.clone(),
-            ResolvedClosureBinding {
-                slot,
-                from_slot: from_slot.into(),
-                operator: operator.into(),
-                members,
-            },
-        ) {
-            Some(_) => Err(DynamicBindingError::DuplicateClosure { slot: error_slot }),
-            None => Ok(()),
+        match self.closures.entry(slot.clone()) {
+            std::collections::btree_map::Entry::Occupied(_) => {
+                Err(DynamicBindingError::DuplicateClosure { slot })
+            }
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(ResolvedClosureBinding {
+                    slot,
+                    from_slot: from_slot.into(),
+                    operator: operator.into(),
+                    members,
+                });
+                Ok(())
+            }
         }
     }
 
@@ -893,12 +900,11 @@ mod tests {
     fn structured_runtime_bindings_reject_duplicate_slot_and_closure_names() {
         let warp_id = make_warp_id("binding-warp");
         let mut bindings = StructuredRuntimeBindings::new();
+        let original_worldline =
+            BoundNodeRef::from_ids("BufferWorldline", warp_id, make_node_id("worldline"));
 
         bindings
-            .bind_direct_slot(
-                "worldline",
-                BoundNodeRef::from_ids("BufferWorldline", warp_id, make_node_id("worldline")),
-            )
+            .bind_direct_slot("worldline", original_worldline.clone())
             .expect("initial direct slot bind");
         assert_eq!(
             bindings.bind_relation_slot(
@@ -911,15 +917,35 @@ mod tests {
                 slot: "worldline".to_owned(),
             })
         );
+        assert_eq!(
+            bindings.slot("worldline").unwrap().binding(),
+            &original_worldline
+        );
 
+        let original_closure = vec![ClosureMemberBinding::new(
+            "RopeLeaf",
+            NodeKey {
+                warp_id,
+                local_id: make_node_id("leaf"),
+            },
+        )];
         bindings
-            .bind_closure("touchedRope", "worldline", "ropeRangeClosure", vec![])
+            .bind_closure(
+                "touchedRope",
+                "worldline",
+                "ropeRangeClosure",
+                original_closure.clone(),
+            )
             .expect("initial closure bind");
         assert_eq!(
             bindings.bind_closure("touchedRope", "worldline", "ropeRangeClosure", vec![]),
             Err(DynamicBindingError::DuplicateClosure {
                 slot: "touchedRope".to_owned(),
             })
+        );
+        assert_eq!(
+            bindings.closure("touchedRope").unwrap().members,
+            original_closure
         );
     }
 
@@ -952,7 +978,7 @@ mod tests {
                 .iter()
                 .map(|member| member.kind.as_str())
                 .collect::<Vec<_>>(),
-            vec!["RopeLeaf", "RopeBranch", "TextBlob"]
+            vec!["RopeBranch", "RopeLeaf", "TextBlob"]
         );
 
         let affected_anchors = bindings

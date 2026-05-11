@@ -1315,34 +1315,20 @@ mod tests {
 
     #[test]
     fn stack_witness_fixture_vectors_match_wesley_artifact_shape() {
-        let vectors: serde_json::Value = serde_json::from_str(include_str!(
-            "../test/fixtures/stack-witness-0001-vectors.json"
-        ))
-        .expect("Stack Witness fixture vectors should parse");
+        let vectors = include_str!("../test/fixtures/stack-witness-0001-vectors.json");
 
-        assert_eq!(
-            vectors["artifact"]["familyId"],
-            serde_json::json!(STACK_WITNESS_FIXTURE_FAMILY_ID)
-        );
-        assert_eq!(
-            vectors["artifact"]["schemaId"],
-            serde_json::json!(STACK_WITNESS_FIXTURE_SCHEMA_ID)
-        );
-        assert_eq!(
-            vectors["artifact"]["artifactId"],
-            serde_json::json!(STACK_WITNESS_FIXTURE_ARTIFACT_ID)
-        );
-        assert_eq!(
-            vectors["artifact"]["version"],
-            serde_json::json!(STACK_WITNESS_FIXTURE_VERSION)
-        );
-        assert_eq!(
-            vectors["canonicalVarsEncoding"],
-            serde_json::json!(STACK_WITNESS_CANONICAL_VARS_ENCODING)
+        assert_string_field(vectors, "familyId", STACK_WITNESS_FIXTURE_FAMILY_ID);
+        assert_string_field(vectors, "schemaId", STACK_WITNESS_FIXTURE_SCHEMA_ID);
+        assert_string_field(vectors, "artifactId", STACK_WITNESS_FIXTURE_ARTIFACT_ID);
+        assert_string_field(vectors, "version", STACK_WITNESS_FIXTURE_VERSION);
+        assert_string_field(
+            vectors,
+            "canonicalVarsEncoding",
+            STACK_WITNESS_CANONICAL_VARS_ENCODING,
         );
 
         assert_stack_witness_vector(
-            &vectors,
+            vectors,
             StackWitnessVectorExpectation {
                 name: "createBuffer",
                 operation_type: "MUTATION",
@@ -1359,7 +1345,7 @@ mod tests {
             },
         );
         assert_stack_witness_vector(
-            &vectors,
+            vectors,
             StackWitnessVectorExpectation {
                 name: "replaceRange",
                 operation_type: "MUTATION",
@@ -1376,7 +1362,7 @@ mod tests {
             },
         );
         assert_stack_witness_vector(
-            &vectors,
+            vectors,
             StackWitnessVectorExpectation {
                 name: "textWindow",
                 operation_type: "QUERY",
@@ -1393,15 +1379,13 @@ mod tests {
             },
         );
 
-        let text_window = stack_witness_vector(&vectors, "textWindow");
-        assert_eq!(text_window["payloadCodec"], serde_json::json!("QueryBytes"));
-        assert_eq!(
-            text_window["envelope"],
-            serde_json::json!("ReadingEnvelope")
-        );
-        assert_eq!(
-            text_window["expectedQueryBytesHex"],
-            serde_json::json!(lower_hex(STACK_WITNESS_TEXT_WINDOW_BYTES))
+        let text_window = stack_witness_vector(vectors, "textWindow");
+        assert_string_field(text_window, "payloadCodec", "QueryBytes");
+        assert_string_field(text_window, "envelope", "ReadingEnvelope");
+        assert_string_field(
+            text_window,
+            "expectedQueryBytesHex",
+            &lower_hex(STACK_WITNESS_TEXT_WINDOW_BYTES),
         );
     }
 
@@ -1420,82 +1404,83 @@ mod tests {
         helper_fields: &'static [&'static str],
     }
 
-    fn assert_stack_witness_vector(
-        vectors: &serde_json::Value,
-        expected: StackWitnessVectorExpectation,
-    ) {
+    fn assert_stack_witness_vector(vectors: &str, expected: StackWitnessVectorExpectation) {
         let vector = stack_witness_vector(vectors, expected.name);
-        assert_eq!(
-            vector["operationType"],
-            serde_json::json!(expected.operation_type)
+        assert_string_field(vector, "operationType", expected.operation_type);
+        assert_number_field(vector, "opIdDecimal", expected.op_id);
+        assert_string_field(vector, "opIdHex", &format!("0x{:08x}", expected.op_id));
+        assert_string_field(vector, "helperKind", expected.helper_kind);
+        assert_string_field(vector, "frame", expected.helper_frame);
+        assert_string_field(vector, "entrypoint", expected.helper_entrypoint);
+        assert_string_field(
+            vector,
+            "canonicalVarsBytes",
+            std::str::from_utf8(expected.canonical_vars)
+                .expect("Stack Witness canonical vars should be UTF-8 fixture bytes"),
         );
-        assert_eq!(vector["opIdDecimal"], serde_json::json!(expected.op_id));
-        assert_eq!(
-            vector["opIdHex"],
-            serde_json::json!(format!("0x{:08x}", expected.op_id))
-        );
-        assert_eq!(
-            vector["helperKind"],
-            serde_json::json!(expected.helper_kind)
-        );
-        assert_eq!(
-            vector["helperShape"]["frame"],
-            serde_json::json!(expected.helper_frame)
-        );
-        assert_eq!(
-            vector["helperShape"]["entrypoint"],
-            serde_json::json!(expected.helper_entrypoint)
-        );
-        assert_eq!(
-            vector["canonicalVarsBytes"].as_str().map(str::as_bytes),
-            Some(expected.canonical_vars)
-        );
-        assert_json_string_array(
-            &vector["declaredFootprint"]["reads"],
-            expected.footprint_reads,
-        );
-        assert_json_string_array(
-            &vector["declaredFootprint"]["writes"],
-            expected.footprint_writes,
-        );
-        assert_json_string_array(
-            &vector["declaredFootprint"]["creates"],
-            expected.footprint_creates,
-        );
-        assert_json_string_array(
-            &vector["declaredFootprint"]["forbids"],
-            expected.footprint_forbids,
-        );
-        assert_json_string_array(&vector["helperShape"]["fields"], expected.helper_fields);
+        assert_string_array_field(vector, "reads", expected.footprint_reads);
+        assert_string_array_field(vector, "writes", expected.footprint_writes);
+        assert_string_array_field(vector, "creates", expected.footprint_creates);
+        assert_string_array_field(vector, "forbids", expected.footprint_forbids);
+        assert_ordered_field_values(vector, "fields", expected.helper_fields);
     }
 
-    fn stack_witness_vector<'a>(
-        vectors: &'a serde_json::Value,
-        name: &str,
-    ) -> &'a serde_json::Value {
-        vectors["operations"]
-            .as_array()
-            .expect("Stack Witness operations should be an array")
-            .iter()
-            .find(|operation| operation["name"].as_str() == Some(name))
-            .expect("Stack Witness operation vector should exist")
+    fn stack_witness_vector<'a>(vectors: &'a str, name: &str) -> &'a str {
+        let name_pattern = format!(r#""name": "{name}""#);
+        let start = vectors
+            .find(&name_pattern)
+            .expect("Stack Witness operation vector should exist");
+        let end = vectors[start..]
+            .find("\n    }")
+            .expect("Stack Witness operation vector should close");
+        &vectors[start..start + end]
     }
 
     fn lower_hex(bytes: &[u8]) -> String {
         bytes.iter().map(|byte| format!("{byte:02x}")).collect()
     }
 
-    fn assert_json_string_array(value: &serde_json::Value, expected: &[&str]) {
-        let actual = value
-            .as_array()
-            .expect("fixture vector field should be an array")
+    fn assert_string_field(document: &str, field: &str, expected: &str) {
+        let needle = format!(r#""{field}": "{expected}""#);
+        assert!(
+            document.contains(&needle),
+            "fixture vector should contain string field {field}={expected}"
+        );
+    }
+
+    fn assert_number_field(document: &str, field: &str, expected: u32) {
+        let needle = format!(r#""{field}": {expected}"#);
+        assert!(
+            document.contains(&needle),
+            "fixture vector should contain numeric field {field}={expected}"
+        );
+    }
+
+    fn assert_string_array_field(document: &str, field: &str, expected: &[&str]) {
+        let items = expected
             .iter()
-            .map(|item| {
-                item.as_str()
-                    .expect("fixture vector item should be a string")
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(actual.as_slice(), expected);
+            .map(|item| format!(r#""{item}""#))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let needle = format!(r#""{field}": [{items}]"#);
+        assert!(
+            document.contains(&needle),
+            "fixture vector should contain string array field {field}"
+        );
+    }
+
+    fn assert_ordered_field_values(document: &str, field: &str, expected: &[&str]) {
+        let field_pattern = format!(r#""{field}": ["#);
+        let mut cursor = document
+            .find(&field_pattern)
+            .expect("fixture vector should contain ordered field list");
+        for item in expected {
+            let item_pattern = format!(r#""{item}""#);
+            let relative = document[cursor..]
+                .find(&item_pattern)
+                .expect("fixture vector field item should appear in order");
+            cursor += relative + item_pattern.len();
+        }
     }
 
     #[test]

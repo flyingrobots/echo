@@ -28,6 +28,33 @@ See the repository root `README.md` for the full overview.
 - Intended to power future browser-based visualizers and inspectors built on
   top of the same core engine as native tools.
 
+## Package boundary
+
+Echo owns the WASM package build ritual for downstream consumers. Build the
+bundler package with:
+
+```sh
+scripts/build-warp-wasm-package.sh
+```
+
+The command refreshes `crates/warp-wasm/pkg` with:
+
+```sh
+wasm-pack build --target bundler --out-dir pkg --out-name rmg_wasm -- --features engine
+```
+
+The package export smoke test imports `crates/warp-wasm/pkg/rmg_wasm.js` and
+asserts the byte ABI export surface:
+
+```sh
+node --test scripts/tests/warp_wasm_package_exports_test.mjs
+```
+
+Consumer-facing app code should not depend on Echo's internal default
+worldline. Durable app integration should route through optic-owned basis
+resolution; raw worldline coordinates remain substrate/debug evidence, not a
+product contract.
+
 ## Documentation
 
 - Echo runtime model: `docs/architecture/outline.md`.

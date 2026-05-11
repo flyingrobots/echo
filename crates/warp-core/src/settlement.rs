@@ -6,6 +6,7 @@ use blake3::Hasher;
 use echo_wasm_abi::kernel_port as abi;
 use thiserror::Error;
 
+use crate::admission::AdmissionOutcomeKind;
 use crate::attachment::{AttachmentOwner, AttachmentPlane, AttachmentValue};
 use crate::clock::{GlobalTick, WorldlineTick};
 use crate::coordinator::{RuntimeError, WorldlineRuntime};
@@ -72,10 +73,10 @@ impl ConflictReason {
 pub struct SettlementDelta {
     /// Strand being compared.
     pub strand_id: StrandId,
-    /// Recorded base coordinate for the strand.
-    pub base_ref: crate::strand::BaseRef,
+    /// Recorded fork basis for the strand.
+    pub fork_basis_ref: crate::strand::ForkBasisRef,
     /// Child worldline carrying speculative suffix history.
-    pub source_worldline_id: WorldlineId,
+    pub source_lane_id: WorldlineId,
     /// First suffix tick eligible for settlement consideration.
     pub source_suffix_start_tick: WorldlineTick,
     /// Last suffix tick currently present on the source worldline.
@@ -92,8 +93,8 @@ impl SettlementDelta {
     pub fn to_abi(&self) -> abi::SettlementDelta {
         abi::SettlementDelta {
             strand_id: abi::StrandId::from_bytes(*self.strand_id.as_bytes()),
-            base_ref: base_ref_to_abi(self.base_ref),
-            source_worldline_id: abi::WorldlineId::from_bytes(*self.source_worldline_id.as_bytes()),
+            base_ref: fork_basis_ref_to_abi(self.fork_basis_ref),
+            source_worldline_id: abi::WorldlineId::from_bytes(*self.source_lane_id.as_bytes()),
             source_suffix_start_tick: abi::WorldlineTick(self.source_suffix_start_tick.as_u64()),
             source_suffix_end_tick: abi::WorldlineTick(self.source_suffix_end_tick.as_u64()),
             source_entries: self
@@ -150,6 +151,15 @@ pub enum SettlementDecision {
 }
 
 impl SettlementDecision {
+    /// Maps this settlement publication into Echo's shared lawful outcome family.
+    #[must_use]
+    pub fn admission_outcome_kind(&self) -> AdmissionOutcomeKind {
+        match self {
+            Self::ImportCandidate(_) => AdmissionOutcomeKind::Derived,
+            Self::ConflictArtifact(_) => AdmissionOutcomeKind::Conflict,
+        }
+    }
+
     fn to_abi(&self) -> abi::SettlementDecision {
         match self {
             Self::ImportCandidate(candidate) => abi::SettlementDecision::ImportCandidate {
@@ -258,19 +268,21 @@ impl SettlementResult {
     }
 }
 
-fn base_ref_to_abi(base_ref: crate::strand::BaseRef) -> abi::BaseRef {
+fn fork_basis_ref_to_abi(fork_basis_ref: crate::strand::ForkBasisRef) -> abi::BaseRef {
     abi::BaseRef {
-        source_worldline_id: abi::WorldlineId::from_bytes(*base_ref.source_worldline_id.as_bytes()),
-        fork_tick: abi::WorldlineTick(base_ref.fork_tick.as_u64()),
-        commit_hash: base_ref.commit_hash.to_vec(),
-        boundary_hash: base_ref.boundary_hash.to_vec(),
-        provenance_ref: provenance_ref_to_abi(base_ref.provenance_ref),
+        source_worldline_id: abi::WorldlineId::from_bytes(
+            *fork_basis_ref.source_lane_id.as_bytes(),
+        ),
+        fork_tick: abi::WorldlineTick(fork_basis_ref.fork_tick.as_u64()),
+        commit_hash: fork_basis_ref.commit_hash.to_vec(),
+        boundary_hash: fork_basis_ref.boundary_hash.to_vec(),
+        provenance_ref: provenance_ref_to_abi(fork_basis_ref.provenance_ref),
     }
 }
 
 fn settlement_basis_report_to_abi(report: &StrandBasisReport) -> abi::SettlementBasisReport {
     abi::SettlementBasisReport {
-        parent_anchor: base_ref_to_abi(report.parent_anchor),
+        parent_anchor: fork_basis_ref_to_abi(report.parent_anchor),
         child_worldline_id: abi::WorldlineId::from_bytes(*report.child_worldline_id.as_bytes()),
         source_suffix_start_tick: abi::WorldlineTick(report.source_suffix_start_tick.as_u64()),
         source_suffix_end_tick: report
@@ -448,7 +460,7 @@ pub enum SettlementError {
     },
     /// Wrapped runtime error.
     #[error(transparent)]
-    Runtime(#[from] RuntimeError),
+    Runtime(#[from] Box<RuntimeError>),
     /// Wrapped provenance error.
     #[error(transparent)]
     History(#[from] HistoryError),
@@ -460,8 +472,14 @@ pub enum SettlementError {
     StrandBasis(#[from] StrandError),
 }
 
-/// Deterministic base-worldline settlement service.
+/// Deterministic source-basis settlement service.
 pub struct SettlementService;
+
+impl From<RuntimeError> for SettlementError {
+    fn from(source: RuntimeError) -> Self {
+        Self::Runtime(Box::new(source))
+    }
+}
 
 struct RecordedEntryDraft {
     event_kind: ProvenanceEventKind,
@@ -483,13 +501,13 @@ impl SettlementService {
         ensure_frontier_matches_provenance(
             runtime,
             provenance,
-            strand.base_ref.source_worldline_id,
+            strand.fork_basis_ref.source_lane_id,
         )?;
         let source_len =
             ensure_frontier_matches_provenance(runtime, provenance, strand.child_worldline_id)?;
         let basis_report = strand.live_basis_report(provenance)?;
         let source_suffix_start_tick = strand
-            .base_ref
+            .fork_basis_ref
             .fork_tick
             .checked_increment()
             .ok_or(SettlementError::ForkTickOverflow(strand_id))?;
@@ -503,11 +521,13 @@ impl SettlementService {
             .collect::<Result<Vec<_>, _>>()?;
         let source_suffix_end_tick = source_entries
             .last()
-            .map_or(strand.base_ref.fork_tick, |entry| entry.worldline_tick);
+            .map_or(strand.fork_basis_ref.fork_tick, |entry| {
+                entry.worldline_tick
+            });
         Ok(SettlementDelta {
             strand_id,
-            base_ref: strand.base_ref,
-            source_worldline_id: strand.child_worldline_id,
+            fork_basis_ref: strand.fork_basis_ref,
+            source_lane_id: strand.child_worldline_id,
             source_suffix_start_tick,
             source_suffix_end_tick,
             source_entries,
@@ -523,11 +543,11 @@ impl SettlementService {
     ) -> Result<SettlementPlan, SettlementError> {
         let strand = strand(runtime.strands(), strand_id)?;
         let delta = Self::compare(runtime, provenance, strand_id)?;
-        let target_worldline = strand.base_ref.source_worldline_id;
+        let target_worldline = strand.fork_basis_ref.source_lane_id;
         let target_frontier_tick =
             ensure_frontier_matches_provenance(runtime, provenance, target_worldline)?;
         let expected_target_tick = strand
-            .base_ref
+            .fork_basis_ref
             .fork_tick
             .checked_increment()
             .ok_or(SettlementError::ForkTickOverflow(strand_id))?;
@@ -548,12 +568,11 @@ impl SettlementService {
         let mut blocked_reason = None;
 
         for source_ref in &delta.source_entries {
-            let source_entry =
-                provenance.entry(delta.source_worldline_id, source_ref.worldline_tick)?;
+            let source_entry = provenance.entry(delta.source_lane_id, source_ref.worldline_tick)?;
             let reason = blocked_reason.or_else(|| {
                 if parent_at_anchor
                     && (target_frontier_tick != expected_target_tick
-                        || target_tip != Some(strand.base_ref.provenance_ref))
+                        || target_tip != Some(strand.fork_basis_ref.provenance_ref))
                 {
                     Some(ConflictReason::BaseDivergence)
                 } else if !matches!(source_entry.event_kind, ProvenanceEventKind::LocalCommit) {
@@ -665,7 +684,7 @@ impl SettlementService {
         Ok(SettlementPlan {
             strand_id,
             target_worldline,
-            target_base_ref: strand.base_ref.provenance_ref,
+            target_base_ref: strand.fork_basis_ref.provenance_ref,
             basis_report: delta.basis_report,
             decisions,
         })
@@ -1095,7 +1114,7 @@ mod tests {
     use crate::ident::{make_edge_id, make_node_id, make_type_id};
     use crate::playback::PlaybackMode;
     use crate::record::{EdgeRecord, NodeRecord};
-    use crate::strand::{BaseRef, Strand};
+    use crate::strand::{ForkBasisRef, Strand};
     use crate::tick_patch::{SlotId, WarpOp};
     use crate::{GraphStore, WorldlineState};
 
@@ -1394,8 +1413,8 @@ mod tests {
         let strand_id = crate::strand::make_strand_id("test-strand");
         let strand = Strand {
             strand_id,
-            base_ref: BaseRef {
-                source_worldline_id: base_worldline,
+            fork_basis_ref: ForkBasisRef {
+                source_lane_id: base_worldline,
                 fork_tick: wt(0),
                 commit_hash: base_entry.expected.commit_hash,
                 boundary_hash: base_entry.expected.state_root,
@@ -1451,8 +1470,8 @@ mod tests {
             runtime
                 .register_strand(Strand {
                     strand_id,
-                    base_ref: BaseRef {
-                        source_worldline_id: base_worldline,
+                    fork_basis_ref: ForkBasisRef {
+                        source_lane_id: base_worldline,
                         fork_tick: wt(0),
                         commit_hash: base_entry.expected.commit_hash,
                         boundary_hash: base_entry.expected.state_root,
@@ -1497,8 +1516,8 @@ mod tests {
         runtime
             .register_strand(Strand {
                 strand_id,
-                base_ref: BaseRef {
-                    source_worldline_id: base_worldline,
+                fork_basis_ref: ForkBasisRef {
+                    source_lane_id: base_worldline,
                     fork_tick: wt(0),
                     commit_hash: base_entry.expected.commit_hash,
                     boundary_hash: base_entry.expected.state_root,
@@ -1529,6 +1548,10 @@ mod tests {
             plan.decisions[0],
             SettlementDecision::ImportCandidate(_)
         ));
+        assert_eq!(
+            plan.decisions[0].admission_outcome_kind(),
+            AdmissionOutcomeKind::Derived
+        );
 
         let result = SettlementService::settle(&mut runtime, &mut provenance, strand_id).unwrap();
         assert_eq!(result.appended_imports.len(), 1);
@@ -1655,6 +1678,10 @@ mod tests {
                 overlapping_slots
             }) if !overlapping_slots.is_empty()
         ));
+        assert_eq!(
+            plan.decisions[0].admission_outcome_kind(),
+            AdmissionOutcomeKind::Derived
+        );
 
         let result = SettlementService::settle(&mut runtime, &mut provenance, strand_id).unwrap();
         assert_eq!(result.appended_imports.len(), 1);

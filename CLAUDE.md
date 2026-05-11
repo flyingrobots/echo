@@ -11,7 +11,7 @@ honestly — no skipping phases, no post-hoc design docs.
 
 ### The loop (agent responsibilities)
 
-**Phase 1 — Pull and design** (when the human says "pull \<item\>"):
+**Phase 1 — Pull and design** (when the human says "pull `<item>`"):
 
 1. Create a `cycle/<id>` branch off `main` (e.g., `cycle/0003-dt-policy`).
    All cycle work happens on this branch.

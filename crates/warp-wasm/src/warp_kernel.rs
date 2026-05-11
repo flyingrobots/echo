@@ -16,8 +16,9 @@ use echo_wasm_abi::kernel_port::{
     BraidId as AbiBraidId, ControlIntentV1, CoordinateAt as AbiCoordinateAt, DispatchResponse,
     EchoCoordinate as AbiEchoCoordinate, GlobalTick as AbiGlobalTick,
     HeadEligibility as AbiHeadEligibility, HeadId as AbiHeadId, HeadInfo, KernelPort,
-    NeighborhoodSite as AbiNeighborhoodSite, ObservationArtifact as AbiObservationArtifact,
-    ObservationFrame as AbiObservationFrame, ObservationProjection as AbiObservationProjection,
+    NeighborhoodCore as AbiNeighborhoodCore, NeighborhoodSite as AbiNeighborhoodSite,
+    ObservationArtifact as AbiObservationArtifact, ObservationFrame as AbiObservationFrame,
+    ObservationProjection as AbiObservationProjection,
     ObservationReadBudget as AbiObservationReadBudget, ObservationRequest as AbiObservationRequest,
     ObservationRights as AbiObservationRights, ObserveOpticRequest as AbiObserveOpticRequest,
     ObserveOpticResult as AbiObserveOpticResult, ObserverInstanceRef as AbiObserverInstanceRef,
@@ -955,6 +956,16 @@ impl KernelPort for WarpKernel {
             .map_err(Self::map_neighborhood_error)
     }
 
+    fn observe_neighborhood_core(
+        &self,
+        request: AbiObservationRequest,
+    ) -> Result<AbiNeighborhoodCore, AbiError> {
+        let request = Self::to_core_request(request)?;
+        NeighborhoodSiteService::observe(&self.runtime, &self.provenance, &self.engine, request)
+            .map(|site| site.to_core().to_abi())
+            .map_err(Self::map_neighborhood_error)
+    }
+
     fn compare_settlement(
         &self,
         request: AbiSettlementRequest,
@@ -1030,8 +1041,8 @@ mod tests {
     };
     use warp_core::{
         compute_commit_hash_v2, make_edge_id, make_head_id, make_node_id, make_strand_id,
-        make_type_id, make_warp_id, materialization::make_channel_id, AdmissionLawId, BaseRef,
-        CoordinateAt, EchoCoordinate, EdgeRecord, GlobalTick, GraphStore, HashTriplet, InboxPolicy,
+        make_type_id, make_warp_id, materialization::make_channel_id, AdmissionLawId, CoordinateAt,
+        EchoCoordinate, EdgeRecord, ForkBasisRef, GlobalTick, GraphStore, HashTriplet, InboxPolicy,
         IntentFamilyId, NodeId, NodeKey, NodeRecord, OpticActorId, OpticCapabilityId, OpticCause,
         OpticReadBudget, PlaybackMode, ProvenanceEntry, ProvenanceService, ProvenanceStore, SlotId,
         Strand, StrandId, TickCommitStatus, WarpOp, WarpTickPatchV1, WorldlineHeadOptic,
@@ -1312,8 +1323,8 @@ mod tests {
         runtime
             .register_strand(Strand {
                 strand_id,
-                base_ref: BaseRef {
-                    source_worldline_id: base_worldline,
+                fork_basis_ref: ForkBasisRef {
+                    source_lane_id: base_worldline,
                     fork_tick: wt(0),
                     commit_hash: base_entry.expected.commit_hash,
                     boundary_hash: base_entry.expected.state_root,
@@ -1373,8 +1384,8 @@ mod tests {
         runtime
             .register_strand(Strand {
                 strand_id,
-                base_ref: BaseRef {
-                    source_worldline_id: base_worldline,
+                fork_basis_ref: ForkBasisRef {
+                    source_lane_id: base_worldline,
                     fork_tick: wt(0),
                     commit_hash: base_entry.expected.commit_hash,
                     boundary_hash: base_entry.expected.state_root,
@@ -2003,6 +2014,39 @@ mod tests {
             site.participants[0].worldline_id,
             abi_worldline_id(kernel.default_worldline)
         );
+    }
+
+    #[test]
+    fn observe_neighborhood_core_returns_shared_projection_for_default_worldline() {
+        let kernel = WarpKernel::new().unwrap();
+        let core = kernel
+            .observe_neighborhood_core(AbiObservationRequest {
+                coordinate: AbiObservationCoordinate {
+                    worldline_id: abi_worldline_id(kernel.default_worldline),
+                    at: AbiObservationAt::Frontier,
+                },
+                frame: AbiObservationFrame::CommitBoundary,
+                projection: AbiObservationProjection::Head,
+            })
+            .unwrap();
+
+        assert_eq!(
+            core.outcome_kind,
+            echo_wasm_abi::kernel_port::AdmissionOutcomeKind::Derived
+        );
+        assert_eq!(
+            core.plurality,
+            echo_wasm_abi::kernel_port::NeighborhoodPlurality::Singleton
+        );
+        assert_eq!(core.anchor_frame_index, 0);
+        assert_eq!(core.anchor_head_id, None);
+        assert_eq!(core.participants.len(), 1);
+        assert_eq!(
+            core.participants[0].role,
+            echo_wasm_abi::kernel_port::NeighborhoodParticipantRole::Primary
+        );
+        assert!(core.anchor_lane_id.starts_with("wl:"));
+        assert!(core.site_id.starts_with("site:"));
     }
 
     #[test]

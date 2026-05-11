@@ -423,6 +423,7 @@ impl<S> EngineBuilder<S> {
 pub struct Engine {
     state: WarpState,
     rules: HashMap<&'static str, RewriteRule>,
+    #[cfg_attr(not(feature = "native_rule_bootstrap"), allow(dead_code))]
     rules_by_id: HashMap<Hash, &'static str>,
     compact_rule_ids: HashMap<Hash, CompactRuleId>,
     rules_by_compact: HashMap<CompactRuleId, &'static str>,
@@ -1060,13 +1061,8 @@ impl Engine {
         })
     }
 
-    /// Registers a rewrite rule so it can be referenced by name.
-    ///
-    /// # Errors
-    /// Returns [`EngineError::DuplicateRuleName`] if a rule with the same
-    /// name has already been registered, or [`EngineError::DuplicateRuleId`]
-    /// if a rule with the same id was previously registered.
-    pub fn register_rule(&mut self, rule: RewriteRule) -> Result<(), EngineError> {
+    #[cfg_attr(not(feature = "native_rule_bootstrap"), allow(dead_code))]
+    fn register_rule_impl(&mut self, rule: RewriteRule) -> Result<(), EngineError> {
         if self.rules.contains_key(rule.name) {
             return Err(EngineError::DuplicateRuleName(rule.name));
         }
@@ -1098,6 +1094,29 @@ impl Engine {
                 });
         }
         Ok(())
+    }
+
+    /// Registers a native rewrite rule so it can be referenced by name.
+    ///
+    /// This bootstrap surface exists only for Echo's internal fixtures, tests,
+    /// and transitional engine code. It is intentionally hidden behind the
+    /// `native_rule_bootstrap` feature so external Rust consumers do not gain a
+    /// supported handwritten rewrite-authoring API.
+    ///
+    /// # Errors
+    /// Returns [`EngineError::DuplicateRuleName`] if a rule with the same
+    /// name has already been registered, or [`EngineError::DuplicateRuleId`]
+    /// if a rule with the same id was previously registered.
+    #[cfg(feature = "native_rule_bootstrap")]
+    #[doc(hidden)]
+    pub fn register_rule(&mut self, rule: RewriteRule) -> Result<(), EngineError> {
+        self.register_rule_impl(rule)
+    }
+
+    #[cfg(not(feature = "native_rule_bootstrap"))]
+    #[cfg_attr(not(feature = "native_rule_bootstrap"), allow(dead_code))]
+    pub(crate) fn register_rule(&mut self, rule: RewriteRule) -> Result<(), EngineError> {
+        self.register_rule_impl(rule)
     }
 
     /// Begins a new transaction and returns its identifier.

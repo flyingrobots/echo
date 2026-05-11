@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Rewrite rule definitions.
+#![cfg_attr(not(feature = "native_rule_bootstrap"), allow(dead_code))]
+
 use crate::footprint::Footprint;
 use crate::graph_view::GraphView;
 use crate::ident::{Hash, NodeId, TypeId};
@@ -38,7 +40,9 @@ pub type ExecuteFn = for<'a> fn(GraphView<'a>, &NodeId, &mut TickDelta);
 /// Function pointer that computes a rewrite footprint at the provided scope.
 ///
 /// Phase 5 signature: footprint computation reads from an immutable
-/// [`GraphView`] to declare the read/write sets without mutation.
+/// [`GraphView`] to declare the read/write sets without mutation. The declared
+/// [`Footprint`] is also the first-cut substrate from which Echo derives a
+/// [`BoundedSite`](crate::admission::BoundedSite) for admission.
 ///
 /// Parameters:
 /// - `GraphView`: Read-only view over the graph state (Copy type, 8 bytes)

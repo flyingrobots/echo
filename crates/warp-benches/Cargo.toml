@@ -12,7 +12,7 @@ readme = "README.md"
 
 [dependencies]
 # Pin version alongside path to satisfy cargo-deny wildcard bans
-warp-core = { version = "0.1.0", path = "../warp-core" }
+warp-core = { version = "0.1.0", path = "../warp-core", features = ["native_rule_bootstrap"] }
 echo-dry-tests = { version = "0.1.0", path = "../echo-dry-tests" }
 rayon = "~1.10"
 

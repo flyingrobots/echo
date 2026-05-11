@@ -3,7 +3,7 @@
 
 # Stack Witness 0001 - jedit File History Walking Skeleton
 
-Status: RED witness spec  
+Status: GREEN witness spec  
 Scope: first jedit-through-Echo executable story.
 
 This witness is the first serious stack slice. It exists to prevent the stack
@@ -193,9 +193,16 @@ skeleton for this witness:
 - `createBuffer` and `replaceRange("hello")` enter through `dispatch_intent`
   and the existing scheduler path;
 - the Stack Witness `textWindow` QueryView routes to a fixture observer;
-- the fixture observer returns `ReadingEnvelope + QueryBytes("hello")`;
-- Echo mirrors Wesley's Stack Witness 0001 fixture vector and verifies op ids,
-  helper entrypoints, buffer-inclusive canonical vars, and expected query bytes
+- the fixture observer only returns `ReadingEnvelope + QueryBytes("hello")`
+  after fixture `createBuffer` and `replaceRange("hello")` history has been
+  admitted and materialized;
+- the fixture observer enforces bounded payload budgets and obstructs if the
+  caller budgets fewer than five payload bytes;
+- the fixture observer carries a deterministic BLAKE3 artifact hash over the
+  fixture artifact id, query id, canonical vars, and payload bytes;
+- Echo mirrors Wesley's Stack Witness 0001 fixture vector and verifies artifact
+  family/schema/version, op ids, helper entrypoints, helper fields,
+  buffer-inclusive canonical vars, declared footprints, and expected query bytes
   against that artifact shape;
 - Echo core still does not expose public jedit, editor, rope, buffer, cursor,
   or selection APIs.
@@ -209,18 +216,35 @@ cargo test -p warp-wasm --features engine stack_witness_
 Current result:
 
 ```text
-running 4 tests
+running 8 tests
 test warp_kernel::tests::stack_witness_fixture_registry_names_mutations ... ok
+test warp_kernel::tests::stack_witness_fixture_vectors_match_wesley_artifact_shape ... ok
 test warp_kernel::tests::stack_witness_contract_intent_without_installed_artifact_obstructs ... ok
+test warp_kernel::tests::stack_witness_text_window_obstructs_without_fixture_history ... ok
 test warp_kernel::tests::stack_witness_create_buffer_and_replace_range_enter_dispatch_intent ... ok
+test warp_kernel::tests::stack_witness_text_window_respects_bounded_payload_budget ... ok
+test warp_kernel::tests::stack_witness_text_window_artifact_hash_is_deterministic_identity ... ok
 test warp_kernel::tests::stack_witness_text_window_query_returns_reading_envelope_and_query_bytes ... ok
 
-test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 44 filtered out
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 44 filtered out
 ```
 
-This is intentionally fixture scaffolding. Do not generalize Echo further from
-this state. The next stack move is for Wesley to replace the cardboard cutout
-with a generated fixture artifact shape:
+Engine feature compile target:
+
+```sh
+cargo check -p warp-wasm --target wasm32-unknown-unknown --features engine
+```
+
+Current result:
+
+```text
+Finished `dev` profile [unoptimized + debuginfo] target(s)
+```
+
+This is intentionally fixture scaffolding. Wesley now publishes the fixture
+artifact shape that Echo mirrors, but Echo must still avoid generalizing further
+from this state. The next stack move is to replace more of the hand-authored
+fixture assumption with generated helpers:
 
 - operation ids;
 - canonical vars;

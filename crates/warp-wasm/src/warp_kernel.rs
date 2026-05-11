@@ -122,6 +122,8 @@ pub struct WarpKernel {
     next_run_id: RunId,
     /// Registry metadata (injected at construction, immutable after).
     registry: RegistryInfo,
+    stack_witness_create_buffer_admitted: bool,
+    stack_witness_replace_range_admitted: bool,
 }
 
 const STACK_WITNESS_CONTRACT_OP_ID_MASK: u32 = 0xffff_0000;
@@ -129,7 +131,6 @@ const STACK_WITNESS_CONTRACT_OP_ID_PREFIX: u32 = 0x5357_0000;
 const STACK_WITNESS_CREATE_BUFFER_OP_ID: u32 = 0x5357_0001;
 const STACK_WITNESS_REPLACE_RANGE_OP_ID: u32 = 0x5357_0002;
 const STACK_WITNESS_TEXT_WINDOW_QUERY_ID: u32 = 0x5357_1001;
-#[cfg(test)]
 const STACK_WITNESS_FIXTURE_ARTIFACT_ID: &str = "fixture-file-history-v0";
 #[cfg(test)]
 const STACK_WITNESS_CANONICAL_VARS_ENCODING: &str = "utf8-semicolon-kv/v0";
@@ -171,6 +172,15 @@ fn stack_witness_fixture_operation(op_id: u32) -> Option<FixtureContractOperatio
         }),
         _ => None,
     }
+}
+
+fn stack_witness_text_window_artifact_hash() -> Vec<u8> {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(STACK_WITNESS_FIXTURE_ARTIFACT_ID.as_bytes());
+    hasher.update(&STACK_WITNESS_TEXT_WINDOW_QUERY_ID.to_le_bytes());
+    hasher.update(STACK_WITNESS_TEXT_WINDOW_VARS);
+    hasher.update(STACK_WITNESS_TEXT_WINDOW_BYTES);
+    hasher.finalize().as_bytes().to_vec()
 }
 
 impl WarpKernel {
@@ -253,6 +263,8 @@ impl WarpKernel {
             },
             next_run_id: RunId::from_raw(1),
             registry,
+            stack_witness_create_buffer_admitted: false,
+            stack_witness_replace_range_admitted: false,
         })
     }
 
@@ -713,6 +725,28 @@ impl WarpKernel {
         }
 
         let head = self.current_head()?;
+        if !self.stack_witness_fixture_history_is_materialized(&head) {
+            return Err(AbiError {
+                code: error_codes::OBSERVATION_UNAVAILABLE,
+                message: "Stack Witness 0001 textWindow requires admitted createBuffer and replaceRange history".into(),
+            });
+        }
+
+        let payload_bytes = STACK_WITNESS_TEXT_WINDOW_BYTES.len() as u64;
+        if let AbiObservationReadBudget::Bounded {
+            max_payload_bytes, ..
+        } = request.budget
+        {
+            if payload_bytes > max_payload_bytes {
+                return Err(AbiError {
+                    code: error_codes::OBSERVATION_BUDGET_EXCEEDED,
+                    message: format!(
+                        "Stack Witness 0001 textWindow payload requires {payload_bytes} bytes but budget allows {max_payload_bytes}"
+                    ),
+                });
+            }
+        }
+
         let budget_posture = match request.budget {
             AbiObservationReadBudget::UnboundedOneShot => AbiReadingBudgetPosture::UnboundedOneShot,
             AbiObservationReadBudget::Bounded {
@@ -720,7 +754,7 @@ impl WarpKernel {
                 max_witness_refs,
             } => AbiReadingBudgetPosture::Bounded {
                 max_payload_bytes,
-                payload_bytes: STACK_WITNESS_TEXT_WINDOW_BYTES.len() as u64,
+                payload_bytes,
                 max_witness_refs,
                 witness_refs: 0,
             },
@@ -750,11 +784,29 @@ impl WarpKernel {
             },
             frame: request.frame.clone(),
             projection: request.projection.clone(),
-            artifact_hash: vec![0x51; 32],
+            artifact_hash: stack_witness_text_window_artifact_hash(),
             payload: AbiObservationPayload::QueryBytes {
                 data: STACK_WITNESS_TEXT_WINDOW_BYTES.to_vec(),
             },
         }))
+    }
+
+    fn stack_witness_fixture_history_is_materialized(&self, head: &HeadInfo) -> bool {
+        self.stack_witness_create_buffer_admitted
+            && self.stack_witness_replace_range_admitted
+            && head.worldline_tick.0 >= 2
+    }
+
+    fn record_stack_witness_fixture_admission(&mut self, op_id: u32) {
+        match op_id {
+            STACK_WITNESS_CREATE_BUFFER_OP_ID => {
+                self.stack_witness_create_buffer_admitted = true;
+            }
+            STACK_WITNESS_REPLACE_RANGE_OP_ID => {
+                self.stack_witness_replace_range_admitted = true;
+            }
+            _ => {}
+        }
     }
 
     pub(crate) fn current_head(&self) -> Result<HeadInfo, AbiError> {
@@ -1025,6 +1077,9 @@ impl KernelPort for WarpKernel {
         match self.runtime.ingest(envelope) {
             Ok(disposition) => {
                 let accepted = matches!(disposition, IngressDisposition::Accepted { .. });
+                if accepted {
+                    self.record_stack_witness_fixture_admission(op_id);
+                }
                 self.refresh_scheduler_status();
                 Ok(DispatchResponse {
                     accepted,
@@ -1227,20 +1282,35 @@ mod tests {
     }
 
     const STACK_WITNESS_UNKNOWN_OP_ID: u32 = 0x5357_00ff;
-    const STACK_WITNESS_TEXT_WINDOW_QUERY_ID: u32 = 0x5357_1001;
+    const STACK_WITNESS_FIXTURE_FAMILY_ID: &str = "stack-witness-0001.file-history";
+    const STACK_WITNESS_FIXTURE_SCHEMA_ID: &str = "stack-witness-0001.file-history.v0";
+    const STACK_WITNESS_FIXTURE_VERSION: &str = "0";
+    const STACK_WITNESS_HELPER_MUTATION_FIELDS: &[&str] = &[
+        "contract_artifact_id",
+        "operation_id",
+        "canonical_vars_bytes",
+        "declared_footprint",
+    ];
+    const STACK_WITNESS_HELPER_QUERY_FIELDS: &[&str] = &[
+        "contract_artifact_id",
+        "query_id",
+        "canonical_vars_bytes",
+        "reading_envelope",
+        "query_bytes",
+    ];
+    const STACK_WITNESS_FORBIDDEN_FOOTPRINTS: &[&str] =
+        &["AstState", "Diagnostics", "GitWitness", "UiState"];
 
     fn stack_witness_create_buffer_vars() -> Vec<u8> {
-        b"stack-witness-0001/createBuffer;name=demo.txt;artifact=fixture-file-history-v0".to_vec()
+        STACK_WITNESS_CREATE_BUFFER_VARS.to_vec()
     }
 
     fn stack_witness_replace_range_vars() -> Vec<u8> {
-        b"stack-witness-0001/replaceRange;bufferId=demo.txt;basis=B0;coord=utf8-bytes;start=0;end=0;text=hello;artifact=fixture-file-history-v0"
-            .to_vec()
+        STACK_WITNESS_REPLACE_RANGE_VARS.to_vec()
     }
 
     fn stack_witness_text_window_vars() -> Vec<u8> {
-        b"stack-witness-0001/textWindow;bufferId=demo.txt;basis=B1;coord=utf8-bytes;start=0;length=5;artifact=fixture-file-history-v0"
-            .to_vec()
+        STACK_WITNESS_TEXT_WINDOW_VARS.to_vec()
     }
 
     #[test]
@@ -1251,8 +1321,20 @@ mod tests {
         .expect("Stack Witness fixture vectors should parse");
 
         assert_eq!(
+            vectors["artifact"]["familyId"],
+            serde_json::json!(STACK_WITNESS_FIXTURE_FAMILY_ID)
+        );
+        assert_eq!(
+            vectors["artifact"]["schemaId"],
+            serde_json::json!(STACK_WITNESS_FIXTURE_SCHEMA_ID)
+        );
+        assert_eq!(
             vectors["artifact"]["artifactId"],
             serde_json::json!(STACK_WITNESS_FIXTURE_ARTIFACT_ID)
+        );
+        assert_eq!(
+            vectors["artifact"]["version"],
+            serde_json::json!(STACK_WITNESS_FIXTURE_VERSION)
         );
         assert_eq!(
             vectors["canonicalVarsEncoding"],
@@ -1269,6 +1351,11 @@ mod tests {
                 helper_frame: "EINT",
                 helper_entrypoint: "dispatch_intent",
                 canonical_vars: STACK_WITNESS_CREATE_BUFFER_VARS,
+                footprint_reads: &[],
+                footprint_writes: &[],
+                footprint_creates: &["Buffer"],
+                footprint_forbids: STACK_WITNESS_FORBIDDEN_FOOTPRINTS,
+                helper_fields: STACK_WITNESS_HELPER_MUTATION_FIELDS,
             },
         );
         assert_stack_witness_vector(
@@ -1281,6 +1368,11 @@ mod tests {
                 helper_frame: "EINT",
                 helper_entrypoint: "dispatch_intent",
                 canonical_vars: STACK_WITNESS_REPLACE_RANGE_VARS,
+                footprint_reads: &["Buffer"],
+                footprint_writes: &["Buffer"],
+                footprint_creates: &["Tick", "Receipt"],
+                footprint_forbids: STACK_WITNESS_FORBIDDEN_FOOTPRINTS,
+                helper_fields: STACK_WITNESS_HELPER_MUTATION_FIELDS,
             },
         );
         assert_stack_witness_vector(
@@ -1293,6 +1385,11 @@ mod tests {
                 helper_frame: "QueryView",
                 helper_entrypoint: "observe",
                 canonical_vars: STACK_WITNESS_TEXT_WINDOW_VARS,
+                footprint_reads: &["Buffer", "Tick", "Receipt"],
+                footprint_writes: &[],
+                footprint_creates: &[],
+                footprint_forbids: STACK_WITNESS_FORBIDDEN_FOOTPRINTS,
+                helper_fields: STACK_WITNESS_HELPER_QUERY_FIELDS,
             },
         );
 
@@ -1316,6 +1413,11 @@ mod tests {
         helper_frame: &'static str,
         helper_entrypoint: &'static str,
         canonical_vars: &'static [u8],
+        footprint_reads: &'static [&'static str],
+        footprint_writes: &'static [&'static str],
+        footprint_creates: &'static [&'static str],
+        footprint_forbids: &'static [&'static str],
+        helper_fields: &'static [&'static str],
     }
 
     fn assert_stack_witness_vector(
@@ -1348,6 +1450,23 @@ mod tests {
             vector["canonicalVarsBytes"].as_str().map(str::as_bytes),
             Some(expected.canonical_vars)
         );
+        assert_json_string_array(
+            &vector["declaredFootprint"]["reads"],
+            expected.footprint_reads,
+        );
+        assert_json_string_array(
+            &vector["declaredFootprint"]["writes"],
+            expected.footprint_writes,
+        );
+        assert_json_string_array(
+            &vector["declaredFootprint"]["creates"],
+            expected.footprint_creates,
+        );
+        assert_json_string_array(
+            &vector["declaredFootprint"]["forbids"],
+            expected.footprint_forbids,
+        );
+        assert_json_string_array(&vector["helperShape"]["fields"], expected.helper_fields);
     }
 
     fn stack_witness_vector<'a>(
@@ -1364,6 +1483,19 @@ mod tests {
 
     fn lower_hex(bytes: &[u8]) -> String {
         bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+
+    fn assert_json_string_array(value: &serde_json::Value, expected: &[&str]) {
+        let actual = value
+            .as_array()
+            .expect("fixture vector field should be an array")
+            .iter()
+            .map(|item| {
+                item.as_str()
+                    .expect("fixture vector item should be a string")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(actual.as_slice(), expected);
     }
 
     #[test]
@@ -1939,56 +2071,50 @@ mod tests {
     #[test]
     fn stack_witness_create_buffer_and_replace_range_enter_dispatch_intent() {
         let mut kernel = WarpKernel::new().unwrap();
+
+        admit_stack_witness_create_buffer(&mut kernel);
+        admit_stack_witness_replace_range(&mut kernel);
+    }
+
+    fn admit_stack_witness_create_buffer(kernel: &mut WarpKernel) {
         let create_buffer = pack_intent_v1(
             STACK_WITNESS_CREATE_BUFFER_OP_ID,
             &stack_witness_create_buffer_vars(),
         )
         .unwrap();
+        let create = kernel.dispatch_intent(&create_buffer).unwrap();
+        assert!(create.accepted);
+        assert_eq!(create.intent_id.len(), 32);
+        let create_run = start_until_idle(kernel, Some(4));
+        assert_eq!(
+            create_run.scheduler_status.last_run_completion,
+            Some(RunCompletion::Quiesced)
+        );
+    }
+
+    fn admit_stack_witness_replace_range(kernel: &mut WarpKernel) {
         let replace_range = pack_intent_v1(
             STACK_WITNESS_REPLACE_RANGE_OP_ID,
             &stack_witness_replace_range_vars(),
         )
         .unwrap();
-
-        let create = kernel.dispatch_intent(&create_buffer).unwrap();
-        assert!(create.accepted);
-        assert_eq!(create.intent_id.len(), 32);
-        let create_run = start_until_idle(&mut kernel, Some(4));
-        assert_eq!(
-            create_run.scheduler_status.last_run_completion,
-            Some(RunCompletion::Quiesced)
-        );
-
         let replace = kernel.dispatch_intent(&replace_range).unwrap();
         assert!(replace.accepted);
         assert_eq!(replace.intent_id.len(), 32);
-        let replace_run = start_until_idle(&mut kernel, Some(4));
+        let replace_run = start_until_idle(kernel, Some(4));
         assert_eq!(
             replace_run.scheduler_status.last_run_completion,
             Some(RunCompletion::Quiesced)
         );
     }
 
-    #[test]
-    fn stack_witness_text_window_query_returns_reading_envelope_and_query_bytes() {
-        let mut kernel = WarpKernel::new().unwrap();
-        let create_buffer = pack_intent_v1(
-            STACK_WITNESS_CREATE_BUFFER_OP_ID,
-            &stack_witness_create_buffer_vars(),
-        )
-        .unwrap();
-        let replace_range = pack_intent_v1(
-            STACK_WITNESS_REPLACE_RANGE_OP_ID,
-            &stack_witness_replace_range_vars(),
-        )
-        .unwrap();
+    fn admit_stack_witness_fixture_history(kernel: &mut WarpKernel) {
+        admit_stack_witness_create_buffer(kernel);
+        admit_stack_witness_replace_range(kernel);
+    }
 
-        kernel.dispatch_intent(&create_buffer).unwrap();
-        start_until_idle(&mut kernel, Some(4));
-        kernel.dispatch_intent(&replace_range).unwrap();
-        start_until_idle(&mut kernel, Some(4));
-
-        let request = abi_builtin_one_shot(
+    fn stack_witness_text_window_request(kernel: &WarpKernel) -> AbiObservationRequest {
+        abi_builtin_one_shot(
             AbiObservationCoordinate {
                 worldline_id: abi_worldline_id(kernel.default_worldline),
                 at: echo_wasm_abi::kernel_port::ObservationAt::Frontier,
@@ -1998,7 +2124,68 @@ mod tests {
                 query_id: STACK_WITNESS_TEXT_WINDOW_QUERY_ID,
                 vars_bytes: stack_witness_text_window_vars(),
             },
+        )
+    }
+
+    fn expected_stack_witness_text_window_artifact_hash() -> Vec<u8> {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(STACK_WITNESS_FIXTURE_ARTIFACT_ID.as_bytes());
+        hasher.update(&STACK_WITNESS_TEXT_WINDOW_QUERY_ID.to_le_bytes());
+        hasher.update(STACK_WITNESS_TEXT_WINDOW_VARS);
+        hasher.update(STACK_WITNESS_TEXT_WINDOW_BYTES);
+        hasher.finalize().as_bytes().to_vec()
+    }
+
+    #[test]
+    fn stack_witness_text_window_obstructs_without_fixture_history() {
+        let kernel = WarpKernel::new().unwrap();
+        let request = stack_witness_text_window_request(&kernel);
+
+        let error = kernel
+            .observe(request)
+            .expect_err("textWindow must not materialize without fixture mutation history");
+
+        assert_eq!(error.code, error_codes::OBSERVATION_UNAVAILABLE);
+    }
+
+    #[test]
+    fn stack_witness_text_window_respects_bounded_payload_budget() {
+        let mut kernel = WarpKernel::new().unwrap();
+        admit_stack_witness_fixture_history(&mut kernel);
+        let mut request = stack_witness_text_window_request(&kernel);
+        request.budget = AbiObservationReadBudget::Bounded {
+            max_payload_bytes: 4,
+            max_witness_refs: 0,
+        };
+
+        let error = kernel
+            .observe(request)
+            .expect_err("textWindow must obstruct when payload exceeds the read budget");
+
+        assert_eq!(error.code, error_codes::OBSERVATION_BUDGET_EXCEEDED);
+    }
+
+    #[test]
+    fn stack_witness_text_window_artifact_hash_is_deterministic_identity() {
+        let mut kernel = WarpKernel::new().unwrap();
+        admit_stack_witness_fixture_history(&mut kernel);
+        let request = stack_witness_text_window_request(&kernel);
+
+        let artifact = kernel
+            .observe(request)
+            .expect("textWindow QueryView should return a reading artifact");
+
+        assert_eq!(
+            artifact.artifact_hash,
+            expected_stack_witness_text_window_artifact_hash()
         );
+    }
+
+    #[test]
+    fn stack_witness_text_window_query_returns_reading_envelope_and_query_bytes() {
+        let mut kernel = WarpKernel::new().unwrap();
+        admit_stack_witness_fixture_history(&mut kernel);
+        let request = stack_witness_text_window_request(&kernel);
 
         let artifact = kernel
             .observe(request)
@@ -2025,9 +2212,9 @@ mod tests {
             artifact.reading.residual_posture,
             AbiReadingResidualPosture::Complete
         );
-        assert!(
-            !artifact.artifact_hash.is_empty(),
-            "reading identity must be carried by the observation artifact"
+        assert_eq!(
+            artifact.artifact_hash,
+            expected_stack_witness_text_window_artifact_hash()
         );
     }
 

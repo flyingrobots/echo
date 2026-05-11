@@ -53,6 +53,17 @@
 
 ### Changed
 
+### Fixed
+
+- Stack Witness 0001 fixture observations now require the fixture
+  `createBuffer` and `replaceRange("hello")` history to be admitted and
+  materialized before `textWindow` can return `QueryBytes("hello")`.
+- Stack Witness 0001 `textWindow` observations now fail closed when the bounded
+  read budget is smaller than the returned payload and carry a deterministic
+  BLAKE3 artifact hash instead of a dummy reading identity.
+- Strengthened Echo's Wesley fixture-vector drift lock to cover artifact family,
+  schema, version, declared footprints, and generated helper field shapes.
+
 ### Fixed (PR #326 follow-up)
 
 - Added regression coverage that rejects trailing whitespace in the committed

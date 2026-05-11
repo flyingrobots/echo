@@ -1017,14 +1017,15 @@ mod init_tests {
     fn neighborhood_core_publication_uses_installed_kernel() {
         clear_kernel();
         install_kernel(Box::new(StubKernel));
-        let request = ObservationRequest {
-            coordinate: kernel_port::ObservationCoordinate {
+        let request = ObservationRequest::builtin_one_shot(
+            kernel_port::ObservationCoordinate {
                 worldline_id: WorldlineId::from_bytes([9; 32]),
                 at: ObservationAt::Frontier,
             },
-            frame: ObservationFrame::CommitBoundary,
-            projection: ObservationProjection::Head,
-        };
+            ObservationFrame::CommitBoundary,
+            ObservationProjection::Head,
+        )
+        .unwrap();
         let core = with_kernel_ref(|k| k.observe_neighborhood_core(request)).unwrap();
         assert_eq!(core.outcome_kind, AdmissionOutcomeKind::Derived);
         assert_eq!(core.plurality, NeighborhoodPlurality::Singleton);

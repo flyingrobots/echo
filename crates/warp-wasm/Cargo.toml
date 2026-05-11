@@ -21,7 +21,7 @@ default = []
 console-panic = ["console_error_panic_hook", "web-sys"]
 # Enable the warp-core engine kernel implementation.
 # Apps compile with this feature to get a real Engine behind the WASM exports.
-engine = ["dep:warp-core"]
+engine = ["dep:warp-core", "warp-core/native_rule_bootstrap"]
 
 [dependencies]
 echo-registry-api = { workspace = true }

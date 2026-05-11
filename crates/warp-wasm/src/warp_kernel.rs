@@ -1089,6 +1089,24 @@ mod tests {
         }
     }
 
+    const STACK_WITNESS_CREATE_BUFFER_OP_ID: u32 = 0x5357_0001;
+    const STACK_WITNESS_REPLACE_RANGE_OP_ID: u32 = 0x5357_0002;
+    const STACK_WITNESS_TEXT_WINDOW_QUERY_ID: u32 = 0x5357_1001;
+
+    fn stack_witness_create_buffer_vars() -> Vec<u8> {
+        b"stack-witness-0001/createBuffer;name=demo.txt;artifact=fixture-file-history-v0".to_vec()
+    }
+
+    fn stack_witness_replace_range_vars() -> Vec<u8> {
+        b"stack-witness-0001/replaceRange;basis=B0;coord=utf8-bytes;start=0;end=0;text=hello;artifact=fixture-file-history-v0"
+            .to_vec()
+    }
+
+    fn stack_witness_text_window_vars() -> Vec<u8> {
+        b"stack-witness-0001/textWindow;basis=B1;coord=utf8-bytes;start=0;length=5;artifact=fixture-file-history-v0"
+            .to_vec()
+    }
+
     fn sample_import_suffix_request(kernel: &WarpKernel) -> AbiImportSuffixRequest {
         let worldline_id = kernel.default_worldline;
         let base_frontier = abi_provenance_ref(worldline_id, 0, 1);
@@ -1616,6 +1634,88 @@ mod tests {
     }
 
     #[test]
+    fn stack_witness_contract_intent_without_installed_artifact_obstructs() {
+        let mut kernel = WarpKernel::new().unwrap();
+        let intent = pack_intent_v1(
+            STACK_WITNESS_CREATE_BUFFER_OP_ID,
+            &stack_witness_create_buffer_vars(),
+        )
+        .unwrap();
+
+        let error = kernel.dispatch_intent(&intent).expect_err(
+            "contract-shaped EINT must obstruct until a generated artifact is installed",
+        );
+
+        assert_eq!(error.code, error_codes::NOT_SUPPORTED);
+        assert!(
+            error.message.contains("contract"),
+            "obstruction should explain the missing contract artifact"
+        );
+    }
+
+    #[test]
+    fn stack_witness_text_window_query_returns_reading_envelope_and_query_bytes() {
+        let mut kernel = WarpKernel::new().unwrap();
+        let create_buffer = pack_intent_v1(
+            STACK_WITNESS_CREATE_BUFFER_OP_ID,
+            &stack_witness_create_buffer_vars(),
+        )
+        .unwrap();
+        let replace_range = pack_intent_v1(
+            STACK_WITNESS_REPLACE_RANGE_OP_ID,
+            &stack_witness_replace_range_vars(),
+        )
+        .unwrap();
+
+        kernel.dispatch_intent(&create_buffer).unwrap();
+        start_until_idle(&mut kernel, Some(4));
+        kernel.dispatch_intent(&replace_range).unwrap();
+        start_until_idle(&mut kernel, Some(4));
+
+        let request = abi_builtin_one_shot(
+            AbiObservationCoordinate {
+                worldline_id: abi_worldline_id(kernel.default_worldline),
+                at: echo_wasm_abi::kernel_port::ObservationAt::Frontier,
+            },
+            AbiObservationFrame::QueryView,
+            AbiObservationProjection::Query {
+                query_id: STACK_WITNESS_TEXT_WINDOW_QUERY_ID,
+                vars_bytes: stack_witness_text_window_vars(),
+            },
+        );
+
+        let artifact = kernel
+            .observe(request)
+            .expect("textWindow QueryView should return ReadingEnvelope + QueryBytes");
+
+        let AbiObservationPayload::QueryBytes { data } = artifact.payload else {
+            panic!("textWindow should return QueryBytes");
+        };
+
+        assert_eq!(data, b"hello");
+        assert_eq!(
+            artifact.reading.observer_basis,
+            AbiReadingObserverBasis::QueryView
+        );
+        assert_eq!(
+            artifact.reading.budget_posture,
+            AbiReadingBudgetPosture::UnboundedOneShot
+        );
+        assert_eq!(
+            artifact.reading.rights_posture,
+            AbiReadingRightsPosture::KernelPublic
+        );
+        assert_eq!(
+            artifact.reading.residual_posture,
+            AbiReadingResidualPosture::Complete
+        );
+        assert!(
+            !artifact.artifact_hash.is_empty(),
+            "reading identity must be carried by the observation artifact"
+        );
+    }
+
+    #[test]
     fn import_suffix_intent_rejects_malformed_payload_without_ingress() {
         let mut kernel = WarpKernel::new().unwrap();
         let head_before = kernel.current_head().unwrap();
@@ -2020,14 +2120,14 @@ mod tests {
     fn observe_neighborhood_core_returns_shared_projection_for_default_worldline() {
         let kernel = WarpKernel::new().unwrap();
         let core = kernel
-            .observe_neighborhood_core(AbiObservationRequest {
-                coordinate: AbiObservationCoordinate {
+            .observe_neighborhood_core(abi_builtin_one_shot(
+                AbiObservationCoordinate {
                     worldline_id: abi_worldline_id(kernel.default_worldline),
                     at: AbiObservationAt::Frontier,
                 },
-                frame: AbiObservationFrame::CommitBoundary,
-                projection: AbiObservationProjection::Head,
-            })
+                AbiObservationFrame::CommitBoundary,
+                AbiObservationProjection::Head,
+            ))
             .unwrap();
 
         assert_eq!(

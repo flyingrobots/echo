@@ -52,9 +52,8 @@ strand persistence across sessions.
 
 ### INV-S4 — Deterministic Tick
 
-A strand's worldline MUST NOT be ticked by the live scheduler. It advances
-only through ordinary ingress events (per its local footprint) and
-explicit `super_tick()` coordination.
+A strand's worldline MUST NOT be ticked by the live scheduler. Strands
+advance only through ordinary ingress + `super_tick()` coordination.
 
 ### INV-S5 — Complete base_ref
 

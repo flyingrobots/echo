@@ -38,8 +38,8 @@ Echo enforces a strict **'No-Network'** and **'No-Entropy'** policy in core path
 
 - **Network I/O**: `std::net`, `reqwest`, `ureq`, and other network crates are banned from deterministic paths. Causal history must be self-contained.
 - **Entropy & Time**: `std::time::SystemTime`, `Instant::now`, `rand`, and `getrandom` are prohibited. Use the deterministic `Tick` and `Seed` provided by the kernel.
-- **Unordered Collections**: `std::collections::HashMap` and `HashSet` are banned due to iteration order nondeterminism (DoS resistance/hashing variability). Use `BTreeMap`, `BTreeSet`, or specialized ordered maps.
-- **Floating Point**: Direct use of `sin`, `cos`, `sqrt`, etc., is restricted. Use the `FixedTrig` oracles to ensure bit-exact convergence across platforms.
+- **Unordered Collections**: `std::collections::HashMap` and `HashSet` are banned due to iteration order nondeterminism (DoS resistance/hashing variability). Use `BTreeMap`, `BTreeSet`, or stable-sort patterns on vectors before iteration.
+- **Floating Point**: Direct use of `sin`, `cos`, `sqrt`, etc., is restricted. Use the `FixedTrig` oracles in `docs/determinism/SPEC_DETERMINISTIC_MATH.md` to ensure bit-exact convergence across platforms.
 
 ## Wesley Integration
 

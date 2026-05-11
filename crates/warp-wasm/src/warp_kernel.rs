@@ -129,6 +129,15 @@ const STACK_WITNESS_CONTRACT_OP_ID_PREFIX: u32 = 0x5357_0000;
 const STACK_WITNESS_CREATE_BUFFER_OP_ID: u32 = 0x5357_0001;
 const STACK_WITNESS_REPLACE_RANGE_OP_ID: u32 = 0x5357_0002;
 const STACK_WITNESS_TEXT_WINDOW_QUERY_ID: u32 = 0x5357_1001;
+#[cfg(test)]
+const STACK_WITNESS_FIXTURE_ARTIFACT_ID: &str = "fixture-file-history-v0";
+#[cfg(test)]
+const STACK_WITNESS_CANONICAL_VARS_ENCODING: &str = "utf8-semicolon-kv/v0";
+#[cfg(test)]
+const STACK_WITNESS_CREATE_BUFFER_VARS: &[u8] =
+    b"stack-witness-0001/createBuffer;name=demo.txt;artifact=fixture-file-history-v0";
+#[cfg(test)]
+const STACK_WITNESS_REPLACE_RANGE_VARS: &[u8] = b"stack-witness-0001/replaceRange;basis=B0;coord=utf8-bytes;start=0;end=0;text=hello;artifact=fixture-file-history-v0";
 const STACK_WITNESS_TEXT_WINDOW_VARS: &[u8] = b"stack-witness-0001/textWindow;basis=B1;coord=utf8-bytes;start=0;length=5;artifact=fixture-file-history-v0";
 const STACK_WITNESS_TEXT_WINDOW_BYTES: &[u8] = b"hello";
 
@@ -1232,6 +1241,121 @@ mod tests {
     fn stack_witness_text_window_vars() -> Vec<u8> {
         b"stack-witness-0001/textWindow;basis=B1;coord=utf8-bytes;start=0;length=5;artifact=fixture-file-history-v0"
             .to_vec()
+    }
+
+    #[test]
+    fn stack_witness_fixture_vectors_match_wesley_artifact_shape() {
+        let vectors: serde_json::Value = serde_json::from_str(include_str!(
+            "../test/fixtures/stack-witness-0001-vectors.json"
+        ))
+        .expect("Stack Witness fixture vectors should parse");
+
+        assert_eq!(
+            vectors["artifact"]["artifactId"],
+            serde_json::json!(STACK_WITNESS_FIXTURE_ARTIFACT_ID)
+        );
+        assert_eq!(
+            vectors["canonicalVarsEncoding"],
+            serde_json::json!(STACK_WITNESS_CANONICAL_VARS_ENCODING)
+        );
+
+        assert_stack_witness_vector(
+            &vectors,
+            StackWitnessVectorExpectation {
+                name: "createBuffer",
+                operation_type: "MUTATION",
+                op_id: STACK_WITNESS_CREATE_BUFFER_OP_ID,
+                helper_kind: "EINT",
+                helper_frame: "EINT",
+                helper_entrypoint: "dispatch_intent",
+                canonical_vars: STACK_WITNESS_CREATE_BUFFER_VARS,
+            },
+        );
+        assert_stack_witness_vector(
+            &vectors,
+            StackWitnessVectorExpectation {
+                name: "replaceRange",
+                operation_type: "MUTATION",
+                op_id: STACK_WITNESS_REPLACE_RANGE_OP_ID,
+                helper_kind: "EINT",
+                helper_frame: "EINT",
+                helper_entrypoint: "dispatch_intent",
+                canonical_vars: STACK_WITNESS_REPLACE_RANGE_VARS,
+            },
+        );
+        assert_stack_witness_vector(
+            &vectors,
+            StackWitnessVectorExpectation {
+                name: "textWindow",
+                operation_type: "QUERY",
+                op_id: STACK_WITNESS_TEXT_WINDOW_QUERY_ID,
+                helper_kind: "QueryView",
+                helper_frame: "QueryView",
+                helper_entrypoint: "observe",
+                canonical_vars: STACK_WITNESS_TEXT_WINDOW_VARS,
+            },
+        );
+
+        let text_window = stack_witness_vector(&vectors, "textWindow");
+        assert_eq!(text_window["payloadCodec"], serde_json::json!("QueryBytes"));
+        assert_eq!(
+            text_window["envelope"],
+            serde_json::json!("ReadingEnvelope")
+        );
+    }
+
+    struct StackWitnessVectorExpectation {
+        name: &'static str,
+        operation_type: &'static str,
+        op_id: u32,
+        helper_kind: &'static str,
+        helper_frame: &'static str,
+        helper_entrypoint: &'static str,
+        canonical_vars: &'static [u8],
+    }
+
+    fn assert_stack_witness_vector(
+        vectors: &serde_json::Value,
+        expected: StackWitnessVectorExpectation,
+    ) {
+        let vector = stack_witness_vector(vectors, expected.name);
+        assert_eq!(
+            vector["operationType"],
+            serde_json::json!(expected.operation_type)
+        );
+        assert_eq!(vector["opIdDecimal"], serde_json::json!(expected.op_id));
+        assert_eq!(
+            vector["opIdHex"],
+            serde_json::json!(format!("0x{:08x}", expected.op_id))
+        );
+        assert_eq!(
+            vector["helperKind"],
+            serde_json::json!(expected.helper_kind)
+        );
+        assert_eq!(
+            vector["helperShape"]["frame"],
+            serde_json::json!(expected.helper_frame)
+        );
+        assert_eq!(
+            vector["helperShape"]["entrypoint"],
+            serde_json::json!(expected.helper_entrypoint)
+        );
+        assert_eq!(
+            vector["canonicalVarsBytes"].as_str().map(str::as_bytes),
+            Some(expected.canonical_vars)
+        );
+    }
+
+    fn stack_witness_vector<'a>(
+        vectors: &'a serde_json::Value,
+        name: &str,
+    ) -> &'a serde_json::Value {
+        vectors["operations"]
+            .as_array()
+            .expect("Stack Witness operations should be an array")
+            .iter()
+            .find(|operation| operation["name"].as_str() == Some(name))
+            .expect("Stack Witness operation vector should exist")
     }
 
     #[test]

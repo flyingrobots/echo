@@ -1,0 +1,86 @@
+{
+  "artifact": {
+    "familyId": "stack-witness-0001.file-history",
+    "schemaId": "stack-witness-0001.file-history.v0",
+    "artifactId": "fixture-file-history-v0",
+    "version": "0"
+  },
+  "canonicalVarsEncoding": "utf8-semicolon-kv/v0",
+  "operations": [
+    {
+      "name": "createBuffer",
+      "operationType": "MUTATION",
+      "opIdHex": "0x53570001",
+      "opIdDecimal": 1398210561,
+      "helperKind": "EINT",
+      "canonicalVarsBytes": "stack-witness-0001/createBuffer;name=demo.txt;artifact=fixture-file-history-v0",
+      "declaredFootprint": {
+        "reads": [],
+        "writes": [],
+        "creates": ["Buffer"],
+        "forbids": ["AstState", "Diagnostics", "GitWitness", "UiState"]
+      },
+      "helperShape": {
+        "frame": "EINT",
+        "entrypoint": "dispatch_intent",
+        "fields": [
+          "contract_artifact_id",
+          "operation_id",
+          "canonical_vars_bytes",
+          "declared_footprint"
+        ]
+      }
+    },
+    {
+      "name": "replaceRange",
+      "operationType": "MUTATION",
+      "opIdHex": "0x53570002",
+      "opIdDecimal": 1398210562,
+      "helperKind": "EINT",
+      "canonicalVarsBytes": "stack-witness-0001/replaceRange;basis=B0;coord=utf8-bytes;start=0;end=0;text=hello;artifact=fixture-file-history-v0",
+      "declaredFootprint": {
+        "reads": ["Buffer"],
+        "writes": ["Buffer"],
+        "creates": ["Tick", "Receipt"],
+        "forbids": ["AstState", "Diagnostics", "GitWitness", "UiState"]
+      },
+      "helperShape": {
+        "frame": "EINT",
+        "entrypoint": "dispatch_intent",
+        "fields": [
+          "contract_artifact_id",
+          "operation_id",
+          "canonical_vars_bytes",
+          "declared_footprint"
+        ]
+      }
+    },
+    {
+      "name": "textWindow",
+      "operationType": "QUERY",
+      "opIdHex": "0x53571001",
+      "opIdDecimal": 1398214657,
+      "helperKind": "QueryView",
+      "canonicalVarsBytes": "stack-witness-0001/textWindow;basis=B1;coord=utf8-bytes;start=0;length=5;artifact=fixture-file-history-v0",
+      "payloadCodec": "QueryBytes",
+      "envelope": "ReadingEnvelope",
+      "declaredFootprint": {
+        "reads": ["Buffer", "Tick", "Receipt"],
+        "writes": [],
+        "creates": [],
+        "forbids": ["AstState", "Diagnostics", "GitWitness", "UiState"]
+      },
+      "helperShape": {
+        "frame": "QueryView",
+        "entrypoint": "observe",
+        "fields": [
+          "contract_artifact_id",
+          "query_id",
+          "canonical_vars_bytes",
+          "reading_envelope",
+          "query_bytes"
+        ]
+      }
+    }
+  ]
+}

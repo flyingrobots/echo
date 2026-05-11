@@ -2083,6 +2083,7 @@ dependencies = [
  "js-sys",
  "serde",
  "serde-value",
+ "serde_json",
  "warp-core",
  "wasm-bindgen",
  "web-sys",

@@ -3,10 +3,10 @@
 //! Regression tests for optic invocation admission obstruction.
 
 use warp_core::{
-    OpticAdmissionRequirements, OpticApertureRequest, OpticArtifact, OpticArtifactHandle,
-    OpticArtifactOperation, OpticArtifactRegistry, OpticBasisRequest, OpticCapabilityPresentation,
-    OpticInvocation, OpticInvocationAdmissionOutcome, OpticInvocationObstruction,
-    OpticRegistrationDescriptor,
+    OpticAdmissionRequirements, OpticAdmissionTicketPosture, OpticApertureRequest, OpticArtifact,
+    OpticArtifactHandle, OpticArtifactOperation, OpticArtifactRegistry, OpticBasisRequest,
+    OpticCapabilityPresentation, OpticInvocation, OpticInvocationAdmissionOutcome,
+    OpticInvocationObstruction, OpticRegistrationDescriptor, OPTIC_ADMISSION_TICKET_POSTURE_KIND,
 };
 
 fn fixture_artifact() -> OpticArtifact {
@@ -57,6 +57,21 @@ fn fixture_invocation(handle: OpticArtifactHandle) -> OpticInvocation {
     }
 }
 
+fn expected_obstructed_posture(
+    invocation: &OpticInvocation,
+    obstruction: OpticInvocationObstruction,
+) -> OpticInvocationAdmissionOutcome {
+    OpticInvocationAdmissionOutcome::Obstructed(OpticAdmissionTicketPosture {
+        kind: OPTIC_ADMISSION_TICKET_POSTURE_KIND.to_owned(),
+        artifact_handle: invocation.artifact_handle.clone(),
+        operation_id: invocation.operation_id.clone(),
+        canonical_variables_digest: invocation.canonical_variables_digest.clone(),
+        basis_request: invocation.basis_request.clone(),
+        aperture_request: invocation.aperture_request.clone(),
+        obstruction,
+    })
+}
+
 #[test]
 fn optic_invocation_obstructs_unknown_handle() {
     let registry = OpticArtifactRegistry::new();
@@ -69,7 +84,7 @@ fn optic_invocation_obstructs_unknown_handle() {
 
     assert_eq!(
         outcome,
-        OpticInvocationAdmissionOutcome::Obstructed(OpticInvocationObstruction::UnknownHandle)
+        expected_obstructed_posture(&invocation, OpticInvocationObstruction::UnknownHandle)
     );
 }
 
@@ -83,7 +98,7 @@ fn optic_invocation_obstructs_operation_mismatch() -> Result<(), String> {
 
     assert_eq!(
         outcome,
-        OpticInvocationAdmissionOutcome::Obstructed(OpticInvocationObstruction::OperationMismatch)
+        expected_obstructed_posture(&invocation, OpticInvocationObstruction::OperationMismatch)
     );
     Ok(())
 }
@@ -97,7 +112,7 @@ fn optic_invocation_obstructs_missing_capability_for_registered_handle() -> Resu
 
     assert_eq!(
         outcome,
-        OpticInvocationAdmissionOutcome::Obstructed(OpticInvocationObstruction::MissingCapability)
+        expected_obstructed_posture(&invocation, OpticInvocationObstruction::MissingCapability)
     );
     Ok(())
 }
@@ -115,7 +130,8 @@ fn optic_invocation_obstructs_placeholder_capability_presentation_until_grant_va
 
     assert_eq!(
         outcome,
-        OpticInvocationAdmissionOutcome::Obstructed(
+        expected_obstructed_posture(
+            &invocation,
             OpticInvocationObstruction::CapabilityValidationUnavailable
         )
     );

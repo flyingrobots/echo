@@ -19,6 +19,10 @@
   presentations still obstruct until real grant validation exists. The
   registration and invocation regression fixtures avoid `expect(...)` so
   all-target Clippy remains clean.
+- Optic invocation obstruction now returns a ticket-shaped pre-admission
+  posture carrying the invocation handle, operation id, canonical variables
+  digest, basis request, aperture request, and structured obstruction reason.
+  This is not a success ticket and does not authorize execution.
 - Echo-owned WASM package boundary tooling: `scripts/build-warp-wasm-package.sh`
   now builds `crates/warp-wasm/pkg` with the bundler target and the package
   export smoke test imports `crates/warp-wasm/pkg/rmg_wasm.js` to verify the

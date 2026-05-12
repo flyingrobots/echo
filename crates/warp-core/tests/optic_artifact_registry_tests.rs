@@ -32,22 +32,32 @@ fn fixture_descriptor() -> OpticRegistrationDescriptor {
     }
 }
 
+fn registration_err_or_panic<T>(
+    result: Result<T, OpticArtifactRegistrationError>,
+    context: &str,
+) -> Result<OpticArtifactRegistrationError, String> {
+    match result {
+        Ok(_) => Err(format!("{context}: expected registration error")),
+        Err(err) => Ok(err),
+    }
+}
+
 #[test]
-fn optic_artifact_registry_registers_wesley_descriptor_and_resolves_handle() {
+fn optic_artifact_registry_registers_wesley_descriptor_and_resolves_handle() -> Result<(), String> {
     let artifact = fixture_artifact();
     let descriptor = fixture_descriptor();
     let mut registry = OpticArtifactRegistry::new();
 
     let handle = registry
         .register_optic_artifact(artifact.clone(), descriptor)
-        .expect("fixture descriptor should register");
+        .map_err(|err| format!("fixture descriptor should register: {err:?}"))?;
 
     assert_eq!(handle.kind, "optic-artifact-handle");
     assert!(!handle.id.is_empty());
 
     let registered = registry
         .resolve_optic_artifact_handle(&handle)
-        .expect("fresh handle should resolve");
+        .map_err(|err| format!("fresh handle should resolve: {err:?}"))?;
 
     assert_eq!(registered.artifact_id, artifact.artifact_id);
     assert_eq!(registered.artifact_hash, artifact.artifact_hash);
@@ -55,104 +65,117 @@ fn optic_artifact_registry_registers_wesley_descriptor_and_resolves_handle() {
     assert_eq!(registered.operation_id, artifact.operation.operation_id);
     assert_eq!(registered.requirements_digest, artifact.requirements_digest);
     assert_eq!(registered.requirements, artifact.requirements);
+    Ok(())
 }
 
 #[test]
-fn optic_artifact_registry_rejects_tampered_artifact_hash() {
+fn optic_artifact_registry_rejects_tampered_artifact_hash() -> Result<(), String> {
     let artifact = fixture_artifact();
     let mut descriptor = fixture_descriptor();
     descriptor.artifact_hash = "artifact-hash:tampered".to_owned();
     let mut registry = OpticArtifactRegistry::new();
 
-    let err = registry
-        .register_optic_artifact(artifact, descriptor)
-        .expect_err("tampered artifact hash should reject");
+    let err = registration_err_or_panic(
+        registry.register_optic_artifact(artifact, descriptor),
+        "tampered artifact hash should reject",
+    )?;
 
     assert!(matches!(
         err,
         OpticArtifactRegistrationError::ArtifactHashMismatch
     ));
+    Ok(())
 }
 
 #[test]
-fn optic_artifact_registry_rejects_mismatched_artifact_id() {
+fn optic_artifact_registry_rejects_mismatched_artifact_id() -> Result<(), String> {
     let artifact = fixture_artifact();
     let mut descriptor = fixture_descriptor();
     descriptor.artifact_id = "optic-artifact:other".to_owned();
     let mut registry = OpticArtifactRegistry::new();
 
-    let err = registry
-        .register_optic_artifact(artifact, descriptor)
-        .expect_err("mismatched artifact id should reject");
+    let err = registration_err_or_panic(
+        registry.register_optic_artifact(artifact, descriptor),
+        "mismatched artifact id should reject",
+    )?;
 
     assert!(matches!(
         err,
         OpticArtifactRegistrationError::ArtifactIdMismatch
     ));
+    Ok(())
 }
 
 #[test]
-fn optic_artifact_registry_rejects_tampered_requirements_digest() {
+fn optic_artifact_registry_rejects_tampered_requirements_digest() -> Result<(), String> {
     let artifact = fixture_artifact();
     let mut descriptor = fixture_descriptor();
     descriptor.requirements_digest = "requirements-digest:tampered".to_owned();
     let mut registry = OpticArtifactRegistry::new();
 
-    let err = registry
-        .register_optic_artifact(artifact, descriptor)
-        .expect_err("tampered requirements digest should reject");
+    let err = registration_err_or_panic(
+        registry.register_optic_artifact(artifact, descriptor),
+        "tampered requirements digest should reject",
+    )?;
 
     assert!(matches!(
         err,
         OpticArtifactRegistrationError::RequirementsDigestMismatch
     ));
+    Ok(())
 }
 
 #[test]
-fn optic_artifact_registry_rejects_mismatched_operation_id() {
+fn optic_artifact_registry_rejects_mismatched_operation_id() -> Result<(), String> {
     let artifact = fixture_artifact();
     let mut descriptor = fixture_descriptor();
     descriptor.operation_id = "operation:replaceRange:v0".to_owned();
     let mut registry = OpticArtifactRegistry::new();
 
-    let err = registry
-        .register_optic_artifact(artifact, descriptor)
-        .expect_err("mismatched operation id should reject");
+    let err = registration_err_or_panic(
+        registry.register_optic_artifact(artifact, descriptor),
+        "mismatched operation id should reject",
+    )?;
 
     assert!(matches!(
         err,
         OpticArtifactRegistrationError::OperationIdMismatch
     ));
+    Ok(())
 }
 
 #[test]
-fn optic_artifact_registry_rejects_mismatched_schema_id() {
+fn optic_artifact_registry_rejects_mismatched_schema_id() -> Result<(), String> {
     let artifact = fixture_artifact();
     let mut descriptor = fixture_descriptor();
     descriptor.schema_id = "schema:other:v0".to_owned();
     let mut registry = OpticArtifactRegistry::new();
 
-    let err = registry
-        .register_optic_artifact(artifact, descriptor)
-        .expect_err("mismatched schema id should reject");
+    let err = registration_err_or_panic(
+        registry.register_optic_artifact(artifact, descriptor),
+        "mismatched schema id should reject",
+    )?;
 
     assert!(matches!(
         err,
         OpticArtifactRegistrationError::SchemaIdMismatch
     ));
+    Ok(())
 }
 
 #[test]
-fn optic_artifact_registry_rejects_unknown_handle_lookup() {
+fn optic_artifact_registry_rejects_unknown_handle_lookup() -> Result<(), String> {
     let registry = OpticArtifactRegistry::new();
     let handle = OpticArtifactHandle {
         kind: "optic-artifact-handle".to_owned(),
         id: "unregistered-handle".to_owned(),
     };
 
-    let err = registry
-        .resolve_optic_artifact_handle(&handle)
-        .expect_err("unknown handle should reject");
+    let err = registration_err_or_panic(
+        registry.resolve_optic_artifact_handle(&handle),
+        "unknown handle should reject",
+    )?;
 
     assert!(matches!(err, OpticArtifactRegistrationError::UnknownHandle));
+    Ok(())
 }

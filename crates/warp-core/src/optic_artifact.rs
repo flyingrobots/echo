@@ -2,10 +2,11 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Echo-owned registry for Wesley-compiled optic artifacts.
 //!
-//! This module intentionally stops at registration. It does not admit
-//! invocations, validate capability grants, issue admission tickets, or execute
-//! runtime work. The only authority proven here is that Echo accepted and
-//! stored a specific Wesley artifact identity and its admission requirements.
+//! This module owns optic artifact registration and the first admission-only
+//! invocation gate. [`OpticArtifactRegistry::admit_optic_invocation`] resolves
+//! handles internally, checks operation identity, and obstructs missing or
+//! placeholder authority without validating grants, issuing admission tickets,
+//! emitting law witnesses, or executing runtime work.
 
 use std::collections::BTreeMap;
 

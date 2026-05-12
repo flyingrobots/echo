@@ -34,12 +34,12 @@ fn fixture_descriptor() -> OpticRegistrationDescriptor {
     }
 }
 
-fn fixture_registry_and_handle() -> (OpticArtifactRegistry, OpticArtifactHandle) {
+fn fixture_registry_and_handle() -> Result<(OpticArtifactRegistry, OpticArtifactHandle), String> {
     let mut registry = OpticArtifactRegistry::new();
     let handle = registry
         .register_optic_artifact(fixture_artifact(), fixture_descriptor())
-        .expect("fixture descriptor should register");
-    (registry, handle)
+        .map_err(|err| format!("fixture descriptor should register: {err:?}"))?;
+    Ok((registry, handle))
 }
 
 fn fixture_invocation(handle: OpticArtifactHandle) -> OpticInvocation {
@@ -74,8 +74,8 @@ fn optic_invocation_obstructs_unknown_handle() {
 }
 
 #[test]
-fn optic_invocation_obstructs_operation_mismatch() {
-    let (registry, handle) = fixture_registry_and_handle();
+fn optic_invocation_obstructs_operation_mismatch() -> Result<(), String> {
+    let (registry, handle) = fixture_registry_and_handle()?;
     let mut invocation = fixture_invocation(handle);
     invocation.operation_id = "operation:replaceRange:v0".to_owned();
 
@@ -85,11 +85,12 @@ fn optic_invocation_obstructs_operation_mismatch() {
         outcome,
         OpticInvocationAdmissionOutcome::Obstructed(OpticInvocationObstruction::OperationMismatch)
     );
+    Ok(())
 }
 
 #[test]
-fn optic_invocation_obstructs_missing_capability_for_registered_handle() {
-    let (registry, handle) = fixture_registry_and_handle();
+fn optic_invocation_obstructs_missing_capability_for_registered_handle() -> Result<(), String> {
+    let (registry, handle) = fixture_registry_and_handle()?;
     let invocation = fixture_invocation(handle);
 
     let outcome = registry.admit_optic_invocation(&invocation);
@@ -98,11 +99,13 @@ fn optic_invocation_obstructs_missing_capability_for_registered_handle() {
         outcome,
         OpticInvocationAdmissionOutcome::Obstructed(OpticInvocationObstruction::MissingCapability)
     );
+    Ok(())
 }
 
 #[test]
-fn optic_invocation_obstructs_placeholder_capability_presentation_until_grant_validation_exists() {
-    let (registry, handle) = fixture_registry_and_handle();
+fn optic_invocation_obstructs_placeholder_capability_presentation_until_grant_validation_exists(
+) -> Result<(), String> {
+    let (registry, handle) = fixture_registry_and_handle()?;
     let mut invocation = fixture_invocation(handle);
     invocation.capability_presentation = Some(OpticCapabilityPresentation {
         presentation_id: "presentation:placeholder".to_owned(),
@@ -116,4 +119,5 @@ fn optic_invocation_obstructs_placeholder_capability_presentation_until_grant_va
             OpticInvocationObstruction::CapabilityValidationUnavailable
         )
     );
+    Ok(())
 }

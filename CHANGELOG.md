@@ -27,10 +27,11 @@
   without validating grants: missing, malformed, unbound, and placeholder
   presentations all remain obstructed until real bounded grant validation
   exists.
-- `warp-core` now has an Echo-owned `CapabilityGrantRegistry` skeleton that
-  stores bounded grant material deterministically, resolves grants by id, and
-  rejects duplicate or unknown grant ids without validating invocation
-  authority.
+- `warp-core` now has an Echo-owned capability grant intent obstruction
+  skeleton. `CapabilityGrantIntentRegistry` records well-formed submitted
+  authority intents deterministically, obstructs malformed, duplicate, and
+  identity-incomplete grant intents, and keeps all submissions from becoming
+  authority until future witnessed grant admission exists.
 - Echo-owned WASM package boundary tooling: `scripts/build-warp-wasm-package.sh`
   now builds `crates/warp-wasm/pkg` with the bundler target and the package
   export smoke test imports `crates/warp-wasm/pkg/rmg_wasm.js` to verify the

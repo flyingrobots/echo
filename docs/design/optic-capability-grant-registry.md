@@ -1,28 +1,28 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# Optic Capability Grant Registry
+# Optic Capability Grant Intent Boundary
 
-Status: skeleton storage boundary  
-Scope: Echo-owned capability grant registration only.
+Status: obstruction skeleton
+Scope: Echo-owned capability grant intent intake and meta-authority shape only.
 
 ## Doctrine
 
-A grant can exist before it is trusted. Registration stores authority material;
-validation proves it applies.
+Grant registration is causal authority intent. A grant is not authority until
+Echo admits the grant intent into witnessed history.
 
-The capability grant registry is the deterministic storage boundary for bounded
-authority material. It is not admission, proof, execution, witness generation,
-or permission by itself.
+No principal can mint authority from nowhere. Grant intent must be authorized by
+prior authority, host root policy, quorum, or governance rule.
 
-Two rules matter in this slice:
+This slice only adds the shape and obstruction boundary. It does not implement a
+real authority policy and therefore every grant intent remains obstructed.
 
-- registered artifact handle is not authority;
-- registered capability grant is not validated authority.
+The ladder is:
 
-The grant registry creates the place where future validation can look for
-authority material. It does not decide whether that material covers an
-invocation.
+- registered handle is not authority;
+- presentation slot is not validated grant;
+- grant object is not admitted authority;
+- grant intent is not accepted policy decision.
 
 ## System fit
 
@@ -30,74 +30,95 @@ The lawful optic path is converging through small boundaries:
 
 1. Wesley compiles an `OpticArtifact`.
 2. Echo registers the artifact and returns an `OpticArtifactHandle`.
-3. An authority layer issues bounded grant material.
-4. Echo stores that grant material in `CapabilityGrantRegistry`.
-5. A caller presents an invocation with an artifact handle and presentation.
-6. Current Echo admission still obstructs every presentation.
-7. A later validation slice proves whether a grant covers the invocation.
-8. Only after validation can Echo issue a successful admission ticket.
+3. An authority layer proposes bounded authority as `CapabilityGrantIntent`.
+4. Echo evaluates the intent through an authority context and policy shape.
+5. Echo returns `CapabilityGrantIntentPosture::Obstructed(...)` for every v0
+   intent.
+6. A caller may later present an invocation with an artifact handle and
+   presentation.
+7. Current Echo invocation admission still obstructs every presentation.
+8. Future work admits grant intents into witnessed history, then validates
+   invocation presentations against admitted grants.
 
 ```mermaid
 flowchart LR
   App[Application]
   Wesley[Wesley compiler]
-  EchoArtifacts[Echo OpticArtifactRegistry]
+  ArtifactRegistry[Echo OpticArtifactRegistry]
   Authority[Authority layer]
-  Grants[Echo CapabilityGrantRegistry]
-  Invoke[OpticInvocation]
-  Admit[Admission boundary]
+  Intent[CapabilityGrantIntent]
+  Context[AuthorityContext]
+  Policy[AuthorityPolicy]
+  Gate[CapabilityGrantIntentGate]
+  Invocation[OpticInvocation]
+  Admission[Invocation admission]
+  FutureGrant[Future admitted grant]
   FutureTicket[Future AdmissionTicket]
-  Witness[Future LawWitness]
+  FutureWitness[Future LawWitness]
 
   App -->|GraphQL operation| Wesley
-  Wesley -->|OpticArtifact + descriptor| EchoArtifacts
-  EchoArtifacts -->|opaque OpticArtifactHandle| App
-  Authority -->|CapabilityGrant material| Grants
-  App -->|handle + vars + presentation| Invoke
-  Invoke --> Admit
-  Grants -. future validation lookup .-> Admit
-  Admit -. no success path in this slice .-> FutureTicket
-  FutureTicket -. later .-> Witness
+  Wesley -->|OpticArtifact + descriptor| ArtifactRegistry
+  ArtifactRegistry -->|opaque OpticArtifactHandle| App
+  Authority -->|proposes authority change| Intent
+  Authority -->|issuer + policy shape| Context
+  Context --> Policy
+  Intent --> Gate
+  Context --> Gate
+  Gate -->|Obstructed posture| Authority
+  Gate -. future witnessed admission .-> FutureGrant
+  App -->|handle + vars + presentation| Invocation
+  Invocation --> Admission
+  FutureGrant -. future validation .-> Admission
+  Admission -. later success path .-> FutureTicket
+  FutureTicket -. later .-> FutureWitness
 ```
 
-## Registration sequence
+## Grant intent sequence
 
-Grant registration is deliberately boring. It stores bounded material by grant
-id and rejects duplicate ids.
+The gate checks structure, duplicate/replay posture, issuer authority presence,
+and policy support. Since no real policy exists in this slice, even a
+well-formed intent with issuer context obstructs as `UnsupportedAuthorityPolicy`.
 
 ```mermaid
 sequenceDiagram
-  participant A as Authority layer
+  participant P as Principal / authority layer
   participant E as Echo
-  participant R as CapabilityGrantRegistry
-  participant F as Future validator
+  participant G as CapabilityGrantIntentGate
+  participant H as Future witnessed history
 
-  A->>E: register CapabilityGrant
-  E->>R: register_capability_grant(grant)
-  alt grant id is new
-    R-->>E: Ok(())
-    E-->>A: stored
-  else grant id already exists
-    R-->>E: DuplicateGrantId
-    E-->>A: reject duplicate
+  P->>E: submit_grant_intent(intent, authority_context)
+  E->>G: classify intent + authority context
+  alt malformed intent
+    G-->>E: Obstructed(MalformedGrantIntent)
+    E-->>P: not authority
+  else duplicate intent id
+    G-->>E: Obstructed(DuplicateGrantIntent)
+    E-->>P: not authority
+  else missing issuer authority
+    G-->>E: Obstructed(MissingIssuerAuthority)
+    E-->>P: not authority
+  else no supported policy exists
+    G->>G: record submitted intent id for replay/duplicate obstruction
+    G-->>E: Obstructed(UnsupportedAuthorityPolicy)
+    E-->>P: not authority
   end
 
-  Note over R,F: Registration stores material only.
-  F-->>R: future resolve_capability_grant(id)
-  R-->>F: grant or UnknownGrantId
+  Note over G,H: Future work may admit grant intent into witnessed history.
+  H--xG: no grant admission in this slice
 ```
 
 ## Invocation relationship
 
-The current invocation boundary only classifies presentation posture. A
-registered grant does not change that behavior yet.
+Capability presentation remains separate from grant intent submission. A
+presentation may name a grant id, and a grant intent may have been submitted,
+but neither fact authorizes invocation in this slice.
 
 ```mermaid
 sequenceDiagram
   participant C as Caller
   participant A as OpticArtifactRegistry
-  participant G as CapabilityGrantRegistry
-  participant B as Admission boundary
+  participant G as CapabilityGrantIntentGate
+  participant B as Invocation admission boundary
 
   C->>A: resolve artifact handle
   A-->>B: registered artifact metadata
@@ -105,38 +126,67 @@ sequenceDiagram
   B->>B: classify presentation posture
   B-->>C: OpticAdmissionTicketPosture(obstructed)
 
-  Note over G,B: Grant lookup is intentionally not wired to admission yet.
-  G--xB: no validation in this slice
+  Note over G,B: Grant intent lookup is intentionally not wired to invocation admission yet.
+  G--xB: no grant validation in this slice
 ```
 
 ## Class model
 
 ```mermaid
 classDiagram
-  class CapabilityGrant {
-    +grant_id
+  class PrincipalRef {
+    +id
+  }
+
+  class AuthorityPolicy {
+    +policy_id
+  }
+
+  class AuthorityContext {
+    +issuer
+    +policy
+  }
+
+  class CapabilityGrantIntent {
+    +intent_id
+    +proposed_by
     +subject
     +artifact_hash
     +operation_id
     +requirements_digest
     +rights
     +scope_bytes
-    +budget_bytes
+    +expiry_bytes
+    +delegation_basis_bytes
   }
 
-  class CapabilityGrantRegistry {
-    -grants_by_id
+  class CapabilityGrantIntentGate {
+    -intents_by_id
     +new()
-    +register_capability_grant(grant)
-    +resolve_capability_grant(grant_id)
+    +submit_grant_intent(intent, authority_context)
     +len()
     +is_empty()
   }
 
-  class CapabilityGrantRegistryError {
+  class CapabilityGrantIntentOutcome {
     <<enumeration>>
-    DuplicateGrantId
-    UnknownGrantId
+    Obstructed
+  }
+
+  class CapabilityGrantIntentPosture {
+    +kind
+    +intent_id
+    +proposed_by
+    +subject
+    +obstruction
+  }
+
+  class CapabilityGrantIntentObstruction {
+    <<enumeration>>
+    MissingIssuerAuthority
+    MalformedGrantIntent
+    DuplicateGrantIntent
+    UnsupportedAuthorityPolicy
   }
 
   class OpticCapabilityPresentation {
@@ -144,41 +194,42 @@ classDiagram
     +bound_grant_id
   }
 
-  class OpticInvocation {
-    +artifact_handle
-    +operation_id
-    +canonical_variables_digest
-    +basis_request
-    +aperture_request
-    +capability_presentation
-  }
-
-  class OpticAdmissionTicketPosture {
-    +kind
-    +artifact_handle
-    +operation_id
-    +canonical_variables_digest
-    +basis_request
-    +aperture_request
-    +obstruction
-  }
-
-  CapabilityGrantRegistry --> CapabilityGrant : stores
-  CapabilityGrantRegistry --> CapabilityGrantRegistryError : returns
-  OpticInvocation --> OpticCapabilityPresentation : may carry
-  OpticAdmissionTicketPosture --> OpticInvocation : echoes context
+  CapabilityGrantIntent --> PrincipalRef : proposed_by
+  CapabilityGrantIntent --> PrincipalRef : subject
+  AuthorityContext --> PrincipalRef : issuer
+  AuthorityContext --> AuthorityPolicy : policy
+  CapabilityGrantIntentGate --> CapabilityGrantIntent : records submitted
+  CapabilityGrantIntentGate --> AuthorityContext : evaluates with
+  CapabilityGrantIntentGate --> CapabilityGrantIntentOutcome : returns
+  CapabilityGrantIntentOutcome --> CapabilityGrantIntentPosture : carries
+  CapabilityGrantIntentPosture --> CapabilityGrantIntentObstruction : explains
 ```
 
 ## Entity relationship
 
 ```mermaid
 erDiagram
-  OPTIC_ARTIFACT ||--o{ CAPABILITY_GRANT : scoped_by
-  CAPABILITY_GRANT_REGISTRY ||--o{ CAPABILITY_GRANT : stores
-  OPTIC_INVOCATION }o--|| OPTIC_ARTIFACT_HANDLE : names
+  PRINCIPAL ||--o{ CAPABILITY_GRANT_INTENT : proposes
+  PRINCIPAL ||--o{ CAPABILITY_GRANT_INTENT : subject_of
+  AUTHORITY_POLICY ||--o{ AUTHORITY_CONTEXT : selected_by
+  CAPABILITY_GRANT_INTENT_GATE ||--o{ CAPABILITY_GRANT_INTENT : records_submitted
+  OPTIC_ARTIFACT ||--o{ CAPABILITY_GRANT_INTENT : scoped_by
+  CAPABILITY_GRANT_INTENT ||--|| GRANT_INTENT_POSTURE : obstructs_as
+  CAPABILITY_PRESENTATION }o--o| CAPABILITY_GRANT_INTENT : claims
   OPTIC_INVOCATION }o--o| CAPABILITY_PRESENTATION : carries
-  CAPABILITY_PRESENTATION }o--o| CAPABILITY_GRANT : claims
-  OPTIC_INVOCATION ||--|| ADMISSION_POSTURE : obstructs_as
+
+  PRINCIPAL {
+    string id
+  }
+
+  AUTHORITY_POLICY {
+    string policy_id
+  }
+
+  AUTHORITY_CONTEXT {
+    string issuer
+    string policy_id
+  }
 
   OPTIC_ARTIFACT {
     string artifact_hash
@@ -186,15 +237,17 @@ erDiagram
     string requirements_digest
   }
 
-  CAPABILITY_GRANT {
-    string grant_id
+  CAPABILITY_GRANT_INTENT {
+    string intent_id
+    string proposed_by
     string subject
     string artifact_hash
     string operation_id
     string requirements_digest
     string rights
     bytes scope_bytes
-    bytes budget_bytes
+    bytes expiry_bytes
+    bytes delegation_basis_bytes
   }
 
   CAPABILITY_PRESENTATION {
@@ -210,39 +263,48 @@ erDiagram
     bytes aperture_request
   }
 
-  ADMISSION_POSTURE {
+  GRANT_INTENT_POSTURE {
     string kind
     string obstruction
   }
 ```
 
-## Current grant shape
+## Current grant intent shape
 
-The current `CapabilityGrant` shape carries bounded material:
+The current `CapabilityGrantIntent` shape carries proposed authority material:
 
-- grant id;
-- subject;
+- intent id;
+- proposing principal;
+- subject principal;
 - artifact hash;
 - operation id;
 - requirements digest;
 - rights;
 - opaque scope bytes;
-- opaque budget bytes.
+- opaque expiry bytes;
+- opaque delegation-basis bytes.
 
-These fields are stored for a future validation slice. This slice intentionally
-does not decide whether any registered grant authorizes any optic invocation.
+`AuthorityContext` carries the issuer and selected policy shape. No policy is
+implemented in this slice.
 
 ## This slice does
 
-- stores `CapabilityGrant` values by grant id;
-- resolves a registered grant by grant id;
-- rejects duplicate grant ids;
-- rejects unknown grant lookups;
-- uses deterministic `BTreeMap` storage.
+- defines `PrincipalRef`;
+- defines `AuthorityPolicy` and `AuthorityContext`;
+- defines `CapabilityGrantIntent`;
+- defines `CapabilityGrantIntentPosture`;
+- classifies malformed grant intents;
+- classifies duplicate grant intents;
+- classifies missing issuer authority;
+- classifies unsupported authority policy;
+- records well-formed unique submitted intent ids deterministically;
+- keeps all grant intent submissions obstructed.
 
 ## This slice does not
 
 - validate invocation authority;
+- admit grant intents into witnessed history;
+- make any grant authority;
 - issue successful `AdmissionTicket` values;
 - emit `LawWitness` values;
 - verify signatures;
@@ -253,11 +315,11 @@ does not decide whether any registered grant authorizes any optic invocation.
 
 ## Boundary
 
-Grant registration means Echo has authority material available for later
-validation. It does not mean the grant applies to any invocation.
+Grant intent submission means Echo has seen proposed authority material. It does
+not mean the grant applies to any invocation.
 
-Capability presentation remains separate from grant registration. A
+Capability presentation remains separate from grant intent submission. A
 presentation may name a grant id, but it is not trusted until a future
-validation boundary proves that the registered grant covers the artifact,
-operation, requirements digest, subject, basis, aperture, rights, budget, and
-time posture for that exact invocation.
+validation boundary proves that an admitted grant covers the artifact,
+operation, requirements digest, subject, basis, aperture, rights, budget,
+expiry, delegation posture, and issuer authority for that exact invocation.

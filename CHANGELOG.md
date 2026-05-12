@@ -23,6 +23,10 @@
   posture carrying the invocation handle, operation id, canonical variables
   digest, basis request, aperture request, and structured obstruction reason.
   This is not a success ticket and does not authorize execution.
+- Optic invocation admission now classifies capability presentation obstruction
+  without validating grants: missing, malformed, unbound, and placeholder
+  presentations all remain obstructed until real bounded grant validation
+  exists.
 - Echo-owned WASM package boundary tooling: `scripts/build-warp-wasm-package.sh`
   now builds `crates/warp-wasm/pkg` with the bundler target and the package
   export smoke test imports `crates/warp-wasm/pkg/rmg_wasm.js` to verify the

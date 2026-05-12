@@ -72,6 +72,12 @@ fn expected_obstructed_posture(
     })
 }
 
+fn obstruction_for(outcome: &OpticInvocationAdmissionOutcome) -> OpticInvocationObstruction {
+    match outcome {
+        OpticInvocationAdmissionOutcome::Obstructed(posture) => posture.obstruction,
+    }
+}
+
 #[test]
 fn optic_invocation_obstructs_unknown_handle() {
     let registry = OpticArtifactRegistry::new();
@@ -118,12 +124,55 @@ fn optic_invocation_obstructs_missing_capability_for_registered_handle() -> Resu
 }
 
 #[test]
+fn optic_invocation_obstructs_malformed_capability_presentation() -> Result<(), String> {
+    let (registry, handle) = fixture_registry_and_handle()?;
+    let mut invocation = fixture_invocation(handle);
+    invocation.capability_presentation = Some(OpticCapabilityPresentation {
+        presentation_id: String::new(),
+        bound_grant_id: Some("grant:fixture".to_owned()),
+    });
+
+    let outcome = registry.admit_optic_invocation(&invocation);
+
+    assert_eq!(
+        outcome,
+        expected_obstructed_posture(
+            &invocation,
+            OpticInvocationObstruction::MalformedCapabilityPresentation
+        )
+    );
+    Ok(())
+}
+
+#[test]
+fn optic_invocation_obstructs_unbound_capability_presentation() -> Result<(), String> {
+    let (registry, handle) = fixture_registry_and_handle()?;
+    let mut invocation = fixture_invocation(handle);
+    invocation.capability_presentation = Some(OpticCapabilityPresentation {
+        presentation_id: "presentation:unbound".to_owned(),
+        bound_grant_id: None,
+    });
+
+    let outcome = registry.admit_optic_invocation(&invocation);
+
+    assert_eq!(
+        outcome,
+        expected_obstructed_posture(
+            &invocation,
+            OpticInvocationObstruction::UnboundCapabilityPresentation
+        )
+    );
+    Ok(())
+}
+
+#[test]
 fn optic_invocation_obstructs_placeholder_capability_presentation_until_grant_validation_exists(
 ) -> Result<(), String> {
     let (registry, handle) = fixture_registry_and_handle()?;
     let mut invocation = fixture_invocation(handle);
     invocation.capability_presentation = Some(OpticCapabilityPresentation {
         presentation_id: "presentation:placeholder".to_owned(),
+        bound_grant_id: Some("grant:placeholder".to_owned()),
     });
 
     let outcome = registry.admit_optic_invocation(&invocation);
@@ -135,5 +184,44 @@ fn optic_invocation_obstructs_placeholder_capability_presentation_until_grant_va
             OpticInvocationObstruction::CapabilityValidationUnavailable
         )
     );
+    Ok(())
+}
+
+#[test]
+fn optic_invocation_presentation_never_admits_without_real_grant_validation() -> Result<(), String>
+{
+    let presentations = [
+        (
+            OpticCapabilityPresentation {
+                presentation_id: String::new(),
+                bound_grant_id: Some("grant:fixture".to_owned()),
+            },
+            OpticInvocationObstruction::MalformedCapabilityPresentation,
+        ),
+        (
+            OpticCapabilityPresentation {
+                presentation_id: "presentation:unbound".to_owned(),
+                bound_grant_id: None,
+            },
+            OpticInvocationObstruction::UnboundCapabilityPresentation,
+        ),
+        (
+            OpticCapabilityPresentation {
+                presentation_id: "presentation:placeholder".to_owned(),
+                bound_grant_id: Some("grant:placeholder".to_owned()),
+            },
+            OpticInvocationObstruction::CapabilityValidationUnavailable,
+        ),
+    ];
+
+    for (presentation, expected_obstruction) in presentations {
+        let (registry, handle) = fixture_registry_and_handle()?;
+        let mut invocation = fixture_invocation(handle);
+        invocation.capability_presentation = Some(presentation);
+
+        let outcome = registry.admit_optic_invocation(&invocation);
+
+        assert_eq!(obstruction_for(&outcome), expected_obstruction);
+    }
     Ok(())
 }

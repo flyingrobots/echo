@@ -103,6 +103,69 @@ pub struct RegisteredOpticArtifact {
     pub requirements: OpticAdmissionRequirements,
 }
 
+/// Opaque basis request bytes supplied at optic invocation time.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpticBasisRequest {
+    /// Request bytes interpreted only below Echo's runtime admission boundary.
+    pub bytes: Vec<u8>,
+}
+
+/// Opaque aperture request bytes supplied at optic invocation time.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpticApertureRequest {
+    /// Request bytes interpreted only below Echo's runtime admission boundary.
+    pub bytes: Vec<u8>,
+}
+
+/// Placeholder capability presentation supplied at optic invocation time.
+///
+/// This v0 shape is intentionally not sufficient to authorize invocation. It
+/// exists only so the admission skeleton can name the future presentation slot
+/// without inventing grant validation semantics.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpticCapabilityPresentation {
+    /// Presentation identity supplied by the caller.
+    pub presentation_id: String,
+}
+
+/// Runtime invocation request against a registered optic artifact.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpticInvocation {
+    /// Echo-owned runtime-local artifact handle.
+    pub artifact_handle: OpticArtifactHandle,
+    /// Operation id the caller intends to invoke.
+    pub operation_id: String,
+    /// Digest of canonical invocation variable bytes.
+    pub canonical_variables_digest: Vec<u8>,
+    /// Requested causal basis for the invocation.
+    pub basis_request: OpticBasisRequest,
+    /// Requested aperture for the invocation.
+    pub aperture_request: OpticApertureRequest,
+    /// Caller authority presentation. Registration alone is not authority.
+    pub capability_presentation: Option<OpticCapabilityPresentation>,
+}
+
+/// Admission obstruction for an optic invocation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OpticInvocationObstruction {
+    /// Echo did not issue or cannot resolve the artifact handle.
+    UnknownHandle,
+    /// The invocation operation id does not match the registered artifact.
+    OperationMismatch,
+    /// The invocation does not carry authority to use the registered artifact.
+    MissingCapability,
+    /// A placeholder presentation was supplied, but real grant validation does
+    /// not exist in this slice.
+    CapabilityValidationUnavailable,
+}
+
+/// Admission outcome for a v0 optic invocation skeleton.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OpticInvocationAdmissionOutcome {
+    /// Echo obstructed the invocation before runtime execution.
+    Obstructed(OpticInvocationObstruction),
+}
+
 /// Registration and lookup errors for Echo optic artifact handles.
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub enum OpticArtifactRegistrationError {
@@ -185,6 +248,37 @@ impl OpticArtifactRegistry {
         self.artifacts_by_handle
             .get(&handle.id)
             .ok_or(OpticArtifactRegistrationError::UnknownHandle)
+    }
+
+    /// Admits or obstructs an invocation against a registered optic artifact.
+    ///
+    /// This v0 skeleton intentionally has no success path. It proves that Echo
+    /// resolves handles internally and that a registered handle is not authority.
+    pub fn admit_optic_invocation(
+        &self,
+        invocation: &OpticInvocation,
+    ) -> OpticInvocationAdmissionOutcome {
+        let Ok(registered) = self.resolve_optic_artifact_handle(&invocation.artifact_handle) else {
+            return OpticInvocationAdmissionOutcome::Obstructed(
+                OpticInvocationObstruction::UnknownHandle,
+            );
+        };
+
+        if invocation.operation_id != registered.operation_id {
+            return OpticInvocationAdmissionOutcome::Obstructed(
+                OpticInvocationObstruction::OperationMismatch,
+            );
+        }
+
+        if invocation.capability_presentation.is_none() {
+            return OpticInvocationAdmissionOutcome::Obstructed(
+                OpticInvocationObstruction::MissingCapability,
+            );
+        }
+
+        OpticInvocationAdmissionOutcome::Obstructed(
+            OpticInvocationObstruction::CapabilityValidationUnavailable,
+        )
     }
 
     /// Returns the number of registered artifacts.

@@ -248,8 +248,10 @@ pub use optic::{
     StagedIntent, StagedIntentReason, WitnessBasis, WorldlineHeadOptic,
 };
 pub use optic_artifact::{
-    OpticAdmissionRequirements, OpticArtifact, OpticArtifactHandle, OpticArtifactOperation,
-    OpticArtifactRegistrationError, OpticArtifactRegistry, OpticRegistrationDescriptor,
+    OpticAdmissionRequirements, OpticApertureRequest, OpticArtifact, OpticArtifactHandle,
+    OpticArtifactOperation, OpticArtifactRegistrationError, OpticArtifactRegistry,
+    OpticBasisRequest, OpticCapabilityPresentation, OpticInvocation,
+    OpticInvocationAdmissionOutcome, OpticInvocationObstruction, OpticRegistrationDescriptor,
     RegisteredOpticArtifact, OPTIC_ARTIFACT_HANDLE_KIND,
 };
 pub use playback::{CursorReceipt, TruthFrame, TruthSink};

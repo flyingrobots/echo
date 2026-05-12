@@ -12,6 +12,10 @@
   artifact hash, schema id, operation id, and requirements digest before
   storing admission requirements internally and returning an opaque
   `OpticArtifactHandle`.
+- `warp-core` now has an optic invocation admission skeleton that resolves
+  registered artifact handles internally and obstructs unknown handles,
+  operation mismatches, and registered-handle invocations without capability
+  presentation.
 - Echo-owned WASM package boundary tooling: `scripts/build-warp-wasm-package.sh`
   now builds `crates/warp-wasm/pkg` with the bundler target and the package
   export smoke test imports `crates/warp-wasm/pkg/rmg_wasm.js` to verify the

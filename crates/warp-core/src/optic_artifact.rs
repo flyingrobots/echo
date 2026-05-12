@@ -6,7 +6,9 @@
 //! invocation gate. [`OpticArtifactRegistry::admit_optic_invocation`] resolves
 //! handles internally, checks operation identity, and reports obstruction in a
 //! ticket-shaped pre-admission posture without validating grants, issuing
-//! success tickets, emitting law witnesses, or executing runtime work.
+//! success tickets, emitting law witnesses, or executing runtime work. A
+//! capability presentation slot is not authority; every presentation posture
+//! obstructs until Echo can validate a real bounded grant.
 
 use std::collections::BTreeMap;
 
@@ -124,12 +126,18 @@ pub struct OpticApertureRequest {
 /// Placeholder capability presentation supplied at optic invocation time.
 ///
 /// This v0 shape is intentionally not sufficient to authorize invocation. It
-/// exists only so the admission skeleton can name the future presentation slot
+/// exists only so the admission skeleton can classify presentation posture
 /// without inventing grant validation semantics.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OpticCapabilityPresentation {
     /// Presentation identity supplied by the caller.
     pub presentation_id: String,
+    /// Grant id the presentation claims to bind to.
+    ///
+    /// Echo does not validate this grant in this slice. A non-empty value only
+    /// moves the presentation from unbound to validation-unavailable
+    /// obstruction; it never authorizes invocation.
+    pub bound_grant_id: Option<String>,
 }
 
 /// Runtime invocation request against a registered optic artifact.
@@ -158,6 +166,10 @@ pub enum OpticInvocationObstruction {
     OperationMismatch,
     /// The invocation does not carry authority to use the registered artifact.
     MissingCapability,
+    /// The invocation carries a presentation that is structurally unusable.
+    MalformedCapabilityPresentation,
+    /// The invocation carries a presentation that is not bound to any grant.
+    UnboundCapabilityPresentation,
     /// A placeholder presentation was supplied, but real grant validation does
     /// not exist in this slice.
     CapabilityValidationUnavailable,
@@ -303,17 +315,33 @@ impl OpticArtifactRegistry {
             );
         }
 
-        if invocation.capability_presentation.is_none() {
-            return Self::obstructed_invocation(
-                invocation,
-                OpticInvocationObstruction::MissingCapability,
-            );
-        }
-
         Self::obstructed_invocation(
             invocation,
-            OpticInvocationObstruction::CapabilityValidationUnavailable,
+            Self::classify_capability_presentation(invocation.capability_presentation.as_ref()),
         )
+    }
+
+    fn classify_capability_presentation(
+        presentation: Option<&OpticCapabilityPresentation>,
+    ) -> OpticInvocationObstruction {
+        let Some(presentation) = presentation else {
+            return OpticInvocationObstruction::MissingCapability;
+        };
+
+        if presentation.presentation_id.is_empty()
+            || presentation
+                .bound_grant_id
+                .as_ref()
+                .is_some_and(String::is_empty)
+        {
+            return OpticInvocationObstruction::MalformedCapabilityPresentation;
+        }
+
+        if presentation.bound_grant_id.is_none() {
+            return OpticInvocationObstruction::UnboundCapabilityPresentation;
+        }
+
+        OpticInvocationObstruction::CapabilityValidationUnavailable
     }
 
     fn obstructed_invocation(

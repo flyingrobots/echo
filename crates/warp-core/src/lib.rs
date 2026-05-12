@@ -248,6 +248,7 @@ pub use optic::{
     StagedIntent, StagedIntentReason, WitnessBasis, WorldlineHeadOptic,
 };
 pub use optic_artifact::{
+    CapabilityGrant, CapabilityGrantRegistry, CapabilityGrantRegistryError,
     OpticAdmissionRequirements, OpticAdmissionTicketPosture, OpticApertureRequest, OpticArtifact,
     OpticArtifactHandle, OpticArtifactOperation, OpticArtifactRegistrationError,
     OpticArtifactRegistry, OpticBasisRequest, OpticCapabilityPresentation, OpticInvocation,

@@ -140,6 +140,33 @@ pub struct OpticCapabilityPresentation {
     pub bound_grant_id: Option<String>,
 }
 
+/// Authority material registered with Echo before invocation validation exists.
+///
+/// A grant can exist before it is trusted. Registration stores authority
+/// material; later validation proves whether it applies to a specific
+/// invocation. This type intentionally carries bounded grant material without
+/// implementing signature, expiry, delegation, or invocation validation
+/// semantics.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CapabilityGrant {
+    /// Echo-local grant identifier.
+    pub grant_id: String,
+    /// Subject the grant is intended to cover.
+    pub subject: String,
+    /// Compiled artifact hash the grant is scoped to.
+    pub artifact_hash: String,
+    /// Operation id the grant is scoped to.
+    pub operation_id: String,
+    /// Requirements digest the grant is scoped to.
+    pub requirements_digest: String,
+    /// Rights named by the authority layer.
+    pub rights: Vec<String>,
+    /// Opaque scope bytes registered for later validation.
+    pub scope_bytes: Vec<u8>,
+    /// Opaque budget bytes registered for later validation.
+    pub budget_bytes: Vec<u8>,
+}
+
 /// Runtime invocation request against a registered optic artifact.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OpticInvocation {
@@ -228,6 +255,80 @@ pub enum OpticArtifactRegistrationError {
     /// Echo could not resolve the opaque artifact handle.
     #[error("unknown optic artifact handle")]
     UnknownHandle,
+}
+
+/// Registration and lookup errors for Echo capability grants.
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
+pub enum CapabilityGrantRegistryError {
+    /// Echo already has a grant with the supplied id.
+    #[error("duplicate capability grant id")]
+    DuplicateGrantId,
+    /// Echo could not resolve the supplied grant id.
+    #[error("unknown capability grant id")]
+    UnknownGrantId,
+}
+
+/// Echo-owned deterministic storage for capability grants.
+///
+/// This registry only stores and resolves grant material. It does not validate
+/// grant applicability, issue admission tickets, emit law witnesses, or execute
+/// runtime work.
+#[derive(Clone, Debug, Default)]
+pub struct CapabilityGrantRegistry {
+    grants_by_id: BTreeMap<String, CapabilityGrant>,
+}
+
+impl CapabilityGrantRegistry {
+    /// Creates an empty capability grant registry.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Stores a capability grant by id.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapabilityGrantRegistryError::DuplicateGrantId`] if a grant
+    /// with the same id already exists.
+    pub fn register_capability_grant(
+        &mut self,
+        grant: CapabilityGrant,
+    ) -> Result<(), CapabilityGrantRegistryError> {
+        if self.grants_by_id.contains_key(&grant.grant_id) {
+            return Err(CapabilityGrantRegistryError::DuplicateGrantId);
+        }
+
+        self.grants_by_id.insert(grant.grant_id.clone(), grant);
+        Ok(())
+    }
+
+    /// Resolves a registered capability grant by id.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapabilityGrantRegistryError::UnknownGrantId`] if Echo has not
+    /// registered the grant id.
+    pub fn resolve_capability_grant(
+        &self,
+        grant_id: &str,
+    ) -> Result<&CapabilityGrant, CapabilityGrantRegistryError> {
+        self.grants_by_id
+            .get(grant_id)
+            .ok_or(CapabilityGrantRegistryError::UnknownGrantId)
+    }
+
+    /// Returns the number of registered grants.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.grants_by_id.len()
+    }
+
+    /// Returns `true` if no grants are registered.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.grants_by_id.is_empty()
+    }
 }
 
 /// Echo-owned runtime-local registry for Wesley-compiled optic artifacts.

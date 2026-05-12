@@ -101,6 +101,7 @@ pub mod materialization;
 mod neighborhood;
 mod observation;
 mod optic;
+mod optic_artifact;
 /// Parallel execution module.
 ///
 /// Provides both serial and parallel execution strategies for rewrite rules,
@@ -245,6 +246,11 @@ pub use optic::{
     RetainReadingRequest, RetainReadingResult, RetainedReadingCache, RetainedReadingCodecId,
     RetainedReadingDescriptor, RetainedReadingKey, RevealReadingRequest, RevealReadingResult,
     StagedIntent, StagedIntentReason, WitnessBasis, WorldlineHeadOptic,
+};
+pub use optic_artifact::{
+    OpticAdmissionRequirements, OpticArtifact, OpticArtifactHandle, OpticArtifactOperation,
+    OpticArtifactRegistrationError, OpticArtifactRegistry, OpticRegistrationDescriptor,
+    RegisteredOpticArtifact, OPTIC_ARTIFACT_HANDLE_KIND,
 };
 pub use playback::{CursorReceipt, TruthFrame, TruthSink};
 pub use provenance_store::{

@@ -4,9 +4,9 @@
 //!
 //! This module owns optic artifact registration and the first admission-only
 //! invocation gate. [`OpticArtifactRegistry::admit_optic_invocation`] resolves
-//! handles internally, checks operation identity, and obstructs missing or
-//! placeholder authority without validating grants, issuing admission tickets,
-//! emitting law witnesses, or executing runtime work.
+//! handles internally, checks operation identity, and reports obstruction in a
+//! ticket-shaped pre-admission posture without validating grants, issuing
+//! success tickets, emitting law witnesses, or executing runtime work.
 
 use std::collections::BTreeMap;
 
@@ -14,6 +14,9 @@ use thiserror::Error;
 
 /// Echo-owned handle kind for registered optic artifacts.
 pub const OPTIC_ARTIFACT_HANDLE_KIND: &str = "optic-artifact-handle";
+
+/// Echo-owned kind for a ticket-shaped pre-admission obstruction posture.
+pub const OPTIC_ADMISSION_TICKET_POSTURE_KIND: &str = "optic-admission-ticket-posture";
 
 const OPTIC_ARTIFACT_HANDLE_ID_PREFIX: &str = "optic-artifact-handle:";
 
@@ -160,12 +163,36 @@ pub enum OpticInvocationObstruction {
     CapabilityValidationUnavailable,
 }
 
+/// Ticket-shaped pre-admission posture for an obstructed optic invocation.
+///
+/// This is not a successful admission ticket and does not authorize runtime
+/// execution. It carries enough invocation context for callers and later
+/// witness code to explain why Echo obstructed before grant validation exists.
+#[must_use = "optic admission ticket postures explain obstructions that must be handled"]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpticAdmissionTicketPosture {
+    /// Stable discriminator for callers and wire adapters.
+    pub kind: String,
+    /// Echo-owned runtime-local artifact handle used by the invocation.
+    pub artifact_handle: OpticArtifactHandle,
+    /// Operation id the caller requested.
+    pub operation_id: String,
+    /// Digest of canonical invocation variable bytes.
+    pub canonical_variables_digest: Vec<u8>,
+    /// Requested causal basis for the invocation.
+    pub basis_request: OpticBasisRequest,
+    /// Requested aperture for the invocation.
+    pub aperture_request: OpticApertureRequest,
+    /// Structured reason Echo obstructed before runtime execution.
+    pub obstruction: OpticInvocationObstruction,
+}
+
 /// Admission outcome for a v0 optic invocation skeleton.
 #[must_use = "optic invocation admission outcomes carry obstructions that must be handled"]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum OpticInvocationAdmissionOutcome {
-    /// Echo obstructed the invocation before runtime execution.
-    Obstructed(OpticInvocationObstruction),
+    /// Echo obstructed the invocation before issuing any success ticket.
+    Obstructed(OpticAdmissionTicketPosture),
 }
 
 /// Registration and lookup errors for Echo optic artifact handles.
@@ -255,33 +282,53 @@ impl OpticArtifactRegistry {
     /// Admits or obstructs an invocation against a registered optic artifact.
     ///
     /// This v0 skeleton intentionally has no success path. It proves that Echo
-    /// resolves handles internally and that a registered handle is not authority.
+    /// resolves handles internally, that a registered handle is not authority,
+    /// and that obstruction is reported as a structured pre-ticket posture.
     #[must_use = "optic invocation admission outcomes carry obstructions that must be handled"]
     pub fn admit_optic_invocation(
         &self,
         invocation: &OpticInvocation,
     ) -> OpticInvocationAdmissionOutcome {
         let Ok(registered) = self.resolve_optic_artifact_handle(&invocation.artifact_handle) else {
-            return OpticInvocationAdmissionOutcome::Obstructed(
+            return Self::obstructed_invocation(
+                invocation,
                 OpticInvocationObstruction::UnknownHandle,
             );
         };
 
         if invocation.operation_id != registered.operation_id {
-            return OpticInvocationAdmissionOutcome::Obstructed(
+            return Self::obstructed_invocation(
+                invocation,
                 OpticInvocationObstruction::OperationMismatch,
             );
         }
 
         if invocation.capability_presentation.is_none() {
-            return OpticInvocationAdmissionOutcome::Obstructed(
+            return Self::obstructed_invocation(
+                invocation,
                 OpticInvocationObstruction::MissingCapability,
             );
         }
 
-        OpticInvocationAdmissionOutcome::Obstructed(
+        Self::obstructed_invocation(
+            invocation,
             OpticInvocationObstruction::CapabilityValidationUnavailable,
         )
+    }
+
+    fn obstructed_invocation(
+        invocation: &OpticInvocation,
+        obstruction: OpticInvocationObstruction,
+    ) -> OpticInvocationAdmissionOutcome {
+        OpticInvocationAdmissionOutcome::Obstructed(OpticAdmissionTicketPosture {
+            kind: OPTIC_ADMISSION_TICKET_POSTURE_KIND.to_owned(),
+            artifact_handle: invocation.artifact_handle.clone(),
+            operation_id: invocation.operation_id.clone(),
+            canonical_variables_digest: invocation.canonical_variables_digest.clone(),
+            basis_request: invocation.basis_request.clone(),
+            aperture_request: invocation.aperture_request.clone(),
+            obstruction,
+        })
     }
 
     /// Returns the number of registered artifacts.

@@ -160,6 +160,7 @@ pub enum OpticInvocationObstruction {
 }
 
 /// Admission outcome for a v0 optic invocation skeleton.
+#[must_use = "optic invocation admission outcomes carry obstructions that must be handled"]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OpticInvocationAdmissionOutcome {
     /// Echo obstructed the invocation before runtime execution.
@@ -254,6 +255,7 @@ impl OpticArtifactRegistry {
     ///
     /// This v0 skeleton intentionally has no success path. It proves that Echo
     /// resolves handles internally and that a registered handle is not authority.
+    #[must_use = "optic invocation admission outcomes carry obstructions that must be handled"]
     pub fn admit_optic_invocation(
         &self,
         invocation: &OpticInvocation,

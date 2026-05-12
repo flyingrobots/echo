@@ -4,8 +4,9 @@
 
 use warp_core::{
     OpticAdmissionRequirements, OpticApertureRequest, OpticArtifact, OpticArtifactHandle,
-    OpticArtifactOperation, OpticArtifactRegistry, OpticBasisRequest, OpticInvocation,
-    OpticInvocationAdmissionOutcome, OpticInvocationObstruction, OpticRegistrationDescriptor,
+    OpticArtifactOperation, OpticArtifactRegistry, OpticBasisRequest, OpticCapabilityPresentation,
+    OpticInvocation, OpticInvocationAdmissionOutcome, OpticInvocationObstruction,
+    OpticRegistrationDescriptor,
 };
 
 fn fixture_artifact() -> OpticArtifact {
@@ -96,5 +97,23 @@ fn optic_invocation_obstructs_missing_capability_for_registered_handle() {
     assert_eq!(
         outcome,
         OpticInvocationAdmissionOutcome::Obstructed(OpticInvocationObstruction::MissingCapability)
+    );
+}
+
+#[test]
+fn optic_invocation_obstructs_placeholder_capability_presentation_until_grant_validation_exists() {
+    let (registry, handle) = fixture_registry_and_handle();
+    let mut invocation = fixture_invocation(handle);
+    invocation.capability_presentation = Some(OpticCapabilityPresentation {
+        presentation_id: "presentation:placeholder".to_owned(),
+    });
+
+    let outcome = registry.admit_optic_invocation(&invocation);
+
+    assert_eq!(
+        outcome,
+        OpticInvocationAdmissionOutcome::Obstructed(
+            OpticInvocationObstruction::CapabilityValidationUnavailable
+        )
     );
 }

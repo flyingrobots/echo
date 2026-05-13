@@ -161,6 +161,18 @@ pub enum RewriteDisposition {
     Obstructed,
 }
 
+impl RewriteDisposition {
+    fn receipt_label(self) -> &'static str {
+        match self {
+            Self::Committed => "rewrite-disposition.committed",
+            Self::LegalUnselectedCounterfactual => {
+                "rewrite-disposition.legal-unselected-counterfactual"
+            }
+            Self::Obstructed => "rewrite-disposition.obstructed",
+        }
+    }
+}
+
 /// Causal receipt for a refused intent.
 ///
 /// Refusal is causal evidence, not an unrealized legal world. An
@@ -190,9 +202,7 @@ pub struct ObstructionReceipt {
     pub obstruction_kind: String,
     /// Rewrite disposition. Obstruction receipts must remain obstructed.
     pub disposition: RewriteDisposition,
-    /// Deterministic receipt input bytes.
-    pub receipt_input_bytes: Vec<u8>,
-    /// BLAKE3 digest of `receipt_input_bytes`.
+    /// BLAKE3 digest of [`ObstructionReceipt::build_receipt_input_bytes`].
     pub receipt_digest: [u8; 32],
 }
 
@@ -213,15 +223,7 @@ impl ObstructionReceipt {
             .policy_evaluation
             .receipt_label()
             .to_owned();
-        let receipt_input_bytes = Self::capability_grant_intent_receipt_input(
-            intent,
-            policy_id.as_deref(),
-            &policy_posture,
-            &obstruction_kind,
-        );
-        let receipt_digest = *blake3::hash(&receipt_input_bytes).as_bytes();
-
-        Self {
+        let mut receipt = Self {
             kind: OBSTRUCTION_RECEIPT_KIND.to_owned(),
             intent_id: intent.intent_id.clone(),
             proposed_by: intent.proposed_by.clone(),
@@ -233,34 +235,59 @@ impl ObstructionReceipt {
             policy_posture,
             obstruction_kind,
             disposition: RewriteDisposition::Obstructed,
-            receipt_input_bytes,
-            receipt_digest,
-        }
+            receipt_digest: [0_u8; 32],
+        };
+        receipt.receipt_digest = *blake3::hash(&receipt.build_receipt_input_bytes()).as_bytes();
+        receipt
     }
 
-    fn capability_grant_intent_receipt_input(
-        intent: &CapabilityGrantIntent,
-        policy_id: Option<&str>,
-        policy_posture: &str,
-        obstruction_kind: &str,
-    ) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        push_receipt_field(&mut bytes, OBSTRUCTION_RECEIPT_KIND.as_bytes());
-        push_receipt_field(&mut bytes, b"rewrite-disposition.obstructed");
-        push_receipt_field(&mut bytes, intent.intent_id.as_bytes());
-        push_receipt_field(&mut bytes, intent.proposed_by.id.as_bytes());
-        push_receipt_field(&mut bytes, intent.subject.id.as_bytes());
-        push_receipt_field(&mut bytes, intent.artifact_hash.as_bytes());
-        push_receipt_field(&mut bytes, intent.operation_id.as_bytes());
-        push_receipt_field(&mut bytes, intent.requirements_digest.as_bytes());
-        push_receipt_field(&mut bytes, policy_id.unwrap_or_default().as_bytes());
-        push_receipt_field(&mut bytes, policy_posture.as_bytes());
-        push_receipt_field(&mut bytes, obstruction_kind.as_bytes());
-        push_receipt_field_list(&mut bytes, &intent.rights);
-        push_receipt_field(&mut bytes, &intent.scope_bytes);
-        push_optional_receipt_field(&mut bytes, intent.expiry_bytes.as_deref());
-        push_optional_receipt_field(&mut bytes, intent.delegation_basis_bytes.as_deref());
+    /// Rebuilds the deterministic receipt input bytes represented by this
+    /// receipt.
+    ///
+    /// The input bytes are intentionally not stored on the receipt. Consumers
+    /// that need to verify [`ObstructionReceipt::receipt_digest`] can rebuild
+    /// the exact digest input on demand.
+    #[must_use]
+    pub fn build_receipt_input_bytes(&self) -> Vec<u8> {
+        let disposition = self.disposition.receipt_label();
+        let policy_id = self.policy_id.as_deref();
+        let mut bytes = Vec::with_capacity(self.receipt_input_capacity(disposition));
+
+        push_receipt_field(&mut bytes, self.kind.as_bytes());
+        push_receipt_field(&mut bytes, disposition.as_bytes());
+        push_receipt_field(&mut bytes, self.intent_id.as_bytes());
+        push_receipt_field(&mut bytes, self.proposed_by.id.as_bytes());
+        push_receipt_field(&mut bytes, self.subject.id.as_bytes());
+        push_receipt_field(&mut bytes, self.artifact_hash.as_bytes());
+        push_receipt_field(&mut bytes, self.operation_id.as_bytes());
+        push_receipt_field(&mut bytes, self.requirements_digest.as_bytes());
+        push_optional_receipt_field(&mut bytes, policy_id.map(str::as_bytes));
+        push_receipt_field(&mut bytes, self.policy_posture.as_bytes());
+        push_receipt_field(&mut bytes, self.obstruction_kind.as_bytes());
         bytes
+    }
+
+    fn receipt_input_capacity(&self, disposition: &str) -> usize {
+        const LENGTH_PREFIX_BYTES: usize = 8;
+        const OPTIONAL_TAG_BYTES: usize = 1;
+        const PLAIN_FIELD_COUNT: usize = 10;
+
+        (PLAIN_FIELD_COUNT * LENGTH_PREFIX_BYTES)
+            + OPTIONAL_TAG_BYTES
+            + self.kind.len()
+            + disposition.len()
+            + self.intent_id.len()
+            + self.proposed_by.id.len()
+            + self.subject.id.len()
+            + self.artifact_hash.len()
+            + self.operation_id.len()
+            + self.requirements_digest.len()
+            + self
+                .policy_id
+                .as_ref()
+                .map_or(0, |policy_id| LENGTH_PREFIX_BYTES + policy_id.len())
+            + self.policy_posture.len()
+            + self.obstruction_kind.len()
     }
 }
 
@@ -629,13 +656,6 @@ impl CapabilityGrantIntentGate {
 fn push_receipt_field(bytes: &mut Vec<u8>, field: &[u8]) {
     bytes.extend_from_slice(&(field.len() as u64).to_be_bytes());
     bytes.extend_from_slice(field);
-}
-
-fn push_receipt_field_list(bytes: &mut Vec<u8>, fields: &[String]) {
-    bytes.extend_from_slice(&(fields.len() as u64).to_be_bytes());
-    for field in fields {
-        push_receipt_field(bytes, field.as_bytes());
-    }
 }
 
 fn push_optional_receipt_field(bytes: &mut Vec<u8>, field: Option<&[u8]>) {

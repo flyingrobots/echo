@@ -306,6 +306,57 @@ fn capability_grant_intent_obstruction_receipt_is_deterministic() {
 }
 
 #[test]
+fn capability_grant_intent_obstruction_receipt_rebuilds_digest_input_bytes() {
+    let mut registry = CapabilityGrantIntentGate::new();
+    let intent = fixture_intent("intent:rebuild-receipt-input");
+    let outcome = registry.submit_grant_intent(intent, fixture_authority_context());
+    let receipt = receipt_for(&outcome);
+    let rebuilt_input = receipt.build_receipt_input_bytes();
+
+    assert_eq!(
+        receipt.receipt_digest,
+        *blake3::hash(&rebuilt_input).as_bytes()
+    );
+}
+
+#[test]
+fn capability_grant_intent_obstruction_receipt_distinguishes_absent_and_empty_policy_id() {
+    let intent = fixture_intent("intent:policy-presence");
+    let no_policy_context = AuthorityContext {
+        issuer: Some(principal("principal:issuer")),
+        policy: None,
+        policy_evaluation: AuthorityPolicyEvaluation::Unsupported,
+    };
+    let empty_policy_context = AuthorityContext {
+        issuer: Some(principal("principal:issuer")),
+        policy: Some(AuthorityPolicy {
+            policy_id: String::new(),
+        }),
+        policy_evaluation: AuthorityPolicyEvaluation::Unsupported,
+    };
+
+    let no_policy_receipt = ObstructionReceipt::for_capability_grant_intent(
+        &intent,
+        &no_policy_context,
+        CapabilityGrantIntentObstruction::UnsupportedAuthorityPolicy,
+    );
+    let empty_policy_receipt = ObstructionReceipt::for_capability_grant_intent(
+        &intent,
+        &empty_policy_context,
+        CapabilityGrantIntentObstruction::UnsupportedAuthorityPolicy,
+    );
+
+    assert_ne!(
+        no_policy_receipt.build_receipt_input_bytes(),
+        empty_policy_receipt.build_receipt_input_bytes()
+    );
+    assert_ne!(
+        no_policy_receipt.receipt_digest,
+        empty_policy_receipt.receipt_digest
+    );
+}
+
+#[test]
 fn capability_grant_intent_never_makes_grant_authority() {
     let mut malformed = fixture_intent("intent:malformed-empty-rights");
     malformed.rights.clear();
@@ -422,6 +473,6 @@ fn obstructed_intent_does_not_create_counterfactual_candidate() {
         receipt.disposition,
         RewriteDisposition::LegalUnselectedCounterfactual
     );
-    assert!(!receipt.receipt_input_bytes.is_empty());
+    assert!(!receipt.build_receipt_input_bytes().is_empty());
     assert_ne!(receipt.receipt_digest, [0_u8; 32]);
 }

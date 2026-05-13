@@ -357,9 +357,10 @@ The current `CapabilityGrantIntent` shape carries proposed authority material:
 evaluation field is policy-shaped evidence only; no trusted governance policy is
 implemented in this slice.
 
-`ObstructionReceipt` echoes the refusal context and carries deterministic
-length-prefixed receipt input bytes plus a BLAKE3 receipt digest. It is not an
-admission receipt, not a `LawWitness`, and not accepted authority.
+`ObstructionReceipt` echoes the refusal context and carries a BLAKE3 receipt
+digest over deterministic length-prefixed receipt input bytes that can be
+rebuilt on demand. It is not an admission receipt, not a `LawWitness`, and not
+accepted authority.
 
 ## This slice does
 

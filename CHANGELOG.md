@@ -7,6 +7,11 @@
 
 ### Added
 
+- `docs/design/transaction-optic-atomicity-model.md` defines Echo's doctrine for
+  atomic composite optics: one basis, one admission surface, transaction-local
+  execution, one committed delta, and receipt-emitting refusal or admission. It
+  also pins the rule that policy evaluation reading graph state is an atomic
+  causal phase, not a detached preflight query.
 - `warp-core` now has an Echo-owned `OpticArtifactRegistry` registration proof
   for Wesley-compiled optic artifacts. The registry verifies artifact id,
   artifact hash, schema id, operation id, and requirements digest before

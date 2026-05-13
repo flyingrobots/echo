@@ -14,6 +14,10 @@ Echo admits the grant intent into witnessed history.
 No principal can mint authority from nowhere. Grant intent must be authorized by
 prior authority, host root policy, quorum, or governance rule.
 
+Policy evaluation that reads graph state is not a detached preflight query. It
+is a basis-bound, aperture-bound, receipt-emitting atomic phase as described in
+[`transaction-optic-atomicity-model.md`](transaction-optic-atomicity-model.md).
+
 This slice only adds the shape and obstruction boundary. It does not implement a
 real authority policy and therefore every grant intent remains obstructed.
 

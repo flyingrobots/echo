@@ -301,14 +301,6 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v4
-            - name: Verify ripgrep
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  if ! command -v rg >/dev/null; then
-                    echo "Error: ripgrep (rg) is required by determinism guards but is not present on this runner." >&2
-                    exit 1
-                  fi
             - name: Ban globals
               shell: bash
               run: |

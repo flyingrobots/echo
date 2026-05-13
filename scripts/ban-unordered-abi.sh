@@ -6,11 +6,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-if ! command -v rg >/dev/null 2>&1; then
-  echo "ERROR: ripgrep (rg) is required." >&2
-  exit 2
-fi
-
 # Adjust these to your repo conventions
 ABI_HINTS=(
   "abi"
@@ -32,6 +27,7 @@ RG_ARGS=(
   --glob '!**/target/**'
   --glob '!**/node_modules/**'
 )
+GREP_ARGS=(-RInP --exclude-dir=.git --exclude-dir=target --exclude-dir=node_modules)
 
 # You can allow file-level exceptions via allowlist (keep it tiny).
 ALLOW_PATTERNS=()
@@ -50,7 +46,22 @@ fi
 # Build pattern and trim trailing '|' to avoid matching everything
 pattern="$(printf '%s|' "${ABI_HINTS[@]}")"
 pattern="${pattern%|}"
-mapfile -t files < <(rg "${RG_ARGS[@]}" -l -g'*.rs' "$pattern" crates/ || true)
+if command -v rg >/dev/null 2>&1; then
+  mapfile -t files < <(rg "${RG_ARGS[@]}" -l -g'*.rs' "$pattern" crates/ || true)
+else
+  if ! printf 'x\n' | grep -P 'x' >/dev/null 2>&1; then
+    echo "ERROR: ripgrep (rg) or grep -P is required." >&2
+    exit 2
+  fi
+  mapfile -t files < <(
+    find crates -type f -name '*.rs' \
+      -not -path '*/.git/*' \
+      -not -path '*/target/*' \
+      -not -path '*/node_modules/*' \
+      -print |
+      grep -P "$pattern" || true
+  )
+fi
 shopt -s globstar
 filtered=()
 for f in "${files[@]}"; do
@@ -76,8 +87,18 @@ echo "ban-unordered-abi: scanning ABI-ish Rust files..."
 violations=0
 
 # HashMap/HashSet are not allowed in ABI-ish types. Use Vec<(K,V)> sorted, BTreeMap, IndexMap with explicit canonicalization, etc.
-if rg "${RG_ARGS[@]}" -n -S '\b(HashMap|HashSet)\b' "${files[@]}"; then
+if command -v rg >/dev/null 2>&1; then
+  search_result=0
+  rg "${RG_ARGS[@]}" -n -S '\b(HashMap|HashSet)\b' "${files[@]}" || search_result=$?
+else
+  search_result=0
+  grep "${GREP_ARGS[@]}" '\b(HashMap|HashSet)\b' "${files[@]}" || search_result=$?
+fi
+
+if [[ $search_result -eq 0 ]]; then
   violations=$((violations+1))
+elif [[ $search_result -gt 1 ]]; then
+  exit "$search_result"
 fi
 
 if [[ $violations -ne 0 ]]; then

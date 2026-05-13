@@ -18,11 +18,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-if ! command -v rg >/dev/null 2>&1; then
-  echo "ERROR: ripgrep (rg) is required." >&2
-  exit 2
-fi
-
 PATHS_DEFAULT="crates/warp-core crates/warp-wasm crates/echo-wasm-abi"
 PATHS="${DETERMINISM_PATHS:-$PATHS_DEFAULT}"
 
@@ -37,8 +32,17 @@ RG_ARGS=(
   --glob '!**/.clippy.toml'
 )
 
+GREP_ARGS=(
+  -RInP
+  --exclude-dir=.git
+  --exclude-dir=target
+  --exclude-dir=node_modules
+  --exclude=.clippy.toml
+)
+
 # You can allow file-level exceptions via allowlist (keep it tiny).
 ALLOW_GLOBS=()
+ALLOW_GREP_EXCLUDES=()
 if [[ -f "$ALLOWLIST" ]]; then
   while IFS= read -r line; do
     [[ -z "$line" ]] && continue
@@ -47,8 +51,25 @@ if [[ -f "$ALLOWLIST" ]]; then
     pat="${pat%% *}"
     [[ -z "$pat" ]] && continue
     ALLOW_GLOBS+=(--glob "!$pat")
+    ALLOW_GREP_EXCLUDES+=(--exclude="$pat")
   done < "$ALLOWLIST"
 fi
+
+search_pattern() {
+  local pat="$1"
+
+  if command -v rg >/dev/null 2>&1; then
+    rg "${RG_ARGS[@]}" "${ALLOW_GLOBS[@]}" -n -S "$pat" $PATHS
+    return $?
+  fi
+
+  if ! printf 'x\n' | grep -P 'x' >/dev/null 2>&1; then
+    echo "ERROR: ripgrep (rg) or grep -P is required." >&2
+    return 2
+  fi
+
+  grep "${GREP_ARGS[@]}" "${ALLOW_GREP_EXCLUDES[@]}" "$pat" $PATHS
+}
 
 # Patterns: conservative and intentionally annoying.
 # If you hit a false positive, refactor; don't immediately allowlist.
@@ -112,7 +133,7 @@ echo
 violations=0
 for pat in "${PATTERNS[@]}"; do
   echo "Checking: $pat"
-  if rg "${RG_ARGS[@]}" "${ALLOW_GLOBS[@]}" -n -S "$pat" $PATHS; then
+  if search_pattern "$pat"; then
     echo
     violations=$((violations+1))
   else

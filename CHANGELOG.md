@@ -105,9 +105,9 @@
 
 ### Fixed
 
-- `Determinism Guards` now verifies a local `rg` binary instead of running
-  `apt-get install ripgrep`, so mirror stalls fail fast instead of hanging the
-  static determinism gate.
+- `Determinism Guards` no longer runs `apt-get install ripgrep`; static guard
+  scripts now fall back to `grep -P` when `rg` is unavailable, so mirror stalls
+  cannot hang the determinism gate.
 - Stack Witness 0001 fixture observations now require the fixture
   `createBuffer` and `replaceRange("hello")` history to be admitted and
   materialized before `textWindow` can return `QueryBytes("hello")`.

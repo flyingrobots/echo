@@ -182,6 +182,10 @@ pub struct ObstructionReceipt {
     pub operation_id: String,
     /// Requirements digest named by the refused intent.
     pub requirements_digest: String,
+    /// Authority policy id supplied with refusal context, if any.
+    pub policy_id: Option<String>,
+    /// Obstruction-only policy evaluation posture.
+    pub policy_posture: String,
     /// Structured obstruction kind encoded for receipt consumers.
     pub obstruction_kind: String,
     /// Rewrite disposition. Obstruction receipts must remain obstructed.
@@ -197,11 +201,24 @@ impl ObstructionReceipt {
     #[must_use]
     pub fn for_capability_grant_intent(
         intent: &CapabilityGrantIntent,
+        authority_context: &AuthorityContext,
         obstruction: CapabilityGrantIntentObstruction,
     ) -> Self {
         let obstruction_kind = obstruction.receipt_label().to_owned();
-        let receipt_input_bytes =
-            Self::capability_grant_intent_receipt_input(intent, &obstruction_kind);
+        let policy_id = authority_context
+            .policy
+            .as_ref()
+            .map(|policy| policy.policy_id.clone());
+        let policy_posture = authority_context
+            .policy_evaluation
+            .receipt_label()
+            .to_owned();
+        let receipt_input_bytes = Self::capability_grant_intent_receipt_input(
+            intent,
+            policy_id.as_deref(),
+            &policy_posture,
+            &obstruction_kind,
+        );
         let receipt_digest = *blake3::hash(&receipt_input_bytes).as_bytes();
 
         Self {
@@ -212,6 +229,8 @@ impl ObstructionReceipt {
             artifact_hash: intent.artifact_hash.clone(),
             operation_id: intent.operation_id.clone(),
             requirements_digest: intent.requirements_digest.clone(),
+            policy_id,
+            policy_posture,
             obstruction_kind,
             disposition: RewriteDisposition::Obstructed,
             receipt_input_bytes,
@@ -221,6 +240,8 @@ impl ObstructionReceipt {
 
     fn capability_grant_intent_receipt_input(
         intent: &CapabilityGrantIntent,
+        policy_id: Option<&str>,
+        policy_posture: &str,
         obstruction_kind: &str,
     ) -> Vec<u8> {
         let mut bytes = Vec::new();
@@ -232,6 +253,8 @@ impl ObstructionReceipt {
         push_receipt_field(&mut bytes, intent.artifact_hash.as_bytes());
         push_receipt_field(&mut bytes, intent.operation_id.as_bytes());
         push_receipt_field(&mut bytes, intent.requirements_digest.as_bytes());
+        push_receipt_field(&mut bytes, policy_id.unwrap_or_default().as_bytes());
+        push_receipt_field(&mut bytes, policy_posture.as_bytes());
         push_receipt_field(&mut bytes, obstruction_kind.as_bytes());
         push_receipt_field_list(&mut bytes, &intent.rights);
         push_receipt_field(&mut bytes, &intent.scope_bytes);
@@ -264,6 +287,16 @@ pub enum AuthorityPolicyEvaluation {
     ScopeEscalation,
     /// Echo does not have a supported authority policy implementation yet.
     Unsupported,
+}
+
+impl AuthorityPolicyEvaluation {
+    fn receipt_label(self) -> &'static str {
+        match self {
+            Self::InvalidDelegation => "authority-policy.invalid-delegation",
+            Self::ScopeEscalation => "authority-policy.scope-escalation",
+            Self::Unsupported => "authority-policy.unsupported",
+        }
+    }
 }
 
 /// Authority context supplied when proposing a capability grant intent.
@@ -495,7 +528,7 @@ impl CapabilityGrantIntentGate {
                 .insert(intent.intent_id.clone(), intent.clone());
         }
 
-        Self::obstructed_grant_intent(&intent, obstruction)
+        Self::obstructed_grant_intent(&intent, &authority_context, obstruction)
     }
 
     /// Returns the number of submitted grant intents.
@@ -575,6 +608,7 @@ impl CapabilityGrantIntentGate {
 
     fn obstructed_grant_intent(
         intent: &CapabilityGrantIntent,
+        authority_context: &AuthorityContext,
         obstruction: CapabilityGrantIntentObstruction,
     ) -> CapabilityGrantIntentOutcome {
         CapabilityGrantIntentOutcome::Obstructed(CapabilityGrantIntentPosture {
@@ -583,7 +617,11 @@ impl CapabilityGrantIntentGate {
             proposed_by: intent.proposed_by.clone(),
             subject: intent.subject.clone(),
             obstruction,
-            receipt: ObstructionReceipt::for_capability_grant_intent(intent, obstruction),
+            receipt: ObstructionReceipt::for_capability_grant_intent(
+                intent,
+                authority_context,
+                obstruction,
+            ),
         })
     }
 }

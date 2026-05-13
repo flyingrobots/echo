@@ -256,7 +256,8 @@ refused grant intent.
 
 The current `warp-core` grant-intent skeleton attaches an `ObstructionReceipt`
 to `CapabilityGrantIntentPosture`. That receipt carries the refused intent
-context and remains `RewriteDisposition::Obstructed`; it is not an admission
+context, authority policy id/posture when present, deterministic receipt input
+bytes, and remains `RewriteDisposition::Obstructed`; it is not an admission
 ticket, not a law witness, and not a counterfactual candidate.
 
 ## Operating rules

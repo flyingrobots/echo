@@ -40,6 +40,7 @@ fn fixture_authority_context() -> AuthorityContext {
 
 fn expected_obstructed_posture(
     intent: &CapabilityGrantIntent,
+    authority_context: &AuthorityContext,
     obstruction: CapabilityGrantIntentObstruction,
 ) -> CapabilityGrantIntentOutcome {
     CapabilityGrantIntentOutcome::Obstructed(CapabilityGrantIntentPosture {
@@ -48,7 +49,11 @@ fn expected_obstructed_posture(
         proposed_by: intent.proposed_by.clone(),
         subject: intent.subject.clone(),
         obstruction,
-        receipt: ObstructionReceipt::for_capability_grant_intent(intent, obstruction),
+        receipt: ObstructionReceipt::for_capability_grant_intent(
+            intent,
+            authority_context,
+            obstruction,
+        ),
     })
 }
 
@@ -70,12 +75,14 @@ fn capability_grant_intent_obstructs_malformed_grant_intent() {
     let mut intent = fixture_intent("intent:malformed");
     intent.artifact_hash.clear();
 
-    let outcome = registry.submit_grant_intent(intent.clone(), fixture_authority_context());
+    let authority_context = fixture_authority_context();
+    let outcome = registry.submit_grant_intent(intent.clone(), authority_context.clone());
 
     assert_eq!(
         outcome,
         expected_obstructed_posture(
             &intent,
+            &authority_context,
             CapabilityGrantIntentObstruction::MalformedGrantIntent
         )
     );
@@ -106,12 +113,14 @@ fn capability_grant_intent_obstructs_missing_required_identity_as_malformed() {
 
     for intent in malformed_intents {
         let mut registry = CapabilityGrantIntentGate::new();
-        let outcome = registry.submit_grant_intent(intent.clone(), fixture_authority_context());
+        let authority_context = fixture_authority_context();
+        let outcome = registry.submit_grant_intent(intent.clone(), authority_context.clone());
 
         assert_eq!(
             outcome,
             expected_obstructed_posture(
                 &intent,
+                &authority_context,
                 CapabilityGrantIntentObstruction::MalformedGrantIntent
             )
         );
@@ -136,6 +145,7 @@ fn capability_grant_intent_obstructs_replay_or_duplicate_grant_intent() {
         replay_outcome,
         expected_obstructed_posture(
             &replay_intent,
+            &fixture_authority_context(),
             CapabilityGrantIntentObstruction::ReplayOrDuplicateIntent
         )
     );
@@ -153,12 +163,13 @@ fn capability_grant_intent_obstructs_missing_issuer_authority() {
         policy_evaluation: AuthorityPolicyEvaluation::Unsupported,
     };
 
-    let outcome = registry.submit_grant_intent(intent.clone(), authority_context);
+    let outcome = registry.submit_grant_intent(intent.clone(), authority_context.clone());
 
     assert_eq!(
         outcome,
         expected_obstructed_posture(
             &intent,
+            &authority_context,
             CapabilityGrantIntentObstruction::MissingIssuerAuthority
         )
     );
@@ -176,11 +187,15 @@ fn capability_grant_intent_obstructs_invalid_delegation() {
         policy_evaluation: AuthorityPolicyEvaluation::InvalidDelegation,
     };
 
-    let outcome = registry.submit_grant_intent(intent.clone(), authority_context);
+    let outcome = registry.submit_grant_intent(intent.clone(), authority_context.clone());
 
     assert_eq!(
         outcome,
-        expected_obstructed_posture(&intent, CapabilityGrantIntentObstruction::InvalidDelegation)
+        expected_obstructed_posture(
+            &intent,
+            &authority_context,
+            CapabilityGrantIntentObstruction::InvalidDelegation
+        )
     );
 }
 
@@ -196,11 +211,15 @@ fn capability_grant_intent_obstructs_scope_escalation() {
         policy_evaluation: AuthorityPolicyEvaluation::ScopeEscalation,
     };
 
-    let outcome = registry.submit_grant_intent(intent.clone(), authority_context);
+    let outcome = registry.submit_grant_intent(intent.clone(), authority_context.clone());
 
     assert_eq!(
         outcome,
-        expected_obstructed_posture(&intent, CapabilityGrantIntentObstruction::ScopeEscalation)
+        expected_obstructed_posture(
+            &intent,
+            &authority_context,
+            CapabilityGrantIntentObstruction::ScopeEscalation
+        )
     );
 }
 
@@ -216,12 +235,13 @@ fn capability_grant_intent_obstructs_missing_policy_identity_as_unsupported_poli
         policy_evaluation: AuthorityPolicyEvaluation::InvalidDelegation,
     };
 
-    let outcome = registry.submit_grant_intent(intent.clone(), authority_context);
+    let outcome = registry.submit_grant_intent(intent.clone(), authority_context.clone());
 
     assert_eq!(
         outcome,
         expected_obstructed_posture(
             &intent,
+            &authority_context,
             CapabilityGrantIntentObstruction::UnsupportedAuthorityPolicy
         )
     );
@@ -232,15 +252,57 @@ fn capability_grant_intent_obstructs_unsupported_authority_policy() {
     let mut registry = CapabilityGrantIntentGate::new();
     let intent = fixture_intent("intent:unsupported-policy");
 
-    let outcome = registry.submit_grant_intent(intent.clone(), fixture_authority_context());
+    let authority_context = fixture_authority_context();
+    let outcome = registry.submit_grant_intent(intent.clone(), authority_context.clone());
 
     assert_eq!(
         outcome,
         expected_obstructed_posture(
             &intent,
+            &authority_context,
             CapabilityGrantIntentObstruction::UnsupportedAuthorityPolicy
         )
     );
+}
+
+#[test]
+fn capability_grant_intent_obstruction_receipt_echoes_refusal_context() {
+    let mut registry = CapabilityGrantIntentGate::new();
+    let intent = fixture_intent("intent:obstruction-receipt");
+    let authority_context = fixture_authority_context();
+
+    let outcome = registry.submit_grant_intent(intent.clone(), authority_context);
+    let receipt = receipt_for(&outcome);
+
+    assert_eq!(receipt.intent_id, intent.intent_id);
+    assert_eq!(receipt.proposed_by, intent.proposed_by);
+    assert_eq!(receipt.subject, intent.subject);
+    assert_eq!(receipt.artifact_hash, intent.artifact_hash);
+    assert_eq!(receipt.operation_id, intent.operation_id);
+    assert_eq!(receipt.requirements_digest, intent.requirements_digest);
+    assert_eq!(
+        receipt.policy_id,
+        Some("authority-policy:fixture".to_owned())
+    );
+    assert_eq!(receipt.policy_posture, "authority-policy.unsupported");
+    assert_eq!(
+        receipt.obstruction_kind,
+        "capability-grant-intent.unsupported-authority-policy"
+    );
+    assert_eq!(receipt.disposition, RewriteDisposition::Obstructed);
+}
+
+#[test]
+fn capability_grant_intent_obstruction_receipt_is_deterministic() {
+    let intent = fixture_intent("intent:deterministic-obstruction-receipt");
+    let authority_context = fixture_authority_context();
+    let mut first_registry = CapabilityGrantIntentGate::new();
+    let mut second_registry = CapabilityGrantIntentGate::new();
+
+    let first = first_registry.submit_grant_intent(intent.clone(), authority_context.clone());
+    let second = second_registry.submit_grant_intent(intent, authority_context);
+
+    assert_eq!(first, second);
 }
 
 #[test]
@@ -346,6 +408,11 @@ fn obstructed_intent_does_not_create_counterfactual_candidate() {
     assert_eq!(receipt.artifact_hash, intent.artifact_hash);
     assert_eq!(receipt.operation_id, intent.operation_id);
     assert_eq!(receipt.requirements_digest, intent.requirements_digest);
+    assert_eq!(
+        receipt.policy_id,
+        Some("authority-policy:fixture".to_owned())
+    );
+    assert_eq!(receipt.policy_posture, "authority-policy.unsupported");
     assert_eq!(
         receipt.obstruction_kind,
         "capability-grant-intent.malformed-grant-intent"

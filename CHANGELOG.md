@@ -14,7 +14,8 @@
 - `warp-core` now attaches an `ObstructionReceipt` to capability grant intent
   refusals. The receipt records causal refusal context and remains explicitly
   `RewriteDisposition::Obstructed`, not an admission ticket, law witness, or
-  counterfactual candidate.
+  counterfactual candidate. It also carries the authority policy id/posture used
+  to classify the refusal when that policy context is present.
 - `docs/design/transaction-optic-atomicity-model.md` defines Echo's doctrine for
   atomic composite optics: one basis, one admission surface, transaction-local
   execution, one committed delta, and receipt-emitting refusal or admission. It

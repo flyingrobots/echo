@@ -11,6 +11,10 @@
   obstruction receipts from counterfactual retention: refusal is a causal event
   but not admission, and counterfactuals begin only after a rewrite is legally
   admitted and then left unselected at the scheduler boundary.
+- `warp-core` now attaches an `ObstructionReceipt` to capability grant intent
+  refusals. The receipt records causal refusal context and remains explicitly
+  `RewriteDisposition::Obstructed`, not an admission ticket, law witness, or
+  counterfactual candidate.
 - `docs/design/transaction-optic-atomicity-model.md` defines Echo's doctrine for
   atomic composite optics: one basis, one admission surface, transaction-local
   execution, one committed delta, and receipt-emitting refusal or admission. It

@@ -254,6 +254,11 @@ A future legal grant rewrite that is admitted and then not selected by a
 scheduler may become a counterfactual candidate. That is different from a
 refused grant intent.
 
+The current `warp-core` grant-intent skeleton attaches an `ObstructionReceipt`
+to `CapabilityGrantIntentPosture`. That receipt carries the refused intent
+context and remains `RewriteDisposition::Obstructed`; it is not an admission
+ticket, not a law witness, and not a counterfactual candidate.
+
 ## Operating rules
 
 - Record refusals as causal obstruction receipts when the refusal matters to

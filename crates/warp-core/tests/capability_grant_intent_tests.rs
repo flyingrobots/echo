@@ -5,7 +5,8 @@
 use warp_core::{
     AuthorityContext, AuthorityPolicy, AuthorityPolicyEvaluation, CapabilityGrantIntent,
     CapabilityGrantIntentGate, CapabilityGrantIntentObstruction, CapabilityGrantIntentOutcome,
-    CapabilityGrantIntentPosture, PrincipalRef,
+    CapabilityGrantIntentPosture, ObstructionReceipt, PrincipalRef, RewriteDisposition,
+    OBSTRUCTION_RECEIPT_KIND,
 };
 
 fn principal(id: &str) -> PrincipalRef {
@@ -47,12 +48,19 @@ fn expected_obstructed_posture(
         proposed_by: intent.proposed_by.clone(),
         subject: intent.subject.clone(),
         obstruction,
+        receipt: ObstructionReceipt::for_capability_grant_intent(intent, obstruction),
     })
 }
 
 fn obstruction_for(outcome: &CapabilityGrantIntentOutcome) -> CapabilityGrantIntentObstruction {
     match outcome {
         CapabilityGrantIntentOutcome::Obstructed(posture) => posture.obstruction,
+    }
+}
+
+fn receipt_for(outcome: &CapabilityGrantIntentOutcome) -> &ObstructionReceipt {
+    match outcome {
+        CapabilityGrantIntentOutcome::Obstructed(posture) => &posture.receipt,
     }
 }
 
@@ -319,4 +327,34 @@ fn capability_grant_intent_never_makes_grant_authority() {
         obstruction_for(&outcomes[5]),
         CapabilityGrantIntentObstruction::UnsupportedAuthorityPolicy
     );
+}
+
+#[test]
+fn obstructed_intent_does_not_create_counterfactual_candidate() {
+    let mut registry = CapabilityGrantIntentGate::new();
+    let mut intent = fixture_intent("intent:not-counterfactual");
+    intent.rights.clear();
+
+    let outcome = registry.submit_grant_intent(intent.clone(), fixture_authority_context());
+    let receipt = receipt_for(&outcome);
+
+    assert_eq!(registry.len(), 0);
+    assert_eq!(receipt.kind, OBSTRUCTION_RECEIPT_KIND);
+    assert_eq!(receipt.intent_id, intent.intent_id);
+    assert_eq!(receipt.proposed_by, intent.proposed_by);
+    assert_eq!(receipt.subject, intent.subject);
+    assert_eq!(receipt.artifact_hash, intent.artifact_hash);
+    assert_eq!(receipt.operation_id, intent.operation_id);
+    assert_eq!(receipt.requirements_digest, intent.requirements_digest);
+    assert_eq!(
+        receipt.obstruction_kind,
+        "capability-grant-intent.malformed-grant-intent"
+    );
+    assert_eq!(receipt.disposition, RewriteDisposition::Obstructed);
+    assert_ne!(
+        receipt.disposition,
+        RewriteDisposition::LegalUnselectedCounterfactual
+    );
+    assert!(!receipt.receipt_input_bytes.is_empty());
+    assert_ne!(receipt.receipt_digest, [0_u8; 32]);
 }

@@ -105,6 +105,9 @@
 
 ### Fixed
 
+- `Determinism Guards` now verifies a local `rg` binary instead of running
+  `apt-get install ripgrep`, so mirror stalls fail fast instead of hanging the
+  static determinism gate.
 - Stack Witness 0001 fixture observations now require the fixture
   `createBuffer` and `replaceRange("hello")` history to be admitted and
   materialized before `textWindow` can return `QueryBytes("hello")`.

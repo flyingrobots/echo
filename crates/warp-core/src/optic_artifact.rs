@@ -230,6 +230,33 @@ pub enum CapabilityGrantIntentObstruction {
     UnsupportedAuthorityPolicy,
 }
 
+/// Echo-owned refusal receipt for an obstructed capability grant intent.
+///
+/// This is not an admission receipt, not a law witness, and not accepted
+/// authority. It makes refusal durable by carrying deterministic input bytes
+/// and a deterministic v0 receipt digest for the obstructed grant intent.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CapabilityGrantIntentObstructionReceipt {
+    /// Stable discriminator for callers and wire adapters.
+    pub kind: String,
+    /// Intent id named by the grant intent.
+    pub intent_id: String,
+    /// Principal proposing the authority change.
+    pub proposed_by: PrincipalRef,
+    /// Subject that would receive authority if the intent were admitted.
+    pub subject: PrincipalRef,
+    /// Structured reason Echo obstructed before admitting the grant.
+    pub obstruction: CapabilityGrantIntentObstruction,
+    /// Authority policy id supplied with the obstruction context, if any.
+    pub policy_id: Option<String>,
+    /// Obstruction-only policy evaluation posture.
+    pub policy_posture: String,
+    /// Deterministic bytes used to derive the receipt digest.
+    pub receipt_input_bytes: Vec<u8>,
+    /// Deterministic v0 receipt digest bytes.
+    pub receipt_digest: Vec<u8>,
+}
+
 /// Obstructed posture for a submitted capability grant intent.
 ///
 /// This is not an admitted grant receipt and does not make the grant authority.
@@ -248,6 +275,8 @@ pub struct CapabilityGrantIntentPosture {
     pub subject: PrincipalRef,
     /// Structured reason Echo obstructed before admitting the grant.
     pub obstruction: CapabilityGrantIntentObstruction,
+    /// Receipt-shaped durable refusal context.
+    pub receipt: CapabilityGrantIntentObstructionReceipt,
 }
 
 /// Submission outcome for a capability grant intent skeleton.
@@ -383,7 +412,7 @@ impl CapabilityGrantIntentGate {
                 .insert(intent.intent_id.clone(), intent.clone());
         }
 
-        Self::obstructed_grant_intent(&intent, obstruction)
+        Self::obstructed_grant_intent(&intent, &authority_context, obstruction)
     }
 
     /// Returns the number of submitted grant intents.
@@ -463,15 +492,82 @@ impl CapabilityGrantIntentGate {
 
     fn obstructed_grant_intent(
         intent: &CapabilityGrantIntent,
+        authority_context: &AuthorityContext,
         obstruction: CapabilityGrantIntentObstruction,
     ) -> CapabilityGrantIntentOutcome {
+        let receipt = Self::obstruction_receipt(intent, authority_context, obstruction);
         CapabilityGrantIntentOutcome::Obstructed(CapabilityGrantIntentPosture {
             kind: "capability-grant-intent-posture".to_owned(),
             intent_id: intent.intent_id.clone(),
             proposed_by: intent.proposed_by.clone(),
             subject: intent.subject.clone(),
             obstruction,
+            receipt,
         })
+    }
+
+    fn obstruction_receipt(
+        intent: &CapabilityGrantIntent,
+        authority_context: &AuthorityContext,
+        obstruction: CapabilityGrantIntentObstruction,
+    ) -> CapabilityGrantIntentObstructionReceipt {
+        let policy_id = authority_context
+            .policy
+            .as_ref()
+            .map(|policy| policy.policy_id.clone());
+        let policy_posture = format!("{:?}", authority_context.policy_evaluation);
+        let receipt_input_bytes = Self::obstruction_receipt_input_bytes(
+            intent,
+            obstruction,
+            policy_id.as_deref(),
+            &policy_posture,
+        );
+        let receipt_digest = Self::obstruction_receipt_digest(&receipt_input_bytes);
+
+        CapabilityGrantIntentObstructionReceipt {
+            kind: "capability-grant-intent-obstruction-receipt".to_owned(),
+            intent_id: intent.intent_id.clone(),
+            proposed_by: intent.proposed_by.clone(),
+            subject: intent.subject.clone(),
+            obstruction,
+            policy_id,
+            policy_posture,
+            receipt_input_bytes,
+            receipt_digest,
+        }
+    }
+
+    fn obstruction_receipt_input_bytes(
+        intent: &CapabilityGrantIntent,
+        obstruction: CapabilityGrantIntentObstruction,
+        policy_id: Option<&str>,
+        policy_posture: &str,
+    ) -> Vec<u8> {
+        let obstruction = format!("{obstruction:?}");
+        let mut input = Vec::new();
+        Self::append_receipt_field(
+            &mut input,
+            "domain",
+            b"capability-grant-intent-obstruction-receipt/v0",
+        );
+        Self::append_receipt_field(&mut input, "intent_id", intent.intent_id.as_bytes());
+        Self::append_receipt_field(&mut input, "proposed_by", intent.proposed_by.id.as_bytes());
+        Self::append_receipt_field(&mut input, "subject", intent.subject.id.as_bytes());
+        Self::append_receipt_field(&mut input, "obstruction", obstruction.as_bytes());
+        Self::append_receipt_field(&mut input, "policy_id", policy_id.unwrap_or("").as_bytes());
+        Self::append_receipt_field(&mut input, "policy_posture", policy_posture.as_bytes());
+        input
+    }
+
+    fn obstruction_receipt_digest(receipt_input_bytes: &[u8]) -> Vec<u8> {
+        blake3::hash(receipt_input_bytes).as_bytes().to_vec()
+    }
+
+    fn append_receipt_field(input: &mut Vec<u8>, field_name: &str, value: &[u8]) {
+        input.extend_from_slice(field_name.as_bytes());
+        input.push(0);
+        input.extend_from_slice(&(value.len() as u64).to_be_bytes());
+        input.extend_from_slice(value);
     }
 }
 

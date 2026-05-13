@@ -17,6 +17,9 @@ prior authority, host root policy, quorum, or governance rule.
 This slice only adds the shape and obstruction boundary. It does not implement a
 real authority policy and therefore every grant intent remains obstructed.
 
+Refusal is a first-class causal event. An obstruction receipt makes "no"
+durable without making "yes" real.
+
 The ladder is:
 
 - registered handle is not authority;
@@ -33,8 +36,8 @@ The lawful optic path is converging through small boundaries:
 2. Echo registers the artifact and returns an `OpticArtifactHandle`.
 3. An authority layer proposes bounded authority as `CapabilityGrantIntent`.
 4. Echo evaluates the intent through an authority context and policy shape.
-5. Echo returns `CapabilityGrantIntentPosture::Obstructed(...)` for every v0
-   intent.
+5. Echo returns `CapabilityGrantIntentPosture::Obstructed(...)` with a
+   `CapabilityGrantIntentObstructionReceipt` for every v0 intent.
 6. A caller may later present an invocation with an artifact handle and
    presentation.
 7. Current Echo invocation admission still obstructs every presentation.
@@ -51,6 +54,7 @@ flowchart LR
   Context[AuthorityContext]
   Policy[AuthorityPolicy]
   Gate[CapabilityGrantIntentGate]
+  Receipt[CapabilityGrantIntentObstructionReceipt]
   Invocation[OpticInvocation]
   Admission[Invocation admission]
   FutureGrant[Future admitted grant]
@@ -65,7 +69,8 @@ flowchart LR
   Context --> Policy
   Intent --> Gate
   Context --> Gate
-  Gate -->|Obstructed posture| Authority
+  Gate -->|Obstructed posture| Receipt
+  Receipt -->|durable refusal| Authority
   Gate -. future witnessed admission .-> FutureGrant
   App -->|handle + vars + presentation| Invocation
   Invocation --> Admission
@@ -91,25 +96,25 @@ sequenceDiagram
   P->>E: submit_grant_intent(intent, authority_context)
   E->>G: classify intent + authority context
   alt malformed intent
-    G-->>E: Obstructed(MalformedGrantIntent)
+    G-->>E: Obstructed(MalformedGrantIntent + ObstructionReceipt)
     E-->>P: not authority
   else replay or duplicate intent id
-    G-->>E: Obstructed(ReplayOrDuplicateIntent)
+    G-->>E: Obstructed(ReplayOrDuplicateIntent + ObstructionReceipt)
     E-->>P: not authority
   else missing issuer authority
-    G-->>E: Obstructed(MissingIssuerAuthority)
+    G-->>E: Obstructed(MissingIssuerAuthority + ObstructionReceipt)
     E-->>P: not authority
   else invalid delegation
     G->>G: record submitted intent id for replay/duplicate obstruction
-    G-->>E: Obstructed(InvalidDelegation)
+    G-->>E: Obstructed(InvalidDelegation + ObstructionReceipt)
     E-->>P: not authority
   else scope escalation
     G->>G: record submitted intent id for replay/duplicate obstruction
-    G-->>E: Obstructed(ScopeEscalation)
+    G-->>E: Obstructed(ScopeEscalation + ObstructionReceipt)
     E-->>P: not authority
   else no supported policy exists
     G->>G: record submitted intent id for replay/duplicate obstruction
-    G-->>E: Obstructed(UnsupportedAuthorityPolicy)
+    G-->>E: Obstructed(UnsupportedAuthorityPolicy + ObstructionReceipt)
     E-->>P: not authority
   end
 
@@ -197,6 +202,19 @@ classDiagram
     +proposed_by
     +subject
     +obstruction
+    +receipt
+  }
+
+  class CapabilityGrantIntentObstructionReceipt {
+    +kind
+    +intent_id
+    +proposed_by
+    +subject
+    +obstruction
+    +policy_id
+    +policy_posture
+    +receipt_input_bytes
+    +receipt_digest
   }
 
   class CapabilityGrantIntentObstruction {
@@ -224,6 +242,7 @@ classDiagram
   CapabilityGrantIntentGate --> CapabilityGrantIntentOutcome : returns
   CapabilityGrantIntentOutcome --> CapabilityGrantIntentPosture : carries
   CapabilityGrantIntentPosture --> CapabilityGrantIntentObstruction : explains
+  CapabilityGrantIntentPosture --> CapabilityGrantIntentObstructionReceipt : receipts
 ```
 
 ## Entity relationship
@@ -236,6 +255,7 @@ erDiagram
   CAPABILITY_GRANT_INTENT_GATE ||--o{ CAPABILITY_GRANT_INTENT : records_submitted
   OPTIC_ARTIFACT ||--o{ CAPABILITY_GRANT_INTENT : scoped_by
   CAPABILITY_GRANT_INTENT ||--|| GRANT_INTENT_POSTURE : obstructs_as
+  GRANT_INTENT_POSTURE ||--|| GRANT_INTENT_OBSTRUCTION_RECEIPT : carries
   CAPABILITY_PRESENTATION }o--o| CAPABILITY_GRANT_INTENT : claims
   OPTIC_INVOCATION }o--o| CAPABILITY_PRESENTATION : carries
 
@@ -289,6 +309,18 @@ erDiagram
     string kind
     string obstruction
   }
+
+  GRANT_INTENT_OBSTRUCTION_RECEIPT {
+    string kind
+    string intent_id
+    string proposed_by
+    string subject
+    string obstruction
+    string policy_id
+    string policy_posture
+    bytes receipt_input_bytes
+    bytes receipt_digest
+  }
 ```
 
 ## Current grant intent shape
@@ -311,18 +343,24 @@ The current `CapabilityGrantIntent` shape carries proposed authority material:
 evaluation field is policy-shaped evidence only; no trusted governance policy is
 implemented in this slice.
 
+`CapabilityGrantIntentObstructionReceipt` echoes the refusal context and carries
+deterministic length-prefixed receipt input bytes plus a BLAKE3 receipt digest.
+It is not an admission receipt, not a `LawWitness`, and not accepted authority.
+
 ## This slice does
 
 - defines `PrincipalRef`;
 - defines `AuthorityPolicy` and `AuthorityContext`;
 - defines `CapabilityGrantIntent`;
 - defines `CapabilityGrantIntentPosture`;
+- defines `CapabilityGrantIntentObstructionReceipt`;
 - classifies malformed grant intents;
 - classifies replay/duplicate grant intents as `ReplayOrDuplicateIntent`;
 - classifies missing issuer authority;
 - classifies invalid delegation;
 - classifies scope escalation;
 - classifies unsupported authority policy;
+- receipts every obstructed grant intent as durable refusal;
 - records well-formed unique submitted intent ids deterministically;
 - keeps all grant intent submissions obstructed.
 
@@ -332,6 +370,7 @@ implemented in this slice.
 - admit grant intents into witnessed history;
 - make any grant authority;
 - issue successful `AdmissionTicket` values;
+- issue admission receipts;
 - emit `LawWitness` values;
 - verify signatures;
 - implement expiry semantics;

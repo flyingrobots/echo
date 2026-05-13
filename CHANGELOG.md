@@ -33,6 +33,11 @@
   invalid-delegation, scope-escalation, replay/duplicate, and unsupported-policy
   grant intents, and keeps all submissions from becoming authority until future
   witnessed grant admission exists.
+- Capability grant intent obstruction now carries a
+  `CapabilityGrantIntentObstructionReceipt`. The receipt echoes refusal context,
+  stores deterministic length-prefixed receipt input bytes, and records a
+  BLAKE3 receipt digest without creating admitted authority, an admission
+  receipt, or a law witness.
 - Echo-owned WASM package boundary tooling: `scripts/build-warp-wasm-package.sh`
   now builds `crates/warp-wasm/pkg` with the bundler target and the package
   export smoke test imports `crates/warp-wasm/pkg/rmg_wasm.js` to verify the

@@ -249,7 +249,8 @@ pub use optic::{
 };
 pub use optic_artifact::{
     AuthorityContext, AuthorityPolicy, AuthorityPolicyEvaluation, CapabilityGrantIntent,
-    CapabilityGrantIntentGate, CapabilityGrantIntentObstruction, CapabilityGrantIntentOutcome,
+    CapabilityGrantIntentGate, CapabilityGrantIntentObstruction,
+    CapabilityGrantIntentObstructionReceipt, CapabilityGrantIntentOutcome,
     CapabilityGrantIntentPosture, OpticAdmissionRequirements, OpticAdmissionTicketPosture,
     OpticApertureRequest, OpticArtifact, OpticArtifactHandle, OpticArtifactOperation,
     OpticArtifactRegistrationError, OpticArtifactRegistry, OpticBasisRequest,

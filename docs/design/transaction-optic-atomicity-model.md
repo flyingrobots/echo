@@ -10,6 +10,8 @@ Scope: Echo-owned atomicity model for composite optic admission and execution.
 
 Atomicity belongs to the optic boundary, not the scheduler.
 
+Echo must never compose atomicity from already-admitted suboperations.
+
 If an operation changes trust, authority, durable history, visibility, execution,
 or admissibility, it is causal. If an operation reads graph state to make one of
 those decisions, the read, decision, and publication must share one basis and one

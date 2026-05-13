@@ -250,6 +250,7 @@ erDiagram
   AUTHORITY_CONTEXT {
     string issuer
     string policy_id
+    string policy_evaluation
   }
 
   OPTIC_ARTIFACT {
@@ -305,7 +306,9 @@ The current `CapabilityGrantIntent` shape carries proposed authority material:
 - opaque expiry bytes;
 - opaque delegation-basis bytes.
 
-`AuthorityContext` carries the issuer and selected policy shape. No policy is
+`AuthorityContext` carries the issuer, selected policy shape, and
+`policy_evaluation` posture used to classify obstruction vocabulary. The
+evaluation field is policy-shaped evidence only; no trusted governance policy is
 implemented in this slice.
 
 ## This slice does
@@ -315,8 +318,10 @@ implemented in this slice.
 - defines `CapabilityGrantIntent`;
 - defines `CapabilityGrantIntentPosture`;
 - classifies malformed grant intents;
-- classifies duplicate grant intents;
+- classifies replay/duplicate grant intents as `ReplayOrDuplicateIntent`;
 - classifies missing issuer authority;
+- classifies invalid delegation;
+- classifies scope escalation;
 - classifies unsupported authority policy;
 - records well-formed unique submitted intent ids deterministically;
 - keeps all grant intent submissions obstructed.

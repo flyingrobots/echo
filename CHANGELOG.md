@@ -7,6 +7,10 @@
 
 ### Added
 
+- `docs/design/obstruction-receipt-boundary.md` distinguishes causal
+  obstruction receipts from counterfactual retention: refusal is a causal event
+  but not admission, and counterfactuals begin only after a rewrite is legally
+  admitted and then left unselected at the scheduler boundary.
 - `docs/design/transaction-optic-atomicity-model.md` defines Echo's doctrine for
   atomic composite optics: one basis, one admission surface, transaction-local
   execution, one committed delta, and receipt-emitting refusal or admission. It

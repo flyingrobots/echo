@@ -30,6 +30,10 @@ intent -> atomic evaluation over basis -> posture/receipt
 ```
 
 Refusal, admission, and execution are causal events. Payloads are not.
+Refusal receipts are not counterfactuals; only legally admitted rewrites that
+reach the scheduler boundary and are not selected may enter the counterfactual
+set. See
+[`obstruction-receipt-boundary.md`](obstruction-receipt-boundary.md).
 
 ## Transaction optic
 

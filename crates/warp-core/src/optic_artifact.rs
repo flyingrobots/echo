@@ -157,6 +157,21 @@ pub struct AuthorityPolicy {
     pub policy_id: String,
 }
 
+/// Obstruction-only authority policy evaluation posture.
+///
+/// This is vocabulary, not governance. It lets Echo name policy failure
+/// surfaces without accepting a grant intent, issuing a receipt, or treating a
+/// policy shape as trusted authority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AuthorityPolicyEvaluation {
+    /// The proposed delegation basis is not valid for the authority change.
+    InvalidDelegation,
+    /// The proposed grant would exceed the issuer's authority scope.
+    ScopeEscalation,
+    /// Echo does not have a supported authority policy implementation yet.
+    Unsupported,
+}
+
 /// Authority context supplied when proposing a capability grant intent.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AuthorityContext {
@@ -164,6 +179,8 @@ pub struct AuthorityContext {
     pub issuer: Option<PrincipalRef>,
     /// Policy that should evaluate the issuer's authority.
     pub policy: Option<AuthorityPolicy>,
+    /// Obstruction-only policy evaluation posture.
+    pub policy_evaluation: AuthorityPolicyEvaluation,
 }
 
 /// Causal authority intent submitted to Echo for future grant admission.
@@ -203,8 +220,12 @@ pub enum CapabilityGrantIntentObstruction {
     MissingIssuerAuthority,
     /// The grant intent is structurally unusable.
     MalformedGrantIntent,
+    /// The proposed delegation basis is invalid.
+    InvalidDelegation,
+    /// The proposed scope would exceed the issuer's authority.
+    ScopeEscalation,
     /// Echo already saw a grant intent with the supplied intent id.
-    DuplicateGrantIntent,
+    ReplayOrDuplicateIntent,
     /// No real authority policy exists in this slice.
     UnsupportedAuthorityPolicy,
 }
@@ -357,7 +378,7 @@ impl CapabilityGrantIntentGate {
         authority_context: AuthorityContext,
     ) -> CapabilityGrantIntentOutcome {
         let obstruction = self.classify_capability_grant_intent(&intent, &authority_context);
-        if obstruction == CapabilityGrantIntentObstruction::UnsupportedAuthorityPolicy {
+        if Self::records_submitted_intent(obstruction) {
             self.intents_by_id
                 .insert(intent.intent_id.clone(), intent.clone());
         }
@@ -401,7 +422,7 @@ impl CapabilityGrantIntentGate {
         }
 
         if self.intents_by_id.contains_key(&intent.intent_id) {
-            return CapabilityGrantIntentObstruction::DuplicateGrantIntent;
+            return CapabilityGrantIntentObstruction::ReplayOrDuplicateIntent;
         }
 
         let Some(issuer) = &authority_context.issuer else {
@@ -411,7 +432,30 @@ impl CapabilityGrantIntentGate {
             return CapabilityGrantIntentObstruction::MissingIssuerAuthority;
         }
 
-        CapabilityGrantIntentObstruction::UnsupportedAuthorityPolicy
+        if authority_context.policy.is_none() {
+            return CapabilityGrantIntentObstruction::UnsupportedAuthorityPolicy;
+        }
+
+        match authority_context.policy_evaluation {
+            AuthorityPolicyEvaluation::InvalidDelegation => {
+                CapabilityGrantIntentObstruction::InvalidDelegation
+            }
+            AuthorityPolicyEvaluation::ScopeEscalation => {
+                CapabilityGrantIntentObstruction::ScopeEscalation
+            }
+            AuthorityPolicyEvaluation::Unsupported => {
+                CapabilityGrantIntentObstruction::UnsupportedAuthorityPolicy
+            }
+        }
+    }
+
+    fn records_submitted_intent(obstruction: CapabilityGrantIntentObstruction) -> bool {
+        matches!(
+            obstruction,
+            CapabilityGrantIntentObstruction::InvalidDelegation
+                | CapabilityGrantIntentObstruction::ScopeEscalation
+                | CapabilityGrantIntentObstruction::UnsupportedAuthorityPolicy
+        )
     }
 
     fn obstructed_grant_intent(

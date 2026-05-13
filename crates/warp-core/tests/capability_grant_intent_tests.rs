@@ -3,9 +3,9 @@
 //! Regression tests for Echo-owned capability grant intent obstruction.
 
 use warp_core::{
-    AuthorityContext, AuthorityPolicy, CapabilityGrantIntent, CapabilityGrantIntentGate,
-    CapabilityGrantIntentObstruction, CapabilityGrantIntentOutcome, CapabilityGrantIntentPosture,
-    PrincipalRef,
+    AuthorityContext, AuthorityPolicy, AuthorityPolicyEvaluation, CapabilityGrantIntent,
+    CapabilityGrantIntentGate, CapabilityGrantIntentObstruction, CapabilityGrantIntentOutcome,
+    CapabilityGrantIntentPosture, PrincipalRef,
 };
 
 fn principal(id: &str) -> PrincipalRef {
@@ -33,6 +33,7 @@ fn fixture_authority_context() -> AuthorityContext {
         policy: Some(AuthorityPolicy {
             policy_id: "authority-policy:fixture".to_owned(),
         }),
+        policy_evaluation: AuthorityPolicyEvaluation::Unsupported,
     }
 }
 
@@ -110,24 +111,24 @@ fn capability_grant_intent_obstructs_missing_required_identity_as_malformed() {
 }
 
 #[test]
-fn capability_grant_intent_obstructs_duplicate_grant_intent() {
+fn capability_grant_intent_obstructs_replay_or_duplicate_grant_intent() {
     let mut registry = CapabilityGrantIntentGate::new();
-    let first_intent = fixture_intent("intent:duplicate");
-    let duplicate_intent = fixture_intent("intent:duplicate");
+    let first_intent = fixture_intent("intent:replay");
+    let replay_intent = fixture_intent("intent:replay");
 
     let first_outcome = registry.submit_grant_intent(first_intent, fixture_authority_context());
-    let duplicate_outcome =
-        registry.submit_grant_intent(duplicate_intent.clone(), fixture_authority_context());
+    let replay_outcome =
+        registry.submit_grant_intent(replay_intent.clone(), fixture_authority_context());
 
     assert_eq!(
         obstruction_for(&first_outcome),
         CapabilityGrantIntentObstruction::UnsupportedAuthorityPolicy
     );
     assert_eq!(
-        duplicate_outcome,
+        replay_outcome,
         expected_obstructed_posture(
-            &duplicate_intent,
-            CapabilityGrantIntentObstruction::DuplicateGrantIntent
+            &replay_intent,
+            CapabilityGrantIntentObstruction::ReplayOrDuplicateIntent
         )
     );
 }
@@ -141,6 +142,7 @@ fn capability_grant_intent_obstructs_missing_issuer_authority() {
         policy: Some(AuthorityPolicy {
             policy_id: "authority-policy:fixture".to_owned(),
         }),
+        policy_evaluation: AuthorityPolicyEvaluation::Unsupported,
     };
 
     let outcome = registry.submit_grant_intent(intent.clone(), authority_context);
@@ -151,6 +153,46 @@ fn capability_grant_intent_obstructs_missing_issuer_authority() {
             &intent,
             CapabilityGrantIntentObstruction::MissingIssuerAuthority
         )
+    );
+}
+
+#[test]
+fn capability_grant_intent_obstructs_invalid_delegation() {
+    let mut registry = CapabilityGrantIntentGate::new();
+    let intent = fixture_intent("intent:invalid-delegation");
+    let authority_context = AuthorityContext {
+        issuer: Some(principal("principal:issuer")),
+        policy: Some(AuthorityPolicy {
+            policy_id: "authority-policy:fixture".to_owned(),
+        }),
+        policy_evaluation: AuthorityPolicyEvaluation::InvalidDelegation,
+    };
+
+    let outcome = registry.submit_grant_intent(intent.clone(), authority_context);
+
+    assert_eq!(
+        outcome,
+        expected_obstructed_posture(&intent, CapabilityGrantIntentObstruction::InvalidDelegation)
+    );
+}
+
+#[test]
+fn capability_grant_intent_obstructs_scope_escalation() {
+    let mut registry = CapabilityGrantIntentGate::new();
+    let intent = fixture_intent("intent:scope-escalation");
+    let authority_context = AuthorityContext {
+        issuer: Some(principal("principal:issuer")),
+        policy: Some(AuthorityPolicy {
+            policy_id: "authority-policy:fixture".to_owned(),
+        }),
+        policy_evaluation: AuthorityPolicyEvaluation::ScopeEscalation,
+    };
+
+    let outcome = registry.submit_grant_intent(intent.clone(), authority_context);
+
+    assert_eq!(
+        outcome,
+        expected_obstructed_posture(&intent, CapabilityGrantIntentObstruction::ScopeEscalation)
     );
 }
 
@@ -190,6 +232,7 @@ fn capability_grant_intent_never_makes_grant_authority() {
                 policy: Some(AuthorityPolicy {
                     policy_id: "authority-policy:fixture".to_owned(),
                 }),
+                policy_evaluation: AuthorityPolicyEvaluation::Unsupported,
             },
         ),
         registry.submit_grant_intent(intents[2].clone(), fixture_authority_context()),

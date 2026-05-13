@@ -27,7 +27,6 @@ RG_ARGS=(
   --glob '!**/target/**'
   --glob '!**/node_modules/**'
 )
-GREP_ARGS=(-RInP --exclude-dir=.git --exclude-dir=target --exclude-dir=node_modules)
 
 # You can allow file-level exceptions via allowlist (keep it tiny).
 ALLOW_PATTERNS=()
@@ -46,23 +45,36 @@ fi
 # Build pattern and trim trailing '|' to avoid matching everything
 pattern="$(printf '%s|' "${ABI_HINTS[@]}")"
 pattern="${pattern%|}"
+files=()
 if command -v rg >/dev/null 2>&1; then
-  mapfile -t files < <(rg "${RG_ARGS[@]}" -l -g'*.rs' "$pattern" crates/ || true)
+  while IFS= read -r file; do
+    files+=("$file")
+  done < <(rg "${RG_ARGS[@]}" -l -g'*.rs' "$pattern" crates/ || true)
 else
-  if ! printf 'x\n' | grep -P 'x' >/dev/null 2>&1; then
-    echo "ERROR: ripgrep (rg) or grep -P is required." >&2
+  if ! command -v perl >/dev/null 2>&1; then
+    echo "ERROR: ripgrep (rg) or perl is required." >&2
     exit 2
   fi
-  mapfile -t files < <(
+  while IFS= read -r file; do
+    files+=("$file")
+  done < <(
     find crates -type f -name '*.rs' \
       -not -path '*/.git/*' \
       -not -path '*/target/*' \
       -not -path '*/node_modules/*' \
       -print |
-      grep -P "$pattern" || true
+      while IFS= read -r file; do
+        if SEARCH_PATTERN="$pattern" perl -ne '
+          BEGIN { $found = 0; $pattern = $ENV{"SEARCH_PATTERN"}; }
+          if (/$pattern/) { $found = 1; }
+          END { exit($found ? 0 : 1); }
+        ' "$file"; then
+          printf '%s\n' "$file"
+        fi
+      done
   )
 fi
-shopt -s globstar
+shopt -s globstar 2>/dev/null || true
 filtered=()
 for f in "${files[@]}"; do
   allowed=false
@@ -91,8 +103,27 @@ if command -v rg >/dev/null 2>&1; then
   search_result=0
   rg "${RG_ARGS[@]}" -n -S '\b(HashMap|HashSet)\b' "${files[@]}" || search_result=$?
 else
+  if ! command -v perl >/dev/null 2>&1; then
+    echo "ERROR: ripgrep (rg) or perl is required." >&2
+    exit 2
+  fi
   search_result=0
-  grep "${GREP_ARGS[@]}" '\b(HashMap|HashSet)\b' "${files[@]}" || search_result=$?
+  for file in "${files[@]}"; do
+    if SEARCH_PATTERN='\b(HashMap|HashSet)\b' perl -ne '
+      BEGIN { $found = 0; $pattern = $ENV{"SEARCH_PATTERN"}; }
+      if (/$pattern/) { print "$ARGV:$.:$_"; $found = 1; }
+      END { exit($found ? 0 : 1); }
+    ' "$file"; then
+      search_result=0
+      break
+    else
+      status=$?
+      if [[ $status -gt 1 ]]; then
+        exit "$status"
+      fi
+      search_result=1
+    fi
+  done
 fi
 
 if [[ $search_result -eq 0 ]]; then

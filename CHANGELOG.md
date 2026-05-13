@@ -106,7 +106,7 @@
 ### Fixed
 
 - `Determinism Guards` no longer runs `apt-get install ripgrep`; static guard
-  scripts now fall back to `grep -P` when `rg` is unavailable, so mirror stalls
+  scripts now fall back to Perl regex scanning when `rg` is unavailable, so mirror stalls
   cannot hang the determinism gate.
 - Stack Witness 0001 fixture observations now require the fixture
   `createBuffer` and `replaceRange("hello")` history to be admitted and

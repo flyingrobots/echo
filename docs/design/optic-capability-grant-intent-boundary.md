@@ -22,7 +22,8 @@ The ladder is:
 - registered handle is not authority;
 - presentation slot is not validated grant;
 - grant object is not admitted authority;
-- grant intent is not accepted policy decision.
+- grant intent is not accepted policy decision;
+- policy shape is not trusted governance.
 
 ## System fit
 
@@ -75,9 +76,10 @@ flowchart LR
 
 ## Grant intent sequence
 
-The gate checks structure, duplicate/replay posture, issuer authority presence,
-and policy support. Since no real policy exists in this slice, even a
-well-formed intent with issuer context obstructs as `UnsupportedAuthorityPolicy`.
+The gate checks structure, replay/duplicate posture, issuer authority presence,
+policy identity, delegation posture, scope posture, and policy support. Since no
+real policy exists in this slice, even a well-formed intent with issuer context
+obstructs.
 
 ```mermaid
 sequenceDiagram
@@ -91,11 +93,19 @@ sequenceDiagram
   alt malformed intent
     G-->>E: Obstructed(MalformedGrantIntent)
     E-->>P: not authority
-  else duplicate intent id
-    G-->>E: Obstructed(DuplicateGrantIntent)
+  else replay or duplicate intent id
+    G-->>E: Obstructed(ReplayOrDuplicateIntent)
     E-->>P: not authority
   else missing issuer authority
     G-->>E: Obstructed(MissingIssuerAuthority)
+    E-->>P: not authority
+  else invalid delegation
+    G->>G: record submitted intent id for replay/duplicate obstruction
+    G-->>E: Obstructed(InvalidDelegation)
+    E-->>P: not authority
+  else scope escalation
+    G->>G: record submitted intent id for replay/duplicate obstruction
+    G-->>E: Obstructed(ScopeEscalation)
     E-->>P: not authority
   else no supported policy exists
     G->>G: record submitted intent id for replay/duplicate obstruction
@@ -142,9 +152,17 @@ classDiagram
     +policy_id
   }
 
+  class AuthorityPolicyEvaluation {
+    <<enumeration>>
+    InvalidDelegation
+    ScopeEscalation
+    Unsupported
+  }
+
   class AuthorityContext {
     +issuer
     +policy
+    +policy_evaluation
   }
 
   class CapabilityGrantIntent {
@@ -185,7 +203,9 @@ classDiagram
     <<enumeration>>
     MissingIssuerAuthority
     MalformedGrantIntent
-    DuplicateGrantIntent
+    InvalidDelegation
+    ScopeEscalation
+    ReplayOrDuplicateIntent
     UnsupportedAuthorityPolicy
   }
 
@@ -198,6 +218,7 @@ classDiagram
   CapabilityGrantIntent --> PrincipalRef : subject
   AuthorityContext --> PrincipalRef : issuer
   AuthorityContext --> AuthorityPolicy : policy
+  AuthorityContext --> AuthorityPolicyEvaluation : classifies
   CapabilityGrantIntentGate --> CapabilityGrantIntent : records submitted
   CapabilityGrantIntentGate --> AuthorityContext : evaluates with
   CapabilityGrantIntentGate --> CapabilityGrantIntentOutcome : returns
@@ -229,6 +250,7 @@ erDiagram
   AUTHORITY_CONTEXT {
     string issuer
     string policy_id
+    string policy_evaluation
   }
 
   OPTIC_ARTIFACT {
@@ -284,7 +306,9 @@ The current `CapabilityGrantIntent` shape carries proposed authority material:
 - opaque expiry bytes;
 - opaque delegation-basis bytes.
 
-`AuthorityContext` carries the issuer and selected policy shape. No policy is
+`AuthorityContext` carries the issuer, selected policy shape, and
+`policy_evaluation` posture used to classify obstruction vocabulary. The
+evaluation field is policy-shaped evidence only; no trusted governance policy is
 implemented in this slice.
 
 ## This slice does
@@ -294,8 +318,10 @@ implemented in this slice.
 - defines `CapabilityGrantIntent`;
 - defines `CapabilityGrantIntentPosture`;
 - classifies malformed grant intents;
-- classifies duplicate grant intents;
+- classifies replay/duplicate grant intents as `ReplayOrDuplicateIntent`;
 - classifies missing issuer authority;
+- classifies invalid delegation;
+- classifies scope escalation;
 - classifies unsupported authority policy;
 - records well-formed unique submitted intent ids deterministically;
 - keeps all grant intent submissions obstructed.

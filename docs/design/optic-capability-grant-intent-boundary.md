@@ -77,8 +77,9 @@ flowchart LR
 ## Grant intent sequence
 
 The gate checks structure, replay/duplicate posture, issuer authority presence,
-delegation posture, scope posture, and policy support. Since no real policy
-exists in this slice, even a well-formed intent with issuer context obstructs.
+policy identity, delegation posture, scope posture, and policy support. Since no
+real policy exists in this slice, even a well-formed intent with issuer context
+obstructs.
 
 ```mermaid
 sequenceDiagram

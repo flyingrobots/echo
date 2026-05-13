@@ -197,6 +197,29 @@ fn capability_grant_intent_obstructs_scope_escalation() {
 }
 
 #[test]
+fn capability_grant_intent_obstructs_missing_policy_identity_as_unsupported_policy() {
+    let mut registry = CapabilityGrantIntentGate::new();
+    let intent = fixture_intent("intent:missing-policy-identity");
+    let authority_context = AuthorityContext {
+        issuer: Some(principal("principal:issuer")),
+        policy: Some(AuthorityPolicy {
+            policy_id: String::new(),
+        }),
+        policy_evaluation: AuthorityPolicyEvaluation::InvalidDelegation,
+    };
+
+    let outcome = registry.submit_grant_intent(intent.clone(), authority_context);
+
+    assert_eq!(
+        outcome,
+        expected_obstructed_posture(
+            &intent,
+            CapabilityGrantIntentObstruction::UnsupportedAuthorityPolicy
+        )
+    );
+}
+
+#[test]
 fn capability_grant_intent_obstructs_unsupported_authority_policy() {
     let mut registry = CapabilityGrantIntentGate::new();
     let intent = fixture_intent("intent:unsupported-policy");
@@ -214,19 +237,28 @@ fn capability_grant_intent_obstructs_unsupported_authority_policy() {
 
 #[test]
 fn capability_grant_intent_never_makes_grant_authority() {
-    let mut registry = CapabilityGrantIntentGate::new();
-    let intents = [
-        fixture_intent("intent:malformed-empty-rights"),
-        fixture_intent("intent:missing-issuer"),
-        fixture_intent("intent:unsupported-policy"),
-    ];
-
-    let mut malformed = intents[0].clone();
+    let mut malformed = fixture_intent("intent:malformed-empty-rights");
     malformed.rights.clear();
+
+    let mut malformed_registry = CapabilityGrantIntentGate::new();
+    let mut missing_issuer_registry = CapabilityGrantIntentGate::new();
+    let mut invalid_delegation_registry = CapabilityGrantIntentGate::new();
+    let mut scope_escalation_registry = CapabilityGrantIntentGate::new();
+    let mut replay_registry = CapabilityGrantIntentGate::new();
+    let mut unsupported_registry = CapabilityGrantIntentGate::new();
+
+    let missing_issuer = fixture_intent("intent:missing-issuer");
+    let invalid_delegation = fixture_intent("intent:invalid-delegation-never-authority");
+    let scope_escalation = fixture_intent("intent:scope-escalation-never-authority");
+    let replay = fixture_intent("intent:replay-never-authority");
+    let unsupported = fixture_intent("intent:unsupported-policy");
+
+    let replay_first_outcome =
+        replay_registry.submit_grant_intent(replay.clone(), fixture_authority_context());
     let outcomes = [
-        registry.submit_grant_intent(malformed, fixture_authority_context()),
-        registry.submit_grant_intent(
-            intents[1].clone(),
+        malformed_registry.submit_grant_intent(malformed, fixture_authority_context()),
+        missing_issuer_registry.submit_grant_intent(
+            missing_issuer,
             AuthorityContext {
                 issuer: None,
                 policy: Some(AuthorityPolicy {
@@ -235,9 +267,34 @@ fn capability_grant_intent_never_makes_grant_authority() {
                 policy_evaluation: AuthorityPolicyEvaluation::Unsupported,
             },
         ),
-        registry.submit_grant_intent(intents[2].clone(), fixture_authority_context()),
+        invalid_delegation_registry.submit_grant_intent(
+            invalid_delegation,
+            AuthorityContext {
+                issuer: Some(principal("principal:issuer")),
+                policy: Some(AuthorityPolicy {
+                    policy_id: "authority-policy:fixture".to_owned(),
+                }),
+                policy_evaluation: AuthorityPolicyEvaluation::InvalidDelegation,
+            },
+        ),
+        scope_escalation_registry.submit_grant_intent(
+            scope_escalation,
+            AuthorityContext {
+                issuer: Some(principal("principal:issuer")),
+                policy: Some(AuthorityPolicy {
+                    policy_id: "authority-policy:fixture".to_owned(),
+                }),
+                policy_evaluation: AuthorityPolicyEvaluation::ScopeEscalation,
+            },
+        ),
+        replay_registry.submit_grant_intent(replay, fixture_authority_context()),
+        unsupported_registry.submit_grant_intent(unsupported, fixture_authority_context()),
     ];
 
+    assert_eq!(
+        obstruction_for(&replay_first_outcome),
+        CapabilityGrantIntentObstruction::UnsupportedAuthorityPolicy
+    );
     assert_eq!(
         obstruction_for(&outcomes[0]),
         CapabilityGrantIntentObstruction::MalformedGrantIntent
@@ -248,6 +305,18 @@ fn capability_grant_intent_never_makes_grant_authority() {
     );
     assert_eq!(
         obstruction_for(&outcomes[2]),
+        CapabilityGrantIntentObstruction::InvalidDelegation
+    );
+    assert_eq!(
+        obstruction_for(&outcomes[3]),
+        CapabilityGrantIntentObstruction::ScopeEscalation
+    );
+    assert_eq!(
+        obstruction_for(&outcomes[4]),
+        CapabilityGrantIntentObstruction::ReplayOrDuplicateIntent
+    );
+    assert_eq!(
+        obstruction_for(&outcomes[5]),
         CapabilityGrantIntentObstruction::UnsupportedAuthorityPolicy
     );
 }

@@ -432,7 +432,10 @@ impl CapabilityGrantIntentGate {
             return CapabilityGrantIntentObstruction::MissingIssuerAuthority;
         }
 
-        if authority_context.policy.is_none() {
+        let Some(policy) = &authority_context.policy else {
+            return CapabilityGrantIntentObstruction::UnsupportedAuthorityPolicy;
+        };
+        if policy.policy_id.is_empty() {
             return CapabilityGrantIntentObstruction::UnsupportedAuthorityPolicy;
         }
 

@@ -140,6 +140,103 @@ pub struct OpticCapabilityPresentation {
     pub bound_grant_id: Option<String>,
 }
 
+/// Opaque principal reference used by authority boundaries.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PrincipalRef {
+    /// Principal identity bytes encoded by the authority layer.
+    pub id: String,
+}
+
+/// Authority policy selected for grant-intent evaluation.
+///
+/// No policy is implemented in this slice. The shape exists so Echo can name
+/// the meta-authority boundary without granting success.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AuthorityPolicy {
+    /// Authority policy identity.
+    pub policy_id: String,
+}
+
+/// Authority context supplied when proposing a capability grant intent.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AuthorityContext {
+    /// Principal whose prior authority is claimed for proposing the grant.
+    pub issuer: Option<PrincipalRef>,
+    /// Policy that should evaluate the issuer's authority.
+    pub policy: Option<AuthorityPolicy>,
+}
+
+/// Causal authority intent submitted to Echo for future grant admission.
+///
+/// A grant intent proposes authority; it is not admitted authority. No
+/// principal can mint authority from nowhere. Future slices must authorize the
+/// proposer through prior authority, host root policy, quorum, or governance
+/// rule before any accepted grant receipt can exist.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CapabilityGrantIntent {
+    /// Deterministic intent id used for replay/duplicate obstruction.
+    pub intent_id: String,
+    /// Principal proposing the authority change.
+    pub proposed_by: PrincipalRef,
+    /// Subject that would receive authority if a future policy admits it.
+    pub subject: PrincipalRef,
+    /// Compiled artifact hash the proposed grant would cover.
+    pub artifact_hash: String,
+    /// Operation id the proposed grant would cover.
+    pub operation_id: String,
+    /// Requirements digest the proposed grant would cover.
+    pub requirements_digest: String,
+    /// Rights named by the authority layer.
+    pub rights: Vec<String>,
+    /// Opaque scope bytes proposed for later validation.
+    pub scope_bytes: Vec<u8>,
+    /// Opaque expiry bytes proposed for later validation.
+    pub expiry_bytes: Option<Vec<u8>>,
+    /// Opaque delegation-basis bytes proposed for later validation.
+    pub delegation_basis_bytes: Option<Vec<u8>>,
+}
+
+/// Obstruction reason for a capability grant intent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CapabilityGrantIntentObstruction {
+    /// The issuer has no authority context from which to propose the grant.
+    MissingIssuerAuthority,
+    /// The grant intent is structurally unusable.
+    MalformedGrantIntent,
+    /// Echo already saw a grant intent with the supplied intent id.
+    DuplicateGrantIntent,
+    /// No real authority policy exists in this slice.
+    UnsupportedAuthorityPolicy,
+}
+
+/// Obstructed posture for a submitted capability grant intent.
+///
+/// This is not an admitted grant receipt and does not make the grant authority.
+/// It carries enough context for future admission/witness code to explain why
+/// Echo did not admit the grant intent into witnessed history.
+#[must_use = "capability grant intent postures explain obstructions that must be handled"]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CapabilityGrantIntentPosture {
+    /// Stable discriminator for callers and wire adapters.
+    pub kind: String,
+    /// Intent id named by the grant intent.
+    pub intent_id: String,
+    /// Principal proposing the authority change.
+    pub proposed_by: PrincipalRef,
+    /// Subject that would receive authority if the intent were admitted.
+    pub subject: PrincipalRef,
+    /// Structured reason Echo obstructed before admitting the grant.
+    pub obstruction: CapabilityGrantIntentObstruction,
+}
+
+/// Submission outcome for a capability grant intent skeleton.
+#[must_use = "capability grant intent outcomes carry obstructions that must be handled"]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CapabilityGrantIntentOutcome {
+    /// Echo obstructed the grant intent before admitting authority.
+    Obstructed(CapabilityGrantIntentPosture),
+}
+
 /// Runtime invocation request against a registered optic artifact.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OpticInvocation {
@@ -228,6 +325,107 @@ pub enum OpticArtifactRegistrationError {
     /// Echo could not resolve the opaque artifact handle.
     #[error("unknown optic artifact handle")]
     UnknownHandle,
+}
+
+/// Echo-owned deterministic intake for capability grant intents.
+///
+/// This registry records submitted grant intents so duplicate intent ids can be
+/// obstructed deterministically. It does not validate grant applicability,
+/// admit grants into witnessed history, issue admission tickets, emit law
+/// witnesses, or execute runtime work.
+#[derive(Clone, Debug, Default)]
+pub struct CapabilityGrantIntentGate {
+    intents_by_id: BTreeMap<String, CapabilityGrantIntent>,
+}
+
+impl CapabilityGrantIntentGate {
+    /// Creates an empty capability grant intent gate.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Submits a capability grant intent for obstruction classification.
+    ///
+    /// This v0 skeleton intentionally has no success path. Well-formed unique
+    /// intents are recorded as submitted intent material, but still obstruct
+    /// because grant admission/witnessing does not exist in this slice.
+    #[must_use = "capability grant intent outcomes carry obstructions that must be handled"]
+    pub fn submit_grant_intent(
+        &mut self,
+        intent: CapabilityGrantIntent,
+        authority_context: AuthorityContext,
+    ) -> CapabilityGrantIntentOutcome {
+        let obstruction = self.classify_capability_grant_intent(&intent, &authority_context);
+        if obstruction == CapabilityGrantIntentObstruction::UnsupportedAuthorityPolicy {
+            self.intents_by_id
+                .insert(intent.intent_id.clone(), intent.clone());
+        }
+
+        Self::obstructed_grant_intent(&intent, obstruction)
+    }
+
+    /// Returns the number of submitted grant intents.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.intents_by_id.len()
+    }
+
+    /// Returns `true` if no grant intents are recorded.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.intents_by_id.is_empty()
+    }
+
+    fn classify_capability_grant_intent(
+        &self,
+        intent: &CapabilityGrantIntent,
+        authority_context: &AuthorityContext,
+    ) -> CapabilityGrantIntentObstruction {
+        if intent.intent_id.is_empty()
+            || intent.proposed_by.id.is_empty()
+            || intent.subject.id.is_empty()
+            || intent.artifact_hash.is_empty()
+            || intent.operation_id.is_empty()
+            || intent.requirements_digest.is_empty()
+            || intent.rights.is_empty()
+            || intent.rights.iter().any(String::is_empty)
+            || intent.scope_bytes.is_empty()
+            || intent.expiry_bytes.as_ref().is_some_and(Vec::is_empty)
+            || intent
+                .delegation_basis_bytes
+                .as_ref()
+                .is_some_and(Vec::is_empty)
+        {
+            return CapabilityGrantIntentObstruction::MalformedGrantIntent;
+        }
+
+        if self.intents_by_id.contains_key(&intent.intent_id) {
+            return CapabilityGrantIntentObstruction::DuplicateGrantIntent;
+        }
+
+        let Some(issuer) = &authority_context.issuer else {
+            return CapabilityGrantIntentObstruction::MissingIssuerAuthority;
+        };
+        if issuer.id.is_empty() || issuer != &intent.proposed_by {
+            return CapabilityGrantIntentObstruction::MissingIssuerAuthority;
+        }
+
+        CapabilityGrantIntentObstruction::UnsupportedAuthorityPolicy
+    }
+
+    fn obstructed_grant_intent(
+        intent: &CapabilityGrantIntent,
+        obstruction: CapabilityGrantIntentObstruction,
+    ) -> CapabilityGrantIntentOutcome {
+        CapabilityGrantIntentOutcome::Obstructed(CapabilityGrantIntentPosture {
+            kind: "capability-grant-intent-posture".to_owned(),
+            intent_id: intent.intent_id.clone(),
+            proposed_by: intent.proposed_by.clone(),
+            subject: intent.subject.clone(),
+            obstruction,
+        })
+    }
 }
 
 /// Echo-owned runtime-local registry for Wesley-compiled optic artifacts.

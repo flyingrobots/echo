@@ -248,11 +248,14 @@ pub use optic::{
     StagedIntent, StagedIntentReason, WitnessBasis, WorldlineHeadOptic,
 };
 pub use optic_artifact::{
+    AuthorityContext, AuthorityPolicy, CapabilityGrantIntent, CapabilityGrantIntentGate,
+    CapabilityGrantIntentObstruction, CapabilityGrantIntentOutcome, CapabilityGrantIntentPosture,
     OpticAdmissionRequirements, OpticAdmissionTicketPosture, OpticApertureRequest, OpticArtifact,
     OpticArtifactHandle, OpticArtifactOperation, OpticArtifactRegistrationError,
     OpticArtifactRegistry, OpticBasisRequest, OpticCapabilityPresentation, OpticInvocation,
     OpticInvocationAdmissionOutcome, OpticInvocationObstruction, OpticRegistrationDescriptor,
-    RegisteredOpticArtifact, OPTIC_ADMISSION_TICKET_POSTURE_KIND, OPTIC_ARTIFACT_HANDLE_KIND,
+    PrincipalRef, RegisteredOpticArtifact, OPTIC_ADMISSION_TICKET_POSTURE_KIND,
+    OPTIC_ARTIFACT_HANDLE_KIND,
 };
 pub use playback::{CursorReceipt, TruthFrame, TruthSink};
 pub use provenance_store::{

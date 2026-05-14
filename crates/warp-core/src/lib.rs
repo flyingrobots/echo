@@ -250,11 +250,12 @@ pub use optic::{
 pub use optic_artifact::{
     AuthorityContext, AuthorityPolicy, AuthorityPolicyEvaluation, CapabilityGrantIntent,
     CapabilityGrantIntentGate, CapabilityGrantIntentObstruction, CapabilityGrantIntentOutcome,
-    CapabilityGrantIntentPosture, OpticAdmissionRequirements, OpticAdmissionTicketPosture,
-    OpticApertureRequest, OpticArtifact, OpticArtifactHandle, OpticArtifactOperation,
-    OpticArtifactRegistrationError, OpticArtifactRegistry, OpticBasisRequest,
-    OpticCapabilityPresentation, OpticInvocation, OpticInvocationAdmissionOutcome,
-    OpticInvocationObstruction, OpticRegistrationDescriptor, PrincipalRef, RegisteredOpticArtifact,
+    CapabilityGrantIntentPosture, ObstructionReceipt, OpticAdmissionRequirements,
+    OpticAdmissionTicketPosture, OpticApertureRequest, OpticArtifact, OpticArtifactHandle,
+    OpticArtifactOperation, OpticArtifactRegistrationError, OpticArtifactRegistry,
+    OpticBasisRequest, OpticCapabilityPresentation, OpticInvocation,
+    OpticInvocationAdmissionOutcome, OpticInvocationObstruction, OpticRegistrationDescriptor,
+    PrincipalRef, RegisteredOpticArtifact, RewriteDisposition, OBSTRUCTION_RECEIPT_KIND,
     OPTIC_ADMISSION_TICKET_POSTURE_KIND, OPTIC_ARTIFACT_HANDLE_KIND,
 };
 pub use playback::{CursorReceipt, TruthFrame, TruthSink};

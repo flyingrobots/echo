@@ -11,6 +11,13 @@
   obstruction receipts from counterfactual retention: refusal is a causal event
   but not admission, and counterfactuals begin only after a rewrite is legally
   admitted and then left unselected at the scheduler boundary.
+- `warp-core` now attaches an `ObstructionReceipt` to capability grant intent
+  refusals. The receipt records causal refusal context and remains explicitly
+  `RewriteDisposition::Obstructed`, not an admission ticket, law witness, or
+  counterfactual candidate. It also carries the authority policy id/posture used
+  to classify the refusal when that policy context is present. Receipt input
+  bytes are rebuilt on demand for digest verification instead of being stored on
+  every refusal receipt.
 - `docs/design/transaction-optic-atomicity-model.md` defines Echo's doctrine for
   atomic composite optics: one basis, one admission surface, transaction-local
   execution, one committed delta, and receipt-emitting refusal or admission. It
@@ -98,6 +105,9 @@
 
 ### Fixed
 
+- `Determinism Guards` no longer runs `apt-get install ripgrep`; static guard
+  scripts now fall back to Perl regex scanning when `rg` is unavailable, so mirror stalls
+  cannot hang the determinism gate.
 - Stack Witness 0001 fixture observations now require the fixture
   `createBuffer` and `replaceRange("hello")` history to be admitted and
   materialized before `textWindow` can return `QueryBytes("hello")`.

@@ -20,6 +20,9 @@ pub const OPTIC_ARTIFACT_HANDLE_KIND: &str = "optic-artifact-handle";
 /// Echo-owned kind for a ticket-shaped pre-admission obstruction posture.
 pub const OPTIC_ADMISSION_TICKET_POSTURE_KIND: &str = "optic-admission-ticket-posture";
 
+/// Echo-owned kind for a causal refusal receipt.
+pub const OBSTRUCTION_RECEIPT_KIND: &str = "obstruction-receipt";
+
 const OPTIC_ARTIFACT_HANDLE_ID_PREFIX: &str = "optic-artifact-handle:";
 
 /// Opaque Echo-owned runtime handle for a registered optic artifact.
@@ -147,6 +150,147 @@ pub struct PrincipalRef {
     pub id: String,
 }
 
+/// Disposition for submitted rewrite material after Echo evaluates it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RewriteDisposition {
+    /// Echo selected and committed the rewrite.
+    Committed,
+    /// Echo admitted the rewrite as legal, but the scheduler did not select it.
+    LegalUnselectedCounterfactual,
+    /// Echo refused the intent before admission.
+    Obstructed,
+}
+
+impl RewriteDisposition {
+    fn receipt_label(self) -> &'static str {
+        match self {
+            Self::Committed => "rewrite-disposition.committed",
+            Self::LegalUnselectedCounterfactual => {
+                "rewrite-disposition.legal-unselected-counterfactual"
+            }
+            Self::Obstructed => "rewrite-disposition.obstructed",
+        }
+    }
+}
+
+/// Causal receipt for a refused intent.
+///
+/// Refusal is causal evidence, not an unrealized legal world. An
+/// [`ObstructionReceipt`] is not an admission ticket, not a law witness, and not
+/// a counterfactual candidate.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ObstructionReceipt {
+    /// Stable discriminator for callers and wire adapters.
+    pub kind: String,
+    /// Intent id named by the refused intent.
+    pub intent_id: String,
+    /// Principal that proposed the refused intent.
+    pub proposed_by: PrincipalRef,
+    /// Subject named by the refused intent.
+    pub subject: PrincipalRef,
+    /// Artifact hash named by the refused intent.
+    pub artifact_hash: String,
+    /// Operation id named by the refused intent.
+    pub operation_id: String,
+    /// Requirements digest named by the refused intent.
+    pub requirements_digest: String,
+    /// Authority policy id supplied with refusal context, if any.
+    pub policy_id: Option<String>,
+    /// Obstruction-only policy evaluation posture.
+    pub policy_posture: String,
+    /// Structured obstruction kind encoded for receipt consumers.
+    pub obstruction_kind: String,
+    /// Rewrite disposition. Obstruction receipts must remain obstructed.
+    pub disposition: RewriteDisposition,
+    /// BLAKE3 digest of [`ObstructionReceipt::build_receipt_input_bytes`].
+    pub receipt_digest: [u8; 32],
+}
+
+impl ObstructionReceipt {
+    /// Creates a causal refusal receipt for a capability grant intent.
+    #[must_use]
+    pub fn for_capability_grant_intent(
+        intent: &CapabilityGrantIntent,
+        authority_context: &AuthorityContext,
+        obstruction: CapabilityGrantIntentObstruction,
+    ) -> Self {
+        let obstruction_kind = obstruction.receipt_label().to_owned();
+        let policy_id = authority_context
+            .policy
+            .as_ref()
+            .map(|policy| policy.policy_id.clone());
+        let policy_posture = authority_context
+            .policy_evaluation
+            .receipt_label()
+            .to_owned();
+        let mut receipt = Self {
+            kind: OBSTRUCTION_RECEIPT_KIND.to_owned(),
+            intent_id: intent.intent_id.clone(),
+            proposed_by: intent.proposed_by.clone(),
+            subject: intent.subject.clone(),
+            artifact_hash: intent.artifact_hash.clone(),
+            operation_id: intent.operation_id.clone(),
+            requirements_digest: intent.requirements_digest.clone(),
+            policy_id,
+            policy_posture,
+            obstruction_kind,
+            disposition: RewriteDisposition::Obstructed,
+            receipt_digest: [0_u8; 32],
+        };
+        receipt.receipt_digest = *blake3::hash(&receipt.build_receipt_input_bytes()).as_bytes();
+        receipt
+    }
+
+    /// Rebuilds the deterministic receipt input bytes represented by this
+    /// receipt.
+    ///
+    /// The input bytes are intentionally not stored on the receipt. Consumers
+    /// that need to verify [`ObstructionReceipt::receipt_digest`] can rebuild
+    /// the exact digest input on demand.
+    #[must_use]
+    pub fn build_receipt_input_bytes(&self) -> Vec<u8> {
+        let disposition = self.disposition.receipt_label();
+        let policy_id = self.policy_id.as_deref();
+        let mut bytes = Vec::with_capacity(self.receipt_input_capacity(disposition));
+
+        push_receipt_field(&mut bytes, self.kind.as_bytes());
+        push_receipt_field(&mut bytes, disposition.as_bytes());
+        push_receipt_field(&mut bytes, self.intent_id.as_bytes());
+        push_receipt_field(&mut bytes, self.proposed_by.id.as_bytes());
+        push_receipt_field(&mut bytes, self.subject.id.as_bytes());
+        push_receipt_field(&mut bytes, self.artifact_hash.as_bytes());
+        push_receipt_field(&mut bytes, self.operation_id.as_bytes());
+        push_receipt_field(&mut bytes, self.requirements_digest.as_bytes());
+        push_optional_receipt_field(&mut bytes, policy_id.map(str::as_bytes));
+        push_receipt_field(&mut bytes, self.policy_posture.as_bytes());
+        push_receipt_field(&mut bytes, self.obstruction_kind.as_bytes());
+        bytes
+    }
+
+    fn receipt_input_capacity(&self, disposition: &str) -> usize {
+        const LENGTH_PREFIX_BYTES: usize = 8;
+        const OPTIONAL_TAG_BYTES: usize = 1;
+        const PLAIN_FIELD_COUNT: usize = 10;
+
+        (PLAIN_FIELD_COUNT * LENGTH_PREFIX_BYTES)
+            + OPTIONAL_TAG_BYTES
+            + self.kind.len()
+            + disposition.len()
+            + self.intent_id.len()
+            + self.proposed_by.id.len()
+            + self.subject.id.len()
+            + self.artifact_hash.len()
+            + self.operation_id.len()
+            + self.requirements_digest.len()
+            + self
+                .policy_id
+                .as_ref()
+                .map_or(0, |policy_id| LENGTH_PREFIX_BYTES + policy_id.len())
+            + self.policy_posture.len()
+            + self.obstruction_kind.len()
+    }
+}
+
 /// Authority policy selected for grant-intent evaluation.
 ///
 /// No policy is implemented in this slice. The shape exists so Echo can name
@@ -170,6 +314,16 @@ pub enum AuthorityPolicyEvaluation {
     ScopeEscalation,
     /// Echo does not have a supported authority policy implementation yet.
     Unsupported,
+}
+
+impl AuthorityPolicyEvaluation {
+    fn receipt_label(self) -> &'static str {
+        match self {
+            Self::InvalidDelegation => "authority-policy.invalid-delegation",
+            Self::ScopeEscalation => "authority-policy.scope-escalation",
+            Self::Unsupported => "authority-policy.unsupported",
+        }
+    }
 }
 
 /// Authority context supplied when proposing a capability grant intent.
@@ -230,6 +384,21 @@ pub enum CapabilityGrantIntentObstruction {
     UnsupportedAuthorityPolicy,
 }
 
+impl CapabilityGrantIntentObstruction {
+    fn receipt_label(self) -> &'static str {
+        match self {
+            Self::MissingIssuerAuthority => "capability-grant-intent.missing-issuer-authority",
+            Self::MalformedGrantIntent => "capability-grant-intent.malformed-grant-intent",
+            Self::InvalidDelegation => "capability-grant-intent.invalid-delegation",
+            Self::ScopeEscalation => "capability-grant-intent.scope-escalation",
+            Self::ReplayOrDuplicateIntent => "capability-grant-intent.replay-or-duplicate-intent",
+            Self::UnsupportedAuthorityPolicy => {
+                "capability-grant-intent.unsupported-authority-policy"
+            }
+        }
+    }
+}
+
 /// Obstructed posture for a submitted capability grant intent.
 ///
 /// This is not an admitted grant receipt and does not make the grant authority.
@@ -248,6 +417,9 @@ pub struct CapabilityGrantIntentPosture {
     pub subject: PrincipalRef,
     /// Structured reason Echo obstructed before admitting the grant.
     pub obstruction: CapabilityGrantIntentObstruction,
+    /// Causal refusal receipt. This is not an admission ticket, law witness, or
+    /// counterfactual candidate.
+    pub receipt: ObstructionReceipt,
 }
 
 /// Submission outcome for a capability grant intent skeleton.
@@ -383,7 +555,7 @@ impl CapabilityGrantIntentGate {
                 .insert(intent.intent_id.clone(), intent.clone());
         }
 
-        Self::obstructed_grant_intent(&intent, obstruction)
+        Self::obstructed_grant_intent(&intent, &authority_context, obstruction)
     }
 
     /// Returns the number of submitted grant intents.
@@ -463,6 +635,7 @@ impl CapabilityGrantIntentGate {
 
     fn obstructed_grant_intent(
         intent: &CapabilityGrantIntent,
+        authority_context: &AuthorityContext,
         obstruction: CapabilityGrantIntentObstruction,
     ) -> CapabilityGrantIntentOutcome {
         CapabilityGrantIntentOutcome::Obstructed(CapabilityGrantIntentPosture {
@@ -471,7 +644,27 @@ impl CapabilityGrantIntentGate {
             proposed_by: intent.proposed_by.clone(),
             subject: intent.subject.clone(),
             obstruction,
+            receipt: ObstructionReceipt::for_capability_grant_intent(
+                intent,
+                authority_context,
+                obstruction,
+            ),
         })
+    }
+}
+
+fn push_receipt_field(bytes: &mut Vec<u8>, field: &[u8]) {
+    bytes.extend_from_slice(&(field.len() as u64).to_be_bytes());
+    bytes.extend_from_slice(field);
+}
+
+fn push_optional_receipt_field(bytes: &mut Vec<u8>, field: Option<&[u8]>) {
+    match field {
+        Some(field) => {
+            bytes.push(1);
+            push_receipt_field(bytes, field);
+        }
+        None => bytes.push(0),
     }
 }
 

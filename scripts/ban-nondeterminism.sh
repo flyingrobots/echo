@@ -18,11 +18,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-if ! command -v rg >/dev/null 2>&1; then
-  echo "ERROR: ripgrep (rg) is required." >&2
-  exit 2
-fi
-
 PATHS_DEFAULT="crates/warp-core crates/warp-wasm crates/echo-wasm-abi"
 PATHS="${DETERMINISM_PATHS:-$PATHS_DEFAULT}"
 
@@ -39,6 +34,7 @@ RG_ARGS=(
 
 # You can allow file-level exceptions via allowlist (keep it tiny).
 ALLOW_GLOBS=()
+ALLOW_PATH_PATTERNS=()
 if [[ -f "$ALLOWLIST" ]]; then
   while IFS= read -r line; do
     [[ -z "$line" ]] && continue
@@ -47,8 +43,80 @@ if [[ -f "$ALLOWLIST" ]]; then
     pat="${pat%% *}"
     [[ -z "$pat" ]] && continue
     ALLOW_GLOBS+=(--glob "!$pat")
+    ALLOW_PATH_PATTERNS+=("$pat")
   done < "$ALLOWLIST"
 fi
+
+is_allowlisted_path() {
+  local file="$1"
+
+  for pat in "${ALLOW_PATH_PATTERNS[@]}"; do
+    if [[ "$file" == $pat ]]; then
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+search_pattern_with_perl() {
+  local pat="$1"
+  local found=1
+  local status=0
+
+  if ! command -v perl >/dev/null 2>&1; then
+    echo "ERROR: ripgrep (rg) or perl is required." >&2
+    return 2
+  fi
+
+  while IFS= read -r -d '' file; do
+    if is_allowlisted_path "$file"; then
+      continue
+    fi
+
+    if SEARCH_PATTERN="$pat" perl -ne '
+      BEGIN { $found = 0; $pattern = $ENV{"SEARCH_PATTERN"}; }
+      if (/$pattern/) { print "$ARGV:$.:$_"; $found = 1; }
+      END { exit($found ? 0 : 1); }
+    ' "$file"; then
+      found=0
+    else
+      status=$?
+      if [[ $status -gt 1 ]]; then
+        return "$status"
+      fi
+    fi
+  done < <(find $PATHS -type f \
+    \( -name '*.rs' \
+      -o -name '*.toml' \
+      -o -name '*.sh' \
+      -o -name '*.mjs' \
+      -o -name '*.js' \
+      -o -name '*.ts' \
+      -o -name '*.md' \
+      -o -name '*.graphql' \
+      -o -name '*.json' \
+      -o -name '*.yaml' \
+      -o -name '*.yml' \) \
+    -not -path '*/.git/*' \
+    -not -path '*/target/*' \
+    -not -path '*/node_modules/*' \
+    -not -name '.clippy.toml' \
+    -print0)
+
+  return "$found"
+}
+
+search_pattern() {
+  local pat="$1"
+
+  if command -v rg >/dev/null 2>&1; then
+    rg "${RG_ARGS[@]}" "${ALLOW_GLOBS[@]}" -n -S "$pat" $PATHS
+    return $?
+  fi
+
+  search_pattern_with_perl "$pat"
+}
 
 # Patterns: conservative and intentionally annoying.
 # If you hit a false positive, refactor; don't immediately allowlist.
@@ -112,7 +180,7 @@ echo
 violations=0
 for pat in "${PATTERNS[@]}"; do
   echo "Checking: $pat"
-  if rg "${RG_ARGS[@]}" "${ALLOW_GLOBS[@]}" -n -S "$pat" $PATHS; then
+  if search_pattern "$pat"; then
     echo
     violations=$((violations+1))
   else

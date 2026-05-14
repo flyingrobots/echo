@@ -6,11 +6,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-if ! command -v rg >/dev/null 2>&1; then
-  echo "ERROR: ripgrep (rg) is required." >&2
-  exit 2
-fi
-
 # Adjust these to your repo conventions
 ABI_HINTS=(
   "abi"
@@ -50,8 +45,36 @@ fi
 # Build pattern and trim trailing '|' to avoid matching everything
 pattern="$(printf '%s|' "${ABI_HINTS[@]}")"
 pattern="${pattern%|}"
-mapfile -t files < <(rg "${RG_ARGS[@]}" -l -g'*.rs' "$pattern" crates/ || true)
-shopt -s globstar
+files=()
+if command -v rg >/dev/null 2>&1; then
+  while IFS= read -r file; do
+    files+=("$file")
+  done < <(rg "${RG_ARGS[@]}" -l -g'*.rs' "$pattern" crates/ || true)
+else
+  if ! command -v perl >/dev/null 2>&1; then
+    echo "ERROR: ripgrep (rg) or perl is required." >&2
+    exit 2
+  fi
+  while IFS= read -r file; do
+    files+=("$file")
+  done < <(
+    find crates -type f -name '*.rs' \
+      -not -path '*/.git/*' \
+      -not -path '*/target/*' \
+      -not -path '*/node_modules/*' \
+      -print |
+      while IFS= read -r file; do
+        if SEARCH_PATTERN="$pattern" perl -ne '
+          BEGIN { $found = 0; $pattern = $ENV{"SEARCH_PATTERN"}; }
+          if (/$pattern/) { $found = 1; }
+          END { exit($found ? 0 : 1); }
+        ' "$file"; then
+          printf '%s\n' "$file"
+        fi
+      done
+  )
+fi
+shopt -s globstar 2>/dev/null || true
 filtered=()
 for f in "${files[@]}"; do
   allowed=false
@@ -76,8 +99,37 @@ echo "ban-unordered-abi: scanning ABI-ish Rust files..."
 violations=0
 
 # HashMap/HashSet are not allowed in ABI-ish types. Use Vec<(K,V)> sorted, BTreeMap, IndexMap with explicit canonicalization, etc.
-if rg "${RG_ARGS[@]}" -n -S '\b(HashMap|HashSet)\b' "${files[@]}"; then
+if command -v rg >/dev/null 2>&1; then
+  search_result=0
+  rg "${RG_ARGS[@]}" -n -S '\b(HashMap|HashSet)\b' "${files[@]}" || search_result=$?
+else
+  if ! command -v perl >/dev/null 2>&1; then
+    echo "ERROR: ripgrep (rg) or perl is required." >&2
+    exit 2
+  fi
+  search_result=0
+  for file in "${files[@]}"; do
+    if SEARCH_PATTERN='\b(HashMap|HashSet)\b' perl -ne '
+      BEGIN { $found = 0; $pattern = $ENV{"SEARCH_PATTERN"}; }
+      if (/$pattern/) { print "$ARGV:$.:$_"; $found = 1; }
+      END { exit($found ? 0 : 1); }
+    ' "$file"; then
+      search_result=0
+      break
+    else
+      status=$?
+      if [[ $status -gt 1 ]]; then
+        exit "$status"
+      fi
+      search_result=1
+    fi
+  done
+fi
+
+if [[ $search_result -eq 0 ]]; then
   violations=$((violations+1))
+elif [[ $search_result -gt 1 ]]; then
+  exit "$search_result"
 fi
 
 if [[ $violations -ne 0 ]]; then

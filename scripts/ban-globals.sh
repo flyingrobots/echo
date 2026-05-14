@@ -29,12 +29,6 @@ PATHS="${BAN_GLOBALS_PATHS:-$PATHS_DEFAULT}"
 
 ALLOWLIST="${BAN_GLOBALS_ALLOWLIST:-.ban-globals-allowlist}"
 
-# ripgrep is fast and consistent
-if ! command -v rg >/dev/null 2>&1; then
-  echo "ERROR: ripgrep (rg) is required." >&2
-  exit 2
-fi
-
 # Patterns are conservative on purpose.
 # If you truly need an exception, add an allowlist line with a justification.
 PATTERNS=(
@@ -51,7 +45,6 @@ echo "ban-globals: scanning paths:"
 for p in $PATHS; do echo "  - $p"; done
 echo
 
-# Build rg args
 RG_ARGS=(--hidden --no-ignore --glob '!.git/*' --glob '!target/*' --glob '!**/node_modules/*')
 
 # Apply allowlist as inverted matches (each line is a regex or fixed substring)
@@ -60,6 +53,7 @@ RG_ARGS=(--hidden --no-ignore --glob '!.git/*' --glob '!target/*' --glob '!**/no
 # or:
 #   <pattern>
 ALLOW_RG_EXCLUDES=()
+ALLOW_PATH_PATTERNS=()
 if [[ -f "$ALLOWLIST" ]]; then
   # Read first column (pattern) per line, ignore comments
   while IFS= read -r line; do
@@ -70,16 +64,87 @@ if [[ -f "$ALLOWLIST" ]]; then
     [[ -z "$pat" ]] && continue
     # Exclude lines matching allowlisted pattern
     ALLOW_RG_EXCLUDES+=(--glob "!$pat")
+    ALLOW_PATH_PATTERNS+=("$pat")
   done < "$ALLOWLIST"
 fi
 
 violations=0
 
+is_allowlisted_path() {
+  local file="$1"
+
+  for pat in "${ALLOW_PATH_PATTERNS[@]}"; do
+    if [[ "$file" == $pat ]]; then
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+search_pattern_with_perl() {
+  local pat="$1"
+  local found=1
+  local status=0
+
+  if ! command -v perl >/dev/null 2>&1; then
+    echo "ERROR: ripgrep (rg) or perl is required." >&2
+    return 2
+  fi
+
+  while IFS= read -r -d '' file; do
+    if is_allowlisted_path "$file"; then
+      continue
+    fi
+
+    if SEARCH_PATTERN="$pat" perl -ne '
+      BEGIN { $found = 0; $pattern = $ENV{"SEARCH_PATTERN"}; }
+      if (/$pattern/) { print "$ARGV:$.:$_"; $found = 1; }
+      END { exit($found ? 0 : 1); }
+    ' "$file"; then
+      found=0
+    else
+      status=$?
+      if [[ $status -gt 1 ]]; then
+        return "$status"
+      fi
+    fi
+  done < <(find $PATHS -type f \
+    \( -name '*.rs' \
+      -o -name '*.toml' \
+      -o -name '*.sh' \
+      -o -name '*.mjs' \
+      -o -name '*.js' \
+      -o -name '*.ts' \
+      -o -name '*.md' \
+      -o -name '*.graphql' \
+      -o -name '*.json' \
+      -o -name '*.yaml' \
+      -o -name '*.yml' \) \
+    -not -path '*/.git/*' \
+    -not -path '*/target/*' \
+    -not -path '*/node_modules/*' \
+    -print0)
+
+  return "$found"
+}
+
+search_pattern() {
+  local pat="$1"
+
+  if command -v rg >/dev/null 2>&1; then
+    rg "${RG_ARGS[@]}" "${ALLOW_RG_EXCLUDES[@]}" -n -S "$pat" $PATHS
+    return $?
+  fi
+
+  search_pattern_with_perl "$pat"
+}
+
 for pat in "${PATTERNS[@]}"; do
   echo "Checking: $pat"
   # We can't "glob exclude by line"; allowlist is file-level. Keep it simple:
   # If you need surgical exceptions, prefer moving code or refactoring.
-  if rg "${RG_ARGS[@]}" "${ALLOW_RG_EXCLUDES[@]}" -n -S "$pat" $PATHS; then
+  if search_pattern "$pat"; then
     echo
     violations=$((violations+1))
   else

@@ -7,6 +7,10 @@
 
 ### Added
 
+- `docs/design/built-in-echo-graph-data-model.md` defines Echo's native
+  graph ontology for future optic admission, authority, transaction atomicity,
+  receipts, witnessed readings, footprint addressing, and transaction-local
+  object identity.
 - `docs/design/obstruction-receipt-boundary.md` distinguishes causal
   obstruction receipts from counterfactual retention: refusal is a causal event
   but not admission, and counterfactuals begin only after a rewrite is legally

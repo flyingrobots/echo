@@ -34,6 +34,7 @@ pub mod wsc;
 
 mod admission;
 mod attachment;
+mod causal_facts;
 mod clock;
 mod cmd;
 mod constants;
@@ -164,6 +165,10 @@ pub use admission::{
 pub use attachment::{
     AtomPayload, AttachmentKey, AttachmentOwner, AttachmentPlane, AttachmentValue, Codec,
     CodecRegistry, DecodeError, ErasedCodec, RegistryError,
+};
+pub use causal_facts::{
+    ArtifactRegistrationObstructionKind, ArtifactRegistrationReceipt, FactDigest, GraphFact,
+    PublishedGraphFact, ARTIFACT_REGISTRATION_RECEIPT_KIND,
 };
 pub use clock::{GlobalTick, RunId, WorldlineTick};
 pub use cmd::{

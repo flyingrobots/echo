@@ -40,6 +40,7 @@ mod constants;
 /// Domain separation prefixes for hashing.
 pub mod domain;
 mod dynamic_binding;
+mod echo_graph;
 mod engine_impl;
 mod footprint;
 /// Footprint enforcement guard for parallel execution.
@@ -172,6 +173,11 @@ pub use cmd::{
     IMPORT_SUFFIX_RESULT_EDGE_TYPE, IMPORT_SUFFIX_RESULT_NODE_TYPE,
 };
 pub use constants::{blake3_empty, digest_len0_u64, POLICY_ID_NO_POLICY_V0};
+pub use echo_graph::{
+    CausalObjectId, EntityRef, ExternalEntityRef, FactDigest, GraphEdgeKind, GraphFact,
+    GraphObjectKind, GraphValueRef, RuntimeLocalHandle, TransactionLocalObjectId,
+    GRAPH_FACT_DIGEST_DOMAIN,
+};
 pub use dynamic_binding::{
     BoundNodeRef, ClosureMemberBinding, DirectSlotBinding, DynamicBindingError,
     DynamicBindingRuntimeError, RangeClosureBindingRequest, RelationSlotBinding,

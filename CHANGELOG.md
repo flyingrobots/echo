@@ -7,6 +7,10 @@
 
 ### Added
 
+- `warp-core` now defines the v0 native Echo graph fact model: causal,
+  transaction-local, external, and runtime-local entity references; object and
+  edge kinds; digest-addressed property values; base object/edge/property facts;
+  and deterministic BLAKE3 fact digests built without JSON.
 - `docs/procedures/DIRECT-MAIN-EXCEPTION-LOG.md` records the 2026-05-14
   docs-only direct-main exception for the Echo graph model checkpoint, including
   authorization context, exact commits, validation, changed files, and the

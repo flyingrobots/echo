@@ -167,7 +167,8 @@ pub use attachment::{
     CodecRegistry, DecodeError, ErasedCodec, RegistryError,
 };
 pub use causal_facts::{
-    ArtifactRegistrationObstructionKind, ArtifactRegistrationReceipt, FactDigest, GraphFact,
+    digest_invocation_request_bytes, ArtifactRegistrationObstructionKind,
+    ArtifactRegistrationReceipt, FactDigest, GraphFact, InvocationObstructionKind,
     PublishedGraphFact, ARTIFACT_REGISTRATION_RECEIPT_KIND,
 };
 pub use clock::{GlobalTick, RunId, WorldlineTick};

@@ -3,10 +3,12 @@
 //! Regression tests for optic invocation admission obstruction.
 
 use warp_core::{
+    digest_invocation_request_bytes, GraphFact, InvocationObstructionKind,
     OpticAdmissionRequirements, OpticAdmissionTicketPosture, OpticApertureRequest, OpticArtifact,
     OpticArtifactHandle, OpticArtifactOperation, OpticArtifactRegistry, OpticBasisRequest,
     OpticCapabilityPresentation, OpticInvocation, OpticInvocationAdmissionOutcome,
-    OpticInvocationObstruction, OpticRegistrationDescriptor, OPTIC_ADMISSION_TICKET_POSTURE_KIND,
+    OpticInvocationObstruction, OpticRegistrationDescriptor, RewriteDisposition,
+    OPTIC_ADMISSION_TICKET_POSTURE_KIND,
 };
 
 fn fixture_artifact() -> OpticArtifact {
@@ -80,7 +82,7 @@ fn obstruction_for(outcome: &OpticInvocationAdmissionOutcome) -> OpticInvocation
 
 #[test]
 fn optic_invocation_obstructs_unknown_handle() {
-    let registry = OpticArtifactRegistry::new();
+    let mut registry = OpticArtifactRegistry::new();
     let invocation = fixture_invocation(OpticArtifactHandle {
         kind: "optic-artifact-handle".to_owned(),
         id: "unregistered-handle".to_owned(),
@@ -96,7 +98,7 @@ fn optic_invocation_obstructs_unknown_handle() {
 
 #[test]
 fn optic_invocation_obstructs_operation_mismatch() -> Result<(), String> {
-    let (registry, handle) = fixture_registry_and_handle()?;
+    let (mut registry, handle) = fixture_registry_and_handle()?;
     let mut invocation = fixture_invocation(handle);
     invocation.operation_id = "operation:replaceRange:v0".to_owned();
 
@@ -111,7 +113,7 @@ fn optic_invocation_obstructs_operation_mismatch() -> Result<(), String> {
 
 #[test]
 fn optic_invocation_obstructs_missing_capability_for_registered_handle() -> Result<(), String> {
-    let (registry, handle) = fixture_registry_and_handle()?;
+    let (mut registry, handle) = fixture_registry_and_handle()?;
     let invocation = fixture_invocation(handle);
 
     let outcome = registry.admit_optic_invocation(&invocation);
@@ -125,7 +127,7 @@ fn optic_invocation_obstructs_missing_capability_for_registered_handle() -> Resu
 
 #[test]
 fn optic_invocation_obstructs_malformed_capability_presentation() -> Result<(), String> {
-    let (registry, handle) = fixture_registry_and_handle()?;
+    let (mut registry, handle) = fixture_registry_and_handle()?;
     let mut invocation = fixture_invocation(handle);
     invocation.capability_presentation = Some(OpticCapabilityPresentation {
         presentation_id: String::new(),
@@ -146,7 +148,7 @@ fn optic_invocation_obstructs_malformed_capability_presentation() -> Result<(), 
 
 #[test]
 fn optic_invocation_obstructs_unbound_capability_presentation() -> Result<(), String> {
-    let (registry, handle) = fixture_registry_and_handle()?;
+    let (mut registry, handle) = fixture_registry_and_handle()?;
     let mut invocation = fixture_invocation(handle);
     invocation.capability_presentation = Some(OpticCapabilityPresentation {
         presentation_id: "presentation:unbound".to_owned(),
@@ -168,7 +170,7 @@ fn optic_invocation_obstructs_unbound_capability_presentation() -> Result<(), St
 #[test]
 fn optic_invocation_obstructs_placeholder_capability_presentation_until_grant_validation_exists(
 ) -> Result<(), String> {
-    let (registry, handle) = fixture_registry_and_handle()?;
+    let (mut registry, handle) = fixture_registry_and_handle()?;
     let mut invocation = fixture_invocation(handle);
     invocation.capability_presentation = Some(OpticCapabilityPresentation {
         presentation_id: "presentation:placeholder".to_owned(),
@@ -215,7 +217,7 @@ fn optic_invocation_presentation_never_admits_without_real_grant_validation() ->
     ];
 
     for (presentation, expected_obstruction) in presentations {
-        let (registry, handle) = fixture_registry_and_handle()?;
+        let (mut registry, handle) = fixture_registry_and_handle()?;
         let mut invocation = fixture_invocation(handle);
         invocation.capability_presentation = Some(presentation);
 
@@ -223,5 +225,144 @@ fn optic_invocation_presentation_never_admits_without_real_grant_validation() ->
 
         assert_eq!(obstruction_for(&outcome), expected_obstruction);
     }
+    Ok(())
+}
+
+fn latest_invocation_obstruction_fact(
+    registry: &OpticArtifactRegistry,
+) -> Result<&GraphFact, String> {
+    registry
+        .published_graph_facts()
+        .last()
+        .map(|published| &published.fact)
+        .ok_or_else(|| "expected invocation obstruction graph fact".to_owned())
+}
+
+#[test]
+fn unknown_handle_publishes_invocation_obstruction_fact() -> Result<(), String> {
+    let mut registry = OpticArtifactRegistry::new();
+    let invocation = fixture_invocation(OpticArtifactHandle {
+        kind: "optic-artifact-handle".to_owned(),
+        id: "unregistered-handle".to_owned(),
+    });
+
+    let outcome = registry.admit_optic_invocation(&invocation);
+
+    assert_eq!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::UnknownHandle
+    );
+    assert!(matches!(
+        latest_invocation_obstruction_fact(&registry)?,
+        GraphFact::OpticInvocationObstructed {
+            artifact_handle_id,
+            operation_id,
+            canonical_variables_digest,
+            obstruction,
+            ..
+        } if artifact_handle_id == "unregistered-handle"
+            && operation_id == "operation:textWindow:v0"
+            && canonical_variables_digest == b"vars-digest:textWindow"
+            && *obstruction == InvocationObstructionKind::UnknownHandle
+    ));
+    Ok(())
+}
+
+#[test]
+fn operation_mismatch_publishes_invocation_obstruction_fact() -> Result<(), String> {
+    let (mut registry, handle) = fixture_registry_and_handle()?;
+    let mut invocation = fixture_invocation(handle);
+    invocation.operation_id = "operation:replaceRange:v0".to_owned();
+
+    let outcome = registry.admit_optic_invocation(&invocation);
+
+    assert_eq!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::OperationMismatch
+    );
+    assert!(matches!(
+        latest_invocation_obstruction_fact(&registry)?,
+        GraphFact::OpticInvocationObstructed {
+            operation_id,
+            obstruction,
+            ..
+        } if operation_id == "operation:replaceRange:v0"
+            && *obstruction == InvocationObstructionKind::OperationMismatch
+    ));
+    Ok(())
+}
+
+#[test]
+fn missing_capability_publishes_invocation_obstruction_fact() -> Result<(), String> {
+    let (mut registry, handle) = fixture_registry_and_handle()?;
+    let invocation = fixture_invocation(handle);
+
+    let outcome = registry.admit_optic_invocation(&invocation);
+
+    assert_eq!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::MissingCapability
+    );
+    assert!(matches!(
+        latest_invocation_obstruction_fact(&registry)?,
+        GraphFact::OpticInvocationObstructed {
+            basis_request_digest,
+            aperture_request_digest,
+            obstruction,
+            ..
+        } if *basis_request_digest == digest_invocation_request_bytes(
+                b"echo.optic-invocation.basis-request.v0",
+                b"basis-request:fixture"
+            )
+            && *aperture_request_digest == digest_invocation_request_bytes(
+                b"echo.optic-invocation.aperture-request.v0",
+                b"aperture-request:fixture"
+            )
+            && *obstruction == InvocationObstructionKind::MissingCapability
+    ));
+    Ok(())
+}
+
+#[test]
+fn invocation_obstruction_fact_digest_is_deterministic() {
+    let first = GraphFact::OpticInvocationObstructed {
+        artifact_handle_id: "handle:1".to_owned(),
+        operation_id: "operation:textWindow:v0".to_owned(),
+        canonical_variables_digest: b"vars".to_vec(),
+        basis_request_digest: digest_invocation_request_bytes(
+            b"echo.optic-invocation.basis-request.v0",
+            b"basis",
+        ),
+        aperture_request_digest: digest_invocation_request_bytes(
+            b"echo.optic-invocation.aperture-request.v0",
+            b"aperture",
+        ),
+        obstruction: InvocationObstructionKind::MissingCapability,
+    };
+    let repeated = first.clone();
+
+    assert_eq!(first.digest(), repeated.digest());
+}
+
+#[test]
+fn invocation_obstruction_fact_is_not_counterfactual_candidate() -> Result<(), String> {
+    let (mut registry, handle) = fixture_registry_and_handle()?;
+    let invocation = fixture_invocation(handle);
+
+    let outcome = registry.admit_optic_invocation(&invocation);
+
+    assert_eq!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::MissingCapability
+    );
+    let disposition = RewriteDisposition::Obstructed;
+    assert_ne!(
+        disposition,
+        RewriteDisposition::LegalUnselectedCounterfactual
+    );
+    assert!(matches!(
+        latest_invocation_obstruction_fact(&registry)?,
+        GraphFact::OpticInvocationObstructed { .. }
+    ));
     Ok(())
 }

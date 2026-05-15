@@ -718,6 +718,7 @@ dependencies = [
  "serde",
  "serde_json",
  "syn",
+ "warp-core",
  "wesley-core",
 ]
 
@@ -2161,9 +2162,9 @@ dependencies = [
 
 [[package]]
 name = "wesley-core"
-version = "0.0.2"
+version = "0.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8365972ab1d1d8ece193aa3de936223e33abe3844f3fba0e7049efc50f64b3ea"
+checksum = "185e806cc7e9d4263023562a00832d777ab146b902f5ee1531940dc39e6d6515"
 dependencies = [
  "apollo-parser",
  "async-trait",

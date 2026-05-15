@@ -49,8 +49,31 @@ pub enum InvocationObstructionKind {
     MalformedCapabilityPresentation,
     /// Invocation supplied a presentation not bound to a grant id.
     UnboundCapabilityPresentation,
-    /// Invocation supplied a placeholder presentation before grant validation exists.
+    /// Invocation supplied a placeholder presentation before grant validation
+    /// is wired into invocation admission.
     CapabilityValidationUnavailable,
+}
+
+/// Obstruction kind recorded when capability grant validation fails before any
+/// successful admission ticket, law witness, scheduler selection, or execution
+/// boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CapabilityGrantValidationObstructionKind {
+    /// Presentation supplied unusable shape for grant validation.
+    MalformedCapabilityPresentation,
+    /// Presentation did not bind to a grant id.
+    UnboundCapabilityPresentation,
+    /// Presentation named grant material Echo has not recorded.
+    UnknownGrant,
+    /// Grant artifact hash did not cover the registered artifact.
+    ArtifactHashMismatch,
+    /// Grant operation id did not cover the registered artifact operation.
+    OperationIdMismatch,
+    /// Grant requirements digest did not cover the registered artifact
+    /// requirements.
+    RequirementsDigestMismatch,
+    /// Grant expiry posture obstructed validation.
+    ExpiredGrant,
 }
 
 impl InvocationObstructionKind {
@@ -62,6 +85,20 @@ impl InvocationObstructionKind {
             Self::MalformedCapabilityPresentation => b"malformed-capability-presentation",
             Self::UnboundCapabilityPresentation => b"unbound-capability-presentation",
             Self::CapabilityValidationUnavailable => b"capability-validation-unavailable",
+        }
+    }
+}
+
+impl CapabilityGrantValidationObstructionKind {
+    fn digest_label(self) -> &'static [u8] {
+        match self {
+            Self::MalformedCapabilityPresentation => b"malformed-capability-presentation",
+            Self::UnboundCapabilityPresentation => b"unbound-capability-presentation",
+            Self::UnknownGrant => b"unknown-grant",
+            Self::ArtifactHashMismatch => b"artifact-hash-mismatch",
+            Self::OperationIdMismatch => b"operation-id-mismatch",
+            Self::RequirementsDigestMismatch => b"requirements-digest-mismatch",
+            Self::ExpiredGrant => b"expired-grant",
         }
     }
 }
@@ -116,6 +153,30 @@ pub enum GraphFact {
         aperture_request_digest: [u8; 32],
         /// Structured invocation obstruction kind.
         obstruction: InvocationObstructionKind,
+    },
+    /// Echo refused capability grant validation before treating grant material
+    /// as authority.
+    CapabilityGrantValidationObstructed {
+        /// Presentation identity supplied by the caller.
+        presentation_id: String,
+        /// Grant id named by the presentation, when structurally available.
+        grant_id: Option<String>,
+        /// Echo-owned runtime-local artifact handle id being covered.
+        artifact_handle_id: String,
+        /// Registered artifact hash Echo expected the grant to cover.
+        expected_artifact_hash: String,
+        /// Artifact hash named by the grant material, when available.
+        grant_artifact_hash: Option<String>,
+        /// Registered operation id Echo expected the grant to cover.
+        expected_operation_id: String,
+        /// Operation id named by the grant material, when available.
+        grant_operation_id: Option<String>,
+        /// Registered requirements digest Echo expected the grant to cover.
+        expected_requirements_digest: String,
+        /// Requirements digest named by the grant material, when available.
+        grant_requirements_digest: Option<String>,
+        /// Structured capability grant validation obstruction kind.
+        obstruction: CapabilityGrantValidationObstructionKind,
     },
 }
 
@@ -182,6 +243,66 @@ impl GraphFact {
                     &mut bytes,
                     b"aperture-request-digest",
                     aperture_request_digest,
+                );
+                push_digest_field(&mut bytes, b"obstruction", obstruction.digest_label());
+            }
+            Self::CapabilityGrantValidationObstructed {
+                presentation_id,
+                grant_id,
+                artifact_handle_id,
+                expected_artifact_hash,
+                grant_artifact_hash,
+                expected_operation_id,
+                grant_operation_id,
+                expected_requirements_digest,
+                grant_requirements_digest,
+                obstruction,
+            } => {
+                push_digest_field(
+                    &mut bytes,
+                    b"variant",
+                    b"capability-grant-validation-obstructed",
+                );
+                push_digest_field(&mut bytes, b"presentation-id", presentation_id.as_bytes());
+                push_optional_digest_field(
+                    &mut bytes,
+                    b"grant-id",
+                    grant_id.as_deref().map(str::as_bytes),
+                );
+                push_digest_field(
+                    &mut bytes,
+                    b"artifact-handle-id",
+                    artifact_handle_id.as_bytes(),
+                );
+                push_digest_field(
+                    &mut bytes,
+                    b"expected-artifact-hash",
+                    expected_artifact_hash.as_bytes(),
+                );
+                push_optional_digest_field(
+                    &mut bytes,
+                    b"grant-artifact-hash",
+                    grant_artifact_hash.as_deref().map(str::as_bytes),
+                );
+                push_digest_field(
+                    &mut bytes,
+                    b"expected-operation-id",
+                    expected_operation_id.as_bytes(),
+                );
+                push_optional_digest_field(
+                    &mut bytes,
+                    b"grant-operation-id",
+                    grant_operation_id.as_deref().map(str::as_bytes),
+                );
+                push_digest_field(
+                    &mut bytes,
+                    b"expected-requirements-digest",
+                    expected_requirements_digest.as_bytes(),
+                );
+                push_optional_digest_field(
+                    &mut bytes,
+                    b"grant-requirements-digest",
+                    grant_requirements_digest.as_deref().map(str::as_bytes),
                 );
                 push_digest_field(&mut bytes, b"obstruction", obstruction.digest_label());
             }

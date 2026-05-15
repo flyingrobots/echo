@@ -170,7 +170,7 @@ fn optic_invocation_obstructs_unbound_capability_presentation() -> Result<(), St
 }
 
 #[test]
-fn optic_invocation_obstructs_placeholder_capability_presentation_until_grant_validation_exists(
+fn optic_invocation_obstructs_placeholder_capability_presentation_until_grant_validation_is_wired_into_admission(
 ) -> Result<(), String> {
     let (mut registry, handle) = fixture_registry_and_handle()?;
     let mut invocation = fixture_invocation(handle);
@@ -192,8 +192,8 @@ fn optic_invocation_obstructs_placeholder_capability_presentation_until_grant_va
 }
 
 #[test]
-fn optic_invocation_presentation_never_admits_without_real_grant_validation() -> Result<(), String>
-{
+fn optic_invocation_presentation_never_admits_without_grant_validation_wired_into_admission(
+) -> Result<(), String> {
     let presentations = [
         (
             OpticCapabilityPresentation {

@@ -140,7 +140,7 @@ erDiagram
 - no success admission;
 - no `AdmissionTicket`;
 - no `LawWitness`;
-- no grant validation;
+- no grant validation inside `admit_optic_invocation`;
 - no execution;
 - no scheduler;
 - no persistence;

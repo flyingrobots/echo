@@ -35,6 +35,37 @@ pub enum ArtifactRegistrationObstructionKind {
     RequirementsDigestMismatch,
 }
 
+/// Obstruction kind recorded when optic invocation admission refuses before a
+/// success ticket, witness, scheduler selection, or execution boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InvocationObstructionKind {
+    /// Echo did not issue the supplied artifact handle.
+    UnknownHandle,
+    /// Invocation operation id did not match the registered artifact operation.
+    OperationMismatch,
+    /// Invocation supplied no capability presentation.
+    MissingCapability,
+    /// Invocation supplied a malformed capability presentation.
+    MalformedCapabilityPresentation,
+    /// Invocation supplied a presentation not bound to a grant id.
+    UnboundCapabilityPresentation,
+    /// Invocation supplied a placeholder presentation before grant validation exists.
+    CapabilityValidationUnavailable,
+}
+
+impl InvocationObstructionKind {
+    fn digest_label(self) -> &'static [u8] {
+        match self {
+            Self::UnknownHandle => b"unknown-handle",
+            Self::OperationMismatch => b"operation-mismatch",
+            Self::MissingCapability => b"missing-capability",
+            Self::MalformedCapabilityPresentation => b"malformed-capability-presentation",
+            Self::UnboundCapabilityPresentation => b"unbound-capability-presentation",
+            Self::CapabilityValidationUnavailable => b"capability-validation-unavailable",
+        }
+    }
+}
+
 impl ArtifactRegistrationObstructionKind {
     fn digest_label(self) -> &'static [u8] {
         match self {
@@ -70,6 +101,21 @@ pub enum GraphFact {
         artifact_hash: Option<String>,
         /// Structured obstruction kind.
         obstruction: ArtifactRegistrationObstructionKind,
+    },
+    /// Echo refused optic invocation before admission success.
+    OpticInvocationObstructed {
+        /// Echo-owned runtime-local artifact handle id named by the invocation.
+        artifact_handle_id: String,
+        /// Operation id named by the invocation.
+        operation_id: String,
+        /// Digest of the invocation's canonical variable bytes.
+        canonical_variables_digest: Vec<u8>,
+        /// Digest of the opaque basis request bytes.
+        basis_request_digest: [u8; 32],
+        /// Digest of the opaque aperture request bytes.
+        aperture_request_digest: [u8; 32],
+        /// Structured invocation obstruction kind.
+        obstruction: InvocationObstructionKind,
     },
 }
 
@@ -111,10 +157,48 @@ impl GraphFact {
                 );
                 push_digest_field(&mut bytes, b"obstruction", obstruction.digest_label());
             }
+            Self::OpticInvocationObstructed {
+                artifact_handle_id,
+                operation_id,
+                canonical_variables_digest,
+                basis_request_digest,
+                aperture_request_digest,
+                obstruction,
+            } => {
+                push_digest_field(&mut bytes, b"variant", b"optic-invocation-obstructed");
+                push_digest_field(
+                    &mut bytes,
+                    b"artifact-handle-id",
+                    artifact_handle_id.as_bytes(),
+                );
+                push_digest_field(&mut bytes, b"operation-id", operation_id.as_bytes());
+                push_digest_field(
+                    &mut bytes,
+                    b"canonical-variables-digest",
+                    canonical_variables_digest,
+                );
+                push_digest_field(&mut bytes, b"basis-request-digest", basis_request_digest);
+                push_digest_field(
+                    &mut bytes,
+                    b"aperture-request-digest",
+                    aperture_request_digest,
+                );
+                push_digest_field(&mut bytes, b"obstruction", obstruction.digest_label());
+            }
         }
 
         FactDigest(*blake3::hash(&bytes).as_bytes())
     }
+}
+
+/// Computes a deterministic digest for opaque invocation request bytes named
+/// inside graph facts.
+#[must_use]
+pub fn digest_invocation_request_bytes(domain: &[u8], bytes: &[u8]) -> [u8; 32] {
+    let mut input = Vec::new();
+    push_digest_field(&mut input, b"domain", domain);
+    push_digest_field(&mut input, b"bytes", bytes);
+    *blake3::hash(&input).as_bytes()
 }
 
 /// Graph fact plus its deterministic digest.

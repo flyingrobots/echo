@@ -13,8 +13,9 @@
 use std::collections::BTreeMap;
 
 use crate::{
-    ArtifactRegistrationObstructionKind, ArtifactRegistrationReceipt, GraphFact,
-    PublishedGraphFact, ARTIFACT_REGISTRATION_RECEIPT_KIND,
+    digest_invocation_request_bytes, ArtifactRegistrationObstructionKind,
+    ArtifactRegistrationReceipt, GraphFact, InvocationObstructionKind, PublishedGraphFact,
+    ARTIFACT_REGISTRATION_RECEIPT_KIND,
 };
 use thiserror::Error;
 
@@ -759,24 +760,20 @@ impl OpticArtifactRegistry {
     /// and that obstruction is reported as a structured pre-ticket posture.
     #[must_use = "optic invocation admission outcomes carry obstructions that must be handled"]
     pub fn admit_optic_invocation(
-        &self,
+        &mut self,
         invocation: &OpticInvocation,
     ) -> OpticInvocationAdmissionOutcome {
         let Ok(registered) = self.resolve_optic_artifact_handle(&invocation.artifact_handle) else {
-            return Self::obstructed_invocation(
-                invocation,
-                OpticInvocationObstruction::UnknownHandle,
-            );
+            return self
+                .obstructed_invocation(invocation, OpticInvocationObstruction::UnknownHandle);
         };
 
         if invocation.operation_id != registered.operation_id {
-            return Self::obstructed_invocation(
-                invocation,
-                OpticInvocationObstruction::OperationMismatch,
-            );
+            return self
+                .obstructed_invocation(invocation, OpticInvocationObstruction::OperationMismatch);
         }
 
-        Self::obstructed_invocation(
+        self.obstructed_invocation(
             invocation,
             Self::classify_capability_presentation(invocation.capability_presentation.as_ref()),
         )
@@ -806,9 +803,11 @@ impl OpticArtifactRegistry {
     }
 
     fn obstructed_invocation(
+        &mut self,
         invocation: &OpticInvocation,
         obstruction: OpticInvocationObstruction,
     ) -> OpticInvocationAdmissionOutcome {
+        self.publish_invocation_obstruction_fact(invocation, obstruction);
         OpticInvocationAdmissionOutcome::Obstructed(OpticAdmissionTicketPosture {
             kind: OPTIC_ADMISSION_TICKET_POSTURE_KIND.to_owned(),
             artifact_handle: invocation.artifact_handle.clone(),
@@ -918,6 +917,29 @@ impl OpticArtifactRegistry {
             ));
         }
     }
+
+    fn publish_invocation_obstruction_fact(
+        &mut self,
+        invocation: &OpticInvocation,
+        obstruction: OpticInvocationObstruction,
+    ) {
+        self.published_graph_facts.push(PublishedGraphFact::new(
+            GraphFact::OpticInvocationObstructed {
+                artifact_handle_id: invocation.artifact_handle.id.clone(),
+                operation_id: invocation.operation_id.clone(),
+                canonical_variables_digest: invocation.canonical_variables_digest.clone(),
+                basis_request_digest: digest_invocation_request_bytes(
+                    b"echo.optic-invocation.basis-request.v0",
+                    &invocation.basis_request.bytes,
+                ),
+                aperture_request_digest: digest_invocation_request_bytes(
+                    b"echo.optic-invocation.aperture-request.v0",
+                    &invocation.aperture_request.bytes,
+                ),
+                obstruction: invocation_obstruction_kind(obstruction),
+            },
+        ));
+    }
 }
 
 fn artifact_registration_obstruction_kind(
@@ -940,5 +962,28 @@ fn artifact_registration_obstruction_kind(
             Some(ArtifactRegistrationObstructionKind::RequirementsDigestMismatch)
         }
         OpticArtifactRegistrationError::UnknownHandle => None,
+    }
+}
+
+fn invocation_obstruction_kind(
+    obstruction: OpticInvocationObstruction,
+) -> InvocationObstructionKind {
+    match obstruction {
+        OpticInvocationObstruction::UnknownHandle => InvocationObstructionKind::UnknownHandle,
+        OpticInvocationObstruction::OperationMismatch => {
+            InvocationObstructionKind::OperationMismatch
+        }
+        OpticInvocationObstruction::MissingCapability => {
+            InvocationObstructionKind::MissingCapability
+        }
+        OpticInvocationObstruction::MalformedCapabilityPresentation => {
+            InvocationObstructionKind::MalformedCapabilityPresentation
+        }
+        OpticInvocationObstruction::UnboundCapabilityPresentation => {
+            InvocationObstructionKind::UnboundCapabilityPresentation
+        }
+        OpticInvocationObstruction::CapabilityValidationUnavailable => {
+            InvocationObstructionKind::CapabilityValidationUnavailable
+        }
     }
 }

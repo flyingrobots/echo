@@ -7,6 +7,16 @@
 
 ### Added
 
+- `warp-core` now publishes `GraphFact::OpticInvocationObstructed` whenever the
+  optic invocation admission skeleton refuses an invocation. The fact records
+  the artifact handle id, operation id, canonical variables digest, basis and
+  aperture request digests, and structured obstruction kind without creating a
+  success admission ticket, law witness, execution, scheduler output, or
+  counterfactual candidate.
+- `docs/design/invocation-obstruction-graph-facts.md` defines the invocation
+  refusal publication boundary: registered handles are not authority, and
+  invocation obstruction facts are causal refusal evidence rather than
+  counterfactual worlds.
 - Local verification now maps `warp-core` optic artifact and causal fact source
   changes to the exact integration test targets they exercise, avoiding broad
   Cargo name-filter runs while preserving targeted smoke coverage.

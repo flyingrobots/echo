@@ -12,6 +12,10 @@
 
 use std::collections::BTreeMap;
 
+use crate::{
+    ArtifactRegistrationObstructionKind, ArtifactRegistrationReceipt, GraphFact,
+    PublishedGraphFact, ARTIFACT_REGISTRATION_RECEIPT_KIND,
+};
 use thiserror::Error;
 
 /// Echo-owned handle kind for registered optic artifacts.
@@ -673,6 +677,8 @@ fn push_optional_receipt_field(bytes: &mut Vec<u8>, field: Option<&[u8]>) {
 pub struct OpticArtifactRegistry {
     next_handle_index: u64,
     artifacts_by_handle: BTreeMap<String, RegisteredOpticArtifact>,
+    published_graph_facts: Vec<PublishedGraphFact>,
+    artifact_registration_receipts: Vec<ArtifactRegistrationReceipt>,
 }
 
 impl OpticArtifactRegistry {
@@ -693,20 +699,34 @@ impl OpticArtifactRegistry {
         artifact: OpticArtifact,
         descriptor: OpticRegistrationDescriptor,
     ) -> Result<OpticArtifactHandle, OpticArtifactRegistrationError> {
-        Self::verify_descriptor(&artifact, &descriptor)?;
+        if let Err(error) = Self::verify_descriptor(&artifact, &descriptor) {
+            self.publish_artifact_registration_obstruction(&descriptor, &error);
+            return Err(error);
+        }
 
         let handle = self.next_handle();
+        let artifact_hash = artifact.artifact_hash;
+        let schema_id = artifact.schema_id;
+        let operation_id = artifact.operation.operation_id;
+        let requirements_digest = artifact.requirements_digest;
         let registered = RegisteredOpticArtifact {
             handle: handle.clone(),
             artifact_id: artifact.artifact_id,
-            artifact_hash: artifact.artifact_hash,
-            schema_id: artifact.schema_id,
-            operation_id: artifact.operation.operation_id,
-            requirements_digest: artifact.requirements_digest,
+            artifact_hash: artifact_hash.clone(),
+            schema_id: schema_id.clone(),
+            operation_id: operation_id.clone(),
+            requirements_digest: requirements_digest.clone(),
             requirements: artifact.requirements,
         };
         self.artifacts_by_handle
             .insert(handle.id.clone(), registered);
+        self.publish_artifact_registered_fact(
+            &handle,
+            artifact_hash,
+            schema_id,
+            operation_id,
+            requirements_digest,
+        );
 
         Ok(handle)
     }
@@ -809,6 +829,19 @@ impl OpticArtifactRegistry {
         self.artifacts_by_handle.is_empty()
     }
 
+    /// Returns in-memory graph facts published by this registry instance.
+    #[must_use]
+    pub fn published_graph_facts(&self) -> &[PublishedGraphFact] {
+        &self.published_graph_facts
+    }
+
+    /// Returns in-memory artifact registration receipts emitted by this
+    /// registry instance.
+    #[must_use]
+    pub fn artifact_registration_receipts(&self) -> &[ArtifactRegistrationReceipt] {
+        &self.artifact_registration_receipts
+    }
+
     fn verify_descriptor(
         artifact: &OpticArtifact,
         descriptor: &OpticRegistrationDescriptor,
@@ -840,5 +873,69 @@ impl OpticArtifactRegistry {
                 self.next_handle_index
             ),
         }
+    }
+
+    fn publish_artifact_registered_fact(
+        &mut self,
+        handle: &OpticArtifactHandle,
+        artifact_hash: String,
+        schema_id: String,
+        operation_id: String,
+        requirements_digest: String,
+    ) {
+        let published = PublishedGraphFact::new(GraphFact::ArtifactRegistered {
+            handle_id: handle.id.clone(),
+            artifact_hash: artifact_hash.clone(),
+            schema_id,
+            operation_id: operation_id.clone(),
+            requirements_digest,
+        });
+        self.artifact_registration_receipts
+            .push(ArtifactRegistrationReceipt {
+                kind: ARTIFACT_REGISTRATION_RECEIPT_KIND.to_owned(),
+                handle_id: handle.id.clone(),
+                artifact_hash,
+                operation_id,
+                fact_digest: published.digest,
+            });
+        self.published_graph_facts.push(published);
+    }
+
+    fn publish_artifact_registration_obstruction(
+        &mut self,
+        descriptor: &OpticRegistrationDescriptor,
+        error: &OpticArtifactRegistrationError,
+    ) {
+        if let Some(obstruction) = artifact_registration_obstruction_kind(error) {
+            self.published_graph_facts.push(PublishedGraphFact::new(
+                GraphFact::ArtifactRegistrationObstructed {
+                    artifact_hash: Some(descriptor.artifact_hash.clone()),
+                    obstruction,
+                },
+            ));
+        }
+    }
+}
+
+fn artifact_registration_obstruction_kind(
+    error: &OpticArtifactRegistrationError,
+) -> Option<ArtifactRegistrationObstructionKind> {
+    match error {
+        OpticArtifactRegistrationError::ArtifactIdMismatch => {
+            Some(ArtifactRegistrationObstructionKind::ArtifactIdMismatch)
+        }
+        OpticArtifactRegistrationError::ArtifactHashMismatch => {
+            Some(ArtifactRegistrationObstructionKind::ArtifactHashMismatch)
+        }
+        OpticArtifactRegistrationError::SchemaIdMismatch => {
+            Some(ArtifactRegistrationObstructionKind::SchemaIdMismatch)
+        }
+        OpticArtifactRegistrationError::OperationIdMismatch => {
+            Some(ArtifactRegistrationObstructionKind::OperationIdMismatch)
+        }
+        OpticArtifactRegistrationError::RequirementsDigestMismatch => {
+            Some(ArtifactRegistrationObstructionKind::RequirementsDigestMismatch)
+        }
+        OpticArtifactRegistrationError::UnknownHandle => None,
     }
 }

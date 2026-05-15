@@ -7,6 +7,17 @@
 
 ### Added
 
+- `warp-core` now publishes in-memory causal graph facts from optic artifact
+  registration. Successful registration emits `GraphFact::ArtifactRegistered`,
+  computes a deterministic `FactDigest`, and links that digest from an
+  `ArtifactRegistrationReceipt`; obstructed registration emits
+  `GraphFact::ArtifactRegistrationObstructed` without issuing a handle or
+  success receipt. Fact digests use explicit domain tags, field tags,
+  present/absent markers, and length-prefixed bytes, not JSON.
+- `docs/design/graph-fact-publication-skeleton.md` defines the first substrate
+  publication boundary: facts are world statements, receipts explain
+  publication/refusal boundaries, and registration facts are the first
+  in-memory proof that Echo can describe its own runtime decisions.
 - `echo-wesley-gen` now imports real `wesley-core` 0.0.3 runtime optic
   artifacts into `warp-core` registration structs, preserving Wesley artifact
   hashes, schema ids, operation ids, requirements digests, and registration

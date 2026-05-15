@@ -56,8 +56,11 @@ pub struct OpticArtifactOperation {
 /// must not provide replacement requirements or footprint law.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OpticAdmissionRequirements {
-    /// Opaque requirement bytes. Later slices can replace this fixture-shaped
-    /// payload with shared Wesley/Continuum types without changing ownership.
+    /// Explicit codec id for the opaque requirement bytes.
+    pub codec: String,
+    /// Wesley-computed digest of the opaque requirement bytes.
+    pub digest: String,
+    /// Opaque requirement bytes emitted by Wesley.
     pub bytes: Vec<u8>,
 }
 

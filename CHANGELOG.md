@@ -11,7 +11,8 @@
   docs-only direct-main exception for the Echo graph model checkpoint, including
   authorization context, exact commits, validation, changed files, and the
   future rule to prefer PRs unless an emergency or docs-only fast path is
-  explicitly authorized.
+  explicitly authorized. Future exception records must also cite explicit
+  authorizer identity and authorization evidence.
 - `docs/design/built-in-echo-graph-data-model.md` defines Echo's native
   graph ontology for future optic admission, authority, transaction atomicity,
   receipts, witnessed readings, footprint addressing, transaction-local object

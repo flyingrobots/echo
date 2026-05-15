@@ -19,6 +19,8 @@ fn fixture_artifact() -> OpticArtifact {
             operation_id: "operation:textWindow:v0".to_owned(),
         },
         requirements: OpticAdmissionRequirements {
+            codec: "wesley.requirements.canonical-json.v0".to_owned(),
+            digest: "requirements-digest:stack-witness-0001".to_owned(),
             bytes: b"fixture admission requirements".to_vec(),
         },
     }

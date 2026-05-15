@@ -2162,9 +2162,9 @@ dependencies = [
 
 [[package]]
 name = "wesley-core"
-version = "0.0.3"
+version = "0.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "185e806cc7e9d4263023562a00832d777ab146b902f5ee1531940dc39e6d6515"
+checksum = "96faa36a92a4b0b92d27c467b34a67e006943795f2b9a0bc1e1237729afd17c0"
 dependencies = [
  "apollo-parser",
  "async-trait",

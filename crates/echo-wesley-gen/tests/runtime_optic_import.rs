@@ -3,10 +3,7 @@
 #![allow(clippy::expect_used)]
 //! Proof that `echo-wesley-gen` adapts real Wesley runtime optic artifacts into Echo.
 
-use echo_wesley_gen::{
-    canonicalize_wesley_requirements_v0, import_runtime_optic_artifact,
-    WESLEY_REQUIREMENTS_STAGING_CODEC_V0,
-};
+use echo_wesley_gen::import_runtime_optic_artifact;
 use warp_core::{
     OpticArtifactRegistrationError, OpticArtifactRegistry, OPTIC_ARTIFACT_HANDLE_KIND,
 };
@@ -139,6 +136,14 @@ fn imports_real_wesley_runtime_optic_artifact() {
         !imported.artifact.requirements.bytes.is_empty(),
         "Wesley requirements must be imported into Echo registry bytes"
     );
+    assert_eq!(
+        imported.artifact.requirements.codec,
+        wesley_artifact.requirements_artifact.codec
+    );
+    assert_eq!(
+        imported.artifact.requirements.digest,
+        wesley_artifact.requirements_artifact.digest
+    );
 }
 
 #[test]
@@ -171,18 +176,21 @@ fn registers_imported_wesley_artifact_and_returns_opaque_handle() {
 
 #[test]
 fn imported_requirements_bytes_are_deterministic() {
-    let wesley_artifact = compile_fixture_artifact();
-    let first = canonicalize_wesley_requirements_v0(&wesley_artifact.requirements)
-        .expect("requirements canonicalization should succeed");
-    let second = canonicalize_wesley_requirements_v0(&wesley_artifact.requirements)
-        .expect("requirements canonicalization should repeat");
+    let first_artifact = compile_fixture_artifact();
+    let second_artifact = compile_fixture_artifact();
     let first_import =
-        import_runtime_optic_artifact(&wesley_artifact).expect("artifact import should succeed");
+        import_runtime_optic_artifact(&first_artifact).expect("artifact import should succeed");
     let second_import =
-        import_runtime_optic_artifact(&wesley_artifact).expect("artifact import should repeat");
+        import_runtime_optic_artifact(&second_artifact).expect("artifact import should repeat");
 
-    assert_eq!(first, second);
-    assert_eq!(first_import.artifact.requirements.bytes, first);
+    assert_eq!(
+        first_artifact.requirements_artifact,
+        second_artifact.requirements_artifact
+    );
+    assert_eq!(
+        first_import.artifact.requirements.bytes,
+        first_artifact.requirements_artifact.bytes
+    );
     assert_eq!(
         first_import.artifact.requirements.bytes,
         second_import.artifact.requirements.bytes
@@ -192,23 +200,64 @@ fn imported_requirements_bytes_are_deterministic() {
 #[test]
 fn imported_requirements_bytes_are_not_empty() {
     let wesley_artifact = compile_fixture_artifact();
-    let bytes = canonicalize_wesley_requirements_v0(&wesley_artifact.requirements)
-        .expect("requirements canonicalization should succeed");
 
-    assert!(!bytes.is_empty());
+    assert!(!wesley_artifact.requirements_artifact.bytes.is_empty());
 }
 
 #[test]
-fn imported_requirements_bytes_are_adapter_canonical_staging() {
+fn imports_wesley_owned_requirements_artifact_without_reserializing_requirements() {
     let wesley_artifact = compile_fixture_artifact();
     let imported =
         import_runtime_optic_artifact(&wesley_artifact).expect("artifact import should succeed");
-    let staged_bytes = canonicalize_wesley_requirements_v0(&wesley_artifact.requirements)
-        .expect("requirements canonicalization should succeed");
 
-    assert_eq!(imported.artifact.requirements.bytes, staged_bytes);
-    assert!(WESLEY_REQUIREMENTS_STAGING_CODEC_V0.contains("staging"));
-    assert!(WESLEY_REQUIREMENTS_STAGING_CODEC_V0.ends_with("/v0"));
+    assert_eq!(
+        imported.artifact.requirements_digest,
+        wesley_artifact.requirements_artifact.digest
+    );
+    assert_eq!(
+        imported.artifact.requirements.digest,
+        wesley_artifact.requirements_artifact.digest
+    );
+    assert_eq!(
+        imported.artifact.requirements.codec,
+        wesley_artifact.requirements_artifact.codec
+    );
+    assert_eq!(
+        imported.artifact.requirements.bytes,
+        wesley_artifact.requirements_artifact.bytes
+    );
+}
+
+#[test]
+fn imported_requirements_artifact_is_wesley_owned() {
+    let wesley_artifact = compile_fixture_artifact();
+    let imported =
+        import_runtime_optic_artifact(&wesley_artifact).expect("artifact import should succeed");
+
+    assert_eq!(
+        imported.artifact.requirements.bytes,
+        wesley_artifact.requirements_artifact.bytes
+    );
+    assert_eq!(
+        imported.artifact.requirements.codec,
+        wesley_artifact.requirements_artifact.codec
+    );
+    assert_eq!(
+        imported.artifact.requirements.digest,
+        wesley_artifact.requirements_artifact.digest
+    );
+    assert_eq!(
+        imported.artifact.requirements.digest,
+        imported.artifact.requirements_digest
+    );
+}
+
+#[test]
+fn rejects_wesley_artifact_with_mismatched_requirements_artifact_digest() {
+    let mut wesley_artifact = compile_fixture_artifact();
+    wesley_artifact.requirements_digest = "tampered-requirements-digest".to_owned();
+
+    assert!(import_runtime_optic_artifact(&wesley_artifact).is_err());
 }
 
 #[test]
@@ -302,6 +351,6 @@ fn warp_core_does_not_depend_on_serde_json_for_wesley_requirements() {
 
     assert!(
         active_serde_json_lines.is_empty(),
-        "warp-core must not depend on serde_json for Wesley requirements; JSON staging belongs in echo-wesley-gen"
+        "warp-core must not depend on serde_json for Wesley requirements; canonical requirements bytes belong to Wesley"
     );
 }

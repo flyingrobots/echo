@@ -45,3 +45,7 @@ cat ir.json | cargo run -p echo-wesley-gen -- --out generated.rs
   retained reading identity.
 - Optional fields become `Option<T>`; lists become `Vec<T>` (wrapped in Option when not required).
 - Unknown scalar names are emitted as identifiers as-is (so ensure upstream IR types are valid Rust idents).
+- Runtime optic artifact imports preserve Wesley-owned canonical admission
+  requirement bytes, codec id, and digest directly from
+  `OpticAdmissionRequirementsArtifact`; Echo stores them as opaque registry
+  payload and does not reserialize Wesley requirement structs.

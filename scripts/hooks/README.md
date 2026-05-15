@@ -54,7 +54,9 @@ proof to CI.
 That local smoke path is also file-family aware for `warp-core`: ordinary source
 edits stay on the library test lane, while runtime/inbox, playback, and PRNG
 touches pull the specific extra smoke checks they need instead of one fixed
-bundle every time.
+bundle every time. Optic artifact and causal fact source edits also pull their
+focused registry, invocation admission, publication, and grant-intent smoke
+targets by exact Cargo integration target rather than by test-name filters.
 
 The same principle now applies to the WASM boundary crates: `warp-wasm`
 distinguishes plain lib work from `warp_kernel` engine work, `echo-wasm-abi`

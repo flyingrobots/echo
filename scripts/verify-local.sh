@@ -1065,6 +1065,17 @@ prepare_warp_core_scope() {
       crates/warp-core/tests/*.rs)
         append_unique "$(basename "$file" .rs)" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
         ;;
+      crates/warp-core/src/optic_artifact.rs)
+        append_unique "optic_artifact_registry_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
+        append_unique "optic_invocation_admission_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
+        append_unique "causal_fact_publication_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
+        append_unique "capability_grant_intent_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
+        ;;
+      crates/warp-core/src/causal_facts.rs)
+        append_unique "causal_fact_publication_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
+        append_unique "optic_artifact_registry_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
+        append_unique "optic_invocation_admission_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
+        ;;
       crates/warp-core/src/coordinator.rs|\
       crates/warp-core/src/engine_impl.rs|\
       crates/warp-core/src/head.rs|\

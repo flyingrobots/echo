@@ -7,6 +7,16 @@
 
 ### Added
 
+- `echo-wesley-gen` now imports real `wesley-core` 0.0.3 runtime optic
+  artifacts into `warp-core` registration structs, preserving Wesley artifact
+  hashes, schema ids, operation ids, requirements digests, and registration
+  descriptors while keeping `warp-core` free of a Wesley dependency. Echo still
+  owns opaque runtime-local `OpticArtifactHandle` issuance, and the imported
+  requirements bytes are staged through an explicit adapter-local v0
+  canonicalization helper for registration proof only, not enforcement.
+  `warp-core` stores those requirements as opaque bytes and must not interpret
+  them for admission until Wesley exposes canonical requirements bytes and a
+  durable codec.
 - `docs/procedures/DIRECT-MAIN-EXCEPTION-LOG.md` records the 2026-05-14
   docs-only direct-main exception for the Echo graph model checkpoint, including
   authorization context, exact commits, validation, changed files, and the

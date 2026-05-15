@@ -23,7 +23,7 @@ use ir::{OpKind, TypeKind, WesleyIR};
 const ECHO_IR_VERSION: &str = "echo-ir/v1";
 const DEFAULT_CODEC_ID: &str = "cbor-canon-v1";
 const DEFAULT_REGISTRY_VERSION: u32 = 1;
-const WESLEY_CORE_VERSION: &str = "0.0.2";
+const WESLEY_CORE_VERSION: &str = "0.0.3";
 
 #[derive(Parser)]
 #[command(

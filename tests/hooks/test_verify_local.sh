@@ -1187,6 +1187,52 @@ else
   pass "warp-core default smoke avoids inbox when the file family does not need it"
 fi
 
+fake_warp_core_optic_artifact_output="$(run_fake_verify full crates/warp-core/src/optic_artifact.rs)"
+if printf '%s\n' "$fake_warp_core_optic_artifact_output" | grep -q -- '--test optic_artifact_registry_tests'; then
+  pass "optic artifact changes pull the registry smoke test"
+else
+  fail "optic artifact changes should pull the registry smoke test"
+  printf '%s\n' "$fake_warp_core_optic_artifact_output"
+fi
+if printf '%s\n' "$fake_warp_core_optic_artifact_output" | grep -q -- '--test optic_invocation_admission_tests'; then
+  pass "optic artifact changes pull the invocation admission smoke test"
+else
+  fail "optic artifact changes should pull the invocation admission smoke test"
+  printf '%s\n' "$fake_warp_core_optic_artifact_output"
+fi
+if printf '%s\n' "$fake_warp_core_optic_artifact_output" | grep -q -- '--test causal_fact_publication_tests'; then
+  pass "optic artifact changes pull the causal fact publication smoke test"
+else
+  fail "optic artifact changes should pull the causal fact publication smoke test"
+  printf '%s\n' "$fake_warp_core_optic_artifact_output"
+fi
+if printf '%s\n' "$fake_warp_core_optic_artifact_output" | grep -q -- '--test capability_grant_intent_tests'; then
+  pass "optic artifact changes pull the capability grant intent smoke test"
+else
+  fail "optic artifact changes should pull the capability grant intent smoke test"
+  printf '%s\n' "$fake_warp_core_optic_artifact_output"
+fi
+
+fake_warp_core_causal_facts_output="$(run_fake_verify full crates/warp-core/src/causal_facts.rs)"
+if printf '%s\n' "$fake_warp_core_causal_facts_output" | grep -q -- '--test causal_fact_publication_tests'; then
+  pass "causal fact source changes pull the causal fact publication smoke test"
+else
+  fail "causal fact source changes should pull the causal fact publication smoke test"
+  printf '%s\n' "$fake_warp_core_causal_facts_output"
+fi
+if printf '%s\n' "$fake_warp_core_causal_facts_output" | grep -q -- '--test optic_artifact_registry_tests'; then
+  pass "causal fact source changes pull the artifact registry smoke test"
+else
+  fail "causal fact source changes should pull the artifact registry smoke test"
+  printf '%s\n' "$fake_warp_core_causal_facts_output"
+fi
+if printf '%s\n' "$fake_warp_core_causal_facts_output" | grep -q -- '--test optic_invocation_admission_tests'; then
+  pass "causal fact source changes pull the invocation admission smoke test"
+else
+  fail "causal fact source changes should pull the invocation admission smoke test"
+  printf '%s\n' "$fake_warp_core_causal_facts_output"
+fi
+
 fake_warp_core_runtime_output="$(run_fake_verify full crates/warp-core/src/coordinator.rs)"
 if printf '%s\n' "$fake_warp_core_runtime_output" | grep -q -- '--test inbox'; then
   pass "runtime-facing warp-core changes pull the inbox smoke test"

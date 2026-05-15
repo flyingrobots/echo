@@ -7,6 +7,9 @@
 
 ### Added
 
+- Local verification now maps `warp-core` optic artifact and causal fact source
+  changes to the exact integration test targets they exercise, avoiding broad
+  Cargo name-filter runs while preserving targeted smoke coverage.
 - `warp-core` now publishes in-memory causal graph facts from optic artifact
   registration. Successful registration emits `GraphFact::ArtifactRegistered`,
   computes a deterministic `FactDigest`, and links that digest from an

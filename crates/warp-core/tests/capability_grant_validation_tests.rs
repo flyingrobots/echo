@@ -111,6 +111,108 @@ fn latest_validation_obstruction_fact(
 }
 
 #[test]
+fn grant_validation_obstructs_malformed_capability_presentation() -> Result<(), String> {
+    let registered = fixture_registered_artifact()?;
+    let mut gate = fixture_gate_with_grant(fixture_grant("grant:malformed"));
+    let presentation = OpticCapabilityPresentation {
+        presentation_id: "presentation:malformed".to_owned(),
+        bound_grant_id: Some(String::new()),
+    };
+
+    let outcome = gate.validate_capability_presentation_for_artifact(
+        &presentation,
+        &registered,
+        CapabilityGrantExpiryPosture::NotEvaluated,
+    );
+
+    let posture = obstructed_posture(&outcome)?;
+    assert_eq!(
+        posture.obstruction,
+        CapabilityGrantValidationObstruction::MalformedCapabilityPresentation
+    );
+    assert!(matches!(
+        latest_validation_obstruction_fact(&gate)?,
+        GraphFact::CapabilityGrantValidationObstructed {
+            presentation_id,
+            grant_id,
+            obstruction,
+            ..
+        } if presentation_id == "presentation:malformed"
+            && grant_id.is_none()
+            && *obstruction == warp_core::CapabilityGrantValidationObstructionKind::MalformedCapabilityPresentation
+    ));
+    Ok(())
+}
+
+#[test]
+fn grant_validation_obstructs_unbound_capability_presentation() -> Result<(), String> {
+    let registered = fixture_registered_artifact()?;
+    let mut gate = fixture_gate_with_grant(fixture_grant("grant:unbound"));
+    let presentation = OpticCapabilityPresentation {
+        presentation_id: "presentation:unbound".to_owned(),
+        bound_grant_id: None,
+    };
+
+    let outcome = gate.validate_capability_presentation_for_artifact(
+        &presentation,
+        &registered,
+        CapabilityGrantExpiryPosture::NotEvaluated,
+    );
+
+    let posture = obstructed_posture(&outcome)?;
+    assert_eq!(
+        posture.obstruction,
+        CapabilityGrantValidationObstruction::UnboundCapabilityPresentation
+    );
+    assert!(matches!(
+        latest_validation_obstruction_fact(&gate)?,
+        GraphFact::CapabilityGrantValidationObstructed {
+            presentation_id,
+            grant_id,
+            obstruction,
+            ..
+        } if presentation_id == "presentation:unbound"
+            && grant_id.is_none()
+            && *obstruction == warp_core::CapabilityGrantValidationObstructionKind::UnboundCapabilityPresentation
+    ));
+    Ok(())
+}
+
+#[test]
+fn grant_validation_obstructs_unknown_grant() -> Result<(), String> {
+    let registered = fixture_registered_artifact()?;
+    let mut gate = CapabilityGrantIntentGate::new();
+
+    let outcome = gate.validate_capability_presentation_for_artifact(
+        &fixture_presentation("grant:unknown"),
+        &registered,
+        CapabilityGrantExpiryPosture::NotEvaluated,
+    );
+
+    let posture = obstructed_posture(&outcome)?;
+    assert_eq!(
+        posture.obstruction,
+        CapabilityGrantValidationObstruction::UnknownGrant
+    );
+    assert!(matches!(
+        latest_validation_obstruction_fact(&gate)?,
+        GraphFact::CapabilityGrantValidationObstructed {
+            grant_id,
+            grant_artifact_hash,
+            grant_operation_id,
+            grant_requirements_digest,
+            obstruction,
+            ..
+        } if grant_id.as_deref() == Some("grant:unknown")
+            && grant_artifact_hash.is_none()
+            && grant_operation_id.is_none()
+            && grant_requirements_digest.is_none()
+            && *obstruction == warp_core::CapabilityGrantValidationObstructionKind::UnknownGrant
+    ));
+    Ok(())
+}
+
+#[test]
 fn grant_validation_obstructs_artifact_hash_mismatch() -> Result<(), String> {
     let registered = fixture_registered_artifact()?;
     let mut grant = fixture_grant("grant:artifact-mismatch");

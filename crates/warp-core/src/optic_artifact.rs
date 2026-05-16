@@ -10,7 +10,8 @@
 //! executing runtime work. A capability presentation slot is not authority;
 //! every presentation posture obstructs until Echo can validate a real bounded
 //! grant and admit authority. Basis request bytes are explicit admission
-//! context; they are not resolved into authority or execution in this slice.
+//! context; aperture request bytes are explicit visibility/effect context.
+//! Neither is resolved into authority or execution in this slice.
 
 use std::collections::BTreeMap;
 
@@ -594,9 +595,14 @@ pub enum OpticInvocationObstruction {
     OperationMismatch,
     /// The invocation does not name any basis request bytes.
     MissingBasisRequest,
+    /// The invocation does not name any aperture request bytes.
+    MissingApertureRequest,
     /// The invocation reached basis resolution, but Echo has no basis resolver
     /// wired into admission in this slice.
     UnsupportedBasisResolution,
+    /// The invocation reached aperture resolution, but Echo has no aperture
+    /// resolver wired into admission in this slice.
+    UnsupportedApertureResolution,
     /// The invocation does not carry authority to use the registered artifact.
     MissingCapability,
     /// The invocation carries a presentation that is structurally unusable.
@@ -1091,6 +1097,10 @@ impl OpticArtifactRegistry {
             return self.obstructed_invocation(invocation, obstruction);
         }
 
+        if let Some(obstruction) = Self::classify_aperture_request(&invocation.aperture_request) {
+            return self.obstructed_invocation(invocation, obstruction);
+        }
+
         self.obstructed_invocation(
             invocation,
             Self::classify_capability_presentation(invocation.capability_presentation.as_ref()),
@@ -1127,6 +1137,10 @@ impl OpticArtifactRegistry {
             return self.obstructed_invocation(invocation, obstruction);
         }
 
+        if let Some(obstruction) = Self::classify_aperture_request(&invocation.aperture_request) {
+            return self.obstructed_invocation(invocation, obstruction);
+        }
+
         let obstruction =
             Self::classify_capability_presentation(invocation.capability_presentation.as_ref());
         if obstruction != OpticInvocationObstruction::CapabilityValidationUnavailable {
@@ -1153,6 +1167,16 @@ impl OpticArtifactRegistry {
     ) -> Option<OpticInvocationObstruction> {
         if basis_request.bytes.is_empty() {
             return Some(OpticInvocationObstruction::MissingBasisRequest);
+        }
+
+        None
+    }
+
+    fn classify_aperture_request(
+        aperture_request: &OpticApertureRequest,
+    ) -> Option<OpticInvocationObstruction> {
+        if aperture_request.bytes.is_empty() {
+            return Some(OpticInvocationObstruction::MissingApertureRequest);
         }
 
         None
@@ -1355,8 +1379,14 @@ fn invocation_obstruction_kind(
         OpticInvocationObstruction::MissingBasisRequest => {
             InvocationObstructionKind::MissingBasisRequest
         }
+        OpticInvocationObstruction::MissingApertureRequest => {
+            InvocationObstructionKind::MissingApertureRequest
+        }
         OpticInvocationObstruction::UnsupportedBasisResolution => {
             InvocationObstructionKind::UnsupportedBasisResolution
+        }
+        OpticInvocationObstruction::UnsupportedApertureResolution => {
+            InvocationObstructionKind::UnsupportedApertureResolution
         }
         OpticInvocationObstruction::MissingCapability => {
             InvocationObstructionKind::MissingCapability

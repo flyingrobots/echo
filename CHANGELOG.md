@@ -7,6 +7,14 @@
 
 ### Added
 
+- `warp-core` optic invocation admission now has an aperture-bound obstruction
+  shell. Empty aperture request bytes obstruct as `MissingApertureRequest`;
+  `UnsupportedApertureResolution` is defined as future vocabulary but remains
+  unreachable until basis resolution exists because aperture semantics are scoped
+  inside a resolved causal basis.
+- `docs/design/aperture-bound-optic-admission.md` defines aperture as the
+  visibility/effect window over a resolved basis and pins the rule that basis
+  resolution gates aperture resolution.
 - `warp-core` optic invocation admission now has a basis-bound obstruction
   shell. Empty basis request bytes obstruct as `MissingBasisRequest`; identity
   covered capability presentations still obstruct as `UnsupportedBasisResolution`

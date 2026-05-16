@@ -1101,7 +1101,7 @@ impl OpticArtifactRegistry {
         validator: &mut impl CapabilityPresentationValidator,
     ) -> OpticInvocationAdmissionOutcome {
         let registered = match self.resolve_optic_artifact_handle(&invocation.artifact_handle) {
-            Ok(registered) => registered.clone(),
+            Ok(registered) => registered,
             Err(_) => {
                 return self
                     .obstructed_invocation(invocation, OpticInvocationObstruction::UnknownHandle);
@@ -1121,7 +1121,7 @@ impl OpticArtifactRegistry {
 
         if let Some(presentation) = invocation.capability_presentation.as_ref() {
             let _ =
-                validator.validate_capability_presentation(&registered, invocation, presentation);
+                validator.validate_capability_presentation(registered, invocation, presentation);
         }
 
         self.obstructed_invocation(

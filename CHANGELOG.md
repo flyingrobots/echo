@@ -7,6 +7,14 @@
 
 ### Added
 
+- `warp-core` optic invocation admission can now route bound capability
+  presentations through a narrow `CapabilityPresentationValidator` to publish
+  sharper grant-validation obstruction facts while preserving conservative
+  `CapabilityValidationUnavailable` invocation refusal. Identity coverage still
+  does not issue an admission ticket, law witness, scheduler work, or execution.
+- `docs/design/invocation-grant-validation-obstruction-routing.md` defines the
+  validator routing boundary: validation evidence refines refusal, but it does
+  not create authority.
 - `warp-core` now publishes `GraphFact::CapabilityGrantValidationObstructed`
   when recorded capability grant material fails narrow identity coverage against
   a registered optic artifact. The validation checks artifact hash, operation

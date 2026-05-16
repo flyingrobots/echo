@@ -3,12 +3,13 @@
 //! Regression tests for optic invocation admission obstruction.
 
 use warp_core::{
-    digest_invocation_request_bytes, GraphFact, InvocationObstructionKind,
-    OpticAdmissionRequirements, OpticAdmissionTicketPosture, OpticApertureRequest, OpticArtifact,
-    OpticArtifactHandle, OpticArtifactOperation, OpticArtifactRegistry, OpticBasisRequest,
-    OpticCapabilityPresentation, OpticInvocation, OpticInvocationAdmissionOutcome,
-    OpticInvocationObstruction, OpticRegistrationDescriptor, RewriteDisposition,
-    OPTIC_ADMISSION_TICKET_POSTURE_KIND,
+    digest_invocation_request_bytes, AuthorityContext, AuthorityPolicy, AuthorityPolicyEvaluation,
+    CapabilityGrantIntent, CapabilityGrantIntentGate, CapabilityGrantValidationObstructionKind,
+    GraphFact, InvocationObstructionKind, OpticAdmissionRequirements, OpticAdmissionTicketPosture,
+    OpticApertureRequest, OpticArtifact, OpticArtifactHandle, OpticArtifactOperation,
+    OpticArtifactRegistry, OpticBasisRequest, OpticCapabilityPresentation, OpticInvocation,
+    OpticInvocationAdmissionOutcome, OpticInvocationObstruction, OpticRegistrationDescriptor,
+    PrincipalRef, RewriteDisposition, OPTIC_ADMISSION_TICKET_POSTURE_KIND,
 };
 
 fn fixture_artifact() -> OpticArtifact {
@@ -44,6 +45,41 @@ fn fixture_registry_and_handle() -> Result<(OpticArtifactRegistry, OpticArtifact
         .register_optic_artifact(fixture_artifact(), fixture_descriptor())
         .map_err(|err| format!("fixture descriptor should register: {err:?}"))?;
     Ok((registry, handle))
+}
+
+fn principal(id: &str) -> PrincipalRef {
+    PrincipalRef { id: id.to_owned() }
+}
+
+fn fixture_grant(grant_id: &str) -> CapabilityGrantIntent {
+    CapabilityGrantIntent {
+        intent_id: grant_id.to_owned(),
+        proposed_by: principal("principal:issuer"),
+        subject: principal("principal:jedit-session"),
+        artifact_hash: "artifact-hash:stack-witness-0001".to_owned(),
+        operation_id: "operation:textWindow:v0".to_owned(),
+        requirements_digest: "requirements-digest:stack-witness-0001".to_owned(),
+        rights: vec!["optic.invoke".to_owned()],
+        scope_bytes: b"scope:fixture".to_vec(),
+        expiry_bytes: Some(b"expiry:fixture".to_vec()),
+        delegation_basis_bytes: Some(b"delegation-basis:fixture".to_vec()),
+    }
+}
+
+fn fixture_authority_context() -> AuthorityContext {
+    AuthorityContext {
+        issuer: Some(principal("principal:issuer")),
+        policy: Some(AuthorityPolicy {
+            policy_id: "authority-policy:fixture".to_owned(),
+        }),
+        policy_evaluation: AuthorityPolicyEvaluation::Unsupported,
+    }
+}
+
+fn fixture_gate_with_grant(grant: CapabilityGrantIntent) -> CapabilityGrantIntentGate {
+    let mut gate = CapabilityGrantIntentGate::new();
+    let _ = gate.submit_grant_intent(grant, fixture_authority_context());
+    gate
 }
 
 fn fixture_invocation(handle: OpticArtifactHandle) -> OpticInvocation {
@@ -240,6 +276,27 @@ fn latest_invocation_obstruction_fact(
         .ok_or_else(|| "expected invocation obstruction graph fact".to_owned())
 }
 
+fn latest_validation_obstruction_fact(
+    gate: &CapabilityGrantIntentGate,
+) -> Result<&GraphFact, String> {
+    gate.published_graph_facts()
+        .last()
+        .map(|published| &published.fact)
+        .ok_or_else(|| "expected capability grant validation obstruction fact".to_owned())
+}
+
+fn fixture_invocation_with_presentation(
+    handle: OpticArtifactHandle,
+    grant_id: &str,
+) -> OpticInvocation {
+    let mut invocation = fixture_invocation(handle);
+    invocation.capability_presentation = Some(OpticCapabilityPresentation {
+        presentation_id: "presentation:fixture".to_owned(),
+        bound_grant_id: Some(grant_id.to_owned()),
+    });
+    invocation
+}
+
 #[test]
 fn unknown_handle_publishes_invocation_obstruction_fact() -> Result<(), String> {
     let mut registry = OpticArtifactRegistry::new();
@@ -266,6 +323,142 @@ fn unknown_handle_publishes_invocation_obstruction_fact() -> Result<(), String> 
             && operation_id == "operation:textWindow:v0"
             && canonical_variables_digest == b"vars-digest:textWindow"
             && *obstruction == InvocationObstructionKind::UnknownHandle
+    ));
+    Ok(())
+}
+
+#[test]
+fn invocation_with_unknown_grant_publishes_grant_validation_obstruction_fact() -> Result<(), String>
+{
+    let (mut registry, handle) = fixture_registry_and_handle()?;
+    let invocation = fixture_invocation_with_presentation(handle, "grant:unknown");
+    let mut gate = CapabilityGrantIntentGate::new();
+
+    let outcome = registry.admit_optic_invocation_with_capability_validator(&invocation, &mut gate);
+
+    assert_eq!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::CapabilityValidationUnavailable
+    );
+    assert!(matches!(
+        latest_invocation_obstruction_fact(&registry)?,
+        GraphFact::OpticInvocationObstructed {
+            obstruction,
+            ..
+        } if *obstruction == InvocationObstructionKind::CapabilityValidationUnavailable
+    ));
+    assert!(matches!(
+        latest_validation_obstruction_fact(&gate)?,
+        GraphFact::CapabilityGrantValidationObstructed {
+            grant_id,
+            obstruction,
+            ..
+        } if grant_id.as_deref() == Some("grant:unknown")
+            && *obstruction == CapabilityGrantValidationObstructionKind::UnknownGrant
+    ));
+    Ok(())
+}
+
+#[test]
+fn invocation_with_artifact_hash_mismatch_publishes_grant_validation_obstruction_fact(
+) -> Result<(), String> {
+    let (mut registry, handle) = fixture_registry_and_handle()?;
+    let invocation = fixture_invocation_with_presentation(handle, "grant:artifact-mismatch");
+    let mut grant = fixture_grant("grant:artifact-mismatch");
+    grant.artifact_hash = "artifact-hash:other".to_owned();
+    let mut gate = fixture_gate_with_grant(grant);
+
+    let outcome = registry.admit_optic_invocation_with_capability_validator(&invocation, &mut gate);
+
+    assert_eq!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::CapabilityValidationUnavailable
+    );
+    assert!(matches!(
+        latest_validation_obstruction_fact(&gate)?,
+        GraphFact::CapabilityGrantValidationObstructed {
+            grant_artifact_hash,
+            obstruction,
+            ..
+        } if grant_artifact_hash.as_deref() == Some("artifact-hash:other")
+            && *obstruction == CapabilityGrantValidationObstructionKind::ArtifactHashMismatch
+    ));
+    Ok(())
+}
+
+#[test]
+fn invocation_with_operation_id_mismatch_publishes_grant_validation_obstruction_fact(
+) -> Result<(), String> {
+    let (mut registry, handle) = fixture_registry_and_handle()?;
+    let invocation = fixture_invocation_with_presentation(handle, "grant:operation-mismatch");
+    let mut grant = fixture_grant("grant:operation-mismatch");
+    grant.operation_id = "operation:replaceRange:v0".to_owned();
+    let mut gate = fixture_gate_with_grant(grant);
+
+    let outcome = registry.admit_optic_invocation_with_capability_validator(&invocation, &mut gate);
+
+    assert_eq!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::CapabilityValidationUnavailable
+    );
+    assert!(matches!(
+        latest_validation_obstruction_fact(&gate)?,
+        GraphFact::CapabilityGrantValidationObstructed {
+            grant_operation_id,
+            obstruction,
+            ..
+        } if grant_operation_id.as_deref() == Some("operation:replaceRange:v0")
+            && *obstruction == CapabilityGrantValidationObstructionKind::OperationIdMismatch
+    ));
+    Ok(())
+}
+
+#[test]
+fn invocation_with_requirements_digest_mismatch_publishes_grant_validation_obstruction_fact(
+) -> Result<(), String> {
+    let (mut registry, handle) = fixture_registry_and_handle()?;
+    let invocation = fixture_invocation_with_presentation(handle, "grant:requirements-mismatch");
+    let mut grant = fixture_grant("grant:requirements-mismatch");
+    grant.requirements_digest = "requirements-digest:other".to_owned();
+    let mut gate = fixture_gate_with_grant(grant);
+
+    let outcome = registry.admit_optic_invocation_with_capability_validator(&invocation, &mut gate);
+
+    assert_eq!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::CapabilityValidationUnavailable
+    );
+    assert!(matches!(
+        latest_validation_obstruction_fact(&gate)?,
+        GraphFact::CapabilityGrantValidationObstructed {
+            grant_requirements_digest,
+            obstruction,
+            ..
+        } if grant_requirements_digest.as_deref() == Some("requirements-digest:other")
+            && *obstruction == CapabilityGrantValidationObstructionKind::RequirementsDigestMismatch
+    ));
+    Ok(())
+}
+
+#[test]
+fn identity_covered_grant_still_does_not_admit_invocation() -> Result<(), String> {
+    let (mut registry, handle) = fixture_registry_and_handle()?;
+    let invocation = fixture_invocation_with_presentation(handle, "grant:covered");
+    let mut gate = fixture_gate_with_grant(fixture_grant("grant:covered"));
+
+    let outcome = registry.admit_optic_invocation_with_capability_validator(&invocation, &mut gate);
+
+    assert_eq!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::CapabilityValidationUnavailable
+    );
+    assert!(gate.published_graph_facts().is_empty());
+    assert!(matches!(
+        latest_invocation_obstruction_fact(&registry)?,
+        GraphFact::OpticInvocationObstructed {
+            obstruction,
+            ..
+        } if *obstruction == InvocationObstructionKind::CapabilityValidationUnavailable
     ));
     Ok(())
 }

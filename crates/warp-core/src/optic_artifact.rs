@@ -150,9 +150,9 @@ pub struct OpticCapabilityPresentation {
     /// Grant id the presentation claims to bind to.
     ///
     /// [`OpticArtifactRegistry::admit_optic_invocation`] does not validate this
-    /// grant. A non-empty value only moves the presentation from unbound to
-    /// validation-unavailable obstruction inside invocation admission; it never
-    /// authorizes invocation.
+    /// grant. The validator-aware invocation path may validate it only to
+    /// publish sharper refusal evidence. A non-empty value never authorizes
+    /// invocation in this slice.
     pub bound_grant_id: Option<String>,
 }
 
@@ -549,6 +549,24 @@ pub enum CapabilityGrantValidationOutcome {
     Obstructed(CapabilityGrantValidationPosture),
 }
 
+/// Narrow validator surface for capability presentations used during optic
+/// invocation refusal.
+///
+/// Validation evidence refines refusal; it does not create authority. A
+/// validator may publish graph facts or other causal evidence, but
+/// [`CapabilityGrantValidationOutcome::IdentityCovered`] still is not
+/// invocation admission.
+pub trait CapabilityPresentationValidator {
+    /// Validates a capability presentation against a registered artifact and
+    /// invocation context.
+    fn validate_capability_presentation(
+        &mut self,
+        registered: &RegisteredOpticArtifact,
+        invocation: &OpticInvocation,
+        presentation: &OpticCapabilityPresentation,
+    ) -> CapabilityGrantValidationOutcome;
+}
+
 /// Runtime invocation request against a registered optic artifact.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OpticInvocation {
@@ -936,6 +954,21 @@ impl CapabilityGrantIntentGate {
     }
 }
 
+impl CapabilityPresentationValidator for CapabilityGrantIntentGate {
+    fn validate_capability_presentation(
+        &mut self,
+        registered: &RegisteredOpticArtifact,
+        _invocation: &OpticInvocation,
+        presentation: &OpticCapabilityPresentation,
+    ) -> CapabilityGrantValidationOutcome {
+        self.validate_capability_presentation_for_artifact(
+            presentation,
+            registered,
+            CapabilityGrantExpiryPosture::NotEvaluated,
+        )
+    }
+}
+
 fn push_receipt_field(bytes: &mut Vec<u8>, field: &[u8]) {
     bytes.extend_from_slice(&(field.len() as u64).to_be_bytes());
     bytes.extend_from_slice(field);
@@ -1051,6 +1084,49 @@ impl OpticArtifactRegistry {
         self.obstructed_invocation(
             invocation,
             Self::classify_capability_presentation(invocation.capability_presentation.as_ref()),
+        )
+    }
+
+    /// Admits or obstructs an invocation while asking a capability presentation
+    /// validator for refusal evidence.
+    ///
+    /// This remains an obstructed-only path. Validator evidence can publish a
+    /// sharper graph fact, but identity coverage is not invocation admission and
+    /// does not issue a success ticket, law witness, scheduler work, or
+    /// execution.
+    #[must_use = "optic invocation admission outcomes carry obstructions that must be handled"]
+    pub fn admit_optic_invocation_with_capability_validator(
+        &mut self,
+        invocation: &OpticInvocation,
+        validator: &mut impl CapabilityPresentationValidator,
+    ) -> OpticInvocationAdmissionOutcome {
+        let registered = match self.resolve_optic_artifact_handle(&invocation.artifact_handle) {
+            Ok(registered) => registered,
+            Err(_) => {
+                return self
+                    .obstructed_invocation(invocation, OpticInvocationObstruction::UnknownHandle);
+            }
+        };
+
+        if invocation.operation_id != registered.operation_id {
+            return self
+                .obstructed_invocation(invocation, OpticInvocationObstruction::OperationMismatch);
+        }
+
+        let obstruction =
+            Self::classify_capability_presentation(invocation.capability_presentation.as_ref());
+        if obstruction != OpticInvocationObstruction::CapabilityValidationUnavailable {
+            return self.obstructed_invocation(invocation, obstruction);
+        }
+
+        if let Some(presentation) = invocation.capability_presentation.as_ref() {
+            let _ =
+                validator.validate_capability_presentation(registered, invocation, presentation);
+        }
+
+        self.obstructed_invocation(
+            invocation,
+            OpticInvocationObstruction::CapabilityValidationUnavailable,
         )
     }
 

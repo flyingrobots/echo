@@ -11,7 +11,8 @@
 //! every presentation posture obstructs until Echo can validate a real bounded
 //! grant and admit authority. Basis request bytes are explicit admission
 //! context; aperture request bytes are explicit visibility/effect context.
-//! Neither is resolved into authority or execution in this slice.
+//! Budget request bytes are explicit bounded-resource context. None of these
+//! request shapes are resolved into authority or execution in this slice.
 
 use std::collections::BTreeMap;
 
@@ -136,6 +137,13 @@ pub struct OpticBasisRequest {
 /// Opaque aperture request bytes supplied at optic invocation time.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OpticApertureRequest {
+    /// Request bytes interpreted only below Echo's runtime admission boundary.
+    pub bytes: Vec<u8>,
+}
+
+/// Opaque budget request bytes supplied at optic invocation time.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpticBudgetRequest {
     /// Request bytes interpreted only below Echo's runtime admission boundary.
     pub bytes: Vec<u8>,
 }
@@ -582,6 +590,8 @@ pub struct OpticInvocation {
     pub basis_request: OpticBasisRequest,
     /// Requested aperture for the invocation.
     pub aperture_request: OpticApertureRequest,
+    /// Requested resource budget for the invocation.
+    pub budget_request: OpticBudgetRequest,
     /// Caller authority presentation. Registration alone is not authority.
     pub capability_presentation: Option<OpticCapabilityPresentation>,
 }
@@ -597,12 +607,20 @@ pub enum OpticInvocationObstruction {
     MissingBasisRequest,
     /// The invocation does not name any aperture request bytes.
     MissingApertureRequest,
+    /// The invocation does not name any budget request bytes.
+    MissingBudgetRequest,
     /// The invocation reached basis resolution, but Echo has no basis resolver
     /// wired into admission in this slice.
     UnsupportedBasisResolution,
     /// The invocation reached aperture resolution, but Echo has no aperture
     /// resolver wired into admission in this slice.
     UnsupportedApertureResolution,
+    /// The invocation reached budget resolution, but Echo has no budget
+    /// evaluator wired into admission in this slice.
+    UnsupportedBudgetResolution,
+    /// Echo cannot prove that this runtime supports the registered artifact
+    /// requirements in this slice.
+    RuntimeSupportUnavailable,
     /// The invocation does not carry authority to use the registered artifact.
     MissingCapability,
     /// The invocation carries a presentation that is structurally unusable.
@@ -635,6 +653,8 @@ pub struct OpticAdmissionTicketPosture {
     pub basis_request: OpticBasisRequest,
     /// Requested aperture for the invocation.
     pub aperture_request: OpticApertureRequest,
+    /// Requested resource budget for the invocation.
+    pub budget_request: OpticBudgetRequest,
     /// Structured reason Echo obstructed before runtime execution.
     pub obstruction: OpticInvocationObstruction,
 }
@@ -1101,6 +1121,10 @@ impl OpticArtifactRegistry {
             return self.obstructed_invocation(invocation, obstruction);
         }
 
+        if let Some(obstruction) = Self::classify_budget_request(&invocation.budget_request) {
+            return self.obstructed_invocation(invocation, obstruction);
+        }
+
         self.obstructed_invocation(
             invocation,
             Self::classify_capability_presentation(invocation.capability_presentation.as_ref()),
@@ -1138,6 +1162,10 @@ impl OpticArtifactRegistry {
         }
 
         if let Some(obstruction) = Self::classify_aperture_request(&invocation.aperture_request) {
+            return self.obstructed_invocation(invocation, obstruction);
+        }
+
+        if let Some(obstruction) = Self::classify_budget_request(&invocation.budget_request) {
             return self.obstructed_invocation(invocation, obstruction);
         }
 
@@ -1182,6 +1210,16 @@ impl OpticArtifactRegistry {
         None
     }
 
+    fn classify_budget_request(
+        budget_request: &OpticBudgetRequest,
+    ) -> Option<OpticInvocationObstruction> {
+        if budget_request.bytes.is_empty() {
+            return Some(OpticInvocationObstruction::MissingBudgetRequest);
+        }
+
+        None
+    }
+
     fn classify_capability_presentation(
         presentation: Option<&OpticCapabilityPresentation>,
     ) -> OpticInvocationObstruction {
@@ -1218,6 +1256,7 @@ impl OpticArtifactRegistry {
             canonical_variables_digest: invocation.canonical_variables_digest.clone(),
             basis_request: invocation.basis_request.clone(),
             aperture_request: invocation.aperture_request.clone(),
+            budget_request: invocation.budget_request.clone(),
             obstruction,
         })
     }
@@ -1339,6 +1378,10 @@ impl OpticArtifactRegistry {
                     b"echo.optic-invocation.aperture-request.v0",
                     &invocation.aperture_request.bytes,
                 ),
+                budget_request_digest: digest_invocation_request_bytes(
+                    b"echo.optic-invocation.budget-request.v0",
+                    &invocation.budget_request.bytes,
+                ),
                 obstruction: invocation_obstruction_kind(obstruction),
             },
         ));
@@ -1382,11 +1425,20 @@ fn invocation_obstruction_kind(
         OpticInvocationObstruction::MissingApertureRequest => {
             InvocationObstructionKind::MissingApertureRequest
         }
+        OpticInvocationObstruction::MissingBudgetRequest => {
+            InvocationObstructionKind::MissingBudgetRequest
+        }
         OpticInvocationObstruction::UnsupportedBasisResolution => {
             InvocationObstructionKind::UnsupportedBasisResolution
         }
         OpticInvocationObstruction::UnsupportedApertureResolution => {
             InvocationObstructionKind::UnsupportedApertureResolution
+        }
+        OpticInvocationObstruction::UnsupportedBudgetResolution => {
+            InvocationObstructionKind::UnsupportedBudgetResolution
+        }
+        OpticInvocationObstruction::RuntimeSupportUnavailable => {
+            InvocationObstructionKind::RuntimeSupportUnavailable
         }
         OpticInvocationObstruction::MissingCapability => {
             InvocationObstructionKind::MissingCapability

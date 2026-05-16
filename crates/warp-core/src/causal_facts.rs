@@ -47,6 +47,8 @@ pub enum InvocationObstructionKind {
     MissingBasisRequest,
     /// Invocation supplied no aperture request bytes.
     MissingApertureRequest,
+    /// Invocation supplied no budget request bytes.
+    MissingBudgetRequest,
     /// Invocation reached the basis boundary before Echo had a resolver that
     /// can bind the request to a causal basis.
     UnsupportedBasisResolution,
@@ -54,6 +56,13 @@ pub enum InvocationObstructionKind {
     /// Echo had no aperture resolver that could bind the request to a graph
     /// region.
     UnsupportedApertureResolution,
+    /// Invocation reached the budget boundary after basis and aperture
+    /// resolution, but Echo had no budget evaluator that could bind the request
+    /// to spendable runtime capacity.
+    UnsupportedBudgetResolution,
+    /// Echo could not prove that its runtime support surface covers the
+    /// registered artifact requirements.
+    RuntimeSupportUnavailable,
     /// Invocation supplied no capability presentation.
     MissingCapability,
     /// Invocation supplied a malformed capability presentation.
@@ -94,8 +103,11 @@ impl InvocationObstructionKind {
             Self::OperationMismatch => b"operation-mismatch",
             Self::MissingBasisRequest => b"missing-basis-request",
             Self::MissingApertureRequest => b"missing-aperture-request",
+            Self::MissingBudgetRequest => b"missing-budget-request",
             Self::UnsupportedBasisResolution => b"unsupported-basis-resolution",
             Self::UnsupportedApertureResolution => b"unsupported-aperture-resolution",
+            Self::UnsupportedBudgetResolution => b"unsupported-budget-resolution",
+            Self::RuntimeSupportUnavailable => b"runtime-support-unavailable",
             Self::MissingCapability => b"missing-capability",
             Self::MalformedCapabilityPresentation => b"malformed-capability-presentation",
             Self::UnboundCapabilityPresentation => b"unbound-capability-presentation",
@@ -166,6 +178,8 @@ pub enum GraphFact {
         basis_request_digest: [u8; 32],
         /// Digest of the opaque aperture request bytes.
         aperture_request_digest: [u8; 32],
+        /// Digest of the opaque budget request bytes.
+        budget_request_digest: [u8; 32],
         /// Structured invocation obstruction kind.
         obstruction: InvocationObstructionKind,
     },
@@ -239,6 +253,7 @@ impl GraphFact {
                 canonical_variables_digest,
                 basis_request_digest,
                 aperture_request_digest,
+                budget_request_digest,
                 obstruction,
             } => {
                 push_digest_field(&mut bytes, b"variant", b"optic-invocation-obstructed");
@@ -259,6 +274,7 @@ impl GraphFact {
                     b"aperture-request-digest",
                     aperture_request_digest,
                 );
+                push_digest_field(&mut bytes, b"budget-request-digest", budget_request_digest);
                 push_digest_field(&mut bytes, b"obstruction", obstruction.digest_label());
             }
             Self::CapabilityGrantValidationObstructed {

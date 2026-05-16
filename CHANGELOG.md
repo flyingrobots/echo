@@ -7,6 +7,15 @@
 
 ### Added
 
+- `warp-core` optic invocation admission now has a budget/runtime-support
+  obstruction shell. Empty budget request bytes obstruct as
+  `MissingBudgetRequest`; `UnsupportedBudgetResolution` and
+  `RuntimeSupportUnavailable` are defined as future vocabulary but remain
+  unreachable until basis and aperture resolution exist.
+- `docs/design/budget-and-runtime-support-optic-admission.md` defines budget as
+  caller-supplied bounded-resource context and runtime support as Echo-owned
+  capability checking against registered artifact requirements, not caller
+  testimony.
 - `warp-core` optic invocation admission now has an aperture-bound obstruction
   shell. Empty aperture request bytes obstruct as `MissingApertureRequest`;
   `UnsupportedApertureResolution` is defined as future vocabulary but remains

@@ -45,9 +45,15 @@ pub enum InvocationObstructionKind {
     OperationMismatch,
     /// Invocation supplied no basis request bytes.
     MissingBasisRequest,
+    /// Invocation supplied no aperture request bytes.
+    MissingApertureRequest,
     /// Invocation reached the basis boundary before Echo had a resolver that
     /// can bind the request to a causal basis.
     UnsupportedBasisResolution,
+    /// Invocation reached the aperture boundary after basis resolution, but
+    /// Echo had no aperture resolver that could bind the request to a graph
+    /// region.
+    UnsupportedApertureResolution,
     /// Invocation supplied no capability presentation.
     MissingCapability,
     /// Invocation supplied a malformed capability presentation.
@@ -87,7 +93,9 @@ impl InvocationObstructionKind {
             Self::UnknownHandle => b"unknown-handle",
             Self::OperationMismatch => b"operation-mismatch",
             Self::MissingBasisRequest => b"missing-basis-request",
+            Self::MissingApertureRequest => b"missing-aperture-request",
             Self::UnsupportedBasisResolution => b"unsupported-basis-resolution",
+            Self::UnsupportedApertureResolution => b"unsupported-aperture-resolution",
             Self::MissingCapability => b"missing-capability",
             Self::MalformedCapabilityPresentation => b"malformed-capability-presentation",
             Self::UnboundCapabilityPresentation => b"unbound-capability-presentation",

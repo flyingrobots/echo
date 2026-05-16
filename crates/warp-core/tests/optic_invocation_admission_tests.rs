@@ -791,10 +791,7 @@ fn runtime_support_unavailable_is_defined_but_unreachable_until_basis_resolution
         ),
         obstruction: InvocationObstructionKind::RuntimeSupportUnavailable,
     };
-    assert_eq!(
-        future_support_fact.digest(),
-        future_support_fact.clone().digest()
-    );
+    assert_eq!(future_support_fact.digest(), future_support_fact.digest());
     Ok(())
 }
 

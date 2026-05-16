@@ -7,9 +7,10 @@ use warp_core::{
     CapabilityGrantIntent, CapabilityGrantIntentGate, CapabilityGrantValidationObstructionKind,
     GraphFact, InvocationObstructionKind, OpticAdmissionRequirements, OpticAdmissionTicketPosture,
     OpticApertureRequest, OpticArtifact, OpticArtifactHandle, OpticArtifactOperation,
-    OpticArtifactRegistry, OpticBasisRequest, OpticCapabilityPresentation, OpticInvocation,
-    OpticInvocationAdmissionOutcome, OpticInvocationObstruction, OpticRegistrationDescriptor,
-    PrincipalRef, RewriteDisposition, OPTIC_ADMISSION_TICKET_POSTURE_KIND,
+    OpticArtifactRegistry, OpticBasisRequest, OpticBudgetRequest, OpticCapabilityPresentation,
+    OpticInvocation, OpticInvocationAdmissionOutcome, OpticInvocationObstruction,
+    OpticRegistrationDescriptor, PrincipalRef, RewriteDisposition,
+    OPTIC_ADMISSION_TICKET_POSTURE_KIND,
 };
 
 fn fixture_artifact() -> OpticArtifact {
@@ -93,6 +94,9 @@ fn fixture_invocation(handle: OpticArtifactHandle) -> OpticInvocation {
         aperture_request: OpticApertureRequest {
             bytes: b"aperture-request:fixture".to_vec(),
         },
+        budget_request: OpticBudgetRequest {
+            bytes: b"budget-request:fixture".to_vec(),
+        },
         capability_presentation: None,
     }
 }
@@ -108,6 +112,7 @@ fn expected_obstructed_posture(
         canonical_variables_digest: invocation.canonical_variables_digest.clone(),
         basis_request: invocation.basis_request.clone(),
         aperture_request: invocation.aperture_request.clone(),
+        budget_request: invocation.budget_request.clone(),
         obstruction,
     })
 }
@@ -191,6 +196,24 @@ fn optic_invocation_obstructs_missing_aperture_request() -> Result<(), String> {
         expected_obstructed_posture(
             &invocation,
             OpticInvocationObstruction::MissingApertureRequest
+        )
+    );
+    Ok(())
+}
+
+#[test]
+fn optic_invocation_obstructs_missing_budget_request() -> Result<(), String> {
+    let (mut registry, handle) = fixture_registry_and_handle()?;
+    let mut invocation = fixture_invocation(handle);
+    invocation.budget_request = OpticBudgetRequest { bytes: Vec::new() };
+
+    let outcome = registry.admit_optic_invocation(&invocation);
+
+    assert_eq!(
+        outcome,
+        expected_obstructed_posture(
+            &invocation,
+            OpticInvocationObstruction::MissingBudgetRequest
         )
     );
     Ok(())
@@ -474,7 +497,7 @@ fn invocation_with_requirements_digest_mismatch_publishes_grant_validation_obstr
 }
 
 #[test]
-fn identity_covered_grant_obstructs_unsupported_basis_resolution_after_basis_and_aperture_presence(
+fn identity_covered_grant_obstructs_unsupported_basis_resolution_after_basis_aperture_and_budget_presence(
 ) -> Result<(), String> {
     let (mut registry, handle) = fixture_registry_and_handle()?;
     let invocation = fixture_invocation_with_presentation(handle, "grant:covered");
@@ -607,6 +630,33 @@ fn aperture_obstruction_publishes_invocation_obstruction_fact() -> Result<(), St
 }
 
 #[test]
+fn budget_obstruction_publishes_invocation_obstruction_fact() -> Result<(), String> {
+    let (mut registry, handle) = fixture_registry_and_handle()?;
+    let mut invocation = fixture_invocation(handle);
+    invocation.budget_request = OpticBudgetRequest { bytes: Vec::new() };
+
+    let outcome = registry.admit_optic_invocation(&invocation);
+
+    assert_eq!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::MissingBudgetRequest
+    );
+    assert!(matches!(
+        latest_invocation_obstruction_fact(&registry)?,
+        GraphFact::OpticInvocationObstructed {
+            budget_request_digest,
+            obstruction,
+            ..
+        } if *budget_request_digest == digest_invocation_request_bytes(
+                b"echo.optic-invocation.budget-request.v0",
+                b""
+            )
+            && *obstruction == InvocationObstructionKind::MissingBudgetRequest
+    ));
+    Ok(())
+}
+
+#[test]
 fn invocation_obstruction_fact_digest_is_deterministic() {
     let first = GraphFact::OpticInvocationObstructed {
         artifact_handle_id: "handle:1".to_owned(),
@@ -619,6 +669,10 @@ fn invocation_obstruction_fact_digest_is_deterministic() {
         aperture_request_digest: digest_invocation_request_bytes(
             b"echo.optic-invocation.aperture-request.v0",
             b"aperture",
+        ),
+        budget_request_digest: digest_invocation_request_bytes(
+            b"echo.optic-invocation.budget-request.v0",
+            b"budget",
         ),
         obstruction: InvocationObstructionKind::MissingCapability,
     };
@@ -641,6 +695,10 @@ fn basis_obstruction_fact_digest_is_deterministic() {
             b"echo.optic-invocation.aperture-request.v0",
             b"aperture",
         ),
+        budget_request_digest: digest_invocation_request_bytes(
+            b"echo.optic-invocation.budget-request.v0",
+            b"budget",
+        ),
         obstruction: InvocationObstructionKind::UnsupportedBasisResolution,
     };
     let repeated = first.clone();
@@ -662,11 +720,79 @@ fn aperture_obstruction_fact_digest_is_deterministic() {
             b"echo.optic-invocation.aperture-request.v0",
             b"aperture",
         ),
+        budget_request_digest: digest_invocation_request_bytes(
+            b"echo.optic-invocation.budget-request.v0",
+            b"budget",
+        ),
         obstruction: InvocationObstructionKind::MissingApertureRequest,
     };
     let repeated = first.clone();
 
     assert_eq!(first.digest(), repeated.digest());
+}
+
+#[test]
+fn budget_obstruction_fact_digest_is_deterministic() {
+    let first = GraphFact::OpticInvocationObstructed {
+        artifact_handle_id: "handle:1".to_owned(),
+        operation_id: "operation:textWindow:v0".to_owned(),
+        canonical_variables_digest: b"vars".to_vec(),
+        basis_request_digest: digest_invocation_request_bytes(
+            b"echo.optic-invocation.basis-request.v0",
+            b"basis",
+        ),
+        aperture_request_digest: digest_invocation_request_bytes(
+            b"echo.optic-invocation.aperture-request.v0",
+            b"aperture",
+        ),
+        budget_request_digest: digest_invocation_request_bytes(
+            b"echo.optic-invocation.budget-request.v0",
+            b"budget",
+        ),
+        obstruction: InvocationObstructionKind::MissingBudgetRequest,
+    };
+    let repeated = first.clone();
+
+    assert_eq!(first.digest(), repeated.digest());
+}
+
+#[test]
+fn runtime_support_unavailable_is_defined_but_unreachable_until_basis_resolution_exists(
+) -> Result<(), String> {
+    let (mut registry, handle) = fixture_registry_and_handle()?;
+    let invocation = fixture_invocation_with_presentation(handle, "grant:covered");
+    let mut gate = fixture_gate_with_grant(fixture_grant("grant:covered"));
+
+    let outcome = registry.admit_optic_invocation_with_capability_validator(&invocation, &mut gate);
+
+    assert_eq!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::UnsupportedBasisResolution
+    );
+    assert_ne!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::RuntimeSupportUnavailable
+    );
+    let future_support_fact = GraphFact::OpticInvocationObstructed {
+        artifact_handle_id: "handle:future".to_owned(),
+        operation_id: "operation:textWindow:v0".to_owned(),
+        canonical_variables_digest: b"vars".to_vec(),
+        basis_request_digest: digest_invocation_request_bytes(
+            b"echo.optic-invocation.basis-request.v0",
+            b"basis",
+        ),
+        aperture_request_digest: digest_invocation_request_bytes(
+            b"echo.optic-invocation.aperture-request.v0",
+            b"aperture",
+        ),
+        budget_request_digest: digest_invocation_request_bytes(
+            b"echo.optic-invocation.budget-request.v0",
+            b"budget",
+        ),
+        obstruction: InvocationObstructionKind::RuntimeSupportUnavailable,
+    };
+    assert_eq!(future_support_fact.digest(), future_support_fact.digest());
+    Ok(())
 }
 
 #[test]
@@ -727,6 +853,30 @@ fn aperture_obstruction_is_not_counterfactual_candidate() -> Result<(), String> 
     assert_eq!(
         obstruction_for(&outcome),
         OpticInvocationObstruction::MissingApertureRequest
+    );
+    let disposition = RewriteDisposition::Obstructed;
+    assert_ne!(
+        disposition,
+        RewriteDisposition::LegalUnselectedCounterfactual
+    );
+    assert!(matches!(
+        latest_invocation_obstruction_fact(&registry)?,
+        GraphFact::OpticInvocationObstructed { .. }
+    ));
+    Ok(())
+}
+
+#[test]
+fn budget_obstruction_is_not_counterfactual_candidate() -> Result<(), String> {
+    let (mut registry, handle) = fixture_registry_and_handle()?;
+    let mut invocation = fixture_invocation(handle);
+    invocation.budget_request = OpticBudgetRequest { bytes: Vec::new() };
+
+    let outcome = registry.admit_optic_invocation(&invocation);
+
+    assert_eq!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::MissingBudgetRequest
     );
     let disposition = RewriteDisposition::Obstructed;
     assert_ne!(

@@ -261,9 +261,9 @@ pub use optic_artifact::{
     CapabilityGrantValidationPosture, CapabilityPresentationValidator, ObstructionReceipt,
     OpticAdmissionRequirements, OpticAdmissionTicketPosture, OpticApertureRequest, OpticArtifact,
     OpticArtifactHandle, OpticArtifactOperation, OpticArtifactRegistrationError,
-    OpticArtifactRegistry, OpticBasisRequest, OpticCapabilityPresentation, OpticInvocation,
-    OpticInvocationAdmissionOutcome, OpticInvocationObstruction, OpticRegistrationDescriptor,
-    PrincipalRef, RegisteredOpticArtifact, RewriteDisposition,
+    OpticArtifactRegistry, OpticBasisRequest, OpticBudgetRequest, OpticCapabilityPresentation,
+    OpticInvocation, OpticInvocationAdmissionOutcome, OpticInvocationObstruction,
+    OpticRegistrationDescriptor, PrincipalRef, RegisteredOpticArtifact, RewriteDisposition,
     CAPABILITY_GRANT_VALIDATION_POSTURE_KIND, OBSTRUCTION_RECEIPT_KIND,
     OPTIC_ADMISSION_TICKET_POSTURE_KIND, OPTIC_ARTIFACT_HANDLE_KIND,
 };

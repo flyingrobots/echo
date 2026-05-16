@@ -37,6 +37,7 @@ flowchart TD
   Artifact[RegisteredOpticArtifact]
   Presentation[OpticCapabilityPresentation]
   Validator[CapabilityPresentationValidator]
+  Shape{presentation structurally available?}
   ValidationFact[GraphFact::CapabilityGrantValidationObstructed]
   InvocationFact[GraphFact::OpticInvocationObstructed]
   Posture[OpticAdmissionTicketPosture]
@@ -44,10 +45,13 @@ flowchart TD
   Invocation --> Registry
   Registry --> Artifact
   Invocation --> Presentation
-  Presentation --> Validator
-  Artifact --> Validator
+  Presentation --> Shape
+  Registry --> Shape
+  Shape -->|yes| Validator
+  Shape -->|no| InvocationFact
+  Artifact -->|yes| Validator
   Validator -->|failed coverage| ValidationFact
-  Validator -->|identity covered| Registry
+  Validator -->|after validation| Registry
   Registry --> InvocationFact
   Registry --> Posture
 ```
@@ -65,10 +69,14 @@ sequenceDiagram
   Registry->>Registry: resolve artifact handle
   Registry->>Registry: check operation id
   Registry->>Registry: classify presentation shape
-  Registry->>Validator: validate_capability_presentation(artifact, invocation, presentation)
-  Validator->>Facts: publish CapabilityGrantValidationObstructed when validation fails
+  alt presentation structurally available
+    Registry->>Validator: validate_capability_presentation(artifact, invocation, presentation)
+    Validator->>Facts: publish CapabilityGrantValidationObstructed when validation fails
+  else missing, malformed, or unbound presentation
+    Registry->>Registry: skip validator
+  end
   Registry->>Facts: publish OpticInvocationObstructed
-  Registry-->>Caller: Obstructed(CapabilityValidationUnavailable)
+  Registry-->>Caller: Obstructed(CapabilityValidationUnavailable or structural obstruction)
 ```
 
 ## Class diagram

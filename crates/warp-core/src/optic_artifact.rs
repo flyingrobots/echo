@@ -9,7 +9,8 @@
 //! invocation admission, issuing success tickets, emitting law witnesses, or
 //! executing runtime work. A capability presentation slot is not authority;
 //! every presentation posture obstructs until Echo can validate a real bounded
-//! grant and admit authority.
+//! grant and admit authority. Basis request bytes are explicit admission
+//! context; they are not resolved into authority or execution in this slice.
 
 use std::collections::BTreeMap;
 
@@ -591,6 +592,11 @@ pub enum OpticInvocationObstruction {
     UnknownHandle,
     /// The invocation operation id does not match the registered artifact.
     OperationMismatch,
+    /// The invocation does not name any basis request bytes.
+    MissingBasisRequest,
+    /// The invocation reached basis resolution, but Echo has no basis resolver
+    /// wired into admission in this slice.
+    UnsupportedBasisResolution,
     /// The invocation does not carry authority to use the registered artifact.
     MissingCapability,
     /// The invocation carries a presentation that is structurally unusable.
@@ -1081,6 +1087,10 @@ impl OpticArtifactRegistry {
                 .obstructed_invocation(invocation, OpticInvocationObstruction::OperationMismatch);
         }
 
+        if let Some(obstruction) = Self::classify_basis_request(&invocation.basis_request) {
+            return self.obstructed_invocation(invocation, obstruction);
+        }
+
         self.obstructed_invocation(
             invocation,
             Self::classify_capability_presentation(invocation.capability_presentation.as_ref()),
@@ -1113,21 +1123,39 @@ impl OpticArtifactRegistry {
                 .obstructed_invocation(invocation, OpticInvocationObstruction::OperationMismatch);
         }
 
+        if let Some(obstruction) = Self::classify_basis_request(&invocation.basis_request) {
+            return self.obstructed_invocation(invocation, obstruction);
+        }
+
         let obstruction =
             Self::classify_capability_presentation(invocation.capability_presentation.as_ref());
         if obstruction != OpticInvocationObstruction::CapabilityValidationUnavailable {
             return self.obstructed_invocation(invocation, obstruction);
         }
 
+        let mut final_obstruction = OpticInvocationObstruction::CapabilityValidationUnavailable;
         if let Some(presentation) = invocation.capability_presentation.as_ref() {
-            let _ =
+            let validation =
                 validator.validate_capability_presentation(registered, invocation, presentation);
+            if matches!(
+                validation,
+                CapabilityGrantValidationOutcome::IdentityCovered(_)
+            ) {
+                final_obstruction = OpticInvocationObstruction::UnsupportedBasisResolution;
+            }
         }
 
-        self.obstructed_invocation(
-            invocation,
-            OpticInvocationObstruction::CapabilityValidationUnavailable,
-        )
+        self.obstructed_invocation(invocation, final_obstruction)
+    }
+
+    fn classify_basis_request(
+        basis_request: &OpticBasisRequest,
+    ) -> Option<OpticInvocationObstruction> {
+        if basis_request.bytes.is_empty() {
+            return Some(OpticInvocationObstruction::MissingBasisRequest);
+        }
+
+        None
     }
 
     fn classify_capability_presentation(
@@ -1323,6 +1351,12 @@ fn invocation_obstruction_kind(
         OpticInvocationObstruction::UnknownHandle => InvocationObstructionKind::UnknownHandle,
         OpticInvocationObstruction::OperationMismatch => {
             InvocationObstructionKind::OperationMismatch
+        }
+        OpticInvocationObstruction::MissingBasisRequest => {
+            InvocationObstructionKind::MissingBasisRequest
+        }
+        OpticInvocationObstruction::UnsupportedBasisResolution => {
+            InvocationObstructionKind::UnsupportedBasisResolution
         }
         OpticInvocationObstruction::MissingCapability => {
             InvocationObstructionKind::MissingCapability

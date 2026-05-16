@@ -7,6 +7,14 @@
 
 ### Added
 
+- `warp-core` optic invocation admission now has a basis-bound obstruction
+  shell. Empty basis request bytes obstruct as `MissingBasisRequest`; identity
+  covered capability presentations still obstruct as `UnsupportedBasisResolution`
+  because Echo has not wired basis resolution, admission tickets, law witnesses,
+  scheduler work, or execution into invocation admission.
+- `docs/design/basis-bound-optic-admission.md` defines the current basis
+  boundary: basis selection is explicit admission context, and covered authority
+  material still cannot authorize execution without basis resolution.
 - `warp-core` optic invocation admission can now route bound capability
   presentations through a narrow `CapabilityPresentationValidator` to publish
   sharper grant-validation obstruction facts while preserving conservative

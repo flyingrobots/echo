@@ -43,6 +43,11 @@ pub enum InvocationObstructionKind {
     UnknownHandle,
     /// Invocation operation id did not match the registered artifact operation.
     OperationMismatch,
+    /// Invocation supplied no basis request bytes.
+    MissingBasisRequest,
+    /// Invocation reached the basis boundary before Echo had a resolver that
+    /// can bind the request to a causal basis.
+    UnsupportedBasisResolution,
     /// Invocation supplied no capability presentation.
     MissingCapability,
     /// Invocation supplied a malformed capability presentation.
@@ -81,6 +86,8 @@ impl InvocationObstructionKind {
         match self {
             Self::UnknownHandle => b"unknown-handle",
             Self::OperationMismatch => b"operation-mismatch",
+            Self::MissingBasisRequest => b"missing-basis-request",
+            Self::UnsupportedBasisResolution => b"unsupported-basis-resolution",
             Self::MissingCapability => b"missing-capability",
             Self::MalformedCapabilityPresentation => b"malformed-capability-presentation",
             Self::UnboundCapabilityPresentation => b"unbound-capability-presentation",

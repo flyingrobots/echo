@@ -168,8 +168,8 @@ pub use attachment::{
 };
 pub use causal_facts::{
     digest_invocation_request_bytes, ArtifactRegistrationObstructionKind,
-    ArtifactRegistrationReceipt, FactDigest, GraphFact, InvocationObstructionKind,
-    PublishedGraphFact, ARTIFACT_REGISTRATION_RECEIPT_KIND,
+    ArtifactRegistrationReceipt, CapabilityGrantValidationObstructionKind, FactDigest, GraphFact,
+    InvocationObstructionKind, PublishedGraphFact, ARTIFACT_REGISTRATION_RECEIPT_KIND,
 };
 pub use clock::{GlobalTick, RunId, WorldlineTick};
 pub use cmd::{
@@ -254,14 +254,17 @@ pub use optic::{
     StagedIntent, StagedIntentReason, WitnessBasis, WorldlineHeadOptic,
 };
 pub use optic_artifact::{
-    AuthorityContext, AuthorityPolicy, AuthorityPolicyEvaluation, CapabilityGrantIntent,
-    CapabilityGrantIntentGate, CapabilityGrantIntentObstruction, CapabilityGrantIntentOutcome,
-    CapabilityGrantIntentPosture, ObstructionReceipt, OpticAdmissionRequirements,
+    AuthorityContext, AuthorityPolicy, AuthorityPolicyEvaluation, CapabilityGrantExpiryPosture,
+    CapabilityGrantIdentityCoverage, CapabilityGrantIntent, CapabilityGrantIntentGate,
+    CapabilityGrantIntentObstruction, CapabilityGrantIntentOutcome, CapabilityGrantIntentPosture,
+    CapabilityGrantValidationObstruction, CapabilityGrantValidationOutcome,
+    CapabilityGrantValidationPosture, ObstructionReceipt, OpticAdmissionRequirements,
     OpticAdmissionTicketPosture, OpticApertureRequest, OpticArtifact, OpticArtifactHandle,
     OpticArtifactOperation, OpticArtifactRegistrationError, OpticArtifactRegistry,
     OpticBasisRequest, OpticCapabilityPresentation, OpticInvocation,
     OpticInvocationAdmissionOutcome, OpticInvocationObstruction, OpticRegistrationDescriptor,
-    PrincipalRef, RegisteredOpticArtifact, RewriteDisposition, OBSTRUCTION_RECEIPT_KIND,
+    PrincipalRef, RegisteredOpticArtifact, RewriteDisposition,
+    CAPABILITY_GRANT_VALIDATION_POSTURE_KIND, OBSTRUCTION_RECEIPT_KIND,
     OPTIC_ADMISSION_TICKET_POSTURE_KIND, OPTIC_ARTIFACT_HANDLE_KIND,
 };
 pub use playback::{CursorReceipt, TruthFrame, TruthSink};

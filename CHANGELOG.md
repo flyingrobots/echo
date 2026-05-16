@@ -7,6 +7,16 @@
 
 ### Added
 
+- `warp-core` now publishes `GraphFact::CapabilityGrantValidationObstructed`
+  when recorded capability grant material fails narrow identity coverage against
+  a registered optic artifact. The validation checks artifact hash, operation
+  id, requirements digest, and explicit expiry posture, and remains
+  refusal-first: it does not issue successful admission tickets, law witnesses,
+  scheduler work, execution, delegation policy, quorum governance, or Continuum
+  protocol.
+- `docs/design/capability-grant-validation-obstruction-facts.md` defines grant
+  validation obstruction as graph evidence rather than authority. A recorded
+  grant can fail causally before any invocation can succeed.
 - `warp-core` now publishes `GraphFact::OpticInvocationObstructed` whenever the
   optic invocation admission skeleton refuses an invocation. The fact records
   the artifact handle id, operation id, canonical variables digest, basis and
@@ -74,9 +84,9 @@
   registered artifact handles internally and obstructs unknown handles,
   operation mismatches, and registered-handle invocations without capability
   presentation. Admission outcomes are must-use, and placeholder capability
-  presentations still obstruct until real grant validation exists. The
-  registration and invocation regression fixtures avoid `expect(...)` so
-  all-target Clippy remains clean.
+  presentations still obstruct until grant validation is wired into invocation
+  admission. The registration and invocation regression fixtures avoid
+  `expect(...)` so all-target Clippy remains clean.
 - Optic invocation obstruction now returns a ticket-shaped pre-admission
   posture carrying the invocation handle, operation id, canonical variables
   digest, basis request, aperture request, and structured obstruction reason.

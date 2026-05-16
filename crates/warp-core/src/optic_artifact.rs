@@ -5,17 +5,18 @@
 //! This module owns optic artifact registration and the first admission-only
 //! invocation gate. [`OpticArtifactRegistry::admit_optic_invocation`] resolves
 //! handles internally, checks operation identity, and reports obstruction in a
-//! ticket-shaped pre-admission posture without validating grants, issuing
-//! success tickets, emitting law witnesses, or executing runtime work. A
-//! capability presentation slot is not authority; every presentation posture
-//! obstructs until Echo can validate a real bounded grant.
+//! ticket-shaped pre-admission posture without wiring grant validation into
+//! invocation admission, issuing success tickets, emitting law witnesses, or
+//! executing runtime work. A capability presentation slot is not authority;
+//! every presentation posture obstructs until Echo can validate a real bounded
+//! grant and admit authority.
 
 use std::collections::BTreeMap;
 
 use crate::{
     digest_invocation_request_bytes, ArtifactRegistrationObstructionKind,
-    ArtifactRegistrationReceipt, GraphFact, InvocationObstructionKind, PublishedGraphFact,
-    ARTIFACT_REGISTRATION_RECEIPT_KIND,
+    ArtifactRegistrationReceipt, CapabilityGrantValidationObstructionKind, GraphFact,
+    InvocationObstructionKind, PublishedGraphFact, ARTIFACT_REGISTRATION_RECEIPT_KIND,
 };
 use thiserror::Error;
 
@@ -27,6 +28,9 @@ pub const OPTIC_ADMISSION_TICKET_POSTURE_KIND: &str = "optic-admission-ticket-po
 
 /// Echo-owned kind for a causal refusal receipt.
 pub const OBSTRUCTION_RECEIPT_KIND: &str = "obstruction-receipt";
+
+/// Echo-owned kind for capability grant validation obstruction posture.
+pub const CAPABILITY_GRANT_VALIDATION_POSTURE_KIND: &str = "capability-grant-validation-posture";
 
 const OPTIC_ARTIFACT_HANDLE_ID_PREFIX: &str = "optic-artifact-handle:";
 
@@ -138,16 +142,17 @@ pub struct OpticApertureRequest {
 ///
 /// This v0 shape is intentionally not sufficient to authorize invocation. It
 /// exists only so the admission skeleton can classify presentation posture
-/// without inventing grant validation semantics.
+/// without treating a presentation as authority.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OpticCapabilityPresentation {
     /// Presentation identity supplied by the caller.
     pub presentation_id: String,
     /// Grant id the presentation claims to bind to.
     ///
-    /// Echo does not validate this grant in this slice. A non-empty value only
-    /// moves the presentation from unbound to validation-unavailable
-    /// obstruction; it never authorizes invocation.
+    /// [`OpticArtifactRegistry::admit_optic_invocation`] does not validate this
+    /// grant. A non-empty value only moves the presentation from unbound to
+    /// validation-unavailable obstruction inside invocation admission; it never
+    /// authorizes invocation.
     pub bound_grant_id: Option<String>,
 }
 
@@ -438,6 +443,112 @@ pub enum CapabilityGrantIntentOutcome {
     Obstructed(CapabilityGrantIntentPosture),
 }
 
+/// Caller-supplied expiry posture for narrow grant validation.
+///
+/// Echo does not parse [`CapabilityGrantIntent::expiry_bytes`] in this slice.
+/// The posture is explicit validation input so tests and future adapters can
+/// prove that an already-known expired grant obstructs without adding clock
+/// policy, admission tickets, witnesses, or execution.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CapabilityGrantExpiryPosture {
+    /// Expiry was not evaluated for this validation attempt.
+    NotEvaluated,
+    /// Expiry was evaluated and did not obstruct this validation attempt.
+    Current,
+    /// Expiry was evaluated and obstructed this validation attempt.
+    Expired,
+}
+
+/// Obstruction reason for capability grant validation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CapabilityGrantValidationObstruction {
+    /// Presentation supplied unusable shape for grant validation.
+    MalformedCapabilityPresentation,
+    /// Presentation did not bind to a grant id.
+    UnboundCapabilityPresentation,
+    /// Presentation named grant material Echo has not recorded.
+    UnknownGrant,
+    /// Grant artifact hash did not cover the registered artifact.
+    ArtifactHashMismatch,
+    /// Grant operation id did not cover the registered artifact operation.
+    OperationIdMismatch,
+    /// Grant requirements digest did not cover the registered artifact
+    /// requirements.
+    RequirementsDigestMismatch,
+    /// Grant expiry posture obstructed validation.
+    ExpiredGrant,
+}
+
+/// Identity coverage returned when narrow grant validation finds no identity
+/// mismatch.
+///
+/// This is not an authority grant, not an admission ticket, not a witness, and
+/// not permission to execute. It only says the recorded grant material names the
+/// same artifact hash, operation id, and requirements digest as the registered
+/// artifact for this validation attempt.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CapabilityGrantIdentityCoverage {
+    /// Stable discriminator for callers and wire adapters.
+    pub kind: String,
+    /// Presentation identity supplied by the caller.
+    pub presentation_id: String,
+    /// Grant id named by the presentation.
+    pub grant_id: String,
+    /// Echo-owned runtime-local artifact handle id being covered.
+    pub artifact_handle_id: String,
+    /// Registered artifact hash covered by the grant material.
+    pub artifact_hash: String,
+    /// Registered operation id covered by the grant material.
+    pub operation_id: String,
+    /// Registered requirements digest covered by the grant material.
+    pub requirements_digest: String,
+}
+
+/// Obstructed posture for capability grant validation.
+///
+/// Grant validation obstruction is graph evidence, not authority. This posture
+/// reports why recorded grant material did not cover a registered artifact
+/// identity; it never admits invocation or issues a success ticket.
+#[must_use = "capability grant validation postures explain obstructions that must be handled"]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CapabilityGrantValidationPosture {
+    /// Stable discriminator for callers and wire adapters.
+    pub kind: String,
+    /// Presentation identity supplied by the caller.
+    pub presentation_id: String,
+    /// Grant id named by the presentation, when structurally available.
+    pub grant_id: Option<String>,
+    /// Echo-owned runtime-local artifact handle id being covered.
+    pub artifact_handle_id: String,
+    /// Registered artifact hash Echo expected the grant to cover.
+    pub expected_artifact_hash: String,
+    /// Artifact hash named by the grant material, when available.
+    pub grant_artifact_hash: Option<String>,
+    /// Registered operation id Echo expected the grant to cover.
+    pub expected_operation_id: String,
+    /// Operation id named by the grant material, when available.
+    pub grant_operation_id: Option<String>,
+    /// Registered requirements digest Echo expected the grant to cover.
+    pub expected_requirements_digest: String,
+    /// Requirements digest named by the grant material, when available.
+    pub grant_requirements_digest: Option<String>,
+    /// Structured reason Echo obstructed before treating grant material as
+    /// authority.
+    pub obstruction: CapabilityGrantValidationObstruction,
+}
+
+/// Outcome for narrow capability grant validation.
+#[must_use = "capability grant validation outcomes carry obstructions that must be handled"]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CapabilityGrantValidationOutcome {
+    /// Recorded grant material covered the registered artifact identity only.
+    ///
+    /// This is not successful invocation admission.
+    IdentityCovered(CapabilityGrantIdentityCoverage),
+    /// Echo obstructed grant validation before authority could be considered.
+    Obstructed(CapabilityGrantValidationPosture),
+}
+
 /// Runtime invocation request against a registered optic artifact.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OpticInvocation {
@@ -468,8 +579,8 @@ pub enum OpticInvocationObstruction {
     MalformedCapabilityPresentation,
     /// The invocation carries a presentation that is not bound to any grant.
     UnboundCapabilityPresentation,
-    /// A placeholder presentation was supplied, but real grant validation does
-    /// not exist in this slice.
+    /// A placeholder presentation was supplied, but grant validation is not
+    /// wired into invocation admission in this slice.
     CapabilityValidationUnavailable,
 }
 
@@ -477,7 +588,8 @@ pub enum OpticInvocationObstruction {
 ///
 /// This is not a successful admission ticket and does not authorize runtime
 /// execution. It carries enough invocation context for callers and later
-/// witness code to explain why Echo obstructed before grant validation exists.
+/// witness code to explain why Echo obstructed before grant validation was
+/// wired into invocation admission.
 #[must_use = "optic admission ticket postures explain obstructions that must be handled"]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OpticAdmissionTicketPosture {
@@ -531,12 +643,14 @@ pub enum OpticArtifactRegistrationError {
 /// Echo-owned deterministic intake for capability grant intents.
 ///
 /// This registry records submitted grant intents so duplicate intent ids can be
-/// obstructed deterministically. It does not validate grant applicability,
-/// admit grants into witnessed history, issue admission tickets, emit law
-/// witnesses, or execute runtime work.
+/// obstructed deterministically. It can validate narrow identity coverage
+/// against registered artifact material, but it does not admit grants into
+/// witnessed history, issue admission tickets, emit law witnesses, or execute
+/// runtime work.
 #[derive(Clone, Debug, Default)]
 pub struct CapabilityGrantIntentGate {
     intents_by_id: BTreeMap<String, CapabilityGrantIntent>,
+    published_graph_facts: Vec<PublishedGraphFact>,
 }
 
 impl CapabilityGrantIntentGate {
@@ -576,6 +690,102 @@ impl CapabilityGrantIntentGate {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.intents_by_id.is_empty()
+    }
+
+    /// Validates recorded grant material against a registered artifact identity.
+    ///
+    /// This is a refusal-first substrate check. It only compares the bound grant
+    /// material's artifact hash, operation id, requirements digest, and explicit
+    /// expiry posture against Echo's registered artifact material. It does not
+    /// admit authority, issue an admission ticket, emit a law witness, validate
+    /// delegation, check quorum, or execute runtime work.
+    #[must_use = "capability grant validation outcomes carry obstructions that must be handled"]
+    pub fn validate_capability_presentation_for_artifact(
+        &mut self,
+        presentation: &OpticCapabilityPresentation,
+        registered: &RegisteredOpticArtifact,
+        expiry_posture: CapabilityGrantExpiryPosture,
+    ) -> CapabilityGrantValidationOutcome {
+        if presentation.presentation_id.is_empty()
+            || presentation
+                .bound_grant_id
+                .as_ref()
+                .is_some_and(String::is_empty)
+        {
+            return self.obstructed_capability_grant_validation(
+                presentation,
+                registered,
+                None,
+                CapabilityGrantValidationObstruction::MalformedCapabilityPresentation,
+            );
+        }
+
+        let Some(grant_id) = presentation.bound_grant_id.as_deref() else {
+            return self.obstructed_capability_grant_validation(
+                presentation,
+                registered,
+                None,
+                CapabilityGrantValidationObstruction::UnboundCapabilityPresentation,
+            );
+        };
+
+        let Some(grant) = self.intents_by_id.get(grant_id).cloned() else {
+            return self.obstructed_capability_grant_validation(
+                presentation,
+                registered,
+                None,
+                CapabilityGrantValidationObstruction::UnknownGrant,
+            );
+        };
+
+        if grant.artifact_hash != registered.artifact_hash {
+            return self.obstructed_capability_grant_validation(
+                presentation,
+                registered,
+                Some(&grant),
+                CapabilityGrantValidationObstruction::ArtifactHashMismatch,
+            );
+        }
+        if grant.operation_id != registered.operation_id {
+            return self.obstructed_capability_grant_validation(
+                presentation,
+                registered,
+                Some(&grant),
+                CapabilityGrantValidationObstruction::OperationIdMismatch,
+            );
+        }
+        if grant.requirements_digest != registered.requirements_digest {
+            return self.obstructed_capability_grant_validation(
+                presentation,
+                registered,
+                Some(&grant),
+                CapabilityGrantValidationObstruction::RequirementsDigestMismatch,
+            );
+        }
+        if grant.expiry_bytes.is_some() && expiry_posture == CapabilityGrantExpiryPosture::Expired {
+            return self.obstructed_capability_grant_validation(
+                presentation,
+                registered,
+                Some(&grant),
+                CapabilityGrantValidationObstruction::ExpiredGrant,
+            );
+        }
+
+        CapabilityGrantValidationOutcome::IdentityCovered(CapabilityGrantIdentityCoverage {
+            kind: "capability-grant-identity-coverage".to_owned(),
+            presentation_id: presentation.presentation_id.clone(),
+            grant_id: grant.intent_id,
+            artifact_handle_id: registered.handle.id.clone(),
+            artifact_hash: registered.artifact_hash.clone(),
+            operation_id: registered.operation_id.clone(),
+            requirements_digest: registered.requirements_digest.clone(),
+        })
+    }
+
+    /// Returns in-memory graph facts published by this gate instance.
+    #[must_use]
+    pub fn published_graph_facts(&self) -> &[PublishedGraphFact] {
+        &self.published_graph_facts
     }
 
     fn classify_capability_grant_intent(
@@ -657,6 +867,71 @@ impl CapabilityGrantIntentGate {
                 authority_context,
                 obstruction,
             ),
+        })
+    }
+
+    fn obstructed_capability_grant_validation(
+        &mut self,
+        presentation: &OpticCapabilityPresentation,
+        registered: &RegisteredOpticArtifact,
+        grant: Option<&CapabilityGrantIntent>,
+        obstruction: CapabilityGrantValidationObstruction,
+    ) -> CapabilityGrantValidationOutcome {
+        self.publish_capability_grant_validation_obstruction(
+            presentation,
+            registered,
+            grant,
+            obstruction,
+        );
+
+        CapabilityGrantValidationOutcome::Obstructed(CapabilityGrantValidationPosture {
+            kind: CAPABILITY_GRANT_VALIDATION_POSTURE_KIND.to_owned(),
+            presentation_id: presentation.presentation_id.clone(),
+            grant_id: Self::validation_grant_id(presentation, grant),
+            artifact_handle_id: registered.handle.id.clone(),
+            expected_artifact_hash: registered.artifact_hash.clone(),
+            grant_artifact_hash: grant.map(|grant| grant.artifact_hash.clone()),
+            expected_operation_id: registered.operation_id.clone(),
+            grant_operation_id: grant.map(|grant| grant.operation_id.clone()),
+            expected_requirements_digest: registered.requirements_digest.clone(),
+            grant_requirements_digest: grant.map(|grant| grant.requirements_digest.clone()),
+            obstruction,
+        })
+    }
+
+    fn publish_capability_grant_validation_obstruction(
+        &mut self,
+        presentation: &OpticCapabilityPresentation,
+        registered: &RegisteredOpticArtifact,
+        grant: Option<&CapabilityGrantIntent>,
+        obstruction: CapabilityGrantValidationObstruction,
+    ) {
+        self.published_graph_facts.push(PublishedGraphFact::new(
+            GraphFact::CapabilityGrantValidationObstructed {
+                presentation_id: presentation.presentation_id.clone(),
+                grant_id: Self::validation_grant_id(presentation, grant),
+                artifact_handle_id: registered.handle.id.clone(),
+                expected_artifact_hash: registered.artifact_hash.clone(),
+                grant_artifact_hash: grant.map(|grant| grant.artifact_hash.clone()),
+                expected_operation_id: registered.operation_id.clone(),
+                grant_operation_id: grant.map(|grant| grant.operation_id.clone()),
+                expected_requirements_digest: registered.requirements_digest.clone(),
+                grant_requirements_digest: grant.map(|grant| grant.requirements_digest.clone()),
+                obstruction: capability_grant_validation_obstruction_kind(obstruction),
+            },
+        ));
+    }
+
+    fn validation_grant_id(
+        presentation: &OpticCapabilityPresentation,
+        grant: Option<&CapabilityGrantIntent>,
+    ) -> Option<String> {
+        grant.map(|grant| grant.intent_id.clone()).or_else(|| {
+            presentation
+                .bound_grant_id
+                .as_ref()
+                .filter(|grant_id| !grant_id.is_empty())
+                .cloned()
         })
     }
 }
@@ -984,6 +1259,34 @@ fn invocation_obstruction_kind(
         }
         OpticInvocationObstruction::CapabilityValidationUnavailable => {
             InvocationObstructionKind::CapabilityValidationUnavailable
+        }
+    }
+}
+
+fn capability_grant_validation_obstruction_kind(
+    obstruction: CapabilityGrantValidationObstruction,
+) -> CapabilityGrantValidationObstructionKind {
+    match obstruction {
+        CapabilityGrantValidationObstruction::MalformedCapabilityPresentation => {
+            CapabilityGrantValidationObstructionKind::MalformedCapabilityPresentation
+        }
+        CapabilityGrantValidationObstruction::UnboundCapabilityPresentation => {
+            CapabilityGrantValidationObstructionKind::UnboundCapabilityPresentation
+        }
+        CapabilityGrantValidationObstruction::UnknownGrant => {
+            CapabilityGrantValidationObstructionKind::UnknownGrant
+        }
+        CapabilityGrantValidationObstruction::ArtifactHashMismatch => {
+            CapabilityGrantValidationObstructionKind::ArtifactHashMismatch
+        }
+        CapabilityGrantValidationObstruction::OperationIdMismatch => {
+            CapabilityGrantValidationObstructionKind::OperationIdMismatch
+        }
+        CapabilityGrantValidationObstruction::RequirementsDigestMismatch => {
+            CapabilityGrantValidationObstructionKind::RequirementsDigestMismatch
+        }
+        CapabilityGrantValidationObstruction::ExpiredGrant => {
+            CapabilityGrantValidationObstructionKind::ExpiredGrant
         }
     }
 }

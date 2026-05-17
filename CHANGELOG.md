@@ -7,6 +7,15 @@
 
 ### Added
 
+- `warp-core` optic invocation admission now has a narrow ApertureResolution v0
+  boundary. Identity-covered invocations with exact fixture basis bytes
+  `basis-request:resolved-fixture:v0` and exact fixture aperture bytes
+  `aperture-request:resolved-fixture:v0` progress past aperture resolution and
+  still obstruct at `UnsupportedBudgetResolution`; unsupported aperture shapes
+  continue to obstruct at `UnsupportedApertureResolution`, and aperture
+  resolution remains unreachable when basis resolution fails. This does not
+  issue admission tickets, law witnesses, scheduler work, execution, budget
+  evaluation, runtime support checks, or successful grant validation.
 - `warp-core` optic invocation admission now has a narrow BasisResolution v0
   boundary. Identity-covered invocations with exact fixture basis bytes
   `basis-request:resolved-fixture:v0` progress past basis resolution and still

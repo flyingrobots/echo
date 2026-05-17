@@ -35,9 +35,9 @@ The current optic invocation admission path evaluates checks in this order:
 6. Require budget request presence.
 7. Classify capability presentation posture.
 8. Optionally publish grant-validation obstruction evidence.
-9. Resolve the narrow BasisResolution v0 fixture or obstruct unsupported basis
-   material.
-10. If basis resolves, obstruct before aperture resolution.
+9. If capability validation returns identity-covered material, resolve the
+   narrow BasisResolution v0 fixture or obstruct unsupported basis material.
+10. If that basis fixture resolves, obstruct before aperture resolution.
 11. Publish the invocation obstruction fact.
 
 Presence checks come before resolution checks. Basis resolution gates aperture
@@ -67,8 +67,8 @@ checks. BasisResolution v0 accepts exactly one deterministic fixture shape:
 defined but not lawfully reachable at this checkpoint.
 
 `UnsupportedApertureResolution` is reachable only after the exact
-BasisResolution v0 fixture resolves. Unsupported basis shapes must still stop at
-`UnsupportedBasisResolution`.
+BasisResolution v0 fixture resolves. For identity-covered material, unsupported
+basis shapes must still stop at `UnsupportedBasisResolution`.
 
 ## Non-behavior
 

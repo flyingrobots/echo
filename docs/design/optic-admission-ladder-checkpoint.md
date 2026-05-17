@@ -57,7 +57,7 @@ checks. BasisResolution v0 accepts exactly one deterministic fixture shape:
 | `MissingCapability`               | Reachable today   | Required invocation context is present, but no capability presentation was supplied.                     |
 | `MalformedCapabilityPresentation` | Reachable today   | Capability presentation material is present but not structurally usable.                                 |
 | `UnboundCapabilityPresentation`   | Reachable today   | Capability presentation material is structurally usable but not bound to the invocation.                 |
-| `CapabilityValidationUnavailable` | Reachable today   | Presentation material is identity-covered, but real grant validation does not exist yet.                 |
+| `CapabilityValidationUnavailable` | Reachable today   | A bound presentation exists, but no successful validation or admission has occurred yet.                 |
 | `UnsupportedBasisResolution`      | Reachable today   | Identity-covered material reaches the basis boundary, but the basis shape is outside BasisResolution v0. |
 | `UnsupportedApertureResolution`   | Reachable today   | BasisResolution v0 succeeded, but aperture resolution does not exist yet.                                |
 | `UnsupportedBudgetResolution`     | Future vocabulary | Must remain unreachable until lawful basis and aperture resolution exist.                                |

@@ -597,6 +597,7 @@ pub struct OpticInvocation {
 }
 
 const OPTIC_BASIS_RESOLUTION_V0_FIXTURE_BYTES: &[u8] = b"basis-request:resolved-fixture:v0";
+const OPTIC_APERTURE_RESOLUTION_V0_FIXTURE_BYTES: &[u8] = b"aperture-request:resolved-fixture:v0";
 
 /// Admission obstruction for an optic invocation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -615,10 +616,11 @@ pub enum OpticInvocationObstruction {
     /// outside the narrow deterministic BasisResolution v0 fixture.
     UnsupportedBasisResolution,
     /// The invocation reached aperture resolution after BasisResolution v0, but
-    /// Echo has no aperture resolver wired into admission in this slice.
+    /// the requested aperture shape is outside the narrow deterministic
+    /// ApertureResolution v0 fixture.
     UnsupportedApertureResolution,
-    /// The invocation reached budget resolution, but Echo has no budget
-    /// evaluator wired into admission in this slice.
+    /// The invocation reached budget resolution after ApertureResolution v0,
+    /// but Echo has no budget evaluator wired into admission in this slice.
     UnsupportedBudgetResolution,
     /// Echo cannot prove that this runtime supports the registered artifact
     /// requirements in this slice.
@@ -1186,7 +1188,10 @@ impl OpticArtifactRegistry {
                 CapabilityGrantValidationOutcome::IdentityCovered(_)
             ) {
                 final_obstruction = Self::resolve_basis_v0(&invocation.basis_request)
-                    .unwrap_or(OpticInvocationObstruction::UnsupportedApertureResolution);
+                    .unwrap_or_else(|| {
+                        Self::resolve_aperture_v0(&invocation.aperture_request)
+                            .unwrap_or(OpticInvocationObstruction::UnsupportedBudgetResolution)
+                    });
             }
         }
 
@@ -1209,6 +1214,16 @@ impl OpticArtifactRegistry {
         }
 
         Some(OpticInvocationObstruction::UnsupportedBasisResolution)
+    }
+
+    fn resolve_aperture_v0(
+        aperture_request: &OpticApertureRequest,
+    ) -> Option<OpticInvocationObstruction> {
+        if aperture_request.bytes == OPTIC_APERTURE_RESOLUTION_V0_FIXTURE_BYTES {
+            return None;
+        }
+
+        Some(OpticInvocationObstruction::UnsupportedApertureResolution)
     }
 
     fn classify_aperture_request(

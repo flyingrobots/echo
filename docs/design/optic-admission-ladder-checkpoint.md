@@ -3,13 +3,13 @@
 
 # Optic Admission Ladder Checkpoint
 
-Status: BasisResolution v0 boundary checkpoint.
-Scope: refusal ladder with one narrow controlled basis-resolution fixture.
+Status: ApertureResolution v0 boundary checkpoint.
+Scope: refusal ladder with narrow controlled basis and aperture fixtures.
 
 ## Doctrine
 
 This checkpoint records the optic invocation admission ladder at the first
-controlled basis-resolution boundary.
+controlled aperture-resolution boundary.
 
 Echo can now explain why an optic invocation is refused, but it cannot yet admit
 one. There is no successful admission path in this checkpoint.
@@ -17,8 +17,10 @@ one. There is no successful admission path in this checkpoint.
 A registered artifact handle is not authority. A capability presentation slot is
 not a validated grant. A basis request is not a resolved basis unless it matches
 the narrow deterministic BasisResolution v0 fixture. A resolved basis is not
-permission to act. An aperture request is not a resolved scope. A budget request
-is not spendable runtime capacity.
+permission to act. An aperture request is not a resolved scope unless it matches
+the narrow deterministic ApertureResolution v0 fixture after basis resolution.
+A resolved aperture is not permission to act. A budget request is not spendable
+runtime capacity.
 
 Refusal is causal evidence. Refusal is not admission, not execution, not a law
 witness, and not a counterfactual candidate.
@@ -37,13 +39,17 @@ The current optic invocation admission path evaluates checks in this order:
 8. Optionally publish grant-validation obstruction evidence.
 9. If capability validation returns identity-covered material, resolve the
    narrow BasisResolution v0 fixture or obstruct unsupported basis material.
-10. If that basis fixture resolves, obstruct before aperture resolution.
-11. Publish the invocation obstruction fact.
+10. If that basis fixture resolves, resolve the narrow ApertureResolution v0
+    fixture or obstruct unsupported aperture material.
+11. If that aperture fixture resolves, obstruct before budget resolution.
+12. Publish the invocation obstruction fact.
 
 Presence checks come before resolution checks. Basis resolution gates aperture
 resolution. Aperture resolution gates budget evaluation and runtime support
 checks. BasisResolution v0 accepts exactly one deterministic fixture shape:
 `basis-request:resolved-fixture:v0`.
+ApertureResolution v0 accepts exactly one deterministic fixture shape:
+`aperture-request:resolved-fixture:v0`.
 
 ## Obstruction reachability
 
@@ -59,16 +65,20 @@ checks. BasisResolution v0 accepts exactly one deterministic fixture shape:
 | `UnboundCapabilityPresentation`   | Reachable today   | Capability presentation material is structurally usable but not bound to the invocation.                 |
 | `CapabilityValidationUnavailable` | Reachable today   | A bound presentation exists, but no successful validation or admission has occurred yet.                 |
 | `UnsupportedBasisResolution`      | Reachable today   | Identity-covered material reaches the basis boundary, but the basis shape is outside BasisResolution v0. |
-| `UnsupportedApertureResolution`   | Reachable today   | BasisResolution v0 succeeded, but aperture resolution does not exist yet.                                |
-| `UnsupportedBudgetResolution`     | Future vocabulary | Must remain unreachable until lawful basis and aperture resolution exist.                                |
+| `UnsupportedApertureResolution`   | Reachable today   | BasisResolution v0 succeeded, but the aperture shape is outside ApertureResolution v0.                   |
+| `UnsupportedBudgetResolution`     | Reachable today   | ApertureResolution v0 succeeded, but budget evaluation does not exist yet.                               |
 | `RuntimeSupportUnavailable`       | Future vocabulary | Must remain unreachable until lawful basis, aperture, and budget resolution exist.                       |
 
-`UnsupportedBudgetResolution` and `RuntimeSupportUnavailable` are deliberately
-defined but not lawfully reachable at this checkpoint.
+`RuntimeSupportUnavailable` is deliberately defined but not lawfully reachable
+at this checkpoint.
 
 `UnsupportedApertureResolution` is reachable only after the exact
 BasisResolution v0 fixture resolves. For identity-covered material, unsupported
 basis shapes must still stop at `UnsupportedBasisResolution`.
+
+`UnsupportedBudgetResolution` is reachable only after the exact
+ApertureResolution v0 fixture resolves. Unsupported aperture shapes must still
+stop at `UnsupportedApertureResolution`.
 
 ## Non-behavior
 
@@ -85,7 +95,6 @@ This checkpoint does not introduce:
 - authority success
 - runtime support enforcement
 - budget reservation
-- aperture resolution
 
 The system remains obstruction-first. It records refusal; it does not authorize
 work.
@@ -103,9 +112,22 @@ Resolving that fixture establishes only the causal state under evaluation. It
 does not create authority, admission, aperture scope, budget capacity, runtime
 support, scheduler work, or execution.
 
+## ApertureResolution v0
+
+ApertureResolution v0 is not general aperture resolution. It recognizes exactly
+one deterministic fixture shape:
+
+```text
+aperture-request:resolved-fixture:v0
+```
+
+Resolving that fixture establishes only the bounded observation/action window
+inside a resolved basis. It does not create authority, admission, budget
+capacity, runtime support, scheduler work, or execution.
+
 ## Next transition point
 
-The next transition point is ApertureResolution v0.
+The next transition point is BudgetResolution v0.
 
 That transition must be narrow and explicit. It must not imply successful
 admission, budget spendability, runtime support, execution, or authority
@@ -113,12 +135,11 @@ validation.
 
 ## Tripwire
 
-If a future slice makes `UnsupportedBudgetResolution` or
-`RuntimeSupportUnavailable` reachable before a lawful aperture resolution
-boundary exists, the admission ladder is wrong.
+If a future slice makes `RuntimeSupportUnavailable` reachable before a lawful
+budget resolution boundary exists, the admission ladder is wrong.
 
 If a future slice introduces a successful admission path before a resolved basis,
 resolved aperture, evaluated budget, runtime support check, and validated grant
 exist, the admission ladder is wrong.
 
-BasisResolution v0 is controlled resolved state, not admission.
+ApertureResolution v0 is controlled resolved state, not admission.

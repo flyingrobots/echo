@@ -112,6 +112,17 @@ fn fixture_invocation_with_resolved_basis_and_presentation(
     invocation
 }
 
+fn fixture_invocation_with_resolved_basis_aperture_and_presentation(
+    handle: OpticArtifactHandle,
+    grant_id: &str,
+) -> OpticInvocation {
+    let mut invocation = fixture_invocation_with_resolved_basis_and_presentation(handle, grant_id);
+    invocation.aperture_request = OpticApertureRequest {
+        bytes: b"aperture-request:resolved-fixture:v0".to_vec(),
+    };
+    invocation
+}
+
 fn expected_obstructed_posture(
     invocation: &OpticInvocation,
     obstruction: OpticInvocationObstruction,
@@ -852,6 +863,84 @@ fn resolved_basis_still_obstructs_before_aperture_resolution() -> Result<(), Str
                 b"basis-request:resolved-fixture:v0"
             )
             && *obstruction == InvocationObstructionKind::UnsupportedApertureResolution
+    ));
+    Ok(())
+}
+
+#[test]
+fn unsupported_aperture_still_stops_at_unsupported_aperture_resolution() -> Result<(), String> {
+    let (mut registry, handle) = fixture_registry_and_handle()?;
+    let invocation =
+        fixture_invocation_with_resolved_basis_and_presentation(handle, "grant:covered");
+    let mut gate = fixture_gate_with_grant(fixture_grant("grant:covered"));
+
+    let outcome = registry.admit_optic_invocation_with_capability_validator(&invocation, &mut gate);
+
+    assert_eq!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::UnsupportedApertureResolution
+    );
+    assert!(matches!(
+        latest_invocation_obstruction_fact(&registry)?,
+        GraphFact::OpticInvocationObstructed {
+            aperture_request_digest,
+            obstruction,
+            ..
+        } if *aperture_request_digest == digest_invocation_request_bytes(
+                b"echo.optic-invocation.aperture-request.v0",
+                b"aperture-request:fixture"
+            )
+            && *obstruction == InvocationObstructionKind::UnsupportedApertureResolution
+    ));
+    Ok(())
+}
+
+#[test]
+fn aperture_resolution_is_unreachable_when_basis_resolution_fails() -> Result<(), String> {
+    let (mut registry, handle) = fixture_registry_and_handle()?;
+    let mut invocation = fixture_invocation_with_presentation(handle, "grant:covered");
+    invocation.aperture_request = OpticApertureRequest {
+        bytes: b"aperture-request:resolved-fixture:v0".to_vec(),
+    };
+    let mut gate = fixture_gate_with_grant(fixture_grant("grant:covered"));
+
+    let outcome = registry.admit_optic_invocation_with_capability_validator(&invocation, &mut gate);
+
+    assert_eq!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::UnsupportedBasisResolution
+    );
+    assert_ne!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::UnsupportedApertureResolution
+    );
+    Ok(())
+}
+
+#[test]
+fn resolved_aperture_still_obstructs_before_budget_resolution() -> Result<(), String> {
+    let (mut registry, handle) = fixture_registry_and_handle()?;
+    let invocation =
+        fixture_invocation_with_resolved_basis_aperture_and_presentation(handle, "grant:covered");
+    let mut gate = fixture_gate_with_grant(fixture_grant("grant:covered"));
+
+    let outcome = registry.admit_optic_invocation_with_capability_validator(&invocation, &mut gate);
+
+    assert_eq!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::UnsupportedBudgetResolution
+    );
+    assert!(matches!(
+        latest_invocation_obstruction_fact(&registry)?,
+        GraphFact::OpticInvocationObstructed {
+            aperture_request_digest,
+            obstruction,
+            ..
+        } if *aperture_request_digest == digest_invocation_request_bytes(
+                b"echo.optic-invocation.aperture-request.v0",
+                b"aperture-request:resolved-fixture:v0"
+            )
+            && *obstruction == InvocationObstructionKind::UnsupportedBudgetResolution
     ));
     Ok(())
 }

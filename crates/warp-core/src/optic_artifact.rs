@@ -598,6 +598,7 @@ pub struct OpticInvocation {
 
 const OPTIC_BASIS_RESOLUTION_V0_FIXTURE_BYTES: &[u8] = b"basis-request:resolved-fixture:v0";
 const OPTIC_APERTURE_RESOLUTION_V0_FIXTURE_BYTES: &[u8] = b"aperture-request:resolved-fixture:v0";
+const OPTIC_BUDGET_RESOLUTION_V0_FIXTURE_BYTES: &[u8] = b"budget-request:resolved-fixture:v0";
 
 /// Admission obstruction for an optic invocation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1189,8 +1190,13 @@ impl OpticArtifactRegistry {
             ) {
                 final_obstruction = Self::resolve_basis_v0(&invocation.basis_request)
                     .unwrap_or_else(|| {
-                        Self::resolve_aperture_v0(&invocation.aperture_request)
-                            .unwrap_or(OpticInvocationObstruction::UnsupportedBudgetResolution)
+                        Self::resolve_aperture_v0(&invocation.aperture_request).unwrap_or_else(
+                            || {
+                                Self::resolve_budget_v0(&invocation.budget_request).unwrap_or(
+                                    OpticInvocationObstruction::RuntimeSupportUnavailable,
+                                )
+                            },
+                        )
                     });
             }
         }
@@ -1224,6 +1230,16 @@ impl OpticArtifactRegistry {
         }
 
         Some(OpticInvocationObstruction::UnsupportedApertureResolution)
+    }
+
+    fn resolve_budget_v0(
+        budget_request: &OpticBudgetRequest,
+    ) -> Option<OpticInvocationObstruction> {
+        if budget_request.bytes == OPTIC_BUDGET_RESOLUTION_V0_FIXTURE_BYTES {
+            return None;
+        }
+
+        Some(OpticInvocationObstruction::UnsupportedBudgetResolution)
     }
 
     fn classify_aperture_request(

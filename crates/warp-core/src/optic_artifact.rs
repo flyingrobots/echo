@@ -596,6 +596,8 @@ pub struct OpticInvocation {
     pub capability_presentation: Option<OpticCapabilityPresentation>,
 }
 
+const OPTIC_BASIS_RESOLUTION_V0_FIXTURE_BYTES: &[u8] = b"basis-request:resolved-fixture:v0";
+
 /// Admission obstruction for an optic invocation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OpticInvocationObstruction {
@@ -609,11 +611,11 @@ pub enum OpticInvocationObstruction {
     MissingApertureRequest,
     /// The invocation does not name any budget request bytes.
     MissingBudgetRequest,
-    /// The invocation reached basis resolution, but Echo has no basis resolver
-    /// wired into admission in this slice.
+    /// The invocation reached basis resolution, but the requested basis shape is
+    /// outside the narrow deterministic BasisResolution v0 fixture.
     UnsupportedBasisResolution,
-    /// The invocation reached aperture resolution, but Echo has no aperture
-    /// resolver wired into admission in this slice.
+    /// The invocation reached aperture resolution after BasisResolution v0, but
+    /// Echo has no aperture resolver wired into admission in this slice.
     UnsupportedApertureResolution,
     /// The invocation reached budget resolution, but Echo has no budget
     /// evaluator wired into admission in this slice.
@@ -1183,7 +1185,8 @@ impl OpticArtifactRegistry {
                 validation,
                 CapabilityGrantValidationOutcome::IdentityCovered(_)
             ) {
-                final_obstruction = OpticInvocationObstruction::UnsupportedBasisResolution;
+                final_obstruction = Self::resolve_basis_v0(&invocation.basis_request)
+                    .unwrap_or(OpticInvocationObstruction::UnsupportedApertureResolution);
             }
         }
 
@@ -1198,6 +1201,14 @@ impl OpticArtifactRegistry {
         }
 
         None
+    }
+
+    fn resolve_basis_v0(basis_request: &OpticBasisRequest) -> Option<OpticInvocationObstruction> {
+        if basis_request.bytes == OPTIC_BASIS_RESOLUTION_V0_FIXTURE_BYTES {
+            return None;
+        }
+
+        Some(OpticInvocationObstruction::UnsupportedBasisResolution)
     }
 
     fn classify_aperture_request(

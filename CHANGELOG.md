@@ -7,6 +7,9 @@
 
 ### Added
 
+- `dispatch_optic_intent(...)` and the default `KernelPort` optic dispatch path
+  now reject EINT payloads that use Echo's reserved scheduler/control op id,
+  closing the remaining application-facing control-intent ingress path.
 - `warp-core` optic invocation admission now has a narrow ApertureResolution v0
   boundary. Identity-covered invocations with exact fixture basis bytes
   `basis-request:resolved-fixture:v0` and exact fixture aperture bytes

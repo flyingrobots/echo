@@ -31,7 +31,7 @@ use wasm_bindgen::JsValue;
 use echo_wasm_abi::kernel_port::HeadInfo;
 use echo_wasm_abi::kernel_port::{
     self, AbiError, DispatchOpticIntentRequest, ErrEnvelope, KernelPort, ObservationRequest,
-    ObserveOpticRequest, OkEnvelope, SettlementRequest,
+    ObserveOpticRequest, OkEnvelope, OpticIntentPayload, SettlementRequest,
 };
 use echo_wasm_abi::{unpack_intent_v1, CONTROL_INTENT_V1_OP_ID};
 
@@ -163,6 +163,28 @@ fn dispatch_application_intent(
 ) -> Result<kernel_port::DispatchResponse, AbiError> {
     validate_application_intent_bytes(intent_bytes)?;
     kernel.dispatch_intent(intent_bytes)
+}
+
+fn validate_application_optic_intent_request(
+    request: &DispatchOpticIntentRequest,
+) -> Result<(), AbiError> {
+    match &request.payload {
+        OpticIntentPayload::EintV1 { bytes } => validate_application_intent_bytes(bytes),
+    }
+}
+
+fn dispatch_optic_intent_result(
+    request_bytes: &[u8],
+) -> Result<kernel_port::IntentDispatchResult, AbiError> {
+    let request =
+        echo_wasm_abi::decode_cbor::<DispatchOpticIntentRequest>(request_bytes).map_err(|err| {
+            AbiError {
+                code: kernel_port::error_codes::INVALID_PAYLOAD,
+                message: format!("invalid optic dispatch request payload: {err}"),
+            }
+        })?;
+    validate_application_optic_intent_request(&request)?;
+    with_kernel(|k| k.dispatch_optic_intent(request))
 }
 
 // ---------------------------------------------------------------------------
@@ -335,16 +357,7 @@ pub fn dispatch_intent(intent_bytes: &[u8]) -> Uint8Array {
 /// The request bytes must decode as canonical-CBOR `DispatchOpticIntentRequest`.
 #[wasm_bindgen]
 pub fn dispatch_optic_intent(request_bytes: &[u8]) -> Uint8Array {
-    let request = match echo_wasm_abi::decode_cbor::<DispatchOpticIntentRequest>(request_bytes) {
-        Ok(request) => request,
-        Err(err) => {
-            return encode_err(&AbiError {
-                code: kernel_port::error_codes::INVALID_PAYLOAD,
-                message: format!("invalid optic dispatch request payload: {err}"),
-            })
-        }
-    };
-    encode_result(with_kernel(|k| k.dispatch_optic_intent(request)))
+    encode_result(dispatch_optic_intent_result(request_bytes))
 }
 
 /// Observe through an explicit optic request.
@@ -728,12 +741,15 @@ mod schema_validation_tests {
 mod init_tests {
     use super::*;
     use echo_wasm_abi::kernel_port::{
-        AdmissionOutcomeKind, BaseRef, BuiltinObserverPlan, ConflictArtifactDraft, ConflictReason,
-        ControlIntentV1, DispatchResponse, GlobalTick, HeadInfo, HeadObservation, NeighborhoodCore,
-        NeighborhoodParticipant, NeighborhoodParticipantRole, NeighborhoodPlurality,
-        NeighborhoodSite, NeighborhoodSiteId, ObservationArtifact, ObservationAt,
-        ObservationBasisPosture, ObservationFrame, ObservationPayload, ObservationProjection,
-        ParticipantRole, ProvenanceRef, ReadingBudgetPosture, ReadingEnvelope,
+        AdmissionLawId, AdmissionOutcomeKind, BaseRef, BuiltinObserverPlan, ConflictArtifactDraft,
+        ConflictReason, ControlIntentV1, CoordinateAt, DispatchOpticIntentRequest,
+        DispatchResponse, EchoCoordinate, GlobalTick, HeadInfo, HeadObservation, IntentFamilyId,
+        NeighborhoodCore, NeighborhoodParticipant, NeighborhoodParticipantRole,
+        NeighborhoodPlurality, NeighborhoodSite, NeighborhoodSiteId, ObservationArtifact,
+        ObservationAt, ObservationBasisPosture, ObservationFrame, ObservationPayload,
+        ObservationProjection, OpticActorId, OpticCapability, OpticCapabilityId, OpticCause,
+        OpticFocus, OpticId, OpticIntentPayload, OpticReadBudget, ParticipantRole,
+        ProjectionVersion, ProvenanceRef, ReadingBudgetPosture, ReadingEnvelope,
         ReadingObserverBasis, ReadingObserverPlan, ReadingResidualPosture, ReadingRightsPosture,
         ReadingWitnessRef, RegistryInfo, ResolvedObservationCoordinate, RunCompletion, RunId,
         SchedulerMode, SchedulerState, SchedulerStatus, SettlementBasisReport, SettlementDecision,
@@ -1035,6 +1051,59 @@ mod init_tests {
 
         let response = dispatch_intent_cbor(&bytes);
         let err: ErrEnvelope = echo_wasm_abi::decode_cbor(&response).unwrap();
+
+        assert_eq!(err.code, kernel_port::error_codes::FORBIDDEN_CONTROL_INTENT);
+    }
+
+    #[test]
+    fn public_optic_dispatch_rejects_hand_built_reserved_control_op_id() {
+        clear_kernel();
+        install_kernel(Box::new(StubKernel));
+
+        let worldline_id = WorldlineId::from_bytes([3; 32]);
+        let focus = OpticFocus::Worldline { worldline_id };
+        let actor = OpticActorId::from_bytes([4; 32]);
+        let intent_family = IntentFamilyId::from_bytes([5; 32]);
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"EINT");
+        bytes.extend_from_slice(&CONTROL_INTENT_V1_OP_ID.to_le_bytes());
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+
+        let request = DispatchOpticIntentRequest {
+            optic_id: OpticId::from_bytes([1; 32]),
+            base_coordinate: EchoCoordinate::Worldline {
+                worldline_id,
+                at: CoordinateAt::Frontier,
+            },
+            intent_family,
+            focus: focus.clone(),
+            cause: OpticCause {
+                actor,
+                cause_hash: vec![6; 32],
+                label: Some("optic dispatch".into()),
+            },
+            capability: OpticCapability {
+                capability_id: OpticCapabilityId::from_bytes([7; 32]),
+                actor,
+                issuer_ref: None,
+                policy_hash: vec![8; 32],
+                allowed_focus: focus,
+                projection_version: ProjectionVersion(1),
+                reducer_version: None,
+                allowed_intent_family: intent_family,
+                max_budget: OpticReadBudget {
+                    max_bytes: Some(4096),
+                    max_nodes: Some(64),
+                    max_ticks: Some(8),
+                    max_attachments: Some(0),
+                },
+            },
+            admission_law: AdmissionLawId::from_bytes([9; 32]),
+            payload: OpticIntentPayload::EintV1 { bytes },
+        };
+        let request_bytes = echo_wasm_abi::encode_cbor(&request).unwrap();
+
+        let err = dispatch_optic_intent_result(&request_bytes).unwrap_err();
 
         assert_eq!(err.code, kernel_port::error_codes::FORBIDDEN_CONTROL_INTENT);
     }

@@ -2544,12 +2544,24 @@ pub trait KernelPort {
 
         match &request.payload {
             OpticIntentPayload::EintV1 { bytes } => {
-                if let Err(error) = crate::unpack_intent_v1(bytes) {
-                    return Ok(optic_dispatch_obstruction(
-                        &request,
-                        OpticObstructionKind::UnsupportedIntentFamily,
-                        format!("optic dispatch EINT v1 payload is malformed: {error}"),
-                    ));
+                let (op_id, _) = match crate::unpack_intent_v1(bytes) {
+                    Ok(intent) => intent,
+                    Err(error) => {
+                        return Ok(optic_dispatch_obstruction(
+                            &request,
+                            OpticObstructionKind::UnsupportedIntentFamily,
+                            format!("optic dispatch EINT v1 payload is malformed: {error}"),
+                        ));
+                    }
+                };
+
+                if op_id == crate::CONTROL_INTENT_V1_OP_ID {
+                    return Err(AbiError {
+                        code: error_codes::FORBIDDEN_CONTROL_INTENT,
+                        message:
+                            "application optic dispatch cannot carry scheduler control intents"
+                                .into(),
+                    });
                 }
 
                 let dispatch = self.dispatch_intent(bytes)?;

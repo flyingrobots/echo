@@ -1382,6 +1382,118 @@ mod tests {
     }
 
     #[test]
+    fn test_kernel_port_dispatch_optic_intent_rejects_control_eint_v1() {
+        use crate::kernel_port::{
+            AdmissionLawId, ControlIntentV1, CoordinateAt, DispatchOpticIntentRequest,
+            DispatchResponse, EchoCoordinate, GlobalTick, IntentFamilyId, KernelPort, OpticActorId,
+            OpticCapability, OpticCapabilityId, OpticCause, OpticFocus, OpticId,
+            OpticIntentPayload, OpticReadBudget, ProjectionVersion, RunCompletion, RunId,
+            SchedulerMode, SchedulerState, SchedulerStatus, WorkState, WorldlineId,
+        };
+
+        struct PermissiveKernel;
+
+        impl KernelPort for PermissiveKernel {
+            fn dispatch_intent(
+                &mut self,
+                _intent_bytes: &[u8],
+            ) -> Result<DispatchResponse, kernel_port::AbiError> {
+                Ok(DispatchResponse {
+                    accepted: true,
+                    intent_id: vec![10; 32],
+                    scheduler_status: SchedulerStatus {
+                        state: SchedulerState::Inactive,
+                        active_mode: Some(SchedulerMode::UntilIdle {
+                            cycle_limit: Some(1),
+                        }),
+                        work_state: WorkState::Quiescent,
+                        run_id: Some(RunId(1)),
+                        latest_cycle_global_tick: Some(GlobalTick(1)),
+                        latest_commit_global_tick: Some(GlobalTick(1)),
+                        last_quiescent_global_tick: Some(GlobalTick(1)),
+                        last_run_completion: Some(RunCompletion::Quiesced),
+                    },
+                })
+            }
+
+            fn registry_info(&self) -> kernel_port::RegistryInfo {
+                kernel_port::RegistryInfo {
+                    codec_id: None,
+                    registry_version: None,
+                    schema_sha256_hex: None,
+                    abi_version: kernel_port::ABI_VERSION,
+                }
+            }
+
+            fn scheduler_status(&self) -> Result<SchedulerStatus, kernel_port::AbiError> {
+                Ok(SchedulerStatus {
+                    state: SchedulerState::Inactive,
+                    active_mode: None,
+                    work_state: WorkState::Quiescent,
+                    run_id: None,
+                    latest_cycle_global_tick: None,
+                    latest_commit_global_tick: None,
+                    last_quiescent_global_tick: None,
+                    last_run_completion: None,
+                })
+            }
+        }
+
+        let worldline_id = WorldlineId::from_bytes([3; 32]);
+        let focus = OpticFocus::Worldline { worldline_id };
+        let actor = OpticActorId::from_bytes([4; 32]);
+        let intent_family = IntentFamilyId::from_bytes([5; 32]);
+        let request = DispatchOpticIntentRequest {
+            optic_id: OpticId::from_bytes([1; 32]),
+            base_coordinate: EchoCoordinate::Worldline {
+                worldline_id,
+                at: CoordinateAt::Frontier,
+            },
+            intent_family,
+            focus: focus.clone(),
+            cause: OpticCause {
+                actor,
+                cause_hash: vec![6; 32],
+                label: Some("optic dispatch".into()),
+            },
+            capability: OpticCapability {
+                capability_id: OpticCapabilityId::from_bytes([7; 32]),
+                actor,
+                issuer_ref: None,
+                policy_hash: vec![8; 32],
+                allowed_focus: focus,
+                projection_version: ProjectionVersion(1),
+                reducer_version: None,
+                allowed_intent_family: intent_family,
+                max_budget: OpticReadBudget {
+                    max_bytes: Some(4096),
+                    max_nodes: Some(64),
+                    max_ticks: Some(8),
+                    max_attachments: Some(0),
+                },
+            },
+            admission_law: AdmissionLawId::from_bytes([9; 32]),
+            payload: OpticIntentPayload::EintV1 {
+                bytes: pack_control_intent_v1(&ControlIntentV1::Start {
+                    mode: SchedulerMode::UntilIdle {
+                        cycle_limit: Some(1),
+                    },
+                })
+                .unwrap(),
+            },
+        };
+
+        let error = PermissiveKernel
+            .dispatch_optic_intent(request)
+            .expect_err("control EINT must be rejected before dispatch_intent");
+
+        assert_eq!(
+            error.code,
+            kernel_port::error_codes::FORBIDDEN_CONTROL_INTENT
+        );
+    }
+
+    #[test]
     fn test_optic_open_close_models_round_trip() {
         use crate::kernel_port::{
             CapabilityPosture, CloseOpticRequest, CloseOpticResult, CoordinateAt, EchoCoordinate,

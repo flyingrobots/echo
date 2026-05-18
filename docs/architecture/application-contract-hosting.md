@@ -198,8 +198,9 @@ meaning belongs to the generated contract layer and the application.
 fn dispatch_intent(&mut self, intent_bytes: &[u8]) -> Result<DispatchResponse, AbiError>
 ```
 
-Implementations such as `WarpKernel` may handle reserved control intents inline
-before returning a `DispatchResponse`.
+Application dispatch rejects reserved control intents. Runtime owners use a
+separate trusted control path for scheduler lifecycle requests before returning
+control evidence.
 
 Its semantic boundary is still:
 

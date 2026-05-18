@@ -316,6 +316,8 @@ pub mod error_codes {
     pub const UNSUPPORTED_OBSERVATION_RIGHTS: u32 = 17;
     /// The requested observation exceeded its explicit read budget.
     pub const OBSERVATION_BUDGET_EXCEEDED: u32 = 18;
+    /// Application-facing intent ingress rejected a privileged control intent.
+    pub const FORBIDDEN_CONTROL_INTENT: u32 = 19;
 }
 
 // ---------------------------------------------------------------------------
@@ -499,7 +501,7 @@ pub struct WriterHeadKey {
     pub head_id: HeadId,
 }
 
-/// Privileged control intents routed through the same intent intake surface.
+/// Privileged control intents routed through trusted runtime control.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ControlIntentV1 {
@@ -2503,10 +2505,11 @@ fn coordinate_at_tick(at: &CoordinateAt) -> Option<u64> {
 /// WASM is single-threaded, so `KernelPort` does not require `Send` or `Sync`.
 /// Native test harnesses should use appropriate synchronization if needed.
 pub trait KernelPort {
-    /// Ingest a canonical intent envelope into the kernel inbox.
+    /// Ingest a canonical application intent envelope into the kernel inbox.
     ///
     /// The kernel content-addresses the intent and returns whether it was
-    /// newly accepted or a duplicate.
+    /// newly accepted or a duplicate. This is application-facing ingress and
+    /// must not accept [`ControlIntentV1`] envelopes.
     fn dispatch_intent(&mut self, intent_bytes: &[u8]) -> Result<DispatchResponse, AbiError>;
 
     /// Returns the current coordinate for an optic focus when the implementation
@@ -2655,7 +2658,20 @@ pub trait KernelPort {
     ///
     /// This call is side-effect free. Implementations may report a run that has
     /// already completed by the time the host polls here; for example, a
-    /// synchronous `Start` can return from `dispatch_intent(...)` with
+    /// synchronous `Start` can return from trusted runtime control with
     /// `state = Inactive` and `last_run_completion` populated immediately.
     fn scheduler_status(&self) -> Result<SchedulerStatus, AbiError>;
+}
+
+/// Privileged scheduler/runtime control boundary for trusted runtime owners.
+///
+/// Application-facing adapters should accept only [`KernelPort`] when they need
+/// intent ingress, observation, status, or registry metadata. Host/runtime
+/// owners that control scheduler lifecycle may require this separate trait.
+pub trait TrustedKernelControlPort: KernelPort {
+    /// Execute a privileged scheduler/runtime control intent.
+    fn dispatch_control_intent_trusted(
+        &mut self,
+        intent: ControlIntentV1,
+    ) -> Result<DispatchResponse, AbiError>;
 }

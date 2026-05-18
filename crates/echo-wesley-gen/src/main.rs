@@ -23,6 +23,7 @@ use ir::{OpKind, TypeKind, WesleyIR};
 const ECHO_IR_VERSION: &str = "echo-ir/v1";
 const DEFAULT_CODEC_ID: &str = "cbor-canon-v1";
 const DEFAULT_REGISTRY_VERSION: u32 = 1;
+const RESERVED_CONTROL_OP_ID: u32 = u32::MAX;
 const WESLEY_CORE_VERSION: &str = "0.0.4";
 
 #[derive(Parser)]
@@ -88,6 +89,14 @@ fn echo_ir_from_schema_sdl(schema_sdl: &str) -> Result<WesleyIR> {
         if op_id == 0 {
             bail!(
                 "generated operation id collision sentinel for {:?} `{}`; \
+                 add explicit operation ids upstream before generating Echo artifacts",
+                operation.operation_type,
+                operation.field_name
+            );
+        }
+        if op_id == RESERVED_CONTROL_OP_ID {
+            bail!(
+                "generated operation id for {:?} `{}` uses Echo's reserved control op id; \
                  add explicit operation ids upstream before generating Echo artifacts",
                 operation.operation_type,
                 operation.field_name
@@ -211,6 +220,7 @@ fn fnv1a_step(hash: u32, byte: u8) -> u32 {
 }
 
 fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
+    validate_operation_ids(ir)?;
     validate_generated_item_names(ir)?;
 
     let mut tokens = quote! {
@@ -824,6 +834,20 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
 
     let syntax_tree = syn::parse2(tokens)?;
     Ok(prettyplease::unparse(&syntax_tree))
+}
+
+fn validate_operation_ids(ir: &WesleyIR) -> Result<()> {
+    for op in &ir.ops {
+        if op.op_id == RESERVED_CONTROL_OP_ID {
+            bail!(
+                "operation `{}` uses Echo's reserved control op id {RESERVED_CONTROL_OP_ID}; \
+                 application contracts must not generate scheduler control intents",
+                op.name
+            );
+        }
+    }
+
+    Ok(())
 }
 
 fn op_const_ident(name: &str, op_id: u32) -> proc_macro2::Ident {

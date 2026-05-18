@@ -32,11 +32,12 @@ use echo_wasm_abi::kernel_port::{
     RetainedReadingKey as AbiRetainedReadingKey, RunCompletion, RunId as AbiRunId, SchedulerMode,
     SchedulerState, SchedulerStatus, SettlementDelta as AbiSettlementDelta,
     SettlementPlan as AbiSettlementPlan, SettlementRequest as AbiSettlementRequest,
-    SettlementResult as AbiSettlementResult, WorkState, WorldlineId as AbiWorldlineId,
-    WorldlineTick as AbiWorldlineTick, WriterHeadKey as AbiWriterHeadKey, ABI_VERSION,
+    SettlementResult as AbiSettlementResult, TrustedKernelControlPort, WorkState,
+    WorldlineId as AbiWorldlineId, WorldlineTick as AbiWorldlineTick,
+    WriterHeadKey as AbiWriterHeadKey, ABI_VERSION,
 };
 use echo_wasm_abi::{
-    unpack_control_intent_v1, unpack_import_suffix_intent_v1, unpack_intent_v1,
+    pack_control_intent_v1, unpack_import_suffix_intent_v1, unpack_intent_v1,
     CONTROL_INTENT_V1_OP_ID, IMPORT_SUFFIX_INTENT_V1_OP_ID,
 };
 use warp_core::{
@@ -1043,40 +1044,22 @@ impl KernelPort for WarpKernel {
             ),
         })?;
 
-        let intent_id = if op_id == CONTROL_INTENT_V1_OP_ID {
-            IngressEnvelope::local_intent(
-                IngressTarget::DefaultWriter {
-                    worldline_id: self.default_worldline,
-                },
-                make_intent_kind("echo.control/eint-v1"),
-                intent_bytes.to_vec(),
-            )
-            .ingress_id()
-            .to_vec()
-        } else {
-            IngressEnvelope::local_intent(
-                IngressTarget::DefaultWriter {
-                    worldline_id: self.default_worldline,
-                },
-                make_intent_kind("echo.intent/eint-v1"),
-                intent_bytes.to_vec(),
-            )
-            .ingress_id()
-            .to_vec()
-        };
-
         if op_id == CONTROL_INTENT_V1_OP_ID {
-            let control = unpack_control_intent_v1(intent_bytes).map_err(|_| AbiError {
-                code: error_codes::INVALID_CONTROL,
-                message: "invalid control intent envelope".into(),
-            })?;
-            self.apply_control_intent(control)?;
-            return Ok(DispatchResponse {
-                accepted: true,
-                intent_id,
-                scheduler_status: self.scheduler_status()?,
+            return Err(AbiError {
+                code: error_codes::FORBIDDEN_CONTROL_INTENT,
+                message: "application dispatch cannot carry scheduler control intents".into(),
             });
         }
+
+        let intent_id = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter {
+                worldline_id: self.default_worldline,
+            },
+            make_intent_kind("echo.intent/eint-v1"),
+            intent_bytes.to_vec(),
+        )
+        .ingress_id()
+        .to_vec();
 
         if op_id == IMPORT_SUFFIX_INTENT_V1_OP_ID {
             unpack_import_suffix_intent_v1(intent_bytes).map_err(|_| AbiError {
@@ -1229,6 +1212,34 @@ impl KernelPort for WarpKernel {
     }
 }
 
+impl TrustedKernelControlPort for WarpKernel {
+    fn dispatch_control_intent_trusted(
+        &mut self,
+        control: ControlIntentV1,
+    ) -> Result<DispatchResponse, AbiError> {
+        let intent_bytes = pack_control_intent_v1(&control).map_err(|error| AbiError {
+            code: error_codes::CODEC_ERROR,
+            message: format!("failed to pack trusted control intent: {error}"),
+        })?;
+        let intent_id = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter {
+                worldline_id: self.default_worldline,
+            },
+            make_intent_kind("echo.control/eint-v1"),
+            intent_bytes,
+        )
+        .ingress_id()
+        .to_vec();
+
+        self.apply_control_intent(control)?;
+        Ok(DispatchResponse {
+            accepted: true,
+            intent_id,
+            scheduler_status: self.scheduler_status()?,
+        })
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
@@ -1261,7 +1272,7 @@ mod tests {
             WriterHeadKey as AbiWriterHeadKey,
         },
         pack_control_intent_v1, pack_import_suffix_intent_v1, pack_intent_v1,
-        IMPORT_SUFFIX_INTENT_V1_OP_ID,
+        CONTROL_INTENT_V1_OP_ID, IMPORT_SUFFIX_INTENT_V1_OP_ID,
     };
     use warp_core::{
         compute_commit_hash_v2, make_edge_id, make_head_id, make_node_id, make_strand_id,
@@ -1290,11 +1301,9 @@ mod tests {
         kernel: &mut WarpKernel,
         cycle_limit: Option<u32>,
     ) -> Result<DispatchResponse, AbiError> {
-        let control = pack_control_intent_v1(&ControlIntentV1::Start {
+        kernel.dispatch_control_intent_trusted(ControlIntentV1::Start {
             mode: SchedulerMode::UntilIdle { cycle_limit },
         })
-        .unwrap();
-        kernel.dispatch_intent(&control)
     }
 
     fn abi_worldline_id(worldline_id: WorldlineId) -> AbiWorldlineId {
@@ -1986,8 +1995,9 @@ mod tests {
         let status_before = kernel.scheduler_status().unwrap();
         assert_eq!(status_before.state, SchedulerState::Inactive);
 
-        let stop = pack_control_intent_v1(&ControlIntentV1::Stop).unwrap();
-        let stop_response = kernel.dispatch_intent(&stop).unwrap();
+        let stop_response = kernel
+            .dispatch_control_intent_trusted(ControlIntentV1::Stop)
+            .unwrap();
 
         assert_eq!(
             stop_response.scheduler_status.state,
@@ -2033,18 +2043,56 @@ mod tests {
     #[test]
     fn set_head_eligibility_rejects_unknown_head_as_invalid_control() {
         let mut kernel = WarpKernel::new().unwrap();
-        let control = pack_control_intent_v1(&ControlIntentV1::SetHeadEligibility {
-            head: AbiWriterHeadKey {
-                worldline_id: abi_worldline_id(kernel.default_worldline),
-                head_id: abi_head_id(make_head_id("missing")),
+        let error = kernel
+            .dispatch_control_intent_trusted(ControlIntentV1::SetHeadEligibility {
+                head: AbiWriterHeadKey {
+                    worldline_id: abi_worldline_id(kernel.default_worldline),
+                    head_id: abi_head_id(make_head_id("missing")),
+                },
+                eligibility: AbiHeadEligibility::Dormant,
+            })
+            .unwrap_err();
+        assert_eq!(error.code, error_codes::INVALID_CONTROL);
+        assert!(error.message.contains("unknown writer head"));
+    }
+
+    #[test]
+    fn unprivileged_application_dispatch_rejects_control_intent_start() {
+        let mut kernel = WarpKernel::new().unwrap();
+        let control = pack_control_intent_v1(&ControlIntentV1::Start {
+            mode: SchedulerMode::UntilIdle {
+                cycle_limit: Some(1),
             },
-            eligibility: AbiHeadEligibility::Dormant,
         })
         .unwrap();
 
         let error = kernel.dispatch_intent(&control).unwrap_err();
-        assert_eq!(error.code, error_codes::INVALID_CONTROL);
-        assert!(error.message.contains("unknown writer head"));
+
+        assert_eq!(error.code, error_codes::FORBIDDEN_CONTROL_INTENT);
+        assert_eq!(
+            kernel.current_head().unwrap().worldline_tick,
+            AbiWorldlineTick(0)
+        );
+        let status = kernel.scheduler_status().unwrap();
+        assert_eq!(status.latest_cycle_global_tick, None);
+        assert_eq!(status.last_run_completion, None);
+    }
+
+    #[test]
+    fn unprivileged_application_dispatch_rejects_hand_built_control_op_id() {
+        let mut kernel = WarpKernel::new().unwrap();
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"EINT");
+        bytes.extend_from_slice(&CONTROL_INTENT_V1_OP_ID.to_le_bytes());
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+
+        let error = kernel.dispatch_intent(&bytes).unwrap_err();
+
+        assert_eq!(error.code, error_codes::FORBIDDEN_CONTROL_INTENT);
+        assert_eq!(
+            kernel.current_head().unwrap().worldline_tick,
+            AbiWorldlineTick(0)
+        );
     }
 
     #[test]
@@ -2054,6 +2102,12 @@ mod tests {
         let resp = kernel.dispatch_intent(&intent).unwrap();
         assert!(resp.accepted);
         assert_eq!(resp.intent_id.len(), 32);
+        assert_eq!(
+            kernel.current_head().unwrap().worldline_tick,
+            AbiWorldlineTick(0)
+        );
+        assert_eq!(resp.scheduler_status.latest_cycle_global_tick, None);
+        assert_eq!(resp.scheduler_status.work_state, WorkState::RunnablePending);
     }
 
     #[test]
@@ -2520,15 +2574,15 @@ mod tests {
         let intent = pack_intent_v1(7, b"blocked").unwrap();
         kernel.dispatch_intent(&intent).unwrap();
 
-        let dormancy = pack_control_intent_v1(&ControlIntentV1::SetHeadEligibility {
-            head: AbiWriterHeadKey {
-                worldline_id: abi_worldline_id(kernel.default_worldline),
-                head_id: abi_head_id(make_head_id("default")),
-            },
-            eligibility: AbiHeadEligibility::Dormant,
-        })
-        .unwrap();
-        kernel.dispatch_intent(&dormancy).unwrap();
+        kernel
+            .dispatch_control_intent_trusted(ControlIntentV1::SetHeadEligibility {
+                head: AbiWriterHeadKey {
+                    worldline_id: abi_worldline_id(kernel.default_worldline),
+                    head_id: abi_head_id(make_head_id("default")),
+                },
+                eligibility: AbiHeadEligibility::Dormant,
+            })
+            .unwrap();
 
         let response = start_until_idle(&mut kernel, None);
         assert_eq!(

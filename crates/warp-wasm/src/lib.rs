@@ -33,6 +33,7 @@ use echo_wasm_abi::kernel_port::{
     self, AbiError, DispatchOpticIntentRequest, ErrEnvelope, KernelPort, ObservationRequest,
     ObserveOpticRequest, OkEnvelope, SettlementRequest,
 };
+use echo_wasm_abi::{unpack_intent_v1, CONTROL_INTENT_V1_OP_ID};
 
 use std::cell::RefCell;
 
@@ -65,7 +66,9 @@ pub fn install_kernel(kernel: Box<dyn KernelPort>) {
 /// keeps generated-contract smoke tests off `js_sys::Uint8Array` while
 /// exercising the same installed-kernel envelope contract.
 pub fn dispatch_intent_cbor(intent_bytes: &[u8]) -> Vec<u8> {
-    encode_result_bytes(with_kernel(|k| k.dispatch_intent(intent_bytes)))
+    encode_result_bytes(with_kernel(|k| {
+        dispatch_application_intent(k, intent_bytes)
+    }))
 }
 
 /// Observe through the installed kernel and return a CBOR success/error
@@ -133,6 +136,33 @@ where
         })?;
         f(kernel.as_ref())
     })
+}
+
+fn validate_application_intent_bytes(intent_bytes: &[u8]) -> Result<(), AbiError> {
+    let (op_id, _) = unpack_intent_v1(intent_bytes).map_err(|error| AbiError {
+        code: kernel_port::error_codes::INVALID_INTENT,
+        message: format!(
+            "malformed EINT envelope ({} bytes): {error}",
+            intent_bytes.len()
+        ),
+    })?;
+
+    if op_id == CONTROL_INTENT_V1_OP_ID {
+        return Err(AbiError {
+            code: kernel_port::error_codes::FORBIDDEN_CONTROL_INTENT,
+            message: "application dispatch cannot carry scheduler control intents".into(),
+        });
+    }
+
+    Ok(())
+}
+
+fn dispatch_application_intent(
+    kernel: &mut dyn KernelPort,
+    intent_bytes: &[u8],
+) -> Result<kernel_port::DispatchResponse, AbiError> {
+    validate_application_intent_bytes(intent_bytes)?;
+    kernel.dispatch_intent(intent_bytes)
 }
 
 // ---------------------------------------------------------------------------
@@ -295,7 +325,9 @@ pub fn init() -> Uint8Array {
 /// on success, or an error envelope.
 #[wasm_bindgen]
 pub fn dispatch_intent(intent_bytes: &[u8]) -> Uint8Array {
-    encode_result(with_kernel(|k| k.dispatch_intent(intent_bytes)))
+    encode_result(with_kernel(|k| {
+        dispatch_application_intent(k, intent_bytes)
+    }))
 }
 
 /// Propose an intent through an explicit optic dispatch request.
@@ -697,7 +729,7 @@ mod init_tests {
     use super::*;
     use echo_wasm_abi::kernel_port::{
         AdmissionOutcomeKind, BaseRef, BuiltinObserverPlan, ConflictArtifactDraft, ConflictReason,
-        DispatchResponse, GlobalTick, HeadInfo, HeadObservation, NeighborhoodCore,
+        ControlIntentV1, DispatchResponse, GlobalTick, HeadInfo, HeadObservation, NeighborhoodCore,
         NeighborhoodParticipant, NeighborhoodParticipantRole, NeighborhoodPlurality,
         NeighborhoodSite, NeighborhoodSiteId, ObservationArtifact, ObservationAt,
         ObservationBasisPosture, ObservationFrame, ObservationPayload, ObservationProjection,
@@ -973,6 +1005,38 @@ mod init_tests {
             unreachable!("registry_info should fail after clear_kernel");
         };
         assert_eq!(err.code, kernel_port::error_codes::NOT_INITIALIZED);
+    }
+
+    #[test]
+    fn public_dispatch_rejects_packed_control_intent_start() {
+        clear_kernel();
+        install_kernel(Box::new(StubKernel));
+        let control = echo_wasm_abi::pack_control_intent_v1(&ControlIntentV1::Start {
+            mode: SchedulerMode::UntilIdle {
+                cycle_limit: Some(1),
+            },
+        })
+        .unwrap();
+
+        let response = dispatch_intent_cbor(&control);
+        let err: ErrEnvelope = echo_wasm_abi::decode_cbor(&response).unwrap();
+
+        assert_eq!(err.code, kernel_port::error_codes::FORBIDDEN_CONTROL_INTENT);
+    }
+
+    #[test]
+    fn public_dispatch_rejects_hand_built_reserved_control_op_id() {
+        clear_kernel();
+        install_kernel(Box::new(StubKernel));
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"EINT");
+        bytes.extend_from_slice(&CONTROL_INTENT_V1_OP_ID.to_le_bytes());
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+
+        let response = dispatch_intent_cbor(&bytes);
+        let err: ErrEnvelope = echo_wasm_abi::decode_cbor(&response).unwrap();
+
+        assert_eq!(err.code, kernel_port::error_codes::FORBIDDEN_CONTROL_INTENT);
     }
 
     #[test]

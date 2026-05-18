@@ -944,6 +944,42 @@ fn assert_generated_crate_checks(crate_dir: &Path) {
 }
 
 #[test]
+fn test_reserved_control_op_id_fails_closed() {
+    let ir = r#"{
+        "ir_version": "echo-ir/v1",
+        "schema_sha256": "abc123",
+        "codec_id": "cbor-canon-v1",
+        "registry_version": 1,
+        "types": [
+            { "name": "RunStatus", "kind": "OBJECT", "fields": [
+                { "name": "accepted", "type": "Boolean", "required": true }
+            ] }
+        ],
+        "ops": [
+            {
+                "kind": "MUTATION",
+                "name": "startScheduler",
+                "op_id": 4294967295,
+                "args": [],
+                "result_type": "RunStatus"
+            }
+        ]
+    }"#;
+
+    let output = run_wesley_gen(ir);
+    assert!(
+        !output.status.success(),
+        "reserved control op id must fail closed"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("reserved control op id"),
+        "stderr did not explain reserved control id: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn test_generated_optic_helper_shape_compiles_against_abi() {
     let crate_dir = write_optic_binding_smoke_crate();
     let output = Command::new("cargo")

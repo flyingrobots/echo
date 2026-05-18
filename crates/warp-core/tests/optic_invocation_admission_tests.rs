@@ -1059,9 +1059,9 @@ fn resolved_budget_still_requires_echo_owned_runtime_support() -> Result<(), Str
 #[test]
 fn runtime_support_is_checked_only_after_budget_resolution() -> Result<(), String> {
     let (mut registry, handle) = fixture_registry_and_handle()?;
-    registry.record_runtime_support_v0_fixture_for_requirements(
-        "requirements-digest:stack-witness-0001",
-    );
+    registry
+        .record_runtime_support_v0_fixture_for_artifact(&handle)
+        .map_err(|err| format!("registered handle should record runtime support: {err:?}"))?;
     let mut gate = fixture_gate_with_grant(fixture_grant("grant:covered"));
 
     let mut unsupported_basis =
@@ -1126,9 +1126,9 @@ fn runtime_support_v0_resolves_only_echo_owned_fixture() -> Result<(), String> {
         OpticInvocationObstruction::RuntimeSupportUnavailable
     );
 
-    registry.record_runtime_support_v0_fixture_for_requirements(
-        "requirements-digest:stack-witness-0001",
-    );
+    registry
+        .record_runtime_support_v0_fixture_for_artifact(&invocation.artifact_handle)
+        .map_err(|err| format!("registered handle should record runtime support: {err:?}"))?;
     let outcome = registry.admit_optic_invocation_with_capability_validator(&invocation, &mut gate);
     assert_eq!(
         obstruction_for(&outcome),
@@ -1157,9 +1157,9 @@ fn caller_cannot_supply_runtime_support_testimony() -> Result<(), String> {
         OpticInvocationObstruction::RuntimeSupportUnavailable
     );
 
-    registry.record_runtime_support_v0_fixture_for_requirements(
-        "requirements-digest:stack-witness-0001",
-    );
+    registry
+        .record_runtime_support_v0_fixture_for_artifact(&invocation.artifact_handle)
+        .map_err(|err| format!("registered handle should record runtime support: {err:?}"))?;
     let outcome = registry.admit_optic_invocation_with_capability_validator(&invocation, &mut gate);
     assert_eq!(
         obstruction_for(&outcome),
@@ -1171,9 +1171,9 @@ fn caller_cannot_supply_runtime_support_testimony() -> Result<(), String> {
 #[test]
 fn resolved_runtime_support_still_does_not_admit_invocation() -> Result<(), String> {
     let (mut registry, handle) = fixture_registry_and_handle()?;
-    registry.record_runtime_support_v0_fixture_for_requirements(
-        "requirements-digest:stack-witness-0001",
-    );
+    registry
+        .record_runtime_support_v0_fixture_for_artifact(&handle)
+        .map_err(|err| format!("registered handle should record runtime support: {err:?}"))?;
     let invocation = fixture_invocation_with_resolved_basis_aperture_budget_and_presentation(
         handle,
         "grant:covered",

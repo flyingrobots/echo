@@ -4,8 +4,8 @@
 
 use warp_core::{
     ArtifactRegistrationObstructionKind, GraphFact, OpticAdmissionRequirements, OpticArtifact,
-    OpticArtifactOperation, OpticArtifactRegistrationError, OpticArtifactRegistry,
-    OpticRegistrationDescriptor, ARTIFACT_REGISTRATION_RECEIPT_KIND,
+    OpticArtifactHandle, OpticArtifactOperation, OpticArtifactRegistrationError,
+    OpticArtifactRegistry, OpticRegistrationDescriptor, ARTIFACT_REGISTRATION_RECEIPT_KIND,
 };
 
 fn fixture_artifact() -> OpticArtifact {
@@ -116,13 +116,13 @@ fn artifact_registration_obstruction_publishes_graph_fact_without_receipt() -> R
 fn runtime_support_v0_fixture_publishes_graph_fact_without_registration_receipt(
 ) -> Result<(), String> {
     let mut registry = OpticArtifactRegistry::new();
-    registry
+    let handle = registry
         .register_optic_artifact(fixture_artifact(), fixture_descriptor())
         .map_err(|err| format!("fixture descriptor should register: {err:?}"))?;
 
-    registry.record_runtime_support_v0_fixture_for_requirements(
-        "requirements-digest:stack-witness-0001",
-    );
+    registry
+        .record_runtime_support_v0_fixture_for_artifact(&handle)
+        .map_err(|err| format!("registered handle should record runtime support: {err:?}"))?;
 
     assert_eq!(registry.published_graph_facts().len(), 2);
     assert_eq!(registry.artifact_registration_receipts().len(), 1);
@@ -136,6 +136,31 @@ fn runtime_support_v0_fixture_publishes_graph_fact_without_registration_receipt(
         } if requirements_digest == "requirements-digest:stack-witness-0001"
             && *support_digest != [0_u8; 32]
     ));
+    Ok(())
+}
+
+#[test]
+fn runtime_support_v0_fixture_rejects_unknown_handle_without_graph_fact() -> Result<(), String> {
+    let mut registry = OpticArtifactRegistry::new();
+    registry
+        .register_optic_artifact(fixture_artifact(), fixture_descriptor())
+        .map_err(|err| format!("fixture descriptor should register: {err:?}"))?;
+    let unknown_handle = OpticArtifactHandle {
+        kind: "optic-artifact-handle".to_owned(),
+        id: "unregistered-handle".to_owned(),
+    };
+
+    let err = registration_err_or_panic(
+        registry.record_runtime_support_v0_fixture_for_artifact(&unknown_handle),
+        "unknown artifact handle should reject runtime support recording",
+    )?;
+
+    assert!(matches!(err, OpticArtifactRegistrationError::UnknownHandle));
+    assert_eq!(registry.published_graph_facts().len(), 1);
+    assert!(!registry
+        .published_graph_facts()
+        .iter()
+        .any(|published| matches!(published.fact, GraphFact::RuntimeSupportRecorded { .. })));
     Ok(())
 }
 

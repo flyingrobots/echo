@@ -1095,16 +1095,32 @@ impl OpticArtifactRegistry {
     }
 
     /// Records Echo-owned RuntimeSupport v0 fixture evidence for a registered
-    /// requirements digest.
+    /// artifact's requirements digest.
     ///
     /// This is runtime context, not invocation context. Callers cannot provide
     /// a support request through [`OpticInvocation`]; the admission ladder only
     /// consults facts recorded on this registry.
-    pub fn record_runtime_support_v0_fixture_for_requirements(
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OpticArtifactRegistrationError::UnknownHandle`] if Echo did not
+    /// issue the handle in this registry instance.
+    pub fn record_runtime_support_v0_fixture_for_artifact(
         &mut self,
-        requirements_digest: impl Into<String>,
+        handle: &OpticArtifactHandle,
+    ) -> Result<(), OpticArtifactRegistrationError> {
+        let requirements_digest = self
+            .resolve_optic_artifact_handle(handle)?
+            .requirements_digest
+            .clone();
+        self.record_runtime_support_v0_fixture_for_requirements_digest(requirements_digest);
+        Ok(())
+    }
+
+    fn record_runtime_support_v0_fixture_for_requirements_digest(
+        &mut self,
+        requirements_digest: String,
     ) {
-        let requirements_digest = requirements_digest.into();
         let support_digest = runtime_support_v0_fixture_digest();
         self.runtime_support_v0_by_requirements
             .insert(requirements_digest.clone(), support_digest);

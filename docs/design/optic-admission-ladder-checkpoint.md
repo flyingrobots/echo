@@ -48,10 +48,11 @@ The current optic invocation admission path evaluates checks in this order:
 
 Presence checks come before resolution checks. Basis resolution gates aperture
 resolution. Aperture resolution gates budget evaluation and runtime support
-checks. BasisResolution v0 accepts exactly one deterministic fixture shape:
-`basis-request:resolved-fixture:v0`.
-The current resolved fixture shapes are:
-`aperture-request:resolved-fixture:v0`.
+checks. The current resolved fixture shapes are:
+
+- BasisResolution v0: `basis-request:resolved-fixture:v0`
+- ApertureResolution v0: `aperture-request:resolved-fixture:v0`
+- BudgetResolution v0: `budget-request:resolved-fixture:v0`
 
 ## Obstruction reachability
 
@@ -121,9 +122,7 @@ ApertureResolution v0 is not general aperture resolution. It recognizes exactly
 one deterministic fixture shape:
 
 ```text
-basis-request:resolved-fixture:v0
 aperture-request:resolved-fixture:v0
-budget-request:resolved-fixture:v0
 ```
 
 Resolving that fixture establishes only the bounded observation/action window

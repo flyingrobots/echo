@@ -71,8 +71,9 @@ The current resolved fixture shapes are:
 | `UnsupportedBudgetResolution`     | Reachable today | ApertureResolution v0 succeeded, but the budget shape is outside BudgetResolution v0.                    |
 | `RuntimeSupportUnavailable`       | Reachable today | BudgetResolution v0 succeeded, but runtime support evaluation does not exist yet.                        |
 
-`RuntimeSupportUnavailable` is deliberately defined but not lawfully reachable
-at this checkpoint.
+`RuntimeSupportUnavailable` is lawfully reachable after BasisResolution v0,
+ApertureResolution v0, and BudgetResolution v0 all resolve. It is the current
+terminal refusal before runtime support evaluation exists.
 
 `UnsupportedApertureResolution` is reachable only after the exact
 BasisResolution v0 fixture resolves. For identity-covered material, unsupported

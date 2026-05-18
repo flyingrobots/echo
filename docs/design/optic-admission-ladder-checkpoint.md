@@ -3,13 +3,14 @@
 
 # Optic Admission Ladder Checkpoint
 
-Status: BudgetResolution v0 boundary checkpoint.
-Scope: refusal ladder with narrow controlled basis, aperture, and budget fixtures.
+Status: RuntimeSupport v0 boundary checkpoint.
+Scope: refusal ladder with narrow controlled basis, aperture, budget, and
+runtime-support fixtures.
 
 ## Doctrine
 
 This checkpoint records the optic invocation admission ladder at the first
-controlled aperture-resolution boundary.
+controlled runtime-support boundary.
 
 Echo can now explain why an optic invocation is refused, but it cannot yet admit
 one. There is no successful admission path in this checkpoint.
@@ -22,7 +23,9 @@ the narrow deterministic ApertureResolution v0 fixture after basis resolution.
 Budget resolution exists only for the narrow deterministic BudgetResolution v0
 fixture after aperture resolution.
 A resolved aperture is not permission to act. A budget request is not spendable
-runtime capacity.
+runtime capacity. Runtime support is Echo-owned context recorded by the
+registry; it is not caller-provided testimony. Resolved runtime support is not
+permission to act.
 
 Refusal is causal evidence. Refusal is not admission, not execution, not a law
 witness, and not a counterfactual candidate.
@@ -43,16 +46,25 @@ The current optic invocation admission path evaluates checks in this order:
    narrow BasisResolution v0 fixture or obstruct unsupported basis material.
 10. If that basis fixture resolves, resolve the narrow ApertureResolution v0
     fixture or obstruct unsupported aperture material.
-11. If that aperture fixture resolves, obstruct before budget resolution.
-12. Publish the invocation obstruction fact.
+11. If that aperture fixture resolves, resolve the narrow BudgetResolution v0
+    fixture or obstruct unsupported budget material.
+12. If that budget fixture resolves, check Echo-owned RuntimeSupport v0 facts
+    for the registered requirements or obstruct at `RuntimeSupportUnavailable`.
+13. If RuntimeSupport v0 resolves, obstruct at
+    `InvocationAdmissionUnavailable`.
+14. Publish the invocation obstruction fact.
 
 Presence checks come before resolution checks. Basis resolution gates aperture
 resolution. Aperture resolution gates budget evaluation and runtime support
-checks. The current resolved fixture shapes are:
+checks. The current invocation request fixture shapes are:
 
 - BasisResolution v0: `basis-request:resolved-fixture:v0`
 - ApertureResolution v0: `aperture-request:resolved-fixture:v0`
 - BudgetResolution v0: `budget-request:resolved-fixture:v0`
+
+The current Echo-owned runtime support fixture is
+`runtime-support:resolved-fixture:v0`. It is recorded by the runtime registry
+for registered requirements; it is not carried by `OpticInvocation`.
 
 ## Obstruction reachability
 
@@ -70,11 +82,16 @@ checks. The current resolved fixture shapes are:
 | `UnsupportedBasisResolution`      | Reachable today | Identity-covered material reaches the basis boundary, but the basis shape is outside BasisResolution v0. |
 | `UnsupportedApertureResolution`   | Reachable today | BasisResolution v0 succeeded, but the aperture shape is outside ApertureResolution v0.                   |
 | `UnsupportedBudgetResolution`     | Reachable today | ApertureResolution v0 succeeded, but the budget shape is outside BudgetResolution v0.                    |
-| `RuntimeSupportUnavailable`       | Reachable today | BudgetResolution v0 succeeded, but runtime support evaluation does not exist yet.                        |
+| `RuntimeSupportUnavailable`       | Reachable today | BudgetResolution v0 succeeded, but Echo has no runtime support fact for the registered requirements.     |
+| `InvocationAdmissionUnavailable`  | Reachable today | RuntimeSupport v0 succeeded, but invocation admission does not exist yet.                                |
 
 `RuntimeSupportUnavailable` is lawfully reachable after BasisResolution v0,
-ApertureResolution v0, and BudgetResolution v0 all resolve. It is the current
-terminal refusal before runtime support evaluation exists.
+ApertureResolution v0, and BudgetResolution v0 all resolve when Echo has no
+runtime-owned support fact for the registered requirements.
+
+`InvocationAdmissionUnavailable` is lawfully reachable after RuntimeSupport v0
+resolves. It is the current terminal refusal after Echo proves support but
+before successful invocation admission exists.
 
 `UnsupportedApertureResolution` is reachable only after the exact
 BasisResolution v0 fixture resolves. For identity-covered material, unsupported
@@ -97,7 +114,8 @@ This checkpoint does not introduce:
 - WASM behavior
 - Continuum behavior
 - authority success
-- runtime support enforcement
+- caller-supplied runtime support testimony
+- general runtime support enforcement
 - budget reservation
 
 The system remains obstruction-first. It records refusal; it does not authorize
@@ -143,13 +161,27 @@ It does not create permission to act, reserve spendable capacity, validate a
 grant, or admit an invocation. The only lawful next refusal in this slice is
 `RuntimeSupportUnavailable`.
 
+## RuntimeSupport v0
+
+RuntimeSupport v0 is not general runtime support. It recognizes exactly one
+Echo-owned fixture for registered requirements:
+
+```text
+runtime-support:resolved-fixture:v0
+```
+
+Runtime support establishes only that Echo has recorded runtime-owned support
+evidence for the registered requirements digest. It is not an invocation
+request field, not caller testimony, not authority, not admission, not
+scheduler work, and not execution. If runtime support resolves, the only lawful
+next refusal in this slice is `InvocationAdmissionUnavailable`.
+
 ## Next transition point
 
-The next transition point is RuntimeSupport v0.
+The next transition point is InvocationAdmission v0.
 
 That transition must be narrow and explicit. It must not imply successful
-admission, budget spendability, runtime support, execution, or authority
-validation.
+execution, scheduler work, or unconstrained authority validation.
 
 ## Tripwire
 
@@ -160,4 +192,7 @@ If a future slice introduces a successful admission path before a resolved basis
 resolved aperture, evaluated budget, runtime support check, and validated grant
 exist, the admission ladder is wrong.
 
-BudgetResolution v0 is controlled resolved state, not admission.
+If a future slice makes `InvocationAdmissionUnavailable` reachable before a
+lawful Echo-owned runtime support fact exists, the admission ladder is wrong.
+
+RuntimeSupport v0 is controlled resolved runtime context, not admission.

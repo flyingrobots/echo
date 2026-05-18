@@ -7,6 +7,15 @@
 
 ### Added
 
+- `warp-core` optic invocation admission now has a narrow RuntimeSupport v0
+  boundary. After BasisResolution v0, ApertureResolution v0, and
+  BudgetResolution v0 all resolve, Echo checks runtime-owned support facts for
+  the registered requirements digest. Without that Echo-owned support fact,
+  admission still obstructs at `RuntimeSupportUnavailable`; with the exact
+  `runtime-support:resolved-fixture:v0` support fixture, the ladder advances to
+  `InvocationAdmissionUnavailable`. This does not add caller-supplied runtime
+  support testimony, admission tickets, law witnesses, scheduler work,
+  execution, budget reservation, or successful grant validation.
 - `dispatch_optic_intent(...)` and the default `KernelPort` optic dispatch path
   now reject EINT payloads that use Echo's reserved scheduler/control op id,
   closing the remaining application-facing control-intent ingress path.

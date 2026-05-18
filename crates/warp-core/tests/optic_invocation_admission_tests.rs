@@ -791,8 +791,7 @@ fn budget_obstruction_fact_digest_is_deterministic() {
 }
 
 #[test]
-fn runtime_support_unavailable_is_defined_but_unreachable_until_basis_resolution_exists(
-) -> Result<(), String> {
+fn runtime_support_unavailable_is_unreachable_when_basis_resolution_fails() -> Result<(), String> {
     let (mut registry, handle) = fixture_registry_and_handle()?;
     let invocation = fixture_invocation_with_presentation(handle, "grant:covered");
     let mut gate = fixture_gate_with_grant(fixture_grant("grant:covered"));
@@ -1028,7 +1027,7 @@ fn budget_resolution_is_unreachable_when_aperture_resolution_fails() -> Result<(
 }
 
 #[test]
-fn resolved_budget_still_obstructs_before_runtime_support() -> Result<(), String> {
+fn resolved_budget_still_requires_echo_owned_runtime_support() -> Result<(), String> {
     let (mut registry, handle) = fixture_registry_and_handle()?;
     let invocation = fixture_invocation_with_resolved_basis_aperture_budget_and_presentation(
         handle,
@@ -1054,6 +1053,157 @@ fn resolved_budget_still_obstructs_before_runtime_support() -> Result<(), String
             )
             && *obstruction == InvocationObstructionKind::RuntimeSupportUnavailable
     ));
+    Ok(())
+}
+
+#[test]
+fn runtime_support_is_checked_only_after_budget_resolution() -> Result<(), String> {
+    let (mut registry, handle) = fixture_registry_and_handle()?;
+    registry.record_runtime_support_v0_fixture_for_requirements(
+        "requirements-digest:stack-witness-0001",
+    );
+    let mut gate = fixture_gate_with_grant(fixture_grant("grant:covered"));
+
+    let mut unsupported_basis =
+        fixture_invocation_with_resolved_basis_aperture_budget_and_presentation(
+            handle.clone(),
+            "grant:covered",
+        );
+    unsupported_basis.basis_request = OpticBasisRequest {
+        bytes: b"basis-request:unsupported".to_vec(),
+    };
+    let outcome =
+        registry.admit_optic_invocation_with_capability_validator(&unsupported_basis, &mut gate);
+    assert_eq!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::UnsupportedBasisResolution
+    );
+
+    let mut unsupported_aperture =
+        fixture_invocation_with_resolved_basis_aperture_budget_and_presentation(
+            handle.clone(),
+            "grant:covered",
+        );
+    unsupported_aperture.aperture_request = OpticApertureRequest {
+        bytes: b"aperture-request:unsupported".to_vec(),
+    };
+    let outcome =
+        registry.admit_optic_invocation_with_capability_validator(&unsupported_aperture, &mut gate);
+    assert_eq!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::UnsupportedApertureResolution
+    );
+
+    let mut unsupported_budget =
+        fixture_invocation_with_resolved_basis_aperture_budget_and_presentation(
+            handle,
+            "grant:covered",
+        );
+    unsupported_budget.budget_request = OpticBudgetRequest {
+        bytes: b"budget-request:unsupported".to_vec(),
+    };
+    let outcome =
+        registry.admit_optic_invocation_with_capability_validator(&unsupported_budget, &mut gate);
+    assert_eq!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::UnsupportedBudgetResolution
+    );
+    Ok(())
+}
+
+#[test]
+fn runtime_support_v0_resolves_only_echo_owned_fixture() -> Result<(), String> {
+    let (mut registry, handle) = fixture_registry_and_handle()?;
+    let invocation = fixture_invocation_with_resolved_basis_aperture_budget_and_presentation(
+        handle,
+        "grant:covered",
+    );
+    let mut gate = fixture_gate_with_grant(fixture_grant("grant:covered"));
+
+    let outcome = registry.admit_optic_invocation_with_capability_validator(&invocation, &mut gate);
+    assert_eq!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::RuntimeSupportUnavailable
+    );
+
+    registry.record_runtime_support_v0_fixture_for_requirements(
+        "requirements-digest:stack-witness-0001",
+    );
+    let outcome = registry.admit_optic_invocation_with_capability_validator(&invocation, &mut gate);
+    assert_eq!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::InvocationAdmissionUnavailable
+    );
+    Ok(())
+}
+
+#[test]
+fn caller_cannot_supply_runtime_support_testimony() -> Result<(), String> {
+    let (mut registry, handle) = fixture_registry_and_handle()?;
+    let mut invocation = fixture_invocation_with_resolved_basis_aperture_budget_and_presentation(
+        handle,
+        "grant:covered",
+    );
+    invocation.canonical_variables_digest = b"runtime-support:resolved-fixture:v0".to_vec();
+    invocation.capability_presentation = Some(OpticCapabilityPresentation {
+        presentation_id: "runtime-support:resolved-fixture:v0".to_owned(),
+        bound_grant_id: Some("grant:covered".to_owned()),
+    });
+    let mut gate = fixture_gate_with_grant(fixture_grant("grant:covered"));
+
+    let outcome = registry.admit_optic_invocation_with_capability_validator(&invocation, &mut gate);
+    assert_eq!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::RuntimeSupportUnavailable
+    );
+
+    registry.record_runtime_support_v0_fixture_for_requirements(
+        "requirements-digest:stack-witness-0001",
+    );
+    let outcome = registry.admit_optic_invocation_with_capability_validator(&invocation, &mut gate);
+    assert_eq!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::InvocationAdmissionUnavailable
+    );
+    Ok(())
+}
+
+#[test]
+fn resolved_runtime_support_still_does_not_admit_invocation() -> Result<(), String> {
+    let (mut registry, handle) = fixture_registry_and_handle()?;
+    registry.record_runtime_support_v0_fixture_for_requirements(
+        "requirements-digest:stack-witness-0001",
+    );
+    let invocation = fixture_invocation_with_resolved_basis_aperture_budget_and_presentation(
+        handle,
+        "grant:covered",
+    );
+    let mut gate = fixture_gate_with_grant(fixture_grant("grant:covered"));
+
+    let outcome = registry.admit_optic_invocation_with_capability_validator(&invocation, &mut gate);
+
+    assert!(matches!(
+        outcome,
+        OpticInvocationAdmissionOutcome::Obstructed(OpticAdmissionTicketPosture {
+            obstruction: OpticInvocationObstruction::InvocationAdmissionUnavailable,
+            ..
+        })
+    ));
+    assert!(matches!(
+        latest_invocation_obstruction_fact(&registry)?,
+        GraphFact::OpticInvocationObstructed {
+            obstruction,
+            ..
+        } if *obstruction == InvocationObstructionKind::InvocationAdmissionUnavailable
+    ));
+    assert!(registry.published_graph_facts().iter().all(|published| {
+        matches!(
+            published.fact,
+            GraphFact::ArtifactRegistered { .. }
+                | GraphFact::RuntimeSupportRecorded { .. }
+                | GraphFact::OpticInvocationObstructed { .. }
+        )
+    }));
     Ok(())
 }
 

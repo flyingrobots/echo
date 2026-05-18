@@ -599,6 +599,9 @@ pub struct OpticInvocation {
 const OPTIC_BASIS_RESOLUTION_V0_FIXTURE_BYTES: &[u8] = b"basis-request:resolved-fixture:v0";
 const OPTIC_APERTURE_RESOLUTION_V0_FIXTURE_BYTES: &[u8] = b"aperture-request:resolved-fixture:v0";
 const OPTIC_BUDGET_RESOLUTION_V0_FIXTURE_BYTES: &[u8] = b"budget-request:resolved-fixture:v0";
+const OPTIC_RUNTIME_SUPPORT_V0_FIXTURE_BYTES: &[u8] = b"runtime-support:resolved-fixture:v0";
+const OPTIC_RUNTIME_SUPPORT_V0_FIXTURE_DIGEST_DOMAIN: &[u8] =
+    b"echo.optic-runtime-support.fixture.v0";
 
 /// Admission obstruction for an optic invocation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -626,6 +629,9 @@ pub enum OpticInvocationObstruction {
     /// Echo cannot prove that this runtime supports the registered artifact
     /// requirements in this slice.
     RuntimeSupportUnavailable,
+    /// Echo proved runtime support, but this slice still cannot lawfully admit
+    /// the invocation.
+    InvocationAdmissionUnavailable,
     /// The invocation does not carry authority to use the registered artifact.
     MissingCapability,
     /// The invocation carries a presentation that is structurally unusable.
@@ -1021,11 +1027,19 @@ fn push_optional_receipt_field(bytes: &mut Vec<u8>, field: Option<&[u8]>) {
     }
 }
 
+fn runtime_support_v0_fixture_digest() -> [u8; 32] {
+    digest_invocation_request_bytes(
+        OPTIC_RUNTIME_SUPPORT_V0_FIXTURE_DIGEST_DOMAIN,
+        OPTIC_RUNTIME_SUPPORT_V0_FIXTURE_BYTES,
+    )
+}
+
 /// Echo-owned runtime-local registry for Wesley-compiled optic artifacts.
 #[derive(Clone, Debug, Default)]
 pub struct OpticArtifactRegistry {
     next_handle_index: u64,
     artifacts_by_handle: BTreeMap<String, RegisteredOpticArtifact>,
+    runtime_support_v0_by_requirements: BTreeMap<String, [u8; 32]>,
     published_graph_facts: Vec<PublishedGraphFact>,
     artifact_registration_receipts: Vec<ArtifactRegistrationReceipt>,
 }
@@ -1078,6 +1092,23 @@ impl OpticArtifactRegistry {
         );
 
         Ok(handle)
+    }
+
+    /// Records Echo-owned RuntimeSupport v0 fixture evidence for a registered
+    /// requirements digest.
+    ///
+    /// This is runtime context, not invocation context. Callers cannot provide
+    /// a support request through [`OpticInvocation`]; the admission ladder only
+    /// consults facts recorded on this registry.
+    pub fn record_runtime_support_v0_fixture_for_requirements(
+        &mut self,
+        requirements_digest: impl Into<String>,
+    ) {
+        let requirements_digest = requirements_digest.into();
+        let support_digest = runtime_support_v0_fixture_digest();
+        self.runtime_support_v0_by_requirements
+            .insert(requirements_digest.clone(), support_digest);
+        self.publish_runtime_support_recorded_fact(requirements_digest, support_digest);
     }
 
     /// Resolves an opaque Echo handle to registered artifact metadata.
@@ -1192,8 +1223,15 @@ impl OpticArtifactRegistry {
                     .unwrap_or_else(|| {
                         Self::resolve_aperture_v0(&invocation.aperture_request).unwrap_or_else(
                             || {
-                                Self::resolve_budget_v0(&invocation.budget_request).unwrap_or(
-                                    OpticInvocationObstruction::RuntimeSupportUnavailable,
+                                Self::resolve_budget_v0(&invocation.budget_request).unwrap_or_else(
+                                    || {
+                                        self.resolve_runtime_support_v0_for_requirements(
+                                            &registered.requirements_digest,
+                                        )
+                                        .unwrap_or(
+                                            OpticInvocationObstruction::InvocationAdmissionUnavailable,
+                                        )
+                                    },
                                 )
                             },
                         )
@@ -1240,6 +1278,24 @@ impl OpticArtifactRegistry {
         }
 
         Some(OpticInvocationObstruction::UnsupportedBudgetResolution)
+    }
+
+    fn resolve_runtime_support_v0_for_requirements(
+        &self,
+        requirements_digest: &str,
+    ) -> Option<OpticInvocationObstruction> {
+        let Some(support_digest) = self
+            .runtime_support_v0_by_requirements
+            .get(requirements_digest)
+        else {
+            return Some(OpticInvocationObstruction::RuntimeSupportUnavailable);
+        };
+
+        if *support_digest == runtime_support_v0_fixture_digest() {
+            return None;
+        }
+
+        Some(OpticInvocationObstruction::RuntimeSupportUnavailable)
     }
 
     fn classify_aperture_request(
@@ -1402,6 +1458,19 @@ impl OpticArtifactRegistry {
         }
     }
 
+    fn publish_runtime_support_recorded_fact(
+        &mut self,
+        requirements_digest: String,
+        support_digest: [u8; 32],
+    ) {
+        self.published_graph_facts.push(PublishedGraphFact::new(
+            GraphFact::RuntimeSupportRecorded {
+                requirements_digest,
+                support_digest,
+            },
+        ));
+    }
+
     fn publish_invocation_obstruction_fact(
         &mut self,
         invocation: &OpticInvocation,
@@ -1481,6 +1550,9 @@ fn invocation_obstruction_kind(
         }
         OpticInvocationObstruction::RuntimeSupportUnavailable => {
             InvocationObstructionKind::RuntimeSupportUnavailable
+        }
+        OpticInvocationObstruction::InvocationAdmissionUnavailable => {
+            InvocationObstructionKind::InvocationAdmissionUnavailable
         }
         OpticInvocationObstruction::MissingCapability => {
             InvocationObstructionKind::MissingCapability

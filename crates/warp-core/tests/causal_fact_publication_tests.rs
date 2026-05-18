@@ -113,6 +113,33 @@ fn artifact_registration_obstruction_publishes_graph_fact_without_receipt() -> R
 }
 
 #[test]
+fn runtime_support_v0_fixture_publishes_graph_fact_without_registration_receipt(
+) -> Result<(), String> {
+    let mut registry = OpticArtifactRegistry::new();
+    registry
+        .register_optic_artifact(fixture_artifact(), fixture_descriptor())
+        .map_err(|err| format!("fixture descriptor should register: {err:?}"))?;
+
+    registry.record_runtime_support_v0_fixture_for_requirements(
+        "requirements-digest:stack-witness-0001",
+    );
+
+    assert_eq!(registry.published_graph_facts().len(), 2);
+    assert_eq!(registry.artifact_registration_receipts().len(), 1);
+    let published = &registry.published_graph_facts()[1];
+    assert_eq!(published.digest, published.fact.digest());
+    assert!(matches!(
+        &published.fact,
+        GraphFact::RuntimeSupportRecorded {
+            requirements_digest,
+            support_digest,
+        } if requirements_digest == "requirements-digest:stack-witness-0001"
+            && *support_digest != [0_u8; 32]
+    ));
+    Ok(())
+}
+
+#[test]
 fn graph_fact_digest_is_deterministic_and_kind_separated() {
     let registered = GraphFact::ArtifactRegistered {
         handle_id: "handle-1".to_owned(),
@@ -126,9 +153,17 @@ fn graph_fact_digest_is_deterministic_and_kind_separated() {
         artifact_hash: Some("same-artifact".to_owned()),
         obstruction: ArtifactRegistrationObstructionKind::ArtifactHashMismatch,
     };
+    let support = GraphFact::RuntimeSupportRecorded {
+        requirements_digest: "requirements".to_owned(),
+        support_digest: [7_u8; 32],
+    };
+    let repeated_support = support.clone();
 
     assert_eq!(registered.digest(), repeated.digest());
     assert_ne!(registered.digest(), obstructed.digest());
+    assert_eq!(support.digest(), repeated_support.digest());
+    assert_ne!(registered.digest(), support.digest());
+    assert_ne!(obstructed.digest(), support.digest());
 }
 
 #[test]

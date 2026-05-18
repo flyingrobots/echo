@@ -63,6 +63,9 @@ pub enum InvocationObstructionKind {
     /// Echo could not prove that its runtime support surface covers the
     /// registered artifact requirements.
     RuntimeSupportUnavailable,
+    /// Echo proved runtime support, but this slice still has no lawful
+    /// invocation admission path.
+    InvocationAdmissionUnavailable,
     /// Invocation supplied no capability presentation.
     MissingCapability,
     /// Invocation supplied a malformed capability presentation.
@@ -108,6 +111,7 @@ impl InvocationObstructionKind {
             Self::UnsupportedApertureResolution => b"unsupported-aperture-resolution",
             Self::UnsupportedBudgetResolution => b"unsupported-budget-resolution",
             Self::RuntimeSupportUnavailable => b"runtime-support-unavailable",
+            Self::InvocationAdmissionUnavailable => b"invocation-admission-unavailable",
             Self::MissingCapability => b"missing-capability",
             Self::MalformedCapabilityPresentation => b"malformed-capability-presentation",
             Self::UnboundCapabilityPresentation => b"unbound-capability-presentation",
@@ -165,6 +169,14 @@ pub enum GraphFact {
         artifact_hash: Option<String>,
         /// Structured obstruction kind.
         obstruction: ArtifactRegistrationObstructionKind,
+    },
+    /// Echo recorded runtime-owned support evidence for registered artifact
+    /// requirements.
+    RuntimeSupportRecorded {
+        /// Registered requirements digest covered by the runtime support fact.
+        requirements_digest: String,
+        /// Digest of the Echo-owned runtime support material.
+        support_digest: [u8; 32],
     },
     /// Echo refused optic invocation before admission success.
     OpticInvocationObstructed {
@@ -246,6 +258,18 @@ impl GraphFact {
                     artifact_hash.as_deref().map(str::as_bytes),
                 );
                 push_digest_field(&mut bytes, b"obstruction", obstruction.digest_label());
+            }
+            Self::RuntimeSupportRecorded {
+                requirements_digest,
+                support_digest,
+            } => {
+                push_digest_field(&mut bytes, b"variant", b"runtime-support-recorded");
+                push_digest_field(
+                    &mut bytes,
+                    b"requirements-digest",
+                    requirements_digest.as_bytes(),
+                );
+                push_digest_field(&mut bytes, b"support-digest", support_digest);
             }
             Self::OpticInvocationObstructed {
                 artifact_handle_id,

@@ -13,7 +13,7 @@ error protocol for Echo's deterministic simulation boundary.
 ABI v3 makes three boundaries explicit:
 
 - `observe(request)` is the canonical generic world-state read export; neighborhood-specific read exports expose bounded site/core views.
-- `dispatch_intent(...)` is the only public write and control ingress surface.
+- `dispatch_intent(...)` is the public application intent ingress surface.
 - `scheduler_status()` is the read-only scheduler metadata export.
 
 Echo internals do not consume wall-clock time. All clocks in this ABI are
@@ -36,9 +36,9 @@ represents `Option<...>::None`.
   `commit_global_tick = null` means the worldline is still at `U0` and has not
   committed anything yet.
 
-Scheduler lifecycle requests are carried as privileged control intents through
-the same EINT intake path as domain intents. There is no public `step(...)`,
-poll, or tick hook API in ABI v3.
+Scheduler lifecycle requests are privileged runtime control, not application
+intents. Public application dispatch rejects the reserved control op id. There
+is no public `step(...)`, poll, or tick hook API in ABI v3.
 
 ## Architecture
 
@@ -89,11 +89,11 @@ Removed before or by ABI v3:
 
 ## Intent Intake
 
-All external writes enter Echo through EINT envelopes.
+Application writes enter Echo through EINT envelopes.
 
 - Domain intents use their domain-specific `op_id`.
-- Privileged scheduler/control intents use reserved op id `u32::MAX`
-  (`CONTROL_INTENT_V1_OP_ID`).
+- The reserved scheduler/control op id `u32::MAX`
+  (`CONTROL_INTENT_V1_OP_ID`) is forbidden at application dispatch.
 
 The EINT v1 byte layout is:
 
@@ -104,8 +104,10 @@ The EINT v1 byte layout is:
 + vars (exactly vars_len bytes)
 ```
 
-For privileged control intents, `op_id` is always `0xffffffff` and `vars` are
-canonical-CBOR bytes that decode as `ControlIntentV1`.
+Trusted runtime control still uses `ControlIntentV1` internally. For those
+privileged control intents, `op_id` is always `0xffffffff` and `vars` are
+canonical-CBOR bytes that decode as `ControlIntentV1`; those bytes must not be
+accepted by public application dispatch.
 
 Canonical payload shapes:
 
@@ -316,8 +318,8 @@ Returned by `init()`.
 Current engine-backed behavior:
 
 - `init()` leaves the runtime inert.
-- `Start { mode: UntilIdle { ... } }` runs synchronously inside the control
-  intent handler and returns after the run completes.
+- Trusted `Start { mode: UntilIdle { ... } }` runs synchronously inside the
+  control intent handler and returns after the run completes.
 - `Stop` is a no-op when the scheduler is already inactive; it does not rewrite
   `last_run_completion` for a finished run.
 - Hosts normally observe `state = inactive` plus `last_run_completion`, not a
@@ -341,35 +343,44 @@ Current engine-backed behavior:
 
 ## Error Codes
 
-| Code | Name                           | Meaning                                                    |
-| ---- | ------------------------------ | ---------------------------------------------------------- |
-| 1    | `NOT_INITIALIZED`              | `init()` not called                                        |
-| 2    | `INVALID_INTENT`               | Malformed EINT intent envelope                             |
-| 3    | `ENGINE_ERROR`                 | Internal engine failure                                    |
-| 4    | `LEGACY_INVALID_TICK`          | Reserved for the removed v1 snapshot adapter               |
-| 5    | `NOT_SUPPORTED`                | Operation not implemented                                  |
-| 6    | `CODEC_ERROR`                  | CBOR encode/decode failure                                 |
-| 7    | `INVALID_PAYLOAD`              | Corrupted input bytes                                      |
-| 8    | `INVALID_WORLDLINE`            | Requested worldline missing                                |
-| 9    | `INVALID_TICK`                 | Requested observation tick missing                         |
-| 10   | `UNSUPPORTED_FRAME_PROJECTION` | Invalid frame/projection pair                              |
-| 11   | `UNSUPPORTED_QUERY`            | Query observation not yet implemented                      |
-| 12   | `OBSERVATION_UNAVAILABLE`      | Valid request but no observation exists at that coordinate |
-| 13   | `INVALID_CONTROL`              | Malformed or invalid control intent                        |
+| Code | Name                             | Meaning                                                    |
+| ---- | -------------------------------- | ---------------------------------------------------------- |
+| 1    | `NOT_INITIALIZED`                | `init()` not called                                        |
+| 2    | `INVALID_INTENT`                 | Malformed EINT intent envelope                             |
+| 3    | `ENGINE_ERROR`                   | Internal engine failure                                    |
+| 4    | `LEGACY_INVALID_TICK`            | Reserved for the removed v1 snapshot adapter               |
+| 5    | `NOT_SUPPORTED`                  | Operation not implemented                                  |
+| 6    | `CODEC_ERROR`                    | CBOR encode/decode failure                                 |
+| 7    | `INVALID_PAYLOAD`                | Corrupted input bytes                                      |
+| 8    | `INVALID_WORLDLINE`              | Requested worldline missing                                |
+| 9    | `INVALID_TICK`                   | Requested observation tick missing                         |
+| 10   | `UNSUPPORTED_FRAME_PROJECTION`   | Invalid frame/projection pair                              |
+| 11   | `UNSUPPORTED_QUERY`              | Query observation not yet implemented                      |
+| 12   | `OBSERVATION_UNAVAILABLE`        | Valid request but no observation exists at that coordinate |
+| 13   | `INVALID_CONTROL`                | Malformed or invalid control intent                        |
+| 14   | `INVALID_STRAND`                 | Requested strand is not registered                         |
+| 15   | `UNSUPPORTED_OBSERVER_PLAN`      | Requested observer plan is not available                   |
+| 16   | `UNSUPPORTED_OBSERVER_INSTANCE`  | Requested observer instance is not available               |
+| 17   | `UNSUPPORTED_OBSERVATION_RIGHTS` | Requested observation rights posture is not available      |
+| 18   | `OBSERVATION_BUDGET_EXCEEDED`    | Requested observation exceeded its explicit read budget    |
+| 19   | `FORBIDDEN_CONTROL_INTENT`       | Application dispatch rejected scheduler control            |
 
 ## Rust Boundary
 
-`KernelPort` is the Rust-side ABI contract for `warp-wasm`.
+`KernelPort` is the Rust-side ABI contract for `warp-wasm` application
+ingress, observation, status, and registry metadata.
 
 - `dispatch_intent(...)`
 - `observe(...)`
 - `scheduler_status()`
 - `registry_info()`
 
-The trait does not expose the removed v1 read adapters or a public step/pump
-surface. Implementors that need head or snapshot data must derive them from
-their own observation-backed internals rather than adding parallel public read
-methods.
+The trait does not expose the removed v1 read adapters, a public step/pump
+surface, or scheduler lifecycle control through application dispatch. Trusted
+runtime control is a separate `TrustedKernelControlPort` Rust host/runtime-owner
+path and is not part of the browser/application ingress surface. Implementors
+that need head or snapshot data must derive them from their own
+observation-backed internals rather than adding parallel public read methods.
 
 ## Migration Notes for Host Adapters
 
@@ -379,8 +390,9 @@ methods.
 2. Continue treating `observe(request)` as the canonical generic world-state
    read boundary, with neighborhood-specific read exports reserved for bounded
    site/core views.
-3. Route scheduler lifecycle and admission requests through
-   `dispatch_intent(...)` using `ControlIntentV1` packed into an EINT envelope.
+3. Route application admission requests through `dispatch_intent(...)`.
+   Scheduler lifecycle requests must use trusted runtime control, not public
+   application dispatch.
 4. Read `RegistryInfo.abi_version` and reject hosts that still expect the v2
    step surface.
 5. Rename host-side field access from bare `tick`-style fields to explicit

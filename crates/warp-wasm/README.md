@@ -15,16 +15,17 @@ See the repository root `README.md` for the full overview.
 - Exposes the current observation-first and intent-shaped control surface
   (`ABI_VERSION` 9 in `echo-wasm-abi`): `observe(...)` is the only public
   world-state read export, `scheduler_status()` is the read-only scheduler
-  metadata export, and `dispatch_intent(...)` is the write/control ingress.
+  metadata export, and `dispatch_intent(...)` is application intent ingress.
   The current ABI also publishes strand settlement comparison, planning,
   execution entrypoints, settlement basis evidence, overlap revalidation
   evidence, and read-side basis plus residual posture on observation artifacts.
 - The engine-backed boundary uses logical clocks only:
   `WorldlineTick` is per-worldline append identity and `GlobalTick` is runtime
   cycle correlation metadata. No wall-clock time enters Echo internals.
-- Public scheduler control is expressed as privileged control intents packed
-  into the same EINT envelope format as domain intents. The canonical control
-  surface includes `Start`, `Stop`, and `SetHeadEligibility`.
+- Public application dispatch rejects privileged scheduler control envelopes.
+  Trusted runtime control is kept on a separate Rust host/runtime-owner trait,
+  not on the public browser application dispatch export. Browser adapters must
+  not hand the raw kernel/control surface to untrusted application code.
 - Intended to power future browser-based visualizers and inspectors built on
   top of the same core engine as native tools.
 

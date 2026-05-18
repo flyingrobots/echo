@@ -27,47 +27,115 @@
 
 # Echo
 
-Echo is the hot runtime optic in the WARP stack.
+Echo is a real-time, deterministic
+[WARP optic](https://github.com/flyingrobots/aion) that participates in the
+[Continuum protocol](https://github.com/flyingrobots/continuum): a protocol for
+exchanging shared, witnessed causal history between distributed peers.
 
-It does not treat a graph, database, file tree, editor buffer, or in-memory
-object heap as the ultimate truth. Echo's substrate is witnessed causal history:
-admitted transitions, frontiers, receipts, witnesses, patches, checkpoints,
-retained readings, and boundary artifacts.
+Unlike traditional runtimes that model state as a mutable object graph, Echo
+treats witnessed causal history as the immutable source of truth. State is not
+the substrate; it is materialized on demand as a lawful, witnessed, replayable
+reading over that history. Graph-shaped state is a reading. Files are readings.
+Build outputs are readings. Debugger views are readings. Echo exists to govern
+the integrity of those views without making any one view the territory.
 
-The hard doctrine is:
+Echo does this through WARP optics: structured, law-named processes for
+observing, transforming, importing, and retaining causal history.
 
-```text
-There is no privileged graph.
-There are causal histories and lawful readings of those histories.
+- **Ticking** is an optic that advances a worldline by applying a deterministic
+  batch of canonical intents.
+- **Braiding** is an optic that merges two or more concurrent strands of
+  history under explicit settlement law.
+- **Querying** is an optic that materializes a bounded reading for an observer.
+- **Admission** is an optic that lawfully incorporates transported history from
+  a remote peer.
+
+Because transformations go through lawful optics, Echo can emit computational
+holograms: compact, evidence-bearing boundary artifacts that name the causal
+basis, law, aperture, identity, posture, witnesses, and retained support needed
+to replay or audit a computation. For ticked execution, that support includes
+the initial basis and ordered tick receipts or provenance payloads, so Echo does
+not need to retain every intermediate materialized state as authoritative truth.
+
+Echo operates in a deterministic cycle: it admits canonical intents, schedules
+work, settles speculative paths, emits evidence-bearing receipts for every
+transition, serves bounded observations to clients, and retains the minimal
+artifacts needed for replay or verification.
+
+You can use Echo to write deterministic real-time simulations, verifiable build
+systems, and other applications that demand strong auditability. To get
+started, read [Writing An Echo Application](#writing-an-echo-application) and
+[Application Contract Hosting](docs/architecture/application-contract-hosting.md).
+
+## Developer Experience
+
+Echo is a participant in a larger architecture for provable determinism. Most
+applications do not call Echo with application objects directly. They:
+
+```mermaid
+flowchart LR
+    contract["Author GraphQL contract"]
+    wesley["Compile with Wesley"]
+    helpers["Use generated helpers"]
+    intents["Submit canonical EINT intents"]
+    runtime["Echo-owned tick, scheduling, and settlement"]
+    readings["Observe ReadingEnvelope-backed results"]
+
+    contract --> wesley --> helpers --> intents
+    intents --> runtime --> readings
 ```
 
-Echo turns that doctrine into runtime machinery.
+Echo handles causal admission, scheduling, receipts, witnesses, retention,
+replay, and bounded observations. The application owns domain semantics.
+Wesley bridges the two by turning authored contracts into generated Echo-facing
+surfaces.
 
-It admits canonical intents, schedules deterministic work, settles speculative
-paths, emits evidence-bearing receipts, serves bounded observations, and retains
-the artifacts needed to replay or verify what happened. Graph-shaped state is a
-reading. Files are readings. Build outputs are readings. Debugger views are
-readings. Echo exists to make those readings lawful, witnessed, and
-replayable.
+### 1. Declare A Contract
 
-## Thirty Second Version
+The developer journey starts with GraphQL SDL that names the application's
+data, operations, readings, and law metadata. GraphQL is the authoring surface,
+not Echo's runtime language. Data types define the nouns; operation metadata,
+footprints, policies, capabilities, and constraints define the verbs and laws
+that govern those nouns.
 
-Echo is a deterministic runtime for admitting canonical intents and producing
-witnessed readings.
+### 2. Compile With Wesley
 
-Most applications do not call Echo with application objects directly. They:
+The [Wesley](https://github.com/flyingrobots/wesley) compiler lowers the
+authored contract into generated artifacts that Echo can verify and host:
 
-```text
-author GraphQL contract
-  -> compile with Wesley
-  -> use generated helpers
-  -> dispatch canonical EINT intents
-  -> observe ReadingEnvelope-backed results
-```
+- type-safe codecs and operation helpers;
+- registry metadata, operation ids, and artifact identity;
+- footprint certificates and runtime-facing contract metadata.
 
-Echo handles causal admission, receipts, witnesses, retention, replay, and
-bounded observations. The application owns domain semantics. Wesley bridges the
-two by turning authored contracts into typed generated surfaces.
+The checked-in Echo path is Rust-first through
+[`echo-wesley-gen`](crates/echo-wesley-gen/README.md). TypeScript and browser
+generation should follow the same contract identity, registry,
+artifact-verification, and footprint-honesty rules instead of inventing a
+parallel Echo API.
+
+### 3. Submit Intents
+
+Applications do not mutate Echo state directly, and they do not decide when
+Echo ticks. They submit canonical EINT bytes through `dispatch_intent(...)`.
+That call is ingress: it gives Echo causal input and returns dispatch evidence.
+It is not an application-owned tick command or a domain mutation RPC.
+
+Echo owns the tick boundary, pending-set order, scheduler, and settlement law.
+When Echo reaches a runtime-owned tick boundary, it evaluates pending intents
+against installed contract law, footprints, and scheduler constraints, then
+emits receipts for what was admitted, staged, pluralized, conflicted, or
+obstructed.
+
+### 4. Observe Readings
+
+Clients do not ask Echo for "the state." They ask for a bounded reading from an
+explicit basis under an observer plan.
+
+Generated query helpers build `ObservationRequest` values. Echo returns an
+`ObservationArtifact` containing payload bytes and a `ReadingEnvelope` naming
+the basis, observer, witness references, budget posture, rights posture, and
+whether the reading is complete, residual, plural, or obstructed. Application
+code decodes the payload only after inspecting that evidence.
 
 ## Reader Paths
 
@@ -215,17 +283,22 @@ Echo receives canonical intents and returns witnessed readings.
 The current shape is:
 
 ```text
-Application UI / adapter
-  -> Wesley-generated contract client
+Application UI
+  -> application adapter / Wesley-generated contract client
   -> canonical operation variables
   -> EINT intent bytes
-  -> Echo dispatch_intent(...)
-  -> Echo causal admission and receipts
+  -> host-owned Echo ingress: dispatch_intent(...)
+  -> Echo-owned scheduler tick / settlement
+  -> Echo receipts and witness refs
   -> Echo observe(...)
   -> ReadingEnvelope + payload bytes
   -> generated/application decoding
   -> UI
 ```
+
+The application layer submits canonical bytes and reads observations. It does
+not own the scheduler lifecycle or decide when Echo ticks; host/runtime policy
+owns that authority.
 
 This is why a serious text editor such as `jedit` can own its rope model,
 buffer law, edit-group law, checkpoint policy, and UI behavior while Echo stays
@@ -244,24 +317,44 @@ The normal authoring loop is contract-first:
    operation mutates or observes application state.
 4. Run `echo-wesley-gen` to generate Rust contract helpers.
 5. Have the host verify the generated registry/artifact metadata.
-6. Use generated helpers to pack EINT intent bytes and build observation
-   requests.
-7. Let Echo admit the intent, emit receipts, retain witnesses, and return a
+6. Use generated helpers to pack EINT intent bytes and submit them to Echo
+   ingress.
+7. Let Echo's runtime-owned tick cycle admit work, emit receipts, retain
+   witnesses, and make observations available.
+8. Use generated query helpers to build observation requests, then decode and
+   present the returned reading in the application after inspecting its
    `ReadingEnvelope`.
-8. Decode and present the result in the application.
 
 The end-to-end shape is:
 
-```text
-counter.graphql
-  -> echo-wesley-gen
-  -> generated.rs
-  -> verify_contract_artifact(...)
-  -> pack_increment_intent(...)
-  -> dispatch_intent(...)
-  -> counter_value_observation_request(...)
-  -> observe(...)
-  -> inspect ReadingEnvelope
+```mermaid
+flowchart TD
+    contract["counter.graphql"]
+    gen["echo-wesley-gen"]
+    generated["generated.rs"]
+
+    verify["verify_contract_artifact(...)"]
+    pack["pack_increment_intent(...)"]
+    dispatch["dispatch_intent(...)"]
+    tick["Echo-owned tick / settlement"]
+
+    request["counter_value_observation_request(...)"]
+    observe["observe(...)"]
+    envelope["inspect ReadingEnvelope"]
+
+    subgraph compile["Compile Contract"]
+        contract --> gen --> generated
+    end
+
+    subgraph write["Admit Intent"]
+        generated --> verify --> pack --> dispatch --> tick
+    end
+
+    subgraph read["Observe Reading"]
+        generated --> request --> observe --> envelope
+    end
+
+    tick -. "receipts and witness refs" .-> observe
 ```
 
 A tiny contract looks like this:
@@ -299,7 +392,8 @@ cargo run -p echo-wesley-gen -- --schema counter.graphql --out generated.rs
 ```
 
 Application code should use generated helpers rather than hand-rolling Echo
-wire bytes. Conceptually:
+wire bytes. Dispatch submits canonical input to Echo; it does not command Echo
+to tick. Conceptually:
 
 ```rust
 let intent = generated::pack_increment_intent(
@@ -308,14 +402,15 @@ let intent = generated::pack_increment_intent(
     },
 )?;
 
-let response = echo_wasm_abi::kernel_port::KernelPort::dispatch_intent(
+let dispatch_response = echo_wasm_abi::kernel_port::KernelPort::dispatch_intent(
     &mut kernel,
     &intent,
 )?;
 ```
 
-For reads, generated query helpers build `ObservationRequest` values. Echo
-returns an `ObservationArtifact` containing payload bytes plus a
+Echo's runtime owns the tick cadence, scheduler, settlement, and receipt
+emission. For reads, generated query helpers build `ObservationRequest` values.
+Echo returns an `ObservationArtifact` containing payload bytes plus a
 `ReadingEnvelope`; the application should inspect that envelope before treating
 the reading as complete.
 

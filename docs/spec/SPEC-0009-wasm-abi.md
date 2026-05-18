@@ -42,9 +42,14 @@ The hill: an agent can generate canonical CBOR, call one export, inspect an `ok`
 
 Removed exports stay removed: `step`, `snapshot_at`, `render_snapshot`, `execute_query`, `get_head`, and `drain_view_ops`.
 
-## Decision 2: All writes enter through EINT
+## Decision 2: Application writes enter through EINT
 
-`dispatch_intent(bytes)` accepts Echo intent envelopes: `"EINT" || op_id:u32le || vars_len:u32le || vars`.
+`dispatch_intent(bytes)` accepts application Echo intent envelopes:
+`"EINT" || op_id:u32le || vars_len:u32le || vars`.
+
+The reserved scheduler/control op id is not an application intent. Public
+application dispatch rejects it before the kernel can run scheduler control.
+Trusted host/runtime control uses a separate authority path.
 
 ## Decision 3: Observation is the only public world-state read
 

@@ -180,8 +180,9 @@ The current codebase already provides these pieces:
 
 - EINT v1 in `echo-wasm-abi`:
   `"EINT" || op_id:u32le || vars_len:u32le || vars`.
-- `dispatch_intent(...)` in `warp-wasm` as the write/control ingress.
-- `KernelPort::dispatch_intent(...)` as an app-agnostic byte boundary.
+- `dispatch_intent(...)` in `warp-wasm` as application EINT ingress.
+- `KernelPort::dispatch_intent(...)` as an app-agnostic application intent
+  boundary that rejects reserved scheduler/control envelopes.
 - `RegistryInfo` plus `get_registry_info`, `get_codec_id`,
   `get_registry_version`, and `get_schema_sha256_hex` exports.
 - `echo-registry-api::RegistryProvider` for app-supplied operation catalogs.
@@ -365,9 +366,10 @@ observe(bytes) -> bytes
 scheduler_status() -> bytes
 ```
 
-`dispatch_intent(bytes)` already accepts EINT v1. New work should prefer
-binding generated app contracts to that existing shape instead of creating a
-parallel contract envelope.
+`dispatch_intent(bytes)` already accepts application EINT v1 envelopes. New
+work should prefer binding generated app contracts to that existing shape
+instead of creating a parallel contract envelope. Scheduler lifecycle control
+must remain on a trusted runtime path, not on application dispatch.
 
 The installed runtime or app-level generated client should expose enough
 handshake metadata to name:

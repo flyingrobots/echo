@@ -158,8 +158,9 @@ budget-request:resolved-fixture:v0
 
 Budget resolution establishes a bounded resource envelope under consideration.
 It does not create permission to act, reserve spendable capacity, validate a
-grant, or admit an invocation. The only lawful next refusal in this slice is
-`RuntimeSupportUnavailable`.
+grant, or admit an invocation. The next boundary is RuntimeSupport v0: absent
+Echo-owned support obstructs at `RuntimeSupportUnavailable`; resolved support
+advances to `InvocationAdmissionUnavailable`.
 
 ## RuntimeSupport v0
 

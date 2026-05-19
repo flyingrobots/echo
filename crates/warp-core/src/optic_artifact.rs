@@ -1413,6 +1413,9 @@ impl OpticArtifactRegistry {
         if descriptor.requirements_digest != artifact.requirements_digest {
             return Err(OpticArtifactRegistrationError::RequirementsDigestMismatch);
         }
+        if artifact.requirements.digest != artifact.requirements_digest {
+            return Err(OpticArtifactRegistrationError::RequirementsDigestMismatch);
+        }
         if descriptor.operation_id != artifact.operation.operation_id {
             return Err(OpticArtifactRegistrationError::OperationIdMismatch);
         }

@@ -65,7 +65,9 @@ checks. The current invocation request fixture shapes are:
 The current Echo-owned runtime support fixture is
 `runtime-support:resolved-fixture:v0`. It is recorded by the runtime registry
 through an Echo-issued artifact handle for that artifact's registered
-requirements; it is not carried by `OpticInvocation`.
+requirements. Artifact registration requires the stored requirements digest to
+match the registered artifact requirements digest. Runtime support is not
+carried by `OpticInvocation`.
 
 ## Obstruction reachability
 

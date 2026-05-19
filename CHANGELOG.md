@@ -15,10 +15,12 @@
   `runtime-support:resolved-fixture:v0` support fixture, the ladder advances to
   `InvocationAdmissionUnavailable`. Runtime support fixture recording is scoped
   through Echo-issued artifact handles, so unknown handles cannot publish
-  support facts, and registration rejects artifacts whose stored requirements
-  digest does not match the artifact requirements digest. This does not add
-  caller-supplied runtime support testimony, admission tickets, law witnesses,
-  scheduler work, execution, budget reservation, or successful grant validation.
+  support facts, repeated recordings for the same requirements digest do not
+  duplicate support facts, and registration rejects artifacts whose stored
+  requirements digest does not match the artifact requirements digest. This does
+  not add caller-supplied runtime support testimony, admission tickets, law
+  witnesses, scheduler work, execution, budget reservation, or successful grant
+  validation.
 - `dispatch_optic_intent(...)` and the default `KernelPort` optic dispatch path
   now reject EINT payloads that use Echo's reserved scheduler/control op id,
   closing the remaining application-facing control-intent ingress path.

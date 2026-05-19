@@ -1122,9 +1122,13 @@ impl OpticArtifactRegistry {
         requirements_digest: String,
     ) {
         let support_digest = runtime_support_v0_fixture_digest();
-        self.runtime_support_v0_by_requirements
-            .insert(requirements_digest.clone(), support_digest);
-        self.publish_runtime_support_recorded_fact(requirements_digest, support_digest);
+        if self
+            .runtime_support_v0_by_requirements
+            .insert(requirements_digest.clone(), support_digest)
+            .is_none()
+        {
+            self.publish_runtime_support_recorded_fact(requirements_digest, support_digest);
+        }
     }
 
     /// Resolves an opaque Echo handle to registered artifact metadata.
@@ -1300,14 +1304,10 @@ impl OpticArtifactRegistry {
         &self,
         requirements_digest: &str,
     ) -> Option<OpticInvocationObstruction> {
-        let Some(support_digest) = self
+        if self
             .runtime_support_v0_by_requirements
-            .get(requirements_digest)
-        else {
-            return Some(OpticInvocationObstruction::RuntimeSupportUnavailable);
-        };
-
-        if *support_digest == runtime_support_v0_fixture_digest() {
+            .contains_key(requirements_digest)
+        {
             return None;
         }
 

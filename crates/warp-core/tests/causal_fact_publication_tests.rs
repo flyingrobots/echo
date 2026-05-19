@@ -140,6 +140,38 @@ fn runtime_support_v0_fixture_publishes_graph_fact_without_registration_receipt(
 }
 
 #[test]
+fn runtime_support_v0_fixture_publishes_once_per_requirements_digest() -> Result<(), String> {
+    let mut sibling_artifact = fixture_artifact();
+    sibling_artifact.artifact_id = "optic-artifact:stack-witness-0002".to_owned();
+    sibling_artifact.artifact_hash = "artifact-hash:stack-witness-0002".to_owned();
+    let mut sibling_descriptor = fixture_descriptor();
+    sibling_descriptor.artifact_id = sibling_artifact.artifact_id.clone();
+    sibling_descriptor.artifact_hash = sibling_artifact.artifact_hash.clone();
+    let mut registry = OpticArtifactRegistry::new();
+    let first_handle = registry
+        .register_optic_artifact(fixture_artifact(), fixture_descriptor())
+        .map_err(|err| format!("fixture descriptor should register: {err:?}"))?;
+    let second_handle = registry
+        .register_optic_artifact(sibling_artifact, sibling_descriptor)
+        .map_err(|err| format!("sibling descriptor should register: {err:?}"))?;
+
+    registry
+        .record_runtime_support_v0_fixture_for_artifact(&first_handle)
+        .map_err(|err| format!("first handle should record runtime support: {err:?}"))?;
+    registry
+        .record_runtime_support_v0_fixture_for_artifact(&second_handle)
+        .map_err(|err| format!("second handle should record runtime support: {err:?}"))?;
+
+    let support_fact_count = registry
+        .published_graph_facts()
+        .iter()
+        .filter(|published| matches!(published.fact, GraphFact::RuntimeSupportRecorded { .. }))
+        .count();
+    assert_eq!(support_fact_count, 1);
+    Ok(())
+}
+
+#[test]
 fn runtime_support_v0_fixture_rejects_unknown_handle_without_graph_fact() -> Result<(), String> {
     let mut registry = OpticArtifactRegistry::new();
     registry

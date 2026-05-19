@@ -36,7 +36,9 @@ resolved basis + unsupported aperture -> UnsupportedApertureResolution
 resolved aperture + unsupported budget -> UnsupportedBudgetResolution
 resolved budget + no Echo-owned runtime support fact -> RuntimeSupportUnavailable
 resolved runtime support + no Echo-owned admission fact -> InvocationAdmissionUnavailable
-resolved invocation admission -> SchedulerAdmissionUnavailable
+resolved invocation admission + no Echo-owned scheduler admission fact
+  -> SchedulerAdmissionUnavailable
+resolved scheduler admission -> SchedulerWorkUnavailable
 ```
 
 `UnsupportedBudgetResolution` and `RuntimeSupportUnavailable` are current
@@ -66,11 +68,12 @@ handle
 -> budget evaluation
 -> runtime support evaluation
 -> invocation admission evaluation
--> scheduler admission unavailable
+-> scheduler admission evaluation
+-> scheduler work unavailable
 ```
 
-This slice reaches the narrow fixture gates through RuntimeSupport v0. It still
-has no successful scheduler admission, no scheduler work, and no execution.
+This slice reaches the narrow fixture gates through SchedulerAdmission v0. It
+still has no scheduler work and no execution.
 
 ## Flow
 
@@ -90,6 +93,7 @@ flowchart TD
   BudgetResolution[BudgetResolution v0]
   RuntimeSupport[RuntimeSupport v0]
   InvocationAdmission[InvocationAdmission v0]
+  SchedulerAdmission[SchedulerAdmission v0]
   Fact[GraphFact::OpticInvocationObstructed]
   Posture[OpticAdmissionTicketPosture]
 
@@ -116,7 +120,9 @@ flowchart TD
   RuntimeSupport -->|missing support fact| Fact
   RuntimeSupport -->|resolved| InvocationAdmission
   InvocationAdmission -->|missing admission fact| Fact
-  InvocationAdmission -->|resolved| Fact
+  InvocationAdmission -->|resolved| SchedulerAdmission
+  SchedulerAdmission -->|missing scheduler admission fact| Fact
+  SchedulerAdmission -->|resolved| Fact
   Fact --> Posture
 ```
 
@@ -139,8 +145,9 @@ sequenceDiagram
   alt presentation structurally available
     Registry->>Validator: validate_capability_presentation(artifact, invocation, presentation)
     Validator->>Facts: publish grant validation obstruction when validation fails
-    Registry->>Registry: resolve basis, aperture, budget, runtime support, and admission fixtures
-    Registry->>Registry: obstruct resolved admission before scheduler admission
+    Registry->>Registry: resolve basis, aperture, budget, runtime support, admission
+    Registry->>Registry: resolve scheduler admission fixtures
+    Registry->>Registry: obstruct resolved scheduler admission before scheduler work
   else missing, malformed, or unbound presentation
     Registry->>Registry: skip validator
   end
@@ -172,6 +179,7 @@ classDiagram
     RuntimeSupportUnavailable
     InvocationAdmissionUnavailable
     SchedulerAdmissionUnavailable
+    SchedulerWorkUnavailable
   }
 
   class RegisteredOpticArtifact {
@@ -184,6 +192,7 @@ classDiagram
   class EchoRuntimeSupportSurface {
     +runtime-owned support facts
     +runtime-owned admission facts
+    +runtime-owned scheduler admission facts
   }
 
   OpticInvocation --> OpticBudgetRequest
@@ -234,17 +243,23 @@ Echo must not accept caller testimony about runtime support. Support checks
 compare registered artifact requirements against Echo-owned runtime support
 facts recorded by the registry.
 
-As of InvocationAdmission v0, Echo also records a narrow runtime-owned
-invocation admission fixture through Echo-issued artifact handles. That
-admission fact advances the ladder past `InvocationAdmissionUnavailable`, but
-only to `SchedulerAdmissionUnavailable`; it still does not schedule work or
-execute an invocation.
+As of InvocationAdmission v0, Echo records a narrow runtime-owned invocation
+admission fixture through Echo-issued artifact handles. That admission fact
+advances the ladder past `InvocationAdmissionUnavailable`, but only to
+SchedulerAdmission v0.
+
+As of SchedulerAdmission v0, Echo records a narrow runtime-owned scheduler
+admission fixture through Echo-issued artifact handles. That scheduler
+admission fact advances the ladder past `SchedulerAdmissionUnavailable`, but
+only to `SchedulerWorkUnavailable`; it still does not schedule work or execute
+an invocation.
 
 ## Non-goals
 
 - no `MissingSupportRequest`;
+- no `MissingSchedulerAdmissionRequest`;
 - no support request bytes;
-- no successful scheduler admission;
+- no scheduler admission request bytes;
 - no successful `AdmissionTicket`;
 - no `LawWitness`;
 - no scheduler work;

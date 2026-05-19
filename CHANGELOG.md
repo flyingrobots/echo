@@ -7,6 +7,19 @@
 
 ### Added
 
+- `warp-core` optic invocation admission now has a narrow SchedulerAdmission v0
+  boundary. After BasisResolution v0, ApertureResolution v0, BudgetResolution
+  v0, RuntimeSupport v0, capability identity coverage, and InvocationAdmission
+  v0 all resolve, Echo checks runtime-owned scheduler admission facts for the
+  registered artifact handle. Without that Echo-owned scheduler admission fact,
+  the ladder obstructs at `SchedulerAdmissionUnavailable`; with the exact
+  `scheduler-admission:resolved-fixture:v0` scheduler admission fixture, the
+  ladder advances to `SchedulerWorkUnavailable`. Scheduler admission fixture
+  recording is scoped through Echo-issued artifact handles, publishes
+  idempotent graph facts, and rejects unknown handles without publishing
+  scheduler admission evidence. This does not add admission tickets, law
+  witnesses, scheduler work, scheduler enqueueing, handler dispatch, execution,
+  or caller-supplied scheduler admission testimony.
 - `warp-core` optic invocation admission now has a narrow InvocationAdmission v0
   boundary. After BasisResolution v0, ApertureResolution v0, BudgetResolution
   v0, RuntimeSupport v0, and capability identity coverage all resolve, Echo

@@ -284,6 +284,75 @@ fn invocation_admission_v0_fixture_rejects_unknown_handle_without_graph_fact() -
 }
 
 #[test]
+fn scheduler_admission_fixture_publishes_graph_fact_once() -> Result<(), String> {
+    let mut registry = OpticArtifactRegistry::new();
+    let handle = registry
+        .register_optic_artifact(fixture_artifact(), fixture_descriptor())
+        .map_err(|err| format!("fixture descriptor should register: {err:?}"))?;
+
+    registry
+        .record_scheduler_admission_v0_fixture_for_artifact(&handle)
+        .map_err(|err| format!("registered handle should record scheduler admission: {err:?}"))?;
+    registry
+        .record_scheduler_admission_v0_fixture_for_artifact(&handle)
+        .map_err(|err| format!("repeated handle should remain idempotent: {err:?}"))?;
+
+    let scheduler_facts = registry
+        .published_graph_facts()
+        .iter()
+        .filter_map(|published| match &published.fact {
+            GraphFact::SchedulerAdmissionRecorded {
+                artifact_handle_id,
+                operation_id,
+                requirements_digest,
+                scheduler_admission_digest,
+            } => Some((
+                artifact_handle_id,
+                operation_id,
+                requirements_digest,
+                scheduler_admission_digest,
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(scheduler_facts.len(), 1);
+    let (artifact_handle_id, operation_id, requirements_digest, scheduler_admission_digest) =
+        scheduler_facts[0];
+    assert_eq!(artifact_handle_id, &handle.id);
+    assert_eq!(operation_id, "operation:textWindow:v0");
+    assert_eq!(
+        requirements_digest,
+        "requirements-digest:stack-witness-0001"
+    );
+    assert_ne!(*scheduler_admission_digest, [0_u8; 32]);
+    Ok(())
+}
+
+#[test]
+fn scheduler_admission_fixture_rejects_unknown_handle_without_graph_fact() -> Result<(), String> {
+    let mut registry = OpticArtifactRegistry::new();
+    registry
+        .register_optic_artifact(fixture_artifact(), fixture_descriptor())
+        .map_err(|err| format!("fixture descriptor should register: {err:?}"))?;
+    let unknown_handle = OpticArtifactHandle {
+        kind: "optic-artifact-handle".to_owned(),
+        id: "unregistered-handle".to_owned(),
+    };
+
+    let err = registration_err_or_panic(
+        registry.record_scheduler_admission_v0_fixture_for_artifact(&unknown_handle),
+        "unknown artifact handle should reject scheduler admission recording",
+    )?;
+
+    assert!(matches!(err, OpticArtifactRegistrationError::UnknownHandle));
+    assert_eq!(registry.published_graph_facts().len(), 1);
+    assert!(!registry.published_graph_facts().iter().any(|published| {
+        matches!(published.fact, GraphFact::SchedulerAdmissionRecorded { .. })
+    }));
+    Ok(())
+}
+
+#[test]
 fn graph_fact_digest_is_deterministic_and_kind_separated() {
     let registered = GraphFact::ArtifactRegistered {
         handle_id: "handle-1".to_owned(),
@@ -309,15 +378,26 @@ fn graph_fact_digest_is_deterministic_and_kind_separated() {
         admission_digest: [8_u8; 32],
     };
     let repeated_admission = admission.clone();
+    let scheduler = GraphFact::SchedulerAdmissionRecorded {
+        artifact_handle_id: "handle-1".to_owned(),
+        operation_id: "operation".to_owned(),
+        requirements_digest: "requirements".to_owned(),
+        scheduler_admission_digest: [9_u8; 32],
+    };
+    let repeated_scheduler = scheduler.clone();
 
     assert_eq!(registered.digest(), repeated.digest());
     assert_ne!(registered.digest(), obstructed.digest());
     assert_eq!(support.digest(), repeated_support.digest());
     assert_eq!(admission.digest(), repeated_admission.digest());
+    assert_eq!(scheduler.digest(), repeated_scheduler.digest());
     assert_ne!(registered.digest(), support.digest());
     assert_ne!(obstructed.digest(), support.digest());
     assert_ne!(support.digest(), admission.digest());
+    assert_ne!(support.digest(), scheduler.digest());
+    assert_ne!(admission.digest(), scheduler.digest());
     assert_ne!(registered.digest(), admission.digest());
+    assert_ne!(registered.digest(), scheduler.digest());
 }
 
 #[test]

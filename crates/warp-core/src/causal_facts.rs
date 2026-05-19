@@ -66,6 +66,9 @@ pub enum InvocationObstructionKind {
     /// Echo proved runtime support, but this slice still has no lawful
     /// invocation admission path.
     InvocationAdmissionUnavailable,
+    /// Echo proved invocation admission, but scheduler admission/work enqueueing
+    /// does not exist in this slice.
+    SchedulerAdmissionUnavailable,
     /// Invocation supplied no capability presentation.
     MissingCapability,
     /// Invocation supplied a malformed capability presentation.
@@ -112,6 +115,7 @@ impl InvocationObstructionKind {
             Self::UnsupportedBudgetResolution => b"unsupported-budget-resolution",
             Self::RuntimeSupportUnavailable => b"runtime-support-unavailable",
             Self::InvocationAdmissionUnavailable => b"invocation-admission-unavailable",
+            Self::SchedulerAdmissionUnavailable => b"scheduler-admission-unavailable",
             Self::MissingCapability => b"missing-capability",
             Self::MalformedCapabilityPresentation => b"malformed-capability-presentation",
             Self::UnboundCapabilityPresentation => b"unbound-capability-presentation",
@@ -177,6 +181,19 @@ pub enum GraphFact {
         requirements_digest: String,
         /// Digest of the Echo-owned runtime support material.
         support_digest: [u8; 32],
+    },
+    /// Echo recorded runtime-owned invocation admission evidence for a
+    /// registered artifact handle.
+    InvocationAdmissionRecorded {
+        /// Echo-owned runtime-local artifact handle id covered by the admission
+        /// fact.
+        artifact_handle_id: String,
+        /// Registered operation id covered by the admission fact.
+        operation_id: String,
+        /// Registered requirements digest covered by the admission fact.
+        requirements_digest: String,
+        /// Digest of the Echo-owned invocation admission material.
+        admission_digest: [u8; 32],
     },
     /// Echo refused optic invocation before admission success.
     OpticInvocationObstructed {
@@ -270,6 +287,26 @@ impl GraphFact {
                     requirements_digest.as_bytes(),
                 );
                 push_digest_field(&mut bytes, b"support-digest", support_digest);
+            }
+            Self::InvocationAdmissionRecorded {
+                artifact_handle_id,
+                operation_id,
+                requirements_digest,
+                admission_digest,
+            } => {
+                push_digest_field(&mut bytes, b"variant", b"invocation-admission-recorded");
+                push_digest_field(
+                    &mut bytes,
+                    b"artifact-handle-id",
+                    artifact_handle_id.as_bytes(),
+                );
+                push_digest_field(&mut bytes, b"operation-id", operation_id.as_bytes());
+                push_digest_field(
+                    &mut bytes,
+                    b"requirements-digest",
+                    requirements_digest.as_bytes(),
+                );
+                push_digest_field(&mut bytes, b"admission-digest", admission_digest);
             }
             Self::OpticInvocationObstructed {
                 artifact_handle_id,

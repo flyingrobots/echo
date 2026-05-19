@@ -3,8 +3,9 @@
 //! Regression tests for Echo-owned optic artifact registration.
 
 use warp_core::{
-    OpticAdmissionRequirements, OpticArtifact, OpticArtifactHandle, OpticArtifactOperation,
-    OpticArtifactRegistrationError, OpticArtifactRegistry, OpticRegistrationDescriptor,
+    GraphFact, OpticAdmissionRequirements, OpticArtifact, OpticArtifactHandle,
+    OpticArtifactOperation, OpticArtifactRegistrationError, OpticArtifactRegistry,
+    OpticRegistrationDescriptor,
 };
 
 fn fixture_artifact() -> OpticArtifact {
@@ -124,6 +125,30 @@ fn optic_artifact_registry_rejects_tampered_requirements_digest() -> Result<(), 
         err,
         OpticArtifactRegistrationError::RequirementsDigestMismatch
     ));
+    Ok(())
+}
+
+#[test]
+fn optic_artifact_registry_rejects_mismatched_stored_requirements_digest() -> Result<(), String> {
+    let mut artifact = fixture_artifact();
+    artifact.requirements.digest = "requirements-digest:stored-mismatch".to_owned();
+    let mut registry = OpticArtifactRegistry::new();
+
+    let err = registration_err_or_panic(
+        registry.register_optic_artifact(artifact, fixture_descriptor()),
+        "stored requirements digest mismatch should reject",
+    )?;
+
+    assert!(matches!(
+        err,
+        OpticArtifactRegistrationError::RequirementsDigestMismatch
+    ));
+    assert_eq!(registry.len(), 0);
+    assert!(registry.artifact_registration_receipts().is_empty());
+    assert!(registry
+        .published_graph_facts()
+        .iter()
+        .all(|published| !matches!(published.fact, GraphFact::RuntimeSupportRecorded { .. })));
     Ok(())
 }
 

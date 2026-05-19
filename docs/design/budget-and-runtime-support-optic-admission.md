@@ -35,7 +35,8 @@ identity covered + unsupported basis -> UnsupportedBasisResolution
 resolved basis + unsupported aperture -> UnsupportedApertureResolution
 resolved aperture + unsupported budget -> UnsupportedBudgetResolution
 resolved budget + no Echo-owned runtime support fact -> RuntimeSupportUnavailable
-resolved runtime support -> InvocationAdmissionUnavailable
+resolved runtime support + no Echo-owned admission fact -> InvocationAdmissionUnavailable
+resolved invocation admission -> SchedulerAdmissionUnavailable
 ```
 
 `UnsupportedBudgetResolution` and `RuntimeSupportUnavailable` are current
@@ -64,11 +65,12 @@ handle
 -> aperture resolution
 -> budget evaluation
 -> runtime support evaluation
--> invocation admission unavailable
+-> invocation admission evaluation
+-> scheduler admission unavailable
 ```
 
 This slice reaches the narrow fixture gates through RuntimeSupport v0. It still
-has no successful invocation admission, no scheduler work, and no execution.
+has no successful scheduler admission, no scheduler work, and no execution.
 
 ## Flow
 
@@ -87,6 +89,7 @@ flowchart TD
   ApertureResolution[ApertureResolution v0]
   BudgetResolution[BudgetResolution v0]
   RuntimeSupport[RuntimeSupport v0]
+  InvocationAdmission[InvocationAdmission v0]
   Fact[GraphFact::OpticInvocationObstructed]
   Posture[OpticAdmissionTicketPosture]
 
@@ -111,7 +114,9 @@ flowchart TD
   BudgetResolution -->|unsupported| Fact
   BudgetResolution -->|resolved| RuntimeSupport
   RuntimeSupport -->|missing support fact| Fact
-  RuntimeSupport -->|resolved| Fact
+  RuntimeSupport -->|resolved| InvocationAdmission
+  InvocationAdmission -->|missing admission fact| Fact
+  InvocationAdmission -->|resolved| Fact
   Fact --> Posture
 ```
 
@@ -134,8 +139,8 @@ sequenceDiagram
   alt presentation structurally available
     Registry->>Validator: validate_capability_presentation(artifact, invocation, presentation)
     Validator->>Facts: publish grant validation obstruction when validation fails
-    Registry->>Registry: resolve basis, aperture, budget, and runtime support fixtures
-    Registry->>Registry: obstruct identity-covered material at invocation admission boundary
+    Registry->>Registry: resolve basis, aperture, budget, runtime support, and admission fixtures
+    Registry->>Registry: obstruct resolved admission before scheduler admission
   else missing, malformed, or unbound presentation
     Registry->>Registry: skip validator
   end
@@ -166,6 +171,7 @@ classDiagram
     UnsupportedBudgetResolution
     RuntimeSupportUnavailable
     InvocationAdmissionUnavailable
+    SchedulerAdmissionUnavailable
   }
 
   class RegisteredOpticArtifact {
@@ -177,6 +183,7 @@ classDiagram
 
   class EchoRuntimeSupportSurface {
     +runtime-owned support facts
+    +runtime-owned admission facts
   }
 
   OpticInvocation --> OpticBudgetRequest
@@ -227,11 +234,17 @@ Echo must not accept caller testimony about runtime support. Support checks
 compare registered artifact requirements against Echo-owned runtime support
 facts recorded by the registry.
 
+As of InvocationAdmission v0, Echo also records a narrow runtime-owned
+invocation admission fixture through Echo-issued artifact handles. That
+admission fact advances the ladder past `InvocationAdmissionUnavailable`, but
+only to `SchedulerAdmissionUnavailable`; it still does not schedule work or
+execute an invocation.
+
 ## Non-goals
 
 - no `MissingSupportRequest`;
 - no support request bytes;
-- no successful invocation admission;
+- no successful scheduler admission;
 - no successful `AdmissionTicket`;
 - no `LawWitness`;
 - no scheduler work;

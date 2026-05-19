@@ -31,12 +31,17 @@ This slice remains obstruction-only:
 empty basis request -> MissingBasisRequest
 non-empty basis + empty aperture request -> MissingApertureRequest
 non-empty basis + non-empty aperture + empty budget request -> MissingBudgetRequest
-non-empty basis + non-empty aperture + non-empty budget + identity covered -> UnsupportedBasisResolution
+identity covered + unsupported basis -> UnsupportedBasisResolution
+resolved basis + unsupported aperture -> UnsupportedApertureResolution
+resolved aperture + unsupported budget -> UnsupportedBudgetResolution
+resolved budget + no Echo-owned runtime support fact -> RuntimeSupportUnavailable
+resolved runtime support -> InvocationAdmissionUnavailable
 ```
 
-`UnsupportedBudgetResolution` and `RuntimeSupportUnavailable` exist as future
-vocabulary. They are not reachable in this slice because basis resolution gates
-aperture resolution, and aperture resolution gates later budget/support checks.
+`UnsupportedBudgetResolution` and `RuntimeSupportUnavailable` are current
+obstruction vocabulary. They are reachable only after the earlier gates resolve:
+basis resolution gates aperture resolution, aperture resolution gates budget
+resolution, and budget resolution gates the Echo-owned runtime support check.
 
 Refusal remains causal evidence. Budget and support obstruction facts are not
 counterfactual candidates.
@@ -59,13 +64,11 @@ handle
 -> aperture resolution
 -> budget evaluation
 -> runtime support evaluation
--> grant validation / admitted authority
--> footprint compatibility
--> AdmissionTicket
+-> invocation admission unavailable
 ```
 
-This slice only reaches the presence checks and the existing unsupported basis
-resolution obstruction.
+This slice reaches the narrow fixture gates through RuntimeSupport v0. It still
+has no successful invocation admission, no scheduler work, and no execution.
 
 ## Flow
 
@@ -80,9 +83,10 @@ flowchart TD
   BudgetPresence[budget request present?]
   Presentation[presentation classification]
   Validator[CapabilityPresentationValidator]
-  BasisResolution[basis resolution unavailable]
-  FutureBudget[Budget resolution future slot]
-  FutureSupport[Runtime support future slot]
+  BasisResolution[BasisResolution v0]
+  ApertureResolution[ApertureResolution v0]
+  BudgetResolution[BudgetResolution v0]
+  RuntimeSupport[RuntimeSupport v0]
   Fact[GraphFact::OpticInvocationObstructed]
   Posture[OpticAdmissionTicketPosture]
 
@@ -100,10 +104,14 @@ flowchart TD
   Presentation -->|structurally available| Validator
   Validator -->|identity covered| BasisResolution
   Validator -->|validation obstructed| Fact
-  BasisResolution --> Fact
-  BasisResolution -. future .-> FutureBudget
-  FutureBudget -. future .-> FutureSupport
-  FutureSupport -. future .-> Fact
+  BasisResolution -->|unsupported| Fact
+  BasisResolution -->|resolved| ApertureResolution
+  ApertureResolution -->|unsupported| Fact
+  ApertureResolution -->|resolved| BudgetResolution
+  BudgetResolution -->|unsupported| Fact
+  BudgetResolution -->|resolved| RuntimeSupport
+  RuntimeSupport -->|missing support fact| Fact
+  RuntimeSupport -->|resolved| Fact
   Fact --> Posture
 ```
 
@@ -126,7 +134,8 @@ sequenceDiagram
   alt presentation structurally available
     Registry->>Validator: validate_capability_presentation(artifact, invocation, presentation)
     Validator->>Facts: publish grant validation obstruction when validation fails
-    Registry->>Registry: obstruct identity-covered material at basis boundary
+    Registry->>Registry: resolve basis, aperture, budget, and runtime support fixtures
+    Registry->>Registry: obstruct identity-covered material at invocation admission boundary
   else missing, malformed, or unbound presentation
     Registry->>Registry: skip validator
   end
@@ -156,6 +165,7 @@ classDiagram
     MissingBudgetRequest
     UnsupportedBudgetResolution
     RuntimeSupportUnavailable
+    InvocationAdmissionUnavailable
   }
 
   class RegisteredOpticArtifact {
@@ -166,7 +176,7 @@ classDiagram
   }
 
   class EchoRuntimeSupportSurface {
-    +future runtime-owned support facts
+    +runtime-owned support facts
   }
 
   OpticInvocation --> OpticBudgetRequest
@@ -182,7 +192,7 @@ erDiagram
   OPTIC_INVOCATION ||--|| APERTURE_REQUEST : names
   OPTIC_INVOCATION ||--|| BUDGET_REQUEST : names
   OPTIC_INVOCATION ||--|| INVOCATION_OBSTRUCTION_FACT : produces_when_refused
-  REGISTERED_OPTIC_ARTIFACT ||--|| RUNTIME_SUPPORT_SURFACE : checked_against_future
+  REGISTERED_OPTIC_ARTIFACT ||--|| RUNTIME_SUPPORT_SURFACE : checked_against
   INVOCATION_OBSTRUCTION_FACT ||--|| BUDGET_REQUEST_DIGEST : records
 
   OPTIC_INVOCATION {
@@ -213,16 +223,14 @@ erDiagram
 
 Budget is caller context. Runtime support is Echo context.
 
-Echo must not accept caller testimony about runtime support. Future support
-checks must compare registered artifact requirements against Echo-owned runtime
-support facts.
+Echo must not accept caller testimony about runtime support. Support checks
+compare registered artifact requirements against Echo-owned runtime support
+facts recorded by the registry.
 
 ## Non-goals
 
 - no `MissingSupportRequest`;
 - no support request bytes;
-- no successful budget resolution;
-- no successful runtime support check;
 - no successful invocation admission;
 - no successful `AdmissionTicket`;
 - no `LawWitness`;

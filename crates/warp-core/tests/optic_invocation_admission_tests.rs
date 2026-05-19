@@ -1417,6 +1417,241 @@ fn resolved_invocation_admission_advances_to_scheduler_admission_unavailable() -
 }
 
 #[test]
+fn resolved_invocation_admission_still_requires_scheduler_admission() -> Result<(), String> {
+    let (mut registry, handle) = fixture_registry_and_handle()?;
+    registry
+        .record_runtime_support_v0_fixture_for_artifact(&handle)
+        .map_err(|err| format!("registered handle should record runtime support: {err:?}"))?;
+    registry
+        .record_invocation_admission_v0_fixture_for_artifact(&handle)
+        .map_err(|err| format!("registered handle should record invocation admission: {err:?}"))?;
+    let invocation = fixture_invocation_with_resolved_basis_aperture_budget_and_presentation(
+        handle,
+        "grant:covered",
+    );
+    let mut gate = fixture_gate_with_grant(fixture_grant("grant:covered"));
+
+    let outcome = registry.admit_optic_invocation_with_capability_validator(&invocation, &mut gate);
+
+    assert_eq!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::SchedulerAdmissionUnavailable
+    );
+    assert!(matches!(
+        latest_invocation_obstruction_fact(&registry)?,
+        GraphFact::OpticInvocationObstructed {
+            obstruction,
+            ..
+        } if *obstruction == InvocationObstructionKind::SchedulerAdmissionUnavailable
+    ));
+    Ok(())
+}
+
+#[test]
+fn caller_cannot_supply_scheduler_admission_testimony() -> Result<(), String> {
+    let (mut registry, handle) = fixture_registry_and_handle()?;
+    registry
+        .record_runtime_support_v0_fixture_for_artifact(&handle)
+        .map_err(|err| format!("registered handle should record runtime support: {err:?}"))?;
+    registry
+        .record_invocation_admission_v0_fixture_for_artifact(&handle)
+        .map_err(|err| format!("registered handle should record invocation admission: {err:?}"))?;
+    let mut invocation = fixture_invocation_with_resolved_basis_aperture_budget_and_presentation(
+        handle,
+        "scheduler-admission:resolved-fixture:v0",
+    );
+    invocation.canonical_variables_digest = b"scheduler-admission:resolved-fixture:v0".to_vec();
+    invocation.capability_presentation = Some(OpticCapabilityPresentation {
+        presentation_id: "scheduler-admission:resolved-fixture:v0".to_owned(),
+        bound_grant_id: Some("scheduler-admission:resolved-fixture:v0".to_owned()),
+    });
+    let mut gate =
+        fixture_gate_with_grant(fixture_grant("scheduler-admission:resolved-fixture:v0"));
+
+    let outcome = registry.admit_optic_invocation_with_capability_validator(&invocation, &mut gate);
+    assert_eq!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::SchedulerAdmissionUnavailable
+    );
+
+    registry
+        .record_scheduler_admission_v0_fixture_for_artifact(&invocation.artifact_handle)
+        .map_err(|err| format!("registered handle should record scheduler admission: {err:?}"))?;
+    let outcome = registry.admit_optic_invocation_with_capability_validator(&invocation, &mut gate);
+    assert_eq!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::SchedulerWorkUnavailable
+    );
+    Ok(())
+}
+
+#[test]
+fn scheduler_admission_uses_echo_owned_fixture_only() -> Result<(), String> {
+    let (mut registry, handle) = fixture_registry_and_handle()?;
+    registry
+        .record_runtime_support_v0_fixture_for_artifact(&handle)
+        .map_err(|err| format!("registered handle should record runtime support: {err:?}"))?;
+    registry
+        .record_invocation_admission_v0_fixture_for_artifact(&handle)
+        .map_err(|err| format!("registered handle should record invocation admission: {err:?}"))?;
+    let mut invocation = fixture_invocation_with_resolved_basis_aperture_budget_and_presentation(
+        handle,
+        "grant:covered",
+    );
+    invocation.canonical_variables_digest = b"caller-claims:scheduler-admission-resolved".to_vec();
+    let mut gate = fixture_gate_with_grant(fixture_grant("grant:covered"));
+
+    let outcome = registry.admit_optic_invocation_with_capability_validator(&invocation, &mut gate);
+    assert_eq!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::SchedulerAdmissionUnavailable
+    );
+
+    registry
+        .record_scheduler_admission_v0_fixture_for_artifact(&invocation.artifact_handle)
+        .map_err(|err| format!("registered handle should record scheduler admission: {err:?}"))?;
+    let outcome = registry.admit_optic_invocation_with_capability_validator(&invocation, &mut gate);
+    assert_eq!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::SchedulerWorkUnavailable
+    );
+    Ok(())
+}
+
+#[test]
+fn scheduler_admission_is_checked_only_after_invocation_admission() -> Result<(), String> {
+    let (mut registry, handle) = fixture_registry_and_handle()?;
+    registry
+        .record_scheduler_admission_v0_fixture_for_artifact(&handle)
+        .map_err(|err| format!("registered handle should record scheduler admission: {err:?}"))?;
+    let mut gate = fixture_gate_with_grant(fixture_grant("grant:covered"));
+
+    let mut unsupported_basis =
+        fixture_invocation_with_resolved_basis_aperture_budget_and_presentation(
+            handle.clone(),
+            "grant:covered",
+        );
+    unsupported_basis.basis_request = OpticBasisRequest {
+        bytes: b"basis-request:unsupported".to_vec(),
+    };
+    let outcome =
+        registry.admit_optic_invocation_with_capability_validator(&unsupported_basis, &mut gate);
+    assert_eq!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::UnsupportedBasisResolution
+    );
+
+    let mut unsupported_aperture =
+        fixture_invocation_with_resolved_basis_aperture_budget_and_presentation(
+            handle.clone(),
+            "grant:covered",
+        );
+    unsupported_aperture.aperture_request = OpticApertureRequest {
+        bytes: b"aperture-request:unsupported".to_vec(),
+    };
+    let outcome =
+        registry.admit_optic_invocation_with_capability_validator(&unsupported_aperture, &mut gate);
+    assert_eq!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::UnsupportedApertureResolution
+    );
+
+    let mut unsupported_budget =
+        fixture_invocation_with_resolved_basis_aperture_budget_and_presentation(
+            handle.clone(),
+            "grant:covered",
+        );
+    unsupported_budget.budget_request = OpticBudgetRequest {
+        bytes: b"budget-request:unsupported".to_vec(),
+    };
+    let outcome =
+        registry.admit_optic_invocation_with_capability_validator(&unsupported_budget, &mut gate);
+    assert_eq!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::UnsupportedBudgetResolution
+    );
+
+    let supported_shape_without_support_fact =
+        fixture_invocation_with_resolved_basis_aperture_budget_and_presentation(
+            handle.clone(),
+            "grant:covered",
+        );
+    let outcome = registry.admit_optic_invocation_with_capability_validator(
+        &supported_shape_without_support_fact,
+        &mut gate,
+    );
+    assert_eq!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::RuntimeSupportUnavailable
+    );
+
+    registry
+        .record_runtime_support_v0_fixture_for_artifact(&handle)
+        .map_err(|err| format!("registered handle should record runtime support: {err:?}"))?;
+    let supported_shape_without_invocation_admission =
+        fixture_invocation_with_resolved_basis_aperture_budget_and_presentation(
+            handle,
+            "grant:covered",
+        );
+    let outcome = registry.admit_optic_invocation_with_capability_validator(
+        &supported_shape_without_invocation_admission,
+        &mut gate,
+    );
+    assert_eq!(
+        obstruction_for(&outcome),
+        OpticInvocationObstruction::InvocationAdmissionUnavailable
+    );
+    Ok(())
+}
+
+#[test]
+fn resolved_scheduler_admission_advances_to_scheduler_work_unavailable() -> Result<(), String> {
+    let (mut registry, handle) = fixture_registry_and_handle()?;
+    registry
+        .record_runtime_support_v0_fixture_for_artifact(&handle)
+        .map_err(|err| format!("registered handle should record runtime support: {err:?}"))?;
+    registry
+        .record_invocation_admission_v0_fixture_for_artifact(&handle)
+        .map_err(|err| format!("registered handle should record invocation admission: {err:?}"))?;
+    registry
+        .record_scheduler_admission_v0_fixture_for_artifact(&handle)
+        .map_err(|err| format!("registered handle should record scheduler admission: {err:?}"))?;
+    let invocation = fixture_invocation_with_resolved_basis_aperture_budget_and_presentation(
+        handle,
+        "grant:covered",
+    );
+    let mut gate = fixture_gate_with_grant(fixture_grant("grant:covered"));
+
+    let outcome = registry.admit_optic_invocation_with_capability_validator(&invocation, &mut gate);
+
+    assert!(matches!(
+        outcome,
+        OpticInvocationAdmissionOutcome::Obstructed(OpticAdmissionTicketPosture {
+            obstruction: OpticInvocationObstruction::SchedulerWorkUnavailable,
+            ..
+        })
+    ));
+    assert!(matches!(
+        latest_invocation_obstruction_fact(&registry)?,
+        GraphFact::OpticInvocationObstructed {
+            obstruction,
+            ..
+        } if *obstruction == InvocationObstructionKind::SchedulerWorkUnavailable
+    ));
+    assert!(registry.published_graph_facts().iter().all(|published| {
+        matches!(
+            published.fact,
+            GraphFact::ArtifactRegistered { .. }
+                | GraphFact::RuntimeSupportRecorded { .. }
+                | GraphFact::InvocationAdmissionRecorded { .. }
+                | GraphFact::SchedulerAdmissionRecorded { .. }
+                | GraphFact::OpticInvocationObstructed { .. }
+        )
+    }));
+    Ok(())
+}
+
+#[test]
 fn invocation_obstruction_fact_is_not_counterfactual_candidate() -> Result<(), String> {
     let (mut registry, handle) = fixture_registry_and_handle()?;
     let invocation = fixture_invocation(handle);

@@ -189,17 +189,19 @@ Implemented for built-in one-shot observations:
 - `ReadIdentity`
 - `RetainedReadingKey`
 - `ObserveOpticRequest` for bounded head and snapshot metadata reads
+- installed contract query observers for one-shot `QueryView` / `Query`
+  observations returning `ObservationPayload::QueryBytes`
 - fail-closed obstructions for unsupported apertures, missing witness basis,
   unsupported authored observer plans, unsupported observer instances, and
   capability-scoped rights without an installed checker
 
 Still open:
 
-- authored observer plans
+- generated query observer helper constructors
 - hosted/stateful observer instances
 - app-specific budget and rights enforcement
 - obstruction/plurality variants beyond the current `complete` posture
-- QueryView contract observers
+- dynamic/authored observer installation beyond runtime-hosted query fixtures
 
 ## Consumer Contract
 
@@ -232,6 +234,9 @@ Current test anchors:
 - `builtin_one_shot_rejects_invalid_frame_projection`
 - `capability_scoped_observer_rights_obstruct_without_public_fallback`
 - `bounded_head_optic_returns_read_identity`
+- `installed_contract_query_observer_returns_query_bytes_and_reading_envelope`
+- `contract_query_identity_changes_when_plan_query_vars_or_basis_change`
+- `bounded_contract_query_observer_reports_residual_posture`
 - `read_identity_is_stable_for_same_read_question`
 - `read_identity_changes_when_question_or_witness_changes`
 - `retained_reading_key_requires_content_hash_and_read_identity`

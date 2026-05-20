@@ -7,6 +7,16 @@
 
 ### Added
 
+- `warp-core` now routes `QueryView`/`Query` observations to installed
+  contract query observers. Installed observers are keyed by generated query op
+  id, receive canonical vars bytes plus the resolved causal basis, return
+  `ObservationPayload::QueryBytes`, and stamp the emitted `ReadingEnvelope` with
+  the authored observer plan identity. Unsupported query ids remain typed
+  `UnsupportedQuery` errors, artifact identity changes when query vars, op id,
+  schema/plan identity, or basis changes, and observer-reported residual posture
+  participates in bounded reading evidence. This does not add streaming
+  subscriptions, generated query observer helpers, dynamic plugin loading, or
+  application-controlled execution.
 - `echo-wesley-gen` now supports `--contract-host`, an opt-in generated helper
   surface for installed `warp-core` mutation handlers. Generated mutation
   helpers now include stable contract command-rule names, op-id matchers,

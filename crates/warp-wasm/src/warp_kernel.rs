@@ -316,9 +316,9 @@ impl WarpKernel {
                     "unsupported frame/projection pairing: {frame:?} + {projection:?}"
                 ),
             },
-            ObservationError::UnsupportedQuery => AbiError {
+            ObservationError::UnsupportedQuery { query_id } => AbiError {
                 code: error_codes::UNSUPPORTED_QUERY,
-                message: "query observation is not supported by this kernel".into(),
+                message: format!("query observation is not installed for query id {query_id}"),
             },
             ObservationError::UnsupportedObserverPlan(plan) => AbiError {
                 code: error_codes::UNSUPPORTED_OBSERVER_PLAN,

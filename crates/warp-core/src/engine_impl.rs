@@ -15,6 +15,7 @@ use crate::ident::{
 };
 use crate::inbox::{INBOX_EVENT_TYPE, INBOX_PATH, INTENT_ATTACHMENT_TYPE, PENDING_EDGE_TYPE};
 use crate::materialization::{ChannelConflict, FinalizedChannel, MaterializationBus};
+use crate::observation::ContractQueryObserver;
 #[cfg(any(test, feature = "delta_validate"))]
 use crate::parallel::merge_deltas;
 use crate::parallel::{build_work_units, execute_work_queue, ExecItem, WorkerResult, NUM_SHARDS};
@@ -106,6 +107,9 @@ pub enum EngineError {
     /// Attempted to register a rule with a duplicate ID.
     #[error("duplicate rule id: {0:?}")]
     DuplicateRuleId(Hash),
+    /// Attempted to register a contract query observer for a duplicate query id.
+    #[error("duplicate contract query observer for query id: {0}")]
+    DuplicateContractQueryObserver(u32),
     /// Conflict policy Join requires a join function.
     #[error("missing join function for ConflictPolicy::Join")]
     MissingJoinFn,
@@ -428,6 +432,7 @@ pub struct Engine {
     compact_rule_ids: HashMap<Hash, CompactRuleId>,
     rules_by_compact: HashMap<CompactRuleId, &'static str>,
     canonical_cmd_rules: Vec<(Hash, &'static str)>,
+    contract_query_observers: BTreeMap<u32, ContractQueryObserver>,
     scheduler: DeterministicScheduler,
     scheduler_kind: SchedulerKind,
     telemetry: Arc<dyn TelemetrySink>,
@@ -854,6 +859,7 @@ impl Engine {
             compact_rule_ids: HashMap::new(),
             rules_by_compact: HashMap::new(),
             canonical_cmd_rules: Vec::new(),
+            contract_query_observers: BTreeMap::new(),
             scheduler: DeterministicScheduler::new(kind, Arc::clone(&telemetry)),
             scheduler_kind: kind,
             telemetry,
@@ -1043,6 +1049,7 @@ impl Engine {
             compact_rule_ids: HashMap::new(),
             rules_by_compact: HashMap::new(),
             canonical_cmd_rules: Vec::new(),
+            contract_query_observers: BTreeMap::new(),
             scheduler: DeterministicScheduler::new(kind, Arc::clone(&telemetry)),
             scheduler_kind: kind,
             telemetry,
@@ -1117,6 +1124,54 @@ impl Engine {
     #[cfg_attr(not(feature = "native_rule_bootstrap"), allow(dead_code))]
     pub(crate) fn register_rule(&mut self, rule: RewriteRule) -> Result<(), EngineError> {
         self.register_rule_impl(rule)
+    }
+
+    #[cfg_attr(not(feature = "native_rule_bootstrap"), allow(dead_code))]
+    fn register_contract_query_observer_impl(
+        &mut self,
+        observer: ContractQueryObserver,
+    ) -> Result<(), EngineError> {
+        match self.contract_query_observers.entry(observer.query_id) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(observer);
+                Ok(())
+            }
+            std::collections::btree_map::Entry::Occupied(entry) => {
+                Err(EngineError::DuplicateContractQueryObserver(*entry.key()))
+            }
+        }
+    }
+
+    /// Registers a native installed contract query observer.
+    ///
+    /// This bootstrap surface exists for Echo-owned host fixtures and generated
+    /// contract observer adapters. It does not grant application code query
+    /// execution authority; callers still reach observers through
+    /// [`ObservationService`](crate::ObservationService).
+    ///
+    /// # Errors
+    /// Returns [`EngineError::DuplicateContractQueryObserver`] if a handler for
+    /// the same generated query id is already installed.
+    #[cfg(feature = "native_rule_bootstrap")]
+    #[doc(hidden)]
+    pub fn register_contract_query_observer(
+        &mut self,
+        observer: ContractQueryObserver,
+    ) -> Result<(), EngineError> {
+        self.register_contract_query_observer_impl(observer)
+    }
+
+    #[cfg(not(feature = "native_rule_bootstrap"))]
+    #[cfg_attr(not(feature = "native_rule_bootstrap"), allow(dead_code))]
+    pub(crate) fn register_contract_query_observer(
+        &mut self,
+        observer: ContractQueryObserver,
+    ) -> Result<(), EngineError> {
+        self.register_contract_query_observer_impl(observer)
+    }
+
+    pub(crate) fn contract_query_observer(&self, query_id: u32) -> Option<&ContractQueryObserver> {
+        self.contract_query_observers.get(&query_id)
     }
 
     /// Begins a new transaction and returns its identifier.

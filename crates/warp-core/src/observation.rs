@@ -452,6 +452,80 @@ impl AuthoredObserverPlan {
     }
 }
 
+/// Installed one-shot contract query observer.
+///
+/// Contract query observers are installed by the runtime host. They are
+/// read-only and run only through [`ObservationService::observe`] for
+/// `QueryView`/`Query` requests. Echo core does not import application nouns;
+/// the observer returns bounded bytes and the reading envelope carries the
+/// authored observer plan identity.
+#[derive(Clone)]
+pub struct ContractQueryObserver {
+    /// Stable generated query operation id this observer handles.
+    pub query_id: u32,
+    /// Authored/generated observer plan identity and law hashes.
+    pub observer_plan: AuthoredObserverPlan,
+    /// Read-only observer function.
+    pub observe: ContractQueryObserveFn,
+}
+
+impl ContractQueryObserver {
+    fn observer_plan(&self) -> ReadingObserverPlan {
+        ReadingObserverPlan::Authored {
+            plan: Box::new(self.observer_plan.clone()),
+        }
+    }
+}
+
+/// Read-only installed contract query observer function.
+pub type ContractQueryObserveFn =
+    for<'a> fn(ContractQueryObserverContext<'a>) -> ContractQueryObserverResult;
+
+/// Read-only context passed to an installed contract query observer.
+pub struct ContractQueryObserverContext<'a> {
+    /// Stable generated query operation id.
+    pub query_id: u32,
+    /// Canonical vars bytes from the query projection.
+    pub vars_bytes: &'a [u8],
+    /// Original observation request.
+    pub request: &'a ObservationRequest,
+    /// Resolved causal basis for the reading.
+    pub resolved: &'a ResolvedObservationCoordinate,
+    /// Runtime carrier being observed.
+    pub runtime: &'a WorldlineRuntime,
+    /// Provenance store supporting the reading.
+    pub provenance: &'a ProvenanceService,
+}
+
+/// Bytes and residual posture emitted by an installed contract query observer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ContractQueryObserverResult {
+    /// Bounded observer payload bytes.
+    pub bytes: Vec<u8>,
+    /// Residual or completeness posture for the emitted reading.
+    pub residual_posture: ReadingResidualPosture,
+}
+
+impl ContractQueryObserverResult {
+    /// Builds a complete query reading.
+    #[must_use]
+    pub fn complete(bytes: Vec<u8>) -> Self {
+        Self {
+            bytes,
+            residual_posture: ReadingResidualPosture::Complete,
+        }
+    }
+
+    /// Builds a query reading that reports explicit residual outside the payload.
+    #[must_use]
+    pub fn residual(bytes: Vec<u8>) -> Self {
+        Self {
+            bytes,
+            residual_posture: ReadingResidualPosture::Residual,
+        }
+    }
+}
+
 /// Observer plan identity for a reading artifact.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ReadingObserverPlan {
@@ -883,9 +957,12 @@ pub enum ObservationError {
         /// Requested projection kind.
         projection: ObservationProjectionKind,
     },
-    /// Query observation is not implemented yet.
-    #[error("query observation is not supported in phase 5")]
-    UnsupportedQuery,
+    /// Query observation is not installed for the requested generated query id.
+    #[error("query observation is not installed for query id {query_id}")]
+    UnsupportedQuery {
+        /// Stable generated query operation id.
+        query_id: u32,
+    },
     /// The requested observer plan is not installed or executable.
     #[error("unsupported observer plan: {0:?}")]
     UnsupportedObserverPlan(ReadingObserverPlan),
@@ -947,31 +1024,33 @@ impl ObservationService {
             return Err(ObservationError::InvalidWorldline(worldline_id));
         }
         Self::validate_frame_projection(request.frame, &request.projection)?;
-        Self::validate_observer_contract(&request)?;
-        if matches!(request.frame, ObservationFrame::QueryView) {
-            return Err(ObservationError::UnsupportedQuery);
-        }
+        Self::validate_observer_contract(engine, &request)?;
 
         let resolved = Self::resolve_coordinate(runtime, provenance, engine, &request)?;
         let parent_basis_posture =
             Self::basis_posture(runtime, provenance, worldline_id, request.coordinate.at)?;
-        let payload = match (&request.frame, &request.projection) {
-            (ObservationFrame::CommitBoundary, ObservationProjection::Head) => {
+        let (payload, observer_plan, residual_posture) = match (&request.frame, &request.projection)
+        {
+            (ObservationFrame::CommitBoundary, ObservationProjection::Head) => (
                 ObservationPayload::Head(HeadObservation {
                     worldline_tick: resolved.resolved_worldline_tick,
                     commit_global_tick: resolved.commit_global_tick,
                     state_root: resolved.state_root,
                     commit_hash: resolved.commit_hash,
-                })
-            }
-            (ObservationFrame::CommitBoundary, ObservationProjection::Snapshot) => {
+                }),
+                request.observer_plan.clone(),
+                ReadingResidualPosture::Complete,
+            ),
+            (ObservationFrame::CommitBoundary, ObservationProjection::Snapshot) => (
                 ObservationPayload::Snapshot(WorldlineSnapshot {
                     worldline_tick: resolved.resolved_worldline_tick,
                     commit_global_tick: resolved.commit_global_tick,
                     state_root: resolved.state_root,
                     commit_hash: resolved.commit_hash,
-                })
-            }
+                }),
+                request.observer_plan.clone(),
+                ReadingResidualPosture::Complete,
+            ),
             (
                 ObservationFrame::RecordedTruth,
                 ObservationProjection::TruthChannels { channels },
@@ -990,14 +1069,48 @@ impl ObservationService {
                         .collect(),
                     None => entry.outputs,
                 };
-                ObservationPayload::TruthChannels(outputs)
+                (
+                    ObservationPayload::TruthChannels(outputs),
+                    request.observer_plan.clone(),
+                    ReadingResidualPosture::Complete,
+                )
             }
-            (ObservationFrame::QueryView, ObservationProjection::Query { .. }) => {
-                return Err(ObservationError::UnsupportedQuery);
+            (
+                ObservationFrame::QueryView,
+                ObservationProjection::Query {
+                    query_id,
+                    vars_bytes,
+                },
+            ) => {
+                let observer = engine.contract_query_observer(*query_id).ok_or(
+                    ObservationError::UnsupportedQuery {
+                        query_id: *query_id,
+                    },
+                )?;
+                let result = (observer.observe)(ContractQueryObserverContext {
+                    query_id: *query_id,
+                    vars_bytes,
+                    request: &request,
+                    resolved: &resolved,
+                    runtime,
+                    provenance,
+                });
+                (
+                    ObservationPayload::QueryBytes(result.bytes),
+                    observer.observer_plan(),
+                    result.residual_posture,
+                )
             }
             _ => unreachable!("validity matrix must reject unsupported combinations"),
         };
-        let reading = Self::reading_envelope(&resolved, parent_basis_posture, &request, &payload)?;
+        let reading = Self::reading_envelope(
+            &resolved,
+            parent_basis_posture,
+            &request,
+            observer_plan,
+            residual_posture,
+            &payload,
+        )?;
 
         let artifact_hash = Self::compute_artifact_hash(
             &resolved,
@@ -1285,7 +1398,7 @@ impl ObservationService {
                 None,
                 "unsupported optic frame/projection pairing",
             ),
-            ObservationError::UnsupportedQuery
+            ObservationError::UnsupportedQuery { .. }
             | ObservationError::UnsupportedObserverPlan(_)
             | ObservationError::UnsupportedObserverInstance(_) => Self::optic_obstruction(
                 request,
@@ -1511,7 +1624,16 @@ impl ObservationService {
         }
     }
 
-    fn validate_observer_contract(request: &ObservationRequest) -> Result<(), ObservationError> {
+    fn validate_observer_contract(
+        engine: &Engine,
+        request: &ObservationRequest,
+    ) -> Result<(), ObservationError> {
+        if let (ObservationFrame::QueryView, ObservationProjection::Query { query_id, .. }) =
+            (request.frame, &request.projection)
+        {
+            return Self::validate_query_observer_contract(engine, request, *query_id);
+        }
+
         let expected = Self::observer_plan(request.frame, request.projection.kind())?;
         match &request.observer_plan {
             ReadingObserverPlan::Builtin { .. } if request.observer_plan != expected => {
@@ -1521,6 +1643,40 @@ impl ObservationService {
             }
             ReadingObserverPlan::Builtin { .. } => {}
             ReadingObserverPlan::Authored { .. } => {
+                return Err(ObservationError::UnsupportedObserverPlan(
+                    request.observer_plan.clone(),
+                ));
+            }
+        }
+
+        if let Some(instance) = &request.observer_instance {
+            return Err(ObservationError::UnsupportedObserverInstance(
+                instance.clone(),
+            ));
+        }
+
+        if let ObservationRights::CapabilityScoped { .. } = request.rights {
+            return Err(ObservationError::UnsupportedRights(request.rights));
+        }
+
+        Ok(())
+    }
+
+    fn validate_query_observer_contract(
+        engine: &Engine,
+        request: &ObservationRequest,
+        query_id: u32,
+    ) -> Result<(), ObservationError> {
+        let observer = engine
+            .contract_query_observer(query_id)
+            .ok_or(ObservationError::UnsupportedQuery { query_id })?;
+        let installed_plan = observer.observer_plan();
+        match &request.observer_plan {
+            ReadingObserverPlan::Builtin {
+                plan: BuiltinObserverPlan::QueryBytes,
+            } => {}
+            ReadingObserverPlan::Authored { .. } if request.observer_plan == installed_plan => {}
+            ReadingObserverPlan::Builtin { .. } | ReadingObserverPlan::Authored { .. } => {
                 return Err(ObservationError::UnsupportedObserverPlan(
                     request.observer_plan.clone(),
                 ));
@@ -1553,7 +1709,10 @@ impl ObservationService {
             .ok_or(ObservationError::InvalidWorldline(worldline_id))?;
 
         match (request.frame, request.coordinate.at) {
-            (ObservationFrame::CommitBoundary, ObservationAt::Frontier) => {
+            (
+                ObservationFrame::CommitBoundary | ObservationFrame::QueryView,
+                ObservationAt::Frontier,
+            ) => {
                 let snapshot = frontier
                     .state()
                     .last_snapshot()
@@ -1581,7 +1740,10 @@ impl ObservationService {
                     &snapshot,
                 ))
             }
-            (ObservationFrame::CommitBoundary, ObservationAt::Tick(tick)) => {
+            (
+                ObservationFrame::CommitBoundary | ObservationFrame::QueryView,
+                ObservationAt::Tick(tick),
+            ) => {
                 let entry = provenance
                     .entry(worldline_id, tick)
                     .map_err(|_| ObservationError::InvalidTick { worldline_id, tick })?;
@@ -1635,7 +1797,6 @@ impl ObservationService {
                     commit_hash: entry.expected.commit_hash,
                 })
             }
-            (ObservationFrame::QueryView, _) => Err(ObservationError::UnsupportedQuery),
         }
     }
 
@@ -1685,19 +1846,21 @@ impl ObservationService {
         resolved: &ResolvedObservationCoordinate,
         parent_basis_posture: ObservationBasisPosture,
         request: &ObservationRequest,
+        observer_plan: ReadingObserverPlan,
+        residual_posture: ReadingResidualPosture,
         payload: &ObservationPayload,
     ) -> Result<ReadingEnvelope, ObservationError> {
         let witness_refs = Self::witness_refs(resolved, request.frame);
         let budget_posture = Self::budget_posture(request.budget, payload, witness_refs.len())?;
         Ok(ReadingEnvelope {
-            observer_plan: request.observer_plan.clone(),
+            observer_plan,
             observer_instance: request.observer_instance.clone(),
             observer_basis: Self::observer_basis(request.frame),
             witness_refs,
             parent_basis_posture,
             budget_posture,
             rights_posture: Self::rights_posture(request.rights),
-            residual_posture: ReadingResidualPosture::Complete,
+            residual_posture,
         })
     }
 
@@ -1813,9 +1976,10 @@ impl ObservationService {
     ) -> Option<WorldlineTick> {
         resolved.commit_global_tick?;
         match (frame, resolved.requested_at) {
-            (ObservationFrame::CommitBoundary, ObservationAt::Frontier) => {
-                resolved.resolved_worldline_tick.checked_sub(1)
-            }
+            (
+                ObservationFrame::CommitBoundary | ObservationFrame::QueryView,
+                ObservationAt::Frontier,
+            ) => resolved.resolved_worldline_tick.checked_sub(1),
             _ => Some(resolved.resolved_worldline_tick),
         }
     }
@@ -2064,6 +2228,57 @@ mod tests {
                 emission_law_hash: [85; 32],
             }),
         }
+    }
+
+    fn authored_query_plan(seed: u8, schema_seed: u8) -> AuthoredObserverPlan {
+        AuthoredObserverPlan {
+            plan_id: ObserverPlanId::from_bytes([seed; 32]),
+            artifact_hash: [seed.wrapping_add(1); 32],
+            schema_hash: [schema_seed; 32],
+            state_schema_hash: [seed.wrapping_add(2); 32],
+            update_law_hash: [seed.wrapping_add(3); 32],
+            emission_law_hash: [seed.wrapping_add(4); 32],
+        }
+    }
+
+    fn query_request(
+        worldline_id: WorldlineId,
+        at: ObservationAt,
+        query_id: u32,
+        vars_bytes: Vec<u8>,
+    ) -> ObservationRequest {
+        builtin_one_shot(
+            ObservationCoordinate { worldline_id, at },
+            ObservationFrame::QueryView,
+            ObservationProjection::Query {
+                query_id,
+                vars_bytes,
+            },
+        )
+    }
+
+    fn complete_query_observer(
+        context: ContractQueryObserverContext<'_>,
+    ) -> ContractQueryObserverResult {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&context.query_id.to_le_bytes());
+        bytes.extend_from_slice(context.vars_bytes);
+        bytes.extend_from_slice(
+            &context
+                .resolved
+                .resolved_worldline_tick
+                .as_u64()
+                .to_le_bytes(),
+        );
+        ContractQueryObserverResult::complete(bytes)
+    }
+
+    fn residual_query_observer(
+        context: ContractQueryObserverContext<'_>,
+    ) -> ContractQueryObserverResult {
+        let mut bytes = b"residual:".to_vec();
+        bytes.extend_from_slice(context.vars_bytes);
+        ContractQueryObserverResult::residual(bytes)
     }
 
     fn empty_runtime_fixture() -> (Engine, WorldlineRuntime, ProvenanceService, WorldlineId) {
@@ -2810,6 +3025,216 @@ mod tests {
         let err = ObservationService::observe(&runtime, &provenance, &engine, request).unwrap_err();
 
         assert_eq!(err, ObservationError::UnsupportedRights(rights));
+    }
+
+    #[test]
+    fn queryview_request_obstructs_without_installed_contract_observer() {
+        let (engine, runtime, provenance, worldline_id) = one_commit_fixture();
+        let request = query_request(
+            worldline_id,
+            ObservationAt::Frontier,
+            9_001,
+            b"counter=read".to_vec(),
+        );
+
+        let err = ObservationService::observe(&runtime, &provenance, &engine, request).unwrap_err();
+
+        assert_eq!(err, ObservationError::UnsupportedQuery { query_id: 9_001 });
+    }
+
+    #[test]
+    fn installed_contract_query_observer_returns_query_bytes_and_reading_envelope() {
+        let (mut engine, runtime, provenance, worldline_id) = one_commit_fixture();
+        let plan = authored_query_plan(90, 91);
+        engine
+            .register_contract_query_observer(ContractQueryObserver {
+                query_id: 9_001,
+                observer_plan: plan.clone(),
+                observe: complete_query_observer,
+            })
+            .unwrap();
+        let request = query_request(
+            worldline_id,
+            ObservationAt::Frontier,
+            9_001,
+            b"counter=read".to_vec(),
+        );
+
+        let artifact =
+            ObservationService::observe(&runtime, &provenance, &engine, request.clone()).unwrap();
+        let same =
+            ObservationService::observe(&runtime, &provenance, &engine, request.clone()).unwrap();
+
+        assert_eq!(artifact.artifact_hash, same.artifact_hash);
+        assert_eq!(
+            artifact.reading.observer_plan,
+            ReadingObserverPlan::Authored {
+                plan: Box::new(plan)
+            }
+        );
+        assert_eq!(
+            artifact.reading.observer_basis,
+            ReadingObserverBasis::QueryView
+        );
+        assert_eq!(
+            artifact.reading.residual_posture,
+            ReadingResidualPosture::Complete
+        );
+        assert_eq!(artifact.projection, request.projection);
+        assert_eq!(
+            artifact.payload,
+            ObservationPayload::QueryBytes({
+                let mut expected = 9_001_u32.to_le_bytes().to_vec();
+                expected.extend_from_slice(b"counter=read");
+                expected.extend_from_slice(
+                    &artifact
+                        .resolved
+                        .resolved_worldline_tick
+                        .as_u64()
+                        .to_le_bytes(),
+                );
+                expected
+            })
+        );
+    }
+
+    #[test]
+    fn contract_query_identity_changes_when_plan_query_vars_or_basis_change() {
+        let (mut engine, runtime, provenance, worldline_id) = one_commit_fixture();
+        engine
+            .register_contract_query_observer(ContractQueryObserver {
+                query_id: 9_001,
+                observer_plan: authored_query_plan(90, 91),
+                observe: complete_query_observer,
+            })
+            .unwrap();
+        engine
+            .register_contract_query_observer(ContractQueryObserver {
+                query_id: 9_002,
+                observer_plan: authored_query_plan(92, 93),
+                observe: complete_query_observer,
+            })
+            .unwrap();
+
+        let baseline = ObservationService::observe(
+            &runtime,
+            &provenance,
+            &engine,
+            query_request(
+                worldline_id,
+                ObservationAt::Frontier,
+                9_001,
+                b"counter=read".to_vec(),
+            ),
+        )
+        .unwrap();
+        let different_vars = ObservationService::observe(
+            &runtime,
+            &provenance,
+            &engine,
+            query_request(
+                worldline_id,
+                ObservationAt::Frontier,
+                9_001,
+                b"counter=other".to_vec(),
+            ),
+        )
+        .unwrap();
+        let different_query = ObservationService::observe(
+            &runtime,
+            &provenance,
+            &engine,
+            query_request(
+                worldline_id,
+                ObservationAt::Frontier,
+                9_002,
+                b"counter=read".to_vec(),
+            ),
+        )
+        .unwrap();
+        let different_basis = ObservationService::observe(
+            &runtime,
+            &provenance,
+            &engine,
+            query_request(
+                worldline_id,
+                ObservationAt::Tick(wt(0)),
+                9_001,
+                b"counter=read".to_vec(),
+            ),
+        )
+        .unwrap();
+
+        let (mut other_engine, other_runtime, other_provenance, other_worldline_id) =
+            one_commit_fixture();
+        other_engine
+            .register_contract_query_observer(ContractQueryObserver {
+                query_id: 9_001,
+                observer_plan: authored_query_plan(90, 99),
+                observe: complete_query_observer,
+            })
+            .unwrap();
+        let different_schema = ObservationService::observe(
+            &other_runtime,
+            &other_provenance,
+            &other_engine,
+            query_request(
+                other_worldline_id,
+                ObservationAt::Frontier,
+                9_001,
+                b"counter=read".to_vec(),
+            ),
+        )
+        .unwrap();
+
+        assert_ne!(baseline.artifact_hash, different_vars.artifact_hash);
+        assert_ne!(baseline.artifact_hash, different_query.artifact_hash);
+        assert_ne!(baseline.artifact_hash, different_basis.artifact_hash);
+        assert_ne!(baseline.artifact_hash, different_schema.artifact_hash);
+    }
+
+    #[test]
+    fn bounded_contract_query_observer_reports_residual_posture() -> Result<(), String> {
+        let (mut engine, runtime, provenance, worldline_id) = one_commit_fixture();
+        engine
+            .register_contract_query_observer(ContractQueryObserver {
+                query_id: 9_003,
+                observer_plan: authored_query_plan(94, 95),
+                observe: residual_query_observer,
+            })
+            .map_err(|err| err.to_string())?;
+        let mut request = query_request(
+            worldline_id,
+            ObservationAt::Frontier,
+            9_003,
+            b"partial".to_vec(),
+        );
+        request.budget = ObservationReadBudget::Bounded {
+            max_payload_bytes: 512,
+            max_witness_refs: 1,
+        };
+
+        let artifact = ObservationService::observe(&runtime, &provenance, &engine, request)
+            .map_err(|err| err.to_string())?;
+
+        assert_eq!(
+            artifact.reading.residual_posture,
+            ReadingResidualPosture::Residual
+        );
+        assert!(matches!(
+            artifact.reading.budget_posture,
+            ReadingBudgetPosture::Bounded {
+                max_payload_bytes: 512,
+                payload_bytes: 1..=512,
+                max_witness_refs: 1,
+                witness_refs: 1,
+            }
+        ));
+        assert_eq!(
+            artifact.payload,
+            ObservationPayload::QueryBytes(b"residual:partial".to_vec())
+        );
+        Ok(())
     }
 
     #[test]

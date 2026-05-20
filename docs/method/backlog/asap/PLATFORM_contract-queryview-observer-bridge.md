@@ -3,7 +3,8 @@
 
 # Contract QueryView Observer Bridge
 
-Status: RED/GREEN implementation slice.
+Status: core observer bridge checkpoint; generated query helper emission
+remains.
 
 Depends on:
 
@@ -14,23 +15,32 @@ Depends on:
 ## Why now
 
 `echo-wesley-gen` can emit query helpers that build
-`ObservationRequest { frame: QueryView, projection: Query { ... } }`, but
-`ObservationService` currently rejects QueryView. Generated read helpers stop at
-request construction until Echo has a generic observer bridge.
+`ObservationRequest { frame: QueryView, projection: Query { ... } }`.
+
+`warp-core` now routes `QueryView`/`Query` observations to installed contract
+query observers when one is available for the generated query op id. The
+observer receives the query id, canonical vars bytes, original request, resolved
+causal basis, runtime, and provenance store as read-only context. It returns
+bounded bytes and residual posture; Echo wraps the bytes in
+`ObservationPayload::QueryBytes` and stamps the `ReadingEnvelope` with the
+authored observer plan identity.
 
 ## RED
 
-Add a failing test:
+Added failing tests that prove:
 
-- install a contract query observer for one query op id;
-- call `observe(QueryView/Query)` with generated vars bytes;
-- assert current behavior is not `UnsupportedQuery`;
-- assert the observer receives query id, vars bytes, and basis coordinate.
+- a missing observer returns typed `UnsupportedQuery`;
+- an installed observer receives query id, vars bytes, and basis coordinate;
+- emitted `QueryBytes` carry a `ReadingEnvelope` naming the authored observer
+  plan;
+- changing schema/plan identity, op id, vars, or basis changes artifact
+  identity;
+- bounded observers can report residual posture.
 
 ## GREEN
 
-Route QueryView/Query observations to an installed contract observer when one is
-available.
+`ObservationService` routes QueryView/Query observations to an installed
+contract observer when one is available.
 
 Return:
 
@@ -46,6 +56,14 @@ and a ReadingEnvelope that names contract/query identity.
 - Same query, basis, and vars produce stable reading identity.
 - Changing schema hash, op id, vars, or basis changes identity.
 - Bounded observers can report budget/residual posture.
+
+## Remaining work
+
+- `echo-wesley-gen` should emit query observer helper constructors against this
+  core boundary.
+- Contract-host packaging still needs an installed registry boundary that
+  rejects unsupported contract operations before they become runtime-visible
+  work or reads.
 
 ## Non-goals
 

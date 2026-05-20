@@ -39,6 +39,10 @@ scheduler-owned tick outcome without giving application code tick authority.
   that seam: stable command-rule names, op-id matchers, typed vars decoders,
   base runtime-ingress read footprints, and rule constructors that accept
   host-supplied executor and footprint functions.
+- Core routes `QueryView`/`Query` observations to installed contract query
+  observers keyed by generated query op id. Observers receive canonical vars
+  bytes and the resolved causal basis, emit `QueryBytes`, and stamp the
+  `ReadingEnvelope` with authored observer plan identity.
 - Footprint conflicts are explicit receipt rejections, not hidden retries.
 - Failed `SuperTick` attempts are failure-atomic: uncommitted runtime,
   provenance, and receipt-correlation writes are rolled back before any fault
@@ -57,7 +61,8 @@ scheduler-owned tick outcome without giving application code tick authority.
   by id.
 - Contract-host packaging does not yet reject unsupported contract operations at
   an installed registry boundary.
-- Generic QueryView remains unsupported in core.
+- `echo-wesley-gen` does not yet emit generated query observer installation
+  helpers for the core contract query observer boundary.
 
 ## Doctrine
 
@@ -86,7 +91,8 @@ AdmissionTicket is not execution.
 
 TickReceipt is not AdmissionTicket.
 
-QueryView waits until the write-side pipeline is credible.
+QueryView remains an observer-relative read. It does not mutate state, tick the
+runtime, or execute handlers outside scheduler-owned writes.
 
 Transport arrival is not semantic Echo history. Echo acceptance is semantic
 ingress history.
@@ -139,10 +145,10 @@ AdmissionTicket + witnessed submission -> ticketed runtime ingress
 
 ## Immediate Next Slice
 
-QueryViewObserverBridge should route generated query observations through an
-installed observer boundary and return QueryBytes with a ReadingEnvelope. Keep
-the write-side invariant intact: application dispatch submits EINT bytes only;
-handlers execute during scheduler-owned ticks.
+The next slice should emit generated query observer helpers from Wesley against
+the core contract query observer boundary. Keep the write-side invariant intact:
+application dispatch submits EINT bytes only; handlers execute during
+scheduler-owned ticks.
 
 This slice must not implement streaming subscriptions, automatic retry,
 execution outside scheduler-owned ticks, or wall-clock cadence semantics.

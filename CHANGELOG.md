@@ -7,6 +7,15 @@
 
 ### Added
 
+- `echo-wesley-gen` now supports `--contract-host`, an opt-in generated helper
+  surface for installed `warp-core` mutation handlers. Generated mutation
+  helpers now include stable contract command-rule names, op-id matchers,
+  typed vars decoding from scheduler-materialized EINT runtime ingress events,
+  base runtime-ingress read footprints, and rule constructors that accept
+  host-supplied executor and footprint functions. A generated toy-counter smoke
+  crate proves the emitted helpers install into `warp-core` and run only during
+  scheduler-owned ticks. This flag is std-only and does not implement QueryView,
+  dynamic plugin loading, or a generated application mutation body.
 - `warp-core` now exposes a scheduler-owned installed contract host seam for
   EINT-backed mutation handlers. Host/generated `cmd/*` rules can read a
   scheduler-materialized runtime ingress event, match its EINT operation id,

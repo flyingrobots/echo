@@ -35,6 +35,10 @@ scheduler-owned tick outcome without giving application code tick authority.
 - Core exposes scheduler-owned EINT contract-host helpers so installed
   `cmd/*` handlers can match operation ids, borrow canonical vars bytes for
   generated decoding, and declare the standard runtime-ingress read footprint.
+- `echo-wesley-gen --contract-host` emits std-only mutation helper rules for
+  that seam: stable command-rule names, op-id matchers, typed vars decoders,
+  base runtime-ingress read footprints, and rule constructors that accept
+  host-supplied executor and footprint functions.
 - Footprint conflicts are explicit receipt rejections, not hidden retries.
 - Failed `SuperTick` attempts are failure-atomic: uncommitted runtime,
   provenance, and receipt-correlation writes are rolled back before any fault
@@ -51,8 +55,8 @@ scheduler-owned tick outcome without giving application code tick authority.
 - Accepted submissions are not yet complete witnessed ingress history.
 - Clients cannot yet observe per-intent applied/rejected application semantics
   by id.
-- Wesley does not yet generate installed handler rules for the core
-  contract-host seam.
+- Contract-host packaging does not yet reject unsupported contract operations at
+  an installed registry boundary.
 - Generic QueryView remains unsupported in core.
 
 ## Doctrine
@@ -135,10 +139,10 @@ AdmissionTicket + witnessed submission -> ticketed runtime ingress
 
 ## Immediate Next Slice
 
-The next slice should either emit generated installed handler rules from Wesley
-or start QueryViewObserverBridge against the same contract-host boundary. Keep
+QueryViewObserverBridge should route generated query observations through an
+installed observer boundary and return QueryBytes with a ReadingEnvelope. Keep
 the write-side invariant intact: application dispatch submits EINT bytes only;
 handlers execute during scheduler-owned ticks.
 
-This slice must not implement QueryView, streaming subscriptions, automatic
-retry, execution outside scheduler-owned ticks, or wall-clock cadence semantics.
+This slice must not implement streaming subscriptions, automatic retry,
+execution outside scheduler-owned ticks, or wall-clock cadence semantics.

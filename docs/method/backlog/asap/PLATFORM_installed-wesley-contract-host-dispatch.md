@@ -3,7 +3,8 @@
 
 # Installed Wesley Contract Host Dispatch
 
-Status: core contract-host seam checkpoint; generated handler emission remains.
+Status: core contract-host seam and generated handler-rule helpers exist;
+installed registry packaging remains.
 
 Depends on:
 
@@ -29,9 +30,18 @@ by installed `cmd/*` rules:
 - prove handlers run during `SchedulerCoordinator::super_tick(...)`, not during
   application dispatch.
 
-Remaining work is generator/packaging integration: Wesley does not yet emit the
-installed handler rules or package an installed contract registry that rejects
-unsupported contract operations at the contract-host boundary.
+`echo-wesley-gen --contract-host` now emits std-only generated mutation helper
+rules for that seam:
+
+- stable command-rule names bound to schema hash, op id, and operation name;
+- op-id matchers for scheduler-materialized EINT runtime ingress events;
+- typed vars decoders using the generated CBOR shape;
+- base runtime-ingress read footprint helpers;
+- rule constructors that accept host-supplied executor and footprint functions.
+
+Remaining work is packaging integration: Echo does not yet have an installed
+contract registry boundary that rejects unsupported contract operations before
+they become scheduler-visible work.
 
 ## RED
 

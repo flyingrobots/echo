@@ -1091,6 +1091,21 @@ impl KernelPort for WarpKernel {
         match self.runtime.ingest(envelope) {
             Ok(disposition) => {
                 let accepted = matches!(disposition, IngressDisposition::Accepted { .. });
+                let (submission_id, submission_generation) = match disposition {
+                    IngressDisposition::Accepted {
+                        submission_id,
+                        submission_generation,
+                        ..
+                    }
+                    | IngressDisposition::Duplicate {
+                        submission_id,
+                        submission_generation,
+                        ..
+                    } => (
+                        Some(submission_id.to_vec()),
+                        Some(submission_generation.as_u64()),
+                    ),
+                };
                 if accepted {
                     let admitted_at = self.current_head()?.worldline_tick;
                     self.record_stack_witness_fixture_admission(op_id, vars, admitted_at);
@@ -1099,6 +1114,8 @@ impl KernelPort for WarpKernel {
                 Ok(DispatchResponse {
                     accepted,
                     intent_id,
+                    submission_id,
+                    submission_generation,
                     scheduler_status: self.scheduler_status()?,
                 })
             }
@@ -1235,6 +1252,8 @@ impl TrustedKernelControlPort for WarpKernel {
         Ok(DispatchResponse {
             accepted: true,
             intent_id,
+            submission_id: None,
+            submission_generation: None,
             scheduler_status: self.scheduler_status()?,
         })
     }
@@ -2102,6 +2121,8 @@ mod tests {
         let resp = kernel.dispatch_intent(&intent).unwrap();
         assert!(resp.accepted);
         assert_eq!(resp.intent_id.len(), 32);
+        assert_eq!(resp.submission_id.as_ref().map(Vec::len), Some(32));
+        assert_eq!(resp.submission_generation, Some(1));
         assert_eq!(
             kernel.current_head().unwrap().worldline_tick,
             AbiWorldlineTick(0)
@@ -2119,6 +2140,8 @@ mod tests {
         assert!(r1.accepted);
         assert!(!r2.accepted);
         assert_eq!(r1.intent_id, r2.intent_id);
+        assert_eq!(r1.submission_id, r2.submission_id);
+        assert_eq!(r1.submission_generation, r2.submission_generation);
     }
 
     #[test]

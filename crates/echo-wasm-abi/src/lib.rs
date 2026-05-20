@@ -1286,6 +1286,8 @@ mod tests {
                 Ok(DispatchResponse {
                     accepted: true,
                     intent_id: vec![10; 32],
+                    submission_id: Some(vec![11; 32]),
+                    submission_generation: Some(1),
                     scheduler_status: SchedulerStatus {
                         state: SchedulerState::Inactive,
                         active_mode: Some(SchedulerMode::UntilIdle {
@@ -1376,7 +1378,7 @@ mod tests {
             IntentDispatchResult::Staged(staged)
                 if staged.base_coordinate == base_coordinate
                     && staged.intent_family == intent_family
-                    && staged.stage_ref == vec![10; 32]
+                    && staged.stage_ref == vec![11; 32]
                     && staged.reason == StagedIntentReason::AwaitingExplicitAdmission
         ));
     }
@@ -1401,6 +1403,8 @@ mod tests {
                 Ok(DispatchResponse {
                     accepted: true,
                     intent_id: vec![10; 32],
+                    submission_id: Some(vec![11; 32]),
+                    submission_generation: Some(1),
                     scheduler_status: SchedulerStatus {
                         state: SchedulerState::Inactive,
                         active_mode: Some(SchedulerMode::UntilIdle {

@@ -247,9 +247,13 @@ fn ticketed_invocation_ingests_runtime_envelope_without_ticking() {
         make_intent_kind("test/runtime"),
         b"ticketed-ingress".to_vec(),
     );
-    let submission = match runtime.submit_intent(envelope.clone()).unwrap() {
-        IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
-        IntentSubmissionDisposition::Duplicate { .. } => panic!("first submission duplicated"),
+    let accepted = match runtime.submit_intent(envelope.clone()).unwrap() {
+        IntentSubmissionDisposition::Accepted { submission_id, .. } => Some(submission_id),
+        IntentSubmissionDisposition::Duplicate { .. } => None,
+    };
+    assert!(accepted.is_some(), "first submission should be accepted");
+    let Some(submission) = accepted else {
+        return;
     };
     let ticket = admission_ticket(2);
 
@@ -262,7 +266,7 @@ fn ticketed_invocation_ingests_runtime_envelope_without_ticking() {
         )
         .unwrap();
 
-    let record = match disposition {
+    let staged_record = match disposition {
         TicketedRuntimeIngressDisposition::Staged { record, ingress } => {
             assert!(matches!(
                 ingress,
@@ -275,11 +279,16 @@ fn ticketed_invocation_ingests_runtime_envelope_without_ticking() {
                     && routed_head_key == head_key
                     && submission_id == submission
             ));
-            record
+            Some(record)
         }
-        TicketedRuntimeIngressDisposition::Duplicate { .. } => {
-            panic!("first ticketed runtime ingress duplicated")
-        }
+        TicketedRuntimeIngressDisposition::Duplicate { .. } => None,
+    };
+    assert!(
+        staged_record.is_some(),
+        "first ticketed runtime ingress should be staged"
+    );
+    let Some(record) = staged_record else {
+        return;
     };
 
     assert_eq!(record.submission_id, submission);
@@ -316,9 +325,13 @@ fn ticketed_ingress_preserves_submission_and_ticket_identity() {
         make_intent_kind("test/runtime"),
         b"stable-ticketed-ingress".to_vec(),
     );
-    let submission = match runtime.submit_intent(envelope.clone()).unwrap() {
-        IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
-        IntentSubmissionDisposition::Duplicate { .. } => panic!("first submission duplicated"),
+    let accepted = match runtime.submit_intent(envelope.clone()).unwrap() {
+        IntentSubmissionDisposition::Accepted { submission_id, .. } => Some(submission_id),
+        IntentSubmissionDisposition::Duplicate { .. } => None,
+    };
+    assert!(accepted.is_some(), "first submission should be accepted");
+    let Some(submission) = accepted else {
+        return;
     };
     let ticket = admission_ticket(3);
 
@@ -340,16 +353,26 @@ fn ticketed_ingress_preserves_submission_and_ticket_identity() {
         .unwrap();
 
     let first_record = match first {
-        TicketedRuntimeIngressDisposition::Staged { record, .. } => record,
-        TicketedRuntimeIngressDisposition::Duplicate { .. } => {
-            panic!("first ticketed ingress duplicated")
-        }
+        TicketedRuntimeIngressDisposition::Staged { record, .. } => Some(record),
+        TicketedRuntimeIngressDisposition::Duplicate { .. } => None,
+    };
+    assert!(
+        first_record.is_some(),
+        "first ticketed ingress should be staged"
+    );
+    let Some(first_record) = first_record else {
+        return;
     };
     let duplicate_record = match duplicate {
-        TicketedRuntimeIngressDisposition::Duplicate { record } => record,
-        TicketedRuntimeIngressDisposition::Staged { .. } => {
-            panic!("duplicate ticketed ingress staged twice")
-        }
+        TicketedRuntimeIngressDisposition::Duplicate { record } => Some(record),
+        TicketedRuntimeIngressDisposition::Staged { .. } => None,
+    };
+    assert!(
+        duplicate_record.is_some(),
+        "duplicate ticketed ingress should not stage twice"
+    );
+    let Some(duplicate_record) = duplicate_record else {
+        return;
     };
 
     assert_eq!(first_record, duplicate_record);
@@ -370,9 +393,13 @@ fn receipt_correlation_does_not_exist_before_scheduler_tick() {
         make_intent_kind("test/runtime"),
         b"pending-receipt-correlation".to_vec(),
     );
-    let submission = match runtime.submit_intent(envelope.clone()).unwrap() {
-        IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
-        IntentSubmissionDisposition::Duplicate { .. } => panic!("first submission duplicated"),
+    let accepted = match runtime.submit_intent(envelope.clone()).unwrap() {
+        IntentSubmissionDisposition::Accepted { submission_id, .. } => Some(submission_id),
+        IntentSubmissionDisposition::Duplicate { .. } => None,
+    };
+    assert!(accepted.is_some(), "first submission should be accepted");
+    let Some(submission) = accepted else {
+        return;
     };
     let ticket = admission_ticket(4);
     let staged = runtime
@@ -383,12 +410,18 @@ fn receipt_correlation_does_not_exist_before_scheduler_tick() {
             envelope,
         )
         .unwrap();
-    let ticketed_ingress_id = match staged {
-        TicketedRuntimeIngressDisposition::Staged { record, .. } => record.ticketed_ingress_id,
-        TicketedRuntimeIngressDisposition::Duplicate { .. } => {
-            panic!("first ticketed ingress duplicated")
-        }
+    let staged_record = match staged {
+        TicketedRuntimeIngressDisposition::Staged { record, .. } => Some(record),
+        TicketedRuntimeIngressDisposition::Duplicate { .. } => None,
     };
+    assert!(
+        staged_record.is_some(),
+        "first ticketed ingress should be staged"
+    );
+    let Some(staged_record) = staged_record else {
+        return;
+    };
+    let ticketed_ingress_id = staged_record.ticketed_ingress_id;
 
     assert!(runtime
         .receipt_correlation_for_ticketed_ingress(&ticketed_ingress_id)
@@ -424,13 +457,17 @@ fn witnessed_submission_outcome_observation_is_pending_without_tick() {
         make_intent_kind("test/runtime"),
         b"pending-outcome".to_vec(),
     );
-    let (submission, generation) = match runtime.submit_intent(envelope).unwrap() {
+    let accepted = match runtime.submit_intent(envelope).unwrap() {
         IntentSubmissionDisposition::Accepted {
             submission_id,
             submission_generation,
             ..
-        } => (submission_id, submission_generation),
-        IntentSubmissionDisposition::Duplicate { .. } => panic!("first submission duplicated"),
+        } => Some((submission_id, submission_generation)),
+        IntentSubmissionDisposition::Duplicate { .. } => None,
+    };
+    assert!(accepted.is_some(), "first submission should be accepted");
+    let Some((submission, generation)) = accepted else {
+        return;
     };
 
     assert!(matches!(
@@ -458,9 +495,13 @@ fn ticketed_ingress_correlates_tick_receipt_after_scheduler_owned_tick() {
         make_intent_kind("test/runtime"),
         b"correlate-after-tick".to_vec(),
     );
-    let submission = match runtime.submit_intent(envelope.clone()).unwrap() {
-        IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
-        IntentSubmissionDisposition::Duplicate { .. } => panic!("first submission duplicated"),
+    let accepted = match runtime.submit_intent(envelope.clone()).unwrap() {
+        IntentSubmissionDisposition::Accepted { submission_id, .. } => Some(submission_id),
+        IntentSubmissionDisposition::Duplicate { .. } => None,
+    };
+    assert!(accepted.is_some(), "first submission should be accepted");
+    let Some(submission) = accepted else {
+        return;
     };
     let ticket = admission_ticket(5);
     let staged = runtime
@@ -471,12 +512,18 @@ fn ticketed_ingress_correlates_tick_receipt_after_scheduler_owned_tick() {
             envelope.clone(),
         )
         .unwrap();
-    let ticketed_ingress_id = match staged {
-        TicketedRuntimeIngressDisposition::Staged { record, .. } => record.ticketed_ingress_id,
-        TicketedRuntimeIngressDisposition::Duplicate { .. } => {
-            panic!("first ticketed ingress duplicated")
-        }
+    let staged_record = match staged {
+        TicketedRuntimeIngressDisposition::Staged { record, .. } => Some(record),
+        TicketedRuntimeIngressDisposition::Duplicate { .. } => None,
     };
+    assert!(
+        staged_record.is_some(),
+        "first ticketed ingress should be staged"
+    );
+    let Some(staged_record) = staged_record else {
+        return;
+    };
+    let ticketed_ingress_id = staged_record.ticketed_ingress_id;
 
     let mut provenance = registered_worldlines_provenance(&runtime);
     let records =
@@ -530,9 +577,13 @@ fn ticketed_submission_outcome_observation_is_decided_after_scheduler_tick() {
         make_intent_kind("test/runtime"),
         b"decided-outcome".to_vec(),
     );
-    let submission = match runtime.submit_intent(envelope.clone()).unwrap() {
-        IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
-        IntentSubmissionDisposition::Duplicate { .. } => panic!("first submission duplicated"),
+    let accepted = match runtime.submit_intent(envelope.clone()).unwrap() {
+        IntentSubmissionDisposition::Accepted { submission_id, .. } => Some(submission_id),
+        IntentSubmissionDisposition::Duplicate { .. } => None,
+    };
+    assert!(accepted.is_some(), "first submission should be accepted");
+    let Some(submission) = accepted else {
+        return;
     };
     let ticket = admission_ticket(6);
     runtime

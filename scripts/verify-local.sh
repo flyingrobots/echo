@@ -22,6 +22,7 @@ VERIFY_USE_NEXTEST="${VERIFY_USE_NEXTEST:-0}"
 VERIFY_LANE_MODE="${VERIFY_LANE_MODE:-parallel}"
 VERIFY_LANE_ROOT="${VERIFY_LANE_ROOT:-target/verify-lanes}"
 VERIFY_TIMING_FILE="${VERIFY_TIMING_FILE:-$STAMP_DIR/timing.jsonl}"
+VERIFY_LOCAL_RUSTDOC="${VERIFY_LOCAL_RUSTDOC:-0}"
 VERIFY_RUN_CACHE_STATE="${VERIFY_RUN_CACHE_STATE:-fresh}"
 VERIFY_CLASSIFICATION="${VERIFY_CLASSIFICATION:-unknown}"
 SECONDS=0
@@ -384,6 +385,10 @@ ensure_toolchain() {
 
 use_nextest() {
   [[ "$VERIFY_USE_NEXTEST" == "1" ]] && command -v cargo-nextest >/dev/null 2>&1
+}
+
+local_rustdoc_enabled() {
+  [[ "$VERIFY_LOCAL_RUSTDOC" == "1" ]]
 }
 
 list_changed_branch_files() {
@@ -753,16 +758,18 @@ run_targeted_checks() {
 
   run_crate_lint_and_check targeted "${crates[@]}"
 
-  for crate in "${FULL_LOCAL_RUSTDOC_PACKAGES[@]}"; do
-    if printf '%s\n' "${crates[@]}" | grep -qx "$crate"; then
-      rustdoc_crates+=("$crate")
-    fi
-  done
+  if local_rustdoc_enabled; then
+    for crate in "${FULL_LOCAL_RUSTDOC_PACKAGES[@]}"; do
+      if printf '%s\n' "${crates[@]}" | grep -qx "$crate"; then
+        rustdoc_crates+=("$crate")
+      fi
+    done
 
-  for crate in "${rustdoc_crates[@]}"; do
-    echo "[verify-local] rustdoc warnings gate (${crate})"
-    RUSTDOCFLAGS="-D warnings" cargo +"$PINNED" doc -p "$crate" --no-deps
-  done
+    for crate in "${rustdoc_crates[@]}"; do
+      echo "[verify-local] rustdoc warnings gate (${crate})"
+      RUSTDOCFLAGS="-D warnings" cargo +"$PINNED" doc -p "$crate" --no-deps
+    done
+  fi
 
   for crate in "${crates[@]}"; do
     if [[ ! -f "crates/${crate}/Cargo.toml" ]]; then
@@ -1358,6 +1365,10 @@ run_full_lane_tests_warp_core() {
 }
 
 run_full_lane_rustdoc() {
+  if ! local_rustdoc_enabled; then
+    echo "[verify-local][rustdoc] CI-owned by default; set VERIFY_LOCAL_RUSTDOC=1 to opt in"
+    return
+  fi
   if [[ ${#FULL_SCOPE_RUSTDOC_PACKAGES[@]} -eq 0 ]]; then
     echo "[verify-local][rustdoc] no selected public-doc crates"
     return
@@ -1424,7 +1435,9 @@ run_full_checks_sequential() {
   run_timed_step "tests-support" run_full_lane_tests_support
   run_timed_step "tests-runtime" run_full_lane_tests_runtime
   run_timed_step "tests-warp-core" run_full_lane_tests_warp_core
-  run_timed_step "rustdoc" run_full_lane_rustdoc
+  if local_rustdoc_enabled; then
+    run_timed_step "rustdoc" run_full_lane_rustdoc
+  fi
   run_timed_step "guards" run_full_lane_guards
 }
 
@@ -1454,7 +1467,7 @@ run_full_checks_parallel() {
   if [[ "$FULL_SCOPE_RUN_WARP_CORE_SMOKE" == "1" ]]; then
     lanes+=("tests-warp-core" run_full_lane_tests_warp_core)
   fi
-  if [[ ${#FULL_SCOPE_RUSTDOC_PACKAGES[@]} -gt 0 ]]; then
+  if local_rustdoc_enabled && [[ ${#FULL_SCOPE_RUSTDOC_PACKAGES[@]} -gt 0 ]]; then
     lanes+=("rustdoc" run_full_lane_rustdoc)
   fi
 

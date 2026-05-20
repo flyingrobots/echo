@@ -300,6 +300,11 @@
 
 ### Changed
 
+- Local verification now treats rustdoc warnings as CI-owned by default.
+  `scripts/verify-local.sh` skips local rustdoc lanes unless
+  `VERIFY_LOCAL_RUSTDOC=1` is set, keeping pre-push and full local gates focused
+  on faster edit-loop witnesses while preserving CI rustdoc coverage.
+
 ### Fixed
 
 - `Determinism Guards` no longer runs `apt-get install ripgrep`; static guard

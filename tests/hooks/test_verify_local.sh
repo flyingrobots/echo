@@ -264,6 +264,9 @@ EOF
   if [[ -n "${VERIFY_FAKE_TIMING_FILE:-}" ]]; then
     verify_env+=("VERIFY_TIMING_FILE=$VERIFY_FAKE_TIMING_FILE")
   fi
+  if [[ -n "${VERIFY_LOCAL_RUSTDOC+x}" ]]; then
+    verify_env+=("VERIFY_LOCAL_RUSTDOC=$VERIFY_LOCAL_RUSTDOC")
+  fi
   output="$(
     cd "$tmp" && \
     env "${verify_env[@]}" \
@@ -1020,6 +1023,21 @@ if printf '%s\n' "$fake_full_output" | grep -q 'target/verify-lanes/full-tests-w
 else
   fail "full verification should route warp-core tests through an isolated target dir"
   printf '%s\n' "$fake_full_output"
+fi
+if printf '%s\n' "$fake_full_output" | grep -q 'doc -p warp-core'; then
+  fail "full local verification should leave rustdoc to CI by default"
+  printf '%s\n' "$fake_full_output"
+else
+  pass "full local verification leaves rustdoc to CI by default"
+fi
+VERIFY_LOCAL_RUSTDOC=1
+fake_full_rustdoc_output="$(run_fake_verify full crates/warp-core/src/lib.rs)"
+unset VERIFY_LOCAL_RUSTDOC
+if printf '%s\n' "$fake_full_rustdoc_output" | grep -q 'doc -p warp-core'; then
+  pass "full local verification keeps an explicit rustdoc opt-in"
+else
+  fail "full local verification should keep an explicit rustdoc opt-in"
+  printf '%s\n' "$fake_full_rustdoc_output"
 fi
 
 fake_full_seq_output="$(run_fake_verify full crates/warp-core/src/lib.rs sequential)"

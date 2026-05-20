@@ -1345,6 +1345,33 @@ else
   pass "pre-push does not add clippy/check on top of exact changed-module tests"
 fi
 
+fake_pre_push_warp_math_prng_output="$(run_fake_verify pre-push crates/warp-math/tests/prng_golden_regression.rs)"
+fake_pre_push_warp_math_prng_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_warp_math_prng_output")"
+if printf '%s\n' "$fake_pre_push_warp_math_prng_cargo_log" | grep -q -- 'test -p warp-math --features golden_prng --test prng_golden_regression'; then
+  pass "pre-push keeps required golden PRNG feature for the exact integration test"
+else
+  fail "pre-push should keep required golden_prng feature for prng_golden_regression"
+  printf '%s\n' "$fake_pre_push_warp_math_prng_output"
+fi
+
+fake_pre_push_warp_math_fixed_output="$(run_fake_verify pre-push crates/warp-math/tests/dfix64_tests.rs)"
+fake_pre_push_warp_math_fixed_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_warp_math_fixed_output")"
+if printf '%s\n' "$fake_pre_push_warp_math_fixed_cargo_log" | grep -q -- 'test -p warp-math --features det_fixed --test dfix64_tests'; then
+  pass "pre-push keeps required fixed-point feature for the exact integration test"
+else
+  fail "pre-push should keep required det_fixed feature for dfix64_tests"
+  printf '%s\n' "$fake_pre_push_warp_math_fixed_output"
+fi
+
+fake_pre_push_warp_math_serde_output="$(run_fake_verify pre-push crates/warp-math/tests/determinism_policy_tests.rs)"
+fake_pre_push_warp_math_serde_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_warp_math_serde_output")"
+if printf '%s\n' "$fake_pre_push_warp_math_serde_cargo_log" | grep -q -- 'test -p warp-math --features serde --test determinism_policy_tests'; then
+  pass "pre-push keeps required serde feature for the exact integration test"
+else
+  fail "pre-push should keep required serde feature for determinism_policy_tests"
+  printf '%s\n' "$fake_pre_push_warp_math_serde_output"
+fi
+
 fake_warp_core_default_output="$(run_fake_verify full crates/warp-core/src/provenance_store.rs)"
 if printf '%s\n' "$fake_warp_core_default_output" | grep -q 'test -p warp-core --lib'; then
   pass "warp-core default smoke keeps the lib test lane"

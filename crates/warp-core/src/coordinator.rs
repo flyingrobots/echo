@@ -19,11 +19,11 @@ use crate::head_inbox::{InboxAddress, InboxIngestResult, IngressEnvelope, Ingres
 use crate::ident::Hash;
 use crate::optic_artifact::OpticAdmissionTicket;
 use crate::provenance_store::{
-    HistoryError, ProvenanceCheckpoint, ProvenanceEntry, ProvenanceService, ProvenanceStore,
-    ReplayError,
+    HistoryError, ProvenanceCheckpoint, ProvenanceEntry, ProvenanceEventKind, ProvenanceRef,
+    ProvenanceService, ProvenanceStore, ReplayError,
 };
 use crate::strand::{ForkBasisRef, Strand, StrandError, StrandId, StrandRegistry, SupportPin};
-use crate::worldline::WorldlineId;
+use crate::worldline::{ApplyError, WorldlineId};
 use crate::worldline_registry::WorldlineRegistry;
 use crate::worldline_state::{WorldlineFrontier, WorldlineState};
 
@@ -111,6 +111,19 @@ pub enum RuntimeError {
         /// The content-addressed ingress id that was already known to runtime.
         ingress_id: Hash,
     },
+    /// Scheduler work is blocked by an active runtime-wide fault.
+    #[error("scheduler runtime fault is active: {0:?}")]
+    SchedulerRuntimeFaultActive(SchedulerFaultId),
+    /// Attempted to resolve a scheduler fault that is not recorded.
+    #[error("unknown scheduler fault: {0:?}")]
+    UnknownSchedulerFault(SchedulerFaultId),
+    /// Attempted to resolve a scheduler fault that is no longer active.
+    #[error("scheduler fault is already resolved: {0:?}")]
+    SchedulerFaultAlreadyResolved(SchedulerFaultId),
+    /// Attempted to allocate more scheduler fault generations than the runtime
+    /// counter can represent.
+    #[error("scheduler fault generation overflow")]
+    SchedulerFaultGenerationOverflow,
 }
 
 /// Echo-owned intake/correlation generation for witnessed intent submissions.
@@ -181,6 +194,148 @@ impl TicketedRuntimeIngressAuthority {
     /// The caller must prove it is executing inside Echo's trusted runtime
     /// owner, test harness, or equivalent host-controlled boundary.
     #[cfg(feature = "host_test")]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn assume_runtime_owner() -> Self {
+        Self { _private: () }
+    }
+}
+
+/// Content-addressed identifier for a scheduler run attempt.
+///
+/// A run id names a scheduler-owned attempt. It is not a global tick, not a
+/// worldline tick, and not wall-clock time.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SchedulerRunId(Hash);
+
+impl SchedulerRunId {
+    /// Builds a scheduler run id from canonical bytes.
+    #[must_use]
+    pub const fn from_bytes(bytes: Hash) -> Self {
+        Self(bytes)
+    }
+
+    /// Returns the raw scheduler run id bytes.
+    #[must_use]
+    pub const fn as_bytes(&self) -> &Hash {
+        &self.0
+    }
+}
+
+/// Echo-owned generation assigned to scheduler fault records.
+///
+/// This keeps repeated, same-cause faults distinct when a trusted runtime owner
+/// resolves a fault and the same head or runtime fails again before any tick
+/// advances.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SchedulerFaultGeneration(u64);
+
+impl SchedulerFaultGeneration {
+    /// Zero value used before any scheduler fault has been recorded.
+    pub const ZERO: Self = Self(0);
+    /// Largest representable scheduler fault generation.
+    pub const MAX: Self = Self(u64::MAX);
+
+    /// Builds a scheduler fault generation from its raw value.
+    #[must_use]
+    pub const fn from_raw(raw: u64) -> Self {
+        Self(raw)
+    }
+
+    /// Returns the raw logical value.
+    #[must_use]
+    pub const fn as_u64(self) -> u64 {
+        self.0
+    }
+
+    /// Increments by one, returning `None` on overflow.
+    #[must_use]
+    pub fn checked_increment(self) -> Option<Self> {
+        self.0.checked_add(1).map(Self)
+    }
+}
+
+/// Content-addressed identifier for scheduler fault evidence.
+///
+/// Fault ids name runtime safety evidence. They are not application intent ids,
+/// admission tickets, or tick receipts.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SchedulerFaultId(Hash);
+
+impl SchedulerFaultId {
+    /// Builds a scheduler fault id from canonical bytes.
+    #[must_use]
+    pub const fn from_bytes(bytes: Hash) -> Self {
+        Self(bytes)
+    }
+
+    /// Returns the raw scheduler fault id bytes.
+    #[must_use]
+    pub const fn as_bytes(&self) -> &Hash {
+        &self.0
+    }
+}
+
+/// Scope quarantined by scheduler fault evidence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SchedulerFaultScope {
+    /// One writer head is the scoped fault culprit.
+    Head(WriterHeadKey),
+    /// The scheduler/runtime as a whole is unsafe to advance.
+    Runtime,
+}
+
+/// Lifecycle status for scheduler fault evidence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SchedulerFaultStatus {
+    /// The fault is actively blocking its scope.
+    Active,
+    /// Trusted runtime recovery resolved the fault.
+    Resolved {
+        /// Runtime-owner recovery event or control digest.
+        recovery_id: Hash,
+    },
+}
+
+/// Runtime-local safety evidence recorded after an internal scheduler fault.
+///
+/// This is control-plane posture. It is not application history, not an undo,
+/// not a tick receipt, not a lawful domain rejection, and not yet published as
+/// durable provenance/control-plane history.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SchedulerFaultRecord {
+    /// Content-addressed fault id.
+    pub fault_id: SchedulerFaultId,
+    /// Echo-owned generation assigned when the fault evidence was recorded.
+    pub fault_generation: SchedulerFaultGeneration,
+    /// Scheduler-owned run attempt that produced the fault.
+    pub run_id: SchedulerRunId,
+    /// Minimal safely isolated fault scope.
+    pub scope: SchedulerFaultScope,
+    /// Deterministic digest of the internal fault cause.
+    pub cause_digest: Hash,
+    /// Active/resolved fault lifecycle posture.
+    pub status: SchedulerFaultStatus,
+}
+
+/// Trusted authority token for resolving scheduler fault quarantine.
+///
+/// Application-facing code should not hold this token. Fault recovery is a
+/// runtime-owner action because it changes scheduler safety posture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SchedulerFaultRecoveryAuthority {
+    _private: (),
+}
+
+impl SchedulerFaultRecoveryAuthority {
+    /// Assumes trusted runtime-owner authority for resolving scheduler faults.
+    ///
+    /// The caller must prove it is executing inside Echo's trusted runtime
+    /// owner, test harness, or equivalent host-controlled boundary.
+    #[cfg(any(test, feature = "host_test", feature = "trusted_runtime"))]
     #[doc(hidden)]
     #[must_use]
     pub fn assume_runtime_owner() -> Self {
@@ -404,6 +559,15 @@ pub struct WorldlineRuntime {
     receipt_correlation_by_submission: BTreeMap<Hash, Hash>,
     /// Deterministic lookup from admission ticket digest to receipt correlation.
     receipt_correlation_by_ticket: BTreeMap<Hash, Hash>,
+    /// Scheduler fault evidence keyed by content-addressed fault id.
+    scheduler_faults: BTreeMap<SchedulerFaultId, SchedulerFaultRecord>,
+    /// Active scoped scheduler faults by writer head.
+    faulted_heads: BTreeMap<WriterHeadKey, SchedulerFaultId>,
+    /// Active runtime-wide scheduler fault, if the scheduler cannot safely
+    /// isolate the fault to one head.
+    runtime_fault: Option<SchedulerFaultId>,
+    /// Next Echo-owned scheduler fault generation to assign.
+    next_scheduler_fault_generation: SchedulerFaultGeneration,
     /// Registry of live speculative strands attached to the runtime.
     strands: StrandRegistry,
 }
@@ -449,6 +613,12 @@ impl WorldlineRuntime {
     /// Rebuilds the runnable set from the current head registry.
     pub fn refresh_runnable(&mut self) {
         self.runnable.rebuild(&self.heads);
+        if self.runtime_fault.is_some() {
+            self.runnable.clear();
+        } else {
+            self.runnable
+                .retain(|key| !self.faulted_heads.contains_key(key));
+        }
     }
 
     fn checkpoint_for(&self, keys: &[WriterHeadKey]) -> Result<RuntimeCheckpoint, RuntimeError> {
@@ -620,6 +790,94 @@ impl WorldlineRuntime {
     #[must_use]
     pub fn receipt_correlation_count(&self) -> usize {
         self.receipt_correlations_by_ticketed_ingress.len()
+    }
+
+    /// Returns scheduler fault evidence by fault id.
+    #[must_use]
+    pub fn scheduler_fault(&self, fault_id: &SchedulerFaultId) -> Option<&SchedulerFaultRecord> {
+        self.scheduler_faults.get(fault_id)
+    }
+
+    /// Returns active scheduler fault evidence for a writer head.
+    #[must_use]
+    pub fn scheduler_fault_for_head(
+        &self,
+        head_key: &WriterHeadKey,
+    ) -> Option<&SchedulerFaultRecord> {
+        self.faulted_heads
+            .get(head_key)
+            .and_then(|fault_id| self.scheduler_faults.get(fault_id))
+    }
+
+    /// Returns the active runtime-wide scheduler fault, if one exists.
+    #[must_use]
+    pub fn scheduler_runtime_fault(&self) -> Option<&SchedulerFaultRecord> {
+        self.runtime_fault
+            .as_ref()
+            .and_then(|fault_id| self.scheduler_faults.get(fault_id))
+    }
+
+    /// Iterates scheduler fault evidence in deterministic fault-id order.
+    pub fn scheduler_faults(&self) -> impl Iterator<Item = &SchedulerFaultRecord> {
+        self.scheduler_faults.values()
+    }
+
+    /// Returns the number of scheduler fault evidence records.
+    #[must_use]
+    pub fn scheduler_fault_count(&self) -> usize {
+        self.scheduler_faults.len()
+    }
+
+    /// Returns `true` when a writer head is actively fault-quarantined.
+    #[must_use]
+    pub fn is_head_faulted(&self, head_key: &WriterHeadKey) -> bool {
+        self.faulted_heads.contains_key(head_key)
+    }
+
+    /// Returns `true` when the runtime is globally faulted.
+    #[must_use]
+    pub fn is_runtime_faulted(&self) -> bool {
+        self.runtime_fault.is_some()
+    }
+
+    /// Resolves active scheduler fault quarantine through trusted runtime authority.
+    ///
+    /// Generic head eligibility changes do not clear fault quarantine. Recovery
+    /// must cite the fault being resolved and pass through this runtime-owner
+    /// boundary.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the fault id is unknown or already resolved.
+    pub fn resolve_scheduler_fault(
+        &mut self,
+        _authority: &SchedulerFaultRecoveryAuthority,
+        fault_id: SchedulerFaultId,
+        recovery_id: Hash,
+    ) -> Result<(), RuntimeError> {
+        let record = self
+            .scheduler_faults
+            .get_mut(&fault_id)
+            .ok_or(RuntimeError::UnknownSchedulerFault(fault_id))?;
+        if !matches!(record.status, SchedulerFaultStatus::Active) {
+            return Err(RuntimeError::SchedulerFaultAlreadyResolved(fault_id));
+        }
+
+        match record.scope {
+            SchedulerFaultScope::Head(head_key) => {
+                if self.faulted_heads.get(&head_key) == Some(&fault_id) {
+                    self.faulted_heads.remove(&head_key);
+                }
+            }
+            SchedulerFaultScope::Runtime => {
+                if self.runtime_fault == Some(fault_id) {
+                    self.runtime_fault = None;
+                }
+            }
+        }
+        record.status = SchedulerFaultStatus::Resolved { recovery_id };
+        self.refresh_runnable();
+        Ok(())
     }
 
     /// Observes the current scheduler-owned outcome posture for a submission.
@@ -1167,6 +1425,76 @@ impl WorldlineRuntime {
         }
     }
 
+    fn record_scheduler_head_fault(
+        &mut self,
+        run_id: SchedulerRunId,
+        head_key: WriterHeadKey,
+        cause_digest: Hash,
+    ) -> Result<SchedulerFaultId, RuntimeError> {
+        if let Some(existing) = self.faulted_heads.get(&head_key).copied() {
+            return Ok(existing);
+        }
+        let scope = SchedulerFaultScope::Head(head_key);
+        let (fault_generation, fault_id) =
+            self.allocate_scheduler_fault_identity(run_id, scope, cause_digest)?;
+        let record = SchedulerFaultRecord {
+            fault_id,
+            fault_generation,
+            run_id,
+            scope,
+            cause_digest,
+            status: SchedulerFaultStatus::Active,
+        };
+        self.scheduler_faults.insert(fault_id, record);
+        self.faulted_heads.insert(head_key, fault_id);
+        self.refresh_runnable();
+        Ok(fault_id)
+    }
+
+    fn record_scheduler_runtime_fault(
+        &mut self,
+        run_id: SchedulerRunId,
+        cause_digest: Hash,
+    ) -> Result<SchedulerFaultId, RuntimeError> {
+        if let Some(existing) = self.runtime_fault {
+            return Ok(existing);
+        }
+        let scope = SchedulerFaultScope::Runtime;
+        let (fault_generation, fault_id) =
+            self.allocate_scheduler_fault_identity(run_id, scope, cause_digest)?;
+        let record = SchedulerFaultRecord {
+            fault_id,
+            fault_generation,
+            run_id,
+            scope,
+            cause_digest,
+            status: SchedulerFaultStatus::Active,
+        };
+        self.scheduler_faults.insert(fault_id, record);
+        self.runtime_fault = Some(fault_id);
+        self.refresh_runnable();
+        Ok(fault_id)
+    }
+
+    fn allocate_scheduler_fault_identity(
+        &mut self,
+        run_id: SchedulerRunId,
+        scope: SchedulerFaultScope,
+        cause_digest: Hash,
+    ) -> Result<(SchedulerFaultGeneration, SchedulerFaultId), RuntimeError> {
+        loop {
+            let fault_generation = self
+                .next_scheduler_fault_generation
+                .checked_increment()
+                .ok_or(RuntimeError::SchedulerFaultGenerationOverflow)?;
+            self.next_scheduler_fault_generation = fault_generation;
+            let fault_id = derive_scheduler_fault_id(fault_generation, run_id, scope, cause_digest);
+            if !self.scheduler_faults.contains_key(&fault_id) {
+                return Ok((fault_generation, fault_id));
+            }
+        }
+    }
+
     fn record_receipt_correlations(
         &mut self,
         admitted: &[IngressEnvelope],
@@ -1285,6 +1613,632 @@ fn derive_ticketed_runtime_ingress_id(
     hasher.finalize().into()
 }
 
+fn derive_scheduler_run_id(next_global_tick: GlobalTick, keys: &[WriterHeadKey]) -> SchedulerRunId {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo.scheduler-run");
+    hasher.update(&next_global_tick.as_u64().to_le_bytes());
+    hasher.update(&(keys.len() as u64).to_le_bytes());
+    for key in keys {
+        hasher.update(key.worldline_id.as_bytes());
+        hasher.update(key.head_id.as_bytes());
+    }
+    SchedulerRunId::from_bytes(hasher.finalize().into())
+}
+
+fn derive_scheduler_fault_id(
+    fault_generation: SchedulerFaultGeneration,
+    run_id: SchedulerRunId,
+    scope: SchedulerFaultScope,
+    cause_digest: Hash,
+) -> SchedulerFaultId {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo.scheduler-fault");
+    hasher.update(&fault_generation.as_u64().to_le_bytes());
+    hasher.update(run_id.as_bytes());
+    match scope {
+        SchedulerFaultScope::Head(head_key) => {
+            hasher.update(b"head");
+            hasher.update(head_key.worldline_id.as_bytes());
+            hasher.update(head_key.head_id.as_bytes());
+        }
+        SchedulerFaultScope::Runtime => {
+            hasher.update(b"runtime");
+        }
+    }
+    hasher.update(&cause_digest);
+    SchedulerFaultId::from_bytes(hasher.finalize().into())
+}
+
+fn scheduler_fault_scope_for_error(
+    head_key: WriterHeadKey,
+    err: &RuntimeError,
+) -> SchedulerFaultScope {
+    match err {
+        RuntimeError::Engine(_) | RuntimeError::FrontierTickOverflow(_) => {
+            SchedulerFaultScope::Head(head_key)
+        }
+        RuntimeError::Provenance(_)
+        | RuntimeError::UnknownHead(_)
+        | RuntimeError::UnknownWorldline(_)
+        | RuntimeError::GlobalTickOverflow
+        | RuntimeError::SchedulerRuntimeFaultActive(_)
+        | RuntimeError::UnknownSchedulerFault(_)
+        | RuntimeError::SchedulerFaultAlreadyResolved(_)
+        | RuntimeError::SchedulerFaultGenerationOverflow => SchedulerFaultScope::Runtime,
+        RuntimeError::DuplicateWorldline(_)
+        | RuntimeError::DuplicateHead(_)
+        | RuntimeError::DuplicateDefaultWriter(_)
+        | RuntimeError::DuplicateInboxAddress { .. }
+        | RuntimeError::MissingDefaultWriter(_)
+        | RuntimeError::MissingInboxAddress { .. }
+        | RuntimeError::RejectedByPolicy(_)
+        | RuntimeError::Replay(_)
+        | RuntimeError::Strand(_)
+        | RuntimeError::IntentSubmissionGenerationOverflow
+        | RuntimeError::UnknownIntentSubmission(_)
+        | RuntimeError::TicketedIngressSubmissionMismatch(_)
+        | RuntimeError::TicketedIngressAlreadyStaged(_)
+        | RuntimeError::TicketedIngressDuplicateRuntimeIngress { .. } => {
+            SchedulerFaultScope::Runtime
+        }
+    }
+}
+
+fn hash_worldline_tick(hasher: &mut blake3::Hasher, tick: WorldlineTick) {
+    hasher.update(&tick.as_u64().to_le_bytes());
+}
+
+fn hash_worldline_id(hasher: &mut blake3::Hasher, worldline_id: &WorldlineId) {
+    hasher.update(worldline_id.as_bytes());
+}
+
+fn hash_writer_head_key(hasher: &mut blake3::Hasher, head_key: &WriterHeadKey) {
+    hasher.update(head_key.worldline_id.as_bytes());
+    hasher.update(head_key.head_id.as_bytes());
+}
+
+fn hash_node_key(hasher: &mut blake3::Hasher, node: &crate::NodeKey) {
+    hasher.update(node.warp_id.as_bytes());
+    hasher.update(node.local_id.as_bytes());
+}
+
+fn hash_edge_key(hasher: &mut blake3::Hasher, edge: &crate::EdgeKey) {
+    hasher.update(edge.warp_id.as_bytes());
+    hasher.update(edge.local_id.as_bytes());
+}
+
+fn hash_provenance_ref(hasher: &mut blake3::Hasher, reference: &ProvenanceRef) {
+    hash_worldline_id(hasher, &reference.worldline_id);
+    hash_worldline_tick(hasher, reference.worldline_tick);
+    hasher.update(&reference.commit_hash);
+}
+
+fn hash_provenance_event_kind(hasher: &mut blake3::Hasher, event_kind: &ProvenanceEventKind) {
+    match event_kind {
+        ProvenanceEventKind::LocalCommit => {
+            hasher.update(b"local-commit");
+        }
+        ProvenanceEventKind::CrossWorldlineMessage {
+            source_worldline,
+            source_worldline_tick,
+            message_id,
+        } => {
+            hasher.update(b"cross-worldline-message");
+            hash_worldline_id(hasher, source_worldline);
+            hash_worldline_tick(hasher, *source_worldline_tick);
+            hasher.update(message_id);
+        }
+        ProvenanceEventKind::MergeImport {
+            source_worldline,
+            source_worldline_tick,
+            op_id,
+        } => {
+            hasher.update(b"merge-import");
+            hash_worldline_id(hasher, source_worldline);
+            hash_worldline_tick(hasher, *source_worldline_tick);
+            hasher.update(op_id);
+        }
+        ProvenanceEventKind::ConflictArtifact { artifact_id } => {
+            hasher.update(b"conflict-artifact");
+            hasher.update(artifact_id);
+        }
+    }
+}
+
+fn hash_history_error(hasher: &mut blake3::Hasher, err: &HistoryError) {
+    match err {
+        HistoryError::HistoryUnavailable { tick } => {
+            hasher.update(b"history-unavailable");
+            hash_worldline_tick(hasher, *tick);
+        }
+        HistoryError::WorldlineNotFound(worldline_id) => {
+            hasher.update(b"worldline-not-found");
+            hash_worldline_id(hasher, worldline_id);
+        }
+        HistoryError::WorldlineAlreadyExists(worldline_id) => {
+            hasher.update(b"worldline-already-exists");
+            hash_worldline_id(hasher, worldline_id);
+        }
+        HistoryError::TickGap { expected, got } => {
+            hasher.update(b"tick-gap");
+            hash_worldline_tick(hasher, *expected);
+            hash_worldline_tick(hasher, *got);
+        }
+        HistoryError::EntryWorldlineMismatch { expected, got } => {
+            hasher.update(b"entry-worldline-mismatch");
+            hash_worldline_id(hasher, expected);
+            hash_worldline_id(hasher, got);
+        }
+        HistoryError::LocalCommitMissingHeadKey { tick } => {
+            hasher.update(b"local-commit-missing-head-key");
+            hash_worldline_tick(hasher, *tick);
+        }
+        HistoryError::LocalCommitMissingPatch { tick } => {
+            hasher.update(b"local-commit-missing-patch");
+            hash_worldline_tick(hasher, *tick);
+        }
+        HistoryError::HeadWorldlineMismatch {
+            entry_worldline,
+            head_key,
+        } => {
+            hasher.update(b"head-worldline-mismatch");
+            hash_worldline_id(hasher, entry_worldline);
+            hash_writer_head_key(hasher, head_key);
+        }
+        HistoryError::InvalidLocalCommitEventKind { tick, got } => {
+            hasher.update(b"invalid-local-commit-event-kind");
+            hash_worldline_tick(hasher, *tick);
+            hash_provenance_event_kind(hasher, got);
+        }
+        HistoryError::RecordedEventUnexpectedHeadKey { tick } => {
+            hasher.update(b"recorded-event-unexpected-head-key");
+            hash_worldline_tick(hasher, *tick);
+        }
+        HistoryError::RecordedEventMissingPatch { tick } => {
+            hasher.update(b"recorded-event-missing-patch");
+            hash_worldline_tick(hasher, *tick);
+        }
+        HistoryError::InvalidRecordedEventKind { tick, got } => {
+            hasher.update(b"invalid-recorded-event-kind");
+            hash_worldline_tick(hasher, *tick);
+            hash_provenance_event_kind(hasher, got);
+        }
+        HistoryError::NonCanonicalParents { tick } => {
+            hasher.update(b"non-canonical-parents");
+            hash_worldline_tick(hasher, *tick);
+        }
+        HistoryError::MissingParentRef { tick, parent } => {
+            hasher.update(b"missing-parent-ref");
+            hash_worldline_tick(hasher, *tick);
+            hash_provenance_ref(hasher, parent);
+        }
+        HistoryError::ParentCommitHashMismatch {
+            tick,
+            parent,
+            stored_commit_hash,
+        } => {
+            hasher.update(b"parent-commit-hash-mismatch");
+            hash_worldline_tick(hasher, *tick);
+            hash_provenance_ref(hasher, parent);
+            hasher.update(stored_commit_hash);
+        }
+        HistoryError::CheckpointRootWarpMismatch {
+            worldline_id,
+            expected,
+            actual,
+        } => {
+            hasher.update(b"checkpoint-root-warp-mismatch");
+            hash_worldline_id(hasher, worldline_id);
+            hasher.update(expected.as_bytes());
+            hasher.update(actual.as_bytes());
+        }
+        HistoryError::CheckpointInitialBoundaryHashMismatch {
+            worldline_id,
+            expected,
+            actual,
+        } => {
+            hasher.update(b"checkpoint-initial-boundary-hash-mismatch");
+            hash_worldline_id(hasher, worldline_id);
+            hasher.update(expected);
+            hasher.update(actual);
+        }
+        HistoryError::CheckpointStateRootMismatch {
+            tick,
+            expected,
+            actual,
+        } => {
+            hasher.update(b"checkpoint-state-root-mismatch");
+            hash_worldline_tick(hasher, *tick);
+            hasher.update(expected);
+            hasher.update(actual);
+        }
+        HistoryError::CheckpointReplayMetadataMismatch { tick, field } => {
+            hasher.update(b"checkpoint-replay-metadata-mismatch");
+            hash_worldline_tick(hasher, *tick);
+            hasher.update(field.as_bytes());
+        }
+    }
+}
+
+fn hash_attachment_key(hasher: &mut blake3::Hasher, key: &crate::attachment::AttachmentKey) {
+    match key.owner {
+        crate::attachment::AttachmentOwner::Node(node) => {
+            hasher.update(b"node");
+            hash_node_key(hasher, &node);
+        }
+        crate::attachment::AttachmentOwner::Edge(edge) => {
+            hasher.update(b"edge");
+            hash_edge_key(hasher, &edge);
+        }
+    }
+    match key.plane {
+        crate::attachment::AttachmentPlane::Alpha => hasher.update(b"alpha"),
+        crate::attachment::AttachmentPlane::Beta => hasher.update(b"beta"),
+    };
+}
+
+fn hash_tick_patch_error(hasher: &mut blake3::Hasher, err: &crate::tick_patch::TickPatchError) {
+    match err {
+        crate::tick_patch::TickPatchError::MissingWarp(warp_id) => {
+            hasher.update(b"missing-warp");
+            hasher.update(warp_id.as_bytes());
+        }
+        crate::tick_patch::TickPatchError::MissingNode(node) => {
+            hasher.update(b"missing-node");
+            hash_node_key(hasher, node);
+        }
+        crate::tick_patch::TickPatchError::MissingEdge(edge) => {
+            hasher.update(b"missing-edge");
+            hash_edge_key(hasher, edge);
+        }
+        crate::tick_patch::TickPatchError::NodeNotIsolated(node) => {
+            hasher.update(b"node-not-isolated");
+            hash_node_key(hasher, node);
+        }
+        crate::tick_patch::TickPatchError::InvalidAttachmentKey(key) => {
+            hasher.update(b"invalid-attachment-key");
+            hash_attachment_key(hasher, key);
+        }
+        crate::tick_patch::TickPatchError::PortalInitRequired => {
+            hasher.update(b"portal-init-required");
+        }
+        crate::tick_patch::TickPatchError::PortalInvariantViolation => {
+            hasher.update(b"portal-invariant-violation");
+        }
+        crate::tick_patch::TickPatchError::DigestMismatch => {
+            hasher.update(b"digest-mismatch");
+        }
+    }
+}
+
+fn hash_apply_error(hasher: &mut blake3::Hasher, err: &ApplyError) {
+    match err {
+        ApplyError::MissingNode(node) => {
+            hasher.update(b"missing-node");
+            hash_node_key(hasher, node);
+        }
+        ApplyError::MissingEdge(edge) => {
+            hasher.update(b"missing-edge");
+            hash_edge_key(hasher, edge);
+        }
+        ApplyError::WarpMismatch { expected, actual } => {
+            hasher.update(b"warp-mismatch");
+            hasher.update(expected.as_bytes());
+            hasher.update(actual.as_bytes());
+        }
+        ApplyError::InvalidAttachmentKey => {
+            hasher.update(b"invalid-attachment-key");
+        }
+        ApplyError::NodeNotIsolated(node) => {
+            hasher.update(b"node-not-isolated");
+            hash_node_key(hasher, node);
+        }
+        ApplyError::TickPatch(err) => {
+            hasher.update(b"tick-patch");
+            hash_tick_patch_error(hasher, err);
+        }
+    }
+}
+
+fn hash_replay_error(hasher: &mut blake3::Hasher, err: &ReplayError) {
+    match err {
+        ReplayError::History(err) => {
+            hasher.update(b"history");
+            hash_history_error(hasher, err);
+        }
+        ReplayError::Apply { tick, source } => {
+            hasher.update(b"apply");
+            hash_worldline_tick(hasher, *tick);
+            hash_apply_error(hasher, source);
+        }
+        ReplayError::CheckpointStateRootMismatch {
+            tick,
+            expected,
+            actual,
+        } => {
+            hasher.update(b"checkpoint-state-root-mismatch");
+            hash_worldline_tick(hasher, *tick);
+            hasher.update(expected);
+            hasher.update(actual);
+        }
+        ReplayError::ReplayBaseWarpMismatch { expected, actual } => {
+            hasher.update(b"replay-base-warp-mismatch");
+            hasher.update(expected.as_bytes());
+            hasher.update(actual.as_bytes());
+        }
+        ReplayError::InitialBoundaryHashMismatch { expected, actual } => {
+            hasher.update(b"initial-boundary-hash-mismatch");
+            hasher.update(expected);
+            hasher.update(actual);
+        }
+        ReplayError::MissingPatch { tick } => {
+            hasher.update(b"missing-patch");
+            hash_worldline_tick(hasher, *tick);
+        }
+        ReplayError::TickOverflow { tick } => {
+            hasher.update(b"tick-overflow");
+            hash_worldline_tick(hasher, *tick);
+        }
+        ReplayError::PatchDigestMismatch {
+            tick,
+            expected,
+            actual,
+        } => {
+            hasher.update(b"patch-digest-mismatch");
+            hash_worldline_tick(hasher, *tick);
+            hasher.update(expected);
+            hasher.update(actual);
+        }
+        ReplayError::StateRootMismatch {
+            tick,
+            expected,
+            actual,
+        } => {
+            hasher.update(b"state-root-mismatch");
+            hash_worldline_tick(hasher, *tick);
+            hasher.update(expected);
+            hasher.update(actual);
+        }
+        ReplayError::CommitHashMismatch {
+            tick,
+            expected,
+            actual,
+        } => {
+            hasher.update(b"commit-hash-mismatch");
+            hash_worldline_tick(hasher, *tick);
+            hasher.update(expected);
+            hasher.update(actual);
+        }
+    }
+}
+
+fn hash_strand_error(hasher: &mut blake3::Hasher, err: &StrandError) {
+    match err {
+        StrandError::AlreadyExists(strand_id) => {
+            hasher.update(b"already-exists");
+            hasher.update(strand_id.as_bytes());
+        }
+        StrandError::NotFound(strand_id) => {
+            hasher.update(b"not-found");
+            hasher.update(strand_id.as_bytes());
+        }
+        StrandError::ForkTickUnavailable { worldline, tick } => {
+            hasher.update(b"fork-tick-unavailable");
+            hash_worldline_id(hasher, worldline);
+            hash_worldline_tick(hasher, *tick);
+        }
+        StrandError::SourceWorldlineNotFound(worldline_id) => {
+            hasher.update(b"source-worldline-not-found");
+            hash_worldline_id(hasher, worldline_id);
+        }
+        StrandError::Provenance(message) => {
+            hasher.update(b"provenance");
+            hasher.update(message.as_bytes());
+        }
+        StrandError::ForkTickOverflow(strand_id) => {
+            hasher.update(b"fork-tick-overflow");
+            hasher.update(strand_id.as_bytes());
+        }
+        StrandError::MissingSupportTarget(strand_id) => {
+            hasher.update(b"missing-support-target");
+            hasher.update(strand_id.as_bytes());
+        }
+        StrandError::SupportWorldlineMismatch {
+            target,
+            expected,
+            got,
+        } => {
+            hasher.update(b"support-worldline-mismatch");
+            hasher.update(target.as_bytes());
+            hash_worldline_id(hasher, expected);
+            hash_worldline_id(hasher, got);
+        }
+        StrandError::SelfSupportPin(strand_id) => {
+            hasher.update(b"self-support-pin");
+            hasher.update(strand_id.as_bytes());
+        }
+        StrandError::DuplicateSupportTarget { owner, target } => {
+            hasher.update(b"duplicate-support-target");
+            hasher.update(owner.as_bytes());
+            hasher.update(target.as_bytes());
+        }
+        StrandError::SupportPinUnavailable { target, tick } => {
+            hasher.update(b"support-pin-unavailable");
+            hasher.update(target.as_bytes());
+            hash_worldline_tick(hasher, *tick);
+        }
+        StrandError::PinnedByLiveStrand { strand, pinned_by } => {
+            hasher.update(b"pinned-by-live-strand");
+            hasher.update(strand.as_bytes());
+            hasher.update(pinned_by.as_bytes());
+        }
+        StrandError::InvariantViolation(message) => {
+            hasher.update(b"invariant-violation");
+            hasher.update(message.as_bytes());
+        }
+    }
+}
+
+fn scheduler_error_cause_digest(err: &RuntimeError) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo.scheduler-fault-cause.error");
+    match err {
+        RuntimeError::Engine(engine_err) => {
+            hasher.update(b"engine");
+            match engine_err {
+                EngineError::UnknownTx => {
+                    hasher.update(b"unknown-tx");
+                }
+                EngineError::UnknownRule(rule) => {
+                    hasher.update(b"unknown-rule");
+                    hasher.update(rule.as_bytes());
+                }
+                EngineError::DuplicateRuleName(rule) => {
+                    hasher.update(b"duplicate-rule-name");
+                    hasher.update(rule.as_bytes());
+                }
+                EngineError::DuplicateRuleId(rule_id) => {
+                    hasher.update(b"duplicate-rule-id");
+                    hasher.update(rule_id);
+                }
+                EngineError::MissingJoinFn => {
+                    hasher.update(b"missing-join-fn");
+                }
+                EngineError::InternalCorruption(message) => {
+                    hasher.update(b"internal-corruption");
+                    hasher.update(message.as_bytes());
+                }
+                EngineError::UnknownWarp(warp_id) => {
+                    hasher.update(b"unknown-warp");
+                    hasher.update(&warp_id.0);
+                }
+                EngineError::InvalidTickIndex(index, len) => {
+                    hasher.update(b"invalid-tick-index");
+                    hasher.update(&(*index as u64).to_le_bytes());
+                    hasher.update(&(*len as u64).to_le_bytes());
+                }
+            }
+        }
+        RuntimeError::FrontierTickOverflow(worldline_id) => {
+            hasher.update(b"frontier-tick-overflow");
+            hasher.update(worldline_id.as_bytes());
+        }
+        RuntimeError::GlobalTickOverflow => {
+            hasher.update(b"global-tick-overflow");
+        }
+        RuntimeError::DuplicateWorldline(worldline_id) => {
+            hasher.update(b"duplicate-worldline");
+            hash_worldline_id(&mut hasher, worldline_id);
+        }
+        RuntimeError::DuplicateHead(head_key) => {
+            hasher.update(b"duplicate-head");
+            hash_writer_head_key(&mut hasher, head_key);
+        }
+        RuntimeError::UnknownWorldline(worldline_id) => {
+            hasher.update(b"unknown-worldline");
+            hash_worldline_id(&mut hasher, worldline_id);
+        }
+        RuntimeError::UnknownHead(head_key) => {
+            hasher.update(b"unknown-head");
+            hash_writer_head_key(&mut hasher, head_key);
+        }
+        RuntimeError::DuplicateDefaultWriter(worldline_id) => {
+            hasher.update(b"duplicate-default-writer");
+            hash_worldline_id(&mut hasher, worldline_id);
+        }
+        RuntimeError::DuplicateInboxAddress {
+            worldline_id,
+            inbox,
+        } => {
+            hasher.update(b"duplicate-inbox-address");
+            hash_worldline_id(&mut hasher, worldline_id);
+            hasher.update(inbox.0.as_bytes());
+        }
+        RuntimeError::MissingDefaultWriter(worldline_id) => {
+            hasher.update(b"missing-default-writer");
+            hash_worldline_id(&mut hasher, worldline_id);
+        }
+        RuntimeError::MissingInboxAddress {
+            worldline_id,
+            inbox,
+        } => {
+            hasher.update(b"missing-inbox-address");
+            hash_worldline_id(&mut hasher, worldline_id);
+            hasher.update(inbox.0.as_bytes());
+        }
+        RuntimeError::RejectedByPolicy(head_key) => {
+            hasher.update(b"rejected-by-policy");
+            hash_writer_head_key(&mut hasher, head_key);
+        }
+        RuntimeError::Provenance(err) => {
+            hasher.update(b"provenance");
+            hash_history_error(&mut hasher, err);
+        }
+        RuntimeError::Replay(err) => {
+            hasher.update(b"replay");
+            hash_replay_error(&mut hasher, err);
+        }
+        RuntimeError::Strand(err) => {
+            hasher.update(b"strand");
+            hash_strand_error(&mut hasher, err);
+        }
+        RuntimeError::IntentSubmissionGenerationOverflow => {
+            hasher.update(b"intent-submission-generation-overflow");
+        }
+        RuntimeError::UnknownIntentSubmission(submission_id) => {
+            hasher.update(b"unknown-intent-submission");
+            hasher.update(submission_id);
+        }
+        RuntimeError::TicketedIngressSubmissionMismatch(submission_id) => {
+            hasher.update(b"ticketed-ingress-submission-mismatch");
+            hasher.update(submission_id);
+        }
+        RuntimeError::TicketedIngressAlreadyStaged(submission_id) => {
+            hasher.update(b"ticketed-ingress-already-staged");
+            hasher.update(submission_id);
+        }
+        RuntimeError::TicketedIngressDuplicateRuntimeIngress {
+            head_key,
+            ingress_id,
+        } => {
+            hasher.update(b"ticketed-ingress-duplicate-runtime-ingress");
+            hash_writer_head_key(&mut hasher, head_key);
+            hasher.update(ingress_id);
+        }
+        RuntimeError::SchedulerRuntimeFaultActive(fault_id) => {
+            hasher.update(b"scheduler-runtime-fault-active");
+            hasher.update(fault_id.as_bytes());
+        }
+        RuntimeError::UnknownSchedulerFault(fault_id) => {
+            hasher.update(b"unknown-scheduler-fault");
+            hasher.update(fault_id.as_bytes());
+        }
+        RuntimeError::SchedulerFaultAlreadyResolved(fault_id) => {
+            hasher.update(b"scheduler-fault-already-resolved");
+            hasher.update(fault_id.as_bytes());
+        }
+        RuntimeError::SchedulerFaultGenerationOverflow => {
+            hasher.update(b"scheduler-fault-generation-overflow");
+        }
+    }
+    hasher.finalize().into()
+}
+
+fn scheduler_panic_cause_digest(payload: &(dyn std::any::Any + Send)) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo.scheduler-fault-cause.panic");
+    if let Some(message) = payload.downcast_ref::<&str>() {
+        hasher.update(b"str");
+        hasher.update(message.as_bytes());
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        hasher.update(b"string");
+        hasher.update(message.as_bytes());
+    } else {
+        hasher.update(b"opaque");
+    }
+    hasher.finalize().into()
+}
+
 // =============================================================================
 // StepRecord
 // =============================================================================
@@ -1337,14 +2291,22 @@ impl SchedulerCoordinator {
         provenance: &mut ProvenanceService,
         engine: &mut Engine,
     ) -> Result<Vec<StepRecord>, RuntimeError> {
-        let next_global_tick = runtime
-            .global_tick
-            .checked_increment()
-            .ok_or(RuntimeError::GlobalTickOverflow)?;
+        if let Some(fault_id) = runtime.runtime_fault {
+            return Err(RuntimeError::SchedulerRuntimeFaultActive(fault_id));
+        }
         runtime.refresh_runnable();
 
         let mut records = Vec::new();
         let keys: Vec<WriterHeadKey> = runtime.runnable.iter().copied().collect();
+        let next_global_tick = if let Some(next) = runtime.global_tick.checked_increment() {
+            next
+        } else {
+            let run_id = derive_scheduler_run_id(runtime.global_tick, &keys);
+            let cause_digest = scheduler_error_cause_digest(&RuntimeError::GlobalTickOverflow);
+            runtime.record_scheduler_runtime_fault(run_id, cause_digest)?;
+            return Err(RuntimeError::GlobalTickOverflow);
+        };
+        let run_id = derive_scheduler_run_id(next_global_tick, &keys);
 
         for key in &keys {
             let head = runtime
@@ -1360,7 +2322,10 @@ impl SchedulerCoordinator {
                 .get(&key.worldline_id)
                 .ok_or(RuntimeError::UnknownWorldline(key.worldline_id))?;
             if frontier.frontier_tick() == WorldlineTick::MAX {
-                return Err(RuntimeError::FrontierTickOverflow(key.worldline_id));
+                let err = RuntimeError::FrontierTickOverflow(key.worldline_id);
+                let cause_digest = scheduler_error_cause_digest(&err);
+                runtime.record_scheduler_head_fault(run_id, *key, cause_digest)?;
+                return Err(err);
             }
         }
 
@@ -1479,15 +2444,27 @@ impl SchedulerCoordinator {
             let record = match outcome {
                 Ok(Ok(record)) => record,
                 Ok(Err(err)) => {
+                    let scope = scheduler_fault_scope_for_error(*key, &err);
+                    let cause_digest = scheduler_error_cause_digest(&err);
                     runtime.rollback_receipt_correlations(&mut receipt_correlation_rollback);
                     runtime.restore(runtime_before);
                     provenance.restore(&provenance_before);
+                    match scope {
+                        SchedulerFaultScope::Head(head_key) => {
+                            runtime.record_scheduler_head_fault(run_id, head_key, cause_digest)?;
+                        }
+                        SchedulerFaultScope::Runtime => {
+                            runtime.record_scheduler_runtime_fault(run_id, cause_digest)?;
+                        }
+                    }
                     return Err(err);
                 }
                 Err(payload) => {
+                    let cause_digest = scheduler_panic_cause_digest(payload.as_ref());
                     runtime.rollback_receipt_correlations(&mut receipt_correlation_rollback);
                     runtime.restore(runtime_before);
                     provenance.restore(&provenance_before);
+                    let _ = runtime.record_scheduler_runtime_fault(run_id, cause_digest);
                     resume_unwind(payload);
                 }
             };
@@ -1505,7 +2482,13 @@ impl SchedulerCoordinator {
         runtime
             .heads
             .iter()
-            .filter_map(|(key, head)| (head.is_admitted() && !head.is_paused()).then_some(*key))
+            .filter_map(|(key, head)| {
+                (head.is_admitted()
+                    && !head.is_paused()
+                    && !runtime.is_runtime_faulted()
+                    && !runtime.is_head_faulted(key))
+                .then_some(*key)
+            })
             .collect()
     }
 }
@@ -1850,6 +2833,34 @@ mod tests {
         }
     }
 
+    fn test_rule_id(rule_name: &str) -> Hash {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"echo.coordinator.test-rule");
+        hasher.update(rule_name.as_bytes());
+        hasher.finalize().into()
+    }
+
+    fn shared_footprint_runtime_rule(rule_name: &'static str) -> RewriteRule {
+        RewriteRule {
+            id: test_rule_id(rule_name),
+            name: rule_name,
+            left: PatternGraph { nodes: vec![] },
+            matcher: |_view, _scope| true,
+            executor: |_view, _scope, _delta| {},
+            compute_footprint: |view, _scope| {
+                let mut footprint = crate::Footprint::default();
+                footprint
+                    .n_write
+                    .insert_with_warp(view.warp_id(), make_node_id("shared-footprint"));
+                footprint.factor_mask = 1;
+                footprint
+            },
+            factor_mask: 0,
+            conflict_policy: ConflictPolicy::Abort,
+            join_fn: None,
+        }
+    }
+
     #[allow(clippy::panic)]
     fn panic_runtime_rule(rule_name: &'static str) -> RewriteRule {
         RewriteRule {
@@ -1863,6 +2874,66 @@ mod tests {
             conflict_policy: ConflictPolicy::Abort,
             join_fn: None,
         }
+    }
+
+    #[test]
+    fn lawful_rejection_does_not_fault_head() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        engine
+            .register_rule(shared_footprint_runtime_rule("cmd/shared-footprint"))
+            .unwrap();
+        let worldline_id = wl(1);
+        runtime
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        let head_key = register_head(
+            &mut runtime,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let kind = make_intent_kind("test");
+        runtime
+            .ingest(IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                kind,
+                b"conflict-a".to_vec(),
+            ))
+            .unwrap();
+        runtime
+            .ingest(IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                kind,
+                b"conflict-b".to_vec(),
+            ))
+            .unwrap();
+
+        let mut provenance = mirrored_provenance(&runtime);
+        let records =
+            SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].head_key, head_key);
+        assert_eq!(runtime.scheduler_fault_count(), 0);
+        assert!(runtime.scheduler_fault_for_head(&head_key).is_none());
+        assert!(runtime.scheduler_runtime_fault().is_none());
+        let (_, receipt, _) = runtime
+            .worldlines
+            .get(&worldline_id)
+            .unwrap()
+            .state()
+            .tick_history()
+            .last()
+            .unwrap();
+        assert!(receipt.entries().iter().any(|entry| {
+            entry.disposition
+                == crate::receipt::TickReceiptDisposition::Rejected(
+                    crate::receipt::TickReceiptRejection::FootprintConflict,
+                )
+        }));
     }
 
     #[test]
@@ -2720,7 +3791,7 @@ mod tests {
     }
 
     #[test]
-    fn frontier_tick_overflow_preflight_preserves_runtime_state() {
+    fn frontier_tick_overflow_preflight_preserves_uncommitted_state_and_faults_head() {
         let mut runtime = WorldlineRuntime::new();
         let mut engine = empty_engine();
         let worldline_id = wl(1);
@@ -2787,10 +3858,20 @@ mod tests {
                 .is_none(),
             "overflow must not mutate the worldline state"
         );
+        let fault = runtime
+            .scheduler_fault_for_head(&head_key)
+            .expect("frontier overflow should fault the scoped head");
+        assert_eq!(fault.scope, SchedulerFaultScope::Head(head_key));
+        assert_eq!(fault.status, SchedulerFaultStatus::Active);
+        assert!(runtime.scheduler_runtime_fault().is_none());
+        assert!(
+            SchedulerCoordinator::peek_order(&runtime).is_empty(),
+            "faulted head must not remain scheduler-runnable"
+        );
     }
 
     #[test]
-    fn global_tick_overflow_preflight_preserves_runtime_state() {
+    fn global_tick_overflow_preflight_preserves_uncommitted_state_and_faults_runtime() {
         let mut runtime = WorldlineRuntime::new();
         let mut engine = empty_engine();
         let worldline_id = wl(1);
@@ -2845,6 +3926,19 @@ mod tests {
                 .is_none(),
             "global-tick overflow must not mutate the worldline state"
         );
+        let fault = runtime
+            .scheduler_runtime_fault()
+            .expect("global tick overflow should fault the runtime");
+        assert_eq!(fault.scope, SchedulerFaultScope::Runtime);
+        assert_eq!(fault.status, SchedulerFaultStatus::Active);
+        let fault_id = fault.fault_id;
+        assert!(runtime.scheduler_fault_for_head(&head_key).is_none());
+        let blocked = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine)
+            .unwrap_err();
+        assert!(matches!(
+            blocked,
+            RuntimeError::SchedulerRuntimeFaultActive(id) if id == fault_id
+        ));
     }
 
     #[test]
@@ -3091,6 +4185,369 @@ mod tests {
     }
 
     #[test]
+    fn failed_later_head_rolls_back_attempt_and_faults_only_failing_head() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        let worldline_a = wl(1);
+        let worldline_b = wl(2);
+        runtime
+            .register_worldline(worldline_a, WorldlineState::empty())
+            .unwrap();
+        runtime
+            .register_worldline(worldline_b, WorldlineState::empty())
+            .unwrap();
+        let head_a = register_head(
+            &mut runtime,
+            worldline_a,
+            "default-a",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let head_b = register_head(
+            &mut runtime,
+            worldline_b,
+            "default-b",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let env_a = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter {
+                worldline_id: worldline_a,
+            },
+            make_intent_kind("test"),
+            b"commit-a".to_vec(),
+        );
+        let env_b = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter {
+                worldline_id: worldline_b,
+            },
+            make_intent_kind("test"),
+            b"commit-b".to_vec(),
+        );
+        let env_a_ingress_id = env_a.ingress_id();
+        runtime.ingest(env_a).unwrap();
+        runtime.ingest(env_b).unwrap();
+
+        {
+            let frontier = runtime.worldlines.frontier_mut(&worldline_b).unwrap();
+            let broken_root = frontier.state.root.warp_id;
+            assert!(frontier.state.warp_state.delete_instance(&broken_root));
+        }
+
+        let mut provenance = mirrored_provenance(&runtime);
+        let err = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine)
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            RuntimeError::Engine(EngineError::UnknownWarp(_))
+        ));
+
+        assert_eq!(runtime.global_tick(), gt(0));
+        assert_eq!(provenance.len(worldline_a).unwrap(), 0);
+        assert_eq!(provenance.len(worldline_b).unwrap(), 0);
+        assert!(runtime_store(&runtime, worldline_a)
+            .node(&crate::NodeId(env_a_ingress_id))
+            .is_none());
+        assert!(
+            runtime.scheduler_fault_for_head(&head_a).is_none(),
+            "rollback collateral must not fault the earlier successful head"
+        );
+        let fault = runtime
+            .scheduler_fault_for_head(&head_b)
+            .expect("failing head should be quarantined");
+        assert_eq!(fault.scope, SchedulerFaultScope::Head(head_b));
+        assert_eq!(fault.status, SchedulerFaultStatus::Active);
+        assert!(runtime.scheduler_runtime_fault().is_none());
+    }
+
+    #[test]
+    fn faulted_head_is_skipped_and_unrelated_head_continues_on_next_tick() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        let worldline_a = wl(1);
+        let worldline_b = wl(2);
+        runtime
+            .register_worldline(worldline_a, WorldlineState::empty())
+            .unwrap();
+        runtime
+            .register_worldline(worldline_b, WorldlineState::empty())
+            .unwrap();
+        let head_a = register_head(
+            &mut runtime,
+            worldline_a,
+            "default-a",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let head_b = register_head(
+            &mut runtime,
+            worldline_b,
+            "default-b",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        runtime
+            .ingest(IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter {
+                    worldline_id: worldline_a,
+                },
+                make_intent_kind("test"),
+                b"commit-a".to_vec(),
+            ))
+            .unwrap();
+        runtime
+            .ingest(IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter {
+                    worldline_id: worldline_b,
+                },
+                make_intent_kind("test"),
+                b"commit-b".to_vec(),
+            ))
+            .unwrap();
+
+        {
+            let frontier = runtime.worldlines.frontier_mut(&worldline_b).unwrap();
+            let broken_root = frontier.state.root.warp_id;
+            assert!(frontier.state.warp_state.delete_instance(&broken_root));
+        }
+
+        let mut provenance = mirrored_provenance(&runtime);
+        let err = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine)
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            RuntimeError::Engine(EngineError::UnknownWarp(_))
+        ));
+        assert!(runtime.scheduler_fault_for_head(&head_b).is_some());
+
+        let records =
+            SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].head_key, head_a);
+        assert_eq!(runtime.global_tick(), gt(1));
+        assert_eq!(provenance.len(worldline_a).unwrap(), 1);
+        assert_eq!(provenance.len(worldline_b).unwrap(), 0);
+        assert_eq!(
+            runtime.heads.get(&head_b).unwrap().inbox().pending_count(),
+            1,
+            "faulted head keeps pending ingress but is not retried"
+        );
+        assert!(runtime.scheduler_fault_for_head(&head_b).is_some());
+    }
+
+    #[test]
+    fn trusted_recovery_is_required_to_resume_faulted_head() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        let worldline_id = wl(1);
+        runtime
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        let head_key = register_head(
+            &mut runtime,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        runtime
+            .ingest(IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind("test"),
+                b"commit".to_vec(),
+            ))
+            .unwrap();
+        runtime
+            .worldlines
+            .frontier_mut(&worldline_id)
+            .unwrap()
+            .frontier_tick = WorldlineTick::MAX;
+
+        let mut provenance = mirrored_provenance(&runtime);
+        let err = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine)
+            .unwrap_err();
+        assert!(matches!(err, RuntimeError::FrontierTickOverflow(id) if id == worldline_id));
+        let fault_id = runtime
+            .scheduler_fault_for_head(&head_key)
+            .expect("overflowing head should be faulted")
+            .fault_id;
+
+        runtime
+            .set_head_eligibility(head_key, HeadEligibility::Admitted)
+            .unwrap();
+        assert!(
+            runtime.scheduler_fault_for_head(&head_key).is_some(),
+            "generic eligibility changes must not clear fault quarantine"
+        );
+
+        let authority = SchedulerFaultRecoveryAuthority::assume_runtime_owner();
+        runtime
+            .resolve_scheduler_fault(&authority, fault_id, [9; 32])
+            .unwrap();
+        assert!(runtime.scheduler_fault_for_head(&head_key).is_none());
+    }
+
+    #[test]
+    fn retried_head_fault_after_recovery_keeps_resolved_fault_evidence() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        let worldline_id = wl(1);
+        runtime
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        let head_key = register_head(
+            &mut runtime,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        runtime
+            .ingest(IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind("test"),
+                b"commit".to_vec(),
+            ))
+            .unwrap();
+        runtime
+            .worldlines
+            .frontier_mut(&worldline_id)
+            .unwrap()
+            .frontier_tick = WorldlineTick::MAX;
+
+        let mut provenance = mirrored_provenance(&runtime);
+        let err = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine)
+            .unwrap_err();
+        assert!(matches!(err, RuntimeError::FrontierTickOverflow(id) if id == worldline_id));
+        let first_fault_id = runtime
+            .scheduler_fault_for_head(&head_key)
+            .expect("overflowing head should be faulted")
+            .fault_id;
+
+        let authority = SchedulerFaultRecoveryAuthority::assume_runtime_owner();
+        runtime
+            .resolve_scheduler_fault(&authority, first_fault_id, [7; 32])
+            .unwrap();
+        assert_eq!(
+            runtime.scheduler_fault(&first_fault_id).unwrap().status,
+            SchedulerFaultStatus::Resolved {
+                recovery_id: [7; 32]
+            }
+        );
+
+        let err = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine)
+            .unwrap_err();
+        assert!(matches!(err, RuntimeError::FrontierTickOverflow(id) if id == worldline_id));
+        let second_fault = runtime
+            .scheduler_fault_for_head(&head_key)
+            .expect("retried overflowing head should be faulted again");
+
+        assert_ne!(
+            first_fault_id, second_fault.fault_id,
+            "retry after trusted recovery must not overwrite resolved fault evidence"
+        );
+        assert_eq!(
+            runtime.scheduler_fault(&first_fault_id).unwrap().status,
+            SchedulerFaultStatus::Resolved {
+                recovery_id: [7; 32]
+            }
+        );
+        assert_eq!(second_fault.status, SchedulerFaultStatus::Active);
+        assert_eq!(runtime.scheduler_fault_count(), 2);
+    }
+
+    #[test]
+    fn retried_runtime_fault_after_recovery_keeps_resolved_fault_evidence() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        engine
+            .register_rule(panic_runtime_rule("cmd/runtime-panic"))
+            .unwrap();
+        let worldline_id = wl(1);
+        runtime
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        register_head(
+            &mut runtime,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        runtime
+            .ingest(IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind("test"),
+                b"panic-b".to_vec(),
+            ))
+            .unwrap();
+        let mut provenance = mirrored_provenance(&runtime);
+
+        let first_panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine);
+        }));
+        assert!(first_panic.is_err());
+        let first_fault_id = runtime
+            .scheduler_runtime_fault()
+            .expect("panic should fault the runtime")
+            .fault_id;
+
+        let authority = SchedulerFaultRecoveryAuthority::assume_runtime_owner();
+        runtime
+            .resolve_scheduler_fault(&authority, first_fault_id, [8; 32])
+            .unwrap();
+        assert_eq!(
+            runtime.scheduler_fault(&first_fault_id).unwrap().status,
+            SchedulerFaultStatus::Resolved {
+                recovery_id: [8; 32]
+            }
+        );
+
+        let second_panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine);
+        }));
+        assert!(second_panic.is_err());
+        let second_fault = runtime
+            .scheduler_runtime_fault()
+            .expect("retried panic should fault the runtime again");
+
+        assert_ne!(
+            first_fault_id, second_fault.fault_id,
+            "retry after trusted recovery must not overwrite resolved runtime fault evidence"
+        );
+        assert_eq!(
+            runtime.scheduler_fault(&first_fault_id).unwrap().status,
+            SchedulerFaultStatus::Resolved {
+                recovery_id: [8; 32]
+            }
+        );
+        assert_eq!(second_fault.status, SchedulerFaultStatus::Active);
+        assert_eq!(runtime.scheduler_fault_count(), 2);
+    }
+
+    #[test]
+    fn runtime_error_fault_digest_uses_canonical_variant_tags() {
+        let fault_id = SchedulerFaultId::from_bytes([7; 32]);
+        let digest = scheduler_error_cause_digest(&RuntimeError::UnknownSchedulerFault(fault_id));
+
+        let mut expected = blake3::Hasher::new();
+        expected.update(b"echo.scheduler-fault-cause.error");
+        expected.update(b"unknown-scheduler-fault");
+        expected.update(fault_id.as_bytes());
+
+        let expected: Hash = expected.finalize().into();
+        assert_eq!(digest, expected);
+    }
+
+    #[test]
     fn super_tick_restores_runtime_before_resuming_a_later_head_panic() {
         let mut runtime = WorldlineRuntime::new();
         let mut engine = empty_engine();
@@ -3183,6 +4640,89 @@ mod tests {
                 .node(&crate::NodeId(env_a_ingress_id))
                 .is_none(),
             "panic rollback must discard earlier runtime ingress materialization"
+        );
+        assert_eq!(provenance.len(worldline_a).unwrap(), 0);
+        assert_eq!(provenance.len(worldline_b).unwrap(), 0);
+    }
+
+    #[test]
+    fn runtime_fault_blocks_all_scheduler_work_when_fault_is_unscoped() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        let worldline_a = wl(1);
+        let worldline_b = wl(2);
+        runtime
+            .register_worldline(worldline_a, WorldlineState::empty())
+            .unwrap();
+        runtime
+            .register_worldline(worldline_b, WorldlineState::empty())
+            .unwrap();
+        let register_ok = engine.register_rule(noop_runtime_rule("cmd/runtime-ok"));
+        assert!(register_ok.is_ok(), "runtime ok rule should register");
+        let register_panic = engine.register_rule(panic_runtime_rule("cmd/runtime-panic"));
+        assert!(register_panic.is_ok(), "runtime panic rule should register");
+        let head_a = register_head(
+            &mut runtime,
+            worldline_a,
+            "default-a",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let head_b = register_head(
+            &mut runtime,
+            worldline_b,
+            "default-b",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        runtime
+            .ingest(IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter {
+                    worldline_id: worldline_a,
+                },
+                make_intent_kind("test"),
+                b"commit-a".to_vec(),
+            ))
+            .unwrap();
+        runtime
+            .ingest(IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter {
+                    worldline_id: worldline_b,
+                },
+                make_intent_kind("test"),
+                b"panic-b".to_vec(),
+            ))
+            .unwrap();
+        let mut provenance = mirrored_provenance(&runtime);
+
+        let panic_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine);
+        }));
+        assert!(panic_result.is_err());
+        let fault = runtime
+            .scheduler_runtime_fault()
+            .expect("unscoped panic should fault the runtime");
+        assert_eq!(fault.scope, SchedulerFaultScope::Runtime);
+        assert_eq!(fault.status, SchedulerFaultStatus::Active);
+        let fault_id = fault.fault_id;
+
+        let blocked = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine)
+            .unwrap_err();
+        assert!(matches!(
+            blocked,
+            RuntimeError::SchedulerRuntimeFaultActive(id) if id == fault_id
+        ));
+        assert_eq!(
+            runtime.heads.get(&head_a).unwrap().inbox().pending_count(),
+            1,
+            "runtime fault must block otherwise healthy pending work"
+        );
+        assert_eq!(
+            runtime.heads.get(&head_b).unwrap().inbox().pending_count(),
+            1,
+            "runtime fault must block the panicking pending work"
         );
         assert_eq!(provenance.len(worldline_a).unwrap(), 0);
         assert_eq!(provenance.len(worldline_b).unwrap(), 0);
@@ -3304,7 +4844,7 @@ mod tests {
         runtime
             .register_worldline(worldline_id, WorldlineState::empty())
             .unwrap();
-        register_head(
+        let head_key = register_head(
             &mut runtime,
             worldline_id,
             "default",
@@ -3329,6 +4869,12 @@ mod tests {
         let err = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine)
             .unwrap_err();
         assert!(matches!(err, RuntimeError::FrontierTickOverflow(id) if id == worldline_id));
+        let fault = runtime
+            .scheduler_fault_for_head(&head_key)
+            .expect("frontier overflow should fault the scoped head");
+        assert_eq!(fault.scope, SchedulerFaultScope::Head(head_key));
+        assert_eq!(fault.status, SchedulerFaultStatus::Active);
+        assert!(runtime.scheduler_runtime_fault().is_none());
     }
 
     #[test]
@@ -3353,5 +4899,10 @@ mod tests {
         let err = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine)
             .unwrap_err();
         assert!(matches!(err, RuntimeError::GlobalTickOverflow));
+        let fault = runtime
+            .scheduler_runtime_fault()
+            .expect("global overflow should fault the runtime");
+        assert_eq!(fault.scope, SchedulerFaultScope::Runtime);
+        assert_eq!(fault.status, SchedulerFaultStatus::Active);
     }
 }

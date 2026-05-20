@@ -357,6 +357,149 @@ fn ticketed_ingress_preserves_submission_and_ticket_identity() {
 }
 
 #[test]
+#[cfg(feature = "host_test")]
+fn receipt_correlation_does_not_exist_before_scheduler_tick() {
+    let mut runtime = WorldlineRuntime::new();
+    let worldline_id = wl(1);
+    runtime
+        .register_worldline(worldline_id, WorldlineState::empty())
+        .unwrap();
+    register_head(&mut runtime, worldline_id, "default", None, true);
+    let envelope = IngressEnvelope::local_intent(
+        IngressTarget::DefaultWriter { worldline_id },
+        make_intent_kind("test/runtime"),
+        b"pending-receipt-correlation".to_vec(),
+    );
+    let submission = match runtime.submit_intent(envelope.clone()).unwrap() {
+        IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
+        IntentSubmissionDisposition::Duplicate { .. } => panic!("first submission duplicated"),
+    };
+    let ticket = admission_ticket(4);
+    let staged = runtime
+        .ingest_ticketed_invocation(
+            &ticketed_runtime_ingress_authority(),
+            submission,
+            &ticket,
+            envelope,
+        )
+        .unwrap();
+    let ticketed_ingress_id = match staged {
+        TicketedRuntimeIngressDisposition::Staged { record, .. } => record.ticketed_ingress_id,
+        TicketedRuntimeIngressDisposition::Duplicate { .. } => {
+            panic!("first ticketed ingress duplicated")
+        }
+    };
+
+    assert!(runtime
+        .receipt_correlation_for_ticketed_ingress(&ticketed_ingress_id)
+        .is_none());
+    assert!(runtime
+        .receipt_correlation_for_submission(&submission)
+        .is_none());
+    assert_eq!(runtime.receipt_correlation_count(), 0);
+}
+
+#[test]
+#[cfg(feature = "host_test")]
+fn ticketed_ingress_correlates_tick_receipt_after_scheduler_owned_tick() {
+    let mut runtime = WorldlineRuntime::new();
+    let mut engine = empty_engine();
+    let worldline_id = wl(1);
+    runtime
+        .register_worldline(worldline_id, WorldlineState::empty())
+        .unwrap();
+    let head_key = register_head(&mut runtime, worldline_id, "default", None, true);
+    let envelope = IngressEnvelope::local_intent(
+        IngressTarget::DefaultWriter { worldline_id },
+        make_intent_kind("test/runtime"),
+        b"correlate-after-tick".to_vec(),
+    );
+    let submission = match runtime.submit_intent(envelope.clone()).unwrap() {
+        IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
+        IntentSubmissionDisposition::Duplicate { .. } => panic!("first submission duplicated"),
+    };
+    let ticket = admission_ticket(5);
+    let staged = runtime
+        .ingest_ticketed_invocation(
+            &ticketed_runtime_ingress_authority(),
+            submission,
+            &ticket,
+            envelope.clone(),
+        )
+        .unwrap();
+    let ticketed_ingress_id = match staged {
+        TicketedRuntimeIngressDisposition::Staged { record, .. } => record.ticketed_ingress_id,
+        TicketedRuntimeIngressDisposition::Duplicate { .. } => {
+            panic!("first ticketed ingress duplicated")
+        }
+    };
+
+    let mut provenance = registered_worldlines_provenance(&runtime);
+    let records =
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+
+    assert_eq!(records.len(), 1);
+    let correlation = runtime
+        .receipt_correlation_for_ticketed_ingress(&ticketed_ingress_id)
+        .expect("ticketed ingress should correlate after scheduler tick");
+    let frontier = runtime.worldlines().get(&worldline_id).unwrap();
+    let (_, receipt, _) = frontier
+        .state()
+        .tick_history()
+        .last()
+        .expect("scheduler-owned tick should be recorded");
+    assert_eq!(correlation.ticketed_ingress_id, ticketed_ingress_id);
+    assert_eq!(correlation.submission_id, submission);
+    assert_eq!(correlation.ticket_digest, ticket.ticket_digest);
+    assert_eq!(correlation.ingress_id, envelope.ingress_id());
+    assert_eq!(correlation.head_key, head_key);
+    assert_eq!(
+        correlation.commit_global_tick,
+        records[0].commit_global_tick
+    );
+    assert_eq!(
+        correlation.worldline_tick_after,
+        records[0].worldline_tick_after
+    );
+    assert_eq!(correlation.tick_receipt_digest, receipt.digest());
+    assert_eq!(correlation.commit_hash, records[0].commit_hash);
+    assert_eq!(
+        runtime
+            .receipt_correlation_for_submission(&submission)
+            .unwrap(),
+        correlation
+    );
+}
+
+#[test]
+#[cfg(feature = "host_test")]
+fn legacy_ingress_without_ticket_does_not_create_receipt_correlation() {
+    let mut runtime = WorldlineRuntime::new();
+    let mut engine = empty_engine();
+    let worldline_id = wl(1);
+    runtime
+        .register_worldline(worldline_id, WorldlineState::empty())
+        .unwrap();
+    register_head(&mut runtime, worldline_id, "default", None, true);
+    let envelope = IngressEnvelope::local_intent(
+        IngressTarget::DefaultWriter { worldline_id },
+        make_intent_kind("test/runtime"),
+        b"legacy-uncorrelated".to_vec(),
+    );
+
+    assert!(matches!(
+        runtime.ingest(envelope).unwrap(),
+        IngressDisposition::Accepted { .. }
+    ));
+    let mut provenance = registered_worldlines_provenance(&runtime);
+    let records =
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+
+    assert_eq!(records.len(), 1);
+    assert_eq!(runtime.receipt_correlation_count(), 0);
+}
+
+#[test]
 fn runtime_ingest_is_idempotent_per_resolved_head_after_commit() {
     let mut runtime = WorldlineRuntime::new();
     let mut engine = empty_engine();

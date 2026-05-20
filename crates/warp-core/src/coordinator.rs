@@ -270,6 +270,32 @@ pub enum TicketedRuntimeIngressDisposition {
     },
 }
 
+/// Correlation between a ticketed runtime ingress record and a scheduler tick receipt.
+///
+/// This is an observation/correlation index only. It does not interpret the
+/// receipt into an application outcome and does not dispatch handlers.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReceiptCorrelationRecord {
+    /// Ticketed runtime ingress event that reached scheduler-owned execution.
+    pub ticketed_ingress_id: Hash,
+    /// Witnessed Echo submission that produced the runtime ingress.
+    pub submission_id: Hash,
+    /// Admission ticket digest bound to the runtime ingress.
+    pub ticket_digest: Hash,
+    /// Content-addressed canonical ingress id decided by the tick.
+    pub ingress_id: Hash,
+    /// Writer head that committed the ingress batch.
+    pub head_key: WriterHeadKey,
+    /// Runtime cycle stamp that produced the receipt.
+    pub commit_global_tick: GlobalTick,
+    /// Worldline frontier tick after the scheduler-owned commit.
+    pub worldline_tick_after: WorldlineTick,
+    /// Digest of the scheduler-owned tick receipt.
+    pub tick_receipt_digest: Hash,
+    /// Commit hash emitted by the scheduler-owned tick.
+    pub commit_hash: Hash,
+}
+
 /// Request to fork a strand from one precise source-lane coordinate.
 #[derive(Clone, Debug)]
 pub struct ForkStrandRequest {
@@ -331,6 +357,15 @@ pub struct WorldlineRuntime {
     ticketed_runtime_ingress: BTreeMap<Hash, TicketedRuntimeIngressRecord>,
     /// Deterministic lookup from witnessed submission id to ticketed ingress.
     ticketed_runtime_ingress_by_submission: BTreeMap<Hash, Hash>,
+    /// Deterministic lookup from resolved semantic target and ingress id to
+    /// ticketed ingress id.
+    ticketed_runtime_ingress_by_target: BTreeMap<(WriterHeadKey, Hash), Hash>,
+    /// Receipt correlations keyed by ticketed ingress id.
+    receipt_correlations_by_ticketed_ingress: BTreeMap<Hash, ReceiptCorrelationRecord>,
+    /// Deterministic lookup from witnessed submission id to receipt correlation.
+    receipt_correlation_by_submission: BTreeMap<Hash, Hash>,
+    /// Deterministic lookup from admission ticket digest to receipt correlation.
+    receipt_correlation_by_ticket: BTreeMap<Hash, Hash>,
     /// Registry of live speculative strands attached to the runtime.
     strands: StrandRegistry,
 }
@@ -340,6 +375,9 @@ struct RuntimeCheckpoint {
     global_tick: GlobalTick,
     heads: BTreeMap<WriterHeadKey, WriterHead>,
     frontiers: BTreeMap<WorldlineId, WorldlineFrontier>,
+    receipt_correlations_by_ticketed_ingress: BTreeMap<Hash, ReceiptCorrelationRecord>,
+    receipt_correlation_by_submission: BTreeMap<Hash, Hash>,
+    receipt_correlation_by_ticket: BTreeMap<Hash, Hash>,
 }
 
 impl WorldlineRuntime {
@@ -376,11 +414,20 @@ impl WorldlineRuntime {
             global_tick: self.global_tick,
             heads,
             frontiers,
+            receipt_correlations_by_ticketed_ingress: self
+                .receipt_correlations_by_ticketed_ingress
+                .clone(),
+            receipt_correlation_by_submission: self.receipt_correlation_by_submission.clone(),
+            receipt_correlation_by_ticket: self.receipt_correlation_by_ticket.clone(),
         })
     }
 
     fn restore(&mut self, checkpoint: RuntimeCheckpoint) {
         self.global_tick = checkpoint.global_tick;
+        self.receipt_correlations_by_ticketed_ingress =
+            checkpoint.receipt_correlations_by_ticketed_ingress;
+        self.receipt_correlation_by_submission = checkpoint.receipt_correlation_by_submission;
+        self.receipt_correlation_by_ticket = checkpoint.receipt_correlation_by_ticket;
         for head in checkpoint.heads.into_values() {
             self.heads.insert(head);
         }
@@ -439,6 +486,55 @@ impl WorldlineRuntime {
     #[must_use]
     pub fn ticketed_runtime_ingress_count(&self) -> usize {
         self.ticketed_runtime_ingress.len()
+    }
+
+    /// Returns a receipt correlation by ticketed runtime ingress id.
+    #[must_use]
+    pub fn receipt_correlation_for_ticketed_ingress(
+        &self,
+        ticketed_ingress_id: &Hash,
+    ) -> Option<&ReceiptCorrelationRecord> {
+        self.receipt_correlations_by_ticketed_ingress
+            .get(ticketed_ingress_id)
+    }
+
+    /// Returns a receipt correlation by witnessed submission id.
+    #[must_use]
+    pub fn receipt_correlation_for_submission(
+        &self,
+        submission_id: &Hash,
+    ) -> Option<&ReceiptCorrelationRecord> {
+        self.receipt_correlation_by_submission
+            .get(submission_id)
+            .and_then(|ticketed_ingress_id| {
+                self.receipt_correlations_by_ticketed_ingress
+                    .get(ticketed_ingress_id)
+            })
+    }
+
+    /// Returns a receipt correlation by admission ticket digest.
+    #[must_use]
+    pub fn receipt_correlation_for_ticket(
+        &self,
+        ticket_digest: &Hash,
+    ) -> Option<&ReceiptCorrelationRecord> {
+        self.receipt_correlation_by_ticket
+            .get(ticket_digest)
+            .and_then(|ticketed_ingress_id| {
+                self.receipt_correlations_by_ticketed_ingress
+                    .get(ticketed_ingress_id)
+            })
+    }
+
+    /// Iterates receipt correlations in deterministic ticketed-ingress id order.
+    pub fn receipt_correlations(&self) -> impl Iterator<Item = &ReceiptCorrelationRecord> {
+        self.receipt_correlations_by_ticketed_ingress.values()
+    }
+
+    /// Returns the number of scheduler-owned receipt correlations.
+    #[must_use]
+    pub fn receipt_correlation_count(&self) -> usize {
+        self.receipt_correlations_by_ticketed_ingress.len()
     }
 
     /// Returns the current correlation tick.
@@ -834,6 +930,8 @@ impl WorldlineRuntime {
             .insert(ticketed_ingress_id, record.clone());
         self.ticketed_runtime_ingress_by_submission
             .insert(submission_id, ticketed_ingress_id);
+        self.ticketed_runtime_ingress_by_target
+            .insert((head_key, ingress_id), ticketed_ingress_id);
         Ok(TicketedRuntimeIngressDisposition::Staged { record, ingress })
     }
 
@@ -947,6 +1045,57 @@ impl WorldlineRuntime {
             ingress_id,
             head_key,
             submission_generation: IngressSubmissionGeneration::ZERO,
+        }
+    }
+
+    fn record_receipt_correlations(
+        &mut self,
+        head_key: WriterHeadKey,
+        admitted: &[IngressEnvelope],
+        commit_global_tick: GlobalTick,
+        worldline_tick_after: WorldlineTick,
+        tick_receipt_digest: Hash,
+        commit_hash: Hash,
+    ) {
+        for envelope in admitted {
+            let ingress_id = envelope.ingress_id();
+            let Some(ticketed_ingress_id) = self
+                .ticketed_runtime_ingress_by_target
+                .get(&(head_key, ingress_id))
+                .copied()
+            else {
+                continue;
+            };
+            if self
+                .receipt_correlations_by_ticketed_ingress
+                .contains_key(&ticketed_ingress_id)
+            {
+                continue;
+            }
+            let Some(ticketed_ingress) = self
+                .ticketed_runtime_ingress
+                .get(&ticketed_ingress_id)
+                .cloned()
+            else {
+                continue;
+            };
+            let record = ReceiptCorrelationRecord {
+                ticketed_ingress_id,
+                submission_id: ticketed_ingress.submission_id,
+                ticket_digest: ticketed_ingress.ticket_digest,
+                ingress_id,
+                head_key,
+                commit_global_tick,
+                worldline_tick_after,
+                tick_receipt_digest,
+                commit_hash,
+            };
+            self.receipt_correlations_by_ticketed_ingress
+                .insert(ticketed_ingress_id, record);
+            self.receipt_correlation_by_submission
+                .insert(ticketed_ingress.submission_id, ticketed_ingress_id);
+            self.receipt_correlation_by_ticket
+                .insert(ticketed_ingress.ticket_digest, ticketed_ingress_id);
         }
     }
 
@@ -1108,7 +1257,7 @@ impl SchedulerCoordinator {
                 let CommitOutcome {
                     snapshot,
                     patch,
-                    receipt: _,
+                    receipt,
                 } = {
                     let frontier = runtime
                         .worldlines
@@ -1118,6 +1267,7 @@ impl SchedulerCoordinator {
                         .commit_with_state(frontier.state_mut(), &admitted)
                         .map_err(RuntimeError::from)?
                 };
+                let tick_receipt_digest = receipt.digest();
 
                 let (state_root, worldline_tick_after) = {
                     let frontier = runtime
@@ -1170,6 +1320,14 @@ impl SchedulerCoordinator {
                         .ok_or(RuntimeError::FrontierTickOverflow(key.worldline_id))?;
                     (snapshot.state_root, worldline_tick_after)
                 };
+                runtime.record_receipt_correlations(
+                    *key,
+                    &admitted,
+                    next_global_tick,
+                    worldline_tick_after,
+                    tick_receipt_digest,
+                    snapshot.hash,
+                );
 
                 Ok(StepRecord {
                     head_key: *key,

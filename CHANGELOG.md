@@ -7,6 +7,15 @@
 
 ### Added
 
+- `warp-core` now records scheduler-owned receipt correlations for ticketed
+  runtime ingress. After `SchedulerCoordinator::super_tick(...)` commits a
+  ticketed ingress batch, Echo indexes the witnessed submission id, admission
+  ticket digest, ticketed ingress id, ingress id, writer head, logical tick
+  coordinates, receipt digest, and commit hash. Correlations are created only
+  after scheduler-owned ticks and only for ticketed runtime ingress; legacy
+  direct inbox ingress remains uncorrelated. This does not expose intent
+  outcome observation, dispatch installed handlers, execute contracts outside
+  scheduler-owned ticks, or introduce automatic retry.
 - `warp-core` now exposes a ticketed runtime ingress boundary.
   `WorldlineRuntime::submit_intent(...)` records witnessed submission history
   without entering a head inbox, ticking, dispatching handlers, or mutating

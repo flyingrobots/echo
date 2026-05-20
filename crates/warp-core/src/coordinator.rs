@@ -413,9 +413,30 @@ struct RuntimeCheckpoint {
     global_tick: GlobalTick,
     heads: BTreeMap<WriterHeadKey, WriterHead>,
     frontiers: BTreeMap<WorldlineId, WorldlineFrontier>,
-    receipt_correlations_by_ticketed_ingress: BTreeMap<Hash, ReceiptCorrelationRecord>,
-    receipt_correlation_by_submission: BTreeMap<Hash, Hash>,
-    receipt_correlation_by_ticket: BTreeMap<Hash, Hash>,
+}
+
+#[derive(Clone, Debug)]
+struct ReceiptCorrelationRollbackEntry {
+    ticketed_ingress_id: Hash,
+    previous_record: Option<ReceiptCorrelationRecord>,
+    submission_id: Hash,
+    previous_submission_ticketed_ingress: Option<Hash>,
+    ticket_digest: Hash,
+    previous_ticket_ticketed_ingress: Option<Hash>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct ReceiptCorrelationRollback {
+    entries: Vec<ReceiptCorrelationRollbackEntry>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ReceiptCorrelationCommitContext {
+    head_key: WriterHeadKey,
+    commit_global_tick: GlobalTick,
+    worldline_tick_after: WorldlineTick,
+    tick_receipt_digest: Hash,
+    commit_hash: Hash,
 }
 
 impl WorldlineRuntime {
@@ -452,20 +473,11 @@ impl WorldlineRuntime {
             global_tick: self.global_tick,
             heads,
             frontiers,
-            receipt_correlations_by_ticketed_ingress: self
-                .receipt_correlations_by_ticketed_ingress
-                .clone(),
-            receipt_correlation_by_submission: self.receipt_correlation_by_submission.clone(),
-            receipt_correlation_by_ticket: self.receipt_correlation_by_ticket.clone(),
         })
     }
 
     fn restore(&mut self, checkpoint: RuntimeCheckpoint) {
         self.global_tick = checkpoint.global_tick;
-        self.receipt_correlations_by_ticketed_ingress =
-            checkpoint.receipt_correlations_by_ticketed_ingress;
-        self.receipt_correlation_by_submission = checkpoint.receipt_correlation_by_submission;
-        self.receipt_correlation_by_ticket = checkpoint.receipt_correlation_by_ticket;
         for head in checkpoint.heads.into_values() {
             self.heads.insert(head);
         }
@@ -473,6 +485,41 @@ impl WorldlineRuntime {
             self.worldlines.replace_frontier(frontier);
         }
         self.refresh_runnable();
+    }
+
+    fn rollback_receipt_correlations(&mut self, rollback: &mut ReceiptCorrelationRollback) {
+        for entry in rollback.entries.drain(..).rev() {
+            match entry.previous_record {
+                Some(previous) => {
+                    self.receipt_correlations_by_ticketed_ingress
+                        .insert(entry.ticketed_ingress_id, previous);
+                }
+                None => {
+                    self.receipt_correlations_by_ticketed_ingress
+                        .remove(&entry.ticketed_ingress_id);
+                }
+            }
+            match entry.previous_submission_ticketed_ingress {
+                Some(previous) => {
+                    self.receipt_correlation_by_submission
+                        .insert(entry.submission_id, previous);
+                }
+                None => {
+                    self.receipt_correlation_by_submission
+                        .remove(&entry.submission_id);
+                }
+            }
+            match entry.previous_ticket_ticketed_ingress {
+                Some(previous) => {
+                    self.receipt_correlation_by_ticket
+                        .insert(entry.ticket_digest, previous);
+                }
+                None => {
+                    self.receipt_correlation_by_ticket
+                        .remove(&entry.ticket_digest);
+                }
+            }
+        }
     }
 
     /// Returns the registered worldline frontiers.
@@ -1122,18 +1169,15 @@ impl WorldlineRuntime {
 
     fn record_receipt_correlations(
         &mut self,
-        head_key: WriterHeadKey,
         admitted: &[IngressEnvelope],
-        commit_global_tick: GlobalTick,
-        worldline_tick_after: WorldlineTick,
-        tick_receipt_digest: Hash,
-        commit_hash: Hash,
+        context: ReceiptCorrelationCommitContext,
+        rollback: &mut ReceiptCorrelationRollback,
     ) {
         for envelope in admitted {
             let ingress_id = envelope.ingress_id();
             let Some(ticketed_ingress_id) = self
                 .ticketed_runtime_ingress_by_target
-                .get(&(head_key, ingress_id))
+                .get(&(context.head_key, ingress_id))
                 .copied()
             else {
                 continue;
@@ -1156,12 +1200,29 @@ impl WorldlineRuntime {
                 submission_id: ticketed_ingress.submission_id,
                 ticket_digest: ticketed_ingress.ticket_digest,
                 ingress_id,
-                head_key,
-                commit_global_tick,
-                worldline_tick_after,
-                tick_receipt_digest,
-                commit_hash,
+                head_key: context.head_key,
+                commit_global_tick: context.commit_global_tick,
+                worldline_tick_after: context.worldline_tick_after,
+                tick_receipt_digest: context.tick_receipt_digest,
+                commit_hash: context.commit_hash,
             };
+            rollback.entries.push(ReceiptCorrelationRollbackEntry {
+                ticketed_ingress_id,
+                previous_record: self
+                    .receipt_correlations_by_ticketed_ingress
+                    .get(&ticketed_ingress_id)
+                    .cloned(),
+                submission_id: ticketed_ingress.submission_id,
+                previous_submission_ticketed_ingress: self
+                    .receipt_correlation_by_submission
+                    .get(&ticketed_ingress.submission_id)
+                    .copied(),
+                ticket_digest: ticketed_ingress.ticket_digest,
+                previous_ticket_ticketed_ingress: self
+                    .receipt_correlation_by_ticket
+                    .get(&ticketed_ingress.ticket_digest)
+                    .copied(),
+            });
             self.receipt_correlations_by_ticketed_ingress
                 .insert(ticketed_ingress_id, record);
             self.receipt_correlation_by_submission
@@ -1304,6 +1365,7 @@ impl SchedulerCoordinator {
         }
 
         let runtime_before = runtime.checkpoint_for(&keys)?;
+        let mut receipt_correlation_rollback = ReceiptCorrelationRollback::default();
         let provenance_before: ProvenanceCheckpoint =
             provenance.checkpoint_for(keys.iter().map(|key| key.worldline_id))?;
 
@@ -1393,12 +1455,15 @@ impl SchedulerCoordinator {
                     (snapshot.state_root, worldline_tick_after)
                 };
                 runtime.record_receipt_correlations(
-                    *key,
                     &admitted,
-                    next_global_tick,
-                    worldline_tick_after,
-                    tick_receipt_digest,
-                    snapshot.hash,
+                    ReceiptCorrelationCommitContext {
+                        head_key: *key,
+                        commit_global_tick: next_global_tick,
+                        worldline_tick_after,
+                        tick_receipt_digest,
+                        commit_hash: snapshot.hash,
+                    },
+                    &mut receipt_correlation_rollback,
                 );
 
                 Ok(StepRecord {
@@ -1414,11 +1479,13 @@ impl SchedulerCoordinator {
             let record = match outcome {
                 Ok(Ok(record)) => record,
                 Ok(Err(err)) => {
+                    runtime.rollback_receipt_correlations(&mut receipt_correlation_rollback);
                     runtime.restore(runtime_before);
                     provenance.restore(&provenance_before);
                     return Err(err);
                 }
                 Err(payload) => {
+                    runtime.rollback_receipt_correlations(&mut receipt_correlation_rollback);
                     runtime.restore(runtime_before);
                     provenance.restore(&provenance_before);
                     resume_unwind(payload);
@@ -2908,6 +2975,118 @@ mod tests {
                 )
                 .is_none(),
             "rollback must restore the failing worldline to its pre-SuperTick state"
+        );
+    }
+
+    #[test]
+    fn super_tick_failure_rolls_back_ticketed_receipt_correlations() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        let worldline_a = wl(1);
+        let worldline_b = wl(2);
+        runtime
+            .register_worldline(worldline_a, WorldlineState::empty())
+            .unwrap();
+        runtime
+            .register_worldline(worldline_b, WorldlineState::empty())
+            .unwrap();
+        let head_a = register_head(
+            &mut runtime,
+            worldline_a,
+            "default-a",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let head_b = register_head(
+            &mut runtime,
+            worldline_b,
+            "default-b",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let env_a = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter {
+                worldline_id: worldline_a,
+            },
+            make_intent_kind("test"),
+            b"commit-a".to_vec(),
+        );
+        let env_b = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter {
+                worldline_id: worldline_b,
+            },
+            make_intent_kind("test"),
+            b"commit-b".to_vec(),
+        );
+        let ingress_id = env_a.ingress_id();
+        let submission_id = match runtime.ingest(env_a).unwrap() {
+            IngressDisposition::Accepted { submission_id, .. } => submission_id,
+            IngressDisposition::Duplicate { .. } => {
+                unreachable!("first runtime ingress must be accepted")
+            }
+        };
+        runtime.ingest(env_b).unwrap();
+
+        let ticket_digest = [7; 32];
+        let ticketed_ingress_id =
+            derive_ticketed_runtime_ingress_id(submission_id, ticket_digest, ingress_id, head_a);
+        let ticketed_record = TicketedRuntimeIngressRecord {
+            ticketed_ingress_id,
+            submission_id,
+            ticket_digest,
+            ingress_id,
+            head_key: head_a,
+        };
+        runtime
+            .ticketed_runtime_ingress
+            .insert(ticketed_ingress_id, ticketed_record);
+        runtime
+            .ticketed_runtime_ingress_by_submission
+            .insert(submission_id, ticketed_ingress_id);
+        runtime
+            .ticketed_runtime_ingress_by_target
+            .insert((head_a, ingress_id), ticketed_ingress_id);
+
+        {
+            let frontier = runtime.worldlines.frontier_mut(&worldline_b).unwrap();
+            let broken_root = frontier.state.root.warp_id;
+            assert!(frontier.state.warp_state.delete_instance(&broken_root));
+        }
+
+        let mut provenance = mirrored_provenance(&runtime);
+        let err = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine)
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            RuntimeError::Engine(EngineError::UnknownWarp(warp_id))
+                if warp_id == runtime
+                    .worldlines
+                    .get(&worldline_b)
+                    .unwrap()
+                    .state()
+                    .root()
+                    .warp_id
+        ));
+        assert_eq!(
+            runtime.receipt_correlation_count(),
+            0,
+            "failed SuperTick must roll back receipt correlations from earlier heads"
+        );
+        assert!(runtime
+            .receipt_correlation_for_ticketed_ingress(&ticketed_ingress_id)
+            .is_none());
+        assert!(runtime
+            .receipt_correlation_for_submission(&submission_id)
+            .is_none());
+        assert!(runtime
+            .receipt_correlation_for_ticket(&ticket_digest)
+            .is_none());
+        assert_eq!(
+            runtime.heads.get(&head_b).unwrap().inbox().pending_count(),
+            1,
+            "rollback must preserve the failing head inbox contents"
         );
     }
 

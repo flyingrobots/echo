@@ -349,6 +349,10 @@
 
 ### Fixed
 
+- `SchedulerCoordinator::super_tick(...)` now journals ticket-local receipt
+  correlation writes instead of checkpointing whole historical correlation
+  indexes, preserving failure-atomic rollback while keeping rollback
+  bookkeeping proportional to the attempted tick's writes.
 - `warp-core` submit-only intake now enforces the same canonical
   `IngressEnvelope` content-address invariant as runtime inbox ingestion, so
   `would_accept(...)` cannot approve malformed ingress ids.

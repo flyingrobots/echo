@@ -102,6 +102,15 @@ pub enum RuntimeError {
     /// A different admission ticket already staged this witnessed submission.
     #[error("witnessed submission already has ticketed runtime ingress: {0:?}")]
     TicketedIngressAlreadyStaged(Hash),
+    /// Ticketed runtime ingress attempted to claim an envelope that was already
+    /// pending or committed through another ingress path.
+    #[error("ticketed runtime ingress cannot claim duplicate runtime ingress {ingress_id:?} for head {head_key:?}")]
+    TicketedIngressDuplicateRuntimeIngress {
+        /// The resolved writer head containing the duplicate ingress.
+        head_key: WriterHeadKey,
+        /// The content-addressed ingress id that was already known to runtime.
+        ingress_id: Hash,
+    },
 }
 
 /// Echo-owned intake/correlation generation for witnessed intent submissions.
@@ -934,8 +943,9 @@ impl WorldlineRuntime {
     /// # Errors
     ///
     /// Returns an error when the submission is unknown, the envelope does not
-    /// match the witnessed submission, the target rejects the envelope, or a
-    /// different ticket has already staged the same submission.
+    /// match the witnessed submission, the target rejects the envelope, the
+    /// runtime ingress already exists through another path, or a different
+    /// ticket has already staged the same submission.
     pub fn ingest_ticketed_invocation(
         &mut self,
         _authority: &TicketedRuntimeIngressAuthority,
@@ -975,6 +985,12 @@ impl WorldlineRuntime {
         }
 
         let ingress = self.ingest(envelope)?;
+        if !matches!(ingress, IngressDisposition::Accepted { .. }) {
+            return Err(RuntimeError::TicketedIngressDuplicateRuntimeIngress {
+                head_key,
+                ingress_id,
+            });
+        }
         let record = TicketedRuntimeIngressRecord {
             ticketed_ingress_id,
             submission_id,

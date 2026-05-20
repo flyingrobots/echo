@@ -638,6 +638,71 @@ fn legacy_ingress_without_ticket_does_not_create_receipt_correlation() {
 }
 
 #[test]
+#[cfg(feature = "host_test")]
+fn ticketed_ingress_rejects_legacy_pending_duplicate_without_correlation() {
+    let mut runtime = WorldlineRuntime::new();
+    let mut engine = empty_engine();
+    let worldline_id = wl(1);
+    runtime
+        .register_worldline(worldline_id, WorldlineState::empty())
+        .unwrap();
+    let head_key = register_head(&mut runtime, worldline_id, "default", None, true);
+    let envelope = IngressEnvelope::local_intent(
+        IngressTarget::DefaultWriter { worldline_id },
+        make_intent_kind("test/runtime"),
+        b"legacy-pending-duplicate".to_vec(),
+    );
+    let ingress_id = envelope.ingress_id();
+
+    let accepted = match runtime.ingest(envelope.clone()).unwrap() {
+        IngressDisposition::Accepted { submission_id, .. } => Some(submission_id),
+        IngressDisposition::Duplicate { .. } => None,
+    };
+    assert!(
+        accepted.is_some(),
+        "legacy ingress should be accepted first"
+    );
+    let Some(submission) = accepted else {
+        return;
+    };
+
+    let err = runtime
+        .ingest_ticketed_invocation(
+            &ticketed_runtime_ingress_authority(),
+            submission,
+            &admission_ticket(7),
+            envelope,
+        )
+        .unwrap_err();
+
+    assert!(matches!(
+        err,
+        RuntimeError::TicketedIngressDuplicateRuntimeIngress {
+            head_key: duplicate_head_key,
+            ingress_id: duplicate_ingress_id,
+        } if duplicate_head_key == head_key && duplicate_ingress_id == ingress_id
+    ));
+    assert_eq!(runtime.ticketed_runtime_ingress_count(), 0);
+    assert_eq!(runtime.receipt_correlation_count(), 0);
+
+    let mut provenance = registered_worldlines_provenance(&runtime);
+    let records =
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+
+    assert_eq!(records.len(), 1);
+    assert_eq!(runtime.ticketed_runtime_ingress_count(), 0);
+    assert_eq!(runtime.receipt_correlation_count(), 0);
+    assert!(matches!(
+        runtime.observe_intent_outcome(&submission),
+        IntentOutcomeObservation::Pending {
+            submission_id,
+            ticketed_ingress_id: None,
+            ..
+        } if submission_id == submission
+    ));
+}
+
+#[test]
 fn runtime_ingest_is_idempotent_per_resolved_head_after_commit() {
     let mut runtime = WorldlineRuntime::new();
     let mut engine = empty_engine();

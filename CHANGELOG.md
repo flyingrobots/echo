@@ -344,6 +344,9 @@
 
 ### Fixed
 
+- `warp-core` ticketed runtime ingress now rejects duplicate pending or already
+  committed runtime ingress before recording ticketed correlation material, so
+  an admission ticket cannot retroactively claim legacy direct inbox work.
 - `Determinism Guards` no longer runs `apt-get install ripgrep`; static guard
   scripts now fall back to Perl regex scanning when `rg` is unavailable, so mirror stalls
   cannot hang the determinism gate.

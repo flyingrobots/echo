@@ -65,7 +65,8 @@ A rejected candidate remains witnessed history.
 
 Rollback is tick-local cleanup of an uncommitted failed scheduler transaction.
 
-Quarantine is durable runtime posture after an internal fault.
+Quarantine is runtime-local control posture after an internal fault. Durable
+fault evidence remains a follow-up control-plane/provenance boundary.
 
 Lawful rejection is not a fault.
 

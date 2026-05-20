@@ -327,8 +327,8 @@ pub use worldline::{
 pub use coordinator::{
     ForkStrandReceipt, ForkStrandRequest, IngressDisposition, IngressSubmissionGeneration,
     IntentOutcomeObservation, IntentSubmissionDisposition, IntentSubmissionRecord,
-    ReceiptCorrelationRecord, RuntimeError, SchedulerCoordinator, SchedulerFaultId,
-    SchedulerFaultRecord, SchedulerFaultRecoveryAuthority, SchedulerFaultScope,
+    ReceiptCorrelationRecord, RuntimeError, SchedulerCoordinator, SchedulerFaultGeneration,
+    SchedulerFaultId, SchedulerFaultRecord, SchedulerFaultRecoveryAuthority, SchedulerFaultScope,
     SchedulerFaultStatus, SchedulerRunId, StepRecord, TicketedRuntimeIngressAuthority,
     TicketedRuntimeIngressDisposition, TicketedRuntimeIngressRecord, WorldlineRuntime,
 };

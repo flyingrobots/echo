@@ -41,6 +41,10 @@ native_rule_bootstrap = []
 # INTERNAL ONLY: exposes host/test fixture seams for Echo-owned admission
 # evidence. Downstream application crates must not enable this feature.
 host_test = []
+# TRUSTED HOST ONLY: exposes runtime-owner authority constructors for host
+# adapters that own scheduler/runtime control. Application crates must not
+# enable this feature.
+trusted_runtime = []
 # Optional regression check for PRNG sequences; off by default to avoid
 # freezing algorithm choices. Used only in tests guarded with `cfg(feature)`.
 golden_prng = []
@@ -85,6 +89,10 @@ required-features = ["host_test"]
 [[test]]
 name = "optic_invocation_admission_tests"
 required-features = ["host_test"]
+
+[[test]]
+name = "scheduler_fault_recovery_authority"
+required-features = ["trusted_runtime"]
 
 [build-dependencies]
 blake3 = "1.0"

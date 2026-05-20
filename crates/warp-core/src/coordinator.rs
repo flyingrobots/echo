@@ -19,11 +19,11 @@ use crate::head_inbox::{InboxAddress, InboxIngestResult, IngressEnvelope, Ingres
 use crate::ident::Hash;
 use crate::optic_artifact::OpticAdmissionTicket;
 use crate::provenance_store::{
-    HistoryError, ProvenanceCheckpoint, ProvenanceEntry, ProvenanceService, ProvenanceStore,
-    ReplayError,
+    HistoryError, ProvenanceCheckpoint, ProvenanceEntry, ProvenanceEventKind, ProvenanceRef,
+    ProvenanceService, ProvenanceStore, ReplayError,
 };
 use crate::strand::{ForkBasisRef, Strand, StrandError, StrandId, StrandRegistry, SupportPin};
-use crate::worldline::WorldlineId;
+use crate::worldline::{ApplyError, WorldlineId};
 use crate::worldline_registry::WorldlineRegistry;
 use crate::worldline_state::{WorldlineFrontier, WorldlineState};
 
@@ -120,6 +120,10 @@ pub enum RuntimeError {
     /// Attempted to resolve a scheduler fault that is no longer active.
     #[error("scheduler fault is already resolved: {0:?}")]
     SchedulerFaultAlreadyResolved(SchedulerFaultId),
+    /// Attempted to allocate more scheduler fault generations than the runtime
+    /// counter can represent.
+    #[error("scheduler fault generation overflow")]
+    SchedulerFaultGenerationOverflow,
 }
 
 /// Echo-owned intake/correlation generation for witnessed intent submissions.
@@ -219,6 +223,40 @@ impl SchedulerRunId {
     }
 }
 
+/// Echo-owned generation assigned to scheduler fault records.
+///
+/// This keeps repeated, same-cause faults distinct when a trusted runtime owner
+/// resolves a fault and the same head or runtime fails again before any tick
+/// advances.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SchedulerFaultGeneration(u64);
+
+impl SchedulerFaultGeneration {
+    /// Zero value used before any scheduler fault has been recorded.
+    pub const ZERO: Self = Self(0);
+    /// Largest representable scheduler fault generation.
+    pub const MAX: Self = Self(u64::MAX);
+
+    /// Builds a scheduler fault generation from its raw value.
+    #[must_use]
+    pub const fn from_raw(raw: u64) -> Self {
+        Self(raw)
+    }
+
+    /// Returns the raw logical value.
+    #[must_use]
+    pub const fn as_u64(self) -> u64 {
+        self.0
+    }
+
+    /// Increments by one, returning `None` on overflow.
+    #[must_use]
+    pub fn checked_increment(self) -> Option<Self> {
+        self.0.checked_add(1).map(Self)
+    }
+}
+
 /// Content-addressed identifier for scheduler fault evidence.
 ///
 /// Fault ids name runtime safety evidence. They are not application intent ids,
@@ -262,14 +300,17 @@ pub enum SchedulerFaultStatus {
     },
 }
 
-/// Durable runtime safety evidence recorded after an internal scheduler fault.
+/// Runtime-local safety evidence recorded after an internal scheduler fault.
 ///
 /// This is control-plane posture. It is not application history, not an undo,
-/// not a tick receipt, and not a lawful domain rejection.
+/// not a tick receipt, not a lawful domain rejection, and not yet published as
+/// durable provenance/control-plane history.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SchedulerFaultRecord {
     /// Content-addressed fault id.
     pub fault_id: SchedulerFaultId,
+    /// Echo-owned generation assigned when the fault evidence was recorded.
+    pub fault_generation: SchedulerFaultGeneration,
     /// Scheduler-owned run attempt that produced the fault.
     pub run_id: SchedulerRunId,
     /// Minimal safely isolated fault scope.
@@ -294,7 +335,7 @@ impl SchedulerFaultRecoveryAuthority {
     ///
     /// The caller must prove it is executing inside Echo's trusted runtime
     /// owner, test harness, or equivalent host-controlled boundary.
-    #[cfg(any(test, feature = "host_test"))]
+    #[cfg(any(test, feature = "host_test", feature = "trusted_runtime"))]
     #[doc(hidden)]
     #[must_use]
     pub fn assume_runtime_owner() -> Self {
@@ -525,6 +566,8 @@ pub struct WorldlineRuntime {
     /// Active runtime-wide scheduler fault, if the scheduler cannot safely
     /// isolate the fault to one head.
     runtime_fault: Option<SchedulerFaultId>,
+    /// Next Echo-owned scheduler fault generation to assign.
+    next_scheduler_fault_generation: SchedulerFaultGeneration,
     /// Registry of live speculative strands attached to the runtime.
     strands: StrandRegistry,
 }
@@ -1387,14 +1430,16 @@ impl WorldlineRuntime {
         run_id: SchedulerRunId,
         head_key: WriterHeadKey,
         cause_digest: Hash,
-    ) -> SchedulerFaultId {
+    ) -> Result<SchedulerFaultId, RuntimeError> {
         if let Some(existing) = self.faulted_heads.get(&head_key).copied() {
-            return existing;
+            return Ok(existing);
         }
         let scope = SchedulerFaultScope::Head(head_key);
-        let fault_id = derive_scheduler_fault_id(run_id, scope, cause_digest);
+        let (fault_generation, fault_id) =
+            self.allocate_scheduler_fault_identity(run_id, scope, cause_digest)?;
         let record = SchedulerFaultRecord {
             fault_id,
+            fault_generation,
             run_id,
             scope,
             cause_digest,
@@ -1403,21 +1448,23 @@ impl WorldlineRuntime {
         self.scheduler_faults.insert(fault_id, record);
         self.faulted_heads.insert(head_key, fault_id);
         self.refresh_runnable();
-        fault_id
+        Ok(fault_id)
     }
 
     fn record_scheduler_runtime_fault(
         &mut self,
         run_id: SchedulerRunId,
         cause_digest: Hash,
-    ) -> SchedulerFaultId {
+    ) -> Result<SchedulerFaultId, RuntimeError> {
         if let Some(existing) = self.runtime_fault {
-            return existing;
+            return Ok(existing);
         }
         let scope = SchedulerFaultScope::Runtime;
-        let fault_id = derive_scheduler_fault_id(run_id, scope, cause_digest);
+        let (fault_generation, fault_id) =
+            self.allocate_scheduler_fault_identity(run_id, scope, cause_digest)?;
         let record = SchedulerFaultRecord {
             fault_id,
+            fault_generation,
             run_id,
             scope,
             cause_digest,
@@ -1426,7 +1473,26 @@ impl WorldlineRuntime {
         self.scheduler_faults.insert(fault_id, record);
         self.runtime_fault = Some(fault_id);
         self.refresh_runnable();
-        fault_id
+        Ok(fault_id)
+    }
+
+    fn allocate_scheduler_fault_identity(
+        &mut self,
+        run_id: SchedulerRunId,
+        scope: SchedulerFaultScope,
+        cause_digest: Hash,
+    ) -> Result<(SchedulerFaultGeneration, SchedulerFaultId), RuntimeError> {
+        loop {
+            let fault_generation = self
+                .next_scheduler_fault_generation
+                .checked_increment()
+                .ok_or(RuntimeError::SchedulerFaultGenerationOverflow)?;
+            self.next_scheduler_fault_generation = fault_generation;
+            let fault_id = derive_scheduler_fault_id(fault_generation, run_id, scope, cause_digest);
+            if !self.scheduler_faults.contains_key(&fault_id) {
+                return Ok((fault_generation, fault_id));
+            }
+        }
     }
 
     fn record_receipt_correlations(
@@ -1560,12 +1626,14 @@ fn derive_scheduler_run_id(next_global_tick: GlobalTick, keys: &[WriterHeadKey])
 }
 
 fn derive_scheduler_fault_id(
+    fault_generation: SchedulerFaultGeneration,
     run_id: SchedulerRunId,
     scope: SchedulerFaultScope,
     cause_digest: Hash,
 ) -> SchedulerFaultId {
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"echo.scheduler-fault");
+    hasher.update(&fault_generation.as_u64().to_le_bytes());
     hasher.update(run_id.as_bytes());
     match scope {
         SchedulerFaultScope::Head(head_key) => {
@@ -1595,7 +1663,8 @@ fn scheduler_fault_scope_for_error(
         | RuntimeError::GlobalTickOverflow
         | RuntimeError::SchedulerRuntimeFaultActive(_)
         | RuntimeError::UnknownSchedulerFault(_)
-        | RuntimeError::SchedulerFaultAlreadyResolved(_) => SchedulerFaultScope::Runtime,
+        | RuntimeError::SchedulerFaultAlreadyResolved(_)
+        | RuntimeError::SchedulerFaultGenerationOverflow => SchedulerFaultScope::Runtime,
         RuntimeError::DuplicateWorldline(_)
         | RuntimeError::DuplicateHead(_)
         | RuntimeError::DuplicateDefaultWriter(_)
@@ -1611,6 +1680,401 @@ fn scheduler_fault_scope_for_error(
         | RuntimeError::TicketedIngressAlreadyStaged(_)
         | RuntimeError::TicketedIngressDuplicateRuntimeIngress { .. } => {
             SchedulerFaultScope::Runtime
+        }
+    }
+}
+
+fn hash_worldline_tick(hasher: &mut blake3::Hasher, tick: WorldlineTick) {
+    hasher.update(&tick.as_u64().to_le_bytes());
+}
+
+fn hash_worldline_id(hasher: &mut blake3::Hasher, worldline_id: &WorldlineId) {
+    hasher.update(worldline_id.as_bytes());
+}
+
+fn hash_writer_head_key(hasher: &mut blake3::Hasher, head_key: &WriterHeadKey) {
+    hasher.update(head_key.worldline_id.as_bytes());
+    hasher.update(head_key.head_id.as_bytes());
+}
+
+fn hash_node_key(hasher: &mut blake3::Hasher, node: &crate::NodeKey) {
+    hasher.update(node.warp_id.as_bytes());
+    hasher.update(node.local_id.as_bytes());
+}
+
+fn hash_edge_key(hasher: &mut blake3::Hasher, edge: &crate::EdgeKey) {
+    hasher.update(edge.warp_id.as_bytes());
+    hasher.update(edge.local_id.as_bytes());
+}
+
+fn hash_provenance_ref(hasher: &mut blake3::Hasher, reference: &ProvenanceRef) {
+    hash_worldline_id(hasher, &reference.worldline_id);
+    hash_worldline_tick(hasher, reference.worldline_tick);
+    hasher.update(&reference.commit_hash);
+}
+
+fn hash_provenance_event_kind(hasher: &mut blake3::Hasher, event_kind: &ProvenanceEventKind) {
+    match event_kind {
+        ProvenanceEventKind::LocalCommit => {
+            hasher.update(b"local-commit");
+        }
+        ProvenanceEventKind::CrossWorldlineMessage {
+            source_worldline,
+            source_worldline_tick,
+            message_id,
+        } => {
+            hasher.update(b"cross-worldline-message");
+            hash_worldline_id(hasher, source_worldline);
+            hash_worldline_tick(hasher, *source_worldline_tick);
+            hasher.update(message_id);
+        }
+        ProvenanceEventKind::MergeImport {
+            source_worldline,
+            source_worldline_tick,
+            op_id,
+        } => {
+            hasher.update(b"merge-import");
+            hash_worldline_id(hasher, source_worldline);
+            hash_worldline_tick(hasher, *source_worldline_tick);
+            hasher.update(op_id);
+        }
+        ProvenanceEventKind::ConflictArtifact { artifact_id } => {
+            hasher.update(b"conflict-artifact");
+            hasher.update(artifact_id);
+        }
+    }
+}
+
+fn hash_history_error(hasher: &mut blake3::Hasher, err: &HistoryError) {
+    match err {
+        HistoryError::HistoryUnavailable { tick } => {
+            hasher.update(b"history-unavailable");
+            hash_worldline_tick(hasher, *tick);
+        }
+        HistoryError::WorldlineNotFound(worldline_id) => {
+            hasher.update(b"worldline-not-found");
+            hash_worldline_id(hasher, worldline_id);
+        }
+        HistoryError::WorldlineAlreadyExists(worldline_id) => {
+            hasher.update(b"worldline-already-exists");
+            hash_worldline_id(hasher, worldline_id);
+        }
+        HistoryError::TickGap { expected, got } => {
+            hasher.update(b"tick-gap");
+            hash_worldline_tick(hasher, *expected);
+            hash_worldline_tick(hasher, *got);
+        }
+        HistoryError::EntryWorldlineMismatch { expected, got } => {
+            hasher.update(b"entry-worldline-mismatch");
+            hash_worldline_id(hasher, expected);
+            hash_worldline_id(hasher, got);
+        }
+        HistoryError::LocalCommitMissingHeadKey { tick } => {
+            hasher.update(b"local-commit-missing-head-key");
+            hash_worldline_tick(hasher, *tick);
+        }
+        HistoryError::LocalCommitMissingPatch { tick } => {
+            hasher.update(b"local-commit-missing-patch");
+            hash_worldline_tick(hasher, *tick);
+        }
+        HistoryError::HeadWorldlineMismatch {
+            entry_worldline,
+            head_key,
+        } => {
+            hasher.update(b"head-worldline-mismatch");
+            hash_worldline_id(hasher, entry_worldline);
+            hash_writer_head_key(hasher, head_key);
+        }
+        HistoryError::InvalidLocalCommitEventKind { tick, got } => {
+            hasher.update(b"invalid-local-commit-event-kind");
+            hash_worldline_tick(hasher, *tick);
+            hash_provenance_event_kind(hasher, got);
+        }
+        HistoryError::RecordedEventUnexpectedHeadKey { tick } => {
+            hasher.update(b"recorded-event-unexpected-head-key");
+            hash_worldline_tick(hasher, *tick);
+        }
+        HistoryError::RecordedEventMissingPatch { tick } => {
+            hasher.update(b"recorded-event-missing-patch");
+            hash_worldline_tick(hasher, *tick);
+        }
+        HistoryError::InvalidRecordedEventKind { tick, got } => {
+            hasher.update(b"invalid-recorded-event-kind");
+            hash_worldline_tick(hasher, *tick);
+            hash_provenance_event_kind(hasher, got);
+        }
+        HistoryError::NonCanonicalParents { tick } => {
+            hasher.update(b"non-canonical-parents");
+            hash_worldline_tick(hasher, *tick);
+        }
+        HistoryError::MissingParentRef { tick, parent } => {
+            hasher.update(b"missing-parent-ref");
+            hash_worldline_tick(hasher, *tick);
+            hash_provenance_ref(hasher, parent);
+        }
+        HistoryError::ParentCommitHashMismatch {
+            tick,
+            parent,
+            stored_commit_hash,
+        } => {
+            hasher.update(b"parent-commit-hash-mismatch");
+            hash_worldline_tick(hasher, *tick);
+            hash_provenance_ref(hasher, parent);
+            hasher.update(stored_commit_hash);
+        }
+        HistoryError::CheckpointRootWarpMismatch {
+            worldline_id,
+            expected,
+            actual,
+        } => {
+            hasher.update(b"checkpoint-root-warp-mismatch");
+            hash_worldline_id(hasher, worldline_id);
+            hasher.update(expected.as_bytes());
+            hasher.update(actual.as_bytes());
+        }
+        HistoryError::CheckpointInitialBoundaryHashMismatch {
+            worldline_id,
+            expected,
+            actual,
+        } => {
+            hasher.update(b"checkpoint-initial-boundary-hash-mismatch");
+            hash_worldline_id(hasher, worldline_id);
+            hasher.update(expected);
+            hasher.update(actual);
+        }
+        HistoryError::CheckpointStateRootMismatch {
+            tick,
+            expected,
+            actual,
+        } => {
+            hasher.update(b"checkpoint-state-root-mismatch");
+            hash_worldline_tick(hasher, *tick);
+            hasher.update(expected);
+            hasher.update(actual);
+        }
+        HistoryError::CheckpointReplayMetadataMismatch { tick, field } => {
+            hasher.update(b"checkpoint-replay-metadata-mismatch");
+            hash_worldline_tick(hasher, *tick);
+            hasher.update(field.as_bytes());
+        }
+    }
+}
+
+fn hash_attachment_key(hasher: &mut blake3::Hasher, key: &crate::attachment::AttachmentKey) {
+    match key.owner {
+        crate::attachment::AttachmentOwner::Node(node) => {
+            hasher.update(b"node");
+            hash_node_key(hasher, &node);
+        }
+        crate::attachment::AttachmentOwner::Edge(edge) => {
+            hasher.update(b"edge");
+            hash_edge_key(hasher, &edge);
+        }
+    }
+    match key.plane {
+        crate::attachment::AttachmentPlane::Alpha => hasher.update(b"alpha"),
+        crate::attachment::AttachmentPlane::Beta => hasher.update(b"beta"),
+    };
+}
+
+fn hash_tick_patch_error(hasher: &mut blake3::Hasher, err: &crate::tick_patch::TickPatchError) {
+    match err {
+        crate::tick_patch::TickPatchError::MissingWarp(warp_id) => {
+            hasher.update(b"missing-warp");
+            hasher.update(warp_id.as_bytes());
+        }
+        crate::tick_patch::TickPatchError::MissingNode(node) => {
+            hasher.update(b"missing-node");
+            hash_node_key(hasher, node);
+        }
+        crate::tick_patch::TickPatchError::MissingEdge(edge) => {
+            hasher.update(b"missing-edge");
+            hash_edge_key(hasher, edge);
+        }
+        crate::tick_patch::TickPatchError::NodeNotIsolated(node) => {
+            hasher.update(b"node-not-isolated");
+            hash_node_key(hasher, node);
+        }
+        crate::tick_patch::TickPatchError::InvalidAttachmentKey(key) => {
+            hasher.update(b"invalid-attachment-key");
+            hash_attachment_key(hasher, key);
+        }
+        crate::tick_patch::TickPatchError::PortalInitRequired => {
+            hasher.update(b"portal-init-required");
+        }
+        crate::tick_patch::TickPatchError::PortalInvariantViolation => {
+            hasher.update(b"portal-invariant-violation");
+        }
+        crate::tick_patch::TickPatchError::DigestMismatch => {
+            hasher.update(b"digest-mismatch");
+        }
+    }
+}
+
+fn hash_apply_error(hasher: &mut blake3::Hasher, err: &ApplyError) {
+    match err {
+        ApplyError::MissingNode(node) => {
+            hasher.update(b"missing-node");
+            hash_node_key(hasher, node);
+        }
+        ApplyError::MissingEdge(edge) => {
+            hasher.update(b"missing-edge");
+            hash_edge_key(hasher, edge);
+        }
+        ApplyError::WarpMismatch { expected, actual } => {
+            hasher.update(b"warp-mismatch");
+            hasher.update(expected.as_bytes());
+            hasher.update(actual.as_bytes());
+        }
+        ApplyError::InvalidAttachmentKey => {
+            hasher.update(b"invalid-attachment-key");
+        }
+        ApplyError::NodeNotIsolated(node) => {
+            hasher.update(b"node-not-isolated");
+            hash_node_key(hasher, node);
+        }
+        ApplyError::TickPatch(err) => {
+            hasher.update(b"tick-patch");
+            hash_tick_patch_error(hasher, err);
+        }
+    }
+}
+
+fn hash_replay_error(hasher: &mut blake3::Hasher, err: &ReplayError) {
+    match err {
+        ReplayError::History(err) => {
+            hasher.update(b"history");
+            hash_history_error(hasher, err);
+        }
+        ReplayError::Apply { tick, source } => {
+            hasher.update(b"apply");
+            hash_worldline_tick(hasher, *tick);
+            hash_apply_error(hasher, source);
+        }
+        ReplayError::CheckpointStateRootMismatch {
+            tick,
+            expected,
+            actual,
+        } => {
+            hasher.update(b"checkpoint-state-root-mismatch");
+            hash_worldline_tick(hasher, *tick);
+            hasher.update(expected);
+            hasher.update(actual);
+        }
+        ReplayError::ReplayBaseWarpMismatch { expected, actual } => {
+            hasher.update(b"replay-base-warp-mismatch");
+            hasher.update(expected.as_bytes());
+            hasher.update(actual.as_bytes());
+        }
+        ReplayError::InitialBoundaryHashMismatch { expected, actual } => {
+            hasher.update(b"initial-boundary-hash-mismatch");
+            hasher.update(expected);
+            hasher.update(actual);
+        }
+        ReplayError::MissingPatch { tick } => {
+            hasher.update(b"missing-patch");
+            hash_worldline_tick(hasher, *tick);
+        }
+        ReplayError::TickOverflow { tick } => {
+            hasher.update(b"tick-overflow");
+            hash_worldline_tick(hasher, *tick);
+        }
+        ReplayError::PatchDigestMismatch {
+            tick,
+            expected,
+            actual,
+        } => {
+            hasher.update(b"patch-digest-mismatch");
+            hash_worldline_tick(hasher, *tick);
+            hasher.update(expected);
+            hasher.update(actual);
+        }
+        ReplayError::StateRootMismatch {
+            tick,
+            expected,
+            actual,
+        } => {
+            hasher.update(b"state-root-mismatch");
+            hash_worldline_tick(hasher, *tick);
+            hasher.update(expected);
+            hasher.update(actual);
+        }
+        ReplayError::CommitHashMismatch {
+            tick,
+            expected,
+            actual,
+        } => {
+            hasher.update(b"commit-hash-mismatch");
+            hash_worldline_tick(hasher, *tick);
+            hasher.update(expected);
+            hasher.update(actual);
+        }
+    }
+}
+
+fn hash_strand_error(hasher: &mut blake3::Hasher, err: &StrandError) {
+    match err {
+        StrandError::AlreadyExists(strand_id) => {
+            hasher.update(b"already-exists");
+            hasher.update(strand_id.as_bytes());
+        }
+        StrandError::NotFound(strand_id) => {
+            hasher.update(b"not-found");
+            hasher.update(strand_id.as_bytes());
+        }
+        StrandError::ForkTickUnavailable { worldline, tick } => {
+            hasher.update(b"fork-tick-unavailable");
+            hash_worldline_id(hasher, worldline);
+            hash_worldline_tick(hasher, *tick);
+        }
+        StrandError::SourceWorldlineNotFound(worldline_id) => {
+            hasher.update(b"source-worldline-not-found");
+            hash_worldline_id(hasher, worldline_id);
+        }
+        StrandError::Provenance(message) => {
+            hasher.update(b"provenance");
+            hasher.update(message.as_bytes());
+        }
+        StrandError::ForkTickOverflow(strand_id) => {
+            hasher.update(b"fork-tick-overflow");
+            hasher.update(strand_id.as_bytes());
+        }
+        StrandError::MissingSupportTarget(strand_id) => {
+            hasher.update(b"missing-support-target");
+            hasher.update(strand_id.as_bytes());
+        }
+        StrandError::SupportWorldlineMismatch {
+            target,
+            expected,
+            got,
+        } => {
+            hasher.update(b"support-worldline-mismatch");
+            hasher.update(target.as_bytes());
+            hash_worldline_id(hasher, expected);
+            hash_worldline_id(hasher, got);
+        }
+        StrandError::SelfSupportPin(strand_id) => {
+            hasher.update(b"self-support-pin");
+            hasher.update(strand_id.as_bytes());
+        }
+        StrandError::DuplicateSupportTarget { owner, target } => {
+            hasher.update(b"duplicate-support-target");
+            hasher.update(owner.as_bytes());
+            hasher.update(target.as_bytes());
+        }
+        StrandError::SupportPinUnavailable { target, tick } => {
+            hasher.update(b"support-pin-unavailable");
+            hasher.update(target.as_bytes());
+            hash_worldline_tick(hasher, *tick);
+        }
+        StrandError::PinnedByLiveStrand { strand, pinned_by } => {
+            hasher.update(b"pinned-by-live-strand");
+            hasher.update(strand.as_bytes());
+            hasher.update(pinned_by.as_bytes());
+        }
+        StrandError::InvariantViolation(message) => {
+            hasher.update(b"invariant-violation");
+            hasher.update(message.as_bytes());
         }
     }
 }
@@ -1662,9 +2126,99 @@ fn scheduler_error_cause_digest(err: &RuntimeError) -> Hash {
         RuntimeError::GlobalTickOverflow => {
             hasher.update(b"global-tick-overflow");
         }
-        other => {
-            hasher.update(b"runtime-error-debug");
-            hasher.update(format!("{other:?}").as_bytes());
+        RuntimeError::DuplicateWorldline(worldline_id) => {
+            hasher.update(b"duplicate-worldline");
+            hash_worldline_id(&mut hasher, worldline_id);
+        }
+        RuntimeError::DuplicateHead(head_key) => {
+            hasher.update(b"duplicate-head");
+            hash_writer_head_key(&mut hasher, head_key);
+        }
+        RuntimeError::UnknownWorldline(worldline_id) => {
+            hasher.update(b"unknown-worldline");
+            hash_worldline_id(&mut hasher, worldline_id);
+        }
+        RuntimeError::UnknownHead(head_key) => {
+            hasher.update(b"unknown-head");
+            hash_writer_head_key(&mut hasher, head_key);
+        }
+        RuntimeError::DuplicateDefaultWriter(worldline_id) => {
+            hasher.update(b"duplicate-default-writer");
+            hash_worldline_id(&mut hasher, worldline_id);
+        }
+        RuntimeError::DuplicateInboxAddress {
+            worldline_id,
+            inbox,
+        } => {
+            hasher.update(b"duplicate-inbox-address");
+            hash_worldline_id(&mut hasher, worldline_id);
+            hasher.update(inbox.0.as_bytes());
+        }
+        RuntimeError::MissingDefaultWriter(worldline_id) => {
+            hasher.update(b"missing-default-writer");
+            hash_worldline_id(&mut hasher, worldline_id);
+        }
+        RuntimeError::MissingInboxAddress {
+            worldline_id,
+            inbox,
+        } => {
+            hasher.update(b"missing-inbox-address");
+            hash_worldline_id(&mut hasher, worldline_id);
+            hasher.update(inbox.0.as_bytes());
+        }
+        RuntimeError::RejectedByPolicy(head_key) => {
+            hasher.update(b"rejected-by-policy");
+            hash_writer_head_key(&mut hasher, head_key);
+        }
+        RuntimeError::Provenance(err) => {
+            hasher.update(b"provenance");
+            hash_history_error(&mut hasher, err);
+        }
+        RuntimeError::Replay(err) => {
+            hasher.update(b"replay");
+            hash_replay_error(&mut hasher, err);
+        }
+        RuntimeError::Strand(err) => {
+            hasher.update(b"strand");
+            hash_strand_error(&mut hasher, err);
+        }
+        RuntimeError::IntentSubmissionGenerationOverflow => {
+            hasher.update(b"intent-submission-generation-overflow");
+        }
+        RuntimeError::UnknownIntentSubmission(submission_id) => {
+            hasher.update(b"unknown-intent-submission");
+            hasher.update(submission_id);
+        }
+        RuntimeError::TicketedIngressSubmissionMismatch(submission_id) => {
+            hasher.update(b"ticketed-ingress-submission-mismatch");
+            hasher.update(submission_id);
+        }
+        RuntimeError::TicketedIngressAlreadyStaged(submission_id) => {
+            hasher.update(b"ticketed-ingress-already-staged");
+            hasher.update(submission_id);
+        }
+        RuntimeError::TicketedIngressDuplicateRuntimeIngress {
+            head_key,
+            ingress_id,
+        } => {
+            hasher.update(b"ticketed-ingress-duplicate-runtime-ingress");
+            hash_writer_head_key(&mut hasher, head_key);
+            hasher.update(ingress_id);
+        }
+        RuntimeError::SchedulerRuntimeFaultActive(fault_id) => {
+            hasher.update(b"scheduler-runtime-fault-active");
+            hasher.update(fault_id.as_bytes());
+        }
+        RuntimeError::UnknownSchedulerFault(fault_id) => {
+            hasher.update(b"unknown-scheduler-fault");
+            hasher.update(fault_id.as_bytes());
+        }
+        RuntimeError::SchedulerFaultAlreadyResolved(fault_id) => {
+            hasher.update(b"scheduler-fault-already-resolved");
+            hasher.update(fault_id.as_bytes());
+        }
+        RuntimeError::SchedulerFaultGenerationOverflow => {
+            hasher.update(b"scheduler-fault-generation-overflow");
         }
     }
     hasher.finalize().into()
@@ -1749,7 +2303,7 @@ impl SchedulerCoordinator {
         } else {
             let run_id = derive_scheduler_run_id(runtime.global_tick, &keys);
             let cause_digest = scheduler_error_cause_digest(&RuntimeError::GlobalTickOverflow);
-            runtime.record_scheduler_runtime_fault(run_id, cause_digest);
+            runtime.record_scheduler_runtime_fault(run_id, cause_digest)?;
             return Err(RuntimeError::GlobalTickOverflow);
         };
         let run_id = derive_scheduler_run_id(next_global_tick, &keys);
@@ -1770,7 +2324,7 @@ impl SchedulerCoordinator {
             if frontier.frontier_tick() == WorldlineTick::MAX {
                 let err = RuntimeError::FrontierTickOverflow(key.worldline_id);
                 let cause_digest = scheduler_error_cause_digest(&err);
-                runtime.record_scheduler_head_fault(run_id, *key, cause_digest);
+                runtime.record_scheduler_head_fault(run_id, *key, cause_digest)?;
                 return Err(err);
             }
         }
@@ -1897,10 +2451,10 @@ impl SchedulerCoordinator {
                     provenance.restore(&provenance_before);
                     match scope {
                         SchedulerFaultScope::Head(head_key) => {
-                            runtime.record_scheduler_head_fault(run_id, head_key, cause_digest);
+                            runtime.record_scheduler_head_fault(run_id, head_key, cause_digest)?;
                         }
                         SchedulerFaultScope::Runtime => {
-                            runtime.record_scheduler_runtime_fault(run_id, cause_digest);
+                            runtime.record_scheduler_runtime_fault(run_id, cause_digest)?;
                         }
                     }
                     return Err(err);
@@ -1910,7 +2464,7 @@ impl SchedulerCoordinator {
                     runtime.rollback_receipt_correlations(&mut receipt_correlation_rollback);
                     runtime.restore(runtime_before);
                     provenance.restore(&provenance_before);
-                    runtime.record_scheduler_runtime_fault(run_id, cause_digest);
+                    let _ = runtime.record_scheduler_runtime_fault(run_id, cause_digest);
                     resume_unwind(payload);
                 }
             };
@@ -3237,7 +3791,7 @@ mod tests {
     }
 
     #[test]
-    fn frontier_tick_overflow_preflight_preserves_runtime_state() {
+    fn frontier_tick_overflow_preflight_preserves_uncommitted_state_and_faults_head() {
         let mut runtime = WorldlineRuntime::new();
         let mut engine = empty_engine();
         let worldline_id = wl(1);
@@ -3304,10 +3858,20 @@ mod tests {
                 .is_none(),
             "overflow must not mutate the worldline state"
         );
+        let fault = runtime
+            .scheduler_fault_for_head(&head_key)
+            .expect("frontier overflow should fault the scoped head");
+        assert_eq!(fault.scope, SchedulerFaultScope::Head(head_key));
+        assert_eq!(fault.status, SchedulerFaultStatus::Active);
+        assert!(runtime.scheduler_runtime_fault().is_none());
+        assert!(
+            SchedulerCoordinator::peek_order(&runtime).is_empty(),
+            "faulted head must not remain scheduler-runnable"
+        );
     }
 
     #[test]
-    fn global_tick_overflow_preflight_preserves_runtime_state() {
+    fn global_tick_overflow_preflight_preserves_uncommitted_state_and_faults_runtime() {
         let mut runtime = WorldlineRuntime::new();
         let mut engine = empty_engine();
         let worldline_id = wl(1);
@@ -3362,6 +3926,19 @@ mod tests {
                 .is_none(),
             "global-tick overflow must not mutate the worldline state"
         );
+        let fault = runtime
+            .scheduler_runtime_fault()
+            .expect("global tick overflow should fault the runtime");
+        assert_eq!(fault.scope, SchedulerFaultScope::Runtime);
+        assert_eq!(fault.status, SchedulerFaultStatus::Active);
+        let fault_id = fault.fault_id;
+        assert!(runtime.scheduler_fault_for_head(&head_key).is_none());
+        let blocked = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine)
+            .unwrap_err();
+        assert!(matches!(
+            blocked,
+            RuntimeError::SchedulerRuntimeFaultActive(id) if id == fault_id
+        ));
     }
 
     #[test]
@@ -3817,6 +4394,160 @@ mod tests {
     }
 
     #[test]
+    fn retried_head_fault_after_recovery_keeps_resolved_fault_evidence() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        let worldline_id = wl(1);
+        runtime
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        let head_key = register_head(
+            &mut runtime,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        runtime
+            .ingest(IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind("test"),
+                b"commit".to_vec(),
+            ))
+            .unwrap();
+        runtime
+            .worldlines
+            .frontier_mut(&worldline_id)
+            .unwrap()
+            .frontier_tick = WorldlineTick::MAX;
+
+        let mut provenance = mirrored_provenance(&runtime);
+        let err = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine)
+            .unwrap_err();
+        assert!(matches!(err, RuntimeError::FrontierTickOverflow(id) if id == worldline_id));
+        let first_fault_id = runtime
+            .scheduler_fault_for_head(&head_key)
+            .expect("overflowing head should be faulted")
+            .fault_id;
+
+        let authority = SchedulerFaultRecoveryAuthority::assume_runtime_owner();
+        runtime
+            .resolve_scheduler_fault(&authority, first_fault_id, [7; 32])
+            .unwrap();
+        assert_eq!(
+            runtime.scheduler_fault(&first_fault_id).unwrap().status,
+            SchedulerFaultStatus::Resolved {
+                recovery_id: [7; 32]
+            }
+        );
+
+        let err = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine)
+            .unwrap_err();
+        assert!(matches!(err, RuntimeError::FrontierTickOverflow(id) if id == worldline_id));
+        let second_fault = runtime
+            .scheduler_fault_for_head(&head_key)
+            .expect("retried overflowing head should be faulted again");
+
+        assert_ne!(
+            first_fault_id, second_fault.fault_id,
+            "retry after trusted recovery must not overwrite resolved fault evidence"
+        );
+        assert_eq!(
+            runtime.scheduler_fault(&first_fault_id).unwrap().status,
+            SchedulerFaultStatus::Resolved {
+                recovery_id: [7; 32]
+            }
+        );
+        assert_eq!(second_fault.status, SchedulerFaultStatus::Active);
+        assert_eq!(runtime.scheduler_fault_count(), 2);
+    }
+
+    #[test]
+    fn retried_runtime_fault_after_recovery_keeps_resolved_fault_evidence() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        engine
+            .register_rule(panic_runtime_rule("cmd/runtime-panic"))
+            .unwrap();
+        let worldline_id = wl(1);
+        runtime
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        register_head(
+            &mut runtime,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        runtime
+            .ingest(IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind("test"),
+                b"panic-b".to_vec(),
+            ))
+            .unwrap();
+        let mut provenance = mirrored_provenance(&runtime);
+
+        let first_panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine);
+        }));
+        assert!(first_panic.is_err());
+        let first_fault_id = runtime
+            .scheduler_runtime_fault()
+            .expect("panic should fault the runtime")
+            .fault_id;
+
+        let authority = SchedulerFaultRecoveryAuthority::assume_runtime_owner();
+        runtime
+            .resolve_scheduler_fault(&authority, first_fault_id, [8; 32])
+            .unwrap();
+        assert_eq!(
+            runtime.scheduler_fault(&first_fault_id).unwrap().status,
+            SchedulerFaultStatus::Resolved {
+                recovery_id: [8; 32]
+            }
+        );
+
+        let second_panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine);
+        }));
+        assert!(second_panic.is_err());
+        let second_fault = runtime
+            .scheduler_runtime_fault()
+            .expect("retried panic should fault the runtime again");
+
+        assert_ne!(
+            first_fault_id, second_fault.fault_id,
+            "retry after trusted recovery must not overwrite resolved runtime fault evidence"
+        );
+        assert_eq!(
+            runtime.scheduler_fault(&first_fault_id).unwrap().status,
+            SchedulerFaultStatus::Resolved {
+                recovery_id: [8; 32]
+            }
+        );
+        assert_eq!(second_fault.status, SchedulerFaultStatus::Active);
+        assert_eq!(runtime.scheduler_fault_count(), 2);
+    }
+
+    #[test]
+    fn runtime_error_fault_digest_uses_canonical_variant_tags() {
+        let fault_id = SchedulerFaultId::from_bytes([7; 32]);
+        let digest = scheduler_error_cause_digest(&RuntimeError::UnknownSchedulerFault(fault_id));
+
+        let mut expected = blake3::Hasher::new();
+        expected.update(b"echo.scheduler-fault-cause.error");
+        expected.update(b"unknown-scheduler-fault");
+        expected.update(fault_id.as_bytes());
+
+        let expected: Hash = expected.finalize().into();
+        assert_eq!(digest, expected);
+    }
+
+    #[test]
     fn super_tick_restores_runtime_before_resuming_a_later_head_panic() {
         let mut runtime = WorldlineRuntime::new();
         let mut engine = empty_engine();
@@ -4113,7 +4844,7 @@ mod tests {
         runtime
             .register_worldline(worldline_id, WorldlineState::empty())
             .unwrap();
-        register_head(
+        let head_key = register_head(
             &mut runtime,
             worldline_id,
             "default",
@@ -4138,6 +4869,12 @@ mod tests {
         let err = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine)
             .unwrap_err();
         assert!(matches!(err, RuntimeError::FrontierTickOverflow(id) if id == worldline_id));
+        let fault = runtime
+            .scheduler_fault_for_head(&head_key)
+            .expect("frontier overflow should fault the scoped head");
+        assert_eq!(fault.scope, SchedulerFaultScope::Head(head_key));
+        assert_eq!(fault.status, SchedulerFaultStatus::Active);
+        assert!(runtime.scheduler_runtime_fault().is_none());
     }
 
     #[test]
@@ -4162,5 +4899,10 @@ mod tests {
         let err = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine)
             .unwrap_err();
         assert!(matches!(err, RuntimeError::GlobalTickOverflow));
+        let fault = runtime
+            .scheduler_runtime_fault()
+            .expect("global overflow should fault the runtime");
+        assert_eq!(fault.scope, SchedulerFaultScope::Runtime);
+        assert_eq!(fault.status, SchedulerFaultStatus::Active);
     }
 }

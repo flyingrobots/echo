@@ -349,6 +349,9 @@
 
 ### Fixed
 
+- `warp-core` submit-only intake now enforces the same canonical
+  `IngressEnvelope` content-address invariant as runtime inbox ingestion, so
+  `would_accept(...)` cannot approve malformed ingress ids.
 - `warp-core` ticketed runtime ingress now rejects duplicate pending or already
   committed runtime ingress before recording ticketed correlation material, so
   an admission ticket cannot retroactively claim legacy direct inbox work.

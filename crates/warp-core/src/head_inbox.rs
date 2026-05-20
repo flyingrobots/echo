@@ -334,6 +334,7 @@ impl HeadInbox {
     /// history without entering runtime scheduling.
     #[must_use]
     pub fn would_accept(&self, envelope: &IngressEnvelope) -> bool {
+        envelope.assert_canonical_ingress_id();
         self.policy_accepts(envelope)
     }
 
@@ -636,5 +637,20 @@ mod tests {
         let mut envelope = make_envelope(test_kind(), b"payload");
         envelope.ingress_id = [0xff; 32];
         let _ = inbox.ingest(envelope);
+    }
+
+    #[test]
+    #[should_panic(expected = "ingress_id does not match payload")]
+    fn invalid_envelope_panics_on_would_accept() {
+        let inbox = HeadInbox::new(
+            WriterHeadKey {
+                worldline_id: wl(1),
+                head_id: crate::head::make_head_id("default"),
+            },
+            InboxPolicy::AcceptAll,
+        );
+        let mut envelope = make_envelope(test_kind(), b"payload");
+        envelope.ingress_id = [0xfe; 32];
+        let _ = inbox.would_accept(&envelope);
     }
 }

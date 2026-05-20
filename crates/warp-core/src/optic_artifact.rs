@@ -610,6 +610,10 @@ const OPTIC_SCHEDULER_ADMISSION_V0_FIXTURE_BYTES: &[u8] =
     b"scheduler-admission:resolved-fixture:v0";
 const OPTIC_SCHEDULER_ADMISSION_V0_FIXTURE_DIGEST_DOMAIN: &[u8] =
     b"echo.optic-scheduler-admission.fixture.v0";
+const OPTIC_SCHEDULER_WORK_CANDIDATE_V0_FIXTURE_BYTES: &[u8] =
+    b"scheduler-work-candidate:resolved-fixture:v0";
+const OPTIC_SCHEDULER_WORK_CANDIDATE_V0_FIXTURE_DIGEST_DOMAIN: &[u8] =
+    b"echo.optic-scheduler-work-candidate.fixture.v0";
 
 /// Admission obstruction for an optic invocation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -642,9 +646,11 @@ pub enum OpticInvocationObstruction {
     InvocationAdmissionUnavailable,
     /// Echo proved invocation admission, but has no scheduler admission fact.
     SchedulerAdmissionUnavailable,
-    /// Echo proved scheduler admission, but scheduler work candidates do not
-    /// exist in this slice.
+    /// Echo proved scheduler admission, but has no scheduler work candidate.
     SchedulerWorkUnavailable,
+    /// Echo proved scheduler work candidate availability, but has no law
+    /// witness.
+    LawWitnessUnavailable,
     /// The invocation does not carry authority to use the registered artifact.
     MissingCapability,
     /// The invocation carries a presentation that is structurally unusable.
@@ -1061,6 +1067,13 @@ fn scheduler_admission_v0_fixture_digest() -> [u8; 32] {
     )
 }
 
+fn scheduler_work_candidate_v0_fixture_digest() -> [u8; 32] {
+    digest_invocation_request_bytes(
+        OPTIC_SCHEDULER_WORK_CANDIDATE_V0_FIXTURE_DIGEST_DOMAIN,
+        OPTIC_SCHEDULER_WORK_CANDIDATE_V0_FIXTURE_BYTES,
+    )
+}
+
 /// Echo-owned runtime-local registry for Wesley-compiled optic artifacts.
 #[derive(Clone, Debug, Default)]
 pub struct OpticArtifactRegistry {
@@ -1069,6 +1082,7 @@ pub struct OpticArtifactRegistry {
     runtime_support_v0_by_requirements: BTreeMap<String, [u8; 32]>,
     invocation_admission_v0_by_artifact: BTreeMap<String, [u8; 32]>,
     scheduler_admission_v0_by_artifact: BTreeMap<String, [u8; 32]>,
+    scheduler_work_candidate_v0_by_artifact: BTreeMap<String, [u8; 32]>,
     published_graph_facts: Vec<PublishedGraphFact>,
     artifact_registration_receipts: Vec<ArtifactRegistrationReceipt>,
 }
@@ -1200,6 +1214,35 @@ impl OpticArtifactRegistry {
         Ok(())
     }
 
+    /// Records Echo-owned SchedulerWorkCandidate v0 fixture evidence for a
+    /// registered artifact handle.
+    ///
+    /// This is runtime context, not invocation context. Callers cannot provide
+    /// scheduler work candidate evidence through [`OpticInvocation`]; the
+    /// admission ladder only consults facts recorded on this registry. This
+    /// does not enqueue work, create scheduler jobs, dispatch handlers, or
+    /// execute contracts.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OpticArtifactRegistrationError::UnknownHandle`] if Echo did not
+    /// issue the handle in this registry instance.
+    pub fn record_scheduler_work_candidate_v0_fixture_for_artifact(
+        &mut self,
+        handle: &OpticArtifactHandle,
+    ) -> Result<(), OpticArtifactRegistrationError> {
+        let registered = self.resolve_optic_artifact_handle(handle)?;
+        let artifact_handle_id = registered.handle.id.clone();
+        let operation_id = registered.operation_id.clone();
+        let requirements_digest = registered.requirements_digest.clone();
+        self.record_scheduler_work_candidate_v0_fixture_for_artifact_id(
+            artifact_handle_id,
+            operation_id,
+            requirements_digest,
+        );
+        Ok(())
+    }
+
     fn record_runtime_support_v0_fixture_for_requirements_digest(
         &mut self,
         requirements_digest: String,
@@ -1252,6 +1295,27 @@ impl OpticArtifactRegistry {
                 operation_id,
                 requirements_digest,
                 scheduler_admission_digest,
+            );
+        }
+    }
+
+    fn record_scheduler_work_candidate_v0_fixture_for_artifact_id(
+        &mut self,
+        artifact_handle_id: String,
+        operation_id: String,
+        requirements_digest: String,
+    ) {
+        let scheduler_work_candidate_digest = scheduler_work_candidate_v0_fixture_digest();
+        if self
+            .scheduler_work_candidate_v0_by_artifact
+            .insert(artifact_handle_id.clone(), scheduler_work_candidate_digest)
+            .is_none()
+        {
+            self.publish_scheduler_work_candidate_recorded_fact(
+                artifact_handle_id,
+                operation_id,
+                requirements_digest,
+                scheduler_work_candidate_digest,
             );
         }
     }
@@ -1381,9 +1445,14 @@ impl OpticArtifactRegistry {
                                                 self.resolve_scheduler_admission_v0_for_artifact(
                                                     &registered.handle.id,
                                                 )
-                                                .unwrap_or(
-                                                    OpticInvocationObstruction::SchedulerWorkUnavailable,
-                                                )
+                                                .unwrap_or_else(|| {
+                                                    self.resolve_scheduler_work_candidate_v0_for_artifact(
+                                                        &registered.handle.id,
+                                                    )
+                                                    .unwrap_or(
+                                                        OpticInvocationObstruction::LawWitnessUnavailable,
+                                                    )
+                                                })
                                             })
                                         })
                                     },
@@ -1475,6 +1544,20 @@ impl OpticArtifactRegistry {
         }
 
         Some(OpticInvocationObstruction::SchedulerAdmissionUnavailable)
+    }
+
+    fn resolve_scheduler_work_candidate_v0_for_artifact(
+        &self,
+        artifact_handle_id: &str,
+    ) -> Option<OpticInvocationObstruction> {
+        if self
+            .scheduler_work_candidate_v0_by_artifact
+            .contains_key(artifact_handle_id)
+        {
+            return None;
+        }
+
+        Some(OpticInvocationObstruction::SchedulerWorkUnavailable)
     }
 
     fn classify_aperture_request(
@@ -1687,6 +1770,23 @@ impl OpticArtifactRegistry {
         ));
     }
 
+    fn publish_scheduler_work_candidate_recorded_fact(
+        &mut self,
+        artifact_handle_id: String,
+        operation_id: String,
+        requirements_digest: String,
+        scheduler_work_candidate_digest: [u8; 32],
+    ) {
+        self.published_graph_facts.push(PublishedGraphFact::new(
+            GraphFact::SchedulerWorkCandidateRecorded {
+                artifact_handle_id,
+                operation_id,
+                requirements_digest,
+                scheduler_work_candidate_digest,
+            },
+        ));
+    }
+
     fn publish_invocation_obstruction_fact(
         &mut self,
         invocation: &OpticInvocation,
@@ -1775,6 +1875,9 @@ fn invocation_obstruction_kind(
         }
         OpticInvocationObstruction::SchedulerWorkUnavailable => {
             InvocationObstructionKind::SchedulerWorkUnavailable
+        }
+        OpticInvocationObstruction::LawWitnessUnavailable => {
+            InvocationObstructionKind::LawWitnessUnavailable
         }
         OpticInvocationObstruction::MissingCapability => {
             InvocationObstructionKind::MissingCapability

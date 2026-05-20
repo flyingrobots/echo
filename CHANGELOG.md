@@ -19,6 +19,19 @@
   order. `DispatchResponse` now carries optional `submission_id` and
   `submission_generation` fields for application ingress, and the WASM ABI
   version is now 10.
+- `warp-core` optic invocation admission now has a narrow
+  SchedulerWorkCandidate v0 boundary. After BasisResolution v0,
+  ApertureResolution v0, BudgetResolution v0, RuntimeSupport v0, capability
+  identity coverage, InvocationAdmission v0, and SchedulerAdmission v0 all
+  resolve, Echo checks runtime-owned scheduler work candidate facts for the
+  registered artifact handle. Without that Echo-owned scheduler work candidate
+  fact, the ladder obstructs at `SchedulerWorkUnavailable`; with the exact
+  `scheduler-work-candidate:resolved-fixture:v0` fixture, the ladder advances to
+  `LawWitnessUnavailable`. Scheduler work candidate fixture recording is scoped
+  through Echo-issued artifact handles, publishes idempotent graph facts, and
+  rejects unknown handles without publishing scheduler work candidate evidence.
+  This does not add law witnesses, admission tickets, scheduler enqueueing,
+  handler dispatch, execution, or caller-supplied scheduler work testimony.
 - `warp-core` optic invocation admission now has a narrow SchedulerAdmission v0
   boundary. After BasisResolution v0, ApertureResolution v0, BudgetResolution
   v0, RuntimeSupport v0, capability identity coverage, and InvocationAdmission

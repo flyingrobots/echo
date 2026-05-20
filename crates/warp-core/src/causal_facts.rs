@@ -68,9 +68,11 @@ pub enum InvocationObstructionKind {
     InvocationAdmissionUnavailable,
     /// Echo proved invocation admission, but has no scheduler admission fact.
     SchedulerAdmissionUnavailable,
-    /// Echo proved scheduler admission, but this slice still has no scheduler
-    /// work candidate or queue item.
+    /// Echo proved scheduler admission, but has no scheduler work candidate.
     SchedulerWorkUnavailable,
+    /// Echo proved scheduler work candidate availability, but has no law
+    /// witness.
+    LawWitnessUnavailable,
     /// Invocation supplied no capability presentation.
     MissingCapability,
     /// Invocation supplied a malformed capability presentation.
@@ -119,6 +121,7 @@ impl InvocationObstructionKind {
             Self::InvocationAdmissionUnavailable => b"invocation-admission-unavailable",
             Self::SchedulerAdmissionUnavailable => b"scheduler-admission-unavailable",
             Self::SchedulerWorkUnavailable => b"scheduler-work-unavailable",
+            Self::LawWitnessUnavailable => b"law-witness-unavailable",
             Self::MissingCapability => b"missing-capability",
             Self::MalformedCapabilityPresentation => b"malformed-capability-presentation",
             Self::UnboundCapabilityPresentation => b"unbound-capability-presentation",
@@ -211,6 +214,21 @@ pub enum GraphFact {
         requirements_digest: String,
         /// Digest of the Echo-owned scheduler admission material.
         scheduler_admission_digest: [u8; 32],
+    },
+    /// Echo recorded runtime-owned scheduler work candidate evidence for a
+    /// registered artifact handle.
+    SchedulerWorkCandidateRecorded {
+        /// Echo-owned runtime-local artifact handle id covered by the scheduler
+        /// work candidate fact.
+        artifact_handle_id: String,
+        /// Registered operation id covered by the scheduler work candidate
+        /// fact.
+        operation_id: String,
+        /// Registered requirements digest covered by the scheduler work
+        /// candidate fact.
+        requirements_digest: String,
+        /// Digest of the Echo-owned scheduler work candidate material.
+        scheduler_work_candidate_digest: [u8; 32],
     },
     /// Echo refused optic invocation before admission success.
     OpticInvocationObstructed {
@@ -347,6 +365,30 @@ impl GraphFact {
                     &mut bytes,
                     b"scheduler-admission-digest",
                     scheduler_admission_digest,
+                );
+            }
+            Self::SchedulerWorkCandidateRecorded {
+                artifact_handle_id,
+                operation_id,
+                requirements_digest,
+                scheduler_work_candidate_digest,
+            } => {
+                push_digest_field(&mut bytes, b"variant", b"scheduler-work-candidate-recorded");
+                push_digest_field(
+                    &mut bytes,
+                    b"artifact-handle-id",
+                    artifact_handle_id.as_bytes(),
+                );
+                push_digest_field(&mut bytes, b"operation-id", operation_id.as_bytes());
+                push_digest_field(
+                    &mut bytes,
+                    b"requirements-digest",
+                    requirements_digest.as_bytes(),
+                );
+                push_digest_field(
+                    &mut bytes,
+                    b"scheduler-work-candidate-digest",
+                    scheduler_work_candidate_digest,
                 );
             }
             Self::OpticInvocationObstructed {

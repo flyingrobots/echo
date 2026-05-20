@@ -29,14 +29,13 @@ scheduler-owned tick outcome without giving application code tick authority.
   owner policy, not semantic Echo history.
 - Tick receipts exist and witness scheduler-owned candidate outcomes.
 - Footprint conflicts are explicit receipt rejections, not hidden retries.
-- The optic admission ladder resolves through SchedulerAdmission v0 and
-  currently stops before scheduler work.
+- The optic admission ladder resolves through SchedulerWorkCandidate v0 and
+  currently stops before law witness issuance.
 
 ## What Is Not Yet True
 
 - Accepted submissions are not yet complete witnessed ingress history.
 - Optic admission has no successful outcome.
-- Scheduler work candidates do not exist.
 - Law witnesses do not exist.
 - Admission tickets do not exist.
 - Ticketed runtime ingress is not wired.
@@ -116,15 +115,11 @@ AdmissionTicket + witnessed submission -> ticketed runtime ingress
 
 ## Immediate Next Slice
 
-WitnessedIntentSubmission v0 proves that accepted canonical application intent
-bytes become witnessed Echo ingress history without running the scheduler.
+LawWitness v0 should prove that Echo can emit deterministic witness material
+over the resolved submission and admission evidence before issuing any admission
+ticket.
 
-This slice must not implement scheduler work candidates, law witnesses,
-admission tickets, ticketed runtime ingress, receipt correlation, outcome
-observation, installed handler dispatch, QueryView, streaming subscriptions,
-automatic retry, or wall-clock cadence semantics.
-
-If full restart persistence is too large for the first implementation, keep the
-v0 ledger narrow and deterministic, then add a separate
-WitnessedIntentSubmissionPersistence v0 slice. Pending inbox memory alone is not
-the end state.
+This slice must not implement admission tickets, ticketed runtime ingress,
+receipt correlation, outcome observation, installed handler dispatch, QueryView,
+streaming subscriptions, automatic retry, scheduler enqueueing, handler
+dispatch, execution, or wall-clock cadence semantics.

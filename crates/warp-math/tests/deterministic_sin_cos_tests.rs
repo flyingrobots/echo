@@ -11,8 +11,8 @@
 
 use std::f32::consts::TAU;
 
-use warp_core::math::scalar::F32Scalar;
-use warp_core::math::Scalar;
+use warp_math::scalar::F32Scalar;
+use warp_math::Scalar;
 
 const ZERO: u32 = 0x0000_0000;
 const ONE: u32 = 0x3f80_0000;
@@ -184,7 +184,7 @@ fn test_sin_cos_error_budget_pinned_against_deterministic_oracle() {
     //   - Absolute error budget: measured in f64 space vs the f64 reference.
 
     // NOTE: These thresholds are pinned to the current LUT+interpolation
-    // backend in `warp_core::math::trig` and should only be loosened with
+    // backend in `warp_math::trig` and should only be loosened with
     // explicit documentation of the change.
     //
     // ULP metrics across a zero crossing are not especially meaningful, so we

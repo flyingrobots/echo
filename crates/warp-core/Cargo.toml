@@ -22,9 +22,9 @@ hex = "0.4"
 ciborium = "0.2"
 rustc-hash = "2.1.1"
 serde = { version = "1.0", features = ["derive"], optional = true }
-libm = "0.2"
 echo-wasm-abi = { workspace = true }
 echo-runtime-schema = { workspace = true }
+warp-math = { workspace = true }
 
 [dev-dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -45,20 +45,15 @@ host_test = []
 # adapters that own scheduler/runtime control. Application crates must not
 # enable this feature.
 trusted_runtime = []
-# Optional regression check for PRNG sequences; off by default to avoid
-# freezing algorithm choices. Used only in tests guarded with `cfg(feature)`.
-golden_prng = []
-# Enables extra diagnostic printing in deterministic trig tests.
-trig_audit_print = []
 # Serde support for serializable wrappers (use ONLY with deterministic CBOR encoder).
 # NEVER use with serde_json - JSON is non-deterministic and banned in warp-core.
-serde = ["dep:serde", "bytes/serde", "echo-runtime-schema/serde"]
+serde = ["dep:serde", "bytes/serde", "echo-runtime-schema/serde", "warp-math/serde"]
 
 # Scalar backend lanes (CI/test orchestration).
 # - `det_float`: default float32-backed lane using `F32Scalar`.
 # - `det_fixed`: fixed-point Q32.32 lane using `DFix64` (experimental, test-only).
-det_float = []
-det_fixed = []
+det_float = ["warp-math/det_float"]
+det_fixed = ["warp-math/det_fixed"]
 
 # Validation feature for delta operations
 delta_validate = []
@@ -77,10 +72,6 @@ unsafe_graph = []
 [[test]]
 name = "parallel_parallel_exec"
 required-features = ["delta_validate"]
-
-[[test]]
-name = "prng_golden_regression"
-required-features = ["golden_prng"]
 
 [[test]]
 name = "causal_fact_publication_tests"

@@ -18,6 +18,62 @@ fail() {
   FAIL=$((FAIL + 1))
 }
 
+if grep -R -q -- 'cargo clippy -p warp-core --bin gen_sin_qtr_lut' .github/workflows; then
+  fail "CI workflow binary clippy should follow gen_sin_qtr_lut to warp-math"
+else
+  pass "CI workflow binary clippy follows gen_sin_qtr_lut to warp-math"
+fi
+if grep -q -- 'cargo clippy -p warp-math --all-targets -- -D warnings -D missing_docs' .github/workflows/ci.yml; then
+  pass "CI clippy covers all warp-math targets"
+else
+  fail "CI clippy should cover all warp-math targets"
+fi
+if awk '
+  /^permissions:$/ { in_permissions = 1; next }
+  in_permissions && /^[^[:space:]]/ { in_permissions = 0 }
+  in_permissions && /^[[:space:]]+contents:[[:space:]]+read$/ { found = 1 }
+  END { exit(found ? 0 : 1) }
+' .github/workflows/ci.yml; then
+  pass "CI workflow declares least-privilege contents read permissions"
+else
+  fail "CI workflow should declare least-privilege contents read permissions"
+fi
+if grep -R -q -- 'cargo test -p warp-core --features golden_prng --test prng_golden_regression' .github/workflows; then
+  fail "CI workflow PRNG golden regression should run from warp-math"
+else
+  pass "CI workflow PRNG golden regression runs from warp-math"
+fi
+if grep -R -q -- 'cargo test -p warp-core --test trig_golden_vectors' .github/workflows; then
+  fail "determinism workflow trig golden vectors should run from warp-math"
+else
+  pass "determinism workflow trig golden vectors run from warp-math"
+fi
+if grep -R -q -- 'cargo test -p warp-core --test deterministic_sin_cos_tests' .github/workflows; then
+  fail "determinism workflow sin/cos tests should run from warp-math"
+else
+  pass "determinism workflow sin/cos tests run from warp-math"
+fi
+if grep -q 'crates/warp-math' det-policy.yaml; then
+  pass "determinism policy classifies warp-math explicitly"
+else
+  fail "determinism policy should classify warp-math explicitly"
+fi
+if grep -q 'PATHS_DEFAULT=.*crates/warp-math' scripts/ban-globals.sh; then
+  pass "global-state guard scans warp-math by default"
+else
+  fail "global-state guard should scan warp-math by default"
+fi
+if grep -q 'PATHS_DEFAULT=.*crates/warp-math' scripts/ban-nondeterminism.sh; then
+  pass "nondeterminism guard scans warp-math by default"
+else
+  fail "nondeterminism guard should scan warp-math by default"
+fi
+if grep -q 'serde = .*warp-math/serde' crates/warp-core/Cargo.toml; then
+  pass "warp-core serde feature forwards the re-exported warp-math serde support"
+else
+  fail "warp-core serde should forward warp-math/serde for the math re-export surface"
+fi
+
 extract_log_section() {
   local section="$1"
   local content="$2"
@@ -99,7 +155,8 @@ run_fake_verify() {
   tmp="$(mktemp -d)"
 
   mkdir -p "$tmp/scripts/hooks" "$tmp/bin" "$tmp/.git" "$tmp/.githooks" "$tmp/tests/hooks"
-  mkdir -p "$tmp/crates/warp-core/src" "$tmp/crates/bin-only/src"
+  mkdir -p "$tmp/crates/warp-core/src" "$tmp/crates/warp-core/tests/common" "$tmp/crates/warp-math/src" "$tmp/crates/bin-only/src"
+  mkdir -p "$tmp/crates/warp-math/src/bin"
   cp scripts/verify-local.sh "$tmp/scripts/verify-local.sh"
   chmod +x "$tmp/scripts/verify-local.sh"
 
@@ -115,6 +172,21 @@ version = "0.0.0"
 edition = "2021"
 EOF
   printf '%s\n' 'pub fn anchor() {}' >"$tmp/crates/warp-core/src/lib.rs"
+  printf '%s\n' '#[cfg(test)] mod tests { #[test] fn ok() {} }' >"$tmp/crates/warp-core/src/observation.rs"
+  printf '%s\n' 'pub fn helper() {}' >"$tmp/crates/warp-core/tests/common/mod.rs"
+
+  cat >"$tmp/crates/warp-math/Cargo.toml" <<'EOF'
+[package]
+name = "warp-math"
+version = "0.0.0"
+edition = "2021"
+EOF
+  printf '%s\n' 'pub fn anchor() {}' >"$tmp/crates/warp-math/src/lib.rs"
+  printf '%s\n' '#[cfg(test)] mod tests { #[test] fn ok() {} }' >"$tmp/crates/warp-math/src/prng.rs"
+  printf '%s\n' 'pub fn no_inline_tests() {}' >"$tmp/crates/warp-math/src/mat4.rs"
+  printf '%s\n' '#[test] fn root_level_is_not_a_module_tests_filter() {}' >"$tmp/crates/warp-math/src/root_level_test.rs"
+  printf '%s\n' '#[cfg(test)] mod fixture_tests { #[test] fn ok() {} }' >"$tmp/crates/warp-math/src/fixture_tests.rs"
+  printf '%s\n' 'fn main() {}' >"$tmp/crates/warp-math/src/bin/gen_sin_qtr_lut.rs"
 
   cat >"$tmp/crates/bin-only/Cargo.toml" <<'EOF'
 [package]
@@ -776,6 +848,119 @@ EOF
   rm -rf "$tmp"
 }
 
+run_fake_pre_push_stamp_sequence() {
+  local tmp
+  tmp="$(mktemp -d)"
+
+  mkdir -p "$tmp/scripts" "$tmp/bin" "$tmp/.git" "$tmp/crates/warp-core/src"
+  cp scripts/verify-local.sh "$tmp/scripts/verify-local.sh"
+  chmod +x "$tmp/scripts/verify-local.sh"
+
+  cat >"$tmp/rust-toolchain.toml" <<'EOF'
+[toolchain]
+channel = "1.90.0"
+EOF
+
+  cat >"$tmp/crates/warp-core/Cargo.toml" <<'EOF'
+[package]
+name = "warp-core"
+version = "0.0.0"
+edition = "2021"
+EOF
+  printf '%s\n' 'pub fn anchor() {}' >"$tmp/crates/warp-core/src/lib.rs"
+
+  cat >"$tmp/bin/cargo" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s|%s\n' "${CARGO_TARGET_DIR:-}" "$*" >>"${VERIFY_FAKE_CARGO_LOG}"
+exit 0
+EOF
+  cat >"$tmp/bin/rustup" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "toolchain" && "${2:-}" == "list" ]]; then
+  printf '1.90.0-aarch64-apple-darwin (default)\n'
+  exit 0
+fi
+exit 0
+EOF
+  cat >"$tmp/bin/git" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "HEAD" ]]; then
+  printf '%s\n' "${VERIFY_FAKE_GIT_HEAD:-test-head}"
+  exit 0
+fi
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "HEAD^{tree}" ]]; then
+  printf '%s\n' "${VERIFY_FAKE_GIT_TREE:-test-tree}"
+  exit 0
+fi
+echo "unexpected git invocation: $*" >&2
+exit 1
+EOF
+  chmod +x "$tmp/bin/cargo" "$tmp/bin/rustup" "$tmp/bin/git"
+
+  local changed
+  changed="$(mktemp)"
+  printf '%s\n' 'crates/warp-core/src/observation.rs' >"$changed"
+  local changed_other
+  changed_other="$(mktemp)"
+  printf '%s\n' 'crates/warp-core/src/lib.rs' >"$changed_other"
+  local cargo_log
+  cargo_log="$(mktemp)"
+
+  local first_output second_output third_output fourth_output
+  first_output="$(
+    cd "$tmp" && \
+    PATH="$tmp/bin:$PATH" \
+    VERIFY_CHANGED_FILES_FILE="$changed" \
+    VERIFY_FAKE_CARGO_LOG="$cargo_log" \
+    VERIFY_FAKE_GIT_HEAD="commit-a" \
+    VERIFY_FAKE_GIT_TREE="tree-aaaaaaaaaaaa" \
+    ./scripts/verify-local.sh pre-push
+  )"
+  second_output="$(
+    cd "$tmp" && \
+    PATH="$tmp/bin:$PATH" \
+    VERIFY_CHANGED_FILES_FILE="$changed" \
+    VERIFY_FAKE_CARGO_LOG="$cargo_log" \
+    VERIFY_FAKE_GIT_HEAD="commit-b" \
+    VERIFY_FAKE_GIT_TREE="tree-aaaaaaaaaaaa" \
+    ./scripts/verify-local.sh pre-push
+  )"
+  third_output="$(
+    cd "$tmp" && \
+    PATH="$tmp/bin:$PATH" \
+    VERIFY_CHANGED_FILES_FILE="$changed_other" \
+    VERIFY_FAKE_CARGO_LOG="$cargo_log" \
+    VERIFY_FAKE_GIT_HEAD="commit-c" \
+    VERIFY_FAKE_GIT_TREE="tree-aaaaaaaaaaaa" \
+    ./scripts/verify-local.sh pre-push
+  )"
+  fourth_output="$(
+    cd "$tmp" && \
+    PATH="$tmp/bin:$PATH" \
+    VERIFY_CHANGED_FILES_FILE="$changed" \
+    VERIFY_FAKE_CARGO_LOG="$cargo_log" \
+    VERIFY_FAKE_GIT_HEAD="commit-d" \
+    VERIFY_FAKE_GIT_TREE="tree-bbbbbbbbbbbb" \
+    ./scripts/verify-local.sh pre-push
+  )"
+
+  printf '%s\n' "$first_output"
+  echo "--- second ---"
+  printf '%s\n' "$second_output"
+  echo "--- third ---"
+  printf '%s\n' "$third_output"
+  echo "--- fourth ---"
+  printf '%s\n' "$fourth_output"
+  echo "--- cargo-log ---"
+  cat "$cargo_log"
+
+  rm -f "$changed" "$changed_other" "$cargo_log"
+  rm -rf "$tmp"
+}
+
 echo "=== verify-local classification ==="
 
 docs_output="$(run_detect docs/plans/adr-0008-and-0009.md docs/ROADMAP/backlog/tooling-misc.md)"
@@ -1091,6 +1276,20 @@ else
   printf '%s\n' "$fake_full_stamp_output"
 fi
 
+fake_pre_push_stamp_output="$(run_fake_pre_push_stamp_sequence)"
+if printf '%s\n' "$fake_pre_push_stamp_output" | grep -q 'reusing cached pre-push verification for tree tree-aaaaaaa'; then
+  pass "pre-push verification stamp reuse keys off the pushed tree"
+else
+  fail "pre-push verification should cache exact-slice results for the same tree"
+  printf '%s\n' "$fake_pre_push_stamp_output"
+fi
+if [[ "$(printf '%s\n' "$fake_pre_push_stamp_output" | awk '/--- cargo-log ---/{flag=1; next} flag && NF {count++} END {print count+0}')" == "6" ]]; then
+  pass "pre-push cache reuse suppresses only duplicate exact-slice cargo commands"
+else
+  fail "pre-push cache reuse should rerun cargo for different changed-file slices and skip only exact duplicates"
+  printf '%s\n' "$fake_pre_push_stamp_output"
+fi
+
 fake_fast_output="$(run_fake_verify fast crates/warp-core/src/lib.rs)"
 if printf '%s\n' "$fake_fast_output" | grep -q 'clippy -p warp-core --lib -- -D warnings -D missing_docs'; then
   pass "fast verification uses the narrowed warp-core clippy scope"
@@ -1214,6 +1413,144 @@ else
   printf '%s\n' "$fake_ultra_fast_hook_readme_output"
 fi
 
+fake_pre_push_observation_output="$(run_fake_verify pre-push crates/warp-core/src/observation.rs)"
+fake_pre_push_observation_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_observation_output")"
+if printf '%s\n' "$fake_pre_push_observation_cargo_log" | grep -q 'test -p warp-core --lib observation::tests'; then
+  pass "pre-push maps changed Rust modules to exact lib-module test slices"
+else
+  fail "pre-push should test the exact changed Rust module slice"
+  printf '%s\n' "$fake_pre_push_observation_output"
+fi
+if printf '%s\n' "$fake_pre_push_observation_cargo_log" | grep -q 'test -p warp-core --lib$'; then
+  fail "pre-push must not run the broad warp-core lib test lane for a single module"
+  printf '%s\n' "$fake_pre_push_observation_output"
+else
+  pass "pre-push avoids broad lib test lanes for single-module Rust edits"
+fi
+if printf '%s\n' "$fake_pre_push_observation_cargo_log" | grep -Eq 'clippy -p warp-core|check -p warp-core'; then
+  fail "pre-push must not run clippy/check when an exact changed-module test slice exists"
+  printf '%s\n' "$fake_pre_push_observation_output"
+else
+  pass "pre-push does not add clippy/check on top of exact changed-module tests"
+fi
+
+fake_pre_push_warp_math_prng_output="$(run_fake_verify pre-push crates/warp-math/tests/prng_golden_regression.rs)"
+fake_pre_push_warp_math_prng_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_warp_math_prng_output")"
+if printf '%s\n' "$fake_pre_push_warp_math_prng_cargo_log" | grep -q -- 'test -p warp-math --features golden_prng --test prng_golden_regression'; then
+  pass "pre-push keeps required golden PRNG feature for the exact integration test"
+else
+  fail "pre-push should keep required golden_prng feature for prng_golden_regression"
+  printf '%s\n' "$fake_pre_push_warp_math_prng_output"
+fi
+
+fake_pre_push_warp_math_fixed_output="$(run_fake_verify pre-push crates/warp-math/tests/dfix64_tests.rs)"
+fake_pre_push_warp_math_fixed_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_warp_math_fixed_output")"
+if printf '%s\n' "$fake_pre_push_warp_math_fixed_cargo_log" | grep -q -- 'test -p warp-math --features det_fixed --test dfix64_tests'; then
+  pass "pre-push keeps required fixed-point feature for the exact integration test"
+else
+  fail "pre-push should keep required det_fixed feature for dfix64_tests"
+  printf '%s\n' "$fake_pre_push_warp_math_fixed_output"
+fi
+
+fake_pre_push_warp_math_serde_output="$(run_fake_verify pre-push crates/warp-math/tests/determinism_policy_tests.rs)"
+fake_pre_push_warp_math_serde_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_warp_math_serde_output")"
+if printf '%s\n' "$fake_pre_push_warp_math_serde_cargo_log" | grep -q -- 'test -p warp-math --features serde --test determinism_policy_tests'; then
+  pass "pre-push keeps required serde feature for the exact integration test"
+else
+  fail "pre-push should keep required serde feature for determinism_policy_tests"
+  printf '%s\n' "$fake_pre_push_warp_math_serde_output"
+fi
+
+fake_pre_push_warp_core_parallel_output="$(run_fake_verify pre-push crates/warp-core/tests/parallel_parallel_exec.rs)"
+fake_pre_push_warp_core_parallel_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_warp_core_parallel_output")"
+if printf '%s\n' "$fake_pre_push_warp_core_parallel_cargo_log" | grep -q -- 'test -p warp-core --features delta_validate --test parallel_parallel_exec'; then
+  pass "pre-push keeps required delta_validate feature for parallel execution integration test"
+else
+  fail "pre-push should keep required delta_validate feature for parallel_parallel_exec"
+  printf '%s\n' "$fake_pre_push_warp_core_parallel_output"
+fi
+
+fake_pre_push_warp_core_recovery_output="$(run_fake_verify pre-push crates/warp-core/tests/scheduler_fault_recovery_authority.rs)"
+fake_pre_push_warp_core_recovery_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_warp_core_recovery_output")"
+if printf '%s\n' "$fake_pre_push_warp_core_recovery_cargo_log" | grep -q -- 'test -p warp-core --features trusted_runtime --test scheduler_fault_recovery_authority'; then
+  pass "pre-push keeps required trusted_runtime feature for scheduler fault recovery authority test"
+else
+  fail "pre-push should keep required trusted_runtime feature for scheduler_fault_recovery_authority"
+  printf '%s\n' "$fake_pre_push_warp_core_recovery_output"
+fi
+
+fake_pre_push_warp_core_helper_output="$(run_fake_verify pre-push crates/warp-core/tests/common/mod.rs)"
+fake_pre_push_warp_core_helper_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_warp_core_helper_output")"
+if printf '%s\n' "$fake_pre_push_warp_core_helper_cargo_log" | grep -q -- '--test mod'; then
+  fail "pre-push must not map nested integration-test helpers to a fake mod test target"
+  printf '%s\n' "$fake_pre_push_warp_core_helper_output"
+else
+  pass "pre-push skips nested integration-test helper modules"
+fi
+
+fake_pre_push_warp_math_prng_src_output="$(run_fake_verify pre-push crates/warp-math/src/prng.rs)"
+fake_pre_push_warp_math_prng_src_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_warp_math_prng_src_output")"
+if printf '%s\n' "$fake_pre_push_warp_math_prng_src_cargo_log" | grep -q -- 'test -p warp-math --lib prng::tests'; then
+  pass "pre-push maps modules with inline tests to exact module test filters"
+else
+  fail "pre-push should map modules with inline tests to exact module test filters"
+  printf '%s\n' "$fake_pre_push_warp_math_prng_src_output"
+fi
+
+fake_pre_push_warp_math_root_test_output="$(run_fake_verify pre-push crates/warp-math/src/root_level_test.rs)"
+fake_pre_push_warp_math_root_test_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_warp_math_root_test_output")"
+if printf '%s\n' "$fake_pre_push_warp_math_root_test_cargo_log" | grep -q -- 'test -p warp-math --lib root_level_test::tests'; then
+  fail "pre-push must not synthesize module::tests filters from root-level test functions"
+  printf '%s\n' "$fake_pre_push_warp_math_root_test_output"
+else
+  pass "pre-push avoids fake module filters for root-level test functions"
+fi
+if printf '%s\n' "$fake_pre_push_warp_math_root_test_cargo_log" | grep -q -- 'check -p warp-math --quiet'; then
+  pass "pre-push falls back to crate check for root-level test-only modules"
+else
+  fail "pre-push should fall back to crate check for root-level test-only modules"
+  printf '%s\n' "$fake_pre_push_warp_math_root_test_output"
+fi
+
+fake_pre_push_warp_math_fixture_tests_output="$(run_fake_verify pre-push crates/warp-math/src/fixture_tests.rs)"
+fake_pre_push_warp_math_fixture_tests_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_warp_math_fixture_tests_output")"
+if printf '%s\n' "$fake_pre_push_warp_math_fixture_tests_cargo_log" | grep -q -- 'test -p warp-math --lib fixture_tests::tests'; then
+  fail "pre-push must not synthesize module::tests filters from non-tests test modules"
+  printf '%s\n' "$fake_pre_push_warp_math_fixture_tests_output"
+else
+  pass "pre-push avoids fake module filters for non-tests test modules"
+fi
+
+fake_pre_push_warp_math_mat4_src_output="$(run_fake_verify pre-push crates/warp-math/src/mat4.rs)"
+fake_pre_push_warp_math_mat4_src_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_warp_math_mat4_src_output")"
+if printf '%s\n' "$fake_pre_push_warp_math_mat4_src_cargo_log" | grep -q -- 'test -p warp-math --lib mat4::tests'; then
+  fail "pre-push must not run fake module test filters for modules without inline tests"
+  printf '%s\n' "$fake_pre_push_warp_math_mat4_src_output"
+else
+  pass "pre-push avoids fake module test filters for modules without inline tests"
+fi
+if printf '%s\n' "$fake_pre_push_warp_math_mat4_src_cargo_log" | grep -q -- 'check -p warp-math --quiet'; then
+  pass "pre-push falls back to crate check for modules without inline tests"
+else
+  fail "pre-push should fall back to crate check for modules without inline tests"
+  printf '%s\n' "$fake_pre_push_warp_math_mat4_src_output"
+fi
+
+fake_pre_push_warp_math_bin_src_output="$(run_fake_verify pre-push crates/warp-math/src/bin/gen_sin_qtr_lut.rs)"
+fake_pre_push_warp_math_bin_src_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_warp_math_bin_src_output")"
+if printf '%s\n' "$fake_pre_push_warp_math_bin_src_cargo_log" | grep -q -- 'test -p warp-math --lib bin::gen_sin_qtr_lut::tests'; then
+  fail "pre-push must not treat src/bin files as lib module test filters"
+  printf '%s\n' "$fake_pre_push_warp_math_bin_src_output"
+else
+  pass "pre-push does not treat src/bin files as lib module tests"
+fi
+if printf '%s\n' "$fake_pre_push_warp_math_bin_src_cargo_log" | grep -q -- 'test -p warp-math --bin gen_sin_qtr_lut'; then
+  pass "pre-push maps src/bin files to exact binary tests"
+else
+  fail "pre-push should map src/bin files to exact binary tests"
+  printf '%s\n' "$fake_pre_push_warp_math_bin_src_output"
+fi
+
 fake_warp_core_default_output="$(run_fake_verify full crates/warp-core/src/provenance_store.rs)"
 if printf '%s\n' "$fake_warp_core_default_output" | grep -q 'test -p warp-core --lib'; then
   pass "warp-core default smoke keeps the lib test lane"
@@ -1296,12 +1633,12 @@ else
   printf '%s\n' "$fake_warp_core_playback_output"
 fi
 
-fake_warp_core_prng_output="$(run_fake_verify full crates/warp-core/src/math/prng.rs)"
-if printf '%s\n' "$fake_warp_core_prng_output" | grep -q -- '--features golden_prng --test prng_golden_regression'; then
+fake_warp_math_prng_output="$(run_fake_verify full crates/warp-math/src/prng.rs)"
+if printf '%s\n' "$fake_warp_math_prng_output" | grep -q -- 'test -p warp-math --features golden_prng --test prng_golden_regression'; then
   pass "PRNG changes pull the golden regression smoke test"
 else
   fail "PRNG changes should pull the golden regression smoke test"
-  printf '%s\n' "$fake_warp_core_prng_output"
+  printf '%s\n' "$fake_warp_math_prng_output"
 fi
 
 fake_warp_wasm_lib_output="$(run_fake_verify full crates/warp-wasm/src/lib.rs)"

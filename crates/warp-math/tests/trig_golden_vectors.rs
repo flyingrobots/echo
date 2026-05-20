@@ -20,12 +20,12 @@
 //!
 //! The golden vectors are checked into `testdata/trig_golden_2048.bin`.
 //! To regenerate after an intentional algorithm change:
-//!   cargo test -p warp-core --test trig_golden_vectors -- --ignored generate_golden_vectors
+//!   cargo test -p warp-math --test trig_golden_vectors -- --ignored generate_golden_vectors
 
 use std::f32::consts::TAU;
 use std::path::PathBuf;
-use warp_core::math::scalar::F32Scalar;
-use warp_core::math::Scalar;
+use warp_math::scalar::F32Scalar;
+use warp_math::Scalar;
 
 const N: usize = 2048;
 
@@ -69,7 +69,7 @@ fn trig_oracle_matches_golden_vectors() {
     let expected = std::fs::read(&path).unwrap_or_else(|e| {
         panic!(
             "Golden vector file not found at {}: {e}\n\
-             Run: cargo test -p warp-core --test trig_golden_vectors -- --ignored generate_golden_vectors",
+             Run: cargo test -p warp-math --test trig_golden_vectors -- --ignored generate_golden_vectors",
             path.display()
         )
     });

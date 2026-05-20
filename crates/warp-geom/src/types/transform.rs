@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
-use warp_core::math::{Mat4, Quat, Vec3};
+use warp_math::{Mat4, Quat, Vec3};
 
 /// Rigid transform with non-uniform scale used by broad-phase and shape placement.
 ///
@@ -71,7 +71,7 @@ impl Transform {
         let s = Mat4::new([
             sx, 0.0, 0.0, 0.0, 0.0, sy, 0.0, 0.0, 0.0, 0.0, sz, 0.0, 0.0, 0.0, 0.0, 1.0,
         ]);
-        // Rotation from quaternion (provided by warp-core)
+        // Rotation from quaternion (provided by warp-math)
         let r = self.rotation.to_mat4();
         // Translation matrix (translation in last column)
         let t = Mat4::new([

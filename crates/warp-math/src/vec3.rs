@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-use crate::math::EPSILON;
+use crate::EPSILON;
 
 /// Deterministic 3D vector used throughout the engine.
 ///
 /// * Components encode world-space metres and may represent either points or
 ///   directions depending on the calling context.
 /// * Arithmetic uses `f32` so results round like the runtime's float32 mode.
-/// * Use [`crate::math::Mat4::transform_point`] for points (homogeneous `w = 1`)
-///   and [`crate::math::Mat4::transform_direction`] for directions (homogeneous
+/// * Use [`crate::Mat4::transform_point`] for points (homogeneous `w = 1`)
+///   and [`crate::Mat4::transform_direction`] for directions (homogeneous
 ///   `w = 0`).
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Vec3 {
@@ -98,7 +98,7 @@ impl Vec3 {
 
     /// Vector length (magnitude).
     pub fn length(&self) -> f32 {
-        crate::math::det_sqrt_f32(self.dot(self))
+        crate::det_sqrt_f32(self.dot(self))
     }
 
     /// Squared magnitude of the vector.
@@ -124,7 +124,7 @@ impl Vec3 {
 ///
 /// # Examples
 /// ```
-/// use warp_core::math::Vec3;
+/// use warp_math::Vec3;
 /// let v = Vec3::from([1.0, 2.0, 3.0]);
 /// assert_eq!(v.to_array(), [1.0, 2.0, 3.0]);
 /// ```

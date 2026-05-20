@@ -13,7 +13,7 @@ keywords = ["echo", "geometry", "aabb", "broad-phase"]
 categories = ["game-engines", "data-structures"]
 
 [dependencies]
-warp-core = { workspace = true }
+warp-math = { workspace = true }
 
 [dev-dependencies]
 

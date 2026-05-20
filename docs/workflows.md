@@ -62,6 +62,37 @@ cargo test -p <crate> --test <test_file_name> <filter>
 cargo xtask test-slice <slice>
 ```
 
+The installed pre-push hook follows the same rule for Rust source edits. A
+changed `crates/<crate>/src/foo.rs` with inline tests maps to the exact
+lib-module witness:
+
+```sh
+cargo test -p <crate> --lib foo::tests
+```
+
+Source files without inline tests fall back to the crate check rather than a
+fake zero-test module filter:
+
+```sh
+cargo check -p <crate> --quiet
+```
+
+Binary source edits map to the binary target:
+
+```sh
+cargo test -p <crate> --bin <bin_name>
+```
+
+Integration test edits map to their exact test target:
+
+```sh
+cargo test -p <crate> --test <test_file_name>
+```
+
+Use `make verify-pr` or CI for broader package, clippy, rustdoc, and workspace
+coverage. Pre-push is intentionally the narrowest local proof that the changed
+slice still compiles and runs.
+
 Checkpoint checks:
 
 ```sh

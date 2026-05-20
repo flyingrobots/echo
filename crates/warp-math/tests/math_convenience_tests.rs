@@ -6,7 +6,7 @@
 //! and ensure expected semantics for identity/translation/scale and
 //! vector basis constants.
 
-use warp_core::math::{Mat4, Vec3};
+use warp_math::{Mat4, Vec3};
 
 #[test]
 fn identity_multiply_is_noop() {

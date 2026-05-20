@@ -11,7 +11,7 @@ gap rather than the core trig implementation.
 
 **Issues:** #177
 
-Status: mostly implemented. `warp_core::math::trig`, the 2048-vector golden
+Status: mostly implemented. `warp_math::trig`, the 2048-vector golden
 test, deterministic-math docs, and Linux/macOS G1 workflow steps exist. The
 remaining work is to align the release claim with explicit Alpine/musl evidence
 or adjust the claim if broad musl CI remains the only Alpine-class coverage.
@@ -25,7 +25,7 @@ or adjust the claim if broad musl CI remains the only Alpine-class coverage.
 **Requirements:**
 
 - R1: Keep the existing 2048-vector golden suite in
-  `crates/warp-core/tests/trig_golden_vectors.rs`.
+  `crates/warp-math/tests/trig_golden_vectors.rs`.
 - R2: Keep the pinned 0-ULP golden-vector budget and <=16 ULP libm reference
   budget documented in determinism claims.
 - R3: Preserve the existing Linux/macOS G1 workflow coverage and add explicit

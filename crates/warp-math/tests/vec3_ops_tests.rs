@@ -2,7 +2,7 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
 #![allow(missing_docs, clippy::float_cmp)]
-use warp_core::math::Vec3;
+use warp_math::Vec3;
 
 #[test]
 fn add_sub_mul_ops_work() {

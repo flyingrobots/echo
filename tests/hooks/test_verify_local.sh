@@ -23,6 +23,21 @@ if grep -R -q -- 'cargo clippy -p warp-core --bin gen_sin_qtr_lut' .github/workf
 else
   pass "CI workflow binary clippy follows gen_sin_qtr_lut to warp-math"
 fi
+if grep -q -- 'cargo clippy -p warp-math --all-targets -- -D warnings -D missing_docs' .github/workflows/ci.yml; then
+  pass "CI clippy covers all warp-math targets"
+else
+  fail "CI clippy should cover all warp-math targets"
+fi
+if awk '
+  /^permissions:$/ { in_permissions = 1; next }
+  in_permissions && /^[^[:space:]]/ { in_permissions = 0 }
+  in_permissions && /^[[:space:]]+contents:[[:space:]]+read$/ { found = 1 }
+  END { exit(found ? 0 : 1) }
+' .github/workflows/ci.yml; then
+  pass "CI workflow declares least-privilege contents read permissions"
+else
+  fail "CI workflow should declare least-privilege contents read permissions"
+fi
 if grep -R -q -- 'cargo test -p warp-core --features golden_prng --test prng_golden_regression' .github/workflows; then
   fail "CI workflow PRNG golden regression should run from warp-math"
 else

@@ -1062,6 +1062,10 @@ pre_push_module_test_filter_for_file() {
   local file="$2"
   local relative module_path
 
+  if ! rust_file_has_inline_tests "$file"; then
+    return 1
+  fi
+
   relative="${file#crates/${crate}/src/}"
   case "$relative" in
     lib.rs|main.rs|*.generated.rs)
@@ -1081,6 +1085,13 @@ pre_push_module_test_filter_for_file() {
   fi
 
   printf '%s::tests\n' "${module_path//\//::}"
+}
+
+rust_file_has_inline_tests() {
+  local file="$1"
+
+  [[ -f "$file" ]] || return 1
+  grep -Eq '#\[(cfg\(test\)|test)\]|mod[[:space:]]+tests\b' "$file"
 }
 
 pre_push_feature_string_for_file() {
@@ -1149,6 +1160,13 @@ collect_pre_push_rust_slices() {
         [[ -z "$crate" ]] && continue
         append_pre_push_rust_slice "${crate}|bins|||" slices
         ;;
+      crates/*/src/bin/*.rs)
+        crate="$(printf '%s\n' "$file" | sed -n 's#^crates/\([^/]*\)/.*#\1#p')"
+        [[ -z "$crate" ]] && continue
+        target="$(basename "$file" .rs)"
+        features="$(pre_push_feature_string_for_file "$crate" "$file")"
+        append_pre_push_rust_slice "${crate}|bin|${target}|${features}|" slices
+        ;;
       crates/*/src/*.rs)
         crate="$(printf '%s\n' "$file" | sed -n 's#^crates/\([^/]*\)/.*#\1#p')"
         [[ -z "$crate" ]] && continue
@@ -1202,6 +1220,11 @@ run_pre_push_rust_slice() {
       cargo_args=("test" "-p" "$crate")
       [[ -n "$features" ]] && cargo_args+=("--features" "$features")
       cargo_args+=("--bins")
+      ;;
+    bin)
+      cargo_args=("test" "-p" "$crate")
+      [[ -n "$features" ]] && cargo_args+=("--features" "$features")
+      cargo_args+=("--bin" "$target")
       ;;
     check)
       cargo_args=("check" "-p" "$crate")

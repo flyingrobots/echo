@@ -364,7 +364,10 @@
   `cargo test -p <crate> --lib <module>::tests` slices, integration-test edits
   map to exact `--test <target>` invocations, and tooling edits stay on local
   shell smoke checks. Broader clippy, rustdoc, package, and workspace coverage
-  remains available through `make verify-pr`, `make verify-full`, and CI.
+  remains available through `make verify-pr`, `make verify-full`, and CI. The
+  selector now avoids fake zero-test module filters for source files without
+  inline tests, maps `src/bin/*.rs` edits to exact binary targets, and preserves
+  required features for gated integration tests.
 - Deterministic math now lives in a slim `warp-math` workspace crate.
   `warp-core` keeps the existing `warp_core::math::*` compatibility surface as
   a re-export, while `warp-geom` depends directly on `warp-math` instead of

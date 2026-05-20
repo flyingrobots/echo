@@ -100,6 +100,7 @@ run_fake_verify() {
 
   mkdir -p "$tmp/scripts/hooks" "$tmp/bin" "$tmp/.git" "$tmp/.githooks" "$tmp/tests/hooks"
   mkdir -p "$tmp/crates/warp-core/src" "$tmp/crates/warp-math/src" "$tmp/crates/bin-only/src"
+  mkdir -p "$tmp/crates/warp-math/src/bin"
   cp scripts/verify-local.sh "$tmp/scripts/verify-local.sh"
   chmod +x "$tmp/scripts/verify-local.sh"
 
@@ -115,6 +116,7 @@ version = "0.0.0"
 edition = "2021"
 EOF
   printf '%s\n' 'pub fn anchor() {}' >"$tmp/crates/warp-core/src/lib.rs"
+  printf '%s\n' '#[cfg(test)] mod tests { #[test] fn ok() {} }' >"$tmp/crates/warp-core/src/observation.rs"
 
   cat >"$tmp/crates/warp-math/Cargo.toml" <<'EOF'
 [package]
@@ -123,6 +125,9 @@ version = "0.0.0"
 edition = "2021"
 EOF
   printf '%s\n' 'pub fn anchor() {}' >"$tmp/crates/warp-math/src/lib.rs"
+  printf '%s\n' '#[cfg(test)] mod tests { #[test] fn ok() {} }' >"$tmp/crates/warp-math/src/prng.rs"
+  printf '%s\n' 'pub fn no_inline_tests() {}' >"$tmp/crates/warp-math/src/mat4.rs"
+  printf '%s\n' 'fn main() {}' >"$tmp/crates/warp-math/src/bin/gen_sin_qtr_lut.rs"
 
   cat >"$tmp/crates/bin-only/Cargo.toml" <<'EOF'
 [package]
@@ -1370,6 +1375,45 @@ if printf '%s\n' "$fake_pre_push_warp_math_serde_cargo_log" | grep -q -- 'test -
 else
   fail "pre-push should keep required serde feature for determinism_policy_tests"
   printf '%s\n' "$fake_pre_push_warp_math_serde_output"
+fi
+
+fake_pre_push_warp_math_prng_src_output="$(run_fake_verify pre-push crates/warp-math/src/prng.rs)"
+fake_pre_push_warp_math_prng_src_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_warp_math_prng_src_output")"
+if printf '%s\n' "$fake_pre_push_warp_math_prng_src_cargo_log" | grep -q -- 'test -p warp-math --lib prng::tests'; then
+  pass "pre-push maps modules with inline tests to exact module test filters"
+else
+  fail "pre-push should map modules with inline tests to exact module test filters"
+  printf '%s\n' "$fake_pre_push_warp_math_prng_src_output"
+fi
+
+fake_pre_push_warp_math_mat4_src_output="$(run_fake_verify pre-push crates/warp-math/src/mat4.rs)"
+fake_pre_push_warp_math_mat4_src_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_warp_math_mat4_src_output")"
+if printf '%s\n' "$fake_pre_push_warp_math_mat4_src_cargo_log" | grep -q -- 'test -p warp-math --lib mat4::tests'; then
+  fail "pre-push must not run fake module test filters for modules without inline tests"
+  printf '%s\n' "$fake_pre_push_warp_math_mat4_src_output"
+else
+  pass "pre-push avoids fake module test filters for modules without inline tests"
+fi
+if printf '%s\n' "$fake_pre_push_warp_math_mat4_src_cargo_log" | grep -q -- 'check -p warp-math --quiet'; then
+  pass "pre-push falls back to crate check for modules without inline tests"
+else
+  fail "pre-push should fall back to crate check for modules without inline tests"
+  printf '%s\n' "$fake_pre_push_warp_math_mat4_src_output"
+fi
+
+fake_pre_push_warp_math_bin_src_output="$(run_fake_verify pre-push crates/warp-math/src/bin/gen_sin_qtr_lut.rs)"
+fake_pre_push_warp_math_bin_src_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_warp_math_bin_src_output")"
+if printf '%s\n' "$fake_pre_push_warp_math_bin_src_cargo_log" | grep -q -- 'test -p warp-math --lib bin::gen_sin_qtr_lut::tests'; then
+  fail "pre-push must not treat src/bin files as lib module test filters"
+  printf '%s\n' "$fake_pre_push_warp_math_bin_src_output"
+else
+  pass "pre-push does not treat src/bin files as lib module tests"
+fi
+if printf '%s\n' "$fake_pre_push_warp_math_bin_src_cargo_log" | grep -q -- 'test -p warp-math --bin gen_sin_qtr_lut'; then
+  pass "pre-push maps src/bin files to exact binary tests"
+else
+  fail "pre-push should map src/bin files to exact binary tests"
+  printf '%s\n' "$fake_pre_push_warp_math_bin_src_output"
 fi
 
 fake_warp_core_default_output="$(run_fake_verify full crates/warp-core/src/provenance_store.rs)"

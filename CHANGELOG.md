@@ -14,9 +14,12 @@
   registered artifact handle, artifact hash, operation id, requirements digest,
   canonical variables digest, request digests, law witness digest, and a
   deterministic ticket digest, and publishes an `AdmissionTicketIssued` graph
-  fact. This does not enqueue scheduler work, enter runtime ingress, tick,
-  dispatch handlers, execute contracts, correlate tick receipts, or observe
-  intent outcomes.
+  fact with the same invocation-binding material. Echo-owned admission evidence
+  fixture recorders now require an explicit `OpticAdmissionEvidenceAuthority`
+  token, making the host/runtime-owner boundary explicit before test fixture
+  evidence can be recorded. This does not enqueue scheduler work, enter runtime
+  ingress, tick, dispatch handlers, execute contracts, correlate tick receipts,
+  or observe intent outcomes.
 - `warp-core` now records a narrow WitnessedIntentSubmission ledger when
   `WorldlineRuntime::ingest(...)` accepts canonical application ingress. The
   runtime derives a deterministic `submission_id` from the resolved writer head
@@ -43,7 +46,7 @@
   This does not add law witnesses, admission tickets, scheduler enqueueing,
   handler dispatch, execution, or caller-supplied scheduler work testimony.
 - `warp-core` optic invocation admission now has a narrow LawWitness
-  boundary. After BasisResolution, ApertureResolution, BudgetResolution
+  boundary. After BasisResolution, ApertureResolution, BudgetResolution,
   RuntimeSupport, capability identity coverage, InvocationAdmission,
   SchedulerAdmission, and SchedulerWorkCandidate all resolve, Echo checks
   runtime-owned law witness facts for the registered artifact handle. Without
@@ -55,7 +58,7 @@
   evidence. This does not enqueue scheduler work, dispatch handlers, execute
   contracts, or accept caller-supplied law witness testimony.
 - `warp-core` optic invocation admission now has a narrow SchedulerAdmission
-  boundary. After BasisResolution, ApertureResolution, BudgetResolution
+  boundary. After BasisResolution, ApertureResolution, BudgetResolution,
   RuntimeSupport, capability identity coverage, and InvocationAdmission all
   resolve, Echo checks runtime-owned scheduler admission facts for the
   registered artifact handle. Without that Echo-owned scheduler admission fact,
@@ -68,7 +71,7 @@
   witnesses, scheduler work, scheduler enqueueing, handler dispatch, execution,
   or caller-supplied scheduler admission testimony.
 - `warp-core` optic invocation admission now has a narrow InvocationAdmission
-  boundary. After BasisResolution, ApertureResolution, BudgetResolution
+  boundary. After BasisResolution, ApertureResolution, BudgetResolution,
   RuntimeSupport, and capability identity coverage all resolve, Echo
   checks runtime-owned admission facts for the registered artifact handle.
   Without that Echo-owned admission fact, the ladder obstructs at

@@ -169,6 +169,33 @@ pub struct OpticCapabilityPresentation {
     pub bound_grant_id: Option<String>,
 }
 
+/// Explicit authority token for recording Echo-owned admission evidence facts.
+///
+/// Application-facing code should not hold this token. It represents trusted
+/// runtime-owner authority to install fixture evidence used by the current
+/// admission ladder tests and host-side scaffolding. The constructor is
+/// intentionally hidden and named as a runtime-owner assumption so callers must
+/// cross an explicit authority boundary before minting runtime-owned admission
+/// facts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OpticAdmissionEvidenceAuthority {
+    _private: (),
+}
+
+impl OpticAdmissionEvidenceAuthority {
+    /// Assumes trusted runtime-owner authority for recording admission evidence.
+    ///
+    /// The caller must prove it is executing inside Echo's trusted runtime
+    /// owner, test harness, or equivalent host-controlled boundary. Giving this
+    /// token to application/plugin/browser code lets that code record
+    /// Echo-owned evidence and can make invocation admission appear lawful.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn assume_runtime_owner() -> Self {
+        Self { _private: () }
+    }
+}
+
 /// Opaque principal reference used by authority boundaries.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PrincipalRef {
@@ -1194,8 +1221,10 @@ impl OpticArtifactRegistry {
     ///
     /// Returns [`OpticArtifactRegistrationError::UnknownHandle`] if Echo did not
     /// issue the handle in this registry instance.
+    #[doc(hidden)]
     pub fn record_runtime_support_fixture_for_artifact(
         &mut self,
+        _authority: &OpticAdmissionEvidenceAuthority,
         handle: &OpticArtifactHandle,
     ) -> Result<(), OpticArtifactRegistrationError> {
         let requirements_digest = self
@@ -1217,8 +1246,10 @@ impl OpticArtifactRegistry {
     ///
     /// Returns [`OpticArtifactRegistrationError::UnknownHandle`] if Echo did not
     /// issue the handle in this registry instance.
+    #[doc(hidden)]
     pub fn record_invocation_admission_fixture_for_artifact(
         &mut self,
+        _authority: &OpticAdmissionEvidenceAuthority,
         handle: &OpticArtifactHandle,
     ) -> Result<(), OpticArtifactRegistrationError> {
         let registered = self.resolve_optic_artifact_handle(handle)?;
@@ -1244,8 +1275,10 @@ impl OpticArtifactRegistry {
     ///
     /// Returns [`OpticArtifactRegistrationError::UnknownHandle`] if Echo did not
     /// issue the handle in this registry instance.
+    #[doc(hidden)]
     pub fn record_scheduler_admission_fixture_for_artifact(
         &mut self,
+        _authority: &OpticAdmissionEvidenceAuthority,
         handle: &OpticArtifactHandle,
     ) -> Result<(), OpticArtifactRegistrationError> {
         let registered = self.resolve_optic_artifact_handle(handle)?;
@@ -1273,8 +1306,10 @@ impl OpticArtifactRegistry {
     ///
     /// Returns [`OpticArtifactRegistrationError::UnknownHandle`] if Echo did not
     /// issue the handle in this registry instance.
+    #[doc(hidden)]
     pub fn record_scheduler_work_candidate_fixture_for_artifact(
         &mut self,
+        _authority: &OpticAdmissionEvidenceAuthority,
         handle: &OpticArtifactHandle,
     ) -> Result<(), OpticArtifactRegistrationError> {
         let registered = self.resolve_optic_artifact_handle(handle)?;
@@ -1302,8 +1337,10 @@ impl OpticArtifactRegistry {
     ///
     /// Returns [`OpticArtifactRegistrationError::UnknownHandle`] if Echo did not
     /// issue the handle in this registry instance.
+    #[doc(hidden)]
     pub fn record_law_witness_fixture_for_artifact(
         &mut self,
+        _authority: &OpticAdmissionEvidenceAuthority,
         handle: &OpticArtifactHandle,
     ) -> Result<(), OpticArtifactRegistrationError> {
         let registered = self.resolve_optic_artifact_handle(handle)?;
@@ -1475,10 +1512,11 @@ impl OpticArtifactRegistry {
     /// Admits or obstructs an invocation while asking a capability presentation
     /// validator for refusal evidence.
     ///
-    /// This remains an obstructed-only path. Validator evidence can publish a
-    /// sharper graph fact, but identity coverage is not invocation admission and
-    /// does not issue a success ticket, law witness, scheduler work, or
-    /// execution.
+    /// Validator evidence can publish a sharper graph fact, but identity
+    /// coverage is not invocation admission by itself. If identity coverage and
+    /// every Echo-owned admission evidence gate resolve, this path can issue an
+    /// [`OpticAdmissionTicket`]. A ticket is not scheduler work, runtime
+    /// ingress, a tick, handler dispatch, or execution.
     #[must_use = "optic invocation admission outcomes carry obstructions that must be handled"]
     pub fn admit_optic_invocation_with_capability_validator(
         &mut self,
@@ -1767,15 +1805,7 @@ impl OpticArtifactRegistry {
             budget_request_digest: &budget_request_digest,
             law_witness_digest: &law_witness_digest,
         });
-        self.publish_admission_ticket_issued_fact(
-            registered.handle.id.clone(),
-            registered.operation_id.clone(),
-            registered.requirements_digest.clone(),
-            law_witness_digest,
-            ticket_digest,
-        );
-
-        OpticInvocationAdmissionOutcome::Admitted(OpticAdmissionTicket {
+        let ticket = OpticAdmissionTicket {
             kind: OPTIC_ADMISSION_TICKET_KIND.to_owned(),
             artifact_handle: registered.handle.clone(),
             artifact_hash: registered.artifact_hash.clone(),
@@ -1787,7 +1817,10 @@ impl OpticArtifactRegistry {
             budget_request_digest,
             law_witness_digest,
             ticket_digest,
-        })
+        };
+        self.publish_admission_ticket_issued_fact(&ticket);
+
+        OpticInvocationAdmissionOutcome::Admitted(ticket)
     }
 
     fn basis_request_digest(invocation: &OpticInvocation) -> [u8; 32] {
@@ -1993,21 +2026,19 @@ impl OpticArtifactRegistry {
             }));
     }
 
-    fn publish_admission_ticket_issued_fact(
-        &mut self,
-        artifact_handle_id: String,
-        operation_id: String,
-        requirements_digest: String,
-        law_witness_digest: [u8; 32],
-        ticket_digest: [u8; 32],
-    ) {
+    fn publish_admission_ticket_issued_fact(&mut self, ticket: &OpticAdmissionTicket) {
         self.published_graph_facts.push(PublishedGraphFact::new(
             GraphFact::AdmissionTicketIssued {
-                artifact_handle_id,
-                operation_id,
-                requirements_digest,
-                law_witness_digest,
-                ticket_digest,
+                artifact_handle_id: ticket.artifact_handle.id.clone(),
+                artifact_hash: ticket.artifact_hash.clone(),
+                operation_id: ticket.operation_id.clone(),
+                requirements_digest: ticket.requirements_digest.clone(),
+                canonical_variables_digest: ticket.canonical_variables_digest.clone(),
+                basis_request_digest: ticket.basis_request_digest,
+                aperture_request_digest: ticket.aperture_request_digest,
+                budget_request_digest: ticket.budget_request_digest,
+                law_witness_digest: ticket.law_witness_digest,
+                ticket_digest: ticket.ticket_digest,
             },
         ));
     }

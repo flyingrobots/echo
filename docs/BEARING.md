@@ -117,5 +117,4 @@ ingress while application code still cannot tick the runtime.
 
 This slice must not implement receipt correlation, outcome observation,
 installed handler dispatch, QueryView, streaming subscriptions, automatic retry,
-handler dispatch, execution outside scheduler-owned ticks, or wall-clock cadence
-semantics.
+execution outside scheduler-owned ticks, or wall-clock cadence semantics.

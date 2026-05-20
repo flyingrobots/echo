@@ -250,10 +250,20 @@ pub enum GraphFact {
     AdmissionTicketIssued {
         /// Echo-owned runtime-local artifact handle id covered by the ticket.
         artifact_handle_id: String,
+        /// Registered artifact hash covered by the ticket.
+        artifact_hash: String,
         /// Registered operation id covered by the ticket.
         operation_id: String,
         /// Registered requirements digest covered by the ticket.
         requirements_digest: String,
+        /// Digest of the invocation's canonical variable bytes.
+        canonical_variables_digest: Vec<u8>,
+        /// Digest of the opaque basis request bytes.
+        basis_request_digest: [u8; 32],
+        /// Digest of the opaque aperture request bytes.
+        aperture_request_digest: [u8; 32],
+        /// Digest of the opaque budget request bytes.
+        budget_request_digest: [u8; 32],
         /// Digest of the Echo-owned law witness material bound by the ticket.
         law_witness_digest: [u8; 32],
         /// Digest of the issued admission ticket material.
@@ -442,8 +452,13 @@ impl GraphFact {
             }
             Self::AdmissionTicketIssued {
                 artifact_handle_id,
+                artifact_hash,
                 operation_id,
                 requirements_digest,
+                canonical_variables_digest,
+                basis_request_digest,
+                aperture_request_digest,
+                budget_request_digest,
                 law_witness_digest,
                 ticket_digest,
             } => {
@@ -453,12 +468,25 @@ impl GraphFact {
                     b"artifact-handle-id",
                     artifact_handle_id.as_bytes(),
                 );
+                push_digest_field(&mut bytes, b"artifact-hash", artifact_hash.as_bytes());
                 push_digest_field(&mut bytes, b"operation-id", operation_id.as_bytes());
                 push_digest_field(
                     &mut bytes,
                     b"requirements-digest",
                     requirements_digest.as_bytes(),
                 );
+                push_digest_field(
+                    &mut bytes,
+                    b"canonical-variables-digest",
+                    canonical_variables_digest,
+                );
+                push_digest_field(&mut bytes, b"basis-request-digest", basis_request_digest);
+                push_digest_field(
+                    &mut bytes,
+                    b"aperture-request-digest",
+                    aperture_request_digest,
+                );
+                push_digest_field(&mut bytes, b"budget-request-digest", budget_request_digest);
                 push_digest_field(&mut bytes, b"law-witness-digest", law_witness_digest);
                 push_digest_field(&mut bytes, b"ticket-digest", ticket_digest);
             }

@@ -17,6 +17,7 @@ use crate::head::{
 };
 use crate::head_inbox::{InboxAddress, InboxIngestResult, IngressEnvelope, IngressTarget};
 use crate::ident::Hash;
+use crate::optic_artifact::OpticAdmissionTicket;
 use crate::provenance_store::{
     HistoryError, ProvenanceCheckpoint, ProvenanceEntry, ProvenanceService, ProvenanceStore,
     ReplayError,
@@ -92,6 +93,15 @@ pub enum RuntimeError {
     /// the runtime counter can represent.
     #[error("intent submission generation overflow")]
     IntentSubmissionGenerationOverflow,
+    /// Ticketed runtime ingress referenced a submission Echo has not witnessed.
+    #[error("unknown intent submission: {0:?}")]
+    UnknownIntentSubmission(Hash),
+    /// Ticketed runtime ingress envelope did not match the witnessed submission.
+    #[error("ticketed runtime ingress does not match witnessed submission: {0:?}")]
+    TicketedIngressSubmissionMismatch(Hash),
+    /// A different admission ticket already staged this witnessed submission.
+    #[error("witnessed submission already has ticketed runtime ingress: {0:?}")]
+    TicketedIngressAlreadyStaged(Hash),
 }
 
 /// Echo-owned intake/correlation generation for witnessed intent submissions.
@@ -145,6 +155,58 @@ pub struct IntentSubmissionRecord {
     pub submission_generation: IngressSubmissionGeneration,
 }
 
+/// Explicit authority token for staging ticketed runtime ingress.
+///
+/// Application-facing code should not hold this token. An admission ticket is
+/// evidence, but ticketed runtime ingress is an Echo runtime-owner action:
+/// handing this token to application/plugin/browser code would let that code
+/// choose which witnessed submissions enter scheduler-visible runtime ingress.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TicketedRuntimeIngressAuthority {
+    _private: (),
+}
+
+impl TicketedRuntimeIngressAuthority {
+    /// Assumes trusted runtime-owner authority for staging ticketed ingress.
+    ///
+    /// The caller must prove it is executing inside Echo's trusted runtime
+    /// owner, test harness, or equivalent host-controlled boundary.
+    #[cfg(feature = "host_test")]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn assume_runtime_owner() -> Self {
+        Self { _private: () }
+    }
+}
+
+/// Result of accepting an intent into witnessed ingress history.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IntentSubmissionDisposition {
+    /// Echo recorded a new witnessed submission without entering runtime ingress.
+    Accepted {
+        /// Content-addressed ingress id.
+        ingress_id: Hash,
+        /// Resolved semantic writer-head target.
+        head_key: WriterHeadKey,
+        /// Witnessed submission event id.
+        submission_id: Hash,
+        /// Echo-owned intake/correlation generation.
+        submission_generation: IngressSubmissionGeneration,
+    },
+    /// Echo had already witnessed this semantic submission.
+    Duplicate {
+        /// Content-addressed ingress id.
+        ingress_id: Hash,
+        /// Resolved semantic writer-head target.
+        head_key: WriterHeadKey,
+        /// Existing witnessed submission event id.
+        submission_id: Hash,
+        /// Existing submission generation, or zero when only the duplicate
+        /// identity can be derived from replayed committed state.
+        submission_generation: IngressSubmissionGeneration,
+    },
+}
+
 /// Result of ingesting an envelope into the runtime.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IngressDisposition {
@@ -170,6 +232,41 @@ pub enum IngressDisposition {
         /// Existing submission generation, or zero when only the duplicate
         /// identity can be derived from replayed committed state.
         submission_generation: IngressSubmissionGeneration,
+    },
+}
+
+/// Runtime ingress staged from a witnessed submission and admission ticket.
+///
+/// This record is correlation material only. It is not a tick receipt, not
+/// handler dispatch, and not execution.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TicketedRuntimeIngressRecord {
+    /// Content-addressed ticketed-ingress event id.
+    pub ticketed_ingress_id: Hash,
+    /// Witnessed Echo submission being staged.
+    pub submission_id: Hash,
+    /// Admission ticket digest that authorizes runtime ingress.
+    pub ticket_digest: Hash,
+    /// Content-addressed canonical ingress id.
+    pub ingress_id: Hash,
+    /// Resolved semantic writer-head target.
+    pub head_key: WriterHeadKey,
+}
+
+/// Result of staging a ticketed invocation into runtime ingress.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TicketedRuntimeIngressDisposition {
+    /// The ticketed invocation entered the runtime inbox.
+    Staged {
+        /// Ticketed ingress correlation record.
+        record: TicketedRuntimeIngressRecord,
+        /// Underlying inbox disposition.
+        ingress: IngressDisposition,
+    },
+    /// The same ticketed invocation had already been staged.
+    Duplicate {
+        /// Existing ticketed ingress correlation record.
+        record: TicketedRuntimeIngressRecord,
     },
 }
 
@@ -230,6 +327,10 @@ pub struct WorldlineRuntime {
     /// Deterministic lookup from resolved semantic target and ingress id to
     /// witnessed submission id.
     submission_by_target: BTreeMap<(WriterHeadKey, Hash), Hash>,
+    /// Ticketed runtime ingress records keyed by deterministic event id.
+    ticketed_runtime_ingress: BTreeMap<Hash, TicketedRuntimeIngressRecord>,
+    /// Deterministic lookup from witnessed submission id to ticketed ingress.
+    ticketed_runtime_ingress_by_submission: BTreeMap<Hash, Hash>,
     /// Registry of live speculative strands attached to the runtime.
     strands: StrandRegistry,
 }
@@ -316,6 +417,28 @@ impl WorldlineRuntime {
     #[must_use]
     pub fn witnessed_submission_count(&self) -> usize {
         self.witnessed_submissions.len()
+    }
+
+    /// Returns a ticketed runtime ingress record by deterministic event id.
+    #[must_use]
+    pub fn ticketed_runtime_ingress(
+        &self,
+        ticketed_ingress_id: &Hash,
+    ) -> Option<&TicketedRuntimeIngressRecord> {
+        self.ticketed_runtime_ingress.get(ticketed_ingress_id)
+    }
+
+    /// Iterates ticketed runtime ingress records in deterministic id order.
+    pub fn ticketed_runtime_ingress_records(
+        &self,
+    ) -> impl Iterator<Item = &TicketedRuntimeIngressRecord> {
+        self.ticketed_runtime_ingress.values()
+    }
+
+    /// Returns the number of staged ticketed runtime ingress records.
+    #[must_use]
+    pub fn ticketed_runtime_ingress_count(&self) -> usize {
+        self.ticketed_runtime_ingress.len()
     }
 
     /// Returns the current correlation tick.
@@ -584,6 +707,136 @@ impl WorldlineRuntime {
         Ok(())
     }
 
+    /// Records an accepted intent submission without entering runtime ingress.
+    ///
+    /// This is witnessed Echo ingress history only. It does not store the
+    /// envelope in a head inbox, does not advance ticks, and does not dispatch
+    /// handlers. A later ticketed runtime ingress step must stage the envelope
+    /// before scheduler-owned execution can consider it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the routing target does not resolve or if the target
+    /// head would reject the envelope under its inbox policy.
+    pub fn submit_intent(
+        &mut self,
+        envelope: IngressEnvelope,
+    ) -> Result<IntentSubmissionDisposition, RuntimeError> {
+        let ingress_id = envelope.ingress_id();
+        let head_key = self.resolve_target(envelope.target())?;
+
+        if self
+            .worldlines
+            .get(&head_key.worldline_id)
+            .is_some_and(|frontier| {
+                frontier
+                    .state()
+                    .contains_committed_ingress(&head_key, &ingress_id)
+            })
+        {
+            let record = self.duplicate_submission_record(head_key, ingress_id);
+            return Ok(IntentSubmissionDisposition::Duplicate {
+                ingress_id,
+                head_key,
+                submission_id: record.submission_id,
+                submission_generation: record.submission_generation,
+            });
+        }
+
+        let head = self
+            .heads
+            .get(&head_key)
+            .ok_or(RuntimeError::UnknownHead(head_key))?;
+        if !head.inbox().would_accept(&envelope) {
+            return Err(RuntimeError::RejectedByPolicy(head_key));
+        }
+
+        if let Some(record) = self
+            .submission_by_target
+            .get(&(head_key, ingress_id))
+            .and_then(|submission_id| self.witnessed_submissions.get(submission_id))
+        {
+            return Ok(IntentSubmissionDisposition::Duplicate {
+                ingress_id,
+                head_key,
+                submission_id: record.submission_id,
+                submission_generation: record.submission_generation,
+            });
+        }
+
+        let record = self.record_witnessed_submission(head_key, ingress_id)?;
+        Ok(IntentSubmissionDisposition::Accepted {
+            ingress_id,
+            head_key,
+            submission_id: record.submission_id,
+            submission_generation: record.submission_generation,
+        })
+    }
+
+    /// Stages a witnessed submission into runtime ingress using an admission ticket.
+    ///
+    /// The ticket opens the runtime ingress boundary only. This method does not
+    /// tick, dispatch handlers, execute contracts, correlate receipts, or
+    /// observe outcomes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the submission is unknown, the envelope does not
+    /// match the witnessed submission, the target rejects the envelope, or a
+    /// different ticket has already staged the same submission.
+    pub fn ingest_ticketed_invocation(
+        &mut self,
+        _authority: &TicketedRuntimeIngressAuthority,
+        submission_id: Hash,
+        ticket: &OpticAdmissionTicket,
+        envelope: IngressEnvelope,
+    ) -> Result<TicketedRuntimeIngressDisposition, RuntimeError> {
+        let Some(submission) = self.witnessed_submissions.get(&submission_id) else {
+            return Err(RuntimeError::UnknownIntentSubmission(submission_id));
+        };
+        let ingress_id = envelope.ingress_id();
+        let head_key = self.resolve_target(envelope.target())?;
+        if submission.ingress_id != ingress_id || submission.head_key != head_key {
+            return Err(RuntimeError::TicketedIngressSubmissionMismatch(
+                submission_id,
+            ));
+        }
+
+        let ticketed_ingress_id = derive_ticketed_runtime_ingress_id(
+            submission_id,
+            ticket.ticket_digest,
+            ingress_id,
+            head_key,
+        );
+        if let Some(existing_id) = self
+            .ticketed_runtime_ingress_by_submission
+            .get(&submission_id)
+            .copied()
+        {
+            let Some(record) = self.ticketed_runtime_ingress.get(&existing_id).cloned() else {
+                return Err(RuntimeError::TicketedIngressAlreadyStaged(submission_id));
+            };
+            if existing_id == ticketed_ingress_id {
+                return Ok(TicketedRuntimeIngressDisposition::Duplicate { record });
+            }
+            return Err(RuntimeError::TicketedIngressAlreadyStaged(submission_id));
+        }
+
+        let ingress = self.ingest(envelope)?;
+        let record = TicketedRuntimeIngressRecord {
+            ticketed_ingress_id,
+            submission_id,
+            ticket_digest: ticket.ticket_digest,
+            ingress_id,
+            head_key,
+        };
+        self.ticketed_runtime_ingress
+            .insert(ticketed_ingress_id, record.clone());
+        self.ticketed_runtime_ingress_by_submission
+            .insert(submission_id, ticketed_ingress_id);
+        Ok(TicketedRuntimeIngressDisposition::Staged { record, ingress })
+    }
+
     /// Resolves an ingress envelope to a specific writer head and stores it in that inbox.
     ///
     /// # Errors
@@ -728,6 +981,22 @@ impl WorldlineRuntime {
 fn derive_intent_submission_id(head_key: WriterHeadKey, ingress_id: Hash) -> Hash {
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"echo.intent-submission.v0");
+    hasher.update(head_key.worldline_id.as_bytes());
+    hasher.update(head_key.head_id.as_bytes());
+    hasher.update(&ingress_id);
+    hasher.finalize().into()
+}
+
+fn derive_ticketed_runtime_ingress_id(
+    submission_id: Hash,
+    ticket_digest: Hash,
+    ingress_id: Hash,
+    head_key: WriterHeadKey,
+) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo.ticketed-runtime-ingress");
+    hasher.update(&submission_id);
+    hasher.update(&ticket_digest);
     hasher.update(head_key.worldline_id.as_bytes());
     hasher.update(head_key.head_id.as_bytes());
     hasher.update(&ingress_id);

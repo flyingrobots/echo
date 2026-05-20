@@ -327,6 +327,16 @@ impl HeadInbox {
         }
     }
 
+    /// Returns `true` when this inbox policy would accept the envelope.
+    ///
+    /// This performs the policy check without storing the envelope. It is used
+    /// by witnessed submission intake so Echo can record accepted ingress
+    /// history without entering runtime scheduling.
+    #[must_use]
+    pub fn would_accept(&self, envelope: &IngressEnvelope) -> bool {
+        self.policy_accepts(envelope)
+    }
+
     /// Returns `true` if the policy would accept this envelope.
     fn policy_accepts(&self, envelope: &IngressEnvelope) -> bool {
         match &self.policy {

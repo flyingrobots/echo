@@ -30,12 +30,12 @@ scheduler-owned tick outcome without giving application code tick authority.
 - Tick receipts exist and witness scheduler-owned candidate outcomes.
 - Footprint conflicts are explicit receipt rejections, not hidden retries.
 - The optic admission ladder resolves through AdmissionTicket and currently
-  stops before ticketed runtime ingress.
+  can stage ticketed runtime ingress through an explicit runtime-owner authority
+  token without ticking.
 
 ## What Is Not Yet True
 
 - Accepted submissions are not yet complete witnessed ingress history.
-- Ticketed runtime ingress is not wired.
 - Tick receipts are not cleanly correlated to intent, submission, and ticket ids.
 - Clients cannot observe intent outcome by id.
 - Installed Wesley handler dispatch is not wired into scheduler-owned execution.
@@ -112,9 +112,10 @@ AdmissionTicket + witnessed submission -> ticketed runtime ingress
 
 ## Immediate Next Slice
 
-TicketedRuntimeIngress should prove that only ticketed invocations enter runtime
-ingress while application code still cannot tick the runtime.
+ReceiptCorrelation should bind scheduler-owned tick receipts back to the
+witnessed submission, admission ticket, and ticketed runtime ingress records
+that carried the intent into execution.
 
-This slice must not implement receipt correlation, outcome observation,
-installed handler dispatch, QueryView, streaming subscriptions, automatic retry,
-execution outside scheduler-owned ticks, or wall-clock cadence semantics.
+This slice must not implement outcome observation, installed handler dispatch,
+QueryView, streaming subscriptions, automatic retry, execution outside
+scheduler-owned ticks, or wall-clock cadence semantics.

@@ -7,6 +7,18 @@
 
 ### Added
 
+- `warp-core` now exposes a ticketed runtime ingress boundary.
+  `WorldlineRuntime::submit_intent(...)` records witnessed submission history
+  without entering a head inbox, ticking, dispatching handlers, or mutating
+  application state. `WorldlineRuntime::ingest_ticketed_invocation(...)` stages
+  a witnessed submission into runtime ingress only when the caller holds the
+  explicit `TicketedRuntimeIngressAuthority` runtime-owner token and supplies an
+  `OpticAdmissionTicket`, records deterministic ticketed-ingress correlation
+  material, rejects unknown or mismatched submissions, and treats duplicate
+  staging of the same ticket/submission pair idempotently. This does not
+  correlate tick receipts, expose intent outcome observation, dispatch installed
+  handlers, execute contracts outside scheduler-owned ticks, or introduce
+  automatic retry.
 - `warp-core` optic invocation admission now issues an `OpticAdmissionTicket`
   after BasisResolution, ApertureResolution, BudgetResolution, RuntimeSupport,
   capability identity coverage, InvocationAdmission, SchedulerAdmission,

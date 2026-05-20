@@ -4,11 +4,17 @@
 //! Runtime-owned ingress integration tests.
 
 use warp_core::{
-    make_head_id, make_intent_kind, make_node_id, make_type_id, Engine, EngineBuilder, GraphStore,
-    InboxAddress, InboxPolicy, IngressDisposition, IngressEnvelope, IngressTarget, NodeId,
-    NodeRecord, PlaybackMode, ProvenanceEventKind, ProvenanceService, ProvenanceStore,
-    SchedulerCoordinator, SchedulerKind, WorldlineId, WorldlineRuntime, WorldlineState,
-    WorldlineTick, WorldlineTickPatchV1, WriterHead, WriterHeadKey,
+    make_head_id, make_intent_kind, make_node_id, make_type_id, Engine, EngineBuilder, GlobalTick,
+    GraphStore, InboxAddress, InboxPolicy, IngressDisposition, IngressEnvelope, IngressTarget,
+    IntentSubmissionDisposition, NodeId, NodeRecord, PlaybackMode, ProvenanceEventKind,
+    ProvenanceService, ProvenanceStore, SchedulerCoordinator, SchedulerKind, WorldlineId,
+    WorldlineRuntime, WorldlineState, WorldlineTick, WorldlineTickPatchV1, WriterHead,
+    WriterHeadKey,
+};
+#[cfg(feature = "host_test")]
+use warp_core::{
+    OpticAdmissionTicket, OpticArtifactHandle, RuntimeError, TicketedRuntimeIngressAuthority,
+    TicketedRuntimeIngressDisposition, OPTIC_ADMISSION_TICKET_KIND, OPTIC_ARTIFACT_HANDLE_KIND,
 };
 
 fn wl(n: u8) -> WorldlineId {
@@ -17,6 +23,10 @@ fn wl(n: u8) -> WorldlineId {
 
 fn wt(raw: u64) -> WorldlineTick {
     WorldlineTick::from_raw(raw)
+}
+
+fn gt(raw: u64) -> GlobalTick {
+    GlobalTick::from_raw(raw)
 }
 
 fn empty_engine() -> Engine {
@@ -76,6 +86,31 @@ fn registered_worldlines_provenance(runtime: &WorldlineRuntime) -> ProvenanceSer
     provenance
 }
 
+#[cfg(feature = "host_test")]
+fn admission_ticket(seed: u8) -> OpticAdmissionTicket {
+    OpticAdmissionTicket {
+        kind: OPTIC_ADMISSION_TICKET_KIND.to_owned(),
+        artifact_handle: OpticArtifactHandle {
+            kind: OPTIC_ARTIFACT_HANDLE_KIND.to_owned(),
+            id: format!("ticketed-runtime-ingress-{seed}"),
+        },
+        artifact_hash: format!("artifact-hash-{seed}"),
+        operation_id: format!("operation-{seed}"),
+        requirements_digest: format!("requirements-{seed}"),
+        canonical_variables_digest: vec![seed],
+        basis_request_digest: [seed; 32],
+        aperture_request_digest: [seed.wrapping_add(1); 32],
+        budget_request_digest: [seed.wrapping_add(2); 32],
+        law_witness_digest: [seed.wrapping_add(3); 32],
+        ticket_digest: [seed.wrapping_add(4); 32],
+    }
+}
+
+#[cfg(feature = "host_test")]
+fn ticketed_runtime_ingress_authority() -> TicketedRuntimeIngressAuthority {
+    TicketedRuntimeIngressAuthority::assume_runtime_owner()
+}
+
 #[test]
 fn runtime_ingest_commits_without_legacy_graph_inbox_nodes() {
     let mut runtime = WorldlineRuntime::new();
@@ -110,6 +145,215 @@ fn runtime_ingest_commits_without_legacy_graph_inbox_nodes() {
     assert!(store.node(&NodeId(envelope.ingress_id())).is_some());
     assert!(store.node(&make_node_id("sim")).is_none());
     assert!(store.node(&make_node_id("sim/inbox")).is_none());
+}
+
+#[test]
+fn witnessed_submission_does_not_enter_runtime_ingress_before_ticket() {
+    let mut runtime = WorldlineRuntime::new();
+    let mut engine = empty_engine();
+    let worldline_id = wl(1);
+    runtime
+        .register_worldline(worldline_id, WorldlineState::empty())
+        .unwrap();
+    let head_key = register_head(&mut runtime, worldline_id, "default", None, true);
+
+    let envelope = IngressEnvelope::local_intent(
+        IngressTarget::DefaultWriter { worldline_id },
+        make_intent_kind("test/runtime"),
+        b"witness-only".to_vec(),
+    );
+    let disposition = runtime.submit_intent(envelope.clone()).unwrap();
+
+    assert!(matches!(
+        disposition,
+        IntentSubmissionDisposition::Accepted {
+            ingress_id,
+            head_key: routed_head_key,
+            ..
+        } if ingress_id == envelope.ingress_id() && routed_head_key == head_key
+    ));
+    assert_eq!(runtime.witnessed_submission_count(), 1);
+    assert_eq!(
+        runtime
+            .heads()
+            .get(&head_key)
+            .unwrap()
+            .inbox()
+            .pending_count(),
+        0
+    );
+    assert_eq!(runtime.global_tick(), gt(0));
+
+    let mut provenance = registered_worldlines_provenance(&runtime);
+    let records =
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+    assert!(records.is_empty());
+    let frontier = runtime.worldlines().get(&worldline_id).unwrap();
+    assert_eq!(frontier.frontier_tick(), wt(0));
+    assert!(frontier.state().tick_history().is_empty());
+}
+
+#[test]
+#[cfg(feature = "host_test")]
+fn ticketed_runtime_ingress_rejects_unknown_submission() {
+    let mut runtime = WorldlineRuntime::new();
+    let worldline_id = wl(1);
+    runtime
+        .register_worldline(worldline_id, WorldlineState::empty())
+        .unwrap();
+    let head_key = register_head(&mut runtime, worldline_id, "default", None, true);
+    let envelope = IngressEnvelope::local_intent(
+        IngressTarget::DefaultWriter { worldline_id },
+        make_intent_kind("test/runtime"),
+        b"unknown-submission".to_vec(),
+    );
+
+    let err = runtime
+        .ingest_ticketed_invocation(
+            &ticketed_runtime_ingress_authority(),
+            [9; 32],
+            &admission_ticket(1),
+            envelope,
+        )
+        .unwrap_err();
+
+    assert!(matches!(
+        err,
+        RuntimeError::UnknownIntentSubmission(id) if id == [9; 32]
+    ));
+    assert_eq!(
+        runtime
+            .heads()
+            .get(&head_key)
+            .unwrap()
+            .inbox()
+            .pending_count(),
+        0
+    );
+    assert_eq!(runtime.ticketed_runtime_ingress_count(), 0);
+}
+
+#[test]
+#[cfg(feature = "host_test")]
+fn ticketed_invocation_ingests_runtime_envelope_without_ticking() {
+    let mut runtime = WorldlineRuntime::new();
+    let worldline_id = wl(1);
+    runtime
+        .register_worldline(worldline_id, WorldlineState::empty())
+        .unwrap();
+    let head_key = register_head(&mut runtime, worldline_id, "default", None, true);
+    let envelope = IngressEnvelope::local_intent(
+        IngressTarget::DefaultWriter { worldline_id },
+        make_intent_kind("test/runtime"),
+        b"ticketed-ingress".to_vec(),
+    );
+    let submission = match runtime.submit_intent(envelope.clone()).unwrap() {
+        IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
+        IntentSubmissionDisposition::Duplicate { .. } => panic!("first submission duplicated"),
+    };
+    let ticket = admission_ticket(2);
+
+    let disposition = runtime
+        .ingest_ticketed_invocation(
+            &ticketed_runtime_ingress_authority(),
+            submission,
+            &ticket,
+            envelope.clone(),
+        )
+        .unwrap();
+
+    let record = match disposition {
+        TicketedRuntimeIngressDisposition::Staged { record, ingress } => {
+            assert!(matches!(
+                ingress,
+                IngressDisposition::Accepted {
+                    ingress_id,
+                    head_key: routed_head_key,
+                    submission_id,
+                    ..
+                } if ingress_id == envelope.ingress_id()
+                    && routed_head_key == head_key
+                    && submission_id == submission
+            ));
+            record
+        }
+        TicketedRuntimeIngressDisposition::Duplicate { .. } => {
+            panic!("first ticketed runtime ingress duplicated")
+        }
+    };
+
+    assert_eq!(record.submission_id, submission);
+    assert_eq!(record.ticket_digest, ticket.ticket_digest);
+    assert_eq!(record.ingress_id, envelope.ingress_id());
+    assert_eq!(record.head_key, head_key);
+    assert_eq!(runtime.ticketed_runtime_ingress_count(), 1);
+    assert_eq!(
+        runtime
+            .heads()
+            .get(&head_key)
+            .unwrap()
+            .inbox()
+            .pending_count(),
+        1
+    );
+    assert_eq!(runtime.global_tick(), gt(0));
+    let frontier = runtime.worldlines().get(&worldline_id).unwrap();
+    assert_eq!(frontier.frontier_tick(), wt(0));
+    assert!(frontier.state().tick_history().is_empty());
+}
+
+#[test]
+#[cfg(feature = "host_test")]
+fn ticketed_ingress_preserves_submission_and_ticket_identity() {
+    let mut runtime = WorldlineRuntime::new();
+    let worldline_id = wl(1);
+    runtime
+        .register_worldline(worldline_id, WorldlineState::empty())
+        .unwrap();
+    register_head(&mut runtime, worldline_id, "default", None, true);
+    let envelope = IngressEnvelope::local_intent(
+        IngressTarget::DefaultWriter { worldline_id },
+        make_intent_kind("test/runtime"),
+        b"stable-ticketed-ingress".to_vec(),
+    );
+    let submission = match runtime.submit_intent(envelope.clone()).unwrap() {
+        IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
+        IntentSubmissionDisposition::Duplicate { .. } => panic!("first submission duplicated"),
+    };
+    let ticket = admission_ticket(3);
+
+    let first = runtime
+        .ingest_ticketed_invocation(
+            &ticketed_runtime_ingress_authority(),
+            submission,
+            &ticket,
+            envelope.clone(),
+        )
+        .unwrap();
+    let duplicate = runtime
+        .ingest_ticketed_invocation(
+            &ticketed_runtime_ingress_authority(),
+            submission,
+            &ticket,
+            envelope,
+        )
+        .unwrap();
+
+    let first_record = match first {
+        TicketedRuntimeIngressDisposition::Staged { record, .. } => record,
+        TicketedRuntimeIngressDisposition::Duplicate { .. } => {
+            panic!("first ticketed ingress duplicated")
+        }
+    };
+    let duplicate_record = match duplicate {
+        TicketedRuntimeIngressDisposition::Duplicate { record } => record,
+        TicketedRuntimeIngressDisposition::Staged { .. } => {
+            panic!("duplicate ticketed ingress staged twice")
+        }
+    };
+
+    assert_eq!(first_record, duplicate_record);
+    assert_eq!(runtime.ticketed_runtime_ingress_count(), 1);
 }
 
 #[test]

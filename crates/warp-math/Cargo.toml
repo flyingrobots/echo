@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+[package]
+name = "warp-math"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.90.0"
+description = "Echo deterministic math primitives"
+license = "Apache-2.0"
+repository = "https://github.com/flyingrobots/echo"
+readme = "README.md"
+keywords = ["echo", "deterministic", "math"]
+categories = ["game-engines", "mathematics"]
+
+[dependencies]
+libm = "0.2"
+serde = { version = "1.0", features = ["derive"], optional = true }
+
+[dev-dependencies]
+echo-wasm-abi = { workspace = true }
+serde = { version = "1.0", features = ["derive"] }
+serde-value = "0.7"
+
+[features]
+default = []
+# Optional regression check for PRNG sequences; off by default to avoid
+# freezing algorithm choices. Used only in tests guarded with `cfg(feature)`.
+golden_prng = []
+# Enables extra diagnostic printing in deterministic trig tests.
+trig_audit_print = []
+# Serde support for deterministic scalar wrappers.
+serde = ["dep:serde"]
+# Scalar backend lanes (CI/test orchestration).
+det_float = []
+det_fixed = []
+
+[[test]]
+name = "prng_golden_regression"
+required-features = ["golden_prng"]
+
+[lints]
+workspace = true

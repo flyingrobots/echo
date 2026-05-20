@@ -27,8 +27,15 @@ compile_error!(
 
 /// Deterministic fixed-point helpers (Q32.32).
 pub mod fixed;
-/// Deterministic math subsystem (Vec3, Mat4, Quat, PRNG).
-pub mod math;
+pub mod math {
+    //! Deterministic math subsystem (Vec3, Mat4, Quat, PRNG).
+    //!
+    //! Compatibility re-export for deterministic math primitives.
+    //!
+    //! New code that only needs math should depend on `warp-math` directly.
+
+    pub use warp_math::*;
+}
 /// WSC (Write-Streaming Columnar) snapshot format for deterministic serialization.
 pub mod wsc;
 

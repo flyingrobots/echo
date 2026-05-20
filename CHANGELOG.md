@@ -365,6 +365,12 @@
   map to exact `--test <target>` invocations, and tooling edits stay on local
   shell smoke checks. Broader clippy, rustdoc, package, and workspace coverage
   remains available through `make verify-pr`, `make verify-full`, and CI.
+- Deterministic math now lives in a slim `warp-math` workspace crate.
+  `warp-core` keeps the existing `warp_core::math::*` compatibility surface as
+  a re-export, while `warp-geom` depends directly on `warp-math` instead of
+  pulling in all of `warp-core`. Math-only integration tests, deterministic
+  trig golden vectors, PRNG golden regression, and the LUT generator moved with
+  the math crate.
 - CI and local verification now split broad clippy coverage into explicit
   library, binary, and selected integration-test lanes instead of invoking one
   monolithic cargo pass. The `warp-core` runtime inbox test target is now an

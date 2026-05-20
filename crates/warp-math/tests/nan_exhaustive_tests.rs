@@ -10,8 +10,8 @@
 //! 2. Preserving Infinities (distinct from NaNs).
 //! 3. Ensuring reflexivity (`x == x`) holds for the canonicalized NaNs.
 
-use warp_core::math::scalar::F32Scalar;
-use warp_core::math::Scalar;
+use warp_math::scalar::F32Scalar;
+use warp_math::Scalar;
 
 /// Verifies that various classes of NaN values are correctly canonicalized.
 ///

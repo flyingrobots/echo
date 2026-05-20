@@ -99,7 +99,7 @@ run_fake_verify() {
   tmp="$(mktemp -d)"
 
   mkdir -p "$tmp/scripts/hooks" "$tmp/bin" "$tmp/.git" "$tmp/.githooks" "$tmp/tests/hooks"
-  mkdir -p "$tmp/crates/warp-core/src" "$tmp/crates/bin-only/src"
+  mkdir -p "$tmp/crates/warp-core/src" "$tmp/crates/warp-math/src" "$tmp/crates/bin-only/src"
   cp scripts/verify-local.sh "$tmp/scripts/verify-local.sh"
   chmod +x "$tmp/scripts/verify-local.sh"
 
@@ -115,6 +115,14 @@ version = "0.0.0"
 edition = "2021"
 EOF
   printf '%s\n' 'pub fn anchor() {}' >"$tmp/crates/warp-core/src/lib.rs"
+
+  cat >"$tmp/crates/warp-math/Cargo.toml" <<'EOF'
+[package]
+name = "warp-math"
+version = "0.0.0"
+edition = "2021"
+EOF
+  printf '%s\n' 'pub fn anchor() {}' >"$tmp/crates/warp-math/src/lib.rs"
 
   cat >"$tmp/crates/bin-only/Cargo.toml" <<'EOF'
 [package]
@@ -1419,12 +1427,12 @@ else
   printf '%s\n' "$fake_warp_core_playback_output"
 fi
 
-fake_warp_core_prng_output="$(run_fake_verify full crates/warp-core/src/math/prng.rs)"
-if printf '%s\n' "$fake_warp_core_prng_output" | grep -q -- '--features golden_prng --test prng_golden_regression'; then
+fake_warp_math_prng_output="$(run_fake_verify full crates/warp-math/src/prng.rs)"
+if printf '%s\n' "$fake_warp_math_prng_output" | grep -q -- 'test -p warp-math --features golden_prng --test prng_golden_regression'; then
   pass "PRNG changes pull the golden regression smoke test"
 else
   fail "PRNG changes should pull the golden regression smoke test"
-  printf '%s\n' "$fake_warp_core_prng_output"
+  printf '%s\n' "$fake_warp_math_prng_output"
 fi
 
 fake_warp_wasm_lib_output="$(run_fake_verify full crates/warp-wasm/src/lib.rs)"

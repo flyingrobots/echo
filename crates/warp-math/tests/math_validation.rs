@@ -9,7 +9,7 @@
 
 use serde::Deserialize;
 
-use warp_core::math::{self, Mat4, Prng, Quat, Vec3};
+use warp_math::{self as math, Mat4, Prng, Quat, Vec3};
 
 /// Path relative to repo root, for error messages only.
 const FIXTURE_PATH: &str = concat!(

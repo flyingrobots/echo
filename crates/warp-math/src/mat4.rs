@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
-use crate::math::trig;
-use crate::math::{Quat, Vec3};
+use crate::trig;
+use crate::{Quat, Vec3};
 
 /// Column-major 4×4 matrix matching Echo’s deterministic math layout.
 ///
@@ -118,7 +118,7 @@ impl Mat4 {
     /// The `axis` argument does not need to be pre‑normalised; it is
     /// normalised internally. If a zero‑length axis is supplied, the identity
     /// matrix is returned (behaviour delegated to
-    /// [`Quat::from_axis_angle`](crate::math::Quat::from_axis_angle)).
+    /// [`Quat::from_axis_angle`](crate::Quat::from_axis_angle)).
     pub fn rotation_axis_angle(axis: Vec3, angle: f32) -> Self {
         Self::from_quat(&Quat::from_axis_angle(axis, angle))
     }

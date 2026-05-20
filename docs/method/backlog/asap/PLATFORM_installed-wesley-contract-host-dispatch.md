@@ -3,7 +3,7 @@
 
 # Installed Wesley Contract Host Dispatch
 
-Status: RED/GREEN implementation slice.
+Status: core contract-host seam checkpoint; generated handler emission remains.
 
 Depends on:
 
@@ -16,6 +16,22 @@ Depends on:
 Echo can accept EINT bytes, but it does not yet route a validated generated
 contract operation to an installed contract handler inside the normal witnessed
 admission, scheduling, and provenance path.
+
+## Current Checkpoint
+
+`warp-core` now exposes the scheduler-owned EINT contract-host helper seam used
+by installed `cmd/*` rules:
+
+- match a scheduler-materialized EINT runtime ingress event by generated op id;
+- borrow canonical vars bytes for generated decoding;
+- declare the standard runtime-ingress read footprint and extend it with
+  handler-specific writes;
+- prove handlers run during `SchedulerCoordinator::super_tick(...)`, not during
+  application dispatch.
+
+Remaining work is generator/packaging integration: Wesley does not yet emit the
+installed handler rules or package an installed contract registry that rejects
+unsupported contract operations at the contract-host boundary.
 
 ## RED
 

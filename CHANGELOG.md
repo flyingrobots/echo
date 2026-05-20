@@ -7,6 +7,16 @@
 
 ### Added
 
+- `warp-core` now exposes a scheduler-owned installed contract host seam for
+  EINT-backed mutation handlers. Host/generated `cmd/*` rules can read a
+  scheduler-materialized runtime ingress event, match its EINT operation id,
+  borrow canonical vars bytes for generated decoding, and extend a standard
+  runtime-ingress read footprint with handler-specific writes. Tests prove an
+  installed toy contract handler does not run during application dispatch, runs
+  only during `SchedulerCoordinator::super_tick(...)`, and ignores nonmatching
+  EINT operation ids. This does not generate Wesley handler rules, implement
+  QueryView, add dynamic plugin loading, or allow application code to tick the
+  runtime.
 - `warp-core` now records runtime-local scheduler fault quarantine posture after internal
   scheduler faults. Lawful receipt-level rejections remain normal tick outcomes
   and do not fault heads. Scoped internal head faults roll back the failed

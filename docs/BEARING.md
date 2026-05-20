@@ -32,6 +32,9 @@ scheduler-owned tick outcome without giving application code tick authority.
   ingress records, admission ticket digests, and witnessed submission ids.
 - Core can observe a witnessed submission as unknown, pending, or decided by a
   scheduler-owned tick receipt.
+- Core exposes scheduler-owned EINT contract-host helpers so installed
+  `cmd/*` handlers can match operation ids, borrow canonical vars bytes for
+  generated decoding, and declare the standard runtime-ingress read footprint.
 - Footprint conflicts are explicit receipt rejections, not hidden retries.
 - Failed `SuperTick` attempts are failure-atomic: uncommitted runtime,
   provenance, and receipt-correlation writes are rolled back before any fault
@@ -48,7 +51,8 @@ scheduler-owned tick outcome without giving application code tick authority.
 - Accepted submissions are not yet complete witnessed ingress history.
 - Clients cannot yet observe per-intent applied/rejected application semantics
   by id.
-- Installed Wesley handler dispatch is not wired into scheduler-owned execution.
+- Wesley does not yet generate installed handler rules for the core
+  contract-host seam.
 - Generic QueryView remains unsupported in core.
 
 ## Doctrine
@@ -131,9 +135,10 @@ AdmissionTicket + witnessed submission -> ticketed runtime ingress
 
 ## Immediate Next Slice
 
-InstalledContractHostDispatch should connect installed Wesley contract handlers
-to scheduler-owned runtime execution without letting application dispatch call
-handlers synchronously.
+The next slice should either emit generated installed handler rules from Wesley
+or start QueryViewObserverBridge against the same contract-host boundary. Keep
+the write-side invariant intact: application dispatch submits EINT bytes only;
+handlers execute during scheduler-owned ticks.
 
 This slice must not implement QueryView, streaming subscriptions, automatic
 retry, execution outside scheduler-owned ticks, or wall-clock cadence semantics.

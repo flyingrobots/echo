@@ -1078,7 +1078,7 @@ else
 fi
 
 fake_full_stamp_output="$(run_fake_full_stamp_sequence)"
-if printf '%s\n' "$fake_full_stamp_output" | grep -q 'reusing cached full verification for tree tree-aaaaaaa'; then
+if printf '%s\n' "$fake_full_stamp_output" | grep -q 'reusing cached explicit-lane verification for tree tree-aaaaaaa'; then
   pass "full verification stamp reuse keys off the working tree instead of HEAD"
 else
   fail "full verification should reuse the cache for a different commit with the same working tree"

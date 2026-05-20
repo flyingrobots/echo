@@ -7,6 +7,35 @@
 
 ### Added
 
+- `warp-core` now exposes a zero-write `observe_intent_outcome(...)` polling
+  surface over witnessed submission ids. The observation reports
+  `UnknownSubmission`, `Pending` with optional ticketed-ingress identity, or
+  `Decided` with the scheduler-owned receipt correlation once a ticketed
+  submission reaches a tick receipt. This does not infer per-candidate
+  applied/rejected application semantics, stream updates, dispatch installed
+  handlers, execute contracts outside scheduler-owned ticks, or introduce
+  automatic retry.
+- `warp-core` now records scheduler-owned receipt correlations for ticketed
+  runtime ingress. After `SchedulerCoordinator::super_tick(...)` commits a
+  ticketed ingress batch, Echo indexes the witnessed submission id, admission
+  ticket digest, ticketed ingress id, ingress id, writer head, logical tick
+  coordinates, receipt digest, and commit hash. Correlations are created only
+  after scheduler-owned ticks and only for ticketed runtime ingress; legacy
+  direct inbox ingress remains uncorrelated. This does not expose intent
+  outcome observation, dispatch installed handlers, execute contracts outside
+  scheduler-owned ticks, or introduce automatic retry.
+- `warp-core` now exposes a ticketed runtime ingress boundary.
+  `WorldlineRuntime::submit_intent(...)` records witnessed submission history
+  without entering a head inbox, ticking, dispatching handlers, or mutating
+  application state. `WorldlineRuntime::ingest_ticketed_invocation(...)` stages
+  a witnessed submission into runtime ingress only when the caller holds the
+  explicit `TicketedRuntimeIngressAuthority` runtime-owner token and supplies an
+  `OpticAdmissionTicket`, records deterministic ticketed-ingress correlation
+  material, rejects unknown or mismatched submissions, and treats duplicate
+  staging of the same ticket/submission pair idempotently. This does not
+  correlate tick receipts, expose intent outcome observation, dispatch installed
+  handlers, execute contracts outside scheduler-owned ticks, or introduce
+  automatic retry.
 - `warp-core` optic invocation admission now issues an `OpticAdmissionTicket`
   after BasisResolution, ApertureResolution, BudgetResolution, RuntimeSupport,
   capability identity coverage, InvocationAdmission, SchedulerAdmission,
@@ -300,6 +329,11 @@
 
 ### Changed
 
+- CI and local verification now split broad clippy coverage into explicit
+  library, binary, and selected integration-test lanes instead of invoking one
+  monolithic cargo pass. The `warp-core` runtime inbox test target is now an
+  explicit lint lane with the same `native_rule_bootstrap,host_test` features
+  used by the ticketed-ingress regression suite.
 - Local verification now treats rustdoc warnings as CI-owned by default.
   `scripts/verify-local.sh` skips local rustdoc lanes unless
   `VERIFY_LOCAL_RUSTDOC=1` is set, keeping pre-push and full local gates focused
@@ -315,6 +349,16 @@
 
 ### Fixed
 
+- `SchedulerCoordinator::super_tick(...)` now journals ticket-local receipt
+  correlation writes instead of checkpointing whole historical correlation
+  indexes, preserving failure-atomic rollback while keeping rollback
+  bookkeeping proportional to the attempted tick's writes.
+- `warp-core` submit-only intake now enforces the same canonical
+  `IngressEnvelope` content-address invariant as runtime inbox ingestion, so
+  `would_accept(...)` cannot approve malformed ingress ids.
+- `warp-core` ticketed runtime ingress now rejects duplicate pending or already
+  committed runtime ingress before recording ticketed correlation material, so
+  an admission ticket cannot retroactively claim legacy direct inbox work.
 - `Determinism Guards` no longer runs `apt-get install ripgrep`; static guard
   scripts now fall back to Perl regex scanning when `rg` is unavailable, so mirror stalls
   cannot hang the determinism gate.
@@ -687,8 +731,8 @@ warp-core` and `warp-core` shards, preserving the required `Tests` status
 - **Fixed** removed `redundant_clone` clippy suppression from `head.rs` and
   `coordinator.rs` test modules.
 - **Fixed** ADR exceptions ledger sentinel row no longer mimics an active entry.
-- **Fixed** verification matrix in implementation plan now matches hook-enforced
-  gate (`--workspace --all-targets -D missing_docs`).
+- **Fixed** verification matrix in implementation plan now matches the
+  hook-enforced gate used in that phase.
 
 ### fix(warp-core): self-review fixes for Phases 0–3
 

@@ -48,8 +48,8 @@ fallback if you need to debug the lane runner itself.
 
 A critical path no longer means “run the same local Rust cargo gauntlet for
 every kind of full change.” Tooling-only full changes stay tooling-local, while
-critical Rust changes run a local smoke lane and leave the exhaustive all-target
-proof to CI.
+critical Rust changes run a local smoke lane and leave exhaustive target-family
+proof to CI's explicit lane matrix.
 
 That local smoke path is also file-family aware for `warp-core`: ordinary source
 edits stay on the library test lane, while runtime/inbox, playback, and PRNG
@@ -65,8 +65,8 @@ or other non-Rust crate changes do not wake the Rust smoke lanes.
 
 `make verify-ultra-fast` is now the shortest edit-loop lane. It stays
 compile-first: Rust changes get `cargo check` on changed Rust crates plus the
-same targeted critical smoke selection used by the full gate, while clippy,
-guard scans, and exhaustive local proof stay on the heavier paths and in CI.
+selected witness targets for the touched file family, while clippy, guard
+scans, and broader proof stay on the heavier paths and in CI.
 Rustdoc warnings are CI-owned by default; use
 `VERIFY_LOCAL_RUSTDOC=1 make verify-full` only when you deliberately want to
 pay that local cost. Tooling-only changes stay on a syntax/smoke path instead
@@ -82,5 +82,5 @@ locally. Local timing data now lands
 in `$(git rev-parse --git-dir)/verify-local/timing.jsonl`, including run-level and per-lane durations,
 which keeps timing artifacts out of the tracked repo while still making lane
 cost visible. The staged and reduced local Rust paths are also intentionally
-narrower than CI: heavy all-target clippy coverage stays in CI, while local
-hooks bias toward faster iteration on the current work surface.
+narrower than CI: broad clippy coverage is split across CI lane families, while
+local hooks bias toward faster iteration on the current work surface.

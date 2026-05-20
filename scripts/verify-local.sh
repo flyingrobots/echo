@@ -363,6 +363,7 @@ FULL_SCOPE_RUN_WARP_CORE_SMOKE=0
 FULL_SCOPE_WARP_WASM_TEST_MODE="none"
 FULL_SCOPE_ECHO_WASM_ABI_RUN_LIB=0
 FULL_SCOPE_ECHO_WASM_ABI_EXTRA_TESTS=()
+FULL_SCOPE_WARP_CORE_CLIPPY_TESTS=()
 FULL_SCOPE_WARP_CORE_EXTRA_TESTS=()
 FULL_SCOPE_WARP_CORE_RUN_PRNG=0
 
@@ -1017,18 +1018,13 @@ clippy_target_args_for_scope() {
     return
   fi
 
-  if [[ "$scope" == "full" ]]; then
-    printf '%s\n' "--all-targets"
-    return
-  fi
-
   if crate_supports_lib_target "$crate"; then
     printf '%s\n' "--lib"
   elif crate_supports_bin_target "$crate"; then
     printf '%s\n' "--bins"
   else
-    printf '%s\n' "--all-targets"
-    return
+    echo "verify-local: ${crate} has no library or binary clippy lane" >&2
+    exit 1
   fi
 
   if crate_supports_lib_target "$crate" && ! crate_is_fast_clippy_lib_only "$crate"; then
@@ -1067,6 +1063,7 @@ filter_package_set_by_selection() {
 }
 
 prepare_warp_core_scope() {
+  FULL_SCOPE_WARP_CORE_CLIPPY_TESTS=()
   FULL_SCOPE_WARP_CORE_EXTRA_TESTS=()
   FULL_SCOPE_WARP_CORE_RUN_PRNG=0
 
@@ -1075,18 +1072,25 @@ prepare_warp_core_scope() {
     [[ -z "$file" ]] && continue
     case "$file" in
       crates/warp-core/tests/*.rs)
-        append_unique "$(basename "$file" .rs)" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
+        local test_name
+        test_name="$(basename "$file" .rs)"
+        append_unique "$test_name" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
+        append_unique "$test_name" FULL_SCOPE_WARP_CORE_CLIPPY_TESTS
         ;;
       crates/warp-core/src/optic_artifact.rs)
         append_unique "optic_artifact_registry_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
         append_unique "optic_invocation_admission_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
         append_unique "causal_fact_publication_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
         append_unique "capability_grant_intent_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
+        append_unique "optic_invocation_admission_tests" FULL_SCOPE_WARP_CORE_CLIPPY_TESTS
+        append_unique "causal_fact_publication_tests" FULL_SCOPE_WARP_CORE_CLIPPY_TESTS
         ;;
       crates/warp-core/src/causal_facts.rs)
         append_unique "causal_fact_publication_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
         append_unique "optic_artifact_registry_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
         append_unique "optic_invocation_admission_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
+        append_unique "causal_fact_publication_tests" FULL_SCOPE_WARP_CORE_CLIPPY_TESTS
+        append_unique "optic_invocation_admission_tests" FULL_SCOPE_WARP_CORE_CLIPPY_TESTS
         ;;
       crates/warp-core/src/coordinator.rs|\
       crates/warp-core/src/engine_impl.rs|\
@@ -1096,6 +1100,7 @@ prepare_warp_core_scope() {
       crates/warp-core/src/worldline_registry.rs|\
       crates/warp-core/src/runtime*.rs)
         append_unique "inbox" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
+        append_unique "inbox" FULL_SCOPE_WARP_CORE_CLIPPY_TESTS
         ;;
       crates/warp-core/src/playback.rs)
         append_unique "playback_cursor_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
@@ -1106,6 +1111,38 @@ prepare_warp_core_scope() {
         ;;
     esac
   done <<< "${CHANGED_FILES}"
+
+  append_unique "causal_fact_publication_tests" FULL_SCOPE_WARP_CORE_CLIPPY_TESTS
+  append_unique "optic_invocation_admission_tests" FULL_SCOPE_WARP_CORE_CLIPPY_TESTS
+}
+
+warp_core_feature_args_for_test() {
+  local test_target="$1"
+
+  case "$test_target" in
+    inbox)
+      printf '%s\n' "--features" "native_rule_bootstrap,host_test"
+      ;;
+    causal_fact_publication_tests|optic_invocation_admission_tests)
+      printf '%s\n' "--features" "host_test"
+      ;;
+  esac
+}
+
+run_warp_core_test_target() {
+  local lane="$1"
+  local test_target="$2"
+  local -a feature_args=()
+  mapfile -t feature_args < <(warp_core_feature_args_for_test "$test_target")
+  lane_cargo "$lane" test -p warp-core "${feature_args[@]}" --test "$test_target"
+}
+
+run_warp_core_clippy_test_target() {
+  local lane="$1"
+  local test_target="$2"
+  local -a feature_args=()
+  mapfile -t feature_args < <(warp_core_feature_args_for_test "$test_target")
+  lane_cargo "$lane" clippy -p warp-core "${feature_args[@]}" --test "$test_target" -- -D warnings -D missing_docs
 }
 
 prepare_warp_wasm_scope() {
@@ -1287,8 +1324,10 @@ run_full_lane_clippy_core() {
   echo "[verify-local][clippy-core] curated clippy on selected core packages"
   lane_cargo "full-clippy-core" clippy "${args[@]}" --lib -- -D warnings -D missing_docs
   if array_contains "warp-core" "${FULL_SCOPE_CLIPPY_CORE_PACKAGES[@]}"; then
-    lane_cargo "full-clippy-core" clippy -p warp-core --features host_test --test causal_fact_publication_tests -- -D warnings -D missing_docs
-    lane_cargo "full-clippy-core" clippy -p warp-core --features host_test --test optic_invocation_admission_tests -- -D warnings -D missing_docs
+    local test_target
+    for test_target in "${FULL_SCOPE_WARP_CORE_CLIPPY_TESTS[@]}"; do
+      run_warp_core_clippy_test_target "full-clippy-core" "$test_target"
+    done
   fi
 }
 
@@ -1355,14 +1394,7 @@ run_full_lane_tests_warp_core() {
   lane_cargo "full-tests-warp-core" test -p warp-core --lib
   local test_target
   for test_target in "${FULL_SCOPE_WARP_CORE_EXTRA_TESTS[@]}"; do
-    case "$test_target" in
-      causal_fact_publication_tests|optic_invocation_admission_tests)
-        lane_cargo "full-tests-warp-core" test -p warp-core --features host_test --test "$test_target"
-        ;;
-      *)
-        lane_cargo "full-tests-warp-core" test -p warp-core --test "$test_target"
-        ;;
-    esac
+    run_warp_core_test_target "full-tests-warp-core" "$test_target"
   done
   if [[ "$FULL_SCOPE_WARP_CORE_RUN_PRNG" == "1" ]]; then
     lane_cargo "full-tests-warp-core" test -p warp-core --features golden_prng --test prng_golden_regression
@@ -1572,18 +1604,15 @@ run_ultra_fast_smoke() {
 
   if [[ "$FULL_SCOPE_RUN_WARP_CORE_SMOKE" == "1" ]]; then
     echo "[verify-local][ultra-fast] warp-core smoke"
-    cargo +"$PINNED" test -p warp-core --lib
     local warp_core_test_target
     for warp_core_test_target in "${FULL_SCOPE_WARP_CORE_EXTRA_TESTS[@]}"; do
-      case "$warp_core_test_target" in
-        causal_fact_publication_tests|optic_invocation_admission_tests)
-          cargo +"$PINNED" test -p warp-core --features host_test --test "$warp_core_test_target"
-          ;;
-        *)
-          cargo +"$PINNED" test -p warp-core --test "$warp_core_test_target"
-          ;;
-      esac
+      local -a feature_args=()
+      mapfile -t feature_args < <(warp_core_feature_args_for_test "$warp_core_test_target")
+      cargo +"$PINNED" test -p warp-core "${feature_args[@]}" --test "$warp_core_test_target"
     done
+    if [[ ${#FULL_SCOPE_WARP_CORE_EXTRA_TESTS[@]} -eq 0 && "$FULL_SCOPE_WARP_CORE_RUN_PRNG" != "1" ]]; then
+      echo "[verify-local][ultra-fast] warp-core: cargo check already covered this edit"
+    fi
     if [[ "$FULL_SCOPE_WARP_CORE_RUN_PRNG" == "1" ]]; then
       cargo +"$PINNED" test -p warp-core --features golden_prng --test prng_golden_regression
     fi
@@ -1671,7 +1700,7 @@ run_auto_mode() {
       run_targeted_checks "${changed_crates[@]}"
       ;;
     full)
-      echo "[verify-local] full verification required by critical/tooling changes"
+      echo "[verify-local] explicit verification lanes required by critical/tooling changes"
       run_full_checks
       ;;
     *)
@@ -1732,7 +1761,7 @@ case "$MODE" in
   full)
     if should_skip_via_stamp "full"; then
       VERIFY_RUN_CACHE_STATE="cached"
-      echo "[verify-local] reusing cached full verification for tree $(printf '%.12s' "$VERIFY_STAMP_SUBJECT")"
+      echo "[verify-local] reusing cached explicit-lane verification for tree $(printf '%.12s' "$VERIFY_STAMP_SUBJECT")"
       exit 0
     fi
     run_full_checks

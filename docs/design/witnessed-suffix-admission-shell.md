@@ -378,6 +378,6 @@ Expected implementation:
 cargo fmt --all -- --check
 cargo test -p echo-wasm-abi --lib witnessed_suffix
 cargo test -p warp-core --lib witnessed_suffix
-cargo clippy -p warp-core --all-targets -- -D warnings -D missing_docs
+cargo clippy -p warp-core --lib -- -D warnings -D missing_docs
 pnpm docs:build
 ```

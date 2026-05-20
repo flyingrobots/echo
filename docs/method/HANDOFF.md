@@ -58,7 +58,7 @@ Verification already run:
 - `cargo test -p method --test inbox_tests`
 - `cargo test -p method --test status_tests`
 - `cargo test -p method --lib`
-- `cargo clippy -p method --all-targets -- -D warnings`
+- `cargo clippy -p method --lib --tests -- -D warnings`
 - `cargo xtask method status --json`
 - `cargo xtask method inbox --help`
 - `git diff --check`

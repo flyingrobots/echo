@@ -4,11 +4,17 @@
 //! Runtime-owned ingress integration tests.
 
 use warp_core::{
-    make_head_id, make_intent_kind, make_node_id, make_type_id, Engine, EngineBuilder, GraphStore,
-    InboxAddress, InboxPolicy, IngressDisposition, IngressEnvelope, IngressTarget, NodeId,
-    NodeRecord, PlaybackMode, ProvenanceEventKind, ProvenanceService, ProvenanceStore,
-    SchedulerCoordinator, SchedulerKind, WorldlineId, WorldlineRuntime, WorldlineState,
-    WorldlineTick, WorldlineTickPatchV1, WriterHead, WriterHeadKey,
+    make_head_id, make_intent_kind, make_node_id, make_type_id, Engine, EngineBuilder, GlobalTick,
+    GraphStore, InboxAddress, InboxPolicy, IngressDisposition, IngressEnvelope, IngressTarget,
+    IntentOutcomeObservation, IntentSubmissionDisposition, NodeId, NodeRecord, PlaybackMode,
+    ProvenanceEventKind, ProvenanceService, ProvenanceStore, SchedulerCoordinator, SchedulerKind,
+    WorldlineId, WorldlineRuntime, WorldlineState, WorldlineTick, WorldlineTickPatchV1, WriterHead,
+    WriterHeadKey,
+};
+#[cfg(feature = "host_test")]
+use warp_core::{
+    OpticAdmissionTicket, OpticArtifactHandle, RuntimeError, TicketedRuntimeIngressAuthority,
+    TicketedRuntimeIngressDisposition, OPTIC_ADMISSION_TICKET_KIND, OPTIC_ARTIFACT_HANDLE_KIND,
 };
 
 fn wl(n: u8) -> WorldlineId {
@@ -17,6 +23,10 @@ fn wl(n: u8) -> WorldlineId {
 
 fn wt(raw: u64) -> WorldlineTick {
     WorldlineTick::from_raw(raw)
+}
+
+fn gt(raw: u64) -> GlobalTick {
+    GlobalTick::from_raw(raw)
 }
 
 fn empty_engine() -> Engine {
@@ -76,6 +86,31 @@ fn registered_worldlines_provenance(runtime: &WorldlineRuntime) -> ProvenanceSer
     provenance
 }
 
+#[cfg(feature = "host_test")]
+fn admission_ticket(seed: u8) -> OpticAdmissionTicket {
+    OpticAdmissionTicket {
+        kind: OPTIC_ADMISSION_TICKET_KIND.to_owned(),
+        artifact_handle: OpticArtifactHandle {
+            kind: OPTIC_ARTIFACT_HANDLE_KIND.to_owned(),
+            id: format!("ticketed-runtime-ingress-{seed}"),
+        },
+        artifact_hash: format!("artifact-hash-{seed}"),
+        operation_id: format!("operation-{seed}"),
+        requirements_digest: format!("requirements-{seed}"),
+        canonical_variables_digest: vec![seed],
+        basis_request_digest: [seed; 32],
+        aperture_request_digest: [seed.wrapping_add(1); 32],
+        budget_request_digest: [seed.wrapping_add(2); 32],
+        law_witness_digest: [seed.wrapping_add(3); 32],
+        ticket_digest: [seed.wrapping_add(4); 32],
+    }
+}
+
+#[cfg(feature = "host_test")]
+fn ticketed_runtime_ingress_authority() -> TicketedRuntimeIngressAuthority {
+    TicketedRuntimeIngressAuthority::assume_runtime_owner()
+}
+
 #[test]
 fn runtime_ingest_commits_without_legacy_graph_inbox_nodes() {
     let mut runtime = WorldlineRuntime::new();
@@ -110,6 +145,561 @@ fn runtime_ingest_commits_without_legacy_graph_inbox_nodes() {
     assert!(store.node(&NodeId(envelope.ingress_id())).is_some());
     assert!(store.node(&make_node_id("sim")).is_none());
     assert!(store.node(&make_node_id("sim/inbox")).is_none());
+}
+
+#[test]
+fn witnessed_submission_does_not_enter_runtime_ingress_before_ticket() {
+    let mut runtime = WorldlineRuntime::new();
+    let mut engine = empty_engine();
+    let worldline_id = wl(1);
+    runtime
+        .register_worldline(worldline_id, WorldlineState::empty())
+        .unwrap();
+    let head_key = register_head(&mut runtime, worldline_id, "default", None, true);
+
+    let envelope = IngressEnvelope::local_intent(
+        IngressTarget::DefaultWriter { worldline_id },
+        make_intent_kind("test/runtime"),
+        b"witness-only".to_vec(),
+    );
+    let disposition = runtime.submit_intent(envelope.clone()).unwrap();
+
+    assert!(matches!(
+        disposition,
+        IntentSubmissionDisposition::Accepted {
+            ingress_id,
+            head_key: routed_head_key,
+            ..
+        } if ingress_id == envelope.ingress_id() && routed_head_key == head_key
+    ));
+    assert_eq!(runtime.witnessed_submission_count(), 1);
+    assert_eq!(
+        runtime
+            .heads()
+            .get(&head_key)
+            .unwrap()
+            .inbox()
+            .pending_count(),
+        0
+    );
+    assert_eq!(runtime.global_tick(), gt(0));
+
+    let mut provenance = registered_worldlines_provenance(&runtime);
+    let records =
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+    assert!(records.is_empty());
+    let frontier = runtime.worldlines().get(&worldline_id).unwrap();
+    assert_eq!(frontier.frontier_tick(), wt(0));
+    assert!(frontier.state().tick_history().is_empty());
+}
+
+#[test]
+#[cfg(feature = "host_test")]
+fn ticketed_runtime_ingress_rejects_unknown_submission() {
+    let mut runtime = WorldlineRuntime::new();
+    let worldline_id = wl(1);
+    runtime
+        .register_worldline(worldline_id, WorldlineState::empty())
+        .unwrap();
+    let head_key = register_head(&mut runtime, worldline_id, "default", None, true);
+    let envelope = IngressEnvelope::local_intent(
+        IngressTarget::DefaultWriter { worldline_id },
+        make_intent_kind("test/runtime"),
+        b"unknown-submission".to_vec(),
+    );
+
+    let err = runtime
+        .ingest_ticketed_invocation(
+            &ticketed_runtime_ingress_authority(),
+            [9; 32],
+            &admission_ticket(1),
+            envelope,
+        )
+        .unwrap_err();
+
+    assert!(matches!(
+        err,
+        RuntimeError::UnknownIntentSubmission(id) if id == [9; 32]
+    ));
+    assert_eq!(
+        runtime
+            .heads()
+            .get(&head_key)
+            .unwrap()
+            .inbox()
+            .pending_count(),
+        0
+    );
+    assert_eq!(runtime.ticketed_runtime_ingress_count(), 0);
+}
+
+#[test]
+#[cfg(feature = "host_test")]
+fn ticketed_invocation_ingests_runtime_envelope_without_ticking() {
+    let mut runtime = WorldlineRuntime::new();
+    let worldline_id = wl(1);
+    runtime
+        .register_worldline(worldline_id, WorldlineState::empty())
+        .unwrap();
+    let head_key = register_head(&mut runtime, worldline_id, "default", None, true);
+    let envelope = IngressEnvelope::local_intent(
+        IngressTarget::DefaultWriter { worldline_id },
+        make_intent_kind("test/runtime"),
+        b"ticketed-ingress".to_vec(),
+    );
+    let accepted = match runtime.submit_intent(envelope.clone()).unwrap() {
+        IntentSubmissionDisposition::Accepted { submission_id, .. } => Some(submission_id),
+        IntentSubmissionDisposition::Duplicate { .. } => None,
+    };
+    assert!(accepted.is_some(), "first submission should be accepted");
+    let Some(submission) = accepted else {
+        return;
+    };
+    let ticket = admission_ticket(2);
+
+    let disposition = runtime
+        .ingest_ticketed_invocation(
+            &ticketed_runtime_ingress_authority(),
+            submission,
+            &ticket,
+            envelope.clone(),
+        )
+        .unwrap();
+
+    let staged_record = match disposition {
+        TicketedRuntimeIngressDisposition::Staged { record, ingress } => {
+            assert!(matches!(
+                ingress,
+                IngressDisposition::Accepted {
+                    ingress_id,
+                    head_key: routed_head_key,
+                    submission_id,
+                    ..
+                } if ingress_id == envelope.ingress_id()
+                    && routed_head_key == head_key
+                    && submission_id == submission
+            ));
+            Some(record)
+        }
+        TicketedRuntimeIngressDisposition::Duplicate { .. } => None,
+    };
+    assert!(
+        staged_record.is_some(),
+        "first ticketed runtime ingress should be staged"
+    );
+    let Some(record) = staged_record else {
+        return;
+    };
+
+    assert_eq!(record.submission_id, submission);
+    assert_eq!(record.ticket_digest, ticket.ticket_digest);
+    assert_eq!(record.ingress_id, envelope.ingress_id());
+    assert_eq!(record.head_key, head_key);
+    assert_eq!(runtime.ticketed_runtime_ingress_count(), 1);
+    assert_eq!(
+        runtime
+            .heads()
+            .get(&head_key)
+            .unwrap()
+            .inbox()
+            .pending_count(),
+        1
+    );
+    assert_eq!(runtime.global_tick(), gt(0));
+    let frontier = runtime.worldlines().get(&worldline_id).unwrap();
+    assert_eq!(frontier.frontier_tick(), wt(0));
+    assert!(frontier.state().tick_history().is_empty());
+}
+
+#[test]
+#[cfg(feature = "host_test")]
+fn ticketed_ingress_preserves_submission_and_ticket_identity() {
+    let mut runtime = WorldlineRuntime::new();
+    let worldline_id = wl(1);
+    runtime
+        .register_worldline(worldline_id, WorldlineState::empty())
+        .unwrap();
+    register_head(&mut runtime, worldline_id, "default", None, true);
+    let envelope = IngressEnvelope::local_intent(
+        IngressTarget::DefaultWriter { worldline_id },
+        make_intent_kind("test/runtime"),
+        b"stable-ticketed-ingress".to_vec(),
+    );
+    let accepted = match runtime.submit_intent(envelope.clone()).unwrap() {
+        IntentSubmissionDisposition::Accepted { submission_id, .. } => Some(submission_id),
+        IntentSubmissionDisposition::Duplicate { .. } => None,
+    };
+    assert!(accepted.is_some(), "first submission should be accepted");
+    let Some(submission) = accepted else {
+        return;
+    };
+    let ticket = admission_ticket(3);
+
+    let first = runtime
+        .ingest_ticketed_invocation(
+            &ticketed_runtime_ingress_authority(),
+            submission,
+            &ticket,
+            envelope.clone(),
+        )
+        .unwrap();
+    let duplicate = runtime
+        .ingest_ticketed_invocation(
+            &ticketed_runtime_ingress_authority(),
+            submission,
+            &ticket,
+            envelope,
+        )
+        .unwrap();
+
+    let first_record = match first {
+        TicketedRuntimeIngressDisposition::Staged { record, .. } => Some(record),
+        TicketedRuntimeIngressDisposition::Duplicate { .. } => None,
+    };
+    assert!(
+        first_record.is_some(),
+        "first ticketed ingress should be staged"
+    );
+    let Some(first_record) = first_record else {
+        return;
+    };
+    let duplicate_record = match duplicate {
+        TicketedRuntimeIngressDisposition::Duplicate { record } => Some(record),
+        TicketedRuntimeIngressDisposition::Staged { .. } => None,
+    };
+    assert!(
+        duplicate_record.is_some(),
+        "duplicate ticketed ingress should not stage twice"
+    );
+    let Some(duplicate_record) = duplicate_record else {
+        return;
+    };
+
+    assert_eq!(first_record, duplicate_record);
+    assert_eq!(runtime.ticketed_runtime_ingress_count(), 1);
+}
+
+#[test]
+#[cfg(feature = "host_test")]
+fn receipt_correlation_does_not_exist_before_scheduler_tick() {
+    let mut runtime = WorldlineRuntime::new();
+    let worldline_id = wl(1);
+    runtime
+        .register_worldline(worldline_id, WorldlineState::empty())
+        .unwrap();
+    register_head(&mut runtime, worldline_id, "default", None, true);
+    let envelope = IngressEnvelope::local_intent(
+        IngressTarget::DefaultWriter { worldline_id },
+        make_intent_kind("test/runtime"),
+        b"pending-receipt-correlation".to_vec(),
+    );
+    let accepted = match runtime.submit_intent(envelope.clone()).unwrap() {
+        IntentSubmissionDisposition::Accepted { submission_id, .. } => Some(submission_id),
+        IntentSubmissionDisposition::Duplicate { .. } => None,
+    };
+    assert!(accepted.is_some(), "first submission should be accepted");
+    let Some(submission) = accepted else {
+        return;
+    };
+    let ticket = admission_ticket(4);
+    let staged = runtime
+        .ingest_ticketed_invocation(
+            &ticketed_runtime_ingress_authority(),
+            submission,
+            &ticket,
+            envelope,
+        )
+        .unwrap();
+    let staged_record = match staged {
+        TicketedRuntimeIngressDisposition::Staged { record, .. } => Some(record),
+        TicketedRuntimeIngressDisposition::Duplicate { .. } => None,
+    };
+    assert!(
+        staged_record.is_some(),
+        "first ticketed ingress should be staged"
+    );
+    let Some(staged_record) = staged_record else {
+        return;
+    };
+    let ticketed_ingress_id = staged_record.ticketed_ingress_id;
+
+    assert!(runtime
+        .receipt_correlation_for_ticketed_ingress(&ticketed_ingress_id)
+        .is_none());
+    assert!(runtime
+        .receipt_correlation_for_submission(&submission)
+        .is_none());
+    assert_eq!(runtime.receipt_correlation_count(), 0);
+}
+
+#[test]
+fn unknown_submission_outcome_observation_is_unknown() {
+    let runtime = WorldlineRuntime::new();
+    let unknown_submission = [42; 32];
+
+    assert!(matches!(
+        runtime.observe_intent_outcome(&unknown_submission),
+        IntentOutcomeObservation::UnknownSubmission { submission_id }
+            if submission_id == unknown_submission
+    ));
+}
+
+#[test]
+fn witnessed_submission_outcome_observation_is_pending_without_tick() {
+    let mut runtime = WorldlineRuntime::new();
+    let worldline_id = wl(1);
+    runtime
+        .register_worldline(worldline_id, WorldlineState::empty())
+        .unwrap();
+    register_head(&mut runtime, worldline_id, "default", None, true);
+    let envelope = IngressEnvelope::local_intent(
+        IngressTarget::DefaultWriter { worldline_id },
+        make_intent_kind("test/runtime"),
+        b"pending-outcome".to_vec(),
+    );
+    let accepted = match runtime.submit_intent(envelope).unwrap() {
+        IntentSubmissionDisposition::Accepted {
+            submission_id,
+            submission_generation,
+            ..
+        } => Some((submission_id, submission_generation)),
+        IntentSubmissionDisposition::Duplicate { .. } => None,
+    };
+    assert!(accepted.is_some(), "first submission should be accepted");
+    let Some((submission, generation)) = accepted else {
+        return;
+    };
+
+    assert!(matches!(
+        runtime.observe_intent_outcome(&submission),
+        IntentOutcomeObservation::Pending {
+            submission_id,
+            submission_generation,
+            ticketed_ingress_id: None,
+        } if submission_id == submission && submission_generation == generation
+    ));
+}
+
+#[test]
+#[cfg(feature = "host_test")]
+fn ticketed_ingress_correlates_tick_receipt_after_scheduler_owned_tick() {
+    let mut runtime = WorldlineRuntime::new();
+    let mut engine = empty_engine();
+    let worldline_id = wl(1);
+    runtime
+        .register_worldline(worldline_id, WorldlineState::empty())
+        .unwrap();
+    let head_key = register_head(&mut runtime, worldline_id, "default", None, true);
+    let envelope = IngressEnvelope::local_intent(
+        IngressTarget::DefaultWriter { worldline_id },
+        make_intent_kind("test/runtime"),
+        b"correlate-after-tick".to_vec(),
+    );
+    let accepted = match runtime.submit_intent(envelope.clone()).unwrap() {
+        IntentSubmissionDisposition::Accepted { submission_id, .. } => Some(submission_id),
+        IntentSubmissionDisposition::Duplicate { .. } => None,
+    };
+    assert!(accepted.is_some(), "first submission should be accepted");
+    let Some(submission) = accepted else {
+        return;
+    };
+    let ticket = admission_ticket(5);
+    let staged = runtime
+        .ingest_ticketed_invocation(
+            &ticketed_runtime_ingress_authority(),
+            submission,
+            &ticket,
+            envelope.clone(),
+        )
+        .unwrap();
+    let staged_record = match staged {
+        TicketedRuntimeIngressDisposition::Staged { record, .. } => Some(record),
+        TicketedRuntimeIngressDisposition::Duplicate { .. } => None,
+    };
+    assert!(
+        staged_record.is_some(),
+        "first ticketed ingress should be staged"
+    );
+    let Some(staged_record) = staged_record else {
+        return;
+    };
+    let ticketed_ingress_id = staged_record.ticketed_ingress_id;
+
+    let mut provenance = registered_worldlines_provenance(&runtime);
+    let records =
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+
+    assert_eq!(records.len(), 1);
+    let correlation = runtime
+        .receipt_correlation_for_ticketed_ingress(&ticketed_ingress_id)
+        .expect("ticketed ingress should correlate after scheduler tick");
+    let frontier = runtime.worldlines().get(&worldline_id).unwrap();
+    let (_, receipt, _) = frontier
+        .state()
+        .tick_history()
+        .last()
+        .expect("scheduler-owned tick should be recorded");
+    assert_eq!(correlation.ticketed_ingress_id, ticketed_ingress_id);
+    assert_eq!(correlation.submission_id, submission);
+    assert_eq!(correlation.ticket_digest, ticket.ticket_digest);
+    assert_eq!(correlation.ingress_id, envelope.ingress_id());
+    assert_eq!(correlation.head_key, head_key);
+    assert_eq!(
+        correlation.commit_global_tick,
+        records[0].commit_global_tick
+    );
+    assert_eq!(
+        correlation.worldline_tick_after,
+        records[0].worldline_tick_after
+    );
+    assert_eq!(correlation.tick_receipt_digest, receipt.digest());
+    assert_eq!(correlation.commit_hash, records[0].commit_hash);
+    assert_eq!(
+        runtime
+            .receipt_correlation_for_submission(&submission)
+            .unwrap(),
+        correlation
+    );
+}
+
+#[test]
+#[cfg(feature = "host_test")]
+fn ticketed_submission_outcome_observation_is_decided_after_scheduler_tick() {
+    let mut runtime = WorldlineRuntime::new();
+    let mut engine = empty_engine();
+    let worldline_id = wl(1);
+    runtime
+        .register_worldline(worldline_id, WorldlineState::empty())
+        .unwrap();
+    register_head(&mut runtime, worldline_id, "default", None, true);
+    let envelope = IngressEnvelope::local_intent(
+        IngressTarget::DefaultWriter { worldline_id },
+        make_intent_kind("test/runtime"),
+        b"decided-outcome".to_vec(),
+    );
+    let accepted = match runtime.submit_intent(envelope.clone()).unwrap() {
+        IntentSubmissionDisposition::Accepted { submission_id, .. } => Some(submission_id),
+        IntentSubmissionDisposition::Duplicate { .. } => None,
+    };
+    assert!(accepted.is_some(), "first submission should be accepted");
+    let Some(submission) = accepted else {
+        return;
+    };
+    let ticket = admission_ticket(6);
+    runtime
+        .ingest_ticketed_invocation(
+            &ticketed_runtime_ingress_authority(),
+            submission,
+            &ticket,
+            envelope,
+        )
+        .unwrap();
+
+    let mut provenance = registered_worldlines_provenance(&runtime);
+    SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+
+    let correlation = runtime
+        .receipt_correlation_for_submission(&submission)
+        .expect("submission should have receipt correlation")
+        .clone();
+    assert!(matches!(
+        runtime.observe_intent_outcome(&submission),
+        IntentOutcomeObservation::Decided { correlation: observed }
+            if observed == correlation
+    ));
+}
+
+#[test]
+#[cfg(feature = "host_test")]
+fn legacy_ingress_without_ticket_does_not_create_receipt_correlation() {
+    let mut runtime = WorldlineRuntime::new();
+    let mut engine = empty_engine();
+    let worldline_id = wl(1);
+    runtime
+        .register_worldline(worldline_id, WorldlineState::empty())
+        .unwrap();
+    register_head(&mut runtime, worldline_id, "default", None, true);
+    let envelope = IngressEnvelope::local_intent(
+        IngressTarget::DefaultWriter { worldline_id },
+        make_intent_kind("test/runtime"),
+        b"legacy-uncorrelated".to_vec(),
+    );
+
+    assert!(matches!(
+        runtime.ingest(envelope).unwrap(),
+        IngressDisposition::Accepted { .. }
+    ));
+    let mut provenance = registered_worldlines_provenance(&runtime);
+    let records =
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+
+    assert_eq!(records.len(), 1);
+    assert_eq!(runtime.receipt_correlation_count(), 0);
+}
+
+#[test]
+#[cfg(feature = "host_test")]
+fn ticketed_ingress_rejects_legacy_pending_duplicate_without_correlation() {
+    let mut runtime = WorldlineRuntime::new();
+    let mut engine = empty_engine();
+    let worldline_id = wl(1);
+    runtime
+        .register_worldline(worldline_id, WorldlineState::empty())
+        .unwrap();
+    let head_key = register_head(&mut runtime, worldline_id, "default", None, true);
+    let envelope = IngressEnvelope::local_intent(
+        IngressTarget::DefaultWriter { worldline_id },
+        make_intent_kind("test/runtime"),
+        b"legacy-pending-duplicate".to_vec(),
+    );
+    let ingress_id = envelope.ingress_id();
+
+    let accepted = match runtime.ingest(envelope.clone()).unwrap() {
+        IngressDisposition::Accepted { submission_id, .. } => Some(submission_id),
+        IngressDisposition::Duplicate { .. } => None,
+    };
+    assert!(
+        accepted.is_some(),
+        "legacy ingress should be accepted first"
+    );
+    let Some(submission) = accepted else {
+        return;
+    };
+
+    let err = runtime
+        .ingest_ticketed_invocation(
+            &ticketed_runtime_ingress_authority(),
+            submission,
+            &admission_ticket(7),
+            envelope,
+        )
+        .unwrap_err();
+
+    assert!(matches!(
+        err,
+        RuntimeError::TicketedIngressDuplicateRuntimeIngress {
+            head_key: duplicate_head_key,
+            ingress_id: duplicate_ingress_id,
+        } if duplicate_head_key == head_key && duplicate_ingress_id == ingress_id
+    ));
+    assert_eq!(runtime.ticketed_runtime_ingress_count(), 0);
+    assert_eq!(runtime.receipt_correlation_count(), 0);
+
+    let mut provenance = registered_worldlines_provenance(&runtime);
+    let records =
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+
+    assert_eq!(records.len(), 1);
+    assert_eq!(runtime.ticketed_runtime_ingress_count(), 0);
+    assert_eq!(runtime.receipt_correlation_count(), 0);
+    assert!(matches!(
+        runtime.observe_intent_outcome(&submission),
+        IntentOutcomeObservation::Pending {
+            submission_id,
+            ticketed_ingress_id: None,
+            ..
+        } if submission_id == submission
+    ));
 }
 
 #[test]

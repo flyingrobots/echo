@@ -326,9 +326,10 @@ pub use worldline::{
 /// Prefer this coordinator/runtime API for new stepping and routing code.
 pub use coordinator::{
     ForkStrandReceipt, ForkStrandRequest, IngressDisposition, IngressSubmissionGeneration,
-    IntentSubmissionDisposition, IntentSubmissionRecord, ReceiptCorrelationRecord, RuntimeError,
-    SchedulerCoordinator, StepRecord, TicketedRuntimeIngressAuthority,
-    TicketedRuntimeIngressDisposition, TicketedRuntimeIngressRecord, WorldlineRuntime,
+    IntentOutcomeObservation, IntentSubmissionDisposition, IntentSubmissionRecord,
+    ReceiptCorrelationRecord, RuntimeError, SchedulerCoordinator, StepRecord,
+    TicketedRuntimeIngressAuthority, TicketedRuntimeIngressDisposition,
+    TicketedRuntimeIngressRecord, WorldlineRuntime,
 };
 /// Writer-head registry and routing primitives used by the runtime-owned ingress path.
 pub use head::{

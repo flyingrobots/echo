@@ -6,9 +6,9 @@
 use warp_core::{
     make_head_id, make_intent_kind, make_node_id, make_type_id, Engine, EngineBuilder, GlobalTick,
     GraphStore, InboxAddress, InboxPolicy, IngressDisposition, IngressEnvelope, IngressTarget,
-    IntentSubmissionDisposition, NodeId, NodeRecord, PlaybackMode, ProvenanceEventKind,
-    ProvenanceService, ProvenanceStore, SchedulerCoordinator, SchedulerKind, WorldlineId,
-    WorldlineRuntime, WorldlineState, WorldlineTick, WorldlineTickPatchV1, WriterHead,
+    IntentOutcomeObservation, IntentSubmissionDisposition, NodeId, NodeRecord, PlaybackMode,
+    ProvenanceEventKind, ProvenanceService, ProvenanceStore, SchedulerCoordinator, SchedulerKind,
+    WorldlineId, WorldlineRuntime, WorldlineState, WorldlineTick, WorldlineTickPatchV1, WriterHead,
     WriterHeadKey,
 };
 #[cfg(feature = "host_test")]
@@ -400,6 +400,50 @@ fn receipt_correlation_does_not_exist_before_scheduler_tick() {
 }
 
 #[test]
+fn unknown_submission_outcome_observation_is_unknown() {
+    let runtime = WorldlineRuntime::new();
+    let unknown_submission = [42; 32];
+
+    assert!(matches!(
+        runtime.observe_intent_outcome(&unknown_submission),
+        IntentOutcomeObservation::UnknownSubmission { submission_id }
+            if submission_id == unknown_submission
+    ));
+}
+
+#[test]
+fn witnessed_submission_outcome_observation_is_pending_without_tick() {
+    let mut runtime = WorldlineRuntime::new();
+    let worldline_id = wl(1);
+    runtime
+        .register_worldline(worldline_id, WorldlineState::empty())
+        .unwrap();
+    register_head(&mut runtime, worldline_id, "default", None, true);
+    let envelope = IngressEnvelope::local_intent(
+        IngressTarget::DefaultWriter { worldline_id },
+        make_intent_kind("test/runtime"),
+        b"pending-outcome".to_vec(),
+    );
+    let (submission, generation) = match runtime.submit_intent(envelope).unwrap() {
+        IntentSubmissionDisposition::Accepted {
+            submission_id,
+            submission_generation,
+            ..
+        } => (submission_id, submission_generation),
+        IntentSubmissionDisposition::Duplicate { .. } => panic!("first submission duplicated"),
+    };
+
+    assert!(matches!(
+        runtime.observe_intent_outcome(&submission),
+        IntentOutcomeObservation::Pending {
+            submission_id,
+            submission_generation,
+            ticketed_ingress_id: None,
+        } if submission_id == submission && submission_generation == generation
+    ));
+}
+
+#[test]
 #[cfg(feature = "host_test")]
 fn ticketed_ingress_correlates_tick_receipt_after_scheduler_owned_tick() {
     let mut runtime = WorldlineRuntime::new();
@@ -469,6 +513,49 @@ fn ticketed_ingress_correlates_tick_receipt_after_scheduler_owned_tick() {
             .unwrap(),
         correlation
     );
+}
+
+#[test]
+#[cfg(feature = "host_test")]
+fn ticketed_submission_outcome_observation_is_decided_after_scheduler_tick() {
+    let mut runtime = WorldlineRuntime::new();
+    let mut engine = empty_engine();
+    let worldline_id = wl(1);
+    runtime
+        .register_worldline(worldline_id, WorldlineState::empty())
+        .unwrap();
+    register_head(&mut runtime, worldline_id, "default", None, true);
+    let envelope = IngressEnvelope::local_intent(
+        IngressTarget::DefaultWriter { worldline_id },
+        make_intent_kind("test/runtime"),
+        b"decided-outcome".to_vec(),
+    );
+    let submission = match runtime.submit_intent(envelope.clone()).unwrap() {
+        IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
+        IntentSubmissionDisposition::Duplicate { .. } => panic!("first submission duplicated"),
+    };
+    let ticket = admission_ticket(6);
+    runtime
+        .ingest_ticketed_invocation(
+            &ticketed_runtime_ingress_authority(),
+            submission,
+            &ticket,
+            envelope,
+        )
+        .unwrap();
+
+    let mut provenance = registered_worldlines_provenance(&runtime);
+    SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+
+    let correlation = runtime
+        .receipt_correlation_for_submission(&submission)
+        .expect("submission should have receipt correlation")
+        .clone();
+    assert!(matches!(
+        runtime.observe_intent_outcome(&submission),
+        IntentOutcomeObservation::Decided { correlation: observed }
+            if observed == correlation
+    ));
 }
 
 #[test]

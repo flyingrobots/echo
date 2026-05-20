@@ -30,6 +30,8 @@ scheduler-owned tick outcome without giving application code tick authority.
 - Tick receipts exist and witness scheduler-owned candidate outcomes.
 - Scheduler-owned tick receipts can be correlated back to ticketed runtime
   ingress records, admission ticket digests, and witnessed submission ids.
+- Core can observe a witnessed submission as unknown, pending, or decided by a
+  scheduler-owned tick receipt.
 - Footprint conflicts are explicit receipt rejections, not hidden retries.
 - The optic admission ladder resolves through AdmissionTicket and currently
   can stage ticketed runtime ingress through an explicit runtime-owner authority
@@ -38,7 +40,8 @@ scheduler-owned tick outcome without giving application code tick authority.
 ## What Is Not Yet True
 
 - Accepted submissions are not yet complete witnessed ingress history.
-- Clients cannot observe intent outcome by id.
+- Clients cannot yet observe per-intent applied/rejected application semantics
+  by id.
 - Installed Wesley handler dispatch is not wired into scheduler-owned execution.
 - Generic QueryView remains unsupported in core.
 
@@ -113,10 +116,9 @@ AdmissionTicket + witnessed submission -> ticketed runtime ingress
 
 ## Immediate Next Slice
 
-IntentOutcomeObservation should expose a small polling surface that reports
-whether a witnessed submission is still pending or has reached a
-scheduler-owned tick receipt.
+InstalledContractHostDispatch should connect installed Wesley contract handlers
+to scheduler-owned runtime execution without letting application dispatch call
+handlers synchronously.
 
-This slice must not implement installed handler dispatch, QueryView, streaming
-subscriptions, automatic retry, execution outside scheduler-owned ticks, or
-wall-clock cadence semantics.
+This slice must not implement QueryView, streaming subscriptions, automatic
+retry, execution outside scheduler-owned ticks, or wall-clock cadence semantics.

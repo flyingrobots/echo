@@ -7,6 +7,14 @@
 
 ### Added
 
+- `warp-core` now exposes a zero-write `observe_intent_outcome(...)` polling
+  surface over witnessed submission ids. The observation reports
+  `UnknownSubmission`, `Pending` with optional ticketed-ingress identity, or
+  `Decided` with the scheduler-owned receipt correlation once a ticketed
+  submission reaches a tick receipt. This does not infer per-candidate
+  applied/rejected application semantics, stream updates, dispatch installed
+  handlers, execute contracts outside scheduler-owned ticks, or introduce
+  automatic retry.
 - `warp-core` now records scheduler-owned receipt correlations for ticketed
   runtime ingress. After `SchedulerCoordinator::super_tick(...)` commits a
   ticketed ingress batch, Echo indexes the witnessed submission id, admission

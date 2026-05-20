@@ -296,6 +296,35 @@ pub struct ReceiptCorrelationRecord {
     pub commit_hash: Hash,
 }
 
+/// Polling observation for a witnessed intent submission.
+///
+/// This is intentionally narrower than a final applied/rejected application
+/// outcome. Until receipt entries are bound to intent-level semantics, Echo can
+/// report whether the submission is unknown, still pending, or decided by a
+/// scheduler-owned tick receipt.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum IntentOutcomeObservation {
+    /// Echo has no witnessed submission for the supplied id.
+    UnknownSubmission {
+        /// Submission id the caller asked about.
+        submission_id: Hash,
+    },
+    /// Echo has witnessed the submission, but no receipt correlation exists yet.
+    Pending {
+        /// Witnessed Echo submission id.
+        submission_id: Hash,
+        /// Echo-owned intake/correlation generation.
+        submission_generation: IngressSubmissionGeneration,
+        /// Ticketed runtime ingress id, if the submission has reached runtime ingress.
+        ticketed_ingress_id: Option<Hash>,
+    },
+    /// Echo has correlated the submission to a scheduler-owned tick receipt.
+    Decided {
+        /// Scheduler-owned receipt correlation.
+        correlation: ReceiptCorrelationRecord,
+    },
+}
+
 /// Request to fork a strand from one precise source-lane coordinate.
 #[derive(Clone, Debug)]
 pub struct ForkStrandRequest {
@@ -535,6 +564,33 @@ impl WorldlineRuntime {
     #[must_use]
     pub fn receipt_correlation_count(&self) -> usize {
         self.receipt_correlations_by_ticketed_ingress.len()
+    }
+
+    /// Observes the current scheduler-owned outcome posture for a submission.
+    ///
+    /// This is a zero-write polling surface. It does not tick, dispatch
+    /// handlers, subscribe to streams, or infer applied/rejected semantics from
+    /// receipt entries.
+    #[must_use]
+    pub fn observe_intent_outcome(&self, submission_id: &Hash) -> IntentOutcomeObservation {
+        let Some(submission) = self.witnessed_submissions.get(submission_id) else {
+            return IntentOutcomeObservation::UnknownSubmission {
+                submission_id: *submission_id,
+            };
+        };
+        if let Some(correlation) = self.receipt_correlation_for_submission(submission_id) {
+            return IntentOutcomeObservation::Decided {
+                correlation: correlation.clone(),
+            };
+        }
+        IntentOutcomeObservation::Pending {
+            submission_id: *submission_id,
+            submission_generation: submission.submission_generation,
+            ticketed_ingress_id: self
+                .ticketed_runtime_ingress_by_submission
+                .get(submission_id)
+                .copied(),
+        }
     }
 
     /// Returns the current correlation tick.

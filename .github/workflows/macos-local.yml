@@ -22,5 +22,13 @@ jobs:
         run: cargo fmt --all -- --check
       - name: cargo clippy
         run: cargo clippy --all-targets -- -D warnings -D missing_docs
+      - name: cargo clippy (warp-core host_test admission fixtures)
+        run: |
+          cargo clippy -p warp-core --features host_test --test causal_fact_publication_tests -- -D warnings -D missing_docs
+          cargo clippy -p warp-core --features host_test --test optic_invocation_admission_tests -- -D warnings -D missing_docs
       - name: cargo test (workspace)
         run: cargo test --workspace
+      - name: cargo test (warp-core host_test admission fixtures)
+        run: |
+          cargo test -p warp-core --features host_test --test causal_fact_publication_tests
+          cargo test -p warp-core --features host_test --test optic_invocation_admission_tests

@@ -38,6 +38,9 @@ default = []
 # bootstrap fixtures, tests, and benchmarks. This is not the public authoring
 # path for application rewrites.
 native_rule_bootstrap = []
+# INTERNAL ONLY: exposes host/test fixture seams for Echo-owned admission
+# evidence. Downstream application crates must not enable this feature.
+host_test = []
 # Optional regression check for PRNG sequences; off by default to avoid
 # freezing algorithm choices. Used only in tests guarded with `cfg(feature)`.
 golden_prng = []
@@ -74,6 +77,14 @@ required-features = ["delta_validate"]
 [[test]]
 name = "prng_golden_regression"
 required-features = ["golden_prng"]
+
+[[test]]
+name = "causal_fact_publication_tests"
+required-features = ["host_test"]
+
+[[test]]
+name = "optic_invocation_admission_tests"
+required-features = ["host_test"]
 
 [build-dependencies]
 blake3 = "1.0"

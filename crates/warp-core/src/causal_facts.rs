@@ -68,9 +68,13 @@ pub enum InvocationObstructionKind {
     InvocationAdmissionUnavailable,
     /// Echo proved invocation admission, but has no scheduler admission fact.
     SchedulerAdmissionUnavailable,
-    /// Echo proved scheduler admission, but this slice still has no scheduler
-    /// work candidate or queue item.
+    /// Echo proved scheduler admission, but has no scheduler work candidate.
     SchedulerWorkUnavailable,
+    /// Echo proved scheduler work candidate availability, but has no law
+    /// witness.
+    LawWitnessUnavailable,
+    /// Echo proved law witness availability, but has no admission ticket.
+    AdmissionTicketUnavailable,
     /// Invocation supplied no capability presentation.
     MissingCapability,
     /// Invocation supplied a malformed capability presentation.
@@ -119,6 +123,8 @@ impl InvocationObstructionKind {
             Self::InvocationAdmissionUnavailable => b"invocation-admission-unavailable",
             Self::SchedulerAdmissionUnavailable => b"scheduler-admission-unavailable",
             Self::SchedulerWorkUnavailable => b"scheduler-work-unavailable",
+            Self::LawWitnessUnavailable => b"law-witness-unavailable",
+            Self::AdmissionTicketUnavailable => b"admission-ticket-unavailable",
             Self::MissingCapability => b"missing-capability",
             Self::MalformedCapabilityPresentation => b"malformed-capability-presentation",
             Self::UnboundCapabilityPresentation => b"unbound-capability-presentation",
@@ -211,6 +217,57 @@ pub enum GraphFact {
         requirements_digest: String,
         /// Digest of the Echo-owned scheduler admission material.
         scheduler_admission_digest: [u8; 32],
+    },
+    /// Echo recorded runtime-owned scheduler work candidate evidence for a
+    /// registered artifact handle.
+    SchedulerWorkCandidateRecorded {
+        /// Echo-owned runtime-local artifact handle id covered by the scheduler
+        /// work candidate fact.
+        artifact_handle_id: String,
+        /// Registered operation id covered by the scheduler work candidate
+        /// fact.
+        operation_id: String,
+        /// Registered requirements digest covered by the scheduler work
+        /// candidate fact.
+        requirements_digest: String,
+        /// Digest of the Echo-owned scheduler work candidate material.
+        scheduler_work_candidate_digest: [u8; 32],
+    },
+    /// Echo recorded runtime-owned law witness evidence for a registered
+    /// artifact handle.
+    LawWitnessRecorded {
+        /// Echo-owned runtime-local artifact handle id covered by the law
+        /// witness fact.
+        artifact_handle_id: String,
+        /// Registered operation id covered by the law witness fact.
+        operation_id: String,
+        /// Registered requirements digest covered by the law witness fact.
+        requirements_digest: String,
+        /// Digest of the Echo-owned law witness material.
+        law_witness_digest: [u8; 32],
+    },
+    /// Echo issued an admission ticket after law witness resolution.
+    AdmissionTicketIssued {
+        /// Echo-owned runtime-local artifact handle id covered by the ticket.
+        artifact_handle_id: String,
+        /// Registered artifact hash covered by the ticket.
+        artifact_hash: String,
+        /// Registered operation id covered by the ticket.
+        operation_id: String,
+        /// Registered requirements digest covered by the ticket.
+        requirements_digest: String,
+        /// Digest of the invocation's canonical variable bytes.
+        canonical_variables_digest: Vec<u8>,
+        /// Digest of the opaque basis request bytes.
+        basis_request_digest: [u8; 32],
+        /// Digest of the opaque aperture request bytes.
+        aperture_request_digest: [u8; 32],
+        /// Digest of the opaque budget request bytes.
+        budget_request_digest: [u8; 32],
+        /// Digest of the Echo-owned law witness material bound by the ticket.
+        law_witness_digest: [u8; 32],
+        /// Digest of the issued admission ticket material.
+        ticket_digest: [u8; 32],
     },
     /// Echo refused optic invocation before admission success.
     OpticInvocationObstructed {
@@ -348,6 +405,90 @@ impl GraphFact {
                     b"scheduler-admission-digest",
                     scheduler_admission_digest,
                 );
+            }
+            Self::SchedulerWorkCandidateRecorded {
+                artifact_handle_id,
+                operation_id,
+                requirements_digest,
+                scheduler_work_candidate_digest,
+            } => {
+                push_digest_field(&mut bytes, b"variant", b"scheduler-work-candidate-recorded");
+                push_digest_field(
+                    &mut bytes,
+                    b"artifact-handle-id",
+                    artifact_handle_id.as_bytes(),
+                );
+                push_digest_field(&mut bytes, b"operation-id", operation_id.as_bytes());
+                push_digest_field(
+                    &mut bytes,
+                    b"requirements-digest",
+                    requirements_digest.as_bytes(),
+                );
+                push_digest_field(
+                    &mut bytes,
+                    b"scheduler-work-candidate-digest",
+                    scheduler_work_candidate_digest,
+                );
+            }
+            Self::LawWitnessRecorded {
+                artifact_handle_id,
+                operation_id,
+                requirements_digest,
+                law_witness_digest,
+            } => {
+                push_digest_field(&mut bytes, b"variant", b"law-witness-recorded");
+                push_digest_field(
+                    &mut bytes,
+                    b"artifact-handle-id",
+                    artifact_handle_id.as_bytes(),
+                );
+                push_digest_field(&mut bytes, b"operation-id", operation_id.as_bytes());
+                push_digest_field(
+                    &mut bytes,
+                    b"requirements-digest",
+                    requirements_digest.as_bytes(),
+                );
+                push_digest_field(&mut bytes, b"law-witness-digest", law_witness_digest);
+            }
+            Self::AdmissionTicketIssued {
+                artifact_handle_id,
+                artifact_hash,
+                operation_id,
+                requirements_digest,
+                canonical_variables_digest,
+                basis_request_digest,
+                aperture_request_digest,
+                budget_request_digest,
+                law_witness_digest,
+                ticket_digest,
+            } => {
+                push_digest_field(&mut bytes, b"variant", b"admission-ticket-issued");
+                push_digest_field(
+                    &mut bytes,
+                    b"artifact-handle-id",
+                    artifact_handle_id.as_bytes(),
+                );
+                push_digest_field(&mut bytes, b"artifact-hash", artifact_hash.as_bytes());
+                push_digest_field(&mut bytes, b"operation-id", operation_id.as_bytes());
+                push_digest_field(
+                    &mut bytes,
+                    b"requirements-digest",
+                    requirements_digest.as_bytes(),
+                );
+                push_digest_field(
+                    &mut bytes,
+                    b"canonical-variables-digest",
+                    canonical_variables_digest,
+                );
+                push_digest_field(&mut bytes, b"basis-request-digest", basis_request_digest);
+                push_digest_field(
+                    &mut bytes,
+                    b"aperture-request-digest",
+                    aperture_request_digest,
+                );
+                push_digest_field(&mut bytes, b"budget-request-digest", budget_request_digest);
+                push_digest_field(&mut bytes, b"law-witness-digest", law_witness_digest);
+                push_digest_field(&mut bytes, b"ticket-digest", ticket_digest);
             }
             Self::OpticInvocationObstructed {
                 artifact_handle_id,

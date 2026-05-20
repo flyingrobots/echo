@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![cfg(feature = "host_test")]
 //! Regression tests for graph fact publication from optic artifact registration.
 
 use warp_core::{
-    ArtifactRegistrationObstructionKind, GraphFact, OpticAdmissionRequirements, OpticArtifact,
-    OpticArtifactHandle, OpticArtifactOperation, OpticArtifactRegistrationError,
-    OpticArtifactRegistry, OpticRegistrationDescriptor, ARTIFACT_REGISTRATION_RECEIPT_KIND,
+    ArtifactRegistrationObstructionKind, GraphFact, OpticAdmissionEvidenceAuthority,
+    OpticAdmissionRequirements, OpticArtifact, OpticArtifactHandle, OpticArtifactOperation,
+    OpticArtifactRegistrationError, OpticArtifactRegistry, OpticRegistrationDescriptor,
+    ARTIFACT_REGISTRATION_RECEIPT_KIND,
 };
 
 fn fixture_artifact() -> OpticArtifact {
@@ -33,6 +35,10 @@ fn fixture_descriptor() -> OpticRegistrationDescriptor {
         operation_id: "operation:textWindow:v0".to_owned(),
         requirements_digest: "requirements-digest:stack-witness-0001".to_owned(),
     }
+}
+
+fn fixture_evidence_authority() -> OpticAdmissionEvidenceAuthority {
+    OpticAdmissionEvidenceAuthority::assume_runtime_owner()
 }
 
 fn registration_err_or_panic<T>(
@@ -113,15 +119,15 @@ fn artifact_registration_obstruction_publishes_graph_fact_without_receipt() -> R
 }
 
 #[test]
-fn runtime_support_v0_fixture_publishes_graph_fact_without_registration_receipt(
-) -> Result<(), String> {
+fn runtime_support_fixture_publishes_graph_fact_without_registration_receipt() -> Result<(), String>
+{
     let mut registry = OpticArtifactRegistry::new();
     let handle = registry
         .register_optic_artifact(fixture_artifact(), fixture_descriptor())
         .map_err(|err| format!("fixture descriptor should register: {err:?}"))?;
 
     registry
-        .record_runtime_support_v0_fixture_for_artifact(&handle)
+        .record_runtime_support_fixture_for_artifact(&fixture_evidence_authority(), &handle)
         .map_err(|err| format!("registered handle should record runtime support: {err:?}"))?;
 
     assert_eq!(registry.published_graph_facts().len(), 2);
@@ -140,7 +146,7 @@ fn runtime_support_v0_fixture_publishes_graph_fact_without_registration_receipt(
 }
 
 #[test]
-fn runtime_support_v0_fixture_publishes_once_per_requirements_digest() -> Result<(), String> {
+fn runtime_support_fixture_publishes_once_per_requirements_digest() -> Result<(), String> {
     let mut sibling_artifact = fixture_artifact();
     sibling_artifact.artifact_id = "optic-artifact:stack-witness-0002".to_owned();
     sibling_artifact.artifact_hash = "artifact-hash:stack-witness-0002".to_owned();
@@ -156,10 +162,10 @@ fn runtime_support_v0_fixture_publishes_once_per_requirements_digest() -> Result
         .map_err(|err| format!("sibling descriptor should register: {err:?}"))?;
 
     registry
-        .record_runtime_support_v0_fixture_for_artifact(&first_handle)
+        .record_runtime_support_fixture_for_artifact(&fixture_evidence_authority(), &first_handle)
         .map_err(|err| format!("first handle should record runtime support: {err:?}"))?;
     registry
-        .record_runtime_support_v0_fixture_for_artifact(&second_handle)
+        .record_runtime_support_fixture_for_artifact(&fixture_evidence_authority(), &second_handle)
         .map_err(|err| format!("second handle should record runtime support: {err:?}"))?;
 
     let support_fact_count = registry
@@ -172,7 +178,7 @@ fn runtime_support_v0_fixture_publishes_once_per_requirements_digest() -> Result
 }
 
 #[test]
-fn runtime_support_v0_fixture_rejects_unknown_handle_without_graph_fact() -> Result<(), String> {
+fn runtime_support_fixture_rejects_unknown_handle_without_graph_fact() -> Result<(), String> {
     let mut registry = OpticArtifactRegistry::new();
     registry
         .register_optic_artifact(fixture_artifact(), fixture_descriptor())
@@ -183,7 +189,10 @@ fn runtime_support_v0_fixture_rejects_unknown_handle_without_graph_fact() -> Res
     };
 
     let err = registration_err_or_panic(
-        registry.record_runtime_support_v0_fixture_for_artifact(&unknown_handle),
+        registry.record_runtime_support_fixture_for_artifact(
+            &fixture_evidence_authority(),
+            &unknown_handle,
+        ),
         "unknown artifact handle should reject runtime support recording",
     )?;
 
@@ -197,7 +206,7 @@ fn runtime_support_v0_fixture_rejects_unknown_handle_without_graph_fact() -> Res
 }
 
 #[test]
-fn invocation_admission_v0_fixture_publishes_graph_fact_without_registration_receipt(
+fn invocation_admission_fixture_publishes_graph_fact_without_registration_receipt(
 ) -> Result<(), String> {
     let mut registry = OpticArtifactRegistry::new();
     let handle = registry
@@ -205,7 +214,7 @@ fn invocation_admission_v0_fixture_publishes_graph_fact_without_registration_rec
         .map_err(|err| format!("fixture descriptor should register: {err:?}"))?;
 
     registry
-        .record_invocation_admission_v0_fixture_for_artifact(&handle)
+        .record_invocation_admission_fixture_for_artifact(&fixture_evidence_authority(), &handle)
         .map_err(|err| format!("registered handle should record invocation admission: {err:?}"))?;
 
     assert_eq!(registry.published_graph_facts().len(), 2);
@@ -228,17 +237,17 @@ fn invocation_admission_v0_fixture_publishes_graph_fact_without_registration_rec
 }
 
 #[test]
-fn invocation_admission_v0_fixture_publishes_once_per_artifact_handle() -> Result<(), String> {
+fn invocation_admission_fixture_publishes_once_per_artifact_handle() -> Result<(), String> {
     let mut registry = OpticArtifactRegistry::new();
     let handle = registry
         .register_optic_artifact(fixture_artifact(), fixture_descriptor())
         .map_err(|err| format!("fixture descriptor should register: {err:?}"))?;
 
     registry
-        .record_invocation_admission_v0_fixture_for_artifact(&handle)
+        .record_invocation_admission_fixture_for_artifact(&fixture_evidence_authority(), &handle)
         .map_err(|err| format!("registered handle should record invocation admission: {err:?}"))?;
     registry
-        .record_invocation_admission_v0_fixture_for_artifact(&handle)
+        .record_invocation_admission_fixture_for_artifact(&fixture_evidence_authority(), &handle)
         .map_err(|err| format!("repeated handle should remain idempotent: {err:?}"))?;
 
     let admission_fact_count = registry
@@ -256,8 +265,7 @@ fn invocation_admission_v0_fixture_publishes_once_per_artifact_handle() -> Resul
 }
 
 #[test]
-fn invocation_admission_v0_fixture_rejects_unknown_handle_without_graph_fact() -> Result<(), String>
-{
+fn invocation_admission_fixture_rejects_unknown_handle_without_graph_fact() -> Result<(), String> {
     let mut registry = OpticArtifactRegistry::new();
     registry
         .register_optic_artifact(fixture_artifact(), fixture_descriptor())
@@ -268,7 +276,10 @@ fn invocation_admission_v0_fixture_rejects_unknown_handle_without_graph_fact() -
     };
 
     let err = registration_err_or_panic(
-        registry.record_invocation_admission_v0_fixture_for_artifact(&unknown_handle),
+        registry.record_invocation_admission_fixture_for_artifact(
+            &fixture_evidence_authority(),
+            &unknown_handle,
+        ),
         "unknown artifact handle should reject invocation admission recording",
     )?;
 
@@ -291,10 +302,10 @@ fn scheduler_admission_fixture_publishes_graph_fact_once() -> Result<(), String>
         .map_err(|err| format!("fixture descriptor should register: {err:?}"))?;
 
     registry
-        .record_scheduler_admission_v0_fixture_for_artifact(&handle)
+        .record_scheduler_admission_fixture_for_artifact(&fixture_evidence_authority(), &handle)
         .map_err(|err| format!("registered handle should record scheduler admission: {err:?}"))?;
     registry
-        .record_scheduler_admission_v0_fixture_for_artifact(&handle)
+        .record_scheduler_admission_fixture_for_artifact(&fixture_evidence_authority(), &handle)
         .map_err(|err| format!("repeated handle should remain idempotent: {err:?}"))?;
 
     let scheduler_facts = registry
@@ -340,7 +351,10 @@ fn scheduler_admission_fixture_rejects_unknown_handle_without_graph_fact() -> Re
     };
 
     let err = registration_err_or_panic(
-        registry.record_scheduler_admission_v0_fixture_for_artifact(&unknown_handle),
+        registry.record_scheduler_admission_fixture_for_artifact(
+            &fixture_evidence_authority(),
+            &unknown_handle,
+        ),
         "unknown artifact handle should reject scheduler admission recording",
     )?;
 

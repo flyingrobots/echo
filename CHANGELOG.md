@@ -7,7 +7,21 @@
 
 ### Added
 
-- `warp-core` now records a narrow WitnessedIntentSubmission v0 ledger when
+- `warp-core` optic invocation admission now issues an `OpticAdmissionTicket`
+  after BasisResolution, ApertureResolution, BudgetResolution, RuntimeSupport,
+  capability identity coverage, InvocationAdmission, SchedulerAdmission,
+  SchedulerWorkCandidate, and LawWitness all resolve. The ticket binds the
+  registered artifact handle, artifact hash, operation id, requirements digest,
+  canonical variables digest, request digests, law witness digest, and a
+  deterministic ticket digest, and publishes an `AdmissionTicketIssued` graph
+  fact with the same invocation-binding material. Echo-owned admission evidence
+  fixture recorders now require an explicit `OpticAdmissionEvidenceAuthority`
+  token, making the host/runtime-owner boundary explicit before test fixture
+  evidence can be recorded; the runtime-owner constructor is only available
+  behind `warp-core`'s internal `host_test` feature. This does not enqueue
+  scheduler work, enter runtime ingress, tick, dispatch handlers, execute
+  contracts, correlate tick receipts, or observe intent outcomes.
+- `warp-core` now records a narrow WitnessedIntentSubmission ledger when
   `WorldlineRuntime::ingest(...)` accepts canonical application ingress. The
   runtime derives a deterministic `submission_id` from the resolved writer head
   and content-addressed `ingress_id`, assigns an Echo-owned
@@ -19,38 +33,63 @@
   order. `DispatchResponse` now carries optional `submission_id` and
   `submission_generation` fields for application ingress, and the WASM ABI
   version is now 10.
-- `warp-core` optic invocation admission now has a narrow SchedulerAdmission v0
-  boundary. After BasisResolution v0, ApertureResolution v0, BudgetResolution
-  v0, RuntimeSupport v0, capability identity coverage, and InvocationAdmission
-  v0 all resolve, Echo checks runtime-owned scheduler admission facts for the
+- `warp-core` optic invocation admission now has a narrow
+  SchedulerWorkCandidate boundary. After BasisResolution,
+  ApertureResolution, BudgetResolution, RuntimeSupport, capability
+  identity coverage, InvocationAdmission, and SchedulerAdmission all
+  resolve, Echo checks runtime-owned scheduler work candidate facts for the
+  registered artifact handle. Without that Echo-owned scheduler work candidate
+  fact, the ladder obstructs at `SchedulerWorkUnavailable`; with the exact
+  `scheduler-work-candidate:resolved-fixture` fixture, the ladder advances to
+  `LawWitnessUnavailable`. Scheduler work candidate fixture recording is scoped
+  through Echo-issued artifact handles, publishes idempotent graph facts, and
+  rejects unknown handles without publishing scheduler work candidate evidence.
+  This does not add law witnesses, admission tickets, scheduler enqueueing,
+  handler dispatch, execution, or caller-supplied scheduler work testimony.
+- `warp-core` optic invocation admission now has a narrow LawWitness
+  boundary. After BasisResolution, ApertureResolution, BudgetResolution,
+  RuntimeSupport, capability identity coverage, InvocationAdmission,
+  SchedulerAdmission, and SchedulerWorkCandidate all resolve, Echo checks
+  runtime-owned law witness facts for the registered artifact handle. Without
+  that Echo-owned law witness fact, the ladder obstructs at
+  `LawWitnessUnavailable`; with the exact `law-witness:resolved-fixture`
+  fixture, the ladder can issue an admission ticket. Law witness fixture
+  recording is scoped through Echo-issued artifact handles, publishes idempotent
+  graph facts, and rejects unknown handles without publishing law witness
+  evidence. This does not enqueue scheduler work, dispatch handlers, execute
+  contracts, or accept caller-supplied law witness testimony.
+- `warp-core` optic invocation admission now has a narrow SchedulerAdmission
+  boundary. After BasisResolution, ApertureResolution, BudgetResolution,
+  RuntimeSupport, capability identity coverage, and InvocationAdmission all
+  resolve, Echo checks runtime-owned scheduler admission facts for the
   registered artifact handle. Without that Echo-owned scheduler admission fact,
   the ladder obstructs at `SchedulerAdmissionUnavailable`; with the exact
-  `scheduler-admission:resolved-fixture:v0` scheduler admission fixture, the
+  `scheduler-admission:resolved-fixture` scheduler admission fixture, the
   ladder advances to `SchedulerWorkUnavailable`. Scheduler admission fixture
   recording is scoped through Echo-issued artifact handles, publishes
   idempotent graph facts, and rejects unknown handles without publishing
   scheduler admission evidence. This does not add admission tickets, law
   witnesses, scheduler work, scheduler enqueueing, handler dispatch, execution,
   or caller-supplied scheduler admission testimony.
-- `warp-core` optic invocation admission now has a narrow InvocationAdmission v0
-  boundary. After BasisResolution v0, ApertureResolution v0, BudgetResolution
-  v0, RuntimeSupport v0, and capability identity coverage all resolve, Echo
+- `warp-core` optic invocation admission now has a narrow InvocationAdmission
+  boundary. After BasisResolution, ApertureResolution, BudgetResolution,
+  RuntimeSupport, and capability identity coverage all resolve, Echo
   checks runtime-owned admission facts for the registered artifact handle.
   Without that Echo-owned admission fact, the ladder obstructs at
   `InvocationAdmissionUnavailable`; with the exact
-  `invocation-admission:resolved-fixture:v0` admission fixture, the ladder
+  `invocation-admission:resolved-fixture` admission fixture, the ladder
   advances to `SchedulerAdmissionUnavailable`. Invocation admission fixture
   recording is scoped through Echo-issued artifact handles, so caller-supplied
   invocation bytes and capability presentations cannot supply admission
   testimony. This does not add admission tickets, law witnesses, scheduler
   admission, scheduler work, handler dispatch, execution, or successful grant
   validation.
-- `warp-core` optic invocation admission now has a narrow RuntimeSupport v0
-  boundary. After BasisResolution v0, ApertureResolution v0, and
-  BudgetResolution v0 all resolve, Echo checks runtime-owned support facts for
+- `warp-core` optic invocation admission now has a narrow RuntimeSupport
+  boundary. After BasisResolution, ApertureResolution, and
+  BudgetResolution all resolve, Echo checks runtime-owned support facts for
   the registered requirements digest. Without that Echo-owned support fact,
   admission still obstructs at `RuntimeSupportUnavailable`; with the exact
-  `runtime-support:resolved-fixture:v0` support fixture and no Echo-owned
+  `runtime-support:resolved-fixture` support fixture and no Echo-owned
   invocation admission fact, the ladder advances to
   `InvocationAdmissionUnavailable`. Runtime support fixture recording is scoped
   through Echo-issued artifact handles, so unknown handles cannot publish
@@ -63,18 +102,18 @@
 - `dispatch_optic_intent(...)` and the default `KernelPort` optic dispatch path
   now reject EINT payloads that use Echo's reserved scheduler/control op id,
   closing the remaining application-facing control-intent ingress path.
-- `warp-core` optic invocation admission now has a narrow ApertureResolution v0
+- `warp-core` optic invocation admission now has a narrow ApertureResolution
   boundary. Identity-covered invocations with exact fixture basis bytes
-  `basis-request:resolved-fixture:v0` and exact fixture aperture bytes
-  `aperture-request:resolved-fixture:v0` progress past aperture resolution and
+  `basis-request:resolved-fixture` and exact fixture aperture bytes
+  `aperture-request:resolved-fixture` progress past aperture resolution and
   still obstruct at `UnsupportedBudgetResolution`; unsupported aperture shapes
   continue to obstruct at `UnsupportedApertureResolution`, and aperture
   resolution remains unreachable when basis resolution fails. This does not
   issue admission tickets, law witnesses, scheduler work, execution, budget
   evaluation, runtime support checks, or successful grant validation.
-- `warp-core` optic invocation admission now has a narrow BasisResolution v0
+- `warp-core` optic invocation admission now has a narrow BasisResolution
   boundary. Identity-covered invocations with exact fixture basis bytes
-  `basis-request:resolved-fixture:v0` progress past basis resolution and still
+  `basis-request:resolved-fixture` progress past basis resolution and still
   obstruct at `UnsupportedApertureResolution`; all unsupported non-empty basis
   shapes continue to obstruct at `UnsupportedBasisResolution`. This does not
   issue admission tickets, law witnesses, scheduler work, execution, aperture

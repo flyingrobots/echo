@@ -936,7 +936,7 @@ else
   printf '%s\n' "$deleted_pre_commit_output"
 fi
 
-if rg -q 'scripts/verify-local\.sh pre-commit' .githooks/pre-commit; then
+if grep -Eq 'scripts/verify-local\.sh pre-commit' .githooks/pre-commit; then
   pass "canonical pre-commit hook delegates staged crate verification to verify-local"
 else
   fail "canonical pre-commit hook should delegate staged crate verification to verify-local"

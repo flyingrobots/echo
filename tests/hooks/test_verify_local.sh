@@ -776,6 +776,94 @@ EOF
   rm -rf "$tmp"
 }
 
+run_fake_pre_push_stamp_sequence() {
+  local tmp
+  tmp="$(mktemp -d)"
+
+  mkdir -p "$tmp/scripts" "$tmp/bin" "$tmp/.git" "$tmp/crates/warp-core/src"
+  cp scripts/verify-local.sh "$tmp/scripts/verify-local.sh"
+  chmod +x "$tmp/scripts/verify-local.sh"
+
+  cat >"$tmp/rust-toolchain.toml" <<'EOF'
+[toolchain]
+channel = "1.90.0"
+EOF
+
+  cat >"$tmp/crates/warp-core/Cargo.toml" <<'EOF'
+[package]
+name = "warp-core"
+version = "0.0.0"
+edition = "2021"
+EOF
+  printf '%s\n' 'pub fn anchor() {}' >"$tmp/crates/warp-core/src/lib.rs"
+
+  cat >"$tmp/bin/cargo" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s|%s\n' "${CARGO_TARGET_DIR:-}" "$*" >>"${VERIFY_FAKE_CARGO_LOG}"
+exit 0
+EOF
+  cat >"$tmp/bin/rustup" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "toolchain" && "${2:-}" == "list" ]]; then
+  printf '1.90.0-aarch64-apple-darwin (default)\n'
+  exit 0
+fi
+exit 0
+EOF
+  cat >"$tmp/bin/git" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "HEAD" ]]; then
+  printf '%s\n' "${VERIFY_FAKE_GIT_HEAD:-test-head}"
+  exit 0
+fi
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "HEAD^{tree}" ]]; then
+  printf '%s\n' "${VERIFY_FAKE_GIT_TREE:-test-tree}"
+  exit 0
+fi
+echo "unexpected git invocation: $*" >&2
+exit 1
+EOF
+  chmod +x "$tmp/bin/cargo" "$tmp/bin/rustup" "$tmp/bin/git"
+
+  local changed
+  changed="$(mktemp)"
+  printf '%s\n' 'crates/warp-core/src/observation.rs' >"$changed"
+  local cargo_log
+  cargo_log="$(mktemp)"
+
+  local first_output second_output
+  first_output="$(
+    cd "$tmp" && \
+    PATH="$tmp/bin:$PATH" \
+    VERIFY_CHANGED_FILES_FILE="$changed" \
+    VERIFY_FAKE_CARGO_LOG="$cargo_log" \
+    VERIFY_FAKE_GIT_HEAD="commit-a" \
+    VERIFY_FAKE_GIT_TREE="tree-aaaaaaaaaaaa" \
+    ./scripts/verify-local.sh pre-push
+  )"
+  second_output="$(
+    cd "$tmp" && \
+    PATH="$tmp/bin:$PATH" \
+    VERIFY_CHANGED_FILES_FILE="$changed" \
+    VERIFY_FAKE_CARGO_LOG="$cargo_log" \
+    VERIFY_FAKE_GIT_HEAD="commit-b" \
+    VERIFY_FAKE_GIT_TREE="tree-aaaaaaaaaaaa" \
+    ./scripts/verify-local.sh pre-push
+  )"
+
+  printf '%s\n' "$first_output"
+  echo "--- second ---"
+  printf '%s\n' "$second_output"
+  echo "--- cargo-log ---"
+  cat "$cargo_log"
+
+  rm -f "$changed" "$cargo_log"
+  rm -rf "$tmp"
+}
+
 echo "=== verify-local classification ==="
 
 docs_output="$(run_detect docs/plans/adr-0008-and-0009.md docs/ROADMAP/backlog/tooling-misc.md)"
@@ -1091,6 +1179,20 @@ else
   printf '%s\n' "$fake_full_stamp_output"
 fi
 
+fake_pre_push_stamp_output="$(run_fake_pre_push_stamp_sequence)"
+if printf '%s\n' "$fake_pre_push_stamp_output" | grep -q 'reusing cached pre-push verification for tree tree-aaaaaaa'; then
+  pass "pre-push verification stamp reuse keys off the pushed tree"
+else
+  fail "pre-push verification should cache exact-slice results for the same tree"
+  printf '%s\n' "$fake_pre_push_stamp_output"
+fi
+if [[ "$(printf '%s\n' "$fake_pre_push_stamp_output" | awk '/--- cargo-log ---/{flag=1; next} flag && NF {count++} END {print count+0}')" == "2" ]]; then
+  pass "pre-push cache reuse suppresses duplicate exact-slice cargo invocations"
+else
+  fail "pre-push cache reuse should skip duplicate exact-slice cargo invocations"
+  printf '%s\n' "$fake_pre_push_stamp_output"
+fi
+
 fake_fast_output="$(run_fake_verify fast crates/warp-core/src/lib.rs)"
 if printf '%s\n' "$fake_fast_output" | grep -q 'clippy -p warp-core --lib -- -D warnings -D missing_docs'; then
   pass "fast verification uses the narrowed warp-core clippy scope"
@@ -1212,6 +1314,27 @@ if printf '%s\n' "$fake_ultra_fast_hook_readme_output" | grep -q '\[verify-local
 else
   fail "non-shell hook docs should not appear as shell tooling files"
   printf '%s\n' "$fake_ultra_fast_hook_readme_output"
+fi
+
+fake_pre_push_observation_output="$(run_fake_verify pre-push crates/warp-core/src/observation.rs)"
+fake_pre_push_observation_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_observation_output")"
+if printf '%s\n' "$fake_pre_push_observation_cargo_log" | grep -q 'test -p warp-core --lib observation::tests'; then
+  pass "pre-push maps changed Rust modules to exact lib-module test slices"
+else
+  fail "pre-push should test the exact changed Rust module slice"
+  printf '%s\n' "$fake_pre_push_observation_output"
+fi
+if printf '%s\n' "$fake_pre_push_observation_cargo_log" | grep -q 'test -p warp-core --lib$'; then
+  fail "pre-push must not run the broad warp-core lib test lane for a single module"
+  printf '%s\n' "$fake_pre_push_observation_output"
+else
+  pass "pre-push avoids broad lib test lanes for single-module Rust edits"
+fi
+if printf '%s\n' "$fake_pre_push_observation_cargo_log" | grep -Eq 'clippy -p warp-core|check -p warp-core'; then
+  fail "pre-push must not run clippy/check when an exact changed-module test slice exists"
+  printf '%s\n' "$fake_pre_push_observation_output"
+else
+  pass "pre-push does not add clippy/check on top of exact changed-module tests"
 fi
 
 fake_warp_core_default_output="$(run_fake_verify full crates/warp-core/src/provenance_store.rs)"

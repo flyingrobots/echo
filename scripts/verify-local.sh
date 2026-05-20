@@ -654,6 +654,9 @@ stamp_context_for_suite() {
     full)
       printf 'full\n'
       ;;
+    pre-push)
+      printf 'pre-push\n'
+      ;;
     docs|reduced)
       printf '%s\n' "$VERIFY_MODE_CONTEXT"
       ;;
@@ -1046,6 +1049,197 @@ targeted_test_args_for_crate() {
     printf '%s\n' "--bins"
   fi
   printf '%s\n' "--tests"
+}
+
+pre_push_module_test_filter_for_file() {
+  local crate="$1"
+  local file="$2"
+  local relative module_path
+
+  relative="${file#crates/${crate}/src/}"
+  case "$relative" in
+    lib.rs|main.rs|*.generated.rs)
+      return 1
+      ;;
+    *.rs)
+      module_path="${relative%.rs}"
+      module_path="${module_path%/mod}"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  if [[ -z "$module_path" || ! "$module_path" =~ ^[A-Za-z0-9_/]+$ ]]; then
+    return 1
+  fi
+
+  printf '%s::tests\n' "${module_path//\//::}"
+}
+
+pre_push_feature_string_for_file() {
+  local crate="$1"
+  local file="$2"
+
+  case "${crate}:${file}" in
+    warp-wasm:crates/warp-wasm/src/warp_kernel.rs|\
+    warp-wasm:crates/warp-wasm/Cargo.toml)
+      printf '%s\n' "engine"
+      ;;
+  esac
+}
+
+pre_push_feature_string_for_test_target() {
+  local crate="$1"
+  local test_target="$2"
+
+  if [[ "$crate" != "warp-core" ]]; then
+    return
+  fi
+
+  case "$test_target" in
+    inbox)
+      printf '%s\n' "native_rule_bootstrap,host_test"
+      ;;
+    causal_fact_publication_tests|optic_invocation_admission_tests)
+      printf '%s\n' "host_test"
+      ;;
+  esac
+}
+
+append_pre_push_rust_slice() {
+  local slice="$1"
+  local slices_name="$2"
+  append_unique "$slice" "$slices_name"
+}
+
+collect_pre_push_rust_slices() {
+  local -a slices=()
+  local file crate target filter features
+
+  while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+    case "$file" in
+      crates/*/tests/*.rs)
+        crate="$(printf '%s\n' "$file" | sed -n 's#^crates/\([^/]*\)/.*#\1#p')"
+        [[ -z "$crate" ]] && continue
+        target="$(basename "$file" .rs)"
+        features="$(pre_push_feature_string_for_test_target "$crate" "$target")"
+        append_pre_push_rust_slice "${crate}|test|${target}|${features}|" slices
+        ;;
+      crates/*/src/lib.rs)
+        crate="$(printf '%s\n' "$file" | sed -n 's#^crates/\([^/]*\)/.*#\1#p')"
+        [[ -z "$crate" ]] && continue
+        features="$(pre_push_feature_string_for_file "$crate" "$file")"
+        append_pre_push_rust_slice "${crate}|lib||${features}|" slices
+        ;;
+      crates/*/src/main.rs)
+        crate="$(printf '%s\n' "$file" | sed -n 's#^crates/\([^/]*\)/.*#\1#p')"
+        [[ -z "$crate" ]] && continue
+        append_pre_push_rust_slice "${crate}|bins|||" slices
+        ;;
+      crates/*/src/*.rs)
+        crate="$(printf '%s\n' "$file" | sed -n 's#^crates/\([^/]*\)/.*#\1#p')"
+        [[ -z "$crate" ]] && continue
+        features="$(pre_push_feature_string_for_file "$crate" "$file")"
+        if crate_supports_lib_target "$crate" && filter="$(pre_push_module_test_filter_for_file "$crate" "$file")"; then
+          append_pre_push_rust_slice "${crate}|lib||${features}|${filter}" slices
+        elif crate_supports_bin_target "$crate"; then
+          append_pre_push_rust_slice "${crate}|bins||${features}|" slices
+        else
+          append_pre_push_rust_slice "${crate}|check||${features}|" slices
+        fi
+        ;;
+      crates/*/Cargo.toml|crates/*/build.rs)
+        crate="$(printf '%s\n' "$file" | sed -n 's#^crates/\([^/]*\)/.*#\1#p')"
+        [[ -z "$crate" ]] && continue
+        features="$(pre_push_feature_string_for_file "$crate" "$file")"
+        append_pre_push_rust_slice "${crate}|check||${features}|" slices
+        ;;
+    esac
+  done <<< "${CHANGED_FILES}"
+
+  if [[ ${#slices[@]} -gt 0 ]]; then
+    printf '%s\n' "${slices[@]}"
+  fi
+}
+
+run_pre_push_rust_slice() {
+  local slice="$1"
+  local crate kind target features filter
+  IFS='|' read -r crate kind target features filter <<< "$slice"
+
+  if [[ ! -f "crates/${crate}/Cargo.toml" ]]; then
+    echo "[verify-local][pre-push] skipping ${crate}: missing crates/${crate}/Cargo.toml" >&2
+    return
+  fi
+
+  local -a cargo_args=()
+  case "$kind" in
+    lib)
+      cargo_args=("test" "-p" "$crate")
+      [[ -n "$features" ]] && cargo_args+=("--features" "$features")
+      cargo_args+=("--lib")
+      [[ -n "$filter" ]] && cargo_args+=("$filter")
+      ;;
+    test)
+      cargo_args=("test" "-p" "$crate")
+      [[ -n "$features" ]] && cargo_args+=("--features" "$features")
+      cargo_args+=("--test" "$target")
+      ;;
+    bins)
+      cargo_args=("test" "-p" "$crate")
+      [[ -n "$features" ]] && cargo_args+=("--features" "$features")
+      cargo_args+=("--bins")
+      ;;
+    check)
+      cargo_args=("check" "-p" "$crate")
+      [[ -n "$features" ]] && cargo_args+=("--features" "$features")
+      cargo_args+=("--quiet")
+      ;;
+    *)
+      echo "verify-local: unknown pre-push Rust slice kind: $kind" >&2
+      exit 1
+      ;;
+  esac
+
+  echo "[verify-local][pre-push] cargo ${cargo_args[*]}"
+  cargo +"$PINNED" "${cargo_args[@]}"
+}
+
+run_pre_push_checks() {
+  local classification="$1"
+  local -a rust_slices=()
+
+  if [[ "$classification" == "docs" ]]; then
+    echo "[verify-local] pre-push docs-only change set"
+    run_docs_lint
+    return
+  fi
+
+  if [[ "$classification" == "full" ]]; then
+    prepare_full_scope
+    run_ultra_fast_tooling_smoke
+  fi
+
+  mapfile -t rust_slices < <(collect_pre_push_rust_slices)
+  if [[ ${#rust_slices[@]} -eq 0 ]]; then
+    echo "[verify-local] pre-push: no Rust test slices selected"
+    run_docs_lint
+    return
+  fi
+
+  ensure_toolchain
+  echo "[verify-local] pre-push exact Rust test slices: ${#rust_slices[@]}"
+  echo "[verify-local][pre-push] cargo fmt --all -- --check"
+  cargo +"$PINNED" fmt --all -- --check
+
+  local slice
+  for slice in "${rust_slices[@]}"; do
+    run_pre_push_rust_slice "$slice"
+  done
+
+  run_docs_lint
 }
 
 filter_package_set_by_selection() {
@@ -1755,8 +1949,17 @@ case "$MODE" in
     run_pre_commit_checks
     write_stamp "$(stamp_suite_for_classification "$CLASSIFICATION")"
     ;;
-  pr|auto|pre-push)
+  pr|auto)
     run_auto_mode "$CLASSIFICATION"
+    ;;
+  pre-push)
+    if should_skip_via_stamp "pre-push"; then
+      VERIFY_RUN_CACHE_STATE="cached"
+      echo "[verify-local] reusing cached pre-push verification for tree $(printf '%.12s' "$VERIFY_STAMP_SUBJECT")"
+      exit 0
+    fi
+    run_pre_push_checks "$CLASSIFICATION"
+    write_stamp "pre-push"
     ;;
   full)
     if should_skip_via_stamp "full"; then

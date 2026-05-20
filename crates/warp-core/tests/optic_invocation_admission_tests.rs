@@ -1955,8 +1955,7 @@ fn scheduler_work_candidate_fixture_publishes_graph_fact_once() -> Result<(), St
 }
 
 #[test]
-fn scheduler_work_candidate_fixture_rejects_unknown_handle_without_graph_fact() -> Result<(), String>
-{
+fn scheduler_work_candidate_fixture_rejects_unknown_handle_without_graph_fact() {
     let mut registry = OpticArtifactRegistry::new();
     let unknown = OpticArtifactHandle {
         kind: "optic-artifact-handle".to_owned(),
@@ -1973,7 +1972,6 @@ fn scheduler_work_candidate_fixture_rejects_unknown_handle_without_graph_fact() 
         Err(warp_core::OpticArtifactRegistrationError::UnknownHandle)
     );
     assert!(registry.published_graph_facts().is_empty());
-    Ok(())
 }
 
 #[test]
@@ -2186,7 +2184,7 @@ fn law_witness_fixture_publishes_graph_fact_once() -> Result<(), String> {
 }
 
 #[test]
-fn law_witness_fixture_rejects_unknown_handle_without_graph_fact() -> Result<(), String> {
+fn law_witness_fixture_rejects_unknown_handle_without_graph_fact() {
     let mut registry = OpticArtifactRegistry::new();
     let unknown = OpticArtifactHandle {
         kind: "optic-artifact-handle".to_owned(),
@@ -2201,7 +2199,6 @@ fn law_witness_fixture_rejects_unknown_handle_without_graph_fact() -> Result<(),
         Err(warp_core::OpticArtifactRegistrationError::UnknownHandle)
     );
     assert!(registry.published_graph_facts().is_empty());
-    Ok(())
 }
 
 #[test]

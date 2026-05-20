@@ -73,6 +73,8 @@ pub enum InvocationObstructionKind {
     /// Echo proved scheduler work candidate availability, but has no law
     /// witness.
     LawWitnessUnavailable,
+    /// Echo proved law witness availability, but has no admission ticket.
+    AdmissionTicketUnavailable,
     /// Invocation supplied no capability presentation.
     MissingCapability,
     /// Invocation supplied a malformed capability presentation.
@@ -122,6 +124,7 @@ impl InvocationObstructionKind {
             Self::SchedulerAdmissionUnavailable => b"scheduler-admission-unavailable",
             Self::SchedulerWorkUnavailable => b"scheduler-work-unavailable",
             Self::LawWitnessUnavailable => b"law-witness-unavailable",
+            Self::AdmissionTicketUnavailable => b"admission-ticket-unavailable",
             Self::MissingCapability => b"missing-capability",
             Self::MalformedCapabilityPresentation => b"malformed-capability-presentation",
             Self::UnboundCapabilityPresentation => b"unbound-capability-presentation",
@@ -229,6 +232,19 @@ pub enum GraphFact {
         requirements_digest: String,
         /// Digest of the Echo-owned scheduler work candidate material.
         scheduler_work_candidate_digest: [u8; 32],
+    },
+    /// Echo recorded runtime-owned law witness evidence for a registered
+    /// artifact handle.
+    LawWitnessRecorded {
+        /// Echo-owned runtime-local artifact handle id covered by the law
+        /// witness fact.
+        artifact_handle_id: String,
+        /// Registered operation id covered by the law witness fact.
+        operation_id: String,
+        /// Registered requirements digest covered by the law witness fact.
+        requirements_digest: String,
+        /// Digest of the Echo-owned law witness material.
+        law_witness_digest: [u8; 32],
     },
     /// Echo refused optic invocation before admission success.
     OpticInvocationObstructed {
@@ -390,6 +406,26 @@ impl GraphFact {
                     b"scheduler-work-candidate-digest",
                     scheduler_work_candidate_digest,
                 );
+            }
+            Self::LawWitnessRecorded {
+                artifact_handle_id,
+                operation_id,
+                requirements_digest,
+                law_witness_digest,
+            } => {
+                push_digest_field(&mut bytes, b"variant", b"law-witness-recorded");
+                push_digest_field(
+                    &mut bytes,
+                    b"artifact-handle-id",
+                    artifact_handle_id.as_bytes(),
+                );
+                push_digest_field(&mut bytes, b"operation-id", operation_id.as_bytes());
+                push_digest_field(
+                    &mut bytes,
+                    b"requirements-digest",
+                    requirements_digest.as_bytes(),
+                );
+                push_digest_field(&mut bytes, b"law-witness-digest", law_witness_digest);
             }
             Self::OpticInvocationObstructed {
                 artifact_handle_id,

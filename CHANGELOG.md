@@ -32,6 +32,19 @@
   rejects unknown handles without publishing scheduler work candidate evidence.
   This does not add law witnesses, admission tickets, scheduler enqueueing,
   handler dispatch, execution, or caller-supplied scheduler work testimony.
+- `warp-core` optic invocation admission now has a narrow LawWitness v0
+  boundary. After BasisResolution v0, ApertureResolution v0, BudgetResolution
+  v0, RuntimeSupport v0, capability identity coverage, InvocationAdmission v0,
+  SchedulerAdmission v0, and SchedulerWorkCandidate v0 all resolve, Echo checks
+  runtime-owned law witness facts for the registered artifact handle. Without
+  that Echo-owned law witness fact, the ladder obstructs at
+  `LawWitnessUnavailable`; with the exact `law-witness:resolved-fixture:v0`
+  fixture, the ladder advances to `AdmissionTicketUnavailable`. Law witness
+  fixture recording is scoped through Echo-issued artifact handles, publishes
+  idempotent graph facts, and rejects unknown handles without publishing law
+  witness evidence. This does not issue admission tickets, enqueue scheduler
+  work, dispatch handlers, execute contracts, or accept caller-supplied law
+  witness testimony.
 - `warp-core` optic invocation admission now has a narrow SchedulerAdmission v0
   boundary. After BasisResolution v0, ApertureResolution v0, BudgetResolution
   v0, RuntimeSupport v0, capability identity coverage, and InvocationAdmission

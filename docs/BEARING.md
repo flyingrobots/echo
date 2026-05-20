@@ -29,14 +29,13 @@ scheduler-owned tick outcome without giving application code tick authority.
   owner policy, not semantic Echo history.
 - Tick receipts exist and witness scheduler-owned candidate outcomes.
 - Footprint conflicts are explicit receipt rejections, not hidden retries.
-- The optic admission ladder resolves through SchedulerWorkCandidate v0 and
-  currently stops before law witness issuance.
+- The optic admission ladder resolves through LawWitness v0 and currently stops
+  before admission ticket issuance.
 
 ## What Is Not Yet True
 
 - Accepted submissions are not yet complete witnessed ingress history.
 - Optic admission has no successful outcome.
-- Law witnesses do not exist.
 - Admission tickets do not exist.
 - Ticketed runtime ingress is not wired.
 - Tick receipts are not cleanly correlated to intent, submission, and ticket ids.
@@ -115,11 +114,11 @@ AdmissionTicket + witnessed submission -> ticketed runtime ingress
 
 ## Immediate Next Slice
 
-LawWitness v0 should prove that Echo can emit deterministic witness material
-over the resolved submission and admission evidence before issuing any admission
-ticket.
+AdmissionTicket v0 should prove that Echo can issue durable admission evidence
+over the resolved submission, admission, scheduler work, and law witness
+material without executing the invocation.
 
-This slice must not implement admission tickets, ticketed runtime ingress,
-receipt correlation, outcome observation, installed handler dispatch, QueryView,
-streaming subscriptions, automatic retry, scheduler enqueueing, handler
-dispatch, execution, or wall-clock cadence semantics.
+This slice must not implement ticketed runtime ingress, receipt correlation,
+outcome observation, installed handler dispatch, QueryView, streaming
+subscriptions, automatic retry, scheduler enqueueing, handler dispatch,
+execution, or wall-clock cadence semantics.

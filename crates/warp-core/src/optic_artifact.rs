@@ -614,6 +614,8 @@ const OPTIC_SCHEDULER_WORK_CANDIDATE_V0_FIXTURE_BYTES: &[u8] =
     b"scheduler-work-candidate:resolved-fixture:v0";
 const OPTIC_SCHEDULER_WORK_CANDIDATE_V0_FIXTURE_DIGEST_DOMAIN: &[u8] =
     b"echo.optic-scheduler-work-candidate.fixture.v0";
+const OPTIC_LAW_WITNESS_V0_FIXTURE_BYTES: &[u8] = b"law-witness:resolved-fixture:v0";
+const OPTIC_LAW_WITNESS_V0_FIXTURE_DIGEST_DOMAIN: &[u8] = b"echo.optic-law-witness.fixture.v0";
 
 /// Admission obstruction for an optic invocation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -651,6 +653,8 @@ pub enum OpticInvocationObstruction {
     /// Echo proved scheduler work candidate availability, but has no law
     /// witness.
     LawWitnessUnavailable,
+    /// Echo proved law witness availability, but has no admission ticket.
+    AdmissionTicketUnavailable,
     /// The invocation does not carry authority to use the registered artifact.
     MissingCapability,
     /// The invocation carries a presentation that is structurally unusable.
@@ -1074,6 +1078,13 @@ fn scheduler_work_candidate_v0_fixture_digest() -> [u8; 32] {
     )
 }
 
+fn law_witness_v0_fixture_digest() -> [u8; 32] {
+    digest_invocation_request_bytes(
+        OPTIC_LAW_WITNESS_V0_FIXTURE_DIGEST_DOMAIN,
+        OPTIC_LAW_WITNESS_V0_FIXTURE_BYTES,
+    )
+}
+
 /// Echo-owned runtime-local registry for Wesley-compiled optic artifacts.
 #[derive(Clone, Debug, Default)]
 pub struct OpticArtifactRegistry {
@@ -1083,6 +1094,7 @@ pub struct OpticArtifactRegistry {
     invocation_admission_v0_by_artifact: BTreeMap<String, [u8; 32]>,
     scheduler_admission_v0_by_artifact: BTreeMap<String, [u8; 32]>,
     scheduler_work_candidate_v0_by_artifact: BTreeMap<String, [u8; 32]>,
+    law_witness_v0_by_artifact: BTreeMap<String, [u8; 32]>,
     published_graph_facts: Vec<PublishedGraphFact>,
     artifact_registration_receipts: Vec<ArtifactRegistrationReceipt>,
 }
@@ -1243,6 +1255,35 @@ impl OpticArtifactRegistry {
         Ok(())
     }
 
+    /// Records Echo-owned LawWitness v0 fixture evidence for a registered
+    /// artifact handle.
+    ///
+    /// This is runtime context, not invocation context. Callers cannot provide
+    /// law witness evidence through [`OpticInvocation`]; the admission ladder
+    /// only consults facts recorded on this registry. This does not issue
+    /// admission tickets, enqueue work, dispatch handlers, or execute
+    /// contracts.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OpticArtifactRegistrationError::UnknownHandle`] if Echo did not
+    /// issue the handle in this registry instance.
+    pub fn record_law_witness_v0_fixture_for_artifact(
+        &mut self,
+        handle: &OpticArtifactHandle,
+    ) -> Result<(), OpticArtifactRegistrationError> {
+        let registered = self.resolve_optic_artifact_handle(handle)?;
+        let artifact_handle_id = registered.handle.id.clone();
+        let operation_id = registered.operation_id.clone();
+        let requirements_digest = registered.requirements_digest.clone();
+        self.record_law_witness_v0_fixture_for_artifact_id(
+            artifact_handle_id,
+            operation_id,
+            requirements_digest,
+        );
+        Ok(())
+    }
+
     fn record_runtime_support_v0_fixture_for_requirements_digest(
         &mut self,
         requirements_digest: String,
@@ -1316,6 +1357,27 @@ impl OpticArtifactRegistry {
                 operation_id,
                 requirements_digest,
                 scheduler_work_candidate_digest,
+            );
+        }
+    }
+
+    fn record_law_witness_v0_fixture_for_artifact_id(
+        &mut self,
+        artifact_handle_id: String,
+        operation_id: String,
+        requirements_digest: String,
+    ) {
+        let law_witness_digest = law_witness_v0_fixture_digest();
+        if self
+            .law_witness_v0_by_artifact
+            .insert(artifact_handle_id.clone(), law_witness_digest)
+            .is_none()
+        {
+            self.publish_law_witness_recorded_fact(
+                artifact_handle_id,
+                operation_id,
+                requirements_digest,
+                law_witness_digest,
             );
         }
     }
@@ -1449,9 +1511,14 @@ impl OpticArtifactRegistry {
                                                     self.resolve_scheduler_work_candidate_v0_for_artifact(
                                                         &registered.handle.id,
                                                     )
-                                                    .unwrap_or(
-                                                        OpticInvocationObstruction::LawWitnessUnavailable,
-                                                    )
+                                                    .unwrap_or_else(|| {
+                                                        self.resolve_law_witness_v0_for_artifact(
+                                                            &registered.handle.id,
+                                                        )
+                                                        .unwrap_or(
+                                                            OpticInvocationObstruction::AdmissionTicketUnavailable,
+                                                        )
+                                                    })
                                                 })
                                             })
                                         })
@@ -1558,6 +1625,20 @@ impl OpticArtifactRegistry {
         }
 
         Some(OpticInvocationObstruction::SchedulerWorkUnavailable)
+    }
+
+    fn resolve_law_witness_v0_for_artifact(
+        &self,
+        artifact_handle_id: &str,
+    ) -> Option<OpticInvocationObstruction> {
+        if self
+            .law_witness_v0_by_artifact
+            .contains_key(artifact_handle_id)
+        {
+            return None;
+        }
+
+        Some(OpticInvocationObstruction::LawWitnessUnavailable)
     }
 
     fn classify_aperture_request(
@@ -1787,6 +1868,22 @@ impl OpticArtifactRegistry {
         ));
     }
 
+    fn publish_law_witness_recorded_fact(
+        &mut self,
+        artifact_handle_id: String,
+        operation_id: String,
+        requirements_digest: String,
+        law_witness_digest: [u8; 32],
+    ) {
+        self.published_graph_facts
+            .push(PublishedGraphFact::new(GraphFact::LawWitnessRecorded {
+                artifact_handle_id,
+                operation_id,
+                requirements_digest,
+                law_witness_digest,
+            }));
+    }
+
     fn publish_invocation_obstruction_fact(
         &mut self,
         invocation: &OpticInvocation,
@@ -1878,6 +1975,9 @@ fn invocation_obstruction_kind(
         }
         OpticInvocationObstruction::LawWitnessUnavailable => {
             InvocationObstructionKind::LawWitnessUnavailable
+        }
+        OpticInvocationObstruction::AdmissionTicketUnavailable => {
+            InvocationObstructionKind::AdmissionTicketUnavailable
         }
         OpticInvocationObstruction::MissingCapability => {
             InvocationObstructionKind::MissingCapability

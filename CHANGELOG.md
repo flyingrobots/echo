@@ -17,9 +17,10 @@
   fact with the same invocation-binding material. Echo-owned admission evidence
   fixture recorders now require an explicit `OpticAdmissionEvidenceAuthority`
   token, making the host/runtime-owner boundary explicit before test fixture
-  evidence can be recorded. This does not enqueue scheduler work, enter runtime
-  ingress, tick, dispatch handlers, execute contracts, correlate tick receipts,
-  or observe intent outcomes.
+  evidence can be recorded; the runtime-owner constructor is only available
+  behind `warp-core`'s internal `host_test` feature. This does not enqueue
+  scheduler work, enter runtime ingress, tick, dispatch handlers, execute
+  contracts, correlate tick receipts, or observe intent outcomes.
 - `warp-core` now records a narrow WitnessedIntentSubmission ledger when
   `WorldlineRuntime::ingest(...)` accepts canonical application ingress. The
   runtime derives a deterministic `submission_id` from the resolved writer head

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![cfg(feature = "host_test")]
 //! Regression tests for graph fact publication from optic artifact registration.
 
 use warp_core::{

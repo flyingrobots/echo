@@ -1274,6 +1274,10 @@ run_full_lane_clippy_core() {
   mapfile -t args < <(package_args "${FULL_SCOPE_CLIPPY_CORE_PACKAGES[@]}")
   echo "[verify-local][clippy-core] curated clippy on selected core packages"
   lane_cargo "full-clippy-core" clippy "${args[@]}" --lib -- -D warnings -D missing_docs
+  if array_contains "warp-core" "${FULL_SCOPE_CLIPPY_CORE_PACKAGES[@]}"; then
+    lane_cargo "full-clippy-core" clippy -p warp-core --features host_test --test causal_fact_publication_tests -- -D warnings -D missing_docs
+    lane_cargo "full-clippy-core" clippy -p warp-core --features host_test --test optic_invocation_admission_tests -- -D warnings -D missing_docs
+  fi
 }
 
 run_full_lane_clippy_support() {
@@ -1339,7 +1343,14 @@ run_full_lane_tests_warp_core() {
   lane_cargo "full-tests-warp-core" test -p warp-core --lib
   local test_target
   for test_target in "${FULL_SCOPE_WARP_CORE_EXTRA_TESTS[@]}"; do
-    lane_cargo "full-tests-warp-core" test -p warp-core --test "$test_target"
+    case "$test_target" in
+      causal_fact_publication_tests|optic_invocation_admission_tests)
+        lane_cargo "full-tests-warp-core" test -p warp-core --features host_test --test "$test_target"
+        ;;
+      *)
+        lane_cargo "full-tests-warp-core" test -p warp-core --test "$test_target"
+        ;;
+    esac
   done
   if [[ "$FULL_SCOPE_WARP_CORE_RUN_PRNG" == "1" ]]; then
     lane_cargo "full-tests-warp-core" test -p warp-core --features golden_prng --test prng_golden_regression
@@ -1474,7 +1485,14 @@ run_ultra_fast_smoke() {
     cargo +"$PINNED" test -p warp-core --lib
     local warp_core_test_target
     for warp_core_test_target in "${FULL_SCOPE_WARP_CORE_EXTRA_TESTS[@]}"; do
-      cargo +"$PINNED" test -p warp-core --test "$warp_core_test_target"
+      case "$warp_core_test_target" in
+        causal_fact_publication_tests|optic_invocation_admission_tests)
+          cargo +"$PINNED" test -p warp-core --features host_test --test "$warp_core_test_target"
+          ;;
+        *)
+          cargo +"$PINNED" test -p warp-core --test "$warp_core_test_target"
+          ;;
+      esac
     done
     if [[ "$FULL_SCOPE_WARP_CORE_RUN_PRNG" == "1" ]]; then
       cargo +"$PINNED" test -p warp-core --features golden_prng --test prng_golden_regression

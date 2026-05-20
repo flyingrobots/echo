@@ -40,6 +40,10 @@ jobs:
                       .
             - name: cargo clippy
               run: cargo clippy --all-targets -- -D warnings -D missing_docs
+            - name: cargo clippy (warp-core host_test admission fixtures)
+              run: |
+                  cargo clippy -p warp-core --features host_test --test causal_fact_publication_tests -- -D warnings -D missing_docs
+                  cargo clippy -p warp-core --features host_test --test optic_invocation_admission_tests -- -D warnings -D missing_docs
 
     clippy-det-fixed:
         name: Clippy (det_fixed)
@@ -108,6 +112,10 @@ jobs:
                   tool: nextest
             - name: cargo nextest run (warp-core)
               run: cargo nextest run -p warp-core
+            - name: cargo test (warp-core host_test admission fixtures)
+              run: |
+                  cargo test -p warp-core --features host_test --test causal_fact_publication_tests
+                  cargo test -p warp-core --features host_test --test optic_invocation_admission_tests
             - name: cargo test --doc (warp-core)
               run: cargo test -p warp-core --doc
             - name: PRNG golden regression (warp-core)

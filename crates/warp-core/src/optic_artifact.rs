@@ -130,6 +130,25 @@ pub struct RegisteredOpticArtifact {
     pub requirements: OpticAdmissionRequirements,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ResolvedOpticArtifactAdmissionIdentity {
+    handle: OpticArtifactHandle,
+    artifact_hash: String,
+    operation_id: String,
+    requirements_digest: String,
+}
+
+impl From<&RegisteredOpticArtifact> for ResolvedOpticArtifactAdmissionIdentity {
+    fn from(registered: &RegisteredOpticArtifact) -> Self {
+        Self {
+            handle: registered.handle.clone(),
+            artifact_hash: registered.artifact_hash.clone(),
+            operation_id: registered.operation_id.clone(),
+            requirements_digest: registered.requirements_digest.clone(),
+        }
+    }
+}
+
 /// Opaque basis request bytes supplied at optic invocation time.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OpticBasisRequest {
@@ -177,6 +196,13 @@ pub struct OpticCapabilityPresentation {
 /// intentionally hidden and named as a runtime-owner assumption so callers must
 /// cross an explicit authority boundary before minting runtime-owned admission
 /// facts.
+///
+/// ```compile_fail
+/// #[cfg(feature = "host_test")]
+/// compile_error!("host_test intentionally exposes the runtime-owner constructor");
+///
+/// let _authority = warp_core::OpticAdmissionEvidenceAuthority::assume_runtime_owner();
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OpticAdmissionEvidenceAuthority {
     _private: (),
@@ -189,6 +215,7 @@ impl OpticAdmissionEvidenceAuthority {
     /// owner, test harness, or equivalent host-controlled boundary. Giving this
     /// token to application/plugin/browser code lets that code record
     /// Echo-owned evidence and can make invocation admission appear lawful.
+    #[cfg(feature = "host_test")]
     #[doc(hidden)]
     #[must_use]
     pub fn assume_runtime_owner() -> Self {
@@ -1524,7 +1551,7 @@ impl OpticArtifactRegistry {
         validator: &mut impl CapabilityPresentationValidator,
     ) -> OpticInvocationAdmissionOutcome {
         let registered = match self.resolve_optic_artifact_handle(&invocation.artifact_handle) {
-            Ok(registered) => registered.clone(),
+            Ok(registered) => registered,
             Err(_) => {
                 return self
                     .obstructed_invocation(invocation, OpticInvocationObstruction::UnknownHandle);
@@ -1557,11 +1584,12 @@ impl OpticArtifactRegistry {
         let final_obstruction = OpticInvocationObstruction::CapabilityValidationUnavailable;
         if let Some(presentation) = invocation.capability_presentation.as_ref() {
             let validation =
-                validator.validate_capability_presentation(&registered, invocation, presentation);
+                validator.validate_capability_presentation(registered, invocation, presentation);
             if matches!(
                 validation,
                 CapabilityGrantValidationOutcome::IdentityCovered(_)
             ) {
+                let registered = ResolvedOpticArtifactAdmissionIdentity::from(registered);
                 return self.admit_identity_covered_invocation(invocation, &registered);
             }
         }
@@ -1572,7 +1600,7 @@ impl OpticArtifactRegistry {
     fn admit_identity_covered_invocation(
         &mut self,
         invocation: &OpticInvocation,
-        registered: &RegisteredOpticArtifact,
+        registered: &ResolvedOpticArtifactAdmissionIdentity,
     ) -> OpticInvocationAdmissionOutcome {
         if let Some(obstruction) = Self::resolve_basis(&invocation.basis_request) {
             return self.obstructed_invocation(invocation, obstruction);
@@ -1788,7 +1816,7 @@ impl OpticArtifactRegistry {
     fn admitted_invocation(
         &mut self,
         invocation: &OpticInvocation,
-        registered: &RegisteredOpticArtifact,
+        registered: &ResolvedOpticArtifactAdmissionIdentity,
         law_witness_digest: [u8; 32],
     ) -> OpticInvocationAdmissionOutcome {
         let basis_request_digest = Self::basis_request_digest(invocation);

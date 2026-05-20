@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![cfg(feature = "host_test")]
 //! Regression tests for optic invocation admission obstruction.
 
 use warp_core::{

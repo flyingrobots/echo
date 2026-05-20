@@ -18,6 +18,27 @@ fail() {
   FAIL=$((FAIL + 1))
 }
 
+if grep -R -q -- 'cargo clippy -p warp-core --bin gen_sin_qtr_lut' .github/workflows; then
+  fail "CI workflow binary clippy should follow gen_sin_qtr_lut to warp-math"
+else
+  pass "CI workflow binary clippy follows gen_sin_qtr_lut to warp-math"
+fi
+if grep -R -q -- 'cargo test -p warp-core --features golden_prng --test prng_golden_regression' .github/workflows; then
+  fail "CI workflow PRNG golden regression should run from warp-math"
+else
+  pass "CI workflow PRNG golden regression runs from warp-math"
+fi
+if grep -R -q -- 'cargo test -p warp-core --test trig_golden_vectors' .github/workflows; then
+  fail "determinism workflow trig golden vectors should run from warp-math"
+else
+  pass "determinism workflow trig golden vectors run from warp-math"
+fi
+if grep -R -q -- 'cargo test -p warp-core --test deterministic_sin_cos_tests' .github/workflows; then
+  fail "determinism workflow sin/cos tests should run from warp-math"
+else
+  pass "determinism workflow sin/cos tests run from warp-math"
+fi
+
 extract_log_section() {
   local section="$1"
   local content="$2"

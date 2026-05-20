@@ -48,7 +48,7 @@ jobs:
             --lib -- -D warnings -D missing_docs
       - name: cargo clippy (binaries)
         run: |
-          cargo clippy -p warp-core --bin gen_sin_qtr_lut -- -D warnings -D missing_docs
+          cargo clippy -p warp-math --bin gen_sin_qtr_lut -- -D warnings -D missing_docs
           cargo clippy -p warp-cli --bins -- -D warnings -D missing_docs
           cargo clippy -p echo-dind-harness --bins -- -D warnings -D missing_docs
           cargo clippy -p echo-wesley-gen --bins -- -D warnings -D missing_docs

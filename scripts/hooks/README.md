@@ -70,7 +70,10 @@ guard scans, and exhaustive local proof stay on the heavier paths and in CI.
 Rustdoc warnings are CI-owned by default; use
 `VERIFY_LOCAL_RUSTDOC=1 make verify-full` only when you deliberately want to
 pay that local cost. Tooling-only changes stay on a syntax/smoke path instead
-of inheriting the full hook regression suite.
+of inheriting the full hook regression suite. Hook regression tests are CI-owned
+by default; use `VERIFY_LOCAL_HOOK_TESTS=1 make verify-full` when you
+deliberately want the local hook regression lane. That opt-in lane selects tests
+by tooling file family instead of running every hook test for every tooling edit.
 
 A successful `make verify-full` run now shares the same success stamp as the
 canonical pre-push full gate for the same worktree, so commit-only churn

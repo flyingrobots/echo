@@ -219,10 +219,20 @@ exit 1
 EOF
   chmod +x "$tmp/bin/cargo" "$tmp/bin/cargo-nextest" "$tmp/bin/rustup" "$tmp/bin/rg" "$tmp/bin/npx" "$tmp/bin/pnpm" "$tmp/bin/git"
 
-  cat >"$tmp/tests/hooks/test_verify_local.sh" <<'EOF'
+cat >"$tmp/tests/hooks/test_verify_local.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-echo "fake hook coverage"
+printf '%s\n' "test_verify_local.sh" >>"$VERIFY_FAKE_HOOK_LOG"
+EOF
+  cat >"$tmp/tests/hooks/test_hook_timing.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "test_hook_timing.sh" >>"$VERIFY_FAKE_HOOK_LOG"
+EOF
+  cat >"$tmp/tests/hooks/test_runtime_schema_validation.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "test_runtime_schema_validation.sh" >>"$VERIFY_FAKE_HOOK_LOG"
 EOF
   cat >"$tmp/.githooks/pre-push" <<'EOF'
 #!/usr/bin/env bash
@@ -234,7 +244,12 @@ EOF
 set -euo pipefail
 echo "fake legacy pre-commit shim"
 EOF
-  chmod +x "$tmp/tests/hooks/test_verify_local.sh" "$tmp/.githooks/pre-push" "$tmp/scripts/hooks/pre-commit"
+  chmod +x \
+    "$tmp/tests/hooks/test_verify_local.sh" \
+    "$tmp/tests/hooks/test_hook_timing.sh" \
+    "$tmp/tests/hooks/test_runtime_schema_validation.sh" \
+    "$tmp/.githooks/pre-push" \
+    "$tmp/scripts/hooks/pre-commit"
 
   local changed
   changed="$(mktemp)"
@@ -247,6 +262,8 @@ EOF
   pnpm_log="$(mktemp)"
   local nextest_log
   nextest_log="$(mktemp)"
+  local hook_log
+  hook_log="$(mktemp)"
 
   local output
   local -a verify_env=(
@@ -260,12 +277,16 @@ EOF
     "VERIFY_FAKE_NPX_LOG=$npx_log"
     "VERIFY_FAKE_PNPM_LOG=$pnpm_log"
     "VERIFY_FAKE_NEXTEST_LOG=$nextest_log"
+    "VERIFY_FAKE_HOOK_LOG=$hook_log"
   )
   if [[ -n "${VERIFY_FAKE_TIMING_FILE:-}" ]]; then
     verify_env+=("VERIFY_TIMING_FILE=$VERIFY_FAKE_TIMING_FILE")
   fi
   if [[ -n "${VERIFY_LOCAL_RUSTDOC+x}" ]]; then
     verify_env+=("VERIFY_LOCAL_RUSTDOC=$VERIFY_LOCAL_RUSTDOC")
+  fi
+  if [[ -n "${VERIFY_LOCAL_HOOK_TESTS+x}" ]]; then
+    verify_env+=("VERIFY_LOCAL_HOOK_TESTS=$VERIFY_LOCAL_HOOK_TESTS")
   fi
   output="$(
     cd "$tmp" && \
@@ -282,8 +303,10 @@ EOF
   cat "$pnpm_log"
   echo "--- nextest-log ---"
   cat "$nextest_log"
+  echo "--- hook-log ---"
+  cat "$hook_log"
 
-  rm -f "$changed" "$cargo_log" "$npx_log" "$pnpm_log" "$nextest_log"
+  rm -f "$changed" "$cargo_log" "$npx_log" "$pnpm_log" "$nextest_log" "$hook_log"
   rm -rf "$tmp"
 }
 
@@ -1353,18 +1376,44 @@ else
   printf '%s\n' "$fake_tooling_output"
 fi
 if printf '%s\n' "$fake_tooling_output" | grep -q 'fmt' \
-  && printf '%s\n' "$fake_tooling_output" | grep -q 'guards' \
-  && printf '%s\n' "$fake_tooling_output" | grep -q 'hook-tests'; then
-  pass "tooling-only full verification runs hook regression coverage"
+  && printf '%s\n' "$fake_tooling_output" | grep -q 'guards'; then
+  pass "tooling-only full verification keeps the local syntax and guard coverage"
 else
-  fail "tooling-only full verification should run hook regression coverage"
+  fail "tooling-only full verification should keep the local syntax and guard coverage"
   printf '%s\n' "$fake_tooling_output"
+fi
+if printf '%s\n' "$fake_tooling_output" | grep -q 'hook-tests'; then
+  fail "tooling-only full verification should leave hook regressions to CI by default"
+  printf '%s\n' "$fake_tooling_output"
+else
+  pass "tooling-only full verification leaves hook regressions to CI by default"
 fi
 if printf '%s\n' "$fake_tooling_output" | grep -q 'target/verify-lanes/full-clippy-core'; then
   fail "tooling-only full verification should not launch core Rust lanes"
   printf '%s\n' "$fake_tooling_output"
 else
   pass "tooling-only full verification skips core Rust lanes"
+fi
+VERIFY_LOCAL_HOOK_TESTS=1
+fake_tooling_hook_output="$(run_fake_verify full scripts/verify-local.sh)"
+unset VERIFY_LOCAL_HOOK_TESTS
+if printf '%s\n' "$fake_tooling_hook_output" | grep -q 'hook-tests'; then
+  pass "tooling-only full verification keeps an explicit hook regression opt-in"
+else
+  fail "tooling-only full verification should keep an explicit hook regression opt-in"
+  printf '%s\n' "$fake_tooling_hook_output"
+fi
+if printf '%s\n' "$fake_tooling_hook_output" | grep -q '^test_verify_local\.sh$'; then
+  pass "verify-local changes run the focused verify-local hook regression"
+else
+  fail "verify-local changes should run the focused verify-local hook regression"
+  printf '%s\n' "$fake_tooling_hook_output"
+fi
+if printf '%s\n' "$fake_tooling_hook_output" | grep -q '^test_runtime_schema_validation\.sh$'; then
+  fail "verify-local changes should skip unrelated runtime schema hook tests"
+  printf '%s\n' "$fake_tooling_hook_output"
+else
+  pass "verify-local changes skip unrelated runtime schema hook tests"
 fi
 
 fake_runtime_schema_output="$(run_fake_verify full schemas/runtime/artifact-a-identifiers.graphql)"

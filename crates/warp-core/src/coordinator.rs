@@ -2605,6 +2605,197 @@ mod tests {
         )
     }
 
+    const TOY_INCREMENT_OP_ID: u32 = 1001;
+    const TOY_INCREMENT_VARS: &[u8] = b"amount=42";
+    const TOY_INCREMENT_RESULT_BYTES: &[u8] = b"value=42";
+    const TOY_INCREMENT_RESULT_TYPE: &str = "test/toy-counter/increment-result";
+    const TOY_INCREMENT_RESULT_EDGE_TYPE: &str = "test/toy-counter/increment-result-edge";
+
+    fn toy_increment_result_node_id(scope: &NodeId) -> NodeId {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"test.toy-counter.increment.result.node");
+        hasher.update(scope.as_bytes());
+        NodeId(hasher.finalize().into())
+    }
+
+    fn toy_increment_result_edge_id(scope: &NodeId, result: &NodeId) -> crate::EdgeId {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"test.toy-counter.increment.result.edge");
+        hasher.update(scope.as_bytes());
+        hasher.update(result.as_bytes());
+        crate::EdgeId(hasher.finalize().into())
+    }
+
+    fn toy_increment_matches(view: GraphView<'_>, scope: &NodeId) -> bool {
+        crate::contract_host::eint_vars_for_op(view, scope, TOY_INCREMENT_OP_ID)
+            == Some(TOY_INCREMENT_VARS)
+    }
+
+    fn toy_increment_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut crate::TickDelta) {
+        let Some(vars) = crate::contract_host::eint_vars_for_op(view, scope, TOY_INCREMENT_OP_ID)
+        else {
+            return;
+        };
+        if vars != TOY_INCREMENT_VARS {
+            return;
+        }
+
+        let warp_id = view.warp_id();
+        let result = toy_increment_result_node_id(scope);
+        let result_edge = toy_increment_result_edge_id(scope, &result);
+        delta.push(crate::tick_patch::WarpOp::UpsertNode {
+            node: crate::NodeKey {
+                warp_id,
+                local_id: result,
+            },
+            record: NodeRecord {
+                ty: make_type_id(TOY_INCREMENT_RESULT_TYPE),
+            },
+        });
+        delta.push(crate::tick_patch::WarpOp::UpsertEdge {
+            warp_id,
+            record: crate::record::EdgeRecord {
+                id: result_edge,
+                from: *scope,
+                to: result,
+                ty: make_type_id(TOY_INCREMENT_RESULT_EDGE_TYPE),
+            },
+        });
+        delta.push(crate::tick_patch::WarpOp::SetAttachment {
+            key: crate::AttachmentKey::node_alpha(crate::NodeKey {
+                warp_id,
+                local_id: result,
+            }),
+            value: Some(crate::AttachmentValue::Atom(crate::AtomPayload::new(
+                make_type_id(TOY_INCREMENT_RESULT_TYPE),
+                bytes::Bytes::copy_from_slice(TOY_INCREMENT_RESULT_BYTES),
+            ))),
+        });
+    }
+
+    fn toy_increment_footprint(view: GraphView<'_>, scope: &NodeId) -> crate::Footprint {
+        let mut footprint = crate::contract_host::runtime_ingress_eint_read_footprint(view, scope);
+        let warp_id = view.warp_id();
+        let result = toy_increment_result_node_id(scope);
+        let result_edge = toy_increment_result_edge_id(scope, &result);
+        footprint.n_write.insert_with_warp(warp_id, *scope);
+        footprint.n_write.insert_with_warp(warp_id, result);
+        footprint.e_write.insert_with_warp(warp_id, result_edge);
+        footprint
+            .a_write
+            .insert(crate::AttachmentKey::node_alpha(crate::NodeKey {
+                warp_id,
+                local_id: result,
+            }));
+        footprint
+    }
+
+    fn toy_increment_contract_rule() -> RewriteRule {
+        RewriteRule {
+            id: make_type_id("rule:cmd/contract/toy-counter/increment").0,
+            name: "cmd/contract/toy-counter/increment",
+            left: PatternGraph { nodes: vec![] },
+            matcher: toy_increment_matches,
+            executor: toy_increment_executor,
+            compute_footprint: toy_increment_footprint,
+            factor_mask: 0,
+            conflict_policy: ConflictPolicy::Abort,
+            join_fn: None,
+        }
+    }
+
+    fn toy_increment_intent(vars: &[u8]) -> Vec<u8> {
+        echo_wasm_abi::pack_intent_v1(TOY_INCREMENT_OP_ID, vars).unwrap()
+    }
+
+    fn toy_contract_runtime() -> (WorldlineRuntime, Engine, WorldlineId) {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        engine.register_rule(toy_increment_contract_rule()).unwrap();
+        let worldline_id = wl(1);
+        runtime
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        register_head(
+            &mut runtime,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        (runtime, engine, worldline_id)
+    }
+
+    #[test]
+    fn installed_contract_handler_runs_only_during_scheduler_owned_tick() {
+        let (mut runtime, mut engine, worldline_id) = toy_contract_runtime();
+
+        let envelope = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            make_intent_kind("echo.intent/eint-v1"),
+            toy_increment_intent(TOY_INCREMENT_VARS),
+        );
+        let event_id = NodeId(envelope.ingress_id());
+        let result_id = toy_increment_result_node_id(&event_id);
+        let dispatch = runtime.ingest(envelope).unwrap();
+        assert!(matches!(dispatch, IngressDisposition::Accepted { .. }));
+        assert!(
+            runtime_store(&runtime, worldline_id)
+                .node(&result_id)
+                .is_none(),
+            "application dispatch must not call installed contract handlers synchronously"
+        );
+
+        let mut provenance = mirrored_provenance(&runtime);
+        let records =
+            SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].admitted_count, 1);
+
+        let store = runtime_store(&runtime, worldline_id);
+        assert!(store.node(&event_id).is_some());
+        assert_eq!(
+            store.node(&result_id).map(|node| node.ty),
+            Some(make_type_id(TOY_INCREMENT_RESULT_TYPE))
+        );
+        assert!(matches!(
+            store.node_attachment(&result_id),
+            Some(crate::AttachmentValue::Atom(payload))
+                if payload.type_id == make_type_id(TOY_INCREMENT_RESULT_TYPE)
+                    && payload.bytes.as_ref() == TOY_INCREMENT_RESULT_BYTES
+        ));
+        assert_eq!(provenance.len(worldline_id).unwrap(), 1);
+    }
+
+    #[test]
+    fn installed_contract_handler_ignores_nonmatching_eint_operation() {
+        let (mut runtime, mut engine, worldline_id) = toy_contract_runtime();
+        let other_intent =
+            echo_wasm_abi::pack_intent_v1(TOY_INCREMENT_OP_ID + 1, TOY_INCREMENT_VARS).unwrap();
+        let envelope = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            make_intent_kind("echo.intent/eint-v1"),
+            other_intent,
+        );
+        let event_id = NodeId(envelope.ingress_id());
+        let result_id = toy_increment_result_node_id(&event_id);
+        runtime.ingest(envelope).unwrap();
+
+        let mut provenance = mirrored_provenance(&runtime);
+        let records =
+            SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+        assert_eq!(records.len(), 1);
+
+        let store = runtime_store(&runtime, worldline_id);
+        assert!(store.node(&event_id).is_some());
+        assert!(
+            store.node(&result_id).is_none(),
+            "installed contract handlers must only run for their generated op id"
+        );
+        assert_eq!(provenance.len(worldline_id).unwrap(), 1);
+    }
+
     #[test]
     fn fork_strand_registers_child_frontier_and_strand_relation() {
         let mut runtime = WorldlineRuntime::new();

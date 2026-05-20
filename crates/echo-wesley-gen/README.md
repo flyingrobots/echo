@@ -25,6 +25,9 @@ cat ir.json | cargo run -p echo-wesley-gen --
 
 # Write to a file
 cat ir.json | cargo run -p echo-wesley-gen -- --out generated.rs
+
+# Emit std-only warp-core contract-host helpers for installed mutation handlers
+cat ir.json | cargo run -p echo-wesley-gen -- --contract-host --out generated.rs
 ```
 
 ## Notes
@@ -43,6 +46,13 @@ cat ir.json | cargo run -p echo-wesley-gen -- --out generated.rs
 - Generated query optic helpers use Echo ABI's domain-separated BLAKE3
   `query_vars_digest_v1(...)`; ad hoc variable digests are not accepted for
   retained reading identity.
+- `--contract-host` emits opt-in, std-only mutation helpers for installing
+  generated operations as `warp-core` command rules. The generated surface
+  matches scheduler-materialized EINT runtime ingress events by op id, decodes
+  typed vars, provides the base runtime-ingress read footprint, and builds a
+  `RewriteRule` from host-supplied executor and footprint functions. It does
+  not generate the application mutation body or grant application code tick
+  authority.
 - Optional fields become `Option<T>`; lists become `Vec<T>` (wrapped in Option when not required).
 - Unknown scalar names are emitted as identifiers as-is (so ensure upstream IR types are valid Rust idents).
 - Runtime optic artifact imports preserve Wesley-owned canonical admission

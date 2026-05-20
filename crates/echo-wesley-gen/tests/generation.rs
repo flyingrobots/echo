@@ -589,6 +589,224 @@ mod tests {
     crate_dir
 }
 
+fn write_contract_host_smoke_crate(generated: &str) -> PathBuf {
+    let workspace = workspace_root();
+    let crate_dir = workspace
+        .join("target")
+        .join("echo-wesley-gen-contract-host-smoke")
+        .join(std::process::id().to_string());
+    if crate_dir.exists() {
+        fs::remove_dir_all(&crate_dir).expect("failed to remove old contract-host smoke crate");
+    }
+    fs::create_dir_all(crate_dir.join("src")).expect("failed to create contract-host smoke crate");
+
+    let registry_path = workspace.join("crates/echo-registry-api");
+    let wasm_abi_path = workspace.join("crates/echo-wasm-abi");
+    let warp_core_path = workspace.join("crates/warp-core");
+    fs::write(
+        crate_dir.join("Cargo.toml"),
+        format!(
+            r#"[package]
+name = "echo-wesley-gen-contract-host-smoke"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+echo-registry-api = {{ path = "{}" }}
+echo-wasm-abi = {{ path = "{}" }}
+warp-core = {{ path = "{}", features = ["native_rule_bootstrap"] }}
+bytes = "1"
+serde = {{ version = "1.0", features = ["derive"] }}
+"#,
+            registry_path.display(),
+            wasm_abi_path.display(),
+            warp_core_path.display()
+        ),
+    )
+    .expect("failed to write contract-host smoke Cargo.toml");
+    fs::write(crate_dir.join("src/generated.rs"), generated)
+        .expect("failed to write generated module");
+    fs::write(
+        crate_dir.join("src/lib.rs"),
+        r#"
+mod generated;
+
+#[cfg(test)]
+mod tests {
+    use super::generated::{
+        __echo_wesley_generated::{
+            increment_contract_rule, increment_contract_runtime_ingress_footprint,
+            increment_contract_vars, IncrementVars,
+        },
+        pack_increment_intent, IncrementInput,
+    };
+    use warp_core::{
+        make_edge_id, make_head_id, make_intent_kind, make_node_id, make_type_id, AttachmentKey,
+        AttachmentValue, AtomPayload, EdgeRecord, EngineBuilder, GraphStore, GraphView,
+        InboxPolicy, IngressEnvelope, IngressTarget, NodeId, NodeKey, NodeRecord, PlaybackMode,
+        ProvenanceService, SchedulerCoordinator, TickDelta, WarpOp, WorldlineId, WorldlineRuntime,
+        WorldlineState, WriterHead, WriterHeadKey,
+    };
+
+    const RESULT_BYTES: &[u8] = b"value=42";
+    const RESULT_TYPE: &str = "test/generated-contract-host/result";
+
+    fn result_node_id() -> NodeId {
+        make_node_id("generated-contract-host/result")
+    }
+
+    fn result_edge_id() -> warp_core::EdgeId {
+        make_edge_id("generated-contract-host/result-edge")
+    }
+
+    fn increment_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
+        let Some(vars) = increment_contract_vars(view, scope) else {
+            return;
+        };
+        if vars.input.amount != 42 {
+            return;
+        }
+
+        let warp_id = view.warp_id();
+        let result = result_node_id();
+        delta.push(WarpOp::UpsertNode {
+            node: NodeKey {
+                warp_id,
+                local_id: result,
+            },
+            record: NodeRecord {
+                ty: make_type_id(RESULT_TYPE),
+            },
+        });
+        delta.push(WarpOp::UpsertEdge {
+            warp_id,
+            record: EdgeRecord {
+                id: result_edge_id(),
+                from: *scope,
+                to: result,
+                ty: make_type_id("test/generated-contract-host/result-edge"),
+            },
+        });
+        delta.push(WarpOp::SetAttachment {
+            key: AttachmentKey::node_alpha(NodeKey {
+                warp_id,
+                local_id: result,
+            }),
+            value: Some(AttachmentValue::Atom(AtomPayload::new(
+                make_type_id(RESULT_TYPE),
+                bytes::Bytes::copy_from_slice(RESULT_BYTES),
+            ))),
+        });
+    }
+
+    fn increment_footprint(view: GraphView<'_>, scope: &NodeId) -> warp_core::Footprint {
+        let mut footprint = increment_contract_runtime_ingress_footprint(view, scope);
+        let warp_id = view.warp_id();
+        let result = result_node_id();
+        footprint.n_write.insert_with_warp(warp_id, *scope);
+        footprint.n_write.insert_with_warp(warp_id, result);
+        footprint.e_write.insert_with_warp(warp_id, result_edge_id());
+        footprint.a_write.insert(AttachmentKey::node_alpha(NodeKey {
+            warp_id,
+            local_id: result,
+        }));
+        footprint
+    }
+
+    fn runtime_store(runtime: &WorldlineRuntime, worldline_id: WorldlineId) -> &GraphStore {
+        let frontier = runtime.worldlines().get(&worldline_id).unwrap();
+        frontier
+            .state()
+            .warp_state()
+            .store(&frontier.state().root().warp_id)
+            .unwrap()
+    }
+
+    #[test]
+    fn generated_contract_host_rule_runs_during_scheduler_tick() {
+        let mut store = GraphStore::default();
+        let root = make_node_id("root");
+        store.insert_node(
+            root,
+            NodeRecord {
+                ty: make_type_id("world"),
+            },
+        );
+        let mut engine = EngineBuilder::new(store, root).workers(1).build();
+        engine
+            .register_rule(increment_contract_rule(
+                increment_executor,
+                increment_footprint,
+            ))
+            .unwrap();
+
+        let mut runtime = WorldlineRuntime::new();
+        let worldline_id = WorldlineId::from_bytes([1; 32]);
+        runtime
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        runtime
+            .register_writer_head(WriterHead::with_routing(
+                WriterHeadKey {
+                    worldline_id,
+                    head_id: make_head_id("default"),
+                },
+                PlaybackMode::Play,
+                InboxPolicy::AcceptAll,
+                None,
+                true,
+            ))
+            .unwrap();
+
+        let intent = pack_increment_intent(&IncrementVars {
+            input: IncrementInput { amount: 42 },
+        })
+        .unwrap();
+        runtime
+            .ingest(IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind("echo.intent/eint-v1"),
+                intent,
+            ))
+            .unwrap();
+        assert!(runtime_store(&runtime, worldline_id)
+            .node(&result_node_id())
+            .is_none());
+
+        let mut provenance = ProvenanceService::new();
+        provenance
+            .register_worldline(
+                worldline_id,
+                runtime.worldlines().get(&worldline_id).unwrap().state(),
+            )
+            .unwrap();
+        let records =
+            SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+        assert_eq!(records.len(), 1);
+
+        let store = runtime_store(&runtime, worldline_id);
+        assert_eq!(
+            store.node(&result_node_id()).map(|node| node.ty),
+            Some(make_type_id(RESULT_TYPE))
+        );
+        assert!(matches!(
+            store.node_attachment(&result_node_id()),
+            Some(AttachmentValue::Atom(payload))
+                if payload.type_id == make_type_id(RESULT_TYPE)
+                    && payload.bytes.as_ref() == RESULT_BYTES
+        ));
+    }
+}
+"#,
+    )
+    .expect("failed to write contract-host smoke lib.rs");
+
+    crate_dir
+}
+
 fn write_basic_generated_crate(generated: &str, label: &str, no_std: bool) -> PathBuf {
     let workspace = workspace_root();
     let crate_dir = workspace
@@ -1384,6 +1602,33 @@ fn test_toy_contract_generated_output_compiles_in_consumer_crate() {
 }
 
 #[test]
+fn test_toy_contract_generated_contract_host_helpers_compile_in_consumer_crate() {
+    let output = run_wesley_gen_with_args(TOY_COUNTER_IR, &["--contract-host"]);
+    assert!(
+        output.status.success(),
+        "CLI failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let generated = String::from_utf8_lossy(&output.stdout);
+    assert!(generated.contains("pub fn increment_contract_rule"));
+    assert!(generated.contains("pub fn increment_contract_vars"));
+    assert!(generated.contains("pub fn increment_contract_runtime_ingress_footprint"));
+    let crate_dir = write_contract_host_smoke_crate(&generated);
+    let output = Command::new("cargo")
+        .args(["test", "--manifest-path"])
+        .arg(crate_dir.join("Cargo.toml"))
+        .output()
+        .expect("failed to run generated contract-host smoke");
+
+    assert!(
+        output.status.success(),
+        "generated contract-host smoke failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn test_toy_contract_no_std_generated_output_checks_in_consumer_crate() {
     let output = run_wesley_gen_with_args(TOY_COUNTER_IR, &["--no-std"]);
     assert!(
@@ -1402,6 +1647,17 @@ fn test_toy_contract_no_std_generated_output_checks_in_consumer_crate() {
         "toy-no-std",
         true,
     ));
+}
+
+#[test]
+fn test_contract_host_generation_rejects_no_std() {
+    let output = run_wesley_gen_with_args(TOY_COUNTER_IR, &["--no-std", "--contract-host"]);
+    assert!(
+        !output.status.success(),
+        "contract-host generation should reject no_std output"
+    );
+    assert!(String::from_utf8_lossy(&output.stderr)
+        .contains("--contract-host requires std and cannot be combined with --no-std"));
 }
 
 #[test]

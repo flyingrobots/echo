@@ -48,10 +48,17 @@ struct Args {
     /// Emit minicbor Encode/Decode implementations for all types
     #[arg(long, default_value_t = false)]
     minicbor: bool,
+
+    /// Emit warp-core contract-host helpers for installed mutation handlers
+    #[arg(long, default_value_t = false)]
+    contract_host: bool,
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
+    if args.no_std && args.contract_host {
+        bail!("--contract-host requires std and cannot be combined with --no-std");
+    }
 
     let ir = if let Some(schema_path) = &args.schema {
         let schema_sdl = std::fs::read_to_string(schema_path)?;
@@ -516,6 +523,15 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
             });
         }
 
+        if args.contract_host && has_mutation_ops {
+            helper_prelude.extend(quote! {
+                use warp_core::{
+                    ConflictPolicy, Footprint, GraphView, NodeId, PatternGraph, RewriteRule,
+                    TickDelta,
+                };
+            });
+        }
+
         if has_query_ops {
             helper_tokens.extend(quote! {
                 fn generated_vars_digest(vars_bytes: &[u8]) -> Vec<u8> {
@@ -574,6 +590,18 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
                     helper_exports.push(raw_fn_name.clone());
                     helper_exports.push(optic_fn_name.clone());
                     helper_exports.push(optic_raw_fn_name.clone());
+                    let contract_rule_name_const =
+                        format_ident!("{}_CONTRACT_RULE_NAME", const_name);
+                    let contract_rule_id_label_const =
+                        format_ident!("{}_CONTRACT_RULE_ID_LABEL", const_name);
+                    let contract_match_fn_name = format_ident!("{}_contract_matches", helper_name);
+                    let contract_vars_fn_name = format_ident!("{}_contract_vars", helper_name);
+                    let contract_footprint_fn_name =
+                        format_ident!("{}_contract_runtime_ingress_footprint", helper_name);
+                    let contract_rule_fn_name = format_ident!("{}_contract_rule", helper_name);
+                    let contract_rule_name =
+                        format!("cmd/contract/{}/{}/{}", schema_sha, op.op_id, op.name);
+                    let contract_rule_id_label = format!("rule:{contract_rule_name}");
                     helper_tokens.extend(quote! {
                         /// Encode this mutation's vars and pack them into an EINT v1 intent.
                         pub fn #fn_name(vars: &#vars_name) -> Result<Vec<u8>, GeneratedIntentError> {
@@ -637,6 +665,61 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
                             })
                         }
                     });
+                    if args.contract_host {
+                        helper_exports.push(contract_rule_name_const.clone());
+                        helper_exports.push(contract_rule_id_label_const.clone());
+                        helper_exports.push(contract_match_fn_name.clone());
+                        helper_exports.push(contract_vars_fn_name.clone());
+                        helper_exports.push(contract_footprint_fn_name.clone());
+                        helper_exports.push(contract_rule_fn_name.clone());
+                        helper_tokens.extend(quote! {
+                            /// Stable command-rule name for this generated contract mutation.
+                            pub const #contract_rule_name_const: &str = #contract_rule_name;
+
+                            /// Stable rule-id label for this generated contract mutation.
+                            pub const #contract_rule_id_label_const: &str = #contract_rule_id_label;
+
+                            /// Return true when a scheduler-materialized runtime ingress event
+                            /// carries this mutation's EINT operation id.
+                            pub fn #contract_match_fn_name(view: GraphView<'_>, scope: &NodeId) -> bool {
+                                warp_core::matches_eint_op(view, scope, super::#const_name)
+                            }
+
+                            /// Decode this mutation's generated vars from a scheduler-materialized
+                            /// EINT runtime ingress event.
+                            pub fn #contract_vars_fn_name(view: GraphView<'_>, scope: &NodeId) -> Option<#vars_name> {
+                                let vars = warp_core::eint_vars_for_op(view, scope, super::#const_name)?;
+                                echo_wasm_abi::decode_cbor(vars).ok()
+                            }
+
+                            /// Base footprint for reading this mutation's runtime ingress event.
+                            ///
+                            /// Installed executors must extend this with their handler-specific
+                            /// graph, edge, attachment, and port writes.
+                            pub fn #contract_footprint_fn_name(view: GraphView<'_>, scope: &NodeId) -> Footprint {
+                                warp_core::runtime_ingress_eint_read_footprint(view, scope)
+                            }
+
+                            /// Build a `warp-core` command rule for this generated contract
+                            /// mutation using a host-supplied executor and footprint function.
+                            pub fn #contract_rule_fn_name(
+                                executor: for<'a> fn(GraphView<'a>, &NodeId, &mut TickDelta),
+                                compute_footprint: for<'a> fn(GraphView<'a>, &NodeId) -> Footprint,
+                            ) -> RewriteRule {
+                                RewriteRule {
+                                    id: warp_core::make_type_id(#contract_rule_id_label_const).0,
+                                    name: #contract_rule_name_const,
+                                    left: PatternGraph { nodes: Vec::new() },
+                                    matcher: #contract_match_fn_name,
+                                    executor,
+                                    compute_footprint,
+                                    factor_mask: 0,
+                                    conflict_policy: ConflictPolicy::Abort,
+                                    join_fn: None,
+                                }
+                            }
+                        });
+                    }
                 }
                 OpKind::Query => {
                     let fn_name = format_ident!("{}_observation_request", helper_name);

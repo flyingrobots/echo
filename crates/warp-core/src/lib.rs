@@ -38,6 +38,7 @@ mod causal_facts;
 mod clock;
 mod cmd;
 mod constants;
+mod contract_host;
 /// Domain separation prefixes for hashing.
 pub mod domain;
 mod dynamic_binding;
@@ -178,6 +179,9 @@ pub use cmd::{
     IMPORT_SUFFIX_RESULT_EDGE_TYPE, IMPORT_SUFFIX_RESULT_NODE_TYPE,
 };
 pub use constants::{blake3_empty, digest_len0_u64, POLICY_ID_NO_POLICY_V0};
+pub use contract_host::{
+    eint_op_id, eint_vars_for_op, matches_eint_op, runtime_ingress_eint_read_footprint,
+};
 pub use dynamic_binding::{
     BoundNodeRef, ClosureMemberBinding, DirectSlotBinding, DynamicBindingError,
     DynamicBindingRuntimeError, RangeClosureBindingRequest, RelationSlotBinding,

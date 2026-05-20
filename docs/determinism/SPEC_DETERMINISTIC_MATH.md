@@ -49,7 +49,7 @@ Implementations of `Eq` for floating-point types **must** be reflexive.
 An audit of `warp-core` identified the following risks:
 
 - **Hardware Transcendentals:** `F32Scalar::sin/cos` previously delegated to `f32::sin/cos`. **Risk:** High (varies across libc/hardware implementations).
-- _Status:_ Implemented deterministic LUT-backed trig in `warp_core::math::trig` (Issue #107).
+- _Status:_ Implemented deterministic LUT-backed trig in `warp_math::trig` (Issue #107).
 - **Implicit Hardware Ops:** `Add`, `Sub`, `Mul`, `Div` rely on standard `f32` ops.
 - _Risk:_ Subnormal handling (DAZ/FTZ) depends on CPU flags.
 - _Status:_ `F32Scalar::new` flushes subnormals to `+0.0` at construction and after operations.
@@ -61,7 +61,7 @@ An audit of `warp-core` identified the following risks:
 - [x] Canonicalize `-0.0` to `+0.0` (PR #123).
 - [x] Canonicalize `NaN` payloads (`F32Scalar::new`).
 - [x] Flush subnormals to `+0.0` (`F32Scalar::new`).
-- [x] Replace `sin`/`cos` with deterministic approximation (`warp_core::math::trig` LUT backend).
+- [x] Replace `sin`/`cos` with deterministic approximation (`warp_math::trig` LUT backend).
 
 ## 5. Local Validation (CI parity)
 
@@ -70,19 +70,20 @@ should run locally before proposing changes to scalar backends or transcendental
 
 ### Default lane (`det_float`)
 
-The default `warp-core` build uses the float32-backed lane (`F32Scalar`) and the deterministic
-trig backend (`warp_core::math::trig`).
+The default `warp-math` build uses the float32-backed lane (`F32Scalar`) and the deterministic
+trig backend (`warp_math::trig`). `warp-core` re-exports the math surface for
+compatibility, but deterministic math validation lives in `warp-math`.
 
-- `cargo test -p warp-core`
-- `cargo clippy -p warp-core --lib -- -D warnings -D missing_docs`
+- `cargo test -p warp-math`
+- `cargo clippy -p warp-math --lib -- -D warnings -D missing_docs`
 
 ### Fixed-point lane (`det_fixed`)
 
 `DFix64` (Q32.32) is currently feature-gated so we can evolve it without destabilizing the
 default runtime surface.
 
-- `cargo test -p warp-core --features det_fixed`
-- `cargo clippy -p warp-core --lib --features det_fixed -- -D warnings -D missing_docs`
+- `cargo test -p warp-math --features det_fixed`
+- `cargo clippy -p warp-math --lib --features det_fixed -- -D warnings -D missing_docs`
 
 ### MUSL (Linux portability lane)
 

@@ -3,7 +3,7 @@
 
 #![allow(missing_docs)]
 
-use warp_core::math::Prng;
+use warp_math::Prng;
 
 #[test]
 fn next_int_golden_regression() {

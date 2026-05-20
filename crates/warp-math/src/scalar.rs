@@ -31,16 +31,16 @@
 //!
 //! Implementation note:
 //! - `F32Scalar::{sin,cos,sin_cos}` are implemented using a deterministic
-//!   LUT-backed approximation in `warp_core::math::trig`.
+//!   LUT-backed approximation in `warp_math::trig`.
 
 use core::cmp::Ordering;
 use core::fmt;
 use core::ops::{Add, Div, Mul, Neg, Sub};
 
-use crate::math::trig;
+use crate::trig;
 
 #[cfg(feature = "det_fixed")]
-use crate::math::fixed_q32_32;
+use crate::fixed_q32_32;
 
 /// Deterministic scalar arithmetic and basic transcendentals.
 ///
@@ -387,17 +387,17 @@ impl Scalar for DFix64 {
     }
 
     fn sin(self) -> Self {
-        let (s, _) = crate::math::trig::sin_cos_f32(self.to_f32());
+        let (s, _) = crate::trig::sin_cos_f32(self.to_f32());
         Self::from_f32(s)
     }
 
     fn cos(self) -> Self {
-        let (_, c) = crate::math::trig::sin_cos_f32(self.to_f32());
+        let (_, c) = crate::trig::sin_cos_f32(self.to_f32());
         Self::from_f32(c)
     }
 
     fn sin_cos(self) -> (Self, Self) {
-        let (s, c) = crate::math::trig::sin_cos_f32(self.to_f32());
+        let (s, c) = crate::trig::sin_cos_f32(self.to_f32());
         (Self::from_f32(s), Self::from_f32(c))
     }
 

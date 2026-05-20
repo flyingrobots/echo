@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
-use warp_core::math::{Mat4, Vec3};
+use warp_math::{Mat4, Vec3};
 
 /// Axis-aligned bounding box in world coordinates.
 ///
@@ -106,7 +106,7 @@ impl Aabb {
     /// This evaluates the eight corners under the affine transform and builds a
     /// new axis-aligned box containing them. Precision: uses `f32` operations
     /// with separate multiply/add steps (no FMA) to preserve cross-platform
-    /// determinism consistent with `warp-core` math.
+    /// determinism consistent with `warp-math` math.
     #[must_use]
     pub fn transformed(&self, matrix: &Mat4) -> Self {
         let [min_x, min_y, min_z] = self.min.to_array();

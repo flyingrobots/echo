@@ -57,7 +57,7 @@ impl Timespan {
         // normalized-linear blend of rotation (nlerp), then convert to Mat4.
         let t0 = self.start.translation().to_array();
         let t1 = self.end.translation().to_array();
-        let tm = warp_core::math::Vec3::new(
+        let tm = warp_math::Vec3::new(
             0.5 * (t0[0] + t1[0]),
             0.5 * (t0[1] + t1[1]),
             0.5 * (t0[2] + t1[2]),
@@ -65,7 +65,7 @@ impl Timespan {
 
         let s0 = self.start.scale().to_array();
         let s1 = self.end.scale().to_array();
-        let sm = warp_core::math::Vec3::new(
+        let sm = warp_math::Vec3::new(
             0.5 * (s0[0] + s1[0]),
             0.5 * (s0[1] + s1[1]),
             0.5 * (s0[2] + s1[2]),
@@ -73,7 +73,7 @@ impl Timespan {
 
         let q0 = self.start.rotation().to_array();
         let q1 = self.end.rotation().to_array();
-        let qm = warp_core::math::Quat::new(
+        let qm = warp_math::Quat::new(
             0.5 * (q0[0] + q1[0]),
             0.5 * (q0[1] + q1[1]),
             0.5 * (q0[2] + q1[2]),

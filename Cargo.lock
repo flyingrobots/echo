@@ -2059,19 +2059,29 @@ dependencies = [
  "echo-runtime-schema",
  "echo-wasm-abi",
  "hex",
- "libm",
  "proptest",
  "rustc-hash 2.1.1",
  "serde",
  "serde-value",
  "thiserror 1.0.69",
+ "warp-math",
 ]
 
 [[package]]
 name = "warp-geom"
 version = "0.1.0"
 dependencies = [
- "warp-core",
+ "warp-math",
+]
+
+[[package]]
+name = "warp-math"
+version = "0.1.0"
+dependencies = [
+ "echo-wasm-abi",
+ "libm",
+ "serde",
+ "serde-value",
 ]
 
 [[package]]

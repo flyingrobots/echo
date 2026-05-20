@@ -3,6 +3,7 @@
 [workspace]
 members = [
     "crates/echo-runtime-schema",
+    "crates/warp-math",
     "crates/warp-core",
 
     "crates/warp-wasm",
@@ -49,6 +50,7 @@ echo-scene-codec = { version = "0.1.0", path = "crates/echo-scene-codec" }
 echo-scene-port = { version = "0.1.0", path = "crates/echo-scene-port" }
 echo-session-proto = { version = "0.1.1", path = "crates/echo-session-proto" }
 echo-wasm-abi = { version = "0.1.0", path = "crates/echo-wasm-abi" }
+warp-math = { version = "0.1.0", path = "crates/warp-math" }
 warp-core = { version = "0.1.1", path = "crates/warp-core" }
 ttd-browser = { version = "0.1.0", path = "crates/ttd-browser" }
 ttd-protocol-rs = { version = "0.1.0", path = "crates/ttd-protocol-rs" }

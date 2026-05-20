@@ -8,7 +8,7 @@
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap
 )]
-use warp_core::math::Mat4;
+use warp_math::Mat4;
 
 const EPS: f32 = 1e-6;
 

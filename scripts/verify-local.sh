@@ -236,6 +236,7 @@ SCRIPT_HASH="$(sha256_file "$0")"
 
 readonly FULL_CRITICAL_PREFIXES=(
   "crates/warp-core/"
+  "crates/warp-math/"
   "crates/warp-geom/"
   "crates/warp-wasm/"
   "crates/echo-wasm-abi/"
@@ -290,6 +291,7 @@ readonly FULL_BROAD_RUST_EXACT=(
 
 readonly FULL_LOCAL_PACKAGES=(
   "warp-core"
+  "warp-math"
   "warp-geom"
   "warp-wasm"
   "echo-wasm-abi"
@@ -306,6 +308,7 @@ readonly FULL_LOCAL_PACKAGES=(
 
 readonly FULL_LOCAL_TEST_PACKAGES=(
   "warp-geom"
+  "warp-math"
   "echo-graph"
   "echo-scene-port"
   "echo-scene-codec"
@@ -317,6 +320,7 @@ readonly FULL_LOCAL_TEST_PACKAGES=(
 
 readonly FULL_LOCAL_CLIPPY_CORE_PACKAGES=(
   "warp-core"
+  "warp-math"
   "warp-geom"
   "warp-wasm"
   "echo-wasm-abi"
@@ -339,12 +343,14 @@ readonly FULL_LOCAL_CLIPPY_BIN_ONLY_PACKAGES=(
 
 readonly FULL_LOCAL_RUSTDOC_PACKAGES=(
   "warp-core"
+  "warp-math"
   "warp-geom"
   "warp-wasm"
 )
 
 readonly FAST_CLIPPY_LIB_ONLY_PACKAGES=(
   "warp-core"
+  "warp-math"
   "warp-wasm"
   "ttd-browser"
   "echo-dind-harness"
@@ -365,7 +371,7 @@ FULL_SCOPE_ECHO_WASM_ABI_RUN_LIB=0
 FULL_SCOPE_ECHO_WASM_ABI_EXTRA_TESTS=()
 FULL_SCOPE_WARP_CORE_CLIPPY_TESTS=()
 FULL_SCOPE_WARP_CORE_EXTRA_TESTS=()
-FULL_SCOPE_WARP_CORE_RUN_PRNG=0
+FULL_SCOPE_WARP_MATH_RUN_PRNG=0
 
 ensure_command() {
   local cmd="$1"
@@ -1259,7 +1265,6 @@ filter_package_set_by_selection() {
 prepare_warp_core_scope() {
   FULL_SCOPE_WARP_CORE_CLIPPY_TESTS=()
   FULL_SCOPE_WARP_CORE_EXTRA_TESTS=()
-  FULL_SCOPE_WARP_CORE_RUN_PRNG=0
 
   local file
   while IFS= read -r file; do
@@ -1300,14 +1305,25 @@ prepare_warp_core_scope() {
         append_unique "playback_cursor_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
         append_unique "outputs_playback_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
         ;;
-      crates/warp-core/src/math/prng.rs)
-        FULL_SCOPE_WARP_CORE_RUN_PRNG=1
-        ;;
     esac
   done <<< "${CHANGED_FILES}"
 
   append_unique "causal_fact_publication_tests" FULL_SCOPE_WARP_CORE_CLIPPY_TESTS
   append_unique "optic_invocation_admission_tests" FULL_SCOPE_WARP_CORE_CLIPPY_TESTS
+}
+
+prepare_warp_math_scope() {
+  FULL_SCOPE_WARP_MATH_RUN_PRNG=0
+
+  local file
+  while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+    case "$file" in
+      crates/warp-math/src/prng.rs)
+        FULL_SCOPE_WARP_MATH_RUN_PRNG=1
+        ;;
+    esac
+  done <<< "${CHANGED_FILES}"
 }
 
 warp_core_feature_args_for_test() {
@@ -1449,11 +1465,14 @@ prepare_full_scope() {
   FULL_SCOPE_ECHO_WASM_ABI_RUN_LIB=0
   FULL_SCOPE_ECHO_WASM_ABI_EXTRA_TESTS=()
   FULL_SCOPE_WARP_CORE_EXTRA_TESTS=()
-  FULL_SCOPE_WARP_CORE_RUN_PRNG=0
+  FULL_SCOPE_WARP_MATH_RUN_PRNG=0
 
   if array_contains "warp-core" ${FULL_SCOPE_SELECTED_CRATES[@]+"${FULL_SCOPE_SELECTED_CRATES[@]}"}; then
     FULL_SCOPE_RUN_WARP_CORE_SMOKE=1
     prepare_warp_core_scope
+  fi
+  if array_contains "warp-math" ${FULL_SCOPE_SELECTED_CRATES[@]+"${FULL_SCOPE_SELECTED_CRATES[@]}"}; then
+    prepare_warp_math_scope
   fi
   if array_contains "warp-wasm" ${FULL_SCOPE_SELECTED_CRATES[@]+"${FULL_SCOPE_SELECTED_CRATES[@]}"}; then
     prepare_warp_wasm_scope
@@ -1556,6 +1575,9 @@ run_full_lane_tests_support() {
   mapfile -t args < <(package_args "${FULL_SCOPE_TEST_SUPPORT_PACKAGES[@]}")
   echo "[verify-local][tests-support] selected support-package tests"
   lane_cargo "full-tests-support" test "${args[@]}" --lib --tests
+  if [[ "$FULL_SCOPE_WARP_MATH_RUN_PRNG" == "1" ]]; then
+    lane_cargo "full-tests-support" test -p warp-math --features golden_prng --test prng_golden_regression
+  fi
 }
 
 run_full_lane_tests_runtime() {
@@ -1590,9 +1612,6 @@ run_full_lane_tests_warp_core() {
   for test_target in "${FULL_SCOPE_WARP_CORE_EXTRA_TESTS[@]}"; do
     run_warp_core_test_target "full-tests-warp-core" "$test_target"
   done
-  if [[ "$FULL_SCOPE_WARP_CORE_RUN_PRNG" == "1" ]]; then
-    lane_cargo "full-tests-warp-core" test -p warp-core --features golden_prng --test prng_golden_regression
-  fi
 }
 
 run_full_lane_rustdoc() {
@@ -1804,12 +1823,14 @@ run_ultra_fast_smoke() {
       mapfile -t feature_args < <(warp_core_feature_args_for_test "$warp_core_test_target")
       cargo +"$PINNED" test -p warp-core "${feature_args[@]}" --test "$warp_core_test_target"
     done
-    if [[ ${#FULL_SCOPE_WARP_CORE_EXTRA_TESTS[@]} -eq 0 && "$FULL_SCOPE_WARP_CORE_RUN_PRNG" != "1" ]]; then
+    if [[ ${#FULL_SCOPE_WARP_CORE_EXTRA_TESTS[@]} -eq 0 ]]; then
       echo "[verify-local][ultra-fast] warp-core: cargo check already covered this edit"
     fi
-    if [[ "$FULL_SCOPE_WARP_CORE_RUN_PRNG" == "1" ]]; then
-      cargo +"$PINNED" test -p warp-core --features golden_prng --test prng_golden_regression
-    fi
+  fi
+
+  if [[ "$FULL_SCOPE_WARP_MATH_RUN_PRNG" == "1" ]]; then
+    echo "[verify-local][ultra-fast] warp-math golden PRNG smoke"
+    cargo +"$PINNED" test -p warp-math --features golden_prng --test prng_golden_regression
   fi
 
   if [[ "$FULL_SCOPE_WARP_WASM_TEST_MODE" == "plain-lib" ]]; then

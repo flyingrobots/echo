@@ -4,10 +4,10 @@
 #![allow(missing_docs, clippy::float_cmp)]
 //! Integration tests for warp-geom broad-phase (AABB tree).
 
-use warp_core::math::{Quat, Vec3};
 use warp_geom::broad::aabb_tree::{AabbTree, BroadPhase};
 use warp_geom::temporal::timespan::Timespan;
 use warp_geom::types::{aabb::Aabb, transform::Transform};
+use warp_math::{Quat, Vec3};
 
 #[test]
 fn fat_aabb_covers_start_and_end_poses() {
@@ -54,33 +54,27 @@ fn broad_phase_pair_order_is_deterministic() {
 fn fat_aabb_covers_mid_rotation_with_offset() {
     use core::f32::consts::FRAC_PI_2;
     // Local shape: rod from x=0..2 (center at (1,0,0)) with small thickness
-    let local =
-        Aabb::from_center_half_extents(warp_core::math::Vec3::new(1.0, 0.0, 0.0), 1.0, 0.1, 0.1);
+    let local = Aabb::from_center_half_extents(warp_math::Vec3::new(1.0, 0.0, 0.0), 1.0, 0.1, 0.1);
 
     let t0 = Transform::new(
-        warp_core::math::Vec3::new(0.0, 0.0, 0.0),
-        warp_core::math::Quat::identity(),
-        warp_core::math::Vec3::new(1.0, 1.0, 1.0),
+        warp_math::Vec3::new(0.0, 0.0, 0.0),
+        warp_math::Quat::identity(),
+        warp_math::Vec3::new(1.0, 1.0, 1.0),
     );
     let t1 = Transform::new(
-        warp_core::math::Vec3::new(0.0, 0.0, 0.0),
-        warp_core::math::Quat::from_axis_angle(
-            warp_core::math::Vec3::new(0.0, 0.0, 1.0),
-            FRAC_PI_2,
-        ),
-        warp_core::math::Vec3::new(1.0, 1.0, 1.0),
+        warp_math::Vec3::new(0.0, 0.0, 0.0),
+        warp_math::Quat::from_axis_angle(warp_math::Vec3::new(0.0, 0.0, 1.0), FRAC_PI_2),
+        warp_math::Vec3::new(1.0, 1.0, 1.0),
     );
     let span = Timespan::new(t0, t1);
 
     // Compute mid pose explicitly (45°); this can protrude beyond both endpoints.
-    let mid_rot = warp_core::math::Quat::from_axis_angle(
-        warp_core::math::Vec3::new(0.0, 0.0, 1.0),
-        FRAC_PI_2 * 0.5,
-    );
+    let mid_rot =
+        warp_math::Quat::from_axis_angle(warp_math::Vec3::new(0.0, 0.0, 1.0), FRAC_PI_2 * 0.5);
     let mid = Transform::new(
-        warp_core::math::Vec3::new(0.0, 0.0, 0.0),
+        warp_math::Vec3::new(0.0, 0.0, 0.0),
         mid_rot,
-        warp_core::math::Vec3::new(1.0, 1.0, 1.0),
+        warp_math::Vec3::new(1.0, 1.0, 1.0),
     );
     let mid_aabb = local.transformed(&mid.to_mat4());
 

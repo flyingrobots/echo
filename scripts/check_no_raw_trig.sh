@@ -9,20 +9,20 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 # Policy: runtime math modules must not call platform/libm transcendentals
-# directly. Trig should flow through `warp_core::math::trig` and be surfaced via
+# directly. Trig should flow through `warp_math::trig` and be surfaced via
 # `F32Scalar` (or future fixed-point scalar types).
 #
-# We enforce this narrowly within `warp-core`'s math module, excluding:
+# We enforce this narrowly within `warp-math`, excluding:
 # - scalar.rs: the sanctioned wrapper surface
 # - trig.rs / trig_lut.rs: the deterministic backend + data
-target_dir="crates/warp-core/src/math"
+target_dir="crates/warp-math/src"
 # Match method calls like `.sin(`, allowing optional whitespace before the `(`.
 # Use explicit character classes to keep the regex compatible across `rg` and `grep`.
 pattern='[.](sin|cos|sin_cos)[[:space:]]*[(]'
 
 if [[ ! -d "$target_dir" ]]; then
   echo "Error: determinism guard target directory not found: $target_dir" >&2
-  echo "If the warp-core math module moved, update scripts/check_no_raw_trig.sh accordingly." >&2
+  echo "If the warp-math source moved, update scripts/check_no_raw_trig.sh accordingly." >&2
   exit 1
 fi
 
@@ -72,7 +72,7 @@ else
 fi
 
 if [[ -n "$matches" ]]; then
-  echo "Error: raw trig calls found in warp-core math module (use math::trig or F32Scalar wrappers):" >&2
+  echo "Error: raw trig calls found in warp-math sources (use math::trig or F32Scalar wrappers):" >&2
   echo "$matches" >&2
   exit 1
 fi

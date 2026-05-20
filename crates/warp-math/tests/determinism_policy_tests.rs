@@ -3,8 +3,8 @@
 
 #![allow(missing_docs)]
 
-use warp_core::math::scalar::F32Scalar;
-use warp_core::math::Scalar;
+use warp_math::scalar::F32Scalar;
+use warp_math::Scalar;
 
 // NOTE: These tests describe the intended strict determinism policy.
 // They currently fail because F32Scalar only canonicalizes -0.0.

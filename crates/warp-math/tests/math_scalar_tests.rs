@@ -2,8 +2,8 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
 #![allow(missing_docs, clippy::float_cmp)]
-use warp_core::math::scalar::F32Scalar;
-use warp_core::math::Scalar;
+use warp_math::scalar::F32Scalar;
+use warp_math::Scalar;
 
 #[test]
 fn test_f32_basics() {

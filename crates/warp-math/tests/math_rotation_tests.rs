@@ -3,7 +3,7 @@
 
 #![allow(missing_docs)]
 use core::f32::consts::FRAC_PI_2;
-use warp_core::math::{Mat4, Vec3};
+use warp_math::{Mat4, Vec3};
 
 fn approx_eq3(a: [f32; 3], b: [f32; 3]) {
     // Deterministic trig backend is LUT/interpolation-based, so allow a small

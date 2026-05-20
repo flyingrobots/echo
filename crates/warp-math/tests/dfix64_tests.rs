@@ -4,8 +4,8 @@
 #![allow(missing_docs, clippy::float_cmp)]
 #![cfg(feature = "det_fixed")]
 
-use warp_core::math::scalar::DFix64;
-use warp_core::math::Scalar;
+use warp_math::scalar::DFix64;
+use warp_math::Scalar;
 
 #[test]
 fn dfix64_constants_and_raw_encoding() {

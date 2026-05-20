@@ -180,10 +180,10 @@ node scripts/dind-run-suite.mjs --mode run
 scripts/torture-100-reruns.sh --runs 100
 
 # 4. Verify trig oracle golden vectors
-cargo test -p warp-core --test trig_golden_vectors
+cargo test -p warp-math --test trig_golden_vectors
 
 # 5. Verify PRNG golden regression
-cargo test -p warp-core --features golden_prng --test prng_golden_regression
+cargo test -p warp-math --features golden_prng --test prng_golden_regression
 ```
 
 ## Limits and Caveats

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
-use crate::math::{trig, Mat4, Vec3, EPSILON};
+use crate::{trig, Mat4, Vec3, EPSILON};
 
 /// Quaternion stored as `(x, y, z, w)` with deterministic float32 rounding.
 ///
@@ -47,7 +47,7 @@ impl Quat {
         if len_sq <= EPSILON * EPSILON {
             return Self::identity();
         }
-        let len = crate::math::det_sqrt_f32(len_sq);
+        let len = crate::det_sqrt_f32(len_sq);
         let norm_axis = axis.scale(1.0 / len);
         let half = angle * 0.5;
         let (sin_half, cos_half) = trig::sin_cos_f32(half);
@@ -76,7 +76,7 @@ impl Quat {
     /// # Examples
     /// ```
     /// use core::f32::consts::FRAC_PI_2;
-    /// use warp_core::math::{Quat, Vec3};
+    /// use warp_math::{Quat, Vec3};
     /// // Compose: 90° pitch around X, then 90° yaw around Y
     /// let pitch = Quat::from_axis_angle(Vec3::from([1.0, 0.0, 0.0]), FRAC_PI_2);
     /// let yaw = Quat::from_axis_angle(Vec3::from([0.0, 1.0, 0.0]), FRAC_PI_2);
@@ -111,7 +111,7 @@ impl Quat {
     /// magnitude is ≤ `EPSILON`, returns the identity quaternion to avoid
     /// division by near‑zero (a degenerate quaternion cannot represent a rotation).
     pub fn normalize(&self) -> Self {
-        let len = crate::math::det_sqrt_f32(
+        let len = crate::det_sqrt_f32(
             self.component(0) * self.component(0)
                 + self.component(1) * self.component(1)
                 + self.component(2) * self.component(2)

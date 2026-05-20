@@ -111,6 +111,15 @@ pub enum RuntimeError {
         /// The content-addressed ingress id that was already known to runtime.
         ingress_id: Hash,
     },
+    /// Scheduler work is blocked by an active runtime-wide fault.
+    #[error("scheduler runtime fault is active: {0:?}")]
+    SchedulerRuntimeFaultActive(SchedulerFaultId),
+    /// Attempted to resolve a scheduler fault that is not recorded.
+    #[error("unknown scheduler fault: {0:?}")]
+    UnknownSchedulerFault(SchedulerFaultId),
+    /// Attempted to resolve a scheduler fault that is no longer active.
+    #[error("scheduler fault is already resolved: {0:?}")]
+    SchedulerFaultAlreadyResolved(SchedulerFaultId),
 }
 
 /// Echo-owned intake/correlation generation for witnessed intent submissions.
@@ -181,6 +190,111 @@ impl TicketedRuntimeIngressAuthority {
     /// The caller must prove it is executing inside Echo's trusted runtime
     /// owner, test harness, or equivalent host-controlled boundary.
     #[cfg(feature = "host_test")]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn assume_runtime_owner() -> Self {
+        Self { _private: () }
+    }
+}
+
+/// Content-addressed identifier for a scheduler run attempt.
+///
+/// A run id names a scheduler-owned attempt. It is not a global tick, not a
+/// worldline tick, and not wall-clock time.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SchedulerRunId(Hash);
+
+impl SchedulerRunId {
+    /// Builds a scheduler run id from canonical bytes.
+    #[must_use]
+    pub const fn from_bytes(bytes: Hash) -> Self {
+        Self(bytes)
+    }
+
+    /// Returns the raw scheduler run id bytes.
+    #[must_use]
+    pub const fn as_bytes(&self) -> &Hash {
+        &self.0
+    }
+}
+
+/// Content-addressed identifier for scheduler fault evidence.
+///
+/// Fault ids name runtime safety evidence. They are not application intent ids,
+/// admission tickets, or tick receipts.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SchedulerFaultId(Hash);
+
+impl SchedulerFaultId {
+    /// Builds a scheduler fault id from canonical bytes.
+    #[must_use]
+    pub const fn from_bytes(bytes: Hash) -> Self {
+        Self(bytes)
+    }
+
+    /// Returns the raw scheduler fault id bytes.
+    #[must_use]
+    pub const fn as_bytes(&self) -> &Hash {
+        &self.0
+    }
+}
+
+/// Scope quarantined by scheduler fault evidence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SchedulerFaultScope {
+    /// One writer head is the scoped fault culprit.
+    Head(WriterHeadKey),
+    /// The scheduler/runtime as a whole is unsafe to advance.
+    Runtime,
+}
+
+/// Lifecycle status for scheduler fault evidence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SchedulerFaultStatus {
+    /// The fault is actively blocking its scope.
+    Active,
+    /// Trusted runtime recovery resolved the fault.
+    Resolved {
+        /// Runtime-owner recovery event or control digest.
+        recovery_id: Hash,
+    },
+}
+
+/// Durable runtime safety evidence recorded after an internal scheduler fault.
+///
+/// This is control-plane posture. It is not application history, not an undo,
+/// not a tick receipt, and not a lawful domain rejection.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SchedulerFaultRecord {
+    /// Content-addressed fault id.
+    pub fault_id: SchedulerFaultId,
+    /// Scheduler-owned run attempt that produced the fault.
+    pub run_id: SchedulerRunId,
+    /// Minimal safely isolated fault scope.
+    pub scope: SchedulerFaultScope,
+    /// Deterministic digest of the internal fault cause.
+    pub cause_digest: Hash,
+    /// Active/resolved fault lifecycle posture.
+    pub status: SchedulerFaultStatus,
+}
+
+/// Trusted authority token for resolving scheduler fault quarantine.
+///
+/// Application-facing code should not hold this token. Fault recovery is a
+/// runtime-owner action because it changes scheduler safety posture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SchedulerFaultRecoveryAuthority {
+    _private: (),
+}
+
+impl SchedulerFaultRecoveryAuthority {
+    /// Assumes trusted runtime-owner authority for resolving scheduler faults.
+    ///
+    /// The caller must prove it is executing inside Echo's trusted runtime
+    /// owner, test harness, or equivalent host-controlled boundary.
+    #[cfg(any(test, feature = "host_test"))]
     #[doc(hidden)]
     #[must_use]
     pub fn assume_runtime_owner() -> Self {
@@ -404,6 +518,13 @@ pub struct WorldlineRuntime {
     receipt_correlation_by_submission: BTreeMap<Hash, Hash>,
     /// Deterministic lookup from admission ticket digest to receipt correlation.
     receipt_correlation_by_ticket: BTreeMap<Hash, Hash>,
+    /// Scheduler fault evidence keyed by content-addressed fault id.
+    scheduler_faults: BTreeMap<SchedulerFaultId, SchedulerFaultRecord>,
+    /// Active scoped scheduler faults by writer head.
+    faulted_heads: BTreeMap<WriterHeadKey, SchedulerFaultId>,
+    /// Active runtime-wide scheduler fault, if the scheduler cannot safely
+    /// isolate the fault to one head.
+    runtime_fault: Option<SchedulerFaultId>,
     /// Registry of live speculative strands attached to the runtime.
     strands: StrandRegistry,
 }
@@ -449,6 +570,12 @@ impl WorldlineRuntime {
     /// Rebuilds the runnable set from the current head registry.
     pub fn refresh_runnable(&mut self) {
         self.runnable.rebuild(&self.heads);
+        if self.runtime_fault.is_some() {
+            self.runnable.clear();
+        } else {
+            self.runnable
+                .retain(|key| !self.faulted_heads.contains_key(key));
+        }
     }
 
     fn checkpoint_for(&self, keys: &[WriterHeadKey]) -> Result<RuntimeCheckpoint, RuntimeError> {
@@ -620,6 +747,94 @@ impl WorldlineRuntime {
     #[must_use]
     pub fn receipt_correlation_count(&self) -> usize {
         self.receipt_correlations_by_ticketed_ingress.len()
+    }
+
+    /// Returns scheduler fault evidence by fault id.
+    #[must_use]
+    pub fn scheduler_fault(&self, fault_id: &SchedulerFaultId) -> Option<&SchedulerFaultRecord> {
+        self.scheduler_faults.get(fault_id)
+    }
+
+    /// Returns active scheduler fault evidence for a writer head.
+    #[must_use]
+    pub fn scheduler_fault_for_head(
+        &self,
+        head_key: &WriterHeadKey,
+    ) -> Option<&SchedulerFaultRecord> {
+        self.faulted_heads
+            .get(head_key)
+            .and_then(|fault_id| self.scheduler_faults.get(fault_id))
+    }
+
+    /// Returns the active runtime-wide scheduler fault, if one exists.
+    #[must_use]
+    pub fn scheduler_runtime_fault(&self) -> Option<&SchedulerFaultRecord> {
+        self.runtime_fault
+            .as_ref()
+            .and_then(|fault_id| self.scheduler_faults.get(fault_id))
+    }
+
+    /// Iterates scheduler fault evidence in deterministic fault-id order.
+    pub fn scheduler_faults(&self) -> impl Iterator<Item = &SchedulerFaultRecord> {
+        self.scheduler_faults.values()
+    }
+
+    /// Returns the number of scheduler fault evidence records.
+    #[must_use]
+    pub fn scheduler_fault_count(&self) -> usize {
+        self.scheduler_faults.len()
+    }
+
+    /// Returns `true` when a writer head is actively fault-quarantined.
+    #[must_use]
+    pub fn is_head_faulted(&self, head_key: &WriterHeadKey) -> bool {
+        self.faulted_heads.contains_key(head_key)
+    }
+
+    /// Returns `true` when the runtime is globally faulted.
+    #[must_use]
+    pub fn is_runtime_faulted(&self) -> bool {
+        self.runtime_fault.is_some()
+    }
+
+    /// Resolves active scheduler fault quarantine through trusted runtime authority.
+    ///
+    /// Generic head eligibility changes do not clear fault quarantine. Recovery
+    /// must cite the fault being resolved and pass through this runtime-owner
+    /// boundary.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the fault id is unknown or already resolved.
+    pub fn resolve_scheduler_fault(
+        &mut self,
+        _authority: &SchedulerFaultRecoveryAuthority,
+        fault_id: SchedulerFaultId,
+        recovery_id: Hash,
+    ) -> Result<(), RuntimeError> {
+        let record = self
+            .scheduler_faults
+            .get_mut(&fault_id)
+            .ok_or(RuntimeError::UnknownSchedulerFault(fault_id))?;
+        if !matches!(record.status, SchedulerFaultStatus::Active) {
+            return Err(RuntimeError::SchedulerFaultAlreadyResolved(fault_id));
+        }
+
+        match record.scope {
+            SchedulerFaultScope::Head(head_key) => {
+                if self.faulted_heads.get(&head_key) == Some(&fault_id) {
+                    self.faulted_heads.remove(&head_key);
+                }
+            }
+            SchedulerFaultScope::Runtime => {
+                if self.runtime_fault == Some(fault_id) {
+                    self.runtime_fault = None;
+                }
+            }
+        }
+        record.status = SchedulerFaultStatus::Resolved { recovery_id };
+        self.refresh_runnable();
+        Ok(())
     }
 
     /// Observes the current scheduler-owned outcome posture for a submission.
@@ -1167,6 +1382,53 @@ impl WorldlineRuntime {
         }
     }
 
+    fn record_scheduler_head_fault(
+        &mut self,
+        run_id: SchedulerRunId,
+        head_key: WriterHeadKey,
+        cause_digest: Hash,
+    ) -> SchedulerFaultId {
+        if let Some(existing) = self.faulted_heads.get(&head_key).copied() {
+            return existing;
+        }
+        let scope = SchedulerFaultScope::Head(head_key);
+        let fault_id = derive_scheduler_fault_id(run_id, scope, cause_digest);
+        let record = SchedulerFaultRecord {
+            fault_id,
+            run_id,
+            scope,
+            cause_digest,
+            status: SchedulerFaultStatus::Active,
+        };
+        self.scheduler_faults.insert(fault_id, record);
+        self.faulted_heads.insert(head_key, fault_id);
+        self.refresh_runnable();
+        fault_id
+    }
+
+    fn record_scheduler_runtime_fault(
+        &mut self,
+        run_id: SchedulerRunId,
+        cause_digest: Hash,
+    ) -> SchedulerFaultId {
+        if let Some(existing) = self.runtime_fault {
+            return existing;
+        }
+        let scope = SchedulerFaultScope::Runtime;
+        let fault_id = derive_scheduler_fault_id(run_id, scope, cause_digest);
+        let record = SchedulerFaultRecord {
+            fault_id,
+            run_id,
+            scope,
+            cause_digest,
+            status: SchedulerFaultStatus::Active,
+        };
+        self.scheduler_faults.insert(fault_id, record);
+        self.runtime_fault = Some(fault_id);
+        self.refresh_runnable();
+        fault_id
+    }
+
     fn record_receipt_correlations(
         &mut self,
         admitted: &[IngressEnvelope],
@@ -1285,6 +1547,144 @@ fn derive_ticketed_runtime_ingress_id(
     hasher.finalize().into()
 }
 
+fn derive_scheduler_run_id(next_global_tick: GlobalTick, keys: &[WriterHeadKey]) -> SchedulerRunId {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo.scheduler-run");
+    hasher.update(&next_global_tick.as_u64().to_le_bytes());
+    hasher.update(&(keys.len() as u64).to_le_bytes());
+    for key in keys {
+        hasher.update(key.worldline_id.as_bytes());
+        hasher.update(key.head_id.as_bytes());
+    }
+    SchedulerRunId::from_bytes(hasher.finalize().into())
+}
+
+fn derive_scheduler_fault_id(
+    run_id: SchedulerRunId,
+    scope: SchedulerFaultScope,
+    cause_digest: Hash,
+) -> SchedulerFaultId {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo.scheduler-fault");
+    hasher.update(run_id.as_bytes());
+    match scope {
+        SchedulerFaultScope::Head(head_key) => {
+            hasher.update(b"head");
+            hasher.update(head_key.worldline_id.as_bytes());
+            hasher.update(head_key.head_id.as_bytes());
+        }
+        SchedulerFaultScope::Runtime => {
+            hasher.update(b"runtime");
+        }
+    }
+    hasher.update(&cause_digest);
+    SchedulerFaultId::from_bytes(hasher.finalize().into())
+}
+
+fn scheduler_fault_scope_for_error(
+    head_key: WriterHeadKey,
+    err: &RuntimeError,
+) -> SchedulerFaultScope {
+    match err {
+        RuntimeError::Engine(_) | RuntimeError::FrontierTickOverflow(_) => {
+            SchedulerFaultScope::Head(head_key)
+        }
+        RuntimeError::Provenance(_)
+        | RuntimeError::UnknownHead(_)
+        | RuntimeError::UnknownWorldline(_)
+        | RuntimeError::GlobalTickOverflow
+        | RuntimeError::SchedulerRuntimeFaultActive(_)
+        | RuntimeError::UnknownSchedulerFault(_)
+        | RuntimeError::SchedulerFaultAlreadyResolved(_) => SchedulerFaultScope::Runtime,
+        RuntimeError::DuplicateWorldline(_)
+        | RuntimeError::DuplicateHead(_)
+        | RuntimeError::DuplicateDefaultWriter(_)
+        | RuntimeError::DuplicateInboxAddress { .. }
+        | RuntimeError::MissingDefaultWriter(_)
+        | RuntimeError::MissingInboxAddress { .. }
+        | RuntimeError::RejectedByPolicy(_)
+        | RuntimeError::Replay(_)
+        | RuntimeError::Strand(_)
+        | RuntimeError::IntentSubmissionGenerationOverflow
+        | RuntimeError::UnknownIntentSubmission(_)
+        | RuntimeError::TicketedIngressSubmissionMismatch(_)
+        | RuntimeError::TicketedIngressAlreadyStaged(_)
+        | RuntimeError::TicketedIngressDuplicateRuntimeIngress { .. } => {
+            SchedulerFaultScope::Runtime
+        }
+    }
+}
+
+fn scheduler_error_cause_digest(err: &RuntimeError) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo.scheduler-fault-cause.error");
+    match err {
+        RuntimeError::Engine(engine_err) => {
+            hasher.update(b"engine");
+            match engine_err {
+                EngineError::UnknownTx => {
+                    hasher.update(b"unknown-tx");
+                }
+                EngineError::UnknownRule(rule) => {
+                    hasher.update(b"unknown-rule");
+                    hasher.update(rule.as_bytes());
+                }
+                EngineError::DuplicateRuleName(rule) => {
+                    hasher.update(b"duplicate-rule-name");
+                    hasher.update(rule.as_bytes());
+                }
+                EngineError::DuplicateRuleId(rule_id) => {
+                    hasher.update(b"duplicate-rule-id");
+                    hasher.update(rule_id);
+                }
+                EngineError::MissingJoinFn => {
+                    hasher.update(b"missing-join-fn");
+                }
+                EngineError::InternalCorruption(message) => {
+                    hasher.update(b"internal-corruption");
+                    hasher.update(message.as_bytes());
+                }
+                EngineError::UnknownWarp(warp_id) => {
+                    hasher.update(b"unknown-warp");
+                    hasher.update(&warp_id.0);
+                }
+                EngineError::InvalidTickIndex(index, len) => {
+                    hasher.update(b"invalid-tick-index");
+                    hasher.update(&(*index as u64).to_le_bytes());
+                    hasher.update(&(*len as u64).to_le_bytes());
+                }
+            }
+        }
+        RuntimeError::FrontierTickOverflow(worldline_id) => {
+            hasher.update(b"frontier-tick-overflow");
+            hasher.update(worldline_id.as_bytes());
+        }
+        RuntimeError::GlobalTickOverflow => {
+            hasher.update(b"global-tick-overflow");
+        }
+        other => {
+            hasher.update(b"runtime-error-debug");
+            hasher.update(format!("{other:?}").as_bytes());
+        }
+    }
+    hasher.finalize().into()
+}
+
+fn scheduler_panic_cause_digest(payload: &(dyn std::any::Any + Send)) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo.scheduler-fault-cause.panic");
+    if let Some(message) = payload.downcast_ref::<&str>() {
+        hasher.update(b"str");
+        hasher.update(message.as_bytes());
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        hasher.update(b"string");
+        hasher.update(message.as_bytes());
+    } else {
+        hasher.update(b"opaque");
+    }
+    hasher.finalize().into()
+}
+
 // =============================================================================
 // StepRecord
 // =============================================================================
@@ -1337,14 +1737,22 @@ impl SchedulerCoordinator {
         provenance: &mut ProvenanceService,
         engine: &mut Engine,
     ) -> Result<Vec<StepRecord>, RuntimeError> {
-        let next_global_tick = runtime
-            .global_tick
-            .checked_increment()
-            .ok_or(RuntimeError::GlobalTickOverflow)?;
+        if let Some(fault_id) = runtime.runtime_fault {
+            return Err(RuntimeError::SchedulerRuntimeFaultActive(fault_id));
+        }
         runtime.refresh_runnable();
 
         let mut records = Vec::new();
         let keys: Vec<WriterHeadKey> = runtime.runnable.iter().copied().collect();
+        let next_global_tick = if let Some(next) = runtime.global_tick.checked_increment() {
+            next
+        } else {
+            let run_id = derive_scheduler_run_id(runtime.global_tick, &keys);
+            let cause_digest = scheduler_error_cause_digest(&RuntimeError::GlobalTickOverflow);
+            runtime.record_scheduler_runtime_fault(run_id, cause_digest);
+            return Err(RuntimeError::GlobalTickOverflow);
+        };
+        let run_id = derive_scheduler_run_id(next_global_tick, &keys);
 
         for key in &keys {
             let head = runtime
@@ -1360,7 +1768,10 @@ impl SchedulerCoordinator {
                 .get(&key.worldline_id)
                 .ok_or(RuntimeError::UnknownWorldline(key.worldline_id))?;
             if frontier.frontier_tick() == WorldlineTick::MAX {
-                return Err(RuntimeError::FrontierTickOverflow(key.worldline_id));
+                let err = RuntimeError::FrontierTickOverflow(key.worldline_id);
+                let cause_digest = scheduler_error_cause_digest(&err);
+                runtime.record_scheduler_head_fault(run_id, *key, cause_digest);
+                return Err(err);
             }
         }
 
@@ -1479,15 +1890,27 @@ impl SchedulerCoordinator {
             let record = match outcome {
                 Ok(Ok(record)) => record,
                 Ok(Err(err)) => {
+                    let scope = scheduler_fault_scope_for_error(*key, &err);
+                    let cause_digest = scheduler_error_cause_digest(&err);
                     runtime.rollback_receipt_correlations(&mut receipt_correlation_rollback);
                     runtime.restore(runtime_before);
                     provenance.restore(&provenance_before);
+                    match scope {
+                        SchedulerFaultScope::Head(head_key) => {
+                            runtime.record_scheduler_head_fault(run_id, head_key, cause_digest);
+                        }
+                        SchedulerFaultScope::Runtime => {
+                            runtime.record_scheduler_runtime_fault(run_id, cause_digest);
+                        }
+                    }
                     return Err(err);
                 }
                 Err(payload) => {
+                    let cause_digest = scheduler_panic_cause_digest(payload.as_ref());
                     runtime.rollback_receipt_correlations(&mut receipt_correlation_rollback);
                     runtime.restore(runtime_before);
                     provenance.restore(&provenance_before);
+                    runtime.record_scheduler_runtime_fault(run_id, cause_digest);
                     resume_unwind(payload);
                 }
             };
@@ -1505,7 +1928,13 @@ impl SchedulerCoordinator {
         runtime
             .heads
             .iter()
-            .filter_map(|(key, head)| (head.is_admitted() && !head.is_paused()).then_some(*key))
+            .filter_map(|(key, head)| {
+                (head.is_admitted()
+                    && !head.is_paused()
+                    && !runtime.is_runtime_faulted()
+                    && !runtime.is_head_faulted(key))
+                .then_some(*key)
+            })
             .collect()
     }
 }
@@ -1850,6 +2279,34 @@ mod tests {
         }
     }
 
+    fn test_rule_id(rule_name: &str) -> Hash {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"echo.coordinator.test-rule");
+        hasher.update(rule_name.as_bytes());
+        hasher.finalize().into()
+    }
+
+    fn shared_footprint_runtime_rule(rule_name: &'static str) -> RewriteRule {
+        RewriteRule {
+            id: test_rule_id(rule_name),
+            name: rule_name,
+            left: PatternGraph { nodes: vec![] },
+            matcher: |_view, _scope| true,
+            executor: |_view, _scope, _delta| {},
+            compute_footprint: |view, _scope| {
+                let mut footprint = crate::Footprint::default();
+                footprint
+                    .n_write
+                    .insert_with_warp(view.warp_id(), make_node_id("shared-footprint"));
+                footprint.factor_mask = 1;
+                footprint
+            },
+            factor_mask: 0,
+            conflict_policy: ConflictPolicy::Abort,
+            join_fn: None,
+        }
+    }
+
     #[allow(clippy::panic)]
     fn panic_runtime_rule(rule_name: &'static str) -> RewriteRule {
         RewriteRule {
@@ -1863,6 +2320,66 @@ mod tests {
             conflict_policy: ConflictPolicy::Abort,
             join_fn: None,
         }
+    }
+
+    #[test]
+    fn lawful_rejection_does_not_fault_head() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        engine
+            .register_rule(shared_footprint_runtime_rule("cmd/shared-footprint"))
+            .unwrap();
+        let worldline_id = wl(1);
+        runtime
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        let head_key = register_head(
+            &mut runtime,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let kind = make_intent_kind("test");
+        runtime
+            .ingest(IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                kind,
+                b"conflict-a".to_vec(),
+            ))
+            .unwrap();
+        runtime
+            .ingest(IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                kind,
+                b"conflict-b".to_vec(),
+            ))
+            .unwrap();
+
+        let mut provenance = mirrored_provenance(&runtime);
+        let records =
+            SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].head_key, head_key);
+        assert_eq!(runtime.scheduler_fault_count(), 0);
+        assert!(runtime.scheduler_fault_for_head(&head_key).is_none());
+        assert!(runtime.scheduler_runtime_fault().is_none());
+        let (_, receipt, _) = runtime
+            .worldlines
+            .get(&worldline_id)
+            .unwrap()
+            .state()
+            .tick_history()
+            .last()
+            .unwrap();
+        assert!(receipt.entries().iter().any(|entry| {
+            entry.disposition
+                == crate::receipt::TickReceiptDisposition::Rejected(
+                    crate::receipt::TickReceiptRejection::FootprintConflict,
+                )
+        }));
     }
 
     #[test]
@@ -3091,6 +3608,215 @@ mod tests {
     }
 
     #[test]
+    fn failed_later_head_rolls_back_attempt_and_faults_only_failing_head() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        let worldline_a = wl(1);
+        let worldline_b = wl(2);
+        runtime
+            .register_worldline(worldline_a, WorldlineState::empty())
+            .unwrap();
+        runtime
+            .register_worldline(worldline_b, WorldlineState::empty())
+            .unwrap();
+        let head_a = register_head(
+            &mut runtime,
+            worldline_a,
+            "default-a",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let head_b = register_head(
+            &mut runtime,
+            worldline_b,
+            "default-b",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let env_a = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter {
+                worldline_id: worldline_a,
+            },
+            make_intent_kind("test"),
+            b"commit-a".to_vec(),
+        );
+        let env_b = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter {
+                worldline_id: worldline_b,
+            },
+            make_intent_kind("test"),
+            b"commit-b".to_vec(),
+        );
+        let env_a_ingress_id = env_a.ingress_id();
+        runtime.ingest(env_a).unwrap();
+        runtime.ingest(env_b).unwrap();
+
+        {
+            let frontier = runtime.worldlines.frontier_mut(&worldline_b).unwrap();
+            let broken_root = frontier.state.root.warp_id;
+            assert!(frontier.state.warp_state.delete_instance(&broken_root));
+        }
+
+        let mut provenance = mirrored_provenance(&runtime);
+        let err = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine)
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            RuntimeError::Engine(EngineError::UnknownWarp(_))
+        ));
+
+        assert_eq!(runtime.global_tick(), gt(0));
+        assert_eq!(provenance.len(worldline_a).unwrap(), 0);
+        assert_eq!(provenance.len(worldline_b).unwrap(), 0);
+        assert!(runtime_store(&runtime, worldline_a)
+            .node(&crate::NodeId(env_a_ingress_id))
+            .is_none());
+        assert!(
+            runtime.scheduler_fault_for_head(&head_a).is_none(),
+            "rollback collateral must not fault the earlier successful head"
+        );
+        let fault = runtime
+            .scheduler_fault_for_head(&head_b)
+            .expect("failing head should be quarantined");
+        assert_eq!(fault.scope, SchedulerFaultScope::Head(head_b));
+        assert_eq!(fault.status, SchedulerFaultStatus::Active);
+        assert!(runtime.scheduler_runtime_fault().is_none());
+    }
+
+    #[test]
+    fn faulted_head_is_skipped_and_unrelated_head_continues_on_next_tick() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        let worldline_a = wl(1);
+        let worldline_b = wl(2);
+        runtime
+            .register_worldline(worldline_a, WorldlineState::empty())
+            .unwrap();
+        runtime
+            .register_worldline(worldline_b, WorldlineState::empty())
+            .unwrap();
+        let head_a = register_head(
+            &mut runtime,
+            worldline_a,
+            "default-a",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let head_b = register_head(
+            &mut runtime,
+            worldline_b,
+            "default-b",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        runtime
+            .ingest(IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter {
+                    worldline_id: worldline_a,
+                },
+                make_intent_kind("test"),
+                b"commit-a".to_vec(),
+            ))
+            .unwrap();
+        runtime
+            .ingest(IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter {
+                    worldline_id: worldline_b,
+                },
+                make_intent_kind("test"),
+                b"commit-b".to_vec(),
+            ))
+            .unwrap();
+
+        {
+            let frontier = runtime.worldlines.frontier_mut(&worldline_b).unwrap();
+            let broken_root = frontier.state.root.warp_id;
+            assert!(frontier.state.warp_state.delete_instance(&broken_root));
+        }
+
+        let mut provenance = mirrored_provenance(&runtime);
+        let err = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine)
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            RuntimeError::Engine(EngineError::UnknownWarp(_))
+        ));
+        assert!(runtime.scheduler_fault_for_head(&head_b).is_some());
+
+        let records =
+            SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].head_key, head_a);
+        assert_eq!(runtime.global_tick(), gt(1));
+        assert_eq!(provenance.len(worldline_a).unwrap(), 1);
+        assert_eq!(provenance.len(worldline_b).unwrap(), 0);
+        assert_eq!(
+            runtime.heads.get(&head_b).unwrap().inbox().pending_count(),
+            1,
+            "faulted head keeps pending ingress but is not retried"
+        );
+        assert!(runtime.scheduler_fault_for_head(&head_b).is_some());
+    }
+
+    #[test]
+    fn trusted_recovery_is_required_to_resume_faulted_head() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        let worldline_id = wl(1);
+        runtime
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        let head_key = register_head(
+            &mut runtime,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        runtime
+            .ingest(IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind("test"),
+                b"commit".to_vec(),
+            ))
+            .unwrap();
+        runtime
+            .worldlines
+            .frontier_mut(&worldline_id)
+            .unwrap()
+            .frontier_tick = WorldlineTick::MAX;
+
+        let mut provenance = mirrored_provenance(&runtime);
+        let err = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine)
+            .unwrap_err();
+        assert!(matches!(err, RuntimeError::FrontierTickOverflow(id) if id == worldline_id));
+        let fault_id = runtime
+            .scheduler_fault_for_head(&head_key)
+            .expect("overflowing head should be faulted")
+            .fault_id;
+
+        runtime
+            .set_head_eligibility(head_key, HeadEligibility::Admitted)
+            .unwrap();
+        assert!(
+            runtime.scheduler_fault_for_head(&head_key).is_some(),
+            "generic eligibility changes must not clear fault quarantine"
+        );
+
+        let authority = SchedulerFaultRecoveryAuthority::assume_runtime_owner();
+        runtime
+            .resolve_scheduler_fault(&authority, fault_id, [9; 32])
+            .unwrap();
+        assert!(runtime.scheduler_fault_for_head(&head_key).is_none());
+    }
+
+    #[test]
     fn super_tick_restores_runtime_before_resuming_a_later_head_panic() {
         let mut runtime = WorldlineRuntime::new();
         let mut engine = empty_engine();
@@ -3183,6 +3909,89 @@ mod tests {
                 .node(&crate::NodeId(env_a_ingress_id))
                 .is_none(),
             "panic rollback must discard earlier runtime ingress materialization"
+        );
+        assert_eq!(provenance.len(worldline_a).unwrap(), 0);
+        assert_eq!(provenance.len(worldline_b).unwrap(), 0);
+    }
+
+    #[test]
+    fn runtime_fault_blocks_all_scheduler_work_when_fault_is_unscoped() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        let worldline_a = wl(1);
+        let worldline_b = wl(2);
+        runtime
+            .register_worldline(worldline_a, WorldlineState::empty())
+            .unwrap();
+        runtime
+            .register_worldline(worldline_b, WorldlineState::empty())
+            .unwrap();
+        let register_ok = engine.register_rule(noop_runtime_rule("cmd/runtime-ok"));
+        assert!(register_ok.is_ok(), "runtime ok rule should register");
+        let register_panic = engine.register_rule(panic_runtime_rule("cmd/runtime-panic"));
+        assert!(register_panic.is_ok(), "runtime panic rule should register");
+        let head_a = register_head(
+            &mut runtime,
+            worldline_a,
+            "default-a",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let head_b = register_head(
+            &mut runtime,
+            worldline_b,
+            "default-b",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        runtime
+            .ingest(IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter {
+                    worldline_id: worldline_a,
+                },
+                make_intent_kind("test"),
+                b"commit-a".to_vec(),
+            ))
+            .unwrap();
+        runtime
+            .ingest(IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter {
+                    worldline_id: worldline_b,
+                },
+                make_intent_kind("test"),
+                b"panic-b".to_vec(),
+            ))
+            .unwrap();
+        let mut provenance = mirrored_provenance(&runtime);
+
+        let panic_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine);
+        }));
+        assert!(panic_result.is_err());
+        let fault = runtime
+            .scheduler_runtime_fault()
+            .expect("unscoped panic should fault the runtime");
+        assert_eq!(fault.scope, SchedulerFaultScope::Runtime);
+        assert_eq!(fault.status, SchedulerFaultStatus::Active);
+        let fault_id = fault.fault_id;
+
+        let blocked = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine)
+            .unwrap_err();
+        assert!(matches!(
+            blocked,
+            RuntimeError::SchedulerRuntimeFaultActive(id) if id == fault_id
+        ));
+        assert_eq!(
+            runtime.heads.get(&head_a).unwrap().inbox().pending_count(),
+            1,
+            "runtime fault must block otherwise healthy pending work"
+        );
+        assert_eq!(
+            runtime.heads.get(&head_b).unwrap().inbox().pending_count(),
+            1,
+            "runtime fault must block the panicking pending work"
         );
         assert_eq!(provenance.len(worldline_a).unwrap(), 0);
         assert_eq!(provenance.len(worldline_b).unwrap(), 0);

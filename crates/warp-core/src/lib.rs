@@ -327,9 +327,10 @@ pub use worldline::{
 pub use coordinator::{
     ForkStrandReceipt, ForkStrandRequest, IngressDisposition, IngressSubmissionGeneration,
     IntentOutcomeObservation, IntentSubmissionDisposition, IntentSubmissionRecord,
-    ReceiptCorrelationRecord, RuntimeError, SchedulerCoordinator, StepRecord,
-    TicketedRuntimeIngressAuthority, TicketedRuntimeIngressDisposition,
-    TicketedRuntimeIngressRecord, WorldlineRuntime,
+    ReceiptCorrelationRecord, RuntimeError, SchedulerCoordinator, SchedulerFaultId,
+    SchedulerFaultRecord, SchedulerFaultRecoveryAuthority, SchedulerFaultScope,
+    SchedulerFaultStatus, SchedulerRunId, StepRecord, TicketedRuntimeIngressAuthority,
+    TicketedRuntimeIngressDisposition, TicketedRuntimeIngressRecord, WorldlineRuntime,
 };
 /// Writer-head registry and routing primitives used by the runtime-owned ingress path.
 pub use head::{

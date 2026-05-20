@@ -316,6 +316,19 @@ impl RunnableWriterSet {
         self.keys.iter()
     }
 
+    /// Removes runnable keys that do not satisfy the supplied predicate.
+    pub(crate) fn retain<F>(&mut self, mut predicate: F)
+    where
+        F: FnMut(&WriterHeadKey) -> bool,
+    {
+        self.keys.retain(|key| predicate(key));
+    }
+
+    /// Clears all runnable keys.
+    pub(crate) fn clear(&mut self) {
+        self.keys.clear();
+    }
+
     /// Returns the number of runnable heads.
     #[must_use]
     pub fn len(&self) -> usize {

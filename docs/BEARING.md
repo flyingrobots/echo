@@ -33,6 +33,12 @@ scheduler-owned tick outcome without giving application code tick authority.
 - Core can observe a witnessed submission as unknown, pending, or decided by a
   scheduler-owned tick receipt.
 - Footprint conflicts are explicit receipt rejections, not hidden retries.
+- Failed `SuperTick` attempts are failure-atomic: uncommitted runtime,
+  provenance, and receipt-correlation writes are rolled back before any fault
+  posture is recorded.
+- Scoped internal scheduler faults quarantine the culprit writer head. Healthy
+  unrelated heads remain eligible for later scheduler-owned ticks.
+- Unscoped scheduler faults quarantine the runtime until trusted recovery.
 - The optic admission ladder resolves through AdmissionTicket and currently
   can stage ticketed runtime ingress through an explicit runtime-owner authority
   token without ticking.
@@ -56,6 +62,14 @@ Echo's trusted runtime owner controls tick boundaries.
 A tick receipt witnesses the scheduler-owned decision.
 
 A rejected candidate remains witnessed history.
+
+Rollback is tick-local cleanup of an uncommitted failed scheduler transaction.
+
+Quarantine is durable runtime posture after an internal fault.
+
+Lawful rejection is not a fault.
+
+Fault recovery is trusted runtime control, not application behavior.
 
 Retry is a new explicit causal act.
 

@@ -7,6 +7,14 @@
 
 ### Added
 
+- `warp-core` now records scheduler fault quarantine posture after internal
+  scheduler faults. Lawful receipt-level rejections remain normal tick outcomes
+  and do not fault heads. Scoped internal head faults roll back the failed
+  `SuperTick` attempt, record scheduler fault evidence, quarantine only the
+  failing writer head, and allow unrelated heads to proceed on later ticks.
+  Unscoped panic faults mark the runtime globally faulted until trusted
+  runtime recovery resolves the fault. Generic head eligibility changes do not
+  clear fault quarantine.
 - `warp-core` now exposes a zero-write `observe_intent_outcome(...)` polling
   surface over witnessed submission ids. The observation reports
   `UnknownSubmission`, `Pending` with optional ticketed-ingress identity, or

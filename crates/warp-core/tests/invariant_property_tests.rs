@@ -256,10 +256,12 @@ proptest! {
                 IngressDisposition::Accepted {
                     ingress_id: id1,
                     head_key: routed_1,
+                    ..
                 },
                 IngressDisposition::Accepted {
                     ingress_id: id2,
                     head_key: routed_2,
+                    ..
                 },
             ) => {
                 prop_assert_eq!(id1, id2, "same bytes must produce same intent_id");
@@ -275,6 +277,7 @@ proptest! {
             IngressDisposition::Duplicate {
                 ingress_id,
                 head_key,
+                ..
             } => {
                 prop_assert_eq!(ingress_id, env2.ingress_id());
                 prop_assert_eq!(head_key, head_key_1);

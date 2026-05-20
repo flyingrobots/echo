@@ -1511,23 +1511,41 @@ mod tests {
             b"same-payload".to_vec(),
         );
 
-        let IngressDisposition::Accepted {
-            ingress_id: default_ingress,
-            head_key: default_head,
-            submission_id: default_submission,
-            submission_generation: default_generation,
-        } = runtime.ingest(default_env.clone()).unwrap()
-        else {
-            panic!("default submission should be accepted");
+        let default_accepted = match runtime.ingest(default_env.clone()).unwrap() {
+            IngressDisposition::Accepted {
+                ingress_id,
+                head_key,
+                submission_id,
+                submission_generation,
+            } => Some((ingress_id, head_key, submission_id, submission_generation)),
+            IngressDisposition::Duplicate { .. } => None,
         };
-        let IngressDisposition::Accepted {
-            ingress_id: named_ingress,
-            head_key: named_head,
-            submission_id: named_submission,
-            submission_generation: named_generation,
-        } = runtime.ingest(named_env.clone()).unwrap()
+        assert!(
+            default_accepted.is_some(),
+            "default submission should be accepted"
+        );
+        let Some((default_ingress, default_head, default_submission, default_generation)) =
+            default_accepted
         else {
-            panic!("named submission should be accepted");
+            return;
+        };
+
+        let named_accepted = match runtime.ingest(named_env.clone()).unwrap() {
+            IngressDisposition::Accepted {
+                ingress_id,
+                head_key,
+                submission_id,
+                submission_generation,
+            } => Some((ingress_id, head_key, submission_id, submission_generation)),
+            IngressDisposition::Duplicate { .. } => None,
+        };
+        assert!(
+            named_accepted.is_some(),
+            "named submission should be accepted"
+        );
+        let Some((named_ingress, named_head, named_submission, named_generation)) = named_accepted
+        else {
+            return;
         };
 
         assert_eq!(default_ingress, default_env.ingress_id());
@@ -1542,16 +1560,26 @@ mod tests {
         assert_eq!(default_generation.as_u64(), 1);
         assert_eq!(named_generation.as_u64(), 2);
 
-        let default_record = runtime
-            .witnessed_submission(&default_submission)
-            .expect("default submission should be recorded");
+        let default_record = runtime.witnessed_submission(&default_submission);
+        assert!(
+            default_record.is_some(),
+            "default submission should be recorded"
+        );
+        let Some(default_record) = default_record else {
+            return;
+        };
         assert_eq!(default_record.ingress_id, default_env.ingress_id());
         assert_eq!(default_record.head_key, default_key);
         assert_eq!(default_record.submission_generation, default_generation);
 
-        let named_record = runtime
-            .witnessed_submission(&named_submission)
-            .expect("named submission should be recorded");
+        let named_record = runtime.witnessed_submission(&named_submission);
+        assert!(
+            named_record.is_some(),
+            "named submission should be recorded"
+        );
+        let Some(named_record) = named_record else {
+            return;
+        };
         assert_eq!(named_record.ingress_id, named_env.ingress_id());
         assert_eq!(named_record.head_key, named_key);
         assert_eq!(named_record.submission_generation, named_generation);
@@ -1581,21 +1609,36 @@ mod tests {
         let first = runtime.ingest(env.clone()).unwrap();
         let duplicate = runtime.ingest(env).unwrap();
 
-        let IngressDisposition::Accepted {
-            submission_id: first_submission,
-            submission_generation: first_generation,
-            ..
-        } = first
-        else {
-            panic!("first submission should be accepted");
+        let first_accepted = match first {
+            IngressDisposition::Accepted {
+                submission_id,
+                submission_generation,
+                ..
+            } => Some((submission_id, submission_generation)),
+            IngressDisposition::Duplicate { .. } => None,
         };
-        let IngressDisposition::Duplicate {
-            submission_id: duplicate_submission,
-            submission_generation: duplicate_generation,
-            ..
-        } = duplicate
-        else {
-            panic!("second submission should be duplicate");
+        assert!(
+            first_accepted.is_some(),
+            "first submission should be accepted"
+        );
+        let Some((first_submission, first_generation)) = first_accepted else {
+            return;
+        };
+
+        let duplicate_posture = match duplicate {
+            IngressDisposition::Duplicate {
+                submission_id,
+                submission_generation,
+                ..
+            } => Some((submission_id, submission_generation)),
+            IngressDisposition::Accepted { .. } => None,
+        };
+        assert!(
+            duplicate_posture.is_some(),
+            "second submission should be duplicate"
+        );
+        let Some((duplicate_submission, duplicate_generation)) = duplicate_posture else {
+            return;
         };
 
         assert_eq!(first_submission, duplicate_submission);

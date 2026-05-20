@@ -144,7 +144,7 @@ Housekeeping tasks: documentation, logging, naming consistency, and debugger UX 
 
 - R1: Add a single local entry point for the current Rustdoc gate commands on the critical crates
 - R2: Ensure the command runs with `RUSTDOCFLAGS="-D warnings"` so it matches the CI rustdoc gate
-- R3: Document when contributors should run it, how it differs from plain `cargo doc`, and which broader compile/doc gates remain separate (`RUSTFLAGS="-Dwarnings"`, `cargo clippy --all-targets -- -D missing_docs`, `cargo test`)
+- R3: Document when contributors should run it, how it differs from plain `cargo doc`, and which broader compile/doc gates remain separate (`RUSTFLAGS="-Dwarnings"`, explicit clippy lane commands, `cargo test`)
 - R4: Keep the crate list aligned with the CI rustdoc gate
 
 **Acceptance Criteria:**

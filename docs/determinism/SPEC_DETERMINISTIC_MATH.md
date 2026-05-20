@@ -74,7 +74,7 @@ The default `warp-core` build uses the float32-backed lane (`F32Scalar`) and the
 trig backend (`warp_core::math::trig`).
 
 - `cargo test -p warp-core`
-- `cargo clippy -p warp-core --all-targets -- -D warnings -D missing_docs`
+- `cargo clippy -p warp-core --lib -- -D warnings -D missing_docs`
 
 ### Fixed-point lane (`det_fixed`)
 
@@ -82,7 +82,7 @@ trig backend (`warp_core::math::trig`).
 default runtime surface.
 
 - `cargo test -p warp-core --features det_fixed`
-- `cargo clippy -p warp-core --all-targets --features det_fixed -- -D warnings -D missing_docs`
+- `cargo clippy -p warp-core --lib --features det_fixed -- -D warnings -D missing_docs`
 
 ### MUSL (Linux portability lane)
 

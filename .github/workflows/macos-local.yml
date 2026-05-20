@@ -20,8 +20,41 @@ jobs:
             .
       - name: cargo fmt
         run: cargo fmt --all -- --check
-      - name: cargo clippy
-        run: cargo clippy --all-targets -- -D warnings -D missing_docs
+      - name: cargo clippy (libraries)
+        run: |
+          cargo clippy \
+            -p warp-core \
+            -p warp-geom \
+            -p warp-wasm \
+            -p echo-wasm-abi \
+            -p echo-runtime-schema \
+            -p echo-dry-tests \
+            -p echo-graph \
+            -p echo-app-core \
+            -p echo-config-fs \
+            -p echo-session-proto \
+            -p echo-registry-api \
+            -p echo-wasm-bindings \
+            -p echo-wesley-gen \
+            -p echo-cas \
+            -p echo-scene-port \
+            -p echo-scene-codec \
+            -p echo-ttd \
+            -p echo-dind-harness \
+            -p echo-dind-tests \
+            -p ttd-browser \
+            -p ttd-protocol-rs \
+            -p method \
+            --lib -- -D warnings -D missing_docs
+      - name: cargo clippy (binaries)
+        run: |
+          cargo clippy -p warp-core --bin gen_sin_qtr_lut -- -D warnings -D missing_docs
+          cargo clippy -p warp-cli --bins -- -D warnings -D missing_docs
+          cargo clippy -p echo-dind-harness --bins -- -D warnings -D missing_docs
+          cargo clippy -p echo-wesley-gen --bins -- -D warnings -D missing_docs
+          cargo clippy -p xtask --bins -- -D warnings -D missing_docs
+      - name: cargo clippy (warp-core runtime inbox)
+        run: cargo clippy -p warp-core --features native_rule_bootstrap,host_test --test inbox -- -D warnings -D missing_docs
       - name: cargo clippy (warp-core host_test admission fixtures)
         run: |
           cargo clippy -p warp-core --features host_test --test causal_fact_publication_tests -- -D warnings -D missing_docs

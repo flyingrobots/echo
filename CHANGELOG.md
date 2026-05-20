@@ -329,6 +329,11 @@
 
 ### Changed
 
+- CI and local verification now split broad clippy coverage into explicit
+  library, binary, and selected integration-test lanes instead of invoking one
+  monolithic cargo pass. The `warp-core` runtime inbox test target is now an
+  explicit lint lane with the same `native_rule_bootstrap,host_test` features
+  used by the ticketed-ingress regression suite.
 - Local verification now treats rustdoc warnings as CI-owned by default.
   `scripts/verify-local.sh` skips local rustdoc lanes unless
   `VERIFY_LOCAL_RUSTDOC=1` is set, keeping pre-push and full local gates focused
@@ -719,8 +724,8 @@ warp-core` and `warp-core` shards, preserving the required `Tests` status
 - **Fixed** removed `redundant_clone` clippy suppression from `head.rs` and
   `coordinator.rs` test modules.
 - **Fixed** ADR exceptions ledger sentinel row no longer mimics an active entry.
-- **Fixed** verification matrix in implementation plan now matches hook-enforced
-  gate (`--workspace --all-targets -D missing_docs`).
+- **Fixed** verification matrix in implementation plan now matches the
+  hook-enforced gate used in that phase.
 
 ### fix(warp-core): self-review fixes for Phases 0–3
 

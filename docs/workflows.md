@@ -67,7 +67,7 @@ Checkpoint checks:
 ```sh
 cargo fmt --all
 cargo test --workspace
-cargo clippy --all-targets -- -D warnings -D missing_docs
+make verify-pr
 ```
 
 ---

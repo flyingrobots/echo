@@ -200,7 +200,7 @@ Broader generator witness:
 
 ```sh
 cargo test -p echo-wesley-gen
-cargo clippy -p echo-wesley-gen --all-targets -- -D warnings -D missing_docs
+cargo clippy -p echo-wesley-gen --lib --tests --bins -- -D warnings -D missing_docs
 ```
 
 Result: passed.

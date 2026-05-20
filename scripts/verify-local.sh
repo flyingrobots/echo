@@ -1099,16 +1099,21 @@ pre_push_feature_string_for_test_target() {
   local crate="$1"
   local test_target="$2"
 
-  if [[ "$crate" != "warp-core" ]]; then
-    return
-  fi
-
-  case "$test_target" in
-    inbox)
+  case "${crate}:${test_target}" in
+    warp-core:inbox)
       printf '%s\n' "native_rule_bootstrap,host_test"
       ;;
-    causal_fact_publication_tests|optic_invocation_admission_tests)
+    warp-core:causal_fact_publication_tests|warp-core:optic_invocation_admission_tests)
       printf '%s\n' "host_test"
+      ;;
+    warp-math:determinism_policy_tests)
+      printf '%s\n' "serde"
+      ;;
+    warp-math:dfix64_tests)
+      printf '%s\n' "det_fixed"
+      ;;
+    warp-math:prng_golden_regression)
+      printf '%s\n' "golden_prng"
       ;;
   esac
 }

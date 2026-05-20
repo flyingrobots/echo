@@ -72,7 +72,7 @@ else
 fi
 
 if [[ -n "$matches" ]]; then
-  echo "Error: raw trig calls found in warp-math sources (use math::trig or F32Scalar wrappers):" >&2
+  echo "Error: raw trig calls found in warp-math sources (use warp_math::trig, crate::trig, or F32Scalar wrappers):" >&2
   echo "$matches" >&2
   exit 1
 fi

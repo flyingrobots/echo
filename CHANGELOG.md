@@ -394,6 +394,15 @@
 
 ### Fixed
 
+- Local pre-push verification now includes the changed-file fingerprint in its
+  cache key, skips nested integration-test helper modules instead of inventing
+  fake `--test mod` targets, and only emits `<module>::tests` filters for
+  source files that declare a real `mod tests`. The hook also preserves the
+  `delta_validate` and `trusted_runtime` feature gates required by the
+  corresponding `warp-core` integration tests.
+- `warp-math` is now explicitly covered by determinism classification plus the
+  default global-state and nondeterminism guard scans, while `warp-core/serde`
+  forwards the re-exported math serde feature.
 - `SchedulerCoordinator::super_tick(...)` now journals ticket-local receipt
   correlation writes instead of checkpointing whole historical correlation
   indexes, preserving failure-atomic rollback while keeping rollback

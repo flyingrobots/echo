@@ -47,7 +47,7 @@ host_test = []
 trusted_runtime = []
 # Serde support for serializable wrappers (use ONLY with deterministic CBOR encoder).
 # NEVER use with serde_json - JSON is non-deterministic and banned in warp-core.
-serde = ["dep:serde", "bytes/serde", "echo-runtime-schema/serde"]
+serde = ["dep:serde", "bytes/serde", "echo-runtime-schema/serde", "warp-math/serde"]
 
 # Scalar backend lanes (CI/test orchestration).
 # - `det_float`: default float32-backed lane using `F32Scalar`.

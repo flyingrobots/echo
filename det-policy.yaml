@@ -25,6 +25,10 @@ crates:
     class: DET_CRITICAL
     owner_role: "Architect"
     paths: ["crates/warp-core/**"]
+  warp-math:
+    class: DET_CRITICAL
+    owner_role: "Architect"
+    paths: ["crates/warp-math/**"]
   warp-geom:
     class: DET_CRITICAL
     owner_role: "Architect"

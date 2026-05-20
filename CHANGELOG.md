@@ -7,6 +7,18 @@
 
 ### Added
 
+- `warp-core` now records a narrow WitnessedIntentSubmission v0 ledger when
+  `WorldlineRuntime::ingest(...)` accepts canonical application ingress. The
+  runtime derives a deterministic `submission_id` from the resolved writer head
+  and content-addressed `ingress_id`, assigns an Echo-owned
+  `submission_generation` for intake/audit correlation, and returns the same
+  submission identity for duplicate pending or committed ingress without
+  appending duplicate semantic submission history. This ledger does not tick,
+  mutate application state, dispatch handlers, enqueue scheduler work, issue law
+  witnesses, issue admission tickets, or make submission order decide scheduler
+  order. `DispatchResponse` now carries optional `submission_id` and
+  `submission_generation` fields for application ingress, and the WASM ABI
+  version is now 10.
 - `warp-core` optic invocation admission now has a narrow SchedulerAdmission v0
   boundary. After BasisResolution v0, ApertureResolution v0, BudgetResolution
   v0, RuntimeSupport v0, capability identity coverage, and InvocationAdmission

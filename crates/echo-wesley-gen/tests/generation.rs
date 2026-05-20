@@ -271,6 +271,8 @@ mod tests {
             Ok(DispatchResponse {
                 accepted: true,
                 intent_id: vec![7; 32],
+                submission_id: Some(vec![17; 32]),
+                submission_generation: Some(1),
                 scheduler_status: idle_status(),
             })
         }

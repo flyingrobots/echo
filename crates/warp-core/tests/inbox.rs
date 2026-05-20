@@ -91,13 +91,14 @@ fn runtime_ingest_commits_without_legacy_graph_inbox_nodes() {
         make_intent_kind("test/runtime"),
         b"runtime-intent".to_vec(),
     );
-    assert_eq!(
+    assert!(matches!(
         runtime.ingest(envelope.clone()).unwrap(),
         IngressDisposition::Accepted {
-            ingress_id: envelope.ingress_id(),
-            head_key,
-        }
-    );
+            ingress_id,
+            head_key: routed_head_key,
+            ..
+        } if ingress_id == envelope.ingress_id() && routed_head_key == head_key
+    ));
 
     let mut provenance = registered_worldlines_provenance(&runtime);
     let records =
@@ -138,39 +139,43 @@ fn runtime_ingest_is_idempotent_per_resolved_head_after_commit() {
     );
     let default_ingress_id = default_env.ingress_id();
 
-    assert_eq!(
+    assert!(matches!(
         runtime.ingest(default_env.clone()).unwrap(),
         IngressDisposition::Accepted {
-            ingress_id: default_ingress_id,
-            head_key: default_key,
-        }
-    );
+            ingress_id,
+            head_key,
+            ..
+        } if ingress_id == default_ingress_id && head_key == default_key
+    ));
     let mut provenance = registered_worldlines_provenance(&runtime);
     SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
 
-    assert_eq!(
+    assert!(matches!(
         runtime.ingest(default_env).unwrap(),
         IngressDisposition::Duplicate {
-            ingress_id: default_ingress_id,
-            head_key: default_key,
-        }
-    );
-    assert_eq!(
+            ingress_id,
+            head_key,
+            ..
+        } if ingress_id == default_ingress_id && head_key == default_key
+    ));
+    assert!(matches!(
         runtime.ingest(named_env.clone()).unwrap(),
         IngressDisposition::Accepted {
-            ingress_id: named_env.ingress_id(),
-            head_key: named_key,
-        }
-    );
+            ingress_id,
+            head_key,
+            ..
+        } if ingress_id == named_env.ingress_id() && head_key == named_key
+    ));
     SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
     let named_ingress_id = named_env.ingress_id();
-    assert_eq!(
+    assert!(matches!(
         runtime.ingest(named_env).unwrap(),
         IngressDisposition::Duplicate {
-            ingress_id: named_ingress_id,
-            head_key: named_key,
-        }
-    );
+            ingress_id,
+            head_key,
+            ..
+        } if ingress_id == named_ingress_id && head_key == named_key
+    ));
 }
 
 #[test]

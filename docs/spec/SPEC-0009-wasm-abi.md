@@ -7,7 +7,7 @@ _Define the current deterministic browser boundary for intent ingress, scheduler
 
 Legend: PLATFORM
 
-Current ABI version: 9
+Current ABI version: 10
 
 Depends on:
 
@@ -19,10 +19,11 @@ Depends on:
 
 The WASM boundary is where browser and host code meet the Echo runtime. It must be small, deterministic, and explicit about what kind of operation is crossing: intent admission, scheduler inspection, or observation.
 
-ABI version 9 keeps the current export shape and makes observation requests
-name their observer plan, optional hosted observer instance, read budget, and
-rights posture explicitly. Observation artifacts continue to carry
-reading-envelope metadata for emitted readings.
+ABI version 10 keeps the export shape from version 9 and extends
+`DispatchResponse` with witnessed submission identity for accepted application
+ingress. Observation requests still name their observer plan, optional hosted
+observer instance, read budget, and rights posture explicitly. Observation
+artifacts continue to carry reading-envelope metadata for emitted readings.
 
 ## Human users / jobs / hills
 
@@ -50,6 +51,12 @@ Removed exports stay removed: `step`, `snapshot_at`, `render_snapshot`, `execute
 The reserved scheduler/control op id is not an application intent. Public
 application dispatch rejects it before the kernel can run scheduler control.
 Trusted host/runtime control uses a separate authority path.
+
+For accepted or duplicate application ingress, `DispatchResponse` carries both
+the canonical `intent_id` and a witnessed `submission_id` plus
+`submission_generation`. The submission fields are intake/audit correlation
+metadata, not scheduler order, not worldline ticks, and not wall-clock time.
+Trusted runtime control responses do not carry application submission identity.
 
 ## Decision 3: Observation is the only public world-state read
 

@@ -776,6 +776,8 @@ mod init_tests {
             Ok(DispatchResponse {
                 accepted: true,
                 intent_id: vec![0; 32],
+                submission_id: Some(vec![1; 32]),
+                submission_generation: Some(1),
                 scheduler_status: SchedulerStatus {
                     state: SchedulerState::Inactive,
                     active_mode: Some(SchedulerMode::UntilIdle {

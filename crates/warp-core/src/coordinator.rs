@@ -88,6 +88,61 @@ pub enum RuntimeError {
     /// Attempted to advance the global tick past `u64::MAX`.
     #[error("global tick overflow")]
     GlobalTickOverflow,
+    /// Attempted to allocate more witnessed intent submission generations than
+    /// the runtime counter can represent.
+    #[error("intent submission generation overflow")]
+    IntentSubmissionGenerationOverflow,
+}
+
+/// Echo-owned intake/correlation generation for witnessed intent submissions.
+///
+/// This is audit metadata for accepted ingress history. It is not scheduler
+/// order, not worldline tick identity, and not wall-clock time.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct IngressSubmissionGeneration(u64);
+
+impl IngressSubmissionGeneration {
+    /// Zero value used when Echo can derive a duplicate submission identity but
+    /// no local generation record is present.
+    pub const ZERO: Self = Self(0);
+    /// Largest representable submission generation.
+    pub const MAX: Self = Self(u64::MAX);
+
+    /// Builds a submission generation from its raw value.
+    #[must_use]
+    pub const fn from_raw(raw: u64) -> Self {
+        Self(raw)
+    }
+
+    /// Returns the raw logical value.
+    #[must_use]
+    pub const fn as_u64(self) -> u64 {
+        self.0
+    }
+
+    /// Increments by one, returning `None` on overflow.
+    #[must_use]
+    pub fn checked_increment(self) -> Option<Self> {
+        self.0.checked_add(1).map(Self)
+    }
+}
+
+/// Witnessed Echo ingress submission accepted by the runtime.
+///
+/// This record says Echo accepted a canonical ingress claim into its witnessed
+/// ingress history. It is not execution, not application state mutation, and not
+/// a scheduler-owned tick decision.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IntentSubmissionRecord {
+    /// Content-addressed submission event id.
+    pub submission_id: Hash,
+    /// Content-addressed canonical intent ingress id.
+    pub ingress_id: Hash,
+    /// Resolved semantic writer-head target.
+    pub head_key: WriterHeadKey,
+    /// Echo-owned intake/correlation generation.
+    pub submission_generation: IngressSubmissionGeneration,
 }
 
 /// Result of ingesting an envelope into the runtime.
@@ -99,6 +154,10 @@ pub enum IngressDisposition {
         ingress_id: Hash,
         /// The head that accepted the ingress.
         head_key: WriterHeadKey,
+        /// Witnessed submission event id.
+        submission_id: Hash,
+        /// Echo-owned intake/correlation generation.
+        submission_generation: IngressSubmissionGeneration,
     },
     /// The envelope was already pending or already committed.
     Duplicate {
@@ -106,6 +165,11 @@ pub enum IngressDisposition {
         ingress_id: Hash,
         /// The head that owns the duplicate route target.
         head_key: WriterHeadKey,
+        /// Existing or deterministically derived witnessed submission event id.
+        submission_id: Hash,
+        /// Existing submission generation, or zero when only the duplicate
+        /// identity can be derived from replayed committed state.
+        submission_generation: IngressSubmissionGeneration,
     },
 }
 
@@ -159,6 +223,13 @@ pub struct WorldlineRuntime {
     default_writers: BTreeMap<WorldlineId, WriterHeadKey>,
     /// Deterministic route table for named public inboxes.
     public_inboxes: BTreeMap<WorldlineId, BTreeMap<InboxAddress, WriterHeadKey>>,
+    /// Next Echo-owned submission generation to assign.
+    next_submission_generation: IngressSubmissionGeneration,
+    /// Witnessed submission records keyed by content-addressed submission id.
+    witnessed_submissions: BTreeMap<Hash, IntentSubmissionRecord>,
+    /// Deterministic lookup from resolved semantic target and ingress id to
+    /// witnessed submission id.
+    submission_by_target: BTreeMap<(WriterHeadKey, Hash), Hash>,
     /// Registry of live speculative strands attached to the runtime.
     strands: StrandRegistry,
 }
@@ -228,6 +299,23 @@ impl WorldlineRuntime {
     #[must_use]
     pub fn heads(&self) -> &PlaybackHeadRegistry {
         &self.heads
+    }
+
+    /// Returns a witnessed submission by content-addressed submission id.
+    #[must_use]
+    pub fn witnessed_submission(&self, submission_id: &Hash) -> Option<&IntentSubmissionRecord> {
+        self.witnessed_submissions.get(submission_id)
+    }
+
+    /// Iterates witnessed submissions in deterministic submission-id order.
+    pub fn witnessed_submissions(&self) -> impl Iterator<Item = &IntentSubmissionRecord> {
+        self.witnessed_submissions.values()
+    }
+
+    /// Returns the number of witnessed submission records.
+    #[must_use]
+    pub fn witnessed_submission_count(&self) -> usize {
+        self.witnessed_submissions.len()
     }
 
     /// Returns the current correlation tick.
@@ -518,9 +606,12 @@ impl WorldlineRuntime {
                     .contains_committed_ingress(&head_key, &ingress_id)
             })
         {
+            let record = self.duplicate_submission_record(head_key, ingress_id);
             return Ok(IngressDisposition::Duplicate {
                 ingress_id,
                 head_key,
+                submission_id: record.submission_id,
+                submission_generation: record.submission_generation,
             });
         }
 
@@ -531,15 +622,78 @@ impl WorldlineRuntime {
             .ingest(envelope);
 
         match outcome {
-            InboxIngestResult::Accepted => Ok(IngressDisposition::Accepted {
-                ingress_id,
-                head_key,
-            }),
-            InboxIngestResult::Duplicate => Ok(IngressDisposition::Duplicate {
-                ingress_id,
-                head_key,
-            }),
+            InboxIngestResult::Accepted => {
+                let record = self.record_witnessed_submission(head_key, ingress_id)?;
+                Ok(IngressDisposition::Accepted {
+                    ingress_id,
+                    head_key,
+                    submission_id: record.submission_id,
+                    submission_generation: record.submission_generation,
+                })
+            }
+            InboxIngestResult::Duplicate => {
+                let record = self.duplicate_submission_record(head_key, ingress_id);
+                Ok(IngressDisposition::Duplicate {
+                    ingress_id,
+                    head_key,
+                    submission_id: record.submission_id,
+                    submission_generation: record.submission_generation,
+                })
+            }
             InboxIngestResult::Rejected => Err(RuntimeError::RejectedByPolicy(head_key)),
+        }
+    }
+
+    fn record_witnessed_submission(
+        &mut self,
+        head_key: WriterHeadKey,
+        ingress_id: Hash,
+    ) -> Result<IntentSubmissionRecord, RuntimeError> {
+        if let Some(record) = self
+            .submission_by_target
+            .get(&(head_key, ingress_id))
+            .and_then(|submission_id| self.witnessed_submissions.get(submission_id))
+        {
+            return Ok(record.clone());
+        }
+
+        let generation = self
+            .next_submission_generation
+            .checked_increment()
+            .ok_or(RuntimeError::IntentSubmissionGenerationOverflow)?;
+        let submission_id = derive_intent_submission_id(head_key, ingress_id);
+        let record = IntentSubmissionRecord {
+            submission_id,
+            ingress_id,
+            head_key,
+            submission_generation: generation,
+        };
+        self.next_submission_generation = generation;
+        self.submission_by_target
+            .insert((head_key, ingress_id), submission_id);
+        self.witnessed_submissions
+            .insert(submission_id, record.clone());
+        Ok(record)
+    }
+
+    fn duplicate_submission_record(
+        &self,
+        head_key: WriterHeadKey,
+        ingress_id: Hash,
+    ) -> IntentSubmissionRecord {
+        if let Some(record) = self
+            .submission_by_target
+            .get(&(head_key, ingress_id))
+            .and_then(|submission_id| self.witnessed_submissions.get(submission_id))
+        {
+            return record.clone();
+        }
+
+        IntentSubmissionRecord {
+            submission_id: derive_intent_submission_id(head_key, ingress_id),
+            ingress_id,
+            head_key,
+            submission_generation: IngressSubmissionGeneration::ZERO,
         }
     }
 
@@ -569,6 +723,15 @@ impl WorldlineRuntime {
                 .ok_or(RuntimeError::UnknownHead(*key)),
         }
     }
+}
+
+fn derive_intent_submission_id(head_key: WriterHeadKey, ingress_id: Hash) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo.intent-submission.v0");
+    hasher.update(head_key.worldline_id.as_bytes());
+    hasher.update(head_key.head_id.as_bytes());
+    hasher.update(&ingress_id);
+    hasher.finalize().into()
 }
 
 // =============================================================================
@@ -1194,20 +1357,16 @@ mod tests {
         )
         .ingress_id();
 
-        assert_eq!(
+        assert!(matches!(
             default_result,
-            IngressDisposition::Accepted {
-                ingress_id: default_id,
-                head_key: default_key,
-            }
-        );
-        assert_eq!(
+            IngressDisposition::Accepted { ingress_id, head_key, .. }
+                if ingress_id == default_id && head_key == default_key
+        ));
+        assert!(matches!(
             named_result,
-            IngressDisposition::Accepted {
-                ingress_id: named_id,
-                head_key: named_key,
-            }
-        );
+            IngressDisposition::Accepted { ingress_id, head_key, .. }
+                if ingress_id == named_id && head_key == named_key
+        ));
     }
 
     #[test]
@@ -1285,40 +1444,366 @@ mod tests {
             b"same-payload".to_vec(),
         );
 
-        assert_eq!(
+        assert!(matches!(
             runtime.ingest(default_env.clone()).unwrap(),
-            IngressDisposition::Accepted {
-                ingress_id: default_env.ingress_id(),
-                head_key: default_key,
-            }
-        );
-        assert_eq!(
+            IngressDisposition::Accepted { ingress_id, head_key, .. }
+                if ingress_id == default_env.ingress_id() && head_key == default_key
+        ));
+        assert!(matches!(
             runtime.ingest(default_env.clone()).unwrap(),
-            IngressDisposition::Duplicate {
-                ingress_id: default_env.ingress_id(),
-                head_key: default_key,
-            }
-        );
+            IngressDisposition::Duplicate { ingress_id, head_key, .. }
+                if ingress_id == default_env.ingress_id() && head_key == default_key
+        ));
 
         let mut provenance = mirrored_provenance(&runtime);
         let records =
             SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
         assert_eq!(records.len(), 1);
 
-        assert_eq!(
+        assert!(matches!(
             runtime.ingest(named_env.clone()).unwrap(),
-            IngressDisposition::Accepted {
-                ingress_id: named_env.ingress_id(),
-                head_key: named_key,
-            }
-        );
-        assert_eq!(
+            IngressDisposition::Accepted { ingress_id, head_key, .. }
+                if ingress_id == named_env.ingress_id() && head_key == named_key
+        ));
+        assert!(matches!(
             runtime.ingest(named_env).unwrap(),
-            IngressDisposition::Duplicate {
-                ingress_id: default_env.ingress_id(),
-                head_key: named_key,
-            }
+            IngressDisposition::Duplicate { ingress_id, head_key, .. }
+                if ingress_id == default_env.ingress_id() && head_key == named_key
+        ));
+    }
+
+    #[test]
+    fn submission_event_is_content_addressed_by_intent_bytes_and_target() {
+        let mut runtime = WorldlineRuntime::new();
+        let worldline_id = wl(1);
+        runtime
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        let default_key = register_head(
+            &mut runtime,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
         );
+        let named_key = register_head(
+            &mut runtime,
+            worldline_id,
+            "orders",
+            Some("orders"),
+            false,
+            InboxPolicy::AcceptAll,
+        );
+
+        let kind = make_intent_kind("test");
+        let default_env = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            kind,
+            b"same-payload".to_vec(),
+        );
+        let named_env = IngressEnvelope::local_intent(
+            IngressTarget::InboxAddress {
+                worldline_id,
+                inbox: InboxAddress("orders".to_owned()),
+            },
+            kind,
+            b"same-payload".to_vec(),
+        );
+
+        let default_accepted = match runtime.ingest(default_env.clone()).unwrap() {
+            IngressDisposition::Accepted {
+                ingress_id,
+                head_key,
+                submission_id,
+                submission_generation,
+            } => Some((ingress_id, head_key, submission_id, submission_generation)),
+            IngressDisposition::Duplicate { .. } => None,
+        };
+        assert!(
+            default_accepted.is_some(),
+            "default submission should be accepted"
+        );
+        let Some((default_ingress, default_head, default_submission, default_generation)) =
+            default_accepted
+        else {
+            return;
+        };
+
+        let named_accepted = match runtime.ingest(named_env.clone()).unwrap() {
+            IngressDisposition::Accepted {
+                ingress_id,
+                head_key,
+                submission_id,
+                submission_generation,
+            } => Some((ingress_id, head_key, submission_id, submission_generation)),
+            IngressDisposition::Duplicate { .. } => None,
+        };
+        assert!(
+            named_accepted.is_some(),
+            "named submission should be accepted"
+        );
+        let Some((named_ingress, named_head, named_submission, named_generation)) = named_accepted
+        else {
+            return;
+        };
+
+        assert_eq!(default_ingress, default_env.ingress_id());
+        assert_eq!(named_ingress, named_env.ingress_id());
+        assert_eq!(default_ingress, named_ingress);
+        assert_eq!(default_head, default_key);
+        assert_eq!(named_head, named_key);
+        assert_ne!(
+            default_submission, named_submission,
+            "same canonical intent bytes routed to different heads must have distinct submission ids"
+        );
+        assert_eq!(default_generation.as_u64(), 1);
+        assert_eq!(named_generation.as_u64(), 2);
+
+        let default_record = runtime.witnessed_submission(&default_submission);
+        assert!(
+            default_record.is_some(),
+            "default submission should be recorded"
+        );
+        let Some(default_record) = default_record else {
+            return;
+        };
+        assert_eq!(default_record.ingress_id, default_env.ingress_id());
+        assert_eq!(default_record.head_key, default_key);
+        assert_eq!(default_record.submission_generation, default_generation);
+
+        let named_record = runtime.witnessed_submission(&named_submission);
+        assert!(
+            named_record.is_some(),
+            "named submission should be recorded"
+        );
+        let Some(named_record) = named_record else {
+            return;
+        };
+        assert_eq!(named_record.ingress_id, named_env.ingress_id());
+        assert_eq!(named_record.head_key, named_key);
+        assert_eq!(named_record.submission_generation, named_generation);
+    }
+
+    #[test]
+    fn duplicate_submission_returns_same_submission_identity_without_duplicate_history() {
+        let mut runtime = WorldlineRuntime::new();
+        let worldline_id = wl(1);
+        runtime
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        register_head(
+            &mut runtime,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let env = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            make_intent_kind("test"),
+            b"duplicate".to_vec(),
+        );
+
+        let first = runtime.ingest(env.clone()).unwrap();
+        let duplicate = runtime.ingest(env).unwrap();
+
+        let first_accepted = match first {
+            IngressDisposition::Accepted {
+                submission_id,
+                submission_generation,
+                ..
+            } => Some((submission_id, submission_generation)),
+            IngressDisposition::Duplicate { .. } => None,
+        };
+        assert!(
+            first_accepted.is_some(),
+            "first submission should be accepted"
+        );
+        let Some((first_submission, first_generation)) = first_accepted else {
+            return;
+        };
+
+        let duplicate_posture = match duplicate {
+            IngressDisposition::Duplicate {
+                submission_id,
+                submission_generation,
+                ..
+            } => Some((submission_id, submission_generation)),
+            IngressDisposition::Accepted { .. } => None,
+        };
+        assert!(
+            duplicate_posture.is_some(),
+            "second submission should be duplicate"
+        );
+        let Some((duplicate_submission, duplicate_generation)) = duplicate_posture else {
+            return;
+        };
+
+        assert_eq!(first_submission, duplicate_submission);
+        assert_eq!(first_generation, duplicate_generation);
+        assert_eq!(runtime.witnessed_submission_count(), 1);
+    }
+
+    #[test]
+    fn submission_history_does_not_advance_worldline_tick() {
+        let mut runtime = WorldlineRuntime::new();
+        let worldline_id = wl(1);
+        runtime
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        let head_key = register_head(
+            &mut runtime,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let env = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            make_intent_kind("test"),
+            b"pending".to_vec(),
+        );
+        let ingress_id = env.ingress_id();
+
+        assert!(matches!(
+            runtime.ingest(env).unwrap(),
+            IngressDisposition::Accepted { .. }
+        ));
+
+        assert_eq!(runtime.global_tick(), gt(0));
+        let frontier = runtime.worldlines().get(&worldline_id).unwrap();
+        assert_eq!(frontier.frontier_tick(), wt(0));
+        assert!(!frontier
+            .state()
+            .contains_committed_ingress(&head_key, &ingress_id));
+        assert_eq!(
+            runtime
+                .heads
+                .get(&head_key)
+                .unwrap()
+                .inbox()
+                .pending_count(),
+            1
+        );
+        assert_eq!(runtime.witnessed_submission_count(), 1);
+    }
+
+    #[test]
+    fn submission_order_does_not_define_scheduler_order() {
+        let worldline_id = wl(1);
+        let kind = make_intent_kind("test");
+        let first = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            kind,
+            b"first-submitted".to_vec(),
+        );
+        let second = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            kind,
+            b"second-submitted".to_vec(),
+        );
+
+        let mut runtime_ab = WorldlineRuntime::new();
+        runtime_ab
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        let head_ab = register_head(
+            &mut runtime_ab,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        runtime_ab.ingest(first.clone()).unwrap();
+        runtime_ab.ingest(second.clone()).unwrap();
+        let admitted_ab = runtime_ab
+            .heads
+            .inbox_mut(&head_ab)
+            .unwrap()
+            .admit()
+            .into_iter()
+            .map(|env| env.ingress_id())
+            .collect::<Vec<_>>();
+
+        let mut runtime_ba = WorldlineRuntime::new();
+        runtime_ba
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        let head_ba = register_head(
+            &mut runtime_ba,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        runtime_ba.ingest(second).unwrap();
+        runtime_ba.ingest(first).unwrap();
+        let admitted_ba = runtime_ba
+            .heads
+            .inbox_mut(&head_ba)
+            .unwrap()
+            .admit()
+            .into_iter()
+            .map(|env| env.ingress_id())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            admitted_ab, admitted_ba,
+            "scheduler admission order must follow canonical ingress ids, not submission order"
+        );
+    }
+
+    #[test]
+    fn submission_history_has_deterministic_replay_shape() {
+        fn record_shape(runtime: &WorldlineRuntime) -> Vec<(Hash, Hash, WriterHeadKey, u64)> {
+            runtime
+                .witnessed_submissions()
+                .map(|record| {
+                    (
+                        record.submission_id,
+                        record.ingress_id,
+                        record.head_key,
+                        record.submission_generation.as_u64(),
+                    )
+                })
+                .collect()
+        }
+
+        fn build_runtime_with_submissions() -> WorldlineRuntime {
+            let mut runtime = WorldlineRuntime::new();
+            let worldline_id = wl(1);
+            runtime
+                .register_worldline(worldline_id, WorldlineState::empty())
+                .unwrap();
+            register_head(
+                &mut runtime,
+                worldline_id,
+                "default",
+                None,
+                true,
+                InboxPolicy::AcceptAll,
+            );
+            for bytes in [b"alpha".as_slice(), b"beta".as_slice(), b"gamma".as_slice()] {
+                runtime
+                    .ingest(IngressEnvelope::local_intent(
+                        IngressTarget::DefaultWriter { worldline_id },
+                        make_intent_kind("test"),
+                        bytes.to_vec(),
+                    ))
+                    .unwrap();
+            }
+            runtime
+        }
+
+        let first = build_runtime_with_submissions();
+        let second = build_runtime_with_submissions();
+
+        assert_eq!(record_shape(&first), record_shape(&second));
     }
 
     #[test]
@@ -1344,20 +1829,16 @@ mod tests {
             b"exact".to_vec(),
         );
 
-        assert_eq!(
+        assert!(matches!(
             runtime.ingest(envelope.clone()).unwrap(),
-            IngressDisposition::Accepted {
-                ingress_id: envelope.ingress_id(),
-                head_key: exact_key,
-            }
-        );
-        assert_eq!(
+            IngressDisposition::Accepted { ingress_id, head_key, .. }
+                if ingress_id == envelope.ingress_id() && head_key == exact_key
+        ));
+        assert!(matches!(
             runtime.ingest(envelope.clone()).unwrap(),
-            IngressDisposition::Duplicate {
-                ingress_id: envelope.ingress_id(),
-                head_key: exact_key,
-            }
-        );
+            IngressDisposition::Duplicate { ingress_id, head_key, .. }
+                if ingress_id == envelope.ingress_id() && head_key == exact_key
+        ));
     }
 
     #[test]

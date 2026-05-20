@@ -10,7 +10,7 @@
 //!
 //! # ABI Version
 //!
-//! The current ABI version is [`ABI_VERSION`] (9). All response types are
+//! The current ABI version is [`ABI_VERSION`] (10). All response types are
 //! CBOR-encoded using the canonical rules defined in `docs/spec/js-cbor-mapping.md`.
 //! Breaking changes to response shapes or error codes require a bump to the
 //! ABI version.
@@ -40,7 +40,7 @@ use serde::{
 ///
 /// Increment when response types, error codes, or method signatures change
 /// in a backward-incompatible way.
-pub const ABI_VERSION: u32 = 9;
+pub const ABI_VERSION: u32 = 10;
 
 fn deserialize_opaque_id<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
 where
@@ -346,6 +346,17 @@ pub struct DispatchResponse {
     pub accepted: bool,
     /// Content-addressed intent identifier (BLAKE3 hash, 32 bytes).
     pub intent_id: Vec<u8>,
+    /// Content-addressed Echo submission event id for application ingress.
+    ///
+    /// `None` is used for trusted runtime control responses, which are not
+    /// application intent submissions.
+    pub submission_id: Option<Vec<u8>>,
+    /// Echo-owned intake/correlation generation for application ingress.
+    ///
+    /// This is audit metadata. It is not scheduler order, not a worldline tick,
+    /// and not wall-clock time. `None` is used for trusted runtime control
+    /// responses.
+    pub submission_generation: Option<u64>,
     /// Scheduler status after the intent is ingested or applied.
     pub scheduler_status: SchedulerStatus,
 }
@@ -2565,11 +2576,15 @@ pub trait KernelPort {
                 }
 
                 let dispatch = self.dispatch_intent(bytes)?;
+                let stage_ref = dispatch
+                    .submission_id
+                    .clone()
+                    .unwrap_or_else(|| dispatch.intent_id.clone());
                 Ok(IntentDispatchResult::Staged(StagedIntent {
                     optic_id: request.optic_id,
                     base_coordinate: request.base_coordinate,
                     intent_family: request.intent_family,
-                    stage_ref: dispatch.intent_id,
+                    stage_ref,
                     reason: StagedIntentReason::AwaitingExplicitAdmission,
                 }))
             }

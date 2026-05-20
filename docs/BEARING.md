@@ -29,14 +29,12 @@ scheduler-owned tick outcome without giving application code tick authority.
   owner policy, not semantic Echo history.
 - Tick receipts exist and witness scheduler-owned candidate outcomes.
 - Footprint conflicts are explicit receipt rejections, not hidden retries.
-- The optic admission ladder resolves through LawWitness v0 and currently stops
-  before admission ticket issuance.
+- The optic admission ladder resolves through AdmissionTicket and currently
+  stops before ticketed runtime ingress.
 
 ## What Is Not Yet True
 
 - Accepted submissions are not yet complete witnessed ingress history.
-- Optic admission has no successful outcome.
-- Admission tickets do not exist.
 - Ticketed runtime ingress is not wired.
 - Tick receipts are not cleanly correlated to intent, submission, and ticket ids.
 - Clients cannot observe intent outcome by id.
@@ -100,25 +98,24 @@ AdmissionTicket + witnessed submission -> ticketed runtime ingress
 
 ## Locked Sequence
 
-1. WitnessedIntentSubmission v0.
-2. SchedulerWorkCandidate v0.
-3. LawWitness v0.
-4. AdmissionTicket v0.
-5. TicketedRuntimeIngress v0.
-6. ReceiptCorrelation v0.
-7. IntentOutcomeObservation v0.
-8. InstalledContractHostDispatch v0.
-9. ConflictPolicy / ExplicitRetry v0.
-10. QueryViewObserverBridge v0.
+1. WitnessedIntentSubmission.
+2. SchedulerWorkCandidate.
+3. LawWitness.
+4. AdmissionTicket.
+5. TicketedRuntimeIngress.
+6. ReceiptCorrelation.
+7. IntentOutcomeObservation.
+8. InstalledContractHostDispatch.
+9. ConflictPolicy / ExplicitRetry.
+10. QueryViewObserverBridge.
 11. Replay/DIND proof.
 
 ## Immediate Next Slice
 
-AdmissionTicket v0 should prove that Echo can issue durable admission evidence
-over the resolved submission, admission, scheduler work, and law witness
-material without executing the invocation.
+TicketedRuntimeIngress should prove that only ticketed invocations enter runtime
+ingress while application code still cannot tick the runtime.
 
-This slice must not implement ticketed runtime ingress, receipt correlation,
-outcome observation, installed handler dispatch, QueryView, streaming
-subscriptions, automatic retry, scheduler enqueueing, handler dispatch,
-execution, or wall-clock cadence semantics.
+This slice must not implement receipt correlation, outcome observation,
+installed handler dispatch, QueryView, streaming subscriptions, automatic retry,
+handler dispatch, execution outside scheduler-owned ticks, or wall-clock cadence
+semantics.

@@ -246,6 +246,19 @@ pub enum GraphFact {
         /// Digest of the Echo-owned law witness material.
         law_witness_digest: [u8; 32],
     },
+    /// Echo issued an admission ticket after law witness resolution.
+    AdmissionTicketIssued {
+        /// Echo-owned runtime-local artifact handle id covered by the ticket.
+        artifact_handle_id: String,
+        /// Registered operation id covered by the ticket.
+        operation_id: String,
+        /// Registered requirements digest covered by the ticket.
+        requirements_digest: String,
+        /// Digest of the Echo-owned law witness material bound by the ticket.
+        law_witness_digest: [u8; 32],
+        /// Digest of the issued admission ticket material.
+        ticket_digest: [u8; 32],
+    },
     /// Echo refused optic invocation before admission success.
     OpticInvocationObstructed {
         /// Echo-owned runtime-local artifact handle id named by the invocation.
@@ -426,6 +439,28 @@ impl GraphFact {
                     requirements_digest.as_bytes(),
                 );
                 push_digest_field(&mut bytes, b"law-witness-digest", law_witness_digest);
+            }
+            Self::AdmissionTicketIssued {
+                artifact_handle_id,
+                operation_id,
+                requirements_digest,
+                law_witness_digest,
+                ticket_digest,
+            } => {
+                push_digest_field(&mut bytes, b"variant", b"admission-ticket-issued");
+                push_digest_field(
+                    &mut bytes,
+                    b"artifact-handle-id",
+                    artifact_handle_id.as_bytes(),
+                );
+                push_digest_field(&mut bytes, b"operation-id", operation_id.as_bytes());
+                push_digest_field(
+                    &mut bytes,
+                    b"requirements-digest",
+                    requirements_digest.as_bytes(),
+                );
+                push_digest_field(&mut bytes, b"law-witness-digest", law_witness_digest);
+                push_digest_field(&mut bytes, b"ticket-digest", ticket_digest);
             }
             Self::OpticInvocationObstructed {
                 artifact_handle_id,

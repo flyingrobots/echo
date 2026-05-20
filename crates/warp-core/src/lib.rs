@@ -259,13 +259,13 @@ pub use optic_artifact::{
     CapabilityGrantIntentObstruction, CapabilityGrantIntentOutcome, CapabilityGrantIntentPosture,
     CapabilityGrantValidationObstruction, CapabilityGrantValidationOutcome,
     CapabilityGrantValidationPosture, CapabilityPresentationValidator, ObstructionReceipt,
-    OpticAdmissionRequirements, OpticAdmissionTicketPosture, OpticApertureRequest, OpticArtifact,
-    OpticArtifactHandle, OpticArtifactOperation, OpticArtifactRegistrationError,
-    OpticArtifactRegistry, OpticBasisRequest, OpticBudgetRequest, OpticCapabilityPresentation,
-    OpticInvocation, OpticInvocationAdmissionOutcome, OpticInvocationObstruction,
-    OpticRegistrationDescriptor, PrincipalRef, RegisteredOpticArtifact, RewriteDisposition,
-    CAPABILITY_GRANT_VALIDATION_POSTURE_KIND, OBSTRUCTION_RECEIPT_KIND,
-    OPTIC_ADMISSION_TICKET_POSTURE_KIND, OPTIC_ARTIFACT_HANDLE_KIND,
+    OpticAdmissionRequirements, OpticAdmissionTicket, OpticAdmissionTicketPosture,
+    OpticApertureRequest, OpticArtifact, OpticArtifactHandle, OpticArtifactOperation,
+    OpticArtifactRegistrationError, OpticArtifactRegistry, OpticBasisRequest, OpticBudgetRequest,
+    OpticCapabilityPresentation, OpticInvocation, OpticInvocationAdmissionOutcome,
+    OpticInvocationObstruction, OpticRegistrationDescriptor, PrincipalRef, RegisteredOpticArtifact,
+    RewriteDisposition, CAPABILITY_GRANT_VALIDATION_POSTURE_KIND, OBSTRUCTION_RECEIPT_KIND,
+    OPTIC_ADMISSION_TICKET_KIND, OPTIC_ADMISSION_TICKET_POSTURE_KIND, OPTIC_ARTIFACT_HANDLE_KIND,
 };
 pub use playback::{CursorReceipt, TruthFrame, TruthSink};
 pub use provenance_store::{

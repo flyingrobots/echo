@@ -300,6 +300,19 @@
 
 ### Changed
 
+- Local verification now treats rustdoc warnings as CI-owned by default.
+  `scripts/verify-local.sh` skips local rustdoc lanes unless
+  `VERIFY_LOCAL_RUSTDOC=1` is set, keeping pre-push and full local gates focused
+  on faster edit-loop witnesses while preserving CI rustdoc coverage.
+- Tooling-only full verification now selects focused hook regression scripts by
+  changed file family, so a `scripts/verify-local.sh` edit runs the verify-local
+  hook regression without also running unrelated runtime-schema, PR-status, or
+  timing hook tests.
+- Local hook regression tests are now CI-owned by default. The local full gate
+  skips hook tests unless `VERIFY_LOCAL_HOOK_TESTS=1` is set, and the opt-in
+  hook-test lane clears verifier override variables before launching nested
+  hook regressions.
+
 ### Fixed
 
 - `Determinism Guards` no longer runs `apt-get install ripgrep`; static guard

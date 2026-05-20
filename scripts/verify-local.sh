@@ -22,6 +22,8 @@ VERIFY_USE_NEXTEST="${VERIFY_USE_NEXTEST:-0}"
 VERIFY_LANE_MODE="${VERIFY_LANE_MODE:-parallel}"
 VERIFY_LANE_ROOT="${VERIFY_LANE_ROOT:-target/verify-lanes}"
 VERIFY_TIMING_FILE="${VERIFY_TIMING_FILE:-$STAMP_DIR/timing.jsonl}"
+VERIFY_LOCAL_RUSTDOC="${VERIFY_LOCAL_RUSTDOC:-0}"
+VERIFY_LOCAL_HOOK_TESTS="${VERIFY_LOCAL_HOOK_TESTS:-0}"
 VERIFY_RUN_CACHE_STATE="${VERIFY_RUN_CACHE_STATE:-fresh}"
 VERIFY_CLASSIFICATION="${VERIFY_CLASSIFICATION:-unknown}"
 SECONDS=0
@@ -384,6 +386,14 @@ ensure_toolchain() {
 
 use_nextest() {
   [[ "$VERIFY_USE_NEXTEST" == "1" ]] && command -v cargo-nextest >/dev/null 2>&1
+}
+
+local_rustdoc_enabled() {
+  [[ "$VERIFY_LOCAL_RUSTDOC" == "1" ]]
+}
+
+local_hook_tests_enabled() {
+  [[ "$VERIFY_LOCAL_HOOK_TESTS" == "1" ]]
 }
 
 list_changed_branch_files() {
@@ -753,16 +763,18 @@ run_targeted_checks() {
 
   run_crate_lint_and_check targeted "${crates[@]}"
 
-  for crate in "${FULL_LOCAL_RUSTDOC_PACKAGES[@]}"; do
-    if printf '%s\n' "${crates[@]}" | grep -qx "$crate"; then
-      rustdoc_crates+=("$crate")
-    fi
-  done
+  if local_rustdoc_enabled; then
+    for crate in "${FULL_LOCAL_RUSTDOC_PACKAGES[@]}"; do
+      if printf '%s\n' "${crates[@]}" | grep -qx "$crate"; then
+        rustdoc_crates+=("$crate")
+      fi
+    done
 
-  for crate in "${rustdoc_crates[@]}"; do
-    echo "[verify-local] rustdoc warnings gate (${crate})"
-    RUSTDOCFLAGS="-D warnings" cargo +"$PINNED" doc -p "$crate" --no-deps
-  done
+    for crate in "${rustdoc_crates[@]}"; do
+      echo "[verify-local] rustdoc warnings gate (${crate})"
+      RUSTDOCFLAGS="-D warnings" cargo +"$PINNED" doc -p "$crate" --no-deps
+    done
+  fi
 
   for crate in "${crates[@]}"; do
     if [[ ! -f "crates/${crate}/Cargo.toml" ]]; then
@@ -1358,6 +1370,10 @@ run_full_lane_tests_warp_core() {
 }
 
 run_full_lane_rustdoc() {
+  if ! local_rustdoc_enabled; then
+    echo "[verify-local][rustdoc] CI-owned by default; set VERIFY_LOCAL_RUSTDOC=1 to opt in"
+    return
+  fi
   if [[ ${#FULL_SCOPE_RUSTDOC_PACKAGES[@]} -eq 0 ]]; then
     echo "[verify-local][rustdoc] no selected public-doc crates"
     return
@@ -1372,22 +1388,92 @@ run_full_lane_rustdoc() {
 }
 
 run_full_lane_hook_tests() {
+  if ! local_hook_tests_enabled; then
+    echo "[verify-local][hook-tests] CI-owned by default; set VERIFY_LOCAL_HOOK_TESTS=1 to opt in"
+    return
+  fi
   if [[ "$FULL_SCOPE_HAS_TOOLING" != "1" ]]; then
     echo "[verify-local][hook-tests] no tooling changes detected"
     return
   fi
-  shopt -s nullglob
-  local -a hook_tests=(tests/hooks/test_*.sh)
-  shopt -u nullglob
+  local -a hook_tests=()
+  mapfile -t hook_tests < <(select_hook_tests)
   if [[ ${#hook_tests[@]} -eq 0 ]]; then
-    echo "[verify-local][hook-tests] no hook regression scripts present"
+    echo "[verify-local][hook-tests] no focused hook regression scripts selected"
     return
   fi
   echo "[verify-local][hook-tests] hook regression coverage"
   local hook_test
   for hook_test in "${hook_tests[@]}"; do
-    bash "$hook_test"
+    (
+      unset VERIFY_CHANGED_FILES_FILE VERIFY_FORCE VERIFY_STAMP_DIR VERIFY_STAMP_SUBJECT
+      bash "$hook_test"
+    )
   done
+}
+
+select_hook_tests() {
+  local -a selected_hook_tests=()
+  local run_all=0
+  local file test_path
+
+  while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+    case "$file" in
+      scripts/verify-local.sh|Makefile|.github/workflows/*)
+        test_path="tests/hooks/test_verify_local.sh"
+        [[ -f "$test_path" ]] && append_unique "$test_path" selected_hook_tests
+        ;;
+      .githooks/*|scripts/hooks/pre-commit|scripts/hooks/pre-push|scripts/test-hook-issues.sh)
+        test_path="tests/hooks/test_hook_issues.sh"
+        [[ -f "$test_path" ]] && append_unique "$test_path" selected_hook_tests
+        test_path="tests/hooks/test_hook_timing.sh"
+        [[ -f "$test_path" ]] && append_unique "$test_path" selected_hook_tests
+        ;;
+      scripts/hooks/README.md)
+        ;;
+      scripts/plot-prepush-timing.mjs)
+        test_path="tests/hooks/test_plot_prepush_timing.sh"
+        [[ -f "$test_path" ]] && append_unique "$test_path" selected_hook_tests
+        ;;
+      scripts/pr-status.sh)
+        test_path="tests/hooks/test_pr_status.sh"
+        [[ -f "$test_path" ]] && append_unique "$test_path" selected_hook_tests
+        ;;
+      schemas/runtime/*.graphql|scripts/validate-runtime-schema-fragments.mjs)
+        test_path="tests/hooks/test_runtime_schema_validation.sh"
+        [[ -f "$test_path" ]] && append_unique "$test_path" selected_hook_tests
+        ;;
+      scripts/generate-dependency-dags.js|scripts/parse-tasks-dag.js|scripts/dag-utils.js|docs/assets/dags/*)
+        test_path="tests/hooks/test_dependency_dags.sh"
+        [[ -f "$test_path" ]] && append_unique "$test_path" selected_hook_tests
+        ;;
+      .coderabbit.yaml)
+        test_path="tests/hooks/test_coderabbit_config.sh"
+        [[ -f "$test_path" ]] && append_unique "$test_path" selected_hook_tests
+        ;;
+      crates/warp-core/src/optic.rs)
+        test_path="tests/hooks/test_module_size.sh"
+        [[ -f "$test_path" ]] && append_unique "$test_path" selected_hook_tests
+        ;;
+      tests/hooks/test_*.sh)
+        [[ -f "$file" ]] && append_unique "$file" selected_hook_tests
+        ;;
+      scripts/*.sh|scripts/*.mjs|scripts/*.cjs|scripts/*.js|.githooks/*|scripts/hooks/*)
+        run_all=1
+        ;;
+    esac
+  done <<< "${CHANGED_FILES}"
+
+  if [[ "$run_all" == "1" ]]; then
+    shopt -s nullglob
+    selected_hook_tests=(tests/hooks/test_*.sh)
+    shopt -u nullglob
+  fi
+
+  if [[ ${#selected_hook_tests[@]} -gt 0 ]]; then
+    printf '%s\n' "${selected_hook_tests[@]}"
+  fi
 }
 
 run_ultra_fast_tooling_smoke() {
@@ -1417,14 +1503,18 @@ run_full_lane_guards() {
 run_full_checks_sequential() {
   echo "[verify-local] critical local gate (${FULL_SCOPE_MODE})"
   run_timed_step "fmt" run_full_lane_fmt
-  run_timed_step "hook-tests" run_full_lane_hook_tests
+  if local_hook_tests_enabled; then
+    run_timed_step "hook-tests" run_full_lane_hook_tests
+  fi
   run_timed_step "clippy-core" run_full_lane_clippy_core
   run_timed_step "clippy-support" run_full_lane_clippy_support
   run_timed_step "clippy-bins" run_full_lane_clippy_bins
   run_timed_step "tests-support" run_full_lane_tests_support
   run_timed_step "tests-runtime" run_full_lane_tests_runtime
   run_timed_step "tests-warp-core" run_full_lane_tests_warp_core
-  run_timed_step "rustdoc" run_full_lane_rustdoc
+  if local_rustdoc_enabled; then
+    run_timed_step "rustdoc" run_full_lane_rustdoc
+  fi
   run_timed_step "guards" run_full_lane_guards
 }
 
@@ -1433,7 +1523,7 @@ run_full_checks_parallel() {
 
   echo "[verify-local] critical local gate (${FULL_SCOPE_MODE})"
 
-  if [[ "$FULL_SCOPE_HAS_TOOLING" == "1" ]]; then
+  if local_hook_tests_enabled && [[ "$FULL_SCOPE_HAS_TOOLING" == "1" ]]; then
     lanes+=("hook-tests" run_full_lane_hook_tests)
   fi
   if [[ ${#FULL_SCOPE_CLIPPY_CORE_PACKAGES[@]} -gt 0 ]]; then
@@ -1454,7 +1544,7 @@ run_full_checks_parallel() {
   if [[ "$FULL_SCOPE_RUN_WARP_CORE_SMOKE" == "1" ]]; then
     lanes+=("tests-warp-core" run_full_lane_tests_warp_core)
   fi
-  if [[ ${#FULL_SCOPE_RUSTDOC_PACKAGES[@]} -gt 0 ]]; then
+  if local_rustdoc_enabled && [[ ${#FULL_SCOPE_RUSTDOC_PACKAGES[@]} -gt 0 ]]; then
     lanes+=("rustdoc" run_full_lane_rustdoc)
   fi
 

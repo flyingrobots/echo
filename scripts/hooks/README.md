@@ -66,9 +66,14 @@ or other non-Rust crate changes do not wake the Rust smoke lanes.
 `make verify-ultra-fast` is now the shortest edit-loop lane. It stays
 compile-first: Rust changes get `cargo check` on changed Rust crates plus the
 same targeted critical smoke selection used by the full gate, while clippy,
-rustdoc, guard scans, and exhaustive local proof stay on the heavier paths and
-in CI. Tooling-only changes stay on a syntax/smoke path instead of inheriting
-the full hook regression suite.
+guard scans, and exhaustive local proof stay on the heavier paths and in CI.
+Rustdoc warnings are CI-owned by default; use
+`VERIFY_LOCAL_RUSTDOC=1 make verify-full` only when you deliberately want to
+pay that local cost. Tooling-only changes stay on a syntax/smoke path instead
+of inheriting the full hook regression suite. Hook regression tests are CI-owned
+by default; use `VERIFY_LOCAL_HOOK_TESTS=1 make verify-full` when you
+deliberately want the local hook regression lane. That opt-in lane selects tests
+by tooling file family instead of running every hook test for every tooling edit.
 
 A successful `make verify-full` run now shares the same success stamp as the
 canonical pre-push full gate for the same worktree, so commit-only churn

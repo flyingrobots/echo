@@ -359,6 +359,12 @@
 
 ### Changed
 
+- The canonical pre-push hook now runs the narrowest changed-file Rust witness
+  instead of reusing the broader local PR gate. Rust module edits map to exact
+  `cargo test -p <crate> --lib <module>::tests` slices, integration-test edits
+  map to exact `--test <target>` invocations, and tooling edits stay on local
+  shell smoke checks. Broader clippy, rustdoc, package, and workspace coverage
+  remains available through `make verify-pr`, `make verify-full`, and CI.
 - CI and local verification now split broad clippy coverage into explicit
   library, binary, and selected integration-test lanes instead of invoking one
   monolithic cargo pass. The `warp-core` runtime inbox test target is now an

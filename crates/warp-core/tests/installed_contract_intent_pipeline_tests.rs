@@ -608,6 +608,66 @@ fn replay_witnessed_submissions_rejects_invalid_batch_without_partial_import() {
 }
 
 #[test]
+fn replay_witnessed_submissions_rejects_zero_generation() {
+    let (mut runtime, _engine, worldline_id, _head) = pipeline_runtime();
+    let envelope = eint_envelope(worldline_id, MUTATION_OP_ID, MUTATION_VARS);
+
+    runtime
+        .submit_intent(envelope)
+        .expect("submission should be witnessed");
+    let mut replay_records = runtime.witnessed_submission_replay_records();
+    replay_records
+        .get_mut(0)
+        .expect("replay record should exist")
+        .submission_generation = IngressSubmissionGeneration::ZERO;
+
+    let (mut replayed, _engine, _worldline_id, _head) = pipeline_runtime();
+    assert!(matches!(
+        replayed.replay_witnessed_submissions(replay_records),
+        Err(RuntimeError::IntentSubmissionReplayMismatch(_))
+    ));
+    assert_eq!(
+        replayed.witnessed_submission_count(),
+        0,
+        "zero-generation replay records must not enter witnessed history"
+    );
+}
+
+#[test]
+fn replay_witnessed_submissions_rejects_duplicate_generations() {
+    let (mut runtime, _engine, worldline_id, _head) = pipeline_runtime();
+    let envelope_a = eint_envelope(worldline_id, MUTATION_OP_ID, MUTATION_VARS);
+    let envelope_b = eint_envelope(worldline_id, CONFLICT_OP_ID, CONFLICT_VARS_A);
+
+    runtime
+        .submit_intent(envelope_a)
+        .expect("first submission should be witnessed");
+    runtime
+        .submit_intent(envelope_b)
+        .expect("second submission should be witnessed");
+    let mut replay_records = runtime.witnessed_submission_replay_records();
+    let duplicate_generation = replay_records
+        .first()
+        .expect("first replay record should exist")
+        .submission_generation;
+    replay_records
+        .get_mut(1)
+        .expect("second replay record should exist")
+        .submission_generation = duplicate_generation;
+
+    let (mut replayed, _engine, _worldline_id, _head) = pipeline_runtime();
+    assert!(matches!(
+        replayed.replay_witnessed_submissions(replay_records),
+        Err(RuntimeError::IntentSubmissionReplayMismatch(_))
+    ));
+    assert_eq!(
+        replayed.witnessed_submission_count(),
+        0,
+        "duplicate replay generations must not enter witnessed history"
+    );
+}
+
+#[test]
 fn witnessed_submission_replay_restores_pending_history_without_runtime_ingress() {
     let (mut runtime, _engine, worldline_id, _head) = pipeline_runtime();
     let envelope_a = eint_envelope(worldline_id, MUTATION_OP_ID, MUTATION_VARS);

@@ -1305,6 +1305,12 @@ impl WorldlineRuntime {
         records.sort_by_key(|record| (record.submission_generation, record.submission_id));
         let mut staged_submission_by_target = BTreeMap::new();
         let mut staged_witnessed_submissions = BTreeMap::new();
+        let existing_generation_by_submission = self
+            .witnessed_submissions
+            .values()
+            .map(|record| (record.submission_generation, record.submission_id))
+            .collect::<BTreeMap<_, _>>();
+        let mut staged_generation_by_submission = BTreeMap::new();
         let mut next_submission_generation = self.next_submission_generation;
 
         for record in records {
@@ -1342,11 +1348,25 @@ impl WorldlineRuntime {
                     record.submission_id,
                 ));
             }
+            if record.submission_generation == IngressSubmissionGeneration::ZERO
+                || existing_generation_by_submission
+                    .get(&record.submission_generation)
+                    .is_some_and(|submission_id| *submission_id != record.submission_id)
+                || staged_generation_by_submission
+                    .get(&record.submission_generation)
+                    .is_some_and(|submission_id| *submission_id != record.submission_id)
+            {
+                return Err(RuntimeError::IntentSubmissionReplayMismatch(
+                    record.submission_id,
+                ));
+            }
             if record.submission_generation > next_submission_generation {
                 next_submission_generation = record.submission_generation;
             }
             staged_submission_by_target
                 .insert((record.head_key, record.ingress_id), record.submission_id);
+            staged_generation_by_submission
+                .insert(record.submission_generation, record.submission_id);
             staged_witnessed_submissions.insert(record.submission_id, record);
         }
 

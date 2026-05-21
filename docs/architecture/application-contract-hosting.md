@@ -10,6 +10,12 @@ Echo is a deterministic witnessed causal substrate. Applications own product
 semantics. Wesley compiles authored GraphQL contracts into generated Rust code
 that can talk to Echo through generic intent and observation boundaries.
 
+This is Echo's concrete implementation of the WARP compiler seam: authored
+contract nouns lower into generated request helpers and contract-host helpers,
+while Echo core remains generic. See
+`docs/design/warp-optic-implementation-map.md` for the WARP-paper-to-Echo noun
+map.
+
 The short version:
 
 ```text
@@ -42,6 +48,10 @@ Echo-owned APIs stay generic:
 - admit witnessed suffixes;
 - settle strands;
 - expose receipts, frontiers, readings, and witness references.
+
+Application-authored optics may declare retained consequence obligations, such
+as receipt obligations, but they do not create ticks or `TickReceipt` values.
+Only trusted runtime control owns tick boundaries.
 
 The design evidence for this boundary lives in these repo-local packets:
 
@@ -96,6 +106,14 @@ Contracts own:
 - domain transition law;
 - domain emission law;
 - domain-specific reading payloads.
+
+Wesley-generated code owns the typed bridge between those contract nouns and
+Echo's generic runtime surfaces. That bridge has two separate faces:
+
+| Surface               | Responsibility                                                          |
+| :-------------------- | :---------------------------------------------------------------------- |
+| Application helpers   | Build canonical EINT intent bytes and `ObservationRequest` values.      |
+| Contract-host helpers | Install generated mutation handler rules and read-only query observers. |
 
 Applications own:
 
@@ -214,6 +232,12 @@ It does not mean:
 call this application method synchronously and mutate a hidden global state
 ```
 
+It also does not mean:
+
+```text
+create a tick or TickReceipt from application code
+```
+
 The application should treat `DispatchResponse` as ingress evidence. It says
 whether the intent was newly accepted, names the content-addressed intent id,
 and reports scheduler status. It is not a domain-specific result object and it
@@ -227,6 +251,12 @@ Generated query helpers construct `ObservationRequest` values. The application
 adapter, or a future higher-level wrapper, calls `KernelPort::observe(...)`,
 verifies enough of the returned `ReadingEnvelope`, and decodes the payload bytes
 according to the generated contract.
+
+Generated contract-host query observer helpers are separate from application
+query request builders. They install read-only host observers behind
+`warp-core`'s `ContractQueryObserver` boundary. Those observers receive
+read-only context; they do not receive mutable runtime, scheduler control,
+`TickDelta`, or write authority.
 
 ```mermaid
 sequenceDiagram

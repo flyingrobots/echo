@@ -197,6 +197,10 @@ Implemented for built-in one-shot observations:
   unsupported authored observer plans, unsupported observer instances, and
   capability-scoped rights without an installed checker
 
+This means QueryView exists as a bounded observer bridge. It does not mean Echo
+has implemented the full observer-rights or revelation lattice described by
+the broader WARP paper vocabulary.
+
 Still open:
 
 - hosted/stateful observer instances

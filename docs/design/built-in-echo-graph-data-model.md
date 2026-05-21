@@ -89,7 +89,10 @@ types must eventually serve.
 | `Intent`                   | Submitted request to change, observe, authorize, import, export, or settle state.                     | Causal when submitted                |
 | `Receipt`                  | Durable result, refusal, read, or publication record for an intent.                                   | Durable history                      |
 | `ObstructionReceipt`       | Receipt for a refusal before legal admission.                                                         | Durable refusal evidence             |
+| `LawWitness`               | Echo-owned evidence that resolved admission gates followed named law before ticket issuance.          | Admission witness                    |
 | `AdmissionTicket`          | Admission-success evidence. It is not execution and not a `TickReceipt`.                              | Durable admission evidence           |
+| `TickReceipt`              | Scheduler-owned execution outcome evidence for a committed tick.                                      | Durable execution evidence           |
+| `ReadingEnvelope`          | Observer-relative evidence for a bounded read. It is not admission or execution evidence.             | Durable read evidence                |
 | `WitnessRef`               | Stable reference to evidence material.                                                                | Durable reference                    |
 | `BasisRef`                 | Exact causal state a read, admission, import, settlement, or transaction acts against.                | Causal reference                     |
 | `Aperture`                 | Bounded graph region visible to a read, authority check, or admission decision.                       | Payload constraint, causal when used |

@@ -7,7 +7,7 @@ Status: implemented initial staged admission path.
 
 Depends on:
 
-- [0022 - Continuum transport identity and import idempotence](../../../design/0022-continuum-transport-identity/design.md)
+- [0022 - Continuum transport identity and import idempotence](../0022-continuum-transport-identity/design.md)
 
 ## Why now
 
@@ -92,6 +92,11 @@ networking, or full idempotence indexing.
 This slice landed the first causal runtime path, deliberately stopping at a
 typed `Staged` result instead of pretending full remote import/settlement
 admission is done.
+
+This is not the full replica transport/import optic from the WARP paper. Echo
+still needs comparable-basis transport, adversarial witness carriage,
+idempotence keys for already-adjudicated outcomes, and settlement shell work
+before replica-scale import can be treated as complete.
 
 - `echo-wasm-abi` now defines `IMPORT_SUFFIX_INTENT_V1_OP_ID` and canonical
   pack/unpack helpers for `ImportSuffixRequest`.

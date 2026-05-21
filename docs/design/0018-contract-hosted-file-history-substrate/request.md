@@ -13,6 +13,12 @@ and generated query observer host helpers now exist. Use
 `docs/BEARING.md`, `docs/design/optic-admission-ladder-checkpoint.md`, and the
 living design doc in this directory for current status.
 
+The archived hot-text SDL examples also use `creates: ["Tick", "TickReceipt"]`
+and names such as `replaceRangeAsTick`. Treat those as retained consequence
+obligation examples, not as Echo authority semantics. Application-authored
+operations may declare receipt obligations; they do not create or schedule
+ticks. Only Echo's trusted runtime owner emits `TickReceipt` values.
+
 ````text
 OK make a branch for this new body of work. Please also save off this entire prompt to docs/ somewhere, for future reference. The first task in this sequence will be to write a design doc for this request, then create a sequence of backlog tasks to execute it.
 

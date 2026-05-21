@@ -138,6 +138,10 @@ observer when one is registered for the query op id. The remaining work for this
 file-history substrate is contract/file-history semantics plus installed
 package and registry integration.
 
+This is a bounded read bridge, not the full observer-rights or revelation
+lattice. Generated query observers remain read-only and cannot mutate state,
+tick, or dispatch handlers.
+
 Query results should return:
 
 ```text

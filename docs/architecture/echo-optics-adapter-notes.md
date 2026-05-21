@@ -6,6 +6,9 @@
 This note describes where consumer adapters and generated host helpers sit
 relative to the Echo Optics API.
 
+The WARP-paper-to-Echo implementation map lives at
+`docs/design/warp-optic-implementation-map.md`.
+
 The boundary rule is:
 
 ```text
@@ -78,6 +81,11 @@ Generated contract-host helpers are a separate surface. They install host-owned
 mutation rule constructors and read-only query observer constructors against
 generic `warp-core` boundaries. They must not become application tick authority
 or application-owned runtime control.
+
+Authored optics may declare retained consequence obligations, including
+receipt obligations. They do not create ticks or tick receipts. Echo's trusted
+runtime owner remains responsible for scheduler cadence, tick membership, and
+receipt emission.
 
 The helper may hide byte packing from application code. It must not hide the
 fact that an intent was proposed against an explicit causal basis and then

@@ -28,39 +28,44 @@ AdmissionTicket + witnessed submission -> ticketed runtime ingress
 Ticketed runtime ingress still does not give application code tick authority.
 The trusted runtime owner decides scheduler cadence and tick boundaries.
 
+Application-authored optics may declare retained receipt obligations. They do
+not create ticks, create `TickReceipt` values, or command scheduler cadence.
+
 ## Current Ladder
 
-The current optic invocation admission path evaluates gates in this order:
+The current intent/admission evidence path evaluates gates in this order:
 
-1. Resolve the artifact handle internally.
-2. Reject an unknown handle.
-3. Reject an operation mismatch.
-4. Require basis request presence.
-5. Require aperture request presence.
-6. Require budget request presence.
-7. Classify capability presentation posture.
-8. Optionally publish grant-validation obstruction evidence.
-9. If capability validation returns identity-covered material, resolve the
-   narrow BasisResolution fixture or obstruct unsupported basis material.
-10. If that basis fixture resolves, resolve the narrow ApertureResolution
+1. Record witnessed submission ingress when Echo accepts canonical application
+   intent bytes.
+2. Resolve the artifact handle internally.
+3. Reject an unknown handle.
+4. Reject an operation mismatch.
+5. Require basis request presence.
+6. Require aperture request presence.
+7. Require budget request presence.
+8. Classify capability presentation posture.
+9. Optionally publish grant-validation obstruction evidence.
+10. If capability validation returns identity-covered material, resolve the
+    narrow BasisResolution fixture or obstruct unsupported basis material.
+11. If that basis fixture resolves, resolve the narrow ApertureResolution
     fixture or obstruct unsupported aperture material.
-11. If that aperture fixture resolves, resolve the narrow BudgetResolution
+12. If that aperture fixture resolves, resolve the narrow BudgetResolution
     fixture or obstruct unsupported budget material.
-12. If that budget fixture resolves, check Echo-owned RuntimeSupport facts for
+13. If that budget fixture resolves, check Echo-owned RuntimeSupport facts for
     the registered requirements or obstruct at `RuntimeSupportUnavailable`.
-13. If RuntimeSupport resolves, check Echo-owned InvocationAdmission facts for
+14. If RuntimeSupport resolves, check Echo-owned InvocationAdmission facts for
     the registered artifact handle or obstruct at
     `InvocationAdmissionUnavailable`.
-14. If InvocationAdmission resolves, check Echo-owned SchedulerAdmission facts
+15. If InvocationAdmission resolves, check Echo-owned SchedulerAdmission facts
     for the registered artifact handle or obstruct at
     `SchedulerAdmissionUnavailable`.
-15. If SchedulerAdmission resolves, check Echo-owned SchedulerWorkCandidate
+16. If SchedulerAdmission resolves, check Echo-owned SchedulerWorkCandidate
     facts for the registered artifact handle or obstruct at
     `SchedulerWorkUnavailable`.
-16. If SchedulerWorkCandidate resolves, check Echo-owned LawWitness facts for
+17. If SchedulerWorkCandidate resolves, check Echo-owned LawWitness facts for
     the registered artifact handle or obstruct at `LawWitnessUnavailable`.
-17. If LawWitness resolves, issue an `OpticAdmissionTicket`.
-18. Publish either obstruction evidence or `AdmissionTicketIssued` evidence.
+18. If LawWitness resolves, issue an `OpticAdmissionTicket`.
+19. Publish either obstruction evidence or `AdmissionTicketIssued` evidence.
 
 Presence checks come before resolution checks. Each resolved gate only advances
 to the next gate. No caller-owned field can supply runtime support, invocation

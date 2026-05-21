@@ -638,17 +638,22 @@ mod generated;
 mod tests {
     use super::generated::{
         __echo_wesley_generated::{
+            counter_value_observer_plan, counter_value_observer_vars, counter_value_query_observer,
             increment_contract_rule, increment_contract_runtime_ingress_footprint,
-            increment_contract_vars, IncrementVars,
+            increment_contract_vars, CounterValueVars, IncrementVars,
         },
-        pack_increment_intent, IncrementInput,
+        encode_counter_value_vars, pack_increment_intent, IncrementInput, OP_COUNTER_VALUE,
     };
     use warp_core::{
         make_edge_id, make_head_id, make_intent_kind, make_node_id, make_type_id, AttachmentKey,
-        AttachmentValue, AtomPayload, EdgeRecord, EngineBuilder, GraphStore, GraphView,
-        InboxPolicy, IngressEnvelope, IngressTarget, NodeId, NodeKey, NodeRecord, PlaybackMode,
-        ProvenanceService, SchedulerCoordinator, TickDelta, WarpOp, WorldlineId, WorldlineRuntime,
-        WorldlineState, WriterHead, WriterHeadKey,
+        AttachmentValue, AtomPayload, ContractQueryObserverContext, ContractQueryObserverError,
+        ContractQueryObserverResult, EdgeRecord, EngineBuilder, GraphStore, GraphView,
+        InboxPolicy, IngressEnvelope, IngressTarget, NodeId, NodeKey, NodeRecord,
+        ObservationAt, ObservationCoordinate, ObservationFrame, ObservationPayload,
+        ObservationProjection, ObservationService, PlaybackMode, ProvenanceService,
+        ReadingObserverBasis, ReadingObserverPlan, ReadingResidualPosture, SchedulerCoordinator,
+        TickDelta, WarpOp, WorldlineId, WorldlineRuntime, WorldlineState, WriterHead,
+        WriterHeadKey,
     };
 
     const RESULT_BYTES: &[u8] = b"value=42";
@@ -723,6 +728,124 @@ mod tests {
             .warp_state()
             .store(&frontier.state().root().warp_id)
             .unwrap()
+    }
+
+    fn counter_value_observe(
+        context: &ContractQueryObserverContext<'_>,
+        vars: CounterValueVars,
+    ) -> Result<ContractQueryObserverResult, ContractQueryObserverError> {
+        assert_eq!(context.query_id, OP_COUNTER_VALUE);
+        assert_eq!(counter_value_observer_vars(context).unwrap(), vars);
+        Ok(ContractQueryObserverResult::complete(b"value=42".to_vec()))
+    }
+
+    fn runtime_with_worldline() -> (WorldlineRuntime, ProvenanceService, WorldlineId) {
+        let mut runtime = WorldlineRuntime::new();
+        let worldline_id = WorldlineId::from_bytes([1; 32]);
+        runtime
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        let mut provenance = ProvenanceService::new();
+        provenance
+            .register_worldline(
+                worldline_id,
+                runtime.worldlines().get(&worldline_id).unwrap().state(),
+            )
+            .unwrap();
+        (runtime, provenance, worldline_id)
+    }
+
+    fn query_request(
+        worldline_id: WorldlineId,
+        vars_bytes: Vec<u8>,
+    ) -> warp_core::ObservationRequest {
+        warp_core::ObservationRequest::builtin_one_shot(
+            ObservationCoordinate {
+                worldline_id,
+                at: ObservationAt::Frontier,
+            },
+            ObservationFrame::QueryView,
+            ObservationProjection::Query {
+                query_id: OP_COUNTER_VALUE,
+                vars_bytes,
+            },
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn generated_query_observer_installs_and_returns_query_bytes() {
+        let mut store = GraphStore::default();
+        let root = make_node_id("root");
+        store.insert_node(
+            root,
+            NodeRecord {
+                ty: make_type_id("world"),
+            },
+        );
+        let mut engine = EngineBuilder::new(store, root).workers(1).build();
+        engine
+            .register_contract_query_observer(counter_value_query_observer(counter_value_observe))
+            .unwrap();
+        let (runtime, provenance, worldline_id) = runtime_with_worldline();
+        let vars = CounterValueVars {};
+        let request = query_request(worldline_id, encode_counter_value_vars(&vars).unwrap());
+
+        let artifact =
+            ObservationService::observe(&runtime, &provenance, &engine, request).unwrap();
+
+        assert_eq!(artifact.frame, ObservationFrame::QueryView);
+        assert!(matches!(
+            artifact.projection,
+            ObservationProjection::Query { query_id: OP_COUNTER_VALUE, .. }
+        ));
+        assert_eq!(
+            artifact.payload,
+            ObservationPayload::QueryBytes(b"value=42".to_vec())
+        );
+        assert_eq!(
+            artifact.reading.observer_basis,
+            ReadingObserverBasis::QueryView
+        );
+        assert_eq!(
+            artifact.reading.residual_posture,
+            ReadingResidualPosture::Complete
+        );
+        assert_eq!(
+            artifact.reading.observer_plan,
+            ReadingObserverPlan::Authored {
+                plan: Box::new(counter_value_observer_plan())
+            }
+        );
+    }
+
+    #[test]
+    fn generated_query_observer_decode_failure_returns_typed_error() {
+        let mut store = GraphStore::default();
+        let root = make_node_id("root");
+        store.insert_node(
+            root,
+            NodeRecord {
+                ty: make_type_id("world"),
+            },
+        );
+        let mut engine = EngineBuilder::new(store, root).workers(1).build();
+        engine
+            .register_contract_query_observer(counter_value_query_observer(counter_value_observe))
+            .unwrap();
+        let (runtime, provenance, worldline_id) = runtime_with_worldline();
+        let request = query_request(worldline_id, b"not cbor".to_vec());
+
+        let err = ObservationService::observe(&runtime, &provenance, &engine, request)
+            .expect_err("invalid query vars must fail as observer error");
+
+        assert!(matches!(
+            err,
+            warp_core::ObservationError::ContractQueryObserverFailed {
+                query_id: OP_COUNTER_VALUE,
+                source: ContractQueryObserverError::InvalidVars { .. },
+            }
+        ));
     }
 
     #[test]
@@ -1367,6 +1490,33 @@ fn test_toy_contract_generates_eint_and_observation_helpers() {
 }
 
 #[test]
+fn test_toy_contract_generated_contract_host_helpers_emit_query_observer_helpers() {
+    let output = run_wesley_gen_with_args(TOY_COUNTER_IR, &["--contract-host"]);
+    assert!(
+        output.status.success(),
+        "CLI failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    for required in [
+        "pub const OP_COUNTER_VALUE_OBSERVER_PLAN_ID_LABEL",
+        "pub const OP_COUNTER_VALUE_OBSERVER_ARTIFACT_HASH",
+        "pub fn counter_value_observer_plan",
+        "pub fn counter_value_observer_vars",
+        "pub fn counter_value_query_observer",
+        "ContractQueryObserverContext",
+        "ContractQueryObserverError",
+        "ContractQueryObserverResult",
+    ] {
+        assert!(
+            stdout.contains(required),
+            "generated contract-host output is missing query observer helper: {required}"
+        );
+    }
+}
+
+#[test]
 fn test_footprint_artifact_hash_changes_when_generated_args_change() {
     let without_arg = r#"{
         "ir_version": "echo-ir/v1",
@@ -1602,7 +1752,7 @@ fn test_toy_contract_generated_output_compiles_in_consumer_crate() {
 }
 
 #[test]
-fn test_toy_contract_generated_contract_host_helpers_compile_in_consumer_crate() {
+fn test_toy_contract_generated_contract_host_query_observer_compiles_in_consumer_crate() {
     let output = run_wesley_gen_with_args(TOY_COUNTER_IR, &["--contract-host"]);
     assert!(
         output.status.success(),
@@ -1613,6 +1763,8 @@ fn test_toy_contract_generated_contract_host_helpers_compile_in_consumer_crate()
     assert!(generated.contains("pub fn increment_contract_rule"));
     assert!(generated.contains("pub fn increment_contract_vars"));
     assert!(generated.contains("pub fn increment_contract_runtime_ingress_footprint"));
+    assert!(generated.contains("pub fn counter_value_query_observer"));
+    assert!(generated.contains("pub fn counter_value_observer_vars"));
     let crate_dir = write_contract_host_smoke_crate(&generated);
     let output = Command::new("cargo")
         .args(["test", "--manifest-path"])

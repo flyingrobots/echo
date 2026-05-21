@@ -27,6 +27,7 @@ cat ir.json | cargo run -p echo-wesley-gen --
 cat ir.json | cargo run -p echo-wesley-gen -- --out generated.rs
 
 # Emit std-only warp-core contract-host helpers for installed mutation handlers
+# and query observers
 cat ir.json | cargo run -p echo-wesley-gen -- --contract-host --out generated.rs
 ```
 
@@ -53,6 +54,13 @@ cat ir.json | cargo run -p echo-wesley-gen -- --contract-host --out generated.rs
   `RewriteRule` from host-supplied executor and footprint functions. It does
   not generate the application mutation body or grant application code tick
   authority.
+- `--contract-host` also emits std-only query observer helpers for installing
+  generated queries as read-only `warp-core::ContractQueryObserver` instances.
+  The generated surface stamps deterministic authored observer plan identity,
+  decodes typed vars from observer context with `Result`, and accepts a host
+  closure that returns `ContractQueryObserverResult` or
+  `ContractQueryObserverError`. Query observers cannot tick the runtime or write
+  through this generated boundary.
 - Optional fields become `Option<T>`; lists become `Vec<T>` (wrapped in Option when not required).
 - Unknown scalar names are emitted as identifiers as-is (so ensure upstream IR types are valid Rust idents).
 - Runtime optic artifact imports preserve Wesley-owned canonical admission

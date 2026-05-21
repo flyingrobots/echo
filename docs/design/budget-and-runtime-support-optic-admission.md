@@ -3,9 +3,16 @@
 
 # Budget and Runtime Support Optic Admission
 
-Status: implementation slice.
+Status: historical boundary packet.
 Scope: obstruction-only budget request and runtime support boundary for optic
-invocation admission.
+invocation admission at the time this slice landed.
+
+This document is preserved as design archaeology for the BudgetResolution and
+RuntimeSupport boundary. It is superseded by
+`docs/design/optic-admission-ladder-checkpoint.md` for current ladder state.
+The current ladder advances beyond scheduler admission through
+SchedulerWorkCandidate, LawWitness, and `AdmissionTicket`, and can stage
+ticketed runtime ingress without application tick authority.
 
 ## Doctrine
 
@@ -25,7 +32,7 @@ Runtime support is checked by Echo against registered artifact requirements and
 Echo's own runtime support surface. The caller does not supply a support request
 and Echo must not ask the caller whether Echo supports an operation.
 
-This slice remains obstruction-only:
+This historical slice was obstruction-only:
 
 ```text
 empty basis request -> MissingBasisRequest
@@ -41,7 +48,7 @@ resolved invocation admission + no Echo-owned scheduler admission fact
 resolved scheduler admission -> SchedulerWorkUnavailable
 ```
 
-`UnsupportedBudgetResolution` and `RuntimeSupportUnavailable` are current
+`UnsupportedBudgetResolution` and `RuntimeSupportUnavailable` remain
 obstruction vocabulary. They are reachable only after the earlier gates resolve:
 basis resolution gates aperture resolution, aperture resolution gates budget
 resolution, and budget resolution gates the Echo-owned runtime support check.
@@ -72,8 +79,9 @@ handle
 -> scheduler work unavailable
 ```
 
-This slice reaches the narrow fixture gates through SchedulerAdmission v0. It
-still has no scheduler work and no execution.
+This historical slice reached the narrow fixture gates through
+SchedulerAdmission. Current code advances beyond this packet before issuing
+admission evidence, but still does not treat admission as execution.
 
 ## Flow
 
@@ -243,16 +251,11 @@ Echo must not accept caller testimony about runtime support. Support checks
 compare registered artifact requirements against Echo-owned runtime support
 facts recorded by the registry.
 
-As of InvocationAdmission v0, Echo records a narrow runtime-owned invocation
-admission fixture through Echo-issued artifact handles. That admission fact
-advances the ladder past `InvocationAdmissionUnavailable`, but only to
-SchedulerAdmission v0.
-
-As of SchedulerAdmission v0, Echo records a narrow runtime-owned scheduler
-admission fixture through Echo-issued artifact handles. That scheduler
-admission fact advances the ladder past `SchedulerAdmissionUnavailable`, but
-only to `SchedulerWorkUnavailable`; it still does not schedule work or execute
-an invocation.
+As of this historical slice, Echo recorded a narrow runtime-owned invocation
+admission fixture and scheduler admission fixture through Echo-issued artifact
+handles. Current code also records scheduler work candidate and law witness
+fixtures, then issues `AdmissionTicket` evidence. None of those facts schedule
+work or execute an invocation by themselves.
 
 ## Non-goals
 
@@ -260,8 +263,8 @@ an invocation.
 - no `MissingSchedulerAdmissionRequest`;
 - no support request bytes;
 - no scheduler admission request bytes;
-- no successful `AdmissionTicket`;
-- no `LawWitness`;
+- no successful `AdmissionTicket` in this historical slice;
+- no `LawWitness` in this historical slice;
 - no scheduler work;
 - no execution;
 - no storage engine;

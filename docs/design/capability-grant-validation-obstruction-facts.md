@@ -3,9 +3,12 @@
 
 # Capability Grant Validation Obstruction Facts
 
-Status: implementation slice.
+Status: historical boundary packet.
 Scope: in-memory causal graph fact publication for narrow capability grant
 validation refusal.
+
+This document records an earlier admission-ladder slice. For current ladder
+state, see `docs/design/optic-admission-ladder-checkpoint.md`.
 
 ## Doctrine
 
@@ -126,9 +129,9 @@ classDiagram
 
 ## Non-goals
 
-- no successful grant admission;
-- no successful `AdmissionTicket`;
-- no `LawWitness`;
+- no successful grant admission in this historical slice;
+- no successful `AdmissionTicket` in this historical slice;
+- no `LawWitness` in this historical slice;
 - no execution;
 - no scheduler;
 - no real delegation policy;

@@ -133,9 +133,10 @@ The installed host must:
 ## QueryView Observer Bridge
 
 `echo-wesley-gen` can build `ObservationRequest` values for QueryView queries,
-but `ObservationService` currently rejects QueryView as unsupported. The bridge
-should dispatch QueryView/Query to an installed contract observer when the
-contract host can handle the query op.
+and `ObservationService` now routes QueryView/Query to an installed contract
+observer when one is registered for the query op id. The remaining work for this
+file-history substrate is contract/file-history semantics plus installed
+package and registry integration.
 
 Query results should return:
 
@@ -283,8 +284,8 @@ The fixture should prove:
 1. RED: installed contract mutation handler behind `dispatch_intent`.
 2. GREEN: minimal toy generated contract mutates via Echo scheduling and
    provenance.
-3. RED: QueryView remains unsupported for generated query.
-4. GREEN: contract observer registry and QueryBytes reading.
+3. DONE: core QueryView/Query routes to installed contract observers.
+4. DONE: generated query observer helpers install and return QueryBytes.
 5. RED: bounded reading identity and residual posture.
 6. GREEN: bounded contract observer support.
 7. RED: intent-only external strand, braid, and settlement mutation.

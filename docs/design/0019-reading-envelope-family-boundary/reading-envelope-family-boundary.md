@@ -191,13 +191,14 @@ Implemented for built-in one-shot observations:
 - `ObserveOpticRequest` for bounded head and snapshot metadata reads
 - installed contract query observers for one-shot `QueryView` / `Query`
   observations returning `ObservationPayload::QueryBytes`
+- generated query observer helper constructors for installing read-only
+  contract-host observers
 - fail-closed obstructions for unsupported apertures, missing witness basis,
   unsupported authored observer plans, unsupported observer instances, and
   capability-scoped rights without an installed checker
 
 Still open:
 
-- generated query observer helper constructors
 - hosted/stateful observer instances
 - app-specific budget and rights enforcement
 - obstruction/plurality variants beyond the current `complete` posture

@@ -355,7 +355,7 @@ Current engine-backed behavior:
 | 8    | `INVALID_WORLDLINE`              | Requested worldline missing                                |
 | 9    | `INVALID_TICK`                   | Requested observation tick missing                         |
 | 10   | `UNSUPPORTED_FRAME_PROJECTION`   | Invalid frame/projection pair                              |
-| 11   | `UNSUPPORTED_QUERY`              | Query observation not yet implemented                      |
+| 11   | `UNSUPPORTED_QUERY`              | No installed observer supports the requested query id      |
 | 12   | `OBSERVATION_UNAVAILABLE`        | Valid request but no observation exists at that coordinate |
 | 13   | `INVALID_CONTROL`                | Malformed or invalid control intent                        |
 | 14   | `INVALID_STRAND`                 | Requested strand is not registered                         |
@@ -400,9 +400,8 @@ observation-backed internals rather than adding parallel public read methods.
    `observed_after_global_tick` fields.
 6. Treat all ABI clocks as logical coordinates only. They are not wall-clock
    durations, timer inputs, or global ordering cursors.
-7. Expect query-shaped observations to continue returning
-   `UNSUPPORTED_QUERY` until a real observation-backed query implementation
-   lands.
+7. Expect query-shaped observations to return `UNSUPPORTED_QUERY` when no
+   installed observer supports the requested query id.
 
 ## Compatibility Note
 

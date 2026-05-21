@@ -3,8 +3,11 @@
 
 # Invocation Grant Validation Obstruction Routing
 
-Status: implementation slice.
+Status: historical boundary packet.
 Scope: validator-routed refusal evidence for optic invocation admission.
+
+This document records an earlier admission-ladder slice. For current ladder
+state, see `docs/design/optic-admission-ladder-checkpoint.md`.
 
 ## Doctrine
 
@@ -118,9 +121,9 @@ finds identity coverage.
 
 ## Non-goals
 
-- no successful invocation admission;
-- no successful `AdmissionTicket`;
-- no `LawWitness`;
+- no successful invocation admission in this historical slice;
+- no successful `AdmissionTicket` in this historical slice;
+- no `LawWitness` in this historical slice;
 - no accepted grant material;
 - no delegation validation;
 - no expiry parsing;

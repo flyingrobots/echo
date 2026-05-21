@@ -3,8 +3,11 @@
 
 # Basis-Bound Optic Admission
 
-Status: implementation slice.
+Status: historical boundary packet.
 Scope: obstruction-only basis boundary for optic invocation admission.
+
+This document records an earlier admission-ladder slice. For current ladder
+state, see `docs/design/optic-admission-ladder-checkpoint.md`.
 
 ## Doctrine
 
@@ -155,9 +158,9 @@ identity and capability material line up.
 ## Non-goals
 
 - no successful basis resolution;
-- no successful invocation admission;
-- no successful `AdmissionTicket`;
-- no `LawWitness`;
+- no successful invocation admission in this historical slice;
+- no successful `AdmissionTicket` in this historical slice;
+- no `LawWitness` in this historical slice;
 - no scheduler work;
 - no execution;
 - no storage engine;

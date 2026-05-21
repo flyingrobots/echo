@@ -166,19 +166,19 @@ AdmissionTicket + witnessed submission -> ticketed runtime ingress
 
 ## Roadmap Status
 
-| Area                           | Status   | Notes                                                                                                      |
-| :----------------------------- | :------- | :--------------------------------------------------------------------------------------------------------- |
-| WitnessedIntentSubmission      | Partial  | Runtime records witnessed submissions in memory; durable restart replay remains follow-up work.            |
-| SchedulerWorkCandidate         | Complete | The admission ladder can resolve the scheduler work candidate fixture.                                     |
-| LawWitness                     | Complete | The admission ladder can resolve the law witness fixture.                                                  |
-| AdmissionTicket                | Complete | Echo can issue `OpticAdmissionTicket` evidence without executing.                                          |
-| TicketedRuntimeIngress         | Complete | Ticketed ingress stages admitted submissions through runtime-owner authority without ticking.              |
-| ReceiptCorrelation             | Complete | Scheduler-owned tick receipts correlate back to ticketed ingress, tickets, and submissions.                |
-| IntentOutcomeObservation       | Partial  | Core exposes zero-write pending/decided observation; domain-level applied/rejected semantics remain later. |
-| InstalledContractHostDispatch  | Partial  | Installed package registry gating exists; full normal intent/tick dispatch proof remains next.             |
-| ConflictPolicy / ExplicitRetry | Partial  | Conflict rejection is explicit; user-facing retry policy is still future work.                             |
-| QueryViewObserverBridge        | Complete | Core routes QueryView/Query to installed observers, and Wesley emits host helper constructors.             |
-| Replay/DIND proof              | Later    | End-to-end replay proof for the full intent/admission/tick pipeline remains future work.                   |
+| Area                           | Status   | Notes                                                                                                                           |
+| :----------------------------- | :------- | :------------------------------------------------------------------------------------------------------------------------------ |
+| WitnessedIntentSubmission      | Partial  | Runtime records witnessed submissions and exports/imports deterministic replay records; durable storage remains follow-up work. |
+| SchedulerWorkCandidate         | Complete | The admission ladder can resolve the scheduler work candidate fixture.                                                          |
+| LawWitness                     | Complete | The admission ladder can resolve the law witness fixture.                                                                       |
+| AdmissionTicket                | Complete | Echo can issue `OpticAdmissionTicket` evidence without executing.                                                               |
+| TicketedRuntimeIngress         | Complete | Ticketed ingress stages admitted submissions through runtime-owner authority without ticking.                                   |
+| ReceiptCorrelation             | Complete | Scheduler-owned tick receipts correlate back to ticketed ingress, tickets, and submissions.                                     |
+| IntentOutcomeObservation       | Complete | Core exposes zero-write pending/decided observation with applied/rejected receipt decisions and blockers.                       |
+| InstalledContractHostDispatch  | Complete | Installed packages can dispatch mutation handlers through witnessed, ticketed, scheduler-owned ticks.                           |
+| ConflictPolicy / ExplicitRetry | Partial  | Tick-scale conflict rejection is final and blocker-attributed; user-facing retry helpers remain future.                         |
+| QueryViewObserverBridge        | Complete | Core routes QueryView/Query to installed observers, and Wesley emits host helper constructors.                                  |
+| Replay/DIND proof              | Partial  | Local installed intent pipeline replay converges; broader DIND/replay closure remains future work.                              |
 
 ## Future Scope Boundaries
 
@@ -192,24 +192,20 @@ AdmissionTicket + witnessed submission -> ticketed runtime ingress
 
 ## Immediate Next Slice
 
-The next slice should prove installed contract mutation dispatch through the
-normal witnessed intent and scheduler-owned tick path. Echo now has a single
-registry-verified installed package surface that binds schema hash, artifact
-hash, codec identity, supported operation ids, mutation handlers, and query
-observers before those handlers or observers install into `Engine`.
+The local installed-contract intent pipeline now reaches scheduler-owned handler
+dispatch and replay convergence. The next slice should move outward to the
+contract-aware receipt/reading and consumer-proof boundary: prove an external
+Wesley-compiled contract package can use the generic installed mutation and
+query surfaces without moving application nouns into `warp-core`.
 
 Direct `native_rule_bootstrap` registration remains an internal fixture and
 transitional engine-test path. It does not provide package identity, registry
 verification, or generated operation/package binding guarantees. Contract-host
 proofs that need those guarantees should install through the package boundary.
 
-The next proof should start from canonical generated EINT bytes, pass through
-witnessed ingress and package-supported operation lookup, stage through the
-existing ticketed runtime path, and run the installed mutation rule only during a
-scheduler-owned tick.
-
-That slice must not implement streaming subscriptions, automatic retry,
-execution outside scheduler-owned ticks, or wall-clock cadence semantics.
+That next slice must not implement streaming subscriptions, hidden retry,
+execution outside scheduler-owned ticks, wall-clock cadence semantics, or
+jedit/text-domain APIs inside Echo core.
 
 ## Do Not Regress
 

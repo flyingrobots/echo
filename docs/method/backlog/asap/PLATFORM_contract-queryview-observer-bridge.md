@@ -3,8 +3,9 @@
 
 # Contract QueryView Observer Bridge
 
-Status: core observer bridge, generated query helper checkpoint, and installed
-contract package registry boundary complete.
+Status: core observer bridge, generated query helper checkpoint, installed
+contract package registry boundary, and local installed mutation dispatch proof
+complete.
 
 Depends on:
 

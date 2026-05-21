@@ -3,8 +3,8 @@
 
 # Installed Wesley Contract Host Dispatch
 
-Status: installed package registry boundary exists; full normal intent/tick
-dispatch proof remains.
+Status: local installed package dispatch proof complete; external consumer
+contract proof remains downstream.
 
 Depends on:
 
@@ -14,9 +14,11 @@ Depends on:
 
 ## Why now
 
-Echo can accept EINT bytes, but it does not yet route a validated generated
-contract operation to an installed contract handler inside the normal witnessed
-admission, scheduling, and provenance path.
+Echo can accept EINT bytes and now routes package-supported generated contract
+mutations through witnessed submission, ticketed runtime ingress, and
+scheduler-owned ticks. The remaining platform work is proving the same generic
+surface with an external Wesley-compiled consumer package while keeping
+application nouns out of `warp-core`.
 
 ## Current Checkpoint
 
@@ -49,28 +51,42 @@ Direct `native_rule_bootstrap` registration remains available only as an
 internal fixture and transitional engine-test path. It is not the registry
 package boundary and does not provide package identity guarantees.
 
-Remaining work is dispatch integration: prove a generated EINT submitted through
-normal Echo ingress reaches the installed mutation handler only through the
-witnessed/ticketed/scheduler-owned path.
+The local dispatch proof now verifies:
+
+- package-supported EINT mutation ids enter runtime only through witnessed
+  submission plus ticketed runtime ingress;
+- unsupported installed-contract mutation ids are rejected before they become
+  runtime-visible work;
+- handler execution occurs during `SchedulerCoordinator::super_tick(...)`, not
+  during application submission or ticketed ingress;
+- receipt/outcome observation reports applied and rejected tick decisions;
+- footprint conflicts are final for that tick attempt, with blocker attribution
+  and no hidden retry ingress;
+- witnessed submission replay restores pending ingress history without staging
+  inbox work; and
+- replayed installed-contract pipeline runs converge to the same receipt
+  correlation and observed outcome.
+
+Remaining work moved out of this card: external consumer proof fixtures,
+contract-aware receipt/reading polish, and broader DIND replay closure.
 
 ## RED
 
-Add a failing test with a tiny generated or hand-rolled contract fixture:
+Added failing tests with a tiny generated-shaped contract fixture:
 
 - install one mutation op id and generated handler;
-- submit generated EINT bytes through `dispatch_intent`;
+- submit canonical EINT bytes through witnessed submission;
 - prove no direct test-only mutation service is called;
-- assert worldline/provenance state changes only after scheduler execution.
+- assert worldline/provenance state changes only after scheduler execution;
+- reject unsupported package op ids before runtime ingress;
+- expose receipt-level applied/rejected decisions; and
+- prove replay convergence.
 
 ## GREEN
 
-Add the minimal generic installed-contract host seam needed to pass the test.
-
-Candidate surface:
-
-- package-supported op-id lookup during ingress/admission/runtime handoff;
-- generated vars decode;
-- artifact/schema identity attached to receipt or ingress metadata.
+Added package-supported op-id lookup during the ticketed runtime handoff and
+receipt/outcome observation over scheduler-owned decisions. Generated vars
+decode and handler dispatch remain inside installed mutation rules.
 
 ## Acceptance criteria
 

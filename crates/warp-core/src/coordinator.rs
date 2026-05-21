@@ -96,6 +96,10 @@ pub enum RuntimeError {
     /// the runtime counter can represent.
     #[error("intent submission generation overflow")]
     IntentSubmissionGenerationOverflow,
+    /// Replayed witnessed submission material did not match its derived identity
+    /// or conflicted with an existing witnessed submission.
+    #[error("witnessed intent submission replay mismatch: {0:?}")]
+    IntentSubmissionReplayMismatch(Hash),
     /// Ticketed runtime ingress referenced a submission Echo has not witnessed.
     #[error("unknown intent submission: {0:?}")]
     UnknownIntentSubmission(Hash),
@@ -757,6 +761,23 @@ impl WorldlineRuntime {
         self.witnessed_submissions.values()
     }
 
+    /// Returns witnessed submissions in deterministic replay order.
+    ///
+    /// Replay order follows Echo-owned submission generation, then submission id
+    /// as a stable tie-breaker. These records are ingress-history evidence only;
+    /// importing them does not stage runtime ingress, tick, dispatch handlers, or
+    /// mutate application state.
+    #[must_use]
+    pub fn witnessed_submission_replay_records(&self) -> Vec<IntentSubmissionRecord> {
+        let mut records = self
+            .witnessed_submissions
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        records.sort_by_key(|record| (record.submission_generation, record.submission_id));
+        records
+    }
+
     /// Returns the number of witnessed submission records.
     #[must_use]
     pub fn witnessed_submission_count(&self) -> usize {
@@ -1261,6 +1282,69 @@ impl WorldlineRuntime {
             .ok_or(RuntimeError::UnknownHead(key))?
             .set_eligibility(eligibility);
         self.refresh_runnable();
+        Ok(())
+    }
+
+    /// Imports witnessed submission records as replayed ingress history.
+    ///
+    /// This restores Echo's semantic submission ledger only. It does not enter
+    /// envelopes into head inboxes, stage ticketed runtime ingress, advance
+    /// ticks, dispatch handlers, or execute contracts.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a replay record names an unknown writer head, its
+    /// submission id does not match the canonical head/ingress-derived identity,
+    /// it conflicts with already-replayed submission material, or the replayed
+    /// generation cannot advance the runtime's next generation counter.
+    pub fn replay_witnessed_submissions<I>(&mut self, records: I) -> Result<(), RuntimeError>
+    where
+        I: IntoIterator<Item = IntentSubmissionRecord>,
+    {
+        let mut records = records.into_iter().collect::<Vec<_>>();
+        records.sort_by_key(|record| (record.submission_generation, record.submission_id));
+
+        for record in records {
+            if self.heads.get(&record.head_key).is_none() {
+                return Err(RuntimeError::UnknownHead(record.head_key));
+            }
+            let expected_submission_id =
+                derive_intent_submission_id(record.head_key, record.ingress_id);
+            if record.submission_id != expected_submission_id {
+                return Err(RuntimeError::IntentSubmissionReplayMismatch(
+                    record.submission_id,
+                ));
+            }
+            if self
+                .witnessed_submissions
+                .get(&record.submission_id)
+                .is_some_and(|existing| existing != &record)
+            {
+                return Err(RuntimeError::IntentSubmissionReplayMismatch(
+                    record.submission_id,
+                ));
+            }
+            if self
+                .submission_by_target
+                .get(&(record.head_key, record.ingress_id))
+                .is_some_and(|submission_id| *submission_id != record.submission_id)
+            {
+                return Err(RuntimeError::IntentSubmissionReplayMismatch(
+                    record.submission_id,
+                ));
+            }
+            let Some(next_generation) = record.submission_generation.checked_increment() else {
+                return Err(RuntimeError::IntentSubmissionGenerationOverflow);
+            };
+            if next_generation > self.next_submission_generation {
+                self.next_submission_generation = next_generation;
+            }
+            self.submission_by_target
+                .insert((record.head_key, record.ingress_id), record.submission_id);
+            self.witnessed_submissions
+                .insert(record.submission_id, record);
+        }
+
         Ok(())
     }
 
@@ -1807,6 +1891,7 @@ fn scheduler_fault_scope_for_error(
         | RuntimeError::Replay(_)
         | RuntimeError::Strand(_)
         | RuntimeError::IntentSubmissionGenerationOverflow
+        | RuntimeError::IntentSubmissionReplayMismatch(_)
         | RuntimeError::UnknownIntentSubmission(_)
         | RuntimeError::TicketedIngressSubmissionMismatch(_)
         | RuntimeError::TicketedIngressAlreadyStaged(_)
@@ -2322,6 +2407,10 @@ fn scheduler_error_cause_digest(err: &RuntimeError) -> Hash {
         }
         RuntimeError::IntentSubmissionGenerationOverflow => {
             hasher.update(b"intent-submission-generation-overflow");
+        }
+        RuntimeError::IntentSubmissionReplayMismatch(submission_id) => {
+            hasher.update(b"intent-submission-replay-mismatch");
+            hasher.update(submission_id);
         }
         RuntimeError::UnknownIntentSubmission(submission_id) => {
             hasher.update(b"unknown-intent-submission");

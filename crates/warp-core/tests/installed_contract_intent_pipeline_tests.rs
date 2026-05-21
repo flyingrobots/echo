@@ -566,3 +566,73 @@ fn footprint_conflict_is_final_without_hidden_retry() {
         "duplicate submission must not create a hidden retry ingress"
     );
 }
+
+#[test]
+fn witnessed_submission_replay_restores_pending_history_without_runtime_ingress() {
+    let (mut runtime, _engine, worldline_id, _head) = pipeline_runtime();
+    let envelope_a = eint_envelope(worldline_id, MUTATION_OP_ID, MUTATION_VARS);
+    let envelope_b = eint_envelope(worldline_id, CONFLICT_OP_ID, CONFLICT_VARS_A);
+
+    let submission_a = match runtime
+        .submit_intent(envelope_a.clone())
+        .expect("first submission should be witnessed")
+    {
+        IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
+        IntentSubmissionDisposition::Duplicate { .. } => {
+            panic!("first submission must not be duplicate")
+        }
+    };
+    let submission_b = match runtime
+        .submit_intent(envelope_b.clone())
+        .expect("second submission should be witnessed")
+    {
+        IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
+        IntentSubmissionDisposition::Duplicate { .. } => {
+            panic!("second submission must not be duplicate")
+        }
+    };
+    let replay_records = runtime.witnessed_submission_replay_records();
+
+    let (mut replayed, _engine, _worldline_id, replay_head) = pipeline_runtime();
+    replayed
+        .replay_witnessed_submissions(replay_records)
+        .expect("witnessed submission replay should import");
+
+    assert_eq!(replayed.witnessed_submission_count(), 2);
+    assert_eq!(replayed.ticketed_runtime_ingress_count(), 0);
+    assert_eq!(
+        replayed
+            .heads()
+            .get(&replay_head)
+            .expect("replay head should exist")
+            .inbox()
+            .pending_count(),
+        0,
+        "replaying witnessed submissions must not stage runtime ingress"
+    );
+    assert_eq!(replayed.global_tick().as_u64(), 0);
+
+    assert!(matches!(
+        replayed.observe_intent_outcome(&submission_a),
+        IntentOutcomeObservation::Pending {
+            submission_id,
+            ticketed_ingress_id: None,
+            ..
+        } if submission_id == submission_a
+    ));
+    assert!(matches!(
+        replayed.observe_intent_outcome(&submission_b),
+        IntentOutcomeObservation::Pending {
+            submission_id,
+            ticketed_ingress_id: None,
+            ..
+        } if submission_id == submission_b
+    ));
+    assert!(matches!(
+        replayed
+            .submit_intent(envelope_a)
+            .expect("replayed duplicate should be recognized"),
+        IntentSubmissionDisposition::Duplicate { submission_id, .. }
+            if submission_id == submission_a
+    ));
+}

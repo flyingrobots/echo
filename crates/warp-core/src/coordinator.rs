@@ -15,6 +15,8 @@ use crate::engine_impl::{CommitOutcome, Engine, EngineError};
 use crate::head::{
     HeadEligibility, PlaybackHeadRegistry, RunnableWriterSet, WriterHead, WriterHeadKey,
 };
+#[cfg(feature = "native_rule_bootstrap")]
+use crate::head_inbox::IngressPayload;
 use crate::head_inbox::{InboxAddress, InboxIngestResult, IngressEnvelope, IngressTarget};
 use crate::ident::Hash;
 use crate::optic_artifact::OpticAdmissionTicket;
@@ -102,6 +104,16 @@ pub enum RuntimeError {
     /// A different admission ticket already staged this witnessed submission.
     #[error("witnessed submission already has ticketed runtime ingress: {0:?}")]
     TicketedIngressAlreadyStaged(Hash),
+    /// Installed contract runtime ingress received malformed canonical intent bytes.
+    #[error("installed contract invocation is not a canonical EINT intent")]
+    MalformedInstalledContractIntent,
+    /// Installed contract runtime ingress named a mutation operation id that no
+    /// installed package supports.
+    #[error("unsupported installed contract mutation op id: {op_id}")]
+    UnsupportedInstalledContractMutation {
+        /// The unsupported canonical EINT mutation operation id.
+        op_id: u32,
+    },
     /// Ticketed runtime ingress attempted to claim an envelope that was already
     /// pending or committed through another ingress path.
     #[error("ticketed runtime ingress cannot claim duplicate runtime ingress {ingress_id:?} for head {head_key:?}")]
@@ -1312,6 +1324,39 @@ impl WorldlineRuntime {
         Ok(TicketedRuntimeIngressDisposition::Staged { record, ingress })
     }
 
+    /// Stages a witnessed installed-contract mutation invocation into runtime ingress.
+    ///
+    /// This is the package boundary between lawful admission evidence and the
+    /// scheduler-owned runtime path. It verifies that the canonical EINT mutation
+    /// operation id is supported by an installed contract package before the work
+    /// becomes runtime-visible. The method does not tick, dispatch handlers, or
+    /// execute contracts.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the envelope is not a canonical EINT local intent,
+    /// no installed contract package supports its mutation operation id, or the
+    /// underlying ticketed ingress boundary rejects the submission.
+    #[cfg(feature = "native_rule_bootstrap")]
+    pub fn ingest_installed_contract_invocation(
+        &mut self,
+        authority: &TicketedRuntimeIngressAuthority,
+        engine: &Engine,
+        submission_id: Hash,
+        ticket: &OpticAdmissionTicket,
+        envelope: IngressEnvelope,
+    ) -> Result<TicketedRuntimeIngressDisposition, RuntimeError> {
+        let op_id = installed_contract_mutation_op_id(&envelope)?;
+        if engine
+            .installed_contract_mutation_package_id(op_id)
+            .is_none()
+        {
+            return Err(RuntimeError::UnsupportedInstalledContractMutation { op_id });
+        }
+
+        self.ingest_ticketed_invocation(authority, submission_id, ticket, envelope)
+    }
+
     /// Resolves an ingress envelope to a specific writer head and stores it in that inbox.
     ///
     /// # Errors
@@ -1613,6 +1658,14 @@ fn derive_ticketed_runtime_ingress_id(
     hasher.finalize().into()
 }
 
+#[cfg(feature = "native_rule_bootstrap")]
+fn installed_contract_mutation_op_id(envelope: &IngressEnvelope) -> Result<u32, RuntimeError> {
+    let IngressPayload::LocalIntent { intent_bytes, .. } = envelope.payload();
+    echo_wasm_abi::unpack_intent_v1(intent_bytes)
+        .map(|(op_id, _vars)| op_id)
+        .map_err(|_error| RuntimeError::MalformedInstalledContractIntent)
+}
+
 fn derive_scheduler_run_id(next_global_tick: GlobalTick, keys: &[WriterHeadKey]) -> SchedulerRunId {
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"echo.scheduler-run");
@@ -1678,6 +1731,8 @@ fn scheduler_fault_scope_for_error(
         | RuntimeError::UnknownIntentSubmission(_)
         | RuntimeError::TicketedIngressSubmissionMismatch(_)
         | RuntimeError::TicketedIngressAlreadyStaged(_)
+        | RuntimeError::MalformedInstalledContractIntent
+        | RuntimeError::UnsupportedInstalledContractMutation { .. }
         | RuntimeError::TicketedIngressDuplicateRuntimeIngress { .. } => {
             SchedulerFaultScope::Runtime
         }
@@ -2200,6 +2255,13 @@ fn scheduler_error_cause_digest(err: &RuntimeError) -> Hash {
         RuntimeError::TicketedIngressAlreadyStaged(submission_id) => {
             hasher.update(b"ticketed-ingress-already-staged");
             hasher.update(submission_id);
+        }
+        RuntimeError::MalformedInstalledContractIntent => {
+            hasher.update(b"malformed-installed-contract-intent");
+        }
+        RuntimeError::UnsupportedInstalledContractMutation { op_id } => {
+            hasher.update(b"unsupported-installed-contract-mutation");
+            hasher.update(&op_id.to_le_bytes());
         }
         RuntimeError::TicketedIngressDuplicateRuntimeIngress {
             head_key,

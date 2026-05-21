@@ -1,0 +1,379 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+//! Installed contract intent pipeline tests.
+#![cfg(all(feature = "native_rule_bootstrap", feature = "host_test"))]
+
+use echo_registry_api::{
+    ArgDef, ContractArtifactVerificationPolicy, ObjectDef, OpDef, OpKind, RegistryInfo,
+    RegistryProvider,
+};
+use warp_core::{
+    make_head_id, make_intent_kind, make_node_id, make_type_id, ContractMutationHandler,
+    ContractPackageIdentity, Engine, EngineBuilder, GraphStore, GraphView, InboxPolicy,
+    IngressEnvelope, IngressTarget, IntentSubmissionDisposition, NodeId, NodeRecord,
+    OpticAdmissionTicket, OpticArtifactHandle, PatternGraph, PlaybackMode, ProvenanceService,
+    RuntimeError, SchedulerCoordinator, SchedulerKind, TickDelta, TicketedRuntimeIngressAuthority,
+    WorldlineId, WorldlineRuntime, WorldlineState, WriterHead, WriterHeadKey,
+    OPTIC_ADMISSION_TICKET_KIND, OPTIC_ARTIFACT_HANDLE_KIND,
+};
+
+const SCHEMA_SHA256_HEX: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+const MUTATION_OP_ID: u32 = 1001;
+const UNKNOWN_OP_ID: u32 = 9999;
+const MUTATION_VARS: &[u8] = b"amount=42";
+const RESULT_TYPE: &str = "test/toy-counter/increment-result";
+const RESULT_BYTES: &[u8] = b"value=42";
+const MUTATION_RULE_NAME: &str =
+    "cmd/contract/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/1001/increment";
+
+static INCREMENT_ARGS: &[ArgDef] = &[ArgDef {
+    name: "input",
+    ty: "IncrementInput",
+    required: true,
+    list: false,
+}];
+
+static OPS: &[OpDef] = &[OpDef {
+    kind: OpKind::Mutation,
+    name: "increment",
+    op_id: MUTATION_OP_ID,
+    args: INCREMENT_ARGS,
+    result_ty: "CounterValue",
+    directives_json: "{}",
+    footprint_certificate: None,
+}];
+
+struct StaticRegistry;
+
+impl RegistryProvider for StaticRegistry {
+    fn info(&self) -> RegistryInfo {
+        RegistryInfo {
+            codec_id: "cbor-canon-v1",
+            registry_version: 1,
+            schema_sha256_hex: SCHEMA_SHA256_HEX,
+        }
+    }
+
+    fn op_by_id(&self, op_id: u32) -> Option<&'static OpDef> {
+        OPS.iter().find(|op| op.op_id == op_id)
+    }
+
+    fn all_ops(&self) -> &'static [OpDef] {
+        OPS
+    }
+
+    fn all_enums(&self) -> &'static [echo_registry_api::EnumDef] {
+        &[]
+    }
+
+    fn all_objects(&self) -> &'static [ObjectDef] {
+        &[]
+    }
+}
+
+fn empty_engine() -> Engine {
+    let mut store = GraphStore::default();
+    let root = make_node_id("root");
+    store.insert_node(
+        root,
+        NodeRecord {
+            ty: make_type_id("world"),
+        },
+    );
+    EngineBuilder::new(store, root)
+        .scheduler(SchedulerKind::Radix)
+        .workers(1)
+        .build()
+}
+
+fn package_identity() -> ContractPackageIdentity<'static> {
+    ContractPackageIdentity {
+        package_name: "toy-counter",
+        package_version: "0.1.0",
+        artifact_hash_hex: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    }
+}
+
+fn verification_policy() -> ContractArtifactVerificationPolicy<'static> {
+    ContractArtifactVerificationPolicy {
+        codec_id: "cbor-canon-v1",
+        registry_version: 1,
+        schema_sha256_hex: SCHEMA_SHA256_HEX,
+        footprint_certificates: &[],
+        require_mutation_footprint_certificates: false,
+    }
+}
+
+fn result_node_id(scope: &NodeId) -> NodeId {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"test.installed-contract.pipeline.result-node");
+    hasher.update(scope.as_bytes());
+    NodeId(hasher.finalize().into())
+}
+
+fn contract_matches(view: GraphView<'_>, scope: &NodeId) -> bool {
+    warp_core::eint_vars_for_op(view, scope, MUTATION_OP_ID) == Some(MUTATION_VARS)
+}
+
+fn contract_execute(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
+    if warp_core::eint_vars_for_op(view, scope, MUTATION_OP_ID) != Some(MUTATION_VARS) {
+        return;
+    }
+    let warp_id = view.warp_id();
+    let result = result_node_id(scope);
+    delta.push(warp_core::WarpOp::UpsertNode {
+        node: warp_core::NodeKey {
+            warp_id,
+            local_id: result,
+        },
+        record: NodeRecord {
+            ty: make_type_id(RESULT_TYPE),
+        },
+    });
+    delta.push(warp_core::WarpOp::SetAttachment {
+        key: warp_core::AttachmentKey::node_alpha(warp_core::NodeKey {
+            warp_id,
+            local_id: result,
+        }),
+        value: Some(warp_core::AttachmentValue::Atom(
+            warp_core::AtomPayload::new(
+                make_type_id(RESULT_TYPE),
+                bytes::Bytes::copy_from_slice(RESULT_BYTES),
+            ),
+        )),
+    });
+}
+
+fn contract_footprint(view: GraphView<'_>, scope: &NodeId) -> warp_core::Footprint {
+    let mut footprint = warp_core::runtime_ingress_eint_read_footprint(view, scope);
+    let warp_id = view.warp_id();
+    let result = result_node_id(scope);
+    footprint.n_write.insert_with_warp(warp_id, result);
+    footprint
+        .a_write
+        .insert(warp_core::AttachmentKey::node_alpha(warp_core::NodeKey {
+            warp_id,
+            local_id: result,
+        }));
+    footprint
+}
+
+fn contract_rule() -> warp_core::RewriteRule {
+    warp_core::RewriteRule {
+        id: make_type_id(&format!("rule:{MUTATION_RULE_NAME}")).0,
+        name: MUTATION_RULE_NAME,
+        left: PatternGraph { nodes: vec![] },
+        matcher: contract_matches,
+        executor: contract_execute,
+        compute_footprint: contract_footprint,
+        factor_mask: 0,
+        conflict_policy: warp_core::ConflictPolicy::Abort,
+        join_fn: None,
+    }
+}
+
+fn install_contract(engine: &mut Engine) {
+    static REGISTRY: StaticRegistry = StaticRegistry;
+    engine
+        .install_contract_package(warp_core::InstalledContractPackage {
+            identity: package_identity(),
+            registry: &REGISTRY,
+            verification_policy: verification_policy(),
+            mutation_handlers: vec![ContractMutationHandler {
+                op_id: MUTATION_OP_ID,
+                rule: contract_rule(),
+            }],
+            query_observers: vec![],
+        })
+        .expect("contract package should install");
+}
+
+fn register_head(runtime: &mut WorldlineRuntime, worldline_id: WorldlineId) -> WriterHeadKey {
+    let key = WriterHeadKey {
+        worldline_id,
+        head_id: make_head_id("default"),
+    };
+    runtime
+        .register_writer_head(WriterHead::with_routing(
+            key,
+            PlaybackMode::Play,
+            InboxPolicy::AcceptAll,
+            None,
+            true,
+        ))
+        .expect("writer head should register");
+    key
+}
+
+fn runtime_store(runtime: &WorldlineRuntime, worldline_id: WorldlineId) -> &GraphStore {
+    let frontier = runtime
+        .worldlines()
+        .get(&worldline_id)
+        .expect("worldline should exist");
+    frontier
+        .state()
+        .warp_state()
+        .store(&frontier.state().root().warp_id)
+        .expect("frontier store should exist")
+}
+
+fn provenance_for(runtime: &WorldlineRuntime) -> ProvenanceService {
+    let mut provenance = ProvenanceService::new();
+    for (worldline_id, frontier) in runtime.worldlines().iter() {
+        provenance
+            .register_worldline(*worldline_id, frontier.state())
+            .expect("provenance should register");
+    }
+    provenance
+}
+
+fn admission_ticket(seed: u8) -> OpticAdmissionTicket {
+    OpticAdmissionTicket {
+        kind: OPTIC_ADMISSION_TICKET_KIND.to_owned(),
+        artifact_handle: OpticArtifactHandle {
+            kind: OPTIC_ARTIFACT_HANDLE_KIND.to_owned(),
+            id: format!("installed-contract-pipeline-{seed}"),
+        },
+        artifact_hash: format!("artifact-hash-{seed}"),
+        operation_id: format!("operation-{seed}"),
+        requirements_digest: format!("requirements-{seed}"),
+        canonical_variables_digest: vec![seed],
+        basis_request_digest: [seed; 32],
+        aperture_request_digest: [seed.wrapping_add(1); 32],
+        budget_request_digest: [seed.wrapping_add(2); 32],
+        law_witness_digest: [seed.wrapping_add(3); 32],
+        ticket_digest: [seed.wrapping_add(4); 32],
+    }
+}
+
+fn ticketed_authority() -> TicketedRuntimeIngressAuthority {
+    TicketedRuntimeIngressAuthority::assume_runtime_owner()
+}
+
+fn pipeline_runtime() -> (WorldlineRuntime, Engine, WorldlineId, WriterHeadKey) {
+    let mut runtime = WorldlineRuntime::new();
+    let mut engine = empty_engine();
+    install_contract(&mut engine);
+    let worldline_id = WorldlineId::from_bytes([1; 32]);
+    runtime
+        .register_worldline(worldline_id, WorldlineState::empty())
+        .expect("worldline should register");
+    let head = register_head(&mut runtime, worldline_id);
+    (runtime, engine, worldline_id, head)
+}
+
+fn eint_envelope(worldline_id: WorldlineId, op_id: u32, vars: &[u8]) -> IngressEnvelope {
+    IngressEnvelope::local_intent(
+        IngressTarget::DefaultWriter { worldline_id },
+        make_intent_kind("echo.intent/eint-v1"),
+        echo_wasm_abi::pack_intent_v1(op_id, vars).expect("EINT should pack"),
+    )
+}
+
+#[test]
+fn installed_contract_mutation_dispatches_only_through_ticketed_scheduler_tick() {
+    let (mut runtime, mut engine, worldline_id, head) = pipeline_runtime();
+    let envelope = eint_envelope(worldline_id, MUTATION_OP_ID, MUTATION_VARS);
+    let event_id = NodeId(envelope.ingress_id());
+    let result = result_node_id(&event_id);
+
+    let submission = match runtime
+        .submit_intent(envelope.clone())
+        .expect("submission should be witnessed")
+    {
+        IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
+        IntentSubmissionDisposition::Duplicate { .. } => {
+            panic!("first submission should not be duplicate")
+        }
+    };
+
+    assert!(
+        runtime_store(&runtime, worldline_id)
+            .node(&result)
+            .is_none(),
+        "witnessed submission must not execute installed contract handlers"
+    );
+
+    let ticket = admission_ticket(7);
+    runtime
+        .ingest_installed_contract_invocation(
+            &ticketed_authority(),
+            &engine,
+            submission,
+            &ticket,
+            envelope,
+        )
+        .expect("package-supported ticketed ingress should stage");
+
+    assert!(
+        runtime_store(&runtime, worldline_id)
+            .node(&result)
+            .is_none(),
+        "ticketed runtime ingress must stage work without executing"
+    );
+
+    let mut provenance = provenance_for(&runtime);
+    let records = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine)
+        .expect("scheduler-owned tick should execute installed contract handler");
+
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].head_key, head);
+    assert_eq!(records[0].admitted_count, 1);
+    let store = runtime_store(&runtime, worldline_id);
+    assert_eq!(
+        store.node(&result).map(|record| record.ty),
+        Some(make_type_id(RESULT_TYPE))
+    );
+    assert!(matches!(
+        store.node_attachment(&result),
+        Some(warp_core::AttachmentValue::Atom(payload))
+            if payload.type_id == make_type_id(RESULT_TYPE)
+                && payload.bytes.as_ref() == RESULT_BYTES
+    ));
+    assert!(runtime
+        .receipt_correlation_for_submission(&submission)
+        .is_some());
+}
+
+#[test]
+fn unsupported_installed_contract_mutation_cannot_enter_ticketed_runtime_ingress() {
+    let (mut runtime, engine, worldline_id, head) = pipeline_runtime();
+    let envelope = eint_envelope(worldline_id, UNKNOWN_OP_ID, MUTATION_VARS);
+    let submission = match runtime
+        .submit_intent(envelope.clone())
+        .expect("unsupported submission should still be witnessed")
+    {
+        IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
+        IntentSubmissionDisposition::Duplicate { .. } => {
+            panic!("first submission should not be duplicate")
+        }
+    };
+    let ticket = admission_ticket(8);
+
+    let err = runtime
+        .ingest_installed_contract_invocation(
+            &ticketed_authority(),
+            &engine,
+            submission,
+            &ticket,
+            envelope,
+        )
+        .expect_err("unsupported contract op must not stage runtime ingress");
+
+    assert!(matches!(
+        err,
+        RuntimeError::UnsupportedInstalledContractMutation {
+            op_id: UNKNOWN_OP_ID
+        }
+    ));
+    assert_eq!(runtime.ticketed_runtime_ingress_count(), 0);
+    assert_eq!(
+        runtime
+            .heads()
+            .get(&head)
+            .expect("head should exist")
+            .inbox()
+            .pending_count(),
+        0
+    );
+}

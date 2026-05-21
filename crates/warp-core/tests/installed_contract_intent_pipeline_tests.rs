@@ -2,6 +2,7 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Installed contract intent pipeline tests.
 #![cfg(all(feature = "native_rule_bootstrap", feature = "host_test"))]
+#![allow(clippy::expect_used, clippy::panic)]
 
 use echo_registry_api::{
     ArgDef, ContractArtifactVerificationPolicy, ObjectDef, OpDef, OpKind, RegistryInfo,
@@ -497,7 +498,7 @@ fn footprint_conflict_is_final_without_hidden_retry() {
             &engine,
             submission_a,
             &admission_ticket(11),
-            envelope_a.clone(),
+            envelope_a,
         )
         .expect("first conflict candidate should stage");
     runtime
@@ -683,7 +684,7 @@ fn witnessed_submission_replay_restores_pending_history_without_runtime_ingress(
         }
     };
     let submission_b = match runtime
-        .submit_intent(envelope_b.clone())
+        .submit_intent(envelope_b)
         .expect("second submission should be witnessed")
     {
         IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,

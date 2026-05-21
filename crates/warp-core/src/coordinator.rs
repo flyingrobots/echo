@@ -2101,6 +2101,10 @@ fn scheduler_error_cause_digest(err: &RuntimeError) -> Hash {
                     hasher.update(b"duplicate-rule-id");
                     hasher.update(rule_id);
                 }
+                EngineError::DuplicateContractQueryObserver(query_id) => {
+                    hasher.update(b"duplicate-contract-query-observer");
+                    hasher.update(&query_id.to_le_bytes());
+                }
                 EngineError::MissingJoinFn => {
                     hasher.update(b"missing-join-fn");
                 }

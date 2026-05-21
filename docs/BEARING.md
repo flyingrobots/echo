@@ -3,7 +3,7 @@
 
 # BEARING
 
-Last updated: 2026-05-20.
+Last updated: 2026-05-21.
 
 This signpost summarizes current direction. It does not create commitments or
 replace backlog items, design docs, retros, or CLI status. If it disagrees with
@@ -43,6 +43,10 @@ scheduler-owned tick outcome without giving application code tick authority.
   observers keyed by generated query op id. Observers receive canonical vars
   bytes and the resolved causal basis, emit `QueryBytes`, and stamp the
   `ReadingEnvelope` with authored observer plan identity.
+- `echo-wesley-gen --contract-host` emits std-only query observer helpers for
+  that seam: deterministic authored observer plan identity, typed context-vars
+  decoders, and read-only observer constructors that install host closures into
+  `warp-core`.
 - Footprint conflicts are explicit receipt rejections, not hidden retries.
 - Failed `SuperTick` attempts are failure-atomic: uncommitted runtime,
   provenance, and receipt-correlation writes are rolled back before any fault
@@ -61,8 +65,6 @@ scheduler-owned tick outcome without giving application code tick authority.
   by id.
 - Contract-host packaging does not yet reject unsupported contract operations at
   an installed registry boundary.
-- `echo-wesley-gen` does not yet emit generated query observer installation
-  helpers for the core contract query observer boundary.
 
 ## Doctrine
 
@@ -145,10 +147,12 @@ AdmissionTicket + witnessed submission -> ticketed runtime ingress
 
 ## Immediate Next Slice
 
-The next slice should emit generated query observer helpers from Wesley against
-the core contract query observer boundary. Keep the write-side invariant intact:
-application dispatch submits EINT bytes only; handlers execute during
-scheduler-owned ticks.
+The next slice should add an installed contract registry boundary. Wesley now
+emits both write-side mutation host helpers and read-side query observer host
+helpers; Echo needs a single installed package surface that binds schema hash,
+artifact hash, codec identity, supported operation ids, mutation handlers, and
+query observers before contract operations become runtime-visible work or
+reads.
 
-This slice must not implement streaming subscriptions, automatic retry,
+That slice must not implement streaming subscriptions, automatic retry,
 execution outside scheduler-owned ticks, or wall-clock cadence semantics.

@@ -13,6 +13,8 @@
 //! Observation is strictly read-only. It never advances runtime state, drains
 //! inboxes, rewrites provenance, or mutates compatibility mirrors.
 
+use std::sync::Arc;
+
 use blake3::Hasher;
 use echo_wasm_abi::kernel_port as abi;
 use thiserror::Error;
@@ -470,6 +472,26 @@ pub struct ContractQueryObserver {
 }
 
 impl ContractQueryObserver {
+    /// Builds an installed contract query observer from a read-only host
+    /// closure. The closure receives immutable observation context and cannot
+    /// tick or mutate the runtime through this boundary.
+    pub fn new<F>(query_id: u32, observer_plan: AuthoredObserverPlan, observe: F) -> Self
+    where
+        F: for<'a> Fn(
+                ContractQueryObserverContext<'a>,
+            )
+                -> Result<ContractQueryObserverResult, ContractQueryObserverError>
+            + Send
+            + Sync
+            + 'static,
+    {
+        Self {
+            query_id,
+            observer_plan,
+            observe: Arc::new(observe),
+        }
+    }
+
     fn observer_plan(&self) -> ReadingObserverPlan {
         ReadingObserverPlan::Authored {
             plan: Box::new(self.observer_plan.clone()),
@@ -478,8 +500,14 @@ impl ContractQueryObserver {
 }
 
 /// Read-only installed contract query observer function.
-pub type ContractQueryObserveFn =
-    for<'a> fn(ContractQueryObserverContext<'a>) -> ContractQueryObserverResult;
+pub type ContractQueryObserveFn = Arc<
+    dyn for<'a> Fn(
+            ContractQueryObserverContext<'a>,
+        ) -> Result<ContractQueryObserverResult, ContractQueryObserverError>
+        + Send
+        + Sync
+        + 'static,
+>;
 
 /// Read-only context passed to an installed contract query observer.
 pub struct ContractQueryObserverContext<'a> {
@@ -522,6 +550,47 @@ impl ContractQueryObserverResult {
         Self {
             bytes,
             residual_posture: ReadingResidualPosture::Residual,
+        }
+    }
+}
+
+/// Error emitted by a hosted query observer while producing query bytes.
+#[derive(Clone, Debug, PartialEq, Eq, Error)]
+pub enum ContractQueryObserverError {
+    /// Canonical query vars could not be decoded for the generated query id.
+    #[error("invalid query vars for query id {query_id}: {message}")]
+    InvalidVars {
+        /// Generated query operation id.
+        query_id: u32,
+        /// Deterministic decode error description.
+        message: String,
+    },
+    /// The hosted observer failed after vars were decoded.
+    #[error("query observer failed for query id {query_id}: {message}")]
+    Failed {
+        /// Generated query operation id.
+        query_id: u32,
+        /// Deterministic failure description.
+        message: String,
+    },
+}
+
+impl ContractQueryObserverError {
+    /// Builds a typed invalid-vars observer error.
+    #[must_use]
+    pub fn invalid_vars(query_id: u32, message: impl Into<String>) -> Self {
+        Self::InvalidVars {
+            query_id,
+            message: message.into(),
+        }
+    }
+
+    /// Builds a typed observer failure.
+    #[must_use]
+    pub fn failed(query_id: u32, message: impl Into<String>) -> Self {
+        Self::Failed {
+            query_id,
+            message: message.into(),
         }
     }
 }
@@ -963,6 +1032,14 @@ pub enum ObservationError {
         /// Stable generated query operation id.
         query_id: u32,
     },
+    /// An installed contract query observer rejected or failed the request.
+    #[error("contract query observer failed for query id {query_id}: {source}")]
+    ContractQueryObserverFailed {
+        /// Stable generated query operation id.
+        query_id: u32,
+        /// Observer-emitted failure.
+        source: ContractQueryObserverError,
+    },
     /// The requested observer plan is not installed or executable.
     #[error("unsupported observer plan: {0:?}")]
     UnsupportedObserverPlan(ReadingObserverPlan),
@@ -1094,7 +1171,13 @@ impl ObservationService {
                     resolved: &resolved,
                     runtime,
                     provenance,
-                });
+                })
+                .map_err(|source| {
+                    ObservationError::ContractQueryObserverFailed {
+                        query_id: *query_id,
+                        source,
+                    }
+                })?;
                 (
                     ObservationPayload::QueryBytes(result.bytes),
                     observer.observer_plan(),
@@ -1405,6 +1488,12 @@ impl ObservationService {
                 OpticObstructionKind::UnsupportedProjectionLaw,
                 None,
                 "contract QueryView optics are not installed yet",
+            ),
+            ObservationError::ContractQueryObserverFailed { .. } => Self::optic_obstruction(
+                request,
+                OpticObstructionKind::UnsupportedProjectionLaw,
+                None,
+                "contract QueryView observer failed to emit a reading",
             ),
             ObservationError::UnsupportedRights(_) => Self::optic_obstruction(
                 request,
@@ -2259,7 +2348,7 @@ mod tests {
 
     fn complete_query_observer(
         context: ContractQueryObserverContext<'_>,
-    ) -> ContractQueryObserverResult {
+    ) -> Result<ContractQueryObserverResult, ContractQueryObserverError> {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&context.query_id.to_le_bytes());
         bytes.extend_from_slice(context.vars_bytes);
@@ -2270,15 +2359,15 @@ mod tests {
                 .as_u64()
                 .to_le_bytes(),
         );
-        ContractQueryObserverResult::complete(bytes)
+        Ok(ContractQueryObserverResult::complete(bytes))
     }
 
     fn residual_query_observer(
         context: ContractQueryObserverContext<'_>,
-    ) -> ContractQueryObserverResult {
+    ) -> Result<ContractQueryObserverResult, ContractQueryObserverError> {
         let mut bytes = b"residual:".to_vec();
         bytes.extend_from_slice(context.vars_bytes);
-        ContractQueryObserverResult::residual(bytes)
+        Ok(ContractQueryObserverResult::residual(bytes))
     }
 
     fn empty_runtime_fixture() -> (Engine, WorldlineRuntime, ProvenanceService, WorldlineId) {
@@ -3047,11 +3136,11 @@ mod tests {
         let (mut engine, runtime, provenance, worldline_id) = one_commit_fixture();
         let plan = authored_query_plan(90, 91);
         engine
-            .register_contract_query_observer(ContractQueryObserver {
-                query_id: 9_001,
-                observer_plan: plan.clone(),
-                observe: complete_query_observer,
-            })
+            .register_contract_query_observer(ContractQueryObserver::new(
+                9_001,
+                plan.clone(),
+                complete_query_observer,
+            ))
             .unwrap();
         let request = query_request(
             worldline_id,
@@ -3102,18 +3191,18 @@ mod tests {
     fn contract_query_identity_changes_when_plan_query_vars_or_basis_change() {
         let (mut engine, runtime, provenance, worldline_id) = one_commit_fixture();
         engine
-            .register_contract_query_observer(ContractQueryObserver {
-                query_id: 9_001,
-                observer_plan: authored_query_plan(90, 91),
-                observe: complete_query_observer,
-            })
+            .register_contract_query_observer(ContractQueryObserver::new(
+                9_001,
+                authored_query_plan(90, 91),
+                complete_query_observer,
+            ))
             .unwrap();
         engine
-            .register_contract_query_observer(ContractQueryObserver {
-                query_id: 9_002,
-                observer_plan: authored_query_plan(92, 93),
-                observe: complete_query_observer,
-            })
+            .register_contract_query_observer(ContractQueryObserver::new(
+                9_002,
+                authored_query_plan(92, 93),
+                complete_query_observer,
+            ))
             .unwrap();
 
         let baseline = ObservationService::observe(
@@ -3168,11 +3257,11 @@ mod tests {
         let (mut other_engine, other_runtime, other_provenance, other_worldline_id) =
             one_commit_fixture();
         other_engine
-            .register_contract_query_observer(ContractQueryObserver {
-                query_id: 9_001,
-                observer_plan: authored_query_plan(90, 99),
-                observe: complete_query_observer,
-            })
+            .register_contract_query_observer(ContractQueryObserver::new(
+                9_001,
+                authored_query_plan(90, 99),
+                complete_query_observer,
+            ))
             .unwrap();
         let different_schema = ObservationService::observe(
             &other_runtime,
@@ -3197,11 +3286,11 @@ mod tests {
     fn bounded_contract_query_observer_reports_residual_posture() -> Result<(), String> {
         let (mut engine, runtime, provenance, worldline_id) = one_commit_fixture();
         engine
-            .register_contract_query_observer(ContractQueryObserver {
-                query_id: 9_003,
-                observer_plan: authored_query_plan(94, 95),
-                observe: residual_query_observer,
-            })
+            .register_contract_query_observer(ContractQueryObserver::new(
+                9_003,
+                authored_query_plan(94, 95),
+                residual_query_observer,
+            ))
             .map_err(|err| err.to_string())?;
         let mut request = query_request(
             worldline_id,

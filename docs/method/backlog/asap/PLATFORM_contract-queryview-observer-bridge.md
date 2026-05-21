@@ -3,8 +3,8 @@
 
 # Contract QueryView Observer Bridge
 
-Status: core observer bridge checkpoint; generated query helper emission
-remains.
+Status: core observer bridge and generated query helper checkpoint complete;
+installed contract registry boundary remains.
 
 Depends on:
 
@@ -25,6 +25,11 @@ bounded bytes and residual posture; Echo wraps the bytes in
 `ObservationPayload::QueryBytes` and stamps the `ReadingEnvelope` with the
 authored observer plan identity.
 
+`echo-wesley-gen --contract-host` now emits std-only query observer helpers for
+that boundary: deterministic authored observer plan identity, typed
+context-vars decoders that return `Result`, and read-only observer constructors
+that install host closures through `warp-core`.
+
 ## RED
 
 Added failing tests that prove:
@@ -36,6 +41,11 @@ Added failing tests that prove:
 - changing schema/plan identity, op id, vars, or basis changes artifact
   identity;
 - bounded observers can report residual posture.
+- generated contract-host output includes query observer helper constructors;
+- generated query observers decode typed vars from observer context and return
+  typed observer errors for malformed canonical vars;
+- generated mutation host helpers and query observer helpers compile and install
+  together in a consumer smoke crate.
 
 ## GREEN
 
@@ -50,17 +60,22 @@ ObservationPayload::QueryBytes(bytes)
 
 and a ReadingEnvelope that names contract/query identity.
 
+`echo-wesley-gen --contract-host` emits generated query observer helpers that
+bind Wesley query definitions to this read-only observer boundary without
+adding application nouns to core.
+
 ## Acceptance criteria
 
 - Unsupported query op returns typed obstruction/error, not fake empty success.
 - Same query, basis, and vars produce stable reading identity.
 - Changing schema hash, op id, vars, or basis changes identity.
 - Bounded observers can report budget/residual posture.
+- Generated query observer helpers install through
+  `Engine::register_contract_query_observer`.
+- Malformed generated query vars become typed observer errors, not `None`.
 
 ## Remaining work
 
-- `echo-wesley-gen` should emit query observer helper constructors against this
-  core boundary.
 - Contract-host packaging still needs an installed registry boundary that
   rejects unsupported contract operations before they become runtime-visible
   work or reads.

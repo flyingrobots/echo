@@ -42,15 +42,15 @@ use echo_wasm_abi::{
 };
 use warp_core::{
     make_head_id, make_intent_kind, make_node_id, make_type_id, AttachmentDescentPolicy,
-    AttachmentKey, AttachmentOwner, AttachmentPlane, AuthoredObserverPlan, BraidId, CoordinateAt,
-    EchoCoordinate, EdgeKey, Engine, EngineBuilder, EngineError, GlobalTick, GraphStore,
-    HeadEligibility, HeadId, HistoryError, IngressDisposition, IngressEnvelope, IngressTarget,
-    NeighborhoodError, NeighborhoodSiteService, NodeKey, NodeRecord, ObservationAt,
-    ObservationCoordinate, ObservationError, ObservationFrame, ObservationPayload,
-    ObservationProjection, ObservationReadBudget, ObservationRequest, ObservationRights,
-    ObservationService, ObserveOpticRequest, ObserverInstanceId, ObserverInstanceRef,
-    ObserverPlanId, OpticAperture, OpticApertureShape, OpticCapabilityId, OpticFocus,
-    OpticReadBudget, PlaybackMode, ProjectionVersion, ProvenanceRef, ProvenanceService,
+    AttachmentKey, AttachmentOwner, AttachmentPlane, AuthoredObserverPlan, BraidId,
+    ContractQueryObserverError, CoordinateAt, EchoCoordinate, EdgeKey, Engine, EngineBuilder,
+    EngineError, GlobalTick, GraphStore, HeadEligibility, HeadId, HistoryError, IngressDisposition,
+    IngressEnvelope, IngressTarget, NeighborhoodError, NeighborhoodSiteService, NodeKey,
+    NodeRecord, ObservationAt, ObservationCoordinate, ObservationError, ObservationFrame,
+    ObservationPayload, ObservationProjection, ObservationReadBudget, ObservationRequest,
+    ObservationRights, ObservationService, ObserveOpticRequest, ObserverInstanceId,
+    ObserverInstanceRef, ObserverPlanId, OpticAperture, OpticApertureShape, OpticCapabilityId,
+    OpticFocus, OpticReadBudget, PlaybackMode, ProjectionVersion, ProvenanceRef, ProvenanceService,
     ReadingObserverPlan, ReducerVersion, RetainedReadingKey, RunId, RuntimeError,
     SchedulerCoordinator, SchedulerKind, SettlementError, SettlementService, StrandId, TypeId,
     WorldlineId, WorldlineRuntime, WorldlineState, WorldlineStateError, WorldlineTick, WriterHead,
@@ -320,6 +320,20 @@ impl WarpKernel {
                 code: error_codes::UNSUPPORTED_QUERY,
                 message: format!("query observation is not installed for query id {query_id}"),
             },
+            ObservationError::ContractQueryObserverFailed { query_id, source } => {
+                let code = match &source {
+                    ContractQueryObserverError::InvalidVars { .. } => error_codes::CODEC_ERROR,
+                    ContractQueryObserverError::Failed { .. } => {
+                        error_codes::OBSERVATION_UNAVAILABLE
+                    }
+                };
+                AbiError {
+                    code,
+                    message: format!(
+                        "contract query observer failed for query id {query_id}: {source}"
+                    ),
+                }
+            }
             ObservationError::UnsupportedObserverPlan(plan) => AbiError {
                 code: error_codes::UNSUPPORTED_OBSERVER_PLAN,
                 message: format!("unsupported observer plan: {plan:?}"),

@@ -7,6 +7,17 @@
 
 ### Added
 
+- `echo-wesley-gen --contract-host` now emits std-only query observer host
+  helpers against `warp-core`'s `ContractQueryObserver` boundary. Generated
+  query helpers include deterministic authored observer plan identity, typed
+  context-vars decoders that return `Result` on malformed canonical vars, and
+  typed observer constructors that install read-only host closures through
+  `Engine::register_contract_query_observer`. The core observer function
+  boundary now returns a typed `Result`, so decode failures and host observer
+  failures are explicit observation errors. The generated smoke crate proves
+  mutation host helpers and query observer helpers install together without
+  giving query observers write authority, tick authority, or application nouns
+  in core.
 - `warp-core` now routes `QueryView`/`Query` observations to installed
   contract query observers. Installed observers are keyed by generated query op
   id, receive canonical vars bytes plus the resolved causal basis, return

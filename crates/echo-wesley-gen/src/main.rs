@@ -8,6 +8,7 @@ use clap::Parser;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::io::{self, Read};
 use std::path::PathBuf;
 
@@ -727,6 +728,13 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
                     let optic_fn_name = format_ident!("{}_observe_optic_request", helper_name);
                     let optic_raw_fn_name =
                         format_ident!("{}_observe_optic_request_raw_vars", helper_name);
+                    let observer_plan_label_const =
+                        format_ident!("{}_OBSERVER_PLAN_ID_LABEL", const_name);
+                    let observer_artifact_hash_const =
+                        format_ident!("{}_OBSERVER_ARTIFACT_HASH", const_name);
+                    let observer_plan_fn_name = format_ident!("{}_observer_plan", helper_name);
+                    let observer_vars_fn_name = format_ident!("{}_observer_vars", helper_name);
+                    let query_observer_fn_name = format_ident!("{}_query_observer", helper_name);
                     helper_exports.push(fn_name.clone());
                     helper_exports.push(raw_fn_name.clone());
                     helper_exports.push(optic_fn_name.clone());
@@ -809,6 +817,85 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
                             }
                         }
                     });
+                    if args.contract_host {
+                        helper_exports.push(observer_plan_label_const.clone());
+                        helper_exports.push(observer_artifact_hash_const.clone());
+                        helper_exports.push(observer_plan_fn_name.clone());
+                        helper_exports.push(observer_vars_fn_name.clone());
+                        helper_exports.push(query_observer_fn_name.clone());
+                        let observer_plan_label =
+                            format!("observer:query/{schema_sha}/{}/{}", op.op_id, op.name);
+                        let observer_identity =
+                            observer_identity_hashes(ir, op, &generated_rust_artifact_hash)?;
+                        let observer_plan_id = byte_array_literal(observer_identity.plan_id);
+                        let observer_artifact_hash =
+                            byte_array_literal(observer_identity.artifact_hash);
+                        let observer_schema_hash =
+                            byte_array_literal(observer_identity.schema_hash);
+                        let observer_state_schema_hash =
+                            byte_array_literal(observer_identity.state_schema_hash);
+                        let observer_update_law_hash =
+                            byte_array_literal(observer_identity.update_law_hash);
+                        let observer_emission_law_hash =
+                            byte_array_literal(observer_identity.emission_law_hash);
+                        let observer_artifact_hash_hex = hash_hex(observer_identity.artifact_hash);
+                        helper_tokens.extend(quote! {
+                            /// Stable authored observer plan-id label for this generated query.
+                            pub const #observer_plan_label_const: &str = #observer_plan_label;
+
+                            /// Stable artifact hash for this generated query observer helper.
+                            pub const #observer_artifact_hash_const: &str = #observer_artifact_hash_hex;
+
+                            /// Build the authored observer plan stamped onto readings emitted
+                            /// by this generated query observer.
+                            pub fn #observer_plan_fn_name() -> warp_core::AuthoredObserverPlan {
+                                warp_core::AuthoredObserverPlan {
+                                    plan_id: warp_core::ObserverPlanId::from_bytes(#observer_plan_id),
+                                    artifact_hash: #observer_artifact_hash,
+                                    schema_hash: #observer_schema_hash,
+                                    state_schema_hash: #observer_state_schema_hash,
+                                    update_law_hash: #observer_update_law_hash,
+                                    emission_law_hash: #observer_emission_law_hash,
+                                }
+                            }
+
+                            /// Decode this query's generated vars from read-only observer context.
+                            pub fn #observer_vars_fn_name(
+                                context: &warp_core::ContractQueryObserverContext<'_>,
+                            ) -> Result<#vars_name, echo_wasm_abi::CanonError> {
+                                echo_wasm_abi::decode_cbor(context.vars_bytes)
+                            }
+
+                            /// Build a read-only `warp-core` query observer for this generated query.
+                            pub fn #query_observer_fn_name<F>(observe: F) -> warp_core::ContractQueryObserver
+                            where
+                                F: for<'a> Fn(
+                                        &warp_core::ContractQueryObserverContext<'a>,
+                                        #vars_name,
+                                    ) -> Result<
+                                        warp_core::ContractQueryObserverResult,
+                                        warp_core::ContractQueryObserverError,
+                                    >
+                                    + Send
+                                    + Sync
+                                    + 'static,
+                            {
+                                warp_core::ContractQueryObserver::new(
+                                    super::#const_name,
+                                    #observer_plan_fn_name(),
+                                    move |context| {
+                                        let vars = #observer_vars_fn_name(&context).map_err(|error| {
+                                            warp_core::ContractQueryObserverError::invalid_vars(
+                                                context.query_id,
+                                                error.to_string(),
+                                            )
+                                        })?;
+                                        observe(&context, vars)
+                                    },
+                                )
+                            }
+                        });
+                    }
                 }
             }
         }
@@ -993,6 +1080,88 @@ struct GeneratedFootprintCertificate {
     certificate_hash_hex: String,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct GeneratedObserverIdentity {
+    plan_id: [u8; 32],
+    artifact_hash: [u8; 32],
+    schema_hash: [u8; 32],
+    state_schema_hash: [u8; 32],
+    update_law_hash: [u8; 32],
+    emission_law_hash: [u8; 32],
+}
+
+fn observer_identity_hashes(
+    ir: &WesleyIR,
+    op: &ir::OpDefinition,
+    generated_rust_artifact_hash: &str,
+) -> Result<GeneratedObserverIdentity> {
+    let args_json = serde_json::to_string(&op.args)?;
+    let directives_json = op_directives_json(op)?;
+    let schema_sha = ir.schema_sha256.as_deref().unwrap_or("");
+    let codec_id = ir.codec_id.as_deref().unwrap_or(DEFAULT_CODEC_ID);
+    let registry_version = ir.registry_version.unwrap_or(DEFAULT_REGISTRY_VERSION);
+    let observer_plan_label = format!("observer:query/{schema_sha}/{}/{}", op.op_id, op.name);
+    let observer_preimage = format!(
+        concat!(
+            "echo-wesley-query-observer-artifact/v1\n",
+            "schema_sha256={schema_sha}\n",
+            "codec_id={codec_id}\n",
+            "registry_version={registry_version}\n",
+            "op_id={op_id}\n",
+            "op_name={op_name}\n",
+            "result_type={result_type}\n",
+            "args={args_json}\n",
+            "directives_json={directives_json}\n",
+            "generated_rust_artifact_hash={generated_rust_artifact_hash}\n",
+        ),
+        schema_sha = schema_sha,
+        codec_id = codec_id,
+        registry_version = registry_version,
+        op_id = op.op_id,
+        op_name = op.name,
+        result_type = op.result_type,
+        args_json = args_json,
+        directives_json = directives_json,
+        generated_rust_artifact_hash = generated_rust_artifact_hash,
+    );
+    let artifact_hash = blake3_hash(observer_preimage.as_bytes());
+    let artifact_hash_hex = hash_hex(artifact_hash);
+    Ok(GeneratedObserverIdentity {
+        plan_id: blake3_hash(
+            format!("echo-wesley-query-observer-plan-id/v1\n{observer_plan_label}\n").as_bytes(),
+        ),
+        artifact_hash,
+        schema_hash: schema_hash_bytes(schema_sha),
+        state_schema_hash: blake3_hash(
+            format!(
+                "echo-wesley-query-observer-state-schema/v1\n{}\n{}\n{}",
+                schema_sha,
+                op.op_id,
+                artifact_hash_hex.as_str()
+            )
+            .as_bytes(),
+        ),
+        update_law_hash: blake3_hash(
+            format!(
+                "echo-wesley-query-observer-update-law/v1\n{}\n{}\n{}",
+                schema_sha,
+                op.op_id,
+                artifact_hash_hex.as_str()
+            )
+            .as_bytes(),
+        ),
+        emission_law_hash: blake3_hash(
+            format!(
+                "echo-wesley-query-observer-emission-law/v1\n{}\n{}\n{}",
+                schema_sha,
+                op.op_id,
+                artifact_hash_hex.as_str()
+            )
+            .as_bytes(),
+        ),
+    })
+}
+
 fn op_footprint_certificate(
     ir: &WesleyIR,
     op: &ir::OpDefinition,
@@ -1103,6 +1272,41 @@ fn footprint_argument_value<'a>(
 
 fn blake3_hex(input: &[u8]) -> String {
     blake3::hash(input).to_hex().to_string()
+}
+
+fn blake3_hash(input: &[u8]) -> [u8; 32] {
+    blake3::hash(input).into()
+}
+
+fn schema_hash_bytes(schema_sha: &str) -> [u8; 32] {
+    parse_hex_hash(schema_sha).unwrap_or_else(|| {
+        blake3_hash(format!("echo-wesley-schema-hash-fallback/v1\n{schema_sha}\n").as_bytes())
+    })
+}
+
+fn parse_hex_hash(hex: &str) -> Option<[u8; 32]> {
+    if hex.len() != 64 {
+        return None;
+    }
+    let mut bytes = [0_u8; 32];
+    for (index, chunk) in hex.as_bytes().chunks_exact(2).enumerate() {
+        let text = std::str::from_utf8(chunk).ok()?;
+        bytes[index] = u8::from_str_radix(text, 16).ok()?;
+    }
+    Some(bytes)
+}
+
+fn hash_hex(hash: [u8; 32]) -> String {
+    let mut output = String::with_capacity(64);
+    for byte in hash {
+        let _ = write!(&mut output, "{byte:02x}");
+    }
+    output
+}
+
+fn byte_array_literal(bytes: [u8; 32]) -> TokenStream {
+    let elements = bytes.iter().copied();
+    quote! { [#(#elements),*] }
 }
 
 fn op_const_name(name: &str, op_id: u32) -> String {

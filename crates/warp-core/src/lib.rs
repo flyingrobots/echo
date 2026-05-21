@@ -244,11 +244,11 @@ pub use neighborhood::{
 };
 pub use observation::{
     AuthoredObserverPlan, BuiltinObserverPlan, ContractQueryObserveFn, ContractQueryObserver,
-    ContractQueryObserverContext, ContractQueryObserverResult, HeadObservation,
-    ObservationArtifact, ObservationAt, ObservationBasisPosture, ObservationCoordinate,
-    ObservationError, ObservationFrame, ObservationPayload, ObservationProjection,
-    ObservationProjectionKind, ObservationReadBudget, ObservationRequest, ObservationRights,
-    ObservationService, ObserverInstanceId, ObserverInstanceRef, ObserverPlanId,
+    ContractQueryObserverContext, ContractQueryObserverError, ContractQueryObserverResult,
+    HeadObservation, ObservationArtifact, ObservationAt, ObservationBasisPosture,
+    ObservationCoordinate, ObservationError, ObservationFrame, ObservationPayload,
+    ObservationProjection, ObservationProjectionKind, ObservationReadBudget, ObservationRequest,
+    ObservationRights, ObservationService, ObserverInstanceId, ObserverInstanceRef, ObserverPlanId,
     ReadingBudgetPosture, ReadingEnvelope, ReadingObserverBasis, ReadingObserverPlan,
     ReadingResidualPosture, ReadingRightsPosture, ReadingWitnessRef, ResolvedObservationCoordinate,
     WorldlineSnapshot,

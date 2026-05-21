@@ -136,15 +136,20 @@ The paper's broad lawful outcome algebra is:
 Derived | Plural | Conflict | Obstruction
 ```
 
-Echo's local scheduler receipt path currently realizes a narrower tick-scale
+Echo's local `TickReceipt` entries currently realize a narrower tick-scale
 shape:
 
 ```text
-Applied / Rejected(FootprintConflict) / Obstructed-or-faulted posture
+Applied / Rejected(FootprintConflict)
 ```
 
 Conflict rejection is final for that tick attempt. Retry is a new explicit
 causal act. There is no hidden retry queue.
+
+Admission obstructions happen before ticketed scheduler work. Internal runtime
+faults are not normal receipt dispositions; they roll back the failed scheduler
+attempt and enter runtime-local quarantine posture outside the `TickReceipt`
+path.
 
 Do not implement broad `Plural` support merely to mirror the paper. Treat it as
 broader WARP algebra and future braid/replica-scale work until an executable

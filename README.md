@@ -309,7 +309,8 @@ Application UI
   -> canonical operation variables
   -> EINT intent bytes
   -> host-owned Echo ingress: dispatch_intent(...)
-  -> Echo-owned scheduler tick / settlement
+  -> accepted / witnessed ingress evidence
+  -> later runtime-owned scheduler tick / settlement
   -> Echo receipts and witness refs
   -> Echo observe(...)
   -> ReadingEnvelope + payload bytes

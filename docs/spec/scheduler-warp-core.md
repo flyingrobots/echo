@@ -42,14 +42,18 @@ Reservation checks all candidate resources for conflict and marks resources only
 A candidate conflicts when it writes a resource another admitted candidate reads or writes, or when its boundary port claim overlaps another admitted boundary port claim. Reads may overlap reads.
 
 The broad WARP outcome algebra is `Derived | Plural | Conflict |
-Obstruction`. Echo's local scheduler receipt path currently realizes the
-narrower tick-scale shape `Applied / Rejected(FootprintConflict) /
-Obstructed-or-faulted posture`, with blocker attribution for conflicts. `Plural`
-belongs to broader braid/replica-scale work until an executable local claim
-requires it.
+Obstruction`. Echo's local `TickReceipt` entries currently realize the narrower
+tick-scale shape `Applied / Rejected(FootprintConflict)`, with blocker
+attribution for conflicts. `Plural` belongs to broader braid/replica-scale work
+until an executable local claim requires it.
 
 Conflict rejection is final for that tick attempt. Retry is a new explicit
 causal act, not a hidden retry queue.
+
+Admission obstructions happen before ticketed scheduler work. Internal runtime
+faults are not normal receipt dispositions; they roll back the failed scheduler
+attempt and enter runtime-local quarantine posture outside the `TickReceipt`
+path.
 
 ## Decision 4: Drain order is canonical
 

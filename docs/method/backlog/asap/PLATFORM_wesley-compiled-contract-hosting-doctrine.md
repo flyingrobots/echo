@@ -4,8 +4,9 @@
 # Wesley Compiled Contract Hosting Doctrine
 
 Status: design packet accepted; implementation advanced through contract-host
-mutation helpers and query observer helpers. Current blocker is the installed
-contract registry boundary.
+mutation helpers, query observer helpers, and the installed contract package
+registry boundary. Current blocker is normal installed mutation dispatch through
+witnessed ingress and scheduler-owned ticks.
 
 Depends on:
 
@@ -47,8 +48,7 @@ card was created, Echo has also landed:
 - core QueryView/Query observer routing;
 - `echo-wesley-gen --contract-host` query observer helper constructors.
 
-The active implementation gap is now one installed package/registry boundary
-that binds:
+Echo now has one installed package/registry boundary that binds:
 
 - EINT v1
 - `RegistryInfo`
@@ -63,7 +63,10 @@ that binds:
 - authored observer plan identities
 - contract package/version identity
 
-before contract operations become runtime-visible work or accepted reads.
+before handlers or observers install into `Engine`. Direct
+`native_rule_bootstrap` registration remains an internal fixture and
+transitional engine-test path; it does not provide registry/package identity
+guarantees.
 
 The current WARP/Echo noun map lives in
 `docs/design/warp-optic-implementation-map.md`. The current optic admission
@@ -78,8 +81,9 @@ slice -> lower -> witness -> retain
 ## Done looks like
 
 - The accepted design doc remains linked from this card.
-- The current next implementation card is the installed contract registry
-  boundary, not more Wesley generation or another doctrine packet.
+- The current next implementation card is installed contract mutation dispatch
+  through the normal witnessed intent and scheduler-owned tick path, not more
+  Wesley generation or another doctrine packet.
 - Echo still must not add text-editor APIs, Graft APIs, or consumer-specific
   ABI methods.
 - Built-in substrate/debug observers remain distinct from contract-defined

@@ -7,6 +7,12 @@ use blake3::Hasher;
 use thiserror::Error;
 
 use crate::attachment::{AttachmentKey, AttachmentValue};
+#[cfg(feature = "native_rule_bootstrap")]
+use crate::contract_registry::{
+    prepare_installed_contract_package, ContractMutationHandler, InstalledContractPackage,
+    InstalledContractPackageError,
+};
+use crate::contract_registry::{InstalledContractPackageId, InstalledContractPackageRecord};
 use crate::graph::GraphStore;
 use crate::graph_view::GraphView;
 use crate::head_inbox::{IngressEnvelope, IngressPayload, IntentKind};
@@ -432,6 +438,13 @@ pub struct Engine {
     compact_rule_ids: HashMap<Hash, CompactRuleId>,
     rules_by_compact: HashMap<CompactRuleId, &'static str>,
     canonical_cmd_rules: Vec<(Hash, &'static str)>,
+    #[cfg_attr(not(feature = "native_rule_bootstrap"), allow(dead_code))]
+    installed_contract_packages:
+        BTreeMap<InstalledContractPackageId, InstalledContractPackageRecord>,
+    #[cfg_attr(not(feature = "native_rule_bootstrap"), allow(dead_code))]
+    contract_mutation_handlers: BTreeMap<u32, InstalledContractPackageId>,
+    #[cfg_attr(not(feature = "native_rule_bootstrap"), allow(dead_code))]
+    contract_query_observer_packages: BTreeMap<u32, InstalledContractPackageId>,
     contract_query_observers: BTreeMap<u32, ContractQueryObserver>,
     scheduler: DeterministicScheduler,
     scheduler_kind: SchedulerKind,
@@ -859,6 +872,9 @@ impl Engine {
             compact_rule_ids: HashMap::new(),
             rules_by_compact: HashMap::new(),
             canonical_cmd_rules: Vec::new(),
+            installed_contract_packages: BTreeMap::new(),
+            contract_mutation_handlers: BTreeMap::new(),
+            contract_query_observer_packages: BTreeMap::new(),
             contract_query_observers: BTreeMap::new(),
             scheduler: DeterministicScheduler::new(kind, Arc::clone(&telemetry)),
             scheduler_kind: kind,
@@ -1049,6 +1065,9 @@ impl Engine {
             compact_rule_ids: HashMap::new(),
             rules_by_compact: HashMap::new(),
             canonical_cmd_rules: Vec::new(),
+            installed_contract_packages: BTreeMap::new(),
+            contract_mutation_handlers: BTreeMap::new(),
+            contract_query_observer_packages: BTreeMap::new(),
             contract_query_observers: BTreeMap::new(),
             scheduler: DeterministicScheduler::new(kind, Arc::clone(&telemetry)),
             scheduler_kind: kind,
@@ -1172,6 +1191,142 @@ impl Engine {
 
     pub(crate) fn contract_query_observer(&self, query_id: u32) -> Option<&ContractQueryObserver> {
         self.contract_query_observers.get(&query_id)
+    }
+
+    /// Installs a generated contract package through the package registry
+    /// boundary.
+    ///
+    /// This runtime-owner bootstrap surface verifies the generated registry,
+    /// confirms that mutation handlers and query observers correspond to
+    /// supported operations, and only then registers scheduler-owned rules and
+    /// read-only observers. Application dispatch does not call this method and
+    /// does not gain tick authority through it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InstalledContractPackageError`] if registry verification fails,
+    /// any handler/observer names an unsupported operation, or the package would
+    /// conflict with an already-installed package, rule, mutation op, or query op.
+    #[cfg(feature = "native_rule_bootstrap")]
+    #[doc(hidden)]
+    pub fn install_contract_package<'a>(
+        &mut self,
+        package: InstalledContractPackage<'a>,
+    ) -> Result<InstalledContractPackageRecord, InstalledContractPackageError<'a>> {
+        let prepared = prepare_installed_contract_package(package)?;
+        self.preflight_installed_contract_package(&prepared.record, &prepared.mutation_handlers)?;
+
+        for handler in prepared.mutation_handlers {
+            self.register_rule_impl(handler.rule)
+                .map_err(Self::installed_contract_registration_error)?;
+            self.contract_mutation_handlers
+                .insert(handler.op_id, prepared.record.package_id);
+        }
+        for observer in prepared.query_observers {
+            let query_id = observer.query_id;
+            self.register_contract_query_observer_impl(observer)
+                .map_err(Self::installed_contract_registration_error)?;
+            self.contract_query_observer_packages
+                .insert(query_id, prepared.record.package_id);
+        }
+        self.installed_contract_packages
+            .insert(prepared.record.package_id, prepared.record.clone());
+        Ok(prepared.record)
+    }
+
+    #[cfg(feature = "native_rule_bootstrap")]
+    fn installed_contract_registration_error<'a>(
+        error: EngineError,
+    ) -> InstalledContractPackageError<'a> {
+        match error {
+            EngineError::DuplicateRuleName(name) => {
+                InstalledContractPackageError::DuplicateRuleName { name }
+            }
+            EngineError::DuplicateRuleId(rule_id) => {
+                InstalledContractPackageError::DuplicateRuleId { rule_id }
+            }
+            EngineError::DuplicateContractQueryObserver(op_id) => {
+                InstalledContractPackageError::DuplicateInstalledQueryOperation { op_id }
+            }
+            EngineError::MissingJoinFn => InstalledContractPackageError::MissingJoinFn,
+            _ => InstalledContractPackageError::InternalRegistrationFailure {
+                reason: "unexpected engine registration error after package preflight",
+            },
+        }
+    }
+
+    #[cfg(feature = "native_rule_bootstrap")]
+    fn preflight_installed_contract_package<'a>(
+        &self,
+        record: &InstalledContractPackageRecord,
+        mutation_handlers: &[ContractMutationHandler],
+    ) -> Result<(), InstalledContractPackageError<'a>> {
+        if self
+            .installed_contract_packages
+            .contains_key(&record.package_id)
+        {
+            return Err(InstalledContractPackageError::DuplicatePackage {
+                package_id: record.package_id,
+            });
+        }
+        for op_id in &record.mutation_op_ids {
+            if self.contract_mutation_handlers.contains_key(op_id) {
+                return Err(
+                    InstalledContractPackageError::DuplicateInstalledMutationOperation {
+                        op_id: *op_id,
+                    },
+                );
+            }
+        }
+        for op_id in &record.query_op_ids {
+            if self.contract_query_observers.contains_key(op_id)
+                || self.contract_query_observer_packages.contains_key(op_id)
+            {
+                return Err(
+                    InstalledContractPackageError::DuplicateInstalledQueryOperation {
+                        op_id: *op_id,
+                    },
+                );
+            }
+        }
+        for handler in mutation_handlers {
+            if self.rules.contains_key(handler.rule.name) {
+                return Err(InstalledContractPackageError::DuplicateRuleName {
+                    name: handler.rule.name,
+                });
+            }
+            if self.rules_by_id.contains_key(&handler.rule.id) {
+                return Err(InstalledContractPackageError::DuplicateRuleId {
+                    rule_id: handler.rule.id,
+                });
+            }
+            if matches!(handler.rule.conflict_policy, ConflictPolicy::Join)
+                && handler.rule.join_fn.is_none()
+            {
+                return Err(InstalledContractPackageError::MissingJoinFn);
+            }
+        }
+        Ok(())
+    }
+
+    /// Returns the package id that installed a mutation operation id.
+    #[cfg(feature = "native_rule_bootstrap")]
+    #[must_use]
+    pub fn installed_contract_mutation_package_id(
+        &self,
+        op_id: u32,
+    ) -> Option<&InstalledContractPackageId> {
+        self.contract_mutation_handlers.get(&op_id)
+    }
+
+    /// Returns the package id that installed a query operation id.
+    #[cfg(feature = "native_rule_bootstrap")]
+    #[must_use]
+    pub fn installed_contract_query_package_id(
+        &self,
+        op_id: u32,
+    ) -> Option<&InstalledContractPackageId> {
+        self.contract_query_observer_packages.get(&op_id)
     }
 
     /// Begins a new transaction and returns its identifier.

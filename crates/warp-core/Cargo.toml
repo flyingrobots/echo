@@ -24,6 +24,7 @@ rustc-hash = "2.1.1"
 serde = { version = "1.0", features = ["derive"], optional = true }
 echo-wasm-abi = { workspace = true }
 echo-runtime-schema = { workspace = true }
+echo-registry-api = { workspace = true }
 warp-math = { workspace = true }
 
 [dev-dependencies]
@@ -84,6 +85,10 @@ required-features = ["host_test"]
 [[test]]
 name = "scheduler_fault_recovery_authority"
 required-features = ["trusted_runtime"]
+
+[[test]]
+name = "installed_contract_registry_tests"
+required-features = ["native_rule_bootstrap"]
 
 [build-dependencies]
 blake3 = "1.0"

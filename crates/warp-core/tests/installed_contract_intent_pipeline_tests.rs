@@ -10,11 +10,12 @@ use echo_registry_api::{
 use warp_core::{
     make_head_id, make_intent_kind, make_node_id, make_type_id, ContractMutationHandler,
     ContractPackageIdentity, Engine, EngineBuilder, GraphStore, GraphView, InboxPolicy,
-    IngressEnvelope, IngressTarget, IntentSubmissionDisposition, NodeId, NodeRecord,
-    OpticAdmissionTicket, OpticArtifactHandle, PatternGraph, PlaybackMode, ProvenanceService,
-    RuntimeError, SchedulerCoordinator, SchedulerKind, TickDelta, TicketedRuntimeIngressAuthority,
-    WorldlineId, WorldlineRuntime, WorldlineState, WriterHead, WriterHeadKey,
-    OPTIC_ADMISSION_TICKET_KIND, OPTIC_ARTIFACT_HANDLE_KIND,
+    IngressEnvelope, IngressTarget, IntentOutcomeDecision, IntentOutcomeObservation,
+    IntentSubmissionDisposition, NodeId, NodeRecord, OpticAdmissionTicket, OpticArtifactHandle,
+    PatternGraph, PlaybackMode, ProvenanceService, RuntimeError, SchedulerCoordinator,
+    SchedulerKind, TickDelta, TicketedRuntimeIngressAuthority, WorldlineId, WorldlineRuntime,
+    WorldlineState, WriterHead, WriterHeadKey, OPTIC_ADMISSION_TICKET_KIND,
+    OPTIC_ARTIFACT_HANDLE_KIND,
 };
 
 const SCHEMA_SHA256_HEX: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -25,6 +26,8 @@ const RESULT_TYPE: &str = "test/toy-counter/increment-result";
 const RESULT_BYTES: &[u8] = b"value=42";
 const MUTATION_RULE_NAME: &str =
     "cmd/contract/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/1001/increment";
+const MUTATION_RULE_ID_LABEL: &str =
+    "rule:cmd/contract/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/1001/increment";
 
 static INCREMENT_ARGS: &[ArgDef] = &[ArgDef {
     name: "input",
@@ -160,7 +163,7 @@ fn contract_footprint(view: GraphView<'_>, scope: &NodeId) -> warp_core::Footpri
 
 fn contract_rule() -> warp_core::RewriteRule {
     warp_core::RewriteRule {
-        id: make_type_id(&format!("rule:{MUTATION_RULE_NAME}")).0,
+        id: make_type_id(MUTATION_RULE_ID_LABEL).0,
         name: MUTATION_RULE_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: contract_matches,
@@ -333,6 +336,22 @@ fn installed_contract_mutation_dispatches_only_through_ticketed_scheduler_tick()
     assert!(runtime
         .receipt_correlation_for_submission(&submission)
         .is_some());
+
+    assert_eq!(
+        runtime.observe_intent_outcome(&submission),
+        IntentOutcomeObservation::Decided {
+            correlation: Box::new(
+                runtime
+                    .receipt_correlation_for_submission(&submission)
+                    .expect("receipt correlation should exist")
+                    .clone(),
+            ),
+            decision: IntentOutcomeDecision::Applied {
+                receipt_entry_index: 0,
+                rule_id: make_type_id(MUTATION_RULE_ID_LABEL).0,
+            },
+        }
+    );
 }
 
 #[test]

@@ -18,12 +18,13 @@ use crate::head::{
 #[cfg(feature = "native_rule_bootstrap")]
 use crate::head_inbox::IngressPayload;
 use crate::head_inbox::{InboxAddress, InboxIngestResult, IngressEnvelope, IngressTarget};
-use crate::ident::Hash;
+use crate::ident::{Hash, NodeId};
 use crate::optic_artifact::OpticAdmissionTicket;
 use crate::provenance_store::{
     HistoryError, ProvenanceCheckpoint, ProvenanceEntry, ProvenanceEventKind, ProvenanceRef,
     ProvenanceService, ProvenanceStore, ReplayError,
 };
+use crate::receipt::{TickReceiptDisposition, TickReceiptRejection};
 use crate::strand::{ForkBasisRef, Strand, StrandError, StrandId, StrandRegistry, SupportPin};
 use crate::worldline::{ApplyError, WorldlineId};
 use crate::worldline_registry::WorldlineRegistry;
@@ -472,12 +473,39 @@ pub struct ReceiptCorrelationRecord {
     pub commit_hash: Hash,
 }
 
+/// Scheduler-owned decision observed for a witnessed intent submission.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum IntentOutcomeDecision {
+    /// The correlated receipt entry applied during the scheduler-owned tick.
+    Applied {
+        /// Entry index inside the correlated tick receipt.
+        receipt_entry_index: u32,
+        /// Scheduler rule that produced the entry.
+        rule_id: Hash,
+    },
+    /// The correlated receipt entry was rejected during the scheduler-owned tick.
+    Rejected {
+        /// Entry index inside the correlated tick receipt.
+        receipt_entry_index: u32,
+        /// Scheduler rule that produced the entry.
+        rule_id: Hash,
+        /// Deterministic rejection reason emitted by the tick receipt.
+        reason: TickReceiptRejection,
+        /// Receipt entry indices that blocked this candidate.
+        blocked_by: Vec<u32>,
+    },
+    /// Echo has a receipt correlation, but the retained receipt no longer yields
+    /// a matching entry for this ingress id.
+    NoMatchingReceiptEntry {
+        /// Digest recorded by the correlation index.
+        tick_receipt_digest: Hash,
+    },
+}
+
 /// Polling observation for a witnessed intent submission.
 ///
-/// This is intentionally narrower than a final applied/rejected application
-/// outcome. Until receipt entries are bound to intent-level semantics, Echo can
-/// report whether the submission is unknown, still pending, or decided by a
-/// scheduler-owned tick receipt.
+/// This is a read-only outcome surface. Echo reports whether the submission is
+/// unknown, still pending, or decided by a scheduler-owned tick receipt.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum IntentOutcomeObservation {
     /// Echo has no witnessed submission for the supplied id.
@@ -497,7 +525,9 @@ pub enum IntentOutcomeObservation {
     /// Echo has correlated the submission to a scheduler-owned tick receipt.
     Decided {
         /// Scheduler-owned receipt correlation.
-        correlation: ReceiptCorrelationRecord,
+        correlation: Box<ReceiptCorrelationRecord>,
+        /// Applied/rejected decision derived from the retained receipt entry.
+        decision: IntentOutcomeDecision,
     },
 }
 
@@ -895,8 +925,7 @@ impl WorldlineRuntime {
     /// Observes the current scheduler-owned outcome posture for a submission.
     ///
     /// This is a zero-write polling surface. It does not tick, dispatch
-    /// handlers, subscribe to streams, or infer applied/rejected semantics from
-    /// receipt entries.
+    /// handlers, or subscribe to streams.
     #[must_use]
     pub fn observe_intent_outcome(&self, submission_id: &Hash) -> IntentOutcomeObservation {
         let Some(submission) = self.witnessed_submissions.get(submission_id) else {
@@ -906,7 +935,8 @@ impl WorldlineRuntime {
         };
         if let Some(correlation) = self.receipt_correlation_for_submission(submission_id) {
             return IntentOutcomeObservation::Decided {
-                correlation: correlation.clone(),
+                correlation: Box::new(correlation.clone()),
+                decision: self.intent_outcome_decision(correlation),
             };
         }
         IntentOutcomeObservation::Pending {
@@ -917,6 +947,55 @@ impl WorldlineRuntime {
                 .get(submission_id)
                 .copied(),
         }
+    }
+
+    fn intent_outcome_decision(
+        &self,
+        correlation: &ReceiptCorrelationRecord,
+    ) -> IntentOutcomeDecision {
+        let no_match = || IntentOutcomeDecision::NoMatchingReceiptEntry {
+            tick_receipt_digest: correlation.tick_receipt_digest,
+        };
+        let Some(tick_index) = correlation.worldline_tick_after.as_u64().checked_sub(1) else {
+            return no_match();
+        };
+        let Ok(tick_index) = usize::try_from(tick_index) else {
+            return no_match();
+        };
+        let Some(frontier) = self.worldlines.get(&correlation.head_key.worldline_id) else {
+            return no_match();
+        };
+        let Some((_snapshot, receipt, _patch)) = frontier.state().tick_history().get(tick_index)
+        else {
+            return no_match();
+        };
+        if receipt.digest() != correlation.tick_receipt_digest {
+            return no_match();
+        }
+
+        let ingress_node = NodeId(correlation.ingress_id);
+        for (idx, entry) in receipt.entries().iter().enumerate() {
+            if entry.scope.local_id != ingress_node {
+                continue;
+            }
+            let Ok(receipt_entry_index) = u32::try_from(idx) else {
+                return no_match();
+            };
+            return match entry.disposition {
+                TickReceiptDisposition::Applied => IntentOutcomeDecision::Applied {
+                    receipt_entry_index,
+                    rule_id: entry.rule_id,
+                },
+                TickReceiptDisposition::Rejected(reason) => IntentOutcomeDecision::Rejected {
+                    receipt_entry_index,
+                    rule_id: entry.rule_id,
+                    reason,
+                    blocked_by: receipt.blocked_by(idx).to_vec(),
+                },
+            };
+        }
+
+        no_match()
     }
 
     /// Returns the current correlation tick.

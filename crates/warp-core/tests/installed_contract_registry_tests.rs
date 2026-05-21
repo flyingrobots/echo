@@ -20,7 +20,16 @@ use warp_core::{
 const SCHEMA_SHA256_HEX: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const MUTATION_OP_ID: u32 = 1001;
 const QUERY_OP_ID: u32 = 1002;
+const SECOND_MUTATION_OP_ID: u32 = 1003;
 const UNKNOWN_OP_ID: u32 = 9999;
+const MUTATION_RULE_NAME: &str =
+    "cmd/contract/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/1001/increment";
+const SECOND_MUTATION_RULE_NAME: &str =
+    "cmd/contract/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/1003/decrement";
+const UNKNOWN_MUTATION_RULE_NAME: &str =
+    "cmd/contract/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/9999/unknown";
+const ALT_INCREMENT_RULE_NAME: &str =
+    "cmd/contract/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/1001/incrementAlt";
 
 static INCREMENT_ARGS: &[ArgDef] = &[ArgDef {
     name: "input",
@@ -44,6 +53,15 @@ static OPS: &[OpDef] = &[
         name: "counterValue",
         op_id: QUERY_OP_ID,
         args: &[],
+        result_ty: "CounterValue",
+        directives_json: "{}",
+        footprint_certificate: None,
+    },
+    OpDef {
+        kind: OpKind::Mutation,
+        name: "decrement",
+        op_id: SECOND_MUTATION_OP_ID,
+        args: INCREMENT_ARGS,
         result_ty: "CounterValue",
         directives_json: "{}",
         footprint_certificate: None,
@@ -108,6 +126,25 @@ fn verification_policy() -> ContractArtifactVerificationPolicy<'static> {
     }
 }
 
+fn mismatched_verification_policy() -> ContractArtifactVerificationPolicy<'static> {
+    ContractArtifactVerificationPolicy {
+        codec_id: "cbor-canon-v1",
+        registry_version: 1,
+        schema_sha256_hex: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        footprint_certificates: &[],
+        require_mutation_footprint_certificates: false,
+    }
+}
+
+fn rule_name_for_op_id(op_id: u32) -> &'static str {
+    match op_id {
+        MUTATION_OP_ID => MUTATION_RULE_NAME,
+        SECOND_MUTATION_OP_ID => SECOND_MUTATION_RULE_NAME,
+        UNKNOWN_OP_ID => UNKNOWN_MUTATION_RULE_NAME,
+        _ => "cmd/contract/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/4242/other",
+    }
+}
+
 fn mutation_rule(name: &'static str) -> RewriteRule {
     fn matches(_: GraphView<'_>, _: &NodeId) -> bool {
         false
@@ -130,6 +167,17 @@ fn mutation_rule(name: &'static str) -> RewriteRule {
     }
 }
 
+fn mutation_handler(op_id: u32) -> ContractMutationHandler {
+    ContractMutationHandler {
+        op_id,
+        rule: mutation_rule(rule_name_for_op_id(op_id)),
+    }
+}
+
+fn mutation_handler_with_rule(op_id: u32, rule: RewriteRule) -> ContractMutationHandler {
+    ContractMutationHandler { op_id, rule }
+}
+
 fn query_observer(query_id: u32) -> ContractQueryObserver {
     ContractQueryObserver::new(query_id, observer_plan(), |_context| {
         Ok(ContractQueryObserverResult::complete(b"value=42".to_vec()))
@@ -148,16 +196,35 @@ fn observer_plan() -> AuthoredObserverPlan {
 }
 
 fn package_with_ops(mutation_op_id: u32, query_op_id: u32) -> InstalledContractPackage<'static> {
+    package_with_identity_ops(package_identity(), mutation_op_id, query_op_id)
+}
+
+fn package_with_identity_ops(
+    identity: ContractPackageIdentity<'static>,
+    mutation_op_id: u32,
+    query_op_id: u32,
+) -> InstalledContractPackage<'static> {
+    package_with_handlers(
+        identity,
+        verification_policy(),
+        vec![mutation_handler(mutation_op_id)],
+        vec![query_observer(query_op_id)],
+    )
+}
+
+fn package_with_handlers(
+    identity: ContractPackageIdentity<'static>,
+    verification_policy: ContractArtifactVerificationPolicy<'static>,
+    mutation_handlers: Vec<ContractMutationHandler>,
+    query_observers: Vec<ContractQueryObserver>,
+) -> InstalledContractPackage<'static> {
     static REGISTRY: StaticRegistry = StaticRegistry;
     InstalledContractPackage {
-        identity: package_identity(),
+        identity,
         registry: &REGISTRY,
-        verification_policy: verification_policy(),
-        mutation_handlers: vec![ContractMutationHandler {
-            op_id: mutation_op_id,
-            rule: mutation_rule("cmd/contract/toy-counter/increment"),
-        }],
-        query_observers: vec![query_observer(query_op_id)],
+        verification_policy,
+        mutation_handlers,
+        query_observers,
     }
 }
 
@@ -276,6 +343,10 @@ fn installed_contract_package_rejects_query_kind_mismatch_before_observer_instal
             actual: OpKind::Mutation,
         }
     ));
+    assert_eq!(
+        engine.installed_contract_mutation_package_id(MUTATION_OP_ID),
+        None
+    );
 
     let (runtime, provenance, worldline_id) = runtime_with_worldline()?;
     let Err(err) = ObservationService::observe(
@@ -293,5 +364,283 @@ fn installed_contract_package_rejects_query_kind_mismatch_before_observer_instal
             query_id: MUTATION_OP_ID
         }
     ));
+    Ok(())
+}
+
+#[test]
+fn installed_contract_package_rejects_duplicate_mutation_op_id_before_registration(
+) -> Result<(), String> {
+    let mut engine = engine();
+    let package = package_with_handlers(
+        package_identity(),
+        verification_policy(),
+        vec![
+            mutation_handler(MUTATION_OP_ID),
+            mutation_handler_with_rule(MUTATION_OP_ID, mutation_rule(ALT_INCREMENT_RULE_NAME)),
+        ],
+        vec![query_observer(QUERY_OP_ID)],
+    );
+
+    let Err(err) = engine.install_contract_package(package) else {
+        return Err("duplicate mutation op id must be rejected".to_owned());
+    };
+
+    assert!(matches!(
+        err,
+        InstalledContractPackageError::DuplicateMutationHandlerInPackage {
+            op_id: MUTATION_OP_ID
+        }
+    ));
+    assert_eq!(
+        engine.installed_contract_mutation_package_id(MUTATION_OP_ID),
+        None
+    );
+    assert_eq!(
+        engine.installed_contract_query_package_id(QUERY_OP_ID),
+        None
+    );
+    Ok(())
+}
+
+#[test]
+fn installed_contract_package_rejects_duplicate_query_op_id_before_registration(
+) -> Result<(), String> {
+    let mut engine = engine();
+    let package = package_with_handlers(
+        package_identity(),
+        verification_policy(),
+        vec![mutation_handler(MUTATION_OP_ID)],
+        vec![query_observer(QUERY_OP_ID), query_observer(QUERY_OP_ID)],
+    );
+
+    let Err(err) = engine.install_contract_package(package) else {
+        return Err("duplicate query op id must be rejected".to_owned());
+    };
+
+    assert!(matches!(
+        err,
+        InstalledContractPackageError::DuplicateQueryObserverInPackage { op_id: QUERY_OP_ID }
+    ));
+    assert_eq!(
+        engine.installed_contract_mutation_package_id(MUTATION_OP_ID),
+        None
+    );
+    assert_eq!(
+        engine.installed_contract_query_package_id(QUERY_OP_ID),
+        None
+    );
+    Ok(())
+}
+
+#[test]
+fn installed_contract_package_rejects_duplicate_rule_id_without_partial_install(
+) -> Result<(), String> {
+    let mut engine = engine();
+    let first = mutation_rule(MUTATION_RULE_NAME);
+    let mut second = mutation_rule(SECOND_MUTATION_RULE_NAME);
+    second.id = first.id;
+    let package = package_with_handlers(
+        package_identity(),
+        verification_policy(),
+        vec![
+            mutation_handler_with_rule(MUTATION_OP_ID, first),
+            mutation_handler_with_rule(SECOND_MUTATION_OP_ID, second),
+        ],
+        vec![query_observer(QUERY_OP_ID)],
+    );
+
+    let Err(err) = engine.install_contract_package(package) else {
+        return Err("duplicate rule id must be rejected".to_owned());
+    };
+
+    assert!(matches!(
+        err,
+        InstalledContractPackageError::DuplicateRuleId { .. }
+    ));
+    assert_eq!(
+        engine.installed_contract_mutation_package_id(MUTATION_OP_ID),
+        None
+    );
+    assert_eq!(
+        engine.installed_contract_mutation_package_id(SECOND_MUTATION_OP_ID),
+        None
+    );
+    assert_eq!(
+        engine.installed_contract_query_package_id(QUERY_OP_ID),
+        None
+    );
+
+    engine
+        .install_contract_package(package_with_ops(MUTATION_OP_ID, QUERY_OP_ID))
+        .map_err(|err| format!("failed install must not leave registered rule behind: {err:?}"))?;
+    Ok(())
+}
+
+#[test]
+fn installed_contract_package_rejects_rule_operation_mismatch_before_registration(
+) -> Result<(), String> {
+    let mut engine = engine();
+    let package = package_with_handlers(
+        package_identity(),
+        verification_policy(),
+        vec![mutation_handler_with_rule(
+            MUTATION_OP_ID,
+            mutation_rule(SECOND_MUTATION_RULE_NAME),
+        )],
+        vec![query_observer(QUERY_OP_ID)],
+    );
+
+    let Err(err) = engine.install_contract_package(package) else {
+        return Err("mismatched mutation rule op id must be rejected".to_owned());
+    };
+
+    assert!(matches!(
+        err,
+        InstalledContractPackageError::MutationRuleOperationMismatch {
+            declared_op_id: MUTATION_OP_ID,
+            rule_op_id: Some(SECOND_MUTATION_OP_ID),
+            rule_name: SECOND_MUTATION_RULE_NAME,
+        }
+    ));
+    assert_eq!(
+        engine.installed_contract_mutation_package_id(MUTATION_OP_ID),
+        None
+    );
+    assert_eq!(
+        engine.installed_contract_query_package_id(QUERY_OP_ID),
+        None
+    );
+    Ok(())
+}
+
+#[test]
+fn installed_contract_package_rejects_artifact_verification_without_registration(
+) -> Result<(), String> {
+    let mut engine = engine();
+    let package = package_with_handlers(
+        package_identity(),
+        mismatched_verification_policy(),
+        vec![mutation_handler(MUTATION_OP_ID)],
+        vec![query_observer(QUERY_OP_ID)],
+    );
+
+    let Err(err) = engine.install_contract_package(package) else {
+        return Err("artifact verification mismatch must be rejected".to_owned());
+    };
+
+    assert!(matches!(
+        err,
+        InstalledContractPackageError::ArtifactRejected(_)
+    ));
+    assert_eq!(
+        engine.installed_contract_mutation_package_id(MUTATION_OP_ID),
+        None
+    );
+    assert_eq!(
+        engine.installed_contract_query_package_id(QUERY_OP_ID),
+        None
+    );
+    Ok(())
+}
+
+#[test]
+fn installed_contract_package_rejects_missing_join_fn_without_registration() -> Result<(), String> {
+    let mut engine = engine();
+    let mut rule = mutation_rule(MUTATION_RULE_NAME);
+    rule.conflict_policy = warp_core::ConflictPolicy::Join;
+    let package = package_with_handlers(
+        package_identity(),
+        verification_policy(),
+        vec![mutation_handler_with_rule(MUTATION_OP_ID, rule)],
+        vec![query_observer(QUERY_OP_ID)],
+    );
+
+    let Err(err) = engine.install_contract_package(package) else {
+        return Err("join policy without join fn must be rejected".to_owned());
+    };
+
+    assert!(matches!(err, InstalledContractPackageError::MissingJoinFn));
+    assert_eq!(
+        engine.installed_contract_mutation_package_id(MUTATION_OP_ID),
+        None
+    );
+    assert_eq!(
+        engine.installed_contract_query_package_id(QUERY_OP_ID),
+        None
+    );
+    Ok(())
+}
+
+#[test]
+fn installed_contract_package_rejects_duplicate_package() -> Result<(), String> {
+    let mut engine = engine();
+    let record = engine
+        .install_contract_package(package_with_ops(MUTATION_OP_ID, QUERY_OP_ID))
+        .map_err(|err| format!("initial package install failed: {err:?}"))?;
+
+    let Err(err) = engine.install_contract_package(package_with_ops(MUTATION_OP_ID, QUERY_OP_ID))
+    else {
+        return Err("duplicate package id must be rejected".to_owned());
+    };
+
+    assert!(matches!(
+        err,
+        InstalledContractPackageError::DuplicatePackage { package_id }
+            if package_id == record.package_id
+    ));
+    Ok(())
+}
+
+#[test]
+fn installed_contract_package_rejects_duplicate_installed_operation_ids() -> Result<(), String> {
+    let mut engine = engine();
+    engine
+        .install_contract_package(package_with_ops(MUTATION_OP_ID, QUERY_OP_ID))
+        .map_err(|err| format!("initial package install failed: {err:?}"))?;
+
+    let mut identity = package_identity();
+    identity.package_version = "0.2.0";
+    let Err(err) = engine.install_contract_package(package_with_identity_ops(
+        identity,
+        MUTATION_OP_ID,
+        QUERY_OP_ID,
+    )) else {
+        return Err("duplicate installed mutation op id must be rejected".to_owned());
+    };
+
+    assert!(matches!(
+        err,
+        InstalledContractPackageError::DuplicateInstalledMutationOperation {
+            op_id: MUTATION_OP_ID
+        }
+    ));
+    Ok(())
+}
+
+#[test]
+fn installed_contract_package_rejects_duplicate_installed_query_id() -> Result<(), String> {
+    let mut engine = engine();
+    engine
+        .install_contract_package(package_with_ops(MUTATION_OP_ID, QUERY_OP_ID))
+        .map_err(|err| format!("initial package install failed: {err:?}"))?;
+
+    let mut identity = package_identity();
+    identity.package_version = "0.2.0";
+    let Err(err) = engine.install_contract_package(package_with_identity_ops(
+        identity,
+        SECOND_MUTATION_OP_ID,
+        QUERY_OP_ID,
+    )) else {
+        return Err("duplicate installed query op id must be rejected".to_owned());
+    };
+
+    assert!(matches!(
+        err,
+        InstalledContractPackageError::DuplicateInstalledQueryOperation { op_id: QUERY_OP_ID }
+    ));
+    assert_eq!(
+        engine.installed_contract_mutation_package_id(SECOND_MUTATION_OP_ID),
+        None
+    );
     Ok(())
 }

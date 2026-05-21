@@ -14,7 +14,9 @@
   query observers before the handlers or observers are installed into
   `Engine`. The boundary verifies the generated `RegistryProvider` with
   `echo-registry-api`, rejects unknown operation ids, rejects mutation/query kind
-  mismatches, rejects duplicate package operation ids, and preflights rule and
+  mismatches, rejects mutation rules whose generated rule name does not bind the
+  declared mutation op id, rejects duplicate package operation ids, and
+  preflights package-internal rule name/id conflicts plus engine-level rule and
   observer conflicts before mutating engine state. This does not add dynamic
   plugin loading, application-controlled ticks, streaming subscriptions, or
   domain nouns to `warp-core`.

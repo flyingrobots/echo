@@ -129,6 +129,18 @@ pub enum InstalledContractPackageError<'a> {
         /// Actual registry operation kind.
         actual: OpKind,
     },
+    /// Mutation handler declared one operation id while its generated rule names another.
+    #[error(
+        "mutation handler declared operation id {declared_op_id} but rule {rule_name} names operation id {rule_op_id:?}"
+    )]
+    MutationRuleOperationMismatch {
+        /// Operation id declared by the installed package handler.
+        declared_op_id: u32,
+        /// Operation id encoded in the generated rule name, when parseable.
+        rule_op_id: Option<u32>,
+        /// Rule name that failed the generated naming contract.
+        rule_name: &'static str,
+    },
     /// Query observer named an operation not present in the generated registry.
     #[error("unknown query operation id: {op_id}")]
     UnknownQueryOperation {
@@ -214,6 +226,8 @@ pub(crate) fn prepare_installed_contract_package(
 
     let mut mutation_op_ids = Vec::with_capacity(package.mutation_handlers.len());
     let mut seen_mutations = BTreeSet::new();
+    let mut seen_rule_names = BTreeSet::new();
+    let mut seen_rule_ids = BTreeSet::new();
     for handler in &package.mutation_handlers {
         if !seen_mutations.insert(handler.op_id) {
             return Err(
@@ -234,6 +248,31 @@ pub(crate) fn prepare_installed_contract_package(
                     actual: op.kind,
                 },
             );
+        }
+        let rule_op_id = generated_contract_rule_op_id(handler.rule.name);
+        if rule_op_id != Some(handler.op_id) {
+            return Err(
+                InstalledContractPackageError::MutationRuleOperationMismatch {
+                    declared_op_id: handler.op_id,
+                    rule_op_id,
+                    rule_name: handler.rule.name,
+                },
+            );
+        }
+        if !seen_rule_names.insert(handler.rule.name) {
+            return Err(InstalledContractPackageError::DuplicateRuleName {
+                name: handler.rule.name,
+            });
+        }
+        if !seen_rule_ids.insert(handler.rule.id) {
+            return Err(InstalledContractPackageError::DuplicateRuleId {
+                rule_id: handler.rule.id,
+            });
+        }
+        if matches!(handler.rule.conflict_policy, crate::ConflictPolicy::Join)
+            && handler.rule.join_fn.is_none()
+        {
+            return Err(InstalledContractPackageError::MissingJoinFn);
         }
         mutation_op_ids.push(handler.op_id);
     }
@@ -298,6 +337,24 @@ fn validate_identity(
         return Err(InstalledContractPackageError::EmptyArtifactHash);
     }
     Ok(())
+}
+
+#[cfg(feature = "native_rule_bootstrap")]
+fn generated_contract_rule_op_id(rule_name: &str) -> Option<u32> {
+    let mut parts = rule_name.split('/');
+    if parts.next()? != "cmd" {
+        return None;
+    }
+    if parts.next()? != "contract" {
+        return None;
+    }
+    let _schema_hash = parts.next()?;
+    let op_id = parts.next()?.parse().ok()?;
+    let _operation_name = parts.next()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    Some(op_id)
 }
 
 #[cfg(feature = "native_rule_bootstrap")]

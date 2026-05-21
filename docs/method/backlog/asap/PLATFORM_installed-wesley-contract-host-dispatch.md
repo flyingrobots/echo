@@ -39,10 +39,15 @@ rules for that seam:
 - base runtime-ingress read footprint helpers;
 - rule constructors that accept host-supplied executor and footprint functions.
 
-`warp-core` now has an installed contract package boundary that verifies a
-generated `RegistryProvider`, binds package identity, mutation handler rules,
-and query observers, and rejects unsupported operations before handlers or
-observers install into `Engine`.
+`warp-core` now has a registry-verified installed contract package boundary that
+verifies a generated `RegistryProvider`, binds package identity, mutation
+handler rules, and query observers, and rejects unsupported operations,
+mutation rule/op-id mismatches, duplicate package operation ids, and duplicate
+package rule identities before handlers or observers install into `Engine`.
+
+Direct `native_rule_bootstrap` registration remains available only as an
+internal fixture and transitional engine-test path. It is not the registry
+package boundary and does not provide package identity guarantees.
 
 Remaining work is dispatch integration: prove a generated EINT submitted through
 normal Echo ingress reaches the installed mutation handler only through the

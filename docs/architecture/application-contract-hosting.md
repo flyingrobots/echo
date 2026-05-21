@@ -148,11 +148,17 @@ surface.
 **ObservationRequest** is the generic read request. Generated query helpers map
 contract query operations onto this request shape when possible.
 
-**Installed contract package** is the runtime-owner installation unit that binds
-generated registry metadata, schema hash, package artifact hash, codec identity,
-supported operation ids, mutation handler rules, and read-only query observers
-before those handlers or observers are installed into `Engine`. Unsupported
-operation ids and mutation/query kind mismatches fail at this package boundary.
+**Installed contract package** is the registry-verified runtime-owner
+installation unit that binds generated registry metadata, schema hash, package
+artifact hash, codec identity, supported operation ids, mutation handler rules,
+and read-only query observers before those handlers or observers are installed
+into `Engine`. Unsupported operation ids, mutation/query kind mismatches,
+mutation rule/op-id mismatches, and duplicate package rule identities fail at
+this package boundary before the engine mutates.
+
+Direct `native_rule_bootstrap` rule or observer registration remains an internal
+fixture and transitional engine-test path. It does not provide package identity,
+registry verification, or generated operation/package binding guarantees.
 
 **ReadingEnvelope** is the read-side evidence envelope. It carries observer
 plan, basis, witness refs, budget posture, rights posture, and residual,

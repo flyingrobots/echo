@@ -240,6 +240,12 @@ schema identity
 Unsupported operations are rejected at this package boundary before handlers or
 observers are installed into `Engine`.
 
+The package boundary also rejects mutation rules whose generated command-rule
+name does not bind the declared mutation op id, and it preflights duplicate
+package rule identities before mutating engine state. Direct
+`native_rule_bootstrap` registration remains an internal fixture path without
+registry/package identity guarantees.
+
 The next code slice is installed contract mutation dispatch through the normal
 intent/ticket/runtime/scheduler path. That slice should prove generated EINT
 bytes can reach an installed package-supported mutation handler during

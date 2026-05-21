@@ -63,7 +63,10 @@ Echo now has one installed package/registry boundary that binds:
 - authored observer plan identities
 - contract package/version identity
 
-before handlers or observers install into `Engine`.
+before handlers or observers install into `Engine`. Direct
+`native_rule_bootstrap` registration remains an internal fixture and
+transitional engine-test path; it does not provide registry/package identity
+guarantees.
 
 The current WARP/Echo noun map lives in
 `docs/design/warp-optic-implementation-map.md`. The current optic admission

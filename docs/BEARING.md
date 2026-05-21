@@ -194,9 +194,14 @@ AdmissionTicket + witnessed submission -> ticketed runtime ingress
 
 The next slice should prove installed contract mutation dispatch through the
 normal witnessed intent and scheduler-owned tick path. Echo now has a single
-installed package surface that binds schema hash, artifact hash, codec identity,
-supported operation ids, mutation handlers, and query observers before those
-handlers or observers install into `Engine`.
+registry-verified installed package surface that binds schema hash, artifact
+hash, codec identity, supported operation ids, mutation handlers, and query
+observers before those handlers or observers install into `Engine`.
+
+Direct `native_rule_bootstrap` registration remains an internal fixture and
+transitional engine-test path. It does not provide package identity, registry
+verification, or generated operation/package binding guarantees. Contract-host
+proofs that need those guarantees should install through the package boundary.
 
 The next proof should start from canonical generated EINT bytes, pass through
 witnessed ingress and package-supported operation lookup, stage through the

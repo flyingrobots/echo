@@ -1296,7 +1296,7 @@ impl WorldlineRuntime {
     /// Returns an error when a replay record names an unknown writer head, its
     /// submission id does not match the canonical head/ingress-derived identity,
     /// it conflicts with already-replayed submission material, or the replayed
-    /// generation cannot advance the runtime's next generation counter.
+    /// generation conflicts with existing replay posture.
     pub fn replay_witnessed_submissions<I>(&mut self, records: I) -> Result<(), RuntimeError>
     where
         I: IntoIterator<Item = IntentSubmissionRecord>,
@@ -1333,11 +1333,8 @@ impl WorldlineRuntime {
                     record.submission_id,
                 ));
             }
-            let Some(next_generation) = record.submission_generation.checked_increment() else {
-                return Err(RuntimeError::IntentSubmissionGenerationOverflow);
-            };
-            if next_generation > self.next_submission_generation {
-                self.next_submission_generation = next_generation;
+            if record.submission_generation > self.next_submission_generation {
+                self.next_submission_generation = record.submission_generation;
             }
             self.submission_by_target
                 .insert((record.head_key, record.ingress_id), record.submission_id);

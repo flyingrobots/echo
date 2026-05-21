@@ -10,12 +10,12 @@ use echo_registry_api::{
 use warp_core::{
     make_head_id, make_intent_kind, make_node_id, make_type_id, ContractMutationHandler,
     ContractPackageIdentity, Engine, EngineBuilder, GraphStore, GraphView, InboxPolicy,
-    IngressEnvelope, IngressTarget, IntentOutcomeDecision, IntentOutcomeObservation,
-    IntentSubmissionDisposition, NodeId, NodeRecord, OpticAdmissionTicket, OpticArtifactHandle,
-    PatternGraph, PlaybackMode, ProvenanceService, RuntimeError, SchedulerCoordinator,
-    SchedulerKind, TickDelta, TickReceiptRejection, TicketedRuntimeIngressAuthority, WorldlineId,
-    WorldlineRuntime, WorldlineState, WriterHead, WriterHeadKey, OPTIC_ADMISSION_TICKET_KIND,
-    OPTIC_ARTIFACT_HANDLE_KIND,
+    IngressEnvelope, IngressSubmissionGeneration, IngressTarget, IntentOutcomeDecision,
+    IntentOutcomeObservation, IntentSubmissionDisposition, NodeId, NodeRecord,
+    OpticAdmissionTicket, OpticArtifactHandle, PatternGraph, PlaybackMode, ProvenanceService,
+    RuntimeError, SchedulerCoordinator, SchedulerKind, TickDelta, TickReceiptRejection,
+    TicketedRuntimeIngressAuthority, WorldlineId, WorldlineRuntime, WorldlineState, WriterHead,
+    WriterHeadKey, OPTIC_ADMISSION_TICKET_KIND, OPTIC_ARTIFACT_HANDLE_KIND,
 };
 
 const SCHEMA_SHA256_HEX: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -634,6 +634,37 @@ fn witnessed_submission_replay_restores_pending_history_without_runtime_ingress(
             .expect("replayed duplicate should be recognized"),
         IntentSubmissionDisposition::Duplicate { submission_id, .. }
             if submission_id == submission_a
+    ));
+}
+
+#[test]
+fn witnessed_submission_replay_preserves_generation_continuity() {
+    let (mut runtime, _engine, worldline_id, _head) = pipeline_runtime();
+    let envelope_a = eint_envelope(worldline_id, MUTATION_OP_ID, MUTATION_VARS);
+    let envelope_b = eint_envelope(worldline_id, CONFLICT_OP_ID, CONFLICT_VARS_A);
+    let envelope_c = eint_envelope(worldline_id, CONFLICT_OP_ID, CONFLICT_VARS_B);
+
+    runtime
+        .submit_intent(envelope_a)
+        .expect("first submission should be witnessed");
+    runtime
+        .submit_intent(envelope_b)
+        .expect("second submission should be witnessed");
+    let replay_records = runtime.witnessed_submission_replay_records();
+
+    let (mut replayed, _engine, _worldline_id, _head) = pipeline_runtime();
+    replayed
+        .replay_witnessed_submissions(replay_records)
+        .expect("witnessed submission replay should import");
+
+    assert!(matches!(
+        replayed
+            .submit_intent(envelope_c)
+            .expect("next live submit should be witnessed"),
+        IntentSubmissionDisposition::Accepted {
+            submission_generation,
+            ..
+        } if submission_generation == IngressSubmissionGeneration::from_raw(3)
     ));
 }
 

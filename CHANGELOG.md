@@ -19,7 +19,9 @@
   attribution, duplicate submits do not create hidden retries, witnessed
   submissions can be replayed back into pending ingress history without staging
   inbox work, and the replayed pipeline converges to the same receipt
-  correlation and observed outcome.
+  correlation and observed outcome. Replayed witnessed submission records
+  preserve generation continuity so the next live submission receives the next
+  contiguous generation instead of skipping ahead.
 - `warp-core` now exposes an installed contract package registry boundary for
   runtime-owner host adapters. An installed package binds generated registry
   metadata, schema hash, codec identity, package artifact identity, supported

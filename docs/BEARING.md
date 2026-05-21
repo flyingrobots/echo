@@ -12,6 +12,9 @@ code, the code wins and this file should be corrected.
 The WARP paper-to-Echo noun map is maintained in
 `docs/design/warp-optic-implementation-map.md`.
 
+The feature bar for the eventual `v0.1.0` release is maintained in
+`docs/design/v0.1.0-release-plan.md`.
+
 ## Current Bearing
 
 Echo has a local witnessed intent pipeline into deterministic execution:

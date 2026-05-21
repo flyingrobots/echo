@@ -11,6 +11,7 @@ Echo's live documentation centers on the runtime carrier, the retained witnesses
 - WSC, Verkle, IPA, and retained readings: [/architecture/wsc-verkle-ipa-retained-readings](/architecture/wsc-verkle-ipa-retained-readings)
 - Application contract hosting: [/architecture/application-contract-hosting](/architecture/application-contract-hosting)
 - WARP optic implementation map: [/design/warp-optic-implementation-map](/design/warp-optic-implementation-map)
+- Echo v0.1.0 release plan: [/design/v0.1.0-release-plan](/design/v0.1.0-release-plan)
 - Theory map: [/theory/THEORY](/theory/THEORY)
 - Current bearing: [/BEARING](/BEARING)
 - WARP core runtime: [/spec/warp-core](/spec/warp-core)

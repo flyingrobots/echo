@@ -636,3 +636,78 @@ fn witnessed_submission_replay_restores_pending_history_without_runtime_ingress(
             if submission_id == submission_a
     ));
 }
+
+#[test]
+fn installed_contract_pipeline_replays_to_same_receipt_and_outcome() {
+    let (mut original_runtime, mut original_engine, worldline_id, _head) = pipeline_runtime();
+    let envelope = eint_envelope(worldline_id, MUTATION_OP_ID, MUTATION_VARS);
+    let ticket = admission_ticket(21);
+    let submission = match original_runtime
+        .submit_intent(envelope.clone())
+        .expect("submission should be witnessed")
+    {
+        IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
+        IntentSubmissionDisposition::Duplicate { .. } => {
+            panic!("first submission must not be duplicate")
+        }
+    };
+    let replay_records = original_runtime.witnessed_submission_replay_records();
+    original_runtime
+        .ingest_installed_contract_invocation(
+            &ticketed_authority(),
+            &original_engine,
+            submission,
+            &ticket,
+            envelope.clone(),
+        )
+        .expect("original ticketed ingress should stage");
+    let mut original_provenance = provenance_for(&original_runtime);
+    let original_steps = SchedulerCoordinator::super_tick(
+        &mut original_runtime,
+        &mut original_provenance,
+        &mut original_engine,
+    )
+    .expect("original tick should commit");
+    let original_correlation = original_runtime
+        .receipt_correlation_for_submission(&submission)
+        .expect("original receipt correlation should exist")
+        .clone();
+    let original_outcome = original_runtime.observe_intent_outcome(&submission);
+
+    let (mut replayed_runtime, mut replayed_engine, _worldline_id, _head) = pipeline_runtime();
+    replayed_runtime
+        .replay_witnessed_submissions(replay_records)
+        .expect("witnessed submission replay should import");
+    replayed_runtime
+        .ingest_installed_contract_invocation(
+            &ticketed_authority(),
+            &replayed_engine,
+            submission,
+            &ticket,
+            envelope,
+        )
+        .expect("replayed ticketed ingress should stage");
+    let mut replayed_provenance = provenance_for(&replayed_runtime);
+    let replayed_steps = SchedulerCoordinator::super_tick(
+        &mut replayed_runtime,
+        &mut replayed_provenance,
+        &mut replayed_engine,
+    )
+    .expect("replayed tick should commit");
+    let replayed_correlation = replayed_runtime
+        .receipt_correlation_for_submission(&submission)
+        .expect("replayed receipt correlation should exist")
+        .clone();
+    let replayed_outcome = replayed_runtime.observe_intent_outcome(&submission);
+
+    assert_eq!(replayed_steps, original_steps);
+    assert_eq!(
+        replayed_correlation.tick_receipt_digest,
+        original_correlation.tick_receipt_digest
+    );
+    assert_eq!(
+        replayed_correlation.commit_hash,
+        original_correlation.commit_hash
+    );
+    assert_eq!(replayed_outcome, original_outcome);
+}

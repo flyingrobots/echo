@@ -13,21 +13,29 @@ use warp_core::{
     IngressEnvelope, IngressTarget, IntentOutcomeDecision, IntentOutcomeObservation,
     IntentSubmissionDisposition, NodeId, NodeRecord, OpticAdmissionTicket, OpticArtifactHandle,
     PatternGraph, PlaybackMode, ProvenanceService, RuntimeError, SchedulerCoordinator,
-    SchedulerKind, TickDelta, TicketedRuntimeIngressAuthority, WorldlineId, WorldlineRuntime,
-    WorldlineState, WriterHead, WriterHeadKey, OPTIC_ADMISSION_TICKET_KIND,
+    SchedulerKind, TickDelta, TickReceiptRejection, TicketedRuntimeIngressAuthority, WorldlineId,
+    WorldlineRuntime, WorldlineState, WriterHead, WriterHeadKey, OPTIC_ADMISSION_TICKET_KIND,
     OPTIC_ARTIFACT_HANDLE_KIND,
 };
 
 const SCHEMA_SHA256_HEX: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const MUTATION_OP_ID: u32 = 1001;
+const CONFLICT_OP_ID: u32 = 1002;
 const UNKNOWN_OP_ID: u32 = 9999;
 const MUTATION_VARS: &[u8] = b"amount=42";
+const CONFLICT_VARS_A: &[u8] = b"amount=1";
+const CONFLICT_VARS_B: &[u8] = b"amount=2";
 const RESULT_TYPE: &str = "test/toy-counter/increment-result";
 const RESULT_BYTES: &[u8] = b"value=42";
 const MUTATION_RULE_NAME: &str =
     "cmd/contract/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/1001/increment";
 const MUTATION_RULE_ID_LABEL: &str =
     "rule:cmd/contract/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/1001/increment";
+const CONFLICT_RULE_NAME: &str =
+    "cmd/contract/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/1002/conflict";
+const CONFLICT_RULE_ID_LABEL: &str =
+    "rule:cmd/contract/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/1002/conflict";
+const SHARED_CONFLICT_RESULT: &str = "test/toy-counter/shared-conflict-result";
 
 static INCREMENT_ARGS: &[ArgDef] = &[ArgDef {
     name: "input",
@@ -36,15 +44,26 @@ static INCREMENT_ARGS: &[ArgDef] = &[ArgDef {
     list: false,
 }];
 
-static OPS: &[OpDef] = &[OpDef {
-    kind: OpKind::Mutation,
-    name: "increment",
-    op_id: MUTATION_OP_ID,
-    args: INCREMENT_ARGS,
-    result_ty: "CounterValue",
-    directives_json: "{}",
-    footprint_certificate: None,
-}];
+static OPS: &[OpDef] = &[
+    OpDef {
+        kind: OpKind::Mutation,
+        name: "increment",
+        op_id: MUTATION_OP_ID,
+        args: INCREMENT_ARGS,
+        result_ty: "CounterValue",
+        directives_json: "{}",
+        footprint_certificate: None,
+    },
+    OpDef {
+        kind: OpKind::Mutation,
+        name: "conflict",
+        op_id: CONFLICT_OP_ID,
+        args: INCREMENT_ARGS,
+        result_ty: "CounterValue",
+        directives_json: "{}",
+        footprint_certificate: None,
+    },
+];
 
 struct StaticRegistry;
 
@@ -175,6 +194,50 @@ fn contract_rule() -> warp_core::RewriteRule {
     }
 }
 
+fn shared_conflict_node_id() -> NodeId {
+    make_node_id(SHARED_CONFLICT_RESULT)
+}
+
+fn conflict_matches(view: GraphView<'_>, scope: &NodeId) -> bool {
+    warp_core::eint_vars_for_op(view, scope, CONFLICT_OP_ID).is_some()
+}
+
+fn conflict_execute(view: GraphView<'_>, _scope: &NodeId, delta: &mut TickDelta) {
+    let warp_id = view.warp_id();
+    let result = shared_conflict_node_id();
+    delta.push(warp_core::WarpOp::UpsertNode {
+        node: warp_core::NodeKey {
+            warp_id,
+            local_id: result,
+        },
+        record: NodeRecord {
+            ty: make_type_id(RESULT_TYPE),
+        },
+    });
+}
+
+fn conflict_footprint(view: GraphView<'_>, scope: &NodeId) -> warp_core::Footprint {
+    let mut footprint = warp_core::runtime_ingress_eint_read_footprint(view, scope);
+    footprint
+        .n_write
+        .insert_with_warp(view.warp_id(), shared_conflict_node_id());
+    footprint
+}
+
+fn conflict_rule() -> warp_core::RewriteRule {
+    warp_core::RewriteRule {
+        id: make_type_id(CONFLICT_RULE_ID_LABEL).0,
+        name: CONFLICT_RULE_NAME,
+        left: PatternGraph { nodes: vec![] },
+        matcher: conflict_matches,
+        executor: conflict_execute,
+        compute_footprint: conflict_footprint,
+        factor_mask: 0,
+        conflict_policy: warp_core::ConflictPolicy::Abort,
+        join_fn: None,
+    }
+}
+
 fn install_contract(engine: &mut Engine) {
     static REGISTRY: StaticRegistry = StaticRegistry;
     engine
@@ -182,10 +245,16 @@ fn install_contract(engine: &mut Engine) {
             identity: package_identity(),
             registry: &REGISTRY,
             verification_policy: verification_policy(),
-            mutation_handlers: vec![ContractMutationHandler {
-                op_id: MUTATION_OP_ID,
-                rule: contract_rule(),
-            }],
+            mutation_handlers: vec![
+                ContractMutationHandler {
+                    op_id: MUTATION_OP_ID,
+                    rule: contract_rule(),
+                },
+                ContractMutationHandler {
+                    op_id: CONFLICT_OP_ID,
+                    rule: conflict_rule(),
+                },
+            ],
             query_observers: vec![],
         })
         .expect("contract package should install");
@@ -394,5 +463,106 @@ fn unsupported_installed_contract_mutation_cannot_enter_ticketed_runtime_ingress
             .inbox()
             .pending_count(),
         0
+    );
+}
+
+#[test]
+fn footprint_conflict_is_final_without_hidden_retry() {
+    let (mut runtime, mut engine, worldline_id, _head) = pipeline_runtime();
+    let envelope_a = eint_envelope(worldline_id, CONFLICT_OP_ID, CONFLICT_VARS_A);
+    let envelope_b = eint_envelope(worldline_id, CONFLICT_OP_ID, CONFLICT_VARS_B);
+
+    let submission_a = match runtime
+        .submit_intent(envelope_a.clone())
+        .expect("first submission should be witnessed")
+    {
+        IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
+        IntentSubmissionDisposition::Duplicate { .. } => {
+            panic!("first submission must not be duplicate")
+        }
+    };
+    let submission_b = match runtime
+        .submit_intent(envelope_b.clone())
+        .expect("second submission should be witnessed")
+    {
+        IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
+        IntentSubmissionDisposition::Duplicate { .. } => {
+            panic!("second submission must not be duplicate")
+        }
+    };
+
+    runtime
+        .ingest_installed_contract_invocation(
+            &ticketed_authority(),
+            &engine,
+            submission_a,
+            &admission_ticket(11),
+            envelope_a.clone(),
+        )
+        .expect("first conflict candidate should stage");
+    runtime
+        .ingest_installed_contract_invocation(
+            &ticketed_authority(),
+            &engine,
+            submission_b,
+            &admission_ticket(12),
+            envelope_b.clone(),
+        )
+        .expect("second conflict candidate should stage");
+
+    let mut provenance = provenance_for(&runtime);
+    SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine)
+        .expect("conflict rejection is a lawful tick outcome");
+
+    let decisions = [
+        runtime.observe_intent_outcome(&submission_a),
+        runtime.observe_intent_outcome(&submission_b),
+    ];
+    let applied = decisions
+        .iter()
+        .filter(|decision| {
+            matches!(
+                decision,
+                IntentOutcomeObservation::Decided {
+                    decision: IntentOutcomeDecision::Applied { .. },
+                    ..
+                }
+            )
+        })
+        .count();
+    let rejected = decisions
+        .iter()
+        .filter_map(|decision| match decision {
+            IntentOutcomeObservation::Decided {
+                decision:
+                    IntentOutcomeDecision::Rejected {
+                        reason, blocked_by, ..
+                    },
+                ..
+            } => Some((*reason, blocked_by.as_slice())),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(applied, 1, "one conflicting candidate should apply");
+    assert_eq!(rejected.len(), 1, "one conflicting candidate should reject");
+    assert_eq!(rejected[0].0, TickReceiptRejection::FootprintConflict);
+    assert_eq!(
+        rejected[0].1,
+        &[0],
+        "conflict receipt should attribute the blocking applied candidate"
+    );
+
+    assert!(matches!(
+        runtime
+            .submit_intent(envelope_b)
+            .expect("duplicate submit should be observed"),
+        IntentSubmissionDisposition::Duplicate { submission_id, .. }
+            if submission_id == submission_b
+    ));
+    assert_eq!(
+        runtime.ticketed_runtime_ingress_count(),
+        2,
+        "duplicate submission must not create a hidden retry ingress"
     );
 }

@@ -122,6 +122,19 @@ Continuum is the protocol-shaped causal medium. Echo is a concrete
 deterministic WARP runtime implementation for that medium, not the primary
 runtime of Continuum and not an application framework.
 
+## Cross-Repo Optic Admission Role
+
+Echo owns runtime-local optic admission behavior. Wesley compiles artifacts and
+registration descriptors; Echo registers them, returns runtime-local handles,
+admits or obstructs invocations, instruments access, and emits witnesses or
+readings. Authority layers issue grants and capability presentations.
+Applications such as jedit hide artifact handles, basis references, and runtime
+coordinates behind product-facing adapters.
+
+Echo should not wait on a new Wesley product lane for the installed registry
+boundary. Coordinate with Wesley only when artifact identity, generated helper
+shape, or footprint compatibility changes.
+
 ## Pipeline
 
 Evidence phase:

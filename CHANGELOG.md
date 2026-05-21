@@ -7,6 +7,17 @@
 
 ### Added
 
+- `warp-core` now exposes an installed contract package registry boundary for
+  runtime-owner host adapters. An installed package binds generated registry
+  metadata, schema hash, codec identity, package artifact identity, supported
+  mutation op ids, mutation handler rules, supported query op ids, and read-only
+  query observers before the handlers or observers are installed into
+  `Engine`. The boundary verifies the generated `RegistryProvider` with
+  `echo-registry-api`, rejects unknown operation ids, rejects mutation/query kind
+  mismatches, rejects duplicate package operation ids, and preflights rule and
+  observer conflicts before mutating engine state. This does not add dynamic
+  plugin loading, application-controlled ticks, streaming subscriptions, or
+  domain nouns to `warp-core`.
 - `echo-wesley-gen --contract-host` now emits std-only query observer host
   helpers against `warp-core`'s `ContractQueryObserver` boundary. Generated
   query helpers include deterministic authored observer plan identity, typed

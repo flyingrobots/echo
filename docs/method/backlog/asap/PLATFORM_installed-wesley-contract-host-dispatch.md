@@ -3,14 +3,14 @@
 
 # Installed Wesley Contract Host Dispatch
 
-Status: core contract-host seam and generated handler-rule helpers exist;
-installed registry packaging remains.
+Status: installed package registry boundary exists; full normal intent/tick
+dispatch proof remains.
 
 Depends on:
 
 - [0018 - Contract-Hosted File History Substrate](../../../design/0018-contract-hosted-file-history-substrate/design.md)
 - [0017 - Authenticated Wesley Intent Admission Posture](../../../design/0017-authenticated-wesley-intent-admission-posture/design.md)
-- [Wesley to Echo toy contract proof](../up-next/PLATFORM_wesley-to-echo-toy-contract-proof.md)
+- [0016 - Wesley To Echo Toy Contract Proof](../../../design/0016-wesley-to-echo-toy-contract-proof/design.md)
 
 ## Why now
 
@@ -39,9 +39,14 @@ rules for that seam:
 - base runtime-ingress read footprint helpers;
 - rule constructors that accept host-supplied executor and footprint functions.
 
-Remaining work is packaging integration: Echo does not yet have an installed
-contract registry boundary that rejects unsupported contract operations before
-they become scheduler-visible work.
+`warp-core` now has an installed contract package boundary that verifies a
+generated `RegistryProvider`, binds package identity, mutation handler rules,
+and query observers, and rejects unsupported operations before handlers or
+observers install into `Engine`.
+
+Remaining work is dispatch integration: prove a generated EINT submitted through
+normal Echo ingress reaches the installed mutation handler only through the
+witnessed/ticketed/scheduler-owned path.
 
 ## RED
 
@@ -58,10 +63,8 @@ Add the minimal generic installed-contract host seam needed to pass the test.
 
 Candidate surface:
 
-- installed contract registry;
-- op-id lookup;
+- package-supported op-id lookup during ingress/admission/runtime handoff;
 - generated vars decode;
-- generic mutation handler trait;
 - artifact/schema identity attached to receipt or ingress metadata.
 
 ## Acceptance criteria

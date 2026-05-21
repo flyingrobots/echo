@@ -223,7 +223,7 @@ Implementation improvements over the paper examples that must be preserved:
 
 ## Next Code Slice
 
-The next code slice is the Installed Contract Registry Boundary:
+The installed contract package registry boundary now exists:
 
 ```text
 schema identity
@@ -237,5 +237,11 @@ schema identity
 -> one installed contract package boundary
 ```
 
-Unsupported operations should be rejected at this package boundary before they
-become runtime-visible work or accepted reads.
+Unsupported operations are rejected at this package boundary before handlers or
+observers are installed into `Engine`.
+
+The next code slice is installed contract mutation dispatch through the normal
+intent/ticket/runtime/scheduler path. That slice should prove generated EINT
+bytes can reach an installed package-supported mutation handler during
+scheduler-owned execution without turning application dispatch into a tick or a
+synchronous domain RPC.

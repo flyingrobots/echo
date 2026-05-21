@@ -3,8 +3,8 @@
 
 # Contract QueryView Observer Bridge
 
-Status: core observer bridge and generated query helper checkpoint complete;
-installed contract registry boundary remains.
+Status: core observer bridge, generated query helper checkpoint, and installed
+contract package registry boundary complete.
 
 Depends on:
 
@@ -76,9 +76,8 @@ adding application nouns to core.
 
 ## Remaining work
 
-- Contract-host packaging still needs an installed registry boundary that
-  rejects unsupported contract operations before they become runtime-visible
-  work or reads.
+- Contract-aware readings still need package identity carried through the
+  evidence surface used by product-facing consumers.
 
 ## Non-goals
 

@@ -2056,6 +2056,7 @@ dependencies = [
  "bytes",
  "ciborium",
  "echo-dry-tests",
+ "echo-registry-api",
  "echo-runtime-schema",
  "echo-wasm-abi",
  "hex",

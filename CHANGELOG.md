@@ -373,6 +373,7 @@
   instead of reusing the broader local PR gate. Rust module edits map to exact
   `cargo test -p <crate> --lib <module>::tests` slices, integration-test edits
   map to exact `--test <target>` invocations, and tooling edits stay on local
+  shell smoke checks. Broader clippy, rustdoc, package, and workspace coverage
   remains available through `make verify-pr`, `make verify-full`, and CI. The
   selector now avoids fake zero-test module filters for source files without
   inline tests, maps `src/bin/*.rs` edits to exact binary targets, and preserves

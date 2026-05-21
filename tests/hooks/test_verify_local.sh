@@ -1550,6 +1550,7 @@ else
   fail "pre-push should map src/bin files to exact binary tests"
   printf '%s\n' "$fake_pre_push_warp_math_bin_src_output"
 fi
+
 fake_warp_core_default_output="$(run_fake_verify full crates/warp-core/src/provenance_store.rs)"
 if printf '%s\n' "$fake_warp_core_default_output" | grep -q 'test -p warp-core --lib'; then
   pass "warp-core default smoke keeps the lib test lane"

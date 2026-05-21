@@ -1128,7 +1128,7 @@ pre_push_feature_string_for_test_target() {
   local test_target="$2"
 
   case "${crate}:${test_target}" in
-    warp-core:inbox)
+    warp-core:inbox|warp-core:installed_contract_intent_pipeline_tests)
       printf '%s\n' "native_rule_bootstrap,host_test"
       ;;
     warp-core:causal_fact_publication_tests|warp-core:optic_invocation_admission_tests)
@@ -1385,7 +1385,7 @@ warp_core_feature_args_for_test() {
   local test_target="$1"
 
   case "$test_target" in
-    inbox)
+    inbox|installed_contract_intent_pipeline_tests)
       printf '%s\n' "--features" "native_rule_bootstrap,host_test"
       ;;
     causal_fact_publication_tests|optic_invocation_admission_tests)

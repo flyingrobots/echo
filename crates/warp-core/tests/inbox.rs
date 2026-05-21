@@ -604,8 +604,11 @@ fn ticketed_submission_outcome_observation_is_decided_after_scheduler_tick() {
         .clone();
     assert!(matches!(
         runtime.observe_intent_outcome(&submission),
-        IntentOutcomeObservation::Decided { correlation: observed }
-            if observed == correlation
+        IntentOutcomeObservation::Decided {
+            correlation: observed,
+            ..
+        }
+            if *observed == correlation
     ));
 }
 

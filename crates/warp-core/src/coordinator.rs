@@ -15,13 +15,16 @@ use crate::engine_impl::{CommitOutcome, Engine, EngineError};
 use crate::head::{
     HeadEligibility, PlaybackHeadRegistry, RunnableWriterSet, WriterHead, WriterHeadKey,
 };
+#[cfg(feature = "native_rule_bootstrap")]
+use crate::head_inbox::IngressPayload;
 use crate::head_inbox::{InboxAddress, InboxIngestResult, IngressEnvelope, IngressTarget};
-use crate::ident::Hash;
+use crate::ident::{Hash, NodeId};
 use crate::optic_artifact::OpticAdmissionTicket;
 use crate::provenance_store::{
     HistoryError, ProvenanceCheckpoint, ProvenanceEntry, ProvenanceEventKind, ProvenanceRef,
     ProvenanceService, ProvenanceStore, ReplayError,
 };
+use crate::receipt::{TickReceiptDisposition, TickReceiptRejection};
 use crate::strand::{ForkBasisRef, Strand, StrandError, StrandId, StrandRegistry, SupportPin};
 use crate::worldline::{ApplyError, WorldlineId};
 use crate::worldline_registry::WorldlineRegistry;
@@ -93,6 +96,10 @@ pub enum RuntimeError {
     /// the runtime counter can represent.
     #[error("intent submission generation overflow")]
     IntentSubmissionGenerationOverflow,
+    /// Replayed witnessed submission material did not match its derived identity
+    /// or conflicted with an existing witnessed submission.
+    #[error("witnessed intent submission replay mismatch: {0:?}")]
+    IntentSubmissionReplayMismatch(Hash),
     /// Ticketed runtime ingress referenced a submission Echo has not witnessed.
     #[error("unknown intent submission: {0:?}")]
     UnknownIntentSubmission(Hash),
@@ -102,6 +109,16 @@ pub enum RuntimeError {
     /// A different admission ticket already staged this witnessed submission.
     #[error("witnessed submission already has ticketed runtime ingress: {0:?}")]
     TicketedIngressAlreadyStaged(Hash),
+    /// Installed contract runtime ingress received malformed canonical intent bytes.
+    #[error("installed contract invocation is not a canonical EINT intent")]
+    MalformedInstalledContractIntent,
+    /// Installed contract runtime ingress named a mutation operation id that no
+    /// installed package supports.
+    #[error("unsupported installed contract mutation op id: {op_id}")]
+    UnsupportedInstalledContractMutation {
+        /// The unsupported canonical EINT mutation operation id.
+        op_id: u32,
+    },
     /// Ticketed runtime ingress attempted to claim an envelope that was already
     /// pending or committed through another ingress path.
     #[error("ticketed runtime ingress cannot claim duplicate runtime ingress {ingress_id:?} for head {head_key:?}")]
@@ -460,12 +477,39 @@ pub struct ReceiptCorrelationRecord {
     pub commit_hash: Hash,
 }
 
+/// Scheduler-owned decision observed for a witnessed intent submission.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum IntentOutcomeDecision {
+    /// The correlated receipt entry applied during the scheduler-owned tick.
+    Applied {
+        /// Entry index inside the correlated tick receipt.
+        receipt_entry_index: u32,
+        /// Scheduler rule that produced the entry.
+        rule_id: Hash,
+    },
+    /// The correlated receipt entry was rejected during the scheduler-owned tick.
+    Rejected {
+        /// Entry index inside the correlated tick receipt.
+        receipt_entry_index: u32,
+        /// Scheduler rule that produced the entry.
+        rule_id: Hash,
+        /// Deterministic rejection reason emitted by the tick receipt.
+        reason: TickReceiptRejection,
+        /// Receipt entry indices that blocked this candidate.
+        blocked_by: Vec<u32>,
+    },
+    /// Echo has a receipt correlation, but the retained receipt no longer yields
+    /// a matching entry for this ingress id.
+    NoMatchingReceiptEntry {
+        /// Digest recorded by the correlation index.
+        tick_receipt_digest: Hash,
+    },
+}
+
 /// Polling observation for a witnessed intent submission.
 ///
-/// This is intentionally narrower than a final applied/rejected application
-/// outcome. Until receipt entries are bound to intent-level semantics, Echo can
-/// report whether the submission is unknown, still pending, or decided by a
-/// scheduler-owned tick receipt.
+/// This is a read-only outcome surface. Echo reports whether the submission is
+/// unknown, still pending, or decided by a scheduler-owned tick receipt.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum IntentOutcomeObservation {
     /// Echo has no witnessed submission for the supplied id.
@@ -485,7 +529,9 @@ pub enum IntentOutcomeObservation {
     /// Echo has correlated the submission to a scheduler-owned tick receipt.
     Decided {
         /// Scheduler-owned receipt correlation.
-        correlation: ReceiptCorrelationRecord,
+        correlation: Box<ReceiptCorrelationRecord>,
+        /// Applied/rejected decision derived from the retained receipt entry.
+        decision: IntentOutcomeDecision,
     },
 }
 
@@ -715,6 +761,23 @@ impl WorldlineRuntime {
         self.witnessed_submissions.values()
     }
 
+    /// Returns witnessed submissions in deterministic replay order.
+    ///
+    /// Replay order follows Echo-owned submission generation, then submission id
+    /// as a stable tie-breaker. These records are ingress-history evidence only;
+    /// importing them does not stage runtime ingress, tick, dispatch handlers, or
+    /// mutate application state.
+    #[must_use]
+    pub fn witnessed_submission_replay_records(&self) -> Vec<IntentSubmissionRecord> {
+        let mut records = self
+            .witnessed_submissions
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        records.sort_by_key(|record| (record.submission_generation, record.submission_id));
+        records
+    }
+
     /// Returns the number of witnessed submission records.
     #[must_use]
     pub fn witnessed_submission_count(&self) -> usize {
@@ -883,8 +946,7 @@ impl WorldlineRuntime {
     /// Observes the current scheduler-owned outcome posture for a submission.
     ///
     /// This is a zero-write polling surface. It does not tick, dispatch
-    /// handlers, subscribe to streams, or infer applied/rejected semantics from
-    /// receipt entries.
+    /// handlers, or subscribe to streams.
     #[must_use]
     pub fn observe_intent_outcome(&self, submission_id: &Hash) -> IntentOutcomeObservation {
         let Some(submission) = self.witnessed_submissions.get(submission_id) else {
@@ -894,7 +956,8 @@ impl WorldlineRuntime {
         };
         if let Some(correlation) = self.receipt_correlation_for_submission(submission_id) {
             return IntentOutcomeObservation::Decided {
-                correlation: correlation.clone(),
+                correlation: Box::new(correlation.clone()),
+                decision: self.intent_outcome_decision(correlation),
             };
         }
         IntentOutcomeObservation::Pending {
@@ -905,6 +968,55 @@ impl WorldlineRuntime {
                 .get(submission_id)
                 .copied(),
         }
+    }
+
+    fn intent_outcome_decision(
+        &self,
+        correlation: &ReceiptCorrelationRecord,
+    ) -> IntentOutcomeDecision {
+        let no_match = || IntentOutcomeDecision::NoMatchingReceiptEntry {
+            tick_receipt_digest: correlation.tick_receipt_digest,
+        };
+        let Some(tick_index) = correlation.worldline_tick_after.as_u64().checked_sub(1) else {
+            return no_match();
+        };
+        let Ok(tick_index) = usize::try_from(tick_index) else {
+            return no_match();
+        };
+        let Some(frontier) = self.worldlines.get(&correlation.head_key.worldline_id) else {
+            return no_match();
+        };
+        let Some((_snapshot, receipt, _patch)) = frontier.state().tick_history().get(tick_index)
+        else {
+            return no_match();
+        };
+        if receipt.digest() != correlation.tick_receipt_digest {
+            return no_match();
+        }
+
+        let ingress_node = NodeId(correlation.ingress_id);
+        for (idx, entry) in receipt.entries().iter().enumerate() {
+            if entry.scope.local_id != ingress_node {
+                continue;
+            }
+            let Ok(receipt_entry_index) = u32::try_from(idx) else {
+                return no_match();
+            };
+            return match entry.disposition {
+                TickReceiptDisposition::Applied => IntentOutcomeDecision::Applied {
+                    receipt_entry_index,
+                    rule_id: entry.rule_id,
+                },
+                TickReceiptDisposition::Rejected(reason) => IntentOutcomeDecision::Rejected {
+                    receipt_entry_index,
+                    rule_id: entry.rule_id,
+                    reason,
+                    blocked_by: receipt.blocked_by(idx).to_vec(),
+                },
+            };
+        }
+
+        no_match()
     }
 
     /// Returns the current correlation tick.
@@ -1173,6 +1285,99 @@ impl WorldlineRuntime {
         Ok(())
     }
 
+    /// Imports witnessed submission records as replayed ingress history.
+    ///
+    /// This restores Echo's semantic submission ledger only. It does not enter
+    /// envelopes into head inboxes, stage ticketed runtime ingress, advance
+    /// ticks, dispatch handlers, or execute contracts.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a replay record names an unknown writer head, its
+    /// submission id does not match the canonical head/ingress-derived identity,
+    /// it conflicts with already-replayed submission material, or the replayed
+    /// generation conflicts with existing replay posture.
+    pub fn replay_witnessed_submissions<I>(&mut self, records: I) -> Result<(), RuntimeError>
+    where
+        I: IntoIterator<Item = IntentSubmissionRecord>,
+    {
+        let mut records = records.into_iter().collect::<Vec<_>>();
+        records.sort_by_key(|record| (record.submission_generation, record.submission_id));
+        let mut staged_submission_by_target = BTreeMap::new();
+        let mut staged_witnessed_submissions = BTreeMap::new();
+        let existing_generation_by_submission = self
+            .witnessed_submissions
+            .values()
+            .map(|record| (record.submission_generation, record.submission_id))
+            .collect::<BTreeMap<_, _>>();
+        let mut staged_generation_by_submission = BTreeMap::new();
+        let mut next_submission_generation = self.next_submission_generation;
+
+        for record in records {
+            if self.heads.get(&record.head_key).is_none() {
+                return Err(RuntimeError::UnknownHead(record.head_key));
+            }
+            let expected_submission_id =
+                derive_intent_submission_id(record.head_key, record.ingress_id);
+            if record.submission_id != expected_submission_id {
+                return Err(RuntimeError::IntentSubmissionReplayMismatch(
+                    record.submission_id,
+                ));
+            }
+            if self
+                .witnessed_submissions
+                .get(&record.submission_id)
+                .is_some_and(|existing| existing != &record)
+                || staged_witnessed_submissions
+                    .get(&record.submission_id)
+                    .is_some_and(|existing| existing != &record)
+            {
+                return Err(RuntimeError::IntentSubmissionReplayMismatch(
+                    record.submission_id,
+                ));
+            }
+            if self
+                .submission_by_target
+                .get(&(record.head_key, record.ingress_id))
+                .is_some_and(|submission_id| *submission_id != record.submission_id)
+                || staged_submission_by_target
+                    .get(&(record.head_key, record.ingress_id))
+                    .is_some_and(|submission_id| *submission_id != record.submission_id)
+            {
+                return Err(RuntimeError::IntentSubmissionReplayMismatch(
+                    record.submission_id,
+                ));
+            }
+            if record.submission_generation == IngressSubmissionGeneration::ZERO
+                || existing_generation_by_submission
+                    .get(&record.submission_generation)
+                    .is_some_and(|submission_id| *submission_id != record.submission_id)
+                || staged_generation_by_submission
+                    .get(&record.submission_generation)
+                    .is_some_and(|submission_id| *submission_id != record.submission_id)
+            {
+                return Err(RuntimeError::IntentSubmissionReplayMismatch(
+                    record.submission_id,
+                ));
+            }
+            if record.submission_generation > next_submission_generation {
+                next_submission_generation = record.submission_generation;
+            }
+            staged_submission_by_target
+                .insert((record.head_key, record.ingress_id), record.submission_id);
+            staged_generation_by_submission
+                .insert(record.submission_generation, record.submission_id);
+            staged_witnessed_submissions.insert(record.submission_id, record);
+        }
+
+        self.next_submission_generation = next_submission_generation;
+        self.submission_by_target
+            .extend(staged_submission_by_target);
+        self.witnessed_submissions
+            .extend(staged_witnessed_submissions);
+        Ok(())
+    }
+
     /// Records an accepted intent submission without entering runtime ingress.
     ///
     /// This is witnessed Echo ingress history only. It does not store the
@@ -1310,6 +1515,39 @@ impl WorldlineRuntime {
         self.ticketed_runtime_ingress_by_target
             .insert((head_key, ingress_id), ticketed_ingress_id);
         Ok(TicketedRuntimeIngressDisposition::Staged { record, ingress })
+    }
+
+    /// Stages a witnessed installed-contract mutation invocation into runtime ingress.
+    ///
+    /// This is the package boundary between lawful admission evidence and the
+    /// scheduler-owned runtime path. It verifies that the canonical EINT mutation
+    /// operation id is supported by an installed contract package before the work
+    /// becomes runtime-visible. The method does not tick, dispatch handlers, or
+    /// execute contracts.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the envelope is not a canonical EINT local intent,
+    /// no installed contract package supports its mutation operation id, or the
+    /// underlying ticketed ingress boundary rejects the submission.
+    #[cfg(feature = "native_rule_bootstrap")]
+    pub fn ingest_installed_contract_invocation(
+        &mut self,
+        authority: &TicketedRuntimeIngressAuthority,
+        engine: &Engine,
+        submission_id: Hash,
+        ticket: &OpticAdmissionTicket,
+        envelope: IngressEnvelope,
+    ) -> Result<TicketedRuntimeIngressDisposition, RuntimeError> {
+        let op_id = installed_contract_mutation_op_id(&envelope)?;
+        if engine
+            .installed_contract_mutation_package_id(op_id)
+            .is_none()
+        {
+            return Err(RuntimeError::UnsupportedInstalledContractMutation { op_id });
+        }
+
+        self.ingest_ticketed_invocation(authority, submission_id, ticket, envelope)
     }
 
     /// Resolves an ingress envelope to a specific writer head and stores it in that inbox.
@@ -1613,6 +1851,14 @@ fn derive_ticketed_runtime_ingress_id(
     hasher.finalize().into()
 }
 
+#[cfg(feature = "native_rule_bootstrap")]
+fn installed_contract_mutation_op_id(envelope: &IngressEnvelope) -> Result<u32, RuntimeError> {
+    let IngressPayload::LocalIntent { intent_bytes, .. } = envelope.payload();
+    echo_wasm_abi::unpack_intent_v1(intent_bytes)
+        .map(|(op_id, _vars)| op_id)
+        .map_err(|_error| RuntimeError::MalformedInstalledContractIntent)
+}
+
 fn derive_scheduler_run_id(next_global_tick: GlobalTick, keys: &[WriterHeadKey]) -> SchedulerRunId {
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"echo.scheduler-run");
@@ -1675,9 +1921,12 @@ fn scheduler_fault_scope_for_error(
         | RuntimeError::Replay(_)
         | RuntimeError::Strand(_)
         | RuntimeError::IntentSubmissionGenerationOverflow
+        | RuntimeError::IntentSubmissionReplayMismatch(_)
         | RuntimeError::UnknownIntentSubmission(_)
         | RuntimeError::TicketedIngressSubmissionMismatch(_)
         | RuntimeError::TicketedIngressAlreadyStaged(_)
+        | RuntimeError::MalformedInstalledContractIntent
+        | RuntimeError::UnsupportedInstalledContractMutation { .. }
         | RuntimeError::TicketedIngressDuplicateRuntimeIngress { .. } => {
             SchedulerFaultScope::Runtime
         }
@@ -2189,6 +2438,10 @@ fn scheduler_error_cause_digest(err: &RuntimeError) -> Hash {
         RuntimeError::IntentSubmissionGenerationOverflow => {
             hasher.update(b"intent-submission-generation-overflow");
         }
+        RuntimeError::IntentSubmissionReplayMismatch(submission_id) => {
+            hasher.update(b"intent-submission-replay-mismatch");
+            hasher.update(submission_id);
+        }
         RuntimeError::UnknownIntentSubmission(submission_id) => {
             hasher.update(b"unknown-intent-submission");
             hasher.update(submission_id);
@@ -2200,6 +2453,13 @@ fn scheduler_error_cause_digest(err: &RuntimeError) -> Hash {
         RuntimeError::TicketedIngressAlreadyStaged(submission_id) => {
             hasher.update(b"ticketed-ingress-already-staged");
             hasher.update(submission_id);
+        }
+        RuntimeError::MalformedInstalledContractIntent => {
+            hasher.update(b"malformed-installed-contract-intent");
+        }
+        RuntimeError::UnsupportedInstalledContractMutation { op_id } => {
+            hasher.update(b"unsupported-installed-contract-mutation");
+            hasher.update(&op_id.to_le_bytes());
         }
         RuntimeError::TicketedIngressDuplicateRuntimeIngress {
             head_key,

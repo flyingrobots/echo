@@ -7,6 +7,21 @@
 
 ### Added
 
+- `warp-core` now connects the installed contract package boundary to the
+  witnessed intent pipeline. Package-supported canonical EINT mutation ids can
+  be staged through ticketed runtime ingress only after Echo has witnessed the
+  submission and verified an installed package owns the op id; unsupported
+  installed-contract mutation ids are rejected before they become
+  runtime-visible scheduler work. The new installed-contract intent pipeline
+  tests prove application submission does not tick or execute, ticketed ingress
+  stages without executing, scheduler-owned ticks dispatch the installed
+  mutation handler, conflict rejection is a final tick outcome with blocker
+  attribution, duplicate submits do not create hidden retries, witnessed
+  submissions can be replayed back into pending ingress history without staging
+  inbox work, and the replayed pipeline converges to the same receipt
+  correlation and observed outcome. Replayed witnessed submission records
+  preserve generation continuity so the next live submission receives the next
+  contiguous generation instead of skipping ahead.
 - `warp-core` now exposes an installed contract package registry boundary for
   runtime-owner host adapters. An installed package binds generated registry
   metadata, schema hash, codec identity, package artifact identity, supported
@@ -74,9 +89,10 @@
 - `warp-core` now exposes a zero-write `observe_intent_outcome(...)` polling
   surface over witnessed submission ids. The observation reports
   `UnknownSubmission`, `Pending` with optional ticketed-ingress identity, or
-  `Decided` with the scheduler-owned receipt correlation once a ticketed
-  submission reaches a tick receipt. This does not infer per-candidate
-  applied/rejected application semantics, stream updates, dispatch installed
+  `Decided` with the scheduler-owned receipt correlation and typed receipt
+  decision once a ticketed submission reaches a tick receipt. The decision
+  reports applied entries or rejected entries with deterministic rejection reason
+  and blocker attribution. This does not stream updates, dispatch installed
   handlers, execute contracts outside scheduler-owned ticks, or introduce
   automatic retry.
 - `warp-core` now records scheduler-owned receipt correlations for ticketed

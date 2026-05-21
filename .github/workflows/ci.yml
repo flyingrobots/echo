@@ -211,6 +211,8 @@ jobs:
               run: |
                   cargo test -p warp-core --features host_test --test causal_fact_publication_tests
                   cargo test -p warp-core --features host_test --test optic_invocation_admission_tests
+            - name: cargo test (warp-core installed contract intent pipeline)
+              run: cargo test -p warp-core --features native_rule_bootstrap,host_test --test installed_contract_intent_pipeline_tests
             - name: cargo test --doc (warp-core)
               run: cargo test -p warp-core --doc
             - name: PRNG golden regression (warp-math)

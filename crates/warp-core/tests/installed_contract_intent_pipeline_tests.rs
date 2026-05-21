@@ -568,6 +568,46 @@ fn footprint_conflict_is_final_without_hidden_retry() {
 }
 
 #[test]
+fn replay_witnessed_submissions_rejects_invalid_batch_without_partial_import() {
+    let (mut runtime, _engine, worldline_id, _head) = pipeline_runtime();
+    let envelope_a = eint_envelope(worldline_id, MUTATION_OP_ID, MUTATION_VARS);
+    let envelope_b = eint_envelope(worldline_id, CONFLICT_OP_ID, CONFLICT_VARS_A);
+
+    runtime
+        .submit_intent(envelope_a)
+        .expect("first submission should be witnessed");
+    runtime
+        .submit_intent(envelope_b)
+        .expect("second submission should be witnessed");
+    let mut replay_records = runtime.witnessed_submission_replay_records();
+    replay_records
+        .get_mut(1)
+        .expect("second replay record should exist")
+        .submission_id = [0xA5; 32];
+
+    let (mut replayed, _engine, replay_worldline_id, _head) = pipeline_runtime();
+    assert!(matches!(
+        replayed.replay_witnessed_submissions(replay_records),
+        Err(RuntimeError::IntentSubmissionReplayMismatch(_))
+    ));
+
+    assert_eq!(
+        replayed.witnessed_submission_count(),
+        0,
+        "failed replay import must not retain earlier records from the same batch"
+    );
+    assert!(matches!(
+        replayed
+            .submit_intent(eint_envelope(replay_worldline_id, MUTATION_OP_ID, MUTATION_VARS))
+            .expect("live submission after failed replay should still work"),
+        IntentSubmissionDisposition::Accepted {
+            submission_generation,
+            ..
+        } if submission_generation == IngressSubmissionGeneration::from_raw(1)
+    ));
+}
+
+#[test]
 fn witnessed_submission_replay_restores_pending_history_without_runtime_ingress() {
     let (mut runtime, _engine, worldline_id, _head) = pipeline_runtime();
     let envelope_a = eint_envelope(worldline_id, MUTATION_OP_ID, MUTATION_VARS);

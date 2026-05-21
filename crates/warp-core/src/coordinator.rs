@@ -1303,6 +1303,9 @@ impl WorldlineRuntime {
     {
         let mut records = records.into_iter().collect::<Vec<_>>();
         records.sort_by_key(|record| (record.submission_generation, record.submission_id));
+        let mut staged_submission_by_target = BTreeMap::new();
+        let mut staged_witnessed_submissions = BTreeMap::new();
+        let mut next_submission_generation = self.next_submission_generation;
 
         for record in records {
             if self.heads.get(&record.head_key).is_none() {
@@ -1319,6 +1322,9 @@ impl WorldlineRuntime {
                 .witnessed_submissions
                 .get(&record.submission_id)
                 .is_some_and(|existing| existing != &record)
+                || staged_witnessed_submissions
+                    .get(&record.submission_id)
+                    .is_some_and(|existing| existing != &record)
             {
                 return Err(RuntimeError::IntentSubmissionReplayMismatch(
                     record.submission_id,
@@ -1328,20 +1334,27 @@ impl WorldlineRuntime {
                 .submission_by_target
                 .get(&(record.head_key, record.ingress_id))
                 .is_some_and(|submission_id| *submission_id != record.submission_id)
+                || staged_submission_by_target
+                    .get(&(record.head_key, record.ingress_id))
+                    .is_some_and(|submission_id| *submission_id != record.submission_id)
             {
                 return Err(RuntimeError::IntentSubmissionReplayMismatch(
                     record.submission_id,
                 ));
             }
-            if record.submission_generation > self.next_submission_generation {
-                self.next_submission_generation = record.submission_generation;
+            if record.submission_generation > next_submission_generation {
+                next_submission_generation = record.submission_generation;
             }
-            self.submission_by_target
+            staged_submission_by_target
                 .insert((record.head_key, record.ingress_id), record.submission_id);
-            self.witnessed_submissions
-                .insert(record.submission_id, record);
+            staged_witnessed_submissions.insert(record.submission_id, record);
         }
 
+        self.next_submission_generation = next_submission_generation;
+        self.submission_by_target
+            .extend(staged_submission_by_target);
+        self.witnessed_submissions
+            .extend(staged_witnessed_submissions);
         Ok(())
     }
 

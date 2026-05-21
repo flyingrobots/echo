@@ -3,8 +3,11 @@
 
 # Echo Optics Adapter Notes
 
-This note describes where future consumer adapters sit relative to the Echo
-Optics API.
+This note describes where consumer adapters and generated host helpers sit
+relative to the Echo Optics API.
+
+The WARP-paper-to-Echo implementation map lives at
+`docs/design/warp-optic-implementation-map.md`.
 
 The boundary rule is:
 
@@ -65,14 +68,24 @@ GraphQL is an authoring or adapter illustration, not the Echo runtime
 substrate.
 
 Wesley-generated code may expose GraphQL-shaped helper names because those names
-belong to the authored contract. Generated helpers should still lower into Echo
-as generic Optics requests:
+belong to the authored contract. Generated application request builders should
+still lower into Echo as generic Optics requests:
 
 - generated query helpers build `ObserveOpticRequest`;
 - generated mutation helpers build EINT v1 payloads and
   `DispatchOpticIntentRequest`;
 - generated decoding helpers decode observer payload bytes after Echo has
   emitted a reading.
+
+Generated contract-host helpers are a separate surface. They install host-owned
+mutation rule constructors and read-only query observer constructors against
+generic `warp-core` boundaries. They must not become application tick authority
+or application-owned runtime control.
+
+Authored optics may declare retained consequence obligations, including
+receipt obligations. They do not create ticks or tick receipts. Echo's trusted
+runtime owner remains responsible for scheduler cadence, tick membership, and
+receipt emission.
 
 The helper may hide byte packing from application code. It must not hide the
 fact that an intent was proposed against an explicit causal basis and then

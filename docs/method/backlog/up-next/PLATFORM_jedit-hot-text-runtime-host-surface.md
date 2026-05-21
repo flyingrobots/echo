@@ -14,7 +14,7 @@ including:
 
 - mutation operations
     - `createBufferWorldline`
-    - `replaceRangeAsTick`
+    - `replaceRange`
     - `createCheckpoint`
 - a canonical read operation
     - `worldlineSnapshot`
@@ -36,7 +36,8 @@ the optic model more explicitly:
 
 - the application submits intent through an optic-shaped boundary
 - Echo admits or rejects that intent against generic substrate truth
-- Echo returns the deterministic result / receipt envelope for that intent
+- Echo records ingress/admission evidence for that intent and later exposes the
+  scheduler-owned receipt through observation/correlation
 - the application then observes the resulting worldline state and projects that
   generic graph truth into app-specific nouns
 
@@ -62,8 +63,8 @@ Echo through optics without:
 
 - one Echo-facing design or spec note states the optic handoff explicitly:
     - app submits intent
-    - Echo returns the deterministic result / receipt envelope plus a
-      hologram/frontier handoff
+    - Echo returns ingress/admission evidence and later exposes scheduler-owned
+      receipt evidence plus a hologram/frontier handoff
     - app reads through a generic observer plan or observer handle
 - the note explains where app-specific operation names live:
     - authored in the app contract
@@ -76,9 +77,15 @@ Echo through optics without:
     - hosted by Echo without handwritten app callbacks
 - one concrete seam is named for the first `jedit` hot-text operations:
     - create buffer worldline
-    - replace range as tick
+    - replace range
     - create checkpoint
-    - read canonical worldline snapshot
+
+The authored contract may declare retained tick/receipt obligations for these
+operations. That declaration does not let application code create or schedule
+ticks.
+
+- read canonical worldline snapshot
+
 - repo truth makes clear how those operations travel through:
     - Wesley-generated intent / codec artifacts
     - Wesley-generated observer plan / reading codec artifacts

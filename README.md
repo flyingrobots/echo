@@ -50,6 +50,11 @@ observing, transforming, importing, and retaining causal history.
 - **Admission** is an optic that lawfully incorporates transported history from
   a remote peer.
 
+Application-authored optics do not create ticks or `TickReceipt` values.
+Authored surfaces may declare retained consequence obligations that Echo must
+satisfy, including receipt obligations, but only Echo's trusted runtime and
+scheduler own tick boundaries and receipt emission.
+
 Because transformations go through lawful optics, Echo can emit computational
 holograms: compact, evidence-bearing boundary artifacts that name the causal
 basis, law, aperture, identity, posture, witnesses, and retained support needed
@@ -126,6 +131,14 @@ against installed contract law, footprints, and scheduler constraints, then
 emits receipts for what was admitted, staged, pluralized, conflicted, or
 obstructed.
 
+The application may receive ingress evidence, admission evidence, reading
+evidence, and later tick receipts through observation/correlation surfaces. It
+must not treat `dispatch_intent(...)` as "run this now."
+
+A host may run Echo on a fixed wall-clock cadence, but wall-clock frequency is
+host/runtime-owner policy. The semantic tick remains a logical scheduler-owned
+coordinate.
+
 ### 4. Observe Readings
 
 Clients do not ask Echo for "the state." They ask for a bounded reading from an
@@ -186,6 +199,12 @@ law-governed participant over causal history. It can observe, admit, retain,
 reveal, import, materialize, or verify readings, but it does not own a canonical
 global graph.
 
+Echo implements the paper vocabulary with sharper typed boundaries:
+`LawWitness`, `AdmissionTicket`, `TicketedRuntimeIngress`, `TickReceipt`,
+`ReadingEnvelope`, graph facts, retained readings, and retained artifacts are
+not interchangeable. The implementation map lives at
+[WARP Optic Implementation Map](docs/design/warp-optic-implementation-map.md).
+
 Continuum is the compatibility layer between WARP participants. It is not Echo,
 not "the Echo protocol," and not a second runtime that owns the truth. It is the
 shared transport vocabulary for exchanging enough causal evidence for another
@@ -208,15 +227,17 @@ lawful reading.
 
 ## Core Ontology
 
-| Concept            | Meaning in Echo                                                                                                                       |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| **Causal history** | The witnessed substrate: admitted transitions, frontiers, receipts, witnesses, and retained boundary artifacts.                       |
-| **WARP optic**     | A bounded, law-named operation over causal history. It may admit, observe, retain, reveal, import, or materialize.                    |
-| **Reading**        | An observer-relative artifact emitted from a coordinate, aperture, and projection law.                                                |
-| **Hologram**       | A witnessed output carrying enough basis, law, aperture, evidence, identity, and posture to recreate the claim at its declared level. |
-| **Witness**        | Evidence that a transition or reading followed from a named basis under a named law.                                                  |
-| **Shell**          | A retained boundary artifact such as a tick patch, suffix bundle, provenance payload, or checkpoint base.                             |
-| **ReadIdentity**   | The semantic question a retained payload answers. It is intentionally separate from the CAS byte hash.                                |
+| Concept             | Meaning in Echo                                                                                                                       |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| **Causal history**  | The witnessed substrate: admitted transitions, frontiers, receipts, witnesses, and retained boundary artifacts.                       |
+| **WARP optic**      | A bounded, law-named operation over causal history. It may admit, observe, retain, reveal, import, or materialize.                    |
+| **Reading**         | An observer-relative artifact emitted from a coordinate, aperture, and projection law.                                                |
+| **Hologram**        | A witnessed output carrying enough basis, law, aperture, evidence, identity, and posture to recreate the claim at its declared level. |
+| **Witness**         | Evidence that a transition or reading followed from a named basis under a named law.                                                  |
+| **Shell**           | A retained boundary artifact such as a tick patch, suffix bundle, provenance payload, or checkpoint base.                             |
+| **AdmissionTicket** | Lawful admission evidence. It is not execution and not a `TickReceipt`.                                                               |
+| **TickReceipt**     | Scheduler-owned execution outcome evidence for a committed tick.                                                                      |
+| **ReadIdentity**    | The semantic question a retained payload answers. It is intentionally separate from the CAS byte hash.                                |
 
 The front-door architecture note is
 [There Is No Graph](docs/architecture/there-is-no-graph.md).
@@ -288,7 +309,8 @@ Application UI
   -> canonical operation variables
   -> EINT intent bytes
   -> host-owned Echo ingress: dispatch_intent(...)
-  -> Echo-owned scheduler tick / settlement
+  -> accepted / witnessed ingress evidence
+  -> later runtime-owned scheduler tick / settlement
   -> Echo receipts and witness refs
   -> Echo observe(...)
   -> ReadingEnvelope + payload bytes

@@ -3,43 +3,44 @@
 
 # Optic Admission Ladder Checkpoint
 
-Status: SchedulerAdmission v0 boundary checkpoint.
-Scope: refusal ladder with narrow controlled basis, aperture, budget, and
-runtime-owned admission fixtures.
+Status: current admission ladder checkpoint.
+Scope: optic invocation admission through `AdmissionTicket`, plus the boundary
+between admission evidence and runtime-owned execution.
 
 ## Doctrine
 
-This checkpoint records the optic invocation admission ladder at the first
-controlled scheduler-admission boundary.
+Echo's optic admission ladder now reaches lawful admission evidence. It can
+positively resolve the narrow Echo-owned fixture gates through
+SchedulerWorkCandidate and LawWitness, then issue an `OpticAdmissionTicket`.
 
-Echo can now explain why an optic invocation is refused and can positively
-resolve narrow Echo-owned invocation admission and scheduler admission
-fixtures. It still cannot issue a successful `AdmissionTicket`, create
-scheduler work, dispatch a handler, or execute the invocation.
+That ticket is not execution.
 
-A registered artifact handle is not authority. A capability presentation slot is
-not a validated grant. A basis request is not a resolved basis unless it matches
-the narrow deterministic BasisResolution v0 fixture. A resolved basis is not
-permission to act. An aperture request is not a resolved scope unless it matches
-the narrow deterministic ApertureResolution v0 fixture after basis resolution.
-Budget resolution exists only for the narrow deterministic BudgetResolution v0
-fixture after aperture resolution.
-A resolved aperture is not permission to act. A budget request is not spendable
-runtime capacity. Runtime support is Echo-owned context recorded by the
-registry; it is not caller-provided testimony. Resolved runtime support is not
-permission to act. Invocation admission is Echo-owned context recorded by the
-registry; it is not caller-provided testimony. Resolved invocation admission is
-not scheduler admission, scheduler work, handler dispatch, or execution.
-Scheduler admission is Echo-owned context recorded by the registry; it is not
-caller-provided testimony. Resolved scheduler admission is not scheduler work,
-handler dispatch, or execution.
+An `AdmissionTicket` is not a `TickReceipt`, not scheduler work enqueueing, not
+handler dispatch, and not application state mutation. It is the evidence that
+Echo lawfully admitted an invocation for later runtime handling.
 
-Refusal is causal evidence. Refusal is not admission, not execution, not a law
-witness, and not a counterfactual candidate.
+Ticketed runtime ingress is the runtime-phase hinge:
 
-## Current execution order
+```text
+AdmissionTicket + witnessed submission -> ticketed runtime ingress
+```
 
-The current optic invocation admission path evaluates checks in this order:
+Ticketed runtime ingress still does not give application code tick authority.
+The trusted runtime owner decides scheduler cadence and tick boundaries.
+
+Application-authored optics may declare retained receipt obligations. They do
+not create ticks, create `TickReceipt` values, or command scheduler cadence.
+
+## Pipeline Context
+
+Before this registry ladder matters, Echo may accept canonical application
+intent bytes as witnessed submission ingress. That submission ledger belongs to
+the end-to-end intent pipeline; it is not caller-supplied admission evidence and
+not a gate inside `OpticArtifactRegistry` invocation admission.
+
+## Current Registry Ladder
+
+The current registry admission path evaluates gates in this order:
 
 1. Resolve the artifact handle internally.
 2. Reject an unknown handle.
@@ -50,239 +51,147 @@ The current optic invocation admission path evaluates checks in this order:
 7. Classify capability presentation posture.
 8. Optionally publish grant-validation obstruction evidence.
 9. If capability validation returns identity-covered material, resolve the
-   narrow BasisResolution v0 fixture or obstruct unsupported basis material.
-10. If that basis fixture resolves, resolve the narrow ApertureResolution v0
+   narrow BasisResolution fixture or obstruct unsupported basis material.
+10. If that basis fixture resolves, resolve the narrow ApertureResolution
     fixture or obstruct unsupported aperture material.
-11. If that aperture fixture resolves, resolve the narrow BudgetResolution v0
+11. If that aperture fixture resolves, resolve the narrow BudgetResolution
     fixture or obstruct unsupported budget material.
-12. If that budget fixture resolves, check Echo-owned RuntimeSupport v0 facts
-    for the registered requirements or obstruct at `RuntimeSupportUnavailable`.
-13. If RuntimeSupport v0 resolves, check Echo-owned InvocationAdmission v0
-    facts for the registered artifact handle or obstruct at
+12. If that budget fixture resolves, check Echo-owned RuntimeSupport facts for
+    the registered requirements or obstruct at `RuntimeSupportUnavailable`.
+13. If RuntimeSupport resolves, check Echo-owned InvocationAdmission facts for
+    the registered artifact handle or obstruct at
     `InvocationAdmissionUnavailable`.
-14. If InvocationAdmission v0 resolves, check Echo-owned SchedulerAdmission v0
-    facts for the registered artifact handle or obstruct at
+14. If InvocationAdmission resolves, check Echo-owned SchedulerAdmission facts
+    for the registered artifact handle or obstruct at
     `SchedulerAdmissionUnavailable`.
-15. If SchedulerAdmission v0 resolves, obstruct at
+15. If SchedulerAdmission resolves, check Echo-owned SchedulerWorkCandidate
+    facts for the registered artifact handle or obstruct at
     `SchedulerWorkUnavailable`.
-16. Publish the invocation obstruction fact.
+16. If SchedulerWorkCandidate resolves, check Echo-owned LawWitness facts for
+    the registered artifact handle or obstruct at `LawWitnessUnavailable`.
+17. If LawWitness resolves, issue an `OpticAdmissionTicket`.
+18. Publish either obstruction evidence or `AdmissionTicketIssued` evidence.
 
-Presence checks come before resolution checks. Basis resolution gates aperture
-resolution. Aperture resolution gates budget evaluation and runtime support
-checks. The current invocation request fixture shapes are:
+Presence checks come before resolution checks. Each resolved gate only advances
+to the next gate. No caller-owned field can supply runtime support, invocation
+admission, scheduler admission, scheduler work candidate, law witness, or
+admission ticket evidence.
 
-- BasisResolution v0: `basis-request:resolved-fixture:v0`
-- ApertureResolution v0: `aperture-request:resolved-fixture:v0`
-- BudgetResolution v0: `budget-request:resolved-fixture:v0`
+## Fixture Labels
 
-The current Echo-owned runtime support fixture is
-`runtime-support:resolved-fixture:v0`. It is recorded by the runtime registry
-through an Echo-issued artifact handle for that artifact's registered
-requirements. Artifact registration requires the stored requirements digest to
-match the registered artifact requirements digest. Recording the fixture is
-idempotent per requirements digest, and runtime support is not carried by
-`OpticInvocation`.
+The current narrow fixture byte strings are code facts. The conceptual boundary
+names do not need version suffixes.
 
-The current Echo-owned invocation admission fixture is
-`invocation-admission:resolved-fixture:v0`. It is recorded by the runtime
-registry through an Echo-issued artifact handle for that artifact's registered
-operation and requirements. Recording the fixture is idempotent per artifact
-handle, and invocation admission evidence is not carried by `OpticInvocation`.
+```text
+basis-request:resolved-fixture
+aperture-request:resolved-fixture
+budget-request:resolved-fixture
+runtime-support:resolved-fixture
+invocation-admission:resolved-fixture
+scheduler-admission:resolved-fixture
+scheduler-work-candidate:resolved-fixture
+law-witness:resolved-fixture
+```
 
-The current Echo-owned scheduler admission fixture is
-`scheduler-admission:resolved-fixture:v0`. It is recorded by the runtime
-registry through an Echo-issued artifact handle for that artifact's registered
-operation and requirements. Recording the fixture is idempotent per artifact
-handle, and scheduler admission evidence is not carried by `OpticInvocation`.
+## Obstruction Reachability
 
-## Obstruction reachability
+| Obstruction                       | Reachability    | Meaning                                                                                       |
+| :-------------------------------- | :-------------- | :-------------------------------------------------------------------------------------------- |
+| `UnknownHandle`                   | Reachable today | Echo cannot resolve the runtime-local artifact handle.                                        |
+| `OperationMismatch`               | Reachable today | The invocation operation does not match registered artifact metadata.                         |
+| `MissingBasisRequest`             | Reachable today | The caller did not provide basis request material.                                            |
+| `MissingApertureRequest`          | Reachable today | Basis material is present, but aperture request material is absent.                           |
+| `MissingBudgetRequest`            | Reachable today | Basis and aperture material are present, but budget request material is absent.               |
+| `MissingCapability`               | Reachable today | Required invocation context is present, but no capability presentation was supplied.          |
+| `MalformedCapabilityPresentation` | Reachable today | Capability presentation material is present but not structurally usable.                      |
+| `UnboundCapabilityPresentation`   | Reachable today | Capability presentation material is structurally usable but not bound to the invocation.      |
+| `CapabilityValidationUnavailable` | Reachable today | A bound presentation exists, but no successful validation or admission has occurred yet.      |
+| `UnsupportedBasisResolution`      | Reachable today | Identity-covered material reaches the basis boundary, but the basis shape is unsupported.     |
+| `UnsupportedApertureResolution`   | Reachable today | Basis resolution succeeded, but the aperture shape is unsupported.                            |
+| `UnsupportedBudgetResolution`     | Reachable today | Aperture resolution succeeded, but the budget shape is unsupported.                           |
+| `RuntimeSupportUnavailable`       | Reachable today | Budget resolution succeeded, but Echo has no runtime support fact for the requirements.       |
+| `InvocationAdmissionUnavailable`  | Reachable today | Runtime support succeeded, but Echo has no invocation admission fact for the artifact handle. |
+| `SchedulerAdmissionUnavailable`   | Reachable today | Invocation admission succeeded, but Echo has no scheduler admission fact for the handle.      |
+| `SchedulerWorkUnavailable`        | Reachable today | Scheduler admission succeeded, but Echo has no scheduler work candidate fact for the handle.  |
+| `LawWitnessUnavailable`           | Reachable today | Scheduler work candidate succeeded, but Echo has no law witness fact for the handle.          |
+| `AdmissionTicketUnavailable`      | Defensive       | Law witness evidence was expected but not available while issuing the ticket.                 |
 
-| Obstruction                       | Reachability    | Meaning                                                                                                  |
-| :-------------------------------- | :-------------- | :------------------------------------------------------------------------------------------------------- |
-| `UnknownHandle`                   | Reachable today | Echo cannot resolve the runtime-local artifact handle.                                                   |
-| `OperationMismatch`               | Reachable today | The invocation operation does not match registered artifact metadata.                                    |
-| `MissingBasisRequest`             | Reachable today | The caller did not provide basis request material.                                                       |
-| `MissingApertureRequest`          | Reachable today | Basis material is present, but aperture request material is absent.                                      |
-| `MissingBudgetRequest`            | Reachable today | Basis and aperture material are present, but budget request material is absent.                          |
-| `MissingCapability`               | Reachable today | Required invocation context is present, but no capability presentation was supplied.                     |
-| `MalformedCapabilityPresentation` | Reachable today | Capability presentation material is present but not structurally usable.                                 |
-| `UnboundCapabilityPresentation`   | Reachable today | Capability presentation material is structurally usable but not bound to the invocation.                 |
-| `CapabilityValidationUnavailable` | Reachable today | A bound presentation exists, but no successful validation or admission has occurred yet.                 |
-| `UnsupportedBasisResolution`      | Reachable today | Identity-covered material reaches the basis boundary, but the basis shape is outside BasisResolution v0. |
-| `UnsupportedApertureResolution`   | Reachable today | BasisResolution v0 succeeded, but the aperture shape is outside ApertureResolution v0.                   |
-| `UnsupportedBudgetResolution`     | Reachable today | ApertureResolution v0 succeeded, but the budget shape is outside BudgetResolution v0.                    |
-| `RuntimeSupportUnavailable`       | Reachable today | BudgetResolution v0 succeeded, but Echo has no runtime support fact for the registered requirements.     |
-| `InvocationAdmissionUnavailable`  | Reachable today | RuntimeSupport v0 succeeded, but Echo has no invocation admission fact for the artifact handle.          |
-| `SchedulerAdmissionUnavailable`   | Reachable today | InvocationAdmission v0 succeeded, but Echo has no scheduler admission fact for the artifact handle.      |
-| `SchedulerWorkUnavailable`        | Reachable today | SchedulerAdmission v0 succeeded, but scheduler work enqueueing does not exist yet.                       |
+`AdmissionTicketUnavailable` is defensive. The normal current path either
+obstructs at `LawWitnessUnavailable` or issues a ticket once a law witness fact
+is present.
 
-`RuntimeSupportUnavailable` is lawfully reachable after BasisResolution v0,
-ApertureResolution v0, and BudgetResolution v0 all resolve when Echo has no
-runtime-owned support fact for the registered requirements.
+## Admission Ticket Boundary
 
-`InvocationAdmissionUnavailable` is lawfully reachable after RuntimeSupport v0
-resolves when Echo has no runtime-owned admission fact for the artifact handle.
+A successful `OpticAdmissionTicket` binds:
 
-`SchedulerAdmissionUnavailable` is lawfully reachable after InvocationAdmission
-v0 resolves when Echo has no runtime-owned scheduler admission fact for the
-artifact handle.
+- the Echo-owned artifact handle;
+- the registered artifact hash;
+- the requested operation id;
+- the registered requirements digest;
+- canonical invocation variable bytes by digest;
+- basis, aperture, and budget request digests;
+- the Echo-owned law witness digest;
+- the deterministic ticket digest.
 
-`SchedulerWorkUnavailable` is lawfully reachable after SchedulerAdmission v0
-resolves. It is the current terminal refusal after Echo proves scheduler
-admission but before any scheduler work, handler dispatch, or execution exists.
+The ticket proves lawful admission. It does not prove that a scheduler tick ran.
+It does not prove that a handler dispatched. It does not prove an application
+state effect.
 
-`UnsupportedApertureResolution` is reachable only after the exact
-BasisResolution v0 fixture resolves. For identity-covered material, unsupported
-basis shapes must still stop at `UnsupportedBasisResolution`.
+## Runtime Phase Boundary
 
-`UnsupportedBudgetResolution` is reachable only after the exact
-ApertureResolution v0 fixture resolves. Unsupported aperture shapes must still
-stop at `UnsupportedApertureResolution`.
+After admission, ticketed runtime ingress may stage a witnessed submission into
+runtime ingress through explicit runtime-owner authority.
 
-## Non-behavior
+That stage is still pre-tick:
+
+```text
+AdmissionTicket
+-> ticketed runtime ingress
+-> scheduler-owned tick later
+-> TickReceipt later
+-> observable intent outcome later
+```
+
+Application dispatch remains ingress evidence. It is not a synchronous domain
+RPC and it does not run the scheduler.
+
+## Current Non-Behavior
 
 This checkpoint does not introduce:
 
-- successful `AdmissionTicket` issuance
-- `LawWitness`
-- scheduler work
-- scheduler work enqueueing
-- handler dispatch
-- execution behavior
-- storage behavior
-- WASM behavior
-- Continuum behavior
-- authority success
-- caller-supplied runtime support testimony
-- caller-supplied invocation admission testimony
-- caller-supplied scheduler admission testimony
-- general runtime support enforcement
-- general scheduler admission enforcement
-- budget reservation
+- scheduler work enqueueing as a completed execution unit;
+- generated or installed handler dispatch;
+- contract execution;
+- application-controlled ticks;
+- hidden retry;
+- wall-clock scheduler authority;
+- caller-supplied runtime support testimony;
+- caller-supplied invocation admission testimony;
+- caller-supplied scheduler admission testimony;
+- caller-supplied scheduler work testimony;
+- caller-supplied law witness testimony;
+- caller-issued admission tickets;
+- budget reservation.
 
-The system remains obstruction-first. It records refusal; it does not authorize
-work.
+## Tripwires
 
-## BasisResolution v0
+If a future slice treats `AdmissionTicket` as execution, the ladder is wrong.
 
-BasisResolution v0 is not general basis resolution. It recognizes exactly one
-deterministic fixture shape:
+If a future slice lets application dispatch choose tick boundaries, the ladder
+is wrong.
 
-```text
-basis-request:resolved-fixture:v0
-```
+If a future slice makes scheduler work or law witness evidence caller-supplied,
+the ladder is wrong.
 
-Resolving that fixture establishes only the causal state under evaluation. It
-does not create authority, admission, aperture scope, budget capacity, runtime
-support, scheduler work, or execution.
+If a future slice makes `TickReceipt` interchangeable with `AdmissionTicket`,
+the ladder is wrong.
 
-## ApertureResolution v0
+If a future slice bypasses ticketed runtime ingress for installed contract
+execution, the ladder is wrong.
 
-ApertureResolution v0 is not general aperture resolution. It recognizes exactly
-one deterministic fixture shape:
+## Next Architectural Slice
 
-```text
-aperture-request:resolved-fixture:v0
-```
-
-Resolving that fixture establishes only the bounded observation/action window
-inside a resolved basis. It does not create authority, admission, budget
-capacity, runtime support, scheduler work, or execution.
-
-## BudgetResolution v0
-
-BudgetResolution v0 is not general budget resolution. It recognizes exactly one
-fixture after basis and aperture resolution both succeed:
-
-```text
-budget-request:resolved-fixture:v0
-```
-
-Budget resolution establishes a bounded resource envelope under consideration.
-It does not create permission to act, reserve spendable capacity, validate a
-grant, or admit an invocation. The next boundary is RuntimeSupport v0: absent
-Echo-owned support obstructs at `RuntimeSupportUnavailable`; resolved support
-advances to InvocationAdmission v0.
-
-## RuntimeSupport v0
-
-RuntimeSupport v0 is not general runtime support. It recognizes exactly one
-Echo-owned fixture for registered requirements:
-
-```text
-runtime-support:resolved-fixture:v0
-```
-
-Runtime support establishes only that Echo has recorded runtime-owned support
-evidence for the artifact handle's registered requirements digest. It is not an
-invocation request field, not caller testimony, not authority, not admission,
-not scheduler work, and not execution. If runtime support resolves, the next
-boundary is InvocationAdmission v0: absent Echo-owned admission evidence
-obstructs at `InvocationAdmissionUnavailable`; resolved admission evidence
-advances to SchedulerAdmission v0.
-
-## InvocationAdmission v0
-
-InvocationAdmission v0 is not general invocation admission. It recognizes
-exactly one Echo-owned fixture for a registered artifact handle:
-
-```text
-invocation-admission:resolved-fixture:v0
-```
-
-Invocation admission establishes only that Echo has recorded runtime-owned
-admission evidence for the artifact handle's registered operation and
-requirements. It is not an invocation request field, not caller testimony, not
-an `AdmissionTicket`, not a law witness, not scheduler admission, not scheduler
-work, not handler dispatch, and not execution. If invocation admission resolves,
-the next boundary is SchedulerAdmission v0: absent Echo-owned scheduler
-admission evidence obstructs at `SchedulerAdmissionUnavailable`; resolved
-scheduler admission evidence advances to `SchedulerWorkUnavailable`.
-
-## SchedulerAdmission v0
-
-SchedulerAdmission v0 is not general scheduler admission. It recognizes exactly
-one Echo-owned fixture for a registered artifact handle:
-
-```text
-scheduler-admission:resolved-fixture:v0
-```
-
-Scheduler admission establishes only that Echo has recorded runtime-owned
-scheduler admission evidence for the artifact handle's registered operation and
-requirements. It is not an invocation request field, not caller testimony, not
-an `AdmissionTicket`, not a law witness, not scheduler work, not handler
-dispatch, and not execution. If scheduler admission resolves, the only lawful
-next refusal in this slice is `SchedulerWorkUnavailable`.
-
-## Next transition point
-
-The next transition point is SchedulerWork v0.
-
-That transition must be narrow and explicit. It must not imply successful
-execution, handler dispatch, or unconstrained authority validation.
-
-## Tripwire
-
-If a future slice makes `RuntimeSupportUnavailable` reachable before a lawful
-budget resolution boundary exists, the admission ladder is wrong.
-
-If a future slice introduces scheduler admission before a resolved basis,
-resolved aperture, evaluated budget, runtime support check, validated grant, and
-Echo-owned invocation admission fact exist, the admission ladder is wrong.
-
-If a future slice makes `InvocationAdmissionUnavailable` reachable before a
-lawful Echo-owned runtime support fact exists, the admission ladder is wrong.
-
-If a future slice makes `SchedulerAdmissionUnavailable` reachable before a
-lawful Echo-owned invocation admission fact exists, the admission ladder is
-wrong.
-
-If a future slice makes `SchedulerWorkUnavailable` reachable before a lawful
-Echo-owned scheduler admission fact exists, the admission ladder is wrong.
-
-RuntimeSupport v0 is controlled resolved runtime context, not admission.
-InvocationAdmission v0 is controlled resolved admission context, not scheduler
-admission or execution.
-SchedulerAdmission v0 is controlled resolved scheduler context, not scheduler
-work or execution.
+The next package-level boundary is an installed contract registry surface that
+binds schema hash, artifact hash, codec identity, supported operation ids,
+mutation handler rules, and query observers before contract operations become
+runtime-visible work or reads.

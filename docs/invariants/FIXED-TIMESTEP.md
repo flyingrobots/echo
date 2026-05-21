@@ -12,6 +12,11 @@ Echo uses a fixed timestep. Every worldline has an immutable
 simulation by exactly that quantum. Per-tick variable `dt` does not
 exist.
 
+The fixed logical timestep is not an application tick authority. A host may run
+Echo on a fixed wall-clock cadence, but wall-clock frequency is
+host/runtime-owner policy. It is not semantic history, and application code
+does not create ticks.
+
 ## Rulings
 
 The following rulings are normative. "MUST" and "MUST NOT" follow

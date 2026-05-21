@@ -3,7 +3,9 @@
 
 # Wesley Compiled Contract Hosting Doctrine
 
-Status: active planned design.
+Status: design packet accepted; implementation advanced through contract-host
+mutation helpers and query observer helpers. Current blocker is the installed
+contract registry boundary.
 
 Depends on:
 
@@ -33,11 +35,20 @@ already has major pieces of that path: EINT v1, `dispatch_intent(...)`,
 `echo-wesley-gen` generated registry output. Domain behavior belongs to the
 authored contract and consuming application.
 
-## What it should look like
+## Current checkpoint
 
-Write a design packet that defines Echo as a Wesley-compiled contract host.
+The design packet defines Echo as a Wesley-compiled contract host. Since this
+card was created, Echo has also landed:
 
-The packet should name at least:
+- EINT v1 application ingress through `dispatch_intent(...)`;
+- generated application request helpers;
+- scheduler-owned mutation host helper seams;
+- `echo-wesley-gen --contract-host` mutation handler-rule helpers;
+- core QueryView/Query observer routing;
+- `echo-wesley-gen --contract-host` query observer helper constructors.
+
+The active implementation gap is now one installed package/registry boundary
+that binds:
 
 - EINT v1
 - `RegistryInfo`
@@ -46,17 +57,19 @@ The packet should name at least:
 - schema hash
 - codec id
 - registry version
-- `IntentKind`
-- `IntentPayload`
-- `IntentBasis`
-- `IntentAdmission`
-- `ContractReceipt`
-- `ContractWitnessRef`
-- `ObservationRequest`
-- `ReadingEnvelope`
-- `ContractReading`
+- supported operation ids
+- mutation handlers
+- query observers
+- authored observer plan identities
+- contract package/version identity
 
-It should also map those nouns to the existing optic loop:
+before contract operations become runtime-visible work or accepted reads.
+
+The current WARP/Echo noun map lives in
+`docs/design/warp-optic-implementation-map.md`. The current optic admission
+checkpoint lives in `docs/design/optic-admission-ladder-checkpoint.md`.
+
+The old optic loop remains useful doctrine:
 
 ```text
 slice -> lower -> witness -> retain
@@ -64,15 +77,13 @@ slice -> lower -> witness -> retain
 
 ## Done looks like
 
-- A design doc explains that contracts author domain optics while Echo hosts
-  the generic optic lifecycle.
-- The doc explicitly says Echo must not add text-editor APIs, Graft APIs, or
-  consumer-specific ABI methods.
-- The doc identifies the first implementation cards as existing-boundary
-  inventory and registry-provider wiring decisions, not duplicate envelope or
-  registry construction.
-- The doc distinguishes built-in substrate/debug observers from
-  contract-defined application observers.
+- The accepted design doc remains linked from this card.
+- The current next implementation card is the installed contract registry
+  boundary, not more Wesley generation or another doctrine packet.
+- Echo still must not add text-editor APIs, Graft APIs, or consumer-specific
+  ABI methods.
+- Built-in substrate/debug observers remain distinct from contract-defined
+  application observers.
 
 ## Non-goals
 

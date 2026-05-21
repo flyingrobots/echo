@@ -84,6 +84,12 @@ Outcome(X) = Derived(X) | Plural(X) | Conflict | Obstruction
 Current Echo-specific names may remain narrow, but new runtime concepts should
 not collapse this algebra into `Ok` versus `Err`.
 
+For Echo's current concrete type map, see
+`../warp-optic-implementation-map.md`. That map is also the standing authority
+correction for paper examples that place `Tick` or `TickReceipt` in authored
+consequence lists: authored optics may declare runtime-retained obligations,
+but only Echo's trusted runtime owner creates ticks and emits tick receipts.
+
 ## Decision 2: Observer is revelation-side, not the whole optic
 
 The Observer Geometry model should be formalized as Echo's read-side structure,
@@ -325,7 +331,7 @@ Likely code surfaces:
 ### Step 3: Reading envelope family boundary
 
 Status: implemented for built-in one-shot observations by
-[Reading envelope family boundary](../../method/backlog/up-next/PLATFORM_reading-envelope-family-boundary.md).
+[Reading envelope family boundary](../0019-reading-envelope-family-boundary/reading-envelope-family-boundary.md).
 
 Scope:
 

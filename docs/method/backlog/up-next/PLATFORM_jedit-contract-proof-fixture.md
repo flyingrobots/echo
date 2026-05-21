@@ -35,7 +35,7 @@ contract compiled by Wesley and hosted by Echo.
 
 ## Acceptance criteria
 
-- `createBufferWorldline`, `replaceRangeAsTick`, `createBraid`,
+- `createBufferWorldline`, `replaceRange`, `createBraid`,
   `appendBraidEdit`, `unapplyTick`, and `unapplyTickSequence` all enter through
   `dispatch_intent`.
 - `textWindow`, `braidProjection`, and `tickReceipt` enter through
@@ -47,6 +47,8 @@ contract compiled by Wesley and hosted by Echo.
 - Missing inverse fragment returns typed obstruction.
 - Echo core contains no jedit, rope, buffer, or editor APIs outside generated
   fixture payloads.
+- The fixture may declare retained tick/receipt obligations, but application
+  code does not create ticks or `TickReceipt` values.
 
 ## Non-goals
 

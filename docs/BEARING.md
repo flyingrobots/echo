@@ -9,6 +9,9 @@ This signpost summarizes current direction. It does not create commitments or
 replace backlog items, design docs, retros, or CLI status. If it disagrees with
 code, the code wins and this file should be corrected.
 
+The WARP paper-to-Echo noun map is maintained in
+`docs/design/warp-optic-implementation-map.md`.
+
 ## Current Bearing
 
 Echo already has deterministic execution; it does not yet have a continuous
@@ -57,6 +60,9 @@ scheduler-owned tick outcome without giving application code tick authority.
 - The optic admission ladder resolves through AdmissionTicket and currently
   can stage ticketed runtime ingress through an explicit runtime-owner authority
   token without ticking.
+- Echo implements the WARP paper's application/compiler seam with generated
+  request helpers, mutation host helpers, and query observer host helpers while
+  keeping Echo core free of application nouns.
 
 ## What Is Not Yet True
 
@@ -69,6 +75,12 @@ scheduler-owned tick outcome without giving application code tick authority.
 ## Doctrine
 
 Echo accepts intent submissions as witnessed ingress history.
+
+Application-authored optics do not create ticks.
+
+Application-authored surfaces may declare runtime-retained consequence
+obligations, including receipt obligations. Echo satisfies those obligations
+only through trusted runtime-owned execution.
 
 Echo does not execute submissions synchronously.
 
@@ -96,11 +108,32 @@ TickReceipt is not AdmissionTicket.
 QueryView remains an observer-relative read. It does not mutate state, tick the
 runtime, or execute handlers outside scheduler-owned writes.
 
+QueryView/Query routes to installed contract query observers when a matching
+observer is registered. This is a real bridge, not the full observer-rights or
+revelation lattice.
+
 Transport arrival is not semantic Echo history. Echo acceptance is semantic
 ingress history.
 
 Submission order may be witnessed. Submission order must not decide scheduler
 order.
+
+Continuum is the protocol-shaped causal medium. Echo is a concrete
+deterministic WARP runtime implementation for that medium, not the primary
+runtime of Continuum and not an application framework.
+
+## Cross-Repo Optic Admission Role
+
+Echo owns runtime-local optic admission behavior. Wesley compiles artifacts and
+registration descriptors; Echo registers them, returns runtime-local handles,
+admits or obstructs invocations, instruments access, and emits witnesses or
+readings. Authority layers issue grants and capability presentations.
+Applications such as jedit hide artifact handles, basis references, and runtime
+coordinates behind product-facing adapters.
+
+Echo should not wait on a new Wesley product lane for the installed registry
+boundary. Coordinate with Wesley only when artifact identity, generated helper
+shape, or footprint compatibility changes.
 
 ## Pipeline
 
@@ -131,19 +164,31 @@ The hinge is:
 AdmissionTicket + witnessed submission -> ticketed runtime ingress
 ```
 
-## Locked Sequence
+## Roadmap Status
 
-1. WitnessedIntentSubmission.
-2. SchedulerWorkCandidate.
-3. LawWitness.
-4. AdmissionTicket.
-5. TicketedRuntimeIngress.
-6. ReceiptCorrelation.
-7. IntentOutcomeObservation.
-8. InstalledContractHostDispatch.
-9. ConflictPolicy / ExplicitRetry.
-10. QueryViewObserverBridge.
-11. Replay/DIND proof.
+| Area                           | Status   | Notes                                                                                                      |
+| :----------------------------- | :------- | :--------------------------------------------------------------------------------------------------------- |
+| WitnessedIntentSubmission      | Partial  | Runtime records witnessed submissions in memory; durable restart replay remains follow-up work.            |
+| SchedulerWorkCandidate         | Complete | The admission ladder can resolve the scheduler work candidate fixture.                                     |
+| LawWitness                     | Complete | The admission ladder can resolve the law witness fixture.                                                  |
+| AdmissionTicket                | Complete | Echo can issue `OpticAdmissionTicket` evidence without executing.                                          |
+| TicketedRuntimeIngress         | Complete | Ticketed ingress stages admitted submissions through runtime-owner authority without ticking.              |
+| ReceiptCorrelation             | Complete | Scheduler-owned tick receipts correlate back to ticketed ingress, tickets, and submissions.                |
+| IntentOutcomeObservation       | Partial  | Core exposes zero-write pending/decided observation; domain-level applied/rejected semantics remain later. |
+| InstalledContractHostDispatch  | Partial  | Core and Wesley helper seams exist; installed package/registry gating is next.                             |
+| ConflictPolicy / ExplicitRetry | Partial  | Conflict rejection is explicit; user-facing retry policy is still future work.                             |
+| QueryViewObserverBridge        | Complete | Core routes QueryView/Query to installed observers, and Wesley emits host helper constructors.             |
+| Replay/DIND proof              | Later    | End-to-end replay proof for the full intent/admission/tick pipeline remains future work.                   |
+
+## Future Scope Boundaries
+
+- Replica transport/import optics, settlement shells, adversarial transport,
+  and idempotent import of already-adjudicated outcomes remain future work.
+- Durable control-plane/provenance fault evidence remains future work; current
+  scheduler fault quarantine is runtime-local posture.
+- Ephemeral Scratch, Author-Only Speculative Lane, and Shared/Admitted Lane are
+  paper-level privacy/runtime policy concepts. The local contract-host pipeline
+  does not yet implement that full social lane model.
 
 ## Immediate Next Slice
 
@@ -156,3 +201,20 @@ reads.
 
 That slice must not implement streaming subscriptions, automatic retry,
 execution outside scheduler-owned ticks, or wall-clock cadence semantics.
+
+## Do Not Regress
+
+Implementation improvements over the paper examples that must be preserved:
+
+- application optics do not create ticks;
+- application dispatch does not execute synchronously;
+- application dispatch does not command ticks;
+- `AdmissionTicket` is distinct from `TickReceipt`;
+- `AdmissionTicket` is not execution;
+- `LawWitness` precedes and is bound by `AdmissionTicket`;
+- query observers are read-only;
+- `QueryView` bridge and Wesley query observer helpers exist;
+- fault quarantine is runtime-local unless durable evidence is explicitly
+  added;
+- conflict rejection is final for that tick attempt, and retry is a new causal
+  act.

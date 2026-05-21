@@ -37,6 +37,12 @@ The proof slice should stay narrow:
 - runtime footprint guards remain in place as second-line defense rather than
   the only honesty proof
 
+## Wesley carry-forward
+
+The matching Wesley backlog note was removed from generic Wesley. Echo owns this
+proof slice because the runtime must decide whether generated rewrite surfaces
+actually prevent dishonest footprint use before admission.
+
 ## Repo Evidence
 
 - `docs/invariants/DECLARATIVE-RULE-AUTHORSHIP.md`

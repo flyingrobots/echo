@@ -6,6 +6,12 @@
 CLI tool that emits Echo Rust structs, operation registries, and optic helper
 functions from Wesley contract data.
 
+Wesley is the compiler seam between authored application contracts and Echo's
+generic runtime. Generated application helpers build canonical intent/query
+requests. Generated contract-host helpers install mutation handlers and
+read-only query observers. Neither surface gives application code tick
+authority.
+
 The preferred input is GraphQL SDL lowered directly through the published
 `wesley-core` crate. The older `echo-ir/v1` JSON stdin path is retained for
 fixtures and compatibility while consumers move off the historical JavaScript
@@ -60,7 +66,8 @@ cat ir.json | cargo run -p echo-wesley-gen -- --contract-host --out generated.rs
   decodes typed vars from observer context with `Result`, and accepts a host
   closure that returns `ContractQueryObserverResult` or
   `ContractQueryObserverError`. Query observers cannot tick the runtime or write
-  through this generated boundary.
+  through this generated boundary. They do not receive mutable runtime,
+  scheduler control, or `TickDelta`.
 - Optional fields become `Option<T>`; lists become `Vec<T>` (wrapped in Option when not required).
 - Unknown scalar names are emitted as identifiers as-is (so ensure upstream IR types are valid Rust idents).
 - Runtime optic artifact imports preserve Wesley-owned canonical admission

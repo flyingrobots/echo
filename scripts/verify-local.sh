@@ -232,6 +232,19 @@ PY
   fi
 }
 
+sha256_stream() {
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum | awk '{print $1}'
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import hashlib, sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())'
+  else
+    echo "verify-local: missing sha256 tool (need shasum, sha256sum, or python3)" >&2
+    exit 1
+  fi
+}
+
 SCRIPT_HASH="$(sha256_file "$0")"
 
 readonly FULL_CRITICAL_PREFIXES=(
@@ -480,6 +493,10 @@ list_changed_files() {
   list_changed_branch_files
 }
 
+changed_files_fingerprint() {
+  printf '%s\n' "$CHANGED_FILES" | awk 'NF' | sort -u | sha256_stream
+}
+
 is_full_path() {
   local file="$1"
   local prefix
@@ -660,7 +677,7 @@ stamp_context_for_suite() {
     full)
       printf 'full\n'
       ;;
-    pre-push)
+    pre-push|pre-push:*)
       printf 'pre-push\n'
       ;;
     docs|reduced)
@@ -1062,6 +1079,10 @@ pre_push_module_test_filter_for_file() {
   local file="$2"
   local relative module_path
 
+  if ! rust_file_has_inline_tests "$file"; then
+    return 1
+  fi
+
   relative="${file#crates/${crate}/src/}"
   case "$relative" in
     lib.rs|main.rs|*.generated.rs)
@@ -1081,6 +1102,13 @@ pre_push_module_test_filter_for_file() {
   fi
 
   printf '%s::tests\n' "${module_path//\//::}"
+}
+
+rust_file_has_inline_tests() {
+  local file="$1"
+
+  [[ -f "$file" ]] || return 1
+  grep -Eq '(^|[^[:alnum:]_])mod[[:space:]]+tests([^[:alnum:]_]|$)' "$file"
 }
 
 pre_push_feature_string_for_file() {
@@ -1106,6 +1134,12 @@ pre_push_feature_string_for_test_target() {
     warp-core:causal_fact_publication_tests|warp-core:optic_invocation_admission_tests)
       printf '%s\n' "host_test"
       ;;
+    warp-core:parallel_parallel_exec)
+      printf '%s\n' "delta_validate"
+      ;;
+    warp-core:scheduler_fault_recovery_authority)
+      printf '%s\n' "trusted_runtime"
+      ;;
     warp-math:determinism_policy_tests)
       printf '%s\n' "serde"
       ;;
@@ -1126,7 +1160,7 @@ append_pre_push_rust_slice() {
 
 collect_pre_push_rust_slices() {
   local -a slices=()
-  local file crate target filter features
+  local file crate target filter features relative_test
 
   while IFS= read -r file; do
     [[ -z "$file" ]] && continue
@@ -1134,6 +1168,10 @@ collect_pre_push_rust_slices() {
       crates/*/tests/*.rs)
         crate="$(printf '%s\n' "$file" | sed -n 's#^crates/\([^/]*\)/.*#\1#p')"
         [[ -z "$crate" ]] && continue
+        relative_test="${file#crates/${crate}/tests/}"
+        if [[ "$relative_test" == */* ]]; then
+          continue
+        fi
         target="$(basename "$file" .rs)"
         features="$(pre_push_feature_string_for_test_target "$crate" "$target")"
         append_pre_push_rust_slice "${crate}|test|${target}|${features}|" slices
@@ -1148,6 +1186,13 @@ collect_pre_push_rust_slices() {
         crate="$(printf '%s\n' "$file" | sed -n 's#^crates/\([^/]*\)/.*#\1#p')"
         [[ -z "$crate" ]] && continue
         append_pre_push_rust_slice "${crate}|bins|||" slices
+        ;;
+      crates/*/src/bin/*.rs)
+        crate="$(printf '%s\n' "$file" | sed -n 's#^crates/\([^/]*\)/.*#\1#p')"
+        [[ -z "$crate" ]] && continue
+        target="$(basename "$file" .rs)"
+        features="$(pre_push_feature_string_for_file "$crate" "$file")"
+        append_pre_push_rust_slice "${crate}|bin|${target}|${features}|" slices
         ;;
       crates/*/src/*.rs)
         crate="$(printf '%s\n' "$file" | sed -n 's#^crates/\([^/]*\)/.*#\1#p')"
@@ -1202,6 +1247,11 @@ run_pre_push_rust_slice() {
       cargo_args=("test" "-p" "$crate")
       [[ -n "$features" ]] && cargo_args+=("--features" "$features")
       cargo_args+=("--bins")
+      ;;
+    bin)
+      cargo_args=("test" "-p" "$crate")
+      [[ -n "$features" ]] && cargo_args+=("--features" "$features")
+      cargo_args+=("--bin" "$target")
       ;;
     check)
       cargo_args=("check" "-p" "$crate")
@@ -1949,6 +1999,7 @@ readonly VERIFY_MODE_CONTEXT VERIFY_STAMP_SUBJECT
 CHANGED_FILES="$(list_changed_files "$VERIFY_MODE_CONTEXT")"
 CLASSIFICATION="$(classify_change_set)"
 VERIFY_CLASSIFICATION="$CLASSIFICATION"
+PRE_PUSH_STAMP_SUITE="pre-push:$(changed_files_fingerprint)"
 
 case "$MODE" in
   detect|detect-pre-commit)
@@ -1979,13 +2030,13 @@ case "$MODE" in
     run_auto_mode "$CLASSIFICATION"
     ;;
   pre-push)
-    if should_skip_via_stamp "pre-push"; then
+    if should_skip_via_stamp "$PRE_PUSH_STAMP_SUITE"; then
       VERIFY_RUN_CACHE_STATE="cached"
       echo "[verify-local] reusing cached pre-push verification for tree $(printf '%.12s' "$VERIFY_STAMP_SUBJECT")"
       exit 0
     fi
     run_pre_push_checks "$CLASSIFICATION"
-    write_stamp "pre-push"
+    write_stamp "$PRE_PUSH_STAMP_SUITE"
     ;;
   full)
     if should_skip_via_stamp "full"; then

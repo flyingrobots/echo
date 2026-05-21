@@ -373,8 +373,10 @@
   instead of reusing the broader local PR gate. Rust module edits map to exact
   `cargo test -p <crate> --lib <module>::tests` slices, integration-test edits
   map to exact `--test <target>` invocations, and tooling edits stay on local
-  shell smoke checks. Broader clippy, rustdoc, package, and workspace coverage
-  remains available through `make verify-pr`, `make verify-full`, and CI.
+  remains available through `make verify-pr`, `make verify-full`, and CI. The
+  selector now avoids fake zero-test module filters for source files without
+  inline tests, maps `src/bin/*.rs` edits to exact binary targets, and preserves
+  required features for gated integration tests.
 - Deterministic math now lives in a slim `warp-math` workspace crate.
   `warp-core` keeps the existing `warp_core::math::*` compatibility surface as
   a re-export, while `warp-geom` depends directly on `warp-math` instead of
@@ -401,6 +403,15 @@
 
 ### Fixed
 
+- Local pre-push verification now includes the changed-file fingerprint in its
+  cache key, skips nested integration-test helper modules instead of inventing
+  fake `--test mod` targets, and only emits `<module>::tests` filters for
+  source files that declare a real `mod tests`. The hook also preserves the
+  `delta_validate` and `trusted_runtime` feature gates required by the
+  corresponding `warp-core` integration tests.
+- `warp-math` is now explicitly covered by determinism classification plus the
+  default global-state and nondeterminism guard scans, while `warp-core/serde`
+  forwards the re-exported math serde feature.
 - `SchedulerCoordinator::super_tick(...)` now journals ticket-local receipt
   correlation writes instead of checkpointing whole historical correlation
   indexes, preserving failure-atomic rollback while keeping rollback

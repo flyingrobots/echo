@@ -8,6 +8,9 @@ on:
             - main
     pull_request:
 
+permissions:
+    contents: read
+
 jobs:
     fmt:
         name: Format
@@ -110,7 +113,7 @@ jobs:
                       .
             - name: cargo clippy (binaries)
               run: |
-                  cargo clippy -p warp-core --bin gen_sin_qtr_lut -- -D warnings -D missing_docs
+                  cargo clippy -p warp-math --all-targets -- -D warnings -D missing_docs
                   cargo clippy -p warp-cli --bins -- -D warnings -D missing_docs
                   cargo clippy -p echo-dind-harness --bins -- -D warnings -D missing_docs
                   cargo clippy -p echo-wesley-gen --bins -- -D warnings -D missing_docs
@@ -210,8 +213,8 @@ jobs:
                   cargo test -p warp-core --features host_test --test optic_invocation_admission_tests
             - name: cargo test --doc (warp-core)
               run: cargo test -p warp-core --doc
-            - name: PRNG golden regression (warp-core)
-              run: cargo test -p warp-core --features golden_prng --test prng_golden_regression
+            - name: PRNG golden regression (warp-math)
+              run: cargo test -p warp-math --features golden_prng --test prng_golden_regression
 
     test:
         name: Tests
@@ -384,7 +387,7 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v4
-            - name: Forbid raw trig in warp-core math
+            - name: Forbid raw trig in warp-math
               shell: bash
               run: |
                   set -euo pipefail

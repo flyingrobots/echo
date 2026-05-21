@@ -15,3 +15,4 @@ crates/warp-core/src/engine_impl.rs
 # Test file uses std::fs to read/write golden vector binaries for determinism verification
 # This is test-only I/O, not simulation code — it validates determinism, not violates it
 crates/warp-core/tests/trig_golden_vectors.rs
+crates/warp-math/tests/trig_golden_vectors.rs

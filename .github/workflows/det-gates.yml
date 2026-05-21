@@ -72,8 +72,8 @@ jobs:
           grep -q " 0 passed" det-linux.log && echo "FATAL: zero tests matched filter" && exit 1 || true
       - name: Trig oracle golden vectors (linux)
         run: |
-          cargo test -p warp-core --test trig_golden_vectors -- trig_oracle_matches_golden_vectors --nocapture 2>&1 | tee trig-linux.log
-          cargo test -p warp-core --test deterministic_sin_cos_tests -- --nocapture 2>&1 | tee -a trig-linux.log
+          cargo test -p warp-math --test trig_golden_vectors -- trig_oracle_matches_golden_vectors --nocapture 2>&1 | tee trig-linux.log
+          cargo test -p warp-math --test deterministic_sin_cos_tests -- --nocapture 2>&1 | tee -a trig-linux.log
       - name: Run DIND suite (linux)
         run: |
           node scripts/dind-run-suite.mjs --mode run | tee dind-linux.log
@@ -113,8 +113,8 @@ jobs:
           grep -q " 0 passed" det-macos.log && echo "FATAL: zero tests matched filter" && exit 1 || true
       - name: Trig oracle golden vectors (macos)
         run: |
-          cargo test -p warp-core --test trig_golden_vectors -- trig_oracle_matches_golden_vectors --nocapture 2>&1 | tee trig-macos.log
-          cargo test -p warp-core --test deterministic_sin_cos_tests -- --nocapture 2>&1 | tee -a trig-macos.log
+          cargo test -p warp-math --test trig_golden_vectors -- trig_oracle_matches_golden_vectors --nocapture 2>&1 | tee trig-macos.log
+          cargo test -p warp-math --test deterministic_sin_cos_tests -- --nocapture 2>&1 | tee -a trig-macos.log
       - name: Run DIND suite (macos)
         run: |
           node scripts/dind-run-suite.mjs --mode run | tee dind-macos.log

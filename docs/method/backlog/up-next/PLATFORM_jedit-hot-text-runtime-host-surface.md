@@ -82,7 +82,9 @@ Echo through optics without:
 
 The authored contract may declare retained tick/receipt obligations for these
 operations. That declaration does not let application code create or schedule
-ticks. - read canonical worldline snapshot
+ticks.
+
+- read canonical worldline snapshot
 
 - repo truth makes clear how those operations travel through:
     - Wesley-generated intent / codec artifacts

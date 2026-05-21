@@ -24,13 +24,18 @@ consumer shape.
 ## Sequence
 
 1. [Installed Wesley contract host dispatch](./PLATFORM_installed-wesley-contract-host-dispatch.md)
+    - Status: local package dispatch proof complete.
 2. [Contract QueryView observer bridge](./PLATFORM_contract-queryview-observer-bridge.md)
-3. [Contract reading identity and bounded payloads](../up-next/KERNEL_contract-reading-identity-and-bounded-payloads.md)
-4. [Intent-only contract runtime mutations](../up-next/KERNEL_intent-only-contract-runtime-mutations.md)
-5. [Generic contract braid substrate](../up-next/KERNEL_generic-contract-braid-substrate.md)
-6. [Contract inverse admission hook](../up-next/KERNEL_contract-inverse-admission-hook.md)
-7. [Contract retention and streaming seams](../up-next/PLATFORM_contract-retention-and-streaming-seams.md)
-8. [jedit contract proof fixture](../up-next/PLATFORM_jedit-contract-proof-fixture.md)
+    - Status: core bridge, generated helpers, package registry boundary, and
+      local dispatch proof complete.
+3. [Contract-aware receipts and readings](../up-next/KERNEL_contract-aware-receipts-and-readings.md)
+4. [Contract reading identity and bounded payloads](../up-next/KERNEL_contract-reading-identity-and-bounded-payloads.md)
+5. [Contract artifact retention in echo-cas](../up-next/PLATFORM_contract-artifact-retention-in-echo-cas.md)
+6. [Contract retention and streaming seams](../up-next/PLATFORM_contract-retention-and-streaming-seams.md)
+7. [jedit contract proof fixture](../up-next/PLATFORM_jedit-contract-proof-fixture.md)
+8. [Intent-only contract runtime mutations](../up-next/KERNEL_intent-only-contract-runtime-mutations.md)
+9. [Generic contract braid substrate](../up-next/KERNEL_generic-contract-braid-substrate.md)
+10. [Contract inverse admission hook](../up-next/KERNEL_contract-inverse-admission-hook.md)
 
 ## Acceptance criteria
 

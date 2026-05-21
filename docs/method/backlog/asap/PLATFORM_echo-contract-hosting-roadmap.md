@@ -39,13 +39,22 @@ registry model.
       [0016 - Wesley To Echo Toy Contract Proof](../../../design/0016-wesley-to-echo-toy-contract-proof/design.md)
     - Retro:
       [0016 - Wesley To Echo Toy Contract Proof](../../retro/0016-wesley-to-echo-toy-contract-proof/retro.md)
-5. [Contract-aware receipts and readings](../up-next/KERNEL_contract-aware-receipts-and-readings.md)
-6. [Contract artifact retention in echo-cas](../up-next/PLATFORM_contract-artifact-retention-in-echo-cas.md)
-7. [jedit text contract MVP](../up-next/PLATFORM_jedit-text-contract-mvp.md)
-8. [Graft live frontier structural readings](../up-next/PLATFORM_graft-live-frontier-structural-readings.md)
-9. [Contract strands and counterfactuals](../up-next/KERNEL_contract-strands-and-counterfactuals.md)
-10. [Continuum contract artifact interchange](../cool-ideas/PLATFORM_continuum-contract-artifact-interchange.md)
-11. [Contract-hosted file history substrate](./PLATFORM_contract-hosted-file-history-substrate.md)
+5. Installed package registry, mutation dispatch, query observer bridge, and
+   local installed intent pipeline
+    - Status: complete in core/local fixtures.
+    - Backlog checkpoints:
+      [Installed Wesley contract host dispatch](./PLATFORM_installed-wesley-contract-host-dispatch.md),
+      [Contract QueryView observer bridge](./PLATFORM_contract-queryview-observer-bridge.md)
+6. [Contract-aware receipts and readings](../up-next/KERNEL_contract-aware-receipts-and-readings.md)
+7. [Contract reading identity and bounded payloads](../up-next/KERNEL_contract-reading-identity-and-bounded-payloads.md)
+8. [Contract artifact retention in echo-cas](../up-next/PLATFORM_contract-artifact-retention-in-echo-cas.md)
+9. [Contract retention and streaming seams](../up-next/PLATFORM_contract-retention-and-streaming-seams.md)
+10. [jedit contract proof fixture](../up-next/PLATFORM_jedit-contract-proof-fixture.md)
+11. [jedit text contract MVP](../up-next/PLATFORM_jedit-text-contract-mvp.md)
+12. [Graft live frontier structural readings](../up-next/PLATFORM_graft-live-frontier-structural-readings.md)
+13. [Contract strands and counterfactuals](../up-next/KERNEL_contract-strands-and-counterfactuals.md)
+14. [Continuum contract artifact interchange](../cool-ideas/PLATFORM_continuum-contract-artifact-interchange.md)
+15. [Contract-hosted file history substrate](./PLATFORM_contract-hosted-file-history-substrate.md)
     - Design packet:
       [0018 - Contract-Hosted File History Substrate](../../../design/0018-contract-hosted-file-history-substrate/design.md)
 

@@ -84,13 +84,15 @@ fn residual_reading_posture_maps_to_residual_obstruction() {
     let obstruction = ContractObstruction::from_residual_posture(
         ReadingResidualPosture::Residual,
         Some(reading_id),
-    )
-    .expect("residual posture must map to contract obstruction");
+    );
 
-    assert_eq!(obstruction.kind, ContractObstructionKind::ResidualReading);
     assert_eq!(
-        obstruction.subject,
-        ContractObstructionSubject::Reading { reading_id }
+        obstruction.as_ref().map(|obstruction| obstruction.kind),
+        Some(ContractObstructionKind::ResidualReading)
+    );
+    assert_eq!(
+        obstruction.as_ref().map(|obstruction| &obstruction.subject),
+        Some(&ContractObstructionSubject::Reading { reading_id })
     );
 }
 

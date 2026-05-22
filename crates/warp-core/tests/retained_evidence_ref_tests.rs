@@ -97,17 +97,24 @@ fn retained_evidence_role_separates_payload_from_envelope() {
 fn missing_coordinate_returns_missing_retention_obstruction_with_contract() {
     let coord = coordinate(RetainedEvidenceRole::Witness, 5);
     let posture = RetainedEvidencePosture::missing_coordinate(&coord);
-    let obstruction = posture
-        .obstruction()
-        .expect("missing coordinate should obstruct");
 
-    assert_eq!(obstruction.kind, ContractObstructionKind::MissingRetention);
-    assert_eq!(obstruction.contract.as_ref(), Some(&coord.contract));
     assert_eq!(
-        obstruction.subject,
-        ContractObstructionSubject::Retention {
-            retention_id: coord.coordinate_id()
-        }
+        posture.obstruction().map(|obstruction| obstruction.kind),
+        Some(ContractObstructionKind::MissingRetention)
+    );
+    assert_eq!(
+        posture
+            .obstruction()
+            .and_then(|obstruction| obstruction.contract.as_ref()),
+        Some(&coord.contract)
+    );
+    assert_eq!(
+        posture
+            .obstruction()
+            .map(|obstruction| &obstruction.subject),
+        Some(&ContractObstructionSubject::Retention {
+            retention_id: coord.coordinate_id(),
+        })
     );
 }
 
@@ -119,16 +126,18 @@ fn missing_content_returns_missing_retention_obstruction_with_ref_id() {
         16,
     );
     let posture = RetainedEvidencePosture::missing_content(&reference);
-    let obstruction = posture
-        .obstruction()
-        .expect("missing content should obstruct");
 
-    assert_eq!(obstruction.kind, ContractObstructionKind::MissingRetention);
     assert_eq!(
-        obstruction.subject,
-        ContractObstructionSubject::Retention {
-            retention_id: reference.evidence_ref_id()
-        }
+        posture.obstruction().map(|obstruction| obstruction.kind),
+        Some(ContractObstructionKind::MissingRetention)
+    );
+    assert_eq!(
+        posture
+            .obstruction()
+            .map(|obstruction| &obstruction.subject),
+        Some(&ContractObstructionSubject::Retention {
+            retention_id: reference.evidence_ref_id(),
+        })
     );
 }
 

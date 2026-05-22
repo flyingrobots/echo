@@ -3,7 +3,7 @@
 
 # External Contract Proof Fixture
 
-Status: implemented local proof fixture.
+Status: serious local fixture implemented; external package follow-through remains.
 
 Depends on:
 
@@ -41,17 +41,28 @@ the external contract and generated payloads.
 
 ## Acceptance criteria
 
-- The fixture includes at least one mutation.
-- The fixture includes at least one `QueryView`/`Query` reading.
-- The mutation and query use non-trivial vars.
-- The reading evidence includes bounded basis, aperture, and budget identity.
-- Receipt and reading evidence can be retained and inspected.
-- At least one conflict, rejection, obstruction, or residual path is exercised.
-- Local replay reproduces the fixture outcome.
-- Echo core contains no `jedit`, text, rope, buffer, editor, or Graft APIs
-  outside generated fixture payloads.
-- The fixture may declare retained tick/receipt obligations, but application
-  code does not create ticks or `TickReceipt` values.
+- [x] The fixture includes at least one mutation.
+- [x] The fixture includes at least one `QueryView`/`Query` reading.
+- [x] The mutation and query use non-trivial vars.
+- [x] The reading evidence includes bounded basis, aperture, and budget
+      identity.
+- [x] Receipt and reading evidence can be retained and inspected.
+- [x] At least one conflict, rejection, obstruction, or residual path is
+      exercised.
+- [x] Local replay reproduces the generic fixture outcome.
+- [x] Echo core contains no `jedit`, text, rope, buffer, editor, or Graft APIs
+      outside generated fixture payloads.
+- [x] The fixture may declare retained tick/receipt obligations, but
+      application code does not create ticks or `TickReceipt` values.
+
+## Implemented local slice
+
+`external_consumer_contract_fixture_tests` adds a serious
+external-consumer-shaped hot-text fixture. The document/edit names live only in
+the test package. The fixture installs through the generic package boundary,
+submits through the app-facing host handle, resolves one overlapping edit as a
+footprint conflict, observes a bounded query reading, and retains reading plus
+receipt evidence through semantic coordinates.
 
 ## Non-goals
 

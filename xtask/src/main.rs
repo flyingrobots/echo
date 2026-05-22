@@ -89,6 +89,8 @@ enum TestSlice {
     Neighborhood,
     /// High-signal warp-core smoke without compiling every integration-test target.
     WarpCoreSmoke,
+    /// v0.1 local contract-host replay/release witness.
+    ContractPathRelease,
 }
 
 #[derive(Args)]
@@ -573,6 +575,35 @@ fn build_test_slice_commands(slice: TestSlice) -> Vec<Command> {
         TestSlice::WarpCoreSmoke => vec![
             cargo_command(["test", "-p", "warp-core", "--lib"]),
             cargo_command(["test", "-p", "warp-core", "--test", "strand_contract_tests"]),
+        ],
+        TestSlice::ContractPathRelease => vec![
+            cargo_command([
+                "test",
+                "-p",
+                "warp-core",
+                "--features",
+                "native_rule_bootstrap host_test",
+                "--test",
+                "installed_contract_intent_pipeline_tests",
+            ]),
+            cargo_command([
+                "test",
+                "-p",
+                "warp-core",
+                "--features",
+                "native_rule_bootstrap trusted_runtime",
+                "--test",
+                "trusted_runtime_host_loop_tests",
+            ]),
+            cargo_command([
+                "test",
+                "-p",
+                "warp-core",
+                "--features",
+                "native_rule_bootstrap trusted_runtime",
+                "--test",
+                "external_consumer_contract_fixture_tests",
+            ]),
         ],
     }
 }
@@ -6290,6 +6321,57 @@ mod tests {
         assert_eq!(
             args,
             vec!["test", "-p", "warp-core", "--test", "strand_contract_tests"]
+        );
+    }
+
+    #[test]
+    fn test_slice_contract_path_release_stays_explicit() {
+        let commands = build_test_slice_commands(TestSlice::ContractPathRelease);
+        assert_eq!(commands.len(), 3);
+
+        let (program, args) = command_program_and_args(&commands[0]);
+        assert_eq!(program, "cargo");
+        assert_eq!(
+            args,
+            vec![
+                "test",
+                "-p",
+                "warp-core",
+                "--features",
+                "native_rule_bootstrap host_test",
+                "--test",
+                "installed_contract_intent_pipeline_tests",
+            ]
+        );
+
+        let (program, args) = command_program_and_args(&commands[1]);
+        assert_eq!(program, "cargo");
+        assert_eq!(
+            args,
+            vec![
+                "test",
+                "-p",
+                "warp-core",
+                "--features",
+                "native_rule_bootstrap trusted_runtime",
+                "--test",
+                "trusted_runtime_host_loop_tests",
+            ]
+        );
+
+        let (program, args) = command_program_and_args(&commands[2]);
+        assert_eq!(program, "cargo");
+        assert_eq!(
+            args,
+            vec![
+                "test",
+                "-p",
+                "warp-core",
+                "--features",
+                "native_rule_bootstrap trusted_runtime",
+                "--test",
+                "external_consumer_contract_fixture_tests",
+            ]
         );
     }
 

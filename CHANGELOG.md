@@ -7,6 +7,45 @@
 
 ### Added
 
+- `warp-core` now exposes a generic contract obstruction taxonomy for
+  product-facing contract-host surfaces. `ContractObstructionKind`,
+  `ContractObstructionSubject`, and `ContractObstruction` classify unsupported
+  operations, unsupported queries, admission obstructions, runtime faults,
+  missing retention, stale basis, residual readings, and budget limits without
+  importing application-domain failure names into core or treating runtime
+  faults as lawful domain rejections.
+- `warp-core` now exposes retained evidence references and
+  missing-retention posture for contract-hosted evidence. `RetainedEvidenceRef`
+  binds installed contract identity, retained role, semantic digest, content
+  hash, and byte length; `RetainedEvidencePosture` returns either available
+  evidence or typed `MissingRetention` obstruction. CAS hashes remain byte
+  identities only and cannot stand in for semantic reading or evidence
+  coordinates.
+- `warp-core` now exposes a local witnessed-submission persistence shell.
+  `WitnessedSubmissionPersistenceSnapshot` pairs accepted submission records
+  with canonical ingress envelopes so hosts can persist accepted-but-not-yet-
+  ticked work and restore duplicate detection plus envelope material without
+  staging scheduler-visible inbox work, ticking, dispatching handlers, or
+  executing contracts.
+- `warp-core` now exposes a local product-facing intent outcome surface.
+  `submit_app_intent(...)` returns an `IntentSubmissionHandle` without ticking
+  or staging runtime ingress, and `observe_app_intent_outcome(...)` maps
+  internal scheduler correlation into `IntentOutcome::{Unknown, Pending,
+Applied, Rejected, Obstructed}` with receipt evidence and typed contract
+  obstruction posture.
+- `echo-registry-api`, `echo-wesley-gen`, and `warp-core` now enforce local
+  contract/API compatibility at the installed package boundary. Generated
+  registries carry Echo contract ABI, Wesley generator, and contract-host
+  helper API versions; host verification policy rejects version drift before
+  package install; and installed contract receipt/reading evidence cites the
+  verified compatibility metadata without granting execution or query
+  authority.
+- `warp-core` now exposes a reference trusted runtime host loop for the local
+  contract-host path. `TrustedRuntimeHost` owns generated package installation,
+  ticketed ingress staging, scheduler passes, until-idle policy, and read-only
+  observation service access, while `TrustedRuntimeApp` exposes app-facing
+  submit/observe/query methods without tick, package-install, ingress-staging,
+  or fault-recovery authority.
 - `warp-core` now has an external contract proof fixture for the v0.1.0 local
   contract-host path. The fixture installs a generated-style package with a
   mutation, conflict-capable mutation, and QueryView query; submits non-trivial
@@ -15,6 +54,25 @@
   through `echo-cas` semantic coordinates; and replays witnessed submission
   history to the same observed intent outcome. The fixture keeps application
   nouns inside the test package and generated payload shape, not in Echo core.
+- `warp-core` now has a serious external-consumer-shaped contract fixture for
+  the local contract-host path. The fixture uses hot-text-style document edit
+  names only in test code, installs through the generic package boundary,
+  submits through the app-facing host handle, produces a footprint-conflict
+  rejection for overlapping edits, observes a bounded QueryView reading, and
+  retains both reading payload and receipt evidence through semantic
+  coordinates.
+- `xtask test-slice` now includes `contract-path-release`, a narrow local
+  v0.1 contract-host release witness. The slice runs the installed contract
+  pipeline replay tests, reference trusted host loop test, and serious external
+  consumer fixture without requiring developers to run the full DIND suite for
+  normal local iteration.
+- The docs now include an executable local contract-host quickstart and a
+  v0.1.0 authority-boundary audit. The quickstart points developers at
+  `cargo xtask test-slice contract-path-release`, names the app-facing and
+  trusted-host APIs, and documents compatibility and retention boundaries. The
+  audit records current evidence that application code cannot tick, stage
+  ingress, install packages, or recover scheduler faults through the app
+  surface.
 - `echo-cas` semantic retention now supports bounded byte-range lookup through
   `RetainedBlobIndex::load_range(...)`. Range lookup requires the exact
   semantic coordinate, enforces the caller's byte budget, and returns typed
@@ -501,6 +559,9 @@
 
 ### Fixed
 
+- `warp-core` witnessed-submission persistence snapshots now fail closed when
+  a submission lacks retained canonical envelope material instead of silently
+  dropping replayed submissions from the host-persistable image.
 - Local pre-push verification now includes the changed-file fingerprint in its
   cache key, skips nested integration-test helper modules instead of inventing
   fake `--test mod` targets, and only emits `<module>::tests` filters for

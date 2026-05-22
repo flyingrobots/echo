@@ -3,7 +3,7 @@
 
 # Contract Obstruction Taxonomy
 
-Status: v0.1.0 release blocker.
+Status: implemented local boundary.
 
 Depends on:
 
@@ -33,6 +33,14 @@ The first release bar needs typed, contract-aware outcomes for at least:
 The taxonomy may reuse existing core variants where they already express the
 truth. It should add only the missing generic names needed by contract-hosted
 applications.
+
+Local boundary:
+
+- `warp-core` exposes generic `ContractObstructionKind`,
+  `ContractObstructionSubject`, and `ContractObstruction` types;
+- observation and runtime errors can be classified into the release-bar
+  obstruction family;
+- product-facing API integration remains a later release-bar slice.
 
 ## Acceptance criteria
 

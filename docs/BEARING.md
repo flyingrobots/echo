@@ -3,7 +3,7 @@
 
 # BEARING
 
-Last updated: 2026-05-21.
+Last updated: 2026-05-22.
 
 This signpost summarizes current direction. It does not create commitments or
 replace backlog items, design docs, retros, or CLI status. If it disagrees with
@@ -182,19 +182,19 @@ AdmissionTicket + witnessed submission -> ticketed runtime ingress
 
 ## Roadmap Status
 
-| Area                           | Status   | Notes                                                                                                                           |
-| :----------------------------- | :------- | :------------------------------------------------------------------------------------------------------------------------------ |
-| WitnessedIntentSubmission      | Partial  | Runtime records witnessed submissions and exports/imports deterministic replay records; durable storage remains follow-up work. |
-| SchedulerWorkCandidate         | Complete | The admission ladder can resolve the scheduler work candidate fixture.                                                          |
-| LawWitness                     | Complete | The admission ladder can resolve the law witness fixture.                                                                       |
-| AdmissionTicket                | Complete | Echo can issue `OpticAdmissionTicket` evidence without executing.                                                               |
-| TicketedRuntimeIngress         | Complete | Ticketed ingress stages admitted submissions through runtime-owner authority without ticking.                                   |
-| ReceiptCorrelation             | Complete | Scheduler-owned tick receipts correlate back to ticketed ingress, tickets, and submissions.                                     |
-| IntentOutcomeObservation       | Complete | Core exposes zero-write pending/decided observation with applied/rejected receipt decisions and blockers.                       |
-| InstalledContractHostDispatch  | Complete | Installed packages can dispatch mutation handlers through witnessed, ticketed, scheduler-owned ticks.                           |
-| ConflictPolicy / ExplicitRetry | Partial  | Tick-scale conflict rejection is final and blocker-attributed; user-facing retry helpers remain future.                         |
-| QueryViewObserverBridge        | Complete | Core routes QueryView/Query to installed observers, and Wesley emits host helper constructors.                                  |
-| Replay/DIND proof              | Partial  | Local installed intent pipeline replay converges; broader DIND/replay closure remains future work.                              |
+| Area                           | Status   | Notes                                                                                                                     |
+| :----------------------------- | :------- | :------------------------------------------------------------------------------------------------------------------------ |
+| WitnessedIntentSubmission      | Partial  | Runtime records witnessed submissions and restores local persistence images; host durable storage remains follow-up work. |
+| SchedulerWorkCandidate         | Complete | The admission ladder can resolve the scheduler work candidate fixture.                                                    |
+| LawWitness                     | Complete | The admission ladder can resolve the law witness fixture.                                                                 |
+| AdmissionTicket                | Complete | Echo can issue `OpticAdmissionTicket` evidence without executing.                                                         |
+| TicketedRuntimeIngress         | Complete | Ticketed ingress stages admitted submissions through runtime-owner authority without ticking.                             |
+| ReceiptCorrelation             | Complete | Scheduler-owned tick receipts correlate back to ticketed ingress, tickets, and submissions.                               |
+| IntentOutcomeObservation       | Complete | Core exposes read-only product outcome states with applied/rejected receipt evidence and typed obstructions.              |
+| InstalledContractHostDispatch  | Complete | Installed packages can dispatch mutation handlers through witnessed, ticketed, scheduler-owned ticks.                     |
+| ConflictPolicy / ExplicitRetry | Partial  | Tick-scale conflict rejection is final and blocker-attributed; user-facing retry helpers remain future.                   |
+| QueryViewObserverBridge        | Complete | Core routes QueryView/Query to installed observers, and Wesley emits host helper constructors.                            |
+| Replay/DIND proof              | Partial  | Local installed intent pipeline replay converges; broader DIND/replay closure remains future work.                        |
 
 ## Future Scope Boundaries
 
@@ -237,32 +237,72 @@ AdmissionTicket + witnessed submission -> ticketed runtime ingress
     proof covering mutation, QueryView reading, retained evidence, and replay
     without application nouns in Echo core.
 
+6. **Versioned Contract And API Compatibility**
+
+    Generated packages now verify Echo contract ABI, Wesley generator,
+    contract-host helper API, codec, schema, registry layout, and footprint
+    compatibility at package install. Receipts and readings can cite the
+    verified compatibility metadata without treating it as execution authority.
+
+7. **Reference Trusted Runtime Host Loop**
+
+    `TrustedRuntimeHost` now owns generated package installation, ticketed
+    ingress staging, scheduler passes, until-idle policy, and read-only
+    observation service access. `TrustedRuntimeApp` can submit and observe
+    without receiving tick, package-install, ingress-staging, or fault-recovery
+    authority.
+
+8. **Serious External Consumer Proof Fixture**
+
+    The contract-host path now has a hot-text-shaped external consumer fixture
+    covering document-edit-style mutation, overlapping write conflict, bounded
+    QueryView reading, retained reading payload, and retained receipt evidence
+    while keeping application nouns in test fixture code.
+
+9. **Local Replay/DIND Proof For Contract Path**
+
+    `cargo xtask test-slice contract-path-release` now runs the narrow local
+    v0.1 contract-host release witness: installed contract pipeline replay,
+    reference trusted host loop, and the serious external consumer fixture.
+
+10. **Release-Grade Quickstart And Authority Audit**
+
+    `docs/quickstart-local-contract-host.md` now documents the executable local
+    contract-host path. `docs/design/v0.1.0-authority-boundary-audit.md` records
+    the app/host authority split, current evidence, and deferred release risks.
+
 ## Next Candidate Slices
 
-1. **Durable Witnessed Submission Persistence**
+1. **Contract Obstruction Taxonomy**
+
+    Stabilize contract-hosted obstruction names for unsupported operations,
+    unsupported queries, admission obstructions, runtime faults,
+    missing-retention posture, stale basis, residual readings, and budget
+    limits. Product-facing APIs should consume typed obstruction posture instead
+    of broad strings or catch-all runtime errors.
+
+2. **Retained Evidence Refs And Missing-Retention Posture**
+
+    Lift the local semantic retention index into typed retained evidence refs
+    that receipt, reading, witness, and artifact surfaces can cite. Missing
+    retained material should return explicit obstruction/posture, not empty
+    success or content-hash guesswork.
+
+3. **Durable Witnessed Submission Persistence**
 
     Accepted-but-not-yet-ticked submissions should survive restart without
     becoming half-accepted, uncorrelatable history.
 
-2. **Product-Facing Intent Outcome API**
+4. **Product-Facing Intent Outcome API**
 
     Wrap the current core outcome observation into a developer-facing local API
     that preserves the authority boundary and does not tick synchronously.
 
-3. **Reference Trusted Runtime Host Loop**
+5. **Release Candidate Cleanup**
 
-    Provide a boring host-owned loop that owns tick cadence, runs until idle, and
-    exposes app-safe submit/observe/query surfaces.
-
-4. **Local Replay/DIND Proof For Contract Path**
-
-    Turn the local replay fixture into a release-gate proof over package,
-    submissions, scheduler policy, receipts, readings, and retained evidence.
-
-5. **Release-Grade Quickstart**
-
-    Make the first clean-checkout contract-host flow executable end to end with
-    documented commands.
+    Polish product-facing adapters, finish any remaining release-card checkboxes,
+    and run the broader CI/DIND release gates before cutting a release
+    candidate.
 
 Direct `native_rule_bootstrap` registration remains an internal fixture and
 transitional engine-test path. Contract-host proofs that need package identity,

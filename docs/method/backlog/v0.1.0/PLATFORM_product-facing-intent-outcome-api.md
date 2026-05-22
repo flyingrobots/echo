@@ -3,7 +3,7 @@
 
 # Product-Facing Intent Outcome API
 
-Status: v0.1.0 release blocker.
+Status: implemented local core surface; adapter polish remains.
 
 Depends on:
 
@@ -35,6 +35,16 @@ match echo.observe_intent_outcome(submission.id)? {
 ```
 
 The exact names may differ, but the authority boundary may not.
+
+Current local core surface:
+
+- `WorldlineRuntime::submit_app_intent(...)`;
+- `IntentSubmissionHandle`;
+- `WorldlineRuntime::observe_app_intent_outcome(...)`;
+- `IntentOutcome`;
+- `IntentOutcomeReceipt`.
+
+The remaining work is adapter/API polish above this core surface.
 
 ## Acceptance criteria
 

@@ -75,6 +75,8 @@ impl From<ContractOperationKind> for OpKind {
 pub struct ContractEvidenceIdentity {
     /// Deterministic installed package id.
     pub package_id: InstalledContractPackageId,
+    /// Echo contract ABI version verified at install time.
+    pub echo_abi_version: u32,
     /// Runtime package name chosen by the host.
     pub package_name: String,
     /// Runtime package version chosen by the host.
@@ -85,6 +87,10 @@ pub struct ContractEvidenceIdentity {
     pub codec_id: String,
     /// Registry version verified at install time.
     pub registry_version: u32,
+    /// Wesley generator version verified at install time.
+    pub wesley_generator_version: String,
+    /// Contract-host helper API version verified at install time.
+    pub helper_api_version: u32,
     /// Hex-encoded authored schema hash verified at install time.
     pub schema_sha256_hex: String,
     /// Generated operation/query id handled by this package.
@@ -157,11 +163,14 @@ impl InstalledContractPackageRecord {
     ) -> ContractEvidenceIdentity {
         ContractEvidenceIdentity {
             package_id: self.package_id,
+            echo_abi_version: self.registry_info.echo_abi_version,
             package_name: self.package_name.clone(),
             package_version: self.package_version.clone(),
             artifact_hash_hex: self.artifact_hash_hex.clone(),
             codec_id: self.registry_info.codec_id.to_owned(),
             registry_version: self.registry_info.registry_version,
+            wesley_generator_version: self.registry_info.wesley_generator_version.to_owned(),
+            helper_api_version: self.registry_info.helper_api_version,
             schema_sha256_hex: self.registry_info.schema_sha256_hex.to_owned(),
             op_id,
             op_kind,

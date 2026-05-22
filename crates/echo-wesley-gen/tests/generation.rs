@@ -108,8 +108,11 @@ type Mutation {
 
     assert!(stdout.contains("pub struct CounterValue"));
     assert!(stdout.contains("pub struct IncrementInput"));
+    assert!(stdout.contains("pub const ECHO_CONTRACT_ABI_VERSION: u32 = 1"));
     assert!(stdout.contains("pub const CODEC_ID: &str = \"cbor-canon-v1\""));
     assert!(stdout.contains("pub const REGISTRY_VERSION: u32 = 1"));
+    assert!(stdout.contains("pub const WESLEY_GENERATOR_VERSION: &str = \"echo-wesley-gen/0.1.0\""));
+    assert!(stdout.contains("pub const CONTRACT_HOST_HELPER_API_VERSION: u32 = 1"));
     assert!(stdout.contains("pub const OP_COUNTER_VALUE: u32 ="));
     assert!(stdout.contains("pub const OP_INCREMENT: u32 ="));
     assert!(stdout.contains("pub struct CounterValueVars"));
@@ -213,9 +216,10 @@ mod tests {
         counter_value_observation_request, counter_value_observation_request_raw_vars,
         counter_value_observe_optic_request, counter_value_observe_optic_request_raw_vars,
         encode_counter_value_vars, increment_dispatch_optic_intent_request, pack_increment_intent,
-        IncrementInput, CODEC_ID, OP_COUNTER_VALUE, OP_INCREMENT,
-        OP_INCREMENT_FOOTPRINT_ARTIFACT_HASH, OP_INCREMENT_FOOTPRINT_CERTIFICATE_HASH, REGISTRY,
-        REGISTRY_VERSION, SCHEMA_SHA256,
+        CONTRACT_HOST_HELPER_API_VERSION, ECHO_CONTRACT_ABI_VERSION, IncrementInput, CODEC_ID,
+        OP_COUNTER_VALUE, OP_INCREMENT, OP_INCREMENT_FOOTPRINT_ARTIFACT_HASH,
+        OP_INCREMENT_FOOTPRINT_CERTIFICATE_HASH, REGISTRY, REGISTRY_VERSION, SCHEMA_SHA256,
+        WESLEY_GENERATOR_VERSION,
     };
     use echo_registry_api::{
         verify_contract_artifact, ContractArtifactTrustPosture, ContractArtifactVerificationPolicy,
@@ -393,9 +397,12 @@ mod tests {
             artifact_hash_hex: Some(OP_INCREMENT_FOOTPRINT_ARTIFACT_HASH),
         }];
         let artifact_policy = ContractArtifactVerificationPolicy {
+            echo_abi_version: ECHO_CONTRACT_ABI_VERSION,
             codec_id: CODEC_ID,
             registry_version: REGISTRY_VERSION,
             schema_sha256_hex: SCHEMA_SHA256,
+            wesley_generator_version: WESLEY_GENERATOR_VERSION,
+            helper_api_version: CONTRACT_HOST_HELPER_API_VERSION,
             footprint_certificates: &expected_certificates,
             require_mutation_footprint_certificates: true,
         };

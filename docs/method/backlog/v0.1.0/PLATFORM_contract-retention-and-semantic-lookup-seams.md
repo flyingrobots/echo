@@ -3,7 +3,7 @@
 
 # Contract Retention And Semantic Lookup Seams
 
-Status: implemented local boundary.
+Status: implemented local boundary; retained evidence refs complete.
 
 Depends on:
 
@@ -32,6 +32,15 @@ Add a bounded blob reader seam if `BlobStore::get Arc<[u8]>` cannot support
 bounded observers without full materialization. This is retained-payload lookup,
 not a streaming subscription surface.
 
+Core now also exposes retained evidence references above the byte-retention
+layer:
+
+- `RetainedEvidenceCoordinate` names contract identity, retained role, and
+  semantic digest;
+- `RetainedEvidenceRef` binds that coordinate to content hash and byte length;
+- `RetainedEvidencePosture` returns available evidence or a typed
+  `MissingRetention` obstruction.
+
 ## Acceptance criteria
 
 - Contract payloads can refer to retained blob fragments by CAS ref.
@@ -41,6 +50,8 @@ not a streaming subscription surface.
 - If retention is unavailable, lookup returns typed obstruction.
 - GC or compaction cannot silently produce false successful retained readings.
 - Cache hits are accepted only when the semantic coordinate matches.
+- Retained reading refs are not query identities.
+- Reading payload and reading-envelope references remain distinct roles.
 
 ## Non-goals
 

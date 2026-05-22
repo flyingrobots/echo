@@ -3,7 +3,7 @@
 
 # Authority Boundary Audit
 
-Status: v0.1.0 release blocker.
+Status: initial local audit recorded; final release security review remains.
 
 Depends on:
 
@@ -31,12 +31,20 @@ Verify that application-facing paths cannot:
 
 ## Acceptance criteria
 
-- Tests prove app-facing dispatch cannot tick or access trusted runtime control.
-- WASM/Node/browser exports are app-safe if those packages ship.
-- Generated helpers target app-safe request APIs or host-only install APIs
-  explicitly.
-- Host-only APIs are documented as runtime-owner authority.
-- Security review records any deferred risks before release candidate.
+- [x] Tests prove app-facing dispatch cannot tick or access trusted runtime
+      control.
+- [ ] WASM/Node/browser exports are app-safe if those packages ship.
+- [x] Generated helpers target app-safe request APIs or host-only install APIs
+      explicitly.
+- [x] Host-only APIs are documented as runtime-owner authority.
+- [x] Security review records deferred risks before release candidate.
+
+## Implemented local slice
+
+`docs/design/v0.1.0-authority-boundary-audit.md` records the current
+authority-boundary evidence and deferred risks. The local release witness keeps
+application code on `TrustedRuntimeApp` and trusted runtime control on
+`TrustedRuntimeHost`.
 
 ## Non-goals
 

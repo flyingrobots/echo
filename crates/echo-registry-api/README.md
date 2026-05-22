@@ -18,6 +18,9 @@ Hosts can call `verify_contract_artifact(...)` against a generated
 `RegistryProvider` before deciding how much trust to assign to a
 Wesley-generated artifact. The verification policy compares:
 
+- Echo contract ABI version;
+- Wesley generator version;
+- contract-host helper API version;
 - codec id;
 - registry layout version;
 - schema hash;
@@ -34,3 +37,7 @@ posture, not merely on successful metadata verification.
 The verifier returns a typed `ContractArtifactRejection` on mismatch. It does
 not validate application payload semantics or execute an operation; generated
 application adapters still own domain validation before packing EINT bytes.
+
+Generated compatibility metadata is install-time evidence only. It does not
+grant execution authority, query rights, or scheduler control, and it does not
+replace semantic reading identity.

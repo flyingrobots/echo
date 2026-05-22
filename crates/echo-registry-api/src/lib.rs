@@ -8,15 +8,26 @@
 
 #![no_std]
 
+/// Local contract ABI version supported by this registry API.
+pub const ECHO_CONTRACT_ABI_VERSION: u32 = 1;
+/// Generated contract-host helper API version supported by Echo.
+pub const CONTRACT_HOST_HELPER_API_VERSION: u32 = 1;
+
 /// Codec identifier used by the registry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RegistryInfo {
+    /// Echo contract ABI version targeted by the generated artifact.
+    pub echo_abi_version: u32,
     /// Canonical codec identifier (e.g., "cbor-canon-v1").
     pub codec_id: &'static str,
     /// Registry schema version for breaking changes in layout.
     pub registry_version: u32,
     /// Hex-encoded schema hash (lowercase, 64 chars).
     pub schema_sha256_hex: &'static str,
+    /// Wesley generator version that emitted this registry.
+    pub wesley_generator_version: &'static str,
+    /// Generated contract-host helper API version.
+    pub helper_api_version: u32,
 }
 
 /// Trust posture assigned after a generated contract artifact has been verified.
@@ -45,12 +56,18 @@ pub struct ExpectedFootprintCertificate<'a> {
 /// Host policy for verifying a generated contract artifact before admission.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ContractArtifactVerificationPolicy<'a> {
+    /// Expected Echo contract ABI version.
+    pub echo_abi_version: u32,
     /// Expected codec identifier for the generated artifact.
     pub codec_id: &'a str,
     /// Expected registry layout version for the generated artifact.
     pub registry_version: u32,
     /// Expected schema hash for the generated artifact.
     pub schema_sha256_hex: &'a str,
+    /// Expected Wesley generator version.
+    pub wesley_generator_version: &'a str,
+    /// Expected contract-host helper API version.
+    pub helper_api_version: u32,
     /// Expected footprint certificates keyed by operation id.
     pub footprint_certificates: &'a [ExpectedFootprintCertificate<'a>],
     /// Require every mutation op to carry a footprint certificate named by this policy.
@@ -69,6 +86,13 @@ pub struct VerifiedContractArtifact {
 /// Rejection returned when a generated contract artifact fails verification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContractArtifactRejection<'a> {
+    /// The generated artifact targets a different Echo ABI version.
+    EchoAbiVersionMismatch {
+        /// Expected Echo ABI version.
+        expected: u32,
+        /// Actual Echo ABI version from the registry.
+        actual: u32,
+    },
     /// The registry codec id did not match host policy.
     CodecIdMismatch {
         /// Expected codec id.
@@ -89,6 +113,20 @@ pub enum ContractArtifactRejection<'a> {
         expected: &'a str,
         /// Actual schema hash from the registry.
         actual: &'static str,
+    },
+    /// The generated artifact came from an unsupported Wesley generator version.
+    WesleyGeneratorVersionMismatch {
+        /// Expected Wesley generator version.
+        expected: &'a str,
+        /// Actual Wesley generator version from the registry.
+        actual: &'static str,
+    },
+    /// The generated helper API version does not match Echo's contract-host API.
+    HelperApiVersionMismatch {
+        /// Expected helper API version.
+        expected: u32,
+        /// Actual helper API version from the registry.
+        actual: u32,
     },
     /// Host policy named an operation id that the registry does not contain.
     MissingOperation {
@@ -328,6 +366,12 @@ pub fn verify_contract_artifact<'a>(
     policy: &ContractArtifactVerificationPolicy<'a>,
 ) -> Result<VerifiedContractArtifact, ContractArtifactRejection<'a>> {
     let info = registry.info();
+    if info.echo_abi_version != policy.echo_abi_version {
+        return Err(ContractArtifactRejection::EchoAbiVersionMismatch {
+            expected: policy.echo_abi_version,
+            actual: info.echo_abi_version,
+        });
+    }
     if info.codec_id != policy.codec_id {
         return Err(ContractArtifactRejection::CodecIdMismatch {
             expected: policy.codec_id,
@@ -344,6 +388,18 @@ pub fn verify_contract_artifact<'a>(
         return Err(ContractArtifactRejection::SchemaHashMismatch {
             expected: policy.schema_sha256_hex,
             actual: info.schema_sha256_hex,
+        });
+    }
+    if info.wesley_generator_version != policy.wesley_generator_version {
+        return Err(ContractArtifactRejection::WesleyGeneratorVersionMismatch {
+            expected: policy.wesley_generator_version,
+            actual: info.wesley_generator_version,
+        });
+    }
+    if info.helper_api_version != policy.helper_api_version {
+        return Err(ContractArtifactRejection::HelperApiVersionMismatch {
+            expected: policy.helper_api_version,
+            actual: info.helper_api_version,
         });
     }
 
@@ -523,9 +579,12 @@ mod tests {
     impl RegistryProvider for StaticRegistry {
         fn info(&self) -> RegistryInfo {
             RegistryInfo {
+                echo_abi_version: 1,
                 codec_id: "cbor-canon-v1",
                 registry_version: 1,
                 schema_sha256_hex: SCHEMA_SHA256_HEX,
+                wesley_generator_version: "echo-wesley-gen/0.1.0",
+                helper_api_version: 1,
             }
         }
 
@@ -557,9 +616,12 @@ mod tests {
             artifact_hash_hex: Some(ARTIFACT_HASH_HEX),
         }];
         let policy = ContractArtifactVerificationPolicy {
+            echo_abi_version: 1,
             codec_id: "cbor-canon-v1",
             registry_version: 1,
             schema_sha256_hex: SCHEMA_SHA256_HEX,
+            wesley_generator_version: "echo-wesley-gen/0.1.0",
+            helper_api_version: 1,
             footprint_certificates: &expected_certificates,
             require_mutation_footprint_certificates: true,
         };
@@ -586,9 +648,12 @@ mod tests {
             artifact_hash_hex: Some(ARTIFACT_HASH_HEX),
         }];
         let policy = ContractArtifactVerificationPolicy {
+            echo_abi_version: 1,
             codec_id: "cbor-canon-v1",
             registry_version: 1,
             schema_sha256_hex: SCHEMA_SHA256_HEX,
+            wesley_generator_version: "echo-wesley-gen/0.1.0",
+            helper_api_version: 1,
             footprint_certificates: &expected_certificates,
             require_mutation_footprint_certificates: true,
         };
@@ -608,14 +673,92 @@ mod tests {
     }
 
     #[test]
+    fn verifier_rejects_echo_abi_version_mismatch() {
+        let registry = StaticRegistry {
+            ops: OPS_WITH_CERTIFICATE,
+        };
+        let policy = ContractArtifactVerificationPolicy {
+            echo_abi_version: 2,
+            codec_id: "cbor-canon-v1",
+            registry_version: 1,
+            schema_sha256_hex: SCHEMA_SHA256_HEX,
+            wesley_generator_version: "echo-wesley-gen/0.1.0",
+            helper_api_version: 1,
+            footprint_certificates: &[],
+            require_mutation_footprint_certificates: false,
+        };
+
+        assert_eq!(
+            verify_contract_artifact(&registry, &policy),
+            Err(ContractArtifactRejection::EchoAbiVersionMismatch {
+                expected: 2,
+                actual: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn verifier_rejects_wesley_generator_version_mismatch() {
+        let registry = StaticRegistry {
+            ops: OPS_WITH_CERTIFICATE,
+        };
+        let policy = ContractArtifactVerificationPolicy {
+            echo_abi_version: 1,
+            codec_id: "cbor-canon-v1",
+            registry_version: 1,
+            schema_sha256_hex: SCHEMA_SHA256_HEX,
+            wesley_generator_version: "echo-wesley-gen/9.9.9",
+            helper_api_version: 1,
+            footprint_certificates: &[],
+            require_mutation_footprint_certificates: false,
+        };
+
+        assert_eq!(
+            verify_contract_artifact(&registry, &policy),
+            Err(ContractArtifactRejection::WesleyGeneratorVersionMismatch {
+                expected: "echo-wesley-gen/9.9.9",
+                actual: "echo-wesley-gen/0.1.0",
+            })
+        );
+    }
+
+    #[test]
+    fn verifier_rejects_helper_api_version_mismatch() {
+        let registry = StaticRegistry {
+            ops: OPS_WITH_CERTIFICATE,
+        };
+        let policy = ContractArtifactVerificationPolicy {
+            echo_abi_version: 1,
+            codec_id: "cbor-canon-v1",
+            registry_version: 1,
+            schema_sha256_hex: SCHEMA_SHA256_HEX,
+            wesley_generator_version: "echo-wesley-gen/0.1.0",
+            helper_api_version: 2,
+            footprint_certificates: &[],
+            require_mutation_footprint_certificates: false,
+        };
+
+        assert_eq!(
+            verify_contract_artifact(&registry, &policy),
+            Err(ContractArtifactRejection::HelperApiVersionMismatch {
+                expected: 2,
+                actual: 1,
+            })
+        );
+    }
+
+    #[test]
     fn verifier_does_not_compile_time_certify_empty_policy() {
         let registry = StaticRegistry {
             ops: OPS_QUERY_ONLY,
         };
         let policy = ContractArtifactVerificationPolicy {
+            echo_abi_version: 1,
             codec_id: "cbor-canon-v1",
             registry_version: 1,
             schema_sha256_hex: SCHEMA_SHA256_HEX,
+            wesley_generator_version: "echo-wesley-gen/0.1.0",
+            helper_api_version: 1,
             footprint_certificates: &[],
             require_mutation_footprint_certificates: false,
         };
@@ -635,9 +778,12 @@ mod tests {
             ops: OPS_WITH_CERTIFICATE,
         };
         let policy = ContractArtifactVerificationPolicy {
+            echo_abi_version: 1,
             codec_id: "cbor-canon-v1",
             registry_version: 1,
             schema_sha256_hex: SCHEMA_SHA256_HEX,
+            wesley_generator_version: "echo-wesley-gen/0.1.0",
+            helper_api_version: 1,
             footprint_certificates: &[],
             require_mutation_footprint_certificates: false,
         };
@@ -657,9 +803,12 @@ mod tests {
             ops: OPS_WITHOUT_CERTIFICATE,
         };
         let policy = ContractArtifactVerificationPolicy {
+            echo_abi_version: 1,
             codec_id: "cbor-canon-v1",
             registry_version: 1,
             schema_sha256_hex: SCHEMA_SHA256_HEX,
+            wesley_generator_version: "echo-wesley-gen/0.1.0",
+            helper_api_version: 1,
             footprint_certificates: &[],
             require_mutation_footprint_certificates: true,
         };
@@ -681,9 +830,12 @@ mod tests {
             ops: OPS_WITH_CERTIFICATE,
         };
         let policy = ContractArtifactVerificationPolicy {
+            echo_abi_version: 1,
             codec_id: "cbor-canon-v1",
             registry_version: 1,
             schema_sha256_hex: SCHEMA_SHA256_HEX,
+            wesley_generator_version: "echo-wesley-gen/0.1.0",
+            helper_api_version: 1,
             footprint_certificates: &[],
             require_mutation_footprint_certificates: true,
         };

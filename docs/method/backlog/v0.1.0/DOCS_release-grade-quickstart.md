@@ -3,7 +3,7 @@
 
 # Release-Grade Quickstart
 
-Status: v0.1.0 release blocker.
+Status: initial executable quickstart implemented; product guide polish remains.
 
 Depends on:
 
@@ -33,12 +33,19 @@ The quickstart should show:
 
 ## Acceptance criteria
 
-- Commands pass on a clean checkout.
-- The guide names which APIs are application-facing and which are host-only.
-- Examples do not call tick from application code.
-- Error examples include unsupported operation/query and missing retention or
-  bounded residual posture.
-- The guide links to the version compatibility policy.
+- [x] Commands pass on a clean checkout.
+- [x] The guide names which APIs are application-facing and which are host-only.
+- [x] Examples do not call tick from application code.
+- [ ] Error examples include unsupported operation/query and missing retention
+      or bounded residual posture.
+- [x] The guide links to the version compatibility policy.
+
+## Implemented local slice
+
+`docs/quickstart-local-contract-host.md` now documents the executable local
+contract-host release witness, the app/host API split, compatibility checks,
+and retention boundary. The command path is
+`cargo xtask test-slice contract-path-release`.
 
 ## Non-goals
 

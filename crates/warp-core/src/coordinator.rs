@@ -100,6 +100,10 @@ pub enum RuntimeError {
     /// or conflicted with an existing witnessed submission.
     #[error("witnessed intent submission replay mismatch: {0:?}")]
     IntentSubmissionReplayMismatch(Hash),
+    /// A witnessed submission exists without the canonical envelope material
+    /// required to build a full persistence snapshot.
+    #[error("witnessed intent submission envelope unavailable: {0:?}")]
+    WitnessedSubmissionEnvelopeUnavailable(Hash),
     /// Ticketed runtime ingress referenced a submission Echo has not witnessed.
     #[error("unknown intent submission: {0:?}")]
     UnknownIntentSubmission(Hash),
@@ -194,6 +198,67 @@ pub struct IntentSubmissionRecord {
     pub submission_generation: IngressSubmissionGeneration,
 }
 
+/// Persistable witnessed submission material.
+///
+/// The submission record is Echo semantic ingress history. The envelope is the
+/// canonical material a trusted host can later use for ticketed runtime ingress.
+/// Restoring this material does not enter scheduler-visible inboxes.
+#[derive(Clone, Debug)]
+pub struct WitnessedSubmissionPersistenceRecord {
+    /// Witnessed Echo submission record.
+    pub submission: IntentSubmissionRecord,
+    /// Canonical ingress envelope accepted by Echo.
+    pub envelope: IngressEnvelope,
+}
+
+/// Deterministic local persistence image for witnessed submissions.
+///
+/// Hosts may write this image to durable storage. Importing it restores
+/// accepted submission identity and envelope material only; it does not tick,
+/// dispatch, stage ticketed ingress, or mutate application state.
+#[derive(Clone, Debug, Default)]
+pub struct WitnessedSubmissionPersistenceSnapshot {
+    records: Vec<WitnessedSubmissionPersistenceRecord>,
+}
+
+impl WitnessedSubmissionPersistenceSnapshot {
+    /// Builds a snapshot from persistence records, sorted into replay order.
+    #[must_use]
+    pub fn new(mut records: Vec<WitnessedSubmissionPersistenceRecord>) -> Self {
+        records.sort_by_key(|record| {
+            (
+                record.submission.submission_generation,
+                record.submission.submission_id,
+            )
+        });
+        Self { records }
+    }
+
+    /// Returns the snapshot records in deterministic replay order.
+    #[must_use]
+    pub fn records(&self) -> &[WitnessedSubmissionPersistenceRecord] {
+        &self.records
+    }
+
+    /// Consumes the snapshot and returns records in deterministic replay order.
+    #[must_use]
+    pub fn into_records(self) -> Vec<WitnessedSubmissionPersistenceRecord> {
+        self.records
+    }
+
+    /// Returns `true` when the snapshot carries no submission material.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.records.is_empty()
+    }
+
+    /// Returns the number of persisted witnessed submissions.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.records.len()
+    }
+}
+
 /// Explicit authority token for staging ticketed runtime ingress.
 ///
 /// Application-facing code should not hold this token. An admission ticket is
@@ -210,7 +275,7 @@ impl TicketedRuntimeIngressAuthority {
     ///
     /// The caller must prove it is executing inside Echo's trusted runtime
     /// owner, test harness, or equivalent host-controlled boundary.
-    #[cfg(feature = "host_test")]
+    #[cfg(any(test, feature = "host_test", feature = "trusted_runtime"))]
     #[doc(hidden)]
     #[must_use]
     pub fn assume_runtime_owner() -> Self {
@@ -388,6 +453,56 @@ pub enum IntentSubmissionDisposition {
     },
 }
 
+/// App-facing submission handle returned after Echo accepts or recognizes an
+/// intent submission.
+///
+/// This is not execution evidence and not a tick receipt. It is a stable handle
+/// for polling the scheduler-owned outcome later.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct IntentSubmissionHandle {
+    /// Content-addressed canonical ingress id.
+    pub ingress_id: Hash,
+    /// Resolved semantic writer-head target.
+    pub head_key: WriterHeadKey,
+    /// Witnessed Echo submission id.
+    pub submission_id: Hash,
+    /// Echo-owned intake/correlation generation.
+    pub submission_generation: IngressSubmissionGeneration,
+    /// `true` when Echo had already witnessed this semantic submission.
+    pub duplicate: bool,
+}
+
+impl From<IntentSubmissionDisposition> for IntentSubmissionHandle {
+    fn from(disposition: IntentSubmissionDisposition) -> Self {
+        match disposition {
+            IntentSubmissionDisposition::Accepted {
+                ingress_id,
+                head_key,
+                submission_id,
+                submission_generation,
+            } => Self {
+                ingress_id,
+                head_key,
+                submission_id,
+                submission_generation,
+                duplicate: false,
+            },
+            IntentSubmissionDisposition::Duplicate {
+                ingress_id,
+                head_key,
+                submission_id,
+                submission_generation,
+            } => Self {
+                ingress_id,
+                head_key,
+                submission_id,
+                submission_generation,
+                duplicate: true,
+            },
+        }
+    }
+}
+
 /// Result of ingesting an envelope into the runtime.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IngressDisposition {
@@ -539,6 +654,175 @@ pub enum IntentOutcomeObservation {
     },
 }
 
+/// Receipt evidence attached to app-facing applied or rejected outcomes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IntentOutcomeReceipt {
+    /// Ticketed ingress correlation event.
+    pub ticketed_ingress_id: Hash,
+    /// Admission ticket digest bound to runtime ingress.
+    pub ticket_digest: Hash,
+    /// Canonical ingress id decided by the tick.
+    pub ingress_id: Hash,
+    /// Writer head that committed the tick.
+    pub head_key: WriterHeadKey,
+    /// Installed contract evidence, when the work came from a generated package.
+    pub contract: Option<crate::ContractEvidenceIdentity>,
+    /// Runtime cycle stamp that produced the receipt.
+    pub commit_global_tick: GlobalTick,
+    /// Worldline tick after the commit.
+    pub worldline_tick_after: WorldlineTick,
+    /// Scheduler-owned tick receipt digest.
+    pub tick_receipt_digest: Hash,
+    /// Commit hash emitted by the scheduler-owned tick.
+    pub commit_hash: Hash,
+    /// Entry index inside the correlated tick receipt.
+    pub receipt_entry_index: u32,
+    /// Scheduler rule that produced the receipt entry.
+    pub rule_id: Hash,
+}
+
+impl IntentOutcomeReceipt {
+    fn from_correlation(
+        correlation: &ReceiptCorrelationRecord,
+        receipt_entry_index: u32,
+        rule_id: Hash,
+    ) -> Self {
+        Self {
+            ticketed_ingress_id: correlation.ticketed_ingress_id,
+            ticket_digest: correlation.ticket_digest,
+            ingress_id: correlation.ingress_id,
+            head_key: correlation.head_key,
+            contract: correlation.contract.clone(),
+            commit_global_tick: correlation.commit_global_tick,
+            worldline_tick_after: correlation.worldline_tick_after,
+            tick_receipt_digest: correlation.tick_receipt_digest,
+            commit_hash: correlation.commit_hash,
+            receipt_entry_index,
+            rule_id,
+        }
+    }
+}
+
+/// App-facing outcome posture for a witnessed intent submission.
+///
+/// This is a read-only polling shape. It does not tick, dispatch handlers,
+/// subscribe to streams, or retry failed work.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum IntentOutcome {
+    /// Echo has no witnessed submission for the supplied id.
+    Unknown {
+        /// Submission id the caller asked about.
+        submission_id: Hash,
+    },
+    /// Echo has witnessed the submission, but no tick receipt has decided it.
+    Pending {
+        /// Witnessed Echo submission id.
+        submission_id: Hash,
+        /// Echo-owned intake/correlation generation.
+        submission_generation: IngressSubmissionGeneration,
+        /// Ticketed runtime ingress id, if admission has staged runtime ingress.
+        ticketed_ingress_id: Option<Hash>,
+    },
+    /// The scheduler-owned tick applied this intent.
+    Applied {
+        /// Witnessed Echo submission id.
+        submission_id: Hash,
+        /// Receipt evidence for the applied decision.
+        receipt: Box<IntentOutcomeReceipt>,
+    },
+    /// The scheduler-owned tick rejected this intent as a lawful outcome.
+    Rejected {
+        /// Witnessed Echo submission id.
+        submission_id: Hash,
+        /// Receipt evidence for the rejected decision.
+        receipt: Box<IntentOutcomeReceipt>,
+        /// Deterministic rejection reason emitted by the tick receipt.
+        reason: TickReceiptRejection,
+        /// Receipt entry indices that blocked this candidate.
+        blocked_by: Vec<u32>,
+    },
+    /// Echo could not honestly interpret the outcome evidence.
+    Obstructed {
+        /// Witnessed Echo submission id.
+        submission_id: Hash,
+        /// Typed contract-host obstruction.
+        obstruction: crate::ContractObstruction,
+    },
+}
+
+impl IntentOutcome {
+    /// Converts the internal scheduler observation into the app-facing outcome
+    /// shape.
+    #[must_use]
+    pub fn from_observation(observation: IntentOutcomeObservation) -> Self {
+        match observation {
+            IntentOutcomeObservation::UnknownSubmission { submission_id } => {
+                Self::Unknown { submission_id }
+            }
+            IntentOutcomeObservation::Pending {
+                submission_id,
+                submission_generation,
+                ticketed_ingress_id,
+            } => Self::Pending {
+                submission_id,
+                submission_generation,
+                ticketed_ingress_id,
+            },
+            IntentOutcomeObservation::Decided {
+                correlation,
+                decision:
+                    IntentOutcomeDecision::Applied {
+                        receipt_entry_index,
+                        rule_id,
+                    },
+            } => Self::Applied {
+                submission_id: correlation.submission_id,
+                receipt: Box::new(IntentOutcomeReceipt::from_correlation(
+                    &correlation,
+                    receipt_entry_index,
+                    rule_id,
+                )),
+            },
+            IntentOutcomeObservation::Decided {
+                correlation,
+                decision:
+                    IntentOutcomeDecision::Rejected {
+                        receipt_entry_index,
+                        rule_id,
+                        reason,
+                        blocked_by,
+                    },
+            } => Self::Rejected {
+                submission_id: correlation.submission_id,
+                receipt: Box::new(IntentOutcomeReceipt::from_correlation(
+                    &correlation,
+                    receipt_entry_index,
+                    rule_id,
+                )),
+                reason,
+                blocked_by,
+            },
+            IntentOutcomeObservation::Decided {
+                correlation,
+                decision:
+                    IntentOutcomeDecision::NoMatchingReceiptEntry {
+                        tick_receipt_digest,
+                    },
+            } => {
+                let mut obstruction =
+                    crate::ContractObstruction::missing_retention(tick_receipt_digest);
+                if let Some(contract) = correlation.contract.as_ref() {
+                    obstruction = obstruction.with_contract(contract.clone());
+                }
+                Self::Obstructed {
+                    submission_id: correlation.submission_id,
+                    obstruction,
+                }
+            }
+        }
+    }
+}
+
 /// Request to fork a strand from one precise source-lane coordinate.
 #[derive(Clone, Debug)]
 pub struct ForkStrandRequest {
@@ -593,6 +877,8 @@ pub struct WorldlineRuntime {
     next_submission_generation: IngressSubmissionGeneration,
     /// Witnessed submission records keyed by content-addressed submission id.
     witnessed_submissions: BTreeMap<Hash, IntentSubmissionRecord>,
+    /// Canonical envelope material for witnessed submissions.
+    witnessed_submission_envelopes: BTreeMap<Hash, IngressEnvelope>,
     /// Deterministic lookup from resolved semantic target and ingress id to
     /// witnessed submission id.
     submission_by_target: BTreeMap<(WriterHeadKey, Hash), Hash>,
@@ -760,6 +1046,16 @@ impl WorldlineRuntime {
         self.witnessed_submissions.get(submission_id)
     }
 
+    /// Returns retained canonical envelope material for a witnessed submission.
+    ///
+    /// This is not scheduler admission. The envelope can be used later by a
+    /// trusted host together with an admission ticket to stage ticketed runtime
+    /// ingress.
+    #[must_use]
+    pub fn witnessed_submission_envelope(&self, submission_id: &Hash) -> Option<&IngressEnvelope> {
+        self.witnessed_submission_envelopes.get(submission_id)
+    }
+
     /// Iterates witnessed submissions in deterministic submission-id order.
     pub fn witnessed_submissions(&self) -> impl Iterator<Item = &IntentSubmissionRecord> {
         self.witnessed_submissions.values()
@@ -780,6 +1076,38 @@ impl WorldlineRuntime {
             .collect::<Vec<_>>();
         records.sort_by_key(|record| (record.submission_generation, record.submission_id));
         records
+    }
+
+    /// Returns a deterministic local persistence snapshot for witnessed
+    /// submissions with retained envelope material.
+    ///
+    /// The snapshot is host-persistable semantic ingress material. Restoring it
+    /// does not make application code tick and does not stage scheduler-visible
+    /// runtime ingress.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError::WitnessedSubmissionEnvelopeUnavailable`] when a
+    /// witnessed submission lacks the canonical envelope material required for
+    /// a complete persistence snapshot.
+    pub fn witnessed_submission_persistence_snapshot(
+        &self,
+    ) -> Result<WitnessedSubmissionPersistenceSnapshot, RuntimeError> {
+        let mut records = Vec::new();
+        for submission in self.witnessed_submission_replay_records() {
+            let envelope = self
+                .witnessed_submission_envelopes
+                .get(&submission.submission_id)
+                .cloned()
+                .ok_or(RuntimeError::WitnessedSubmissionEnvelopeUnavailable(
+                    submission.submission_id,
+                ))?;
+            records.push(WitnessedSubmissionPersistenceRecord {
+                submission,
+                envelope,
+            });
+        }
+        Ok(WitnessedSubmissionPersistenceSnapshot::new(records))
     }
 
     /// Returns the number of witnessed submission records.
@@ -857,6 +1185,17 @@ impl WorldlineRuntime {
     #[must_use]
     pub fn receipt_correlation_count(&self) -> usize {
         self.receipt_correlations_by_ticketed_ingress.len()
+    }
+
+    /// App-facing submission helper.
+    ///
+    /// This records witnessed ingress history only. It does not enter runtime
+    /// ingress, tick, dispatch handlers, or mutate application state.
+    pub fn submit_app_intent(
+        &mut self,
+        envelope: IngressEnvelope,
+    ) -> Result<IntentSubmissionHandle, RuntimeError> {
+        self.submit_intent(envelope).map(Into::into)
     }
 
     /// Returns scheduler fault evidence by fault id.
@@ -972,6 +1311,15 @@ impl WorldlineRuntime {
                 .get(submission_id)
                 .copied(),
         }
+    }
+
+    /// App-facing read-only outcome observation.
+    ///
+    /// This wraps the internal scheduler observation in product-facing states
+    /// and uses the contract obstruction taxonomy for missing outcome evidence.
+    #[must_use]
+    pub fn observe_app_intent_outcome(&self, submission_id: &Hash) -> IntentOutcome {
+        IntentOutcome::from_observation(self.observe_intent_outcome(submission_id))
     }
 
     fn intent_outcome_decision(
@@ -1382,6 +1730,52 @@ impl WorldlineRuntime {
         Ok(())
     }
 
+    /// Restores persisted witnessed submission records and canonical envelopes.
+    ///
+    /// This restores semantic ingress history and host-retained envelope
+    /// material only. It does not enter the envelopes into head inboxes, stage
+    /// ticketed runtime ingress, advance ticks, dispatch handlers, or execute
+    /// contracts.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when any snapshot record does not match its canonical
+    /// envelope, targets an unknown head, violates the target inbox policy, or
+    /// conflicts with existing witnessed submission history.
+    pub fn restore_witnessed_submission_persistence(
+        &mut self,
+        snapshot: WitnessedSubmissionPersistenceSnapshot,
+    ) -> Result<(), RuntimeError> {
+        let records = snapshot.into_records();
+        let mut staged_envelopes = BTreeMap::new();
+
+        for record in &records {
+            if record.envelope.ingress_id() != record.submission.ingress_id {
+                return Err(RuntimeError::IntentSubmissionReplayMismatch(
+                    record.submission.submission_id,
+                ));
+            }
+            let head_key = self.resolve_target(record.envelope.target())?;
+            if head_key != record.submission.head_key {
+                return Err(RuntimeError::IntentSubmissionReplayMismatch(
+                    record.submission.submission_id,
+                ));
+            }
+            let head = self
+                .heads
+                .get(&head_key)
+                .ok_or(RuntimeError::UnknownHead(head_key))?;
+            if !head.inbox().would_accept(&record.envelope) {
+                return Err(RuntimeError::RejectedByPolicy(head_key));
+            }
+            staged_envelopes.insert(record.submission.submission_id, record.envelope.clone());
+        }
+
+        self.replay_witnessed_submissions(records.into_iter().map(|record| record.submission))?;
+        self.witnessed_submission_envelopes.extend(staged_envelopes);
+        Ok(())
+    }
+
     /// Records an accepted intent submission without entering runtime ingress.
     ///
     /// This is witnessed Echo ingress history only. It does not store the
@@ -1398,6 +1792,7 @@ impl WorldlineRuntime {
         envelope: IngressEnvelope,
     ) -> Result<IntentSubmissionDisposition, RuntimeError> {
         let ingress_id = envelope.ingress_id();
+        let retained_envelope = envelope.clone();
         let head_key = self.resolve_target(envelope.target())?;
 
         if self
@@ -1440,6 +1835,8 @@ impl WorldlineRuntime {
         }
 
         let record = self.record_witnessed_submission(head_key, ingress_id)?;
+        self.witnessed_submission_envelopes
+            .insert(record.submission_id, retained_envelope);
         Ok(IntentSubmissionDisposition::Accepted {
             ingress_id,
             head_key,
@@ -1573,6 +1970,7 @@ impl WorldlineRuntime {
         envelope: IngressEnvelope,
     ) -> Result<IngressDisposition, RuntimeError> {
         let ingress_id = envelope.ingress_id();
+        let retained_envelope = envelope.clone();
         let head_key = self.resolve_target(envelope.target())?;
 
         if self
@@ -1602,6 +2000,8 @@ impl WorldlineRuntime {
         match outcome {
             InboxIngestResult::Accepted => {
                 let record = self.record_witnessed_submission(head_key, ingress_id)?;
+                self.witnessed_submission_envelopes
+                    .insert(record.submission_id, retained_envelope);
                 Ok(IngressDisposition::Accepted {
                     ingress_id,
                     head_key,
@@ -1935,6 +2335,7 @@ fn scheduler_fault_scope_for_error(
         | RuntimeError::Strand(_)
         | RuntimeError::IntentSubmissionGenerationOverflow
         | RuntimeError::IntentSubmissionReplayMismatch(_)
+        | RuntimeError::WitnessedSubmissionEnvelopeUnavailable(_)
         | RuntimeError::UnknownIntentSubmission(_)
         | RuntimeError::TicketedIngressSubmissionMismatch(_)
         | RuntimeError::TicketedIngressAlreadyStaged(_)
@@ -2455,6 +2856,10 @@ fn scheduler_error_cause_digest(err: &RuntimeError) -> Hash {
             hasher.update(b"intent-submission-replay-mismatch");
             hasher.update(submission_id);
         }
+        RuntimeError::WitnessedSubmissionEnvelopeUnavailable(submission_id) => {
+            hasher.update(b"witnessed-submission-envelope-unavailable");
+            hasher.update(submission_id);
+        }
         RuntimeError::UnknownIntentSubmission(submission_id) => {
             hasher.update(b"unknown-intent-submission");
             hasher.update(submission_id);
@@ -2794,6 +3199,10 @@ mod tests {
 
     fn gt(raw: u64) -> GlobalTick {
         GlobalTick::from_raw(raw)
+    }
+
+    fn hash(n: u8) -> Hash {
+        [n; 32]
     }
 
     fn empty_engine() -> Engine {
@@ -3794,6 +4203,420 @@ mod tests {
             1
         );
         assert_eq!(runtime.witnessed_submission_count(), 1);
+    }
+
+    #[test]
+    fn witnessed_submission_persistence_restores_envelope_without_ticking() {
+        let mut runtime = WorldlineRuntime::new();
+        let worldline_id = wl(1);
+        runtime
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        let head_key = register_head(
+            &mut runtime,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let env = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            make_intent_kind("test"),
+            b"pending-persisted".to_vec(),
+        );
+        let accepted = runtime.submit_intent(env.clone()).unwrap();
+        let (submission_id, submission_generation) = match accepted {
+            IntentSubmissionDisposition::Accepted {
+                submission_id,
+                submission_generation,
+                ..
+            } => (submission_id, submission_generation),
+            IntentSubmissionDisposition::Duplicate { .. } => {
+                panic!("first submission should be accepted")
+            }
+        };
+
+        let snapshot = runtime.witnessed_submission_persistence_snapshot().unwrap();
+        assert_eq!(snapshot.len(), 1);
+
+        let mut restored = WorldlineRuntime::new();
+        restored
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        let restored_head = register_head(
+            &mut restored,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        restored
+            .restore_witnessed_submission_persistence(snapshot)
+            .unwrap();
+
+        let restored_record = restored
+            .witnessed_submission(&submission_id)
+            .expect("restored runtime should have witnessed submission");
+        assert_eq!(restored_record.submission_generation, submission_generation);
+        assert_eq!(restored_record.head_key, head_key);
+        assert_eq!(
+            restored
+                .witnessed_submission_envelope(&submission_id)
+                .expect("restored runtime should retain canonical envelope")
+                .ingress_id(),
+            env.ingress_id()
+        );
+        assert_eq!(restored.global_tick(), gt(0));
+        assert_eq!(
+            restored
+                .worldlines()
+                .get(&worldline_id)
+                .unwrap()
+                .frontier_tick(),
+            wt(0)
+        );
+        assert_eq!(
+            restored
+                .heads
+                .get(&restored_head)
+                .unwrap()
+                .inbox()
+                .pending_count(),
+            0,
+            "recovery must not stage scheduler-visible inbox work"
+        );
+        assert_eq!(restored.ticketed_runtime_ingress_count(), 0);
+    }
+
+    #[test]
+    fn duplicate_submit_after_persistence_restore_returns_duplicate() {
+        let mut runtime = WorldlineRuntime::new();
+        let worldline_id = wl(2);
+        runtime
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        register_head(
+            &mut runtime,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let env = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            make_intent_kind("test"),
+            b"duplicate-after-restore".to_vec(),
+        );
+        let accepted = runtime.submit_intent(env.clone()).unwrap();
+        let (submission_id, submission_generation) = match accepted {
+            IntentSubmissionDisposition::Accepted {
+                submission_id,
+                submission_generation,
+                ..
+            } => (submission_id, submission_generation),
+            IntentSubmissionDisposition::Duplicate { .. } => {
+                panic!("first submission should be accepted")
+            }
+        };
+        let snapshot = runtime.witnessed_submission_persistence_snapshot().unwrap();
+
+        let mut restored = WorldlineRuntime::new();
+        restored
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        register_head(
+            &mut restored,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        restored
+            .restore_witnessed_submission_persistence(snapshot)
+            .unwrap();
+
+        assert!(matches!(
+            restored.submit_intent(env).unwrap(),
+            IntentSubmissionDisposition::Duplicate {
+                submission_id: restored_submission,
+                submission_generation: restored_generation,
+                ..
+            } if restored_submission == submission_id && restored_generation == submission_generation
+        ));
+        assert_eq!(restored.witnessed_submission_count(), 1);
+    }
+
+    #[test]
+    fn witnessed_submission_persistence_snapshot_rejects_replayed_submission_without_envelope() {
+        let mut runtime = WorldlineRuntime::new();
+        let worldline_id = wl(3);
+        runtime
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        register_head(
+            &mut runtime,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let env = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            make_intent_kind("test"),
+            b"replayed-without-envelope".to_vec(),
+        );
+        let submission_id = match runtime.submit_intent(env).unwrap() {
+            IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
+            IntentSubmissionDisposition::Duplicate { .. } => {
+                panic!("first submission should be accepted")
+            }
+        };
+        let replay_records = runtime.witnessed_submission_replay_records();
+
+        let mut replayed = WorldlineRuntime::new();
+        replayed
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        register_head(
+            &mut replayed,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        replayed
+            .replay_witnessed_submissions(replay_records)
+            .unwrap();
+
+        assert_eq!(replayed.witnessed_submission_count(), 1);
+        assert!(matches!(
+            replayed.witnessed_submission_persistence_snapshot(),
+            Err(RuntimeError::WitnessedSubmissionEnvelopeUnavailable(id)) if id == submission_id
+        ));
+    }
+
+    #[test]
+    fn persistence_restore_rejects_mismatched_envelope_without_partial_import() {
+        let mut runtime = WorldlineRuntime::new();
+        let worldline_id = wl(4);
+        runtime
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        register_head(
+            &mut runtime,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let env = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            make_intent_kind("test"),
+            b"original".to_vec(),
+        );
+        runtime.submit_intent(env).unwrap();
+        let mut record = runtime
+            .witnessed_submission_persistence_snapshot()
+            .unwrap()
+            .records()[0]
+            .clone();
+        record.envelope = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            make_intent_kind("test"),
+            b"different".to_vec(),
+        );
+        let snapshot = WitnessedSubmissionPersistenceSnapshot::new(vec![record]);
+
+        let mut restored = WorldlineRuntime::new();
+        restored
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        register_head(
+            &mut restored,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+
+        assert!(matches!(
+            restored.restore_witnessed_submission_persistence(snapshot),
+            Err(RuntimeError::IntentSubmissionReplayMismatch(_))
+        ));
+        assert_eq!(restored.witnessed_submission_count(), 0);
+        assert!(restored
+            .witnessed_submission_persistence_snapshot()
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn submit_app_intent_returns_handle_without_ticking() {
+        let mut runtime = WorldlineRuntime::new();
+        let worldline_id = wl(4);
+        runtime
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        let head_key = register_head(
+            &mut runtime,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let env = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            make_intent_kind("test"),
+            b"app-submit".to_vec(),
+        );
+
+        let handle = runtime.submit_app_intent(env.clone()).unwrap();
+
+        assert_eq!(handle.ingress_id, env.ingress_id());
+        assert_eq!(handle.head_key, head_key);
+        assert_eq!(handle.submission_generation.as_u64(), 1);
+        assert!(!handle.duplicate);
+        assert_eq!(runtime.global_tick(), gt(0));
+        assert_eq!(
+            runtime
+                .worldlines()
+                .get(&worldline_id)
+                .unwrap()
+                .frontier_tick(),
+            wt(0)
+        );
+        assert_eq!(runtime.ticketed_runtime_ingress_count(), 0);
+    }
+
+    #[test]
+    fn observe_app_intent_outcome_reports_unknown_and_pending() {
+        let mut runtime = WorldlineRuntime::new();
+        let unknown_submission = hash(99);
+        assert!(matches!(
+            runtime.observe_app_intent_outcome(&unknown_submission),
+            IntentOutcome::Unknown { submission_id } if submission_id == unknown_submission
+        ));
+
+        let worldline_id = wl(5);
+        runtime
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        register_head(
+            &mut runtime,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let handle = runtime
+            .submit_app_intent(IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind("test"),
+                b"pending-app".to_vec(),
+            ))
+            .unwrap();
+
+        assert!(matches!(
+            runtime.observe_app_intent_outcome(&handle.submission_id),
+            IntentOutcome::Pending {
+                submission_id,
+                submission_generation,
+                ticketed_ingress_id: None,
+            } if submission_id == handle.submission_id
+                && submission_generation == handle.submission_generation
+        ));
+    }
+
+    #[test]
+    fn app_intent_outcome_maps_decisions_and_missing_receipt_evidence() {
+        let head_key = WriterHeadKey {
+            worldline_id: wl(6),
+            head_id: make_head_id("default"),
+        };
+        let correlation = ReceiptCorrelationRecord {
+            ticketed_ingress_id: hash(1),
+            submission_id: hash(2),
+            ticket_digest: hash(3),
+            ingress_id: hash(4),
+            head_key,
+            contract: None,
+            commit_global_tick: gt(7),
+            worldline_tick_after: wt(8),
+            tick_receipt_digest: hash(9),
+            commit_hash: hash(10),
+        };
+
+        let applied = IntentOutcome::from_observation(IntentOutcomeObservation::Decided {
+            correlation: Box::new(correlation.clone()),
+            decision: IntentOutcomeDecision::Applied {
+                receipt_entry_index: 3,
+                rule_id: hash(11),
+            },
+        });
+        assert!(matches!(
+            applied,
+            IntentOutcome::Applied {
+                submission_id,
+                receipt,
+            } if submission_id == correlation.submission_id
+                && receipt.tick_receipt_digest == correlation.tick_receipt_digest
+                && receipt.receipt_entry_index == 3
+        ));
+
+        let rejected = IntentOutcome::from_observation(IntentOutcomeObservation::Decided {
+            correlation: Box::new(correlation.clone()),
+            decision: IntentOutcomeDecision::Rejected {
+                receipt_entry_index: 4,
+                rule_id: hash(12),
+                reason: TickReceiptRejection::FootprintConflict,
+                blocked_by: vec![1, 2],
+            },
+        });
+        assert!(matches!(
+            rejected,
+            IntentOutcome::Rejected {
+                submission_id,
+                reason: TickReceiptRejection::FootprintConflict,
+                blocked_by,
+                ..
+            } if submission_id == correlation.submission_id && blocked_by == vec![1, 2]
+        ));
+
+        let obstructed = IntentOutcome::from_observation(IntentOutcomeObservation::Decided {
+            correlation: Box::new(correlation.clone()),
+            decision: IntentOutcomeDecision::NoMatchingReceiptEntry {
+                tick_receipt_digest: correlation.tick_receipt_digest,
+            },
+        });
+        match obstructed {
+            IntentOutcome::Obstructed {
+                submission_id,
+                obstruction,
+            } => {
+                assert_eq!(submission_id, correlation.submission_id);
+                assert_eq!(
+                    obstruction.kind,
+                    crate::ContractObstructionKind::MissingRetention
+                );
+                assert_eq!(
+                    obstruction.subject,
+                    crate::ContractObstructionSubject::Retention {
+                        retention_id: correlation.tick_receipt_digest
+                    }
+                );
+            }
+            other => panic!("expected obstructed outcome, got {other:?}"),
+        }
     }
 
     #[test]

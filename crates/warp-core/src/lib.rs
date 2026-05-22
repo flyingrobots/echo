@@ -46,6 +46,7 @@ mod clock;
 mod cmd;
 mod constants;
 mod contract_host;
+mod contract_obstruction;
 mod contract_registry;
 /// Domain separation prefixes for hashing.
 pub mod domain;
@@ -138,6 +139,7 @@ mod playback;
 mod provenance_store;
 mod receipt;
 mod record;
+mod retained_evidence;
 mod retention;
 mod rule;
 mod sandbox;
@@ -150,6 +152,8 @@ mod snapshot_accum;
 mod telemetry;
 mod tick_delta;
 mod tick_patch;
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+mod trusted_runtime_host;
 mod tx;
 mod warp_state;
 mod witnessed_suffix;
@@ -237,8 +241,14 @@ pub use payload::{
     motion_payload_type_id_v0,
 };
 // --- Cursor types ---
+pub use contract_obstruction::{
+    ContractObstruction, ContractObstructionKind, ContractObstructionSubject,
+};
 pub use playback::{
     CursorId, CursorRole, PlaybackCursor, PlaybackMode, SeekError, SeekThen, StepResult,
+};
+pub use retained_evidence::{
+    RetainedEvidenceCoordinate, RetainedEvidencePosture, RetainedEvidenceRef, RetainedEvidenceRole,
 };
 // --- Session types ---
 pub use playback::{SessionId, ViewSession};
@@ -324,6 +334,10 @@ pub use tick_patch::{
     slice_worldline_indices, PortalInit, SlotId, TickCommitStatus, TickPatchError, WarpOp,
     WarpOpKey, WarpTickPatchV1,
 };
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+pub use trusted_runtime_host::{
+    TrustedRuntimeApp, TrustedRuntimeHost, TrustedRuntimeHostError, TrustedRuntimeHostRunReport,
+};
 pub use tx::TxId;
 pub use warp_state::{WarpInstance, WarpState};
 pub use witnessed_suffix::{
@@ -345,12 +359,13 @@ pub use worldline::{
 /// Prefer this coordinator/runtime API for new stepping and routing code.
 pub use coordinator::{
     ForkStrandReceipt, ForkStrandRequest, IngressDisposition, IngressSubmissionGeneration,
-    IntentOutcomeDecision, IntentOutcomeObservation, IntentSubmissionDisposition,
-    IntentSubmissionRecord, ReceiptCorrelationRecord, RuntimeError, SchedulerCoordinator,
-    SchedulerFaultGeneration, SchedulerFaultId, SchedulerFaultRecord,
-    SchedulerFaultRecoveryAuthority, SchedulerFaultScope, SchedulerFaultStatus, SchedulerRunId,
-    StepRecord, TicketedRuntimeIngressAuthority, TicketedRuntimeIngressDisposition,
-    TicketedRuntimeIngressRecord, WorldlineRuntime,
+    IntentOutcome, IntentOutcomeDecision, IntentOutcomeObservation, IntentOutcomeReceipt,
+    IntentSubmissionDisposition, IntentSubmissionHandle, IntentSubmissionRecord,
+    ReceiptCorrelationRecord, RuntimeError, SchedulerCoordinator, SchedulerFaultGeneration,
+    SchedulerFaultId, SchedulerFaultRecord, SchedulerFaultRecoveryAuthority, SchedulerFaultScope,
+    SchedulerFaultStatus, SchedulerRunId, StepRecord, TicketedRuntimeIngressAuthority,
+    TicketedRuntimeIngressDisposition, TicketedRuntimeIngressRecord,
+    WitnessedSubmissionPersistenceRecord, WitnessedSubmissionPersistenceSnapshot, WorldlineRuntime,
 };
 /// Writer-head registry and routing primitives used by the runtime-owned ingress path.
 pub use head::{

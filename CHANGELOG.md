@@ -7,6 +7,15 @@
 
 ### Added
 
+- `warp-core` now attaches contract package evidence to installed contract
+  readings and receipt correlations. Installed QueryView readings carry
+  package id, package name/version, artifact hash, schema hash, codec identity,
+  registry version, query op id, and operation kind in the `ReadingEnvelope`.
+  Installed mutation receipt correlations copy the same package evidence from
+  ticketed runtime ingress after scheduler-owned execution. Built-in reads and
+  non-package observers can still leave this evidence empty. The evidence is
+  metadata only: it does not grant tick authority, mutate state, replace
+  semantic reading identity, or act as a CAS lookup key.
 - `warp-core` now connects the installed contract package boundary to the
   witnessed intent pipeline. Package-supported canonical EINT mutation ids can
   be staged through ticketed runtime ingress only after Echo has witnessed the

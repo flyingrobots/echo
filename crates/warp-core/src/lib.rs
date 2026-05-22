@@ -191,8 +191,9 @@ pub use contract_host::{
     eint_op_id, eint_vars_for_op, matches_eint_op, runtime_ingress_eint_read_footprint,
 };
 pub use contract_registry::{
-    ContractMutationHandler, ContractPackageIdentity, InstalledContractPackage,
-    InstalledContractPackageError, InstalledContractPackageId, InstalledContractPackageRecord,
+    ContractEvidenceIdentity, ContractMutationHandler, ContractOperationKind,
+    ContractPackageIdentity, InstalledContractPackage, InstalledContractPackageError,
+    InstalledContractPackageId, InstalledContractPackageRecord,
 };
 pub use dynamic_binding::{
     BoundNodeRef, ClosureMemberBinding, DirectSlotBinding, DynamicBindingError,

@@ -316,6 +316,7 @@ mod tests {
                     },
                     observer_instance: None,
                     observer_basis: ReadingObserverBasis::QueryView,
+                    contract: None,
                     witness_refs: vec![ReadingWitnessRef::EmptyFrontier {
                         worldline_id,
                         state_root,

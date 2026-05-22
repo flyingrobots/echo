@@ -46,6 +46,53 @@ impl InstalledContractPackageId {
     }
 }
 
+/// Installed contract operation kind carried by evidence surfaces.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum ContractOperationKind {
+    /// Generated mutation operation.
+    Mutation,
+    /// Generated query operation.
+    Query,
+}
+
+impl From<ContractOperationKind> for OpKind {
+    fn from(kind: ContractOperationKind) -> Self {
+        match kind {
+            ContractOperationKind::Mutation => OpKind::Mutation,
+            ContractOperationKind::Query => OpKind::Query,
+        }
+    }
+}
+
+/// Contract package identity attached to receipts and readings.
+///
+/// This is evidence metadata. It does not authorize execution, does not grant
+/// query rights, and does not make CAS hashes semantic. It names the installed
+/// package boundary that supplied the mutation handler or query observer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct ContractEvidenceIdentity {
+    /// Deterministic installed package id.
+    pub package_id: InstalledContractPackageId,
+    /// Runtime package name chosen by the host.
+    pub package_name: String,
+    /// Runtime package version chosen by the host.
+    pub package_version: String,
+    /// Hex-encoded generated package artifact hash.
+    pub artifact_hash_hex: String,
+    /// Registry codec identity verified at install time.
+    pub codec_id: String,
+    /// Registry version verified at install time.
+    pub registry_version: u32,
+    /// Hex-encoded authored schema hash verified at install time.
+    pub schema_sha256_hex: String,
+    /// Generated operation/query id handled by this package.
+    pub op_id: u32,
+    /// Generated operation kind.
+    pub op_kind: ContractOperationKind,
+}
+
 /// Host-owned package identity supplied when installing generated contract code.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ContractPackageIdentity<'a> {
@@ -98,6 +145,28 @@ pub struct InstalledContractPackageRecord {
     pub mutation_op_ids: Vec<u32>,
     /// Installed query operation ids.
     pub query_op_ids: Vec<u32>,
+}
+
+impl InstalledContractPackageRecord {
+    /// Builds receipt/reading evidence for one operation installed by this package.
+    #[must_use]
+    pub fn evidence_identity(
+        &self,
+        op_id: u32,
+        op_kind: ContractOperationKind,
+    ) -> ContractEvidenceIdentity {
+        ContractEvidenceIdentity {
+            package_id: self.package_id,
+            package_name: self.package_name.clone(),
+            package_version: self.package_version.clone(),
+            artifact_hash_hex: self.artifact_hash_hex.clone(),
+            codec_id: self.registry_info.codec_id.to_owned(),
+            registry_version: self.registry_info.registry_version,
+            schema_sha256_hex: self.registry_info.schema_sha256_hex.to_owned(),
+            op_id,
+            op_kind,
+        }
+    }
 }
 
 /// Error returned when installing a generated contract package fails.

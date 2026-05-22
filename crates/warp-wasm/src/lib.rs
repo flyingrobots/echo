@@ -812,6 +812,7 @@ mod init_tests {
                     },
                     observer_instance: None,
                     observer_basis: ReadingObserverBasis::CommitBoundary,
+                    contract: None,
                     witness_refs: vec![ReadingWitnessRef::EmptyFrontier {
                         worldline_id: WorldlineId::from_bytes([9; 32]),
                         state_root: head.state_root.clone(),

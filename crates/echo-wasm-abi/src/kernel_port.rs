@@ -1627,6 +1627,39 @@ pub enum ReadingResidualPosture {
     Obstructed,
 }
 
+/// Installed contract operation kind carried by receipt and reading evidence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContractOperationKind {
+    /// Generated mutation operation.
+    Mutation,
+    /// Generated query operation.
+    Query,
+}
+
+/// Contract package identity attached to receipt and reading evidence.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContractEvidenceIdentity {
+    /// Deterministic installed package id.
+    pub package_id: Vec<u8>,
+    /// Runtime package name chosen by the host.
+    pub package_name: String,
+    /// Runtime package version chosen by the host.
+    pub package_version: String,
+    /// Hex-encoded generated package artifact hash.
+    pub artifact_hash_hex: String,
+    /// Registry codec identity verified at install time.
+    pub codec_id: String,
+    /// Registry version verified at install time.
+    pub registry_version: u32,
+    /// Hex-encoded authored schema hash verified at install time.
+    pub schema_sha256_hex: String,
+    /// Generated operation/query id handled by this package.
+    pub op_id: u32,
+    /// Generated operation kind.
+    pub op_kind: ContractOperationKind,
+}
+
 /// Reading-envelope metadata carried by every observation artifact.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReadingEnvelope {
@@ -1636,6 +1669,9 @@ pub struct ReadingEnvelope {
     pub observer_instance: Option<ObserverInstanceRef>,
     /// Native observer basis used by the reading.
     pub observer_basis: ReadingObserverBasis,
+    /// Installed contract package identity, when this reading came from a
+    /// generated contract observer.
+    pub contract: Option<ContractEvidenceIdentity>,
     /// Witnesses or shell references that support the reading.
     pub witness_refs: Vec<ReadingWitnessRef>,
     /// Read-side parent/strand basis posture.

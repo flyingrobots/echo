@@ -406,6 +406,17 @@ fn installed_contract_mutation_dispatches_only_through_ticketed_scheduler_tick()
     assert!(runtime
         .receipt_correlation_for_submission(&submission)
         .is_some());
+    let correlation = runtime
+        .receipt_correlation_for_submission(&submission)
+        .expect("receipt correlation should exist");
+    let contract = correlation
+        .contract
+        .as_ref()
+        .expect("installed mutation receipt correlation must carry contract evidence");
+    assert_eq!(contract.op_id, MUTATION_OP_ID);
+    assert_eq!(contract.op_kind, warp_core::ContractOperationKind::Mutation);
+    assert_eq!(contract.schema_sha256_hex, SCHEMA_SHA256_HEX);
+    assert_eq!(contract.package_name, "toy-counter");
 
     assert_eq!(
         runtime.observe_intent_outcome(&submission),

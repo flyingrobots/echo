@@ -1006,6 +1006,7 @@ mod tests {
                 },
                 observer_instance: None,
                 observer_basis: ReadingObserverBasis::CommitBoundary,
+                contract: None,
                 witness_refs: vec![ReadingWitnessRef::ResolvedCommit { reference }],
                 parent_basis_posture: ObservationBasisPosture::Worldline,
                 budget_posture: ReadingBudgetPosture::UnboundedOneShot,

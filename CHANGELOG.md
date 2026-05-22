@@ -43,6 +43,14 @@
   query vars, query id, causal basis, schema/observer plan, or budget changes.
   Over-budget reads still obstruct with `BudgetExceeded`; residual readings
   remain explicit posture rather than fake complete payloads.
+- `warp-core` now publishes observation artifacts under observation contract
+  version 3 and `echo:observation-artifact:v3` because contract evidence and
+  query reading identity are now part of the canonical reading envelope hashed
+  into observation artifacts.
+- `echo-wasm-abi` now reports `ABI_VERSION` 11 for the expanded
+  `ReadingEnvelope` response shape. Legacy retained reading envelopes that omit
+  the new optional contract/query identity fields decode those fields as
+  `None`.
 - `warp-core` now attaches contract package evidence to installed contract
   readings and receipt correlations. Installed QueryView readings carry
   package id, package name/version, artifact hash, schema hash, codec identity,

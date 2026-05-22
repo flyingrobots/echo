@@ -10,7 +10,7 @@
 //!
 //! # ABI Version
 //!
-//! The current ABI version is [`ABI_VERSION`] (10). All response types are
+//! The current ABI version is [`ABI_VERSION`] (11). All response types are
 //! CBOR-encoded using the canonical rules defined in `docs/spec/js-cbor-mapping.md`.
 //! Breaking changes to response shapes or error codes require a bump to the
 //! ABI version.
@@ -40,7 +40,7 @@ use serde::{
 ///
 /// Increment when response types, error codes, or method signatures change
 /// in a backward-incompatible way.
-pub const ABI_VERSION: u32 = 10;
+pub const ABI_VERSION: u32 = 11;
 
 fn deserialize_opaque_id<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
 where
@@ -1687,8 +1687,10 @@ pub struct ReadingEnvelope {
     pub observer_basis: ReadingObserverBasis,
     /// Installed contract package identity, when this reading came from a
     /// generated contract observer.
+    #[serde(default)]
     pub contract: Option<ContractEvidenceIdentity>,
     /// Stable query reading identity, when this envelope answered QueryView.
+    #[serde(default)]
     pub query_identity: Option<QueryReadingIdentity>,
     /// Witnesses or shell references that support the reading.
     pub witness_refs: Vec<ReadingWitnessRef>,

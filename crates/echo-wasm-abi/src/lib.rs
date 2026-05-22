@@ -450,6 +450,11 @@ mod tests {
     }
 
     #[test]
+    fn kernel_port_abi_version_tracks_reading_envelope_contract_fields() {
+        assert_eq!(kernel_port::ABI_VERSION, 11);
+    }
+
+    #[test]
     fn test_pack_unpack_round_trip() {
         let op_id = 12345;
         let vars = b"test payload";
@@ -975,6 +980,7 @@ mod tests {
             WorldlineTick,
         };
         use alloc::boxed::Box;
+        use ciborium::value::Value;
 
         let reference = crate::kernel_port::ProvenanceRef {
             worldline_id: WorldlineId::from_bytes([1; 32]),
@@ -1019,6 +1025,23 @@ mod tests {
 
         let decoded: OpticReadingEnvelope = decode_cbor(&encode_cbor(&envelope).unwrap()).unwrap();
         assert_eq!(decoded, envelope);
+
+        let mut legacy_reading_value =
+            decode_value(&encode_cbor(&envelope.reading).unwrap()).unwrap();
+        assert!(matches!(&legacy_reading_value, Value::Map(_)));
+        if let Value::Map(entries) = &mut legacy_reading_value {
+            entries.retain(|(key, _)| {
+                !matches!(
+                    key,
+                    Value::Text(text) if text == "contract" || text == "query_identity"
+                )
+            });
+        }
+        let legacy_reading: ReadingEnvelope =
+            decode_cbor(&encode_value(&legacy_reading_value).unwrap()).unwrap();
+        assert_eq!(legacy_reading, envelope.reading);
+        assert_eq!(legacy_reading.contract, None);
+        assert_eq!(legacy_reading.query_identity, None);
 
         let optic_result = ObserveOpticResult::Reading(Box::new(OpticReading {
             envelope: envelope.reading.clone(),

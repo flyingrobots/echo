@@ -13,7 +13,7 @@ See the repository root `README.md` for the full overview.
   Echo’s deterministic wire protocol can be used from JavaScript/TypeScript in
   web-based tools and playgrounds.
 - Exposes the current observation-first and intent-shaped control surface
-  (`ABI_VERSION` 10 in `echo-wasm-abi`): `observe(...)` is the only public
+  (`ABI_VERSION` 11 in `echo-wasm-abi`): `observe(...)` is the only public
   world-state read export, `scheduler_status()` is the read-only scheduler
   metadata export, and `dispatch_intent(...)` is application intent ingress.
   Accepted application ingress returns witnessed submission identity in addition

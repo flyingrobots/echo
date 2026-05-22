@@ -37,8 +37,8 @@ use crate::strand::{StrandId, StrandRevalidationState};
 use crate::tick_patch::SlotId;
 use crate::worldline::WorldlineId;
 
-const OBSERVATION_VERSION: u32 = 2;
-const OBSERVATION_ARTIFACT_DOMAIN: &[u8] = b"echo:observation-artifact:v2\0";
+const OBSERVATION_VERSION: u32 = 3;
+const OBSERVATION_ARTIFACT_DOMAIN: &[u8] = b"echo:observation-artifact:v3\0";
 const QUERY_READING_IDENTITY_DOMAIN: &[u8] = b"echo:query-reading-identity:v1\0";
 const QUERY_READING_BASIS_DOMAIN: &[u8] = b"echo:query-reading-basis:v1\0";
 const QUERY_READING_APERTURE_DOMAIN: &[u8] = b"echo:query-reading-aperture:v1\0";
@@ -2431,6 +2431,24 @@ mod tests {
         WorldlineState,
     };
 
+    fn observation_artifact_hash_with_domain(
+        artifact: &ObservationArtifact,
+        domain: &[u8],
+    ) -> Hash {
+        let input = abi::ObservationHashInput {
+            resolved: artifact.resolved.to_abi(),
+            reading: artifact.reading.to_abi(),
+            frame: artifact.frame.to_abi(),
+            projection: artifact.projection.to_abi(),
+            payload: artifact.payload.to_abi(),
+        };
+        let bytes = echo_wasm_abi::encode_cbor(&input).unwrap();
+        let mut hasher = Hasher::new();
+        hasher.update(domain);
+        hasher.update(&bytes);
+        hasher.finalize().into()
+    }
+
     fn wl(n: u8) -> WorldlineId {
         WorldlineId::from_bytes([n; 32])
     }
@@ -3453,6 +3471,15 @@ mod tests {
         assert_ne!(baseline.artifact_hash, different_query.artifact_hash);
         assert_ne!(baseline.artifact_hash, different_basis.artifact_hash);
         assert_ne!(baseline.artifact_hash, different_schema.artifact_hash);
+        assert_eq!(baseline.resolved.observation_version, 3);
+        assert_eq!(
+            baseline.artifact_hash,
+            observation_artifact_hash_with_domain(&baseline, b"echo:observation-artifact:v3\0")
+        );
+        assert_ne!(
+            baseline.artifact_hash,
+            observation_artifact_hash_with_domain(&baseline, b"echo:observation-artifact:v2\0")
+        );
 
         let baseline_identity = baseline
             .reading

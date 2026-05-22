@@ -3,7 +3,7 @@
 
 # Contract Retention And Semantic Lookup Seams
 
-Status: v0.1.0 release blocker.
+Status: implemented local boundary.
 
 Depends on:
 

@@ -3,7 +3,7 @@
 
 # Contract Reading Identity And Bounded Payloads
 
-Status: v0.1.0 release blocker.
+Status: implemented local boundary.
 
 Depends on:
 

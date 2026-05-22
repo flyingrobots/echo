@@ -4,24 +4,30 @@
 #![cfg(all(feature = "native_rule_bootstrap", feature = "host_test"))]
 #![allow(clippy::expect_used, clippy::panic)]
 
+use echo_cas::{MemoryTier, RetainedBlobIndex, RetainedBlobRole, SemanticBlobCoordinate};
 use echo_registry_api::{
     ArgDef, ContractArtifactVerificationPolicy, ObjectDef, OpDef, OpKind, RegistryInfo,
     RegistryProvider,
 };
 use warp_core::{
-    make_head_id, make_intent_kind, make_node_id, make_type_id, ContractMutationHandler,
-    ContractPackageIdentity, Engine, EngineBuilder, GraphStore, GraphView, InboxPolicy,
+    make_head_id, make_intent_kind, make_node_id, make_type_id, AuthoredObserverPlan,
+    ContractMutationHandler, ContractPackageIdentity, ContractQueryObserver,
+    ContractQueryObserverResult, Engine, EngineBuilder, GraphStore, GraphView, InboxPolicy,
     IngressEnvelope, IngressSubmissionGeneration, IngressTarget, IntentOutcomeDecision,
-    IntentOutcomeObservation, IntentSubmissionDisposition, NodeId, NodeRecord,
+    IntentOutcomeObservation, IntentSubmissionDisposition, NodeId, NodeRecord, ObservationAt,
+    ObservationCoordinate, ObservationFrame, ObservationPayload, ObservationProjection,
+    ObservationReadBudget, ObservationRequest, ObservationService, ObserverPlanId,
     OpticAdmissionTicket, OpticArtifactHandle, PatternGraph, PlaybackMode, ProvenanceService,
-    RuntimeError, SchedulerCoordinator, SchedulerKind, TickDelta, TickReceiptRejection,
-    TicketedRuntimeIngressAuthority, WorldlineId, WorldlineRuntime, WorldlineState, WriterHead,
-    WriterHeadKey, OPTIC_ADMISSION_TICKET_KIND, OPTIC_ARTIFACT_HANDLE_KIND,
+    ReadingBudgetPosture, RuntimeError, SchedulerCoordinator, SchedulerKind, TickDelta,
+    TickReceiptRejection, TicketedRuntimeIngressAuthority, WorldlineId, WorldlineRuntime,
+    WorldlineState, WriterHead, WriterHeadKey, OPTIC_ADMISSION_TICKET_KIND,
+    OPTIC_ARTIFACT_HANDLE_KIND,
 };
 
 const SCHEMA_SHA256_HEX: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const MUTATION_OP_ID: u32 = 1001;
 const CONFLICT_OP_ID: u32 = 1002;
+const QUERY_OP_ID: u32 = 1003;
 const UNKNOWN_OP_ID: u32 = 9999;
 const MUTATION_VARS: &[u8] = b"amount=42";
 const CONFLICT_VARS_A: &[u8] = b"amount=1";
@@ -61,6 +67,15 @@ static OPS: &[OpDef] = &[
         op_id: CONFLICT_OP_ID,
         args: INCREMENT_ARGS,
         result_ty: "CounterValue",
+        directives_json: "{}",
+        footprint_certificate: None,
+    },
+    OpDef {
+        kind: OpKind::Query,
+        name: "counterWindow",
+        op_id: QUERY_OP_ID,
+        args: INCREMENT_ARGS,
+        result_ty: "CounterWindow",
         directives_json: "{}",
         footprint_certificate: None,
     },
@@ -239,6 +254,26 @@ fn conflict_rule() -> warp_core::RewriteRule {
     }
 }
 
+fn query_observer() -> ContractQueryObserver {
+    ContractQueryObserver::new(QUERY_OP_ID, query_observer_plan(), |context| {
+        let mut bytes = b"window:".to_vec();
+        bytes.extend_from_slice(context.vars_bytes);
+        bytes.extend_from_slice(b":value=42");
+        Ok(ContractQueryObserverResult::complete(bytes))
+    })
+}
+
+fn query_observer_plan() -> AuthoredObserverPlan {
+    AuthoredObserverPlan {
+        plan_id: ObserverPlanId::from_bytes([0x51; 32]),
+        artifact_hash: [0x52; 32],
+        schema_hash: [0x53; 32],
+        state_schema_hash: [0x54; 32],
+        update_law_hash: [0x55; 32],
+        emission_law_hash: [0x56; 32],
+    }
+}
+
 fn install_contract(engine: &mut Engine) {
     static REGISTRY: StaticRegistry = StaticRegistry;
     engine
@@ -256,7 +291,7 @@ fn install_contract(engine: &mut Engine) {
                     rule: conflict_rule(),
                 },
             ],
-            query_observers: vec![],
+            query_observers: vec![query_observer()],
         })
         .expect("contract package should install");
 }
@@ -341,6 +376,40 @@ fn eint_envelope(worldline_id: WorldlineId, op_id: u32, vars: &[u8]) -> IngressE
         make_intent_kind("echo.intent/eint-v1"),
         echo_wasm_abi::pack_intent_v1(op_id, vars).expect("EINT should pack"),
     )
+}
+
+fn query_request(worldline_id: WorldlineId, vars: &[u8]) -> ObservationRequest {
+    let mut request = ObservationRequest::builtin_one_shot(
+        ObservationCoordinate {
+            worldline_id,
+            at: ObservationAt::Frontier,
+        },
+        ObservationFrame::QueryView,
+        ObservationProjection::Query {
+            query_id: QUERY_OP_ID,
+            vars_bytes: vars.to_vec(),
+        },
+    )
+    .expect("query request should build");
+    request.budget = ObservationReadBudget::Bounded {
+        max_payload_bytes: 128,
+        max_witness_refs: 1,
+    };
+    request
+}
+
+fn semantic_coordinate(
+    contract: &warp_core::ContractEvidenceIdentity,
+    role: RetainedBlobRole,
+    semantic_digest: [u8; 32],
+) -> SemanticBlobCoordinate {
+    SemanticBlobCoordinate {
+        namespace: contract.package_name.clone(),
+        schema_hash_hex: contract.schema_sha256_hex.clone(),
+        artifact_hash_hex: contract.artifact_hash_hex.clone(),
+        role,
+        semantic_digest,
+    }
 }
 
 #[test]
@@ -778,6 +847,162 @@ fn witnessed_submission_replay_preserves_generation_continuity() {
             ..
         } if submission_generation == IngressSubmissionGeneration::from_raw(3)
     ));
+}
+
+#[test]
+fn external_contract_fixture_proves_mutation_query_retention_and_replay() {
+    let (mut runtime, mut engine, worldline_id, _head) = pipeline_runtime();
+    let envelope = eint_envelope(worldline_id, MUTATION_OP_ID, MUTATION_VARS);
+    let ticket = admission_ticket(31);
+    let submission = match runtime
+        .submit_intent(envelope.clone())
+        .expect("external fixture submission should be witnessed")
+    {
+        IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
+        IntentSubmissionDisposition::Duplicate { .. } => {
+            panic!("first external fixture submission must not be duplicate")
+        }
+    };
+    let replay_records = runtime.witnessed_submission_replay_records();
+
+    runtime
+        .ingest_installed_contract_invocation(
+            &ticketed_authority(),
+            &engine,
+            submission,
+            &ticket,
+            envelope.clone(),
+        )
+        .expect("external fixture ticketed ingress should stage");
+    let mut provenance = provenance_for(&runtime);
+    SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine)
+        .expect("external fixture scheduler-owned tick should commit");
+    let outcome = runtime.observe_intent_outcome(&submission);
+    assert!(matches!(
+        outcome,
+        IntentOutcomeObservation::Decided {
+            decision: IntentOutcomeDecision::Applied { .. },
+            ..
+        }
+    ));
+
+    let query_vars = b"start=0;len=8";
+    let reading = ObservationService::observe(
+        &runtime,
+        &provenance,
+        &engine,
+        query_request(worldline_id, query_vars),
+    )
+    .expect("external fixture QueryView reading should observe");
+    let query_payload = match &reading.payload {
+        ObservationPayload::QueryBytes(bytes) => bytes.clone(),
+        other => panic!("external fixture expected QueryBytes, got {other:?}"),
+    };
+    assert_eq!(query_payload, b"window:start=0;len=8:value=42");
+    match reading.reading.budget_posture {
+        ReadingBudgetPosture::Bounded {
+            max_payload_bytes,
+            payload_bytes,
+            max_witness_refs,
+            witness_refs,
+        } => {
+            assert_eq!(max_payload_bytes, 128);
+            assert!(payload_bytes >= query_payload.len() as u64);
+            assert!(payload_bytes <= max_payload_bytes);
+            assert_eq!(max_witness_refs, 1);
+            assert_eq!(witness_refs, 1);
+        }
+        other @ ReadingBudgetPosture::UnboundedOneShot => {
+            panic!("external fixture expected bounded reading posture, got {other:?}");
+        }
+    }
+
+    let mut blobs = MemoryTier::new();
+    let mut retained = RetainedBlobIndex::default();
+    let query_identity = reading
+        .reading
+        .query_identity
+        .as_ref()
+        .expect("external fixture reading must carry query identity");
+    let query_contract = reading
+        .reading
+        .contract
+        .as_ref()
+        .expect("external fixture reading must carry contract evidence");
+    let reading_coord = semantic_coordinate(
+        query_contract,
+        RetainedBlobRole::ReadingPayload,
+        query_identity.reading_id,
+    );
+    let reading_descriptor = retained.retain(&mut blobs, reading_coord.clone(), &query_payload);
+    assert_eq!(
+        retained
+            .load_range(&blobs, &reading_coord, 7, 13, 13)
+            .expect("retained bounded reading range should load")
+            .bytes
+            .as_ref(),
+        b"start=0;len=8"
+    );
+
+    let correlation = runtime
+        .receipt_correlation_for_submission(&submission)
+        .expect("external fixture receipt correlation should exist");
+    let receipt_contract = correlation
+        .contract
+        .as_ref()
+        .expect("external fixture receipt must carry contract evidence");
+    let receipt_coord = semantic_coordinate(
+        receipt_contract,
+        RetainedBlobRole::ContractReceipt,
+        correlation.tick_receipt_digest,
+    );
+    let receipt_descriptor = retained.retain(
+        &mut blobs,
+        receipt_coord.clone(),
+        &correlation.tick_receipt_digest,
+    );
+
+    assert_eq!(
+        retained
+            .load(&blobs, &reading_coord)
+            .expect("retained reading payload should load")
+            .descriptor,
+        reading_descriptor
+    );
+    assert_eq!(
+        retained
+            .load(&blobs, &receipt_coord)
+            .expect("retained receipt digest material should load")
+            .descriptor,
+        receipt_descriptor
+    );
+
+    let (mut replayed_runtime, mut replayed_engine, _worldline_id, _head) = pipeline_runtime();
+    replayed_runtime
+        .replay_witnessed_submissions(replay_records)
+        .expect("external fixture replay should import witnessed submissions");
+    replayed_runtime
+        .ingest_installed_contract_invocation(
+            &ticketed_authority(),
+            &replayed_engine,
+            submission,
+            &ticket,
+            envelope,
+        )
+        .expect("external fixture replay ticketed ingress should stage");
+    let mut replayed_provenance = provenance_for(&replayed_runtime);
+    SchedulerCoordinator::super_tick(
+        &mut replayed_runtime,
+        &mut replayed_provenance,
+        &mut replayed_engine,
+    )
+    .expect("external fixture replay tick should commit");
+
+    assert_eq!(
+        replayed_runtime.observe_intent_outcome(&submission),
+        outcome,
+        "external fixture replay must reproduce the same observed outcome"
+    );
 }
 
 #[test]

@@ -7,6 +7,14 @@
 
 ### Added
 
+- `warp-core` now has an external contract proof fixture for the v0.1.0 local
+  contract-host path. The fixture installs a generated-style package with a
+  mutation, conflict-capable mutation, and QueryView query; submits non-trivial
+  canonical vars; executes only through scheduler-owned ticks; observes a
+  bounded contract reading; retains reading payload and receipt evidence
+  through `echo-cas` semantic coordinates; and replays witnessed submission
+  history to the same observed intent outcome. The fixture keeps application
+  nouns inside the test package and generated payload shape, not in Echo core.
 - `echo-cas` semantic retention now supports bounded byte-range lookup through
   `RetainedBlobIndex::load_range(...)`. Range lookup requires the exact
   semantic coordinate, enforces the caller's byte budget, and returns typed

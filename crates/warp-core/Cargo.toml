@@ -32,6 +32,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde-value = "0.7"
 proptest = { version = "1.5" }
 echo-dry-tests = { workspace = true }
+echo-cas = { workspace = true }
 
 [features]
 default = []

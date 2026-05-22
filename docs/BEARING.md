@@ -3,7 +3,7 @@
 
 # BEARING
 
-Last updated: 2026-05-21.
+Last updated: 2026-05-22.
 
 This signpost summarizes current direction. It does not create commitments or
 replace backlog items, design docs, retros, or CLI status. If it disagrees with
@@ -239,30 +239,65 @@ AdmissionTicket + witnessed submission -> ticketed runtime ingress
 
 ## Next Candidate Slices
 
-1. **Durable Witnessed Submission Persistence**
+1. **Contract Obstruction Taxonomy**
+
+    Stabilize contract-hosted obstruction names for unsupported operations,
+    unsupported queries, admission obstructions, runtime faults,
+    missing-retention posture, stale basis, residual readings, and budget
+    limits. Product-facing APIs should consume typed obstruction posture instead
+    of broad strings or catch-all runtime errors.
+
+2. **Retained Evidence Refs And Missing-Retention Posture**
+
+    Lift the local semantic retention index into typed retained evidence refs
+    that receipt, reading, witness, and artifact surfaces can cite. Missing
+    retained material should return explicit obstruction/posture, not empty
+    success or content-hash guesswork.
+
+3. **Durable Witnessed Submission Persistence**
 
     Accepted-but-not-yet-ticked submissions should survive restart without
     becoming half-accepted, uncorrelatable history.
 
-2. **Product-Facing Intent Outcome API**
+4. **Product-Facing Intent Outcome API**
 
     Wrap the current core outcome observation into a developer-facing local API
     that preserves the authority boundary and does not tick synchronously.
 
-3. **Reference Trusted Runtime Host Loop**
+5. **Versioned Contract And API Compatibility**
+
+    Enforce the compatibility surface that makes generated packages fit a
+    specific Echo runtime: ABI version, Wesley generator version, contract
+    package version, schema hash, artifact hash, codec id, and generated helper
+    compatibility.
+
+6. **Reference Trusted Runtime Host Loop**
 
     Provide a boring host-owned loop that owns tick cadence, runs until idle, and
     exposes app-safe submit/observe/query surfaces.
 
-4. **Local Replay/DIND Proof For Contract Path**
+7. **Serious External Consumer Proof Fixture**
+
+    Replace the generic fixture as the only consumer proof with a serious
+    application-owned generated contract shape, preferably `jedit`-shaped, while
+    keeping text/editor nouns out of Echo core.
+
+8. **Local Replay/DIND Proof For Contract Path**
 
     Turn the local replay fixture into a release-gate proof over package,
     submissions, scheduler policy, receipts, readings, and retained evidence.
 
-5. **Release-Grade Quickstart**
+9. **Release-Grade Quickstart**
 
     Make the first clean-checkout contract-host flow executable end to end with
     documented commands.
+
+10. **Authority Boundary Audit**
+
+    Prove the app-facing surfaces cannot tick, step, access trusted runtime
+    control, resume faulted heads, install privileged host adapters, mutate
+    through query observers, bypass package compatibility checks, or turn retry
+    into hidden runtime behavior.
 
 Direct `native_rule_bootstrap` registration remains an internal fixture and
 transitional engine-test path. Contract-host proofs that need package identity,

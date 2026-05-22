@@ -3,7 +3,7 @@
 
 # v0.1.0 Replay And DIND Proof
 
-Status: v0.1.0 release blocker.
+Status: narrow local release witness implemented; broader DIND gate remains.
 
 Depends on:
 
@@ -31,13 +31,21 @@ same package
 
 ## Acceptance criteria
 
-- The external proof fixture participates in replay.
-- Accepted submissions replay with stable submission identity.
-- Tick receipts reproduce for the same scheduler-owned decision set.
-- Reading envelopes reproduce for the same query basis, vars, aperture, and
-  observer identity.
-- Missing retained material produces obstruction rather than fake success.
-- `cargo xtask dind` or a narrower documented release witness covers the path.
+- [x] The external proof fixture participates in replay.
+- [x] Accepted submissions replay with stable submission identity.
+- [x] Tick receipts reproduce for the same scheduler-owned decision set.
+- [x] Reading envelopes reproduce for the same query basis, vars, aperture, and
+      observer identity.
+- [x] Missing retained material produces obstruction rather than fake success.
+- [x] `cargo xtask dind` or a narrower documented release witness covers the
+      path.
+
+## Implemented local slice
+
+`cargo xtask test-slice contract-path-release` now runs the explicit local
+contract path release witness: installed contract pipeline replay, reference
+trusted host loop, and the serious external-consumer-shaped fixture. The command
+is a narrow release witness, not a replacement for broader DIND CI gates.
 
 ## Non-goals
 

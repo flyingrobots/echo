@@ -259,6 +259,12 @@ AdmissionTicket + witnessed submission -> ticketed runtime ingress
     QueryView reading, retained reading payload, and retained receipt evidence
     while keeping application nouns in test fixture code.
 
+9. **Local Replay/DIND Proof For Contract Path**
+
+    `cargo xtask test-slice contract-path-release` now runs the narrow local
+    v0.1 contract-host release witness: installed contract pipeline replay,
+    reference trusted host loop, and the serious external consumer fixture.
+
 ## Next Candidate Slices
 
 1. **Contract Obstruction Taxonomy**
@@ -286,17 +292,12 @@ AdmissionTicket + witnessed submission -> ticketed runtime ingress
     Wrap the current core outcome observation into a developer-facing local API
     that preserves the authority boundary and does not tick synchronously.
 
-5. **Local Replay/DIND Proof For Contract Path**
-
-    Turn the local replay fixture into a release-gate proof over package,
-    submissions, scheduler policy, receipts, readings, and retained evidence.
-
-6. **Release-Grade Quickstart**
+5. **Release-Grade Quickstart**
 
     Make the first clean-checkout contract-host flow executable end to end with
     documented commands.
 
-7. **Authority Boundary Audit**
+6. **Authority Boundary Audit**
 
     Prove the app-facing surfaces cannot tick, step, access trusted runtime
     control, resume faulted heads, install privileged host adapters, mutate

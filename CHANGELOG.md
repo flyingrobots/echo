@@ -61,6 +61,11 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
   rejection for overlapping edits, observes a bounded QueryView reading, and
   retains both reading payload and receipt evidence through semantic
   coordinates.
+- `xtask test-slice` now includes `contract-path-release`, a narrow local
+  v0.1 contract-host release witness. The slice runs the installed contract
+  pipeline replay tests, reference trusted host loop test, and serious external
+  consumer fixture without requiring developers to run the full DIND suite for
+  normal local iteration.
 - `echo-cas` semantic retention now supports bounded byte-range lookup through
   `RetainedBlobIndex::load_range(...)`. Range lookup requires the exact
   semantic coordinate, enforces the caller's byte budget, and returns typed

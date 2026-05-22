@@ -152,6 +152,8 @@ mod snapshot_accum;
 mod telemetry;
 mod tick_delta;
 mod tick_patch;
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+mod trusted_runtime_host;
 mod tx;
 mod warp_state;
 mod witnessed_suffix;
@@ -331,6 +333,10 @@ pub use tick_delta::{DeltaStats, OpOrigin, ScopedDelta, TickDelta};
 pub use tick_patch::{
     slice_worldline_indices, PortalInit, SlotId, TickCommitStatus, TickPatchError, WarpOp,
     WarpOpKey, WarpTickPatchV1,
+};
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+pub use trusted_runtime_host::{
+    TrustedRuntimeApp, TrustedRuntimeHost, TrustedRuntimeHostError, TrustedRuntimeHostRunReport,
 };
 pub use tx::TxId;
 pub use warp_state::{WarpInstance, WarpState};

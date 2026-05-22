@@ -40,6 +40,12 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
   package install; and installed contract receipt/reading evidence cites the
   verified compatibility metadata without granting execution or query
   authority.
+- `warp-core` now exposes a reference trusted runtime host loop for the local
+  contract-host path. `TrustedRuntimeHost` owns generated package installation,
+  ticketed ingress staging, scheduler passes, until-idle policy, and read-only
+  observation service access, while `TrustedRuntimeApp` exposes app-facing
+  submit/observe/query methods without tick, package-install, ingress-staging,
+  or fault-recovery authority.
 - `warp-core` now has an external contract proof fixture for the v0.1.0 local
   contract-host path. The fixture installs a generated-style package with a
   mutation, conflict-capable mutation, and QueryView query; submits non-trivial

@@ -271,7 +271,7 @@ impl TicketedRuntimeIngressAuthority {
     ///
     /// The caller must prove it is executing inside Echo's trusted runtime
     /// owner, test harness, or equivalent host-controlled boundary.
-    #[cfg(feature = "host_test")]
+    #[cfg(any(test, feature = "host_test", feature = "trusted_runtime"))]
     #[doc(hidden)]
     #[must_use]
     pub fn assume_runtime_owner() -> Self {

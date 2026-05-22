@@ -3,7 +3,7 @@
 
 # Reference Trusted Runtime Host Loop
 
-Status: v0.1.0 release blocker.
+Status: local reference boundary implemented; product adapter polish remains.
 
 Depends on:
 
@@ -35,13 +35,21 @@ The reference host loop owns:
 
 ## Acceptance criteria
 
-- A clean example hosts one installed contract package locally.
-- Application code submits through the app-safe API only.
-- The host loop owns scheduler control and tick cadence.
-- The host can run until idle without exposing that capability to application
-  code.
-- Runtime-local fault recovery is host-owned.
-- The example can observe intent outcomes and query readings after ticks.
+- [x] A clean example hosts one installed contract package locally.
+- [x] Application code submits through the app-safe API only.
+- [x] The host loop owns scheduler control and tick cadence.
+- [x] The host can run until idle without exposing that capability to
+      application code.
+- [ ] Runtime-local fault recovery is host-owned.
+- [x] The example can observe intent outcomes and query readings after ticks.
+
+## Implemented local slice
+
+`warp-core` now provides `TrustedRuntimeHost` and `TrustedRuntimeApp` for the
+local contract-host path. The host installs generated packages, stages ticketed
+runtime ingress, runs `super_tick` until idle, and serves observations. The app
+handle can submit intents and observe outcomes/readings, but it cannot tick,
+install packages, stage ingress, or recover scheduler faults.
 
 ## Non-goals
 

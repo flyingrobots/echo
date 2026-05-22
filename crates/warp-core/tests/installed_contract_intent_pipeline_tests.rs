@@ -86,9 +86,12 @@ struct StaticRegistry;
 impl RegistryProvider for StaticRegistry {
     fn info(&self) -> RegistryInfo {
         RegistryInfo {
+            echo_abi_version: 1,
             codec_id: "cbor-canon-v1",
             registry_version: 1,
             schema_sha256_hex: SCHEMA_SHA256_HEX,
+            wesley_generator_version: "echo-wesley-gen/0.1.0",
+            helper_api_version: 1,
         }
     }
 
@@ -134,9 +137,12 @@ fn package_identity() -> ContractPackageIdentity<'static> {
 
 fn verification_policy() -> ContractArtifactVerificationPolicy<'static> {
     ContractArtifactVerificationPolicy {
+        echo_abi_version: 1,
         codec_id: "cbor-canon-v1",
         registry_version: 1,
         schema_sha256_hex: SCHEMA_SHA256_HEX,
+        wesley_generator_version: "echo-wesley-gen/0.1.0",
+        helper_api_version: 1,
         footprint_certificates: &[],
         require_mutation_footprint_certificates: false,
     }

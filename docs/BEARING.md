@@ -237,6 +237,13 @@ AdmissionTicket + witnessed submission -> ticketed runtime ingress
     proof covering mutation, QueryView reading, retained evidence, and replay
     without application nouns in Echo core.
 
+6. **Versioned Contract And API Compatibility**
+
+    Generated packages now verify Echo contract ABI, Wesley generator,
+    contract-host helper API, codec, schema, registry layout, and footprint
+    compatibility at package install. Receipts and readings can cite the
+    verified compatibility metadata without treating it as execution authority.
+
 ## Next Candidate Slices
 
 1. **Contract Obstruction Taxonomy**
@@ -264,35 +271,28 @@ AdmissionTicket + witnessed submission -> ticketed runtime ingress
     Wrap the current core outcome observation into a developer-facing local API
     that preserves the authority boundary and does not tick synchronously.
 
-5. **Versioned Contract And API Compatibility**
-
-    Enforce the compatibility surface that makes generated packages fit a
-    specific Echo runtime: ABI version, Wesley generator version, contract
-    package version, schema hash, artifact hash, codec id, and generated helper
-    compatibility.
-
-6. **Reference Trusted Runtime Host Loop**
+5. **Reference Trusted Runtime Host Loop**
 
     Provide a boring host-owned loop that owns tick cadence, runs until idle, and
     exposes app-safe submit/observe/query surfaces.
 
-7. **Serious External Consumer Proof Fixture**
+6. **Serious External Consumer Proof Fixture**
 
     Replace the generic fixture as the only consumer proof with a serious
     application-owned generated contract shape, preferably `jedit`-shaped, while
     keeping text/editor nouns out of Echo core.
 
-8. **Local Replay/DIND Proof For Contract Path**
+7. **Local Replay/DIND Proof For Contract Path**
 
     Turn the local replay fixture into a release-gate proof over package,
     submissions, scheduler policy, receipts, readings, and retained evidence.
 
-9. **Release-Grade Quickstart**
+8. **Release-Grade Quickstart**
 
     Make the first clean-checkout contract-host flow executable end to end with
     documented commands.
 
-10. **Authority Boundary Audit**
+9. **Authority Boundary Audit**
 
     Prove the app-facing surfaces cannot tick, step, access trusted runtime
     control, resume faulted heads, install privileged host adapters, mutate

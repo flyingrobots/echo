@@ -933,11 +933,14 @@ impl ReadingEnvelope {
 fn contract_evidence_to_abi(evidence: &ContractEvidenceIdentity) -> abi::ContractEvidenceIdentity {
     abi::ContractEvidenceIdentity {
         package_id: evidence.package_id.as_bytes().to_vec(),
+        echo_abi_version: evidence.echo_abi_version,
         package_name: evidence.package_name.clone(),
         package_version: evidence.package_version.clone(),
         artifact_hash_hex: evidence.artifact_hash_hex.clone(),
         codec_id: evidence.codec_id.clone(),
         registry_version: evidence.registry_version,
+        wesley_generator_version: evidence.wesley_generator_version.clone(),
+        helper_api_version: evidence.helper_api_version,
         schema_sha256_hex: evidence.schema_sha256_hex.clone(),
         op_id: evidence.op_id,
         op_kind: match evidence.op_kind {

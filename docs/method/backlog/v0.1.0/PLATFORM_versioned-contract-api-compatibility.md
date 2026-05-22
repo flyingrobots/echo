@@ -3,7 +3,7 @@
 
 # Versioned Contract And API Compatibility
 
-Status: v0.1.0 release blocker.
+Status: local package-boundary slice implemented; release automation remains.
 
 Depends on:
 
@@ -31,11 +31,20 @@ or call time, not discovered through malformed receipts.
 
 ## Acceptance criteria
 
-- Package installation records version and compatibility metadata.
-- Version, schema, artifact, codec, or helper mismatch fails closed.
-- Receipts and readings can cite the installed package identity they came from.
-- The external proof fixture documents the Echo/Wesley versions used.
-- Release notes identify the supported ABI/package compatibility set.
+- [x] Package installation records version and compatibility metadata.
+- [x] Version, schema, artifact, codec, or helper mismatch fails closed.
+- [x] Receipts and readings can cite the installed package identity they came
+      from.
+- [ ] The external proof fixture documents the Echo/Wesley versions used.
+- [ ] Release notes identify the supported ABI/package compatibility set.
+
+## Implemented local slice
+
+`echo-registry-api` now requires Echo contract ABI, Wesley generator, and
+contract-host helper API compatibility in generated registry metadata and host
+verification policy. `echo-wesley-gen --contract-host` emits those constants,
+and `warp-core` carries the verified identity into installed package evidence
+for receipts and readings.
 
 ## Non-goals
 

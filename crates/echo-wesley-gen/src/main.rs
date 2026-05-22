@@ -258,11 +258,15 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
     let codec_id = ir.codec_id.as_deref().unwrap_or("cbor-canon-v1");
     let registry_version = ir.registry_version.unwrap_or(1);
     let generated_rust_artifact_hash = generated_rust_artifact_hash(ir, args)?;
+    let wesley_generator_version = format!("echo-wesley-gen/{}", env!("CARGO_PKG_VERSION"));
 
     tokens.extend(quote! {
         pub const SCHEMA_SHA256: &str = #schema_sha;
+        pub const ECHO_CONTRACT_ABI_VERSION: u32 = 1;
         pub const CODEC_ID: &str = #codec_id;
         pub const REGISTRY_VERSION: u32 = #registry_version;
+        pub const WESLEY_GENERATOR_VERSION: &str = #wesley_generator_version;
+        pub const CONTRACT_HOST_HELPER_API_VERSION: u32 = 1;
         pub const GENERATED_RUST_ARTIFACT_HASH: &str = #generated_rust_artifact_hash;
     });
 
@@ -975,9 +979,12 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
             impl RegistryProvider for GeneratedRegistry {
                 fn info(&self) -> RegistryInfo {
                     RegistryInfo {
+                        echo_abi_version: ECHO_CONTRACT_ABI_VERSION,
                         codec_id: CODEC_ID,
                         registry_version: REGISTRY_VERSION,
                         schema_sha256_hex: SCHEMA_SHA256,
+                        wesley_generator_version: WESLEY_GENERATOR_VERSION,
+                        helper_api_version: CONTRACT_HOST_HELPER_API_VERSION,
                     }
                 }
 
@@ -1412,6 +1419,11 @@ fn validate_generated_item_names(ir: &WesleyIR) -> Result<()> {
     )?;
     record_generated_item(
         &mut top_level_items,
+        "ECHO_CONTRACT_ABI_VERSION",
+        "generated Echo contract ABI version constant",
+    )?;
+    record_generated_item(
+        &mut top_level_items,
         "CODEC_ID",
         "generated codec id constant",
     )?;
@@ -1419,6 +1431,16 @@ fn validate_generated_item_names(ir: &WesleyIR) -> Result<()> {
         &mut top_level_items,
         "REGISTRY_VERSION",
         "generated registry version constant",
+    )?;
+    record_generated_item(
+        &mut top_level_items,
+        "WESLEY_GENERATOR_VERSION",
+        "generated Wesley generator version constant",
+    )?;
+    record_generated_item(
+        &mut top_level_items,
+        "CONTRACT_HOST_HELPER_API_VERSION",
+        "generated contract-host helper API version constant",
     )?;
 
     for type_def in &ir.types {

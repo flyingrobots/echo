@@ -19,11 +19,14 @@ fn content_hash(bytes: &[u8]) -> [u8; 32] {
 fn contract(seed: u8, op_id: u32, op_kind: ContractOperationKind) -> ContractEvidenceIdentity {
     ContractEvidenceIdentity {
         package_id: InstalledContractPackageId::from_bytes(hash(seed)),
+        echo_abi_version: 1,
         package_name: format!("pkg-{seed}"),
         package_version: "0.1.0".to_owned(),
         artifact_hash_hex: format!("{seed:02x}").repeat(32),
         codec_id: format!("codec-{seed}"),
         registry_version: 1,
+        wesley_generator_version: "echo-wesley-gen/0.1.0".to_owned(),
+        helper_api_version: 1,
         schema_sha256_hex: format!("{:02x}", seed.wrapping_add(1)).repeat(32),
         op_id,
         op_kind,

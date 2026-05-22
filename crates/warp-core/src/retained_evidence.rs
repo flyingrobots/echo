@@ -177,11 +177,14 @@ impl RetainedEvidencePosture {
 
 fn update_contract_identity(hasher: &mut Hasher, contract: &ContractEvidenceIdentity) {
     hasher.update(contract.package_id.as_bytes());
+    hasher.update(&contract.echo_abi_version.to_le_bytes());
     update_string(hasher, &contract.package_name);
     update_string(hasher, &contract.package_version);
     update_string(hasher, &contract.artifact_hash_hex);
     update_string(hasher, &contract.codec_id);
     hasher.update(&contract.registry_version.to_le_bytes());
+    update_string(hasher, &contract.wesley_generator_version);
+    hasher.update(&contract.helper_api_version.to_le_bytes());
     update_string(hasher, &contract.schema_sha256_hex);
     hasher.update(&contract.op_id.to_le_bytes());
     hasher.update(&[contract_operation_kind_tag(contract.op_kind)]);

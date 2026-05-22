@@ -33,6 +33,13 @@
   internal scheduler correlation into `IntentOutcome::{Unknown, Pending,
 Applied, Rejected, Obstructed}` with receipt evidence and typed contract
   obstruction posture.
+- `echo-registry-api`, `echo-wesley-gen`, and `warp-core` now enforce local
+  contract/API compatibility at the installed package boundary. Generated
+  registries carry Echo contract ABI, Wesley generator, and contract-host
+  helper API versions; host verification policy rejects version drift before
+  package install; and installed contract receipt/reading evidence cites the
+  verified compatibility metadata without granting execution or query
+  authority.
 - `warp-core` now has an external contract proof fixture for the v0.1.0 local
   contract-host path. The fixture installs a generated-style package with a
   mutation, conflict-capable mutation, and QueryView query; submits non-trivial

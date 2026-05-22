@@ -1642,6 +1642,8 @@ pub enum ContractOperationKind {
 pub struct ContractEvidenceIdentity {
     /// Deterministic installed package id.
     pub package_id: Vec<u8>,
+    /// Echo contract ABI version verified at install time.
+    pub echo_abi_version: u32,
     /// Runtime package name chosen by the host.
     pub package_name: String,
     /// Runtime package version chosen by the host.
@@ -1652,6 +1654,10 @@ pub struct ContractEvidenceIdentity {
     pub codec_id: String,
     /// Registry version verified at install time.
     pub registry_version: u32,
+    /// Wesley generator version verified at install time.
+    pub wesley_generator_version: String,
+    /// Contract-host helper API version verified at install time.
+    pub helper_api_version: u32,
     /// Hex-encoded authored schema hash verified at install time.
     pub schema_sha256_hex: String,
     /// Generated operation/query id handled by this package.

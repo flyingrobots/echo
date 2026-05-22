@@ -4,8 +4,8 @@
 #![cfg(feature = "native_rule_bootstrap")]
 
 use echo_registry_api::{
-    ArgDef, ContractArtifactVerificationPolicy, ObjectDef, OpDef, OpKind, RegistryInfo,
-    RegistryProvider,
+    ArgDef, ContractArtifactRejection, ContractArtifactVerificationPolicy, ObjectDef, OpDef,
+    OpKind, RegistryInfo, RegistryProvider,
 };
 use warp_core::{
     make_node_id, make_type_id, AuthoredObserverPlan, ContractMutationHandler,
@@ -73,9 +73,12 @@ struct StaticRegistry;
 impl RegistryProvider for StaticRegistry {
     fn info(&self) -> RegistryInfo {
         RegistryInfo {
+            echo_abi_version: 1,
             codec_id: "cbor-canon-v1",
             registry_version: 1,
             schema_sha256_hex: SCHEMA_SHA256_HEX,
+            wesley_generator_version: "echo-wesley-gen/0.1.0",
+            helper_api_version: 1,
         }
     }
 
@@ -118,9 +121,12 @@ fn package_identity() -> ContractPackageIdentity<'static> {
 
 fn verification_policy() -> ContractArtifactVerificationPolicy<'static> {
     ContractArtifactVerificationPolicy {
+        echo_abi_version: 1,
         codec_id: "cbor-canon-v1",
         registry_version: 1,
         schema_sha256_hex: SCHEMA_SHA256_HEX,
+        wesley_generator_version: "echo-wesley-gen/0.1.0",
+        helper_api_version: 1,
         footprint_certificates: &[],
         require_mutation_footprint_certificates: false,
     }
@@ -128,9 +134,12 @@ fn verification_policy() -> ContractArtifactVerificationPolicy<'static> {
 
 fn mismatched_verification_policy() -> ContractArtifactVerificationPolicy<'static> {
     ContractArtifactVerificationPolicy {
+        echo_abi_version: 1,
         codec_id: "cbor-canon-v1",
         registry_version: 1,
         schema_sha256_hex: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        wesley_generator_version: "echo-wesley-gen/0.1.0",
+        helper_api_version: 1,
         footprint_certificates: &[],
         require_mutation_footprint_certificates: false,
     }
@@ -309,8 +318,11 @@ fn installed_contract_package_binds_supported_mutation_and_query() -> Result<(),
         package_identity().artifact_hash_hex
     );
     assert_eq!(contract.schema_sha256_hex, SCHEMA_SHA256_HEX);
+    assert_eq!(contract.echo_abi_version, 1);
     assert_eq!(contract.codec_id, "cbor-canon-v1");
     assert_eq!(contract.registry_version, 1);
+    assert_eq!(contract.wesley_generator_version, "echo-wesley-gen/0.1.0");
+    assert_eq!(contract.helper_api_version, 1);
     assert_eq!(contract.op_id, QUERY_OP_ID);
     assert_eq!(contract.op_kind, warp_core::ContractOperationKind::Query);
     Ok(())
@@ -548,6 +560,43 @@ fn installed_contract_package_rejects_artifact_verification_without_registration
     assert!(matches!(
         err,
         InstalledContractPackageError::ArtifactRejected(_)
+    ));
+    assert_eq!(
+        engine.installed_contract_mutation_package_id(MUTATION_OP_ID),
+        None
+    );
+    assert_eq!(
+        engine.installed_contract_query_package_id(QUERY_OP_ID),
+        None
+    );
+    Ok(())
+}
+
+#[test]
+fn installed_contract_package_rejects_helper_api_mismatch_without_registration(
+) -> Result<(), String> {
+    let mut engine = engine();
+    let mut policy = verification_policy();
+    policy.helper_api_version = 2;
+    let package = package_with_handlers(
+        package_identity(),
+        policy,
+        vec![mutation_handler(MUTATION_OP_ID)],
+        vec![query_observer(QUERY_OP_ID)],
+    );
+
+    let Err(err) = engine.install_contract_package(package) else {
+        return Err("helper API mismatch must be rejected".to_owned());
+    };
+
+    assert!(matches!(
+        err,
+        InstalledContractPackageError::ArtifactRejected(
+            ContractArtifactRejection::HelperApiVersionMismatch {
+                expected: 2,
+                actual: 1,
+            }
+        )
     ));
     assert_eq!(
         engine.installed_contract_mutation_package_id(MUTATION_OP_ID),

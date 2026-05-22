@@ -7,6 +7,14 @@
 
 ### Added
 
+- `warp-core` QueryView readings now carry a `QueryReadingIdentity` in
+  `ReadingEnvelope`. The identity binds query id, domain-separated vars digest,
+  resolved basis digest, requested aperture digest, observer plan, and
+  installed contract evidence when present, while keeping payload bytes in
+  `ObservationPayload::QueryBytes`. Tests prove reading identity changes when
+  query vars, query id, causal basis, schema/observer plan, or budget changes.
+  Over-budget reads still obstruct with `BudgetExceeded`; residual readings
+  remain explicit posture rather than fake complete payloads.
 - `warp-core` now attaches contract package evidence to installed contract
   readings and receipt correlations. Installed QueryView readings carry
   package id, package name/version, artifact hash, schema hash, codec identity,

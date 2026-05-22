@@ -1660,6 +1660,22 @@ pub struct ContractEvidenceIdentity {
     pub op_kind: ContractOperationKind,
 }
 
+/// Stable identity of the QueryView question answered by a reading.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueryReadingIdentity {
+    /// Stable digest over query id, vars, basis, observer plan, budget, rights,
+    /// and installed contract evidence when present.
+    pub reading_id: Vec<u8>,
+    /// Generated query operation id.
+    pub query_id: u32,
+    /// Domain-separated digest of canonical query vars bytes.
+    pub vars_digest: Vec<u8>,
+    /// Digest of the resolved causal basis and basis posture.
+    pub basis_digest: Vec<u8>,
+    /// Digest of the requested local read aperture: budget and rights posture.
+    pub aperture_digest: Vec<u8>,
+}
+
 /// Reading-envelope metadata carried by every observation artifact.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReadingEnvelope {
@@ -1672,6 +1688,8 @@ pub struct ReadingEnvelope {
     /// Installed contract package identity, when this reading came from a
     /// generated contract observer.
     pub contract: Option<ContractEvidenceIdentity>,
+    /// Stable query reading identity, when this envelope answered QueryView.
+    pub query_identity: Option<QueryReadingIdentity>,
     /// Witnesses or shell references that support the reading.
     pub witness_refs: Vec<ReadingWitnessRef>,
     /// Read-side parent/strand basis posture.

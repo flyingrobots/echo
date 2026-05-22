@@ -796,6 +796,7 @@ impl WarpKernel {
                 observer_instance: request.observer_instance.clone(),
                 observer_basis: AbiReadingObserverBasis::QueryView,
                 contract: None,
+                query_identity: None,
                 witness_refs: Vec::new(),
                 parent_basis_posture:
                     echo_wasm_abi::kernel_port::ObservationBasisPosture::Worldline,

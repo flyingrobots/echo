@@ -255,9 +255,9 @@ pub use observation::{
     ObservationCoordinate, ObservationError, ObservationFrame, ObservationPayload,
     ObservationProjection, ObservationProjectionKind, ObservationReadBudget, ObservationRequest,
     ObservationRights, ObservationService, ObserverInstanceId, ObserverInstanceRef, ObserverPlanId,
-    ReadingBudgetPosture, ReadingEnvelope, ReadingObserverBasis, ReadingObserverPlan,
-    ReadingResidualPosture, ReadingRightsPosture, ReadingWitnessRef, ResolvedObservationCoordinate,
-    WorldlineSnapshot,
+    QueryReadingIdentity, ReadingBudgetPosture, ReadingEnvelope, ReadingObserverBasis,
+    ReadingObserverPlan, ReadingResidualPosture, ReadingRightsPosture, ReadingWitnessRef,
+    ResolvedObservationCoordinate, WorldlineSnapshot,
 };
 pub use optic::{
     AdmissionLawId, AdmittedIntent, AttachmentDescentPolicy, BraidId, CapabilityPosture,

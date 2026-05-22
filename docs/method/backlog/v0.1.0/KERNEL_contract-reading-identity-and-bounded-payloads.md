@@ -3,7 +3,7 @@
 
 # Contract Reading Identity And Bounded Payloads
 
-Status: planned kernel/runtime implementation.
+Status: v0.1.0 release blocker.
 
 Depends on:
 

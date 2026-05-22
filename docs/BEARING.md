@@ -12,13 +12,23 @@ code, the code wins and this file should be corrected.
 The WARP paper-to-Echo noun map is maintained in
 `docs/design/warp-optic-implementation-map.md`.
 
+The feature bar for the eventual `v0.1.0` release is maintained in
+`docs/design/v0.1.0-release-plan.md`.
+
+The filesystem lane for release-bar backlog cards is
+`docs/method/backlog/v0.1.0/`.
+
 ## Current Bearing
 
-Echo already has deterministic execution; it does not yet have a continuous
-witnessed intent pipeline into that execution.
+Echo has a local witnessed intent pipeline into deterministic execution:
+application ingress can become witnessed submission history, lawful admission
+evidence, ticketed runtime ingress, scheduler-owned handler dispatch, receipt
+correlation, and observable intent outcome.
 
-The current priority is to finish the path from application ingress to
-scheduler-owned tick outcome without giving application code tick authority.
+The current priority is to make that pipeline consumer-grade for
+Wesley-compiled contract packages: contract-aware receipts, honest reading
+identity, bounded retained readings, and external consumer proof fixtures
+without moving application nouns into Echo core.
 
 ## What Is Already True
 
@@ -66,11 +76,18 @@ scheduler-owned tick outcome without giving application code tick authority.
 
 ## What Is Not Yet True
 
-- Accepted submissions are not yet complete witnessed ingress history.
-- Clients cannot yet observe per-intent applied/rejected application semantics
-  by id.
-- Contract-host packaging does not yet reject unsupported contract operations at
-  an installed registry boundary.
+- Accepted submissions are not yet durable restart-proof ingress history;
+  current replay records prove deterministic import shape, not persistence.
+- Product-facing clients do not yet have polished ABI/helper surfaces for
+  per-intent applied/rejected semantics.
+- Contract-aware receipt and reading identities are not yet strong enough for
+  serious external consumers: package identity, schema identity, operation
+  identity, basis, vars, aperture, and residual posture need explicit evidence
+  where the current generic surfaces are too broad.
+- Contract artifacts, witness material, and bounded reading payloads are not yet
+  retained through a generic semantic lookup layer above `echo-cas`.
+- External consumer proof fixtures, especially `jedit`, have not yet proven the
+  generic host path with application-owned contracts and generated artifacts.
 
 ## Doctrine
 
@@ -190,22 +207,67 @@ AdmissionTicket + witnessed submission -> ticketed runtime ingress
   paper-level privacy/runtime policy concepts. The local contract-host pipeline
   does not yet implement that full social lane model.
 
-## Immediate Next Slice
+## Next Five Slices
 
-The local installed-contract intent pipeline now reaches scheduler-owned handler
-dispatch and replay convergence. The next slice should move outward to the
-contract-aware receipt/reading and consumer-proof boundary: prove an external
-Wesley-compiled contract package can use the generic installed mutation and
-query surfaces without moving application nouns into `warp-core`.
+1. **Contract-Aware Receipts And Readings**
+
+    Make scheduler receipt correlation and QueryView readings honest about the
+    installed contract package they came from. The first slice should inventory
+    existing identity inputs and add only the missing generic ones: package
+    identity, schema hash, artifact hash, operation/query id, basis, vars digest,
+    aperture or residual posture, and witness refs where needed.
+
+    Do not add consumer-specific receipt fields or duplicate identities already
+    covered by `intent_id`, `ReceiptCorrelationRecord`, or `ReadingEnvelope`.
+
+2. **Contract Reading Identity And Bounded Payloads**
+
+    Harden generated-query readings so the identity names the question actually
+    answered, and bounded observers can return only the requested aperture or a
+    typed residual/budget posture. This is the read-side counterpart to the
+    installed intent pipeline.
+
+    Do not canonicalize text-editor state in Echo core and do not let CAS content
+    hashes stand in for semantic reading identity.
+
+3. **Contract Artifact Retention In `echo-cas`**
+
+    Add minimal generic retention for contract artifacts, receipt material,
+    witness refs, reading envelopes, and reading payloads. CAS remains
+    content-only; semantic lookup keys live above it and include contract/schema
+    coordinates.
+
+    Do not build distributed storage, proof-carrying retention, or app-specific
+    indexes in this slice.
+
+4. **Contract Retention And Semantic Lookup Seams**
+
+    Add the host seam needed for bounded observers and large retained payloads:
+    contract payloads can refer to retained fragments, observers can read bounded
+    retained ranges under budget, and unavailable retention returns typed
+    obstruction instead of fake success.
+
+    Do not redefine wormholes, make full materialization canonical, or collapse
+    retention identity into raw CAS hashes.
+
+5. **External Contract Proof Fixture**
+
+    Prove the generic host path with an externally owned Wesley-compiled contract
+    fixture, with `jedit` as the serious consumer shape. The fixture may exercise
+    text-like operations and readings, but Echo core must remain generic and free
+    of text, rope, buffer, editor, or Graft-specific APIs.
+
+    Do not build the product UI, author the `jedit` contract in Echo, or add a
+    special `jedit` ABI.
 
 Direct `native_rule_bootstrap` registration remains an internal fixture and
-transitional engine-test path. It does not provide package identity, registry
-verification, or generated operation/package binding guarantees. Contract-host
-proofs that need those guarantees should install through the package boundary.
+transitional engine-test path. Contract-host proofs that need package identity,
+registry verification, or generated operation/package binding guarantees should
+install through the package boundary.
 
-That next slice must not implement streaming subscriptions, hidden retry,
-execution outside scheduler-owned ticks, wall-clock cadence semantics, or
-jedit/text-domain APIs inside Echo core.
+These slices must not implement hidden retry, execution outside
+scheduler-owned ticks, wall-clock cadence semantics, app-controlled tick
+authority, or application-domain APIs inside Echo core.
 
 ## Do Not Regress
 

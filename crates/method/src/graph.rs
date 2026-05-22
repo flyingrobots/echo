@@ -11,7 +11,14 @@ use serde::Serialize;
 
 use crate::workspace::MethodWorkspace;
 
-const GRAPH_LANES: &[&str] = &["asap", "up-next", "inbox", "cool-ideas", "bad-code"];
+const GRAPH_LANES: &[&str] = &[
+    "asap",
+    "up-next",
+    "v0.1.0",
+    "inbox",
+    "cool-ideas",
+    "bad-code",
+];
 
 const TASK_SECTION_PREFIX: &str = "## T-";
 
@@ -442,9 +449,10 @@ impl TaskGraph {
                 .map(|id| format!(" `{id}`"))
                 .unwrap_or_default();
             let task_link = task_markdown_link(task);
+            let source_link = method_docs_relative_link_target(&task.source_path);
             lines.push(format!(
                 "- `{}` `{}`{}: {} (source: [`{}`]({}))",
-                task.id, task.lane, native, task_link, task.source_path, task.source_path
+                task.id, task.lane, native, task_link, task.source_path, source_link
             ));
         }
         lines.push(String::new());
@@ -1180,16 +1188,24 @@ fn remove_task_tokens(raw: &str) -> String {
 
 fn task_markdown_link(task: &TaskNode) -> String {
     let title = task.title.replace('|', "\\|");
+    let target = method_docs_relative_link_target(&task.source_path);
     if let Some(anchor) = &task.anchor {
-        format!("[{}]({}#{})", title, task.source_path, anchor)
+        format!("[{title}]({target}#{anchor})")
     } else {
-        format!("[{}]({})", title, task.source_path)
+        format!("[{title}]({target})")
     }
+}
+
+fn method_docs_relative_link_target(source_path: &str) -> &str {
+    source_path
+        .strip_prefix("docs/method/")
+        .unwrap_or(source_path)
 }
 
 fn lane_colors(lane: &str) -> (&'static str, &'static str) {
     match lane {
         "asap" => ("#fff3bf", "#b08900"),
+        "v0.1.0" => ("#dcfce7", "#15803d"),
         "up-next" => ("#dbeafe", "#1d4ed8"),
         "inbox" => ("#e5e7eb", "#4b5563"),
         "cool-ideas" => ("#ede9fe", "#7c3aed"),

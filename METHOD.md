@@ -26,13 +26,17 @@ The Echo work doctrine: A backlog, a loop, and honest bookkeeping.
 
 ## Backlog Lanes
 
-| Lane              | Purpose                                  |
-| :---------------- | :--------------------------------------- |
-| **`asap/`**       | Imminent work; pull into the next cycle. |
-| **`up-next/`**    | Queued after `asap/`.                    |
-| **`cool-ideas/`** | Uncommitted experiments.                 |
-| **`bad-code/`**   | Technical debt that must be addressed.   |
-| **`inbox/`**      | Raw ideas.                               |
+| Lane              | Purpose                                                     |
+| :---------------- | :---------------------------------------------------------- |
+| **`asap/`**       | Imminent work; pull into the next cycle.                    |
+| **`v0.1.0/`**     | Release-bar blockers for the local contract-host milestone. |
+| **`up-next/`**    | Queued after `asap/`, outside the release-bar lane.         |
+| **`cool-ideas/`** | Uncommitted experiments.                                    |
+| **`bad-code/`**   | Technical debt that must be addressed.                      |
+| **`inbox/`**      | Raw ideas.                                                  |
+
+`v0.1.0/` is a milestone lane, not an automatic priority override. Move a
+release-blocking card into `asap/` only when it becomes the current pull.
 
 ## The Cycle Loop
 

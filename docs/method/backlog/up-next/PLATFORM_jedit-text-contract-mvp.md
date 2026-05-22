@@ -7,7 +7,7 @@ Status: planned Echo host integration proof.
 
 Depends on:
 
-- [Contract artifact retention in echo-cas](./PLATFORM_contract-artifact-retention-in-echo-cas.md)
+- [Contract artifact retention in echo-cas](../v0.1.0/PLATFORM_contract-artifact-retention-in-echo-cas.md)
 - [Wesley footprint honesty artifact attestation](./PLATFORM_wesley-footprint-honesty-artifact-attestation.md)
 - [WSC, Verkle, IPA, And Retained Readings](../../../architecture/wsc-verkle-ipa-retained-readings.md)
 - external `jedit` Text File Optic contract surface

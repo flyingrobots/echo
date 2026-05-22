@@ -8,7 +8,7 @@ Status: planned generated-artifact hardening.
 Depends on:
 
 - [Continuum proof family runtime cutover](./PLATFORM_continuum-proof-family-runtime-cutover.md)
-- [Contract-aware receipts and readings](./KERNEL_contract-aware-receipts-and-readings.md)
+- [Contract-aware receipts and readings](../v0.1.0/KERNEL_contract-aware-receipts-and-readings.md)
 - [Authenticated Wesley intent admission posture](./PLATFORM_authenticated-wesley-intent-admission-posture.md)
 
 ## Why now

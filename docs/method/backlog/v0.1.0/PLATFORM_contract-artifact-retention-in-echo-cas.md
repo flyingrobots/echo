@@ -3,7 +3,7 @@
 
 # Contract Artifact Retention In echo-cas
 
-Status: planned platform implementation.
+Status: v0.1.0 release blocker.
 
 Depends on:
 

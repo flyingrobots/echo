@@ -9,7 +9,7 @@ Depends on:
 
 - Accepted
   [0016 - Wesley To Echo Toy Contract Proof](../../../design/0016-wesley-to-echo-toy-contract-proof/design.md)
-- [Contract-aware receipts and readings](./KERNEL_contract-aware-receipts-and-readings.md)
+- [Contract-aware receipts and readings](../v0.1.0/KERNEL_contract-aware-receipts-and-readings.md)
 - [0017 - Authenticated Wesley Intent Admission Posture](../../../design/0017-authenticated-wesley-intent-admission-posture/design.md)
 
 ## Why now

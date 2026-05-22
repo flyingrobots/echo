@@ -8,7 +8,7 @@ Status: planned kernel/runtime implementation.
 Depends on:
 
 - [Installed Wesley contract host dispatch](../asap/PLATFORM_installed-wesley-contract-host-dispatch.md)
-- [Contract reading identity and bounded payloads](./KERNEL_contract-reading-identity-and-bounded-payloads.md)
+- [Contract reading identity and bounded payloads](../v0.1.0/KERNEL_contract-reading-identity-and-bounded-payloads.md)
 - [0018 - Contract-Hosted File History Substrate](../../../design/0018-contract-hosted-file-history-substrate/design.md)
 
 ## Why now
@@ -42,6 +42,11 @@ obstruction. Produced inverse intents are admitted normally.
   contract-version mismatches return typed obstructions.
 - Sequence unapply applies deterministic ordering or reports partial success
   explicitly.
+- TickReceipt inverse blob or inverse fragment digest resolves through
+  retention when inverse material is retained.
+- GC, compaction, wormhole, or checkpoint compression either preserves required
+  inverse evidence, provides a rehydratable cold archive, or obstructs
+  fine-grained unapply inside compressed ranges.
 
 ## Non-goals
 

@@ -153,8 +153,11 @@ impl RetainedBlobIndex {
                     new_content_hash: content_hash,
                 });
             }
-            store.put(bytes);
-            store.pin(&content_hash);
+            if !store.has(&existing.content_hash) {
+                let restored_hash = store.put(bytes);
+                debug_assert_eq!(restored_hash, existing.content_hash);
+            }
+            store.pin(&existing.content_hash);
             return Ok(existing.clone());
         }
 

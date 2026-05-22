@@ -3,9 +3,43 @@
 //! Semantic retention tests above the content-only CAS layer.
 
 use echo_cas::{
-    blob_hash, MemoryTier, RetainedBlobIndex, RetainedBlobRole, RetentionError,
-    SemanticBlobCoordinate,
+    blob_hash, BlobHash, BlobStore, CasError, MemoryTier, RetainedBlobIndex, RetainedBlobRole,
+    RetentionError, SemanticBlobCoordinate,
 };
+use std::sync::Arc;
+
+#[derive(Default)]
+struct CountingStore {
+    inner: MemoryTier,
+    put_calls: usize,
+}
+
+impl BlobStore for CountingStore {
+    fn put(&mut self, bytes: &[u8]) -> BlobHash {
+        self.put_calls += 1;
+        self.inner.put(bytes)
+    }
+
+    fn put_verified(&mut self, expected: BlobHash, bytes: &[u8]) -> Result<(), CasError> {
+        self.inner.put_verified(expected, bytes)
+    }
+
+    fn get(&self, hash: &BlobHash) -> Option<Arc<[u8]>> {
+        self.inner.get(hash)
+    }
+
+    fn has(&self, hash: &BlobHash) -> bool {
+        self.inner.has(hash)
+    }
+
+    fn pin(&mut self, hash: &BlobHash) {
+        self.inner.pin(hash);
+    }
+
+    fn unpin(&mut self, hash: &BlobHash) {
+        self.inner.unpin(hash);
+    }
+}
 
 fn coordinate(role: RetainedBlobRole, semantic_seed: u8) -> SemanticBlobCoordinate {
     SemanticBlobCoordinate {
@@ -194,6 +228,26 @@ fn same_semantic_coordinate_and_content_retain_idempotently() -> Result<(), Stri
             .as_ref(),
         bytes
     );
+    Ok(())
+}
+
+#[test]
+fn idempotent_retain_skips_store_put_when_content_is_present() -> Result<(), String> {
+    let mut blobs = CountingStore::default();
+    let mut index = RetainedBlobIndex::default();
+    let coord = coordinate(RetainedBlobRole::ContractReceipt, 12);
+    let bytes = b"stable retained bytes";
+
+    index
+        .retain(&mut blobs, coord.clone(), bytes)
+        .map_err(|err| format!("first retain failed: {err:?}"))?;
+    assert_eq!(blobs.put_calls, 1);
+
+    index
+        .retain(&mut blobs, coord, bytes)
+        .map_err(|err| format!("idempotent retain failed: {err:?}"))?;
+
+    assert_eq!(blobs.put_calls, 1);
     Ok(())
 }
 

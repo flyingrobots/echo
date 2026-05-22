@@ -43,6 +43,10 @@
   query vars, query id, causal basis, schema/observer plan, or budget changes.
   Over-budget reads still obstruct with `BudgetExceeded`; residual readings
   remain explicit posture rather than fake complete payloads.
+- `warp-core` query reading identity now excludes observation freshness
+  metadata from the basis digest. The same QueryView against the same resolved
+  commit keeps a stable `QueryReadingIdentity` even if unrelated runtime-owned
+  tick progress changes the observation freshness watermark.
 - `warp-core` now publishes observation artifacts under observation contract
   version 3 and `echo:observation-artifact:v3` because contract evidence and
   query reading identity are now part of the canonical reading envelope hashed

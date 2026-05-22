@@ -2100,7 +2100,9 @@ impl ObservationService {
         resolved: &ResolvedObservationCoordinate,
         parent_basis_posture: &ObservationBasisPosture,
     ) -> Result<Hash, ObservationError> {
-        let resolved_bytes = echo_wasm_abi::encode_cbor(&resolved.to_abi())
+        let mut resolved_basis = resolved.to_abi();
+        resolved_basis.observed_after_global_tick = None;
+        let resolved_bytes = echo_wasm_abi::encode_cbor(&resolved_basis)
             .map_err(|err| ObservationError::CodecFailure(err.to_string()))?;
         let posture_bytes = echo_wasm_abi::encode_cbor(&parent_basis_posture.to_abi())
             .map_err(|err| ObservationError::CodecFailure(err.to_string()))?;
@@ -3548,6 +3550,81 @@ mod tests {
                 .as_ref()
                 .expect("bounded reading must carry query identity")
                 .reading_id
+        );
+    }
+
+    #[test]
+    fn contract_query_identity_ignores_observation_freshness() {
+        let (mut engine, mut runtime, provenance, worldline_id) = one_commit_fixture();
+        engine
+            .register_contract_query_observer(ContractQueryObserver::new(
+                9_001,
+                authored_query_plan(90, 91),
+                complete_query_observer,
+            ))
+            .unwrap();
+
+        let baseline = ObservationService::observe(
+            &runtime,
+            &provenance,
+            &engine,
+            query_request(
+                worldline_id,
+                ObservationAt::Frontier,
+                9_001,
+                b"counter=read".to_vec(),
+            ),
+        )
+        .unwrap();
+        runtime.advance_global_tick().unwrap();
+        let after_unrelated_progress = ObservationService::observe(
+            &runtime,
+            &provenance,
+            &engine,
+            query_request(
+                worldline_id,
+                ObservationAt::Frontier,
+                9_001,
+                b"counter=read".to_vec(),
+            ),
+        )
+        .unwrap();
+
+        assert_eq!(
+            baseline.resolved.commit_hash,
+            after_unrelated_progress.resolved.commit_hash
+        );
+        assert_ne!(
+            baseline.resolved.observed_after_global_tick,
+            after_unrelated_progress.resolved.observed_after_global_tick
+        );
+        assert_eq!(
+            baseline
+                .reading
+                .query_identity
+                .as_ref()
+                .expect("baseline query identity")
+                .reading_id,
+            after_unrelated_progress
+                .reading
+                .query_identity
+                .as_ref()
+                .expect("later query identity")
+                .reading_id
+        );
+        assert_eq!(
+            baseline
+                .reading
+                .query_identity
+                .as_ref()
+                .expect("baseline query identity")
+                .basis_digest,
+            after_unrelated_progress
+                .reading
+                .query_identity
+                .as_ref()
+                .expect("later query identity")
+                .basis_digest
         );
     }
 

@@ -66,6 +66,13 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
   pipeline replay tests, reference trusted host loop test, and serious external
   consumer fixture without requiring developers to run the full DIND suite for
   normal local iteration.
+- The docs now include an executable local contract-host quickstart and a
+  v0.1.0 authority-boundary audit. The quickstart points developers at
+  `cargo xtask test-slice contract-path-release`, names the app-facing and
+  trusted-host APIs, and documents compatibility and retention boundaries. The
+  audit records current evidence that application code cannot tick, stage
+  ingress, install packages, or recover scheduler faults through the app
+  surface.
 - `echo-cas` semantic retention now supports bounded byte-range lookup through
   `RetainedBlobIndex::load_range(...)`. Range lookup requires the exact
   semantic coordinate, enforces the caller's byte budget, and returns typed

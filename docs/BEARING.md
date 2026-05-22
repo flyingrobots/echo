@@ -265,6 +265,12 @@ AdmissionTicket + witnessed submission -> ticketed runtime ingress
     v0.1 contract-host release witness: installed contract pipeline replay,
     reference trusted host loop, and the serious external consumer fixture.
 
+10. **Release-Grade Quickstart And Authority Audit**
+
+    `docs/quickstart-local-contract-host.md` now documents the executable local
+    contract-host path. `docs/design/v0.1.0-authority-boundary-audit.md` records
+    the app/host authority split, current evidence, and deferred release risks.
+
 ## Next Candidate Slices
 
 1. **Contract Obstruction Taxonomy**
@@ -292,17 +298,11 @@ AdmissionTicket + witnessed submission -> ticketed runtime ingress
     Wrap the current core outcome observation into a developer-facing local API
     that preserves the authority boundary and does not tick synchronously.
 
-5. **Release-Grade Quickstart**
+5. **Release Candidate Cleanup**
 
-    Make the first clean-checkout contract-host flow executable end to end with
-    documented commands.
-
-6. **Authority Boundary Audit**
-
-    Prove the app-facing surfaces cannot tick, step, access trusted runtime
-    control, resume faulted heads, install privileged host adapters, mutate
-    through query observers, bypass package compatibility checks, or turn retry
-    into hidden runtime behavior.
+    Polish product-facing adapters, finish any remaining release-card checkboxes,
+    and run the broader CI/DIND release gates before cutting a release
+    candidate.
 
 Direct `native_rule_bootstrap` registration remains an internal fixture and
 transitional engine-test path. Contract-host proofs that need package identity,

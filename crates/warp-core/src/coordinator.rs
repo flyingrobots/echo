@@ -100,6 +100,10 @@ pub enum RuntimeError {
     /// or conflicted with an existing witnessed submission.
     #[error("witnessed intent submission replay mismatch: {0:?}")]
     IntentSubmissionReplayMismatch(Hash),
+    /// A witnessed submission exists without the canonical envelope material
+    /// required to build a full persistence snapshot.
+    #[error("witnessed intent submission envelope unavailable: {0:?}")]
+    WitnessedSubmissionEnvelopeUnavailable(Hash),
     /// Ticketed runtime ingress referenced a submission Echo has not witnessed.
     #[error("unknown intent submission: {0:?}")]
     UnknownIntentSubmission(Hash),
@@ -1080,24 +1084,30 @@ impl WorldlineRuntime {
     /// The snapshot is host-persistable semantic ingress material. Restoring it
     /// does not make application code tick and does not stage scheduler-visible
     /// runtime ingress.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError::WitnessedSubmissionEnvelopeUnavailable`] when a
+    /// witnessed submission lacks the canonical envelope material required for
+    /// a complete persistence snapshot.
     pub fn witnessed_submission_persistence_snapshot(
         &self,
-    ) -> WitnessedSubmissionPersistenceSnapshot {
-        let records = self
-            .witnessed_submission_replay_records()
-            .into_iter()
-            .filter_map(|submission| {
-                self.witnessed_submission_envelopes
-                    .get(&submission.submission_id)
-                    .cloned()
-                    .map(|envelope| WitnessedSubmissionPersistenceRecord {
-                        submission,
-                        envelope,
-                    })
-            })
-            .collect();
-        WitnessedSubmissionPersistenceSnapshot::new(records)
+    ) -> Result<WitnessedSubmissionPersistenceSnapshot, RuntimeError> {
+        let mut records = Vec::new();
+        for submission in self.witnessed_submission_replay_records() {
+            let envelope = self
+                .witnessed_submission_envelopes
+                .get(&submission.submission_id)
+                .cloned()
+                .ok_or(RuntimeError::WitnessedSubmissionEnvelopeUnavailable(
+                    submission.submission_id,
+                ))?;
+            records.push(WitnessedSubmissionPersistenceRecord {
+                submission,
+                envelope,
+            });
+        }
+        Ok(WitnessedSubmissionPersistenceSnapshot::new(records))
     }
 
     /// Returns the number of witnessed submission records.
@@ -2325,6 +2335,7 @@ fn scheduler_fault_scope_for_error(
         | RuntimeError::Strand(_)
         | RuntimeError::IntentSubmissionGenerationOverflow
         | RuntimeError::IntentSubmissionReplayMismatch(_)
+        | RuntimeError::WitnessedSubmissionEnvelopeUnavailable(_)
         | RuntimeError::UnknownIntentSubmission(_)
         | RuntimeError::TicketedIngressSubmissionMismatch(_)
         | RuntimeError::TicketedIngressAlreadyStaged(_)
@@ -2843,6 +2854,10 @@ fn scheduler_error_cause_digest(err: &RuntimeError) -> Hash {
         }
         RuntimeError::IntentSubmissionReplayMismatch(submission_id) => {
             hasher.update(b"intent-submission-replay-mismatch");
+            hasher.update(submission_id);
+        }
+        RuntimeError::WitnessedSubmissionEnvelopeUnavailable(submission_id) => {
+            hasher.update(b"witnessed-submission-envelope-unavailable");
             hasher.update(submission_id);
         }
         RuntimeError::UnknownIntentSubmission(submission_id) => {
@@ -4222,7 +4237,7 @@ mod tests {
             }
         };
 
-        let snapshot = runtime.witnessed_submission_persistence_snapshot();
+        let snapshot = runtime.witnessed_submission_persistence_snapshot().unwrap();
         assert_eq!(snapshot.len(), 1);
 
         let mut restored = WorldlineRuntime::new();
@@ -4306,7 +4321,7 @@ mod tests {
                 panic!("first submission should be accepted")
             }
         };
-        let snapshot = runtime.witnessed_submission_persistence_snapshot();
+        let snapshot = runtime.witnessed_submission_persistence_snapshot().unwrap();
 
         let mut restored = WorldlineRuntime::new();
         restored
@@ -4336,9 +4351,60 @@ mod tests {
     }
 
     #[test]
-    fn persistence_restore_rejects_mismatched_envelope_without_partial_import() {
+    fn witnessed_submission_persistence_snapshot_rejects_replayed_submission_without_envelope() {
         let mut runtime = WorldlineRuntime::new();
         let worldline_id = wl(3);
+        runtime
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        register_head(
+            &mut runtime,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let env = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            make_intent_kind("test"),
+            b"replayed-without-envelope".to_vec(),
+        );
+        let submission_id = match runtime.submit_intent(env).unwrap() {
+            IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
+            IntentSubmissionDisposition::Duplicate { .. } => {
+                panic!("first submission should be accepted")
+            }
+        };
+        let replay_records = runtime.witnessed_submission_replay_records();
+
+        let mut replayed = WorldlineRuntime::new();
+        replayed
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        register_head(
+            &mut replayed,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        replayed
+            .replay_witnessed_submissions(replay_records)
+            .unwrap();
+
+        assert_eq!(replayed.witnessed_submission_count(), 1);
+        assert!(matches!(
+            replayed.witnessed_submission_persistence_snapshot(),
+            Err(RuntimeError::WitnessedSubmissionEnvelopeUnavailable(id)) if id == submission_id
+        ));
+    }
+
+    #[test]
+    fn persistence_restore_rejects_mismatched_envelope_without_partial_import() {
+        let mut runtime = WorldlineRuntime::new();
+        let worldline_id = wl(4);
         runtime
             .register_worldline(worldline_id, WorldlineState::empty())
             .unwrap();
@@ -4358,6 +4424,7 @@ mod tests {
         runtime.submit_intent(env).unwrap();
         let mut record = runtime
             .witnessed_submission_persistence_snapshot()
+            .unwrap()
             .records()[0]
             .clone();
         record.envelope = IngressEnvelope::local_intent(
@@ -4387,6 +4454,7 @@ mod tests {
         assert_eq!(restored.witnessed_submission_count(), 0);
         assert!(restored
             .witnessed_submission_persistence_snapshot()
+            .unwrap()
             .is_empty());
     }
 

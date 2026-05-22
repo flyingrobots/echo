@@ -38,6 +38,9 @@ persistence shell needed for the host to persist accepted submission material.
 - The envelope ingress id must match the persisted submission record.
 - The envelope route must resolve to the persisted writer head.
 - The target inbox policy must still accept the envelope.
+- Snapshot export fails if any witnessed submission lacks canonical envelope
+  material; replay-only records must not silently disappear from persisted
+  state.
 - Invalid snapshots fail without partial import.
 - Duplicate submission after restore returns duplicate posture, not a new
   semantic submission event.

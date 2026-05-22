@@ -559,6 +559,9 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- `warp-core` witnessed-submission persistence snapshots now fail closed when
+  a submission lacks retained canonical envelope material instead of silently
+  dropping replayed submissions from the host-persistable image.
 - Local pre-push verification now includes the changed-file fingerprint in its
   cache key, skips nested integration-test helper modules instead of inventing
   fake `--test mod` targets, and only emits `<module>::tests` filters for

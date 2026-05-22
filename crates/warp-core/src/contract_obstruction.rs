@@ -219,6 +219,12 @@ impl ContractObstruction {
             | RuntimeError::TicketedIngressDuplicateRuntimeIngress { .. } => {
                 Self::admission_obstruction(ContractObstructionSubject::Unspecified)
             }
+            RuntimeError::WitnessedSubmissionEnvelopeUnavailable(submission_id) => Self::new(
+                ContractObstructionKind::MissingRetention,
+                ContractObstructionSubject::Submission {
+                    submission_id: *submission_id,
+                },
+            ),
             RuntimeError::SchedulerFaultGenerationOverflow
             | RuntimeError::DuplicateWorldline(_)
             | RuntimeError::DuplicateHead(_)

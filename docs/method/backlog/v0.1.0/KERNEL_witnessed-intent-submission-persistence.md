@@ -53,6 +53,8 @@ Implemented local shell:
 - `WitnessedSubmissionPersistenceSnapshot` exports accepted submission records
   in deterministic replay order.
 - Each persistence record carries the canonical ingress envelope.
+- Snapshot export rejects incomplete witnessed-submission state instead of
+  silently dropping replayed records that lack envelope material.
 - Restore validates ingress id, resolved head, and inbox policy before import.
 - Restore records semantic submission history and envelope material without
   entering scheduler-visible inboxes.
@@ -65,6 +67,8 @@ Implemented local shell:
 - Submission recovery does not advance `GlobalTick` or `WorldlineTick`.
 - Submission recovery does not call `SchedulerCoordinator::super_tick(...)`.
 - Submission recovery does not dispatch installed handlers or execute contracts.
+- Persistence snapshot export preserves all witnessed submissions or returns a
+  typed missing-envelope error.
 - Raw transport arrival order remains outside semantic Echo history.
 - Invalid persistence images fail without partial import.
 

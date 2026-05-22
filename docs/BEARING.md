@@ -80,14 +80,13 @@ without moving application nouns into Echo core.
   current replay records prove deterministic import shape, not persistence.
 - Product-facing clients do not yet have polished ABI/helper surfaces for
   per-intent applied/rejected semantics.
-- Contract-aware receipt and reading identities are not yet strong enough for
-  serious external consumers: package identity, schema identity, operation
-  identity, basis, vars, aperture, and residual posture need explicit evidence
-  where the current generic surfaces are too broad.
-- Contract artifacts, witness material, and bounded reading payloads are not yet
-  retained through a generic semantic lookup layer above `echo-cas`.
-- External consumer proof fixtures, especially `jedit`, have not yet proven the
-  generic host path with application-owned contracts and generated artifacts.
+- Contract-aware obstruction taxonomy and product-facing error surfaces still
+  need release-grade stabilization.
+- The semantic retention layer is local and in-memory; durable retained
+  artifact, witness, receipt, and reading recovery remains future work.
+- Generic external contract proof exists, but a serious application-owned
+  consumer proof, especially `jedit`, still needs to prove the host path with
+  generated artifacts outside Echo core.
 
 ## Doctrine
 
@@ -207,58 +206,63 @@ AdmissionTicket + witnessed submission -> ticketed runtime ingress
   paper-level privacy/runtime policy concepts. The local contract-host pipeline
   does not yet implement that full social lane model.
 
-## Next Five Slices
+## Recently Completed Slice Batch
 
 1. **Contract-Aware Receipts And Readings**
 
-    Make scheduler receipt correlation and QueryView readings honest about the
-    installed contract package they came from. The first slice should inventory
-    existing identity inputs and add only the missing generic ones: package
-    identity, schema hash, artifact hash, operation/query id, basis, vars digest,
-    aperture or residual posture, and witness refs where needed.
-
-    Do not add consumer-specific receipt fields or duplicate identities already
-    covered by `intent_id`, `ReceiptCorrelationRecord`, or `ReadingEnvelope`.
+    Installed QueryView readings and installed mutation receipt correlations
+    now carry contract package evidence: package id, schema hash, artifact hash,
+    codec identity, operation/query id, and operation kind.
 
 2. **Contract Reading Identity And Bounded Payloads**
 
-    Harden generated-query readings so the identity names the question actually
-    answered, and bounded observers can return only the requested aperture or a
-    typed residual/budget posture. This is the read-side counterpart to the
-    installed intent pipeline.
-
-    Do not canonicalize text-editor state in Echo core and do not let CAS content
-    hashes stand in for semantic reading identity.
+    QueryView readings now carry `QueryReadingIdentity`, binding query id, vars
+    digest, resolved basis digest, requested aperture digest, observer plan, and
+    installed contract evidence when present.
 
 3. **Contract Artifact Retention In `echo-cas`**
 
-    Add minimal generic retention for contract artifacts, receipt material,
-    witness refs, reading envelopes, and reading payloads. CAS remains
-    content-only; semantic lookup keys live above it and include contract/schema
-    coordinates.
-
-    Do not build distributed storage, proof-carrying retention, or app-specific
-    indexes in this slice.
+    `echo-cas` now has a local semantic retention index above content-only
+    blobs for contract artifacts, receipts, witnesses, reading payloads,
+    reading envelopes, and observer artifacts.
 
 4. **Contract Retention And Semantic Lookup Seams**
 
-    Add the host seam needed for bounded observers and large retained payloads:
-    contract payloads can refer to retained fragments, observers can read bounded
-    retained ranges under budget, and unavailable retention returns typed
-    obstruction instead of fake success.
-
-    Do not redefine wormholes, make full materialization canonical, or collapse
-    retention identity into raw CAS hashes.
+    Semantic retention lookup now supports bounded byte ranges under caller
+    budget while requiring exact semantic coordinate match.
 
 5. **External Contract Proof Fixture**
 
-    Prove the generic host path with an externally owned Wesley-compiled contract
-    fixture, with `jedit` as the serious consumer shape. The fixture may exercise
-    text-like operations and readings, but Echo core must remain generic and free
-    of text, rope, buffer, editor, or Graft-specific APIs.
+    The installed contract pipeline now has a generic external-consumer-shaped
+    proof covering mutation, QueryView reading, retained evidence, and replay
+    without application nouns in Echo core.
 
-    Do not build the product UI, author the `jedit` contract in Echo, or add a
-    special `jedit` ABI.
+## Next Candidate Slices
+
+1. **Durable Witnessed Submission Persistence**
+
+    Accepted-but-not-yet-ticked submissions should survive restart without
+    becoming half-accepted, uncorrelatable history.
+
+2. **Product-Facing Intent Outcome API**
+
+    Wrap the current core outcome observation into a developer-facing local API
+    that preserves the authority boundary and does not tick synchronously.
+
+3. **Reference Trusted Runtime Host Loop**
+
+    Provide a boring host-owned loop that owns tick cadence, runs until idle, and
+    exposes app-safe submit/observe/query surfaces.
+
+4. **Local Replay/DIND Proof For Contract Path**
+
+    Turn the local replay fixture into a release-gate proof over package,
+    submissions, scheduler policy, receipts, readings, and retained evidence.
+
+5. **Release-Grade Quickstart**
+
+    Make the first clean-checkout contract-host flow executable end to end with
+    documented commands.
 
 Direct `native_rule_bootstrap` registration remains an internal fixture and
 transitional engine-test path. Contract-host proofs that need package identity,

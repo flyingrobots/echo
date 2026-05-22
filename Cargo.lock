@@ -2055,6 +2055,7 @@ dependencies = [
  "bytemuck",
  "bytes",
  "ciborium",
+ "echo-cas",
  "echo-dry-tests",
  "echo-registry-api",
  "echo-runtime-schema",

@@ -3,7 +3,7 @@
 
 # External Contract Proof Fixture
 
-Status: v0.1.0 release blocker.
+Status: implemented local proof fixture.
 
 Depends on:
 

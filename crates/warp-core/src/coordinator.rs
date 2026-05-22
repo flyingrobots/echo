@@ -432,6 +432,8 @@ pub struct TicketedRuntimeIngressRecord {
     pub ingress_id: Hash,
     /// Resolved semantic writer-head target.
     pub head_key: WriterHeadKey,
+    /// Installed contract package evidence for generated contract work.
+    pub contract: Option<crate::ContractEvidenceIdentity>,
 }
 
 /// Result of staging a ticketed invocation into runtime ingress.
@@ -467,6 +469,8 @@ pub struct ReceiptCorrelationRecord {
     pub ingress_id: Hash,
     /// Writer head that committed the ingress batch.
     pub head_key: WriterHeadKey,
+    /// Installed contract package evidence for generated contract work.
+    pub contract: Option<crate::ContractEvidenceIdentity>,
     /// Runtime cycle stamp that produced the receipt.
     pub commit_global_tick: GlobalTick,
     /// Worldline frontier tick after the scheduler-owned commit.
@@ -1463,6 +1467,16 @@ impl WorldlineRuntime {
         ticket: &OpticAdmissionTicket,
         envelope: IngressEnvelope,
     ) -> Result<TicketedRuntimeIngressDisposition, RuntimeError> {
+        self.ingest_ticketed_invocation_inner(submission_id, ticket, envelope, None)
+    }
+
+    fn ingest_ticketed_invocation_inner(
+        &mut self,
+        submission_id: Hash,
+        ticket: &OpticAdmissionTicket,
+        envelope: IngressEnvelope,
+        contract: Option<crate::ContractEvidenceIdentity>,
+    ) -> Result<TicketedRuntimeIngressDisposition, RuntimeError> {
         let Some(submission) = self.witnessed_submissions.get(&submission_id) else {
             return Err(RuntimeError::UnknownIntentSubmission(submission_id));
         };
@@ -1507,6 +1521,7 @@ impl WorldlineRuntime {
             ticket_digest: ticket.ticket_digest,
             ingress_id,
             head_key,
+            contract,
         };
         self.ticketed_runtime_ingress
             .insert(ticketed_ingress_id, record.clone());
@@ -1533,21 +1548,18 @@ impl WorldlineRuntime {
     #[cfg(feature = "native_rule_bootstrap")]
     pub fn ingest_installed_contract_invocation(
         &mut self,
-        authority: &TicketedRuntimeIngressAuthority,
+        _authority: &TicketedRuntimeIngressAuthority,
         engine: &Engine,
         submission_id: Hash,
         ticket: &OpticAdmissionTicket,
         envelope: IngressEnvelope,
     ) -> Result<TicketedRuntimeIngressDisposition, RuntimeError> {
         let op_id = installed_contract_mutation_op_id(&envelope)?;
-        if engine
-            .installed_contract_mutation_package_id(op_id)
-            .is_none()
-        {
-            return Err(RuntimeError::UnsupportedInstalledContractMutation { op_id });
-        }
+        let contract = engine
+            .installed_contract_mutation_evidence(op_id)
+            .ok_or(RuntimeError::UnsupportedInstalledContractMutation { op_id })?;
 
-        self.ingest_ticketed_invocation(authority, submission_id, ticket, envelope)
+        self.ingest_ticketed_invocation_inner(submission_id, ticket, envelope, Some(contract))
     }
 
     /// Resolves an ingress envelope to a specific writer head and stores it in that inbox.
@@ -1767,6 +1779,7 @@ impl WorldlineRuntime {
                 ticket_digest: ticketed_ingress.ticket_digest,
                 ingress_id,
                 head_key: context.head_key,
+                contract: ticketed_ingress.contract.clone(),
                 commit_global_tick: context.commit_global_tick,
                 worldline_tick_after: context.worldline_tick_after,
                 tick_receipt_digest: context.tick_receipt_digest,
@@ -4587,6 +4600,7 @@ mod tests {
             ticket_digest,
             ingress_id,
             head_key: head_a,
+            contract: None,
         };
         runtime
             .ticketed_runtime_ingress

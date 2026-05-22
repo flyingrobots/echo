@@ -7,6 +7,63 @@
 
 ### Added
 
+- `warp-core` now has an external contract proof fixture for the v0.1.0 local
+  contract-host path. The fixture installs a generated-style package with a
+  mutation, conflict-capable mutation, and QueryView query; submits non-trivial
+  canonical vars; executes only through scheduler-owned ticks; observes a
+  bounded contract reading; retains reading payload and receipt evidence
+  through `echo-cas` semantic coordinates; and replays witnessed submission
+  history to the same observed intent outcome. The fixture keeps application
+  nouns inside the test package and generated payload shape, not in Echo core.
+- `echo-cas` semantic retention now supports bounded byte-range lookup through
+  `RetainedBlobIndex::load_range(...)`. Range lookup requires the exact
+  semantic coordinate, enforces the caller's byte budget, and returns typed
+  `RetentionError` variants for missing coordinates, missing content,
+  over-budget requests, or out-of-bounds ranges. Content-hash lookup remains a
+  byte lookup only; semantic success still requires coordinate match.
+- `echo-cas` semantic retention now fails closed when the same
+  `SemanticBlobCoordinate` is retained with different bytes. Retaining the same
+  coordinate with the same content is idempotent, while conflicting content
+  returns `RetentionError::SemanticCoordinateConflict`. Bounded range lookup now
+  proves the semantic coordinate exists before reporting range-budget errors.
+- `echo-cas` now provides a local semantic retention index above the
+  content-only blob store. `RetainedBlobIndex` maps
+  `SemanticBlobCoordinate` values to retained descriptors for contract
+  artifacts, receipts, witnesses, reading payloads, reading envelopes, and
+  observer artifacts while preserving the rule that `BlobHash` names bytes
+  only. Retained blobs can be loaded by content hash or exact semantic
+  coordinate, equal bytes under different semantic coordinates do not alias,
+  and missing coordinates or missing bytes return typed `RetentionError`
+  variants instead of fake successful reads.
+- `warp-core` QueryView readings now carry a `QueryReadingIdentity` in
+  `ReadingEnvelope`. The identity binds query id, domain-separated vars digest,
+  resolved basis digest, requested aperture digest, observer plan, and
+  installed contract evidence when present, while keeping payload bytes in
+  `ObservationPayload::QueryBytes`. Tests prove reading identity changes when
+  query vars, query id, causal basis, schema/observer plan, or budget changes.
+  Over-budget reads still obstruct with `BudgetExceeded`; residual readings
+  remain explicit posture rather than fake complete payloads.
+- `warp-core` query reading identity now excludes observation freshness
+  metadata from the basis digest. The same QueryView against the same resolved
+  commit keeps a stable `QueryReadingIdentity` even if unrelated runtime-owned
+  tick progress changes the observation freshness watermark.
+- `warp-core` now publishes observation artifacts under observation contract
+  version 3 and `echo:observation-artifact:v3` because contract evidence and
+  query reading identity are now part of the canonical reading envelope hashed
+  into observation artifacts.
+- `echo-wasm-abi` now reports `ABI_VERSION` 11 for the expanded
+  `ReadingEnvelope` response shape. Legacy retained reading envelopes that omit
+  the new optional contract/query identity fields decode those fields as
+  `None`.
+- `warp-core` now attaches contract package evidence to installed contract
+  readings and receipt correlations. Installed QueryView readings carry
+  package id, package name/version, artifact hash, schema hash, codec identity,
+  registry version, query op id, and operation kind in the `ReadingEnvelope`.
+  Installed mutation receipt correlations copy the same package evidence from
+  ticketed runtime ingress after scheduler-owned execution. Built-in reads and
+  non-package observers can still leave this evidence empty. The evidence is
+  metadata only: it does not grant tick authority, mutate state, replace
+  semantic reading identity, or act as a CAS lookup key.
 - `warp-core` now connects the installed contract package boundary to the
   witnessed intent pipeline. Package-supported canonical EINT mutation ids can
   be staged through ticketed runtime ingress only after Echo has witnessed the

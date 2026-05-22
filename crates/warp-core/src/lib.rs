@@ -191,8 +191,9 @@ pub use contract_host::{
     eint_op_id, eint_vars_for_op, matches_eint_op, runtime_ingress_eint_read_footprint,
 };
 pub use contract_registry::{
-    ContractMutationHandler, ContractPackageIdentity, InstalledContractPackage,
-    InstalledContractPackageError, InstalledContractPackageId, InstalledContractPackageRecord,
+    ContractEvidenceIdentity, ContractMutationHandler, ContractOperationKind,
+    ContractPackageIdentity, InstalledContractPackage, InstalledContractPackageError,
+    InstalledContractPackageId, InstalledContractPackageRecord,
 };
 pub use dynamic_binding::{
     BoundNodeRef, ClosureMemberBinding, DirectSlotBinding, DynamicBindingError,
@@ -254,9 +255,9 @@ pub use observation::{
     ObservationCoordinate, ObservationError, ObservationFrame, ObservationPayload,
     ObservationProjection, ObservationProjectionKind, ObservationReadBudget, ObservationRequest,
     ObservationRights, ObservationService, ObserverInstanceId, ObserverInstanceRef, ObserverPlanId,
-    ReadingBudgetPosture, ReadingEnvelope, ReadingObserverBasis, ReadingObserverPlan,
-    ReadingResidualPosture, ReadingRightsPosture, ReadingWitnessRef, ResolvedObservationCoordinate,
-    WorldlineSnapshot,
+    QueryReadingIdentity, ReadingBudgetPosture, ReadingEnvelope, ReadingObserverBasis,
+    ReadingObserverPlan, ReadingResidualPosture, ReadingRightsPosture, ReadingWitnessRef,
+    ResolvedObservationCoordinate, WorldlineSnapshot,
 };
 pub use optic::{
     AdmissionLawId, AdmittedIntent, AttachmentDescentPolicy, BraidId, CapabilityPosture,

@@ -1193,6 +1193,16 @@ impl Engine {
         self.contract_query_observers.get(&query_id)
     }
 
+    pub(crate) fn contract_query_observer_package_evidence(
+        &self,
+        query_id: u32,
+    ) -> Option<crate::ContractEvidenceIdentity> {
+        let package_id = self.contract_query_observer_packages.get(&query_id)?;
+        self.installed_contract_packages
+            .get(package_id)
+            .map(|record| record.evidence_identity(query_id, crate::ContractOperationKind::Query))
+    }
+
     /// Installs a generated contract package through the package registry
     /// boundary.
     ///
@@ -1317,6 +1327,19 @@ impl Engine {
         op_id: u32,
     ) -> Option<&InstalledContractPackageId> {
         self.contract_mutation_handlers.get(&op_id)
+    }
+
+    /// Returns contract evidence for the installed package that owns a mutation op id.
+    #[cfg(feature = "native_rule_bootstrap")]
+    #[must_use]
+    pub fn installed_contract_mutation_evidence(
+        &self,
+        op_id: u32,
+    ) -> Option<crate::ContractEvidenceIdentity> {
+        let package_id = self.contract_mutation_handlers.get(&op_id)?;
+        self.installed_contract_packages
+            .get(package_id)
+            .map(|record| record.evidence_identity(op_id, crate::ContractOperationKind::Mutation))
     }
 
     /// Returns the package id that installed a query operation id.

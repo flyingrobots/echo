@@ -296,6 +296,23 @@ fn installed_contract_package_binds_supported_mutation_and_query() -> Result<(),
         observed.payload,
         ObservationPayload::QueryBytes(b"value=42".to_vec())
     );
+    let contract = observed
+        .reading
+        .contract
+        .as_ref()
+        .ok_or("installed query reading must carry contract evidence")?;
+    assert_eq!(contract.package_id, record.package_id);
+    assert_eq!(contract.package_name, "toy-counter");
+    assert_eq!(contract.package_version, "0.1.0");
+    assert_eq!(
+        contract.artifact_hash_hex,
+        package_identity().artifact_hash_hex
+    );
+    assert_eq!(contract.schema_sha256_hex, SCHEMA_SHA256_HEX);
+    assert_eq!(contract.codec_id, "cbor-canon-v1");
+    assert_eq!(contract.registry_version, 1);
+    assert_eq!(contract.op_id, QUERY_OP_ID);
+    assert_eq!(contract.op_kind, warp_core::ContractOperationKind::Query);
     Ok(())
 }
 

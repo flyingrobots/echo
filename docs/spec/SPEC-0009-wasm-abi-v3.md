@@ -232,7 +232,7 @@ to:
 | `payload`       | tagged union                    | Head, snapshot, recorded truth, or query bytes |
 
 `artifact_hash` is computed as
-`blake3("echo:observation-artifact:v2\0" || canonical_cbor(hash_input))`.
+`blake3("echo:observation-artifact:v3\0" || canonical_cbor(hash_input))`.
 
 ### ResolvedObservationCoordinate
 

@@ -10,7 +10,7 @@
 //!
 //! # ABI Version
 //!
-//! The current ABI version is [`ABI_VERSION`] (10). All response types are
+//! The current ABI version is [`ABI_VERSION`] (11). All response types are
 //! CBOR-encoded using the canonical rules defined in `docs/spec/js-cbor-mapping.md`.
 //! Breaking changes to response shapes or error codes require a bump to the
 //! ABI version.
@@ -40,7 +40,7 @@ use serde::{
 ///
 /// Increment when response types, error codes, or method signatures change
 /// in a backward-incompatible way.
-pub const ABI_VERSION: u32 = 10;
+pub const ABI_VERSION: u32 = 11;
 
 fn deserialize_opaque_id<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
 where
@@ -1627,6 +1627,55 @@ pub enum ReadingResidualPosture {
     Obstructed,
 }
 
+/// Installed contract operation kind carried by receipt and reading evidence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContractOperationKind {
+    /// Generated mutation operation.
+    Mutation,
+    /// Generated query operation.
+    Query,
+}
+
+/// Contract package identity attached to receipt and reading evidence.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContractEvidenceIdentity {
+    /// Deterministic installed package id.
+    pub package_id: Vec<u8>,
+    /// Runtime package name chosen by the host.
+    pub package_name: String,
+    /// Runtime package version chosen by the host.
+    pub package_version: String,
+    /// Hex-encoded generated package artifact hash.
+    pub artifact_hash_hex: String,
+    /// Registry codec identity verified at install time.
+    pub codec_id: String,
+    /// Registry version verified at install time.
+    pub registry_version: u32,
+    /// Hex-encoded authored schema hash verified at install time.
+    pub schema_sha256_hex: String,
+    /// Generated operation/query id handled by this package.
+    pub op_id: u32,
+    /// Generated operation kind.
+    pub op_kind: ContractOperationKind,
+}
+
+/// Stable identity of the QueryView question answered by a reading.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueryReadingIdentity {
+    /// Stable digest over query id, vars, basis, observer plan, budget, rights,
+    /// and installed contract evidence when present.
+    pub reading_id: Vec<u8>,
+    /// Generated query operation id.
+    pub query_id: u32,
+    /// Domain-separated digest of canonical query vars bytes.
+    pub vars_digest: Vec<u8>,
+    /// Digest of the resolved causal basis and basis posture.
+    pub basis_digest: Vec<u8>,
+    /// Digest of the requested local read aperture: budget and rights posture.
+    pub aperture_digest: Vec<u8>,
+}
+
 /// Reading-envelope metadata carried by every observation artifact.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReadingEnvelope {
@@ -1636,6 +1685,13 @@ pub struct ReadingEnvelope {
     pub observer_instance: Option<ObserverInstanceRef>,
     /// Native observer basis used by the reading.
     pub observer_basis: ReadingObserverBasis,
+    /// Installed contract package identity, when this reading came from a
+    /// generated contract observer.
+    #[serde(default)]
+    pub contract: Option<ContractEvidenceIdentity>,
+    /// Stable query reading identity, when this envelope answered QueryView.
+    #[serde(default)]
+    pub query_identity: Option<QueryReadingIdentity>,
     /// Witnesses or shell references that support the reading.
     pub witness_refs: Vec<ReadingWitnessRef>,
     /// Read-side parent/strand basis posture.

@@ -449,6 +449,56 @@ pub enum IntentSubmissionDisposition {
     },
 }
 
+/// App-facing submission handle returned after Echo accepts or recognizes an
+/// intent submission.
+///
+/// This is not execution evidence and not a tick receipt. It is a stable handle
+/// for polling the scheduler-owned outcome later.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct IntentSubmissionHandle {
+    /// Content-addressed canonical ingress id.
+    pub ingress_id: Hash,
+    /// Resolved semantic writer-head target.
+    pub head_key: WriterHeadKey,
+    /// Witnessed Echo submission id.
+    pub submission_id: Hash,
+    /// Echo-owned intake/correlation generation.
+    pub submission_generation: IngressSubmissionGeneration,
+    /// `true` when Echo had already witnessed this semantic submission.
+    pub duplicate: bool,
+}
+
+impl From<IntentSubmissionDisposition> for IntentSubmissionHandle {
+    fn from(disposition: IntentSubmissionDisposition) -> Self {
+        match disposition {
+            IntentSubmissionDisposition::Accepted {
+                ingress_id,
+                head_key,
+                submission_id,
+                submission_generation,
+            } => Self {
+                ingress_id,
+                head_key,
+                submission_id,
+                submission_generation,
+                duplicate: false,
+            },
+            IntentSubmissionDisposition::Duplicate {
+                ingress_id,
+                head_key,
+                submission_id,
+                submission_generation,
+            } => Self {
+                ingress_id,
+                head_key,
+                submission_id,
+                submission_generation,
+                duplicate: true,
+            },
+        }
+    }
+}
+
 /// Result of ingesting an envelope into the runtime.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IngressDisposition {
@@ -598,6 +648,175 @@ pub enum IntentOutcomeObservation {
         /// Applied/rejected decision derived from the retained receipt entry.
         decision: IntentOutcomeDecision,
     },
+}
+
+/// Receipt evidence attached to app-facing applied or rejected outcomes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IntentOutcomeReceipt {
+    /// Ticketed ingress correlation event.
+    pub ticketed_ingress_id: Hash,
+    /// Admission ticket digest bound to runtime ingress.
+    pub ticket_digest: Hash,
+    /// Canonical ingress id decided by the tick.
+    pub ingress_id: Hash,
+    /// Writer head that committed the tick.
+    pub head_key: WriterHeadKey,
+    /// Installed contract evidence, when the work came from a generated package.
+    pub contract: Option<crate::ContractEvidenceIdentity>,
+    /// Runtime cycle stamp that produced the receipt.
+    pub commit_global_tick: GlobalTick,
+    /// Worldline tick after the commit.
+    pub worldline_tick_after: WorldlineTick,
+    /// Scheduler-owned tick receipt digest.
+    pub tick_receipt_digest: Hash,
+    /// Commit hash emitted by the scheduler-owned tick.
+    pub commit_hash: Hash,
+    /// Entry index inside the correlated tick receipt.
+    pub receipt_entry_index: u32,
+    /// Scheduler rule that produced the receipt entry.
+    pub rule_id: Hash,
+}
+
+impl IntentOutcomeReceipt {
+    fn from_correlation(
+        correlation: &ReceiptCorrelationRecord,
+        receipt_entry_index: u32,
+        rule_id: Hash,
+    ) -> Self {
+        Self {
+            ticketed_ingress_id: correlation.ticketed_ingress_id,
+            ticket_digest: correlation.ticket_digest,
+            ingress_id: correlation.ingress_id,
+            head_key: correlation.head_key,
+            contract: correlation.contract.clone(),
+            commit_global_tick: correlation.commit_global_tick,
+            worldline_tick_after: correlation.worldline_tick_after,
+            tick_receipt_digest: correlation.tick_receipt_digest,
+            commit_hash: correlation.commit_hash,
+            receipt_entry_index,
+            rule_id,
+        }
+    }
+}
+
+/// App-facing outcome posture for a witnessed intent submission.
+///
+/// This is a read-only polling shape. It does not tick, dispatch handlers,
+/// subscribe to streams, or retry failed work.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum IntentOutcome {
+    /// Echo has no witnessed submission for the supplied id.
+    Unknown {
+        /// Submission id the caller asked about.
+        submission_id: Hash,
+    },
+    /// Echo has witnessed the submission, but no tick receipt has decided it.
+    Pending {
+        /// Witnessed Echo submission id.
+        submission_id: Hash,
+        /// Echo-owned intake/correlation generation.
+        submission_generation: IngressSubmissionGeneration,
+        /// Ticketed runtime ingress id, if admission has staged runtime ingress.
+        ticketed_ingress_id: Option<Hash>,
+    },
+    /// The scheduler-owned tick applied this intent.
+    Applied {
+        /// Witnessed Echo submission id.
+        submission_id: Hash,
+        /// Receipt evidence for the applied decision.
+        receipt: Box<IntentOutcomeReceipt>,
+    },
+    /// The scheduler-owned tick rejected this intent as a lawful outcome.
+    Rejected {
+        /// Witnessed Echo submission id.
+        submission_id: Hash,
+        /// Receipt evidence for the rejected decision.
+        receipt: Box<IntentOutcomeReceipt>,
+        /// Deterministic rejection reason emitted by the tick receipt.
+        reason: TickReceiptRejection,
+        /// Receipt entry indices that blocked this candidate.
+        blocked_by: Vec<u32>,
+    },
+    /// Echo could not honestly interpret the outcome evidence.
+    Obstructed {
+        /// Witnessed Echo submission id.
+        submission_id: Hash,
+        /// Typed contract-host obstruction.
+        obstruction: crate::ContractObstruction,
+    },
+}
+
+impl IntentOutcome {
+    /// Converts the internal scheduler observation into the app-facing outcome
+    /// shape.
+    #[must_use]
+    pub fn from_observation(observation: IntentOutcomeObservation) -> Self {
+        match observation {
+            IntentOutcomeObservation::UnknownSubmission { submission_id } => {
+                Self::Unknown { submission_id }
+            }
+            IntentOutcomeObservation::Pending {
+                submission_id,
+                submission_generation,
+                ticketed_ingress_id,
+            } => Self::Pending {
+                submission_id,
+                submission_generation,
+                ticketed_ingress_id,
+            },
+            IntentOutcomeObservation::Decided {
+                correlation,
+                decision:
+                    IntentOutcomeDecision::Applied {
+                        receipt_entry_index,
+                        rule_id,
+                    },
+            } => Self::Applied {
+                submission_id: correlation.submission_id,
+                receipt: Box::new(IntentOutcomeReceipt::from_correlation(
+                    &correlation,
+                    receipt_entry_index,
+                    rule_id,
+                )),
+            },
+            IntentOutcomeObservation::Decided {
+                correlation,
+                decision:
+                    IntentOutcomeDecision::Rejected {
+                        receipt_entry_index,
+                        rule_id,
+                        reason,
+                        blocked_by,
+                    },
+            } => Self::Rejected {
+                submission_id: correlation.submission_id,
+                receipt: Box::new(IntentOutcomeReceipt::from_correlation(
+                    &correlation,
+                    receipt_entry_index,
+                    rule_id,
+                )),
+                reason,
+                blocked_by,
+            },
+            IntentOutcomeObservation::Decided {
+                correlation,
+                decision:
+                    IntentOutcomeDecision::NoMatchingReceiptEntry {
+                        tick_receipt_digest,
+                    },
+            } => {
+                let mut obstruction =
+                    crate::ContractObstruction::missing_retention(tick_receipt_digest);
+                if let Some(contract) = correlation.contract.as_ref() {
+                    obstruction = obstruction.with_contract(contract.clone());
+                }
+                Self::Obstructed {
+                    submission_id: correlation.submission_id,
+                    obstruction,
+                }
+            }
+        }
+    }
 }
 
 /// Request to fork a strand from one precise source-lane coordinate.
@@ -958,6 +1177,17 @@ impl WorldlineRuntime {
         self.receipt_correlations_by_ticketed_ingress.len()
     }
 
+    /// App-facing submission helper.
+    ///
+    /// This records witnessed ingress history only. It does not enter runtime
+    /// ingress, tick, dispatch handlers, or mutate application state.
+    pub fn submit_app_intent(
+        &mut self,
+        envelope: IngressEnvelope,
+    ) -> Result<IntentSubmissionHandle, RuntimeError> {
+        self.submit_intent(envelope).map(Into::into)
+    }
+
     /// Returns scheduler fault evidence by fault id.
     #[must_use]
     pub fn scheduler_fault(&self, fault_id: &SchedulerFaultId) -> Option<&SchedulerFaultRecord> {
@@ -1071,6 +1301,15 @@ impl WorldlineRuntime {
                 .get(submission_id)
                 .copied(),
         }
+    }
+
+    /// App-facing read-only outcome observation.
+    ///
+    /// This wraps the internal scheduler observation in product-facing states
+    /// and uses the contract obstruction taxonomy for missing outcome evidence.
+    #[must_use]
+    pub fn observe_app_intent_outcome(&self, submission_id: &Hash) -> IntentOutcome {
+        IntentOutcome::from_observation(self.observe_intent_outcome(submission_id))
     }
 
     fn intent_outcome_decision(
@@ -2947,6 +3186,10 @@ mod tests {
         GlobalTick::from_raw(raw)
     }
 
+    fn hash(n: u8) -> Hash {
+        [n; 32]
+    }
+
     fn empty_engine() -> Engine {
         let mut store = GraphStore::default();
         let root = make_node_id("root");
@@ -4145,6 +4388,167 @@ mod tests {
         assert!(restored
             .witnessed_submission_persistence_snapshot()
             .is_empty());
+    }
+
+    #[test]
+    fn submit_app_intent_returns_handle_without_ticking() {
+        let mut runtime = WorldlineRuntime::new();
+        let worldline_id = wl(4);
+        runtime
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        let head_key = register_head(
+            &mut runtime,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let env = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            make_intent_kind("test"),
+            b"app-submit".to_vec(),
+        );
+
+        let handle = runtime.submit_app_intent(env.clone()).unwrap();
+
+        assert_eq!(handle.ingress_id, env.ingress_id());
+        assert_eq!(handle.head_key, head_key);
+        assert_eq!(handle.submission_generation.as_u64(), 1);
+        assert!(!handle.duplicate);
+        assert_eq!(runtime.global_tick(), gt(0));
+        assert_eq!(
+            runtime
+                .worldlines()
+                .get(&worldline_id)
+                .unwrap()
+                .frontier_tick(),
+            wt(0)
+        );
+        assert_eq!(runtime.ticketed_runtime_ingress_count(), 0);
+    }
+
+    #[test]
+    fn observe_app_intent_outcome_reports_unknown_and_pending() {
+        let mut runtime = WorldlineRuntime::new();
+        let unknown_submission = hash(99);
+        assert!(matches!(
+            runtime.observe_app_intent_outcome(&unknown_submission),
+            IntentOutcome::Unknown { submission_id } if submission_id == unknown_submission
+        ));
+
+        let worldline_id = wl(5);
+        runtime
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        register_head(
+            &mut runtime,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let handle = runtime
+            .submit_app_intent(IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind("test"),
+                b"pending-app".to_vec(),
+            ))
+            .unwrap();
+
+        assert!(matches!(
+            runtime.observe_app_intent_outcome(&handle.submission_id),
+            IntentOutcome::Pending {
+                submission_id,
+                submission_generation,
+                ticketed_ingress_id: None,
+            } if submission_id == handle.submission_id
+                && submission_generation == handle.submission_generation
+        ));
+    }
+
+    #[test]
+    fn app_intent_outcome_maps_decisions_and_missing_receipt_evidence() {
+        let head_key = WriterHeadKey {
+            worldline_id: wl(6),
+            head_id: make_head_id("default"),
+        };
+        let correlation = ReceiptCorrelationRecord {
+            ticketed_ingress_id: hash(1),
+            submission_id: hash(2),
+            ticket_digest: hash(3),
+            ingress_id: hash(4),
+            head_key,
+            contract: None,
+            commit_global_tick: gt(7),
+            worldline_tick_after: wt(8),
+            tick_receipt_digest: hash(9),
+            commit_hash: hash(10),
+        };
+
+        let applied = IntentOutcome::from_observation(IntentOutcomeObservation::Decided {
+            correlation: Box::new(correlation.clone()),
+            decision: IntentOutcomeDecision::Applied {
+                receipt_entry_index: 3,
+                rule_id: hash(11),
+            },
+        });
+        assert!(matches!(
+            applied,
+            IntentOutcome::Applied {
+                submission_id,
+                receipt,
+            } if submission_id == correlation.submission_id
+                && receipt.tick_receipt_digest == correlation.tick_receipt_digest
+                && receipt.receipt_entry_index == 3
+        ));
+
+        let rejected = IntentOutcome::from_observation(IntentOutcomeObservation::Decided {
+            correlation: Box::new(correlation.clone()),
+            decision: IntentOutcomeDecision::Rejected {
+                receipt_entry_index: 4,
+                rule_id: hash(12),
+                reason: TickReceiptRejection::FootprintConflict,
+                blocked_by: vec![1, 2],
+            },
+        });
+        assert!(matches!(
+            rejected,
+            IntentOutcome::Rejected {
+                submission_id,
+                reason: TickReceiptRejection::FootprintConflict,
+                blocked_by,
+                ..
+            } if submission_id == correlation.submission_id && blocked_by == vec![1, 2]
+        ));
+
+        let obstructed = IntentOutcome::from_observation(IntentOutcomeObservation::Decided {
+            correlation: Box::new(correlation.clone()),
+            decision: IntentOutcomeDecision::NoMatchingReceiptEntry {
+                tick_receipt_digest: correlation.tick_receipt_digest,
+            },
+        });
+        match obstructed {
+            IntentOutcome::Obstructed {
+                submission_id,
+                obstruction,
+            } => {
+                assert_eq!(submission_id, correlation.submission_id);
+                assert_eq!(
+                    obstruction.kind,
+                    crate::ContractObstructionKind::MissingRetention
+                );
+                assert_eq!(
+                    obstruction.subject,
+                    crate::ContractObstructionSubject::Retention {
+                        retention_id: correlation.tick_receipt_digest
+                    }
+                );
+            }
+            other => panic!("expected obstructed outcome, got {other:?}"),
+        }
     }
 
     #[test]

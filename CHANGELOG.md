@@ -27,6 +27,12 @@
   ticked work and restore duplicate detection plus envelope material without
   staging scheduler-visible inbox work, ticking, dispatching handlers, or
   executing contracts.
+- `warp-core` now exposes a local product-facing intent outcome surface.
+  `submit_app_intent(...)` returns an `IntentSubmissionHandle` without ticking
+  or staging runtime ingress, and `observe_app_intent_outcome(...)` maps
+  internal scheduler correlation into `IntentOutcome::{Unknown, Pending,
+Applied, Rejected, Obstructed}` with receipt evidence and typed contract
+  obstruction posture.
 - `warp-core` now has an external contract proof fixture for the v0.1.0 local
   contract-host path. The fixture installs a generated-style package with a
   mutation, conflict-capable mutation, and QueryView query; submits non-trivial

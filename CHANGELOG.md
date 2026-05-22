@@ -7,6 +7,15 @@
 
 ### Added
 
+- `echo-cas` now provides a local semantic retention index above the
+  content-only blob store. `RetainedBlobIndex` maps
+  `SemanticBlobCoordinate` values to retained descriptors for contract
+  artifacts, receipts, witnesses, reading payloads, reading envelopes, and
+  observer artifacts while preserving the rule that `BlobHash` names bytes
+  only. Retained blobs can be loaded by content hash or exact semantic
+  coordinate, equal bytes under different semantic coordinates do not alias,
+  and missing coordinates or missing bytes return typed `RetentionError`
+  variants instead of fake successful reads.
 - `warp-core` QueryView readings now carry a `QueryReadingIdentity` in
   `ReadingEnvelope`. The identity binds query id, domain-separated vars digest,
   resolved basis digest, requested aperture digest, observer plan, and

@@ -22,7 +22,12 @@
 #![forbid(unsafe_code)]
 
 mod memory;
+mod retention;
 pub use memory::MemoryTier;
+pub use retention::{
+    RetainedBlob, RetainedBlobDescriptor, RetainedBlobIndex, RetainedBlobRole, RetentionError,
+    SemanticBlobCoordinate,
+};
 
 use std::sync::Arc;
 

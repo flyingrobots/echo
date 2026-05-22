@@ -8,7 +8,7 @@ Status: planned kernel/runtime implementation.
 Depends on:
 
 - [Installed Wesley contract host dispatch](../asap/PLATFORM_installed-wesley-contract-host-dispatch.md)
-- [Contract reading identity and bounded payloads](./KERNEL_contract-reading-identity-and-bounded-payloads.md)
+- [Contract reading identity and bounded payloads](../v0.1.0/KERNEL_contract-reading-identity-and-bounded-payloads.md)
 - [0018 - Contract-Hosted File History Substrate](../../../design/0018-contract-hosted-file-history-substrate/design.md)
 
 ## Why now

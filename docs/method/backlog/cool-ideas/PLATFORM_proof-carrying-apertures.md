@@ -7,8 +7,8 @@ Status: cool idea, future proof backend lane.
 
 Depends on:
 
-- [Contract-aware receipts and readings](../up-next/KERNEL_contract-aware-receipts-and-readings.md)
-- [Contract artifact retention in echo-cas](../up-next/PLATFORM_contract-artifact-retention-in-echo-cas.md)
+- [Contract-aware receipts and readings](../v0.1.0/KERNEL_contract-aware-receipts-and-readings.md)
+- [Contract artifact retention in echo-cas](../v0.1.0/PLATFORM_contract-artifact-retention-in-echo-cas.md)
 - [WSC, Verkle, IPA, And Retained Readings](../../../architecture/wsc-verkle-ipa-retained-readings.md)
 - [WARPDrive POSIX Materialization Optic](./PLATFORM_warpdrive-posix-optic.md)
 

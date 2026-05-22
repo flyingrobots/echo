@@ -3,12 +3,12 @@
 
 # Contract Retention And Semantic Lookup Seams
 
-Status: planned platform implementation.
+Status: v0.1.0 release blocker.
 
 Depends on:
 
 - [Contract artifact retention in echo-cas](./PLATFORM_contract-artifact-retention-in-echo-cas.md)
-- [Contract inverse admission hook](./KERNEL_contract-inverse-admission-hook.md)
+- [Contract reading identity and bounded payloads](./KERNEL_contract-reading-identity-and-bounded-payloads.md)
 - [0018 - Contract-Hosted File History Substrate](../../../design/0018-contract-hosted-file-history-substrate/design.md)
 
 ## Why now

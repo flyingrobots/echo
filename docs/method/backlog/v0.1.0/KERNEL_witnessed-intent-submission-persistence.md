@@ -3,11 +3,11 @@
 
 # Witnessed Intent Submission Persistence
 
-Status: follow-up implementation slice.
+Status: v0.1.0 release blocker.
 
 Depends on:
 
-- WitnessedIntentSubmission v0.
+- Local witnessed submission replay shape from the installed intent pipeline.
 
 ## Why now
 
@@ -19,6 +19,14 @@ ticked submissions.
 Pending inbox memory alone is not the end state. Echo needs restart replay for
 accepted submission history without giving application code tick authority or
 making transport arrival semantic history.
+
+Crash/restart behavior must recover to one of these states:
+
+- submission was not accepted;
+- submission was accepted and remains pending;
+- submission was accepted and later decided by a tick receipt.
+
+It must not recover to a half-accepted, uncorrelatable state.
 
 ## RED
 

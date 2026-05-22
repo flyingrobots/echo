@@ -3,7 +3,7 @@
 
 # Contract-Aware Receipts And Readings
 
-Status: planned kernel hardening.
+Status: v0.1.0 release blocker.
 
 Depends on:
 

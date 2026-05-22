@@ -45,11 +45,11 @@ registry model.
     - Backlog checkpoints:
       [Installed Wesley contract host dispatch](./PLATFORM_installed-wesley-contract-host-dispatch.md),
       [Contract QueryView observer bridge](./PLATFORM_contract-queryview-observer-bridge.md)
-6. [Contract-aware receipts and readings](../up-next/KERNEL_contract-aware-receipts-and-readings.md)
-7. [Contract reading identity and bounded payloads](../up-next/KERNEL_contract-reading-identity-and-bounded-payloads.md)
-8. [Contract artifact retention in echo-cas](../up-next/PLATFORM_contract-artifact-retention-in-echo-cas.md)
-9. [Contract retention and semantic lookup seams](../up-next/PLATFORM_contract-retention-and-streaming-seams.md)
-10. [jedit contract proof fixture](../up-next/PLATFORM_jedit-contract-proof-fixture.md)
+6. [Contract-aware receipts and readings](../v0.1.0/KERNEL_contract-aware-receipts-and-readings.md)
+7. [Contract reading identity and bounded payloads](../v0.1.0/KERNEL_contract-reading-identity-and-bounded-payloads.md)
+8. [Contract artifact retention in echo-cas](../v0.1.0/PLATFORM_contract-artifact-retention-in-echo-cas.md)
+9. [Contract retention and semantic lookup seams](../v0.1.0/PLATFORM_contract-retention-and-semantic-lookup-seams.md)
+10. [External contract proof fixture](../v0.1.0/PLATFORM_external-contract-proof-fixture.md)
 11. [jedit text contract MVP](../up-next/PLATFORM_jedit-text-contract-mvp.md)
 12. [Graft live frontier structural readings](../up-next/PLATFORM_graft-live-frontier-structural-readings.md)
 13. [Contract strands and counterfactuals](../up-next/KERNEL_contract-strands-and-counterfactuals.md)

@@ -15,6 +15,9 @@ The WARP paper-to-Echo noun map is maintained in
 The feature bar for the eventual `v0.1.0` release is maintained in
 `docs/design/v0.1.0-release-plan.md`.
 
+The filesystem lane for release-bar backlog cards is
+`docs/method/backlog/v0.1.0/`.
+
 ## Current Bearing
 
 Echo has a local witnessed intent pipeline into deterministic execution:

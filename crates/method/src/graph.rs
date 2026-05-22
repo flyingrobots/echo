@@ -11,7 +11,14 @@ use serde::Serialize;
 
 use crate::workspace::MethodWorkspace;
 
-const GRAPH_LANES: &[&str] = &["asap", "up-next", "inbox", "cool-ideas", "bad-code"];
+const GRAPH_LANES: &[&str] = &[
+    "asap",
+    "v0.1.0",
+    "up-next",
+    "inbox",
+    "cool-ideas",
+    "bad-code",
+];
 
 const TASK_SECTION_PREFIX: &str = "## T-";
 
@@ -1190,6 +1197,7 @@ fn task_markdown_link(task: &TaskNode) -> String {
 fn lane_colors(lane: &str) -> (&'static str, &'static str) {
     match lane {
         "asap" => ("#fff3bf", "#b08900"),
+        "v0.1.0" => ("#dcfce7", "#15803d"),
         "up-next" => ("#dbeafe", "#1d4ed8"),
         "inbox" => ("#e5e7eb", "#4b5563"),
         "cool-ideas" => ("#ede9fe", "#7c3aed"),

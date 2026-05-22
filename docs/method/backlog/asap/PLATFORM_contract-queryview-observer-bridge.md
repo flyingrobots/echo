@@ -10,7 +10,7 @@ complete.
 Depends on:
 
 - [Installed Wesley contract host dispatch](./PLATFORM_installed-wesley-contract-host-dispatch.md)
-- [Contract-aware receipts and readings](../up-next/KERNEL_contract-aware-receipts-and-readings.md)
+- [Contract-aware receipts and readings](../v0.1.0/KERNEL_contract-aware-receipts-and-readings.md)
 - [0018 - Contract-Hosted File History Substrate](../../../design/0018-contract-hosted-file-history-substrate/design.md)
 
 ## Why now

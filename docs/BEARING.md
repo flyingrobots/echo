@@ -182,19 +182,19 @@ AdmissionTicket + witnessed submission -> ticketed runtime ingress
 
 ## Roadmap Status
 
-| Area                           | Status   | Notes                                                                                                                           |
-| :----------------------------- | :------- | :------------------------------------------------------------------------------------------------------------------------------ |
-| WitnessedIntentSubmission      | Partial  | Runtime records witnessed submissions and exports/imports deterministic replay records; durable storage remains follow-up work. |
-| SchedulerWorkCandidate         | Complete | The admission ladder can resolve the scheduler work candidate fixture.                                                          |
-| LawWitness                     | Complete | The admission ladder can resolve the law witness fixture.                                                                       |
-| AdmissionTicket                | Complete | Echo can issue `OpticAdmissionTicket` evidence without executing.                                                               |
-| TicketedRuntimeIngress         | Complete | Ticketed ingress stages admitted submissions through runtime-owner authority without ticking.                                   |
-| ReceiptCorrelation             | Complete | Scheduler-owned tick receipts correlate back to ticketed ingress, tickets, and submissions.                                     |
-| IntentOutcomeObservation       | Complete | Core exposes zero-write pending/decided observation with applied/rejected receipt decisions and blockers.                       |
-| InstalledContractHostDispatch  | Complete | Installed packages can dispatch mutation handlers through witnessed, ticketed, scheduler-owned ticks.                           |
-| ConflictPolicy / ExplicitRetry | Partial  | Tick-scale conflict rejection is final and blocker-attributed; user-facing retry helpers remain future.                         |
-| QueryViewObserverBridge        | Complete | Core routes QueryView/Query to installed observers, and Wesley emits host helper constructors.                                  |
-| Replay/DIND proof              | Partial  | Local installed intent pipeline replay converges; broader DIND/replay closure remains future work.                              |
+| Area                           | Status   | Notes                                                                                                                     |
+| :----------------------------- | :------- | :------------------------------------------------------------------------------------------------------------------------ |
+| WitnessedIntentSubmission      | Partial  | Runtime records witnessed submissions and restores local persistence images; host durable storage remains follow-up work. |
+| SchedulerWorkCandidate         | Complete | The admission ladder can resolve the scheduler work candidate fixture.                                                    |
+| LawWitness                     | Complete | The admission ladder can resolve the law witness fixture.                                                                 |
+| AdmissionTicket                | Complete | Echo can issue `OpticAdmissionTicket` evidence without executing.                                                         |
+| TicketedRuntimeIngress         | Complete | Ticketed ingress stages admitted submissions through runtime-owner authority without ticking.                             |
+| ReceiptCorrelation             | Complete | Scheduler-owned tick receipts correlate back to ticketed ingress, tickets, and submissions.                               |
+| IntentOutcomeObservation       | Complete | Core exposes zero-write pending/decided observation with applied/rejected receipt decisions and blockers.                 |
+| InstalledContractHostDispatch  | Complete | Installed packages can dispatch mutation handlers through witnessed, ticketed, scheduler-owned ticks.                     |
+| ConflictPolicy / ExplicitRetry | Partial  | Tick-scale conflict rejection is final and blocker-attributed; user-facing retry helpers remain future.                   |
+| QueryViewObserverBridge        | Complete | Core routes QueryView/Query to installed observers, and Wesley emits host helper constructors.                            |
+| Replay/DIND proof              | Partial  | Local installed intent pipeline replay converges; broader DIND/replay closure remains future work.                        |
 
 ## Future Scope Boundaries
 

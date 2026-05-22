@@ -3,7 +3,7 @@
 
 # Witnessed Intent Submission Persistence
 
-Status: v0.1.0 release blocker.
+Status: implemented local persistence shell; durable host storage remains.
 
 Depends on:
 
@@ -43,10 +43,19 @@ Add a failing replay/recovery test:
 
 ## GREEN
 
-Persist and restore witnessed submission records and pending ingress membership
-through the existing runtime/provenance storage boundary, or add the smallest
-new storage shell needed to make accepted-but-not-yet-ticked submissions
-replayable after restart.
+Persist and restore witnessed submission records plus canonical ingress envelope
+material through the smallest core storage shell needed to make accepted-but-
+not-yet-ticked submissions recoverable after restart. The host still owns the
+durable storage medium.
+
+Implemented local shell:
+
+- `WitnessedSubmissionPersistenceSnapshot` exports accepted submission records
+  in deterministic replay order.
+- Each persistence record carries the canonical ingress envelope.
+- Restore validates ingress id, resolved head, and inbox policy before import.
+- Restore records semantic submission history and envelope material without
+  entering scheduler-visible inboxes.
 
 ## Acceptance Criteria
 
@@ -57,6 +66,7 @@ replayable after restart.
 - Submission recovery does not call `SchedulerCoordinator::super_tick(...)`.
 - Submission recovery does not dispatch installed handlers or execute contracts.
 - Raw transport arrival order remains outside semantic Echo history.
+- Invalid persistence images fail without partial import.
 
 ## Non-goals
 

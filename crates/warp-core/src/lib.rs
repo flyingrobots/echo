@@ -358,7 +358,8 @@ pub use coordinator::{
     SchedulerFaultGeneration, SchedulerFaultId, SchedulerFaultRecord,
     SchedulerFaultRecoveryAuthority, SchedulerFaultScope, SchedulerFaultStatus, SchedulerRunId,
     StepRecord, TicketedRuntimeIngressAuthority, TicketedRuntimeIngressDisposition,
-    TicketedRuntimeIngressRecord, WorldlineRuntime,
+    TicketedRuntimeIngressRecord, WitnessedSubmissionPersistenceRecord,
+    WitnessedSubmissionPersistenceSnapshot, WorldlineRuntime,
 };
 /// Writer-head registry and routing primitives used by the runtime-owned ingress path.
 pub use head::{

@@ -21,6 +21,12 @@
   evidence or typed `MissingRetention` obstruction. CAS hashes remain byte
   identities only and cannot stand in for semantic reading or evidence
   coordinates.
+- `warp-core` now exposes a local witnessed-submission persistence shell.
+  `WitnessedSubmissionPersistenceSnapshot` pairs accepted submission records
+  with canonical ingress envelopes so hosts can persist accepted-but-not-yet-
+  ticked work and restore duplicate detection plus envelope material without
+  staging scheduler-visible inbox work, ticking, dispatching handlers, or
+  executing contracts.
 - `warp-core` now has an external contract proof fixture for the v0.1.0 local
   contract-host path. The fixture installs a generated-style package with a
   mutation, conflict-capable mutation, and QueryView query; submits non-trivial

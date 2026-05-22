@@ -194,6 +194,67 @@ pub struct IntentSubmissionRecord {
     pub submission_generation: IngressSubmissionGeneration,
 }
 
+/// Persistable witnessed submission material.
+///
+/// The submission record is Echo semantic ingress history. The envelope is the
+/// canonical material a trusted host can later use for ticketed runtime ingress.
+/// Restoring this material does not enter scheduler-visible inboxes.
+#[derive(Clone, Debug)]
+pub struct WitnessedSubmissionPersistenceRecord {
+    /// Witnessed Echo submission record.
+    pub submission: IntentSubmissionRecord,
+    /// Canonical ingress envelope accepted by Echo.
+    pub envelope: IngressEnvelope,
+}
+
+/// Deterministic local persistence image for witnessed submissions.
+///
+/// Hosts may write this image to durable storage. Importing it restores
+/// accepted submission identity and envelope material only; it does not tick,
+/// dispatch, stage ticketed ingress, or mutate application state.
+#[derive(Clone, Debug, Default)]
+pub struct WitnessedSubmissionPersistenceSnapshot {
+    records: Vec<WitnessedSubmissionPersistenceRecord>,
+}
+
+impl WitnessedSubmissionPersistenceSnapshot {
+    /// Builds a snapshot from persistence records, sorted into replay order.
+    #[must_use]
+    pub fn new(mut records: Vec<WitnessedSubmissionPersistenceRecord>) -> Self {
+        records.sort_by_key(|record| {
+            (
+                record.submission.submission_generation,
+                record.submission.submission_id,
+            )
+        });
+        Self { records }
+    }
+
+    /// Returns the snapshot records in deterministic replay order.
+    #[must_use]
+    pub fn records(&self) -> &[WitnessedSubmissionPersistenceRecord] {
+        &self.records
+    }
+
+    /// Consumes the snapshot and returns records in deterministic replay order.
+    #[must_use]
+    pub fn into_records(self) -> Vec<WitnessedSubmissionPersistenceRecord> {
+        self.records
+    }
+
+    /// Returns `true` when the snapshot carries no submission material.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.records.is_empty()
+    }
+
+    /// Returns the number of persisted witnessed submissions.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.records.len()
+    }
+}
+
 /// Explicit authority token for staging ticketed runtime ingress.
 ///
 /// Application-facing code should not hold this token. An admission ticket is
@@ -593,6 +654,8 @@ pub struct WorldlineRuntime {
     next_submission_generation: IngressSubmissionGeneration,
     /// Witnessed submission records keyed by content-addressed submission id.
     witnessed_submissions: BTreeMap<Hash, IntentSubmissionRecord>,
+    /// Canonical envelope material for witnessed submissions.
+    witnessed_submission_envelopes: BTreeMap<Hash, IngressEnvelope>,
     /// Deterministic lookup from resolved semantic target and ingress id to
     /// witnessed submission id.
     submission_by_target: BTreeMap<(WriterHeadKey, Hash), Hash>,
@@ -760,6 +823,16 @@ impl WorldlineRuntime {
         self.witnessed_submissions.get(submission_id)
     }
 
+    /// Returns retained canonical envelope material for a witnessed submission.
+    ///
+    /// This is not scheduler admission. The envelope can be used later by a
+    /// trusted host together with an admission ticket to stage ticketed runtime
+    /// ingress.
+    #[must_use]
+    pub fn witnessed_submission_envelope(&self, submission_id: &Hash) -> Option<&IngressEnvelope> {
+        self.witnessed_submission_envelopes.get(submission_id)
+    }
+
     /// Iterates witnessed submissions in deterministic submission-id order.
     pub fn witnessed_submissions(&self) -> impl Iterator<Item = &IntentSubmissionRecord> {
         self.witnessed_submissions.values()
@@ -780,6 +853,32 @@ impl WorldlineRuntime {
             .collect::<Vec<_>>();
         records.sort_by_key(|record| (record.submission_generation, record.submission_id));
         records
+    }
+
+    /// Returns a deterministic local persistence snapshot for witnessed
+    /// submissions with retained envelope material.
+    ///
+    /// The snapshot is host-persistable semantic ingress material. Restoring it
+    /// does not make application code tick and does not stage scheduler-visible
+    /// runtime ingress.
+    #[must_use]
+    pub fn witnessed_submission_persistence_snapshot(
+        &self,
+    ) -> WitnessedSubmissionPersistenceSnapshot {
+        let records = self
+            .witnessed_submission_replay_records()
+            .into_iter()
+            .filter_map(|submission| {
+                self.witnessed_submission_envelopes
+                    .get(&submission.submission_id)
+                    .cloned()
+                    .map(|envelope| WitnessedSubmissionPersistenceRecord {
+                        submission,
+                        envelope,
+                    })
+            })
+            .collect();
+        WitnessedSubmissionPersistenceSnapshot::new(records)
     }
 
     /// Returns the number of witnessed submission records.
@@ -1382,6 +1481,52 @@ impl WorldlineRuntime {
         Ok(())
     }
 
+    /// Restores persisted witnessed submission records and canonical envelopes.
+    ///
+    /// This restores semantic ingress history and host-retained envelope
+    /// material only. It does not enter the envelopes into head inboxes, stage
+    /// ticketed runtime ingress, advance ticks, dispatch handlers, or execute
+    /// contracts.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when any snapshot record does not match its canonical
+    /// envelope, targets an unknown head, violates the target inbox policy, or
+    /// conflicts with existing witnessed submission history.
+    pub fn restore_witnessed_submission_persistence(
+        &mut self,
+        snapshot: WitnessedSubmissionPersistenceSnapshot,
+    ) -> Result<(), RuntimeError> {
+        let records = snapshot.into_records();
+        let mut staged_envelopes = BTreeMap::new();
+
+        for record in &records {
+            if record.envelope.ingress_id() != record.submission.ingress_id {
+                return Err(RuntimeError::IntentSubmissionReplayMismatch(
+                    record.submission.submission_id,
+                ));
+            }
+            let head_key = self.resolve_target(record.envelope.target())?;
+            if head_key != record.submission.head_key {
+                return Err(RuntimeError::IntentSubmissionReplayMismatch(
+                    record.submission.submission_id,
+                ));
+            }
+            let head = self
+                .heads
+                .get(&head_key)
+                .ok_or(RuntimeError::UnknownHead(head_key))?;
+            if !head.inbox().would_accept(&record.envelope) {
+                return Err(RuntimeError::RejectedByPolicy(head_key));
+            }
+            staged_envelopes.insert(record.submission.submission_id, record.envelope.clone());
+        }
+
+        self.replay_witnessed_submissions(records.into_iter().map(|record| record.submission))?;
+        self.witnessed_submission_envelopes.extend(staged_envelopes);
+        Ok(())
+    }
+
     /// Records an accepted intent submission without entering runtime ingress.
     ///
     /// This is witnessed Echo ingress history only. It does not store the
@@ -1398,6 +1543,7 @@ impl WorldlineRuntime {
         envelope: IngressEnvelope,
     ) -> Result<IntentSubmissionDisposition, RuntimeError> {
         let ingress_id = envelope.ingress_id();
+        let retained_envelope = envelope.clone();
         let head_key = self.resolve_target(envelope.target())?;
 
         if self
@@ -1440,6 +1586,8 @@ impl WorldlineRuntime {
         }
 
         let record = self.record_witnessed_submission(head_key, ingress_id)?;
+        self.witnessed_submission_envelopes
+            .insert(record.submission_id, retained_envelope);
         Ok(IntentSubmissionDisposition::Accepted {
             ingress_id,
             head_key,
@@ -1573,6 +1721,7 @@ impl WorldlineRuntime {
         envelope: IngressEnvelope,
     ) -> Result<IngressDisposition, RuntimeError> {
         let ingress_id = envelope.ingress_id();
+        let retained_envelope = envelope.clone();
         let head_key = self.resolve_target(envelope.target())?;
 
         if self
@@ -1602,6 +1751,8 @@ impl WorldlineRuntime {
         match outcome {
             InboxIngestResult::Accepted => {
                 let record = self.record_witnessed_submission(head_key, ingress_id)?;
+                self.witnessed_submission_envelopes
+                    .insert(record.submission_id, retained_envelope);
                 Ok(IngressDisposition::Accepted {
                     ingress_id,
                     head_key,
@@ -3794,6 +3945,206 @@ mod tests {
             1
         );
         assert_eq!(runtime.witnessed_submission_count(), 1);
+    }
+
+    #[test]
+    fn witnessed_submission_persistence_restores_envelope_without_ticking() {
+        let mut runtime = WorldlineRuntime::new();
+        let worldline_id = wl(1);
+        runtime
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        let head_key = register_head(
+            &mut runtime,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let env = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            make_intent_kind("test"),
+            b"pending-persisted".to_vec(),
+        );
+        let accepted = runtime.submit_intent(env.clone()).unwrap();
+        let (submission_id, submission_generation) = match accepted {
+            IntentSubmissionDisposition::Accepted {
+                submission_id,
+                submission_generation,
+                ..
+            } => (submission_id, submission_generation),
+            IntentSubmissionDisposition::Duplicate { .. } => {
+                panic!("first submission should be accepted")
+            }
+        };
+
+        let snapshot = runtime.witnessed_submission_persistence_snapshot();
+        assert_eq!(snapshot.len(), 1);
+
+        let mut restored = WorldlineRuntime::new();
+        restored
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        let restored_head = register_head(
+            &mut restored,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        restored
+            .restore_witnessed_submission_persistence(snapshot)
+            .unwrap();
+
+        let restored_record = restored
+            .witnessed_submission(&submission_id)
+            .expect("restored runtime should have witnessed submission");
+        assert_eq!(restored_record.submission_generation, submission_generation);
+        assert_eq!(restored_record.head_key, head_key);
+        assert_eq!(
+            restored
+                .witnessed_submission_envelope(&submission_id)
+                .expect("restored runtime should retain canonical envelope")
+                .ingress_id(),
+            env.ingress_id()
+        );
+        assert_eq!(restored.global_tick(), gt(0));
+        assert_eq!(
+            restored
+                .worldlines()
+                .get(&worldline_id)
+                .unwrap()
+                .frontier_tick(),
+            wt(0)
+        );
+        assert_eq!(
+            restored
+                .heads
+                .get(&restored_head)
+                .unwrap()
+                .inbox()
+                .pending_count(),
+            0,
+            "recovery must not stage scheduler-visible inbox work"
+        );
+        assert_eq!(restored.ticketed_runtime_ingress_count(), 0);
+    }
+
+    #[test]
+    fn duplicate_submit_after_persistence_restore_returns_duplicate() {
+        let mut runtime = WorldlineRuntime::new();
+        let worldline_id = wl(2);
+        runtime
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        register_head(
+            &mut runtime,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let env = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            make_intent_kind("test"),
+            b"duplicate-after-restore".to_vec(),
+        );
+        let accepted = runtime.submit_intent(env.clone()).unwrap();
+        let (submission_id, submission_generation) = match accepted {
+            IntentSubmissionDisposition::Accepted {
+                submission_id,
+                submission_generation,
+                ..
+            } => (submission_id, submission_generation),
+            IntentSubmissionDisposition::Duplicate { .. } => {
+                panic!("first submission should be accepted")
+            }
+        };
+        let snapshot = runtime.witnessed_submission_persistence_snapshot();
+
+        let mut restored = WorldlineRuntime::new();
+        restored
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        register_head(
+            &mut restored,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        restored
+            .restore_witnessed_submission_persistence(snapshot)
+            .unwrap();
+
+        assert!(matches!(
+            restored.submit_intent(env).unwrap(),
+            IntentSubmissionDisposition::Duplicate {
+                submission_id: restored_submission,
+                submission_generation: restored_generation,
+                ..
+            } if restored_submission == submission_id && restored_generation == submission_generation
+        ));
+        assert_eq!(restored.witnessed_submission_count(), 1);
+    }
+
+    #[test]
+    fn persistence_restore_rejects_mismatched_envelope_without_partial_import() {
+        let mut runtime = WorldlineRuntime::new();
+        let worldline_id = wl(3);
+        runtime
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        register_head(
+            &mut runtime,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let env = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            make_intent_kind("test"),
+            b"original".to_vec(),
+        );
+        runtime.submit_intent(env).unwrap();
+        let mut record = runtime
+            .witnessed_submission_persistence_snapshot()
+            .records()[0]
+            .clone();
+        record.envelope = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            make_intent_kind("test"),
+            b"different".to_vec(),
+        );
+        let snapshot = WitnessedSubmissionPersistenceSnapshot::new(vec![record]);
+
+        let mut restored = WorldlineRuntime::new();
+        restored
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        register_head(
+            &mut restored,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+
+        assert!(matches!(
+            restored.restore_witnessed_submission_persistence(snapshot),
+            Err(RuntimeError::IntentSubmissionReplayMismatch(_))
+        ));
+        assert_eq!(restored.witnessed_submission_count(), 0);
+        assert!(restored
+            .witnessed_submission_persistence_snapshot()
+            .is_empty());
     }
 
     #[test]

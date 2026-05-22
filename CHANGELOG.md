@@ -21,6 +21,11 @@
   `RetentionError` variants for missing coordinates, missing content,
   over-budget requests, or out-of-bounds ranges. Content-hash lookup remains a
   byte lookup only; semantic success still requires coordinate match.
+- `echo-cas` semantic retention now fails closed when the same
+  `SemanticBlobCoordinate` is retained with different bytes. Retaining the same
+  coordinate with the same content is idempotent, while conflicting content
+  returns `RetentionError::SemanticCoordinateConflict`. Bounded range lookup now
+  proves the semantic coordinate exists before reporting range-budget errors.
 - `echo-cas` now provides a local semantic retention index above the
   content-only blob store. `RetainedBlobIndex` maps
   `SemanticBlobCoordinate` values to retained descriptors for contract

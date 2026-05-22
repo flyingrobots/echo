@@ -80,14 +80,13 @@ without moving application nouns into Echo core.
   current replay records prove deterministic import shape, not persistence.
 - Product-facing clients do not yet have polished ABI/helper surfaces for
   per-intent applied/rejected semantics.
-- Contract-aware receipt and reading identities are not yet strong enough for
-  serious external consumers: package identity, schema identity, operation
-  identity, basis, vars, aperture, and residual posture need explicit evidence
-  where the current generic surfaces are too broad.
-- Contract artifacts, witness material, and bounded reading payloads are not yet
-  retained through a generic semantic lookup layer above `echo-cas`.
-- External consumer proof fixtures, especially `jedit`, have not yet proven the
-  generic host path with application-owned contracts and generated artifacts.
+- Contract-aware obstruction taxonomy and product-facing error surfaces still
+  need release-grade stabilization.
+- The semantic retention layer is local and in-memory; durable retained
+  artifact, witness, receipt, and reading recovery remains future work.
+- Generic external contract proof exists, but a serious application-owned
+  consumer proof, especially `jedit`, still needs to prove the host path with
+  generated artifacts outside Echo core.
 
 ## Doctrine
 

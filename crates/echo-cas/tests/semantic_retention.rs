@@ -26,7 +26,9 @@ fn retained_contract_artifact_loads_by_hash_and_semantic_coordinate() -> Result<
     let bytes = b"generated contract artifact bytes";
     let coord = coordinate(RetainedBlobRole::ContractArtifact, 1);
 
-    let descriptor = index.retain(&mut blobs, coord.clone(), bytes);
+    let descriptor = index
+        .retain(&mut blobs, coord.clone(), bytes)
+        .map_err(|err| format!("retain failed: {err:?}"))?;
 
     assert_eq!(descriptor.content_hash, blob_hash(bytes));
     assert_eq!(descriptor.byte_len, bytes.len() as u64);
@@ -50,8 +52,12 @@ fn same_bytes_under_different_semantic_coordinates_do_not_alias() -> Result<(), 
     let artifact = coordinate(RetainedBlobRole::ContractArtifact, 2);
     let reading = coordinate(RetainedBlobRole::ReadingPayload, 3);
 
-    let artifact_descriptor = index.retain(&mut blobs, artifact.clone(), bytes);
-    let reading_descriptor = index.retain(&mut blobs, reading.clone(), bytes);
+    let artifact_descriptor = index
+        .retain(&mut blobs, artifact.clone(), bytes)
+        .map_err(|err| format!("artifact retain failed: {err:?}"))?;
+    let reading_descriptor = index
+        .retain(&mut blobs, reading.clone(), bytes)
+        .map_err(|err| format!("reading retain failed: {err:?}"))?;
 
     assert_eq!(
         artifact_descriptor.content_hash,
@@ -95,7 +101,9 @@ fn semantic_lookup_reads_bounded_byte_range_under_budget() -> Result<(), String>
     let mut blobs = MemoryTier::new();
     let mut index = RetainedBlobIndex::default();
     let coord = coordinate(RetainedBlobRole::ReadingPayload, 5);
-    index.retain(&mut blobs, coord.clone(), b"abcdefghijklmnopqrstuvwxyz");
+    index
+        .retain(&mut blobs, coord.clone(), b"abcdefghijklmnopqrstuvwxyz")
+        .map_err(|err| format!("retain failed: {err:?}"))?;
 
     let range = index
         .load_range(&blobs, &coord, 4, 6, 6)
@@ -112,7 +120,9 @@ fn semantic_range_lookup_returns_budget_obstruction() -> Result<(), String> {
     let mut blobs = MemoryTier::new();
     let mut index = RetainedBlobIndex::default();
     let coord = coordinate(RetainedBlobRole::ReadingPayload, 6);
-    index.retain(&mut blobs, coord.clone(), b"bounded payload");
+    index
+        .retain(&mut blobs, coord.clone(), b"bounded payload")
+        .map_err(|err| format!("retain failed: {err:?}"))?;
 
     let err = index
         .load_range(&blobs, &coord, 0, 8, 4)
@@ -136,7 +146,9 @@ fn semantic_lookup_requires_exact_coordinate_even_when_content_hash_matches() ->
     let mut index = RetainedBlobIndex::default();
     let coord = coordinate(RetainedBlobRole::ReadingPayload, 7);
     let wrong = coordinate(RetainedBlobRole::ReadingPayload, 8);
-    let descriptor = index.retain(&mut blobs, coord, b"same content");
+    let descriptor = index
+        .retain(&mut blobs, coord, b"same content")
+        .map_err(|err| format!("retain failed: {err:?}"))?;
 
     assert_eq!(
         index
@@ -153,6 +165,87 @@ fn semantic_lookup_requires_exact_coordinate_even_when_content_hash_matches() ->
     assert_eq!(
         err,
         RetentionError::MissingSemanticCoordinate { coordinate: wrong }
+    );
+    Ok(())
+}
+
+#[test]
+fn same_semantic_coordinate_and_content_retain_idempotently() -> Result<(), String> {
+    let mut blobs = MemoryTier::new();
+    let mut index = RetainedBlobIndex::default();
+    let coord = coordinate(RetainedBlobRole::ContractReceipt, 9);
+    let bytes = b"stable receipt material";
+
+    let first = index
+        .retain(&mut blobs, coord.clone(), bytes)
+        .map_err(|err| format!("first retain failed: {err:?}"))?;
+    let second = index
+        .retain(&mut blobs, coord.clone(), bytes)
+        .map_err(|err| format!("second retain failed: {err:?}"))?;
+
+    assert_eq!(first, second);
+    assert_eq!(blobs.len(), 1);
+    assert_eq!(blobs.pinned_count(), 1);
+    assert_eq!(
+        index
+            .load(&blobs, &coord)
+            .map_err(|err| format!("load after idempotent retain failed: {err:?}"))?
+            .bytes
+            .as_ref(),
+        bytes
+    );
+    Ok(())
+}
+
+#[test]
+fn same_semantic_coordinate_with_different_content_is_rejected() -> Result<(), String> {
+    let mut blobs = MemoryTier::new();
+    let mut index = RetainedBlobIndex::default();
+    let coord = coordinate(RetainedBlobRole::ContractReceipt, 10);
+    let original = b"original receipt material";
+    let conflicting = b"conflicting receipt material";
+    let descriptor = index
+        .retain(&mut blobs, coord.clone(), original)
+        .map_err(|err| format!("original retain failed: {err:?}"))?;
+
+    let err = index
+        .retain(&mut blobs, coord.clone(), conflicting)
+        .err()
+        .ok_or_else(|| "conflicting semantic retain unexpectedly succeeded".to_owned())?;
+
+    assert_eq!(
+        err,
+        RetentionError::SemanticCoordinateConflict {
+            coordinate: Box::new(coord.clone()),
+            existing_content_hash: descriptor.content_hash,
+            new_content_hash: blob_hash(conflicting),
+        }
+    );
+    assert_eq!(
+        index
+            .load(&blobs, &coord)
+            .map_err(|err| format!("load after conflicting retain failed: {err:?}"))?
+            .bytes
+            .as_ref(),
+        original
+    );
+    Ok(())
+}
+
+#[test]
+fn missing_semantic_coordinate_takes_precedence_over_range_budget() -> Result<(), String> {
+    let blobs = MemoryTier::new();
+    let index = RetainedBlobIndex::default();
+    let coord = coordinate(RetainedBlobRole::ReadingPayload, 11);
+
+    let err = index
+        .load_range(&blobs, &coord, 0, 8, 4)
+        .err()
+        .ok_or_else(|| "missing semantic range unexpectedly loaded".to_owned())?;
+
+    assert_eq!(
+        err,
+        RetentionError::MissingSemanticCoordinate { coordinate: coord }
     );
     Ok(())
 }

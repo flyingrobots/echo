@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use thiserror::Error;
 
-use crate::{BlobHash, BlobStore};
+use crate::{blob_hash, BlobHash, BlobStore};
 
 /// Semantic role of a retained Echo blob.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -112,6 +112,18 @@ pub enum RetentionError {
         /// Retained blob length.
         byte_len: u64,
     },
+    /// A semantic coordinate already names different retained bytes.
+    #[error(
+        "semantic retention coordinate conflict: {coordinate:?} already names {existing_content_hash}, not {new_content_hash}"
+    )]
+    SemanticCoordinateConflict {
+        /// Conflicting semantic coordinate.
+        coordinate: Box<SemanticBlobCoordinate>,
+        /// Existing content hash for the coordinate.
+        existing_content_hash: BlobHash,
+        /// Newly supplied content hash.
+        new_content_hash: BlobHash,
+    },
 }
 
 /// In-memory semantic index over a [`BlobStore`].
@@ -131,7 +143,21 @@ impl RetainedBlobIndex {
         store: &mut S,
         coordinate: SemanticBlobCoordinate,
         bytes: &[u8],
-    ) -> RetainedBlobDescriptor {
+    ) -> Result<RetainedBlobDescriptor, RetentionError> {
+        let content_hash = blob_hash(bytes);
+        if let Some(existing) = self.descriptors.get(&coordinate) {
+            if existing.content_hash != content_hash || existing.byte_len != bytes.len() as u64 {
+                return Err(RetentionError::SemanticCoordinateConflict {
+                    coordinate: Box::new(coordinate),
+                    existing_content_hash: existing.content_hash,
+                    new_content_hash: content_hash,
+                });
+            }
+            store.put(bytes);
+            store.pin(&content_hash);
+            return Ok(existing.clone());
+        }
+
         let content_hash = store.put(bytes);
         store.pin(&content_hash);
         let descriptor = RetainedBlobDescriptor {
@@ -140,7 +166,7 @@ impl RetainedBlobIndex {
             byte_len: bytes.len() as u64,
         };
         self.descriptors.insert(coordinate, descriptor.clone());
-        descriptor
+        Ok(descriptor)
     }
 
     /// Returns the descriptor for a semantic coordinate.
@@ -195,14 +221,13 @@ impl RetainedBlobIndex {
         len: u64,
         max_bytes: u64,
     ) -> Result<RetainedBlobRange, RetentionError> {
+        let retained = self.load(store, coordinate)?;
         if len > max_bytes {
             return Err(RetentionError::RangeExceedsBudget {
                 requested_bytes: len,
                 max_bytes,
             });
         }
-
-        let retained = self.load(store, coordinate)?;
         let end = offset
             .checked_add(len)
             .ok_or(RetentionError::RangeOutOfBounds {

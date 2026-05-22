@@ -18,9 +18,9 @@ use warp_core::{
     ObservationCoordinate, ObservationFrame, ObservationPayload, ObservationProjection,
     ObservationReadBudget, ObservationRequest, ObservationService, ObserverPlanId,
     OpticAdmissionTicket, OpticArtifactHandle, PatternGraph, PlaybackMode, ProvenanceService,
-    ReadingBudgetPosture, RuntimeError, SchedulerCoordinator, SchedulerKind, TickDelta,
-    TickReceiptRejection, TicketedRuntimeIngressAuthority, WorldlineId, WorldlineRuntime,
-    WorldlineState, WriterHead, WriterHeadKey, OPTIC_ADMISSION_TICKET_KIND,
+    ReadingBudgetPosture, ReceiptCorrelationRecord, RuntimeError, SchedulerCoordinator,
+    SchedulerKind, TickDelta, TickReceiptRejection, TicketedRuntimeIngressAuthority, WorldlineId,
+    WorldlineRuntime, WorldlineState, WriterHead, WriterHeadKey, OPTIC_ADMISSION_TICKET_KIND,
     OPTIC_ARTIFACT_HANDLE_KIND,
 };
 
@@ -410,6 +410,44 @@ fn semantic_coordinate(
         role,
         semantic_digest,
     }
+}
+
+fn push_len_prefixed_bytes(out: &mut Vec<u8>, bytes: &[u8]) {
+    out.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
+    out.extend_from_slice(bytes);
+}
+
+fn receipt_correlation_material(correlation: &ReceiptCorrelationRecord) -> Vec<u8> {
+    let mut bytes = b"echo:test:contract-receipt-correlation:v1\0".to_vec();
+    bytes.extend_from_slice(&correlation.ticketed_ingress_id);
+    bytes.extend_from_slice(&correlation.submission_id);
+    bytes.extend_from_slice(&correlation.ticket_digest);
+    bytes.extend_from_slice(&correlation.ingress_id);
+    bytes.extend_from_slice(correlation.head_key.worldline_id.as_bytes());
+    bytes.extend_from_slice(correlation.head_key.head_id.as_bytes());
+    bytes.extend_from_slice(&correlation.commit_global_tick.as_u64().to_le_bytes());
+    bytes.extend_from_slice(&correlation.worldline_tick_after.as_u64().to_le_bytes());
+    bytes.extend_from_slice(&correlation.tick_receipt_digest);
+    bytes.extend_from_slice(&correlation.commit_hash);
+    match &correlation.contract {
+        Some(contract) => {
+            bytes.push(1);
+            bytes.extend_from_slice(contract.package_id.as_bytes());
+            push_len_prefixed_bytes(&mut bytes, contract.package_name.as_bytes());
+            push_len_prefixed_bytes(&mut bytes, contract.package_version.as_bytes());
+            push_len_prefixed_bytes(&mut bytes, contract.artifact_hash_hex.as_bytes());
+            push_len_prefixed_bytes(&mut bytes, contract.codec_id.as_bytes());
+            bytes.extend_from_slice(&contract.registry_version.to_le_bytes());
+            push_len_prefixed_bytes(&mut bytes, contract.schema_sha256_hex.as_bytes());
+            bytes.extend_from_slice(&contract.op_id.to_le_bytes());
+            bytes.push(match contract.op_kind {
+                warp_core::ContractOperationKind::Mutation => 1,
+                warp_core::ContractOperationKind::Query => 2,
+            });
+        }
+        None => bytes.push(0),
+    }
+    bytes
 }
 
 #[test]
@@ -934,7 +972,9 @@ fn external_contract_fixture_proves_mutation_query_retention_and_replay() {
         RetainedBlobRole::ReadingPayload,
         query_identity.reading_id,
     );
-    let reading_descriptor = retained.retain(&mut blobs, reading_coord.clone(), &query_payload);
+    let reading_descriptor = retained
+        .retain(&mut blobs, reading_coord.clone(), &query_payload)
+        .expect("retained reading payload should index");
     assert_eq!(
         retained
             .load_range(&blobs, &reading_coord, 7, 13, 13)
@@ -956,11 +996,10 @@ fn external_contract_fixture_proves_mutation_query_retention_and_replay() {
         RetainedBlobRole::ContractReceipt,
         correlation.tick_receipt_digest,
     );
-    let receipt_descriptor = retained.retain(
-        &mut blobs,
-        receipt_coord.clone(),
-        &correlation.tick_receipt_digest,
-    );
+    let receipt_material = receipt_correlation_material(correlation);
+    let receipt_descriptor = retained
+        .retain(&mut blobs, receipt_coord.clone(), &receipt_material)
+        .expect("retained receipt correlation material should index");
 
     assert_eq!(
         retained
@@ -972,9 +1011,17 @@ fn external_contract_fixture_proves_mutation_query_retention_and_replay() {
     assert_eq!(
         retained
             .load(&blobs, &receipt_coord)
-            .expect("retained receipt digest material should load")
+            .expect("retained receipt correlation material should load")
             .descriptor,
         receipt_descriptor
+    );
+    assert_eq!(
+        retained
+            .load(&blobs, &receipt_coord)
+            .expect("retained receipt correlation material should load")
+            .bytes
+            .as_ref(),
+        receipt_material.as_slice()
     );
 
     let (mut replayed_runtime, mut replayed_engine, _worldline_id, _head) = pipeline_runtime();

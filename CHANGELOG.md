@@ -7,6 +7,13 @@
 
 ### Added
 
+- `warp-core` now exposes a generic contract obstruction taxonomy for
+  product-facing contract-host surfaces. `ContractObstructionKind`,
+  `ContractObstructionSubject`, and `ContractObstruction` classify unsupported
+  operations, unsupported queries, admission obstructions, runtime faults,
+  missing retention, stale basis, residual readings, and budget limits without
+  importing application-domain failure names into core or treating runtime
+  faults as lawful domain rejections.
 - `warp-core` now has an external contract proof fixture for the v0.1.0 local
   contract-host path. The fixture installs a generated-style package with a
   mutation, conflict-capable mutation, and QueryView query; submits non-trivial

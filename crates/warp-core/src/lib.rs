@@ -46,6 +46,7 @@ mod clock;
 mod cmd;
 mod constants;
 mod contract_host;
+mod contract_obstruction;
 mod contract_registry;
 /// Domain separation prefixes for hashing.
 pub mod domain;
@@ -237,6 +238,9 @@ pub use payload::{
     motion_payload_type_id_v0,
 };
 // --- Cursor types ---
+pub use contract_obstruction::{
+    ContractObstruction, ContractObstructionKind, ContractObstructionSubject,
+};
 pub use playback::{
     CursorId, CursorRole, PlaybackCursor, PlaybackMode, SeekError, SeekThen, StepResult,
 };

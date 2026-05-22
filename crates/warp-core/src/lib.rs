@@ -139,6 +139,7 @@ mod playback;
 mod provenance_store;
 mod receipt;
 mod record;
+mod retained_evidence;
 mod retention;
 mod rule;
 mod sandbox;
@@ -243,6 +244,9 @@ pub use contract_obstruction::{
 };
 pub use playback::{
     CursorId, CursorRole, PlaybackCursor, PlaybackMode, SeekError, SeekThen, StepResult,
+};
+pub use retained_evidence::{
+    RetainedEvidenceCoordinate, RetainedEvidencePosture, RetainedEvidenceRef, RetainedEvidenceRole,
 };
 // --- Session types ---
 pub use playback::{SessionId, ViewSession};

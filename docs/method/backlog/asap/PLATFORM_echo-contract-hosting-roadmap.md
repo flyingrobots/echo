@@ -48,7 +48,7 @@ registry model.
 6. [Contract-aware receipts and readings](../up-next/KERNEL_contract-aware-receipts-and-readings.md)
 7. [Contract reading identity and bounded payloads](../up-next/KERNEL_contract-reading-identity-and-bounded-payloads.md)
 8. [Contract artifact retention in echo-cas](../up-next/PLATFORM_contract-artifact-retention-in-echo-cas.md)
-9. [Contract retention and streaming seams](../up-next/PLATFORM_contract-retention-and-streaming-seams.md)
+9. [Contract retention and semantic lookup seams](../up-next/PLATFORM_contract-retention-and-streaming-seams.md)
 10. [jedit contract proof fixture](../up-next/PLATFORM_jedit-contract-proof-fixture.md)
 11. [jedit text contract MVP](../up-next/PLATFORM_jedit-text-contract-mvp.md)
 12. [Graft live frontier structural readings](../up-next/PLATFORM_graft-live-frontier-structural-readings.md)

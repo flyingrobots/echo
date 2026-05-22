@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# Contract Retention And Streaming Seams
+# Contract Retention And Semantic Lookup Seams
 
 Status: planned platform implementation.
 
@@ -27,8 +27,9 @@ Keep `echo-cas` content-only, but add semantic contract refs above CAS:
 - basis coordinate;
 - retention tier.
 
-Add a streaming/blob reader seam if `BlobStore::get Arc<[u8]>` cannot support
-bounded observers without full materialization.
+Add a bounded blob reader seam if `BlobStore::get Arc<[u8]>` cannot support
+bounded observers without full materialization. This is retained-payload lookup,
+not a streaming subscription surface.
 
 ## Acceptance criteria
 

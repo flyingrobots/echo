@@ -31,7 +31,7 @@ consumer shape.
 3. [Contract-aware receipts and readings](../up-next/KERNEL_contract-aware-receipts-and-readings.md)
 4. [Contract reading identity and bounded payloads](../up-next/KERNEL_contract-reading-identity-and-bounded-payloads.md)
 5. [Contract artifact retention in echo-cas](../up-next/PLATFORM_contract-artifact-retention-in-echo-cas.md)
-6. [Contract retention and streaming seams](../up-next/PLATFORM_contract-retention-and-streaming-seams.md)
+6. [Contract retention and semantic lookup seams](../up-next/PLATFORM_contract-retention-and-streaming-seams.md)
 7. [jedit contract proof fixture](../up-next/PLATFORM_jedit-contract-proof-fixture.md)
 8. [Intent-only contract runtime mutations](../up-next/KERNEL_intent-only-contract-runtime-mutations.md)
 9. [Generic contract braid substrate](../up-next/KERNEL_generic-contract-braid-substrate.md)

@@ -237,11 +237,11 @@ AdmissionTicket + witnessed submission -> ticketed runtime ingress
     Do not build distributed storage, proof-carrying retention, or app-specific
     indexes in this slice.
 
-4. **Contract Retention And Streaming Seams**
+4. **Contract Retention And Semantic Lookup Seams**
 
     Add the host seam needed for bounded observers and large retained payloads:
-    contract payloads can refer to retained fragments, observers can stream or
-    read bounded ranges under budget, and unavailable retention returns typed
+    contract payloads can refer to retained fragments, observers can read bounded
+    retained ranges under budget, and unavailable retention returns typed
     obstruction instead of fake success.
 
     Do not redefine wormholes, make full materialization canonical, or collapse

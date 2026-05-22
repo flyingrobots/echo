@@ -252,6 +252,13 @@ AdmissionTicket + witnessed submission -> ticketed runtime ingress
     without receiving tick, package-install, ingress-staging, or fault-recovery
     authority.
 
+8. **Serious External Consumer Proof Fixture**
+
+    The contract-host path now has a hot-text-shaped external consumer fixture
+    covering document-edit-style mutation, overlapping write conflict, bounded
+    QueryView reading, retained reading payload, and retained receipt evidence
+    while keeping application nouns in test fixture code.
+
 ## Next Candidate Slices
 
 1. **Contract Obstruction Taxonomy**
@@ -279,23 +286,17 @@ AdmissionTicket + witnessed submission -> ticketed runtime ingress
     Wrap the current core outcome observation into a developer-facing local API
     that preserves the authority boundary and does not tick synchronously.
 
-5. **Serious External Consumer Proof Fixture**
-
-    Replace the generic fixture as the only consumer proof with a serious
-    application-owned generated contract shape, preferably `jedit`-shaped, while
-    keeping text/editor nouns out of Echo core.
-
-6. **Local Replay/DIND Proof For Contract Path**
+5. **Local Replay/DIND Proof For Contract Path**
 
     Turn the local replay fixture into a release-gate proof over package,
     submissions, scheduler policy, receipts, readings, and retained evidence.
 
-7. **Release-Grade Quickstart**
+6. **Release-Grade Quickstart**
 
     Make the first clean-checkout contract-host flow executable end to end with
     documented commands.
 
-8. **Authority Boundary Audit**
+7. **Authority Boundary Audit**
 
     Prove the app-facing surfaces cannot tick, step, access trusted runtime
     control, resume faulted heads, install privileged host adapters, mutate

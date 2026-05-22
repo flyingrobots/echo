@@ -54,6 +54,13 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
   through `echo-cas` semantic coordinates; and replays witnessed submission
   history to the same observed intent outcome. The fixture keeps application
   nouns inside the test package and generated payload shape, not in Echo core.
+- `warp-core` now has a serious external-consumer-shaped contract fixture for
+  the local contract-host path. The fixture uses hot-text-style document edit
+  names only in test code, installs through the generic package boundary,
+  submits through the app-facing host handle, produces a footprint-conflict
+  rejection for overlapping edits, observes a bounded QueryView reading, and
+  retains both reading payload and receipt evidence through semantic
+  coordinates.
 - `echo-cas` semantic retention now supports bounded byte-range lookup through
   `RetainedBlobIndex::load_range(...)`. Range lookup requires the exact
   semantic coordinate, enforces the caller's byte budget, and returns typed

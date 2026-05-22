@@ -25,8 +25,8 @@ mod memory;
 mod retention;
 pub use memory::MemoryTier;
 pub use retention::{
-    RetainedBlob, RetainedBlobDescriptor, RetainedBlobIndex, RetainedBlobRole, RetentionError,
-    SemanticBlobCoordinate,
+    RetainedBlob, RetainedBlobDescriptor, RetainedBlobIndex, RetainedBlobRange, RetainedBlobRole,
+    RetentionError, SemanticBlobCoordinate,
 };
 
 use std::sync::Arc;

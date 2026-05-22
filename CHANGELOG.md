@@ -7,6 +7,12 @@
 
 ### Added
 
+- `echo-cas` semantic retention now supports bounded byte-range lookup through
+  `RetainedBlobIndex::load_range(...)`. Range lookup requires the exact
+  semantic coordinate, enforces the caller's byte budget, and returns typed
+  `RetentionError` variants for missing coordinates, missing content,
+  over-budget requests, or out-of-bounds ranges. Content-hash lookup remains a
+  byte lookup only; semantic success still requires coordinate match.
 - `echo-cas` now provides a local semantic retention index above the
   content-only blob store. `RetainedBlobIndex` maps
   `SemanticBlobCoordinate` values to retained descriptors for contract

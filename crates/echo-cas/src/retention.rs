@@ -66,6 +66,17 @@ pub struct RetainedBlob {
     pub bytes: Arc<[u8]>,
 }
 
+/// Bounded byte range loaded through a semantic coordinate.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RetainedBlobRange {
+    /// Semantic descriptor for the source blob.
+    pub descriptor: RetainedBlobDescriptor,
+    /// Starting byte offset in the source blob.
+    pub offset: u64,
+    /// Bounded retained bytes.
+    pub bytes: Arc<[u8]>,
+}
+
 /// Typed semantic-retention lookup failures.
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
 pub enum RetentionError {
@@ -80,6 +91,26 @@ pub enum RetentionError {
     MissingBlob {
         /// Missing content hash.
         content_hash: BlobHash,
+    },
+    /// The requested bounded range exceeds the caller's byte budget.
+    #[error("retained blob range exceeds budget: requested {requested_bytes}, max {max_bytes}")]
+    RangeExceedsBudget {
+        /// Requested range length.
+        requested_bytes: u64,
+        /// Caller-provided byte budget.
+        max_bytes: u64,
+    },
+    /// The requested range is outside the retained blob.
+    #[error(
+        "retained blob range is out of bounds: offset {offset}, len {len}, blob len {byte_len}"
+    )]
+    RangeOutOfBounds {
+        /// Requested start offset.
+        offset: u64,
+        /// Requested range length.
+        len: u64,
+        /// Retained blob length.
+        byte_len: u64,
     },
 }
 
@@ -149,5 +180,58 @@ impl RetainedBlobIndex {
         })?;
         let bytes = self.load_by_hash(store, descriptor.content_hash)?;
         Ok(RetainedBlob { descriptor, bytes })
+    }
+
+    /// Loads a bounded byte range through an exact semantic coordinate.
+    ///
+    /// This is retained-payload lookup, not a streaming subscription surface.
+    /// The semantic coordinate must match first, then the requested range must
+    /// fit inside the caller-provided byte budget.
+    pub fn load_range<S: BlobStore>(
+        &self,
+        store: &S,
+        coordinate: &SemanticBlobCoordinate,
+        offset: u64,
+        len: u64,
+        max_bytes: u64,
+    ) -> Result<RetainedBlobRange, RetentionError> {
+        if len > max_bytes {
+            return Err(RetentionError::RangeExceedsBudget {
+                requested_bytes: len,
+                max_bytes,
+            });
+        }
+
+        let retained = self.load(store, coordinate)?;
+        let end = offset
+            .checked_add(len)
+            .ok_or(RetentionError::RangeOutOfBounds {
+                offset,
+                len,
+                byte_len: retained.descriptor.byte_len,
+            })?;
+        if end > retained.descriptor.byte_len {
+            return Err(RetentionError::RangeOutOfBounds {
+                offset,
+                len,
+                byte_len: retained.descriptor.byte_len,
+            });
+        }
+        let start = usize::try_from(offset).map_err(|_| RetentionError::RangeOutOfBounds {
+            offset,
+            len,
+            byte_len: retained.descriptor.byte_len,
+        })?;
+        let end = usize::try_from(end).map_err(|_| RetentionError::RangeOutOfBounds {
+            offset,
+            len,
+            byte_len: retained.descriptor.byte_len,
+        })?;
+
+        Ok(RetainedBlobRange {
+            descriptor: retained.descriptor,
+            offset,
+            bytes: Arc::from(&retained.bytes[start..end]),
+        })
     }
 }

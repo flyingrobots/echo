@@ -89,3 +89,70 @@ fn missing_semantic_coordinate_returns_typed_obstruction() -> Result<(), String>
     );
     Ok(())
 }
+
+#[test]
+fn semantic_lookup_reads_bounded_byte_range_under_budget() -> Result<(), String> {
+    let mut blobs = MemoryTier::new();
+    let mut index = RetainedBlobIndex::default();
+    let coord = coordinate(RetainedBlobRole::ReadingPayload, 5);
+    index.retain(&mut blobs, coord.clone(), b"abcdefghijklmnopqrstuvwxyz");
+
+    let range = index
+        .load_range(&blobs, &coord, 4, 6, 6)
+        .map_err(|err| format!("bounded range lookup failed: {err:?}"))?;
+
+    assert_eq!(range.offset, 4);
+    assert_eq!(range.bytes.as_ref(), b"efghij");
+    assert_eq!(range.descriptor.coordinate, coord);
+    Ok(())
+}
+
+#[test]
+fn semantic_range_lookup_returns_budget_obstruction() -> Result<(), String> {
+    let mut blobs = MemoryTier::new();
+    let mut index = RetainedBlobIndex::default();
+    let coord = coordinate(RetainedBlobRole::ReadingPayload, 6);
+    index.retain(&mut blobs, coord.clone(), b"bounded payload");
+
+    let err = index
+        .load_range(&blobs, &coord, 0, 8, 4)
+        .err()
+        .ok_or_else(|| "over-budget range unexpectedly loaded".to_owned())?;
+
+    assert_eq!(
+        err,
+        RetentionError::RangeExceedsBudget {
+            requested_bytes: 8,
+            max_bytes: 4,
+        }
+    );
+    Ok(())
+}
+
+#[test]
+fn semantic_lookup_requires_exact_coordinate_even_when_content_hash_matches() -> Result<(), String>
+{
+    let mut blobs = MemoryTier::new();
+    let mut index = RetainedBlobIndex::default();
+    let coord = coordinate(RetainedBlobRole::ReadingPayload, 7);
+    let wrong = coordinate(RetainedBlobRole::ReadingPayload, 8);
+    let descriptor = index.retain(&mut blobs, coord, b"same content");
+
+    assert_eq!(
+        index
+            .load_by_hash(&blobs, descriptor.content_hash)
+            .map_err(|err| format!("load by content hash failed: {err:?}"))?
+            .as_ref(),
+        b"same content"
+    );
+    let err = index
+        .load(&blobs, &wrong)
+        .err()
+        .ok_or_else(|| "wrong semantic coordinate unexpectedly loaded".to_owned())?;
+
+    assert_eq!(
+        err,
+        RetentionError::MissingSemanticCoordinate { coordinate: wrong }
+    );
+    Ok(())
+}

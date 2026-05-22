@@ -13,8 +13,9 @@ Depends on:
 
 ## Why now
 
-Large files and inverse history both require retained fragments. Full text
-materialization is allowed as a cache, never as canonical truth.
+Large retained artifacts and bounded readings need semantic lookup above raw
+CAS identity. Full materialization is allowed as a cache, never as canonical
+truth.
 
 ## What it should look like
 
@@ -34,14 +35,12 @@ not a streaming subscription surface.
 ## Acceptance criteria
 
 - Contract payloads can refer to retained blob fragments by CAS ref.
-- Text-window queries can read visible lines or byte ranges under a budget.
-- TickReceipt inverse blob or inverse fragment digest can resolve through
-  retention.
-- If retention is unavailable, unapply returns typed obstruction.
-- GC or compaction cannot silently produce false successful inverse edits.
-- Wormhole/checkpoint compression either preserves raw receipts, provides
-  rehydratable cold archive, or obstructs fine-grained unapply inside compressed
-  ranges.
+- Bounded contract queries can read retained byte ranges under a budget.
+- Retained contract artifacts, receipt material, witness refs, reading
+  envelopes, and reading payloads can be looked up by semantic coordinates.
+- If retention is unavailable, lookup returns typed obstruction.
+- GC or compaction cannot silently produce false successful retained readings.
+- Cache hits are accepted only when the semantic coordinate matches.
 
 ## Non-goals
 

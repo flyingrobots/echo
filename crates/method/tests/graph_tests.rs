@@ -10,7 +10,14 @@ use method::graph::TaskGraph;
 use method::workspace::MethodWorkspace;
 
 fn scaffold(root: &std::path::Path) {
-    for lane in &["inbox", "asap", "up-next", "cool-ideas", "bad-code"] {
+    for lane in &[
+        "inbox",
+        "asap",
+        "v0.1.0",
+        "up-next",
+        "cool-ideas",
+        "bad-code",
+    ] {
         fs::create_dir_all(root.join(format!("docs/method/backlog/{lane}"))).expect("create lane");
     }
     fs::create_dir_all(root.join("docs/design")).expect("create design");
@@ -109,6 +116,55 @@ fn matrix_csv_has_square_shape() {
 
     assert_eq!(rows, vec![3, 3, 3]);
     assert!(csv.contains("depends on"));
+}
+
+#[test]
+fn matrix_markdown_links_are_relative_to_method_docs_root() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    scaffold(tmp.path());
+
+    fs::write(
+        tmp.path()
+            .join("docs/method/backlog/v0.1.0/KERNEL_release_bar.md"),
+        "# Release Bar\n",
+    )
+    .expect("write release bar");
+
+    let workspace = MethodWorkspace::discover(tmp.path()).expect("discover");
+    let graph = TaskGraph::build(&workspace).expect("graph");
+    let matrix = graph.render_matrix_markdown();
+
+    assert!(matrix.contains("[Release Bar](backlog/v0.1.0/KERNEL_release_bar.md)"));
+    assert!(matrix.contains(
+        "(source: [`docs/method/backlog/v0.1.0/KERNEL_release_bar.md`](backlog/v0.1.0/KERNEL_release_bar.md))"
+    ));
+}
+
+#[test]
+fn milestone_lane_does_not_preempt_up_next_frontier_order() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    scaffold(tmp.path());
+
+    fs::write(
+        tmp.path().join("docs/method/backlog/up-next/A_queued.md"),
+        "# Queued\n",
+    )
+    .expect("write queued");
+    fs::write(
+        tmp.path()
+            .join("docs/method/backlog/v0.1.0/KERNEL_release_bar.md"),
+        "# Release Bar\n",
+    )
+    .expect("write release bar");
+
+    let workspace = MethodWorkspace::discover(tmp.path()).expect("discover");
+    let graph = TaskGraph::build(&workspace).expect("graph");
+    let frontier = graph.frontier();
+
+    assert_eq!(frontier[0].task.lane, "up-next");
+    assert_eq!(frontier[0].task.title, "Queued");
+    assert_eq!(frontier[1].task.lane, "v0.1.0");
+    assert_eq!(frontier[1].task.title, "Release Bar");
 }
 
 #[test]

@@ -6,7 +6,14 @@
 use std::path::{Path, PathBuf};
 
 /// Known backlog lane names.
-pub(crate) const LANES: &[&str] = &["inbox", "asap", "up-next", "cool-ideas", "bad-code"];
+pub(crate) const LANES: &[&str] = &[
+    "inbox",
+    "asap",
+    "v0.1.0",
+    "up-next",
+    "cool-ideas",
+    "bad-code",
+];
 
 /// A validated METHOD workspace rooted at a filesystem path.
 pub struct MethodWorkspace {

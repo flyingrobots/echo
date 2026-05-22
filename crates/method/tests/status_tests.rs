@@ -11,7 +11,14 @@ use method::workspace::MethodWorkspace;
 
 /// Helper: scaffold a valid METHOD workspace in a temp dir.
 fn scaffold(root: &std::path::Path) {
-    for lane in &["inbox", "asap", "up-next", "cool-ideas", "bad-code"] {
+    for lane in &[
+        "inbox",
+        "asap",
+        "v0.1.0",
+        "up-next",
+        "cool-ideas",
+        "bad-code",
+    ] {
         fs::create_dir_all(root.join(format!("docs/method/backlog/{lane}"))).ok();
     }
     fs::create_dir_all(root.join("docs/design")).ok();
@@ -54,16 +61,21 @@ fn status_counts_lane_files() {
     touch_md(&asap.join("PLATFORM_bar.md"));
     touch_md(&asap.join("DOCS_baz.md"));
     touch_md(&tmp.path().join("docs/method/backlog/inbox/idea.md"));
+    touch_md(
+        &tmp.path()
+            .join("docs/method/backlog/v0.1.0/KERNEL_release_bar.md"),
+    );
 
     let ws = MethodWorkspace::discover(tmp.path()).expect("discover");
     let report = StatusReport::build(&ws).expect("status");
 
     assert_eq!(report.lanes.get("asap"), Some(&3));
+    assert_eq!(report.lanes.get("v0.1.0"), Some(&1));
     assert_eq!(report.lanes.get("inbox"), Some(&1));
     assert_eq!(report.lanes.get("up-next"), Some(&0));
     assert_eq!(report.lanes.get("cool-ideas"), Some(&0));
     assert_eq!(report.lanes.get("bad-code"), Some(&0));
-    assert_eq!(report.total_items, 4);
+    assert_eq!(report.total_items, 5);
 }
 
 // ── Active cycle detection ──────────────────────────────────────────

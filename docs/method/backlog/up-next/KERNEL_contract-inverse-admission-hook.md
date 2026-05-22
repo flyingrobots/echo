@@ -42,6 +42,11 @@ obstruction. Produced inverse intents are admitted normally.
   contract-version mismatches return typed obstructions.
 - Sequence unapply applies deterministic ordering or reports partial success
   explicitly.
+- TickReceipt inverse blob or inverse fragment digest resolves through
+  retention when inverse material is retained.
+- GC, compaction, wormhole, or checkpoint compression either preserves required
+  inverse evidence, provides a rehydratable cold archive, or obstructs
+  fine-grained unapply inside compressed ranges.
 
 ## Non-goals
 

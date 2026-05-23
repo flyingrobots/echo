@@ -7,7 +7,7 @@ _Define the current deterministic browser boundary for intent ingress, scheduler
 
 Legend: PLATFORM
 
-Current ABI version: 10
+Current ABI version: 11
 
 Depends on:
 
@@ -19,7 +19,8 @@ Depends on:
 
 The WASM boundary is where browser and host code meet the Echo runtime. It must be small, deterministic, and explicit about what kind of operation is crossing: intent admission, scheduler inspection, or observation.
 
-ABI version 10 keeps the export shape from version 9 and extends
+ABI version 11 keeps the application-facing export shape from version 10, adds
+an explicit trusted host-control export, and extends
 `DispatchResponse` with witnessed submission identity for accepted application
 ingress. Observation requests still name their observer plan, optional hosted
 observer instance, read budget, and rights posture explicitly. Observation
@@ -39,7 +40,7 @@ The hill: an agent can generate canonical CBOR, call one export, inspect an `ok`
 
 ## Decision 1: The ABI implements only the current epoch
 
-`ABI_VERSION` detects host/runtime mismatch. It does not promise compatibility with historical export shapes. Current exports are `init`, `dispatch_intent`, `observe`, `scheduler_status`, `get_registry_info`, `get_codec_id`, `get_registry_version`, and `get_schema_sha256_hex`.
+`ABI_VERSION` detects host/runtime mismatch. It does not promise compatibility with historical export shapes. Current exports are `init`, `dispatch_intent`, `dispatch_control_intent_trusted`, `observe`, `scheduler_status`, `get_registry_info`, `get_codec_id`, `get_registry_version`, and `get_schema_sha256_hex`.
 
 Removed exports stay removed: `step`, `snapshot_at`, `render_snapshot`, `execute_query`, `get_head`, and `drain_view_ops`.
 
@@ -57,6 +58,9 @@ the canonical `intent_id` and a witnessed `submission_id` plus
 `submission_generation`. The submission fields are intake/audit correlation
 metadata, not scheduler order, not worldline ticks, and not wall-clock time.
 Trusted runtime control responses do not carry application submission identity.
+The raw trusted host-control export is not an application API. High-level
+browser or JavaScript application facades must not re-export it to untrusted
+application code.
 
 ## Decision 3: Observation is the only public world-state read
 

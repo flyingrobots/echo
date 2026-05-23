@@ -25,9 +25,10 @@ See the repository root `README.md` for the full overview.
   `WorldlineTick` is per-worldline append identity and `GlobalTick` is runtime
   cycle correlation metadata. No wall-clock time enters Echo internals.
 - Public application dispatch rejects privileged scheduler control envelopes.
-  Trusted runtime control is kept on a separate Rust host/runtime-owner trait,
-  not on the public browser application dispatch export. Browser adapters must
-  not hand the raw kernel/control surface to untrusted application code.
+  Trusted runtime control is kept on a separate host/runtime-owner export,
+  `dispatch_control_intent_trusted(...)`, and a separate Rust
+  `TrustedKernelControlPort` installation path. Browser adapters must not hand
+  the raw kernel/control surface to untrusted application code.
 - Intended to power future browser-based visualizers and inspectors built on
   top of the same core engine as native tools.
 

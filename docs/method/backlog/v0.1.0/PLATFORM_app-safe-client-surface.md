@@ -37,6 +37,8 @@ Application clients may not:
 - Published client packages expose only the app-safe surface.
 - Raw kernel objects or trusted control ports are not reachable from
   application JavaScript.
+- High-level browser/application facades do not re-export the raw
+  `dispatch_control_intent_trusted(...)` WASM host-control function.
 - Query observer helpers remain read-only.
 - Client examples do not call tick, step, start, or trusted runtime control.
 - The Rust/local API remains usable if JS/WASM packages are deferred.

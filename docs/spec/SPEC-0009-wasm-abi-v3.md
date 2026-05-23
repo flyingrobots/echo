@@ -14,6 +14,7 @@ ABI v3 makes three boundaries explicit:
 
 - `observe(request)` is the canonical generic world-state read export; neighborhood-specific read exports expose bounded site/core views.
 - `dispatch_intent(...)` is the public application intent ingress surface.
+- `dispatch_control_intent_trusted(...)` is the privileged host/runtime-owner control surface.
 - `scheduler_status()` is the read-only scheduler metadata export.
 
 Echo internals do not consume wall-clock time. All clocks in this ABI are
@@ -37,8 +38,11 @@ represents `Option<...>::None`.
   committed anything yet.
 
 Scheduler lifecycle requests are privileged runtime control, not application
-intents. Public application dispatch rejects the reserved control op id. There
-is no public `step(...)`, poll, or tick hook API in ABI v3.
+intents. Public application dispatch rejects the reserved control op id. The raw
+WASM package exposes `dispatch_control_intent_trusted(...)` for host/runtime
+owners; high-level application facades must not re-export it to untrusted
+application code. There is no public `step(...)`, poll, or application tick hook
+API in ABI v3.
 
 ## Architecture
 
@@ -50,7 +54,7 @@ is no public `step(...)`, poll, or tick hook API in ABI v3.
                     │  wasm-bindgen exports
 ┌───────────────────▼─────────────────────────────┐
 │              warp-wasm (boundary)                │
-│  thread_local RefCell<Option<Box<dyn KernelPort>>>│
+│  thread_local installed app/trusted kernel          │
 │  Encodes Result<T, AbiError> → CBOR envelope    │
 └───────────────────┬─────────────────────────────┘
                     │  KernelPort trait
@@ -65,18 +69,19 @@ is no public `step(...)`, poll, or tick hook API in ABI v3.
 All exports are `#[wasm_bindgen]` functions. Return types are CBOR-encoded
 `Uint8Array` unless noted otherwise.
 
-| Export                               | Signature              | Returns                        |
-| ------------------------------------ | ---------------------- | ------------------------------ |
-| `init()`                             | `() → Uint8Array`      | `HeadInfo` envelope            |
-| `dispatch_intent(bytes)`             | `(&[u8]) → Uint8Array` | `DispatchResponse` envelope    |
-| `observe(request)`                   | `(&[u8]) → Uint8Array` | `ObservationArtifact` envelope |
-| `observe_neighborhood_site(request)` | `(&[u8]) → Uint8Array` | `NeighborhoodSite` envelope    |
-| `observe_neighborhood_core(request)` | `(&[u8]) → Uint8Array` | `NeighborhoodCore` envelope    |
-| `scheduler_status()`                 | `() → Uint8Array`      | `SchedulerStatus` envelope     |
-| `get_registry_info()`                | `() → Uint8Array`      | `RegistryInfo` envelope        |
-| `get_codec_id()`                     | `() → JsValue`         | `string \| null`               |
-| `get_registry_version()`             | `() → JsValue`         | `string \| null`               |
-| `get_schema_sha256_hex()`            | `() → JsValue`         | `string \| null`               |
+| Export                                   | Signature              | Returns                        |
+| ---------------------------------------- | ---------------------- | ------------------------------ |
+| `init()`                                 | `() → Uint8Array`      | `HeadInfo` envelope            |
+| `dispatch_intent(bytes)`                 | `(&[u8]) → Uint8Array` | `DispatchResponse` envelope    |
+| `dispatch_control_intent_trusted(bytes)` | `(&[u8]) → Uint8Array` | `DispatchResponse` envelope    |
+| `observe(request)`                       | `(&[u8]) → Uint8Array` | `ObservationArtifact` envelope |
+| `observe_neighborhood_site(request)`     | `(&[u8]) → Uint8Array` | `NeighborhoodSite` envelope    |
+| `observe_neighborhood_core(request)`     | `(&[u8]) → Uint8Array` | `NeighborhoodCore` envelope    |
+| `scheduler_status()`                     | `() → Uint8Array`      | `SchedulerStatus` envelope     |
+| `get_registry_info()`                    | `() → Uint8Array`      | `RegistryInfo` envelope        |
+| `get_codec_id()`                         | `() → JsValue`         | `string \| null`               |
+| `get_registry_version()`                 | `() → JsValue`         | `string \| null`               |
+| `get_schema_sha256_hex()`                | `() → JsValue`         | `string \| null`               |
 
 Removed before or by ABI v3:
 

@@ -41,6 +41,7 @@ Echo's live documentation centers on the runtime carrier, the retained witnesses
 - Worldlines, playback, and observation: [/spec/SPEC-0004-worldlines-playback-truthbus](/spec/SPEC-0004-worldlines-playback-truthbus)
 - Provenance payload and boundary records: [/spec/SPEC-0005-provenance-payload](/spec/SPEC-0005-provenance-payload)
 - WASM ABI contract: [/spec/SPEC-0009-wasm-abi](/spec/SPEC-0009-wasm-abi)
+- WASM trusted runtime host control: [/design/wasm-trusted-runtime-host-control-boundary](/design/wasm-trusted-runtime-host-control-boundary)
 - JS to canonical CBOR mapping: [/spec/js-cbor-mapping](/spec/js-cbor-mapping)
 - ABI golden vectors: [/spec/abi-golden-vectors](/spec/abi-golden-vectors)
 - WARP view protocol: [/spec/warp-view-protocol](/spec/warp-view-protocol)

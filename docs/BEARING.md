@@ -90,10 +90,10 @@ without moving application nouns into Echo core.
 - The semantic retention layer is local and in-memory; durable retained
   artifact, witness, receipt, and reading recovery remains future work.
 - Generic external contract proof exists, but the release gate now requires
-  real `jedit` follow-through from the sibling repository. The current jedit
-  real-WASM witness still carries stale app-owned scheduler-control
-  assumptions and must be replaced by an app/host split that matches Echo's
-  authority boundary.
+  real `jedit` follow-through from the sibling repository. jedit now has a
+  local app/host split for its opt-in real-WASM witness; the remaining gap is
+  moving from the old stack-witness fixture shape to retained evidence, replay,
+  and a jedit-owned generated contract path.
 
 ## Doctrine
 
@@ -311,10 +311,16 @@ The proof must preserve the authority split:
 - the existing fake transport may stay as a local harness, but the release
   witness must run against the real Echo boundary.
 
-The current opt-in jedit real-WASM stack witness is stale in one useful way: it
-attempts to carry scheduler control through app-facing dispatch. Echo correctly
-rejects that with `FORBIDDEN_CONTROL_INTENT`. The next integration slice should
-change jedit's witness shape, not weaken Echo's dispatch boundary.
+The current opt-in jedit real-WASM stack witness now uses a separate trusted
+host-control transport. Agents can run jedit's JSON-capable CLI witness:
+
+```sh
+ECHO_WARP_WASM_DIR=/path/to/echo/crates/warp-wasm \
+  node scripts/jedit-echo-witness.mjs --json
+```
+
+The next integration slice should improve witness content: retained evidence,
+replay, and a jedit-owned generated contract path, not scheduler authority.
 
 ## Next Candidate Slices
 

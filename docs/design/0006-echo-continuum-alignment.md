@@ -183,11 +183,11 @@ one slice:
 Echo cannot satisfy that today because the generated capability surface does
 not exist yet.
 
-### 6. Browser host bridge still carries too much compatibility residue
+### 6. Browser host bridge still carries compatibility residue
 
-`ttd-browser` and `echo-session-proto` are already narrower than before, but
-they still carry more compatibility-era surface than the final architecture
-wants.
+The legacy `ttd-browser` prototype has been removed from Echo's active
+workspace. `echo-session-proto` still carries compatibility-era surface that the
+final architecture does not want.
 
 That is not just cleanup debt. It affects alignment, because the more Echo’s
 bridge surface remains locally defined and compatibility-shaped, the harder it
@@ -269,10 +269,11 @@ It does need one narrow proof slice where:
 
 This is the bridge from "alignment doctrine" to "real alignment."
 
-### F. Narrow the browser host bridge to the real contract boundary
+### F. Keep the browser host bridge on the real contract boundary
 
-`ttd-browser` should become the narrow Echo browser host bridge, not the place
-where debugger/product semantics continue to accumulate.
+`warp-wasm` is Echo's app-safe browser/runtime boundary. Debugger and product
+semantics belong above that boundary in `warp-ttd`, not in Echo core or a
+revived Echo-local browser debugger crate.
 
 `echo-session-proto` should keep only what the bridge path actually needs and
 shed the legacy transport residue that no longer represents the future
@@ -315,7 +316,6 @@ should not.
 
 ### Phase 3: finish the bridge cut
 
-- narrow `ttd-browser`
 - split `echo-session-proto`
 - feed `warp-ttd` through the shared contract instead of local folklore
 

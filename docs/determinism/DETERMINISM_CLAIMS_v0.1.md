@@ -99,7 +99,8 @@ proves it. See `docs/determinism/CLAIM_MAP.yaml` for the machine-readable regist
 
 ### REPRO-001: WASM Build Reproducibility
 
-> Dual WASM builds of `ttd-browser` produce bit-identical artifacts.
+> Dual WASM builds of `warp-wasm` with the `engine` feature produce
+> bit-identical artifacts.
 
 - **Gate:** G4 build reproducibility
 - **Evidence:** SHA-256 hash comparison of two independent builds

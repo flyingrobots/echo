@@ -23,10 +23,10 @@ protocol surfaces.
     - Packet framing helpers (`wire` module) that build and verify
       `MAGIC || VERSION || FLAGS || LENGTH || PAYLOAD || CHECKSUM` packets.
 - Serves as the retained protocol contract between:
-    - `ttd-browser`,
+    - generated `warp-ttd` protocol consumers,
     - current Echo-side browser-host bridge work,
-    - and any remaining tooling that still needs these deterministic encodings
-      during the `warp-ttd` cutover.
+    - and any remaining tooling that still needs deterministic encodings during
+      the `warp-ttd` cutover.
 
 ## Documentation
 

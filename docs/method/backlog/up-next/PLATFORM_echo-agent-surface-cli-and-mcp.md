@@ -9,7 +9,7 @@ not agent-native in the METHOD sense.
 Today the repo has:
 
 - runtime truth in Rust types and runtime schemas
-- a narrowing browser/WASM host bridge path (`ttd-browser`)
+- a browser-hostable WASM runtime boundary through `warp-wasm`
 - rich local runtime objects for observation, playback, provenance, and
   scheduler inspection
 
@@ -49,5 +49,5 @@ Related:
 
 - Echo design `0005-echo-ttd-witness-surface`
 - Echo design `0006-echo-continuum-alignment`
-- Echo backlog `PLATFORM_ttd-browser-host-bridge`
+- Echo WASM ABI docs in `docs/spec/SPEC-0009-wasm-abi.md`
 - `warp-ttd` docs `CLI.md`, `MCP.md`, and `BEARING.md`

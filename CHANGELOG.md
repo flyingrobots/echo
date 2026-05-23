@@ -509,6 +509,10 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Removed
 
+- Removed the legacy `ttd-browser` crate from Echo's active workspace. The
+  release browser/runtime boundary now stays centered on `warp-wasm` and
+  `echo-wasm-abi`; debugger session semantics and browser delivery adapters
+  belong in `warp-ttd`.
 - `docs/METHODOLOGY.md` — 5x Duty Model (never practiced; see graveyard).
 - 17 unimplemented future spec files (see graveyard).
 - `docs/march-16.plan.md` — stale planning scratchpad.

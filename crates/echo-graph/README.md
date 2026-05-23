@@ -16,7 +16,7 @@ Canonical renderable graph format for Echo (nodes/edges + payloads).
   state verification and write-ahead logging.
 - Is the shared graph representation between:
     - `echo-session-proto` (protocol/frame layer),
-    - `ttd-browser`,
+    - `warp-ttd` host adapters,
     - and other browser/host tools that need a renderable WARP view.
 
 ## Documentation

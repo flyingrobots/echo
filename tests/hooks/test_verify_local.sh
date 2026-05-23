@@ -53,6 +53,12 @@ if grep -R -q -- 'cargo test -p warp-core --test deterministic_sin_cos_tests' .g
 else
   pass "determinism workflow sin/cos tests run from warp-math"
 fi
+if grep -q -- 'cargo build --release --target wasm32-unknown-unknown -p warp-wasm --features engine' .github/workflows/det-gates.yml \
+  && grep -q -- '--remap-path-prefix=${repo_root}=/workspace' .github/workflows/det-gates.yml; then
+  pass "WASM reproducibility gate remaps checkout paths for warp-wasm"
+else
+  fail "WASM reproducibility gate should remap checkout paths for warp-wasm"
+fi
 if grep -q 'crates/warp-math' det-policy.yaml; then
   pass "determinism policy classifies warp-math explicitly"
 else
@@ -1163,7 +1169,16 @@ missing_build = sorted(critical_crates - full_packages)
 missing_clippy = sorted(critical_crates - (full_clippy_core | full_clippy_support | full_clippy_bins))
 print("missing_build=" + ",".join(missing_build))
 print("missing_clippy=" + ",".join(missing_clippy))
-print("ttd_browser_tested=" + str("ttd-browser" in full_test_packages).lower())
+active_package_sets = (
+    critical_crates
+    | full_packages
+    | full_clippy_core
+    | full_clippy_support
+    | full_clippy_bins
+    | full_test_packages
+    | fast_lib_only
+)
+print("legacy_ttd_browser_absent=" + str("ttd-browser" not in active_package_sets).lower())
 print("warp_core_fast_lib_only=" + str("warp-core" in fast_lib_only).lower())
 PY
 )"
@@ -1179,10 +1194,10 @@ PY
     fail "full-critical crates must all be present in the local clippy lane package sets"
     printf '%s\n' "$coverage_output"
   fi
-  if printf '%s\n' "$coverage_output" | grep -q '^ttd_browser_tested=true$'; then
-    pass "ttd-browser is covered by the full local test lane"
+  if printf '%s\n' "$coverage_output" | grep -q '^legacy_ttd_browser_absent=true$'; then
+    pass "legacy ttd-browser is absent from active verify-local package sets"
   else
-    fail "ttd-browser must be exercised by the full local test lane"
+    fail "legacy ttd-browser must not remain in active verify-local package sets"
     printf '%s\n' "$coverage_output"
   fi
   if printf '%s\n' "$coverage_output" | grep -q '^warp_core_fast_lib_only=true$'; then

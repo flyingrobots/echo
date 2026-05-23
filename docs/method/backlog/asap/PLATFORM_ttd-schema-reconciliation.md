@@ -31,6 +31,6 @@ Work:
 - Keep generated crates/packages clearly marked as downstream consumers, not
   backup protocol owners.
 - Verify generated types still satisfy the `echo-ttd` compliance checker and
-  local browser adapter surfaces.
+  any future Echo-to-`warp-ttd` adapter surfaces.
 - Preserve the completed WESLEY protocol consumer cutover decision instead of
   reopening protocol ownership from scratch.

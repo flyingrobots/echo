@@ -16,7 +16,7 @@ Shared application services and ports for Echo tools.
       on winit or other windowing APIs.
 - Helps keep browser/host tools hexagonal: domain state and reducers talk to
   abstract ports; adapters live in separate crates (`echo-config-fs`,
-  `ttd-browser`, future Browser TTD host bridges, etc.).
+  future Browser TTD host bridges, etc.).
 
 ## Documentation
 

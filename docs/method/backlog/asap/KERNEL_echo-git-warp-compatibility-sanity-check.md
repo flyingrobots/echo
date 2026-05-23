@@ -157,9 +157,8 @@ Both substrates use Wesley for schema compilation, but:
   `docs/design/0010-live-basis-settlement-plan/design.md`
 - Design compliance reporting as a protocol extension
   (see `KERNEL_compliance-protocol-envelope` backlog item)
-- Evaluate `ttd-browser` crate overlap with warp-ttd's browser story
-  (see Echo backlog: `PLATFORM_ttd-browser-host-bridge` and warp-ttd backlog:
-  `DELIVERY_browser-ttd-adapter`)
+- Keep Echo's app-safe browser surface centered on `warp-wasm`, while
+  `warp-ttd` owns debugger/browser delivery semantics.
 
 ### Long term (requires strand/merge design)
 

@@ -73,7 +73,7 @@ claims:
     owner_role: Architect
 
   REPRO-001:
-    statement: "Dual WASM builds of ttd-browser produce bit-identical artifacts, verified by SHA-256 hash comparison in isolated CI environments."
+    statement: "Dual WASM builds of warp-wasm with the engine feature produce bit-identical artifacts, verified by SHA-256 hash comparison in isolated CI environments."
     required_evidence:
       - ci_artifact
       - hash_comparison

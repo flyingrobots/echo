@@ -8,7 +8,8 @@
 - retained TTD/browser bridge contracts:
     - `EINT v2`
     - `TTDR v2`
-    - deterministic CBOR/frame helpers still used by `ttd-browser`
+    - deterministic CBOR/frame helpers still used by generated protocol
+      consumers and bridge experiments
 - older Echo-local session/WVP transport types:
     - `Message`
     - `OpEnvelope`

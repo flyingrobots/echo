@@ -4,10 +4,10 @@
 > **Milestone:** Time Travel | **Priority:** P2
 >
 > Status: active cool idea with partial substrate. `PlaybackCursor`,
-> checkpoint-backed seek, provenance checkpoints/forks, `ttd-browser`, and the
-> TTD UI shell exist. This card tracks the missing pause/buffer/catch-up
-> capability semantics and integrated Reliving debugger behavior, not basic
-> replay existence.
+> checkpoint-backed seek, provenance checkpoints/forks, and the TTD UI shell
+> exist. This card tracks the missing pause/buffer/catch-up capability
+> semantics and integrated Reliving debugger behavior, not basic replay
+> existence.
 
 # TT2 — Time Travel MVP
 

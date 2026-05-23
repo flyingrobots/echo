@@ -259,7 +259,6 @@ readonly FULL_CRITICAL_PREFIXES=(
   "crates/echo-ttd/"
   "crates/echo-dind-harness/"
   "crates/echo-dind-tests/"
-  "crates/ttd-browser/"
   "crates/ttd-protocol-rs/"
   ".github/workflows/"
   ".githooks/"
@@ -314,7 +313,6 @@ readonly FULL_LOCAL_PACKAGES=(
   "echo-ttd"
   "echo-dind-harness"
   "echo-dind-tests"
-  "ttd-browser"
   "ttd-protocol-rs"
   "xtask"
 )
@@ -328,7 +326,6 @@ readonly FULL_LOCAL_TEST_PACKAGES=(
   "echo-ttd"
   "echo-dind-harness"
   "echo-dind-tests"
-  "ttd-browser"
 )
 
 readonly FULL_LOCAL_CLIPPY_CORE_PACKAGES=(
@@ -346,7 +343,6 @@ readonly FULL_LOCAL_CLIPPY_SUPPORT_PACKAGES=(
   "echo-ttd"
   "echo-dind-harness"
   "echo-dind-tests"
-  "ttd-browser"
   "ttd-protocol-rs"
 )
 
@@ -365,7 +361,6 @@ readonly FAST_CLIPPY_LIB_ONLY_PACKAGES=(
   "warp-core"
   "warp-math"
   "warp-wasm"
-  "ttd-browser"
   "echo-dind-harness"
   "echo-dind-tests"
 )

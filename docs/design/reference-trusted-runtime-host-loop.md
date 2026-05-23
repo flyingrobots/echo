@@ -10,6 +10,9 @@ The loop is deliberately boring: it names the trusted runtime-owner role that
 already existed implicitly in tests and wires it through a small wrapper. It is
 not a daemon, not wall-clock semantics, and not an application tick API.
 
+The causal status of Start, Stop, cadence, and drain commands is defined in
+`docs/design/trusted-runtime-control-history.md`.
+
 ## Claim
 
 Application code can submit canonical intent material and observe outcomes or

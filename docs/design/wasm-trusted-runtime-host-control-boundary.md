@@ -28,6 +28,10 @@ Application dispatch still rejects reserved scheduler control envelopes. The
 trusted host export accepts packed `ControlIntentV1` envelopes only through a
 kernel installed as `TrustedKernelControlPort`.
 
+Those control envelopes represent trusted runtime-control history. They are not
+application/domain intents, and recording one does not itself create a tick or
+`TickReceipt`.
+
 ## Why This Exists
 
 The local Rust contract-host path already separates application submit/observe

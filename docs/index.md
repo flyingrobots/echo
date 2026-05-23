@@ -14,6 +14,8 @@ Echo's live documentation centers on the runtime carrier, the retained witnesses
 - WARP optic implementation map: [/design/warp-optic-implementation-map](/design/warp-optic-implementation-map)
 - Echo v0.1.0 release plan: [/design/v0.1.0-release-plan](/design/v0.1.0-release-plan)
 - Echo v0.1.0 jedit release gate: [/design/v0.1.0-jedit-release-gate](/design/v0.1.0-jedit-release-gate)
+- Trusted runtime control history: [/design/trusted-runtime-control-history](/design/trusted-runtime-control-history)
+- jedit next ten release-gate slices: [/design/v0.1.0-jedit-next-ten-slices](/design/v0.1.0-jedit-next-ten-slices)
 - Theory map: [/theory/THEORY](/theory/THEORY)
 - Current bearing: [/BEARING](/BEARING)
 - WARP core runtime: [/spec/warp-core](/spec/warp-core)

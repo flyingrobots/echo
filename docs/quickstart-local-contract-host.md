@@ -12,7 +12,8 @@ preserving the authority boundary:
 
 ```text
 application submits
-trusted runtime host stages and ticks
+trusted runtime host authorizes scheduler opportunities
+scheduler-owned ticks emit receipts
 application observes outcomes and readings
 ```
 

@@ -18,6 +18,12 @@ The feature bar for the eventual `v0.1.0` release is maintained in
 The current external release gate is maintained in
 `docs/design/v0.1.0-jedit-release-gate.md`.
 
+Trusted runtime-control history is defined in
+`docs/design/trusted-runtime-control-history.md`.
+
+The next ten jedit release-gate slices are planned in
+`docs/design/v0.1.0-jedit-next-ten-slices.md`.
+
 The filesystem lane for release-bar backlog cards is
 `docs/method/backlog/v0.1.0/`.
 
@@ -31,9 +37,9 @@ correlation, and observable intent outcome.
 The current priority is to prove that pipeline with `jedit` as a real external
 consumer. The in-repo external fixture remains valuable, but it is no longer
 the `v0.1.0` release gate. Echo is not ready to release until jedit can submit
-an application-owned contract intent, let a trusted Echo host tick, observe the
-outcome, query a bounded reading, retain evidence, and replay the result
-without moving application nouns into Echo core.
+an application-owned contract intent, let a trusted Echo host authorize
+scheduler opportunities, observe the outcome, query a bounded reading, retain
+evidence, and replay the result without moving application nouns into Echo core.
 
 ## What Is Already True
 
@@ -108,6 +114,10 @@ only through trusted runtime-owned execution.
 Echo does not execute submissions synchronously.
 
 Echo's trusted runtime owner controls tick boundaries.
+
+Start, Stop, SetCadence, and DrainUntilIdle are trusted runtime-control
+history. They authorize or suspend scheduler opportunities; they do not create
+ticks and they are not application/domain intents.
 
 A tick receipt witnesses the scheduler-owned decision.
 
@@ -290,7 +300,7 @@ sibling application-owned contract and adapters
 -> Wesley generated Echo runtime artifacts
 -> Echo installs a generic generated package
 -> application submits canonical intent
--> trusted Echo host stages and ticks
+-> trusted Echo host stages work and authorizes scheduler opportunities
 -> application observes applied, rejected, or obstructed outcome
 -> application queries a bounded reading
 -> retained evidence and replay prove the same result

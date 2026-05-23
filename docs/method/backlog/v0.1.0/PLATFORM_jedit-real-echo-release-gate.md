@@ -30,7 +30,8 @@ sibling application-owned contract
 -> Wesley generated Echo runtime artifacts
 -> Echo installs a generic generated package
 -> application submits canonical intent
--> trusted Echo host stages and ticks
+-> trusted Echo host stages work and authorizes scheduler opportunities
+-> Echo scheduler emits tick receipts
 -> application observes intent outcome
 -> application queries bounded reading
 -> retained receipt and reading evidence can be inspected

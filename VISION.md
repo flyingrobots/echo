@@ -3,7 +3,9 @@
 
 # VISION
 
-Echo is an industrial-grade graph-rewrite simulation engine where state is a graph, time is a hash chain, and determinism is structurally enforced.
+Echo is a deterministic WARP runtime for witnessed causal history. It owns
+admission, scheduler-owned ticks, receipts, readings, and retained evidence so
+applications can stay focused on authored domain semantics.
 
 ```mermaid
 mindmap
@@ -51,6 +53,28 @@ Deterministic replay is not a feature you turn on; it is how the engine works. E
 ### 5. Systems Integrity
 
 The engine is built for the systems engineer. Strict lints, panic-free paths (Mr. Clean), and comprehensive determinism drills (DIND) ensure that Echo remains a professional-grade bedrock for causal simulation.
+
+### 6. Product Pressure Proves Release Truth
+
+The `v0.1.0` release is delayed until a real external consumer proves Echo's
+local contract-host path. That consumer is `jedit`.
+
+The in-repo external fixture proves generic mechanics; it does not prove that
+Echo is ready to build applications with. The release bar is a sibling jedit
+checkout that can submit a contract-backed edit intent, let a trusted Echo host
+tick, observe the outcome, query a bounded text reading, retain evidence, and
+replay the result without granting application code tick authority or moving
+editor nouns into Echo core.
+
+This keeps the north star honest:
+
+```text
+Application submits intent.
+Trusted runtime owns ticks.
+Receipts witness decisions.
+Readings carry evidence.
+External applications prove the seam.
+```
 
 ---
 

@@ -13,6 +13,7 @@ Echo's live documentation centers on the runtime carrier, the retained witnesses
 - Local contract host quickstart: [/quickstart-local-contract-host](/quickstart-local-contract-host)
 - WARP optic implementation map: [/design/warp-optic-implementation-map](/design/warp-optic-implementation-map)
 - Echo v0.1.0 release plan: [/design/v0.1.0-release-plan](/design/v0.1.0-release-plan)
+- Echo v0.1.0 jedit release gate: [/design/v0.1.0-jedit-release-gate](/design/v0.1.0-jedit-release-gate)
 - Theory map: [/theory/THEORY](/theory/THEORY)
 - Current bearing: [/BEARING](/BEARING)
 - WARP core runtime: [/spec/warp-core](/spec/warp-core)

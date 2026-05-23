@@ -32,8 +32,9 @@ use echo_wasm_abi::kernel_port::HeadInfo;
 use echo_wasm_abi::kernel_port::{
     self, AbiError, DispatchOpticIntentRequest, ErrEnvelope, KernelPort, ObservationRequest,
     ObserveOpticRequest, OkEnvelope, OpticIntentPayload, SettlementRequest,
+    TrustedKernelControlPort,
 };
-use echo_wasm_abi::{unpack_intent_v1, CONTROL_INTENT_V1_OP_ID};
+use echo_wasm_abi::{unpack_control_intent_v1, unpack_intent_v1, CONTROL_INTENT_V1_OP_ID};
 
 use std::cell::RefCell;
 
@@ -42,7 +43,35 @@ use std::cell::RefCell;
 // ---------------------------------------------------------------------------
 
 thread_local! {
-    static KERNEL: RefCell<Option<Box<dyn KernelPort>>> = const { RefCell::new(None) };
+    static KERNEL: RefCell<Option<InstalledKernel>> = const { RefCell::new(None) };
+}
+
+enum InstalledKernel {
+    App(Box<dyn KernelPort>),
+    Trusted(Box<dyn TrustedKernelControlPort>),
+}
+
+impl InstalledKernel {
+    fn kernel(&self) -> &dyn KernelPort {
+        match self {
+            Self::App(kernel) => kernel.as_ref(),
+            Self::Trusted(kernel) => kernel.as_ref(),
+        }
+    }
+
+    fn kernel_mut(&mut self) -> &mut dyn KernelPort {
+        match self {
+            Self::App(kernel) => kernel.as_mut(),
+            Self::Trusted(kernel) => kernel.as_mut(),
+        }
+    }
+
+    fn trusted_mut(&mut self) -> Option<&mut dyn TrustedKernelControlPort> {
+        match self {
+            Self::App(_) => None,
+            Self::Trusted(kernel) => Some(kernel.as_mut()),
+        }
+    }
 }
 
 /// Install a kernel implementation into the WASM boundary.
@@ -55,7 +84,22 @@ thread_local! {
 /// Does not panic. Replaces any previously installed kernel.
 pub fn install_kernel(kernel: Box<dyn KernelPort>) {
     KERNEL.with(|cell| {
-        *cell.borrow_mut() = Some(kernel);
+        *cell.borrow_mut() = Some(InstalledKernel::App(kernel));
+    });
+}
+
+/// Install a trusted runtime-owner kernel implementation into the WASM boundary.
+///
+/// Application adapters should use [`install_kernel`] or only receive app-safe
+/// exports. Host/runtime-owner adapters that own scheduler lifecycle may install
+/// this trusted boundary and call [`dispatch_control_intent_trusted`].
+///
+/// # Panics
+///
+/// Does not panic. Replaces any previously installed kernel.
+pub fn install_trusted_kernel(kernel: Box<dyn TrustedKernelControlPort>) {
+    KERNEL.with(|cell| {
+        *cell.borrow_mut() = Some(InstalledKernel::Trusted(kernel));
     });
 }
 
@@ -97,6 +141,26 @@ pub fn get_registry_info_cbor() -> Vec<u8> {
     encode_result_bytes(with_kernel_ref(|k| Ok(k.registry_info())))
 }
 
+/// Dispatch a privileged control intent through the trusted runtime boundary.
+///
+/// `control_intent_bytes` must be a packed `ControlIntentV1` EINT envelope. This
+/// is the native Rust equivalent of the `dispatch_control_intent_trusted` WASM
+/// export and is intentionally separate from application `dispatch_intent`.
+pub fn dispatch_control_intent_trusted_cbor(control_intent_bytes: &[u8]) -> Vec<u8> {
+    let control = match unpack_control_intent_v1(control_intent_bytes) {
+        Ok(control) => control,
+        Err(err) => {
+            return encode_err_bytes(&AbiError {
+                code: kernel_port::error_codes::INVALID_PAYLOAD,
+                message: format!("invalid trusted control intent payload: {err}"),
+            })
+        }
+    };
+    encode_result_bytes(with_trusted_kernel(|k| {
+        k.dispatch_control_intent_trusted(control)
+    }))
+}
+
 /// Remove any installed kernel from the WASM boundary.
 #[cfg(feature = "engine")]
 fn clear_kernel() {
@@ -119,7 +183,7 @@ where
             code: kernel_port::error_codes::NOT_INITIALIZED,
             message: "kernel not initialized; call init() first".into(),
         })?;
-        f(kernel.as_mut())
+        f(kernel.kernel_mut())
     })
 }
 
@@ -134,7 +198,26 @@ where
             code: kernel_port::error_codes::NOT_INITIALIZED,
             message: "kernel not initialized; call init() first".into(),
         })?;
-        f(kernel.as_ref())
+        f(kernel.kernel())
+    })
+}
+
+/// Run a closure with a mutable reference to the trusted runtime boundary.
+fn with_trusted_kernel<F, R>(f: F) -> Result<R, AbiError>
+where
+    F: FnOnce(&mut dyn TrustedKernelControlPort) -> Result<R, AbiError>,
+{
+    KERNEL.with(|cell| {
+        let mut borrow = cell.borrow_mut();
+        let kernel = borrow.as_mut().ok_or_else(|| AbiError {
+            code: kernel_port::error_codes::NOT_INITIALIZED,
+            message: "kernel not initialized; call init() first".into(),
+        })?;
+        let trusted = kernel.trusted_mut().ok_or_else(|| AbiError {
+            code: kernel_port::error_codes::NOT_SUPPORTED,
+            message: "trusted runtime control is not installed".into(),
+        })?;
+        f(trusted)
     })
 }
 
@@ -292,7 +375,7 @@ where
         Ok((kernel, head)) => {
             let envelope = OkEnvelope::new(&head);
             if let Ok(bytes) = echo_wasm_abi::encode_cbor(&envelope) {
-                install_kernel(Box::new(kernel));
+                install_trusted_kernel(Box::new(kernel));
                 bytes_to_uint8array(&bytes)
             } else {
                 clear_kernel();
@@ -349,6 +432,27 @@ pub fn init() -> Uint8Array {
 pub fn dispatch_intent(intent_bytes: &[u8]) -> Uint8Array {
     encode_result(with_kernel(|k| {
         dispatch_application_intent(k, intent_bytes)
+    }))
+}
+
+/// Execute a privileged scheduler/runtime control intent.
+///
+/// This export is for trusted host/runtime-owner adapters. Application-facing
+/// clients must use `dispatch_intent`, `observe`, and `scheduler_status` only.
+/// The input bytes must be a packed `ControlIntentV1` EINT envelope.
+#[wasm_bindgen]
+pub fn dispatch_control_intent_trusted(control_intent_bytes: &[u8]) -> Uint8Array {
+    let control = match unpack_control_intent_v1(control_intent_bytes) {
+        Ok(control) => control,
+        Err(err) => {
+            return encode_err(&AbiError {
+                code: kernel_port::error_codes::INVALID_PAYLOAD,
+                message: format!("invalid trusted control intent payload: {err}"),
+            })
+        }
+    };
+    encode_result(with_trusted_kernel(|k| {
+        k.dispatch_control_intent_trusted(control)
     }))
 }
 
@@ -1012,6 +1116,38 @@ mod init_tests {
         }
     }
 
+    impl TrustedKernelControlPort for StubKernel {
+        fn dispatch_control_intent_trusted(
+            &mut self,
+            intent: ControlIntentV1,
+        ) -> Result<DispatchResponse, AbiError> {
+            assert!(matches!(
+                intent,
+                ControlIntentV1::Start {
+                    mode: SchedulerMode::UntilIdle {
+                        cycle_limit: Some(1)
+                    }
+                }
+            ));
+            Ok(DispatchResponse {
+                accepted: true,
+                intent_id: vec![42; 32],
+                submission_id: None,
+                submission_generation: None,
+                scheduler_status: SchedulerStatus {
+                    state: SchedulerState::Inactive,
+                    active_mode: None,
+                    work_state: WorkState::Quiescent,
+                    run_id: Some(RunId(7)),
+                    latest_cycle_global_tick: Some(GlobalTick(1)),
+                    latest_commit_global_tick: Some(GlobalTick(1)),
+                    last_quiescent_global_tick: Some(GlobalTick(1)),
+                    last_run_completion: Some(RunCompletion::Quiesced),
+                },
+            })
+        }
+    }
+
     #[test]
     fn clear_kernel_removes_previously_installed_kernel() {
         clear_kernel();
@@ -1042,6 +1178,57 @@ mod init_tests {
         let err: ErrEnvelope = echo_wasm_abi::decode_cbor(&response).unwrap();
 
         assert_eq!(err.code, kernel_port::error_codes::FORBIDDEN_CONTROL_INTENT);
+    }
+
+    #[test]
+    fn trusted_control_dispatches_packed_control_intent_start() {
+        clear_kernel();
+        install_trusted_kernel(Box::new(StubKernel));
+        let control = echo_wasm_abi::pack_control_intent_v1(&ControlIntentV1::Start {
+            mode: SchedulerMode::UntilIdle {
+                cycle_limit: Some(1),
+            },
+        })
+        .unwrap();
+
+        let response = dispatch_control_intent_trusted_cbor(&control);
+        let envelope: OkEnvelope<DispatchResponse> = echo_wasm_abi::decode_cbor(&response).unwrap();
+
+        assert!(envelope.data.accepted);
+        assert_eq!(envelope.data.intent_id, vec![42; 32]);
+        assert_eq!(
+            envelope.data.scheduler_status.last_run_completion,
+            Some(RunCompletion::Quiesced)
+        );
+    }
+
+    #[test]
+    fn trusted_control_is_unavailable_for_app_only_installed_kernel() {
+        clear_kernel();
+        install_kernel(Box::new(StubKernel));
+        let control = echo_wasm_abi::pack_control_intent_v1(&ControlIntentV1::Start {
+            mode: SchedulerMode::UntilIdle {
+                cycle_limit: Some(1),
+            },
+        })
+        .unwrap();
+
+        let response = dispatch_control_intent_trusted_cbor(&control);
+        let err: ErrEnvelope = echo_wasm_abi::decode_cbor(&response).unwrap();
+
+        assert_eq!(err.code, kernel_port::error_codes::NOT_SUPPORTED);
+    }
+
+    #[test]
+    fn trusted_control_rejects_non_control_intent_envelope() {
+        clear_kernel();
+        install_trusted_kernel(Box::new(StubKernel));
+        let app_intent = echo_wasm_abi::pack_intent_v1(1, b"not-control").unwrap();
+
+        let response = dispatch_control_intent_trusted_cbor(&app_intent);
+        let err: ErrEnvelope = echo_wasm_abi::decode_cbor(&response).unwrap();
+
+        assert_eq!(err.code, kernel_port::error_codes::INVALID_PAYLOAD);
     }
 
     #[test]

@@ -12,6 +12,7 @@ const WARP_WASM_MODULE_PATH = path.join(REPO_ROOT, 'crates', 'warp-wasm', 'pkg',
 const REQUIRED_BYTE_ABI_EXPORTS = Object.freeze([
   'init',
   'dispatch_intent',
+  'dispatch_control_intent_trusted',
   'observe',
   'scheduler_status',
   'get_codec_id',

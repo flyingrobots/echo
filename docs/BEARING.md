@@ -3,7 +3,7 @@
 
 # BEARING
 
-Last updated: 2026-05-22.
+Last updated: 2026-05-23.
 
 This signpost summarizes current direction. It does not create commitments or
 replace backlog items, design docs, retros, or CLI status. If it disagrees with
@@ -15,6 +15,9 @@ The WARP paper-to-Echo noun map is maintained in
 The feature bar for the eventual `v0.1.0` release is maintained in
 `docs/design/v0.1.0-release-plan.md`.
 
+The current external release gate is maintained in
+`docs/design/v0.1.0-jedit-release-gate.md`.
+
 The filesystem lane for release-bar backlog cards is
 `docs/method/backlog/v0.1.0/`.
 
@@ -25,9 +28,11 @@ application ingress can become witnessed submission history, lawful admission
 evidence, ticketed runtime ingress, scheduler-owned handler dispatch, receipt
 correlation, and observable intent outcome.
 
-The current priority is to make that pipeline consumer-grade for
-Wesley-compiled contract packages: contract-aware receipts, honest reading
-identity, bounded retained readings, and external consumer proof fixtures
+The current priority is to prove that pipeline with `jedit` as a real external
+consumer. The in-repo external fixture remains valuable, but it is no longer
+the `v0.1.0` release gate. Echo is not ready to release until jedit can submit
+an application-owned contract intent, let a trusted Echo host tick, observe the
+outcome, query a bounded reading, retain evidence, and replay the result
 without moving application nouns into Echo core.
 
 ## What Is Already True
@@ -84,9 +89,11 @@ without moving application nouns into Echo core.
   need release-grade stabilization.
 - The semantic retention layer is local and in-memory; durable retained
   artifact, witness, receipt, and reading recovery remains future work.
-- Generic external contract proof exists, but a serious application-owned
-  consumer proof, especially `jedit`, still needs to prove the host path with
-  generated artifacts outside Echo core.
+- Generic external contract proof exists, but the release gate now requires
+  real `jedit` follow-through from the sibling repository. jedit now has a
+  local app/host split for its opt-in real-WASM witness; the remaining gap is
+  moving from the old stack-witness fixture shape to retained evidence, replay,
+  and a jedit-owned generated contract path.
 
 ## Doctrine
 
@@ -254,10 +261,10 @@ AdmissionTicket + witnessed submission -> ticketed runtime ingress
 
 8. **Serious External Consumer Proof Fixture**
 
-    The contract-host path now has a hot-text-shaped external consumer fixture
-    covering document-edit-style mutation, overlapping write conflict, bounded
-    QueryView reading, retained reading payload, and retained receipt evidence
-    while keeping application nouns in test fixture code.
+    The contract-host path now has a serious external-consumer fixture covering
+    non-trivial mutation, overlapping write conflict, bounded QueryView
+    reading, retained reading payload, and retained receipt evidence while
+    keeping application nouns in test fixture code.
 
 9. **Local Replay/DIND Proof For Contract Path**
 
@@ -270,6 +277,50 @@ AdmissionTicket + witnessed submission -> ticketed runtime ingress
     `docs/quickstart-local-contract-host.md` now documents the executable local
     contract-host path. `docs/design/v0.1.0-authority-boundary-audit.md` records
     the app/host authority split, current evidence, and deferred release risks.
+
+## Release Gate Shift
+
+`v0.1.0` is officially delayed until the jedit/Echo proof passes outside the
+Echo repository.
+
+The required shape is:
+
+```text
+sibling application-owned contract and adapters
+-> Wesley generated Echo runtime artifacts
+-> Echo installs a generic generated package
+-> application submits canonical intent
+-> trusted Echo host stages and ticks
+-> application observes applied, rejected, or obstructed outcome
+-> application queries a bounded reading
+-> retained evidence and replay prove the same result
+```
+
+The proof must preserve the authority split:
+
+- application code does not tick;
+- product capabilities remain application-owned nouns and must not appear in
+  Echo core or Echo package boundary APIs;
+- application-facing code uses product capabilities rather than Echo runtime
+  coordinates;
+- application code does not send scheduler control through
+  `dispatch_intent`;
+- trusted host code owns package install, ticketed ingress staging, scheduler
+  passes, until-idle policy, and fault recovery;
+- Echo core does not import application product nouns or product concepts;
+- the existing fake transport may stay as a local harness, but the release
+  witness must run against the real Echo boundary.
+
+The current opt-in jedit real-WASM stack witness now uses a separate trusted
+host-control transport. Agents can run jedit's JSON-capable CLI witness:
+
+```sh
+ECHO_WARP_WASM_DIR=/path/to/echo/crates/warp-wasm \
+  node scripts/jedit-echo-witness.mjs --json
+```
+
+The next integration slice should improve witness content: retained evidence,
+replay, and a jedit-owned generated contract path, not scheduler authority.
 
 ## Next Candidate Slices
 

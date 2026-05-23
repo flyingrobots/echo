@@ -3,7 +3,7 @@
 
 # External Contract Proof Fixture
 
-Status: serious local fixture implemented; external package follow-through remains.
+Status: serious local fixture implemented; jedit release gate remains.
 
 Depends on:
 
@@ -16,10 +16,12 @@ Depends on:
 
 ## Why now
 
-The generic contract-host path needs one serious external consumer-shaped
-proof before Echo can claim `v0.1.0` buildability. `jedit` is the preferred
-shape because it pressures bounded readings, retained evidence, conflicts, and
-replay without letting Echo core import text-editor nouns.
+The generic contract-host path needs one serious external consumer proof before
+Echo can claim `v0.1.0` buildability. The in-repo external fixture proved
+the local mechanics. It is no longer enough for the release. The release gate is
+now a real `jedit` proof from the sibling repository because it pressures
+bounded readings, retained evidence, conflicts, replay, generated artifacts,
+and application ergonomics without letting Echo core import application nouns.
 
 ## What it should look like
 
@@ -36,8 +38,8 @@ external contract
 -> local replay proof
 ```
 
-The fixture may use text-like operations and readings, but the nouns remain in
-the external contract and generated payloads.
+The fixture may use application-shaped operations and readings, but the nouns
+remain in the external contract and generated payloads.
 
 ## Acceptance criteria
 
@@ -50,19 +52,35 @@ the external contract and generated payloads.
 - [x] At least one conflict, rejection, obstruction, or residual path is
       exercised.
 - [x] Local replay reproduces the generic fixture outcome.
-- [x] Echo core contains no `jedit`, text, rope, buffer, editor, or Graft APIs
-      outside generated fixture payloads.
+- [x] Echo core contains no application product APIs outside generated fixture
+      payloads.
 - [x] The fixture may declare retained tick/receipt obligations, but
       application code does not create ticks or `TickReceipt` values.
+- [ ] The sibling `jedit` repository can run the documented real Echo witness
+      against a clean Echo checkout or published artifact.
+- [ ] sibling application code submits intent without access to scheduler
+      control.
+- [ ] trusted Echo host code owns package installation, scheduler control,
+      until-idle policy, and fault recovery.
+- [ ] jedit observes an outcome and bounded reading with retained evidence.
+- [ ] jedit replay reproduces the same outcome and reading.
 
 ## Implemented local slice
 
 `external_consumer_contract_fixture_tests` adds a serious
-external-consumer-shaped hot-text fixture. The document/edit names live only in
-the test package. The fixture installs through the generic package boundary,
-submits through the app-facing host handle, resolves one overlapping edit as a
+external-consumer-shaped fixture. The application names live only in the test
+package. The fixture installs through the generic package boundary, submits
+through the app-facing host handle, resolves one overlapping mutation as a
 footprint conflict, observes a bounded query reading, and retains reading plus
 receipt evidence through semantic coordinates.
+
+## Remaining release gate
+
+The next proof must live in `~/git/jedit`, not as another `warp-core` fixture.
+The current opt-in jedit real-WASM witness is useful but stale: it still tries
+to send scheduler control through app-facing dispatch. Echo correctly rejects
+that as forbidden control intent. The fix is to update the jedit witness around
+the app/host split, not to grant application code tick authority.
 
 ## Non-goals
 
@@ -70,4 +88,4 @@ receipt evidence through semantic coordinates.
 - Do not author the `jedit` product contract inside Echo.
 - Do not make the fixture a privileged Echo ontology.
 - Do not add a special `jedit` ABI.
-- Do not implement Graft automation in Echo core.
+- Do not implement downstream automation in Echo core.

@@ -11,6 +11,7 @@ Depends on:
 - [Release-grade quickstart](./DOCS_release-grade-quickstart.md)
 - [Authority boundary audit](./SECURITY_authority-boundary-audit.md)
 - [Versioned contract and API compatibility](./PLATFORM_versioned-contract-api-compatibility.md)
+- [jedit real Echo release gate](./PLATFORM_jedit-real-echo-release-gate.md)
 
 ## Why now
 
@@ -23,7 +24,7 @@ authority checks are merged. It should not be pulled until the remaining
 A `v0.1.0` release candidate exists when:
 
 - all Required Feature Clusters have merged tests;
-- the external consumer proof passes on a clean checkout;
+- the jedit-on-Echo release gate passes on clean Echo and jedit checkouts;
 - the quickstart is executable from scratch;
 - the authority-boundary audit is green;
 - the replay/DIND proof is green;

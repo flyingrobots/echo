@@ -3,11 +3,12 @@
 
 # WASM control intent authority boundary is too implicit
 
-Status: active follow-up. The immediate bug was fixed by making public
+Status: partially addressed. The immediate bug was fixed by making public
 application dispatch reject `CONTROL_INTENT_V1_OP_ID` before the kernel can
 run scheduler control. `WarpKernel::dispatch_intent(...)` also rejects the
 reserved control op id directly, while trusted runtime control now uses a
-separate `TrustedKernelControlPort` Rust host/runtime-owner path.
+separate `TrustedKernelControlPort` Rust host/runtime-owner path. The raw WASM
+package now exposes `dispatch_control_intent_trusted(...)` for host adapters.
 
 The remaining concern is product packaging and host architecture: browser
 adapters must not hand untrusted application code a raw privileged runtime
@@ -29,3 +30,7 @@ Acceptance criteria:
   control path to application code.
 - README, WASM ABI docs, and package docs describe the authority split
   consistently.
+
+Current design packet:
+
+- [`WASM Trusted Runtime Host Control Boundary`](../../../design/wasm-trusted-runtime-host-control-boundary.md)

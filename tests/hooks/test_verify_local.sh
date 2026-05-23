@@ -53,6 +53,12 @@ if grep -R -q -- 'cargo test -p warp-core --test deterministic_sin_cos_tests' .g
 else
   pass "determinism workflow sin/cos tests run from warp-math"
 fi
+if grep -q -- 'cargo build --release --target wasm32-unknown-unknown -p warp-wasm --features engine' .github/workflows/det-gates.yml \
+  && grep -q -- '--remap-path-prefix=${repo_root}=/workspace' .github/workflows/det-gates.yml; then
+  pass "WASM reproducibility gate remaps checkout paths for warp-wasm"
+else
+  fail "WASM reproducibility gate should remap checkout paths for warp-wasm"
+fi
 if grep -q 'crates/warp-math' det-policy.yaml; then
   pass "determinism policy classifies warp-math explicitly"
 else

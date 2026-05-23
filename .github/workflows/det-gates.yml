@@ -251,6 +251,8 @@ jobs:
         run: |
           cd build1
           rustup target add wasm32-unknown-unknown
+          repo_root="$(pwd -P)"
+          export RUSTFLAGS="--remap-path-prefix=${repo_root}=/workspace"
           cargo build --release --target wasm32-unknown-unknown -p warp-wasm --features engine
           sha256sum target/wasm32-unknown-unknown/release/warp_wasm.wasm > ../hash1.txt
           cp target/wasm32-unknown-unknown/release/warp_wasm.wasm ../build1.wasm
@@ -262,6 +264,8 @@ jobs:
         run: |
           cd build2
           rustup target add wasm32-unknown-unknown
+          repo_root="$(pwd -P)"
+          export RUSTFLAGS="--remap-path-prefix=${repo_root}=/workspace"
           cargo build --release --target wasm32-unknown-unknown -p warp-wasm --features engine
           sha256sum target/wasm32-unknown-unknown/release/warp_wasm.wasm > ../hash2.txt
           cp target/wasm32-unknown-unknown/release/warp_wasm.wasm ../build2.wasm

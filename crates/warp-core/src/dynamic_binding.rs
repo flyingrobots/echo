@@ -500,18 +500,18 @@ mod tests {
         binding: BoundNodeRef,
         worldline_id: String,
         byte_length: usize,
-        rope_members: Vec<MockRopeMember>,
+        segment_members: Vec<MockSegmentMember>,
     }
 
     #[derive(Debug, Clone)]
-    struct MockRopeMember {
+    struct MockSegmentMember {
         start: usize,
         end: usize,
         binding: ClosureMemberBinding,
     }
 
     #[derive(Debug, Clone)]
-    struct MockAnchor {
+    struct MockMarker {
         basis_head_id: String,
         start: usize,
         end: usize,
@@ -519,14 +519,14 @@ mod tests {
     }
 
     #[derive(Debug, Clone)]
-    struct MockTextRuntime {
+    struct MockStructuredRuntime {
         worldlines: BTreeMap<String, MockWorldline>,
         heads: BTreeMap<String, MockHead>,
-        anchors: Vec<MockAnchor>,
+        markers: Vec<MockMarker>,
     }
 
     #[derive(Debug, Clone)]
-    struct ReplaceRangeAsTickBindingRequest {
+    struct UpdateWindowBindingRequest {
         worldline_id: String,
         base_head_id: String,
         start_byte: usize,
@@ -542,7 +542,7 @@ mod tests {
         start < other_end && other_start < end
     }
 
-    impl StructuredBindingRuntime for MockTextRuntime {
+    impl StructuredBindingRuntime for MockStructuredRuntime {
         fn resolve_direct_slot(
             &self,
             slot: &str,
@@ -550,7 +550,7 @@ mod tests {
             reference: &str,
         ) -> Result<BoundNodeRef, DynamicBindingRuntimeError> {
             match slot {
-                "worldline" => self
+                "scope" => self
                     .worldlines
                     .get(reference)
                     .map(|worldline| worldline.binding.clone())
@@ -558,7 +558,7 @@ mod tests {
                         slot: slot.to_owned(),
                         reference: reference.to_owned(),
                     }),
-                "baseHead" => self
+                "basisHead" => self
                     .heads
                     .get(reference)
                     .map(|head| head.binding.clone())
@@ -581,7 +581,7 @@ mod tests {
             source: &BoundNodeRef,
             _expected_kind: &str,
         ) -> Result<BoundNodeRef, DynamicBindingRuntimeError> {
-            if from_slot != "worldline" || relation != "CANONICAL_HEAD" {
+            if from_slot != "scope" || relation != "CURRENT_HEAD" {
                 return Err(DynamicBindingRuntimeError::MissingRelationTarget {
                     slot: slot.to_owned(),
                     from_slot: from_slot.to_owned(),
@@ -624,7 +624,7 @@ mod tests {
             related: Option<&BoundNodeRef>,
         ) -> Result<Vec<ClosureMemberBinding>, DynamicBindingRuntimeError> {
             match request.operator {
-                "ropeRangeClosure" => {
+                "segmentWindowClosure" => {
                     let base_head = self
                         .heads
                         .values()
@@ -652,7 +652,7 @@ mod tests {
                     }
 
                     Ok(base_head
-                        .rope_members
+                        .segment_members
                         .iter()
                         .filter(|member| {
                             overlap(request.start, request.end, member.start, member.end)
@@ -660,7 +660,7 @@ mod tests {
                         .map(|member| member.binding.clone())
                         .collect())
                 }
-                "anchorsIntersectingEditWindow" => {
+                "markersIntersectingWindow" => {
                     let worldline = self
                         .worldlines
                         .values()
@@ -672,7 +672,7 @@ mod tests {
                     let related = related.ok_or_else(|| {
                         DynamicBindingRuntimeError::MissingClosureSource {
                             slot: request.slot.to_owned(),
-                            from_slot: "baseHead".to_owned(),
+                            from_slot: "basisHead".to_owned(),
                         }
                     })?;
                     let base_head = self
@@ -692,13 +692,13 @@ mod tests {
                     }
 
                     Ok(self
-                        .anchors
+                        .markers
                         .iter()
-                        .filter(|anchor| {
-                            anchor.basis_head_id == base_head.id
-                                && overlap(request.start, request.end, anchor.start, anchor.end)
+                        .filter(|marker| {
+                            marker.basis_head_id == base_head.id
+                                && overlap(request.start, request.end, marker.start, marker.end)
                         })
-                        .map(|anchor| anchor.binding.clone())
+                        .map(|marker| marker.binding.clone())
                         .collect())
                 }
                 _ => Err(DynamicBindingRuntimeError::UnknownClosureOperator {
@@ -709,26 +709,26 @@ mod tests {
         }
     }
 
-    fn bind_replace_range_as_tick(
-        runtime: &MockTextRuntime,
-        request: &ReplaceRangeAsTickBindingRequest,
+    fn bind_update_window(
+        runtime: &MockStructuredRuntime,
+        request: &UpdateWindowBindingRequest,
     ) -> Result<StructuredRuntimeBindings, DynamicBindingRuntimeError> {
         let mut resolver = StructuredBindingResolver::new(runtime);
-        resolver.bind_direct_slot("worldline", "BufferWorldline", &request.worldline_id)?;
-        resolver.bind_direct_slot("baseHead", "RopeHead", &request.base_head_id)?;
+        resolver.bind_direct_slot("scope", "AuthoredScope", &request.worldline_id)?;
+        resolver.bind_direct_slot("basisHead", "AuthoredHead", &request.base_head_id)?;
         resolver.bind_range_closure(RangeClosureBindingRequest {
-            slot: "touchedRope",
-            from_slot: "baseHead",
-            operator: "ropeRangeClosure",
+            slot: "touchedSegments",
+            from_slot: "basisHead",
+            operator: "segmentWindowClosure",
             related_slot: None,
             start: request.start_byte,
             end: request.end_byte,
         })?;
         resolver.bind_range_closure(RangeClosureBindingRequest {
-            slot: "affectedAnchors",
-            from_slot: "worldline",
-            operator: "anchorsIntersectingEditWindow",
-            related_slot: Some("baseHead"),
+            slot: "affectedMarkers",
+            from_slot: "scope",
+            operator: "markersIntersectingWindow",
+            related_slot: Some("basisHead"),
             start: request.start_byte,
             end: request.end_byte,
         })?;
@@ -736,66 +736,66 @@ mod tests {
     }
 
     fn bind_create_checkpoint(
-        runtime: &MockTextRuntime,
+        runtime: &MockStructuredRuntime,
         request: &CreateCheckpointBindingRequest,
     ) -> Result<StructuredRuntimeBindings, DynamicBindingRuntimeError> {
         let mut resolver = StructuredBindingResolver::new(runtime);
-        resolver.bind_direct_slot("worldline", "BufferWorldline", &request.worldline_id)?;
-        resolver.bind_relation_slot("currentHead", "RopeHead", "worldline", "CANONICAL_HEAD")?;
+        resolver.bind_direct_slot("scope", "AuthoredScope", &request.worldline_id)?;
+        resolver.bind_relation_slot("currentHead", "AuthoredHead", "scope", "CURRENT_HEAD")?;
         Ok(resolver.into_bindings())
     }
 
-    fn mock_runtime() -> MockTextRuntime {
+    fn mock_runtime() -> MockStructuredRuntime {
         let warp_id = make_warp_id("binding-warp");
-        let worldline_id = "wl:buf-1".to_owned();
+        let worldline_id = "wl:entity-1".to_owned();
         let canonical_head_id = "head:current".to_owned();
         let stale_head_id = "head:stale".to_owned();
 
         let worldline = MockWorldline {
             id: worldline_id.clone(),
             binding: BoundNodeRef::from_ids(
-                "BufferWorldline",
+                "AuthoredScope",
                 warp_id,
-                make_node_id("buffer-worldline"),
+                make_node_id("authored-scope"),
             ),
             canonical_head_id: Some(canonical_head_id.clone()),
         };
         let current_head = MockHead {
             id: canonical_head_id.clone(),
-            binding: BoundNodeRef::from_ids("RopeHead", warp_id, make_node_id("head-current")),
+            binding: BoundNodeRef::from_ids("AuthoredHead", warp_id, make_node_id("head-current")),
             worldline_id: worldline_id.clone(),
             byte_length: 20,
-            rope_members: vec![
-                MockRopeMember {
+            segment_members: vec![
+                MockSegmentMember {
                     start: 0,
                     end: 5,
                     binding: ClosureMemberBinding::new(
-                        "RopeLeaf",
+                        "SegmentLeaf",
                         NodeKey {
                             warp_id,
-                            local_id: make_node_id("leaf-0-5"),
+                            local_id: make_node_id("segment-leaf-0-5"),
                         },
                     ),
                 },
-                MockRopeMember {
+                MockSegmentMember {
                     start: 5,
                     end: 10,
                     binding: ClosureMemberBinding::new(
-                        "RopeBranch",
+                        "SegmentBranch",
                         NodeKey {
                             warp_id,
-                            local_id: make_node_id("branch-5-10"),
+                            local_id: make_node_id("segment-branch-5-10"),
                         },
                     ),
                 },
-                MockRopeMember {
+                MockSegmentMember {
                     start: 10,
                     end: 15,
                     binding: ClosureMemberBinding::new(
-                        "TextBlob",
+                        "SegmentBlob",
                         NodeKey {
                             warp_id,
-                            local_id: make_node_id("blob-10-15"),
+                            local_id: make_node_id("segment-blob-10-15"),
                         },
                     ),
                 },
@@ -803,40 +803,40 @@ mod tests {
         };
         let stale_head = MockHead {
             id: stale_head_id,
-            binding: BoundNodeRef::from_ids("RopeHead", warp_id, make_node_id("head-stale")),
+            binding: BoundNodeRef::from_ids("AuthoredHead", warp_id, make_node_id("head-stale")),
             worldline_id: "wl:other".to_owned(),
             byte_length: 8,
-            rope_members: vec![],
+            segment_members: vec![],
         };
 
-        MockTextRuntime {
+        MockStructuredRuntime {
             worldlines: BTreeMap::from([(worldline_id, worldline)]),
             heads: BTreeMap::from([
                 (canonical_head_id.clone(), current_head),
                 ("head:stale".to_owned(), stale_head),
             ]),
-            anchors: vec![
-                MockAnchor {
+            markers: vec![
+                MockMarker {
                     basis_head_id: canonical_head_id.clone(),
                     start: 4,
                     end: 7,
                     binding: ClosureMemberBinding::new(
-                        "Anchor",
+                        "Marker",
                         NodeKey {
                             warp_id,
-                            local_id: make_node_id("anchor-overlap"),
+                            local_id: make_node_id("marker-overlap"),
                         },
                     ),
                 },
-                MockAnchor {
+                MockMarker {
                     basis_head_id: canonical_head_id,
                     start: 15,
                     end: 18,
                     binding: ClosureMemberBinding::new(
-                        "Anchor",
+                        "Marker",
                         NodeKey {
                             warp_id,
-                            local_id: make_node_id("anchor-outside"),
+                            local_id: make_node_id("marker-outside"),
                         },
                     ),
                 },
@@ -847,25 +847,24 @@ mod tests {
     #[test]
     fn structured_runtime_bindings_store_direct_relation_and_closure_bindings() {
         let warp_id = make_warp_id("binding-warp");
-        let worldline =
-            BoundNodeRef::from_ids("BufferWorldline", warp_id, make_node_id("worldline"));
-        let base_head = BoundNodeRef::from_ids("RopeHead", warp_id, make_node_id("base-head"));
+        let worldline = BoundNodeRef::from_ids("AuthoredScope", warp_id, make_node_id("worldline"));
+        let base_head = BoundNodeRef::from_ids("AuthoredHead", warp_id, make_node_id("base-head"));
         let branch = ClosureMemberBinding::new(
-            "RopeBranch",
+            "SegmentBranch",
             NodeKey {
                 warp_id,
                 local_id: make_node_id("branch"),
             },
         );
         let leaf = ClosureMemberBinding::new(
-            "RopeLeaf",
+            "SegmentLeaf",
             NodeKey {
                 warp_id,
                 local_id: make_node_id("leaf"),
             },
         );
         let blob = ClosureMemberBinding::new(
-            "TextBlob",
+            "SegmentBlob",
             NodeKey {
                 warp_id,
                 local_id: make_node_id("blob"),
@@ -874,39 +873,39 @@ mod tests {
 
         let mut bindings = StructuredRuntimeBindings::new();
         bindings
-            .bind_direct_slot("worldline", worldline.clone())
+            .bind_direct_slot("scope", worldline.clone())
             .expect("bind direct slot");
         bindings
-            .bind_relation_slot("baseHead", "worldline", "CANONICAL_HEAD", base_head.clone())
+            .bind_relation_slot("basisHead", "scope", "CURRENT_HEAD", base_head.clone())
             .expect("bind relation slot");
         bindings
             .bind_closure(
-                "touchedRope",
-                "baseHead",
-                "ropeRangeClosure",
+                "touchedSegments",
+                "basisHead",
+                "segmentWindowClosure",
                 vec![branch.clone(), leaf.clone(), blob.clone()],
             )
             .expect("bind closure");
 
-        let worldline_binding = bindings.slot("worldline").expect("worldline slot");
+        let worldline_binding = bindings.slot("scope").expect("scope slot");
         assert_eq!(worldline_binding.binding(), &worldline);
-        assert_eq!(worldline_binding.slot(), "worldline");
+        assert_eq!(worldline_binding.slot(), "scope");
 
-        let base_head_binding = bindings.slot("baseHead").expect("baseHead slot");
+        let base_head_binding = bindings.slot("basisHead").expect("basisHead slot");
         assert_eq!(base_head_binding.binding(), &base_head);
         match base_head_binding {
             ResolvedSlotBinding::Relation(binding) => {
-                assert_eq!(binding.from_slot, "worldline");
-                assert_eq!(binding.relation, "CANONICAL_HEAD");
+                assert_eq!(binding.from_slot, "scope");
+                assert_eq!(binding.relation, "CURRENT_HEAD");
             }
             ResolvedSlotBinding::Direct(_) => panic!("expected relation-derived slot"),
         }
 
         let closure = bindings
-            .closure("touchedRope")
-            .expect("touchedRope closure");
-        assert_eq!(closure.from_slot, "baseHead");
-        assert_eq!(closure.operator, "ropeRangeClosure");
+            .closure("touchedSegments")
+            .expect("touchedSegments closure");
+        assert_eq!(closure.from_slot, "basisHead");
+        assert_eq!(closure.operator, "segmentWindowClosure");
         assert_eq!(closure.members, vec![branch, leaf, blob]);
     }
 
@@ -915,29 +914,29 @@ mod tests {
         let warp_id = make_warp_id("binding-warp");
         let mut bindings = StructuredRuntimeBindings::new();
         let original_worldline =
-            BoundNodeRef::from_ids("BufferWorldline", warp_id, make_node_id("worldline"));
+            BoundNodeRef::from_ids("AuthoredScope", warp_id, make_node_id("worldline"));
 
         bindings
-            .bind_direct_slot("worldline", original_worldline.clone())
+            .bind_direct_slot("scope", original_worldline.clone())
             .expect("initial direct slot bind");
         assert_eq!(
             bindings.bind_relation_slot(
-                "worldline",
-                "worldline",
-                "CANONICAL_HEAD",
-                BoundNodeRef::from_ids("RopeHead", warp_id, make_node_id("head")),
+                "scope",
+                "scope",
+                "CURRENT_HEAD",
+                BoundNodeRef::from_ids("AuthoredHead", warp_id, make_node_id("head")),
             ),
             Err(DynamicBindingError::DuplicateSlot {
-                slot: "worldline".to_owned(),
+                slot: "scope".to_owned(),
             })
         );
         assert_eq!(
-            bindings.slot("worldline").unwrap().binding(),
+            bindings.slot("scope").unwrap().binding(),
             &original_worldline
         );
 
         let original_closure = vec![ClosureMemberBinding::new(
-            "RopeLeaf",
+            "SegmentLeaf",
             NodeKey {
                 warp_id,
                 local_id: make_node_id("leaf"),
@@ -945,62 +944,64 @@ mod tests {
         )];
         bindings
             .bind_closure(
-                "touchedRope",
-                "worldline",
-                "ropeRangeClosure",
+                "touchedSegments",
+                "scope",
+                "segmentWindowClosure",
                 original_closure.clone(),
             )
             .expect("initial closure bind");
         assert_eq!(
-            bindings.bind_closure("touchedRope", "worldline", "ropeRangeClosure", vec![]),
+            bindings.bind_closure("touchedSegments", "scope", "segmentWindowClosure", vec![]),
             Err(DynamicBindingError::DuplicateClosure {
-                slot: "touchedRope".to_owned(),
+                slot: "touchedSegments".to_owned(),
             })
         );
         assert_eq!(
-            bindings.closure("touchedRope").unwrap().members,
+            bindings.closure("touchedSegments").unwrap().members,
             original_closure
         );
     }
 
     #[test]
-    fn mock_replace_range_runtime_binds_direct_slots_and_resolves_declared_closures() {
+    fn mock_runtime_binds_direct_slots_and_resolves_declared_closures() {
         let runtime = mock_runtime();
-        let bindings = bind_replace_range_as_tick(
+        let bindings = bind_update_window(
             &runtime,
-            &ReplaceRangeAsTickBindingRequest {
-                worldline_id: "wl:buf-1".to_owned(),
+            &UpdateWindowBindingRequest {
+                worldline_id: "wl:entity-1".to_owned(),
                 base_head_id: "head:current".to_owned(),
                 start_byte: 4,
                 end_byte: 12,
             },
         )
-        .expect("bind replace-range runtime");
+        .expect("bind update-window runtime");
 
-        let worldline = bindings.slot("worldline").expect("worldline");
-        assert_eq!(worldline.binding().kind, "BufferWorldline");
+        let worldline = bindings.slot("scope").expect("scope");
+        assert_eq!(worldline.binding().kind, "AuthoredScope");
 
-        let base_head = bindings.slot("baseHead").expect("baseHead");
-        assert_eq!(base_head.binding().kind, "RopeHead");
+        let base_head = bindings.slot("basisHead").expect("basisHead");
+        assert_eq!(base_head.binding().kind, "AuthoredHead");
 
-        let touched_rope = bindings.closure("touchedRope").expect("touchedRope");
-        assert_eq!(touched_rope.operator, "ropeRangeClosure");
-        assert_eq!(touched_rope.members.len(), 3);
+        let touched_segments = bindings
+            .closure("touchedSegments")
+            .expect("touchedSegments");
+        assert_eq!(touched_segments.operator, "segmentWindowClosure");
+        assert_eq!(touched_segments.members.len(), 3);
         assert_eq!(
-            touched_rope
+            touched_segments
                 .members
                 .iter()
                 .map(|member| member.kind.as_str())
                 .collect::<Vec<_>>(),
-            vec!["RopeBranch", "RopeLeaf", "TextBlob"]
+            vec!["SegmentBlob", "SegmentBranch", "SegmentLeaf"]
         );
 
-        let affected_anchors = bindings
-            .closure("affectedAnchors")
-            .expect("affectedAnchors");
-        assert_eq!(affected_anchors.operator, "anchorsIntersectingEditWindow");
-        assert_eq!(affected_anchors.members.len(), 1);
-        assert_eq!(affected_anchors.members[0].kind, "Anchor");
+        let affected_markers = bindings
+            .closure("affectedMarkers")
+            .expect("affectedMarkers");
+        assert_eq!(affected_markers.operator, "markersIntersectingWindow");
+        assert_eq!(affected_markers.members.len(), 1);
+        assert_eq!(affected_markers.members[0].kind, "Marker");
     }
 
     #[test]
@@ -1009,33 +1010,33 @@ mod tests {
         let bindings = bind_create_checkpoint(
             &runtime,
             &CreateCheckpointBindingRequest {
-                worldline_id: "wl:buf-1".to_owned(),
+                worldline_id: "wl:entity-1".to_owned(),
             },
         )
         .expect("bind checkpoint");
 
-        let worldline = bindings.slot("worldline").expect("worldline");
-        assert_eq!(worldline.binding().kind, "BufferWorldline");
+        let worldline = bindings.slot("scope").expect("scope");
+        assert_eq!(worldline.binding().kind, "AuthoredScope");
 
         let current_head = bindings.slot("currentHead").expect("currentHead");
         match current_head {
             ResolvedSlotBinding::Relation(binding) => {
-                assert_eq!(binding.from_slot, "worldline");
-                assert_eq!(binding.relation, "CANONICAL_HEAD");
-                assert_eq!(binding.binding.kind, "RopeHead");
+                assert_eq!(binding.from_slot, "scope");
+                assert_eq!(binding.relation, "CURRENT_HEAD");
+                assert_eq!(binding.binding.kind, "AuthoredHead");
             }
             ResolvedSlotBinding::Direct(_) => panic!("expected relation-derived currentHead"),
         }
     }
 
     #[test]
-    fn mock_runtime_reports_invalid_replace_range_bindings() {
+    fn mock_runtime_reports_invalid_update_window_bindings() {
         let runtime = mock_runtime();
 
         assert_eq!(
-            bind_replace_range_as_tick(
+            bind_update_window(
                 &runtime,
-                &ReplaceRangeAsTickBindingRequest {
+                &UpdateWindowBindingRequest {
                     worldline_id: "wl:missing".to_owned(),
                     base_head_id: "head:current".to_owned(),
                     start_byte: 0,
@@ -1043,39 +1044,39 @@ mod tests {
                 },
             ),
             Err(DynamicBindingRuntimeError::MissingDirectSlotTarget {
-                slot: "worldline".to_owned(),
+                slot: "scope".to_owned(),
                 reference: "wl:missing".to_owned(),
             })
         );
 
         assert_eq!(
-            bind_replace_range_as_tick(
+            bind_update_window(
                 &runtime,
-                &ReplaceRangeAsTickBindingRequest {
-                    worldline_id: "wl:buf-1".to_owned(),
+                &UpdateWindowBindingRequest {
+                    worldline_id: "wl:entity-1".to_owned(),
                     base_head_id: "head:stale".to_owned(),
                     start_byte: 0,
                     end_byte: 1,
                 },
             ),
             Err(DynamicBindingRuntimeError::BasisHeadMismatch {
-                worldline: "wl:buf-1".to_owned(),
+                worldline: "wl:entity-1".to_owned(),
                 head: "head:stale".to_owned(),
             })
         );
 
         assert_eq!(
-            bind_replace_range_as_tick(
+            bind_update_window(
                 &runtime,
-                &ReplaceRangeAsTickBindingRequest {
-                    worldline_id: "wl:buf-1".to_owned(),
+                &UpdateWindowBindingRequest {
+                    worldline_id: "wl:entity-1".to_owned(),
                     base_head_id: "head:current".to_owned(),
                     start_byte: 12,
                     end_byte: 21,
                 },
             ),
             Err(DynamicBindingRuntimeError::InvalidClosureRange {
-                slot: "touchedRope".to_owned(),
+                slot: "touchedSegments".to_owned(),
                 start: 12,
                 end: 21,
                 limit: 20,
@@ -1088,7 +1089,7 @@ mod tests {
         let mut runtime = mock_runtime();
         runtime
             .worldlines
-            .get_mut("wl:buf-1")
+            .get_mut("wl:entity-1")
             .expect("worldline")
             .canonical_head_id = None;
 
@@ -1096,13 +1097,13 @@ mod tests {
             bind_create_checkpoint(
                 &runtime,
                 &CreateCheckpointBindingRequest {
-                    worldline_id: "wl:buf-1".to_owned(),
+                    worldline_id: "wl:entity-1".to_owned(),
                 },
             ),
             Err(DynamicBindingRuntimeError::MissingRelationTarget {
                 slot: "currentHead".to_owned(),
-                from_slot: "worldline".to_owned(),
-                relation: "CANONICAL_HEAD".to_owned(),
+                from_slot: "scope".to_owned(),
+                relation: "CURRENT_HEAD".to_owned(),
             })
         );
     }

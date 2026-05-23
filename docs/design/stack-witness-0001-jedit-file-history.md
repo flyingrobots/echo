@@ -3,12 +3,19 @@
 
 # Stack Witness 0001 - jedit File History Walking Skeleton
 
-Status: GREEN witness spec  
-Scope: first jedit-through-Echo executable story.
+Status: HISTORICAL walking-skeleton packet, superseded for release-grade
+generic Echo behavior.
+Scope: early jedit-through-Echo fixture story.
 
-This witness is the first serious stack slice. It exists to prevent the stack
-from drifting into schema-first protocol architecture before one local
-contract-hosted file history works.
+This witness was the first serious stack slice. It prevented the stack from
+drifting into schema-first protocol architecture before one local
+contract-hosted file history could be described.
+
+Important correction: Echo no longer carries this Stack Witness fixture inside
+the production WASM kernel. Release-grade Echo must route jedit-shaped
+mutations and QueryView reads through installed contract packages and generated
+host adapters. A hardcoded `createBuffer`/`replaceRange`/`textWindow` shortcut
+inside Echo is an architectural violation, not a proof.
 
 ## Claim
 
@@ -196,52 +203,31 @@ The first RED tests proved:
 2. QueryView/textWindow must return `ReadingEnvelope + QueryBytes`, not
    `UnsupportedQuery` or naked payload bytes.
 
-## Current GREEN State
+## Current State
 
-As of branch `wip/stack-witness-0001`, Echo has a fixture-backed walking
-skeleton for this witness:
+The earlier fixture-backed WASM shortcut has been removed. Current Echo
+behavior is:
 
-- a static/as-if-generated fixture registry exists for `createBuffer` and
-  `replaceRange`;
-- unknown Stack Witness contract op ids obstruct with a contract/missing
-  artifact error;
-- `createBuffer` and `replaceRange("hello")` enter through `dispatch_intent`
-  and the existing scheduler path;
-- the Stack Witness `textWindow` QueryView routes to a fixture observer;
-- the fixture observer only returns `ReadingEnvelope + QueryBytes("hello")`
-  after fixture `createBuffer` and `replaceRange("hello")` history has been
-  admitted and materialized;
-- the fixture observer enforces bounded payload budgets and obstructs if the
-  caller budgets fewer than five payload bytes;
-- the fixture observer carries a deterministic BLAKE3 artifact hash over the
-  fixture artifact id, query id, fixture vars bytes, and payload bytes;
-- Echo mirrors Wesley's Stack Witness 0001 fixture vector and verifies artifact
-  family/schema/version, op ids, helper entrypoints, helper fields,
-  buffer-inclusive fixture vars bytes, target codec, declared footprints, and
-  expected query bytes against that artifact shape;
-- Echo core still does not expose public jedit, editor, rope, buffer, cursor,
-  or selection APIs.
+- `warp-wasm` does not recognize `createBuffer`, `replaceRange`, or
+  `textWindow` as kernel-owned operations;
+- QueryView observations route through `ObservationService` and installed
+  contract query observers only;
+- without an installed observer, WASM `observe(...)` returns
+  `UNSUPPORTED_QUERY`;
+- text, rope, file-history, editor, cursor, and buffer semantics belong in
+  jedit-authored contracts, Wesley-generated adapters, or jedit host code;
+- Echo core remains a generic deterministic runtime and contract host.
 
-Targeted command:
+Current targeted command:
 
 ```sh
-cargo test -p warp-wasm --features engine stack_witness_
+cargo test -p warp-wasm --features engine queryview_without
 ```
 
-Current result:
+Current witness:
 
 ```text
-running 8 tests
-test warp_kernel::tests::stack_witness_fixture_registry_names_mutations ... ok
-test warp_kernel::tests::stack_witness_fixture_vectors_match_wesley_artifact_shape ... ok
-test warp_kernel::tests::stack_witness_contract_intent_without_installed_artifact_obstructs ... ok
-test warp_kernel::tests::stack_witness_text_window_obstructs_without_fixture_history ... ok
-test warp_kernel::tests::stack_witness_create_buffer_and_replace_range_enter_dispatch_intent ... ok
-test warp_kernel::tests::stack_witness_text_window_respects_bounded_payload_budget ... ok
-test warp_kernel::tests::stack_witness_text_window_artifact_hash_is_deterministic_identity ... ok
-test warp_kernel::tests::stack_witness_text_window_query_returns_reading_envelope_and_query_bytes ... ok
-
-test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 44 filtered out
+test warp_kernel::tests::queryview_without_installed_contract_observer_is_unsupported ... ok
 ```
 
 Engine feature compile target:

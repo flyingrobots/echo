@@ -42,6 +42,7 @@ pub mod wsc;
 mod admission;
 mod attachment;
 mod causal_facts;
+pub mod causal_wal;
 mod clock;
 mod cmd;
 mod constants;

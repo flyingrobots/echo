@@ -3,7 +3,7 @@
 
 # BEARING
 
-Last updated: 2026-05-23.
+Last updated: 2026-05-24.
 
 This signpost summarizes current direction. It does not create commitments or
 replace backlog items, design docs, retros, or CLI status. If it disagrees with
@@ -20,6 +20,9 @@ The current external release gate is maintained in
 
 Trusted runtime-control history is defined in
 `docs/design/trusted-runtime-control-history.md`.
+
+The causal WAL doctrine and recovery design is defined in
+`docs/design/causal-wal-end-to-end.md`.
 
 The next ten jedit release-gate slices are planned in
 `docs/design/v0.1.0-jedit-next-ten-slices.md`.
@@ -46,6 +49,11 @@ the `v0.1.0` release gate. Echo is not ready to release until jedit can submit
 an application-owned contract intent, let a trusted Echo host authorize
 scheduler opportunities, observe the outcome, query a bounded reading, retain
 evidence, and replay the result without moving application nouns into Echo core.
+
+The immediate durability hill is Echo's causal WAL: Echo may only claim what
+its WAL can recover. The WAL must make accepted submissions, tick outcomes,
+runtime posture, retained-material references, and side-effect authorization
+crash-recoverable without giving applications tick or WAL authority.
 
 ## What Is Already True
 
@@ -228,6 +236,358 @@ AdmissionTicket + witnessed submission -> ticketed runtime ingress
 - Ephemeral Scratch, Author-Only Speculative Lane, and Shared/Admitted Lane are
   paper-level privacy/runtime policy concepts. The local contract-host pipeline
   does not yet implement that full social lane model.
+
+## Causal WAL Forty-Five Slice Plan
+
+Track progress here. Check off slices just before committing the slice that
+satisfies its acceptance criteria.
+
+### PR 1: Doctrine And Grammar
+
+- [x] **Slice 1: WAL doctrine hardening**
+    - User story: As an Echo maintainer, I need the WAL doctrine to forbid
+      semantic confusion before code exists.
+    - Acceptance criteria: records are recorded, transactions are committed,
+      submission acceptance stays distinct from runtime admission, read-only
+      recovery cannot truncate, and explicit durable outboxes are allowed.
+    - Test plan: `git diff --check`; stale-term grep for forbidden record names
+      and intake/admission blur.
+
+- [x] **Slice 2: Record grammar and naming spec**
+    - User story: As an implementer, I need WAL record names that do not imply
+      history before commit.
+    - Acceptance criteria: ordinary record names use `*Recorded` or equivalent;
+      no causal record kind uses `*Committed`; `WalTransactionCommit` is the
+      only commit boundary.
+    - Test plan: unit/schema-linter tests reject misleading record names.
+
+- [x] **Slice 3: Transaction shape and affected frontiers**
+    - User story: As a recovery implementer, I need commit markers to bind the
+      exact frontiers affected by each transaction.
+    - Acceptance criteria: first-cut transactions are contiguous, non-interleaved,
+      and bind `affected_frontiers` or `affected_frontiers_root`.
+    - Test plan: transaction fixtures prove intake, tick, posture, and checkpoint
+      transactions bind distinct frontier kinds.
+
+- [x] **Slice 4: `WalStorePort` contract**
+    - User story: As a storage adapter author, I need a port contract that makes
+      strict durability impossible to fake.
+    - Acceptance criteria: port shape covers writer epoch acquisition, append,
+      flush commit, segment reads, sealing, truncation, manifest publication, and
+      epoch close; object-store conditional manifest rules are named.
+    - Test plan: compile-contract tests for the trait once implemented; docs grep
+      for all required operations.
+
+- [x] **Slice 5: Release-gate witness list**
+    - User story: As a reviewer, I need named crash and recovery witnesses before
+      implementation starts.
+    - Acceptance criteria: BEARING and WAL design name crash-before-ACK,
+      read-only recovery, checkpoint validation, materialization replay,
+      overlapping writer epoch, strict object-store, and record-name witnesses.
+    - Test plan: doc assertions or grep checks for every witness name.
+
+### PR 2: WAL Core In Memory
+
+- [x] **Slice 6: Core WAL identifiers and record kinds**
+    - User story: As a runtime developer, I need typed WAL identifiers and record
+      kinds before writing frames.
+    - Acceptance criteria: `Lsn`, `WalTransactionId`, `WriterEpochId`,
+      `WalRecordKind`, and durable mode/posture types exist without app nouns.
+    - Test plan: unit tests prove record-kind vocabulary and app-noun guard.
+
+- [x] **Slice 7: Frame metadata and digest domains**
+    - User story: As a recovery implementer, I need frames that separate torn
+      writes from semantic commitment.
+    - Acceptance criteria: frame headers bind LSN, transaction id, local index,
+      record kind, payload digest, previous frame digest, codec/schema identity,
+      and redaction posture.
+    - Test plan: frame metadata round-trip and digest-domain tests.
+
+- [x] **Slice 8: Record payload and transaction builder**
+    - User story: As Echo, I need a transaction builder that records payloads
+      before committing them.
+    - Acceptance criteria: contiguous transaction builder appends records,
+      computes payload roots, and refuses append-after-commit.
+    - Test plan: transaction builder tests for order, record count, and closed
+      transaction behavior.
+
+- [x] **Slice 9: Commit marker validation**
+    - User story: As recovery, I need commit markers that can be checked before
+      replay.
+    - Acceptance criteria: commit marker validates first/last LSN, record count,
+      records root, affected frontier root, previous commit digest, and durability
+      mode.
+    - Test plan: fixtures fail on mismatched LSN range, count, roots, and chain.
+
+- [x] **Slice 10: In-memory `WalStorePort`**
+    - User story: As a test writer, I need deterministic WAL behavior without
+      filesystem complexity.
+    - Acceptance criteria: in-memory store appends frames, flushes commits,
+      exposes segment streams, simulates torn tails, and never claims filesystem
+      strictness.
+    - Test plan: port tests for append/read/flush and synthetic crash tails.
+
+### PR 3: Recovery Foundation
+
+- [x] **Slice 11: Writer epoch fencing model**
+    - User story: As Echo, I need stored evidence proving which writer had append
+      authority.
+    - Acceptance criteria: writer epochs bind fencing token, process identity,
+      host identity, previous epoch id, previous final commit digest, and lease or
+      lock evidence.
+    - Test plan: overlapping epoch recovery fixture blocks recovery.
+
+- [x] **Slice 12: Recovery scanner and tail posture**
+    - User story: As Echo, I need recovery to group committed transactions and
+      classify incomplete tails by mode.
+    - Acceptance criteria: writable recovery may truncate validated incomplete
+      tails; read-only recovery reports would-truncate without mutating storage.
+    - Test plan: `read_only_recovery_reports_uncommitted_tail_without_truncating`
+      and torn-tail tests.
+
+- [x] **Slice 13: Pure replay reducer skeleton**
+    - User story: As Echo, I need replay to apply facts, not rerun scheduler or
+      application callbacks.
+    - Acceptance criteria: `apply_committed_transaction(before, tx) -> after`
+      exists as a pure reducer boundary with no wall clock, random, network,
+      scheduler, app callback, or external I/O dependency.
+    - Test plan: deterministic replay tests compare repeated reduction over the
+      same committed transactions.
+
+- [x] **Slice 14: Semantic transaction validators**
+    - User story: As recovery, I need semantic checks after bytes and digests pass.
+    - Acceptance criteria: validators check record kind authority, affected
+      frontiers, retained-material refs, submission identity, and tick authority
+      posture before replay.
+    - Test plan: invalid causal transaction fixtures block recovery even with
+      valid frame checksums.
+
+- [x] **Slice 15: WAL schema and authority linter**
+    - User story: As a reviewer, I need mechanical protection against app nouns
+      and authority leaks.
+    - Acceptance criteria: linter rejects app/product nouns and authority-leak
+      record names such as app tick, client runtime control, application receipt,
+      or document state delta.
+    - Test plan: passing generic fixture and failing forbidden-noun/authority
+      fixtures.
+
+### PR 4: Submission Durability
+
+- [ ] **Slice 16: Submission acceptance transaction**
+    - User story: As an app, if Echo returns accepted evidence, I need that
+      acceptance to survive restart.
+    - Acceptance criteria: `submit_intent` writes `SubmissionAcceptedRecorded`
+      before returning accepted evidence.
+    - Test plan: `accepted_submission_is_not_returned_before_wal_commit`.
+
+- [ ] **Slice 17: Accepted pending recovery**
+    - User story: As Echo, accepted-but-not-ticked submissions must recover as
+      pending.
+    - Acceptance criteria: pending inbox rebuilds from committed acceptance
+      transactions without transport re-arrival.
+    - Test plan: `crash_after_submission_commit_recovers_pending_submission`.
+
+- [ ] **Slice 18: Crash-before-ACK retry posture**
+    - User story: As a client, retry after crash-before-ACK must be deterministic.
+    - Acceptance criteria: same submission id plus same envelope returns stable
+      duplicate posture after recovery.
+    - Test plan:
+      `crash_after_submission_commit_before_ack_retry_returns_duplicate_posture`.
+
+- [ ] **Slice 19: Submission idempotency rules**
+    - User story: As Echo, I must not collapse intentional repeated intents.
+    - Acceptance criteria: same id plus different envelope is protocol violation;
+      new id plus same envelope is new unless explicit dedupe policy says
+      otherwise.
+    - Test plan: `same_payload_new_submission_id_is_not_duplicate_without_policy`.
+
+- [ ] **Slice 20: Submission recovery certificate posture**
+    - User story: As a host, I need restart output that explains recovered
+      submission counts and posture.
+    - Acceptance criteria: recovery certificate reports pending, decided,
+      rejected, obstructed, and faulted submission counts.
+    - Test plan: recovery certificate fixtures for clean and obstructed intake.
+
+### PR 5: Tick Transactions
+
+- [ ] **Slice 21: Tick transaction staging**
+    - User story: As Echo, scheduler outputs must remain staged until WAL commit.
+    - Acceptance criteria: tick receipts, state deltas, correlations, and retained
+      refs are staged before publish.
+    - Test plan: `crash_before_tick_commit_commits_no_receipt`.
+
+- [ ] **Slice 22: Tick commit publish boundary**
+    - User story: As an observer, visible receipts must imply recoverable receipts.
+    - Acceptance criteria: indexes publish only after tick transaction flush.
+    - Test plan: `crash_after_tick_commit_recovers_receipt_and_state_delta`.
+
+- [ ] **Slice 23: Receipt correlation rebuild**
+    - User story: As a debugger/app, receipt correlation must survive restart.
+    - Acceptance criteria: receipt-by-submission, receipt-by-ticket, and
+      ticket-by-submission indexes rebuild from committed WAL transactions.
+    - Test plan: `committed_receipt_correlation_rebuilds_after_restart`.
+
+- [ ] **Slice 24: Tick rollback compatibility**
+    - User story: As Echo, WAL must not weaken failure-atomic tick rollback.
+    - Acceptance criteria: failed attempted ticks commit no partial tick
+      transaction; scoped fault quarantine remains separate runtime posture.
+    - Test plan: existing rollback/quarantine tests plus WAL no-partial fixtures.
+
+- [ ] **Slice 25: Lawful rejection persistence**
+    - User story: As Echo, lawful conflict/rejection is history, not an internal
+      fault.
+    - Acceptance criteria: rejected candidates commit receipt evidence and do not
+      quarantine heads.
+    - Test plan: conflict receipt recovery fixture and `lawful_rejection_does_not_fault_head`.
+
+### PR 6: Retention And Readings
+
+- [ ] **Slice 26: Retained material ordering**
+    - User story: As recovery, committed material refs must point at durable
+      material or typed obstruction.
+    - Acceptance criteria: material is durable before committed WAL reference.
+    - Test plan: `missing_retained_material_returns_typed_obstruction`.
+
+- [ ] **Slice 27: Reading ref recovery**
+    - User story: As an observer, retained reading refs must survive restart.
+    - Acceptance criteria: reading refs rebuild by semantic coordinate and
+      retained material digest.
+    - Test plan: retained QueryView reading lookup after recovery.
+
+- [ ] **Slice 28: Semantic identity versus CAS identity**
+    - User story: As Echo, byte identity must not masquerade as query identity.
+    - Acceptance criteria: semantic coordinate and CAS digest remain distinct in
+      WAL records and rebuilt indexes.
+    - Test plan: same payload with different query coordinate remains distinct.
+
+- [ ] **Slice 29: Security and redaction posture**
+    - User story: As an operator, I need to distinguish missing evidence from
+      policy-hidden evidence.
+    - Acceptance criteria: present, redacted, encrypted-key-unavailable, missing,
+      corrupt, and obstructed postures exist.
+    - Test plan: recovery/inspection fixtures for each posture.
+
+- [ ] **Slice 30: Retention obstruction scope matrix**
+    - User story: As recovery, missing material should fault only at the correct
+      scope.
+    - Acceptance criteria: payload, receipt, state-delta, runtime-control, and
+      diagnostic material failures map to documented obstruction/fault scope.
+    - Test plan: scoped missing-material fixture suite.
+
+### PR 7: Checkpoints And Inspector
+
+- [ ] **Slice 31: Checkpoint writer**
+    - User story: As Echo, checkpoints should accelerate replay without creating
+      history.
+    - Acceptance criteria: temp write, fsync, atomic rename, directory fsync, and
+      checkpoint binding to WAL chain are implemented.
+    - Test plan: checkpoint round-trip and corrupt checkpoint fallback tests.
+
+- [ ] **Slice 32: Checkpoint validation without publication record**
+    - User story: As recovery, valid checkpoint files should remain usable after
+      crash before publication evidence.
+    - Acceptance criteria: validated checkpoint can be used without
+      `CheckpointPublicationRecorded`; publication record remains audit/index
+      evidence.
+    - Test plan:
+      `valid_checkpoint_without_checkpoint_published_record_can_be_used_after_validation`.
+
+- [ ] **Slice 33: Checkpoint publication obstruction**
+    - User story: As recovery, publication evidence must not lie about missing or
+      invalid checkpoint material.
+    - Acceptance criteria: publication without checkpoint blocks or obstructs by
+      documented scope.
+    - Test plan:
+      `checkpoint_published_without_checkpoint_blocks_or_obstructs_according_to_scope`.
+
+- [ ] **Slice 34: Recovery certificate**
+    - User story: As jedit/operator/debugger, I need a precise restart report.
+    - Acceptance criteria: certificate reports checkpoint, LSN range, replayed
+      transactions, tail posture, obstruction count, and final roots.
+    - Test plan: clean, tail-truncated, and obstructed recovery certificates.
+
+- [ ] **Slice 35: Read-only WAL inspector**
+    - User story: As an operator, I need inspection without mutating storage.
+    - Acceptance criteria: `echo wal doctor --json`, `inspect`, and read-only
+      recovery report posture without truncation.
+    - Test plan: inspector reports would-truncate and leaves files unchanged.
+
+### PR 8: Filesystem And Object Stores
+
+- [ ] **Slice 36: Filesystem WAL adapter**
+    - User story: As Echo, strict filesystem durability must use real fsync
+      boundaries.
+    - Acceptance criteria: segment creation, append, file fsync, rename, and
+      directory fsync are explicit.
+    - Test plan: filesystem crash fixtures for torn frame and missing segment.
+
+- [ ] **Slice 37: Object-store manifest adapter**
+    - User story: As Echo, strict object-store durability must not pretend fsync
+      exists.
+    - Acceptance criteria: content-addressed object writes, version/ETag
+      verification, conditional manifest commit, and read-after-write posture are
+      required.
+    - Test plan: `strict_object_store_requires_conditional_manifest_commit`.
+
+- [ ] **Slice 38: Segment repair and truncation protocol**
+    - User story: As recovery, tail repair must be explicit and mode-sensitive.
+    - Acceptance criteria: writable stores can truncate incomplete tails; read-only
+      stores can only report would-truncate.
+    - Test plan: segment-gap, duplicate-segment, and torn-tail matrix.
+
+- [ ] **Slice 39: Crash matrix harness**
+    - User story: As Echo, lifecycle ambiguity must be testable at every boundary.
+    - Acceptance criteria: harness injects crash points around submit, tick,
+      checkpoint, material, and index publication.
+    - Test plan: generated crash matrix suite.
+
+- [ ] **Slice 40: WAL shadow replay in CI**
+    - User story: As a maintainer, every mutating integration path should prove
+      live state equals replayed state.
+    - Acceptance criteria: selected tests run live scenario, replay WAL into fresh
+      runtime, and compare state/index/receipt/reading roots.
+    - Test plan: CI slice for shadow replay.
+
+### PR 9: Outbox, Tooling, And Jedit Gate
+
+- [ ] **Slice 41: Side-effect outbox core**
+    - User story: As Echo, external effects must be authorized by committed
+      history before escaping.
+    - Acceptance criteria: durable outbox records effect id, expected artifact,
+      materialization intent, and idempotency token.
+    - Test plan: `external_effect_requires_committed_outbox_authorization`.
+
+- [ ] **Slice 42: Materialization observation replay detection**
+    - User story: As recovery, existing external artifacts should be detected
+      before retry.
+    - Acceptance criteria: recovery verifies path, digest, and metadata before
+      retrying or recording observation.
+    - Test plan: `materialization_replay_detects_existing_artifact_before_retry`.
+
+- [ ] **Slice 43: Causal commit evidence projection**
+    - User story: As [warp-ttd], I need Echo-projected commit evidence, not raw
+      WAL access.
+    - Acceptance criteria: Echo exposes `CausalCommitEvidence` and recovery
+      posture through read-model facts; no raw segment path or recovery authority
+      is required.
+    - Test plan: accepted pending, decided applied, rejected, obstructed, faulted,
+      and durability-unknown projection fixtures.
+
+- [ ] **Slice 44: `jedit` WAL recovery gate**
+    - User story: As [jedit], after crash/restart I need submitted edits to
+      recover as not accepted, accepted pending, applied, rejected, or obstructed.
+    - Acceptance criteria: stable submission id, recovered posture, export from
+      committed causal basis, no jedit nouns in Echo core.
+    - Test plan: sibling `jedit` crash/restart fixture and retry-after-ACK-loss
+      fixture.
+
+- [ ] **Slice 45: WAL release readiness audit**
+    - User story: As an operator, I need a final audit before trusting the WAL as
+      the jedit durability foundation.
+    - Acceptance criteria: all WAL release gates pass, docs match code, app-noun
+      guard is green, and deferred post-WAL scope is explicit.
+    - Test plan: full WAL slice suite, `cargo xtask test-slice`, app-noun guard,
+      DIND/replay where available, and cross-repo jedit witness.
 
 ## Recently Completed Slice Batch
 

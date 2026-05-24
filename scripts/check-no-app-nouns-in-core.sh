@@ -21,6 +21,8 @@ CORE_SOURCE_DIRS=(
   "$ROOT_DIR/crates/echo-wasm-abi/src"
 )
 
+# Scope is intentional: production core source must stay generic. Tests and
+# docs may still carry app-shaped fixtures as external-consumer examples.
 matches=0
 for pattern in "${FORBIDDEN_PATTERNS[@]}"; do
   if rg -n --fixed-strings "$pattern" "${CORE_SOURCE_DIRS[@]}"; then

@@ -29,7 +29,9 @@ The filesystem lane for release-bar backlog cards is
 
 The production-core app-noun guard is `scripts/check-no-app-nouns-in-core.sh`.
 It checks that hardcoded jedit/Stack Witness fixture shortcuts stay out of
-Echo crate source.
+Echo crate source. The guard is intentionally production-source-scoped: tests
+and docs may still carry app-shaped fixtures as external-consumer examples,
+but production Echo code must remain generic.
 
 ## Current Bearing
 

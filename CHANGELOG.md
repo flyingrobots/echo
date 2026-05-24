@@ -528,6 +528,15 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Changed
 
+- `warp-wasm` no longer contains the legacy Stack Witness 0001
+  `createBuffer`/`replaceRange`/`textWindow` shortcut. QueryView requests now
+  route through the generic installed contract observer boundary only; without
+  an installed observer, WASM `observe(...)` returns `UNSUPPORTED_QUERY`
+  instead of materializing hardcoded text bytes.
+- `warp-core` structured binding tests no longer use rope/text-shaped fixture
+  names. The executable examples now exercise generic authored scopes, heads,
+  segments, and markers so core test fixtures do not imply built-in editor
+  semantics.
 - The canonical pre-push hook now runs the narrowest changed-file Rust witness
   instead of reusing the broader local PR gate. Rust module edits map to exact
   `cargo test -p <crate> --lib <module>::tests` slices, integration-test edits

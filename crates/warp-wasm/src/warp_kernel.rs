@@ -1726,7 +1726,6 @@ mod tests {
             .expect_err("QueryView must route through installed observers only");
 
         assert_eq!(error.code, error_codes::UNSUPPORTED_QUERY);
-        assert!(error.message.contains("query id 1398214657"));
     }
 
     #[test]

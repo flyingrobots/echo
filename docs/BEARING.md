@@ -373,35 +373,35 @@ satisfies its acceptance criteria.
 
 ### PR 4: Submission Durability
 
-- [ ] **Slice 16: Submission acceptance transaction**
+- [x] **Slice 16: Submission acceptance transaction**
     - User story: As an app, if Echo returns accepted evidence, I need that
       acceptance to survive restart.
     - Acceptance criteria: `submit_intent` writes `SubmissionAcceptedRecorded`
       before returning accepted evidence.
     - Test plan: `accepted_submission_is_not_returned_before_wal_commit`.
 
-- [ ] **Slice 17: Accepted pending recovery**
+- [x] **Slice 17: Accepted pending recovery**
     - User story: As Echo, accepted-but-not-ticked submissions must recover as
       pending.
     - Acceptance criteria: pending inbox rebuilds from committed acceptance
       transactions without transport re-arrival.
     - Test plan: `crash_after_submission_commit_recovers_pending_submission`.
 
-- [ ] **Slice 18: Crash-before-ACK retry posture**
+- [x] **Slice 18: Crash-before-ACK retry posture**
     - User story: As a client, retry after crash-before-ACK must be deterministic.
     - Acceptance criteria: same submission id plus same envelope returns stable
       duplicate posture after recovery.
     - Test plan:
       `crash_after_submission_commit_before_ack_retry_returns_duplicate_posture`.
 
-- [ ] **Slice 19: Submission idempotency rules**
+- [x] **Slice 19: Submission idempotency rules**
     - User story: As Echo, I must not collapse intentional repeated intents.
     - Acceptance criteria: same id plus different envelope is protocol violation;
       new id plus same envelope is new unless explicit dedupe policy says
       otherwise.
     - Test plan: `same_payload_new_submission_id_is_not_duplicate_without_policy`.
 
-- [ ] **Slice 20: Submission recovery certificate posture**
+- [x] **Slice 20: Submission recovery certificate posture**
     - User story: As a host, I need restart output that explains recovered
       submission counts and posture.
     - Acceptance criteria: recovery certificate reports pending, decided,
@@ -410,30 +410,30 @@ satisfies its acceptance criteria.
 
 ### PR 5: Tick Transactions
 
-- [ ] **Slice 21: Tick transaction staging**
+- [x] **Slice 21: Tick transaction staging**
     - User story: As Echo, scheduler outputs must remain staged until WAL commit.
     - Acceptance criteria: tick receipts, state deltas, correlations, and retained
       refs are staged before publish.
     - Test plan: `crash_before_tick_commit_commits_no_receipt`.
 
-- [ ] **Slice 22: Tick commit publish boundary**
+- [x] **Slice 22: Tick commit publish boundary**
     - User story: As an observer, visible receipts must imply recoverable receipts.
     - Acceptance criteria: indexes publish only after tick transaction flush.
     - Test plan: `crash_after_tick_commit_recovers_receipt_and_state_delta`.
 
-- [ ] **Slice 23: Receipt correlation rebuild**
+- [x] **Slice 23: Receipt correlation rebuild**
     - User story: As a debugger/app, receipt correlation must survive restart.
     - Acceptance criteria: receipt-by-submission, receipt-by-ticket, and
       ticket-by-submission indexes rebuild from committed WAL transactions.
     - Test plan: `committed_receipt_correlation_rebuilds_after_restart`.
 
-- [ ] **Slice 24: Tick rollback compatibility**
+- [x] **Slice 24: Tick rollback compatibility**
     - User story: As Echo, WAL must not weaken failure-atomic tick rollback.
     - Acceptance criteria: failed attempted ticks commit no partial tick
       transaction; scoped fault quarantine remains separate runtime posture.
     - Test plan: existing rollback/quarantine tests plus WAL no-partial fixtures.
 
-- [ ] **Slice 25: Lawful rejection persistence**
+- [x] **Slice 25: Lawful rejection persistence**
     - User story: As Echo, lawful conflict/rejection is history, not an internal
       fault.
     - Acceptance criteria: rejected candidates commit receipt evidence and do not
@@ -442,32 +442,32 @@ satisfies its acceptance criteria.
 
 ### PR 6: Retention And Readings
 
-- [ ] **Slice 26: Retained material ordering**
+- [x] **Slice 26: Retained material ordering**
     - User story: As recovery, committed material refs must point at durable
       material or typed obstruction.
     - Acceptance criteria: material is durable before committed WAL reference.
     - Test plan: `missing_retained_material_returns_typed_obstruction`.
 
-- [ ] **Slice 27: Reading ref recovery**
+- [x] **Slice 27: Reading ref recovery**
     - User story: As an observer, retained reading refs must survive restart.
     - Acceptance criteria: reading refs rebuild by semantic coordinate and
       retained material digest.
     - Test plan: retained QueryView reading lookup after recovery.
 
-- [ ] **Slice 28: Semantic identity versus CAS identity**
+- [x] **Slice 28: Semantic identity versus CAS identity**
     - User story: As Echo, byte identity must not masquerade as query identity.
     - Acceptance criteria: semantic coordinate and CAS digest remain distinct in
       WAL records and rebuilt indexes.
     - Test plan: same payload with different query coordinate remains distinct.
 
-- [ ] **Slice 29: Security and redaction posture**
+- [x] **Slice 29: Security and redaction posture**
     - User story: As an operator, I need to distinguish missing evidence from
       policy-hidden evidence.
     - Acceptance criteria: present, redacted, encrypted-key-unavailable, missing,
       corrupt, and obstructed postures exist.
     - Test plan: recovery/inspection fixtures for each posture.
 
-- [ ] **Slice 30: Retention obstruction scope matrix**
+- [x] **Slice 30: Retention obstruction scope matrix**
     - User story: As recovery, missing material should fault only at the correct
       scope.
     - Acceptance criteria: payload, receipt, state-delta, runtime-control, and
@@ -476,14 +476,14 @@ satisfies its acceptance criteria.
 
 ### PR 7: Checkpoints And Inspector
 
-- [ ] **Slice 31: Checkpoint writer**
+- [x] **Slice 31: Checkpoint writer**
     - User story: As Echo, checkpoints should accelerate replay without creating
       history.
     - Acceptance criteria: temp write, fsync, atomic rename, directory fsync, and
       checkpoint binding to WAL chain are implemented.
     - Test plan: checkpoint round-trip and corrupt checkpoint fallback tests.
 
-- [ ] **Slice 32: Checkpoint validation without publication record**
+- [x] **Slice 32: Checkpoint validation without publication record**
     - User story: As recovery, valid checkpoint files should remain usable after
       crash before publication evidence.
     - Acceptance criteria: validated checkpoint can be used without
@@ -492,7 +492,7 @@ satisfies its acceptance criteria.
     - Test plan:
       `valid_checkpoint_without_checkpoint_published_record_can_be_used_after_validation`.
 
-- [ ] **Slice 33: Checkpoint publication obstruction**
+- [x] **Slice 33: Checkpoint publication obstruction**
     - User story: As recovery, publication evidence must not lie about missing or
       invalid checkpoint material.
     - Acceptance criteria: publication without checkpoint blocks or obstructs by
@@ -500,13 +500,13 @@ satisfies its acceptance criteria.
     - Test plan:
       `checkpoint_published_without_checkpoint_blocks_or_obstructs_according_to_scope`.
 
-- [ ] **Slice 34: Recovery certificate**
+- [x] **Slice 34: Recovery certificate**
     - User story: As jedit/operator/debugger, I need a precise restart report.
     - Acceptance criteria: certificate reports checkpoint, LSN range, replayed
       transactions, tail posture, obstruction count, and final roots.
     - Test plan: clean, tail-truncated, and obstructed recovery certificates.
 
-- [ ] **Slice 35: Read-only WAL inspector**
+- [x] **Slice 35: Read-only WAL inspector**
     - User story: As an operator, I need inspection without mutating storage.
     - Acceptance criteria: `echo wal doctor --json`, `inspect`, and read-only
       recovery report posture without truncation.

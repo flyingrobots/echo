@@ -71,6 +71,20 @@ pub enum Commands {
         #[arg(long)]
         raw: bool,
     },
+
+    /// Inspect Echo WAL recovery posture without mutating storage.
+    Wal {
+        /// WAL inspection command.
+        #[command(subcommand)]
+        command: WalCommands,
+    },
+}
+
+/// WAL inspection subcommands.
+#[derive(Subcommand, Debug)]
+pub enum WalCommands {
+    /// Report read-only WAL recovery posture.
+    Doctor,
 }
 
 /// Output format selector.

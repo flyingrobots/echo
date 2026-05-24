@@ -13,7 +13,10 @@
 //! History begins at WalTransactionCommit.
 //! ```
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs::{self, File};
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
@@ -26,6 +29,7 @@ const WAL_FRONTIERS_ROOT_DOMAIN: &[u8] = b"echo:causal_wal:frontiers_root:v1\0";
 const WAL_COMMIT_DOMAIN: &[u8] = b"echo:causal_wal:commit:v1\0";
 const WAL_HEADER_CHECKSUM_DOMAIN: &[u8] = b"echo:causal_wal:header_checksum:v1\0";
 const WAL_FRAME_CHECKSUM_DOMAIN: &[u8] = b"echo:causal_wal:frame_checksum:v1\0";
+const CHECKPOINT_FILE_MAGIC: &[u8; 8] = b"ECWALCP1";
 
 /// Current in-memory causal WAL version.
 pub const CAUSAL_WAL_VERSION: u16 = 1;
@@ -1137,6 +1141,34 @@ pub struct RecoveryScanReport {
     pub tail_posture: RecoveryTailPosture,
 }
 
+impl RecoveryScanReport {
+    /// Returns the first committed LSN in the scan.
+    #[must_use]
+    pub fn first_committed_lsn(&self) -> Option<Lsn> {
+        self.transactions
+            .iter()
+            .map(|transaction| transaction.commit.first_lsn)
+            .min()
+    }
+
+    /// Returns the last committed LSN in the scan.
+    #[must_use]
+    pub fn last_committed_lsn(&self) -> Option<Lsn> {
+        self.transactions
+            .iter()
+            .map(|transaction| transaction.commit.last_lsn)
+            .max()
+    }
+
+    /// Returns the last committed transaction digest in replay order.
+    #[must_use]
+    pub fn last_commit_digest(&self) -> Option<Hash> {
+        self.transactions
+            .last()
+            .map(|transaction| transaction.commit.commit_digest)
+    }
+}
+
 /// Recovered committed transaction.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WalRecoveredTransaction {
@@ -1144,6 +1176,696 @@ pub struct WalRecoveredTransaction {
     pub commit: WalTransactionCommit,
     /// Transaction frames.
     pub frames: Vec<WalFrame>,
+}
+
+/// WAL submission acceptance record payload.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SubmissionAcceptanceRecord {
+    /// Stable submission id.
+    pub submission_id: Hash,
+    /// Canonical envelope digest accepted by Echo.
+    pub canonical_envelope_digest: Hash,
+    /// Optional explicit idempotency/dedupe key.
+    pub idempotency_key_digest: Option<Hash>,
+    /// Acceptance evidence digest returned to the caller after durable commit.
+    pub acceptance_evidence_digest: Hash,
+}
+
+impl SubmissionAcceptanceRecord {
+    /// Encodes the record as deterministic WAL payload bytes.
+    #[must_use]
+    pub fn to_payload_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        push_hash(&mut out, &self.submission_id);
+        push_hash(&mut out, &self.canonical_envelope_digest);
+        push_optional_hash(&mut out, self.idempotency_key_digest);
+        push_hash(&mut out, &self.acceptance_evidence_digest);
+        out
+    }
+
+    /// Decodes a deterministic submission acceptance payload.
+    pub fn from_payload_bytes(bytes: &[u8]) -> Result<Self, WalDecodeError> {
+        let mut cursor = WalPayloadCursor::new(bytes);
+        let submission_id = cursor.read_hash()?;
+        let canonical_envelope_digest = cursor.read_hash()?;
+        let idempotency_key_digest = cursor.read_optional_hash()?;
+        let acceptance_evidence_digest = cursor.read_hash()?;
+        cursor.finish()?;
+        Ok(Self {
+            submission_id,
+            canonical_envelope_digest,
+            idempotency_key_digest,
+            acceptance_evidence_digest,
+        })
+    }
+}
+
+/// Scheduler-owned tick decision captured by a WAL receipt record.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WalTickDecision {
+    /// The scheduler applied the work.
+    Applied,
+    /// The scheduler lawfully rejected the work for a footprint conflict.
+    RejectedFootprintConflict,
+    /// The work is obstructed by retained material or runtime support posture.
+    Obstructed,
+}
+
+impl WalTickDecision {
+    fn code(self) -> u8 {
+        match self {
+            Self::Applied => 1,
+            Self::RejectedFootprintConflict => 2,
+            Self::Obstructed => 3,
+        }
+    }
+
+    fn from_code(code: u8) -> Result<Self, WalDecodeError> {
+        match code {
+            1 => Ok(Self::Applied),
+            2 => Ok(Self::RejectedFootprintConflict),
+            3 => Ok(Self::Obstructed),
+            _ => Err(WalDecodeError::UnknownEnumCode {
+                enum_name: "WalTickDecision",
+                code,
+            }),
+        }
+    }
+
+    /// Returns `true` when this decision is a lawful rejection, not a fault.
+    #[must_use]
+    pub const fn is_lawful_rejection(self) -> bool {
+        matches!(self, Self::RejectedFootprintConflict)
+    }
+}
+
+/// WAL tick receipt record payload.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TickReceiptRecord {
+    /// Submission decided by the receipt.
+    pub submission_id: Hash,
+    /// Admission ticket digest.
+    pub ticket_digest: Hash,
+    /// Tick receipt digest.
+    pub receipt_digest: Hash,
+    /// Scheduler decision.
+    pub decision: WalTickDecision,
+}
+
+impl TickReceiptRecord {
+    /// Encodes the record as deterministic WAL payload bytes.
+    #[must_use]
+    pub fn to_payload_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        push_hash(&mut out, &self.submission_id);
+        push_hash(&mut out, &self.ticket_digest);
+        push_hash(&mut out, &self.receipt_digest);
+        out.push(self.decision.code());
+        out
+    }
+
+    /// Decodes a deterministic tick receipt payload.
+    pub fn from_payload_bytes(bytes: &[u8]) -> Result<Self, WalDecodeError> {
+        let mut cursor = WalPayloadCursor::new(bytes);
+        let submission_id = cursor.read_hash()?;
+        let ticket_digest = cursor.read_hash()?;
+        let receipt_digest = cursor.read_hash()?;
+        let decision = WalTickDecision::from_code(cursor.read_u8()?)?;
+        cursor.finish()?;
+        Ok(Self {
+            submission_id,
+            ticket_digest,
+            receipt_digest,
+            decision,
+        })
+    }
+}
+
+/// WAL receipt correlation record payload.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WalReceiptCorrelationRecord {
+    /// Submission correlated to the receipt.
+    pub submission_id: Hash,
+    /// Admission ticket digest.
+    pub ticket_digest: Hash,
+    /// Tick receipt digest.
+    pub receipt_digest: Hash,
+}
+
+impl WalReceiptCorrelationRecord {
+    /// Encodes the record as deterministic WAL payload bytes.
+    #[must_use]
+    pub fn to_payload_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        push_hash(&mut out, &self.submission_id);
+        push_hash(&mut out, &self.ticket_digest);
+        push_hash(&mut out, &self.receipt_digest);
+        out
+    }
+
+    /// Decodes a deterministic receipt correlation payload.
+    pub fn from_payload_bytes(bytes: &[u8]) -> Result<Self, WalDecodeError> {
+        let mut cursor = WalPayloadCursor::new(bytes);
+        let submission_id = cursor.read_hash()?;
+        let ticket_digest = cursor.read_hash()?;
+        let receipt_digest = cursor.read_hash()?;
+        cursor.finish()?;
+        Ok(Self {
+            submission_id,
+            ticket_digest,
+            receipt_digest,
+        })
+    }
+}
+
+/// Retained material family referenced by committed WAL history.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum RetainedMaterialKind {
+    /// Canonical submission payload material.
+    SubmissionPayload,
+    /// Tick receipt material.
+    TickReceipt,
+    /// Runtime state delta material.
+    RuntimeStateDelta,
+    /// Runtime control posture material.
+    RuntimeControl,
+    /// Reading payload material.
+    ReadingPayload,
+    /// Reading envelope material.
+    ReadingEnvelope,
+    /// Diagnostic-only material.
+    Diagnostic,
+}
+
+impl RetainedMaterialKind {
+    fn code(self) -> u8 {
+        match self {
+            Self::SubmissionPayload => 1,
+            Self::TickReceipt => 2,
+            Self::RuntimeStateDelta => 3,
+            Self::RuntimeControl => 4,
+            Self::ReadingPayload => 5,
+            Self::ReadingEnvelope => 6,
+            Self::Diagnostic => 7,
+        }
+    }
+
+    fn from_code(code: u8) -> Result<Self, WalDecodeError> {
+        match code {
+            1 => Ok(Self::SubmissionPayload),
+            2 => Ok(Self::TickReceipt),
+            3 => Ok(Self::RuntimeStateDelta),
+            4 => Ok(Self::RuntimeControl),
+            5 => Ok(Self::ReadingPayload),
+            6 => Ok(Self::ReadingEnvelope),
+            7 => Ok(Self::Diagnostic),
+            _ => Err(WalDecodeError::UnknownEnumCode {
+                enum_name: "RetainedMaterialKind",
+                code,
+            }),
+        }
+    }
+}
+
+/// Evidence posture for retained material and readings.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EvidenceMaterialPosture {
+    /// Material is present.
+    Present,
+    /// Material is hidden by revelation policy.
+    RedactedByPolicy,
+    /// Material is encrypted and the key is unavailable.
+    EncryptedKeyUnavailable,
+    /// Material is missing.
+    Missing,
+    /// Material is corrupt.
+    Corrupt,
+    /// Material is obstructed by causal/runtime posture.
+    Obstructed,
+}
+
+impl EvidenceMaterialPosture {
+    fn code(self) -> u8 {
+        match self {
+            Self::Present => 1,
+            Self::RedactedByPolicy => 2,
+            Self::EncryptedKeyUnavailable => 3,
+            Self::Missing => 4,
+            Self::Corrupt => 5,
+            Self::Obstructed => 6,
+        }
+    }
+
+    fn from_code(code: u8) -> Result<Self, WalDecodeError> {
+        match code {
+            1 => Ok(Self::Present),
+            2 => Ok(Self::RedactedByPolicy),
+            3 => Ok(Self::EncryptedKeyUnavailable),
+            4 => Ok(Self::Missing),
+            5 => Ok(Self::Corrupt),
+            6 => Ok(Self::Obstructed),
+            _ => Err(WalDecodeError::UnknownEnumCode {
+                enum_name: "EvidenceMaterialPosture",
+                code,
+            }),
+        }
+    }
+}
+
+/// WAL retained material reference payload.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RetainedMaterialRecord {
+    /// Material digest.
+    pub material_digest: Hash,
+    /// Semantic coordinate digest naming why the material matters.
+    pub semantic_coordinate_digest: Hash,
+    /// Material family.
+    pub kind: RetainedMaterialKind,
+    /// Material posture.
+    pub posture: EvidenceMaterialPosture,
+}
+
+impl RetainedMaterialRecord {
+    /// Encodes the record as deterministic WAL payload bytes.
+    #[must_use]
+    pub fn to_payload_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        push_hash(&mut out, &self.material_digest);
+        push_hash(&mut out, &self.semantic_coordinate_digest);
+        out.push(self.kind.code());
+        out.push(self.posture.code());
+        out
+    }
+
+    /// Decodes a deterministic retained material payload.
+    pub fn from_payload_bytes(bytes: &[u8]) -> Result<Self, WalDecodeError> {
+        let mut cursor = WalPayloadCursor::new(bytes);
+        let material_digest = cursor.read_hash()?;
+        let semantic_coordinate_digest = cursor.read_hash()?;
+        let kind = RetainedMaterialKind::from_code(cursor.read_u8()?)?;
+        let posture = EvidenceMaterialPosture::from_code(cursor.read_u8()?)?;
+        cursor.finish()?;
+        Ok(Self {
+            material_digest,
+            semantic_coordinate_digest,
+            kind,
+            posture,
+        })
+    }
+}
+
+/// WAL reading reference payload.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ReadingRefRecord {
+    /// Reading identity digest.
+    pub reading_id: Hash,
+    /// Query or reading semantic coordinate digest.
+    pub semantic_coordinate_digest: Hash,
+    /// Retained payload digest.
+    pub payload_digest: Hash,
+    /// Retained envelope digest.
+    pub envelope_digest: Hash,
+    /// Reading evidence posture.
+    pub posture: EvidenceMaterialPosture,
+}
+
+impl ReadingRefRecord {
+    /// Encodes the record as deterministic WAL payload bytes.
+    #[must_use]
+    pub fn to_payload_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        push_hash(&mut out, &self.reading_id);
+        push_hash(&mut out, &self.semantic_coordinate_digest);
+        push_hash(&mut out, &self.payload_digest);
+        push_hash(&mut out, &self.envelope_digest);
+        out.push(self.posture.code());
+        out
+    }
+
+    /// Decodes a deterministic retained reading payload.
+    pub fn from_payload_bytes(bytes: &[u8]) -> Result<Self, WalDecodeError> {
+        let mut cursor = WalPayloadCursor::new(bytes);
+        let reading_id = cursor.read_hash()?;
+        let semantic_coordinate_digest = cursor.read_hash()?;
+        let payload_digest = cursor.read_hash()?;
+        let envelope_digest = cursor.read_hash()?;
+        let posture = EvidenceMaterialPosture::from_code(cursor.read_u8()?)?;
+        cursor.finish()?;
+        Ok(Self {
+            reading_id,
+            semantic_coordinate_digest,
+            payload_digest,
+            envelope_digest,
+            posture,
+        })
+    }
+}
+
+/// Scope of a retained-material recovery obstruction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MissingMaterialScope {
+    /// One recovered submission is obstructed.
+    Submission,
+    /// A receipt or ticket correlation is obstructed.
+    ReceiptOrTicket,
+    /// Runtime recovery must fault globally.
+    RuntimeGlobal,
+    /// A retained reading is obstructed.
+    Reading,
+    /// Diagnostic material loss does not block causal recovery.
+    DiagnosticLoss,
+}
+
+/// Classifies the recovery scope for missing retained material.
+#[must_use]
+pub const fn missing_material_scope(kind: RetainedMaterialKind) -> MissingMaterialScope {
+    match kind {
+        RetainedMaterialKind::SubmissionPayload => MissingMaterialScope::Submission,
+        RetainedMaterialKind::TickReceipt => MissingMaterialScope::ReceiptOrTicket,
+        RetainedMaterialKind::RuntimeStateDelta | RetainedMaterialKind::RuntimeControl => {
+            MissingMaterialScope::RuntimeGlobal
+        }
+        RetainedMaterialKind::ReadingPayload | RetainedMaterialKind::ReadingEnvelope => {
+            MissingMaterialScope::Reading
+        }
+        RetainedMaterialKind::Diagnostic => MissingMaterialScope::DiagnosticLoss,
+    }
+}
+
+/// Recovered submission posture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecoveredSubmissionPosture {
+    /// Submission was accepted and has no committed decision yet.
+    AcceptedPending,
+    /// Submission was decided as applied.
+    DecidedApplied,
+    /// Submission was lawfully rejected.
+    DecidedRejected,
+    /// Submission is obstructed.
+    Obstructed,
+    /// Recovery found a fault for this submission.
+    RecoveryFaulted,
+}
+
+/// Retry posture for a submitted id/envelope pair after recovery.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SubmissionRetryPosture {
+    /// No recovered acceptance exists for this submission id.
+    NotAccepted,
+    /// Same id and envelope recovered as accepted pending.
+    AlreadyAcceptedPending,
+    /// Same id and envelope recovered as decided applied.
+    AlreadyDecidedApplied,
+    /// Same id and envelope recovered as decided rejected.
+    AlreadyDecidedRejected,
+    /// Same id and envelope recovered as obstructed.
+    AlreadyObstructed,
+    /// Same id recovered with a different canonical envelope digest.
+    ConflictSameIdDifferentEnvelope,
+    /// New id with same envelope should be treated as a new submission unless
+    /// an explicit dedupe policy says otherwise.
+    NewSubmissionWithoutPolicyDedupe,
+}
+
+/// Recovered submission entry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RecoveredSubmissionEntry {
+    /// Submission acceptance record.
+    pub acceptance: SubmissionAcceptanceRecord,
+    /// Current recovered posture.
+    pub posture: RecoveredSubmissionPosture,
+    /// Deciding receipt digest, if any.
+    pub receipt_digest: Option<Hash>,
+}
+
+/// Recovered submission index.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RecoveredSubmissionIndex {
+    submissions: BTreeMap<Hash, RecoveredSubmissionEntry>,
+    envelope_to_submissions: BTreeMap<Hash, BTreeSet<Hash>>,
+}
+
+impl RecoveredSubmissionIndex {
+    /// Returns a recovered submission entry.
+    #[must_use]
+    pub fn get(&self, submission_id: &Hash) -> Option<&RecoveredSubmissionEntry> {
+        self.submissions.get(submission_id)
+    }
+
+    /// Returns the number of recovered submissions.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.submissions.len()
+    }
+
+    /// Returns `true` when the index contains no submissions.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.submissions.is_empty()
+    }
+
+    /// Classifies retry posture for a submission id and canonical envelope.
+    #[must_use]
+    pub fn retry_posture(
+        &self,
+        submission_id: Hash,
+        canonical_envelope_digest: Hash,
+    ) -> SubmissionRetryPosture {
+        let Some(entry) = self.submissions.get(&submission_id) else {
+            if self
+                .envelope_to_submissions
+                .get(&canonical_envelope_digest)
+                .is_some_and(|ids| !ids.is_empty())
+            {
+                return SubmissionRetryPosture::NewSubmissionWithoutPolicyDedupe;
+            }
+            return SubmissionRetryPosture::NotAccepted;
+        };
+        if entry.acceptance.canonical_envelope_digest != canonical_envelope_digest {
+            return SubmissionRetryPosture::ConflictSameIdDifferentEnvelope;
+        }
+        match entry.posture {
+            RecoveredSubmissionPosture::AcceptedPending => {
+                SubmissionRetryPosture::AlreadyAcceptedPending
+            }
+            RecoveredSubmissionPosture::DecidedApplied => {
+                SubmissionRetryPosture::AlreadyDecidedApplied
+            }
+            RecoveredSubmissionPosture::DecidedRejected => {
+                SubmissionRetryPosture::AlreadyDecidedRejected
+            }
+            RecoveredSubmissionPosture::Obstructed
+            | RecoveredSubmissionPosture::RecoveryFaulted => {
+                SubmissionRetryPosture::AlreadyObstructed
+            }
+        }
+    }
+}
+
+/// Recovered receipt correlation index.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RecoveredReceiptIndex {
+    /// Receipt by submission id.
+    pub receipt_by_submission: BTreeMap<Hash, Hash>,
+    /// Receipt by admission ticket digest.
+    pub receipt_by_ticket: BTreeMap<Hash, Hash>,
+    /// Ticket by submission id.
+    pub ticket_by_submission: BTreeMap<Hash, Hash>,
+    /// Decisions by receipt digest.
+    pub decisions_by_receipt: BTreeMap<Hash, WalTickDecision>,
+}
+
+/// Recovered retained material and reading index.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RecoveredRetentionIndex {
+    /// Retained material by digest.
+    pub material_by_digest: BTreeMap<Hash, RetainedMaterialRecord>,
+    /// Retained material by semantic coordinate.
+    pub material_by_semantic_coordinate: BTreeMap<Hash, BTreeSet<Hash>>,
+    /// Retained reading by reading id.
+    pub reading_by_id: BTreeMap<Hash, ReadingRefRecord>,
+    /// Reading ids by semantic coordinate.
+    pub readings_by_semantic_coordinate: BTreeMap<Hash, BTreeSet<Hash>>,
+}
+
+/// Retained material obstruction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RetainedMaterialObstruction {
+    /// Missing or obstructed material digest.
+    pub material_digest: Hash,
+    /// Material kind.
+    pub kind: RetainedMaterialKind,
+    /// Recovery scope.
+    pub scope: MissingMaterialScope,
+    /// Evidence posture.
+    pub posture: EvidenceMaterialPosture,
+}
+
+/// WAL checkpoint record.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CheckpointRecord {
+    /// Stable checkpoint id.
+    pub checkpoint_id: Hash,
+    /// Last included LSN.
+    pub last_included_lsn: Lsn,
+    /// Last included commit digest.
+    pub last_included_commit_digest: Hash,
+    /// Runtime state root.
+    pub state_root: Hash,
+    /// Rebuilt index root.
+    pub index_root: Hash,
+    /// Retained material root.
+    pub retained_material_root: Hash,
+    /// Checkpoint schema version.
+    pub schema_version: u16,
+    /// Digest of the WAL chain used to create the checkpoint.
+    pub created_from_wal_digest: Hash,
+}
+
+impl CheckpointRecord {
+    /// Computes the checkpoint digest.
+    #[must_use]
+    pub fn checkpoint_digest(&self) -> Hash {
+        let mut h = blake3::Hasher::new();
+        h.update(b"echo:causal_wal:checkpoint:v1\0");
+        h.update(&self.checkpoint_id);
+        h.update(&self.last_included_lsn.as_u64().to_le_bytes());
+        h.update(&self.last_included_commit_digest);
+        h.update(&self.state_root);
+        h.update(&self.index_root);
+        h.update(&self.retained_material_root);
+        h.update(&self.schema_version.to_le_bytes());
+        h.update(&self.created_from_wal_digest);
+        h.finalize().into()
+    }
+
+    /// Encodes the checkpoint as deterministic payload bytes.
+    #[must_use]
+    pub fn to_payload_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        push_hash(&mut out, &self.checkpoint_id);
+        out.extend_from_slice(&self.last_included_lsn.as_u64().to_le_bytes());
+        push_hash(&mut out, &self.last_included_commit_digest);
+        push_hash(&mut out, &self.state_root);
+        push_hash(&mut out, &self.index_root);
+        push_hash(&mut out, &self.retained_material_root);
+        out.extend_from_slice(&self.schema_version.to_le_bytes());
+        push_hash(&mut out, &self.created_from_wal_digest);
+        out
+    }
+
+    /// Decodes a deterministic checkpoint payload.
+    pub fn from_payload_bytes(bytes: &[u8]) -> Result<Self, WalDecodeError> {
+        let mut cursor = WalPayloadCursor::new(bytes);
+        let checkpoint_id = cursor.read_hash()?;
+        let last_included_lsn = Lsn::from_raw(cursor.read_u64()?);
+        let last_included_commit_digest = cursor.read_hash()?;
+        let state_root = cursor.read_hash()?;
+        let index_root = cursor.read_hash()?;
+        let retained_material_root = cursor.read_hash()?;
+        let schema_version = cursor.read_u16()?;
+        let created_from_wal_digest = cursor.read_hash()?;
+        cursor.finish()?;
+        Ok(Self {
+            checkpoint_id,
+            last_included_lsn,
+            last_included_commit_digest,
+            state_root,
+            index_root,
+            retained_material_root,
+            schema_version,
+            created_from_wal_digest,
+        })
+    }
+}
+
+/// WAL checkpoint publication record.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CheckpointPublicationRecord {
+    /// Published checkpoint id.
+    pub checkpoint_id: Hash,
+    /// Published checkpoint digest.
+    pub checkpoint_digest: Hash,
+}
+
+impl CheckpointPublicationRecord {
+    /// Encodes the record as deterministic WAL payload bytes.
+    #[must_use]
+    pub fn to_payload_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        push_hash(&mut out, &self.checkpoint_id);
+        push_hash(&mut out, &self.checkpoint_digest);
+        out
+    }
+
+    /// Decodes a deterministic checkpoint publication payload.
+    pub fn from_payload_bytes(bytes: &[u8]) -> Result<Self, WalDecodeError> {
+        let mut cursor = WalPayloadCursor::new(bytes);
+        let checkpoint_id = cursor.read_hash()?;
+        let checkpoint_digest = cursor.read_hash()?;
+        cursor.finish()?;
+        Ok(Self {
+            checkpoint_id,
+            checkpoint_digest,
+        })
+    }
+}
+
+/// Checkpoint validation posture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CheckpointValidationPosture {
+    /// Checkpoint validates and no publication record is required for use.
+    UsableWithoutPublicationRecord,
+    /// Checkpoint validates and publication evidence matches.
+    PublishedAndUsable,
+    /// Publication evidence exists but checkpoint material is missing.
+    PublishedCheckpointMaterialMissing,
+    /// Checkpoint does not validate against recovered WAL.
+    Invalid,
+}
+
+/// Recovery certificate produced after WAL recovery.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecoveryCertificate {
+    /// Checkpoint digest used as replay base, if any.
+    pub checkpoint_used: Option<Hash>,
+    /// First scanned committed LSN.
+    pub first_lsn: Option<Lsn>,
+    /// Last scanned committed LSN.
+    pub last_lsn: Option<Lsn>,
+    /// Number of committed transactions replayed.
+    pub committed_transactions_replayed: u64,
+    /// Tail posture.
+    pub tail_posture: RecoveryTailPosture,
+    /// Obstruction count.
+    pub obstruction_count: u64,
+    /// Final frontier root.
+    pub recovered_frontier_root: Hash,
+    /// Final index root.
+    pub recovered_indexes_root: Hash,
+}
+
+/// Read-only WAL doctor posture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WalDoctorPosture {
+    /// WAL can be recovered from committed history.
+    Recoverable,
+    /// WAL is inspectable, but read-only mode detected a tail that would be
+    /// truncated by writable recovery.
+    RecoverableWithUncommittedTail,
+    /// WAL has a recovery obstruction.
+    Obstructed,
+}
+
+/// Read-only WAL doctor report.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WalDoctorReport {
+    /// Doctor posture.
+    pub posture: WalDoctorPosture,
+    /// Recovery certificate.
+    pub recovery_certificate: RecoveryCertificate,
+    /// Tail posture.
+    pub tail_posture: RecoveryTailPosture,
 }
 
 /// Scans an in-memory store for recoverable transactions.
@@ -1210,6 +1932,381 @@ pub fn recover_from_frames_and_commits(
     Ok(RecoveryScanReport {
         transactions: recovered,
         tail_posture,
+    })
+}
+
+/// Builds a submission acceptance transaction.
+pub fn build_submission_acceptance_transaction(
+    mut builder: WalTransactionBuilder,
+    record: SubmissionAcceptanceRecord,
+    affected_frontiers: Vec<AffectedFrontier>,
+) -> Result<WalCommittedTransaction, WalBuildError> {
+    builder.push_record(
+        WalRecordKind::SubmissionAcceptedRecorded,
+        record.to_payload_bytes(),
+    )?;
+    builder.push_record(
+        WalRecordKind::SubmissionAcceptanceEvidenceRecorded,
+        record.acceptance_evidence_digest.to_vec(),
+    )?;
+    builder.commit(affected_frontiers)
+}
+
+/// Builds a scheduler-owned tick transaction.
+pub fn build_tick_transaction(
+    mut builder: WalTransactionBuilder,
+    receipt: TickReceiptRecord,
+    correlation: WalReceiptCorrelationRecord,
+    state_delta_digest: Hash,
+    affected_frontiers: Vec<AffectedFrontier>,
+) -> Result<WalCommittedTransaction, WalBuildError> {
+    builder.push_record(
+        WalRecordKind::TickReceiptRecorded,
+        receipt.to_payload_bytes(),
+    )?;
+    builder.push_record(
+        WalRecordKind::ReceiptCorrelationRecorded,
+        correlation.to_payload_bytes(),
+    )?;
+    builder.push_record(
+        WalRecordKind::RuntimeStateDeltaRecorded,
+        state_delta_digest.to_vec(),
+    )?;
+    builder.commit(affected_frontiers)
+}
+
+/// Builds a retained reading transaction.
+pub fn build_retained_reading_transaction(
+    mut builder: WalTransactionBuilder,
+    material: &[RetainedMaterialRecord],
+    reading: ReadingRefRecord,
+    affected_frontiers: Vec<AffectedFrontier>,
+) -> Result<WalCommittedTransaction, WalBuildError> {
+    for record in material {
+        builder.push_record(
+            WalRecordKind::RetainedMaterialRefRecorded,
+            record.to_payload_bytes(),
+        )?;
+    }
+    builder.push_record(
+        WalRecordKind::ReadingEnvelopeRetained,
+        reading.to_payload_bytes(),
+    )?;
+    builder.commit(affected_frontiers)
+}
+
+/// Builds a checkpoint publication transaction.
+pub fn build_checkpoint_publication_transaction(
+    mut builder: WalTransactionBuilder,
+    publication: CheckpointPublicationRecord,
+    affected_frontiers: Vec<AffectedFrontier>,
+) -> Result<WalCommittedTransaction, WalBuildError> {
+    builder.push_record(
+        WalRecordKind::CheckpointPublicationRecorded,
+        publication.to_payload_bytes(),
+    )?;
+    builder.commit(affected_frontiers)
+}
+
+/// Writes a checkpoint file through an atomic temp-file + rename protocol.
+///
+/// This is a local filesystem helper for checkpoint material, not causal
+/// history authority. A checkpoint remains a replay accelerator and must still
+/// validate against committed WAL history before recovery uses it.
+pub fn write_checkpoint_record_atomic(
+    path: impl AsRef<Path>,
+    checkpoint: &CheckpointRecord,
+) -> Result<(), WalCheckpointIoError> {
+    let path = path.as_ref();
+    let parent = path
+        .parent()
+        .ok_or(WalCheckpointIoError::MissingParentDirectory)?;
+    fs::create_dir_all(parent)?;
+    let temp_path = checkpoint_temp_path(path)?;
+    let bytes = checkpoint_file_bytes(checkpoint);
+    {
+        let mut file = File::create(&temp_path)?;
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+    }
+    fs::rename(&temp_path, path)?;
+    sync_directory(parent)?;
+    Ok(())
+}
+
+/// Reads a checkpoint file written by [`write_checkpoint_record_atomic`].
+pub fn read_checkpoint_record(
+    path: impl AsRef<Path>,
+) -> Result<CheckpointRecord, WalCheckpointIoError> {
+    let mut bytes = Vec::new();
+    File::open(path.as_ref())?.read_to_end(&mut bytes)?;
+    parse_checkpoint_file_bytes(&bytes)
+}
+
+/// Recovers submission posture from committed WAL transactions.
+pub fn recover_submission_index(
+    report: &RecoveryScanReport,
+) -> Result<RecoveredSubmissionIndex, WalRecoveryIndexError> {
+    let mut index = RecoveredSubmissionIndex::default();
+    for transaction in &report.transactions {
+        for frame in &transaction.frames {
+            match frame.header.record_kind {
+                WalRecordKind::SubmissionAcceptedRecorded => {
+                    let record = SubmissionAcceptanceRecord::from_payload_bytes(
+                        &frame.payload.canonical_bytes,
+                    )?;
+                    if let Some(existing) = index.submissions.get(&record.submission_id) {
+                        if existing.acceptance.canonical_envelope_digest
+                            != record.canonical_envelope_digest
+                        {
+                            return Err(WalRecoveryIndexError::SubmissionEnvelopeConflict {
+                                submission_id: record.submission_id,
+                            });
+                        }
+                    }
+                    index
+                        .envelope_to_submissions
+                        .entry(record.canonical_envelope_digest)
+                        .or_default()
+                        .insert(record.submission_id);
+                    index.submissions.entry(record.submission_id).or_insert(
+                        RecoveredSubmissionEntry {
+                            acceptance: record,
+                            posture: RecoveredSubmissionPosture::AcceptedPending,
+                            receipt_digest: None,
+                        },
+                    );
+                }
+                WalRecordKind::TickReceiptRecorded => {
+                    let receipt =
+                        TickReceiptRecord::from_payload_bytes(&frame.payload.canonical_bytes)?;
+                    if let Some(entry) = index.submissions.get_mut(&receipt.submission_id) {
+                        entry.posture = match receipt.decision {
+                            WalTickDecision::Applied => RecoveredSubmissionPosture::DecidedApplied,
+                            WalTickDecision::RejectedFootprintConflict => {
+                                RecoveredSubmissionPosture::DecidedRejected
+                            }
+                            WalTickDecision::Obstructed => RecoveredSubmissionPosture::Obstructed,
+                        };
+                        entry.receipt_digest = Some(receipt.receipt_digest);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(index)
+}
+
+/// Recovers receipt correlations from committed WAL transactions.
+pub fn recover_receipt_index(
+    report: &RecoveryScanReport,
+) -> Result<RecoveredReceiptIndex, WalRecoveryIndexError> {
+    let mut index = RecoveredReceiptIndex::default();
+    for transaction in &report.transactions {
+        for frame in &transaction.frames {
+            match frame.header.record_kind {
+                WalRecordKind::TickReceiptRecorded => {
+                    let receipt =
+                        TickReceiptRecord::from_payload_bytes(&frame.payload.canonical_bytes)?;
+                    index
+                        .receipt_by_submission
+                        .insert(receipt.submission_id, receipt.receipt_digest);
+                    index
+                        .receipt_by_ticket
+                        .insert(receipt.ticket_digest, receipt.receipt_digest);
+                    index
+                        .ticket_by_submission
+                        .insert(receipt.submission_id, receipt.ticket_digest);
+                    index
+                        .decisions_by_receipt
+                        .insert(receipt.receipt_digest, receipt.decision);
+                }
+                WalRecordKind::ReceiptCorrelationRecorded => {
+                    let correlation = WalReceiptCorrelationRecord::from_payload_bytes(
+                        &frame.payload.canonical_bytes,
+                    )?;
+                    index
+                        .receipt_by_submission
+                        .insert(correlation.submission_id, correlation.receipt_digest);
+                    index
+                        .receipt_by_ticket
+                        .insert(correlation.ticket_digest, correlation.receipt_digest);
+                    index
+                        .ticket_by_submission
+                        .insert(correlation.submission_id, correlation.ticket_digest);
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(index)
+}
+
+/// Recovers retained material and reading indexes from committed WAL transactions.
+pub fn recover_retention_index(
+    report: &RecoveryScanReport,
+) -> Result<RecoveredRetentionIndex, WalRecoveryIndexError> {
+    let mut index = RecoveredRetentionIndex::default();
+    for transaction in &report.transactions {
+        for frame in &transaction.frames {
+            match frame.header.record_kind {
+                WalRecordKind::RetainedMaterialRefRecorded => {
+                    let record =
+                        RetainedMaterialRecord::from_payload_bytes(&frame.payload.canonical_bytes)?;
+                    index
+                        .material_by_semantic_coordinate
+                        .entry(record.semantic_coordinate_digest)
+                        .or_default()
+                        .insert(record.material_digest);
+                    index
+                        .material_by_digest
+                        .insert(record.material_digest, record);
+                }
+                WalRecordKind::ReadingEnvelopeRetained => {
+                    let record =
+                        ReadingRefRecord::from_payload_bytes(&frame.payload.canonical_bytes)?;
+                    index
+                        .readings_by_semantic_coordinate
+                        .entry(record.semantic_coordinate_digest)
+                        .or_default()
+                        .insert(record.reading_id);
+                    index.reading_by_id.insert(record.reading_id, record);
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(index)
+}
+
+/// Validates retained material references against an available material set.
+#[must_use]
+pub fn retained_material_obstructions(
+    index: &RecoveredRetentionIndex,
+    available_material: &BTreeSet<Hash>,
+) -> Vec<RetainedMaterialObstruction> {
+    let mut obstructions = Vec::new();
+    for record in index.material_by_digest.values() {
+        if record.posture != EvidenceMaterialPosture::Present
+            || !available_material.contains(&record.material_digest)
+        {
+            let posture = if record.posture == EvidenceMaterialPosture::Present {
+                EvidenceMaterialPosture::Missing
+            } else {
+                record.posture
+            };
+            obstructions.push(RetainedMaterialObstruction {
+                material_digest: record.material_digest,
+                kind: record.kind,
+                scope: missing_material_scope(record.kind),
+                posture,
+            });
+        }
+    }
+    obstructions
+}
+
+/// Recovers checkpoint publication records from committed WAL transactions.
+pub fn recover_checkpoint_publications(
+    report: &RecoveryScanReport,
+) -> Result<Vec<CheckpointPublicationRecord>, WalRecoveryIndexError> {
+    let mut publications = Vec::new();
+    for transaction in &report.transactions {
+        for frame in &transaction.frames {
+            if frame.header.record_kind == WalRecordKind::CheckpointPublicationRecorded {
+                publications.push(CheckpointPublicationRecord::from_payload_bytes(
+                    &frame.payload.canonical_bytes,
+                )?);
+            }
+        }
+    }
+    Ok(publications)
+}
+
+/// Evaluates whether a checkpoint may be used as a replay accelerator.
+#[must_use]
+pub fn validate_checkpoint_record(
+    checkpoint: &CheckpointRecord,
+    report: &RecoveryScanReport,
+    publications: &[CheckpointPublicationRecord],
+) -> CheckpointValidationPosture {
+    let Some(last_lsn) = report.last_committed_lsn() else {
+        return CheckpointValidationPosture::Invalid;
+    };
+    let Some(last_commit_digest) = report.last_commit_digest() else {
+        return CheckpointValidationPosture::Invalid;
+    };
+    if checkpoint.last_included_lsn > last_lsn
+        || checkpoint.last_included_commit_digest != last_commit_digest
+    {
+        return CheckpointValidationPosture::Invalid;
+    }
+    let checkpoint_digest = checkpoint.checkpoint_digest();
+    if publications.iter().any(|publication| {
+        publication.checkpoint_id == checkpoint.checkpoint_id
+            && publication.checkpoint_digest == checkpoint_digest
+    }) {
+        CheckpointValidationPosture::PublishedAndUsable
+    } else {
+        CheckpointValidationPosture::UsableWithoutPublicationRecord
+    }
+}
+
+/// Evaluates checkpoint publication evidence when checkpoint material may be absent.
+#[must_use]
+pub fn evaluate_checkpoint_publication(
+    publication: &CheckpointPublicationRecord,
+    checkpoint: Option<&CheckpointRecord>,
+    report: &RecoveryScanReport,
+) -> CheckpointValidationPosture {
+    let Some(checkpoint) = checkpoint else {
+        return CheckpointValidationPosture::PublishedCheckpointMaterialMissing;
+    };
+    validate_checkpoint_record(checkpoint, report, &[*publication])
+}
+
+/// Builds a recovery certificate from recovered committed history.
+#[must_use]
+pub fn build_recovery_certificate(
+    report: &RecoveryScanReport,
+    checkpoint_used: Option<Hash>,
+    obstruction_count: u64,
+    recovered_frontier_root: Hash,
+    recovered_indexes_root: Hash,
+) -> RecoveryCertificate {
+    RecoveryCertificate {
+        checkpoint_used,
+        first_lsn: report.first_committed_lsn(),
+        last_lsn: report.last_committed_lsn(),
+        committed_transactions_replayed: len_u64(report.transactions.len()),
+        tail_posture: report.tail_posture,
+        obstruction_count,
+        recovered_frontier_root,
+        recovered_indexes_root,
+    }
+}
+
+/// Runs a read-only WAL doctor over an in-memory store.
+pub fn doctor_in_memory_store(
+    store: &InMemoryWalStore,
+) -> Result<WalDoctorReport, WalRecoveryError> {
+    let frames = store.read_frames();
+    let commits = store.read_commits();
+    let report = recover_from_frames_and_commits(&frames, &commits, RecoveryAccessMode::ReadOnly)?;
+    let posture = match report.tail_posture {
+        RecoveryTailPosture::Clean => WalDoctorPosture::Recoverable,
+        RecoveryTailPosture::WouldTruncateAll | RecoveryTailPosture::WouldTruncateAfter(_) => {
+            WalDoctorPosture::RecoverableWithUncommittedTail
+        }
+        RecoveryTailPosture::TruncatedAll | RecoveryTailPosture::TruncatedAfter(_) => {
+            WalDoctorPosture::Obstructed
+        }
+    };
+    Ok(WalDoctorReport {
+        posture,
+        recovery_certificate: build_recovery_certificate(&report, None, 0, [0; 32], [0; 32]),
+        tail_posture: report.tail_posture,
     })
 }
 
@@ -1420,6 +2517,59 @@ pub enum WalReplayError {
     },
 }
 
+/// WAL payload decode errors.
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum WalDecodeError {
+    /// Payload ended before the expected field could be decoded.
+    #[error("WAL payload ended early")]
+    UnexpectedEof,
+    /// Payload contained trailing bytes.
+    #[error("WAL payload contained trailing bytes")]
+    TrailingBytes,
+    /// Payload contained an unknown enum code.
+    #[error("unknown WAL enum code {code} for {enum_name}")]
+    UnknownEnumCode {
+        /// Enum name.
+        enum_name: &'static str,
+        /// Unknown code.
+        code: u8,
+    },
+}
+
+/// WAL recovered index errors.
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum WalRecoveryIndexError {
+    /// Payload decode failed.
+    #[error(transparent)]
+    Decode(#[from] WalDecodeError),
+    /// Submission id was reused with a different canonical envelope digest.
+    #[error("submission id was reused with a different canonical envelope digest")]
+    SubmissionEnvelopeConflict {
+        /// Conflicting submission id.
+        submission_id: Hash,
+    },
+}
+
+/// Checkpoint file I/O errors.
+#[derive(Debug, Error)]
+pub enum WalCheckpointIoError {
+    /// Checkpoint path has no parent directory.
+    #[error("checkpoint path has no parent directory")]
+    MissingParentDirectory,
+    /// Checkpoint file magic is invalid.
+    #[error("invalid checkpoint file magic")]
+    InvalidMagic,
+    /// Checkpoint file digest does not match the checkpoint payload.
+    #[error("checkpoint file digest mismatch")]
+    DigestMismatch,
+    /// Checkpoint payload decode failed.
+    #[error(transparent)]
+    Decode(#[from] WalDecodeError),
+    /// Filesystem I/O failed.
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+}
+
 /// WAL schema lint errors.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum WalSchemaLintError {
@@ -1564,6 +2714,160 @@ fn checksum32(domain: &[u8], bytes: &[u8]) -> u32 {
 fn update_len_prefixed(hasher: &mut blake3::Hasher, bytes: &[u8]) {
     hasher.update(&len_u64(bytes.len()).to_le_bytes());
     hasher.update(bytes);
+}
+
+fn push_hash(out: &mut Vec<u8>, hash: &Hash) {
+    out.extend_from_slice(hash);
+}
+
+fn push_optional_hash(out: &mut Vec<u8>, hash: Option<Hash>) {
+    match hash {
+        Some(hash) => {
+            out.push(1);
+            push_hash(out, &hash);
+        }
+        None => out.push(0),
+    }
+}
+
+struct WalPayloadCursor<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> WalPayloadCursor<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, offset: 0 }
+    }
+
+    fn read_u8(&mut self) -> Result<u8, WalDecodeError> {
+        let Some(value) = self.bytes.get(self.offset).copied() else {
+            return Err(WalDecodeError::UnexpectedEof);
+        };
+        self.offset += 1;
+        Ok(value)
+    }
+
+    fn read_u16(&mut self) -> Result<u16, WalDecodeError> {
+        let end = self
+            .offset
+            .checked_add(2)
+            .ok_or(WalDecodeError::UnexpectedEof)?;
+        let Some(bytes) = self.bytes.get(self.offset..end) else {
+            return Err(WalDecodeError::UnexpectedEof);
+        };
+        let mut out = [0; 2];
+        out.copy_from_slice(bytes);
+        self.offset = end;
+        Ok(u16::from_le_bytes(out))
+    }
+
+    fn read_u64(&mut self) -> Result<u64, WalDecodeError> {
+        let end = self
+            .offset
+            .checked_add(8)
+            .ok_or(WalDecodeError::UnexpectedEof)?;
+        let Some(bytes) = self.bytes.get(self.offset..end) else {
+            return Err(WalDecodeError::UnexpectedEof);
+        };
+        let mut out = [0; 8];
+        out.copy_from_slice(bytes);
+        self.offset = end;
+        Ok(u64::from_le_bytes(out))
+    }
+
+    fn read_hash(&mut self) -> Result<Hash, WalDecodeError> {
+        let end = self
+            .offset
+            .checked_add(32)
+            .ok_or(WalDecodeError::UnexpectedEof)?;
+        let Some(bytes) = self.bytes.get(self.offset..end) else {
+            return Err(WalDecodeError::UnexpectedEof);
+        };
+        let mut out = [0; 32];
+        out.copy_from_slice(bytes);
+        self.offset = end;
+        Ok(out)
+    }
+
+    fn read_optional_hash(&mut self) -> Result<Option<Hash>, WalDecodeError> {
+        match self.read_u8()? {
+            0 => Ok(None),
+            1 => self.read_hash().map(Some),
+            code => Err(WalDecodeError::UnknownEnumCode {
+                enum_name: "Option<Hash>",
+                code,
+            }),
+        }
+    }
+
+    fn finish(&self) -> Result<(), WalDecodeError> {
+        if self.offset == self.bytes.len() {
+            Ok(())
+        } else {
+            Err(WalDecodeError::TrailingBytes)
+        }
+    }
+}
+
+fn checkpoint_temp_path(path: &Path) -> Result<PathBuf, WalCheckpointIoError> {
+    let file_name = path
+        .file_name()
+        .ok_or(WalCheckpointIoError::MissingParentDirectory)?;
+    let temp_name = format!(".{}.tmp", file_name.to_string_lossy());
+    Ok(path.with_file_name(temp_name))
+}
+
+fn checkpoint_file_bytes(checkpoint: &CheckpointRecord) -> Vec<u8> {
+    let payload = checkpoint.to_payload_bytes();
+    let digest = checkpoint.checkpoint_digest();
+    let mut out = Vec::new();
+    out.extend_from_slice(CHECKPOINT_FILE_MAGIC);
+    out.extend_from_slice(&len_u64(payload.len()).to_le_bytes());
+    out.extend_from_slice(&payload);
+    out.extend_from_slice(&digest);
+    out
+}
+
+fn parse_checkpoint_file_bytes(bytes: &[u8]) -> Result<CheckpointRecord, WalCheckpointIoError> {
+    if bytes.get(..CHECKPOINT_FILE_MAGIC.len()) != Some(CHECKPOINT_FILE_MAGIC.as_slice()) {
+        return Err(WalCheckpointIoError::InvalidMagic);
+    }
+    let mut offset = CHECKPOINT_FILE_MAGIC.len();
+    let len_end = offset.checked_add(8).ok_or(WalDecodeError::UnexpectedEof)?;
+    let Some(len_bytes) = bytes.get(offset..len_end) else {
+        return Err(WalCheckpointIoError::Decode(WalDecodeError::UnexpectedEof));
+    };
+    let mut payload_len = [0; 8];
+    payload_len.copy_from_slice(len_bytes);
+    offset = len_end;
+    let payload_len = usize::try_from(u64::from_le_bytes(payload_len))
+        .map_err(|_| WalDecodeError::UnexpectedEof)?;
+    let payload_end = offset
+        .checked_add(payload_len)
+        .ok_or(WalDecodeError::UnexpectedEof)?;
+    let Some(payload) = bytes.get(offset..payload_end) else {
+        return Err(WalCheckpointIoError::Decode(WalDecodeError::UnexpectedEof));
+    };
+    let digest_end = payload_end
+        .checked_add(32)
+        .ok_or(WalDecodeError::UnexpectedEof)?;
+    let Some(digest_bytes) = bytes.get(payload_end..digest_end) else {
+        return Err(WalCheckpointIoError::Decode(WalDecodeError::UnexpectedEof));
+    };
+    if digest_end != bytes.len() {
+        return Err(WalCheckpointIoError::Decode(WalDecodeError::TrailingBytes));
+    }
+    let checkpoint = CheckpointRecord::from_payload_bytes(payload)?;
+    if digest_bytes != checkpoint.checkpoint_digest() {
+        return Err(WalCheckpointIoError::DigestMismatch);
+    }
+    Ok(checkpoint)
+}
+
+fn sync_directory(path: &Path) -> Result<(), WalCheckpointIoError> {
+    File::open(path)?.sync_all()?;
+    Ok(())
 }
 
 fn len_u64(len: usize) -> u64 {

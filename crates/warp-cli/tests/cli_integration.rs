@@ -75,7 +75,8 @@ fn help_shows_all_subcommands() {
         .stdout(predicate::str::contains("Echo developer CLI"))
         .stdout(predicate::str::contains("verify"))
         .stdout(predicate::str::contains("bench"))
-        .stdout(predicate::str::contains("inspect"));
+        .stdout(predicate::str::contains("inspect"))
+        .stdout(predicate::str::contains("wal"));
 }
 
 #[test]
@@ -147,6 +148,30 @@ fn inspect_help_lists_tree_flag() {
         .success()
         .stdout(predicate::str::contains("tree"))
         .stdout(predicate::str::contains("raw"));
+}
+
+#[test]
+fn wal_doctor_help_lists_read_only_doctor() {
+    echo_cli()
+        .args(["wal", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("doctor"));
+}
+
+#[test]
+fn wal_doctor_json_reports_read_only_empty_store() -> TestResult {
+    let assert = echo_cli()
+        .args(["--format", "json", "wal", "doctor"])
+        .assert()
+        .success();
+    let json: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout)?;
+
+    assert_eq!(json["posture"], "Recoverable");
+    assert_eq!(json["tail_posture"], "Clean");
+    assert_eq!(json["committed_transactions_replayed"], 0);
+    assert_eq!(json["obstruction_count"], 0);
+    Ok(())
 }
 
 #[test]

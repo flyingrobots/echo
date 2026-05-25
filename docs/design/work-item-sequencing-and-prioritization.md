@@ -86,8 +86,8 @@ The doctrine is tracked by:
 The first chunk is the active release-proof package:
 
 ```text
-[###-------] Echo/jedit retained-evidence release-gate batch [3/10 slices]
-[###-------] PR checkpoint batch [3/5 slices before recommended PR]
+[####------] Echo/jedit retained-evidence release-gate batch [4/10 slices]
+[####------] PR checkpoint batch [4/5 slices before recommended PR]
 ```
 
 Finish the package in this order:

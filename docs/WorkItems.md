@@ -56,14 +56,13 @@ Current active signposts:
 Progress bars from the current work stream:
 
 ```text
-[###-------] Echo/jedit retained-evidence release-gate batch [3/10 slices]
-[###-------] PR checkpoint batch [3/5 slices before recommended PR]
+[####------] Echo/jedit retained-evidence release-gate batch [4/10 slices]
+[####------] PR checkpoint batch [4/5 slices before recommended PR]
 [##########] Echo WAL truth boundary and runtime ACK plumbing [95/95 slices]
 ```
 
 Immediate unfinished slice in the current batch:
 
-- Slice 4: jedit adapter consumes Echo retained refs.
 - Slice 5: jedit replay witness shell.
 - Slice 6: Echo product-facing intent outcome API polish.
 - Slice 7: jedit generated structural-history request path.

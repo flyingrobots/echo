@@ -10,6 +10,14 @@
 use thiserror::Error;
 
 use crate::{
+    causal_wal::{
+        build_submission_acceptance_transaction, AffectedFrontier, AffectedFrontierKind,
+        InMemoryWalStore, Lsn, PayloadCodecId, PayloadSchemaId, SubmissionAcceptanceRecord,
+        WalAppendAuthority, WalBuildError, WalCommittedTransaction, WalDurabilityMode,
+        WalRecordKind, WalSegmentId, WalStoreError, WalStorePort, WalTransactionBuilder,
+        WalTransactionCommit, WalTransactionId, WalTransactionKind, WriterEpochId,
+        WriterEpochRequest,
+    },
     Engine, IngressEnvelope, InstalledContractPackage, InstalledContractPackageError,
     InstalledContractPackageRecord, IntentOutcome, IntentSubmissionHandle, ObservationArtifact,
     ObservationError, ObservationRequest, ObservationService, OpticAdmissionTicket,
@@ -17,6 +25,8 @@ use crate::{
     TicketedRuntimeIngressAuthority, TicketedRuntimeIngressDisposition, WorldlineRuntime,
 };
 use crate::{Hash, HistoryError};
+
+const TRUSTED_RUNTIME_WAL_DOMAIN: &[u8] = b"echo:trusted-runtime-wal:v1\0";
 
 /// Error returned by the reference trusted host loop.
 #[derive(Debug, Error)]
@@ -26,13 +36,36 @@ pub enum TrustedRuntimeHostError {
     Provenance(#[from] HistoryError),
     /// Scheduler/runtime work failed.
     #[error("trusted runtime host runtime error: {0}")]
-    Runtime(#[from] RuntimeError),
+    Runtime(Box<RuntimeError>),
+    /// The app used the WAL-backed ACK path before a runtime WAL was configured.
+    #[error("trusted runtime host runtime WAL is unavailable")]
+    RuntimeWalUnavailable,
+    /// Runtime WAL append or build failed.
+    #[error("trusted runtime host WAL error: {0}")]
+    Wal(#[from] TrustedRuntimeWalError),
     /// The host reached its caller-supplied scheduler-pass bound before idling.
     #[error("trusted runtime host exceeded scheduler pass limit: {max_scheduler_passes}")]
     SchedulerPassLimitExceeded {
         /// Maximum scheduler passes the caller allowed.
         max_scheduler_passes: u64,
     },
+}
+
+impl From<RuntimeError> for TrustedRuntimeHostError {
+    fn from(error: RuntimeError) -> Self {
+        Self::Runtime(Box::new(error))
+    }
+}
+
+/// Error returned by the trusted runtime WAL adapter.
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum TrustedRuntimeWalError {
+    /// WAL transaction construction failed before storage append.
+    #[error("trusted runtime WAL transaction build error: {0}")]
+    Build(#[from] WalBuildError),
+    /// WAL storage failed before durable acknowledgement.
+    #[error("trusted runtime WAL store error: {0}")]
+    Store(#[from] WalStoreError),
 }
 
 /// Summary returned after a trusted host runs the scheduler until idle.
@@ -53,6 +86,7 @@ pub struct TrustedRuntimeHost {
     runtime: WorldlineRuntime,
     provenance: ProvenanceService,
     engine: Engine,
+    runtime_wal: Option<TrustedRuntimeWal>,
 }
 
 impl TrustedRuntimeHost {
@@ -68,6 +102,7 @@ impl TrustedRuntimeHost {
             runtime,
             provenance,
             engine,
+            runtime_wal: None,
         })
     }
 
@@ -82,6 +117,7 @@ impl TrustedRuntimeHost {
             runtime,
             provenance,
             engine,
+            runtime_wal: None,
         }
     }
 
@@ -107,6 +143,32 @@ impl TrustedRuntimeHost {
     #[must_use]
     pub fn engine(&self) -> &Engine {
         &self.engine
+    }
+
+    /// Enables the in-memory WAL adapter used by the reference host tests.
+    ///
+    /// This adapter proves the ACK ordering contract and recovery indexes. It
+    /// is not a strict filesystem durability adapter.
+    ///
+    /// # Errors
+    ///
+    /// Returns a WAL error when the writer epoch cannot be acquired.
+    pub fn enable_in_memory_runtime_wal(&mut self) -> Result<(), TrustedRuntimeHostError> {
+        self.runtime_wal = Some(TrustedRuntimeWal::new_in_memory()?);
+        Ok(())
+    }
+
+    /// Returns the configured runtime WAL adapter, if any, as read-only
+    /// evidence.
+    #[must_use]
+    pub fn runtime_wal(&self) -> Option<&TrustedRuntimeWal> {
+        self.runtime_wal.as_ref()
+    }
+
+    /// Replaces the runtime WAL adapter for targeted host tests.
+    #[cfg(any(test, feature = "host_test"))]
+    pub fn replace_runtime_wal_for_test(&mut self, runtime_wal: TrustedRuntimeWal) {
+        self.runtime_wal = Some(runtime_wal);
     }
 
     /// Returns the app-facing surface. This surface can submit and observe, but
@@ -200,6 +262,192 @@ impl TrustedRuntimeHost {
     }
 }
 
+/// Minimal trusted-runtime WAL adapter for ACK-boundary integration tests.
+#[derive(Clone, Debug)]
+pub struct TrustedRuntimeWal {
+    store: InMemoryWalStore,
+    writer_epoch: WriterEpochId,
+    segment_id: WalSegmentId,
+    next_lsn: Lsn,
+    previous_frame_digest: Hash,
+    previous_committed_transaction_digest: Hash,
+    durability_mode: WalDurabilityMode,
+    payload_codec_id: PayloadCodecId,
+    payload_schema_id: PayloadSchemaId,
+    digest_domain: Hash,
+    submission_frontier_digest: Hash,
+}
+
+impl TrustedRuntimeWal {
+    /// Builds a WAL adapter backed by an in-memory store.
+    pub fn new_in_memory() -> Result<Self, TrustedRuntimeWalError> {
+        Self::new_in_memory_at_lsn(Lsn::from_raw(0))
+    }
+
+    fn new_in_memory_at_lsn(next_lsn: Lsn) -> Result<Self, TrustedRuntimeWalError> {
+        let mut store = InMemoryWalStore::new();
+        let writer_epoch = WriterEpochId::from_hash(trusted_runtime_wal_digest("writer-epoch"));
+        store.acquire_writer_epoch(WriterEpochRequest {
+            epoch_id: writer_epoch,
+            storage_fencing_token: trusted_runtime_wal_digest("fencing-token"),
+            process_identity: trusted_runtime_wal_digest("process"),
+            host_identity: trusted_runtime_wal_digest("host"),
+            started_at_lsn: next_lsn,
+            previous_epoch_id: None,
+            previous_epoch_final_commit_digest: None,
+            lease_or_lock_evidence: trusted_runtime_wal_digest("lease"),
+        })?;
+        Ok(Self {
+            store,
+            writer_epoch,
+            segment_id: WalSegmentId::from_raw(1),
+            next_lsn,
+            previous_frame_digest: trusted_runtime_wal_digest("previous-frame:genesis"),
+            previous_committed_transaction_digest: trusted_runtime_wal_digest(
+                "previous-commit:genesis",
+            ),
+            durability_mode: WalDurabilityMode::Buffered,
+            payload_codec_id: PayloadCodecId::from_hash(trusted_runtime_wal_digest(
+                "payload-codec",
+            )),
+            payload_schema_id: PayloadSchemaId::from_hash(trusted_runtime_wal_digest(
+                "payload-schema",
+            )),
+            digest_domain: trusted_runtime_wal_digest("digest-domain"),
+            submission_frontier_digest: trusted_runtime_wal_digest("submission-frontier:genesis"),
+        })
+    }
+
+    /// Returns committed WAL markers recorded by the adapter.
+    #[must_use]
+    pub fn commits(&self) -> Vec<WalTransactionCommit> {
+        self.store.read_commits()
+    }
+
+    /// Returns committed WAL frames recorded by the adapter.
+    #[must_use]
+    pub fn frames(&self) -> Vec<crate::causal_wal::WalFrame> {
+        self.store.read_frames()
+    }
+
+    /// Returns a clone of the underlying in-memory store for recovery tests.
+    #[must_use]
+    pub fn cloned_store(&self) -> InMemoryWalStore {
+        self.store.clone()
+    }
+
+    /// Returns the number of committed submission-intake transactions.
+    #[must_use]
+    pub fn submission_acceptance_count(&self) -> usize {
+        self.store
+            .read_commits()
+            .into_iter()
+            .filter(|commit| commit.transaction_kind == WalTransactionKind::SubmissionIntake)
+            .count()
+    }
+
+    fn has_submission_acceptance(
+        &self,
+        submission_id: Hash,
+        canonical_envelope_digest: Hash,
+    ) -> bool {
+        self.store.read_frames().into_iter().any(|frame| {
+            if frame.header.record_kind != WalRecordKind::SubmissionAcceptedRecorded {
+                return false;
+            }
+            SubmissionAcceptanceRecord::from_payload_bytes(&frame.payload.canonical_bytes)
+                .is_ok_and(|record| {
+                    record.submission_id == submission_id
+                        && record.canonical_envelope_digest == canonical_envelope_digest
+                })
+        })
+    }
+
+    fn record_submission_acceptance(
+        &mut self,
+        envelope: &IngressEnvelope,
+        handle: IntentSubmissionHandle,
+    ) -> Result<WalTransactionCommit, TrustedRuntimeWalError> {
+        let record = SubmissionAcceptanceRecord {
+            submission_id: handle.submission_id,
+            canonical_envelope_digest: envelope.ingress_id(),
+            idempotency_key_digest: None,
+            acceptance_evidence_digest: acceptance_evidence_digest(handle),
+        };
+        let next_submission_frontier =
+            submission_frontier_digest(self.submission_frontier_digest, record);
+        let transaction = build_submission_acceptance_transaction(
+            self.builder(
+                WalTransactionKind::SubmissionIntake,
+                WalAppendAuthority::SubmissionIntake,
+                WalTransactionId::from_hash(submission_transaction_digest(handle, record)),
+            ),
+            record,
+            vec![AffectedFrontier {
+                kind: AffectedFrontierKind::SubmissionQueue,
+                before_digest: self.submission_frontier_digest,
+                after_digest: next_submission_frontier,
+            }],
+        )?;
+        let commit = self.append_transaction(transaction)?;
+        self.submission_frontier_digest = next_submission_frontier;
+        Ok(commit)
+    }
+
+    fn append_transaction(
+        &mut self,
+        transaction: WalCommittedTransaction,
+    ) -> Result<WalTransactionCommit, TrustedRuntimeWalError> {
+        let last_frame_digest = transaction.frames.last().map_or(
+            self.previous_frame_digest,
+            crate::causal_wal::WalFrame::digest,
+        );
+        let next_lsn = transaction
+            .commit
+            .last_lsn
+            .checked_next()
+            .ok_or(WalBuildError::LsnOverflow)?;
+        let commit = transaction.commit.clone();
+        self.store.append_transaction(transaction)?;
+        self.next_lsn = next_lsn;
+        self.previous_frame_digest = last_frame_digest;
+        self.previous_committed_transaction_digest = commit.commit_digest;
+        Ok(commit)
+    }
+
+    fn builder(
+        &self,
+        kind: WalTransactionKind,
+        authority: WalAppendAuthority,
+        transaction_id: WalTransactionId,
+    ) -> WalTransactionBuilder {
+        WalTransactionBuilder::new(
+            self.writer_epoch,
+            self.segment_id,
+            transaction_id,
+            kind,
+            authority,
+            self.next_lsn,
+            self.previous_frame_digest,
+            self.previous_committed_transaction_digest,
+            self.durability_mode,
+            self.payload_codec_id,
+            self.payload_schema_id,
+            1,
+            1,
+            self.digest_domain,
+        )
+    }
+}
+
+#[cfg(any(test, feature = "host_test"))]
+impl TrustedRuntimeWal {
+    /// Builds an in-memory WAL at a caller-supplied LSN for overflow tests.
+    pub fn new_in_memory_at_lsn_for_test(next_lsn: Lsn) -> Result<Self, TrustedRuntimeWalError> {
+        Self::new_in_memory_at_lsn(next_lsn)
+    }
+}
+
 /// App-facing handle for a trusted local runtime host.
 ///
 /// This type intentionally exposes no scheduler control, package installation,
@@ -219,6 +467,45 @@ impl TrustedRuntimeApp<'_> {
         envelope: IngressEnvelope,
     ) -> Result<IntentSubmissionHandle, RuntimeError> {
         self.host.runtime.submit_app_intent(envelope)
+    }
+
+    /// Submits canonical intent material and returns only after the configured
+    /// runtime WAL has committed the acceptance transaction.
+    ///
+    /// This is the ACK-boundary path for hosts that have configured a runtime
+    /// WAL. It does not tick, stage ticketed ingress, install packages, or
+    /// expose WAL append authority to the application.
+    ///
+    /// # Errors
+    ///
+    /// Returns an explicit host error if no WAL is configured, if runtime intake
+    /// rejects the submission, or if WAL commit fails. On WAL failure, the
+    /// in-memory runtime intake mutation is rolled back before the error is
+    /// returned.
+    pub fn submit_intent_with_runtime_wal_ack(
+        &mut self,
+        envelope: IngressEnvelope,
+    ) -> Result<IntentSubmissionHandle, TrustedRuntimeHostError> {
+        if self.host.runtime_wal.is_none() {
+            return Err(TrustedRuntimeHostError::RuntimeWalUnavailable);
+        }
+
+        let before_runtime = self.host.runtime.clone();
+        let handle = self.host.runtime.submit_app_intent(envelope.clone())?;
+        let Some(runtime_wal) = self.host.runtime_wal.as_mut() else {
+            self.host.runtime = before_runtime;
+            return Err(TrustedRuntimeHostError::RuntimeWalUnavailable);
+        };
+        if handle.duplicate
+            && runtime_wal.has_submission_acceptance(handle.submission_id, envelope.ingress_id())
+        {
+            return Ok(handle);
+        }
+        if let Err(error) = runtime_wal.record_submission_acceptance(&envelope, handle) {
+            self.host.runtime = before_runtime;
+            return Err(error.into());
+        }
+        Ok(handle)
     }
 
     /// Observes the product-facing outcome for one witnessed submission.
@@ -254,4 +541,50 @@ fn provenance_from_runtime(
         provenance.register_worldline(*worldline_id, frontier.state())?;
     }
     Ok(provenance)
+}
+
+fn trusted_runtime_wal_digest(label: &str) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
+    hasher.update(label.as_bytes());
+    hasher.finalize().into()
+}
+
+fn acceptance_evidence_digest(handle: IntentSubmissionHandle) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
+    hasher.update(b"acceptance-evidence");
+    hasher.update(&handle.ingress_id);
+    hasher.update(handle.head_key.worldline_id.as_bytes());
+    hasher.update(handle.head_key.head_id.as_bytes());
+    hasher.update(&handle.submission_id);
+    hasher.update(&handle.submission_generation.as_u64().to_le_bytes());
+    hasher.update(&[u8::from(handle.duplicate)]);
+    hasher.finalize().into()
+}
+
+fn submission_transaction_digest(
+    handle: IntentSubmissionHandle,
+    record: SubmissionAcceptanceRecord,
+) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
+    hasher.update(b"submission-transaction");
+    hasher.update(&handle.submission_id);
+    hasher.update(&handle.ingress_id);
+    hasher.update(&handle.submission_generation.as_u64().to_le_bytes());
+    hasher.update(&record.canonical_envelope_digest);
+    hasher.update(&record.acceptance_evidence_digest);
+    hasher.finalize().into()
+}
+
+fn submission_frontier_digest(previous: Hash, record: SubmissionAcceptanceRecord) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
+    hasher.update(b"submission-frontier");
+    hasher.update(&previous);
+    hasher.update(&record.submission_id);
+    hasher.update(&record.canonical_envelope_digest);
+    hasher.update(&record.acceptance_evidence_digest);
+    hasher.finalize().into()
 }

@@ -899,3 +899,183 @@ Test plan:
 
 - `segment_manifest_validation_gate_is_part_of_wal_release_readiness`
 - `wal_hardening_gate_passes_when_all_categories_are_green`
+
+## Slice 86: Runtime WAL Adapter Port
+
+User story:
+
+As a trusted runtime host, I need a local WAL adapter at the app-facing ACK
+boundary without giving the application append authority.
+
+Acceptance criteria:
+
+- `TrustedRuntimeHost` owns the runtime WAL adapter.
+- `TrustedRuntimeApp` exposes no WAL append or tick authority.
+- The adapter can be inspected by host tests as read-only evidence.
+
+Test plan:
+
+- `runtime_wal_ack_submit_commits_acceptance_before_returning_handle`
+
+## Slice 87: Submission Acceptance Transaction Wiring
+
+User story:
+
+As a caller, returned accepted submission evidence must be backed by a committed
+submission-intake WAL transaction when using the WAL-backed ACK path.
+
+Acceptance criteria:
+
+- `submit_intent_with_runtime_wal_ack(...)` requires a configured runtime WAL.
+- Accepted submissions record `SubmissionAcceptedRecorded` and acceptance
+  evidence before the handle is returned.
+- The recovered submission index can rebuild the pending submission from WAL.
+
+Test plan:
+
+- `runtime_wal_ack_submit_commits_acceptance_before_returning_handle`
+- Recovered submission index assertion for `AcceptedPending`.
+
+## Slice 88: Duplicate Submit ACK Posture
+
+User story:
+
+As a retrying client, resubmitting the same accepted envelope must not spray
+duplicate WAL acceptance transactions.
+
+Acceptance criteria:
+
+- Duplicate submit returns the original submission id.
+- If WAL evidence already exists, the submission-acceptance transaction count
+  remains unchanged.
+- If the duplicate came from a legacy non-WAL intake path, the WAL ACK path
+  backfills exactly one acceptance transaction before returning.
+
+Test plan:
+
+- `runtime_wal_ack_duplicate_submit_does_not_append_second_acceptance`
+- `runtime_wal_ack_duplicate_without_prior_wal_backfills_acceptance`
+
+## Slice 89: Pre-ACK WAL Failure Rollback
+
+User story:
+
+As Echo, if the WAL cannot commit accepted-submission evidence, the in-memory
+intake mutation must not remain visible.
+
+Acceptance criteria:
+
+- Missing WAL returns an explicit unavailable posture before mutating runtime
+  intake state.
+- WAL build failure restores pre-submit runtime state.
+- Failed WAL ACK does not create witnessed submission history.
+
+Test plan:
+
+- `runtime_wal_ack_path_requires_configured_runtime_wal`
+- `runtime_wal_ack_failure_rolls_back_intake_mutation`
+
+## Slice 90: Tick Receipt Transaction Wiring
+
+User story:
+
+As Echo, visible tick receipts should eventually be backed by committed
+scheduler-tick WAL transactions.
+
+Acceptance criteria:
+
+- Host-owned scheduler runs record receipt and correlation facts before
+  publishing product-facing receipt evidence.
+- The WAL receipt index can rebuild applied/rejected decisions.
+
+Test plan:
+
+- Trusted-host applied-intent fixture.
+- Recovered receipt-index witness.
+
+## Slice 91: Tick Commit-Before-Publish Rollback Guard
+
+User story:
+
+As Echo, a tick WAL failure must not leave a half-visible receipt/outcome.
+
+Acceptance criteria:
+
+- Tick WAL failure either restores runtime/provenance state or blocks receipt
+  publication under typed runtime fault posture.
+- The app-facing outcome cannot observe a receipt whose WAL transaction failed.
+
+Test plan:
+
+- Injected tick-WAL failure fixture.
+- App-facing outcome remains pending or runtime-faulted, never half-decided.
+
+## Slice 92: Runtime Index Rebuild Contract
+
+User story:
+
+As recovery, WAL-backed submission and receipt indexes should rebuild without
+scheduler callbacks.
+
+Acceptance criteria:
+
+- Recovery applies committed WAL facts through pure reducers.
+- No scheduler, wall-clock, app callback, or external I/O participates in index
+  rebuild.
+
+Test plan:
+
+- Pure in-memory recovery fixture for submit plus tick records.
+- Shadow replay comparison for recovered submission/receipt posture.
+
+## Slice 93: WAL-Backed Recovery Certificate In Runtime
+
+User story:
+
+As an operator, restart should produce inspectable evidence about what committed
+history was replayed.
+
+Acceptance criteria:
+
+- Recovery certificate covers checkpoint, LSN range, commit digest, tail
+  posture, and recovered counts.
+- The certificate is evidence, not a new app-domain mutation.
+
+Test plan:
+
+- Recovery certificate fixture over committed and truncated-tail WAL shapes.
+
+## Slice 94: `jedit` Recovery Fixture Contract
+
+User story:
+
+As a real app consumer, `jedit` should be able to distinguish not-accepted,
+accepted-pending, decided, rejected, and obstructed edits from Echo recovery
+evidence.
+
+Acceptance criteria:
+
+- Echo exposes only generic submission/receipt posture.
+- `jedit` maps posture to editor terms outside Echo.
+
+Test plan:
+
+- Sibling `jedit` fixture consumes generic Echo recovery JSON.
+
+## Slice 95: Runtime ACK Drift Gate
+
+User story:
+
+As a maintainer, docs and tests should fail if Echo claims durable ACK semantics
+without a WAL-backed witness.
+
+Acceptance criteria:
+
+- Release readiness names runtime ACK coverage as a distinct gate.
+- Stale claims that accepted submissions are restart-proof without WAL backing
+  are either removed or marked future.
+
+Test plan:
+
+- Runtime ACK readiness gate fixture.
+- Stale-claim grep over docs.

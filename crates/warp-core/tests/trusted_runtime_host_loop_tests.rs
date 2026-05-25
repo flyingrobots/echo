@@ -9,6 +9,10 @@ use echo_registry_api::{
     RegistryProvider,
 };
 use warp_core::{
+    causal_wal::{
+        recover_in_memory_store, recover_submission_index, Lsn, RecoveredSubmissionPosture,
+        RecoveryAccessMode, WalBuildError,
+    },
     make_head_id, make_intent_kind, make_node_id, make_type_id, AuthoredObserverPlan,
     ContractMutationHandler, ContractOperationKind, ContractPackageIdentity, ContractQueryObserver,
     ContractQueryObserverResult, EngineBuilder, GraphStore, GraphView, InboxPolicy,
@@ -16,8 +20,9 @@ use warp_core::{
     ObservationCoordinate, ObservationFrame, ObservationPayload, ObservationProjection,
     ObservationReadBudget, ObservationRequest, ObserverPlanId, OpticAdmissionTicket,
     OpticArtifactHandle, PatternGraph, PlaybackMode, SchedulerKind, TickDelta, TrustedRuntimeHost,
-    WarpOp, WorldlineId, WorldlineRuntime, WorldlineState, WriterHead, WriterHeadKey,
-    OPTIC_ADMISSION_TICKET_KIND, OPTIC_ARTIFACT_HANDLE_KIND,
+    TrustedRuntimeHostError, TrustedRuntimeWal, TrustedRuntimeWalError, WarpOp, WorldlineId,
+    WorldlineRuntime, WorldlineState, WriterHead, WriterHeadKey, OPTIC_ADMISSION_TICKET_KIND,
+    OPTIC_ARTIFACT_HANDLE_KIND,
 };
 
 const SCHEMA_SHA256_HEX: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -360,4 +365,154 @@ fn reference_host_loop_keeps_tick_authority_out_of_app_surface() {
         assert_eq!(contract.op_kind, ContractOperationKind::Query);
         assert_eq!(contract.package_name, "reference-counter");
     }
+}
+
+#[test]
+fn runtime_wal_ack_submit_commits_acceptance_before_returning_handle() {
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_in_memory_runtime_wal()
+        .expect("runtime WAL should initialize");
+
+    let envelope = eint_envelope(worldline_id);
+    let envelope_digest = envelope.ingress_id();
+    let submission = {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(envelope)
+            .expect("runtime WAL ACK submit should return accepted evidence")
+    };
+
+    let runtime_wal = host
+        .runtime_wal()
+        .expect("runtime WAL should stay configured");
+    assert_eq!(runtime_wal.submission_acceptance_count(), 1);
+    assert_eq!(runtime_wal.commits().len(), 1);
+
+    let mut store = runtime_wal.cloned_store();
+    let report = recover_in_memory_store(&mut store, RecoveryAccessMode::ReadOnly)
+        .expect("committed acceptance should recover");
+    let recovered = recover_submission_index(&report)
+        .expect("recovered acceptance should index by submission id");
+    let entry = recovered
+        .get(&submission.submission_id)
+        .expect("submission should recover from committed WAL");
+    assert_eq!(entry.acceptance.submission_id, submission.submission_id);
+    assert_eq!(entry.acceptance.canonical_envelope_digest, envelope_digest);
+    assert_eq!(entry.posture, RecoveredSubmissionPosture::AcceptedPending);
+}
+
+#[test]
+fn runtime_wal_ack_duplicate_submit_does_not_append_second_acceptance() {
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_in_memory_runtime_wal()
+        .expect("runtime WAL should initialize");
+
+    let envelope = eint_envelope(worldline_id);
+    let first = {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(envelope.clone())
+            .expect("first submission should be accepted")
+    };
+    let duplicate = {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(envelope)
+            .expect("duplicate submission should be recognized")
+    };
+
+    assert!(!first.duplicate);
+    assert!(duplicate.duplicate);
+    assert_eq!(duplicate.submission_id, first.submission_id);
+    assert_eq!(
+        host.runtime_wal()
+            .expect("runtime WAL should stay configured")
+            .submission_acceptance_count(),
+        1
+    );
+}
+
+#[test]
+fn runtime_wal_ack_duplicate_without_prior_wal_backfills_acceptance() {
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_in_memory_runtime_wal()
+        .expect("runtime WAL should initialize");
+
+    let envelope = eint_envelope(worldline_id);
+    let first = {
+        let mut app = host.app();
+        app.submit_intent(envelope.clone())
+            .expect("legacy non-WAL submission should be accepted")
+    };
+    assert_eq!(
+        host.runtime_wal()
+            .expect("runtime WAL should stay configured")
+            .submission_acceptance_count(),
+        0
+    );
+
+    let duplicate = {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(envelope)
+            .expect("WAL ACK duplicate should backfill acceptance evidence")
+    };
+
+    assert!(duplicate.duplicate);
+    assert_eq!(duplicate.submission_id, first.submission_id);
+    assert_eq!(
+        host.runtime_wal()
+            .expect("runtime WAL should stay configured")
+            .submission_acceptance_count(),
+        1
+    );
+}
+
+#[test]
+fn runtime_wal_ack_path_requires_configured_runtime_wal() {
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+
+    let err = {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(eint_envelope(worldline_id))
+            .expect_err("ACK path without WAL should be explicit")
+    };
+
+    assert!(matches!(
+        err,
+        TrustedRuntimeHostError::RuntimeWalUnavailable
+    ));
+    assert_eq!(host.runtime().witnessed_submission_count(), 0);
+}
+
+#[test]
+fn runtime_wal_ack_failure_rolls_back_intake_mutation() {
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    let overflowing_wal = TrustedRuntimeWal::new_in_memory_at_lsn_for_test(Lsn::from_raw(u64::MAX))
+        .expect("overflow fixture WAL should initialize");
+    host.replace_runtime_wal_for_test(overflowing_wal);
+
+    let err = {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(eint_envelope(worldline_id))
+            .expect_err("overflowing WAL should reject ACK")
+    };
+
+    assert!(matches!(
+        err,
+        TrustedRuntimeHostError::Wal(TrustedRuntimeWalError::Build(WalBuildError::LsnOverflow))
+    ));
+    assert_eq!(host.runtime().witnessed_submission_count(), 0);
+    assert_eq!(
+        host.runtime_wal()
+            .expect("runtime WAL should stay configured")
+            .submission_acceptance_count(),
+        0
+    );
 }

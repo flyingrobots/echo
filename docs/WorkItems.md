@@ -21,7 +21,7 @@ Sources checked during this audit:
 | Source                            | Open count | Notes                                      |
 | --------------------------------- | ---------: | ------------------------------------------ |
 | `docs/method/backlog/asap/`       |         13 | Immediate filesystem backlog.              |
-| `docs/method/backlog/v0.1.0/`     |         16 | Release-bar lane.                          |
+| `docs/method/backlog/v0.1.0/`     |         21 | Release-bar lane.                          |
 | `docs/method/backlog/up-next/`    |         39 | Planned follow-on work.                    |
 | `docs/method/backlog/inbox/`      |         16 | Triage queue and older issue mirrors.      |
 | `docs/method/backlog/bad-code/`   |          3 | Known local structural debt.               |
@@ -44,6 +44,8 @@ Current active signposts:
 
 - Echo's release feature bar:
   [`docs/design/v0.1.0-release-plan.md`](design/v0.1.0-release-plan.md)
+- sequencing and prioritization filter:
+  [`docs/design/work-item-sequencing-and-prioritization.md`](design/work-item-sequencing-and-prioritization.md)
 - jedit external release gate:
   [`docs/design/v0.1.0-jedit-release-gate.md`](design/v0.1.0-jedit-release-gate.md)
 - next ten jedit/Echo release-gate slices:
@@ -68,6 +70,29 @@ Immediate unfinished slice in the current batch:
 - Slice 8: generated package install path.
 - Slice 9: jedit real mutation and query round trip.
 - Slice 10: jedit non-happy path and release-gate report.
+
+## Known Cross-Repo And Storage Doctrine Gaps
+
+This inventory is Echo-local unless a row explicitly names another repository.
+The following mission-critical gaps were not fully represented by the current
+backlog lanes when this audit started:
+
+- `[Echo][jedit]` WSC causal-history persistence, export, and recovery.
+- `[Echo]` WAL/WSC storage relationship and recovery authority.
+- `[warp-ttd][Echo]` WAL-backed causal commit evidence read model.
+- `[Echo]` JS/WASM/browser client release surface.
+- `[Echo][Wesley]` package publish, generated package compatibility, and
+  versioning.
+- `[Echo][Graft][Think]` post-jedit application portability checklist.
+- `[Echo]` retained evidence posture versus durable recovery evidence.
+
+The Echo-owned follow-up cards are now in the `v0.1.0` lane:
+
+- [WAL/WSC Storage Relationship](method/backlog/v0.1.0/PLATFORM_wal-wsc-storage-relationship.md)
+- [WSC Causal-History Storage](method/backlog/v0.1.0/PLATFORM_wsc-causal-history-storage.md)
+- [Retained Evidence Durability Boundary](method/backlog/v0.1.0/PLATFORM_retained-evidence-durability-boundary.md)
+- [JS/WASM/Browser Client Release Surface](method/backlog/v0.1.0/PLATFORM_js-wasm-browser-client-release-surface.md)
+- [Package Publish And Versioning](method/backlog/v0.1.0/RELEASE_package-publish-and-versioning.md)
 
 ## ASAP Backlog
 
@@ -96,10 +121,15 @@ Immediate unfinished slice in the current batch:
 - [Contract Artifact Retention In echo-cas](method/backlog/v0.1.0/PLATFORM_contract-artifact-retention-in-echo-cas.md)
 - [Contract Retention And Semantic Lookup Seams](method/backlog/v0.1.0/PLATFORM_contract-retention-and-semantic-lookup-seams.md)
 - [External Contract Proof Fixture](method/backlog/v0.1.0/PLATFORM_external-contract-proof-fixture.md)
+- [JS/WASM/Browser Client Release Surface](method/backlog/v0.1.0/PLATFORM_js-wasm-browser-client-release-surface.md)
 - [jedit Real Echo Release Gate](method/backlog/v0.1.0/PLATFORM_jedit-real-echo-release-gate.md)
+- [Package Publish And Versioning](method/backlog/v0.1.0/RELEASE_package-publish-and-versioning.md)
 - [Product-Facing Intent Outcome API](method/backlog/v0.1.0/PLATFORM_product-facing-intent-outcome-api.md)
 - [Reference Trusted Runtime Host Loop](method/backlog/v0.1.0/PLATFORM_reference-trusted-runtime-host-loop.md)
+- [Retained Evidence Durability Boundary](method/backlog/v0.1.0/PLATFORM_retained-evidence-durability-boundary.md)
 - [Versioned Contract And API Compatibility](method/backlog/v0.1.0/PLATFORM_versioned-contract-api-compatibility.md)
+- [WAL/WSC Storage Relationship](method/backlog/v0.1.0/PLATFORM_wal-wsc-storage-relationship.md)
+- [WSC Causal-History Storage](method/backlog/v0.1.0/PLATFORM_wsc-causal-history-storage.md)
 - [v0.1.0 Release Candidate](method/backlog/v0.1.0/RELEASE_v0.1.0-release-candidate.md)
 - [Authority Boundary Audit](method/backlog/v0.1.0/SECURITY_authority-boundary-audit.md)
 - [v0.1.0 Replay And DIND Proof](method/backlog/v0.1.0/TEST_v0.1.0-replay-dind-proof.md)

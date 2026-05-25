@@ -24,8 +24,14 @@ Trusted runtime-control history is defined in
 The causal WAL doctrine and recovery design is defined in
 `docs/design/causal-wal-end-to-end.md`.
 
+The WAL/WSC storage relationship is tracked in
+`docs/method/backlog/v0.1.0/PLATFORM_wal-wsc-storage-relationship.md`.
+
 The next ten jedit release-gate slices are planned in
 `docs/design/v0.1.0-jedit-next-ten-slices.md`.
+
+The current sequencing filter for audited work items is maintained in
+`docs/design/work-item-sequencing-and-prioritization.md`.
 
 The filesystem lane for release-bar backlog cards is
 `docs/method/backlog/v0.1.0/`.

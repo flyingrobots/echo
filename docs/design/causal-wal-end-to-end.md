@@ -694,6 +694,73 @@ Rebuildable indexes include:
 If an index cannot be rebuilt from committed WAL/checkpoint material, it is
 secretly state and should fail review.
 
+## WAL Projection Into The WARP Graph And WSC
+
+Echo may project WAL-backed storage evidence into the WARP graph, but those
+graph facts are not the WAL's recovery authority.
+
+```text
+WAL bytes are the durable commit authority.
+WARP graph facts track WAL segment evidence.
+WSC serializes graph facts and may bundle or reference WAL bytes.
+```
+
+The graph may contain evidence facts such as:
+
+- `WalRoot`;
+- `WalWriterEpoch`;
+- `WalSegmentRef`;
+- `WalCommitAnchor`;
+- `RecoveryCertificateRef`.
+
+A `WalSegmentRef` should identify a segment by writer epoch, LSN range, digest
+chain, segment digest, commit anchors, and sealed posture. Its storage locator
+may point to local segment storage, CAS storage, or an object-store manifest,
+but that locator is not causal identity.
+
+Good storage-locator shapes:
+
+```text
+segments/0000000000000042.ecwal
+wal://local/default/segments/0000000000000042.ecwal
+cas://sha256/...
+```
+
+Bad canonical identity:
+
+```text
+/Users/example/echo/wal/0000000000000042.ecwal
+```
+
+Recovery must not require pre-existing graph WAL nodes. The bootstrap path is:
+
+```text
+configured WAL root or storage manifest
+-> validate segment headers and commit chains
+-> replay committed transactions
+-> rebuild graph/read-model/index facts
+-> expose WAL segment refs as projected evidence
+```
+
+WSC can serialize projected WAL facts in at least three modes:
+
+| Mode               | Meaning                                                                                 |
+| ------------------ | --------------------------------------------------------------------------------------- |
+| Ref-only WSC       | Contains graph facts plus WAL segment locators and digests.                             |
+| Self-contained WSC | Contains graph facts plus embedded WAL segment bytes or bundled retained material.      |
+| CAS-addressed WSC  | Contains graph facts plus content-addressed refs to WAL segments and retained material. |
+
+The bridge doctrine is:
+
+```text
+Records are recorded.
+Transactions are committed.
+Segments are sealed.
+Graph WAL facts are projected evidence.
+WSC carries or references evidence.
+The WAL commit boundary remains the authority.
+```
+
 ## Retained Material Ordering
 
 If a committed WAL record references retained material, the material must

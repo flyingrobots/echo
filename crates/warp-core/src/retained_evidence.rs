@@ -141,8 +141,20 @@ impl RetainedEvidenceRef {
 pub enum RetainedEvidencePosture {
     /// The retained evidence is locally available.
     Available(RetainedEvidenceRef),
-    /// Required retained evidence is missing.
-    MissingRetention(ContractObstruction),
+    /// No retained descriptor exists for this semantic coordinate.
+    MissingCoordinate {
+        /// Coordinate that should eventually name retained evidence.
+        coordinate: RetainedEvidenceCoordinate,
+        /// Typed missing-retention obstruction for the coordinate.
+        obstruction: ContractObstruction,
+    },
+    /// A descriptor is known, but its retained bytes are unavailable.
+    MissingContent {
+        /// Retained evidence reference whose bytes are unavailable.
+        reference: RetainedEvidenceRef,
+        /// Typed missing-retention obstruction for the exact reference.
+        obstruction: ContractObstruction,
+    },
 }
 
 impl RetainedEvidencePosture {
@@ -156,13 +168,19 @@ impl RetainedEvidencePosture {
     /// descriptor.
     #[must_use]
     pub fn missing_coordinate(coordinate: &RetainedEvidenceCoordinate) -> Self {
-        Self::MissingRetention(coordinate.missing_retention_obstruction())
+        Self::MissingCoordinate {
+            coordinate: coordinate.clone(),
+            obstruction: coordinate.missing_retention_obstruction(),
+        }
     }
 
     /// Builds a missing posture for a descriptor whose content bytes are absent.
     #[must_use]
     pub fn missing_content(reference: &RetainedEvidenceRef) -> Self {
-        Self::MissingRetention(reference.missing_retention_obstruction())
+        Self::MissingContent {
+            reference: reference.clone(),
+            obstruction: reference.missing_retention_obstruction(),
+        }
     }
 
     /// Returns the missing-retention obstruction when this posture obstructs.
@@ -170,7 +188,8 @@ impl RetainedEvidencePosture {
     pub fn obstruction(&self) -> Option<&ContractObstruction> {
         match self {
             Self::Available(_) => None,
-            Self::MissingRetention(obstruction) => Some(obstruction),
+            Self::MissingCoordinate { obstruction, .. }
+            | Self::MissingContent { obstruction, .. } => Some(obstruction),
         }
     }
 }

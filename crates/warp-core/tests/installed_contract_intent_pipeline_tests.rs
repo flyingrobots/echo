@@ -18,10 +18,10 @@ use warp_core::{
     ObservationCoordinate, ObservationFrame, ObservationPayload, ObservationProjection,
     ObservationReadBudget, ObservationRequest, ObservationService, ObserverPlanId,
     OpticAdmissionTicket, OpticArtifactHandle, PatternGraph, PlaybackMode, ProvenanceService,
-    ReadingBudgetPosture, ReceiptCorrelationRecord, RuntimeError, SchedulerCoordinator,
-    SchedulerKind, TickDelta, TickReceiptRejection, TicketedRuntimeIngressAuthority, WorldlineId,
-    WorldlineRuntime, WorldlineState, WriterHead, WriterHeadKey, OPTIC_ADMISSION_TICKET_KIND,
-    OPTIC_ARTIFACT_HANDLE_KIND,
+    ReadingBudgetPosture, ReceiptCorrelationRecord, RetainedEvidencePosture, RetainedEvidenceRole,
+    RuntimeError, SchedulerCoordinator, SchedulerKind, TickDelta, TickReceiptRejection,
+    TicketedRuntimeIngressAuthority, WorldlineId, WorldlineRuntime, WorldlineState, WriterHead,
+    WriterHeadKey, OPTIC_ADMISSION_TICKET_KIND, OPTIC_ARTIFACT_HANDLE_KIND,
 };
 
 const SCHEMA_SHA256_HEX: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -973,6 +973,32 @@ fn external_contract_fixture_proves_mutation_query_retention_and_replay() {
         .contract
         .as_ref()
         .expect("external fixture reading must carry contract evidence");
+    let expected_payload_hash: [u8; 32] = blake3::hash(&query_payload).into();
+    assert_eq!(reading.reading.retained_evidence.len(), 2);
+    assert!(matches!(
+        &reading.reading.retained_evidence[0],
+        RetainedEvidencePosture::MissingCoordinate {
+            coordinate,
+            obstruction,
+        } if coordinate.role == RetainedEvidenceRole::ReadingEnvelope
+            && coordinate.contract == *query_contract
+            && coordinate.semantic_digest == query_identity.reading_id
+            && obstruction.kind == warp_core::ContractObstructionKind::MissingRetention
+    ));
+    assert!(matches!(
+        &reading.reading.retained_evidence[1],
+        RetainedEvidencePosture::MissingContent {
+            reference,
+            obstruction,
+        } if reference.coordinate.role == RetainedEvidenceRole::ReadingPayload
+            && reference.coordinate.contract == *query_contract
+            && reference.coordinate.semantic_digest == query_identity.reading_id
+            && reference.content_hash == expected_payload_hash
+            && reference.byte_len == query_payload.len() as u64
+            && obstruction.kind == warp_core::ContractObstructionKind::MissingRetention
+    ));
+    let abi_reading = reading.to_abi();
+    assert_eq!(abi_reading.reading.retained_evidence.len(), 2);
     let reading_coord = semantic_coordinate(
         query_contract,
         RetainedBlobRole::ReadingPayload,

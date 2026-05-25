@@ -7,7 +7,7 @@ _Define the current deterministic browser boundary for intent ingress, scheduler
 
 Legend: PLATFORM
 
-Current ABI version: 11
+Current ABI version: 12
 
 Depends on:
 
@@ -19,12 +19,14 @@ Depends on:
 
 The WASM boundary is where browser and host code meet the Echo runtime. It must be small, deterministic, and explicit about what kind of operation is crossing: intent admission, scheduler inspection, or observation.
 
-ABI version 11 keeps the application-facing export shape from version 10, adds
-an explicit trusted host-control export, and extends
-`DispatchResponse` with witnessed submission identity for accepted application
-ingress. Observation requests still name their observer plan, optional hosted
-observer instance, read budget, and rights posture explicitly. Observation
-artifacts continue to carry reading-envelope metadata for emitted readings.
+ABI version 12 keeps the application-facing export shape from version 11,
+retains the explicit trusted host-control export, and carries witnessed
+submission identity for accepted application ingress. Observation requests
+still name their observer plan, optional hosted observer instance, read budget,
+and rights posture explicitly. Observation artifacts continue to carry
+reading-envelope metadata for emitted readings, including contract/query
+identity and generic retained-evidence posture when a contract QueryView
+observer supplies a reading.
 
 ## Human users / jobs / hills
 
@@ -69,9 +71,11 @@ application code.
 The observation request names the observer plan, optional hosted observer
 instance, read budget, and rights posture. The reading envelope names the
 observer plan, hosted observer instance when present, native observer basis,
-witness refs, parent/basis posture, budget posture, rights posture, and
-residual posture. Built-in observations currently emit `complete` residual
-posture for clean derived readings. The ABI also names `residual`,
+installed contract evidence when present, QueryView reading identity when
+present, generic retained-evidence posture, witness refs, parent/basis posture,
+budget posture, rights posture, and residual posture. Built-in observations
+currently emit `complete` residual posture for clean derived readings and leave
+contract/query/retained-evidence fields empty. The ABI also names `residual`,
 `plurality_preserved`, and `obstructed` so external consumers can recognize
 bounded non-clean readings without treating the payload as a generic state read.
 

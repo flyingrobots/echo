@@ -794,7 +794,12 @@ fn wal_tick_decision_from_observation(
             reason: TickReceiptRejection::FootprintConflict,
             ..
         } => WalTickDecision::RejectedFootprintConflict,
-        IntentOutcomeDecision::NoMatchingReceiptEntry { .. } => WalTickDecision::Obstructed,
+        IntentOutcomeDecision::NoMatchingReceiptEntry { .. } => {
+            return Err(TrustedRuntimeWalError::TickOutcomeUnavailable {
+                submission_id: correlation.submission_id,
+                receipt_digest: expected_receipt_digest,
+            });
+        }
     })
 }
 
@@ -868,6 +873,28 @@ mod tests {
                 expected_receipt_digest,
                 observed_receipt_digest,
             } if expected_receipt_digest == [7; 32] && observed_receipt_digest == [8; 32]
+        ));
+    }
+
+    #[test]
+    fn runtime_wal_tick_decision_rejects_missing_receipt_entry_as_invariant() {
+        let err = wal_tick_decision_from_observation(
+            IntentOutcomeObservation::Decided {
+                correlation: Box::new(test_correlation([7; 32])),
+                decision: IntentOutcomeDecision::NoMatchingReceiptEntry {
+                    tick_receipt_digest: [7; 32],
+                },
+            },
+            [7; 32],
+        )
+        .expect_err("missing receipt entries cannot produce scheduler tick WAL evidence");
+
+        assert!(matches!(
+            err,
+            TrustedRuntimeWalError::TickOutcomeUnavailable {
+                submission_id,
+                receipt_digest,
+            } if submission_id == [2; 32] && receipt_digest == [7; 32]
         ));
     }
 

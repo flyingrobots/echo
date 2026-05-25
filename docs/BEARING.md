@@ -24,8 +24,14 @@ Trusted runtime-control history is defined in
 The causal WAL doctrine and recovery design is defined in
 `docs/design/causal-wal-end-to-end.md`.
 
+The WAL/WSC storage relationship is tracked in
+`docs/method/backlog/v0.1.0/PLATFORM_wal-wsc-storage-relationship.md`.
+
 The next ten jedit release-gate slices are planned in
 `docs/design/v0.1.0-jedit-next-ten-slices.md`.
+
+The current sequencing filter for audited work items is maintained in
+`docs/design/work-item-sequencing-and-prioritization.md`.
 
 The filesystem lane for release-bar backlog cards is
 `docs/method/backlog/v0.1.0/`.
@@ -81,6 +87,10 @@ crash-recoverable without giving applications tick or WAL authority.
   observers keyed by generated query op id. Observers receive canonical vars
   bytes and the resolved causal basis, emit `QueryBytes`, and stamp the
   `ReadingEnvelope` with authored observer plan identity.
+- App-safe observation and WASM ABI surfaces carry generic retained-evidence
+  posture for installed contract QueryView readings. The envelope names
+  missing reading-envelope coordinates and missing reading-payload content
+  refs without exposing trusted runtime control or importing application nouns.
 - `echo-wesley-gen --contract-host` emits std-only query observer helpers for
   that seam: deterministic authored observer plan identity, typed context-vars
   decoders, and read-only observer constructors that install host closures into
@@ -107,8 +117,9 @@ crash-recoverable without giving applications tick or WAL authority.
   per-intent applied/rejected semantics.
 - Contract-aware obstruction taxonomy and product-facing error surfaces still
   need release-grade stabilization.
-- The semantic retention layer is local and in-memory; durable retained
-  artifact, witness, receipt, and reading recovery remains future work.
+- The semantic retention layer is local and in-memory. App-safe readings can
+  now report generic missing-retention posture, but durable retained artifact,
+  witness, receipt, and reading recovery remains future work.
 - Generic external contract proof exists, but the release gate now requires
   real `jedit` follow-through from the sibling repository. jedit now has a
   local app/host split for its opt-in real-WASM witness; the remaining gap is

@@ -918,6 +918,7 @@ mod init_tests {
                     observer_basis: ReadingObserverBasis::CommitBoundary,
                     contract: None,
                     query_identity: None,
+                    retained_evidence: Vec::new(),
                     witness_refs: vec![ReadingWitnessRef::EmptyFrontier {
                         worldline_id: WorldlineId::from_bytes([9; 32]),
                         state_root: head.state_root.clone(),

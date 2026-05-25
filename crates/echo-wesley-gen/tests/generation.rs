@@ -331,6 +331,7 @@ mod tests {
                     budget_posture: ReadingBudgetPosture::UnboundedOneShot,
                     rights_posture: ReadingRightsPosture::KernelPublic,
                     residual_posture: ReadingResidualPosture::Complete,
+                    retained_evidence: Vec::new(),
                 },
                 frame: request.frame,
                 projection: request.projection,

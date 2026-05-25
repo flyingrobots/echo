@@ -122,6 +122,7 @@ fn reading_envelope() -> ReadingEnvelope {
         observer_basis: ReadingObserverBasis::CommitBoundary,
         contract: None,
         query_identity: None,
+        retained_evidence: Vec::new(),
         witness_refs: vec![ReadingWitnessRef::ResolvedCommit {
             reference: provenance(1, 2),
         }],

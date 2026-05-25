@@ -451,7 +451,7 @@ mod tests {
 
     #[test]
     fn kernel_port_abi_version_tracks_reading_envelope_contract_fields() {
-        assert_eq!(kernel_port::ABI_VERSION, 11);
+        assert_eq!(kernel_port::ABI_VERSION, 12);
     }
 
     #[test]
@@ -1014,6 +1014,7 @@ mod tests {
                 observer_basis: ReadingObserverBasis::CommitBoundary,
                 contract: None,
                 query_identity: None,
+                retained_evidence: Vec::new(),
                 witness_refs: vec![ReadingWitnessRef::ResolvedCommit { reference }],
                 parent_basis_posture: ObservationBasisPosture::Worldline,
                 budget_posture: ReadingBudgetPosture::UnboundedOneShot,
@@ -1033,7 +1034,10 @@ mod tests {
             entries.retain(|(key, _)| {
                 !matches!(
                     key,
-                    Value::Text(text) if text == "contract" || text == "query_identity"
+                    Value::Text(text)
+                        if text == "contract"
+                            || text == "query_identity"
+                            || text == "retained_evidence"
                 )
             });
         }
@@ -1042,6 +1046,7 @@ mod tests {
         assert_eq!(legacy_reading, envelope.reading);
         assert_eq!(legacy_reading.contract, None);
         assert_eq!(legacy_reading.query_identity, None);
+        assert_eq!(legacy_reading.retained_evidence, Vec::new());
 
         let optic_result = ObserveOpticResult::Reading(Box::new(OpticReading {
             envelope: envelope.reading.clone(),
@@ -1118,6 +1123,57 @@ mod tests {
                 plan: BuiltinObserverPlan::CommitBoundaryHead
             }
         ));
+    }
+
+    #[test]
+    fn test_retained_evidence_posture_round_trip() {
+        use crate::kernel_port::{
+            ContractEvidenceIdentity, ContractOperationKind, RetainedEvidenceCoordinate,
+            RetainedEvidencePosture, RetainedEvidenceRef, RetainedEvidenceRole,
+        };
+        use alloc::boxed::Box;
+
+        let contract = ContractEvidenceIdentity {
+            package_id: vec![20; 32],
+            echo_abi_version: 1,
+            package_name: "fixture-contract".into(),
+            package_version: "0.1.0".into(),
+            artifact_hash_hex: "aa".repeat(32),
+            codec_id: "fixture-codec".into(),
+            registry_version: 1,
+            wesley_generator_version: "echo-wesley-gen/0.1.0".into(),
+            helper_api_version: 1,
+            schema_sha256_hex: "bb".repeat(32),
+            op_id: 7,
+            op_kind: ContractOperationKind::Query,
+        };
+        let coordinate = RetainedEvidenceCoordinate {
+            contract,
+            role: RetainedEvidenceRole::ReadingPayload,
+            semantic_digest: vec![21; 32],
+            coordinate_id: vec![22; 32],
+        };
+        let reference = RetainedEvidenceRef {
+            coordinate: coordinate.clone(),
+            content_hash: vec![23; 32],
+            byte_len: 12,
+            evidence_ref_id: vec![24; 32],
+        };
+
+        let postures = vec![
+            RetainedEvidencePosture::Available {
+                reference: Box::new(reference.clone()),
+            },
+            RetainedEvidencePosture::MissingRetention {
+                coordinate: Some(Box::new(coordinate)),
+                reference: Some(Box::new(reference)),
+                retention_id: vec![25; 32],
+            },
+        ];
+
+        let decoded: Vec<RetainedEvidencePosture> =
+            decode_cbor(&encode_cbor(&postures).unwrap()).unwrap();
+        assert_eq!(decoded, postures);
     }
 
     #[test]

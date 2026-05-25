@@ -21,6 +21,7 @@ use thiserror::Error;
 
 use crate::attachment::{AttachmentOwner, AttachmentPlane};
 use crate::clock::{GlobalTick, WorldlineTick};
+use crate::contract_obstruction::{ContractObstruction, ContractObstructionSubject};
 use crate::contract_registry::{ContractEvidenceIdentity, ContractOperationKind};
 use crate::coordinator::WorldlineRuntime;
 use crate::engine_impl::Engine;
@@ -32,13 +33,16 @@ use crate::optic::{
     OpticObstruction, OpticObstructionKind, OpticReading, ReadIdentity, WitnessBasis,
 };
 use crate::provenance_store::{ProvenanceRef, ProvenanceService, ProvenanceStore};
+use crate::retained_evidence::{
+    RetainedEvidenceCoordinate, RetainedEvidencePosture, RetainedEvidenceRef, RetainedEvidenceRole,
+};
 use crate::snapshot::Snapshot;
 use crate::strand::{StrandId, StrandRevalidationState};
 use crate::tick_patch::SlotId;
 use crate::worldline::WorldlineId;
 
-const OBSERVATION_VERSION: u32 = 3;
-const OBSERVATION_ARTIFACT_DOMAIN: &[u8] = b"echo:observation-artifact:v3\0";
+const OBSERVATION_VERSION: u32 = 4;
+const OBSERVATION_ARTIFACT_DOMAIN: &[u8] = b"echo:observation-artifact:v4\0";
 const QUERY_READING_IDENTITY_DOMAIN: &[u8] = b"echo:query-reading-identity:v1\0";
 const QUERY_READING_BASIS_DOMAIN: &[u8] = b"echo:query-reading-basis:v1\0";
 const QUERY_READING_APERTURE_DOMAIN: &[u8] = b"echo:query-reading-aperture:v1\0";
@@ -891,6 +895,8 @@ pub struct ReadingEnvelope {
     pub contract: Option<ContractEvidenceIdentity>,
     /// Stable identity of the QueryView question answered by this reading.
     pub query_identity: Option<QueryReadingIdentity>,
+    /// Retained evidence refs or missing-retention posture for this reading.
+    pub retained_evidence: Vec<RetainedEvidencePosture>,
     /// Witnesses or shell references that support the reading.
     pub witness_refs: Vec<ReadingWitnessRef>,
     /// Read-side parent/strand basis posture.
@@ -917,6 +923,11 @@ impl ReadingEnvelope {
                 .query_identity
                 .as_ref()
                 .map(QueryReadingIdentity::to_abi),
+            retained_evidence: self
+                .retained_evidence
+                .iter()
+                .map(retained_evidence_posture_to_abi)
+                .collect(),
             witness_refs: self
                 .witness_refs
                 .iter()
@@ -950,11 +961,109 @@ fn contract_evidence_to_abi(evidence: &ContractEvidenceIdentity) -> abi::Contrac
     }
 }
 
+fn retained_evidence_role_to_abi(role: RetainedEvidenceRole) -> abi::RetainedEvidenceRole {
+    match role {
+        RetainedEvidenceRole::ContractArtifact => abi::RetainedEvidenceRole::ContractArtifact,
+        RetainedEvidenceRole::ContractReceipt => abi::RetainedEvidenceRole::ContractReceipt,
+        RetainedEvidenceRole::Witness => abi::RetainedEvidenceRole::Witness,
+        RetainedEvidenceRole::ReadingPayload => abi::RetainedEvidenceRole::ReadingPayload,
+        RetainedEvidenceRole::ReadingEnvelope => abi::RetainedEvidenceRole::ReadingEnvelope,
+        RetainedEvidenceRole::ObserverArtifact => abi::RetainedEvidenceRole::ObserverArtifact,
+    }
+}
+
+fn retained_evidence_coordinate_to_abi(
+    coordinate: &RetainedEvidenceCoordinate,
+) -> abi::RetainedEvidenceCoordinate {
+    let coordinate_id = coordinate.coordinate_id();
+    retained_evidence_coordinate_to_abi_with_id(coordinate, &coordinate_id)
+}
+
+fn retained_evidence_coordinate_to_abi_with_id(
+    coordinate: &RetainedEvidenceCoordinate,
+    coordinate_id: &Hash,
+) -> abi::RetainedEvidenceCoordinate {
+    abi::RetainedEvidenceCoordinate {
+        contract: contract_evidence_to_abi(&coordinate.contract),
+        role: retained_evidence_role_to_abi(coordinate.role),
+        semantic_digest: coordinate.semantic_digest.to_vec(),
+        coordinate_id: coordinate_id.to_vec(),
+    }
+}
+
+fn retained_evidence_ref_to_abi(reference: &RetainedEvidenceRef) -> abi::RetainedEvidenceRef {
+    let coordinate_id = reference.coordinate.coordinate_id();
+    retained_evidence_ref_to_abi_with_coordinate_id(reference, &coordinate_id)
+}
+
+fn retained_evidence_ref_to_abi_with_coordinate_id(
+    reference: &RetainedEvidenceRef,
+    coordinate_id: &Hash,
+) -> abi::RetainedEvidenceRef {
+    abi::RetainedEvidenceRef {
+        coordinate: retained_evidence_coordinate_to_abi_with_id(
+            &reference.coordinate,
+            coordinate_id,
+        ),
+        content_hash: reference.content_hash.to_vec(),
+        byte_len: reference.byte_len,
+        evidence_ref_id: reference
+            .evidence_ref_id_with_coordinate_id(coordinate_id)
+            .to_vec(),
+    }
+}
+
+fn retained_evidence_posture_to_abi(
+    posture: &RetainedEvidencePosture,
+) -> abi::RetainedEvidencePosture {
+    match posture {
+        RetainedEvidencePosture::Available(reference) => abi::RetainedEvidencePosture::Available {
+            reference: Box::new(retained_evidence_ref_to_abi(reference)),
+        },
+        RetainedEvidencePosture::MissingCoordinate {
+            coordinate,
+            obstruction,
+        } => abi::RetainedEvidencePosture::MissingRetention {
+            coordinate: Some(Box::new(retained_evidence_coordinate_to_abi(coordinate))),
+            reference: None,
+            retention_id: retained_obstruction_id(obstruction),
+        },
+        RetainedEvidencePosture::MissingContent {
+            reference,
+            obstruction,
+        } => {
+            let coordinate_id = reference.coordinate.coordinate_id();
+            abi::RetainedEvidencePosture::MissingRetention {
+                coordinate: Some(Box::new(retained_evidence_coordinate_to_abi_with_id(
+                    &reference.coordinate,
+                    &coordinate_id,
+                ))),
+                reference: Some(Box::new(retained_evidence_ref_to_abi_with_coordinate_id(
+                    reference,
+                    &coordinate_id,
+                ))),
+                retention_id: retained_obstruction_id(obstruction),
+            }
+        }
+    }
+}
+
+fn retained_obstruction_id(obstruction: &ContractObstruction) -> Vec<u8> {
+    match &obstruction.subject {
+        ContractObstructionSubject::Retention { retention_id } => retention_id.to_vec(),
+        _ => Vec::new(),
+    }
+}
+
 fn query_vars_digest(vars_bytes: &[u8]) -> Result<Hash, ObservationError> {
     let digest = echo_wasm_abi::query_vars_digest_v1(vars_bytes);
     digest.as_slice().try_into().map_err(|_| {
         ObservationError::CodecFailure("query vars digest length was not 32 bytes".to_owned())
     })
+}
+
+fn retained_evidence_content_hash(bytes: &[u8]) -> Hash {
+    blake3::hash(bytes).into()
 }
 
 fn push_len_prefixed(hasher: &mut Hasher, bytes: &[u8]) {
@@ -2033,12 +2142,15 @@ impl ObservationService {
             &observer_plan,
             contract.as_ref(),
         )?;
+        let retained_evidence =
+            Self::retained_evidence_postures(contract.as_ref(), query_identity.as_ref(), payload);
         Ok(ReadingEnvelope {
             observer_plan,
             observer_instance: request.observer_instance.clone(),
             observer_basis: Self::observer_basis(request.frame),
             contract,
             query_identity,
+            retained_evidence,
             witness_refs,
             parent_basis_posture,
             budget_posture,
@@ -2097,6 +2209,43 @@ impl ObservationService {
             basis_digest,
             aperture_digest,
         }))
+    }
+
+    fn retained_evidence_postures(
+        contract: Option<&ContractEvidenceIdentity>,
+        query_identity: Option<&QueryReadingIdentity>,
+        payload: &ObservationPayload,
+    ) -> Vec<RetainedEvidencePosture> {
+        let (Some(contract), Some(query_identity)) = (contract, query_identity) else {
+            return Vec::new();
+        };
+
+        let mut postures = Vec::new();
+        let envelope_coordinate = RetainedEvidenceCoordinate::new(
+            contract.clone(),
+            RetainedEvidenceRole::ReadingEnvelope,
+            query_identity.reading_id,
+        );
+        postures.push(RetainedEvidencePosture::missing_coordinate(
+            &envelope_coordinate,
+        ));
+
+        if let ObservationPayload::QueryBytes(bytes) = payload {
+            let payload_coordinate = RetainedEvidenceCoordinate::new(
+                contract.clone(),
+                RetainedEvidenceRole::ReadingPayload,
+                query_identity.reading_id,
+            );
+            postures.push(RetainedEvidencePosture::missing_content(
+                &RetainedEvidenceRef::new(
+                    payload_coordinate,
+                    retained_evidence_content_hash(bytes),
+                    bytes.len() as u64,
+                ),
+            ));
+        }
+
+        postures
     }
 
     fn query_basis_digest(
@@ -3351,6 +3500,10 @@ mod tests {
             ObservationService::observe(&runtime, &provenance, &engine, request.clone()).unwrap();
 
         assert_eq!(artifact.artifact_hash, same.artifact_hash);
+        assert!(
+            artifact.reading.retained_evidence.is_empty(),
+            "direct observer registration lacks installed package evidence"
+        );
         assert_eq!(
             artifact.reading.observer_plan,
             ReadingObserverPlan::Authored {
@@ -3366,20 +3519,40 @@ mod tests {
             ReadingResidualPosture::Complete
         );
         assert_eq!(artifact.projection, request.projection);
+        let mut expected = 9_001_u32.to_le_bytes().to_vec();
+        expected.extend_from_slice(b"counter=read");
+        expected.extend_from_slice(
+            &artifact
+                .resolved
+                .resolved_worldline_tick
+                .as_u64()
+                .to_le_bytes(),
+        );
         assert_eq!(
             artifact.payload,
-            ObservationPayload::QueryBytes({
-                let mut expected = 9_001_u32.to_le_bytes().to_vec();
-                expected.extend_from_slice(b"counter=read");
-                expected.extend_from_slice(
-                    &artifact
-                        .resolved
-                        .resolved_worldline_tick
-                        .as_u64()
-                        .to_le_bytes(),
-                );
-                expected
-            })
+            ObservationPayload::QueryBytes(expected.clone())
+        );
+        let abi = artifact.to_abi();
+        assert!(abi.reading.retained_evidence.is_empty());
+        assert!(
+            ObservationService::observe(
+                &runtime,
+                &provenance,
+                &engine,
+                builtin_one_shot(
+                    ObservationCoordinate {
+                        worldline_id,
+                        at: ObservationAt::Frontier,
+                    },
+                    ObservationFrame::CommitBoundary,
+                    ObservationProjection::Head,
+                ),
+            )
+            .unwrap()
+            .reading
+            .retained_evidence
+            .is_empty(),
+            "non-contract readings must not invent retained evidence refs"
         );
     }
 
@@ -3476,14 +3649,14 @@ mod tests {
         assert_ne!(baseline.artifact_hash, different_query.artifact_hash);
         assert_ne!(baseline.artifact_hash, different_basis.artifact_hash);
         assert_ne!(baseline.artifact_hash, different_schema.artifact_hash);
-        assert_eq!(baseline.resolved.observation_version, 3);
+        assert_eq!(baseline.resolved.observation_version, 4);
         assert_eq!(
             baseline.artifact_hash,
-            observation_artifact_hash_with_domain(&baseline, b"echo:observation-artifact:v3\0")
+            observation_artifact_hash_with_domain(&baseline, b"echo:observation-artifact:v4\0")
         );
         assert_ne!(
             baseline.artifact_hash,
-            observation_artifact_hash_with_domain(&baseline, b"echo:observation-artifact:v2\0")
+            observation_artifact_hash_with_domain(&baseline, b"echo:observation-artifact:v3\0")
         );
 
         let baseline_identity = baseline

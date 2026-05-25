@@ -120,9 +120,16 @@ impl RetainedEvidenceRef {
     /// Stable id that binds semantic coordinate, content hash, and byte length.
     #[must_use]
     pub fn evidence_ref_id(&self) -> Hash {
+        let coordinate_id = self.coordinate.coordinate_id();
+        self.evidence_ref_id_with_coordinate_id(&coordinate_id)
+    }
+
+    /// Stable ref id when the caller already has the coordinate id.
+    #[must_use]
+    pub(crate) fn evidence_ref_id_with_coordinate_id(&self, coordinate_id: &Hash) -> Hash {
         let mut hasher = Hasher::new();
         hasher.update(RETAINED_EVIDENCE_REF_ID_DOMAIN);
-        hasher.update(&self.coordinate.coordinate_id());
+        hasher.update(coordinate_id);
         hasher.update(&self.content_hash);
         hasher.update(&self.byte_len.to_le_bytes());
         hasher.finalize().into()
@@ -141,8 +148,20 @@ impl RetainedEvidenceRef {
 pub enum RetainedEvidencePosture {
     /// The retained evidence is locally available.
     Available(RetainedEvidenceRef),
-    /// Required retained evidence is missing.
-    MissingRetention(ContractObstruction),
+    /// No retained descriptor exists for this semantic coordinate.
+    MissingCoordinate {
+        /// Coordinate that should eventually name retained evidence.
+        coordinate: RetainedEvidenceCoordinate,
+        /// Typed missing-retention obstruction for the coordinate.
+        obstruction: ContractObstruction,
+    },
+    /// A descriptor is known, but its retained bytes are unavailable.
+    MissingContent {
+        /// Retained evidence reference whose bytes are unavailable.
+        reference: RetainedEvidenceRef,
+        /// Typed missing-retention obstruction for the exact reference.
+        obstruction: ContractObstruction,
+    },
 }
 
 impl RetainedEvidencePosture {
@@ -156,13 +175,19 @@ impl RetainedEvidencePosture {
     /// descriptor.
     #[must_use]
     pub fn missing_coordinate(coordinate: &RetainedEvidenceCoordinate) -> Self {
-        Self::MissingRetention(coordinate.missing_retention_obstruction())
+        Self::MissingCoordinate {
+            coordinate: coordinate.clone(),
+            obstruction: coordinate.missing_retention_obstruction(),
+        }
     }
 
     /// Builds a missing posture for a descriptor whose content bytes are absent.
     #[must_use]
     pub fn missing_content(reference: &RetainedEvidenceRef) -> Self {
-        Self::MissingRetention(reference.missing_retention_obstruction())
+        Self::MissingContent {
+            reference: reference.clone(),
+            obstruction: reference.missing_retention_obstruction(),
+        }
     }
 
     /// Returns the missing-retention obstruction when this posture obstructs.
@@ -170,7 +195,8 @@ impl RetainedEvidencePosture {
     pub fn obstruction(&self) -> Option<&ContractObstruction> {
         match self {
             Self::Available(_) => None,
-            Self::MissingRetention(obstruction) => Some(obstruction),
+            Self::MissingCoordinate { obstruction, .. }
+            | Self::MissingContent { obstruction, .. } => Some(obstruction),
         }
     }
 }

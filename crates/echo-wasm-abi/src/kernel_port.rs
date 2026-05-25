@@ -10,7 +10,7 @@
 //!
 //! # ABI Version
 //!
-//! The current ABI version is [`ABI_VERSION`] (11). All response types are
+//! The current ABI version is [`ABI_VERSION`] (12). All response types are
 //! CBOR-encoded using the canonical rules defined in `docs/spec/js-cbor-mapping.md`.
 //! Breaking changes to response shapes or error codes require a bump to the
 //! ABI version.
@@ -40,7 +40,7 @@ use serde::{
 ///
 /// Increment when response types, error codes, or method signatures change
 /// in a backward-incompatible way.
-pub const ABI_VERSION: u32 = 11;
+pub const ABI_VERSION: u32 = 12;
 
 fn deserialize_opaque_id<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
 where
@@ -1666,6 +1666,71 @@ pub struct ContractEvidenceIdentity {
     pub op_kind: ContractOperationKind,
 }
 
+/// Semantic role of retained contract evidence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RetainedEvidenceRole {
+    /// Generated contract artifact bytes.
+    ContractArtifact,
+    /// Scheduler receipt or receipt-adjacent material.
+    ContractReceipt,
+    /// Law witness or witness-adjacent material.
+    Witness,
+    /// Reading payload bytes.
+    ReadingPayload,
+    /// Encoded reading envelope bytes.
+    ReadingEnvelope,
+    /// Generated observer artifact bytes.
+    ObserverArtifact,
+}
+
+/// Semantic coordinate for retained contract evidence.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RetainedEvidenceCoordinate {
+    /// Installed contract evidence identity that owns the coordinate.
+    pub contract: ContractEvidenceIdentity,
+    /// Retained evidence role.
+    pub role: RetainedEvidenceRole,
+    /// Domain-separated semantic digest for the exact receipt, witness, reading,
+    /// or artifact coordinate.
+    pub semantic_digest: Vec<u8>,
+    /// Stable coordinate id used for missing-retention obstruction subjects.
+    pub coordinate_id: Vec<u8>,
+}
+
+/// First-class reference to retained contract evidence bytes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RetainedEvidenceRef {
+    /// Semantic coordinate that explains what the retained bytes answer.
+    pub coordinate: RetainedEvidenceCoordinate,
+    /// Content-only hash for the retained bytes.
+    pub content_hash: Vec<u8>,
+    /// Retained byte length.
+    pub byte_len: u64,
+    /// Stable id that binds semantic coordinate, content hash, and byte length.
+    pub evidence_ref_id: Vec<u8>,
+}
+
+/// Retained evidence availability posture.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RetainedEvidencePosture {
+    /// The retained evidence is locally available.
+    Available {
+        /// Available retained evidence reference.
+        reference: Box<RetainedEvidenceRef>,
+    },
+    /// Required retained evidence is missing.
+    MissingRetention {
+        /// Coordinate that should eventually name retained evidence, if known.
+        coordinate: Option<Box<RetainedEvidenceCoordinate>>,
+        /// Exact retained reference whose content is missing, if known.
+        reference: Option<Box<RetainedEvidenceRef>>,
+        /// Missing-retention id surfaced by the obstruction.
+        retention_id: Vec<u8>,
+    },
+}
+
 /// Stable identity of the QueryView question answered by a reading.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QueryReadingIdentity {
@@ -1698,6 +1763,9 @@ pub struct ReadingEnvelope {
     /// Stable query reading identity, when this envelope answered QueryView.
     #[serde(default)]
     pub query_identity: Option<QueryReadingIdentity>,
+    /// Retained evidence refs or missing-retention posture for this reading.
+    #[serde(default)]
+    pub retained_evidence: Vec<RetainedEvidencePosture>,
     /// Witnesses or shell references that support the reading.
     pub witness_refs: Vec<ReadingWitnessRef>,
     /// Read-side parent/strand basis posture.

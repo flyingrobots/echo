@@ -435,6 +435,32 @@ fn wal_submission_posture_json_reports_not_accepted_without_app_nouns() -> TestR
 }
 
 #[test]
+fn wal_submission_posture_json_suppresses_recovered_fields_for_envelope_conflict() -> TestResult {
+    let temp = filesystem_wal_with_decided_submission()?;
+    let assert = echo_cli()
+        .args([
+            "--format",
+            "json",
+            "wal",
+            "submission-posture",
+            temp.path().to_str().ok_or("temp path is not UTF-8")?,
+            "--submission-id",
+            &hex::encode(digest("submission:decided")),
+            "--canonical-envelope-digest",
+            &hex::encode(digest("envelope:conflicting")),
+        ])
+        .assert()
+        .success();
+    let json: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout)?;
+
+    assert_eq!(json["retry_posture"], "ConflictSameIdDifferentEnvelope");
+    assert!(json["recovered_posture"].is_null());
+    assert!(json["receipt_digest"].is_null());
+    assert!(json["ticket_digest"].is_null());
+    Ok(())
+}
+
+#[test]
 fn inspect_text_reports_metadata_stats_and_tree() -> TestResult {
     let temp = write_demo_snapshot()?;
     let assert = echo_cli()

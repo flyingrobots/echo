@@ -589,6 +589,184 @@ satisfies its acceptance criteria.
     - Test plan: full WAL slice suite, `cargo xtask test-slice`, app-noun guard,
       DIND/replay where available, and cross-repo jedit witness.
 
+### No-Count WAL Hardening Plan
+
+The WAL hardening matrix is tracked in
+[`docs/design/causal-wal-hardening-matrix.md`](design/causal-wal-hardening-matrix.md).
+This planning slice does not consume one of the twenty hardening slices. Agents
+must keep the checklist below and the plan document aligned before committing a
+completed slice.
+
+### PR 10: WAL Fixture And Corpus Hardening
+
+- [ ] **Slice 46: WAL hardening fixture surface**
+    - User story: As an Echo maintainer, I need deterministic fixtures that can
+      build valid WAL histories and damage them at exact byte/transaction
+      boundaries.
+    - Acceptance criteria: fixtures create filesystem WAL roots, append committed
+      transactions, append uncommitted tails, truncate/corrupt segments, recover
+      read-only/writable reports, and name every scenario in assertion failures.
+    - Test plan: fixture recovery, uncommitted-tail, torn-tail, and read-only
+      non-mutation witnesses.
+
+- [ ] **Slice 47: WAL recovery golden corpus**
+    - User story: As Echo, I need a fixed corpus of minimal WAL shapes that
+      proves recovery posture across clean, partial, and corrupt histories.
+    - Acceptance criteria: clean, empty, tail, torn, corrupt digest, bad magic,
+      and unknown-kind corpus cases assert transaction count, LSNs, posture, and
+      blocking/inspectable status.
+    - Test plan: `wal_recovery_golden_*` fixtures listed in the hardening matrix.
+
+- [ ] **Slice 48: Submission ACK crash matrix**
+    - User story: As an app retrying after a crash, I need Echo to distinguish
+      never accepted from accepted-before-ACK.
+    - Acceptance criteria: recovery never invents accepted evidence before
+      commit; retry after commit-before-ACK is stable; conflicting retry is a
+      protocol violation; same envelope with new id is not deduped without
+      policy.
+    - Test plan: submission intake crash matrix fixtures.
+
+- [ ] **Slice 49: Tick commit and publish crash matrix**
+    - User story: As Echo, visible tick outcomes must imply committed
+      recoverable history.
+    - Acceptance criteria: tick receipt, runtime delta, receipt correlation, and
+      index publication boundaries are tested; commit-before-publish rebuilds
+      indexes; uncommitted tick attempts do not become history.
+    - Test plan: tick commit/publish crash fixtures.
+
+- [ ] **Slice 50: Segment corruption matrix**
+    - User story: As recovery, segment corruption must produce deterministic
+      posture instead of panic, silent skip, or partial history.
+    - Acceptance criteria: torn header, torn payload, torn digest, bad magic,
+      corrupt digest, unknown disk kind, segment gap, and duplicate segment cases
+      are covered; read-only recovery never mutates files.
+    - Test plan: segment corruption matrix fixtures.
+
+### PR 11: WAL Semantic And Checkpoint Hardening
+
+- [ ] **Slice 51: Writer epoch fencing matrix**
+    - User story: As Echo, recovery must detect split-writer evidence instead of
+      merging conflicting histories.
+    - Acceptance criteria: epoch metadata includes fencing evidence; overlapping
+      epochs, unknown previous epochs, chain gaps, and fencing mismatches fault
+      deterministically.
+    - Test plan: writer epoch fencing fixtures.
+
+- [ ] **Slice 52: Transaction contiguity and commit semantics**
+    - User story: As Echo, only complete contiguous committed WAL transactions
+      become history.
+    - Acceptance criteria: frames are contiguous; commit binds LSN range, count,
+      and records root; interleaving is rejected; record names never imply
+      committed history.
+    - Test plan: transaction contiguity and commit mismatch tests.
+
+- [ ] **Slice 53: Semantic validator negative cases**
+    - User story: As Echo, byte-valid WAL transactions must still be rejected if
+      they violate runtime law.
+    - Acceptance criteria: digest-valid semantic violations are rejected for
+      authority, transaction kind, runtime-control, and frontier-transition
+      mismatches.
+    - Test plan: semantic validator negative fixtures.
+
+- [ ] **Slice 54: Checkpoint crash matrix**
+    - User story: As recovery, checkpoints must accelerate replay without
+      creating or erasing history.
+    - Acceptance criteria: crash-before-rename, rename-before-publication,
+      missing material, corrupt latest checkpoint, and checkpoint-ahead-of-WAL
+      cases are covered.
+    - Test plan: checkpoint crash matrix fixtures.
+
+- [ ] **Slice 55: Retained material before reference matrix**
+    - User story: As Echo, committed references must not point at unavailable
+      retained material without typed obstruction.
+    - Acceptance criteria: missing payload, receipt, state-delta, reading,
+      checkpoint, and diagnostic material map to documented scopes.
+    - Test plan: retained material obstruction fixtures.
+
+### PR 12: WAL Outbox, Projection, And Inspector Hardening
+
+- [ ] **Slice 56: Side-effect outbox crash matrix**
+    - User story: As Echo, external effects must never escape before committed
+      authorization and must be idempotent after crash.
+    - Acceptance criteria: effect authorization, existing artifact detection,
+      mismatch obstruction, observation commit, and idempotency token behavior
+      are covered.
+    - Test plan: side-effect outbox crash fixtures.
+
+- [ ] **Slice 57: Recovery reducer determinism**
+    - User story: As Echo, replay must apply committed facts without scheduler
+      callbacks, wall clock, random, network, or app code.
+    - Acceptance criteria: pure replay is deterministic; transaction ordering is
+      commit-chain order; frontier mismatch rejects; no app/scheduler callback is
+      needed.
+    - Test plan: pure replay determinism fixtures.
+
+- [ ] **Slice 58: Shadow replay harness**
+    - User story: As a maintainer, every mutating WAL path should prove live
+      state equals recovered state.
+    - Acceptance criteria: helper runs live scenario, recovers from WAL, compares
+      roots/indexes/receipts/readings, and reports first mismatch.
+    - Test plan: submission, tick, retention, outbox, and mismatch shadow replay
+      fixtures.
+
+- [ ] **Slice 59: Causal commit evidence projection matrix**
+    - User story: As [warp-ttd] or an operator, I need commit evidence posture
+      without raw WAL ownership.
+    - Acceptance criteria: accepted pending, applied, rejected, obstructed, and
+      absent evidence postures project transaction id, LSN, epoch, digest, and
+      durability mode without raw segment authority.
+    - Test plan: causal commit evidence projection fixtures.
+
+- [ ] **Slice 60: WAL doctor and inspector contract tests**
+    - User story: As an operator, I need inspection commands/read models to
+      report truth without mutating storage.
+    - Acceptance criteria: doctor reports clean, would-truncate, obstructed,
+      corrupt, and missing-material postures; report shape is stable; files are
+      unchanged in read-only mode.
+    - Test plan: WAL doctor and recovery certificate contract fixtures.
+
+### PR 13: WAL Runner, Adapter, And Release Gate Hardening
+
+- [ ] **Slice 61: Crashpoint runner contract**
+    - User story: As Echo, I need a future CLI/BATS crash runner contract that
+      mirrors Rust fixture semantics before it shells out to real processes.
+    - Acceptance criteria: canonical crashpoint names exist for submission, tick,
+      checkpoint, material, and index boundaries; process-kill cuts remain marked
+      future until implemented.
+    - Test plan: crashpoint manifest fixtures.
+
+- [ ] **Slice 62: Filesystem strict sync evidence**
+    - User story: As Echo, strict filesystem mode must make sync boundaries
+      inspectable enough for tests to prove ACK ordering.
+    - Acceptance criteria: commit flush, segment creation, manifest rename, and
+      checkpoint rename sync evidence are covered; missing sync evidence blocks
+      strict-mode claims.
+    - Test plan: filesystem sync evidence fixtures.
+
+- [ ] **Slice 63: Object-store manifest negative matrix**
+    - User story: As Echo, strict object-store mode must reject adapters that
+      cannot prove conditional manifest semantics.
+    - Acceptance criteria: every missing capability has a distinct validation
+      error; read-after-write uncertainty blocks strict mode; manifest commit is
+      compare-and-swap shaped.
+    - Test plan: object-store capability negative fixtures.
+
+- [ ] **Slice 64: Security and redaction posture matrix**
+    - User story: As Echo, recovery and inspection must distinguish missing
+      material from policy-hidden or encrypted material.
+    - Acceptance criteria: present, redacted, encrypted-key-unavailable, missing,
+      corrupt, and obstructed postures remain distinct and never become silent
+      success.
+    - Test plan: security/redaction posture fixtures.
+
+- [ ] **Slice 65: WAL hardening release gate**
+    - User story: As Echo, I need one gate that tells us whether the WAL is
+      trustworthy enough for the next real-app persistence push.
+    - Acceptance criteria: readiness check aggregates app-noun guard, shadow
+      replay, crash matrix, doctor, outbox, semantic validator, filesystem,
+      object-store, and projection coverage.
+    - Test plan: WAL hardening gate fixtures plus app-noun and doc checks.
+
 ## Recently Completed Slice Batch
 
 1. **Contract-Aware Receipts And Readings**

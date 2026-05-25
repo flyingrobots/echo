@@ -1,0 +1,540 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
+# Causal WAL Hardening Matrix
+
+Status: active plan.
+
+This packet is the no-count planning slice for the WAL hardening phase after
+the causal WAL foundation and filesystem recovery gates. The goal is not to
+expand Echo's WAL scope. The goal is to make the existing WAL truth boundary
+harder to fool.
+
+Doctrine:
+
+```text
+Echo may only claim what its WAL can recover.
+No durable claim without durable evidence.
+No visible outcome without committed history.
+No external effect without committed authorization.
+```
+
+The twenty slices below focus on adversarial recovery witnesses, reusable crash
+fixtures, disk-level corruption fixtures, semantic validation negatives, and
+operator/debugger evidence surfaces. They intentionally do not implement WSC,
+distributed WALs, multi-writer replication, user undo, or application-specific
+editing semantics.
+
+## Fixture Surface
+
+The first implementation priority is a reusable fixture surface for hostile WAL
+tests. The fixture surface should let tests assemble repeatable histories and
+then damage them at exact boundaries.
+
+Required fixture capabilities:
+
+- create deterministic temp WAL roots;
+- open a strict filesystem WAL store;
+- append committed submission, tick, checkpoint, retained-reading, and outbox
+  transactions;
+- append uncommitted frames without commit markers;
+- truncate the active segment at named byte boundaries;
+- corrupt record kind, magic, payload, and digest bytes;
+- recover read-only and writable reports;
+- run doctor/inspection without mutating storage;
+- rebuild submission, receipt, retention, outbox, and commit-evidence indexes;
+- compare live state to recovered replay state;
+- report crash scenario name, expected posture, actual posture, and first
+  mismatch.
+
+The first fixture implementation can live in `warp-core` integration tests.
+If the fixture becomes useful outside Rust tests, promote the same shape to a
+CLI/BATS crash runner later. The runner should kill or interrupt Echo at named
+boundaries only after the Rust fixture semantics are stable.
+
+## Test Style
+
+Hardening tests should be ugly and specific. Prefer names that encode the
+failure boundary:
+
+```text
+crash_after_submission_commit_before_ack_retry_returns_duplicate_posture
+read_only_recovery_reports_uncommitted_tail_without_truncating
+corrupt_committed_record_digest_blocks_recovery
+```
+
+Each test should prove one claim. If a fixture helper is needed, add the helper
+first and then add the narrow witness that justifies it.
+
+## No-Count Planning Slice
+
+- [x] Write this hardening plan.
+- [x] Link the plan from `docs/BEARING.md`.
+- [x] Define slices 46-65 with user stories, acceptance criteria, and test
+      plans.
+- [ ] Keep slice checkboxes updated in `docs/BEARING.md` before committing each
+      completed slice.
+
+## Slice 46: WAL Hardening Fixture Surface
+
+User story:
+
+As an Echo maintainer, I need a deterministic fixture surface that can construct
+valid WAL histories and damage them at exact byte/transaction boundaries.
+
+Acceptance criteria:
+
+- A new hardening test fixture can create deterministic filesystem WAL roots.
+- The fixture can append committed submissions and append uncommitted tails.
+- The fixture can truncate active segment files without going through recovery.
+- The fixture can recover read-only and writable reports.
+- The fixture names every crash/corruption scenario in assertion failures.
+
+Test plan:
+
+- `hardening_fixture_recovers_committed_submission`
+- `hardening_fixture_appends_uncommitted_tail`
+- `hardening_fixture_truncates_segment_for_torn_tail`
+- `hardening_fixture_read_only_recovery_does_not_mutate_segment`
+
+## Slice 47: WAL Recovery Golden Corpus
+
+User story:
+
+As Echo, I need a fixed corpus of minimal WAL shapes that proves recovery
+posture across clean, partial, and corrupt histories.
+
+Acceptance criteria:
+
+- Golden fixtures cover clean committed segment, empty WAL, uncommitted tail,
+  torn record, corrupt digest, bad magic, and unknown record kind.
+- Each corpus case asserts transaction count, first/last committed LSN, tail
+  posture, and whether recovery blocks or remains inspectable.
+- Corpus helpers are deterministic and do not depend on wall clock.
+
+Test plan:
+
+- `wal_recovery_golden_clean_committed_segment`
+- `wal_recovery_golden_empty_store`
+- `wal_recovery_golden_uncommitted_tail`
+- `wal_recovery_golden_torn_record`
+- `wal_recovery_golden_corrupt_digest`
+- `wal_recovery_golden_bad_magic`
+- `wal_recovery_golden_unknown_record_kind`
+
+## Slice 48: Submission ACK Crash Matrix
+
+User story:
+
+As an application retrying after a crash, I need Echo to distinguish never
+accepted from accepted-before-ACK.
+
+Acceptance criteria:
+
+- Crash points around submission intake are modeled explicitly.
+- Recovery never invents accepted evidence before commit.
+- Retry after commit-before-ACK returns stable duplicate posture.
+- Same submission id with a different envelope is a protocol violation.
+- New submission id with the same envelope is a new submission unless an
+  explicit policy says otherwise.
+
+Test plan:
+
+- `crash_before_submission_commit_recovers_not_accepted`
+- `crash_after_submission_commit_before_ack_recovers_pending`
+- `crash_after_submission_commit_before_ack_retry_returns_duplicate_posture`
+- `crash_after_submission_commit_before_ack_different_envelope_is_protocol_violation`
+- `new_submission_id_same_envelope_is_not_duplicate_without_policy`
+
+## Slice 49: Tick Commit And Publish Crash Matrix
+
+User story:
+
+As Echo, visible tick outcomes must imply committed recoverable history.
+
+Acceptance criteria:
+
+- Tick receipt, runtime delta, receipt correlation, and index publication
+  boundaries are tested separately.
+- Commit-before-publish recovers receipts and rebuilds indexes.
+- Publish-before-commit is impossible or rejected by the fixture.
+- Failed/uncommitted tick attempt does not advance frontier or become history.
+
+Test plan:
+
+- `crash_before_tick_commit_recovers_no_receipt`
+- `crash_after_tick_commit_before_publish_rebuilds_receipt_indexes`
+- `tick_publish_requires_committed_transaction`
+- `uncommitted_tick_tail_does_not_advance_frontier`
+- `failed_tick_tail_does_not_create_success_receipt`
+
+## Slice 50: Segment Corruption Matrix
+
+User story:
+
+As recovery, segment corruption must produce deterministic posture instead of
+panic, silent skip, or partial history.
+
+Acceptance criteria:
+
+- Torn header, torn payload, torn digest, bad magic, corrupt digest, unknown disk
+  kind, segment gap, and duplicate segment cases are tested.
+- Read-only recovery never mutates files.
+- Writable recovery only truncates incomplete tails.
+- Corrupt committed records block recovery rather than being skipped.
+
+Test plan:
+
+- `torn_segment_header_reports_tail`
+- `torn_segment_payload_reports_tail`
+- `torn_segment_digest_reports_tail`
+- `bad_segment_magic_blocks_recovery`
+- `corrupt_committed_record_digest_blocks_recovery`
+- `unknown_disk_record_kind_blocks_recovery`
+- `segment_gap_blocks_or_obstructs_recovery`
+- `duplicate_segment_id_blocks_recovery`
+
+## Slice 51: Writer Epoch Fencing Matrix
+
+User story:
+
+As Echo, recovery must detect split-writer evidence instead of merging
+conflicting histories.
+
+Acceptance criteria:
+
+- Writer epoch metadata includes fencing evidence in all strict fixtures.
+- Overlapping epochs block recovery.
+- Unknown previous epoch blocks new writer acquisition.
+- Epoch closure and next-epoch continuity are validated.
+- Fencing token mismatch is a recovery fault, not a warning.
+
+Test plan:
+
+- `overlapping_writer_epochs_block_recovery`
+- `unknown_previous_writer_epoch_rejected`
+- `writer_epoch_chain_requires_previous_final_commit_digest`
+- `writer_epoch_fencing_token_mismatch_blocks_recovery`
+- `closed_epoch_allows_next_epoch_with_matching_fence_evidence`
+
+## Slice 52: Transaction Contiguity And Commit Semantics
+
+User story:
+
+As Echo, only complete contiguous committed WAL transactions become history.
+
+Acceptance criteria:
+
+- Transaction frames must be contiguous for the current WAL version.
+- Commit marker binds first LSN, last LSN, record count, and records root.
+- Per-record names never imply commit.
+- Interleaved transactions are rejected.
+
+Test plan:
+
+- `interleaved_transactions_rejected`
+- `commit_record_count_mismatch_rejected`
+- `commit_lsn_range_gap_rejected`
+- `commit_records_root_mismatch_rejected`
+- `record_kind_name_does_not_imply_history_before_commit`
+
+## Slice 53: Semantic Validator Negative Cases
+
+User story:
+
+As Echo, byte-valid WAL transactions must still be rejected if they violate
+runtime law.
+
+Acceptance criteria:
+
+- Digest-valid but semantically invalid transactions are rejected.
+- Submission acceptance cannot include scheduler-owned records.
+- Tick transaction requires trusted scheduler authority.
+- Runtime-control records require runtime authority.
+- Frontier transition kind must match the transaction kind.
+
+Test plan:
+
+- `byte_valid_submission_with_tick_record_rejected`
+- `byte_valid_tick_without_scheduler_authority_rejected`
+- `runtime_control_record_without_runtime_authority_rejected`
+- `frontier_transition_kind_mismatch_rejected`
+- `submission_transaction_with_runtime_posture_record_rejected`
+
+## Slice 54: Checkpoint Crash Matrix
+
+User story:
+
+As recovery, checkpoints must accelerate replay without creating or erasing
+history.
+
+Acceptance criteria:
+
+- Crash before checkpoint rename leaves no usable checkpoint.
+- Crash after checkpoint rename before publication can use the checkpoint if it
+  validates against committed WAL.
+- Published checkpoint with missing material obstructs precisely.
+- Corrupt latest checkpoint falls back or blocks according to documented scope.
+
+Test plan:
+
+- `crash_before_checkpoint_rename_uses_prior_checkpoint_or_full_replay`
+- `valid_checkpoint_without_publication_record_can_be_used`
+- `published_checkpoint_missing_material_obstructs`
+- `corrupt_latest_checkpoint_falls_back_to_prior_valid_checkpoint`
+- `checkpoint_ahead_of_wal_chain_is_rejected`
+
+## Slice 55: Retained Material Before Reference Matrix
+
+User story:
+
+As Echo, committed references must not point at unavailable retained material
+without typed obstruction.
+
+Acceptance criteria:
+
+- Missing submission payload, receipt material, state delta, reading envelope,
+  and checkpoint material map to documented scope.
+- Missing diagnostic-only material does not block causal recovery.
+- Missing state-delta material blocks global recovery if needed to reconstruct
+  frontier.
+- Missing reading material returns obstruction, not empty success.
+
+Test plan:
+
+- `missing_submission_payload_recovers_submission_obstruction`
+- `missing_tick_receipt_material_recovers_receipt_obstruction`
+- `missing_tick_state_delta_blocks_frontier_recovery`
+- `missing_reading_material_returns_obstruction`
+- `missing_diagnostic_material_does_not_block_recovery`
+
+## Slice 56: Side-Effect Outbox Crash Matrix
+
+User story:
+
+As Echo, external effects must never escape before committed authorization and
+must be idempotent after crash.
+
+Acceptance criteria:
+
+- External effect cannot run without committed outbox intent.
+- Existing artifact is detected before retry.
+- Existing mismatched artifact obstructs.
+- Observation commit records already-performed effect.
+- Crash after effect before observation recovers as existing artifact match, not
+  blind retry.
+
+Test plan:
+
+- `external_effect_requires_committed_outbox_authorization`
+- `crash_after_effect_before_observation_detects_existing_artifact`
+- `existing_artifact_digest_mismatch_obstructs`
+- `materialization_observation_marks_effect_already_observed`
+- `outbox_replay_uses_idempotency_token`
+
+## Slice 57: Recovery Reducer Determinism
+
+User story:
+
+As Echo, replay must apply committed facts without scheduler callbacks, wall
+clock, random, network, or app code.
+
+Acceptance criteria:
+
+- Recovery reducer is tested as a pure function.
+- Replaying the same committed transactions twice yields identical roots.
+- Different transaction order rejects or yields a different validated chain; it
+  never silently normalizes.
+- Recovery does not require scheduler or app callback surfaces.
+
+Test plan:
+
+- `pure_replay_same_transactions_same_roots`
+- `pure_replay_order_is_commit_chain_order`
+- `pure_replay_rejects_frontier_mismatch`
+- `recovery_reducer_does_not_require_scheduler`
+- `recovery_reducer_does_not_require_app_callbacks`
+
+## Slice 58: Shadow Replay Harness
+
+User story:
+
+As a maintainer, every mutating WAL path should prove live state equals
+recovered state.
+
+Acceptance criteria:
+
+- Add a reusable helper that runs a live scenario, recovers from WAL, and
+  compares roots/indexes/receipts/readings.
+- Integrate the helper into selected WAL integration tests.
+- Divergence reports enough context to diagnose the first mismatch.
+- Harness remains deterministic and service-free.
+
+Test plan:
+
+- `shadow_replay_submission_path_matches_live`
+- `shadow_replay_tick_path_matches_live`
+- `shadow_replay_retention_path_matches_live`
+- `shadow_replay_outbox_path_matches_live`
+- `shadow_replay_reports_first_mismatch`
+
+## Slice 59: Causal Commit Evidence Projection Matrix
+
+User story:
+
+As [warp-ttd] or an operator, I need commit evidence posture without raw WAL
+ownership.
+
+Acceptance criteria:
+
+- Echo projects causal commit evidence for accepted pending, decided applied,
+  decided rejected, obstructed, and recovery-faulted cases.
+- Projection exposes commit anchor, durability mode, LSN, transaction id, writer
+  epoch, and digest.
+- Projection does not require raw segment paths or recovery authority.
+- Absent durability evidence is explicit.
+
+Test plan:
+
+- `commit_evidence_projects_accepted_pending`
+- `commit_evidence_projects_decided_applied`
+- `commit_evidence_projects_decided_rejected`
+- `commit_evidence_projects_obstructed`
+- `commit_evidence_absent_is_explicit`
+
+## Slice 60: WAL Doctor And Inspector Contract Tests
+
+User story:
+
+As an operator, I need inspection commands/read models to report truth without
+mutating storage.
+
+Acceptance criteria:
+
+- Read-only doctor reports clean, would-truncate, obstructed, corrupt, and
+  missing-material postures.
+- Doctor never truncates or rewrites files.
+- JSON/report shape has stable field names for agents.
+- Recovery certificate fields are present and deterministic.
+
+Test plan:
+
+- `wal_doctor_clean_report_is_stable`
+- `wal_doctor_would_truncate_does_not_mutate`
+- `wal_doctor_corrupt_committed_record_reports_obstructed`
+- `wal_doctor_missing_material_reports_obstruction`
+- `recovery_certificate_has_stable_json_shape`
+
+## Slice 61: Crashpoint Runner Contract
+
+User story:
+
+As Echo, I need a future CLI/BATS crash runner contract that mirrors the Rust
+fixture semantics before it shells out to real processes.
+
+Acceptance criteria:
+
+- Rust crash fixtures define canonical crashpoint names.
+- A test-visible crashpoint manifest lists supported boundaries.
+- The manifest distinguishes simulated in-process cuts from future process-kill
+  cuts.
+- No CLI runner claims more than the Rust fixture proves.
+
+Test plan:
+
+- `crashpoint_manifest_lists_submission_boundaries`
+- `crashpoint_manifest_lists_tick_boundaries`
+- `crashpoint_manifest_lists_checkpoint_boundaries`
+- `crashpoint_manifest_marks_process_kill_as_future_until_runner_exists`
+
+## Slice 62: Filesystem Strict Sync Evidence
+
+User story:
+
+As Echo, strict filesystem mode must make sync boundaries inspectable enough for
+tests to prove ACK ordering.
+
+Acceptance criteria:
+
+- Tests prove commit flushing syncs the WAL file before the caller can observe
+  accepted evidence.
+- Segment creation and manifest/checkpoint rename sync the containing
+  directory.
+- The filesystem adapter does not claim strict durability if any required sync
+  step is bypassed.
+
+Test plan:
+
+- `filesystem_commit_flush_is_ack_boundary`
+- `filesystem_segment_creation_syncs_directory`
+- `filesystem_manifest_rename_syncs_directory`
+- `filesystem_checkpoint_rename_syncs_directory`
+- `filesystem_strict_mode_rejects_missing_sync_evidence`
+
+## Slice 63: Object-Store Manifest Negative Matrix
+
+User story:
+
+As Echo, strict object-store mode must reject adapters that cannot prove
+conditional manifest semantics.
+
+Acceptance criteria:
+
+- Every missing capability has a distinct validation error.
+- Read-after-write uncertainty blocks strict mode.
+- Conditional manifest commit is modeled as compare-and-swap, not overwrite.
+- Object-store strict validation remains mechanism-neutral and app-noun-free.
+
+Test plan:
+
+- `strict_object_store_requires_content_addressed_objects`
+- `strict_object_store_requires_object_version_verification`
+- `strict_object_store_requires_conditional_manifest_commit`
+- `strict_object_store_requires_verified_read_after_write`
+- `strict_object_store_rejects_unconditional_manifest_overwrite`
+
+## Slice 64: Security And Redaction Posture Matrix
+
+User story:
+
+As Echo, recovery and inspection must distinguish missing material from
+policy-hidden or encrypted material.
+
+Acceptance criteria:
+
+- Postures include present, redacted by policy, encrypted-key-unavailable,
+  missing, corrupt, and obstructed.
+- Inspector output distinguishes unavailable-by-policy from missing-by-corrupt
+  storage.
+- Redaction posture does not become success, empty payload, or silent skip.
+
+Test plan:
+
+- `redacted_material_is_policy_posture_not_missing`
+- `encrypted_key_unavailable_is_policy_posture_not_corruption`
+- `missing_material_is_not_redaction`
+- `corrupt_material_is_not_redaction`
+- `inspector_reports_redaction_posture_explicitly`
+
+## Slice 65: WAL Hardening Release Gate
+
+User story:
+
+As Echo, I need one gate that tells us whether the WAL is trustworthy enough for
+the next real-app persistence push.
+
+Acceptance criteria:
+
+- A readiness check aggregates all hardening witnesses.
+- Gate reports blocked and passed categories.
+- Gate includes app-noun guard, shadow replay, crash matrix, doctor, outbox,
+  semantic validator, filesystem, object-store, and projection coverage.
+- `docs/BEARING.md` marks exactly what is complete and what remains future.
+
+Test plan:
+
+- `wal_hardening_gate_reports_blocked_categories`
+- `wal_hardening_gate_passes_when_all_witnesses_green`
+- `wal_hardening_gate_includes_app_noun_guard`
+- `wal_hardening_gate_includes_crashpoint_fixture_surface`
+- targeted WAL hardening suite plus app-noun guard and doc checks.

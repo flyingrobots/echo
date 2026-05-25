@@ -13,10 +13,13 @@ use thiserror::Error;
 
 use crate::{
     causal_wal::{
-        build_submission_acceptance_transaction, build_tick_transaction, AffectedFrontier,
-        AffectedFrontierKind, InMemoryWalStore, Lsn, PayloadCodecId, PayloadSchemaId,
-        SubmissionAcceptanceRecord, TickReceiptRecord, WalAppendAuthority, WalBuildError,
-        WalCommittedTransaction, WalDurabilityMode, WalReceiptCorrelationRecord, WalRecordKind,
+        build_recovery_certificate, build_submission_acceptance_transaction,
+        build_tick_transaction, recover_in_memory_store, recover_receipt_index,
+        recover_submission_index, AffectedFrontier, AffectedFrontierKind, InMemoryWalStore, Lsn,
+        PayloadCodecId, PayloadSchemaId, RecoveredReceiptIndex, RecoveredSubmissionIndex,
+        RecoveryAccessMode, RecoveryCertificate, RecoveryScanReport, SubmissionAcceptanceRecord,
+        TickReceiptRecord, WalAppendAuthority, WalBuildError, WalCommittedTransaction,
+        WalDurabilityMode, WalReceiptCorrelationRecord, WalRecordKind, WalRecoveryError,
         WalSegmentId, WalStoreError, WalStorePort, WalTickDecision, WalTransactionBuilder,
         WalTransactionCommit, WalTransactionId, WalTransactionKind, WriterEpochId,
         WriterEpochRequest,
@@ -70,6 +73,9 @@ pub enum TrustedRuntimeWalError {
     /// WAL storage failed before durable acknowledgement.
     #[error("trusted runtime WAL store error: {0}")]
     Store(#[from] WalStoreError),
+    /// WAL recovery failed while rebuilding runtime evidence.
+    #[error("trusted runtime WAL recovery error: {0}")]
+    Recovery(#[from] WalRecoveryError),
 }
 
 /// Summary returned after a trusted host runs the scheduler until idle.
@@ -79,6 +85,17 @@ pub struct TrustedRuntimeHostRunReport {
     pub scheduler_passes: u64,
     /// Scheduler-owned step records committed across non-idle passes.
     pub committed_steps: usize,
+}
+
+/// Read-only runtime WAL recovery report.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TrustedRuntimeWalRecovery {
+    /// Recovery certificate summarizing committed history replay.
+    pub certificate: RecoveryCertificate,
+    /// Rebuilt submission posture index.
+    pub submissions: RecoveredSubmissionIndex,
+    /// Rebuilt receipt/correlation index.
+    pub receipts: RecoveredReceiptIndex,
 }
 
 /// Local trusted runtime host for the app-safe contract-host path.
@@ -380,6 +397,20 @@ impl TrustedRuntimeWal {
     #[must_use]
     pub fn cloned_store(&self) -> InMemoryWalStore {
         self.store.clone()
+    }
+
+    /// Recovers submission and receipt indexes from committed WAL transactions
+    /// without scheduler callbacks.
+    pub fn recover_read_only(&self) -> Result<TrustedRuntimeWalRecovery, TrustedRuntimeWalError> {
+        let mut store = self.cloned_store();
+        let report = recover_in_memory_store(&mut store, RecoveryAccessMode::ReadOnly)?;
+        let submissions = recover_submission_index(&report).map_err(WalRecoveryError::from)?;
+        let receipts = recover_receipt_index(&report).map_err(WalRecoveryError::from)?;
+        Ok(TrustedRuntimeWalRecovery {
+            certificate: runtime_wal_recovery_certificate(&report),
+            submissions,
+            receipts,
+        })
     }
 
     /// Returns the number of committed submission-intake transactions.
@@ -798,5 +829,29 @@ fn runtime_state_frontier_digest(
     hasher.update(&state_delta_digest);
     hasher.update(&correlation.commit_global_tick.as_u64().to_le_bytes());
     hasher.update(&correlation.worldline_tick_after.as_u64().to_le_bytes());
+    hasher.finalize().into()
+}
+
+fn runtime_wal_recovery_certificate(report: &RecoveryScanReport) -> RecoveryCertificate {
+    let recovered_frontier_root = report
+        .last_commit_digest()
+        .unwrap_or_else(|| trusted_runtime_wal_digest("recovery-frontier:empty"));
+    build_recovery_certificate(
+        report,
+        None,
+        0,
+        recovered_frontier_root,
+        runtime_wal_recovered_indexes_root(report),
+    )
+}
+
+fn runtime_wal_recovered_indexes_root(report: &RecoveryScanReport) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
+    hasher.update(b"recovered-indexes-root");
+    for transaction in &report.transactions {
+        hasher.update(&transaction.commit.transaction_id.as_hash());
+        hasher.update(&transaction.commit.commit_digest);
+    }
     hasher.finalize().into()
 }

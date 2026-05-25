@@ -639,3 +639,79 @@ fn runtime_wal_ack_tick_failure_rolls_back_visible_outcome() {
         } if submission_id == submission.submission_id
     ));
 }
+
+#[test]
+fn runtime_wal_ack_recover_read_only_rebuilds_submission_and_receipt_indexes() {
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_in_memory_runtime_wal()
+        .expect("runtime WAL should initialize");
+    host.install_contract_package(package())
+        .expect("host should install package");
+
+    let submission = {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(eint_envelope(worldline_id))
+            .expect("submission acceptance should commit before ACK")
+    };
+    let ticket = admission_ticket(93);
+    host.stage_installed_contract_submission(submission.submission_id, &ticket)
+        .expect("trusted host should stage package-supported ticketed ingress");
+    host.run_until_idle(4)
+        .expect("trusted host should tick until idle");
+
+    let recovery = host
+        .runtime_wal()
+        .expect("runtime WAL should stay configured")
+        .recover_read_only()
+        .expect("runtime WAL recovery should rebuild indexes");
+
+    assert_eq!(
+        recovery
+            .submissions
+            .get(&submission.submission_id)
+            .expect("submission should recover")
+            .posture,
+        RecoveredSubmissionPosture::DecidedApplied
+    );
+    assert_eq!(
+        recovery
+            .receipts
+            .ticket_by_submission
+            .get(&submission.submission_id),
+        Some(&ticket.ticket_digest)
+    );
+}
+
+#[test]
+fn runtime_wal_ack_recover_read_only_exposes_recovery_certificate() {
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_in_memory_runtime_wal()
+        .expect("runtime WAL should initialize");
+    host.install_contract_package(package())
+        .expect("host should install package");
+
+    let submission = {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(eint_envelope(worldline_id))
+            .expect("submission acceptance should commit before ACK")
+    };
+    host.stage_installed_contract_submission(submission.submission_id, &admission_ticket(94))
+        .expect("trusted host should stage package-supported ticketed ingress");
+    host.run_until_idle(4)
+        .expect("trusted host should tick until idle");
+
+    let recovery = host
+        .runtime_wal()
+        .expect("runtime WAL should stay configured")
+        .recover_read_only()
+        .expect("runtime WAL recovery should expose certificate");
+
+    assert_eq!(recovery.certificate.committed_transactions_replayed, 2);
+    assert_eq!(recovery.certificate.obstruction_count, 0);
+    assert!(recovery.certificate.first_lsn.is_some());
+    assert!(recovery.certificate.last_lsn.is_some());
+}

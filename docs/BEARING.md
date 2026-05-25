@@ -974,14 +974,14 @@ completed slice.
       state or blocks receipt publication under a typed runtime fault posture.
     - Test plan: injected tick-WAL failure fixture.
 
-- [ ] **Slice 92: Runtime index rebuild contract**
+- [x] **Slice 92: Runtime index rebuild contract**
     - User story: As recovery, WAL-backed submission and receipt indexes should
       rebuild without scheduler callbacks.
     - Acceptance criteria: recovered indexes answer pending/applied/rejected
       posture from committed WAL transactions only.
     - Test plan: pure in-memory recovery fixture for submit plus tick records.
 
-- [ ] **Slice 93: WAL-backed recovery certificate in runtime**
+- [x] **Slice 93: WAL-backed recovery certificate in runtime**
     - User story: As an operator, restart should produce inspectable evidence
       about what committed history was replayed.
     - Acceptance criteria: recovery certificate covers checkpoint, LSN range,

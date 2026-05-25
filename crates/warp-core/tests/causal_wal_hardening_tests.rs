@@ -5,14 +5,16 @@
 use warp_core::causal_wal::{
     apply_committed_transaction, audit_wal_release_readiness,
     build_materialization_outbox_transaction, build_retained_reading_transaction,
-    build_submission_acceptance_transaction, build_tick_transaction, doctor_filesystem_store,
-    doctor_in_memory_store, doctor_in_memory_store_with_materials, evaluate_checkpoint_publication,
-    inspect_evidence_material_posture, project_absent_causal_commit_evidence,
+    build_submission_acceptance_transaction, build_tick_transaction,
+    canonical_segment_relative_path, doctor_filesystem_store, doctor_in_memory_store,
+    doctor_in_memory_store_with_materials, evaluate_checkpoint_publication,
+    inspect_evidence_material_posture, next_segment_id, project_absent_causal_commit_evidence,
     project_causal_commit_evidence, project_obstructed_causal_commit_evidence,
     read_checkpoint_record, recover_filesystem_store, recover_from_frames_and_commits,
     recover_materialization_outbox, recover_receipt_index, recover_retention_index,
-    recover_submission_index, retained_material_obstructions, shadow_replay_matches,
-    shadow_replay_report, validate_checkpoint_record, validate_filesystem_strict_sync_evidence,
+    recover_submission_index, retained_material_obstructions, segment_manifest_entry,
+    shadow_replay_matches, shadow_replay_report, validate_checkpoint_record,
+    validate_filesystem_strict_sync_evidence, validate_segment_placement_policy,
     validate_strict_object_store_capabilities, validate_strict_object_store_manifest_commit,
     wal_crashpoint_manifest, write_checkpoint_record_atomic,
     write_checkpoint_record_atomic_with_evidence, AffectedFrontier, AffectedFrontierKind,
@@ -29,9 +31,10 @@ use warp_core::causal_wal::{
     WalAppendAuthority, WalBuildError, WalCommittedTransaction, WalCrashpointBoundary,
     WalCrashpointExecution, WalDoctorPosture, WalDoctorReport, WalDurabilityMode, WalManifest,
     WalReceiptCorrelationRecord, WalRecordKind, WalRecoveryError, WalReleaseReadinessGates,
-    WalReplayError, WalSegmentId, WalStoreError, WalStorePort, WalTickDecision,
-    WalTransactionBuilder, WalTransactionId, WalTransactionKind, WalValidationError, WriterEpochId,
-    WriterEpochRequest,
+    WalReplayError, WalSegmentId, WalSegmentIdError, WalSegmentPlacementKind,
+    WalSegmentPlacementPolicy, WalSegmentPlacementPolicyError, WalStoreError, WalStorePort,
+    WalTickDecision, WalTransactionBuilder, WalTransactionId, WalTransactionKind,
+    WalValidationError, WriterEpochId, WriterEpochRequest,
 };
 use warp_core::Hash;
 
@@ -1847,10 +1850,22 @@ fn filesystem_segment_creation_syncs_directory() {
     must_ok(validate_filesystem_strict_sync_evidence(
         fixture.store.sync_evidence(),
         &[
+            FilesystemSyncBoundary::SegmentNamespaceDirectorySynced,
             FilesystemSyncBoundary::SegmentFileCreated,
             FilesystemSyncBoundary::SegmentDirectorySynced,
         ],
     ));
+}
+
+#[test]
+fn filesystem_segment_namespace_creation_syncs_root_directory() {
+    let fixture = WalHardeningFixture::new("sync-segment-namespace");
+
+    assert!(fixture.store.sync_evidence().iter().any(|entry| {
+        entry.boundary == FilesystemSyncBoundary::SegmentNamespaceDirectorySynced
+            && entry.segment_id.is_none()
+            && entry.transaction_id.is_none()
+    }));
 }
 
 #[test]
@@ -2083,6 +2098,7 @@ fn wal_hardening_gate_passes_when_all_categories_are_green() {
         filesystem_adapter: true,
         object_store_capability_gate: true,
         segment_repair: true,
+        segment_layout_policy: true,
         crash_matrix: true,
         crashpoint_manifest: true,
         shadow_replay: true,
@@ -2099,4 +2115,187 @@ fn wal_hardening_gate_passes_when_all_categories_are_green() {
 
     assert!(report.ready);
     assert!(report.blocked_gates.is_empty());
+}
+
+#[test]
+fn canonical_segment_path_uses_logical_segments_directory() {
+    assert_eq!(
+        canonical_segment_relative_path(WalSegmentId::from_raw(1)),
+        PathBuf::from("segments").join("segment-00000000000000000001.ecwal")
+    );
+}
+
+#[test]
+fn wall_clock_segment_placement_cannot_be_authoritative() {
+    let error = must_err(
+        validate_segment_placement_policy(WalSegmentPlacementPolicy {
+            kind: WalSegmentPlacementKind::WallClockPartition,
+            authoritative: true,
+        }),
+        "wall-clock placement must not be authoritative",
+    );
+
+    assert_eq!(
+        error,
+        WalSegmentPlacementPolicyError::WallClockPlacementCannotBeAuthoritative
+    );
+}
+
+#[test]
+fn wall_clock_segment_placement_may_be_non_authoritative() {
+    must_ok(validate_segment_placement_policy(
+        WalSegmentPlacementPolicy {
+            kind: WalSegmentPlacementKind::WallClockPartition,
+            authoritative: false,
+        },
+    ));
+}
+
+#[test]
+fn recovery_scans_canonical_segments_directory() {
+    let mut fixture = WalHardeningFixture::new("layout-canonical-scan");
+    fixture.append_submission("layout-canonical-scan", Lsn::from_raw(0));
+
+    let report = must_ok(fixture.recover_read_only());
+
+    assert_eq!(report.transactions.len(), 1);
+    assert!(fixture
+        .store
+        .segment_path()
+        .starts_with(fixture.root.join("segments")));
+}
+
+#[test]
+fn legacy_flat_segment_scan_remains_readable() {
+    let mut fixture = WalHardeningFixture::new("layout-legacy-source");
+    fixture.append_submission("layout-legacy-source", Lsn::from_raw(0));
+    let segment_bytes = fixture.segment_bytes();
+    let legacy_root = temp_wal_root("layout-legacy-target");
+    must_ok(fs::write(
+        legacy_root.join(segment_file_name(1)),
+        segment_bytes,
+    ));
+
+    let report = must_ok(recover_filesystem_store(
+        &legacy_root,
+        RecoveryAccessMode::ReadOnly,
+    ));
+
+    assert_eq!(report.transactions.len(), 1);
+}
+
+#[test]
+fn segment_gap_in_canonical_directory_blocks_recovery() {
+    let fixture = WalHardeningFixture::new("layout-gap");
+    must_ok(fs::write(
+        fixture.root.join("segments").join(segment_file_name(3)),
+        b"gap-segment",
+    ));
+
+    let error = must_err(
+        fixture.recover_read_only(),
+        "canonical segment gap should block recovery",
+    );
+
+    assert!(matches!(
+        error,
+        WalRecoveryError::Store(WalStoreError::SegmentGap {
+            expected,
+            actual
+        }) if expected == WalSegmentId::from_raw(2) && actual == WalSegmentId::from_raw(3)
+    ));
+}
+
+#[test]
+fn duplicate_segment_id_across_layouts_blocks_recovery() {
+    let fixture = WalHardeningFixture::new("layout-duplicate");
+    must_ok(fs::write(
+        fixture.root.join(segment_file_name(1)),
+        b"legacy-duplicate",
+    ));
+
+    let error = must_err(
+        fixture.recover_read_only(),
+        "duplicate segment id across canonical and legacy layout should block recovery",
+    );
+
+    assert!(matches!(
+        error,
+        WalRecoveryError::Store(WalStoreError::DuplicateSegment(segment_id))
+            if segment_id == WalSegmentId::from_raw(1)
+    ));
+}
+
+#[test]
+fn writable_recovery_rewrite_preserves_canonical_segments_directory() {
+    let mut fixture = WalHardeningFixture::new("layout-rewrite");
+    fixture.append_submission("layout-rewrite", Lsn::from_raw(0));
+    fixture.append_uncommitted_tick_frame("layout-rewrite-tail", Lsn::from_raw(2));
+
+    let report = must_ok(recover_filesystem_store(
+        &fixture.root,
+        RecoveryAccessMode::Writable,
+    ));
+
+    assert_eq!(
+        report.tail_posture,
+        RecoveryTailPosture::TruncatedAfter(Lsn::from_raw(1))
+    );
+    assert!(fixture
+        .root
+        .join("segments")
+        .join(segment_file_name(1))
+        .exists());
+}
+
+#[test]
+fn next_segment_id_overflow_blocks_rotation() {
+    let error = must_err(
+        next_segment_id(Some(WalSegmentId::from_raw(u64::MAX))),
+        "segment id overflow should block rotation",
+    );
+
+    assert_eq!(error, WalSegmentIdError::Overflow);
+}
+
+#[test]
+fn segment_manifest_entry_binds_logical_id_not_wall_clock_path() {
+    let transaction = submission_transaction("layout-manifest-entry", Lsn::from_raw(0));
+    let entry = segment_manifest_entry(WalSegmentId::from_raw(1), &transaction.frames);
+
+    assert_eq!(entry.segment_id, WalSegmentId::from_raw(1));
+    assert_eq!(
+        entry.relative_path,
+        PathBuf::from("segments").join(segment_file_name(1))
+    );
+    assert!(!entry.relative_path.to_string_lossy().contains("2026/"));
+    assert_eq!(entry.first_lsn, Some(Lsn::from_raw(0)));
+    assert_eq!(entry.last_lsn, Some(Lsn::from_raw(1)));
+}
+
+#[test]
+fn segment_layout_gate_is_part_of_wal_release_readiness() {
+    let report = audit_wal_release_readiness(WalReleaseReadinessGates {
+        filesystem_adapter: true,
+        object_store_capability_gate: true,
+        segment_repair: true,
+        crash_matrix: true,
+        crashpoint_manifest: true,
+        shadow_replay: true,
+        outbox: true,
+        commit_evidence: true,
+        wal_doctor: true,
+        semantic_validator: true,
+        filesystem_sync_evidence: true,
+        object_store_manifest_negatives: true,
+        security_redaction: true,
+        app_noun_guard: true,
+        external_consumer_gate: true,
+        ..WalReleaseReadinessGates::default()
+    });
+
+    assert!(
+        report.blocked_gates.contains(&"segment_layout_policy"),
+        "layout policy should be an explicit WAL release gate"
+    );
 }

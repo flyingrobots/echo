@@ -538,3 +538,190 @@ Test plan:
 - `wal_hardening_gate_includes_app_noun_guard`
 - `wal_hardening_gate_includes_crashpoint_fixture_surface`
 - targeted WAL hardening suite plus app-noun guard and doc checks.
+
+## Slice 66: Canonical Segment Namespace
+
+User story:
+
+As Echo, WAL segment files need a deterministic logical namespace that is not
+derived from wall-clock time.
+
+Acceptance criteria:
+
+- New filesystem WAL roots write segments under a `segments/` directory.
+- Creating the segment namespace syncs the WAL root directory in strict
+  filesystem mode.
+- Segment file names are derived only from logical `WalSegmentId`.
+- Recovery treats logical segment id as the ordering authority.
+- Date or hour partitions are not part of causal recovery truth.
+
+Test plan:
+
+- `canonical_segment_path_uses_logical_segments_directory`
+- `filesystem_segment_namespace_creation_syncs_root_directory`
+- `recovery_scans_canonical_segments_directory`
+
+## Slice 67: Segment Placement Policy Guard
+
+User story:
+
+As Echo, operators may want wall-clock folders for operational convenience, but
+those folders must never become authoritative causal ordering.
+
+Acceptance criteria:
+
+- Authoritative wall-clock placement is rejected.
+- Non-authoritative wall-clock placement may be represented as an adapter-local
+  layout hint.
+- Segment recovery remains manifest/id based, not path-time based.
+
+Test plan:
+
+- `wall_clock_segment_placement_cannot_be_authoritative`
+- `wall_clock_segment_placement_may_be_non_authoritative`
+
+## Slice 68: Legacy Flat Segment Compatibility
+
+User story:
+
+As Echo, existing first-cut WAL roots using flat segment files should remain
+recoverable during migration.
+
+Acceptance criteria:
+
+- Recovery reads flat root-level segment files when no canonical namespace
+  exists.
+- Canonical `segments/` layout is preferred for new writes.
+- Compatibility does not let duplicate segment ids silently win.
+
+Test plan:
+
+- `legacy_flat_segment_scan_remains_readable`
+- `duplicate_segment_id_across_layouts_blocks_recovery`
+
+## Slice 69: Canonical Gap And Rewrite Behavior
+
+User story:
+
+As Echo, segment gap detection and writable recovery rewrites must use the
+canonical namespace consistently.
+
+Acceptance criteria:
+
+- Segment gaps in the canonical namespace block recovery.
+- Writable tail rewrite emits canonical segment paths.
+- Rewrites do not flatten canonical segments back into the root.
+
+Test plan:
+
+- `segment_gap_in_canonical_directory_blocks_recovery`
+- `writable_recovery_rewrite_preserves_canonical_segments_directory`
+
+## Slice 70: Segment Id Rotation Guard
+
+User story:
+
+As Echo, segment rotation must fail explicitly rather than wrapping logical ids.
+
+Acceptance criteria:
+
+- `next_segment_id(None)` starts at logical segment id 1.
+- Incrementing a normal id returns the next logical id.
+- Incrementing `u64::MAX` reports overflow and does not wrap to zero.
+
+Test plan:
+
+- `next_segment_id_overflow_blocks_rotation`
+
+## Slice 71: Segment Manifest Entry Shape
+
+User story:
+
+As Echo, segment manifests should bind logical ids and frame ranges without
+making wall-clock paths authoritative.
+
+Acceptance criteria:
+
+- Manifest entries include segment id, canonical relative path, digest, and LSN
+  bounds.
+- The relative path uses the logical `segments/segment-*.ecwal` shape.
+- Empty segments report no first/last LSN rather than fake zero bounds.
+
+Test plan:
+
+- `segment_manifest_entry_binds_logical_id_not_wall_clock_path`
+
+## Slice 72: Segment Layout Release Gate
+
+User story:
+
+As Echo, release readiness must fail if the WAL segment layout rules are not
+covered.
+
+Acceptance criteria:
+
+- `WalReleaseReadinessGates` includes segment layout coverage.
+- Audit output names the missing `segment_layout_policy` gate.
+- A fully covered hardening gate passes only when this category is green.
+
+Test plan:
+
+- `segment_layout_gate_is_part_of_wal_release_readiness`
+- `wal_hardening_gate_passes_when_all_categories_are_green`
+
+## Slice 73: Manifest-Addressed Placement Doctrine
+
+User story:
+
+As Echo, docs and tests must make the manifest/logical-id model the durable
+truth boundary for segment placement.
+
+Acceptance criteria:
+
+- Segment manifest entries remain logical-id based.
+- Wall-clock partitioning is documented as non-authoritative adapter policy.
+- No test asserts causal meaning from date-derived paths.
+
+Test plan:
+
+- Segment manifest and placement-policy hardening fixtures.
+- `git diff --check`
+
+## Slice 74: Canonical Layout Migration Witness
+
+User story:
+
+As Echo, migration from flat root segment files to `segments/` should be
+test-visible and non-destructive.
+
+Acceptance criteria:
+
+- Flat legacy roots remain readable.
+- Writable recovery rewrites into canonical layout.
+- Duplicate legacy/canonical ids are treated as corruption or obstruction, not
+  as a merge policy.
+
+Test plan:
+
+- `legacy_flat_segment_scan_remains_readable`
+- `writable_recovery_rewrite_preserves_canonical_segments_directory`
+- `duplicate_segment_id_across_layouts_blocks_recovery`
+
+## Slice 75: Segment Layout Drift Gate
+
+User story:
+
+As Echo, future changes must not turn operational path layout into causal
+history.
+
+Acceptance criteria:
+
+- Canonical path tests reject date partitions in durable relative paths.
+- Placement policy validation rejects authoritative wall-clock placement.
+- Release gate coverage fails when segment layout witnesses are missing.
+
+Test plan:
+
+- `canonical_segment_path_uses_logical_segments_directory`
+- `wall_clock_segment_placement_cannot_be_authoritative`
+- `segment_layout_gate_is_part_of_wal_release_readiness`

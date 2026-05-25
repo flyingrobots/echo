@@ -32,6 +32,7 @@ const WAL_FRAME_CHECKSUM_DOMAIN: &[u8] = b"echo:causal_wal:frame_checksum:v1\0";
 const WAL_DISK_RECORD_DOMAIN: &[u8] = b"echo:causal_wal:disk_record:v1\0";
 const CHECKPOINT_FILE_MAGIC: &[u8; 8] = b"ECWALCP1";
 const WAL_SEGMENT_RECORD_MAGIC: &[u8; 8] = b"ECWALR1!";
+const WAL_SEGMENTS_DIR: &str = "segments";
 
 /// Current in-memory causal WAL version.
 pub const CAUSAL_WAL_VERSION: u16 = 1;
@@ -1077,6 +1078,93 @@ pub struct WalSegmentSeal {
     pub segment_digest: Hash,
 }
 
+/// Segment placement family.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WalSegmentPlacementKind {
+    /// Placement is derived from logical segment id.
+    CausalSegmentId,
+    /// Placement is derived from wall-clock bucketing.
+    WallClockPartition,
+}
+
+/// Segment placement policy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WalSegmentPlacementPolicy {
+    /// Placement family.
+    pub kind: WalSegmentPlacementKind,
+    /// `true` if placement participates in authoritative WAL identity.
+    pub authoritative: bool,
+}
+
+/// Segment placement policy error.
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum WalSegmentPlacementPolicyError {
+    /// Wall-clock placement cannot define authoritative WAL identity.
+    #[error("wall-clock WAL segment placement cannot be authoritative")]
+    WallClockPlacementCannotBeAuthoritative,
+}
+
+/// Validates a segment placement policy.
+pub fn validate_segment_placement_policy(
+    policy: WalSegmentPlacementPolicy,
+) -> Result<(), WalSegmentPlacementPolicyError> {
+    if policy.kind == WalSegmentPlacementKind::WallClockPartition && policy.authoritative {
+        return Err(WalSegmentPlacementPolicyError::WallClockPlacementCannotBeAuthoritative);
+    }
+    Ok(())
+}
+
+/// Segment id arithmetic error.
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum WalSegmentIdError {
+    /// Segment id overflowed.
+    #[error("WAL segment id overflow")]
+    Overflow,
+}
+
+/// Returns the next logical segment id.
+pub fn next_segment_id(previous: Option<WalSegmentId>) -> Result<WalSegmentId, WalSegmentIdError> {
+    let Some(previous) = previous else {
+        return Ok(WalSegmentId::from_raw(1));
+    };
+    previous
+        .as_u64()
+        .checked_add(1)
+        .map(WalSegmentId::from_raw)
+        .ok_or(WalSegmentIdError::Overflow)
+}
+
+/// Segment manifest entry derived from logical identity.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WalSegmentManifestEntry {
+    /// Logical segment id.
+    pub segment_id: WalSegmentId,
+    /// Canonical relative path.
+    pub relative_path: PathBuf,
+    /// Segment digest.
+    pub segment_digest: Hash,
+    /// First LSN included in the segment.
+    pub first_lsn: Option<Lsn>,
+    /// Last LSN included in the segment.
+    pub last_lsn: Option<Lsn>,
+}
+
+/// Builds a segment manifest entry from segment frames.
+#[must_use]
+pub fn segment_manifest_entry(
+    segment_id: WalSegmentId,
+    frames: &[WalFrame],
+) -> WalSegmentManifestEntry {
+    let frame_refs = frames.iter().collect::<Vec<_>>();
+    WalSegmentManifestEntry {
+        segment_id,
+        relative_path: canonical_segment_relative_path(segment_id),
+        segment_digest: segment_digest(segment_id, &frame_refs),
+        first_lsn: frames.iter().map(|frame| frame.header.lsn).min(),
+        last_lsn: frames.iter().map(|frame| frame.header.lsn).max(),
+    }
+}
+
 /// Published WAL manifest.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WalManifest {
@@ -1189,6 +1277,8 @@ pub const fn wal_crashpoint_manifest() -> &'static [WalCrashpointDescriptor] {
 /// Filesystem sync boundary evidence.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FilesystemSyncBoundary {
+    /// WAL root directory was synced after creating the segment namespace.
+    SegmentNamespaceDirectorySynced,
     /// Segment file was created and synced.
     SegmentFileCreated,
     /// Containing directory was synced after segment creation.
@@ -2275,15 +2365,24 @@ impl FilesystemWalStore {
     pub fn open(root: impl AsRef<Path>, segment_id: WalSegmentId) -> Result<Self, WalStoreError> {
         let root = root.as_ref().to_path_buf();
         fs::create_dir_all(&root)?;
+        let segments_dir = segments_dir(&root);
+        let segments_dir_existed = segments_dir.exists();
+        fs::create_dir_all(&segments_dir)?;
         let segment_path = segment_path(&root, segment_id);
         let mut sync_evidence = Vec::new();
+        if !segments_dir_existed {
+            sync_directory_store(&root)?;
+            sync_evidence.push(FilesystemSyncEvidence::unscoped(
+                FilesystemSyncBoundary::SegmentNamespaceDirectorySynced,
+            ));
+        }
         if !segment_path.exists() {
             File::create(&segment_path)?.sync_all()?;
             sync_evidence.push(FilesystemSyncEvidence::segment(
                 FilesystemSyncBoundary::SegmentFileCreated,
                 segment_id,
             ));
-            sync_directory_store(&root)?;
+            sync_directory_store(&segments_dir)?;
             sync_evidence.push(FilesystemSyncEvidence::segment(
                 FilesystemSyncBoundary::SegmentDirectorySynced,
                 segment_id,
@@ -3092,6 +3191,12 @@ pub fn audit_wal_release_readiness(gates: WalReleaseReadinessGates) -> WalReleas
     push_gate(
         &mut passed_gates,
         &mut blocked_gates,
+        "segment_layout_policy",
+        gates.segment_layout_policy,
+    );
+    push_gate(
+        &mut passed_gates,
+        &mut blocked_gates,
         "crash_matrix",
         gates.crash_matrix,
     );
@@ -3178,6 +3283,8 @@ pub struct WalReleaseReadinessGates {
     pub object_store_capability_gate: bool,
     /// Segment repair/truncation gate.
     pub segment_repair: bool,
+    /// Segment layout policy gate.
+    pub segment_layout_policy: bool,
     /// Crash matrix gate.
     pub crash_matrix: bool,
     /// Crashpoint manifest gate.
@@ -3338,6 +3445,7 @@ fn rewrite_segment_records(
     commits: &[WalTransactionCommit],
 ) -> Result<(), WalStoreError> {
     fs::create_dir_all(root)?;
+    fs::create_dir_all(segments_dir(root))?;
     for path in segment_paths(root)? {
         fs::remove_file(path)?;
     }
@@ -3356,19 +3464,24 @@ fn rewrite_segment_records(
 
 fn segment_paths(root: &Path) -> Result<Vec<PathBuf>, WalStoreError> {
     let mut paths = Vec::new();
-    for entry in fs::read_dir(root)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path
-            .file_stem()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| name.starts_with("segment-"))
-            && path
-                .extension()
-                .is_some_and(|extension| extension.eq_ignore_ascii_case("ecwal"))
-        {
-            let segment_id = parse_segment_id(&path)?;
-            paths.push((segment_id, path));
+    for scan_root in segment_scan_roots(root) {
+        if !scan_root.exists() {
+            continue;
+        }
+        for entry in fs::read_dir(scan_root)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path
+                .file_stem()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("segment-"))
+                && path
+                    .extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("ecwal"))
+            {
+                let segment_id = parse_segment_id(&path)?;
+                paths.push((segment_id, path));
+            }
         }
     }
     paths.sort_by_key(|(segment_id, path)| (*segment_id, path.clone()));
@@ -3400,8 +3513,38 @@ fn segment_paths(root: &Path) -> Result<Vec<PathBuf>, WalStoreError> {
     Ok(paths.into_iter().map(|(_, path)| path).collect())
 }
 
+/// Returns the canonical segment path relative to the WAL root.
+#[must_use]
+pub fn canonical_segment_relative_path(segment_id: WalSegmentId) -> PathBuf {
+    PathBuf::from(WAL_SEGMENTS_DIR).join(segment_file_name(segment_id))
+}
+
+/// Returns the canonical segment path for a WAL root.
+#[must_use]
+pub fn canonical_segment_path(root: impl AsRef<Path>, segment_id: WalSegmentId) -> PathBuf {
+    root.as_ref()
+        .join(canonical_segment_relative_path(segment_id))
+}
+
 fn segment_path(root: &Path, segment_id: WalSegmentId) -> PathBuf {
-    root.join(format!("segment-{:020}.ecwal", segment_id.as_u64()))
+    canonical_segment_path(root, segment_id)
+}
+
+fn segments_dir(root: &Path) -> PathBuf {
+    root.join(WAL_SEGMENTS_DIR)
+}
+
+fn segment_scan_roots(root: &Path) -> Vec<PathBuf> {
+    let canonical = segments_dir(root);
+    if canonical.exists() {
+        vec![canonical, root.to_path_buf()]
+    } else {
+        vec![root.to_path_buf()]
+    }
+}
+
+fn segment_file_name(segment_id: WalSegmentId) -> String {
+    format!("segment-{:020}.ecwal", segment_id.as_u64())
 }
 
 fn parse_segment_id(path: &Path) -> Result<WalSegmentId, WalStoreError> {

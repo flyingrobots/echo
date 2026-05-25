@@ -767,6 +767,82 @@ completed slice.
       object-store, and projection coverage.
     - Test plan: WAL hardening gate fixtures plus app-noun and doc checks.
 
+### PR 14: WAL Segment Layout And Placement Hardening
+
+- [x] **Slice 66: Canonical segment namespace**
+    - User story: As Echo, WAL segment files must live under a logical namespace
+      that does not encode wall-clock semantics.
+    - Acceptance criteria: canonical segment paths use `segments/` plus
+      zero-padded logical segment id; recovery scans that namespace; creating
+      that namespace syncs the WAL root directory in strict filesystem mode.
+    - Test plan: canonical segment path, namespace sync, and recovery scan
+      fixtures.
+
+- [x] **Slice 67: Wall-clock placement policy guard**
+    - User story: As Echo, storage adapters may organize bytes by time only when
+      time is non-authoritative placement metadata.
+    - Acceptance criteria: wall-clock placement cannot be authoritative; causal
+      segment id placement remains allowed.
+    - Test plan: segment placement policy fixtures.
+
+- [x] **Slice 68: Legacy flat segment compatibility**
+    - User story: As recovery, older flat-layout WAL roots should remain
+      inspectable while the canonical namespace moves forward.
+    - Acceptance criteria: a root without `segments/` can still be scanned;
+      duplicate ids across legacy and canonical layouts are rejected.
+    - Test plan: legacy flat scan and cross-layout duplicate fixtures.
+
+- [x] **Slice 69: Canonical gap and rewrite behavior**
+    - User story: As recovery, canonical segment gaps and writable tail rewrites
+      must preserve the logical segment namespace.
+    - Acceptance criteria: segment gaps under `segments/` block recovery;
+      writable truncation rewrites retained records back under `segments/`.
+    - Test plan: canonical segment gap and writable rewrite fixtures.
+
+- [x] **Slice 70: Segment id rotation guard**
+    - User story: As Echo, segment rotation must fail deterministically instead
+      of overflowing logical segment identity.
+    - Acceptance criteria: next segment id is monotonic and overflow returns a
+      typed error.
+    - Test plan: segment id overflow fixture.
+
+### PR 15: WAL Segment Manifest And Layout Gate Hardening
+
+- [x] **Slice 71: Segment manifest entry shape**
+    - User story: As Echo, segment manifest entries must bind logical segment id,
+      canonical relative path, digest, and LSN range.
+    - Acceptance criteria: manifest entries derive from frames and never require
+      wall-clock path semantics.
+    - Test plan: segment manifest entry fixture.
+
+- [x] **Slice 72: Segment layout release gate**
+    - User story: As Echo, the release readiness audit must include segment
+      layout policy explicitly.
+    - Acceptance criteria: readiness reports `segment_layout_policy` as blocked
+      until set; a fully green gate requires it.
+    - Test plan: release readiness gate fixtures.
+
+- [x] **Slice 73: Manifest-addressed placement doctrine**
+    - User story: As a storage adapter author, date/path placement must be
+      understood as byte placement, not causal truth.
+    - Acceptance criteria: BEARING records that wall-clock paths are
+      non-authoritative and segment id/digest/commit chain decide truth.
+    - Test plan: docs lint plus segment placement policy fixtures.
+
+- [x] **Slice 74: Canonical layout migration witness**
+    - User story: As an operator, moving from flat first-cut layout to
+      `segments/` must not erase recoverability.
+    - Acceptance criteria: canonical layout is preferred; legacy flat roots
+      remain readable when no canonical namespace exists.
+    - Test plan: legacy flat compatibility fixture.
+
+- [x] **Slice 75: Segment layout drift gate**
+    - User story: As a maintainer, future changes must not accidentally make
+      wall-clock directory structure part of recovery truth.
+    - Acceptance criteria: hardening tests assert canonical relative paths do not
+      include date partitions and wall-clock authoritative placement is rejected.
+    - Test plan: segment manifest and placement-policy hardening fixtures.
+
 ## Recently Completed Slice Batch
 
 1. **Contract-Aware Receipts And Readings**

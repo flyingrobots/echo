@@ -644,7 +644,7 @@ completed slice.
 
 ### PR 11: WAL Semantic And Checkpoint Hardening
 
-- [ ] **Slice 51: Writer epoch fencing matrix**
+- [x] **Slice 51: Writer epoch fencing matrix**
     - User story: As Echo, recovery must detect split-writer evidence instead of
       merging conflicting histories.
     - Acceptance criteria: epoch metadata includes fencing evidence; overlapping
@@ -652,7 +652,7 @@ completed slice.
       deterministically.
     - Test plan: writer epoch fencing fixtures.
 
-- [ ] **Slice 52: Transaction contiguity and commit semantics**
+- [x] **Slice 52: Transaction contiguity and commit semantics**
     - User story: As Echo, only complete contiguous committed WAL transactions
       become history.
     - Acceptance criteria: frames are contiguous; commit binds LSN range, count,
@@ -660,7 +660,7 @@ completed slice.
       committed history.
     - Test plan: transaction contiguity and commit mismatch tests.
 
-- [ ] **Slice 53: Semantic validator negative cases**
+- [x] **Slice 53: Semantic validator negative cases**
     - User story: As Echo, byte-valid WAL transactions must still be rejected if
       they violate runtime law.
     - Acceptance criteria: digest-valid semantic violations are rejected for
@@ -668,7 +668,7 @@ completed slice.
       mismatches.
     - Test plan: semantic validator negative fixtures.
 
-- [ ] **Slice 54: Checkpoint crash matrix**
+- [x] **Slice 54: Checkpoint crash matrix**
     - User story: As recovery, checkpoints must accelerate replay without
       creating or erasing history.
     - Acceptance criteria: crash-before-rename, rename-before-publication,
@@ -676,7 +676,7 @@ completed slice.
       cases are covered.
     - Test plan: checkpoint crash matrix fixtures.
 
-- [ ] **Slice 55: Retained material before reference matrix**
+- [x] **Slice 55: Retained material before reference matrix**
     - User story: As Echo, committed references must not point at unavailable
       retained material without typed obstruction.
     - Acceptance criteria: missing payload, receipt, state-delta, reading,

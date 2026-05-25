@@ -536,6 +536,12 @@ pub struct WriterEpoch {
     pub lease_or_lock_evidence: Hash,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct WriterEpochClosure {
+    final_lsn: Option<Lsn>,
+    final_commit_digest: Option<Hash>,
+}
+
 /// Canonical WAL record payload.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WalRecordPayload {
@@ -728,6 +734,12 @@ pub struct WalTransactionCommit {
 }
 
 impl WalTransactionCommit {
+    /// Computes the digest expected for the current commit fields.
+    #[must_use]
+    pub fn expected_digest(&self) -> Hash {
+        self.compute_digest()
+    }
+
     fn compute_digest(&self) -> Hash {
         let mut h = blake3::Hasher::new();
         h.update(WAL_COMMIT_DOMAIN);
@@ -762,6 +774,7 @@ impl WalCommittedTransaction {
     pub fn validate(&self) -> Result<(), WalValidationError> {
         validate_transaction_frames(&self.frames, &self.commit)?;
         validate_transaction_semantics(&self.frames, self.commit.transaction_kind)?;
+        validate_transaction_frontiers(&self.affected_frontiers, self.commit.transaction_kind)?;
         if affected_frontiers_root(&self.affected_frontiers) != self.commit.affected_frontiers_root
         {
             return Err(WalValidationError::AffectedFrontiersRootMismatch);
@@ -1002,6 +1015,57 @@ pub struct WriterEpochRequest {
     pub lease_or_lock_evidence: Hash,
 }
 
+fn validate_writer_epoch_request(
+    active_epoch: Option<&WriterEpoch>,
+    closed_epochs: &[WriterEpoch],
+    epoch_closures: &BTreeMap<WriterEpochId, WriterEpochClosure>,
+    request: WriterEpochRequest,
+) -> Result<WriterEpoch, WalStoreError> {
+    if active_epoch.is_some() {
+        return Err(WalStoreError::WriterEpochAlreadyActive);
+    }
+    match request.previous_epoch_id {
+        Some(previous_epoch_id) => {
+            let previous_epoch = closed_epochs
+                .iter()
+                .find(|epoch| epoch.epoch_id == previous_epoch_id)
+                .ok_or(WalStoreError::UnknownPreviousWriterEpoch)?;
+            let previous_closure = epoch_closures
+                .get(&previous_epoch_id)
+                .copied()
+                .unwrap_or_default();
+            if request.previous_epoch_final_commit_digest != previous_closure.final_commit_digest {
+                return Err(WalStoreError::WriterEpochFinalCommitDigestMismatch);
+            }
+            if let Some(final_lsn) = previous_closure.final_lsn {
+                if request.started_at_lsn <= final_lsn {
+                    return Err(WalStoreError::WriterEpochLsnRegression);
+                }
+            }
+            if request.storage_fencing_token == previous_epoch.storage_fencing_token
+                || request.lease_or_lock_evidence == previous_epoch.lease_or_lock_evidence
+            {
+                return Err(WalStoreError::WriterEpochFencingMismatch);
+            }
+        }
+        None => {
+            if !closed_epochs.is_empty() {
+                return Err(WalStoreError::WriterEpochChainGap);
+            }
+        }
+    }
+    Ok(WriterEpoch {
+        epoch_id: request.epoch_id,
+        storage_fencing_token: request.storage_fencing_token,
+        process_identity: request.process_identity,
+        host_identity: request.host_identity,
+        started_at_lsn: request.started_at_lsn,
+        previous_epoch_id: request.previous_epoch_id,
+        previous_epoch_final_commit_digest: request.previous_epoch_final_commit_digest,
+        lease_or_lock_evidence: request.lease_or_lock_evidence,
+    })
+}
+
 /// Segment seal result.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WalSegmentSeal {
@@ -1031,6 +1095,7 @@ pub struct WalManifest {
 pub struct InMemoryWalStore {
     active_epoch: Option<WriterEpoch>,
     closed_epochs: Vec<WriterEpoch>,
+    epoch_closures: BTreeMap<WriterEpochId, WriterEpochClosure>,
     frames: Vec<WalFrame>,
     commits: Vec<WalTransactionCommit>,
     sealed_segments: Vec<WalSegmentSeal>,
@@ -1076,28 +1141,12 @@ impl WalStorePort for InMemoryWalStore {
         &mut self,
         request: WriterEpochRequest,
     ) -> Result<WriterEpoch, WalStoreError> {
-        if self.active_epoch.is_some() {
-            return Err(WalStoreError::WriterEpochAlreadyActive);
-        }
-        if let Some(previous_epoch_id) = request.previous_epoch_id {
-            if self
-                .closed_epochs
-                .iter()
-                .all(|epoch| epoch.epoch_id != previous_epoch_id)
-            {
-                return Err(WalStoreError::UnknownPreviousWriterEpoch);
-            }
-        }
-        let epoch = WriterEpoch {
-            epoch_id: request.epoch_id,
-            storage_fencing_token: request.storage_fencing_token,
-            process_identity: request.process_identity,
-            host_identity: request.host_identity,
-            started_at_lsn: request.started_at_lsn,
-            previous_epoch_id: request.previous_epoch_id,
-            previous_epoch_final_commit_digest: request.previous_epoch_final_commit_digest,
-            lease_or_lock_evidence: request.lease_or_lock_evidence,
-        };
+        let epoch = validate_writer_epoch_request(
+            self.active_epoch.as_ref(),
+            &self.closed_epochs,
+            &self.epoch_closures,
+            request,
+        )?;
         self.active_epoch = Some(epoch.clone());
         Ok(epoch)
     }
@@ -1131,6 +1180,13 @@ impl WalStorePort for InMemoryWalStore {
         if active_epoch.epoch_id != epoch_id || commit.writer_epoch != epoch_id {
             return Err(WalStoreError::WriterEpochMismatch);
         }
+        self.epoch_closures.insert(
+            epoch_id,
+            WriterEpochClosure {
+                final_lsn: Some(commit.last_lsn),
+                final_commit_digest: Some(commit.commit_digest),
+            },
+        );
         self.commits.push(commit);
         Ok(())
     }
@@ -1201,6 +1257,7 @@ impl WalStorePort for InMemoryWalStore {
             self.active_epoch = Some(epoch);
             return Err(WalStoreError::WriterEpochMismatch);
         }
+        self.epoch_closures.entry(epoch_id).or_default();
         self.closed_epochs.push(epoch);
         Ok(())
     }
@@ -1975,6 +2032,7 @@ pub struct FilesystemWalStore {
     segment_id: WalSegmentId,
     active_epoch: Option<WriterEpoch>,
     closed_epochs: Vec<WriterEpoch>,
+    epoch_closures: BTreeMap<WriterEpochId, WriterEpochClosure>,
     manifests: Vec<WalManifest>,
 }
 
@@ -1997,6 +2055,7 @@ impl FilesystemWalStore {
             segment_id,
             active_epoch: None,
             closed_epochs: Vec::new(),
+            epoch_closures: BTreeMap::new(),
             manifests: Vec::new(),
         })
     }
@@ -2041,28 +2100,12 @@ impl WalStorePort for FilesystemWalStore {
         &mut self,
         request: WriterEpochRequest,
     ) -> Result<WriterEpoch, WalStoreError> {
-        if self.active_epoch.is_some() {
-            return Err(WalStoreError::WriterEpochAlreadyActive);
-        }
-        if let Some(previous_epoch_id) = request.previous_epoch_id {
-            if self
-                .closed_epochs
-                .iter()
-                .all(|epoch| epoch.epoch_id != previous_epoch_id)
-            {
-                return Err(WalStoreError::UnknownPreviousWriterEpoch);
-            }
-        }
-        let epoch = WriterEpoch {
-            epoch_id: request.epoch_id,
-            storage_fencing_token: request.storage_fencing_token,
-            process_identity: request.process_identity,
-            host_identity: request.host_identity,
-            started_at_lsn: request.started_at_lsn,
-            previous_epoch_id: request.previous_epoch_id,
-            previous_epoch_final_commit_digest: request.previous_epoch_final_commit_digest,
-            lease_or_lock_evidence: request.lease_or_lock_evidence,
-        };
+        let epoch = validate_writer_epoch_request(
+            self.active_epoch.as_ref(),
+            &self.closed_epochs,
+            &self.epoch_closures,
+            request,
+        )?;
         self.active_epoch = Some(epoch.clone());
         Ok(epoch)
     }
@@ -2095,6 +2138,13 @@ impl WalStorePort for FilesystemWalStore {
         if active_epoch.epoch_id != epoch_id || commit.writer_epoch != epoch_id {
             return Err(WalStoreError::WriterEpochMismatch);
         }
+        self.epoch_closures.insert(
+            epoch_id,
+            WriterEpochClosure {
+                final_lsn: Some(commit.last_lsn),
+                final_commit_digest: Some(commit.commit_digest),
+            },
+        );
         append_segment_record(&self.segment_path(), DiskWalRecord::Commit(&commit), true)
     }
 
@@ -2164,6 +2214,7 @@ impl WalStorePort for FilesystemWalStore {
             self.active_epoch = Some(epoch);
             return Err(WalStoreError::WriterEpochMismatch);
         }
+        self.epoch_closures.entry(epoch_id).or_default();
         self.closed_epochs.push(epoch);
         Ok(())
     }
@@ -2931,6 +2982,7 @@ pub fn recover_from_frames_and_commits(
     commits: &[WalTransactionCommit],
     mode: RecoveryAccessMode,
 ) -> Result<RecoveryScanReport, WalRecoveryError> {
+    validate_recovery_frame_order(frames)?;
     let mut recovered = Vec::new();
     let mut last_committed_lsn = None;
     for commit in commits {
@@ -2966,6 +3018,25 @@ pub fn recover_from_frames_and_commits(
         transactions: recovered,
         tail_posture,
     })
+}
+
+fn validate_recovery_frame_order(frames: &[WalFrame]) -> Result<(), WalValidationError> {
+    let mut sorted = frames.iter().collect::<Vec<_>>();
+    sorted.sort_by_key(|frame| frame.header.lsn);
+    let mut previous_lsn: Option<Lsn> = None;
+    for frame in sorted {
+        frame.validate_integrity()?;
+        if let Some(previous) = previous_lsn {
+            let expected = previous
+                .checked_next()
+                .ok_or(WalValidationError::LsnContinuityMismatch)?;
+            if frame.header.lsn != expected {
+                return Err(WalValidationError::LsnContinuityMismatch);
+            }
+        }
+        previous_lsn = Some(frame.header.lsn);
+    }
+    Ok(())
 }
 
 /// Builds a submission acceptance transaction.
@@ -3499,6 +3570,9 @@ pub enum WalValidationError {
     /// Commit digest mismatch.
     #[error("WAL transaction commit digest mismatch")]
     CommitDigestMismatch,
+    /// Affected frontier kind does not match transaction kind.
+    #[error("WAL transaction affected frontier kind mismatch")]
+    FrontierTransitionKindMismatch,
 }
 
 /// WAL store errors.
@@ -3516,6 +3590,18 @@ pub enum WalStoreError {
     /// Previous writer epoch is unknown.
     #[error("unknown previous WAL writer epoch")]
     UnknownPreviousWriterEpoch,
+    /// A new epoch omitted the previous closed epoch.
+    #[error("WAL writer epoch chain gap")]
+    WriterEpochChainGap,
+    /// Previous epoch final commit digest does not match the closed epoch.
+    #[error("WAL writer epoch final commit digest mismatch")]
+    WriterEpochFinalCommitDigestMismatch,
+    /// New epoch reuses or mismatches storage fencing evidence.
+    #[error("WAL writer epoch fencing mismatch")]
+    WriterEpochFencingMismatch,
+    /// New epoch starts at or before the previous closed epoch final LSN.
+    #[error("WAL writer epoch LSN regression")]
+    WriterEpochLsnRegression,
     /// Validation failed.
     #[error(transparent)]
     Validation(#[from] WalValidationError),
@@ -3724,6 +3810,44 @@ fn validate_transaction_semantics(
         }
     }
     Ok(())
+}
+
+fn validate_transaction_frontiers(
+    frontiers: &[AffectedFrontier],
+    transaction_kind: WalTransactionKind,
+) -> Result<(), WalValidationError> {
+    for frontier in frontiers {
+        if !frontier_kind_allowed_for_transaction(transaction_kind, frontier.kind) {
+            return Err(WalValidationError::FrontierTransitionKindMismatch);
+        }
+    }
+    Ok(())
+}
+
+fn frontier_kind_allowed_for_transaction(
+    transaction_kind: WalTransactionKind,
+    frontier_kind: AffectedFrontierKind,
+) -> bool {
+    match transaction_kind {
+        WalTransactionKind::SubmissionIntake => {
+            matches!(frontier_kind, AffectedFrontierKind::SubmissionQueue)
+        }
+        WalTransactionKind::SchedulerTick => matches!(
+            frontier_kind,
+            AffectedFrontierKind::RuntimeState
+                | AffectedFrontierKind::ReceiptIndex
+                | AffectedFrontierKind::ReadingIndex
+        ),
+        WalTransactionKind::RuntimePosture => {
+            matches!(frontier_kind, AffectedFrontierKind::RuntimeControl)
+        }
+        WalTransactionKind::Checkpoint => {
+            matches!(frontier_kind, AffectedFrontierKind::CheckpointIndex)
+        }
+        WalTransactionKind::MaterializationOutbox => {
+            matches!(frontier_kind, AffectedFrontierKind::ReceiptIndex)
+        }
+    }
 }
 
 fn records_root(frames: &[WalFrame]) -> Hash {

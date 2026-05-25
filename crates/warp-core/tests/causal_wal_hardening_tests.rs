@@ -3,17 +3,24 @@
 //! Adversarial causal WAL hardening tests.
 
 use warp_core::causal_wal::{
-    build_submission_acceptance_transaction, build_tick_transaction, recover_filesystem_store,
-    recover_receipt_index, recover_submission_index, AffectedFrontier, AffectedFrontierKind,
-    FilesystemWalStore, Lsn, PayloadCodecId, PayloadSchemaId, RecoveredSubmissionPosture,
-    RecoveryAccessMode, RecoveryTailPosture, SubmissionAcceptanceRecord, SubmissionRetryPosture,
-    TickReceiptRecord, WalAppendAuthority, WalCommittedTransaction, WalDurabilityMode,
-    WalReceiptCorrelationRecord, WalRecoveryError, WalSegmentId, WalStoreError, WalStorePort,
-    WalTickDecision, WalTransactionBuilder, WalTransactionId, WalTransactionKind, WriterEpochId,
-    WriterEpochRequest,
+    build_retained_reading_transaction, build_submission_acceptance_transaction,
+    build_tick_transaction, evaluate_checkpoint_publication, read_checkpoint_record,
+    recover_filesystem_store, recover_from_frames_and_commits, recover_receipt_index,
+    recover_retention_index, recover_submission_index, retained_material_obstructions,
+    validate_checkpoint_record, write_checkpoint_record_atomic, AffectedFrontier,
+    AffectedFrontierKind, CheckpointPublicationRecord, CheckpointRecord,
+    CheckpointValidationPosture, EvidenceMaterialPosture, FilesystemWalStore, InMemoryWalStore,
+    Lsn, MissingMaterialScope, PayloadCodecId, PayloadSchemaId, ReadingRefRecord,
+    RecoveredSubmissionPosture, RecoveryAccessMode, RecoveryTailPosture, RetainedMaterialKind,
+    RetainedMaterialRecord, SubmissionAcceptanceRecord, SubmissionRetryPosture, TickReceiptRecord,
+    WalAppendAuthority, WalBuildError, WalCommittedTransaction, WalDurabilityMode,
+    WalReceiptCorrelationRecord, WalRecordKind, WalRecoveryError, WalSegmentId, WalStoreError,
+    WalStorePort, WalTickDecision, WalTransactionBuilder, WalTransactionId, WalTransactionKind,
+    WalValidationError, WriterEpochId, WriterEpochRequest,
 };
 use warp_core::Hash;
 
+use std::collections::BTreeSet;
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -68,6 +75,10 @@ fn epoch_id() -> WriterEpochId {
     WriterEpochId::from_hash(digest("hardening:epoch:1"))
 }
 
+fn epoch_id_for(label: &str) -> WriterEpochId {
+    WriterEpochId::from_hash(digest(&format!("hardening:epoch:{label}")))
+}
+
 fn writer_epoch_request() -> WriterEpochRequest {
     WriterEpochRequest {
         epoch_id: epoch_id(),
@@ -78,6 +89,24 @@ fn writer_epoch_request() -> WriterEpochRequest {
         previous_epoch_id: None,
         previous_epoch_final_commit_digest: None,
         lease_or_lock_evidence: digest("hardening:lock:1"),
+    }
+}
+
+fn writer_epoch_request_for(
+    label: &str,
+    started_at_lsn: Lsn,
+    previous_epoch_id: Option<WriterEpochId>,
+    previous_epoch_final_commit_digest: Option<Hash>,
+) -> WriterEpochRequest {
+    WriterEpochRequest {
+        epoch_id: epoch_id_for(label),
+        storage_fencing_token: digest(&format!("hardening:fence:{label}")),
+        process_identity: digest(&format!("hardening:process:{label}")),
+        host_identity: digest("hardening:host:1"),
+        started_at_lsn,
+        previous_epoch_id,
+        previous_epoch_final_commit_digest,
+        lease_or_lock_evidence: digest(&format!("hardening:lock:{label}")),
     }
 }
 
@@ -163,6 +192,51 @@ fn tick_transaction(
         digest(&format!("hardening:state-delta:{label}")),
         vec![frontier(label, AffectedFrontierKind::RuntimeState)],
     ))
+}
+
+fn retained_material(
+    label: &str,
+    kind: RetainedMaterialKind,
+    posture: EvidenceMaterialPosture,
+) -> RetainedMaterialRecord {
+    RetainedMaterialRecord {
+        material_digest: digest(&format!("hardening:material:{label}")),
+        semantic_coordinate_digest: digest(&format!("hardening:coordinate:{label}")),
+        kind,
+        posture,
+    }
+}
+
+fn reading_ref(label: &str, posture: EvidenceMaterialPosture) -> ReadingRefRecord {
+    ReadingRefRecord {
+        reading_id: digest(&format!("hardening:reading:{label}")),
+        semantic_coordinate_digest: digest(&format!("hardening:coordinate:{label}")),
+        payload_digest: digest(&format!("hardening:material:{label}:payload")),
+        envelope_digest: digest(&format!("hardening:material:{label}:envelope")),
+        posture,
+    }
+}
+
+fn retention_transaction(
+    label: &str,
+    material: &[RetainedMaterialRecord],
+    first_lsn: Lsn,
+) -> WalCommittedTransaction {
+    must_ok(build_retained_reading_transaction(
+        builder(
+            &format!("retention:{label}"),
+            first_lsn,
+            WalAppendAuthority::TrustedScheduler,
+            WalTransactionKind::SchedulerTick,
+        ),
+        material,
+        reading_ref(label, EvidenceMaterialPosture::Present),
+        vec![frontier(label, AffectedFrontierKind::ReadingIndex)],
+    ))
+}
+
+fn refresh_commit_digest(transaction: &mut WalCommittedTransaction) {
+    transaction.commit.commit_digest = transaction.commit.expected_digest();
 }
 
 fn temp_wal_root(label: &str) -> PathBuf {
@@ -284,6 +358,19 @@ fn segment_file_name(segment_id: u64) -> String {
 
 fn duplicate_segment_file_name(segment_id: u64) -> String {
     format!("segment-{segment_id:020}-duplicate.ecwal")
+}
+
+fn checkpoint(label: &str, last_lsn: Lsn, last_commit_digest: Hash) -> CheckpointRecord {
+    CheckpointRecord {
+        checkpoint_id: digest(&format!("hardening:checkpoint:{label}")),
+        last_included_lsn: last_lsn,
+        last_included_commit_digest: last_commit_digest,
+        state_root: digest(&format!("hardening:checkpoint:{label}:state")),
+        index_root: digest(&format!("hardening:checkpoint:{label}:index")),
+        retained_material_root: digest(&format!("hardening:checkpoint:{label}:retention")),
+        schema_version: 1,
+        created_from_wal_digest: digest(&format!("hardening:checkpoint:{label}:wal")),
+    }
 }
 
 #[test]
@@ -554,6 +641,241 @@ fn duplicate_segment_id_blocks_recovery() {
 }
 
 #[test]
+fn closed_epoch_allows_next_epoch_with_matching_fence_evidence() {
+    let mut store = InMemoryWalStore::new();
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    let transaction = submission_transaction("epoch-chain", Lsn::from_raw(0));
+    let previous_commit_digest = transaction.commit.commit_digest;
+    must_ok(store.append_transaction(transaction));
+    must_ok(store.close_epoch(epoch_id()));
+
+    let next = writer_epoch_request_for(
+        "2",
+        Lsn::from_raw(2),
+        Some(epoch_id()),
+        Some(previous_commit_digest),
+    );
+
+    let epoch = must_ok(store.acquire_writer_epoch(next));
+    assert_eq!(epoch.epoch_id, epoch_id_for("2"));
+    assert_eq!(epoch.previous_epoch_id, Some(epoch_id()));
+    assert_eq!(
+        epoch.previous_epoch_final_commit_digest,
+        Some(previous_commit_digest)
+    );
+}
+
+#[test]
+fn unknown_previous_writer_epoch_rejected() {
+    let mut store = InMemoryWalStore::new();
+
+    let error = must_err(
+        store.acquire_writer_epoch(writer_epoch_request_for(
+            "2",
+            Lsn::from_raw(0),
+            Some(epoch_id_for("missing")),
+            Some(digest("missing-final")),
+        )),
+        "unknown previous writer epoch should be rejected",
+    );
+
+    assert!(matches!(error, WalStoreError::UnknownPreviousWriterEpoch));
+}
+
+#[test]
+fn writer_epoch_chain_requires_previous_final_commit_digest() {
+    let mut store = InMemoryWalStore::new();
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    let transaction = submission_transaction("epoch-final", Lsn::from_raw(0));
+    must_ok(store.append_transaction(transaction));
+    must_ok(store.close_epoch(epoch_id()));
+
+    let error = must_err(
+        store.acquire_writer_epoch(writer_epoch_request_for(
+            "2",
+            Lsn::from_raw(2),
+            Some(epoch_id()),
+            None,
+        )),
+        "missing previous final digest should be rejected",
+    );
+
+    assert!(matches!(
+        error,
+        WalStoreError::WriterEpochFinalCommitDigestMismatch
+    ));
+}
+
+#[test]
+fn writer_epoch_fencing_token_mismatch_blocks_recovery() {
+    let mut store = InMemoryWalStore::new();
+    let first = writer_epoch_request();
+    must_ok(store.acquire_writer_epoch(first.clone()));
+    let transaction = submission_transaction("epoch-fence", Lsn::from_raw(0));
+    let previous_commit_digest = transaction.commit.commit_digest;
+    must_ok(store.append_transaction(transaction));
+    must_ok(store.close_epoch(epoch_id()));
+    let mut next = writer_epoch_request_for(
+        "2",
+        Lsn::from_raw(2),
+        Some(epoch_id()),
+        Some(previous_commit_digest),
+    );
+    next.storage_fencing_token = first.storage_fencing_token;
+
+    let error = must_err(
+        store.acquire_writer_epoch(next),
+        "reused storage fencing token should be rejected",
+    );
+
+    assert!(matches!(error, WalStoreError::WriterEpochFencingMismatch));
+}
+
+#[test]
+fn writer_epoch_chain_gap_rejected() {
+    let mut store = InMemoryWalStore::new();
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    must_ok(store.close_epoch(epoch_id()));
+
+    let error = must_err(
+        store.acquire_writer_epoch(writer_epoch_request_for("2", Lsn::from_raw(0), None, None)),
+        "new epoch should cite the previous closed epoch",
+    );
+
+    assert!(matches!(error, WalStoreError::WriterEpochChainGap));
+}
+
+#[test]
+fn interleaved_transactions_rejected() {
+    let first = submission_transaction("interleaved:first", Lsn::from_raw(0));
+    let second = submission_transaction("interleaved:second", Lsn::from_raw(1));
+    let mut frames = first.frames.clone();
+    frames.extend(second.frames.clone());
+    let commits = vec![first.commit, second.commit];
+
+    let error = must_err(
+        recover_from_frames_and_commits(&frames, &commits, RecoveryAccessMode::ReadOnly),
+        "overlapping/interleaved global LSN order should be rejected",
+    );
+
+    assert!(matches!(
+        error,
+        WalRecoveryError::Validation(WalValidationError::LsnContinuityMismatch)
+    ));
+}
+
+#[test]
+fn commit_record_count_mismatch_rejected() {
+    let mut transaction = submission_transaction("record-count", Lsn::from_raw(0));
+    transaction.commit.record_count += 1;
+    refresh_commit_digest(&mut transaction);
+
+    let error = must_err(
+        transaction.validate(),
+        "record count mismatch should reject",
+    );
+
+    assert!(matches!(error, WalValidationError::RecordCountMismatch));
+}
+
+#[test]
+fn commit_lsn_range_gap_rejected() {
+    let mut transaction = submission_transaction("lsn-gap", Lsn::from_raw(0));
+    transaction.commit.last_lsn = Lsn::from_raw(2);
+    refresh_commit_digest(&mut transaction);
+
+    let error = must_err(transaction.validate(), "LSN range gap should reject");
+
+    assert!(matches!(error, WalValidationError::LastLsnMismatch));
+}
+
+#[test]
+fn commit_records_root_mismatch_rejected() {
+    let mut transaction = submission_transaction("records-root", Lsn::from_raw(0));
+    transaction.commit.records_root = digest("hardening:records-root:wrong");
+    refresh_commit_digest(&mut transaction);
+
+    let error = must_err(
+        transaction.validate(),
+        "records root mismatch should reject",
+    );
+
+    assert!(matches!(error, WalValidationError::RecordsRootMismatch));
+}
+
+#[test]
+fn byte_valid_submission_with_tick_record_rejected() {
+    let mut transaction = tick_transaction(
+        "semantic-submission",
+        Lsn::from_raw(0),
+        WalTickDecision::Applied,
+    );
+    transaction.commit.transaction_kind = WalTransactionKind::SubmissionIntake;
+    refresh_commit_digest(&mut transaction);
+
+    let error = must_err(
+        transaction.validate(),
+        "byte-valid tick records cannot masquerade as submission intake",
+    );
+
+    assert!(matches!(error, WalValidationError::RecordAuthorityMismatch));
+}
+
+#[test]
+fn runtime_control_record_without_runtime_authority_rejected() {
+    let mut builder = builder(
+        "runtime-control-semantic",
+        Lsn::from_raw(0),
+        WalAppendAuthority::RuntimeControl,
+        WalTransactionKind::RuntimePosture,
+    );
+    must_ok(builder.push_record(
+        WalRecordKind::TrustedRuntimeControlRecorded,
+        digest("hardening:runtime-control").to_vec(),
+    ));
+    let mut transaction = must_ok(builder.commit(vec![frontier(
+        "runtime-control-semantic",
+        AffectedFrontierKind::RuntimeControl,
+    )]));
+    transaction.commit.transaction_kind = WalTransactionKind::SchedulerTick;
+    refresh_commit_digest(&mut transaction);
+
+    let error = must_err(
+        transaction.validate(),
+        "runtime-control record without runtime authority should reject",
+    );
+
+    assert!(matches!(error, WalValidationError::RecordAuthorityMismatch));
+}
+
+#[test]
+fn frontier_transition_kind_mismatch_rejected() {
+    let mut builder = builder(
+        "frontier-kind",
+        Lsn::from_raw(0),
+        WalAppendAuthority::SubmissionIntake,
+        WalTransactionKind::SubmissionIntake,
+    );
+    must_ok(builder.push_record(
+        WalRecordKind::SubmissionAcceptedRecorded,
+        submission_acceptance("frontier-kind").to_payload_bytes(),
+    ));
+
+    let error = must_err(
+        builder.commit(vec![frontier(
+            "frontier-kind",
+            AffectedFrontierKind::RuntimeState,
+        )]),
+        "submission intake cannot mutate runtime-state frontier",
+    );
+
+    assert!(matches!(
+        error,
+        WalBuildError::Validation(WalValidationError::FrontierTransitionKindMismatch)
+    ));
+}
+
+#[test]
 fn crash_before_submission_commit_recovers_not_accepted() {
     let mut fixture = WalHardeningFixture::new("submission-before-commit");
     fixture.append_uncommitted_submission_frame("before-commit", Lsn::from_raw(0));
@@ -674,4 +996,209 @@ fn uncommitted_tick_tail_does_not_advance_frontier() {
         SubmissionRetryPosture::AlreadyAcceptedPending
     );
     assert!(receipt_index.receipt_by_submission.is_empty());
+}
+
+#[test]
+fn crash_before_checkpoint_rename_uses_full_replay() {
+    let mut fixture = WalHardeningFixture::new("checkpoint-before-rename");
+    fixture.append_submission("checkpoint-before-rename", Lsn::from_raw(0));
+    let temp_checkpoint = fixture.root.join(".checkpoint.ecwal.tmp");
+    must_ok(fs::write(&temp_checkpoint, b"incomplete-checkpoint-temp"));
+
+    let report = must_ok(fixture.recover_read_only());
+    let final_checkpoint = fixture.root.join("checkpoint.ecwal");
+
+    assert_eq!(report.tail_posture, RecoveryTailPosture::Clean);
+    assert_eq!(report.transactions.len(), 1);
+    assert!(!final_checkpoint.exists());
+}
+
+#[test]
+fn checkpoint_ahead_of_wal_chain_is_rejected() {
+    let mut fixture = WalHardeningFixture::new("checkpoint-ahead");
+    let transaction = fixture.append_submission("checkpoint-ahead", Lsn::from_raw(0));
+    let report = must_ok(fixture.recover_read_only());
+    let ahead = checkpoint("ahead", Lsn::from_raw(99), transaction.commit.commit_digest);
+
+    assert_eq!(
+        validate_checkpoint_record(&ahead, &report, &[]),
+        CheckpointValidationPosture::Invalid
+    );
+}
+
+#[test]
+fn published_checkpoint_missing_material_obstructs() {
+    let mut fixture = WalHardeningFixture::new("checkpoint-missing-material");
+    fixture.append_submission("checkpoint-missing-material", Lsn::from_raw(0));
+    let report = must_ok(fixture.recover_read_only());
+    let publication = CheckpointPublicationRecord {
+        checkpoint_id: digest("hardening:checkpoint:missing"),
+        checkpoint_digest: digest("hardening:checkpoint:missing:digest"),
+    };
+
+    assert_eq!(
+        evaluate_checkpoint_publication(&publication, None, &report),
+        CheckpointValidationPosture::PublishedCheckpointMaterialMissing
+    );
+}
+
+#[test]
+fn corrupt_latest_checkpoint_falls_back_to_prior_valid_checkpoint() {
+    let mut fixture = WalHardeningFixture::new("checkpoint-fallback");
+    let transaction = fixture.append_submission("checkpoint-fallback", Lsn::from_raw(0));
+    let report = must_ok(fixture.recover_read_only());
+    let prior = checkpoint(
+        "prior",
+        transaction.commit.last_lsn,
+        transaction.commit.commit_digest,
+    );
+    let prior_path = fixture.root.join("checkpoint-prior.ecwal");
+    let latest_path = fixture.root.join("checkpoint-latest.ecwal");
+    must_ok(write_checkpoint_record_atomic(&prior_path, &prior));
+    must_ok(fs::write(&latest_path, b"corrupt-latest-checkpoint"));
+
+    let latest_error = must_err(
+        read_checkpoint_record(&latest_path),
+        "corrupt latest checkpoint should not parse",
+    );
+    let recovered_prior = must_ok(read_checkpoint_record(&prior_path));
+
+    assert!(matches!(
+        latest_error,
+        warp_core::causal_wal::WalCheckpointIoError::InvalidMagic
+    ));
+    assert_eq!(
+        validate_checkpoint_record(&recovered_prior, &report, &[]),
+        CheckpointValidationPosture::UsableWithoutPublicationRecord
+    );
+}
+
+#[test]
+fn missing_submission_payload_recovers_submission_obstruction() {
+    let mut store = InMemoryWalStore::new();
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    let material = retained_material(
+        "submission-payload",
+        RetainedMaterialKind::SubmissionPayload,
+        EvidenceMaterialPosture::Present,
+    );
+    must_ok(store.append_transaction(retention_transaction(
+        "submission-payload",
+        &[material],
+        Lsn::from_raw(0),
+    )));
+    let report = must_ok(recover_from_frames_and_commits(
+        &store.read_frames(),
+        &store.read_commits(),
+        RecoveryAccessMode::ReadOnly,
+    ));
+    let retention = must_ok(recover_retention_index(&report));
+    let obstructions = retained_material_obstructions(&retention, &BTreeSet::new());
+
+    assert_eq!(obstructions.len(), 1);
+    assert_eq!(obstructions[0].scope, MissingMaterialScope::Submission);
+}
+
+#[test]
+fn missing_tick_receipt_material_recovers_receipt_obstruction() {
+    let mut store = InMemoryWalStore::new();
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    let material = retained_material(
+        "tick-receipt",
+        RetainedMaterialKind::TickReceipt,
+        EvidenceMaterialPosture::Present,
+    );
+    must_ok(store.append_transaction(retention_transaction(
+        "tick-receipt",
+        &[material],
+        Lsn::from_raw(0),
+    )));
+    let report = must_ok(recover_from_frames_and_commits(
+        &store.read_frames(),
+        &store.read_commits(),
+        RecoveryAccessMode::ReadOnly,
+    ));
+    let retention = must_ok(recover_retention_index(&report));
+    let obstructions = retained_material_obstructions(&retention, &BTreeSet::new());
+
+    assert_eq!(obstructions.len(), 1);
+    assert_eq!(obstructions[0].scope, MissingMaterialScope::ReceiptOrTicket);
+}
+
+#[test]
+fn missing_tick_state_delta_blocks_frontier_recovery() {
+    let mut store = InMemoryWalStore::new();
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    let material = retained_material(
+        "state-delta",
+        RetainedMaterialKind::RuntimeStateDelta,
+        EvidenceMaterialPosture::Present,
+    );
+    must_ok(store.append_transaction(retention_transaction(
+        "state-delta",
+        &[material],
+        Lsn::from_raw(0),
+    )));
+    let report = must_ok(recover_from_frames_and_commits(
+        &store.read_frames(),
+        &store.read_commits(),
+        RecoveryAccessMode::ReadOnly,
+    ));
+    let retention = must_ok(recover_retention_index(&report));
+    let obstructions = retained_material_obstructions(&retention, &BTreeSet::new());
+
+    assert_eq!(obstructions.len(), 1);
+    assert_eq!(obstructions[0].scope, MissingMaterialScope::RuntimeGlobal);
+}
+
+#[test]
+fn missing_reading_material_returns_obstruction() {
+    let mut store = InMemoryWalStore::new();
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    let material = retained_material(
+        "reading-payload",
+        RetainedMaterialKind::ReadingPayload,
+        EvidenceMaterialPosture::Present,
+    );
+    must_ok(store.append_transaction(retention_transaction(
+        "reading-payload",
+        &[material],
+        Lsn::from_raw(0),
+    )));
+    let report = must_ok(recover_from_frames_and_commits(
+        &store.read_frames(),
+        &store.read_commits(),
+        RecoveryAccessMode::ReadOnly,
+    ));
+    let retention = must_ok(recover_retention_index(&report));
+    let obstructions = retained_material_obstructions(&retention, &BTreeSet::new());
+
+    assert_eq!(obstructions.len(), 1);
+    assert_eq!(obstructions[0].scope, MissingMaterialScope::Reading);
+}
+
+#[test]
+fn missing_diagnostic_material_does_not_block_recovery() {
+    let mut store = InMemoryWalStore::new();
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    let material = retained_material(
+        "diagnostic",
+        RetainedMaterialKind::Diagnostic,
+        EvidenceMaterialPosture::Present,
+    );
+    must_ok(store.append_transaction(retention_transaction(
+        "diagnostic",
+        &[material],
+        Lsn::from_raw(0),
+    )));
+    let report = must_ok(recover_from_frames_and_commits(
+        &store.read_frames(),
+        &store.read_commits(),
+        RecoveryAccessMode::ReadOnly,
+    ));
+    let retention = must_ok(recover_retention_index(&report));
+    let obstructions = retained_material_obstructions(&retention, &BTreeSet::new());
+
+    assert_eq!(obstructions.len(), 1);
+    assert_eq!(obstructions[0].scope, MissingMaterialScope::DiagnosticLoss);
 }

@@ -91,6 +91,8 @@ enum TestSlice {
     WarpCoreSmoke,
     /// v0.1 local contract-host replay/release witness.
     ContractPathRelease,
+    /// Runtime WAL-backed ACK and recovery posture witness.
+    RuntimeWalAck,
 }
 
 #[derive(Args)]
@@ -604,6 +606,37 @@ fn build_test_slice_commands(slice: TestSlice) -> Vec<Command> {
                 "--test",
                 "external_consumer_contract_fixture_tests",
             ]),
+        ],
+        TestSlice::RuntimeWalAck => vec![
+            cargo_command([
+                "test",
+                "-p",
+                "warp-core",
+                "--features",
+                "native_rule_bootstrap trusted_runtime host_test",
+                "--lib",
+                "trusted_runtime_host::tests::runtime_wal_tick_decision",
+            ]),
+            cargo_command([
+                "test",
+                "-p",
+                "warp-core",
+                "--features",
+                "native_rule_bootstrap trusted_runtime host_test",
+                "--test",
+                "trusted_runtime_host_loop_tests",
+                "runtime_wal_ack",
+            ]),
+            cargo_command([
+                "test",
+                "-p",
+                "warp-cli",
+                "--test",
+                "cli_integration",
+                "wal_submission_posture",
+            ]),
+            cargo_command(["test", "-p", "xtask", "runtime_wal_ack_stale_claims"]),
+            cargo_command(["xtask", "man-pages", "--check"]),
         ],
     }
 }
@@ -6377,6 +6410,111 @@ mod tests {
                 "external_consumer_contract_fixture_tests",
             ]
         );
+    }
+
+    #[test]
+    fn test_slice_runtime_wal_ack_stays_explicit() {
+        let commands = build_test_slice_commands(TestSlice::RuntimeWalAck);
+        assert_eq!(commands.len(), 5);
+
+        let (program, args) = command_program_and_args(&commands[0]);
+        assert_eq!(program, "cargo");
+        assert_eq!(
+            args,
+            vec![
+                "test",
+                "-p",
+                "warp-core",
+                "--features",
+                "native_rule_bootstrap trusted_runtime host_test",
+                "--lib",
+                "trusted_runtime_host::tests::runtime_wal_tick_decision",
+            ]
+        );
+
+        let (program, args) = command_program_and_args(&commands[1]);
+        assert_eq!(program, "cargo");
+        assert_eq!(
+            args,
+            vec![
+                "test",
+                "-p",
+                "warp-core",
+                "--features",
+                "native_rule_bootstrap trusted_runtime host_test",
+                "--test",
+                "trusted_runtime_host_loop_tests",
+                "runtime_wal_ack",
+            ]
+        );
+
+        let (program, args) = command_program_and_args(&commands[2]);
+        assert_eq!(program, "cargo");
+        assert_eq!(
+            args,
+            vec![
+                "test",
+                "-p",
+                "warp-cli",
+                "--test",
+                "cli_integration",
+                "wal_submission_posture",
+            ]
+        );
+
+        let (program, args) = command_program_and_args(&commands[3]);
+        assert_eq!(program, "cargo");
+        assert_eq!(
+            args,
+            vec!["test", "-p", "xtask", "runtime_wal_ack_stale_claims"]
+        );
+
+        let (program, args) = command_program_and_args(&commands[4]);
+        assert_eq!(program, "cargo");
+        assert_eq!(args, vec!["xtask", "man-pages", "--check"]);
+    }
+
+    #[test]
+    fn runtime_wal_ack_stale_claims_stay_current() {
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("xtask crate should live under repository root");
+        let checked_docs = [
+            "docs/BEARING.md",
+            "docs/design/v0.1.0-jedit-release-gate.md",
+            "docs/design/causal-wal-hardening-matrix.md",
+            "docs/workflows.md",
+        ];
+        let stale_claims = [
+            "durable ACK semantics are unimplemented",
+            "runtime ACK coverage remains ungated",
+            "tick receipts are visible before WAL commit",
+            "accepted submission evidence can be returned before WAL commit",
+            "jedit recovery fixture contract is still missing",
+        ];
+
+        for relative_path in checked_docs {
+            let path = repo_root.join(relative_path);
+            let content = fs::read_to_string(&path)
+                .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
+            for stale_claim in stale_claims {
+                assert!(
+                    !content.contains(stale_claim),
+                    "{} contains stale runtime WAL ACK claim `{}`",
+                    relative_path,
+                    stale_claim
+                );
+            }
+        }
+
+        let bearing = fs::read_to_string(repo_root.join("docs/BEARING.md"))
+            .expect("BEARING should be readable");
+        assert!(bearing.contains("Runtime ACK drift gate"));
+        assert!(bearing.contains("cargo xtask test-slice runtime-wal-ack"));
+
+        let workflows = fs::read_to_string(repo_root.join("docs/workflows.md"))
+            .expect("workflow docs should be readable");
+        assert!(workflows.contains("cargo xtask test-slice runtime-wal-ack"));
     }
 
     #[test]

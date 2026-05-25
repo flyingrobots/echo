@@ -66,6 +66,11 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
   pipeline replay tests, reference trusted host loop test, and serious external
   consumer fixture without requiring developers to run the full DIND suite for
   normal local iteration.
+- `xtask test-slice` now includes `runtime-wal-ack`, a narrow runtime WAL
+  ACK witness. The slice runs WAL-backed app-facing submission acceptance,
+  scheduler tick receipt commit-before-publish, recovered runtime indexes,
+  CLI submission-posture JSON, stale-claim guard, and generated man-page
+  checks.
 - The docs now include an executable local contract-host quickstart and a
   v0.1.0 authority-boundary audit. The quickstart points developers at
   `cargo xtask test-slice contract-path-release`, names the app-facing and
@@ -528,6 +533,15 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Changed
 
+- `echo-cli wal submission-posture` now exposes generic read-only recovery JSON
+  for one submission id and canonical envelope digest. The output reports retry
+  posture, recovered submission posture, receipt digest, and ticket digest
+  without importing any application nouns into Echo.
+- Runtime WAL-backed scheduler ticks now roll back all tick WAL evidence from a
+  failed multi-head scheduler pass, treat missing or mismatched receipt
+  correlation evidence as an invariant error instead of a normal obstruction,
+  and bind runtime recovery certificates to rebuilt submission and receipt
+  indexes.
 - `warp-wasm` no longer contains the legacy Stack Witness 0001
   `createBuffer`/`replaceRange`/`textWindow` shortcut. QueryView requests now
   route through the generic installed contract observer boundary only; without

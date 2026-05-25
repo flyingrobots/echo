@@ -3,7 +3,7 @@
 
 # BEARING
 
-Last updated: 2026-05-24.
+Last updated: 2026-05-25.
 
 This signpost summarizes current direction. It does not create commitments or
 replace backlog items, design docs, retros, or CLI status. If it disagrees with
@@ -959,7 +959,7 @@ completed slice.
     - Test plan: `runtime_wal_ack_failure_rolls_back_intake_mutation` and
       `runtime_wal_ack_path_requires_configured_runtime_wal`.
 
-- [ ] **Slice 90: Tick receipt transaction wiring**
+- [x] **Slice 90: Tick receipt transaction wiring**
     - User story: As Echo, visible tick receipts should eventually be backed by
       committed scheduler-tick WAL transactions.
     - Acceptance criteria: host-owned scheduler runs record receipt and
@@ -967,21 +967,21 @@ completed slice.
     - Test plan: trusted-host applied-intent fixture plus recovered receipt
       index witness.
 
-- [ ] **Slice 91: Tick commit-before-publish rollback guard**
+- [x] **Slice 91: Tick commit-before-publish rollback guard**
     - User story: As Echo, a tick WAL failure must not leave a half-visible
       receipt/outcome.
     - Acceptance criteria: tick WAL failure either restores runtime/provenance
       state or blocks receipt publication under a typed runtime fault posture.
     - Test plan: injected tick-WAL failure fixture.
 
-- [ ] **Slice 92: Runtime index rebuild contract**
+- [x] **Slice 92: Runtime index rebuild contract**
     - User story: As recovery, WAL-backed submission and receipt indexes should
       rebuild without scheduler callbacks.
     - Acceptance criteria: recovered indexes answer pending/applied/rejected
       posture from committed WAL transactions only.
     - Test plan: pure in-memory recovery fixture for submit plus tick records.
 
-- [ ] **Slice 93: WAL-backed recovery certificate in runtime**
+- [x] **Slice 93: WAL-backed recovery certificate in runtime**
     - User story: As an operator, restart should produce inspectable evidence
       about what committed history was replayed.
     - Acceptance criteria: recovery certificate covers checkpoint, LSN range,
@@ -989,20 +989,23 @@ completed slice.
     - Test plan: recovery certificate fixture over committed and truncated-tail
       WAL shapes.
 
-- [ ] **Slice 94: `jedit` recovery fixture contract**
-    - User story: As a real app consumer, `jedit` should be able to distinguish
-      not-accepted, accepted-pending, decided, rejected, and obstructed edits
-      from Echo recovery evidence.
+- [x] **Slice 94: Echo recovery posture contract**
+    - User story: As a real app consumer, sibling applications should be able
+      to distinguish not-accepted, accepted-pending, decided, rejected, and
+      obstructed work from Echo recovery evidence without Echo importing
+      application nouns.
     - Acceptance criteria: Echo exposes only generic submission/receipt posture;
-      `jedit` maps that posture to editor terms outside Echo.
-    - Test plan: sibling `jedit` fixture consumes generic Echo recovery JSON.
+      sibling applications map that posture to product terms outside Echo.
+    - Test plan: Echo CLI fixture emits generic recovery JSON; the sibling
+      `jedit` fixture remains the next cross-repo consumer witness.
 
-- [ ] **Slice 95: Runtime ACK drift gate**
+- [x] **Slice 95: Runtime ACK drift gate**
     - User story: As a maintainer, docs and tests should fail if Echo claims
       durable ACK semantics without a WAL-backed witness.
     - Acceptance criteria: release readiness names runtime ACK coverage as a
-      distinct gate.
-    - Test plan: runtime ACK readiness gate fixture plus stale-claim grep.
+      distinct gate through `cargo xtask test-slice runtime-wal-ack`.
+    - Test plan: runtime ACK readiness gate fixture plus stale-claim grep:
+      `cargo xtask test-slice runtime-wal-ack`.
 
 ## Recently Completed Slice Batch
 

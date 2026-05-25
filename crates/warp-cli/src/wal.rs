@@ -88,9 +88,10 @@ pub(crate) fn submission_posture(
             .map(hex_hash),
     };
     let text = format!(
-        "echo-cli wal submission-posture\nRoot: {}\nSubmission: {}\nRetry posture: {}\nRecovered posture: {}\nReceipt: {}\nTicket: {}\n",
+        "echo-cli wal submission-posture\nRoot: {}\nSubmission: {}\nCanonical envelope: {}\nRetry posture: {}\nRecovered posture: {}\nReceipt: {}\nTicket: {}\n",
         output.root,
         output.submission_id,
+        output.canonical_envelope_digest,
         output.retry_posture,
         output.recovered_posture.unwrap_or("None"),
         output.receipt_digest.as_deref().unwrap_or("None"),

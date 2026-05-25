@@ -387,6 +387,28 @@ fn wal_submission_posture_json_reports_generic_recovered_status() -> TestResult 
 }
 
 #[test]
+fn wal_submission_posture_text_reports_canonical_envelope_digest() -> TestResult {
+    let temp = filesystem_wal_with_decided_submission()?;
+    let envelope_digest = hex::encode(digest("envelope:decided"));
+    let assert = echo_cli()
+        .args([
+            "wal",
+            "submission-posture",
+            temp.path().to_str().ok_or("temp path is not UTF-8")?,
+            "--submission-id",
+            &hex::encode(digest("submission:decided")),
+            "--canonical-envelope-digest",
+            &envelope_digest,
+        ])
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+
+    assert!(stdout.contains(&format!("Canonical envelope: {envelope_digest}")));
+    Ok(())
+}
+
+#[test]
 fn wal_submission_posture_json_reports_not_accepted_without_app_nouns() -> TestResult {
     let temp = filesystem_wal_with_committed_submission()?;
     let assert = echo_cli()

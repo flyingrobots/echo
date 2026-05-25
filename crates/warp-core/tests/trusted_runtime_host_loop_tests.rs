@@ -467,6 +467,7 @@ fn runtime_wal_ack_duplicate_without_prior_wal_backfills_acceptance() {
         .expect("runtime WAL should initialize");
 
     let envelope = eint_envelope(worldline_id);
+    let envelope_digest = envelope.ingress_id();
     let first = {
         let mut app = host.app();
         app.submit_intent(envelope.clone())
@@ -483,6 +484,59 @@ fn runtime_wal_ack_duplicate_without_prior_wal_backfills_acceptance() {
         let mut app = host.app();
         app.submit_intent_with_runtime_wal_ack(envelope)
             .expect("WAL ACK duplicate should backfill acceptance evidence")
+    };
+
+    assert!(duplicate.duplicate);
+    assert_eq!(duplicate.submission_id, first.submission_id);
+    let runtime_wal = host
+        .runtime_wal()
+        .expect("runtime WAL should stay configured");
+    assert_eq!(runtime_wal.submission_acceptance_count(), 1);
+    let mut store = runtime_wal.cloned_store();
+    let report = recover_in_memory_store(&mut store, RecoveryAccessMode::ReadOnly)
+        .expect("backfilled acceptance should recover");
+    let recovered = recover_submission_index(&report)
+        .expect("backfilled acceptance should rebuild submission index");
+    assert_eq!(
+        recovered
+            .get(&first.submission_id)
+            .expect("submission should recover from committed WAL")
+            .acceptance
+            .canonical_envelope_digest,
+        envelope_digest
+    );
+}
+
+#[test]
+fn runtime_wal_ack_duplicate_ignores_uncommitted_acceptance_frames() {
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_in_memory_runtime_wal()
+        .expect("runtime WAL should initialize");
+
+    let envelope = eint_envelope(worldline_id);
+    let first = {
+        let mut app = host.app();
+        app.submit_intent(envelope.clone())
+            .expect("legacy non-WAL submission should be accepted")
+    };
+    let mut raw_wal = TrustedRuntimeWal::new_in_memory().expect("test WAL should initialize");
+    raw_wal
+        .append_uncommitted_submission_acceptance_for_test(&envelope, first)
+        .expect("test fixture should append raw acceptance frames");
+    host.replace_runtime_wal_for_test(raw_wal);
+    assert_eq!(
+        host.runtime_wal()
+            .expect("runtime WAL should stay configured")
+            .submission_acceptance_count(),
+        0
+    );
+
+    let duplicate = {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(envelope)
+            .expect("WAL ACK duplicate should commit recoverable acceptance evidence")
     };
 
     assert!(duplicate.duplicate);

@@ -18,9 +18,9 @@ use crate::{
         recover_submission_index, recovered_submission_receipt_index_root, AffectedFrontier,
         AffectedFrontierKind, InMemoryWalStore, Lsn, PayloadCodecId, PayloadSchemaId,
         RecoveredReceiptIndex, RecoveredSubmissionIndex, RecoveryAccessMode, RecoveryCertificate,
-        RecoveryScanReport, SubmissionAcceptanceRecord, TickReceiptRecord, WalAppendAuthority,
-        WalBuildError, WalCommittedTransaction, WalDurabilityMode, WalReceiptCorrelationRecord,
-        WalRecordKind, WalRecoveryError, WalSegmentId, WalStoreError, WalStorePort,
+        RecoveryScanReport, SubmissionAcceptanceRecord, SubmissionRetryPosture, TickReceiptRecord,
+        WalAppendAuthority, WalBuildError, WalCommittedTransaction, WalDurabilityMode,
+        WalReceiptCorrelationRecord, WalRecoveryError, WalSegmentId, WalStoreError, WalStorePort,
         WalTickDecision, WalTransactionBuilder, WalTransactionCommit, WalTransactionId,
         WalTransactionKind, WriterEpochId, WriterEpochRequest,
     },
@@ -420,7 +420,7 @@ impl TrustedRuntimeWal {
         self.store.read_commits()
     }
 
-    /// Returns committed WAL frames recorded by the adapter.
+    /// Returns WAL frames recorded by the adapter.
     #[must_use]
     pub fn frames(&self) -> Vec<crate::causal_wal::WalFrame> {
         self.store.read_frames()
@@ -470,17 +470,17 @@ impl TrustedRuntimeWal {
         &self,
         submission_id: Hash,
         canonical_envelope_digest: Hash,
-    ) -> bool {
-        self.store.read_frames().into_iter().any(|frame| {
-            if frame.header.record_kind != WalRecordKind::SubmissionAcceptedRecorded {
-                return false;
-            }
-            SubmissionAcceptanceRecord::from_payload_bytes(&frame.payload.canonical_bytes)
-                .is_ok_and(|record| {
-                    record.submission_id == submission_id
-                        && record.canonical_envelope_digest == canonical_envelope_digest
-                })
-        })
+    ) -> Result<bool, TrustedRuntimeWalError> {
+        let recovery = self.recover_read_only()?;
+        Ok(matches!(
+            recovery
+                .submissions
+                .retry_posture(submission_id, canonical_envelope_digest),
+            SubmissionRetryPosture::AlreadyAcceptedPending
+                | SubmissionRetryPosture::AlreadyDecidedApplied
+                | SubmissionRetryPosture::AlreadyDecidedRejected
+                | SubmissionRetryPosture::AlreadyObstructed
+        ))
     }
 
     fn record_submission_acceptance(
@@ -622,6 +622,51 @@ impl TrustedRuntimeWal {
     pub fn new_in_memory_at_lsn_for_test(next_lsn: Lsn) -> Result<Self, TrustedRuntimeWalError> {
         Self::new_in_memory_at_lsn(next_lsn)
     }
+
+    /// Appends submission acceptance frames without a transaction commit marker.
+    pub fn append_uncommitted_submission_acceptance_for_test(
+        &mut self,
+        envelope: &IngressEnvelope,
+        handle: IntentSubmissionHandle,
+    ) -> Result<(), TrustedRuntimeWalError> {
+        let record = SubmissionAcceptanceRecord {
+            submission_id: handle.submission_id,
+            canonical_envelope_digest: envelope.ingress_id(),
+            idempotency_key_digest: None,
+            acceptance_evidence_digest: acceptance_evidence_digest(handle),
+        };
+        let next_submission_frontier =
+            submission_frontier_digest(self.submission_frontier_digest, record);
+        let transaction = build_submission_acceptance_transaction(
+            self.builder(
+                WalTransactionKind::SubmissionIntake,
+                WalAppendAuthority::SubmissionIntake,
+                WalTransactionId::from_hash(submission_transaction_digest(handle, record)),
+            ),
+            record,
+            vec![AffectedFrontier {
+                kind: AffectedFrontierKind::SubmissionQueue,
+                before_digest: self.submission_frontier_digest,
+                after_digest: next_submission_frontier,
+            }],
+        )?;
+        let last_frame_digest = transaction.frames.last().map_or(
+            self.previous_frame_digest,
+            crate::causal_wal::WalFrame::digest,
+        );
+        let next_lsn = transaction
+            .commit
+            .last_lsn
+            .checked_next()
+            .ok_or(WalBuildError::LsnOverflow)?;
+        for frame in transaction.frames {
+            self.store
+                .append_uncommitted_frame(self.writer_epoch, frame)?;
+        }
+        self.next_lsn = next_lsn;
+        self.previous_frame_digest = last_frame_digest;
+        Ok(())
+    }
 }
 
 /// App-facing handle for a trusted local runtime host.
@@ -672,10 +717,16 @@ impl TrustedRuntimeApp<'_> {
             self.host.runtime = before_runtime;
             return Err(TrustedRuntimeHostError::RuntimeWalUnavailable);
         };
-        if handle.duplicate
-            && runtime_wal.has_submission_acceptance(handle.submission_id, envelope.ingress_id())
-        {
-            return Ok(handle);
+        if handle.duplicate {
+            match runtime_wal.has_submission_acceptance(handle.submission_id, envelope.ingress_id())
+            {
+                Ok(true) => return Ok(handle),
+                Ok(false) => {}
+                Err(error) => {
+                    self.host.runtime = before_runtime;
+                    return Err(error.into());
+                }
+            }
         }
         if let Err(error) = runtime_wal.record_submission_acceptance(&envelope, handle) {
             self.host.runtime = before_runtime;

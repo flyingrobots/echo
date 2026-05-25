@@ -2821,15 +2821,62 @@ fn segment_paths(root: &Path) -> Result<Vec<PathBuf>, WalStoreError> {
                 .extension()
                 .is_some_and(|extension| extension.eq_ignore_ascii_case("ecwal"))
         {
-            paths.push(path);
+            let segment_id = parse_segment_id(&path)?;
+            paths.push((segment_id, path));
         }
     }
-    paths.sort();
-    Ok(paths)
+    paths.sort_by_key(|(segment_id, path)| (*segment_id, path.clone()));
+    if let Some((first_segment_id, _)) = paths.first() {
+        let first_expected = WalSegmentId::from_raw(1);
+        if *first_segment_id != first_expected {
+            return Err(WalStoreError::SegmentGap {
+                expected: first_expected,
+                actual: *first_segment_id,
+            });
+        }
+    }
+    let mut previous_segment_id: Option<WalSegmentId> = None;
+    for (segment_id, _) in &paths {
+        if let Some(previous) = previous_segment_id {
+            let expected = WalSegmentId::from_raw(previous.as_u64() + 1);
+            if *segment_id == previous {
+                return Err(WalStoreError::DuplicateSegment(*segment_id));
+            }
+            if *segment_id != expected {
+                return Err(WalStoreError::SegmentGap {
+                    expected,
+                    actual: *segment_id,
+                });
+            }
+        }
+        previous_segment_id = Some(*segment_id);
+    }
+    Ok(paths.into_iter().map(|(_, path)| path).collect())
 }
 
 fn segment_path(root: &Path, segment_id: WalSegmentId) -> PathBuf {
     root.join(format!("segment-{:020}.ecwal", segment_id.as_u64()))
+}
+
+fn parse_segment_id(path: &Path) -> Result<WalSegmentId, WalStoreError> {
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| WalStoreError::InvalidSegmentFileName(path.display().to_string()))?;
+    let Some(after_prefix) = name.strip_prefix("segment-") else {
+        return Err(WalStoreError::InvalidSegmentFileName(name.to_string()));
+    };
+    let digits = after_prefix
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect::<String>();
+    if digits.is_empty() {
+        return Err(WalStoreError::InvalidSegmentFileName(name.to_string()));
+    }
+    let raw = digits
+        .parse::<u64>()
+        .map_err(|_| WalStoreError::InvalidSegmentFileName(name.to_string()))?;
+    Ok(WalSegmentId::from_raw(raw))
 }
 
 fn write_manifest_atomic(root: &Path, manifest: &WalManifest) -> Result<(), WalStoreError> {
@@ -3484,6 +3531,20 @@ pub enum WalStoreError {
     /// Segment record kind was not recognized.
     #[error("unknown WAL disk record kind {0}")]
     UnknownDiskRecordKind(u8),
+    /// Segment filename could not be parsed.
+    #[error("invalid WAL segment filename {0}")]
+    InvalidSegmentFileName(String),
+    /// Segment ids are not contiguous.
+    #[error("WAL segment gap: expected {expected:?}, found {actual:?}")]
+    SegmentGap {
+        /// Expected segment id.
+        expected: WalSegmentId,
+        /// Actual segment id.
+        actual: WalSegmentId,
+    },
+    /// Multiple segment files claim the same segment id.
+    #[error("duplicate WAL segment id {0:?}")]
+    DuplicateSegment(WalSegmentId),
 }
 
 impl From<std::io::Error> for WalStoreError {

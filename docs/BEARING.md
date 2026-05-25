@@ -634,7 +634,7 @@ completed slice.
       indexes; uncommitted tick attempts do not become history.
     - Test plan: tick commit/publish crash fixtures.
 
-- [ ] **Slice 50: Segment corruption matrix**
+- [x] **Slice 50: Segment corruption matrix**
     - User story: As recovery, segment corruption must produce deterministic
       posture instead of panic, silent skip, or partial history.
     - Acceptance criteria: torn header, torn payload, torn digest, bad magic,

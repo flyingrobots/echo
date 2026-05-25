@@ -269,6 +269,23 @@ fn write_manual_disk_record(path: &Path, kind: u8, payload: &[u8]) {
     must_ok(file.sync_all());
 }
 
+fn write_torn_disk_record(path: &Path, kind: u8, declared_len: u64, payload: &[u8]) {
+    let mut file = must_ok(OpenOptions::new().write(true).truncate(true).open(path));
+    must_ok(file.write_all(WAL_SEGMENT_RECORD_MAGIC));
+    must_ok(file.write_all(&[kind]));
+    must_ok(file.write_all(&declared_len.to_le_bytes()));
+    must_ok(file.write_all(payload));
+    must_ok(file.sync_all());
+}
+
+fn segment_file_name(segment_id: u64) -> String {
+    format!("segment-{segment_id:020}.ecwal")
+}
+
+fn duplicate_segment_file_name(segment_id: u64) -> String {
+    format!("segment-{segment_id:020}-duplicate.ecwal")
+}
+
 #[test]
 fn hardening_fixture_recovers_committed_submission() {
     let mut fixture = WalHardeningFixture::new("fixture-committed");
@@ -458,6 +475,81 @@ fn wal_recovery_golden_unknown_record_kind() {
     assert!(matches!(
         error,
         WalRecoveryError::Store(WalStoreError::UnknownDiskRecordKind(99))
+    ));
+}
+
+#[test]
+fn torn_segment_header_reports_tail() {
+    let fixture = WalHardeningFixture::new("segment-torn-header");
+    fixture.replace_segment_bytes(&WAL_SEGMENT_RECORD_MAGIC[..4]);
+
+    let report = must_ok(fixture.recover_read_only());
+
+    assert_eq!(report.tail_posture, RecoveryTailPosture::WouldTruncateAll);
+    assert!(report.transactions.is_empty());
+}
+
+#[test]
+fn torn_segment_payload_reports_tail() {
+    let fixture = WalHardeningFixture::new("segment-torn-payload");
+    write_torn_disk_record(&fixture.segment_path(), 1, 64, b"partial-payload");
+
+    let report = must_ok(fixture.recover_read_only());
+
+    assert_eq!(report.tail_posture, RecoveryTailPosture::WouldTruncateAll);
+    assert!(report.transactions.is_empty());
+}
+
+#[test]
+fn torn_segment_digest_reports_tail() {
+    let fixture = WalHardeningFixture::new("segment-torn-digest");
+    write_torn_disk_record(&fixture.segment_path(), 99, 0, &[]);
+
+    let report = must_ok(fixture.recover_read_only());
+
+    assert_eq!(report.tail_posture, RecoveryTailPosture::WouldTruncateAll);
+    assert!(report.transactions.is_empty());
+}
+
+#[test]
+fn segment_gap_blocks_recovery() {
+    let fixture = WalHardeningFixture::new("segment-gap");
+    must_ok(fs::write(
+        fixture.root.join(segment_file_name(3)),
+        b"gap-segment",
+    ));
+
+    let error = must_err(
+        fixture.recover_read_only(),
+        "segment gap should block recovery",
+    );
+
+    assert!(matches!(
+        error,
+        WalRecoveryError::Store(WalStoreError::SegmentGap {
+            expected,
+            actual
+        }) if expected == WalSegmentId::from_raw(2) && actual == WalSegmentId::from_raw(3)
+    ));
+}
+
+#[test]
+fn duplicate_segment_id_blocks_recovery() {
+    let fixture = WalHardeningFixture::new("segment-duplicate");
+    must_ok(fs::write(
+        fixture.root.join(duplicate_segment_file_name(1)),
+        b"duplicate-segment",
+    ));
+
+    let error = must_err(
+        fixture.recover_read_only(),
+        "duplicate segment id should block recovery",
+    );
+
+    assert!(matches!(
+        error,
+        WalRecoveryError::Store(WalStoreError::DuplicateSegment(segment_id))
+            if segment_id == WalSegmentId::from_raw(1)
     ));
 }
 

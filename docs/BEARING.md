@@ -989,7 +989,7 @@ completed slice.
     - Test plan: recovery certificate fixture over committed and truncated-tail
       WAL shapes.
 
-- [ ] **Slice 94: `jedit` recovery fixture contract**
+- [x] **Slice 94: `jedit` recovery fixture contract**
     - User story: As a real app consumer, `jedit` should be able to distinguish
       not-accepted, accepted-pending, decided, rejected, and obstructed edits
       from Echo recovery evidence.

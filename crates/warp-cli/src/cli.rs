@@ -89,6 +89,17 @@ pub enum WalCommands {
         #[arg(default_value = ".")]
         root: PathBuf,
     },
+    /// Report recovered posture for one submission id/envelope pair.
+    SubmissionPosture {
+        /// Filesystem WAL root to inspect.
+        root: PathBuf,
+        /// 64-character hex submission id.
+        #[arg(long)]
+        submission_id: String,
+        /// 64-character hex canonical envelope digest.
+        #[arg(long)]
+        canonical_envelope_digest: String,
+    },
 }
 
 /// Output format selector.
@@ -236,6 +247,42 @@ mod tests {
                 command: WalCommands::Doctor { ref root },
             } => assert_eq!(root, &PathBuf::from("runtime.wal")),
             _ => panic!("expected Wal doctor command"),
+        }
+    }
+
+    #[test]
+    fn parse_wal_submission_posture() {
+        let cli = Cli::try_parse_from([
+            "echo-cli",
+            "wal",
+            "submission-posture",
+            "runtime.wal",
+            "--submission-id",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "--canonical-envelope-digest",
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Wal {
+                command:
+                    WalCommands::SubmissionPosture {
+                        ref root,
+                        ref submission_id,
+                        ref canonical_envelope_digest,
+                    },
+            } => {
+                assert_eq!(root, &PathBuf::from("runtime.wal"));
+                assert_eq!(
+                    submission_id,
+                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                );
+                assert_eq!(
+                    canonical_envelope_digest,
+                    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                );
+            }
+            _ => panic!("expected Wal submission-posture command"),
         }
     }
 

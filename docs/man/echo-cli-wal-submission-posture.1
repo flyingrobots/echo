@@ -1,0 +1,22 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH echo-cli-wal-submission-posture 1  "echo-cli-wal-submission-posture "
+.SH NAME
+echo\-cli\-wal\-submission\-posture \- Report recovered posture for one submission id/envelope pair
+.SH SYNOPSIS
+\fBecho\-cli\-wal\-submission\-posture\fR <\fB\-\-submission\-id\fR> <\fB\-\-canonical\-envelope\-digest\fR> [\fB\-h\fR|\fB\-\-help\fR] <\fIROOT\fR>
+.SH DESCRIPTION
+Report recovered posture for one submission id/envelope pair
+.SH OPTIONS
+.TP
+\fB\-\-submission\-id\fR \fI<SUBMISSION_ID>\fR
+64\-character hex submission id
+.TP
+\fB\-\-canonical\-envelope\-digest\fR \fI<CANONICAL_ENVELOPE_DIGEST>\fR
+64\-character hex canonical envelope digest
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help
+.TP
+<\fIROOT\fR>
+Filesystem WAL root to inspect

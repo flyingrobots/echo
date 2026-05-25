@@ -48,5 +48,13 @@ fn main() -> Result<()> {
         Commands::Wal {
             command: WalCommands::Doctor { ref root },
         } => wal::doctor(root, &cli.format),
+        Commands::Wal {
+            command:
+                WalCommands::SubmissionPosture {
+                    ref root,
+                    ref submission_id,
+                    ref canonical_envelope_digest,
+                },
+        } => wal::submission_posture(root, submission_id, canonical_envelope_digest, &cli.format),
     }
 }

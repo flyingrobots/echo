@@ -86,8 +86,8 @@ The doctrine is tracked by:
 The first chunk is the active release-proof package:
 
 ```text
-[####------] Echo/jedit retained-evidence release-gate batch [4/10 slices]
-[####------] PR checkpoint batch [4/5 slices before recommended PR]
+[#####-----] Echo/jedit retained-evidence release-gate batch [5/10 slices]
+[#####-----] PR checkpoint batch [5/5 slices before recommended PR]
 ```
 
 Finish the package in this order:
@@ -100,8 +100,8 @@ Finish the package in this order:
 |   4 | 0    | Slice 7: generated structural-history request path    | Next-ten plan                 | `jedit` moves from retained-ref plumbing toward generated, product-owned request construction.                                   |
 |   5 | 0    | Retention, WAL/WSC, and semantic lookup proof package | v0.1.0 lane                   | Release-grade retained-evidence posture and lookup seams exist, with durable claims only where WAL/WSC-backed evidence exists.   |
 
-Open a PR after Slice 5 unless Slice 4 or Slice 5 exposes an API boundary that
-should land independently.
+Slice 5 is now closed. This is the recommended PR checkpoint before taking
+Slice 6, unless a reviewer asks for a follow-up in the same branch.
 
 ## Release-Proof Sequence
 

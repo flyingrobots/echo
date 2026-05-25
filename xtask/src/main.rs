@@ -633,7 +633,7 @@ fn build_test_slice_commands(slice: TestSlice) -> Vec<Command> {
                 "warp-cli",
                 "--test",
                 "cli_integration",
-                "wal_submission_posture_json_reports",
+                "wal_submission_posture",
             ]),
             cargo_command(["test", "-p", "xtask", "runtime_wal_ack_stale_claims"]),
             cargo_command(["xtask", "man-pages", "--check"]),
@@ -6458,7 +6458,7 @@ mod tests {
                 "warp-cli",
                 "--test",
                 "cli_integration",
-                "wal_submission_posture_json_reports",
+                "wal_submission_posture",
             ]
         );
 

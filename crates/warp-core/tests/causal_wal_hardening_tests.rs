@@ -3,28 +3,35 @@
 //! Adversarial causal WAL hardening tests.
 
 use warp_core::causal_wal::{
-    apply_committed_transaction, build_materialization_outbox_transaction,
-    build_retained_reading_transaction, build_submission_acceptance_transaction,
-    build_tick_transaction, doctor_filesystem_store, doctor_in_memory_store,
-    doctor_in_memory_store_with_materials, evaluate_checkpoint_publication,
-    project_absent_causal_commit_evidence, project_causal_commit_evidence,
-    project_obstructed_causal_commit_evidence, read_checkpoint_record, recover_filesystem_store,
-    recover_from_frames_and_commits, recover_materialization_outbox, recover_receipt_index,
-    recover_retention_index, recover_submission_index, retained_material_obstructions,
-    shadow_replay_matches, shadow_replay_report, validate_checkpoint_record,
-    write_checkpoint_record_atomic, AffectedFrontier, AffectedFrontierKind,
+    apply_committed_transaction, audit_wal_release_readiness,
+    build_materialization_outbox_transaction, build_retained_reading_transaction,
+    build_submission_acceptance_transaction, build_tick_transaction, doctor_filesystem_store,
+    doctor_in_memory_store, doctor_in_memory_store_with_materials, evaluate_checkpoint_publication,
+    inspect_evidence_material_posture, project_absent_causal_commit_evidence,
+    project_causal_commit_evidence, project_obstructed_causal_commit_evidence,
+    read_checkpoint_record, recover_filesystem_store, recover_from_frames_and_commits,
+    recover_materialization_outbox, recover_receipt_index, recover_retention_index,
+    recover_submission_index, retained_material_obstructions, shadow_replay_matches,
+    shadow_replay_report, validate_checkpoint_record, validate_filesystem_strict_sync_evidence,
+    validate_strict_object_store_capabilities, validate_strict_object_store_manifest_commit,
+    wal_crashpoint_manifest, write_checkpoint_record_atomic,
+    write_checkpoint_record_atomic_with_evidence, AffectedFrontier, AffectedFrontierKind,
     CausalCommitEvidencePosture, CausalCommitEvidenceSource, CheckpointPublicationRecord,
     CheckpointRecord, CheckpointValidationPosture, EvidenceMaterialPosture,
-    ExistingMaterializedArtifact, FilesystemWalStore, InMemoryWalStore, Lsn,
+    ExistingMaterializedArtifact, FilesystemSyncBoundary, FilesystemSyncEvidenceError,
+    FilesystemWalStore, InMemoryWalStore, Lsn, MaterialInspectionPosture,
     MaterializationIntentRecord, MaterializationObservationRecord, MaterializationReplayPosture,
-    MissingMaterialScope, PayloadCodecId, PayloadSchemaId, ReadingRefRecord, RecoveredState,
-    RecoveredSubmissionPosture, RecoveryAccessMode, RecoveryTailPosture, RetainedMaterialKind,
-    RetainedMaterialRecord, ShadowReplayMismatch, SubmissionAcceptanceRecord,
-    SubmissionRetryPosture, TickReceiptRecord, WalAppendAuthority, WalBuildError,
-    WalCommittedTransaction, WalDoctorPosture, WalDoctorReport, WalDurabilityMode,
-    WalReceiptCorrelationRecord, WalRecordKind, WalRecoveryError, WalReplayError, WalSegmentId,
-    WalStoreError, WalStorePort, WalTickDecision, WalTransactionBuilder, WalTransactionId,
-    WalTransactionKind, WalValidationError, WriterEpochId, WriterEpochRequest,
+    MissingMaterialScope, ObjectStoreCapabilityError, ObjectStoreManifestCommitMode,
+    ObjectStoreManifestCommitShape, ObjectStoreReadAfterWritePosture, ObjectStoreWalCapabilities,
+    PayloadCodecId, PayloadSchemaId, ReadingRefRecord, RecoveredState, RecoveredSubmissionPosture,
+    RecoveryAccessMode, RecoveryTailPosture, RetainedMaterialKind, RetainedMaterialRecord,
+    ShadowReplayMismatch, SubmissionAcceptanceRecord, SubmissionRetryPosture, TickReceiptRecord,
+    WalAppendAuthority, WalBuildError, WalCommittedTransaction, WalCrashpointBoundary,
+    WalCrashpointExecution, WalDoctorPosture, WalDoctorReport, WalDurabilityMode, WalManifest,
+    WalReceiptCorrelationRecord, WalRecordKind, WalRecoveryError, WalReleaseReadinessGates,
+    WalReplayError, WalSegmentId, WalStoreError, WalStorePort, WalTickDecision,
+    WalTransactionBuilder, WalTransactionId, WalTransactionKind, WalValidationError, WriterEpochId,
+    WriterEpochRequest,
 };
 use warp_core::Hash;
 
@@ -1759,4 +1766,337 @@ fn recovery_certificate_has_stable_json_shape() {
     assert_eq!(certificate.tail_posture, RecoveryTailPosture::Clean);
     assert_eq!(certificate.obstruction_count, 0);
     assert_eq!(WalDoctorReport::stable_field_names().len(), 6);
+}
+
+#[test]
+fn crashpoint_manifest_lists_submission_boundaries() {
+    let manifest = wal_crashpoint_manifest();
+
+    assert!(manifest.iter().any(|entry| {
+        entry.name == "submission.before_commit"
+            && entry.boundary == WalCrashpointBoundary::Submission
+            && entry.execution == WalCrashpointExecution::SimulatedInProcess
+    }));
+    assert!(manifest.iter().any(|entry| {
+        entry.name == "submission.after_commit_before_ack"
+            && entry.boundary == WalCrashpointBoundary::Submission
+            && entry.execution == WalCrashpointExecution::SimulatedInProcess
+    }));
+}
+
+#[test]
+fn crashpoint_manifest_lists_tick_boundaries() {
+    let manifest = wal_crashpoint_manifest();
+
+    assert!(manifest.iter().any(|entry| {
+        entry.name == "tick.before_commit"
+            && entry.boundary == WalCrashpointBoundary::Tick
+            && entry.execution == WalCrashpointExecution::SimulatedInProcess
+    }));
+    assert!(manifest.iter().any(|entry| {
+        entry.name == "tick.after_commit_before_publish"
+            && entry.boundary == WalCrashpointBoundary::Tick
+            && entry.execution == WalCrashpointExecution::SimulatedInProcess
+    }));
+}
+
+#[test]
+fn crashpoint_manifest_lists_checkpoint_boundaries() {
+    let manifest = wal_crashpoint_manifest();
+
+    assert!(manifest.iter().any(|entry| {
+        entry.name == "checkpoint.before_rename"
+            && entry.boundary == WalCrashpointBoundary::Checkpoint
+            && entry.execution == WalCrashpointExecution::SimulatedInProcess
+    }));
+    assert!(manifest.iter().any(|entry| {
+        entry.name == "checkpoint.after_rename_before_publication"
+            && entry.boundary == WalCrashpointBoundary::Checkpoint
+            && entry.execution == WalCrashpointExecution::SimulatedInProcess
+    }));
+}
+
+#[test]
+fn crashpoint_manifest_marks_process_kill_as_future_until_runner_exists() {
+    let process_entries = wal_crashpoint_manifest()
+        .iter()
+        .filter(|entry| entry.boundary == WalCrashpointBoundary::Process)
+        .collect::<Vec<_>>();
+
+    assert!(!process_entries.is_empty());
+    assert!(process_entries
+        .iter()
+        .all(|entry| entry.execution == WalCrashpointExecution::ProcessKillFuture));
+}
+
+#[test]
+fn filesystem_commit_flush_is_ack_boundary() {
+    let mut fixture = WalHardeningFixture::new("sync-commit");
+    let transaction = fixture.append_submission("sync-commit", Lsn::from_raw(0));
+
+    assert!(fixture.store.sync_evidence().iter().any(|entry| {
+        entry.boundary == FilesystemSyncBoundary::CommitFileSynced
+            && entry.transaction_id == Some(transaction.commit.transaction_id)
+    }));
+}
+
+#[test]
+fn filesystem_segment_creation_syncs_directory() {
+    let fixture = WalHardeningFixture::new("sync-segment");
+
+    must_ok(validate_filesystem_strict_sync_evidence(
+        fixture.store.sync_evidence(),
+        &[
+            FilesystemSyncBoundary::SegmentFileCreated,
+            FilesystemSyncBoundary::SegmentDirectorySynced,
+        ],
+    ));
+}
+
+#[test]
+fn filesystem_manifest_rename_syncs_directory() {
+    let mut fixture = WalHardeningFixture::new("sync-manifest");
+    let manifest = WalManifest {
+        manifest_digest: digest("hardening:manifest:sync"),
+        last_committed_lsn: None,
+        last_commit_digest: None,
+        sealed_segment_count: 0,
+    };
+
+    must_ok(fixture.store.publish_manifest(epoch_id(), manifest));
+
+    must_ok(validate_filesystem_strict_sync_evidence(
+        fixture.store.sync_evidence(),
+        &[
+            FilesystemSyncBoundary::ManifestTempFileSynced,
+            FilesystemSyncBoundary::ManifestRenamedDirectorySynced,
+        ],
+    ));
+}
+
+#[test]
+fn filesystem_checkpoint_rename_syncs_directory() {
+    let root = temp_wal_root("sync-checkpoint");
+    let checkpoint = checkpoint(
+        "sync-checkpoint",
+        Lsn::from_raw(1),
+        digest("hardening:checkpoint:sync:commit"),
+    );
+
+    let evidence = must_ok(write_checkpoint_record_atomic_with_evidence(
+        root.join("checkpoint.ecwal"),
+        &checkpoint,
+    ));
+
+    must_ok(validate_filesystem_strict_sync_evidence(
+        &evidence,
+        &[
+            FilesystemSyncBoundary::CheckpointTempFileSynced,
+            FilesystemSyncBoundary::CheckpointRenamedDirectorySynced,
+        ],
+    ));
+}
+
+#[test]
+fn filesystem_strict_mode_rejects_missing_sync_evidence() {
+    let error = must_err(
+        validate_filesystem_strict_sync_evidence(&[], &[FilesystemSyncBoundary::CommitFileSynced]),
+        "missing sync evidence should block strict filesystem claim",
+    );
+
+    assert!(matches!(
+        error,
+        FilesystemSyncEvidenceError::Missing(FilesystemSyncBoundary::CommitFileSynced)
+    ));
+}
+
+#[test]
+fn strict_object_store_requires_content_addressed_objects() {
+    let error = must_err(
+        validate_strict_object_store_capabilities(ObjectStoreWalCapabilities {
+            content_addressed_object_write: false,
+            verify_object_version: true,
+            conditional_manifest_commit: true,
+            read_after_write: ObjectStoreReadAfterWritePosture::Verified,
+        }),
+        "strict object store needs content-addressed writes",
+    );
+
+    assert_eq!(
+        error,
+        ObjectStoreCapabilityError::MissingContentAddressedObjectWrite
+    );
+}
+
+#[test]
+fn strict_object_store_requires_object_version_verification() {
+    let error = must_err(
+        validate_strict_object_store_capabilities(ObjectStoreWalCapabilities {
+            content_addressed_object_write: true,
+            verify_object_version: false,
+            conditional_manifest_commit: true,
+            read_after_write: ObjectStoreReadAfterWritePosture::Verified,
+        }),
+        "strict object store needs version evidence",
+    );
+
+    assert_eq!(
+        error,
+        ObjectStoreCapabilityError::MissingObjectVersionVerification
+    );
+}
+
+#[test]
+fn strict_object_store_requires_conditional_manifest_commit_negative() {
+    let error = must_err(
+        validate_strict_object_store_capabilities(ObjectStoreWalCapabilities {
+            content_addressed_object_write: true,
+            verify_object_version: true,
+            conditional_manifest_commit: false,
+            read_after_write: ObjectStoreReadAfterWritePosture::Verified,
+        }),
+        "strict object store needs conditional manifest commit",
+    );
+
+    assert_eq!(
+        error,
+        ObjectStoreCapabilityError::MissingConditionalManifestCommit
+    );
+}
+
+#[test]
+fn strict_object_store_requires_verified_read_after_write() {
+    let error = must_err(
+        validate_strict_object_store_capabilities(ObjectStoreWalCapabilities {
+            content_addressed_object_write: true,
+            verify_object_version: true,
+            conditional_manifest_commit: true,
+            read_after_write: ObjectStoreReadAfterWritePosture::Unverified,
+        }),
+        "strict object store needs verified read-after-write",
+    );
+
+    assert_eq!(error, ObjectStoreCapabilityError::MissingReadAfterWrite);
+}
+
+#[test]
+fn strict_object_store_rejects_unconditional_manifest_overwrite() {
+    let error = must_err(
+        validate_strict_object_store_manifest_commit(ObjectStoreManifestCommitShape {
+            mode: ObjectStoreManifestCommitMode::UnconditionalOverwrite,
+            expected_previous_manifest_digest: None,
+            new_manifest_digest: digest("hardening:object-store:manifest"),
+        }),
+        "strict object store cannot overwrite manifest unconditionally",
+    );
+
+    assert_eq!(
+        error,
+        ObjectStoreCapabilityError::UnconditionalManifestOverwrite
+    );
+}
+
+#[test]
+fn redacted_material_is_policy_posture_not_missing() {
+    assert_eq!(
+        inspect_evidence_material_posture(EvidenceMaterialPosture::RedactedByPolicy),
+        MaterialInspectionPosture::PolicyHidden
+    );
+}
+
+#[test]
+fn encrypted_key_unavailable_is_policy_posture_not_corruption() {
+    assert_eq!(
+        inspect_evidence_material_posture(EvidenceMaterialPosture::EncryptedKeyUnavailable),
+        MaterialInspectionPosture::EncryptedKeyUnavailable
+    );
+}
+
+#[test]
+fn missing_material_is_not_redaction() {
+    assert_eq!(
+        inspect_evidence_material_posture(EvidenceMaterialPosture::Missing),
+        MaterialInspectionPosture::Missing
+    );
+}
+
+#[test]
+fn corrupt_material_is_not_redaction() {
+    assert_eq!(
+        inspect_evidence_material_posture(EvidenceMaterialPosture::Corrupt),
+        MaterialInspectionPosture::Corrupt
+    );
+}
+
+#[test]
+fn inspector_reports_redaction_posture_explicitly() {
+    let postures = [
+        (
+            EvidenceMaterialPosture::Present,
+            MaterialInspectionPosture::Present,
+        ),
+        (
+            EvidenceMaterialPosture::RedactedByPolicy,
+            MaterialInspectionPosture::PolicyHidden,
+        ),
+        (
+            EvidenceMaterialPosture::EncryptedKeyUnavailable,
+            MaterialInspectionPosture::EncryptedKeyUnavailable,
+        ),
+        (
+            EvidenceMaterialPosture::Missing,
+            MaterialInspectionPosture::Missing,
+        ),
+        (
+            EvidenceMaterialPosture::Corrupt,
+            MaterialInspectionPosture::Corrupt,
+        ),
+        (
+            EvidenceMaterialPosture::Obstructed,
+            MaterialInspectionPosture::Obstructed,
+        ),
+    ];
+
+    for (source, expected) in postures {
+        assert_eq!(inspect_evidence_material_posture(source), expected);
+    }
+}
+
+#[test]
+fn wal_hardening_gate_reports_blocked_categories() {
+    let report = audit_wal_release_readiness(WalReleaseReadinessGates {
+        filesystem_adapter: true,
+        object_store_capability_gate: true,
+        segment_repair: true,
+        ..WalReleaseReadinessGates::default()
+    });
+
+    assert!(!report.ready);
+    assert!(report.blocked_gates.contains(&"crashpoint_manifest"));
+    assert!(report.blocked_gates.contains(&"wal_doctor"));
+    assert!(report.blocked_gates.contains(&"app_noun_guard"));
+}
+
+#[test]
+fn wal_hardening_gate_passes_when_all_categories_are_green() {
+    let report = audit_wal_release_readiness(WalReleaseReadinessGates {
+        filesystem_adapter: true,
+        object_store_capability_gate: true,
+        segment_repair: true,
+        crash_matrix: true,
+        crashpoint_manifest: true,
+        shadow_replay: true,
+        outbox: true,
+        commit_evidence: true,
+        wal_doctor: true,
+        semantic_validator: true,
+        filesystem_sync_evidence: true,
+        object_store_manifest_negatives: true,
+        security_redaction: true,
+        app_noun_guard: true,
+        external_consumer_gate: true,
+    });
+
+    assert!(report.ready);
+    assert!(report.blocked_gates.is_empty());
 }

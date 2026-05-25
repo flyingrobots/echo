@@ -1339,9 +1339,16 @@ fn wal_release_readiness_audit_reports_blocked_and_ready_gates() {
         object_store_capability_gate: true,
         segment_repair: true,
         crash_matrix: true,
+        crashpoint_manifest: true,
         shadow_replay: true,
         outbox: true,
         commit_evidence: true,
+        wal_doctor: true,
+        semantic_validator: true,
+        filesystem_sync_evidence: true,
+        object_store_manifest_negatives: true,
+        security_redaction: true,
+        app_noun_guard: true,
         external_consumer_gate: true,
     });
     assert!(ready.ready);

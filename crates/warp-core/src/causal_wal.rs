@@ -1090,6 +1090,186 @@ pub struct WalManifest {
     pub sealed_segment_count: u64,
 }
 
+/// Canonical crashpoint execution posture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WalCrashpointExecution {
+    /// Crashpoint is simulated in-process by Rust fixtures.
+    SimulatedInProcess,
+    /// Crashpoint is reserved for a future process-kill runner.
+    ProcessKillFuture,
+}
+
+/// Canonical WAL crashpoint boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WalCrashpointBoundary {
+    /// Submission intake boundary.
+    Submission,
+    /// Scheduler-owned tick boundary.
+    Tick,
+    /// Checkpoint publication boundary.
+    Checkpoint,
+    /// Retained material or side-effect materialization boundary.
+    Material,
+    /// Index publication boundary.
+    Index,
+    /// Future process-kill runner boundary.
+    Process,
+}
+
+/// Canonical crashpoint descriptor used by tests and future CLI/BATS runners.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WalCrashpointDescriptor {
+    /// Stable crashpoint name.
+    pub name: &'static str,
+    /// Boundary family.
+    pub boundary: WalCrashpointBoundary,
+    /// Execution posture.
+    pub execution: WalCrashpointExecution,
+}
+
+const WAL_CRASHPOINT_MANIFEST: &[WalCrashpointDescriptor] = &[
+    WalCrashpointDescriptor {
+        name: "submission.before_commit",
+        boundary: WalCrashpointBoundary::Submission,
+        execution: WalCrashpointExecution::SimulatedInProcess,
+    },
+    WalCrashpointDescriptor {
+        name: "submission.after_commit_before_ack",
+        boundary: WalCrashpointBoundary::Submission,
+        execution: WalCrashpointExecution::SimulatedInProcess,
+    },
+    WalCrashpointDescriptor {
+        name: "tick.before_commit",
+        boundary: WalCrashpointBoundary::Tick,
+        execution: WalCrashpointExecution::SimulatedInProcess,
+    },
+    WalCrashpointDescriptor {
+        name: "tick.after_commit_before_publish",
+        boundary: WalCrashpointBoundary::Tick,
+        execution: WalCrashpointExecution::SimulatedInProcess,
+    },
+    WalCrashpointDescriptor {
+        name: "checkpoint.before_rename",
+        boundary: WalCrashpointBoundary::Checkpoint,
+        execution: WalCrashpointExecution::SimulatedInProcess,
+    },
+    WalCrashpointDescriptor {
+        name: "checkpoint.after_rename_before_publication",
+        boundary: WalCrashpointBoundary::Checkpoint,
+        execution: WalCrashpointExecution::SimulatedInProcess,
+    },
+    WalCrashpointDescriptor {
+        name: "material.before_wal_reference",
+        boundary: WalCrashpointBoundary::Material,
+        execution: WalCrashpointExecution::SimulatedInProcess,
+    },
+    WalCrashpointDescriptor {
+        name: "material.after_effect_before_observation",
+        boundary: WalCrashpointBoundary::Material,
+        execution: WalCrashpointExecution::SimulatedInProcess,
+    },
+    WalCrashpointDescriptor {
+        name: "index.before_publish",
+        boundary: WalCrashpointBoundary::Index,
+        execution: WalCrashpointExecution::SimulatedInProcess,
+    },
+    WalCrashpointDescriptor {
+        name: "process.kill.after_wal_commit",
+        boundary: WalCrashpointBoundary::Process,
+        execution: WalCrashpointExecution::ProcessKillFuture,
+    },
+];
+
+/// Returns the canonical WAL crashpoint manifest.
+#[must_use]
+pub const fn wal_crashpoint_manifest() -> &'static [WalCrashpointDescriptor] {
+    WAL_CRASHPOINT_MANIFEST
+}
+
+/// Filesystem sync boundary evidence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum FilesystemSyncBoundary {
+    /// Segment file was created and synced.
+    SegmentFileCreated,
+    /// Containing directory was synced after segment creation.
+    SegmentDirectorySynced,
+    /// Commit marker append synced the WAL segment file.
+    CommitFileSynced,
+    /// Manifest temp file was synced before rename.
+    ManifestTempFileSynced,
+    /// Containing directory was synced after manifest rename.
+    ManifestRenamedDirectorySynced,
+    /// Checkpoint temp file was synced before rename.
+    CheckpointTempFileSynced,
+    /// Containing directory was synced after checkpoint rename.
+    CheckpointRenamedDirectorySynced,
+}
+
+/// Filesystem sync evidence emitted by strict filesystem helpers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FilesystemSyncEvidence {
+    /// Sync boundary.
+    pub boundary: FilesystemSyncBoundary,
+    /// Segment id, when the boundary is segment-scoped.
+    pub segment_id: Option<WalSegmentId>,
+    /// Transaction id, when the boundary is commit-scoped.
+    pub transaction_id: Option<WalTransactionId>,
+}
+
+impl FilesystemSyncEvidence {
+    const fn segment(boundary: FilesystemSyncBoundary, segment_id: WalSegmentId) -> Self {
+        Self {
+            boundary,
+            segment_id: Some(segment_id),
+            transaction_id: None,
+        }
+    }
+
+    const fn transaction(
+        boundary: FilesystemSyncBoundary,
+        transaction_id: WalTransactionId,
+    ) -> Self {
+        Self {
+            boundary,
+            segment_id: None,
+            transaction_id: Some(transaction_id),
+        }
+    }
+
+    const fn unscoped(boundary: FilesystemSyncBoundary) -> Self {
+        Self {
+            boundary,
+            segment_id: None,
+            transaction_id: None,
+        }
+    }
+}
+
+/// Filesystem sync evidence validation error.
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum FilesystemSyncEvidenceError {
+    /// Required sync evidence was missing.
+    #[error("strict filesystem WAL missing sync evidence for {0:?}")]
+    Missing(FilesystemSyncBoundary),
+}
+
+/// Validates strict filesystem sync evidence for required boundaries.
+pub fn validate_filesystem_strict_sync_evidence(
+    evidence: &[FilesystemSyncEvidence],
+    required: &[FilesystemSyncBoundary],
+) -> Result<(), FilesystemSyncEvidenceError> {
+    let present = evidence
+        .iter()
+        .map(|entry| entry.boundary)
+        .collect::<BTreeSet<_>>();
+    for boundary in required {
+        if !present.contains(boundary) {
+            return Err(FilesystemSyncEvidenceError::Missing(*boundary));
+        }
+    }
+    Ok(())
+}
+
 /// Deterministic in-memory WAL store.
 #[derive(Clone, Debug, Default)]
 pub struct InMemoryWalStore {
@@ -1589,6 +1769,40 @@ impl EvidenceMaterialPosture {
     }
 }
 
+/// Inspector-facing material posture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MaterialInspectionPosture {
+    /// Material is available.
+    Present,
+    /// Material is intentionally hidden by policy.
+    PolicyHidden,
+    /// Material is encrypted and the key is unavailable.
+    EncryptedKeyUnavailable,
+    /// Material is missing from storage.
+    Missing,
+    /// Material bytes are corrupt.
+    Corrupt,
+    /// Material is blocked by runtime or causal posture.
+    Obstructed,
+}
+
+/// Converts retained material posture into an explicit inspector posture.
+#[must_use]
+pub const fn inspect_evidence_material_posture(
+    posture: EvidenceMaterialPosture,
+) -> MaterialInspectionPosture {
+    match posture {
+        EvidenceMaterialPosture::Present => MaterialInspectionPosture::Present,
+        EvidenceMaterialPosture::RedactedByPolicy => MaterialInspectionPosture::PolicyHidden,
+        EvidenceMaterialPosture::EncryptedKeyUnavailable => {
+            MaterialInspectionPosture::EncryptedKeyUnavailable
+        }
+        EvidenceMaterialPosture::Missing => MaterialInspectionPosture::Missing,
+        EvidenceMaterialPosture::Corrupt => MaterialInspectionPosture::Corrupt,
+        EvidenceMaterialPosture::Obstructed => MaterialInspectionPosture::Obstructed,
+    }
+}
+
 /// WAL retained material reference payload.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RetainedMaterialRecord {
@@ -2049,6 +2263,7 @@ pub struct FilesystemWalStore {
     closed_epochs: Vec<WriterEpoch>,
     epoch_closures: BTreeMap<WriterEpochId, WriterEpochClosure>,
     manifests: Vec<WalManifest>,
+    sync_evidence: Vec<FilesystemSyncEvidence>,
 }
 
 impl FilesystemWalStore {
@@ -2061,9 +2276,18 @@ impl FilesystemWalStore {
         let root = root.as_ref().to_path_buf();
         fs::create_dir_all(&root)?;
         let segment_path = segment_path(&root, segment_id);
+        let mut sync_evidence = Vec::new();
         if !segment_path.exists() {
             File::create(&segment_path)?.sync_all()?;
+            sync_evidence.push(FilesystemSyncEvidence::segment(
+                FilesystemSyncBoundary::SegmentFileCreated,
+                segment_id,
+            ));
             sync_directory_store(&root)?;
+            sync_evidence.push(FilesystemSyncEvidence::segment(
+                FilesystemSyncBoundary::SegmentDirectorySynced,
+                segment_id,
+            ));
         }
         Ok(Self {
             root,
@@ -2072,6 +2296,7 @@ impl FilesystemWalStore {
             closed_epochs: Vec::new(),
             epoch_closures: BTreeMap::new(),
             manifests: Vec::new(),
+            sync_evidence,
         })
     }
 
@@ -2085,6 +2310,12 @@ impl FilesystemWalStore {
     #[must_use]
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// Returns strict filesystem sync evidence observed by this store.
+    #[must_use]
+    pub fn sync_evidence(&self) -> &[FilesystemSyncEvidence] {
+        &self.sync_evidence
     }
 
     /// Appends and flushes a committed transaction.
@@ -2160,7 +2391,13 @@ impl WalStorePort for FilesystemWalStore {
                 final_commit_digest: Some(commit.commit_digest),
             },
         );
-        append_segment_record(&self.segment_path(), DiskWalRecord::Commit(&commit), true)
+        let transaction_id = commit.transaction_id;
+        append_segment_record(&self.segment_path(), DiskWalRecord::Commit(&commit), true)?;
+        self.sync_evidence.push(FilesystemSyncEvidence::transaction(
+            FilesystemSyncBoundary::CommitFileSynced,
+            transaction_id,
+        ));
+        Ok(())
     }
 
     fn read_frames(&self) -> Vec<WalFrame> {
@@ -2216,6 +2453,12 @@ impl WalStorePort for FilesystemWalStore {
             return Err(WalStoreError::WriterEpochMismatch);
         }
         write_manifest_atomic(&self.root, &manifest)?;
+        self.sync_evidence.push(FilesystemSyncEvidence::unscoped(
+            FilesystemSyncBoundary::ManifestTempFileSynced,
+        ));
+        self.sync_evidence.push(FilesystemSyncEvidence::unscoped(
+            FilesystemSyncBoundary::ManifestRenamedDirectorySynced,
+        ));
         self.manifests.push(manifest);
         Ok(())
     }
@@ -2321,6 +2564,9 @@ pub enum ObjectStoreCapabilityError {
     /// Strict object stores must prove read-after-write behavior.
     #[error("strict object store requires verified read-after-write posture")]
     MissingReadAfterWrite,
+    /// Strict object stores must not overwrite manifests unconditionally.
+    #[error("strict object store manifest commit must be conditional compare-and-swap")]
+    UnconditionalManifestOverwrite,
 }
 
 /// Validates strict object-store WAL adapter capabilities.
@@ -2338,6 +2584,38 @@ pub fn validate_strict_object_store_capabilities(
     }
     if capabilities.read_after_write != ObjectStoreReadAfterWritePosture::Verified {
         return Err(ObjectStoreCapabilityError::MissingReadAfterWrite);
+    }
+    Ok(())
+}
+
+/// Object-store manifest commit mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ObjectStoreManifestCommitMode {
+    /// Manifest publication uses compare-and-swap against an expected previous digest.
+    ConditionalCompareAndSwap,
+    /// Manifest publication overwrites without an expected previous digest.
+    UnconditionalOverwrite,
+}
+
+/// Object-store manifest commit shape.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ObjectStoreManifestCommitShape {
+    /// Commit mode.
+    pub mode: ObjectStoreManifestCommitMode,
+    /// Expected previous manifest digest for compare-and-swap.
+    pub expected_previous_manifest_digest: Option<Hash>,
+    /// New manifest digest.
+    pub new_manifest_digest: Hash,
+}
+
+/// Validates the strict object-store manifest commit shape.
+pub fn validate_strict_object_store_manifest_commit(
+    shape: ObjectStoreManifestCommitShape,
+) -> Result<(), ObjectStoreCapabilityError> {
+    if shape.mode != ObjectStoreManifestCommitMode::ConditionalCompareAndSwap
+        || shape.expected_previous_manifest_digest.is_none()
+    {
+        return Err(ObjectStoreCapabilityError::UnconditionalManifestOverwrite);
     }
     Ok(())
 }
@@ -2820,6 +3098,12 @@ pub fn audit_wal_release_readiness(gates: WalReleaseReadinessGates) -> WalReleas
     push_gate(
         &mut passed_gates,
         &mut blocked_gates,
+        "crashpoint_manifest",
+        gates.crashpoint_manifest,
+    );
+    push_gate(
+        &mut passed_gates,
+        &mut blocked_gates,
         "shadow_replay",
         gates.shadow_replay,
     );
@@ -2834,6 +3118,42 @@ pub fn audit_wal_release_readiness(gates: WalReleaseReadinessGates) -> WalReleas
         &mut blocked_gates,
         "commit_evidence",
         gates.commit_evidence,
+    );
+    push_gate(
+        &mut passed_gates,
+        &mut blocked_gates,
+        "wal_doctor",
+        gates.wal_doctor,
+    );
+    push_gate(
+        &mut passed_gates,
+        &mut blocked_gates,
+        "semantic_validator",
+        gates.semantic_validator,
+    );
+    push_gate(
+        &mut passed_gates,
+        &mut blocked_gates,
+        "filesystem_sync_evidence",
+        gates.filesystem_sync_evidence,
+    );
+    push_gate(
+        &mut passed_gates,
+        &mut blocked_gates,
+        "object_store_manifest_negatives",
+        gates.object_store_manifest_negatives,
+    );
+    push_gate(
+        &mut passed_gates,
+        &mut blocked_gates,
+        "security_redaction",
+        gates.security_redaction,
+    );
+    push_gate(
+        &mut passed_gates,
+        &mut blocked_gates,
+        "app_noun_guard",
+        gates.app_noun_guard,
     );
     push_gate(
         &mut passed_gates,
@@ -2860,12 +3180,26 @@ pub struct WalReleaseReadinessGates {
     pub segment_repair: bool,
     /// Crash matrix gate.
     pub crash_matrix: bool,
+    /// Crashpoint manifest gate.
+    pub crashpoint_manifest: bool,
     /// Shadow replay gate.
     pub shadow_replay: bool,
     /// Side-effect outbox gate.
     pub outbox: bool,
     /// Causal commit evidence projection gate.
     pub commit_evidence: bool,
+    /// WAL doctor/inspector gate.
+    pub wal_doctor: bool,
+    /// Semantic validator gate.
+    pub semantic_validator: bool,
+    /// Strict filesystem sync evidence gate.
+    pub filesystem_sync_evidence: bool,
+    /// Object-store manifest negative matrix gate.
+    pub object_store_manifest_negatives: bool,
+    /// Security and redaction posture gate.
+    pub security_redaction: bool,
+    /// No-app-nouns guard gate.
+    pub app_noun_guard: bool,
     /// External consumer recovery gate.
     pub external_consumer_gate: bool,
 }
@@ -3282,6 +3616,14 @@ pub fn write_checkpoint_record_atomic(
     path: impl AsRef<Path>,
     checkpoint: &CheckpointRecord,
 ) -> Result<(), WalCheckpointIoError> {
+    write_checkpoint_record_atomic_with_evidence(path, checkpoint).map(|_| ())
+}
+
+/// Writes a checkpoint file and returns strict filesystem sync evidence.
+pub fn write_checkpoint_record_atomic_with_evidence(
+    path: impl AsRef<Path>,
+    checkpoint: &CheckpointRecord,
+) -> Result<Vec<FilesystemSyncEvidence>, WalCheckpointIoError> {
     let path = path.as_ref();
     let parent = path
         .parent()
@@ -3296,7 +3638,10 @@ pub fn write_checkpoint_record_atomic(
     }
     fs::rename(&temp_path, path)?;
     sync_directory(parent)?;
-    Ok(())
+    Ok(vec![
+        FilesystemSyncEvidence::unscoped(FilesystemSyncBoundary::CheckpointTempFileSynced),
+        FilesystemSyncEvidence::unscoped(FilesystemSyncBoundary::CheckpointRenamedDirectorySynced),
+    ])
 }
 
 /// Reads a checkpoint file written by [`write_checkpoint_record_atomic`].

@@ -727,7 +727,7 @@ completed slice.
 
 ### PR 13: WAL Runner, Adapter, And Release Gate Hardening
 
-- [ ] **Slice 61: Crashpoint runner contract**
+- [x] **Slice 61: Crashpoint runner contract**
     - User story: As Echo, I need a future CLI/BATS crash runner contract that
       mirrors Rust fixture semantics before it shells out to real processes.
     - Acceptance criteria: canonical crashpoint names exist for submission, tick,
@@ -735,7 +735,7 @@ completed slice.
       future until implemented.
     - Test plan: crashpoint manifest fixtures.
 
-- [ ] **Slice 62: Filesystem strict sync evidence**
+- [x] **Slice 62: Filesystem strict sync evidence**
     - User story: As Echo, strict filesystem mode must make sync boundaries
       inspectable enough for tests to prove ACK ordering.
     - Acceptance criteria: commit flush, segment creation, manifest rename, and
@@ -743,7 +743,7 @@ completed slice.
       strict-mode claims.
     - Test plan: filesystem sync evidence fixtures.
 
-- [ ] **Slice 63: Object-store manifest negative matrix**
+- [x] **Slice 63: Object-store manifest negative matrix**
     - User story: As Echo, strict object-store mode must reject adapters that
       cannot prove conditional manifest semantics.
     - Acceptance criteria: every missing capability has a distinct validation
@@ -751,7 +751,7 @@ completed slice.
       compare-and-swap shaped.
     - Test plan: object-store capability negative fixtures.
 
-- [ ] **Slice 64: Security and redaction posture matrix**
+- [x] **Slice 64: Security and redaction posture matrix**
     - User story: As Echo, recovery and inspection must distinguish missing
       material from policy-hidden or encrypted material.
     - Acceptance criteria: present, redacted, encrypted-key-unavailable, missing,
@@ -759,7 +759,7 @@ completed slice.
       success.
     - Test plan: security/redaction posture fixtures.
 
-- [ ] **Slice 65: WAL hardening release gate**
+- [x] **Slice 65: WAL hardening release gate**
     - User story: As Echo, I need one gate that tells us whether the WAL is
       trustworthy enough for the next real-app persistence push.
     - Acceptance criteria: readiness check aggregates app-noun guard, shadow

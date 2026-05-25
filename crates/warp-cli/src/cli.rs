@@ -84,7 +84,11 @@ pub enum Commands {
 #[derive(Subcommand, Debug)]
 pub enum WalCommands {
     /// Report read-only WAL recovery posture.
-    Doctor,
+    Doctor {
+        /// Filesystem WAL root to inspect.
+        #[arg(default_value = ".")]
+        root: PathBuf,
+    },
 }
 
 /// Output format selector.
@@ -221,6 +225,17 @@ mod tests {
         match cli.command {
             Commands::Inspect { raw, .. } => assert!(raw),
             _ => panic!("expected Inspect command"),
+        }
+    }
+
+    #[test]
+    fn parse_wal_doctor_with_root() {
+        let cli = Cli::try_parse_from(["echo-cli", "wal", "doctor", "runtime.wal"]).unwrap();
+        match cli.command {
+            Commands::Wal {
+                command: WalCommands::Doctor { ref root },
+            } => assert_eq!(root, &PathBuf::from("runtime.wal")),
+            _ => panic!("expected Wal doctor command"),
         }
     }
 

@@ -6179,28 +6179,32 @@ fn render_man_pages() -> Result<Vec<(String, Vec<u8>)>> {
     let cmd = warp_cli::cli::Cli::command();
     let mut pages = Vec::new();
 
+    render_man_page_tree(&mut pages, cmd, "echo-cli".to_owned())?;
+    Ok(pages)
+}
+
+fn render_man_page_tree(
+    pages: &mut Vec<(String, Vec<u8>)>,
+    mut cmd: clap::Command,
+    page_name: String,
+) -> Result<()> {
+    // Leak is fine: xtask is short-lived and we need 'static for clap::Str.
+    let static_page_name: &'static str = Box::leak(page_name.clone().into_boxed_str());
+    cmd = cmd.name(static_page_name);
+
     let man = clap_mangen::Man::new(cmd.clone());
     let mut buf: Vec<u8> = Vec::new();
     man.render(&mut buf)
-        .context("failed to render echo-cli.1")?;
+        .with_context(|| format!("failed to render {page_name}.1"))?;
     trim_trailing_ascii_whitespace(&mut buf);
-    pages.push(("echo-cli.1".to_string(), buf));
+    pages.push((format!("{page_name}.1"), buf));
 
     for sub in cmd.get_subcommands() {
         let sub_name = sub.get_name().to_string();
-        // Leak is fine: xtask is short-lived and we need 'static for clap::Str.
-        let prefixed_name: &'static str =
-            Box::leak(format!("echo-cli-{sub_name}").into_boxed_str());
-        let prefixed = sub.clone().name(prefixed_name);
-        let man = clap_mangen::Man::new(prefixed);
-        let mut buf: Vec<u8> = Vec::new();
-        man.render(&mut buf)
-            .with_context(|| format!("failed to render echo-cli-{sub_name}.1"))?;
-        trim_trailing_ascii_whitespace(&mut buf);
-        pages.push((format!("echo-cli-{sub_name}.1"), buf));
+        render_man_page_tree(pages, sub.clone(), format!("{page_name}-{sub_name}"))?;
     }
 
-    Ok(pages)
+    Ok(())
 }
 
 fn trim_trailing_ascii_whitespace(bytes: &mut Vec<u8>) {

@@ -46,7 +46,7 @@ fn main() -> Result<()> {
             raw,
         } => inspect::run(snapshot, tree, raw, &cli.format),
         Commands::Wal {
-            command: WalCommands::Doctor,
-        } => wal::doctor(&cli.format),
+            command: WalCommands::Doctor { ref root },
+        } => wal::doctor(root, &cli.format),
     }
 }

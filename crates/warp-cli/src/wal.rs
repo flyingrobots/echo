@@ -2,9 +2,11 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! `echo-cli wal` — read-only WAL inspection helpers.
 
+use std::path::Path;
+
 use anyhow::Result;
 use serde::Serialize;
-use warp_core::causal_wal::{doctor_in_memory_store, InMemoryWalStore, RecoveryTailPosture};
+use warp_core::causal_wal::{doctor_filesystem_store, RecoveryTailPosture};
 
 use crate::cli::OutputFormat;
 use crate::output::emit;
@@ -19,9 +21,8 @@ pub(crate) struct WalDoctorOutput {
 }
 
 /// Runs `echo-cli wal doctor`.
-pub(crate) fn doctor(format: &OutputFormat) -> Result<()> {
-    let store = InMemoryWalStore::new();
-    let report = doctor_in_memory_store(&store)?;
+pub(crate) fn doctor(root: &Path, format: &OutputFormat) -> Result<()> {
+    let report = doctor_filesystem_store(root)?;
     let output = WalDoctorOutput {
         posture: format!("{:?}", report.posture),
         tail_posture: tail_posture_label(report.tail_posture).to_owned(),
@@ -31,7 +32,8 @@ pub(crate) fn doctor(format: &OutputFormat) -> Result<()> {
         obstruction_count: report.recovery_certificate.obstruction_count,
     };
     let text = format!(
-        "echo-cli wal doctor\nPosture: {}\nTail: {}\nCommitted transactions replayed: {}\nObstructions: {}\n",
+        "echo-cli wal doctor\nRoot: {}\nPosture: {}\nTail: {}\nCommitted transactions replayed: {}\nObstructions: {}\n",
+        root.display(),
         output.posture,
         output.tail_posture,
         output.committed_transactions_replayed,

@@ -572,6 +572,11 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- `echo-cli wal doctor` now inspects a real filesystem WAL root through
+  Echo's read-only filesystem WAL doctor instead of reporting a fresh empty
+  in-memory store. The command accepts an optional WAL root path, defaults to
+  the current directory, and the generated man pages cover the new `wal`
+  subcommand.
 - `warp-core` witnessed-submission persistence snapshots now fail closed when
   a submission lacks retained canonical envelope material instead of silently
   dropping replayed submissions from the host-persistable image.

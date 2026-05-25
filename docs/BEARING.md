@@ -959,7 +959,7 @@ completed slice.
     - Test plan: `runtime_wal_ack_failure_rolls_back_intake_mutation` and
       `runtime_wal_ack_path_requires_configured_runtime_wal`.
 
-- [ ] **Slice 90: Tick receipt transaction wiring**
+- [x] **Slice 90: Tick receipt transaction wiring**
     - User story: As Echo, visible tick receipts should eventually be backed by
       committed scheduler-tick WAL transactions.
     - Acceptance criteria: host-owned scheduler runs record receipt and
@@ -967,7 +967,7 @@ completed slice.
     - Test plan: trusted-host applied-intent fixture plus recovered receipt
       index witness.
 
-- [ ] **Slice 91: Tick commit-before-publish rollback guard**
+- [x] **Slice 91: Tick commit-before-publish rollback guard**
     - User story: As Echo, a tick WAL failure must not leave a half-visible
       receipt/outcome.
     - Acceptance criteria: tick WAL failure either restores runtime/provenance

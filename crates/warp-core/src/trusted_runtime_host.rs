@@ -7,21 +7,25 @@
 //! daemon, does not make wall-clock cadence semantic, and does not give
 //! application code tick authority.
 
+use std::collections::BTreeSet;
+
 use thiserror::Error;
 
 use crate::{
     causal_wal::{
-        build_submission_acceptance_transaction, AffectedFrontier, AffectedFrontierKind,
-        InMemoryWalStore, Lsn, PayloadCodecId, PayloadSchemaId, SubmissionAcceptanceRecord,
-        WalAppendAuthority, WalBuildError, WalCommittedTransaction, WalDurabilityMode,
-        WalRecordKind, WalSegmentId, WalStoreError, WalStorePort, WalTransactionBuilder,
+        build_submission_acceptance_transaction, build_tick_transaction, AffectedFrontier,
+        AffectedFrontierKind, InMemoryWalStore, Lsn, PayloadCodecId, PayloadSchemaId,
+        SubmissionAcceptanceRecord, TickReceiptRecord, WalAppendAuthority, WalBuildError,
+        WalCommittedTransaction, WalDurabilityMode, WalReceiptCorrelationRecord, WalRecordKind,
+        WalSegmentId, WalStoreError, WalStorePort, WalTickDecision, WalTransactionBuilder,
         WalTransactionCommit, WalTransactionId, WalTransactionKind, WriterEpochId,
         WriterEpochRequest,
     },
     Engine, IngressEnvelope, InstalledContractPackage, InstalledContractPackageError,
-    InstalledContractPackageRecord, IntentOutcome, IntentSubmissionHandle, ObservationArtifact,
-    ObservationError, ObservationRequest, ObservationService, OpticAdmissionTicket,
-    ProvenanceService, RuntimeError, SchedulerCoordinator, StepRecord,
+    InstalledContractPackageRecord, IntentOutcome, IntentOutcomeDecision, IntentOutcomeObservation,
+    IntentSubmissionHandle, ObservationArtifact, ObservationError, ObservationRequest,
+    ObservationService, OpticAdmissionTicket, ProvenanceService, ReceiptCorrelationRecord,
+    RuntimeError, SchedulerCoordinator, StepRecord, TickReceiptRejection,
     TicketedRuntimeIngressAuthority, TicketedRuntimeIngressDisposition, WorldlineRuntime,
 };
 use crate::{Hash, HistoryError};
@@ -225,8 +229,46 @@ impl TrustedRuntimeHost {
     ///
     /// Returns a runtime error if the scheduler pass fails.
     pub fn tick_once(&mut self) -> Result<Vec<StepRecord>, TrustedRuntimeHostError> {
-        SchedulerCoordinator::super_tick(&mut self.runtime, &mut self.provenance, &mut self.engine)
-            .map_err(Into::into)
+        let existing_correlations = self
+            .runtime
+            .receipt_correlations()
+            .map(|correlation| correlation.ticketed_ingress_id)
+            .collect::<BTreeSet<_>>();
+        let runtime_before = self.runtime.clone();
+        let provenance_before = self.provenance.clone();
+        let records = SchedulerCoordinator::super_tick(
+            &mut self.runtime,
+            &mut self.provenance,
+            &mut self.engine,
+        )?;
+        let tick_wal_records = self
+            .runtime
+            .receipt_correlations()
+            .filter(|correlation| !existing_correlations.contains(&correlation.ticketed_ingress_id))
+            .map(|correlation| {
+                (
+                    correlation.clone(),
+                    wal_tick_decision_from_observation(
+                        self.runtime
+                            .observe_intent_outcome(&correlation.submission_id),
+                        correlation.tick_receipt_digest,
+                    ),
+                    tick_state_delta_digest(correlation),
+                )
+            })
+            .collect::<Vec<_>>();
+        if let Some(runtime_wal) = self.runtime_wal.as_mut() {
+            for (correlation, decision, state_delta_digest) in &tick_wal_records {
+                if let Err(error) =
+                    runtime_wal.record_tick_receipt(correlation, *decision, *state_delta_digest)
+                {
+                    self.runtime = runtime_before;
+                    self.provenance = provenance_before;
+                    return Err(error.into());
+                }
+            }
+        }
+        Ok(records)
     }
 
     /// Runs scheduler-owned passes until an idle pass occurs.
@@ -276,6 +318,8 @@ pub struct TrustedRuntimeWal {
     payload_schema_id: PayloadSchemaId,
     digest_domain: Hash,
     submission_frontier_digest: Hash,
+    receipt_frontier_digest: Hash,
+    runtime_state_frontier_digest: Hash,
 }
 
 impl TrustedRuntimeWal {
@@ -315,6 +359,8 @@ impl TrustedRuntimeWal {
             )),
             digest_domain: trusted_runtime_wal_digest("digest-domain"),
             submission_frontier_digest: trusted_runtime_wal_digest("submission-frontier:genesis"),
+            receipt_frontier_digest: trusted_runtime_wal_digest("receipt-frontier:genesis"),
+            runtime_state_frontier_digest: trusted_runtime_wal_digest("runtime-frontier:genesis"),
         })
     }
 
@@ -343,6 +389,16 @@ impl TrustedRuntimeWal {
             .read_commits()
             .into_iter()
             .filter(|commit| commit.transaction_kind == WalTransactionKind::SubmissionIntake)
+            .count()
+    }
+
+    /// Returns the number of committed scheduler-tick transactions.
+    #[must_use]
+    pub fn scheduler_tick_count(&self) -> usize {
+        self.store
+            .read_commits()
+            .into_iter()
+            .filter(|commit| commit.transaction_kind == WalTransactionKind::SchedulerTick)
             .count()
     }
 
@@ -391,6 +447,62 @@ impl TrustedRuntimeWal {
         )?;
         let commit = self.append_transaction(transaction)?;
         self.submission_frontier_digest = next_submission_frontier;
+        Ok(commit)
+    }
+
+    fn record_tick_receipt(
+        &mut self,
+        correlation: &ReceiptCorrelationRecord,
+        decision: WalTickDecision,
+        state_delta_digest: Hash,
+    ) -> Result<WalTransactionCommit, TrustedRuntimeWalError> {
+        let receipt = TickReceiptRecord {
+            submission_id: correlation.submission_id,
+            ticket_digest: correlation.ticket_digest,
+            receipt_digest: correlation.tick_receipt_digest,
+            decision,
+        };
+        let wal_correlation = WalReceiptCorrelationRecord {
+            submission_id: correlation.submission_id,
+            ticket_digest: correlation.ticket_digest,
+            receipt_digest: correlation.tick_receipt_digest,
+        };
+        let next_receipt_frontier =
+            receipt_frontier_digest(self.receipt_frontier_digest, receipt, wal_correlation);
+        let next_runtime_frontier = runtime_state_frontier_digest(
+            self.runtime_state_frontier_digest,
+            correlation,
+            state_delta_digest,
+        );
+        let transaction = build_tick_transaction(
+            self.builder(
+                WalTransactionKind::SchedulerTick,
+                WalAppendAuthority::TrustedScheduler,
+                WalTransactionId::from_hash(tick_transaction_digest(
+                    correlation,
+                    decision,
+                    state_delta_digest,
+                )),
+            ),
+            receipt,
+            wal_correlation,
+            state_delta_digest,
+            vec![
+                AffectedFrontier {
+                    kind: AffectedFrontierKind::ReceiptIndex,
+                    before_digest: self.receipt_frontier_digest,
+                    after_digest: next_receipt_frontier,
+                },
+                AffectedFrontier {
+                    kind: AffectedFrontierKind::RuntimeState,
+                    before_digest: self.runtime_state_frontier_digest,
+                    after_digest: next_runtime_frontier,
+                },
+            ],
+        )?;
+        let commit = self.append_transaction(transaction)?;
+        self.receipt_frontier_digest = next_receipt_frontier;
+        self.runtime_state_frontier_digest = next_runtime_frontier;
         Ok(commit)
     }
 
@@ -586,5 +698,105 @@ fn submission_frontier_digest(previous: Hash, record: SubmissionAcceptanceRecord
     hasher.update(&record.submission_id);
     hasher.update(&record.canonical_envelope_digest);
     hasher.update(&record.acceptance_evidence_digest);
+    hasher.finalize().into()
+}
+
+fn wal_tick_decision_from_observation(
+    observation: IntentOutcomeObservation,
+    expected_receipt_digest: Hash,
+) -> WalTickDecision {
+    let IntentOutcomeObservation::Decided {
+        correlation,
+        decision,
+    } = observation
+    else {
+        return WalTickDecision::Obstructed;
+    };
+    if correlation.tick_receipt_digest != expected_receipt_digest {
+        return WalTickDecision::Obstructed;
+    }
+    match decision {
+        IntentOutcomeDecision::Applied { .. } => WalTickDecision::Applied,
+        IntentOutcomeDecision::Rejected {
+            reason: TickReceiptRejection::FootprintConflict,
+            ..
+        } => WalTickDecision::RejectedFootprintConflict,
+        IntentOutcomeDecision::NoMatchingReceiptEntry { .. } => WalTickDecision::Obstructed,
+    }
+}
+
+fn tick_transaction_digest(
+    correlation: &ReceiptCorrelationRecord,
+    decision: WalTickDecision,
+    state_delta_digest: Hash,
+) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
+    hasher.update(b"tick-transaction");
+    hasher.update(&correlation.ticketed_ingress_id);
+    hasher.update(&correlation.submission_id);
+    hasher.update(&correlation.ticket_digest);
+    hasher.update(&correlation.ingress_id);
+    hasher.update(&correlation.tick_receipt_digest);
+    hasher.update(&correlation.commit_hash);
+    hasher.update(&correlation.commit_global_tick.as_u64().to_le_bytes());
+    hasher.update(&correlation.worldline_tick_after.as_u64().to_le_bytes());
+    hasher.update(&[wal_tick_decision_code(decision)]);
+    hasher.update(&state_delta_digest);
+    hasher.finalize().into()
+}
+
+fn tick_state_delta_digest(correlation: &ReceiptCorrelationRecord) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
+    hasher.update(b"tick-state-delta");
+    hasher.update(&correlation.commit_hash);
+    hasher.update(correlation.head_key.worldline_id.as_bytes());
+    hasher.update(correlation.head_key.head_id.as_bytes());
+    hasher.update(&correlation.commit_global_tick.as_u64().to_le_bytes());
+    hasher.update(&correlation.worldline_tick_after.as_u64().to_le_bytes());
+    hasher.finalize().into()
+}
+
+fn receipt_frontier_digest(
+    previous: Hash,
+    receipt: TickReceiptRecord,
+    correlation: WalReceiptCorrelationRecord,
+) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
+    hasher.update(b"receipt-frontier");
+    hasher.update(&previous);
+    hasher.update(&receipt.submission_id);
+    hasher.update(&receipt.ticket_digest);
+    hasher.update(&receipt.receipt_digest);
+    hasher.update(&[wal_tick_decision_code(receipt.decision)]);
+    hasher.update(&correlation.submission_id);
+    hasher.update(&correlation.ticket_digest);
+    hasher.update(&correlation.receipt_digest);
+    hasher.finalize().into()
+}
+
+fn wal_tick_decision_code(decision: WalTickDecision) -> u8 {
+    match decision {
+        WalTickDecision::Applied => 1,
+        WalTickDecision::RejectedFootprintConflict => 2,
+        WalTickDecision::Obstructed => 3,
+    }
+}
+
+fn runtime_state_frontier_digest(
+    previous: Hash,
+    correlation: &ReceiptCorrelationRecord,
+    state_delta_digest: Hash,
+) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
+    hasher.update(b"runtime-state-frontier");
+    hasher.update(&previous);
+    hasher.update(&correlation.commit_hash);
+    hasher.update(&state_delta_digest);
+    hasher.update(&correlation.commit_global_tick.as_u64().to_le_bytes());
+    hasher.update(&correlation.worldline_tick_after.as_u64().to_le_bytes());
     hasher.finalize().into()
 }

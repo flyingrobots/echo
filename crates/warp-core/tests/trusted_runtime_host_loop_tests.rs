@@ -10,8 +10,8 @@ use echo_registry_api::{
 };
 use warp_core::{
     causal_wal::{
-        recover_in_memory_store, recover_submission_index, Lsn, RecoveredSubmissionPosture,
-        RecoveryAccessMode, WalBuildError,
+        recover_in_memory_store, recover_receipt_index, recover_submission_index, Lsn,
+        RecoveredSubmissionPosture, RecoveryAccessMode, WalBuildError, WalTransactionKind,
     },
     make_head_id, make_intent_kind, make_node_id, make_type_id, AuthoredObserverPlan,
     ContractMutationHandler, ContractOperationKind, ContractPackageIdentity, ContractQueryObserver,
@@ -515,4 +515,127 @@ fn runtime_wal_ack_failure_rolls_back_intake_mutation() {
             .submission_acceptance_count(),
         0
     );
+}
+
+#[test]
+fn runtime_wal_ack_tick_commits_receipt_transaction_before_outcome_is_observed() {
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_in_memory_runtime_wal()
+        .expect("runtime WAL should initialize");
+    host.install_contract_package(package())
+        .expect("host should install package");
+
+    let envelope = eint_envelope(worldline_id);
+    let submission = {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(envelope)
+            .expect("runtime WAL ACK submit should return accepted evidence")
+    };
+    let ticket = admission_ticket(91);
+    host.stage_installed_contract_submission(submission.submission_id, &ticket)
+        .expect("trusted host should stage package-supported ticketed ingress");
+
+    let report = host
+        .run_until_idle(4)
+        .expect("trusted host should tick until idle");
+    assert_eq!(report.committed_steps, 1);
+
+    let outcome = {
+        let app = host.app();
+        app.observe_intent_outcome(&submission.submission_id)
+    };
+    let IntentOutcome::Applied { receipt, .. } = outcome else {
+        panic!("expected applied outcome");
+    };
+    let tick_receipt_digest = receipt.tick_receipt_digest;
+
+    let runtime_wal = host
+        .runtime_wal()
+        .expect("runtime WAL should stay configured");
+    assert_eq!(
+        runtime_wal
+            .commits()
+            .into_iter()
+            .filter(|commit| commit.transaction_kind == WalTransactionKind::SchedulerTick)
+            .count(),
+        1
+    );
+
+    let mut store = runtime_wal.cloned_store();
+    let recovery = recover_in_memory_store(&mut store, RecoveryAccessMode::ReadOnly)
+        .expect("committed tick receipt should recover");
+    let submissions = recover_submission_index(&recovery)
+        .expect("recovered tick receipt should update submission posture");
+    assert_eq!(
+        submissions
+            .get(&submission.submission_id)
+            .expect("submission should recover")
+            .posture,
+        RecoveredSubmissionPosture::DecidedApplied
+    );
+
+    let receipts =
+        recover_receipt_index(&recovery).expect("recovered tick receipt should rebuild index");
+    assert_eq!(
+        receipts
+            .receipt_by_submission
+            .get(&submission.submission_id),
+        Some(&tick_receipt_digest)
+    );
+    assert_eq!(
+        receipts.ticket_by_submission.get(&submission.submission_id),
+        Some(&ticket.ticket_digest)
+    );
+}
+
+#[test]
+fn runtime_wal_ack_tick_failure_rolls_back_visible_outcome() {
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_in_memory_runtime_wal()
+        .expect("runtime WAL should initialize");
+    host.install_contract_package(package())
+        .expect("host should install package");
+
+    let submission = {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(eint_envelope(worldline_id))
+            .expect("submission acceptance should commit before ACK")
+    };
+    host.stage_installed_contract_submission(submission.submission_id, &admission_ticket(92))
+        .expect("trusted host should stage package-supported ticketed ingress");
+    let overflowing_wal = TrustedRuntimeWal::new_in_memory_at_lsn_for_test(Lsn::from_raw(u64::MAX))
+        .expect("overflow fixture WAL should initialize");
+    host.replace_runtime_wal_for_test(overflowing_wal);
+
+    let err = host
+        .run_until_idle(4)
+        .expect_err("tick WAL overflow should reject publication");
+    assert!(matches!(
+        err,
+        TrustedRuntimeHostError::Wal(TrustedRuntimeWalError::Build(WalBuildError::LsnOverflow))
+    ));
+    assert_eq!(host.runtime().receipt_correlation_count(), 0);
+    assert_eq!(
+        host.runtime_wal()
+            .expect("runtime WAL should stay configured")
+            .scheduler_tick_count(),
+        0
+    );
+
+    let outcome = {
+        let app = host.app();
+        app.observe_intent_outcome(&submission.submission_id)
+    };
+    assert!(matches!(
+        outcome,
+        IntentOutcome::Pending {
+            submission_id,
+            ticketed_ingress_id: Some(_),
+            ..
+        } if submission_id == submission.submission_id
+    ));
 }

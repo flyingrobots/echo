@@ -997,12 +997,13 @@ completed slice.
       `jedit` maps that posture to editor terms outside Echo.
     - Test plan: sibling `jedit` fixture consumes generic Echo recovery JSON.
 
-- [ ] **Slice 95: Runtime ACK drift gate**
+- [x] **Slice 95: Runtime ACK drift gate**
     - User story: As a maintainer, docs and tests should fail if Echo claims
       durable ACK semantics without a WAL-backed witness.
     - Acceptance criteria: release readiness names runtime ACK coverage as a
-      distinct gate.
-    - Test plan: runtime ACK readiness gate fixture plus stale-claim grep.
+      distinct gate through `cargo xtask test-slice runtime-wal-ack`.
+    - Test plan: runtime ACK readiness gate fixture plus stale-claim grep:
+      `cargo xtask test-slice runtime-wal-ack`.
 
 ## Recently Completed Slice Batch
 

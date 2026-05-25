@@ -120,9 +120,16 @@ impl RetainedEvidenceRef {
     /// Stable id that binds semantic coordinate, content hash, and byte length.
     #[must_use]
     pub fn evidence_ref_id(&self) -> Hash {
+        let coordinate_id = self.coordinate.coordinate_id();
+        self.evidence_ref_id_with_coordinate_id(&coordinate_id)
+    }
+
+    /// Stable ref id when the caller already has the coordinate id.
+    #[must_use]
+    pub(crate) fn evidence_ref_id_with_coordinate_id(&self, coordinate_id: &Hash) -> Hash {
         let mut hasher = Hasher::new();
         hasher.update(RETAINED_EVIDENCE_REF_ID_DOMAIN);
-        hasher.update(&self.coordinate.coordinate_id());
+        hasher.update(coordinate_id);
         hasher.update(&self.content_hash);
         hasher.update(&self.byte_len.to_le_bytes());
         hasher.finalize().into()

@@ -975,20 +975,41 @@ fn retained_evidence_role_to_abi(role: RetainedEvidenceRole) -> abi::RetainedEvi
 fn retained_evidence_coordinate_to_abi(
     coordinate: &RetainedEvidenceCoordinate,
 ) -> abi::RetainedEvidenceCoordinate {
+    let coordinate_id = coordinate.coordinate_id();
+    retained_evidence_coordinate_to_abi_with_id(coordinate, &coordinate_id)
+}
+
+fn retained_evidence_coordinate_to_abi_with_id(
+    coordinate: &RetainedEvidenceCoordinate,
+    coordinate_id: &Hash,
+) -> abi::RetainedEvidenceCoordinate {
     abi::RetainedEvidenceCoordinate {
         contract: contract_evidence_to_abi(&coordinate.contract),
         role: retained_evidence_role_to_abi(coordinate.role),
         semantic_digest: coordinate.semantic_digest.to_vec(),
-        coordinate_id: coordinate.coordinate_id().to_vec(),
+        coordinate_id: coordinate_id.to_vec(),
     }
 }
 
 fn retained_evidence_ref_to_abi(reference: &RetainedEvidenceRef) -> abi::RetainedEvidenceRef {
+    let coordinate_id = reference.coordinate.coordinate_id();
+    retained_evidence_ref_to_abi_with_coordinate_id(reference, &coordinate_id)
+}
+
+fn retained_evidence_ref_to_abi_with_coordinate_id(
+    reference: &RetainedEvidenceRef,
+    coordinate_id: &Hash,
+) -> abi::RetainedEvidenceRef {
     abi::RetainedEvidenceRef {
-        coordinate: retained_evidence_coordinate_to_abi(&reference.coordinate),
+        coordinate: retained_evidence_coordinate_to_abi_with_id(
+            &reference.coordinate,
+            coordinate_id,
+        ),
         content_hash: reference.content_hash.to_vec(),
         byte_len: reference.byte_len,
-        evidence_ref_id: reference.evidence_ref_id().to_vec(),
+        evidence_ref_id: reference
+            .evidence_ref_id_with_coordinate_id(coordinate_id)
+            .to_vec(),
     }
 }
 
@@ -1010,13 +1031,20 @@ fn retained_evidence_posture_to_abi(
         RetainedEvidencePosture::MissingContent {
             reference,
             obstruction,
-        } => abi::RetainedEvidencePosture::MissingRetention {
-            coordinate: Some(Box::new(retained_evidence_coordinate_to_abi(
-                &reference.coordinate,
-            ))),
-            reference: Some(Box::new(retained_evidence_ref_to_abi(reference))),
-            retention_id: retained_obstruction_id(obstruction),
-        },
+        } => {
+            let coordinate_id = reference.coordinate.coordinate_id();
+            abi::RetainedEvidencePosture::MissingRetention {
+                coordinate: Some(Box::new(retained_evidence_coordinate_to_abi_with_id(
+                    &reference.coordinate,
+                    &coordinate_id,
+                ))),
+                reference: Some(Box::new(retained_evidence_ref_to_abi_with_coordinate_id(
+                    reference,
+                    &coordinate_id,
+                ))),
+                retention_id: retained_obstruction_id(obstruction),
+            }
+        }
     }
 }
 

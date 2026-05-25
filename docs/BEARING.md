@@ -599,7 +599,7 @@ completed slice.
 
 ### PR 10: WAL Fixture And Corpus Hardening
 
-- [ ] **Slice 46: WAL hardening fixture surface**
+- [x] **Slice 46: WAL hardening fixture surface**
     - User story: As an Echo maintainer, I need deterministic fixtures that can
       build valid WAL histories and damage them at exact byte/transaction
       boundaries.
@@ -609,7 +609,7 @@ completed slice.
     - Test plan: fixture recovery, uncommitted-tail, torn-tail, and read-only
       non-mutation witnesses.
 
-- [ ] **Slice 47: WAL recovery golden corpus**
+- [x] **Slice 47: WAL recovery golden corpus**
     - User story: As Echo, I need a fixed corpus of minimal WAL shapes that
       proves recovery posture across clean, partial, and corrupt histories.
     - Acceptance criteria: clean, empty, tail, torn, corrupt digest, bad magic,
@@ -617,7 +617,7 @@ completed slice.
       blocking/inspectable status.
     - Test plan: `wal_recovery_golden_*` fixtures listed in the hardening matrix.
 
-- [ ] **Slice 48: Submission ACK crash matrix**
+- [x] **Slice 48: Submission ACK crash matrix**
     - User story: As an app retrying after a crash, I need Echo to distinguish
       never accepted from accepted-before-ACK.
     - Acceptance criteria: recovery never invents accepted evidence before
@@ -626,7 +626,7 @@ completed slice.
       policy.
     - Test plan: submission intake crash matrix fixtures.
 
-- [ ] **Slice 49: Tick commit and publish crash matrix**
+- [x] **Slice 49: Tick commit and publish crash matrix**
     - User story: As Echo, visible tick outcomes must imply committed
       recoverable history.
     - Acceptance criteria: tick receipt, runtime delta, receipt correlation, and

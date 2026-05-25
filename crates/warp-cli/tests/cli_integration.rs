@@ -13,6 +13,12 @@ use std::fs;
 use assert_cmd::cargo::cargo_bin;
 use predicates::prelude::*;
 use tempfile::TempDir;
+use warp_core::causal_wal::{
+    build_submission_acceptance_transaction, AffectedFrontier, AffectedFrontierKind,
+    FilesystemWalStore, Lsn, PayloadCodecId, PayloadSchemaId, SubmissionAcceptanceRecord,
+    WalAppendAuthority, WalDurabilityMode, WalSegmentId, WalStorePort, WalTransactionBuilder,
+    WalTransactionId, WalTransactionKind, WriterEpochId, WriterEpochRequest,
+};
 use warp_core::wsc::{build_one_warp_input, write_wsc_one_warp};
 use warp_core::{
     make_edge_id, make_node_id, make_type_id, make_warp_id, EdgeRecord, GraphStore, NodeRecord,
@@ -66,6 +72,76 @@ fn write_demo_snapshot() -> TestResult<TempDir> {
     Ok(temp)
 }
 
+fn digest(label: &str) -> warp_core::Hash {
+    let mut out = [0_u8; 32];
+    for (index, byte) in label.bytes().enumerate() {
+        let rotate = match index % 8 {
+            0 => 0,
+            1 => 1,
+            2 => 2,
+            3 => 3,
+            4 => 4,
+            5 => 5,
+            6 => 6,
+            _ => 7,
+        };
+        out[index % out.len()] = out[index % out.len()].wrapping_add(byte);
+        out[(index * 7) % out.len()] ^= byte.rotate_left(rotate);
+    }
+    out
+}
+
+fn writer_epoch_request() -> WriterEpochRequest {
+    WriterEpochRequest {
+        epoch_id: WriterEpochId::from_hash(digest("epoch")),
+        storage_fencing_token: digest("fencing"),
+        process_identity: digest("process"),
+        host_identity: digest("host"),
+        started_at_lsn: Lsn::from_raw(0),
+        previous_epoch_id: None,
+        previous_epoch_final_commit_digest: None,
+        lease_or_lock_evidence: digest("lease"),
+    }
+}
+
+fn filesystem_wal_with_committed_submission() -> TestResult<TempDir> {
+    let temp = TempDir::new()?;
+    let epoch = writer_epoch_request();
+    let mut store = FilesystemWalStore::open(temp.path(), WalSegmentId::from_raw(1))?;
+    store.acquire_writer_epoch(epoch.clone())?;
+    let transaction = build_submission_acceptance_transaction(
+        WalTransactionBuilder::new(
+            epoch.epoch_id,
+            WalSegmentId::from_raw(1),
+            WalTransactionId::from_hash(digest("transaction")),
+            WalTransactionKind::SubmissionIntake,
+            WalAppendAuthority::SubmissionIntake,
+            Lsn::from_raw(0),
+            digest("previous-frame"),
+            digest("previous-commit"),
+            WalDurabilityMode::Buffered,
+            PayloadCodecId::from_hash(digest("codec")),
+            PayloadSchemaId::from_hash(digest("schema")),
+            1,
+            1,
+            digest("domain"),
+        ),
+        SubmissionAcceptanceRecord {
+            submission_id: digest("submission"),
+            canonical_envelope_digest: digest("envelope"),
+            idempotency_key_digest: None,
+            acceptance_evidence_digest: digest("evidence"),
+        },
+        vec![AffectedFrontier {
+            kind: AffectedFrontierKind::SubmissionQueue,
+            before_digest: digest("frontier-before"),
+            after_digest: digest("frontier-after"),
+        }],
+    )?;
+    store.append_transaction(transaction)?;
+    Ok(temp)
+}
+
 #[test]
 fn help_shows_all_subcommands() {
     echo_cli()
@@ -75,7 +151,8 @@ fn help_shows_all_subcommands() {
         .stdout(predicate::str::contains("Echo developer CLI"))
         .stdout(predicate::str::contains("verify"))
         .stdout(predicate::str::contains("bench"))
-        .stdout(predicate::str::contains("inspect"));
+        .stdout(predicate::str::contains("inspect"))
+        .stdout(predicate::str::contains("wal"));
 }
 
 #[test]
@@ -147,6 +224,52 @@ fn inspect_help_lists_tree_flag() {
         .success()
         .stdout(predicate::str::contains("tree"))
         .stdout(predicate::str::contains("raw"));
+}
+
+#[test]
+fn wal_doctor_help_lists_read_only_doctor() {
+    echo_cli()
+        .args(["wal", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("doctor"));
+}
+
+#[test]
+fn wal_doctor_json_reports_read_only_empty_store() -> TestResult {
+    let assert = echo_cli()
+        .args(["--format", "json", "wal", "doctor"])
+        .assert()
+        .success();
+    let json: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout)?;
+
+    assert_eq!(json["posture"], "Recoverable");
+    assert_eq!(json["tail_posture"], "Clean");
+    assert_eq!(json["committed_transactions_replayed"], 0);
+    assert_eq!(json["obstruction_count"], 0);
+    Ok(())
+}
+
+#[test]
+fn wal_doctor_json_reports_committed_filesystem_wal() -> TestResult {
+    let temp = filesystem_wal_with_committed_submission()?;
+    let assert = echo_cli()
+        .args([
+            "--format",
+            "json",
+            "wal",
+            "doctor",
+            temp.path().to_str().ok_or("temp path is not UTF-8")?,
+        ])
+        .assert()
+        .success();
+    let json: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout)?;
+
+    assert_eq!(json["posture"], "Recoverable");
+    assert_eq!(json["tail_posture"], "Clean");
+    assert_eq!(json["committed_transactions_replayed"], 1);
+    assert_eq!(json["obstruction_count"], 0);
+    Ok(())
 }
 
 #[test]

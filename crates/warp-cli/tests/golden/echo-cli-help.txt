@@ -6,6 +6,7 @@ Commands:
   verify   Verify hash integrity of a WSC snapshot
   bench    Run benchmarks and format results
   inspect  Inspect a WSC snapshot
+  wal      Inspect Echo WAL recovery posture without mutating storage
 
 Options:
       --format <FORMAT>  Output format (text or json) [default: text]

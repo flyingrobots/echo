@@ -23,9 +23,10 @@ mod cli;
 mod inspect;
 mod output;
 mod verify;
+mod wal;
 mod wsc_loader;
 
-use cli::{Cli, Commands};
+use cli::{Cli, Commands, WalCommands};
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -44,5 +45,8 @@ fn main() -> Result<()> {
             tree,
             raw,
         } => inspect::run(snapshot, tree, raw, &cli.format),
+        Commands::Wal {
+            command: WalCommands::Doctor { ref root },
+        } => wal::doctor(root, &cli.format),
     }
 }

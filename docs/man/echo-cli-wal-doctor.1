@@ -1,0 +1,16 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH echo-cli-wal-doctor 1  "echo-cli-wal-doctor "
+.SH NAME
+echo\-cli\-wal\-doctor \- Report read\-only WAL recovery posture
+.SH SYNOPSIS
+\fBecho\-cli\-wal\-doctor\fR [\fB\-h\fR|\fB\-\-help\fR] [\fIROOT\fR]
+.SH DESCRIPTION
+Report read\-only WAL recovery posture
+.SH OPTIONS
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help
+.TP
+[\fIROOT\fR] [default: .]
+Filesystem WAL root to inspect

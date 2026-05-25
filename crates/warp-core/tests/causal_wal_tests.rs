@@ -3,27 +3,34 @@
 //! Causal WAL foundation tests.
 
 use warp_core::causal_wal::{
-    apply_committed_transaction, build_checkpoint_publication_transaction,
+    apply_committed_transaction, audit_wal_release_readiness,
+    build_checkpoint_publication_transaction, build_materialization_outbox_transaction,
     build_recovery_certificate, build_retained_reading_transaction,
     build_submission_acceptance_transaction, build_tick_transaction, doctor_in_memory_store,
     evaluate_checkpoint_publication, lint_wal_schema_terms, missing_material_scope,
-    read_checkpoint_record, recover_checkpoint_publications, recover_in_memory_store,
+    project_causal_commit_evidence, read_checkpoint_record, recover_checkpoint_publications,
+    recover_filesystem_store, recover_in_memory_store, recover_materialization_outbox,
     recover_receipt_index, recover_retention_index, recover_submission_index,
-    retained_material_obstructions, validate_checkpoint_record, write_checkpoint_record_atomic,
-    AffectedFrontier, AffectedFrontierKind, CheckpointPublicationRecord, CheckpointRecord,
-    CheckpointValidationPosture, EvidenceMaterialPosture, InMemoryWalStore, Lsn,
-    MissingMaterialScope, PayloadCodecId, PayloadSchemaId, ReadingRefRecord, RecoveredState,
-    RecoveredSubmissionPosture, RecoveryAccessMode, RecoveryTailPosture, RetainedMaterialKind,
-    RetainedMaterialRecord, SubmissionAcceptanceRecord, SubmissionRetryPosture, TickReceiptRecord,
-    TransactionLocalIndex, WalAppendAuthority, WalBuildError, WalCommittedTransaction,
-    WalDoctorPosture, WalDurabilityMode, WalManifest, WalReceiptCorrelationRecord, WalRecordKind,
-    WalSchemaLintError, WalSegmentId, WalStoreError, WalStorePort, WalTickDecision,
-    WalTransactionBuilder, WalTransactionId, WalTransactionKind, WriterEpochId, WriterEpochRequest,
+    retained_material_obstructions, shadow_replay_matches, validate_checkpoint_record,
+    validate_strict_object_store_capabilities, write_checkpoint_record_atomic, AffectedFrontier,
+    AffectedFrontierKind, CheckpointPublicationRecord, CheckpointRecord,
+    CheckpointValidationPosture, EvidenceMaterialPosture, ExistingMaterializedArtifact,
+    FilesystemWalStore, InMemoryWalStore, Lsn, MaterializationIntentRecord,
+    MaterializationObservationRecord, MaterializationReplayPosture, MissingMaterialScope,
+    ObjectStoreCapabilityError, ObjectStoreReadAfterWritePosture, ObjectStoreWalCapabilities,
+    PayloadCodecId, PayloadSchemaId, ReadingRefRecord, RecoveredState, RecoveredSubmissionPosture,
+    RecoveryAccessMode, RecoveryTailPosture, RetainedMaterialKind, RetainedMaterialRecord,
+    SubmissionAcceptanceRecord, SubmissionRetryPosture, TickReceiptRecord, TransactionLocalIndex,
+    WalAppendAuthority, WalBuildError, WalCommittedTransaction, WalDoctorPosture,
+    WalDurabilityMode, WalManifest, WalReceiptCorrelationRecord, WalRecordKind,
+    WalReleaseReadinessGates, WalSchemaLintError, WalSegmentId, WalStoreError, WalStorePort,
+    WalTickDecision, WalTransactionBuilder, WalTransactionId, WalTransactionKind, WriterEpochId,
+    WriterEpochRequest,
 };
 use warp_core::Hash;
 
-use std::collections::BTreeSet;
-use std::fs;
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs::{self, OpenOptions};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -54,6 +61,16 @@ fn temp_checkpoint_path(label: &str) -> std::path::PathBuf {
     ));
     must_ok(fs::create_dir_all(&dir));
     dir.join("checkpoint.ecwal")
+}
+
+fn temp_wal_dir(label: &str) -> std::path::PathBuf {
+    let unique = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!(
+        "echo-causal-wal-store-{label}-{}-{unique}",
+        std::process::id()
+    ));
+    must_ok(fs::create_dir_all(&dir));
+    dir
 }
 
 fn epoch_id() -> WriterEpochId {
@@ -1035,4 +1052,298 @@ fn read_only_wal_doctor_reports_uncommitted_tail_without_truncating() {
         RecoveryTailPosture::WouldTruncateAfter(Lsn::from_raw(1))
     );
     assert_eq!(store.read_frames().len(), before);
+}
+
+#[test]
+fn filesystem_wal_adapter_recovers_committed_transaction_from_disk() {
+    let dir = temp_wal_dir("filesystem-committed");
+    let mut store = must_ok(FilesystemWalStore::open(&dir, WalSegmentId::from_raw(1)));
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    must_ok(store.append_transaction(durable_submission_transaction(
+        "filesystem",
+        Lsn::from_raw(0),
+    )));
+
+    let report = must_ok(recover_filesystem_store(&dir, RecoveryAccessMode::ReadOnly));
+    let index = must_ok(recover_submission_index(&report));
+
+    assert_eq!(report.tail_posture, RecoveryTailPosture::Clean);
+    assert_eq!(
+        index.retry_posture(
+            submission_acceptance("filesystem").submission_id,
+            submission_acceptance("filesystem").canonical_envelope_digest
+        ),
+        SubmissionRetryPosture::AlreadyAcceptedPending
+    );
+}
+
+#[test]
+fn filesystem_read_only_recovery_reports_uncommitted_tail_without_truncating() {
+    let dir = temp_wal_dir("filesystem-tail-read-only");
+    let mut store = must_ok(FilesystemWalStore::open(&dir, WalSegmentId::from_raw(1)));
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    must_ok(store.append_transaction(durable_submission_transaction(
+        "filesystem-tail",
+        Lsn::from_raw(0),
+    )));
+    let tx = durable_tick_transaction(
+        "filesystem-tail",
+        Lsn::from_raw(2),
+        WalTickDecision::Applied,
+    );
+    must_ok(store.append_uncommitted_frame(epoch_id(), tx.frames[0].clone()));
+    let before = must_ok(fs::metadata(store.segment_path())).len();
+
+    let report = must_ok(recover_filesystem_store(&dir, RecoveryAccessMode::ReadOnly));
+    let after = must_ok(fs::metadata(store.segment_path())).len();
+
+    assert_eq!(
+        report.tail_posture,
+        RecoveryTailPosture::WouldTruncateAfter(Lsn::from_raw(1))
+    );
+    assert_eq!(after, before);
+}
+
+#[test]
+fn filesystem_writable_recovery_truncates_uncommitted_tail() {
+    let dir = temp_wal_dir("filesystem-tail-writable");
+    let mut store = must_ok(FilesystemWalStore::open(&dir, WalSegmentId::from_raw(1)));
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    must_ok(store.append_transaction(durable_submission_transaction(
+        "filesystem-writable",
+        Lsn::from_raw(0),
+    )));
+    let tx = durable_tick_transaction(
+        "filesystem-writable",
+        Lsn::from_raw(2),
+        WalTickDecision::Applied,
+    );
+    must_ok(store.append_uncommitted_frame(epoch_id(), tx.frames[0].clone()));
+
+    let writable = must_ok(recover_filesystem_store(&dir, RecoveryAccessMode::Writable));
+    let read_only_after = must_ok(recover_filesystem_store(&dir, RecoveryAccessMode::ReadOnly));
+
+    assert_eq!(
+        writable.tail_posture,
+        RecoveryTailPosture::TruncatedAfter(Lsn::from_raw(1))
+    );
+    assert_eq!(read_only_after.tail_posture, RecoveryTailPosture::Clean);
+    assert_eq!(read_only_after.transactions.len(), 1);
+}
+
+#[test]
+fn filesystem_torn_final_record_is_reported_as_tail_not_history() {
+    let dir = temp_wal_dir("filesystem-torn-tail");
+    let mut store = must_ok(FilesystemWalStore::open(&dir, WalSegmentId::from_raw(1)));
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    must_ok(store.append_transaction(durable_submission_transaction(
+        "filesystem-torn",
+        Lsn::from_raw(0),
+    )));
+    let tx = durable_tick_transaction(
+        "filesystem-torn",
+        Lsn::from_raw(2),
+        WalTickDecision::Applied,
+    );
+    must_ok(store.append_uncommitted_frame(epoch_id(), tx.frames[0].clone()));
+    let segment_path = store.segment_path();
+    let original_len = must_ok(fs::metadata(&segment_path)).len();
+    let file = must_ok(OpenOptions::new().write(true).open(&segment_path));
+    must_ok(file.set_len(original_len.saturating_sub(13)));
+
+    let report = must_ok(recover_filesystem_store(&dir, RecoveryAccessMode::ReadOnly));
+    let receipts = must_ok(recover_receipt_index(&report));
+
+    assert_eq!(
+        report.tail_posture,
+        RecoveryTailPosture::WouldTruncateAfter(Lsn::from_raw(1))
+    );
+    assert!(receipts.receipt_by_submission.is_empty());
+}
+
+#[test]
+fn filesystem_manifest_publish_writes_manifest_material() {
+    let dir = temp_wal_dir("filesystem-manifest");
+    let mut store = must_ok(FilesystemWalStore::open(&dir, WalSegmentId::from_raw(1)));
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    let manifest = WalManifest {
+        manifest_digest: digest("manifest:filesystem"),
+        last_committed_lsn: Some(Lsn::from_raw(9)),
+        last_commit_digest: Some(digest("commit:filesystem")),
+        sealed_segment_count: 1,
+    };
+
+    must_ok(store.publish_manifest(epoch_id(), manifest));
+
+    assert!(dir.join("manifest.ecwal").exists());
+}
+
+#[test]
+fn strict_object_store_requires_conditional_manifest_commit() {
+    let invalid = ObjectStoreWalCapabilities {
+        content_addressed_object_write: true,
+        verify_object_version: true,
+        conditional_manifest_commit: false,
+        read_after_write: ObjectStoreReadAfterWritePosture::Verified,
+    };
+    assert!(matches!(
+        validate_strict_object_store_capabilities(invalid),
+        Err(ObjectStoreCapabilityError::MissingConditionalManifestCommit)
+    ));
+
+    let valid = ObjectStoreWalCapabilities {
+        conditional_manifest_commit: true,
+        ..invalid
+    };
+    assert!(validate_strict_object_store_capabilities(valid).is_ok());
+}
+
+#[test]
+fn materialization_replay_detects_existing_artifact_before_retry() {
+    let mut store = InMemoryWalStore::new();
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    let intent = MaterializationIntentRecord {
+        effect_id: digest("effect:existing"),
+        expected_artifact_digest: digest("artifact:expected"),
+        materialization_intent_digest: digest("materialization:intent"),
+        idempotency_token: digest("idempotency:effect"),
+        target_metadata_digest: digest("artifact:metadata"),
+    };
+    let builder = builder(
+        transaction_id("tx:outbox"),
+        Lsn::from_raw(0),
+        WalAppendAuthority::TrustedScheduler,
+        WalTransactionKind::MaterializationOutbox,
+    );
+    must_ok(
+        store.append_transaction(must_ok(build_materialization_outbox_transaction(
+            builder,
+            intent,
+            None,
+            vec![frontier(
+                AffectedFrontierKind::ReceiptIndex,
+                "outbox:before",
+                "outbox:after",
+            )],
+        ))),
+    );
+    let mut existing = BTreeMap::new();
+    existing.insert(
+        intent.effect_id,
+        ExistingMaterializedArtifact {
+            effect_id: intent.effect_id,
+            artifact_digest: intent.expected_artifact_digest,
+            metadata_digest: intent.target_metadata_digest,
+        },
+    );
+
+    let report = must_ok(recover_in_memory_store(
+        &mut store,
+        RecoveryAccessMode::ReadOnly,
+    ));
+    let outbox = must_ok(recover_materialization_outbox(&report, &existing));
+
+    assert_eq!(
+        must_some(outbox.get(&intent.effect_id)).posture,
+        MaterializationReplayPosture::ExistingArtifactMatches
+    );
+}
+
+#[test]
+fn materialization_observation_marks_effect_already_observed() {
+    let mut store = InMemoryWalStore::new();
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    let intent = MaterializationIntentRecord {
+        effect_id: digest("effect:observed"),
+        expected_artifact_digest: digest("artifact:observed"),
+        materialization_intent_digest: digest("materialization:observed"),
+        idempotency_token: digest("idempotency:observed"),
+        target_metadata_digest: digest("artifact:observed:metadata"),
+    };
+    let observation = MaterializationObservationRecord {
+        effect_id: intent.effect_id,
+        observed_artifact_digest: intent.expected_artifact_digest,
+        observed_metadata_digest: intent.target_metadata_digest,
+    };
+    let builder = builder(
+        transaction_id("tx:outbox-observed"),
+        Lsn::from_raw(0),
+        WalAppendAuthority::TrustedScheduler,
+        WalTransactionKind::MaterializationOutbox,
+    );
+    must_ok(
+        store.append_transaction(must_ok(build_materialization_outbox_transaction(
+            builder,
+            intent,
+            Some(observation),
+            vec![frontier(
+                AffectedFrontierKind::ReceiptIndex,
+                "outbox:before",
+                "outbox:after",
+            )],
+        ))),
+    );
+
+    let report = must_ok(recover_in_memory_store(
+        &mut store,
+        RecoveryAccessMode::ReadOnly,
+    ));
+    let outbox = must_ok(recover_materialization_outbox(&report, &BTreeMap::new()));
+
+    assert_eq!(
+        must_some(outbox.get(&intent.effect_id)).posture,
+        MaterializationReplayPosture::AlreadyObserved
+    );
+}
+
+#[test]
+fn causal_commit_evidence_projects_wal_commit_anchor() {
+    let mut store = InMemoryWalStore::new();
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    let tx = durable_submission_transaction("commit-evidence", Lsn::from_raw(0));
+    let commit_digest = tx.commit.commit_digest;
+    must_ok(store.append_transaction(tx));
+
+    let report = must_ok(recover_in_memory_store(
+        &mut store,
+        RecoveryAccessMode::ReadOnly,
+    ));
+    let evidence = project_causal_commit_evidence(&report);
+
+    assert_eq!(evidence.len(), 1);
+    assert_eq!(evidence[0].commit_digest, commit_digest);
+    assert_eq!(evidence[0].lsn, Lsn::from_raw(1));
+}
+
+#[test]
+fn wal_shadow_replay_detects_recovered_state_match() {
+    let tx = tick_transaction(Lsn::from_raw(0));
+    let live_state = must_ok(apply_committed_transaction(RecoveredState::default(), &tx));
+
+    assert!(must_ok(shadow_replay_matches(&live_state, &[tx])));
+}
+
+#[test]
+fn wal_release_readiness_audit_reports_blocked_and_ready_gates() {
+    let blocked = audit_wal_release_readiness(WalReleaseReadinessGates {
+        filesystem_adapter: true,
+        object_store_capability_gate: true,
+        ..WalReleaseReadinessGates::default()
+    });
+    assert!(!blocked.ready);
+    assert!(blocked.passed_gates.contains(&"filesystem_adapter"));
+    assert!(blocked.blocked_gates.contains(&"shadow_replay"));
+
+    let ready = audit_wal_release_readiness(WalReleaseReadinessGates {
+        filesystem_adapter: true,
+        object_store_capability_gate: true,
+        segment_repair: true,
+        crash_matrix: true,
+        shadow_replay: true,
+        outbox: true,
+        commit_evidence: true,
+        external_consumer_gate: true,
+    });
+    assert!(ready.ready);
+    assert!(ready.blocked_gates.is_empty());
 }

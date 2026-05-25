@@ -14,7 +14,7 @@
 //! ```
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
@@ -29,7 +29,9 @@ const WAL_FRONTIERS_ROOT_DOMAIN: &[u8] = b"echo:causal_wal:frontiers_root:v1\0";
 const WAL_COMMIT_DOMAIN: &[u8] = b"echo:causal_wal:commit:v1\0";
 const WAL_HEADER_CHECKSUM_DOMAIN: &[u8] = b"echo:causal_wal:header_checksum:v1\0";
 const WAL_FRAME_CHECKSUM_DOMAIN: &[u8] = b"echo:causal_wal:frame_checksum:v1\0";
+const WAL_DISK_RECORD_DOMAIN: &[u8] = b"echo:causal_wal:disk_record:v1\0";
 const CHECKPOINT_FILE_MAGIC: &[u8; 8] = b"ECWALCP1";
+const WAL_SEGMENT_RECORD_MAGIC: &[u8; 8] = b"ECWALR1!";
 
 /// Current in-memory causal WAL version.
 pub const CAUSAL_WAL_VERSION: u16 = 1;
@@ -154,6 +156,20 @@ impl WalDurabilityMode {
             Self::Disabled => 5,
         }
     }
+
+    fn from_code(code: u8) -> Result<Self, WalDecodeError> {
+        match code {
+            1 => Ok(Self::StrictFilesystem),
+            2 => Ok(Self::StrictObjectStore),
+            3 => Ok(Self::Buffered),
+            4 => Ok(Self::ReadOnlyRecovery),
+            5 => Ok(Self::Disabled),
+            _ => Err(WalDecodeError::UnknownEnumCode {
+                enum_name: "WalDurabilityMode",
+                code,
+            }),
+        }
+    }
 }
 
 /// Authority plane allowed to record a WAL fact.
@@ -203,6 +219,20 @@ impl WalTransactionKind {
             }
             Self::RuntimePosture => WalAppendAuthority::RuntimeControl,
             Self::Checkpoint => WalAppendAuthority::Recovery,
+        }
+    }
+
+    fn from_code(code: u8) -> Result<Self, WalDecodeError> {
+        match code {
+            1 => Ok(Self::SubmissionIntake),
+            2 => Ok(Self::SchedulerTick),
+            3 => Ok(Self::RuntimePosture),
+            4 => Ok(Self::Checkpoint),
+            5 => Ok(Self::MaterializationOutbox),
+            _ => Err(WalDecodeError::UnknownEnumCode {
+                enum_name: "WalTransactionKind",
+                code,
+            }),
         }
     }
 }
@@ -296,6 +326,52 @@ impl WalRecordKind {
     pub fn obeys_recorded_not_committed_grammar(self) -> bool {
         !self.label().contains("Committed")
     }
+
+    fn code(self) -> u8 {
+        match self {
+            Self::SubmissionAcceptedRecorded => 1,
+            Self::SubmissionAcceptanceEvidenceRecorded => 2,
+            Self::RuntimeLawWitnessRecorded => 3,
+            Self::RuntimeAdmissionTicketIssued => 4,
+            Self::TicketedRuntimeIngressRecorded => 5,
+            Self::TickReceiptRecorded => 6,
+            Self::RuntimeStateDeltaRecorded => 7,
+            Self::ReceiptCorrelationRecorded => 8,
+            Self::ReadingEnvelopeRetained => 9,
+            Self::RetainedMaterialRefRecorded => 10,
+            Self::SchedulerFaultQuarantined => 11,
+            Self::TrustedRuntimeControlRecorded => 12,
+            Self::CheckpointPublicationRecorded => 13,
+            Self::MaterializationIntentRecorded => 14,
+            Self::MaterializationEffectObserved => 15,
+            Self::RecoveryPostureRecorded => 16,
+        }
+    }
+
+    fn from_code(code: u8) -> Result<Self, WalDecodeError> {
+        match code {
+            1 => Ok(Self::SubmissionAcceptedRecorded),
+            2 => Ok(Self::SubmissionAcceptanceEvidenceRecorded),
+            3 => Ok(Self::RuntimeLawWitnessRecorded),
+            4 => Ok(Self::RuntimeAdmissionTicketIssued),
+            5 => Ok(Self::TicketedRuntimeIngressRecorded),
+            6 => Ok(Self::TickReceiptRecorded),
+            7 => Ok(Self::RuntimeStateDeltaRecorded),
+            8 => Ok(Self::ReceiptCorrelationRecorded),
+            9 => Ok(Self::ReadingEnvelopeRetained),
+            10 => Ok(Self::RetainedMaterialRefRecorded),
+            11 => Ok(Self::SchedulerFaultQuarantined),
+            12 => Ok(Self::TrustedRuntimeControlRecorded),
+            13 => Ok(Self::CheckpointPublicationRecorded),
+            14 => Ok(Self::MaterializationIntentRecorded),
+            15 => Ok(Self::MaterializationEffectObserved),
+            16 => Ok(Self::RecoveryPostureRecorded),
+            _ => Err(WalDecodeError::UnknownEnumCode {
+                enum_name: "WalRecordKind",
+                code,
+            }),
+        }
+    }
 }
 
 /// Identity of the canonical payload codec.
@@ -345,6 +421,16 @@ impl WalCompressionKind {
             Self::None => 0,
         }
     }
+
+    fn from_code(code: u8) -> Result<Self, WalDecodeError> {
+        match code {
+            0 => Ok(Self::None),
+            _ => Err(WalDecodeError::UnknownEnumCode {
+                enum_name: "WalCompressionKind",
+                code,
+            }),
+        }
+    }
 }
 
 /// WAL payload revelation posture.
@@ -370,6 +456,20 @@ impl WalRedactionPosture {
             Self::RetainedRef => 3,
             Self::Encrypted => 4,
             Self::RedactedByPolicy => 5,
+        }
+    }
+
+    fn from_code(code: u8) -> Result<Self, WalDecodeError> {
+        match code {
+            1 => Ok(Self::Present),
+            2 => Ok(Self::DigestOnly),
+            3 => Ok(Self::RetainedRef),
+            4 => Ok(Self::Encrypted),
+            5 => Ok(Self::RedactedByPolicy),
+            _ => Err(WalDecodeError::UnknownEnumCode {
+                enum_name: "WalRedactionPosture",
+                code,
+            }),
         }
     }
 }
@@ -1868,6 +1968,892 @@ pub struct WalDoctorReport {
     pub tail_posture: RecoveryTailPosture,
 }
 
+/// Local filesystem WAL store backed by segment files.
+#[derive(Clone, Debug)]
+pub struct FilesystemWalStore {
+    root: PathBuf,
+    segment_id: WalSegmentId,
+    active_epoch: Option<WriterEpoch>,
+    closed_epochs: Vec<WriterEpoch>,
+    manifests: Vec<WalManifest>,
+}
+
+impl FilesystemWalStore {
+    /// Opens a filesystem WAL store rooted at `root`.
+    ///
+    /// Segment creation fsyncs the containing directory. Frame appends are
+    /// written to the active segment; commit flushing syncs the file and is the
+    /// durable ACK boundary for strict filesystem mode.
+    pub fn open(root: impl AsRef<Path>, segment_id: WalSegmentId) -> Result<Self, WalStoreError> {
+        let root = root.as_ref().to_path_buf();
+        fs::create_dir_all(&root)?;
+        let segment_path = segment_path(&root, segment_id);
+        if !segment_path.exists() {
+            File::create(&segment_path)?.sync_all()?;
+            sync_directory_store(&root)?;
+        }
+        Ok(Self {
+            root,
+            segment_id,
+            active_epoch: None,
+            closed_epochs: Vec::new(),
+            manifests: Vec::new(),
+        })
+    }
+
+    /// Returns the active segment path.
+    #[must_use]
+    pub fn segment_path(&self) -> PathBuf {
+        segment_path(&self.root, self.segment_id)
+    }
+
+    /// Returns the WAL root directory.
+    #[must_use]
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Appends and flushes a committed transaction.
+    pub fn append_transaction(
+        &mut self,
+        transaction: WalCommittedTransaction,
+    ) -> Result<(), WalStoreError> {
+        transaction.validate()?;
+        let epoch_id = transaction.commit.writer_epoch;
+        for frame in transaction.frames {
+            self.append_frame(epoch_id, frame)?;
+        }
+        self.flush_commit(epoch_id, transaction.commit)
+    }
+
+    /// Appends an uncommitted frame to simulate a torn transaction tail.
+    pub fn append_uncommitted_frame(
+        &mut self,
+        epoch_id: WriterEpochId,
+        frame: WalFrame,
+    ) -> Result<(), WalStoreError> {
+        self.append_frame(epoch_id, frame)
+    }
+}
+
+impl WalStorePort for FilesystemWalStore {
+    fn acquire_writer_epoch(
+        &mut self,
+        request: WriterEpochRequest,
+    ) -> Result<WriterEpoch, WalStoreError> {
+        if self.active_epoch.is_some() {
+            return Err(WalStoreError::WriterEpochAlreadyActive);
+        }
+        if let Some(previous_epoch_id) = request.previous_epoch_id {
+            if self
+                .closed_epochs
+                .iter()
+                .all(|epoch| epoch.epoch_id != previous_epoch_id)
+            {
+                return Err(WalStoreError::UnknownPreviousWriterEpoch);
+            }
+        }
+        let epoch = WriterEpoch {
+            epoch_id: request.epoch_id,
+            storage_fencing_token: request.storage_fencing_token,
+            process_identity: request.process_identity,
+            host_identity: request.host_identity,
+            started_at_lsn: request.started_at_lsn,
+            previous_epoch_id: request.previous_epoch_id,
+            previous_epoch_final_commit_digest: request.previous_epoch_final_commit_digest,
+            lease_or_lock_evidence: request.lease_or_lock_evidence,
+        };
+        self.active_epoch = Some(epoch.clone());
+        Ok(epoch)
+    }
+
+    fn append_frame(
+        &mut self,
+        epoch_id: WriterEpochId,
+        frame: WalFrame,
+    ) -> Result<(), WalStoreError> {
+        let active_epoch = self
+            .active_epoch
+            .as_ref()
+            .ok_or(WalStoreError::NoActiveWriterEpoch)?;
+        if active_epoch.epoch_id != epoch_id || frame.header.writer_epoch != epoch_id {
+            return Err(WalStoreError::WriterEpochMismatch);
+        }
+        frame.validate_integrity()?;
+        append_segment_record(&self.segment_path(), DiskWalRecord::Frame(&frame), false)
+    }
+
+    fn flush_commit(
+        &mut self,
+        epoch_id: WriterEpochId,
+        commit: WalTransactionCommit,
+    ) -> Result<(), WalStoreError> {
+        let active_epoch = self
+            .active_epoch
+            .as_ref()
+            .ok_or(WalStoreError::NoActiveWriterEpoch)?;
+        if active_epoch.epoch_id != epoch_id || commit.writer_epoch != epoch_id {
+            return Err(WalStoreError::WriterEpochMismatch);
+        }
+        append_segment_record(&self.segment_path(), DiskWalRecord::Commit(&commit), true)
+    }
+
+    fn read_frames(&self) -> Vec<WalFrame> {
+        match read_filesystem_segments(&self.root) {
+            Ok((frames, _, _)) => frames,
+            Err(_) => Vec::new(),
+        }
+    }
+
+    fn read_commits(&self) -> Vec<WalTransactionCommit> {
+        match read_filesystem_segments(&self.root) {
+            Ok((_, commits, _)) => commits,
+            Err(_) => Vec::new(),
+        }
+    }
+
+    fn seal_segment(
+        &mut self,
+        epoch_id: WriterEpochId,
+        segment_id: WalSegmentId,
+    ) -> Result<WalSegmentSeal, WalStoreError> {
+        let active_epoch = self
+            .active_epoch
+            .as_ref()
+            .ok_or(WalStoreError::NoActiveWriterEpoch)?;
+        if active_epoch.epoch_id != epoch_id {
+            return Err(WalStoreError::WriterEpochMismatch);
+        }
+        let (frames, _, _) = read_segment_file(&segment_path(&self.root, segment_id))?;
+        let frame_refs = frames.iter().collect::<Vec<_>>();
+        let seal = WalSegmentSeal {
+            segment_id,
+            sealed_lsn: frames.iter().map(|frame| frame.header.lsn).max(),
+            segment_digest: segment_digest(segment_id, &frame_refs),
+        };
+        Ok(seal)
+    }
+
+    fn truncate_tail_after(&mut self, after_lsn: Lsn) -> Result<(), WalStoreError> {
+        rewrite_filesystem_segments_after_truncation(&self.root, after_lsn)
+    }
+
+    fn publish_manifest(
+        &mut self,
+        epoch_id: WriterEpochId,
+        manifest: WalManifest,
+    ) -> Result<(), WalStoreError> {
+        let active_epoch = self
+            .active_epoch
+            .as_ref()
+            .ok_or(WalStoreError::NoActiveWriterEpoch)?;
+        if active_epoch.epoch_id != epoch_id {
+            return Err(WalStoreError::WriterEpochMismatch);
+        }
+        write_manifest_atomic(&self.root, &manifest)?;
+        self.manifests.push(manifest);
+        Ok(())
+    }
+
+    fn close_epoch(&mut self, epoch_id: WriterEpochId) -> Result<(), WalStoreError> {
+        let epoch = self
+            .active_epoch
+            .take()
+            .ok_or(WalStoreError::NoActiveWriterEpoch)?;
+        if epoch.epoch_id != epoch_id {
+            self.active_epoch = Some(epoch);
+            return Err(WalStoreError::WriterEpochMismatch);
+        }
+        self.closed_epochs.push(epoch);
+        Ok(())
+    }
+}
+
+/// Recovers committed transactions from filesystem WAL segments.
+pub fn recover_filesystem_store(
+    root: impl AsRef<Path>,
+    mode: RecoveryAccessMode,
+) -> Result<RecoveryScanReport, WalRecoveryError> {
+    let root = root.as_ref();
+    let (frames, commits, torn_tail) = read_filesystem_segments(root)?;
+    let mut report = recover_from_frames_and_commits(&frames, &commits, mode)?;
+    if torn_tail && matches!(report.tail_posture, RecoveryTailPosture::Clean) {
+        report.tail_posture = match mode {
+            RecoveryAccessMode::Writable => {
+                if let Some(lsn) = report.last_committed_lsn() {
+                    RecoveryTailPosture::TruncatedAfter(lsn)
+                } else {
+                    RecoveryTailPosture::TruncatedAll
+                }
+            }
+            RecoveryAccessMode::ReadOnly => {
+                if let Some(lsn) = report.last_committed_lsn() {
+                    RecoveryTailPosture::WouldTruncateAfter(lsn)
+                } else {
+                    RecoveryTailPosture::WouldTruncateAll
+                }
+            }
+        };
+    }
+    match (mode, report.tail_posture) {
+        (RecoveryAccessMode::Writable, RecoveryTailPosture::TruncatedAfter(lsn)) => {
+            rewrite_filesystem_segments_after_truncation(root, lsn)?;
+        }
+        (RecoveryAccessMode::Writable, RecoveryTailPosture::TruncatedAll) => {
+            clear_filesystem_segments(root)?;
+        }
+        _ => {}
+    }
+    Ok(report)
+}
+
+/// Runs a read-only WAL doctor over filesystem WAL segments.
+pub fn doctor_filesystem_store(
+    root: impl AsRef<Path>,
+) -> Result<WalDoctorReport, WalRecoveryError> {
+    let report = recover_filesystem_store(root, RecoveryAccessMode::ReadOnly)?;
+    let posture = match report.tail_posture {
+        RecoveryTailPosture::Clean => WalDoctorPosture::Recoverable,
+        RecoveryTailPosture::WouldTruncateAll | RecoveryTailPosture::WouldTruncateAfter(_) => {
+            WalDoctorPosture::RecoverableWithUncommittedTail
+        }
+        RecoveryTailPosture::TruncatedAll | RecoveryTailPosture::TruncatedAfter(_) => {
+            WalDoctorPosture::Obstructed
+        }
+    };
+    Ok(WalDoctorReport {
+        posture,
+        recovery_certificate: build_recovery_certificate(&report, None, 0, [0; 32], [0; 32]),
+        tail_posture: report.tail_posture,
+    })
+}
+
+/// Object-store read-after-write posture required by strict object storage.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ObjectStoreReadAfterWritePosture {
+    /// The adapter proves read-after-write behavior for committed manifests.
+    Verified,
+    /// The adapter cannot prove read-after-write behavior.
+    Unverified,
+}
+
+/// Capability evidence for a strict object-store WAL adapter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ObjectStoreWalCapabilities {
+    /// Content-addressed object writes are used for segment/checkpoint bodies.
+    pub content_addressed_object_write: bool,
+    /// Object version or ETag evidence is verified.
+    pub verify_object_version: bool,
+    /// Manifest publication is conditional/compare-and-swap.
+    pub conditional_manifest_commit: bool,
+    /// Read-after-write posture.
+    pub read_after_write: ObjectStoreReadAfterWritePosture,
+}
+
+/// Object-store capability validation error.
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum ObjectStoreCapabilityError {
+    /// Strict object stores must write content-addressed objects.
+    #[error("strict object store requires content-addressed object writes")]
+    MissingContentAddressedObjectWrite,
+    /// Strict object stores must verify object version/ETag evidence.
+    #[error("strict object store requires object version verification")]
+    MissingObjectVersionVerification,
+    /// Strict object stores must publish manifests conditionally.
+    #[error("strict object store requires conditional manifest commit")]
+    MissingConditionalManifestCommit,
+    /// Strict object stores must prove read-after-write behavior.
+    #[error("strict object store requires verified read-after-write posture")]
+    MissingReadAfterWrite,
+}
+
+/// Validates strict object-store WAL adapter capabilities.
+pub fn validate_strict_object_store_capabilities(
+    capabilities: ObjectStoreWalCapabilities,
+) -> Result<(), ObjectStoreCapabilityError> {
+    if !capabilities.content_addressed_object_write {
+        return Err(ObjectStoreCapabilityError::MissingContentAddressedObjectWrite);
+    }
+    if !capabilities.verify_object_version {
+        return Err(ObjectStoreCapabilityError::MissingObjectVersionVerification);
+    }
+    if !capabilities.conditional_manifest_commit {
+        return Err(ObjectStoreCapabilityError::MissingConditionalManifestCommit);
+    }
+    if capabilities.read_after_write != ObjectStoreReadAfterWritePosture::Verified {
+        return Err(ObjectStoreCapabilityError::MissingReadAfterWrite);
+    }
+    Ok(())
+}
+
+/// Side-effect materialization intent recorded after committed authorization.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MaterializationIntentRecord {
+    /// Stable effect id.
+    pub effect_id: Hash,
+    /// Expected external artifact digest.
+    pub expected_artifact_digest: Hash,
+    /// Materialization intent digest.
+    pub materialization_intent_digest: Hash,
+    /// Idempotency token for replay.
+    pub idempotency_token: Hash,
+    /// Target metadata digest.
+    pub target_metadata_digest: Hash,
+}
+
+impl MaterializationIntentRecord {
+    /// Encodes the record as deterministic WAL payload bytes.
+    #[must_use]
+    pub fn to_payload_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        push_hash(&mut out, &self.effect_id);
+        push_hash(&mut out, &self.expected_artifact_digest);
+        push_hash(&mut out, &self.materialization_intent_digest);
+        push_hash(&mut out, &self.idempotency_token);
+        push_hash(&mut out, &self.target_metadata_digest);
+        out
+    }
+
+    /// Decodes a deterministic materialization intent payload.
+    pub fn from_payload_bytes(bytes: &[u8]) -> Result<Self, WalDecodeError> {
+        let mut cursor = WalPayloadCursor::new(bytes);
+        let effect_id = cursor.read_hash()?;
+        let expected_artifact_digest = cursor.read_hash()?;
+        let materialization_intent_digest = cursor.read_hash()?;
+        let idempotency_token = cursor.read_hash()?;
+        let target_metadata_digest = cursor.read_hash()?;
+        cursor.finish()?;
+        Ok(Self {
+            effect_id,
+            expected_artifact_digest,
+            materialization_intent_digest,
+            idempotency_token,
+            target_metadata_digest,
+        })
+    }
+}
+
+/// Side-effect materialization observation recorded after external effect verification.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MaterializationObservationRecord {
+    /// Stable effect id.
+    pub effect_id: Hash,
+    /// Observed external artifact digest.
+    pub observed_artifact_digest: Hash,
+    /// Observed metadata digest.
+    pub observed_metadata_digest: Hash,
+}
+
+impl MaterializationObservationRecord {
+    /// Encodes the record as deterministic WAL payload bytes.
+    #[must_use]
+    pub fn to_payload_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        push_hash(&mut out, &self.effect_id);
+        push_hash(&mut out, &self.observed_artifact_digest);
+        push_hash(&mut out, &self.observed_metadata_digest);
+        out
+    }
+
+    /// Decodes a deterministic materialization observation payload.
+    pub fn from_payload_bytes(bytes: &[u8]) -> Result<Self, WalDecodeError> {
+        let mut cursor = WalPayloadCursor::new(bytes);
+        let effect_id = cursor.read_hash()?;
+        let observed_artifact_digest = cursor.read_hash()?;
+        let observed_metadata_digest = cursor.read_hash()?;
+        cursor.finish()?;
+        Ok(Self {
+            effect_id,
+            observed_artifact_digest,
+            observed_metadata_digest,
+        })
+    }
+}
+
+/// Existing external artifact evidence used for idempotent outbox replay.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ExistingMaterializedArtifact {
+    /// Stable effect id.
+    pub effect_id: Hash,
+    /// Existing artifact digest.
+    pub artifact_digest: Hash,
+    /// Existing metadata digest.
+    pub metadata_digest: Hash,
+}
+
+/// Materialization replay posture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MaterializationReplayPosture {
+    /// Effect is authorized but not observed.
+    Pending,
+    /// Effect has a committed observation.
+    AlreadyObserved,
+    /// External artifact already matches the authorized effect.
+    ExistingArtifactMatches,
+    /// External artifact exists but does not match authorization.
+    Obstructed,
+}
+
+/// Recovered materialization outbox entry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MaterializationOutboxEntry {
+    /// Intent record.
+    pub intent: MaterializationIntentRecord,
+    /// Observation record, if committed.
+    pub observation: Option<MaterializationObservationRecord>,
+    /// Replay posture.
+    pub posture: MaterializationReplayPosture,
+}
+
+/// Builds a side-effect outbox transaction.
+pub fn build_materialization_outbox_transaction(
+    mut builder: WalTransactionBuilder,
+    intent: MaterializationIntentRecord,
+    observation: Option<MaterializationObservationRecord>,
+    affected_frontiers: Vec<AffectedFrontier>,
+) -> Result<WalCommittedTransaction, WalBuildError> {
+    builder.push_record(
+        WalRecordKind::MaterializationIntentRecorded,
+        intent.to_payload_bytes(),
+    )?;
+    if let Some(observation) = observation {
+        builder.push_record(
+            WalRecordKind::MaterializationEffectObserved,
+            observation.to_payload_bytes(),
+        )?;
+    }
+    builder.commit(affected_frontiers)
+}
+
+/// Recovers materialization outbox posture from committed WAL transactions.
+pub fn recover_materialization_outbox(
+    report: &RecoveryScanReport,
+    existing_artifacts: &BTreeMap<Hash, ExistingMaterializedArtifact>,
+) -> Result<BTreeMap<Hash, MaterializationOutboxEntry>, WalRecoveryIndexError> {
+    let mut intents = BTreeMap::new();
+    let mut observations = BTreeMap::new();
+    for transaction in &report.transactions {
+        for frame in &transaction.frames {
+            match frame.header.record_kind {
+                WalRecordKind::MaterializationIntentRecorded => {
+                    let intent = MaterializationIntentRecord::from_payload_bytes(
+                        &frame.payload.canonical_bytes,
+                    )?;
+                    intents.insert(intent.effect_id, intent);
+                }
+                WalRecordKind::MaterializationEffectObserved => {
+                    let observation = MaterializationObservationRecord::from_payload_bytes(
+                        &frame.payload.canonical_bytes,
+                    )?;
+                    observations.insert(observation.effect_id, observation);
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut outbox = BTreeMap::new();
+    for (effect_id, intent) in intents {
+        let observation = observations.get(&effect_id).copied();
+        let posture = if observation.is_some() {
+            MaterializationReplayPosture::AlreadyObserved
+        } else if let Some(existing) = existing_artifacts.get(&effect_id) {
+            if existing.artifact_digest == intent.expected_artifact_digest
+                && existing.metadata_digest == intent.target_metadata_digest
+            {
+                MaterializationReplayPosture::ExistingArtifactMatches
+            } else {
+                MaterializationReplayPosture::Obstructed
+            }
+        } else {
+            MaterializationReplayPosture::Pending
+        };
+        outbox.insert(
+            effect_id,
+            MaterializationOutboxEntry {
+                intent,
+                observation,
+                posture,
+            },
+        );
+    }
+    Ok(outbox)
+}
+
+/// Causal commit evidence source.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CausalCommitEvidenceSource {
+    /// Evidence comes from Echo's WAL.
+    EchoWal,
+    /// Evidence comes from a validated Echo checkpoint.
+    EchoCheckpoint,
+    /// Evidence comes from an Echo recovery certificate.
+    EchoRecoveryCertificate,
+}
+
+/// Causal commit evidence posture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CausalCommitEvidencePosture {
+    /// Commit evidence is present.
+    Present,
+    /// Commit evidence is unavailable.
+    Absent,
+    /// Commit evidence is obstructed.
+    Obstructed,
+}
+
+/// Host-neutral causal commit evidence projected for debuggers and operators.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CausalCommitEvidence {
+    /// Stable evidence id.
+    pub evidence_id: Hash,
+    /// Evidence posture.
+    pub posture: CausalCommitEvidencePosture,
+    /// Evidence source.
+    pub source: CausalCommitEvidenceSource,
+    /// Durability mode.
+    pub durability_mode: WalDurabilityMode,
+    /// Writer epoch.
+    pub writer_epoch: WriterEpochId,
+    /// Last LSN for the committed transaction.
+    pub lsn: Lsn,
+    /// Transaction id.
+    pub transaction_id: WalTransactionId,
+    /// Commit digest.
+    pub commit_digest: Hash,
+    /// Checkpoint digest, if one anchors the evidence.
+    pub checkpoint_digest: Option<Hash>,
+    /// Recovery certificate digest, if one anchors the evidence.
+    pub recovery_certificate_digest: Option<Hash>,
+    /// Obstruction digest, if obstructed.
+    pub obstruction_digest: Option<Hash>,
+}
+
+/// Projects host-neutral causal commit evidence from recovered WAL history.
+#[must_use]
+pub fn project_causal_commit_evidence(report: &RecoveryScanReport) -> Vec<CausalCommitEvidence> {
+    report
+        .transactions
+        .iter()
+        .map(|transaction| {
+            let evidence_id = causal_commit_evidence_id(&transaction.commit);
+            CausalCommitEvidence {
+                evidence_id,
+                posture: CausalCommitEvidencePosture::Present,
+                source: CausalCommitEvidenceSource::EchoWal,
+                durability_mode: transaction.commit.durability_mode,
+                writer_epoch: transaction.commit.writer_epoch,
+                lsn: transaction.commit.last_lsn,
+                transaction_id: transaction.commit.transaction_id,
+                commit_digest: transaction.commit.commit_digest,
+                checkpoint_digest: None,
+                recovery_certificate_digest: None,
+                obstruction_digest: None,
+            }
+        })
+        .collect()
+}
+
+/// Checks that live state and WAL replay produce the same recovered state.
+pub fn shadow_replay_matches(
+    live_state: &RecoveredState,
+    transactions: &[WalCommittedTransaction],
+) -> Result<bool, WalReplayError> {
+    let mut replayed = RecoveredState::default();
+    for transaction in transactions {
+        replayed = apply_committed_transaction(replayed, transaction)?;
+    }
+    Ok(&replayed == live_state)
+}
+
+/// WAL release readiness audit result.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WalReleaseReadinessReport {
+    /// `true` when all release-readiness gates are satisfied.
+    pub ready: bool,
+    /// Gate names that passed.
+    pub passed_gates: Vec<&'static str>,
+    /// Gate names that remain blocked.
+    pub blocked_gates: Vec<&'static str>,
+}
+
+/// Audits WAL release readiness from known gate booleans.
+#[must_use]
+pub fn audit_wal_release_readiness(gates: WalReleaseReadinessGates) -> WalReleaseReadinessReport {
+    let mut passed_gates = Vec::new();
+    let mut blocked_gates = Vec::new();
+    push_gate(
+        &mut passed_gates,
+        &mut blocked_gates,
+        "filesystem_adapter",
+        gates.filesystem_adapter,
+    );
+    push_gate(
+        &mut passed_gates,
+        &mut blocked_gates,
+        "object_store_capability_gate",
+        gates.object_store_capability_gate,
+    );
+    push_gate(
+        &mut passed_gates,
+        &mut blocked_gates,
+        "segment_repair",
+        gates.segment_repair,
+    );
+    push_gate(
+        &mut passed_gates,
+        &mut blocked_gates,
+        "crash_matrix",
+        gates.crash_matrix,
+    );
+    push_gate(
+        &mut passed_gates,
+        &mut blocked_gates,
+        "shadow_replay",
+        gates.shadow_replay,
+    );
+    push_gate(
+        &mut passed_gates,
+        &mut blocked_gates,
+        "outbox",
+        gates.outbox,
+    );
+    push_gate(
+        &mut passed_gates,
+        &mut blocked_gates,
+        "commit_evidence",
+        gates.commit_evidence,
+    );
+    push_gate(
+        &mut passed_gates,
+        &mut blocked_gates,
+        "external_consumer_gate",
+        gates.external_consumer_gate,
+    );
+    let ready = blocked_gates.is_empty();
+    WalReleaseReadinessReport {
+        ready,
+        passed_gates,
+        blocked_gates,
+    }
+}
+
+/// WAL release readiness gate input.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct WalReleaseReadinessGates {
+    /// Filesystem WAL adapter gate.
+    pub filesystem_adapter: bool,
+    /// Object-store capability gate.
+    pub object_store_capability_gate: bool,
+    /// Segment repair/truncation gate.
+    pub segment_repair: bool,
+    /// Crash matrix gate.
+    pub crash_matrix: bool,
+    /// Shadow replay gate.
+    pub shadow_replay: bool,
+    /// Side-effect outbox gate.
+    pub outbox: bool,
+    /// Causal commit evidence projection gate.
+    pub commit_evidence: bool,
+    /// External consumer recovery gate.
+    pub external_consumer_gate: bool,
+}
+
+enum DiskWalRecord<'a> {
+    Frame(&'a WalFrame),
+    Commit(&'a WalTransactionCommit),
+}
+
+fn append_segment_record(
+    path: &Path,
+    record: DiskWalRecord<'_>,
+    sync: bool,
+) -> Result<(), WalStoreError> {
+    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+    let (kind, payload) = match record {
+        DiskWalRecord::Frame(frame) => (1u8, encode_frame(frame)),
+        DiskWalRecord::Commit(commit) => (2u8, encode_commit(commit)),
+    };
+    let digest = disk_record_digest(kind, &payload);
+    file.write_all(WAL_SEGMENT_RECORD_MAGIC)?;
+    file.write_all(&[kind])?;
+    file.write_all(&len_u64(payload.len()).to_le_bytes())?;
+    file.write_all(&payload)?;
+    file.write_all(&digest)?;
+    if sync {
+        file.sync_all()?;
+    }
+    Ok(())
+}
+
+fn read_filesystem_segments(
+    root: &Path,
+) -> Result<(Vec<WalFrame>, Vec<WalTransactionCommit>, bool), WalStoreError> {
+    if !root.exists() {
+        return Ok((Vec::new(), Vec::new(), false));
+    }
+    let mut all_frames = Vec::new();
+    let mut all_commits = Vec::new();
+    let mut any_torn_tail = false;
+    for path in segment_paths(root)? {
+        let (frames, commits, torn_tail) = read_segment_file(&path)?;
+        all_frames.extend(frames);
+        all_commits.extend(commits);
+        any_torn_tail |= torn_tail;
+    }
+    all_frames.sort_by_key(|frame| frame.header.lsn);
+    all_commits.sort_by_key(|commit| commit.last_lsn);
+    Ok((all_frames, all_commits, any_torn_tail))
+}
+
+fn read_segment_file(
+    path: &Path,
+) -> Result<(Vec<WalFrame>, Vec<WalTransactionCommit>, bool), WalStoreError> {
+    let mut bytes = Vec::new();
+    File::open(path)?.read_to_end(&mut bytes)?;
+    let mut offset = 0usize;
+    let mut frames = Vec::new();
+    let mut commits = Vec::new();
+    let mut torn_tail = false;
+    while offset < bytes.len() {
+        let header_len = WAL_SEGMENT_RECORD_MAGIC.len() + 1 + 8;
+        let Some(header_end) = offset.checked_add(header_len) else {
+            torn_tail = true;
+            break;
+        };
+        if header_end > bytes.len() {
+            torn_tail = true;
+            break;
+        }
+        if bytes.get(offset..offset + WAL_SEGMENT_RECORD_MAGIC.len())
+            != Some(WAL_SEGMENT_RECORD_MAGIC.as_slice())
+        {
+            return Err(WalStoreError::SegmentRecordDigestMismatch);
+        }
+        offset += WAL_SEGMENT_RECORD_MAGIC.len();
+        let kind = bytes[offset];
+        offset += 1;
+        let mut len = [0; 8];
+        len.copy_from_slice(&bytes[offset..offset + 8]);
+        offset += 8;
+        let payload_len = match usize::try_from(u64::from_le_bytes(len)) {
+            Ok(value) => value,
+            Err(_) => return Err(WalStoreError::Decode(WalDecodeError::UnexpectedEof)),
+        };
+        let Some(payload_end) = offset.checked_add(payload_len) else {
+            torn_tail = true;
+            break;
+        };
+        let Some(digest_end) = payload_end.checked_add(32) else {
+            torn_tail = true;
+            break;
+        };
+        if digest_end > bytes.len() {
+            torn_tail = true;
+            break;
+        }
+        let payload = &bytes[offset..payload_end];
+        let digest = &bytes[payload_end..digest_end];
+        if digest != disk_record_digest(kind, payload) {
+            return Err(WalStoreError::SegmentRecordDigestMismatch);
+        }
+        match kind {
+            1 => frames.push(decode_frame(payload)?),
+            2 => commits.push(decode_commit(payload)?),
+            other => return Err(WalStoreError::UnknownDiskRecordKind(other)),
+        }
+        offset = digest_end;
+    }
+    Ok((frames, commits, torn_tail))
+}
+
+fn rewrite_filesystem_segments_after_truncation(
+    root: &Path,
+    after_lsn: Lsn,
+) -> Result<(), WalStoreError> {
+    let (frames, commits, _) = read_filesystem_segments(root)?;
+    let kept_frames = frames
+        .into_iter()
+        .filter(|frame| frame.header.lsn <= after_lsn)
+        .collect::<Vec<_>>();
+    let kept_commits = commits
+        .into_iter()
+        .filter(|commit| commit.last_lsn <= after_lsn)
+        .collect::<Vec<_>>();
+    rewrite_segment_records(root, &kept_frames, &kept_commits)
+}
+
+fn clear_filesystem_segments(root: &Path) -> Result<(), WalStoreError> {
+    rewrite_segment_records(root, &[], &[])
+}
+
+fn rewrite_segment_records(
+    root: &Path,
+    frames: &[WalFrame],
+    commits: &[WalTransactionCommit],
+) -> Result<(), WalStoreError> {
+    fs::create_dir_all(root)?;
+    for path in segment_paths(root)? {
+        fs::remove_file(path)?;
+    }
+    let path = segment_path(root, WalSegmentId::from_raw(1));
+    File::create(&path)?.sync_all()?;
+    for frame in frames {
+        append_segment_record(&path, DiskWalRecord::Frame(frame), false)?;
+    }
+    for commit in commits {
+        append_segment_record(&path, DiskWalRecord::Commit(commit), false)?;
+    }
+    File::options().append(true).open(&path)?.sync_all()?;
+    sync_directory_store(root)?;
+    Ok(())
+}
+
+fn segment_paths(root: &Path) -> Result<Vec<PathBuf>, WalStoreError> {
+    let mut paths = Vec::new();
+    for entry in fs::read_dir(root)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("segment-"))
+            && path
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("ecwal"))
+        {
+            paths.push(path);
+        }
+    }
+    paths.sort();
+    Ok(paths)
+}
+
+fn segment_path(root: &Path, segment_id: WalSegmentId) -> PathBuf {
+    root.join(format!("segment-{:020}.ecwal", segment_id.as_u64()))
+}
+
+fn write_manifest_atomic(root: &Path, manifest: &WalManifest) -> Result<(), WalStoreError> {
+    let path = root.join("manifest.ecwal");
+    let temp = root.join(".manifest.ecwal.tmp");
+    let mut bytes = Vec::new();
+    push_hash(&mut bytes, &manifest.manifest_digest);
+    push_optional_lsn(&mut bytes, manifest.last_committed_lsn);
+    push_optional_hash(&mut bytes, manifest.last_commit_digest);
+    bytes.extend_from_slice(&manifest.sealed_segment_count.to_le_bytes());
+    {
+        let mut file = File::create(&temp)?;
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+    }
+    fs::rename(temp, path)?;
+    sync_directory_store(root)
+}
+
+fn sync_directory_store(path: &Path) -> Result<(), WalStoreError> {
+    File::open(path)?.sync_all()?;
+    Ok(())
+}
+
 /// Scans an in-memory store for recoverable transactions.
 pub fn recover_in_memory_store(
     store: &mut InMemoryWalStore,
@@ -2486,6 +3472,24 @@ pub enum WalStoreError {
     /// Validation failed.
     #[error(transparent)]
     Validation(#[from] WalValidationError),
+    /// Payload decode failed.
+    #[error(transparent)]
+    Decode(#[from] WalDecodeError),
+    /// Filesystem I/O failed.
+    #[error("WAL filesystem I/O failed: {0}")]
+    Io(String),
+    /// Segment record digest mismatch.
+    #[error("WAL segment record digest mismatch")]
+    SegmentRecordDigestMismatch,
+    /// Segment record kind was not recognized.
+    #[error("unknown WAL disk record kind {0}")]
+    UnknownDiskRecordKind(u8),
+}
+
+impl From<std::io::Error> for WalStoreError {
+    fn from(error: std::io::Error) -> Self {
+        Self::Io(error.to_string())
+    }
 }
 
 /// WAL recovery errors.
@@ -2534,6 +3538,9 @@ pub enum WalDecodeError {
         /// Unknown code.
         code: u8,
     },
+    /// Encoded frame failed embedded integrity validation.
+    #[error("encoded WAL frame failed embedded integrity validation")]
+    InvalidEmbeddedFrame,
 }
 
 /// WAL recovered index errors.
@@ -2730,6 +3737,179 @@ fn push_optional_hash(out: &mut Vec<u8>, hash: Option<Hash>) {
     }
 }
 
+fn push_optional_lsn(out: &mut Vec<u8>, lsn: Option<Lsn>) {
+    match lsn {
+        Some(lsn) => {
+            out.push(1);
+            out.extend_from_slice(&lsn.as_u64().to_le_bytes());
+        }
+        None => out.push(0),
+    }
+}
+
+fn encode_frame(frame: &WalFrame) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(&frame.header.wal_version.to_le_bytes());
+    push_hash(&mut out, &frame.header.writer_epoch.as_hash());
+    out.extend_from_slice(&frame.header.segment_id.as_u64().to_le_bytes());
+    out.extend_from_slice(&frame.header.lsn.as_u64().to_le_bytes());
+    push_hash(&mut out, &frame.header.transaction_id.as_hash());
+    out.extend_from_slice(&frame.header.transaction_local_index.as_u32().to_le_bytes());
+    out.push(frame.header.record_kind.code());
+    out.extend_from_slice(&frame.header.payload_len.to_le_bytes());
+    push_hash(&mut out, &frame.header.payload_digest);
+    push_hash(&mut out, &frame.header.payload_codec_id.as_hash());
+    push_hash(&mut out, &frame.header.payload_schema_id.as_hash());
+    out.extend_from_slice(&frame.header.payload_schema_version.to_le_bytes());
+    out.extend_from_slice(&frame.header.canonical_encoding_version.to_le_bytes());
+    push_hash(&mut out, &frame.header.digest_domain);
+    out.push(frame.header.compression_kind.code());
+    out.push(frame.header.encryption_or_redaction_posture.code());
+    push_hash(&mut out, &frame.header.previous_frame_digest);
+    out.extend_from_slice(&frame.header.header_checksum.to_le_bytes());
+    out.extend_from_slice(&frame.payload.schema_version.to_le_bytes());
+    out.extend_from_slice(&len_u64(frame.payload.canonical_bytes.len()).to_le_bytes());
+    out.extend_from_slice(&frame.payload.canonical_bytes);
+    out.extend_from_slice(&frame.trailer.frame_checksum.to_le_bytes());
+    out
+}
+
+fn decode_frame(bytes: &[u8]) -> Result<WalFrame, WalDecodeError> {
+    let mut cursor = WalPayloadCursor::new(bytes);
+    let wal_version = cursor.read_u16()?;
+    let writer_epoch = WriterEpochId::from_hash(cursor.read_hash()?);
+    let segment_id = WalSegmentId::from_raw(cursor.read_u64()?);
+    let lsn = Lsn::from_raw(cursor.read_u64()?);
+    let transaction_id = WalTransactionId::from_hash(cursor.read_hash()?);
+    let transaction_local_index = TransactionLocalIndex::from_raw(cursor.read_u32()?);
+    let record_kind = WalRecordKind::from_code(cursor.read_u8()?)?;
+    let payload_len = cursor.read_u64()?;
+    let payload_digest = cursor.read_hash()?;
+    let payload_codec_id = PayloadCodecId::from_hash(cursor.read_hash()?);
+    let payload_schema_id = PayloadSchemaId::from_hash(cursor.read_hash()?);
+    let payload_schema_version = cursor.read_u16()?;
+    let canonical_encoding_version = cursor.read_u16()?;
+    let digest_domain = cursor.read_hash()?;
+    let compression_kind = WalCompressionKind::from_code(cursor.read_u8()?)?;
+    let encryption_or_redaction_posture = WalRedactionPosture::from_code(cursor.read_u8()?)?;
+    let previous_frame_digest = cursor.read_hash()?;
+    let header_checksum = cursor.read_u32()?;
+    let payload_schema_version_recorded = cursor.read_u16()?;
+    let canonical_bytes = cursor.read_vec()?;
+    let frame_checksum = cursor.read_u32()?;
+    cursor.finish()?;
+    let frame = WalFrame {
+        header: WalFrameHeader {
+            wal_version,
+            writer_epoch,
+            segment_id,
+            lsn,
+            transaction_id,
+            transaction_local_index,
+            record_kind,
+            payload_len,
+            payload_digest,
+            payload_codec_id,
+            payload_schema_id,
+            payload_schema_version,
+            canonical_encoding_version,
+            digest_domain,
+            compression_kind,
+            encryption_or_redaction_posture,
+            previous_frame_digest,
+            header_checksum,
+        },
+        payload: WalRecordPayload::new(
+            record_kind,
+            payload_schema_version_recorded,
+            canonical_bytes,
+        ),
+        trailer: WalFrameTrailer { frame_checksum },
+    };
+    frame
+        .validate_integrity()
+        .map_err(|_| WalDecodeError::InvalidEmbeddedFrame)?;
+    Ok(frame)
+}
+
+fn encode_commit(commit: &WalTransactionCommit) -> Vec<u8> {
+    let mut out = Vec::new();
+    push_hash(&mut out, &commit.writer_epoch.as_hash());
+    push_hash(&mut out, &commit.transaction_id.as_hash());
+    out.push(commit.transaction_kind.code());
+    out.extend_from_slice(&commit.first_lsn.as_u64().to_le_bytes());
+    out.extend_from_slice(&commit.last_lsn.as_u64().to_le_bytes());
+    out.extend_from_slice(&commit.record_count.to_le_bytes());
+    push_hash(&mut out, &commit.records_root);
+    push_hash(&mut out, &commit.affected_frontiers_root);
+    push_hash(&mut out, &commit.previous_committed_transaction_digest);
+    out.push(commit.durability_mode.code());
+    out.extend_from_slice(&commit.schema_version.to_le_bytes());
+    push_hash(&mut out, &commit.commit_digest);
+    out
+}
+
+fn decode_commit(bytes: &[u8]) -> Result<WalTransactionCommit, WalDecodeError> {
+    let mut cursor = WalPayloadCursor::new(bytes);
+    let writer_epoch = WriterEpochId::from_hash(cursor.read_hash()?);
+    let transaction_id = WalTransactionId::from_hash(cursor.read_hash()?);
+    let transaction_kind = WalTransactionKind::from_code(cursor.read_u8()?)?;
+    let first_lsn = Lsn::from_raw(cursor.read_u64()?);
+    let last_lsn = Lsn::from_raw(cursor.read_u64()?);
+    let record_count = cursor.read_u64()?;
+    let records_root = cursor.read_hash()?;
+    let affected_frontiers_root = cursor.read_hash()?;
+    let previous_committed_transaction_digest = cursor.read_hash()?;
+    let durability_mode = WalDurabilityMode::from_code(cursor.read_u8()?)?;
+    let schema_version = cursor.read_u16()?;
+    let commit_digest = cursor.read_hash()?;
+    cursor.finish()?;
+    Ok(WalTransactionCommit {
+        writer_epoch,
+        transaction_id,
+        transaction_kind,
+        first_lsn,
+        last_lsn,
+        record_count,
+        records_root,
+        affected_frontiers_root,
+        previous_committed_transaction_digest,
+        durability_mode,
+        schema_version,
+        commit_digest,
+    })
+}
+
+fn disk_record_digest(kind: u8, payload: &[u8]) -> Hash {
+    let mut h = blake3::Hasher::new();
+    h.update(WAL_DISK_RECORD_DOMAIN);
+    h.update(&[kind]);
+    h.update(&len_u64(payload.len()).to_le_bytes());
+    h.update(payload);
+    h.finalize().into()
+}
+
+fn causal_commit_evidence_id(commit: &WalTransactionCommit) -> Hash {
+    let mut h = blake3::Hasher::new();
+    h.update(b"echo:causal_wal:commit_evidence:v1\0");
+    h.update(&commit.transaction_id.as_hash());
+    h.update(&commit.commit_digest);
+    h.finalize().into()
+}
+
+fn push_gate(
+    passed: &mut Vec<&'static str>,
+    blocked: &mut Vec<&'static str>,
+    name: &'static str,
+    ok: bool,
+) {
+    if ok {
+        passed.push(name);
+    } else {
+        blocked.push(name);
+    }
+}
+
 struct WalPayloadCursor<'a> {
     bytes: &'a [u8],
     offset: usize,
@@ -2760,6 +3940,20 @@ impl<'a> WalPayloadCursor<'a> {
         out.copy_from_slice(bytes);
         self.offset = end;
         Ok(u16::from_le_bytes(out))
+    }
+
+    fn read_u32(&mut self) -> Result<u32, WalDecodeError> {
+        let end = self
+            .offset
+            .checked_add(4)
+            .ok_or(WalDecodeError::UnexpectedEof)?;
+        let Some(bytes) = self.bytes.get(self.offset..end) else {
+            return Err(WalDecodeError::UnexpectedEof);
+        };
+        let mut out = [0; 4];
+        out.copy_from_slice(bytes);
+        self.offset = end;
+        Ok(u32::from_le_bytes(out))
     }
 
     fn read_u64(&mut self) -> Result<u64, WalDecodeError> {
@@ -2799,6 +3993,19 @@ impl<'a> WalPayloadCursor<'a> {
                 code,
             }),
         }
+    }
+
+    fn read_vec(&mut self) -> Result<Vec<u8>, WalDecodeError> {
+        let len = usize::try_from(self.read_u64()?).map_err(|_| WalDecodeError::UnexpectedEof)?;
+        let end = self
+            .offset
+            .checked_add(len)
+            .ok_or(WalDecodeError::UnexpectedEof)?;
+        let Some(bytes) = self.bytes.get(self.offset..end) else {
+            return Err(WalDecodeError::UnexpectedEof);
+        };
+        self.offset = end;
+        Ok(bytes.to_vec())
     }
 
     fn finish(&self) -> Result<(), WalDecodeError> {

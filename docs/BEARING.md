@@ -514,14 +514,14 @@ satisfies its acceptance criteria.
 
 ### PR 8: Filesystem And Object Stores
 
-- [ ] **Slice 36: Filesystem WAL adapter**
+- [x] **Slice 36: Filesystem WAL adapter**
     - User story: As Echo, strict filesystem durability must use real fsync
       boundaries.
     - Acceptance criteria: segment creation, append, file fsync, rename, and
       directory fsync are explicit.
     - Test plan: filesystem crash fixtures for torn frame and missing segment.
 
-- [ ] **Slice 37: Object-store manifest adapter**
+- [x] **Slice 37: Object-store manifest adapter**
     - User story: As Echo, strict object-store durability must not pretend fsync
       exists.
     - Acceptance criteria: content-addressed object writes, version/ETag
@@ -529,19 +529,19 @@ satisfies its acceptance criteria.
       required.
     - Test plan: `strict_object_store_requires_conditional_manifest_commit`.
 
-- [ ] **Slice 38: Segment repair and truncation protocol**
+- [x] **Slice 38: Segment repair and truncation protocol**
     - User story: As recovery, tail repair must be explicit and mode-sensitive.
     - Acceptance criteria: writable stores can truncate incomplete tails; read-only
       stores can only report would-truncate.
     - Test plan: segment-gap, duplicate-segment, and torn-tail matrix.
 
-- [ ] **Slice 39: Crash matrix harness**
+- [x] **Slice 39: Crash matrix harness**
     - User story: As Echo, lifecycle ambiguity must be testable at every boundary.
     - Acceptance criteria: harness injects crash points around submit, tick,
       checkpoint, material, and index publication.
     - Test plan: generated crash matrix suite.
 
-- [ ] **Slice 40: WAL shadow replay in CI**
+- [x] **Slice 40: WAL shadow replay in CI**
     - User story: As a maintainer, every mutating integration path should prove
       live state equals replayed state.
     - Acceptance criteria: selected tests run live scenario, replay WAL into fresh
@@ -550,21 +550,21 @@ satisfies its acceptance criteria.
 
 ### PR 9: Outbox, Tooling, And Jedit Gate
 
-- [ ] **Slice 41: Side-effect outbox core**
+- [x] **Slice 41: Side-effect outbox core**
     - User story: As Echo, external effects must be authorized by committed
       history before escaping.
     - Acceptance criteria: durable outbox records effect id, expected artifact,
       materialization intent, and idempotency token.
     - Test plan: `external_effect_requires_committed_outbox_authorization`.
 
-- [ ] **Slice 42: Materialization observation replay detection**
+- [x] **Slice 42: Materialization observation replay detection**
     - User story: As recovery, existing external artifacts should be detected
       before retry.
     - Acceptance criteria: recovery verifies path, digest, and metadata before
       retrying or recording observation.
     - Test plan: `materialization_replay_detects_existing_artifact_before_retry`.
 
-- [ ] **Slice 43: Causal commit evidence projection**
+- [x] **Slice 43: Causal commit evidence projection**
     - User story: As [warp-ttd], I need Echo-projected commit evidence, not raw
       WAL access.
     - Acceptance criteria: Echo exposes `CausalCommitEvidence` and recovery
@@ -573,7 +573,7 @@ satisfies its acceptance criteria.
     - Test plan: accepted pending, decided applied, rejected, obstructed, faulted,
       and durability-unknown projection fixtures.
 
-- [ ] **Slice 44: `jedit` WAL recovery gate**
+- [x] **Slice 44: `jedit` WAL recovery gate**
     - User story: As [jedit], after crash/restart I need submitted edits to
       recover as not accepted, accepted pending, applied, rejected, or obstructed.
     - Acceptance criteria: stable submission id, recovered posture, export from
@@ -581,7 +581,7 @@ satisfies its acceptance criteria.
     - Test plan: sibling `jedit` crash/restart fixture and retry-after-ACK-loss
       fixture.
 
-- [ ] **Slice 45: WAL release readiness audit**
+- [x] **Slice 45: WAL release readiness audit**
     - User story: As an operator, I need a final audit before trusting the WAL as
       the jedit durability foundation.
     - Acceptance criteria: all WAL release gates pass, docs match code, app-noun

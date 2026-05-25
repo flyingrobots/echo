@@ -15,14 +15,14 @@ use crate::{
     causal_wal::{
         build_recovery_certificate, build_submission_acceptance_transaction,
         build_tick_transaction, recover_in_memory_store, recover_receipt_index,
-        recover_submission_index, AffectedFrontier, AffectedFrontierKind, InMemoryWalStore, Lsn,
-        PayloadCodecId, PayloadSchemaId, RecoveredReceiptIndex, RecoveredSubmissionIndex,
-        RecoveryAccessMode, RecoveryCertificate, RecoveryScanReport, SubmissionAcceptanceRecord,
-        TickReceiptRecord, WalAppendAuthority, WalBuildError, WalCommittedTransaction,
-        WalDurabilityMode, WalReceiptCorrelationRecord, WalRecordKind, WalRecoveryError,
-        WalSegmentId, WalStoreError, WalStorePort, WalTickDecision, WalTransactionBuilder,
-        WalTransactionCommit, WalTransactionId, WalTransactionKind, WriterEpochId,
-        WriterEpochRequest,
+        recover_submission_index, recovered_submission_receipt_index_root, AffectedFrontier,
+        AffectedFrontierKind, InMemoryWalStore, Lsn, PayloadCodecId, PayloadSchemaId,
+        RecoveredReceiptIndex, RecoveredSubmissionIndex, RecoveryAccessMode, RecoveryCertificate,
+        RecoveryScanReport, SubmissionAcceptanceRecord, TickReceiptRecord, WalAppendAuthority,
+        WalBuildError, WalCommittedTransaction, WalDurabilityMode, WalReceiptCorrelationRecord,
+        WalRecordKind, WalRecoveryError, WalSegmentId, WalStoreError, WalStorePort,
+        WalTickDecision, WalTransactionBuilder, WalTransactionCommit, WalTransactionId,
+        WalTransactionKind, WriterEpochId, WriterEpochRequest,
     },
     Engine, IngressEnvelope, InstalledContractPackage, InstalledContractPackageError,
     InstalledContractPackageRecord, IntentOutcome, IntentOutcomeDecision, IntentOutcomeObservation,
@@ -76,6 +76,26 @@ pub enum TrustedRuntimeWalError {
     /// WAL recovery failed while rebuilding runtime evidence.
     #[error("trusted runtime WAL recovery error: {0}")]
     Recovery(#[from] WalRecoveryError),
+    /// Runtime outcome evidence could not be matched to the receipt correlation.
+    #[error(
+        "trusted runtime WAL tick outcome unavailable for submission {submission_id:?} receipt {receipt_digest:?}"
+    )]
+    TickOutcomeUnavailable {
+        /// Submission whose scheduler tick outcome should have been decided.
+        submission_id: Hash,
+        /// Receipt digest expected by the new correlation.
+        receipt_digest: Hash,
+    },
+    /// Runtime outcome evidence did not match the receipt correlation.
+    #[error(
+        "trusted runtime WAL receipt digest mismatch: expected {expected_receipt_digest:?}, observed {observed_receipt_digest:?}"
+    )]
+    TickReceiptDigestMismatch {
+        /// Receipt digest expected by the new correlation.
+        expected_receipt_digest: Hash,
+        /// Receipt digest observed through the outcome surface.
+        observed_receipt_digest: Hash,
+    },
 }
 
 /// Summary returned after a trusted host runs the scheduler until idle.
@@ -258,27 +278,40 @@ impl TrustedRuntimeHost {
             &mut self.provenance,
             &mut self.engine,
         )?;
-        let tick_wal_records = self
-            .runtime
-            .receipt_correlations()
-            .filter(|correlation| !existing_correlations.contains(&correlation.ticketed_ingress_id))
-            .map(|correlation| {
-                (
-                    correlation.clone(),
-                    wal_tick_decision_from_observation(
-                        self.runtime
-                            .observe_intent_outcome(&correlation.submission_id),
-                        correlation.tick_receipt_digest,
-                    ),
-                    tick_state_delta_digest(correlation),
-                )
-            })
-            .collect::<Vec<_>>();
+        let mut tick_wal_records = Vec::new();
+        if self.runtime_wal.is_some() {
+            let new_correlations = self
+                .runtime
+                .receipt_correlations()
+                .filter(|correlation| {
+                    !existing_correlations.contains(&correlation.ticketed_ingress_id)
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            for correlation in new_correlations {
+                let decision = match wal_tick_decision_from_observation(
+                    self.runtime
+                        .observe_intent_outcome(&correlation.submission_id),
+                    correlation.tick_receipt_digest,
+                ) {
+                    Ok(decision) => decision,
+                    Err(error) => {
+                        self.runtime = runtime_before;
+                        self.provenance = provenance_before;
+                        return Err(error.into());
+                    }
+                };
+                let state_delta_digest = tick_state_delta_digest(&correlation);
+                tick_wal_records.push((correlation, decision, state_delta_digest));
+            }
+        }
         if let Some(runtime_wal) = self.runtime_wal.as_mut() {
+            let runtime_wal_before = runtime_wal.clone();
             for (correlation, decision, state_delta_digest) in &tick_wal_records {
                 if let Err(error) =
                     runtime_wal.record_tick_receipt(correlation, *decision, *state_delta_digest)
                 {
+                    *runtime_wal = runtime_wal_before;
                     self.runtime = runtime_before;
                     self.provenance = provenance_before;
                     return Err(error.into());
@@ -407,7 +440,7 @@ impl TrustedRuntimeWal {
         let submissions = recover_submission_index(&report).map_err(WalRecoveryError::from)?;
         let receipts = recover_receipt_index(&report).map_err(WalRecoveryError::from)?;
         Ok(TrustedRuntimeWalRecovery {
-            certificate: runtime_wal_recovery_certificate(&report),
+            certificate: runtime_wal_recovery_certificate(&report, &submissions, &receipts),
             submissions,
             receipts,
         })
@@ -735,24 +768,124 @@ fn submission_frontier_digest(previous: Hash, record: SubmissionAcceptanceRecord
 fn wal_tick_decision_from_observation(
     observation: IntentOutcomeObservation,
     expected_receipt_digest: Hash,
-) -> WalTickDecision {
-    let IntentOutcomeObservation::Decided {
-        correlation,
-        decision,
-    } = observation
-    else {
-        return WalTickDecision::Obstructed;
+) -> Result<WalTickDecision, TrustedRuntimeWalError> {
+    let (correlation, decision) = match observation {
+        IntentOutcomeObservation::Decided {
+            correlation,
+            decision,
+        } => (correlation, decision),
+        IntentOutcomeObservation::UnknownSubmission { submission_id }
+        | IntentOutcomeObservation::Pending { submission_id, .. } => {
+            return Err(TrustedRuntimeWalError::TickOutcomeUnavailable {
+                submission_id,
+                receipt_digest: expected_receipt_digest,
+            });
+        }
     };
     if correlation.tick_receipt_digest != expected_receipt_digest {
-        return WalTickDecision::Obstructed;
+        return Err(TrustedRuntimeWalError::TickReceiptDigestMismatch {
+            expected_receipt_digest,
+            observed_receipt_digest: correlation.tick_receipt_digest,
+        });
     }
-    match decision {
+    Ok(match decision {
         IntentOutcomeDecision::Applied { .. } => WalTickDecision::Applied,
         IntentOutcomeDecision::Rejected {
             reason: TickReceiptRejection::FootprintConflict,
             ..
         } => WalTickDecision::RejectedFootprintConflict,
         IntentOutcomeDecision::NoMatchingReceiptEntry { .. } => WalTickDecision::Obstructed,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        GlobalTick, IngressSubmissionGeneration, WorldlineId, WorldlineTick, WriterHeadKey,
+    };
+
+    fn test_head_key() -> WriterHeadKey {
+        WriterHeadKey {
+            worldline_id: WorldlineId::from_bytes([9; 32]),
+            head_id: crate::make_head_id("runtime-wal-test"),
+        }
+    }
+
+    fn test_correlation(receipt_digest: Hash) -> ReceiptCorrelationRecord {
+        ReceiptCorrelationRecord {
+            ticketed_ingress_id: [1; 32],
+            submission_id: [2; 32],
+            ticket_digest: [3; 32],
+            ingress_id: [4; 32],
+            head_key: test_head_key(),
+            contract: None,
+            commit_global_tick: GlobalTick::from_raw(1),
+            worldline_tick_after: WorldlineTick::from_raw(1),
+            tick_receipt_digest: receipt_digest,
+            commit_hash: [5; 32],
+        }
+    }
+
+    #[test]
+    fn runtime_wal_tick_decision_rejects_pending_observation_as_invariant() {
+        let err = wal_tick_decision_from_observation(
+            IntentOutcomeObservation::Pending {
+                submission_id: [2; 32],
+                submission_generation: IngressSubmissionGeneration::from_raw(1),
+                ticketed_ingress_id: Some([6; 32]),
+            },
+            [7; 32],
+        )
+        .expect_err("pending outcome cannot produce scheduler tick WAL evidence");
+
+        assert!(matches!(
+            err,
+            TrustedRuntimeWalError::TickOutcomeUnavailable {
+                submission_id,
+                receipt_digest,
+            } if submission_id == [2; 32] && receipt_digest == [7; 32]
+        ));
+    }
+
+    #[test]
+    fn runtime_wal_tick_decision_rejects_receipt_digest_mismatch_as_invariant() {
+        let err = wal_tick_decision_from_observation(
+            IntentOutcomeObservation::Decided {
+                correlation: Box::new(test_correlation([8; 32])),
+                decision: IntentOutcomeDecision::Applied {
+                    receipt_entry_index: 0,
+                    rule_id: [9; 32],
+                },
+            },
+            [7; 32],
+        )
+        .expect_err("mismatched receipt digest cannot produce scheduler tick WAL evidence");
+
+        assert!(matches!(
+            err,
+            TrustedRuntimeWalError::TickReceiptDigestMismatch {
+                expected_receipt_digest,
+                observed_receipt_digest,
+            } if expected_receipt_digest == [7; 32] && observed_receipt_digest == [8; 32]
+        ));
+    }
+
+    #[test]
+    fn runtime_wal_tick_decision_maps_matching_outcome() {
+        let decision = wal_tick_decision_from_observation(
+            IntentOutcomeObservation::Decided {
+                correlation: Box::new(test_correlation([7; 32])),
+                decision: IntentOutcomeDecision::Applied {
+                    receipt_entry_index: 0,
+                    rule_id: [9; 32],
+                },
+            },
+            [7; 32],
+        )
+        .expect("matching outcome should map to a WAL tick decision");
+
+        assert_eq!(decision, WalTickDecision::Applied);
     }
 }
 
@@ -832,7 +965,11 @@ fn runtime_state_frontier_digest(
     hasher.finalize().into()
 }
 
-fn runtime_wal_recovery_certificate(report: &RecoveryScanReport) -> RecoveryCertificate {
+fn runtime_wal_recovery_certificate(
+    report: &RecoveryScanReport,
+    submissions: &RecoveredSubmissionIndex,
+    receipts: &RecoveredReceiptIndex,
+) -> RecoveryCertificate {
     let recovered_frontier_root = report
         .last_commit_digest()
         .unwrap_or_else(|| trusted_runtime_wal_digest("recovery-frontier:empty"));
@@ -841,17 +978,6 @@ fn runtime_wal_recovery_certificate(report: &RecoveryScanReport) -> RecoveryCert
         None,
         0,
         recovered_frontier_root,
-        runtime_wal_recovered_indexes_root(report),
+        recovered_submission_receipt_index_root(submissions, receipts),
     )
-}
-
-fn runtime_wal_recovered_indexes_root(report: &RecoveryScanReport) -> Hash {
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
-    hasher.update(b"recovered-indexes-root");
-    for transaction in &report.transactions {
-        hasher.update(&transaction.commit.transaction_id.as_hash());
-        hasher.update(&transaction.commit.commit_digest);
-    }
-    hasher.finalize().into()
 }

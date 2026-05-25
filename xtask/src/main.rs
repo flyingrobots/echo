@@ -614,6 +614,15 @@ fn build_test_slice_commands(slice: TestSlice) -> Vec<Command> {
                 "warp-core",
                 "--features",
                 "native_rule_bootstrap trusted_runtime host_test",
+                "--lib",
+                "trusted_runtime_host::tests::runtime_wal_tick_decision",
+            ]),
+            cargo_command([
+                "test",
+                "-p",
+                "warp-core",
+                "--features",
+                "native_rule_bootstrap trusted_runtime host_test",
                 "--test",
                 "trusted_runtime_host_loop_tests",
                 "runtime_wal_ack",
@@ -6406,9 +6415,24 @@ mod tests {
     #[test]
     fn test_slice_runtime_wal_ack_stays_explicit() {
         let commands = build_test_slice_commands(TestSlice::RuntimeWalAck);
-        assert_eq!(commands.len(), 4);
+        assert_eq!(commands.len(), 5);
 
         let (program, args) = command_program_and_args(&commands[0]);
+        assert_eq!(program, "cargo");
+        assert_eq!(
+            args,
+            vec![
+                "test",
+                "-p",
+                "warp-core",
+                "--features",
+                "native_rule_bootstrap trusted_runtime host_test",
+                "--lib",
+                "trusted_runtime_host::tests::runtime_wal_tick_decision",
+            ]
+        );
+
+        let (program, args) = command_program_and_args(&commands[1]);
         assert_eq!(program, "cargo");
         assert_eq!(
             args,
@@ -6424,7 +6448,7 @@ mod tests {
             ]
         );
 
-        let (program, args) = command_program_and_args(&commands[1]);
+        let (program, args) = command_program_and_args(&commands[2]);
         assert_eq!(program, "cargo");
         assert_eq!(
             args,
@@ -6438,14 +6462,14 @@ mod tests {
             ]
         );
 
-        let (program, args) = command_program_and_args(&commands[2]);
+        let (program, args) = command_program_and_args(&commands[3]);
         assert_eq!(program, "cargo");
         assert_eq!(
             args,
             vec!["test", "-p", "xtask", "runtime_wal_ack_stale_claims"]
         );
 
-        let (program, args) = command_program_and_args(&commands[3]);
+        let (program, args) = command_program_and_args(&commands[4]);
         assert_eq!(program, "cargo");
         assert_eq!(args, vec!["xtask", "man-pages", "--check"]);
     }

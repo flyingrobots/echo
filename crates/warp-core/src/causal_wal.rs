@@ -27,6 +27,7 @@ const WAL_PAYLOAD_DOMAIN: &[u8] = b"echo:causal_wal:payload:v1\0";
 const WAL_RECORDS_ROOT_DOMAIN: &[u8] = b"echo:causal_wal:records_root:v1\0";
 const WAL_FRONTIERS_ROOT_DOMAIN: &[u8] = b"echo:causal_wal:frontiers_root:v1\0";
 const WAL_COMMIT_DOMAIN: &[u8] = b"echo:causal_wal:commit:v1\0";
+const WAL_RECOVERED_INDEX_ROOT_DOMAIN: &[u8] = b"echo:causal_wal:recovered_index_root:v1\0";
 const WAL_HEADER_CHECKSUM_DOMAIN: &[u8] = b"echo:causal_wal:header_checksum:v1\0";
 const WAL_FRAME_CHECKSUM_DOMAIN: &[u8] = b"echo:causal_wal:frame_checksum:v1\0";
 const WAL_DISK_RECORD_DOMAIN: &[u8] = b"echo:causal_wal:disk_record:v1\0";
@@ -2133,6 +2134,87 @@ impl RecoveredSubmissionIndex {
                 SubmissionRetryPosture::AlreadyObstructed
             }
         }
+    }
+}
+
+/// Builds a stable root over recovered submission and receipt indexes.
+#[must_use]
+pub fn recovered_submission_receipt_index_root(
+    submissions: &RecoveredSubmissionIndex,
+    receipts: &RecoveredReceiptIndex,
+) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(WAL_RECOVERED_INDEX_ROOT_DOMAIN);
+    hasher.update(&len_u64(submissions.submissions.len()).to_le_bytes());
+    for (submission_id, entry) in &submissions.submissions {
+        hasher.update(b"submission");
+        hasher.update(submission_id);
+        hasher.update(&entry.acceptance.submission_id);
+        hasher.update(&entry.acceptance.canonical_envelope_digest);
+        match entry.acceptance.idempotency_key_digest {
+            Some(digest) => {
+                hasher.update(&[1]);
+                hasher.update(&digest);
+            }
+            None => {
+                hasher.update(&[0]);
+            }
+        }
+        hasher.update(&entry.acceptance.acceptance_evidence_digest);
+        hasher.update(&[recovered_submission_posture_code(entry.posture)]);
+        match entry.receipt_digest {
+            Some(digest) => {
+                hasher.update(&[1]);
+                hasher.update(&digest);
+            }
+            None => {
+                hasher.update(&[0]);
+            }
+        }
+    }
+    hasher.update(&len_u64(submissions.envelope_to_submissions.len()).to_le_bytes());
+    for (envelope_digest, submission_ids) in &submissions.envelope_to_submissions {
+        hasher.update(b"envelope");
+        hasher.update(envelope_digest);
+        hasher.update(&len_u64(submission_ids.len()).to_le_bytes());
+        for submission_id in submission_ids {
+            hasher.update(submission_id);
+        }
+    }
+    hasher.update(&len_u64(receipts.receipt_by_submission.len()).to_le_bytes());
+    for (submission_id, receipt_digest) in &receipts.receipt_by_submission {
+        hasher.update(b"receipt-by-submission");
+        hasher.update(submission_id);
+        hasher.update(receipt_digest);
+    }
+    hasher.update(&len_u64(receipts.receipt_by_ticket.len()).to_le_bytes());
+    for (ticket_digest, receipt_digest) in &receipts.receipt_by_ticket {
+        hasher.update(b"receipt-by-ticket");
+        hasher.update(ticket_digest);
+        hasher.update(receipt_digest);
+    }
+    hasher.update(&len_u64(receipts.ticket_by_submission.len()).to_le_bytes());
+    for (submission_id, ticket_digest) in &receipts.ticket_by_submission {
+        hasher.update(b"ticket-by-submission");
+        hasher.update(submission_id);
+        hasher.update(ticket_digest);
+    }
+    hasher.update(&len_u64(receipts.decisions_by_receipt.len()).to_le_bytes());
+    for (receipt_digest, decision) in &receipts.decisions_by_receipt {
+        hasher.update(b"decision-by-receipt");
+        hasher.update(receipt_digest);
+        hasher.update(&[decision.code()]);
+    }
+    hasher.finalize().into()
+}
+
+fn recovered_submission_posture_code(posture: RecoveredSubmissionPosture) -> u8 {
+    match posture {
+        RecoveredSubmissionPosture::AcceptedPending => 1,
+        RecoveredSubmissionPosture::DecidedApplied => 2,
+        RecoveredSubmissionPosture::DecidedRejected => 3,
+        RecoveredSubmissionPosture::Obstructed => 4,
+        RecoveredSubmissionPosture::RecoveryFaulted => 5,
     }
 }
 

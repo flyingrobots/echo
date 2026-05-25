@@ -142,7 +142,7 @@ The repo also exposes maintenance commands via `cargo xtask …`:
 - `cargo xtask test-slice neighborhood` runs only `warp-core` neighborhood module unit tests via `--lib`.
 - `cargo xtask test-slice warp-core-smoke` runs the `warp-core` lib tests plus the strand integration target without launching every integration-test binary.
 - `cargo xtask test-slice contract-path-release` runs the v0.1 local contract-host release witness: installed contract pipeline replay, reference trusted host loop, and the serious external consumer fixture.
-- `cargo xtask test-slice runtime-wal-ack` runs the runtime WAL-backed ACK witness: app-facing acceptance rollback, scheduler tick receipt commit-before-publish, recovered indexes, CLI submission posture JSON, stale-claim guard, and generated man-page check.
+- `cargo xtask test-slice runtime-wal-ack` runs the runtime WAL-backed ACK witness: app-facing acceptance rollback, scheduler tick receipt invariant checks, scheduler tick commit-before-publish, recovered indexes, CLI submission posture JSON, stale-claim guard, and generated man-page check.
 - `cargo xtask pr-preflight` runs the default changed-scope pre-PR gate against `origin/main`.
 - `cargo xtask pr-preflight --full` runs the broader explicit full pre-PR gate.
 - `cargo xtask dind` runs the DIND (Deterministic Ironclad Nightmare Drills) harness locally.

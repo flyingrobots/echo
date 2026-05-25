@@ -989,13 +989,15 @@ completed slice.
     - Test plan: recovery certificate fixture over committed and truncated-tail
       WAL shapes.
 
-- [x] **Slice 94: `jedit` recovery fixture contract**
-    - User story: As a real app consumer, `jedit` should be able to distinguish
-      not-accepted, accepted-pending, decided, rejected, and obstructed edits
-      from Echo recovery evidence.
+- [x] **Slice 94: Echo recovery posture contract**
+    - User story: As a real app consumer, sibling applications should be able
+      to distinguish not-accepted, accepted-pending, decided, rejected, and
+      obstructed work from Echo recovery evidence without Echo importing
+      application nouns.
     - Acceptance criteria: Echo exposes only generic submission/receipt posture;
-      `jedit` maps that posture to editor terms outside Echo.
-    - Test plan: sibling `jedit` fixture consumes generic Echo recovery JSON.
+      sibling applications map that posture to product terms outside Echo.
+    - Test plan: Echo CLI fixture emits generic recovery JSON; the sibling
+      `jedit` fixture remains the next cross-repo consumer witness.
 
 - [x] **Slice 95: Runtime ACK drift gate**
     - User story: As a maintainer, docs and tests should fail if Echo claims

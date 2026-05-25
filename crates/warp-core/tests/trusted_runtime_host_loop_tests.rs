@@ -10,8 +10,9 @@ use echo_registry_api::{
 };
 use warp_core::{
     causal_wal::{
-        recover_in_memory_store, recover_receipt_index, recover_submission_index, Lsn,
-        RecoveredSubmissionPosture, RecoveryAccessMode, WalBuildError, WalTransactionKind,
+        recover_in_memory_store, recover_receipt_index, recover_submission_index,
+        recovered_submission_receipt_index_root, Lsn, RecoveredSubmissionPosture,
+        RecoveryAccessMode, WalBuildError, WalTransactionKind,
     },
     make_head_id, make_intent_kind, make_node_id, make_type_id, AuthoredObserverPlan,
     ContractMutationHandler, ContractOperationKind, ContractPackageIdentity, ContractQueryObserver,
@@ -237,6 +238,30 @@ fn runtime() -> (WorldlineRuntime, WorldlineId) {
         ))
         .expect("writer head should register");
     (runtime, worldline_id)
+}
+
+fn runtime_pair() -> (WorldlineRuntime, WorldlineId, WorldlineId) {
+    let mut runtime = WorldlineRuntime::new();
+    let first = WorldlineId::from_bytes([1; 32]);
+    let second = WorldlineId::from_bytes([2; 32]);
+    for (worldline_id, head_label) in [(first, "default-a"), (second, "default-b")] {
+        runtime
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .expect("worldline should register");
+        runtime
+            .register_writer_head(WriterHead::with_routing(
+                WriterHeadKey {
+                    worldline_id,
+                    head_id: make_head_id(head_label),
+                },
+                PlaybackMode::Play,
+                InboxPolicy::AcceptAll,
+                None,
+                true,
+            ))
+            .expect("writer head should register");
+    }
+    (runtime, first, second)
 }
 
 fn eint_envelope(worldline_id: WorldlineId) -> IngressEnvelope {
@@ -641,6 +666,72 @@ fn runtime_wal_ack_tick_failure_rolls_back_visible_outcome() {
 }
 
 #[test]
+fn runtime_wal_ack_multi_head_tick_failure_rolls_back_all_tick_records() {
+    let (runtime, worldline_a, worldline_b) = runtime_pair();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_in_memory_runtime_wal()
+        .expect("runtime WAL should initialize");
+    host.install_contract_package(package())
+        .expect("host should install package");
+
+    let submission_a = {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(eint_envelope(worldline_a))
+            .expect("first submission acceptance should commit before ACK")
+    };
+    let submission_b = {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(eint_envelope(worldline_b))
+            .expect("second submission acceptance should commit before ACK")
+    };
+    host.stage_installed_contract_submission(submission_a.submission_id, &admission_ticket(95))
+        .expect("trusted host should stage first ticketed ingress");
+    host.stage_installed_contract_submission(submission_b.submission_id, &admission_ticket(96))
+        .expect("trusted host should stage second ticketed ingress");
+
+    let overflowing_wal =
+        TrustedRuntimeWal::new_in_memory_at_lsn_for_test(Lsn::from_raw(u64::MAX - 5))
+            .expect("overflow fixture WAL should initialize");
+    host.replace_runtime_wal_for_test(overflowing_wal);
+
+    let err = host
+        .run_until_idle(4)
+        .expect_err("second tick WAL transaction should fail after first would have committed");
+    assert!(matches!(
+        err,
+        TrustedRuntimeHostError::Wal(TrustedRuntimeWalError::Build(WalBuildError::LsnOverflow))
+    ));
+    assert_eq!(
+        host.runtime().receipt_correlation_count(),
+        0,
+        "failed scheduler pass must not leave receipt correlations visible"
+    );
+    assert_eq!(
+        host.runtime_wal()
+            .expect("runtime WAL should stay configured")
+            .scheduler_tick_count(),
+        0,
+        "failed scheduler pass must roll back every tick WAL record from the attempt"
+    );
+
+    for submission_id in [submission_a.submission_id, submission_b.submission_id] {
+        let outcome = {
+            let app = host.app();
+            app.observe_intent_outcome(&submission_id)
+        };
+        assert!(matches!(
+            outcome,
+            IntentOutcome::Pending {
+                submission_id: observed_submission_id,
+                ticketed_ingress_id: Some(_),
+                ..
+            } if observed_submission_id == submission_id
+        ));
+    }
+}
+
+#[test]
 fn runtime_wal_ack_recover_read_only_rebuilds_submission_and_receipt_indexes() {
     let (runtime, worldline_id) = runtime();
     let mut host =
@@ -681,6 +772,10 @@ fn runtime_wal_ack_recover_read_only_rebuilds_submission_and_receipt_indexes() {
             .ticket_by_submission
             .get(&submission.submission_id),
         Some(&ticket.ticket_digest)
+    );
+    assert_eq!(
+        recovery.certificate.recovered_indexes_root,
+        recovered_submission_receipt_index_root(&recovery.submissions, &recovery.receipts)
     );
 }
 

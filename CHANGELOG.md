@@ -537,6 +537,11 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
   for one submission id and canonical envelope digest. The output reports retry
   posture, recovered submission posture, receipt digest, and ticket digest
   without importing any application nouns into Echo.
+- Runtime WAL-backed scheduler ticks now roll back all tick WAL evidence from a
+  failed multi-head scheduler pass, treat missing or mismatched receipt
+  correlation evidence as an invariant error instead of a normal obstruction,
+  and bind runtime recovery certificates to rebuilt submission and receipt
+  indexes.
 - `warp-wasm` no longer contains the legacy Stack Witness 0001
   `createBuffer`/`replaceRange`/`textWindow` shortcut. QueryView requests now
   route through the generic installed contract observer boundary only; without

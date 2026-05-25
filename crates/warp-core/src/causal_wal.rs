@@ -1149,6 +1149,19 @@ pub struct WalSegmentManifestEntry {
     pub last_lsn: Option<Lsn>,
 }
 
+/// Filesystem manifest validation report.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WalManifestValidationReport {
+    /// Manifest loaded from disk.
+    pub manifest: WalManifest,
+    /// Number of segment files observed.
+    pub segment_count: u64,
+    /// Last committed LSN observed in segments.
+    pub last_committed_lsn: Option<Lsn>,
+    /// Last commit digest observed in segments.
+    pub last_commit_digest: Option<Hash>,
+}
+
 /// Builds a segment manifest entry from segment frames.
 #[must_use]
 pub fn segment_manifest_entry(
@@ -1174,7 +1187,7 @@ pub struct WalManifest {
     pub last_committed_lsn: Option<Lsn>,
     /// Last commit digest.
     pub last_commit_digest: Option<Hash>,
-    /// Number of sealed segments.
+    /// Number of segment files covered by the manifest.
     pub sealed_segment_count: u64,
 }
 
@@ -2405,6 +2418,12 @@ impl FilesystemWalStore {
         segment_path(&self.root, self.segment_id)
     }
 
+    /// Returns the active logical segment id.
+    #[must_use]
+    pub const fn active_segment_id(&self) -> WalSegmentId {
+        self.segment_id
+    }
+
     /// Returns the WAL root directory.
     #[must_use]
     pub fn root(&self) -> &Path {
@@ -2438,6 +2457,41 @@ impl FilesystemWalStore {
     ) -> Result<(), WalStoreError> {
         self.append_frame(epoch_id, frame)
     }
+
+    /// Seals the active segment and starts the next canonical segment.
+    pub fn rotate_segment(
+        &mut self,
+        epoch_id: WriterEpochId,
+    ) -> Result<WalSegmentSeal, WalStoreError> {
+        let active_epoch = self
+            .active_epoch
+            .as_ref()
+            .ok_or(WalStoreError::NoActiveWriterEpoch)?;
+        if active_epoch.epoch_id != epoch_id {
+            return Err(WalStoreError::WriterEpochMismatch);
+        }
+        let current_segment_id = self.segment_id;
+        ensure_segment_has_no_uncommitted_tail(&self.root, current_segment_id)?;
+        let seal = self.seal_segment(epoch_id, current_segment_id)?;
+        let next_segment_id = next_segment_id(Some(current_segment_id))
+            .map_err(|_| WalStoreError::SegmentIdOverflow)?;
+        let next_segment_path = segment_path(&self.root, next_segment_id);
+        if next_segment_path.exists() {
+            return Err(WalStoreError::DuplicateSegment(next_segment_id));
+        }
+        File::create(&next_segment_path)?.sync_all()?;
+        self.sync_evidence.push(FilesystemSyncEvidence::segment(
+            FilesystemSyncBoundary::SegmentFileCreated,
+            next_segment_id,
+        ));
+        sync_directory_store(&segments_dir(&self.root))?;
+        self.sync_evidence.push(FilesystemSyncEvidence::segment(
+            FilesystemSyncBoundary::SegmentDirectorySynced,
+            next_segment_id,
+        ));
+        self.segment_id = next_segment_id;
+        Ok(seal)
+    }
 }
 
 impl WalStorePort for FilesystemWalStore {
@@ -2466,6 +2520,12 @@ impl WalStorePort for FilesystemWalStore {
             .ok_or(WalStoreError::NoActiveWriterEpoch)?;
         if active_epoch.epoch_id != epoch_id || frame.header.writer_epoch != epoch_id {
             return Err(WalStoreError::WriterEpochMismatch);
+        }
+        if frame.header.segment_id != self.segment_id {
+            return Err(WalStoreError::SegmentMismatch {
+                expected: self.segment_id,
+                actual: frame.header.segment_id,
+            });
         }
         frame.validate_integrity()?;
         append_segment_record(&self.segment_path(), DiskWalRecord::Frame(&frame), false)
@@ -2624,6 +2684,62 @@ pub fn doctor_filesystem_store(
         Err(_) => return Ok(obstructed_doctor_report()),
     };
     Ok(doctor_report_from_scan(report, 0, [0; 32], [0; 32]))
+}
+
+/// Reads the published filesystem WAL manifest, if present.
+pub fn read_filesystem_manifest(
+    root: impl AsRef<Path>,
+) -> Result<Option<WalManifest>, WalStoreError> {
+    let path = root.as_ref().join("manifest.ecwal");
+    if !path.exists() {
+        return Ok(None);
+    }
+    read_manifest_file(&path).map(Some)
+}
+
+/// Validates the published filesystem WAL manifest against segment contents.
+pub fn validate_filesystem_manifest(
+    root: impl AsRef<Path>,
+) -> Result<WalManifestValidationReport, WalStoreError> {
+    let root = root.as_ref();
+    let manifest = read_filesystem_manifest(root)?.ok_or(WalStoreError::MissingManifest)?;
+    let segment_count = len_u64(segment_paths(root)?.len());
+    let (frames, commits, torn_tail) = read_filesystem_segments(root)?;
+    if torn_tail {
+        return Err(WalStoreError::ManifestCannotValidateUncommittedTail);
+    }
+    let last_committed_lsn = commits.iter().map(|commit| commit.last_lsn).max();
+    if frames
+        .iter()
+        .any(|frame| last_committed_lsn.is_none_or(|lsn| frame.header.lsn > lsn))
+    {
+        return Err(WalStoreError::ManifestCannotValidateUncommittedTail);
+    }
+    let last_commit_digest = commits.last().map(|commit| commit.commit_digest);
+    if manifest.sealed_segment_count != segment_count {
+        return Err(WalStoreError::ManifestSegmentCountMismatch {
+            expected: segment_count,
+            actual: manifest.sealed_segment_count,
+        });
+    }
+    if manifest.last_committed_lsn != last_committed_lsn {
+        return Err(WalStoreError::ManifestLastCommittedLsnMismatch {
+            expected: last_committed_lsn,
+            actual: manifest.last_committed_lsn,
+        });
+    }
+    if manifest.last_commit_digest != last_commit_digest {
+        return Err(WalStoreError::ManifestLastCommitDigestMismatch {
+            expected: last_commit_digest,
+            actual: manifest.last_commit_digest,
+        });
+    }
+    Ok(WalManifestValidationReport {
+        manifest,
+        segment_count,
+        last_committed_lsn,
+        last_commit_digest,
+    })
 }
 
 /// Object-store read-after-write posture required by strict object storage.
@@ -3197,6 +3313,12 @@ pub fn audit_wal_release_readiness(gates: WalReleaseReadinessGates) -> WalReleas
     push_gate(
         &mut passed_gates,
         &mut blocked_gates,
+        "segment_manifest_validation",
+        gates.segment_manifest_validation,
+    );
+    push_gate(
+        &mut passed_gates,
+        &mut blocked_gates,
         "crash_matrix",
         gates.crash_matrix,
     );
@@ -3285,6 +3407,8 @@ pub struct WalReleaseReadinessGates {
     pub segment_repair: bool,
     /// Segment layout policy gate.
     pub segment_layout_policy: bool,
+    /// Segment manifest validation gate.
+    pub segment_manifest_validation: bool,
     /// Crash matrix gate.
     pub crash_matrix: bool,
     /// Crashpoint manifest gate.
@@ -3417,6 +3541,24 @@ fn read_segment_file(
         offset = digest_end;
     }
     Ok((frames, commits, torn_tail))
+}
+
+fn ensure_segment_has_no_uncommitted_tail(
+    root: &Path,
+    segment_id: WalSegmentId,
+) -> Result<(), WalStoreError> {
+    let (frames, commits, torn_tail) = read_segment_file(&segment_path(root, segment_id))?;
+    if torn_tail {
+        return Err(WalStoreError::SegmentHasUncommittedTail(segment_id));
+    }
+    let last_committed_lsn = commits.iter().map(|commit| commit.last_lsn).max();
+    if frames
+        .iter()
+        .any(|frame| last_committed_lsn.is_none_or(|lsn| frame.header.lsn > lsn))
+    {
+        return Err(WalStoreError::SegmentHasUncommittedTail(segment_id));
+    }
+    Ok(())
 }
 
 fn rewrite_filesystem_segments_after_truncation(
@@ -3568,14 +3710,40 @@ fn parse_segment_id(path: &Path) -> Result<WalSegmentId, WalStoreError> {
     Ok(WalSegmentId::from_raw(raw))
 }
 
-fn write_manifest_atomic(root: &Path, manifest: &WalManifest) -> Result<(), WalStoreError> {
-    let path = root.join("manifest.ecwal");
-    let temp = root.join(".manifest.ecwal.tmp");
+fn encode_manifest(manifest: &WalManifest) -> Vec<u8> {
     let mut bytes = Vec::new();
     push_hash(&mut bytes, &manifest.manifest_digest);
     push_optional_lsn(&mut bytes, manifest.last_committed_lsn);
     push_optional_hash(&mut bytes, manifest.last_commit_digest);
     bytes.extend_from_slice(&manifest.sealed_segment_count.to_le_bytes());
+    bytes
+}
+
+fn decode_manifest(bytes: &[u8]) -> Result<WalManifest, WalDecodeError> {
+    let mut cursor = WalPayloadCursor::new(bytes);
+    let manifest_digest = cursor.read_hash()?;
+    let last_committed_lsn = cursor.read_optional_lsn()?;
+    let last_commit_digest = cursor.read_optional_hash()?;
+    let sealed_segment_count = cursor.read_u64()?;
+    cursor.finish()?;
+    Ok(WalManifest {
+        manifest_digest,
+        last_committed_lsn,
+        last_commit_digest,
+        sealed_segment_count,
+    })
+}
+
+fn read_manifest_file(path: &Path) -> Result<WalManifest, WalStoreError> {
+    let mut bytes = Vec::new();
+    File::open(path)?.read_to_end(&mut bytes)?;
+    decode_manifest(&bytes).map_err(WalStoreError::Decode)
+}
+
+fn write_manifest_atomic(root: &Path, manifest: &WalManifest) -> Result<(), WalStoreError> {
+    let path = root.join("manifest.ecwal");
+    let temp = root.join(".manifest.ecwal.tmp");
+    let bytes = encode_manifest(manifest);
     {
         let mut file = File::create(&temp)?;
         file.write_all(&bytes)?;
@@ -4346,6 +4514,50 @@ pub enum WalStoreError {
     /// Multiple segment files claim the same segment id.
     #[error("duplicate WAL segment id {0:?}")]
     DuplicateSegment(WalSegmentId),
+    /// Frame segment id does not match the active segment.
+    #[error("WAL segment mismatch: expected {expected:?}, found {actual:?}")]
+    SegmentMismatch {
+        /// Expected active segment id.
+        expected: WalSegmentId,
+        /// Actual frame segment id.
+        actual: WalSegmentId,
+    },
+    /// Segment rotation would overflow logical segment identity.
+    #[error("WAL segment id overflow")]
+    SegmentIdOverflow,
+    /// Segment contains an uncommitted tail and cannot be sealed.
+    #[error("WAL segment {0:?} has an uncommitted tail")]
+    SegmentHasUncommittedTail(WalSegmentId),
+    /// Published filesystem manifest is missing.
+    #[error("filesystem WAL manifest is missing")]
+    MissingManifest,
+    /// Published filesystem manifest segment count does not match segments.
+    #[error("filesystem WAL manifest segment count mismatch: expected {expected}, found {actual}")]
+    ManifestSegmentCountMismatch {
+        /// Expected scanned segment count.
+        expected: u64,
+        /// Actual manifest segment count.
+        actual: u64,
+    },
+    /// Published filesystem manifest last committed LSN does not match segments.
+    #[error("filesystem WAL manifest last committed LSN mismatch")]
+    ManifestLastCommittedLsnMismatch {
+        /// Expected scanned last committed LSN.
+        expected: Option<Lsn>,
+        /// Actual manifest last committed LSN.
+        actual: Option<Lsn>,
+    },
+    /// Published filesystem manifest last commit digest does not match segments.
+    #[error("filesystem WAL manifest last commit digest mismatch")]
+    ManifestLastCommitDigestMismatch {
+        /// Expected scanned last commit digest.
+        expected: Option<Hash>,
+        /// Actual manifest last commit digest.
+        actual: Option<Hash>,
+    },
+    /// Manifest cannot validate while segments contain an uncommitted tail.
+    #[error("filesystem WAL manifest cannot validate an uncommitted tail")]
+    ManifestCannotValidateUncommittedTail,
 }
 
 impl From<std::io::Error> for WalStoreError {
@@ -4893,6 +5105,17 @@ impl<'a> WalPayloadCursor<'a> {
             1 => self.read_hash().map(Some),
             code => Err(WalDecodeError::UnknownEnumCode {
                 enum_name: "Option<Hash>",
+                code,
+            }),
+        }
+    }
+
+    fn read_optional_lsn(&mut self) -> Result<Option<Lsn>, WalDecodeError> {
+        match self.read_u8()? {
+            0 => Ok(None),
+            1 => self.read_u64().map(|raw| Some(Lsn::from_raw(raw))),
+            code => Err(WalDecodeError::UnknownEnumCode {
+                enum_name: "Option<Lsn>",
                 code,
             }),
         }

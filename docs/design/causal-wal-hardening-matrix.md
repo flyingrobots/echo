@@ -725,3 +725,177 @@ Test plan:
 - `canonical_segment_path_uses_logical_segments_directory`
 - `wall_clock_segment_placement_cannot_be_authoritative`
 - `segment_layout_gate_is_part_of_wal_release_readiness`
+
+## Slice 76: Active Segment Id Enforcement
+
+User story:
+
+As Echo, frames must be appended only to the active logical segment they claim.
+
+Acceptance criteria:
+
+- Filesystem append checks the frame header segment id against the active store
+  segment id.
+- A mismatch returns typed store error instead of writing misleading bytes.
+- Segment id enforcement remains storage-generic and contains no app nouns.
+
+Test plan:
+
+- `filesystem_append_frame_rejects_inactive_segment_id`
+
+## Slice 77: Canonical Segment Rotation
+
+User story:
+
+As Echo, segment rotation should seal the current segment and create the next
+canonical segment under `segments/`.
+
+Acceptance criteria:
+
+- Rotation returns a `WalSegmentSeal` for the previous segment.
+- The active segment id advances monotonically.
+- The new canonical segment file is created under `segments/`.
+- Rotation rejects an existing next segment instead of truncating it.
+- Strict filesystem sync evidence records the new segment file and containing
+  directory sync.
+
+Test plan:
+
+- `filesystem_rotate_segment_creates_next_canonical_segment`
+- `filesystem_rotate_segment_does_not_overwrite_existing_next_segment`
+
+## Slice 78: Rotation Tail Safety
+
+User story:
+
+As Echo, rotation must not seal a segment containing uncommitted frames or a
+torn tail.
+
+Acceptance criteria:
+
+- Rotation inspects the current segment before sealing.
+- Segments with uncommitted frames reject with typed store error.
+- Torn final records reject through the same tail-safety posture.
+
+Test plan:
+
+- `filesystem_rotate_segment_rejects_uncommitted_tail`
+
+## Slice 79: Multi-Segment Recovery
+
+User story:
+
+As recovery, committed transactions split across rotated segments must replay as
+one logical WAL stream.
+
+Acceptance criteria:
+
+- Recovery scans multiple canonical segment files in logical segment-id order.
+- Transactions in later segments recover cleanly.
+- Last committed LSN reflects the logical WAL stream, not one file.
+
+Test plan:
+
+- `filesystem_recovery_reads_transactions_across_rotated_segments`
+
+## Slice 80: Rotation Authority Guard
+
+User story:
+
+As Echo, only the active writer epoch may rotate WAL segments.
+
+Acceptance criteria:
+
+- Rotation requires an active writer epoch.
+- Epoch mismatch rejects before creating the next segment file.
+- The guard preserves the single-writer WAL authority boundary.
+
+Test plan:
+
+- `filesystem_rotate_segment_rejects_epoch_mismatch`
+
+## Slice 81: Manifest Read Roundtrip
+
+User story:
+
+As Echo, published filesystem manifests must be readable as structured WAL
+evidence.
+
+Acceptance criteria:
+
+- Manifest files decode back into `WalManifest`.
+- Decoding uses the same canonical field encoding as publication.
+- Missing manifest remains explicit `None`.
+
+Test plan:
+
+- `filesystem_manifest_read_roundtrips_published_manifest`
+
+## Slice 82: Manifest Segment-Count Validation
+
+User story:
+
+As recovery, a published manifest must not lie about segment count.
+
+Acceptance criteria:
+
+- Validation compares manifest segment count against scanned segment files.
+- Count mismatch returns typed store error.
+- The validation is independent of wall-clock path layout.
+
+Test plan:
+
+- `filesystem_manifest_validation_rejects_segment_count_mismatch`
+- `filesystem_manifest_validation_accepts_matching_segment_summary`
+
+## Slice 83: Manifest Commit-Anchor Validation
+
+User story:
+
+As recovery, a published manifest must match the last committed LSN and commit
+digest recovered from segment contents.
+
+Acceptance criteria:
+
+- Last committed LSN mismatch returns typed store error.
+- Last commit digest mismatch returns typed store error.
+- A matching manifest returns a structured validation report.
+
+Test plan:
+
+- `filesystem_manifest_validation_rejects_last_lsn_mismatch`
+- `filesystem_manifest_validation_rejects_last_digest_mismatch`
+
+## Slice 84: Manifest Tail Safety
+
+User story:
+
+As recovery, a manifest cannot validate while segments contain an uncommitted
+tail.
+
+Acceptance criteria:
+
+- Manifest validation rejects full uncommitted frames after the last commit.
+- Manifest validation rejects torn tails.
+- A manifest never turns incomplete history into accepted disk truth.
+
+Test plan:
+
+- `filesystem_manifest_validation_rejects_uncommitted_tail`
+
+## Slice 85: Manifest Validation Release Gate
+
+User story:
+
+As a maintainer, release readiness must require manifest validation coverage.
+
+Acceptance criteria:
+
+- `WalReleaseReadinessGates` includes `segment_manifest_validation`.
+- Audit output names the missing gate.
+- A fully green readiness report requires manifest validation coverage.
+
+Test plan:
+
+- `segment_manifest_validation_gate_is_part_of_wal_release_readiness`
+- `wal_hardening_gate_passes_when_all_categories_are_green`

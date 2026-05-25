@@ -10,10 +10,11 @@ use warp_core::causal_wal::{
     doctor_in_memory_store_with_materials, evaluate_checkpoint_publication,
     inspect_evidence_material_posture, next_segment_id, project_absent_causal_commit_evidence,
     project_causal_commit_evidence, project_obstructed_causal_commit_evidence,
-    read_checkpoint_record, recover_filesystem_store, recover_from_frames_and_commits,
-    recover_materialization_outbox, recover_receipt_index, recover_retention_index,
-    recover_submission_index, retained_material_obstructions, segment_manifest_entry,
-    shadow_replay_matches, shadow_replay_report, validate_checkpoint_record,
+    read_checkpoint_record, read_filesystem_manifest, recover_filesystem_store,
+    recover_from_frames_and_commits, recover_materialization_outbox, recover_receipt_index,
+    recover_retention_index, recover_submission_index, retained_material_obstructions,
+    segment_manifest_entry, shadow_replay_matches, shadow_replay_report,
+    validate_checkpoint_record, validate_filesystem_manifest,
     validate_filesystem_strict_sync_evidence, validate_segment_placement_policy,
     validate_strict_object_store_capabilities, validate_strict_object_store_manifest_commit,
     wal_crashpoint_manifest, write_checkpoint_record_atomic,
@@ -134,9 +135,25 @@ fn builder(
     authority: WalAppendAuthority,
     transaction_kind: WalTransactionKind,
 ) -> WalTransactionBuilder {
+    builder_on_segment(
+        label,
+        first_lsn,
+        authority,
+        transaction_kind,
+        WalSegmentId::from_raw(1),
+    )
+}
+
+fn builder_on_segment(
+    label: &str,
+    first_lsn: Lsn,
+    authority: WalAppendAuthority,
+    transaction_kind: WalTransactionKind,
+    segment_id: WalSegmentId,
+) -> WalTransactionBuilder {
     WalTransactionBuilder::new(
         epoch_id(),
-        WalSegmentId::from_raw(1),
+        segment_id,
         transaction_id(&format!("hardening:tx:{label}")),
         transaction_kind,
         authority,
@@ -170,12 +187,21 @@ fn submission_acceptance(label: &str) -> SubmissionAcceptanceRecord {
 }
 
 fn submission_transaction(label: &str, first_lsn: Lsn) -> WalCommittedTransaction {
+    submission_transaction_on_segment(label, first_lsn, WalSegmentId::from_raw(1))
+}
+
+fn submission_transaction_on_segment(
+    label: &str,
+    first_lsn: Lsn,
+    segment_id: WalSegmentId,
+) -> WalCommittedTransaction {
     must_ok(build_submission_acceptance_transaction(
-        builder(
+        builder_on_segment(
             label,
             first_lsn,
             WalAppendAuthority::SubmissionIntake,
             WalTransactionKind::SubmissionIntake,
+            segment_id,
         ),
         submission_acceptance(label),
         vec![frontier(label, AffectedFrontierKind::SubmissionQueue)],
@@ -357,6 +383,17 @@ impl WalHardeningFixture {
 
     fn append_submission(&mut self, label: &str, first_lsn: Lsn) -> WalCommittedTransaction {
         let transaction = submission_transaction(label, first_lsn);
+        must_ok(self.store.append_transaction(transaction.clone()));
+        transaction
+    }
+
+    fn append_submission_on_segment(
+        &mut self,
+        label: &str,
+        first_lsn: Lsn,
+        segment_id: WalSegmentId,
+    ) -> WalCommittedTransaction {
+        let transaction = submission_transaction_on_segment(label, first_lsn, segment_id);
         must_ok(self.store.append_transaction(transaction.clone()));
         transaction
     }
@@ -2099,6 +2136,7 @@ fn wal_hardening_gate_passes_when_all_categories_are_green() {
         object_store_capability_gate: true,
         segment_repair: true,
         segment_layout_policy: true,
+        segment_manifest_validation: true,
         crash_matrix: true,
         crashpoint_manifest: true,
         shadow_replay: true,
@@ -2297,5 +2335,290 @@ fn segment_layout_gate_is_part_of_wal_release_readiness() {
     assert!(
         report.blocked_gates.contains(&"segment_layout_policy"),
         "layout policy should be an explicit WAL release gate"
+    );
+}
+
+#[test]
+fn filesystem_append_frame_rejects_inactive_segment_id() {
+    let mut fixture = WalHardeningFixture::new("rotation-segment-mismatch");
+    fixture.append_submission("rotation-segment-mismatch", Lsn::from_raw(0));
+    must_ok(fixture.store.rotate_segment(epoch_id()));
+
+    let error = must_err(
+        fixture
+            .store
+            .append_transaction(submission_transaction("wrong-segment", Lsn::from_raw(2))),
+        "active segment 2 should reject frame declaring segment 1",
+    );
+
+    assert!(matches!(
+        error,
+        WalStoreError::SegmentMismatch { expected, actual }
+            if expected == WalSegmentId::from_raw(2) && actual == WalSegmentId::from_raw(1)
+    ));
+}
+
+#[test]
+fn filesystem_rotate_segment_creates_next_canonical_segment() {
+    let mut fixture = WalHardeningFixture::new("rotation-next-segment");
+    fixture.append_submission("rotation-next-segment", Lsn::from_raw(0));
+
+    let seal = must_ok(fixture.store.rotate_segment(epoch_id()));
+
+    assert_eq!(seal.segment_id, WalSegmentId::from_raw(1));
+    assert_eq!(seal.sealed_lsn, Some(Lsn::from_raw(1)));
+    assert_eq!(fixture.store.active_segment_id(), WalSegmentId::from_raw(2));
+    assert!(fixture
+        .root
+        .join("segments")
+        .join(segment_file_name(2))
+        .exists());
+    assert!(fixture.store.sync_evidence().iter().any(|entry| {
+        entry.boundary == FilesystemSyncBoundary::SegmentDirectorySynced
+            && entry.segment_id == Some(WalSegmentId::from_raw(2))
+    }));
+}
+
+#[test]
+fn filesystem_rotate_segment_does_not_overwrite_existing_next_segment() {
+    let mut fixture = WalHardeningFixture::new("rotation-existing-next-segment");
+    fixture.append_submission("rotation-existing-next-segment", Lsn::from_raw(0));
+    let next_path = fixture.root.join("segments").join(segment_file_name(2));
+    must_ok(fs::write(&next_path, b"existing-segment-material"));
+
+    let error = must_err(
+        fixture.store.rotate_segment(epoch_id()),
+        "rotation should not overwrite an existing next segment",
+    );
+
+    assert_eq!(
+        error,
+        WalStoreError::DuplicateSegment(WalSegmentId::from_raw(2))
+    );
+    assert_eq!(
+        must_ok(fs::read(next_path)),
+        b"existing-segment-material",
+        "existing next segment material should not be truncated"
+    );
+}
+
+#[test]
+fn filesystem_rotate_segment_rejects_uncommitted_tail() {
+    let mut fixture = WalHardeningFixture::new("rotation-uncommitted-tail");
+    fixture.append_uncommitted_submission_frame("rotation-uncommitted-tail", Lsn::from_raw(0));
+
+    let error = must_err(
+        fixture.store.rotate_segment(epoch_id()),
+        "rotation should not seal a segment with uncommitted frames",
+    );
+
+    assert_eq!(
+        error,
+        WalStoreError::SegmentHasUncommittedTail(WalSegmentId::from_raw(1))
+    );
+}
+
+#[test]
+fn filesystem_rotate_segment_rejects_epoch_mismatch() {
+    let mut fixture = WalHardeningFixture::new("rotation-epoch-mismatch");
+
+    let error = must_err(
+        fixture.store.rotate_segment(epoch_id_for("wrong")),
+        "rotation should require the active writer epoch",
+    );
+
+    assert_eq!(error, WalStoreError::WriterEpochMismatch);
+}
+
+#[test]
+fn filesystem_recovery_reads_transactions_across_rotated_segments() {
+    let mut fixture = WalHardeningFixture::new("rotation-recover-multi");
+    fixture.append_submission("rotation-recover-first", Lsn::from_raw(0));
+    must_ok(fixture.store.rotate_segment(epoch_id()));
+    fixture.append_submission_on_segment(
+        "rotation-recover-second",
+        Lsn::from_raw(2),
+        WalSegmentId::from_raw(2),
+    );
+
+    let report = must_ok(fixture.recover_read_only());
+
+    assert_eq!(report.tail_posture, RecoveryTailPosture::Clean);
+    assert_eq!(report.transactions.len(), 2);
+    assert_eq!(report.last_committed_lsn(), Some(Lsn::from_raw(3)));
+}
+
+#[test]
+fn filesystem_manifest_read_roundtrips_published_manifest() {
+    let mut fixture = WalHardeningFixture::new("manifest-roundtrip");
+    let transaction = fixture.append_submission("manifest-roundtrip", Lsn::from_raw(0));
+    let manifest = WalManifest {
+        manifest_digest: digest("hardening:manifest:roundtrip"),
+        last_committed_lsn: Some(transaction.commit.last_lsn),
+        last_commit_digest: Some(transaction.commit.commit_digest),
+        sealed_segment_count: 1,
+    };
+
+    must_ok(fixture.store.publish_manifest(epoch_id(), manifest.clone()));
+
+    assert_eq!(
+        must_ok(read_filesystem_manifest(&fixture.root)),
+        Some(manifest)
+    );
+}
+
+#[test]
+fn filesystem_manifest_validation_accepts_matching_segment_summary() {
+    let mut fixture = WalHardeningFixture::new("manifest-valid");
+    fixture.append_submission("manifest-valid-first", Lsn::from_raw(0));
+    must_ok(fixture.store.rotate_segment(epoch_id()));
+    let second = fixture.append_submission_on_segment(
+        "manifest-valid-second",
+        Lsn::from_raw(2),
+        WalSegmentId::from_raw(2),
+    );
+    let manifest = WalManifest {
+        manifest_digest: digest("hardening:manifest:valid"),
+        last_committed_lsn: Some(second.commit.last_lsn),
+        last_commit_digest: Some(second.commit.commit_digest),
+        sealed_segment_count: 2,
+    };
+
+    must_ok(fixture.store.publish_manifest(epoch_id(), manifest.clone()));
+    let report = must_ok(validate_filesystem_manifest(&fixture.root));
+
+    assert_eq!(report.manifest, manifest);
+    assert_eq!(report.segment_count, 2);
+    assert_eq!(report.last_committed_lsn, Some(Lsn::from_raw(3)));
+    assert_eq!(report.last_commit_digest, Some(second.commit.commit_digest));
+}
+
+#[test]
+fn filesystem_manifest_validation_rejects_segment_count_mismatch() {
+    let mut fixture = WalHardeningFixture::new("manifest-count-mismatch");
+    let transaction = fixture.append_submission("manifest-count-mismatch", Lsn::from_raw(0));
+    let manifest = WalManifest {
+        manifest_digest: digest("hardening:manifest:count-mismatch"),
+        last_committed_lsn: Some(transaction.commit.last_lsn),
+        last_commit_digest: Some(transaction.commit.commit_digest),
+        sealed_segment_count: 2,
+    };
+
+    must_ok(fixture.store.publish_manifest(epoch_id(), manifest));
+    let error = must_err(
+        validate_filesystem_manifest(&fixture.root),
+        "manifest segment count mismatch should reject",
+    );
+
+    assert_eq!(
+        error,
+        WalStoreError::ManifestSegmentCountMismatch {
+            expected: 1,
+            actual: 2
+        }
+    );
+}
+
+#[test]
+fn filesystem_manifest_validation_rejects_last_lsn_mismatch() {
+    let mut fixture = WalHardeningFixture::new("manifest-lsn-mismatch");
+    let transaction = fixture.append_submission("manifest-lsn-mismatch", Lsn::from_raw(0));
+    let manifest = WalManifest {
+        manifest_digest: digest("hardening:manifest:lsn-mismatch"),
+        last_committed_lsn: Some(Lsn::from_raw(99)),
+        last_commit_digest: Some(transaction.commit.commit_digest),
+        sealed_segment_count: 1,
+    };
+
+    must_ok(fixture.store.publish_manifest(epoch_id(), manifest));
+    let error = must_err(
+        validate_filesystem_manifest(&fixture.root),
+        "manifest last LSN mismatch should reject",
+    );
+
+    assert_eq!(
+        error,
+        WalStoreError::ManifestLastCommittedLsnMismatch {
+            expected: Some(transaction.commit.last_lsn),
+            actual: Some(Lsn::from_raw(99))
+        }
+    );
+}
+
+#[test]
+fn filesystem_manifest_validation_rejects_last_digest_mismatch() {
+    let mut fixture = WalHardeningFixture::new("manifest-digest-mismatch");
+    let transaction = fixture.append_submission("manifest-digest-mismatch", Lsn::from_raw(0));
+    let wrong_digest = digest("hardening:manifest:digest-mismatch:wrong");
+    let manifest = WalManifest {
+        manifest_digest: digest("hardening:manifest:digest-mismatch"),
+        last_committed_lsn: Some(transaction.commit.last_lsn),
+        last_commit_digest: Some(wrong_digest),
+        sealed_segment_count: 1,
+    };
+
+    must_ok(fixture.store.publish_manifest(epoch_id(), manifest));
+    let error = must_err(
+        validate_filesystem_manifest(&fixture.root),
+        "manifest last digest mismatch should reject",
+    );
+
+    assert_eq!(
+        error,
+        WalStoreError::ManifestLastCommitDigestMismatch {
+            expected: Some(transaction.commit.commit_digest),
+            actual: Some(wrong_digest)
+        }
+    );
+}
+
+#[test]
+fn filesystem_manifest_validation_rejects_uncommitted_tail() {
+    let mut fixture = WalHardeningFixture::new("manifest-tail");
+    let transaction = fixture.append_submission("manifest-tail", Lsn::from_raw(0));
+    let manifest = WalManifest {
+        manifest_digest: digest("hardening:manifest:tail"),
+        last_committed_lsn: Some(transaction.commit.last_lsn),
+        last_commit_digest: Some(transaction.commit.commit_digest),
+        sealed_segment_count: 1,
+    };
+    must_ok(fixture.store.publish_manifest(epoch_id(), manifest));
+    fixture.append_uncommitted_submission_frame("manifest-tail-uncommitted", Lsn::from_raw(2));
+
+    let error = must_err(
+        validate_filesystem_manifest(&fixture.root),
+        "manifest validation should reject uncommitted tails",
+    );
+
+    assert_eq!(error, WalStoreError::ManifestCannotValidateUncommittedTail);
+}
+
+#[test]
+fn segment_manifest_validation_gate_is_part_of_wal_release_readiness() {
+    let report = audit_wal_release_readiness(WalReleaseReadinessGates {
+        filesystem_adapter: true,
+        object_store_capability_gate: true,
+        segment_repair: true,
+        segment_layout_policy: true,
+        crash_matrix: true,
+        crashpoint_manifest: true,
+        shadow_replay: true,
+        outbox: true,
+        commit_evidence: true,
+        wal_doctor: true,
+        semantic_validator: true,
+        filesystem_sync_evidence: true,
+        object_store_manifest_negatives: true,
+        security_redaction: true,
+        app_noun_guard: true,
+        external_consumer_gate: true,
+        ..WalReleaseReadinessGates::default()
+    });
+
+    assert!(
+        report
+            .blocked_gates
+            .contains(&"segment_manifest_validation"),
+        "manifest validation should be an explicit WAL release gate"
     );
 }

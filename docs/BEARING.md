@@ -843,6 +843,82 @@ completed slice.
       include date partitions and wall-clock authoritative placement is rejected.
     - Test plan: segment manifest and placement-policy hardening fixtures.
 
+### PR 16: WAL Segment Rotation Hardening
+
+- [x] **Slice 76: Active segment id enforcement**
+    - User story: As Echo, frames must be appended only to the active logical
+      segment they claim.
+    - Acceptance criteria: filesystem append rejects frames whose header segment
+      id differs from the active segment id.
+    - Test plan: inactive segment append rejection fixture.
+
+- [x] **Slice 77: Canonical segment rotation**
+    - User story: As Echo, segment rotation should seal the current segment and
+      create the next canonical segment under `segments/`.
+    - Acceptance criteria: rotation returns the prior segment seal, advances the
+      active segment id, creates the next segment file, and records strict sync
+      evidence for the new segment; rotation does not overwrite an existing
+      next segment.
+    - Test plan: rotation creation, duplicate-protection, and sync evidence
+      fixtures.
+
+- [x] **Slice 78: Rotation tail safety**
+    - User story: As Echo, rotation must not seal a segment containing
+      uncommitted frames or a torn tail.
+    - Acceptance criteria: rotation rejects segments with uncommitted tails using
+      typed store errors.
+    - Test plan: uncommitted-tail rotation rejection fixture.
+
+- [x] **Slice 79: Multi-segment recovery**
+    - User story: As recovery, committed transactions split across rotated
+      segments must replay as one logical WAL stream.
+    - Acceptance criteria: recovery scans multiple canonical segments, preserves
+      clean tail posture, and reports the last committed LSN.
+    - Test plan: rotated multi-segment recovery fixture.
+
+- [x] **Slice 80: Rotation authority guard**
+    - User story: As Echo, only the active writer epoch may rotate WAL segments.
+    - Acceptance criteria: epoch mismatch rejects rotation before any new segment
+      is created.
+    - Test plan: rotation epoch mismatch fixture.
+
+### PR 17: WAL Manifest Validation Hardening
+
+- [x] **Slice 81: Manifest read roundtrip**
+    - User story: As Echo, published filesystem manifests must be readable as
+      structured WAL evidence.
+    - Acceptance criteria: manifest files decode back into `WalManifest` without
+      relying on ad hoc string parsing.
+    - Test plan: filesystem manifest roundtrip fixture.
+
+- [x] **Slice 82: Manifest segment-count validation**
+    - User story: As recovery, a published manifest must not lie about segment
+      count.
+    - Acceptance criteria: validation compares manifest segment count with
+      scanned canonical/legacy segment files and rejects mismatches.
+    - Test plan: manifest segment-count mismatch fixture.
+
+- [x] **Slice 83: Manifest commit-anchor validation**
+    - User story: As recovery, a published manifest must match the last
+      committed LSN and commit digest recovered from segment contents.
+    - Acceptance criteria: last-LSN and last-digest mismatches reject with typed
+      store errors.
+    - Test plan: manifest last-LSN and last-digest mismatch fixtures.
+
+- [x] **Slice 84: Manifest tail safety**
+    - User story: As recovery, a manifest cannot validate while segments contain
+      an uncommitted tail.
+    - Acceptance criteria: validation rejects uncommitted or torn tails before
+      accepting the manifest summary.
+    - Test plan: manifest uncommitted-tail rejection fixture.
+
+- [x] **Slice 85: Manifest validation release gate**
+    - User story: As a maintainer, release readiness must require manifest
+      validation coverage.
+    - Acceptance criteria: readiness reports `segment_manifest_validation` as a
+      distinct blocked gate until enabled.
+    - Test plan: release readiness manifest-validation gate fixture.
+
 ## Recently Completed Slice Batch
 
 1. **Contract-Aware Receipts And Readings**

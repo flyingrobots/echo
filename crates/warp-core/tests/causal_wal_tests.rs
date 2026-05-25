@@ -1339,6 +1339,7 @@ fn wal_release_readiness_audit_reports_blocked_and_ready_gates() {
         object_store_capability_gate: true,
         segment_repair: true,
         segment_layout_policy: true,
+        segment_manifest_validation: true,
         crash_matrix: true,
         crashpoint_manifest: true,
         shadow_replay: true,

@@ -3,24 +3,32 @@
 //! Adversarial causal WAL hardening tests.
 
 use warp_core::causal_wal::{
+    apply_committed_transaction, build_materialization_outbox_transaction,
     build_retained_reading_transaction, build_submission_acceptance_transaction,
-    build_tick_transaction, evaluate_checkpoint_publication, read_checkpoint_record,
-    recover_filesystem_store, recover_from_frames_and_commits, recover_receipt_index,
+    build_tick_transaction, doctor_filesystem_store, doctor_in_memory_store,
+    doctor_in_memory_store_with_materials, evaluate_checkpoint_publication,
+    project_absent_causal_commit_evidence, project_causal_commit_evidence,
+    project_obstructed_causal_commit_evidence, read_checkpoint_record, recover_filesystem_store,
+    recover_from_frames_and_commits, recover_materialization_outbox, recover_receipt_index,
     recover_retention_index, recover_submission_index, retained_material_obstructions,
-    validate_checkpoint_record, write_checkpoint_record_atomic, AffectedFrontier,
-    AffectedFrontierKind, CheckpointPublicationRecord, CheckpointRecord,
-    CheckpointValidationPosture, EvidenceMaterialPosture, FilesystemWalStore, InMemoryWalStore,
-    Lsn, MissingMaterialScope, PayloadCodecId, PayloadSchemaId, ReadingRefRecord,
+    shadow_replay_matches, shadow_replay_report, validate_checkpoint_record,
+    write_checkpoint_record_atomic, AffectedFrontier, AffectedFrontierKind,
+    CausalCommitEvidencePosture, CausalCommitEvidenceSource, CheckpointPublicationRecord,
+    CheckpointRecord, CheckpointValidationPosture, EvidenceMaterialPosture,
+    ExistingMaterializedArtifact, FilesystemWalStore, InMemoryWalStore, Lsn,
+    MaterializationIntentRecord, MaterializationObservationRecord, MaterializationReplayPosture,
+    MissingMaterialScope, PayloadCodecId, PayloadSchemaId, ReadingRefRecord, RecoveredState,
     RecoveredSubmissionPosture, RecoveryAccessMode, RecoveryTailPosture, RetainedMaterialKind,
-    RetainedMaterialRecord, SubmissionAcceptanceRecord, SubmissionRetryPosture, TickReceiptRecord,
-    WalAppendAuthority, WalBuildError, WalCommittedTransaction, WalDurabilityMode,
-    WalReceiptCorrelationRecord, WalRecordKind, WalRecoveryError, WalSegmentId, WalStoreError,
-    WalStorePort, WalTickDecision, WalTransactionBuilder, WalTransactionId, WalTransactionKind,
-    WalValidationError, WriterEpochId, WriterEpochRequest,
+    RetainedMaterialRecord, ShadowReplayMismatch, SubmissionAcceptanceRecord,
+    SubmissionRetryPosture, TickReceiptRecord, WalAppendAuthority, WalBuildError,
+    WalCommittedTransaction, WalDoctorPosture, WalDoctorReport, WalDurabilityMode,
+    WalReceiptCorrelationRecord, WalRecordKind, WalRecoveryError, WalReplayError, WalSegmentId,
+    WalStoreError, WalStorePort, WalTickDecision, WalTransactionBuilder, WalTransactionId,
+    WalTransactionKind, WalValidationError, WriterEpochId, WriterEpochRequest,
 };
 use warp_core::Hash;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -235,6 +243,59 @@ fn retention_transaction(
     ))
 }
 
+fn materialization_intent(label: &str) -> MaterializationIntentRecord {
+    MaterializationIntentRecord {
+        effect_id: digest(&format!("hardening:effect:{label}")),
+        expected_artifact_digest: digest(&format!("hardening:artifact:{label}")),
+        materialization_intent_digest: digest(&format!("hardening:materialization:{label}")),
+        idempotency_token: digest(&format!("hardening:idempotency:{label}")),
+        target_metadata_digest: digest(&format!("hardening:metadata:{label}")),
+    }
+}
+
+fn materialization_observation(label: &str) -> MaterializationObservationRecord {
+    MaterializationObservationRecord {
+        effect_id: digest(&format!("hardening:effect:{label}")),
+        observed_artifact_digest: digest(&format!("hardening:artifact:{label}")),
+        observed_metadata_digest: digest(&format!("hardening:metadata:{label}")),
+    }
+}
+
+fn materialization_transaction(
+    label: &str,
+    first_lsn: Lsn,
+    observation: Option<MaterializationObservationRecord>,
+) -> WalCommittedTransaction {
+    must_ok(build_materialization_outbox_transaction(
+        builder(
+            &format!("materialization:{label}"),
+            first_lsn,
+            WalAppendAuthority::TrustedScheduler,
+            WalTransactionKind::MaterializationOutbox,
+        ),
+        materialization_intent(label),
+        observation,
+        vec![frontier(label, AffectedFrontierKind::ReceiptIndex)],
+    ))
+}
+
+fn matching_existing_artifact(label: &str) -> ExistingMaterializedArtifact {
+    let intent = materialization_intent(label);
+    ExistingMaterializedArtifact {
+        effect_id: intent.effect_id,
+        artifact_digest: intent.expected_artifact_digest,
+        metadata_digest: intent.target_metadata_digest,
+    }
+}
+
+fn replay_state(transactions: &[WalCommittedTransaction]) -> RecoveredState {
+    let mut state = RecoveredState::default();
+    for transaction in transactions {
+        state = must_ok(apply_committed_transaction(state, transaction));
+    }
+    state
+}
+
 fn refresh_commit_digest(transaction: &mut WalCommittedTransaction) {
     transaction.commit.commit_digest = transaction.commit.expected_digest();
 }
@@ -311,6 +372,14 @@ impl WalHardeningFixture {
 
     fn append_uncommitted_tick_frame(&mut self, label: &str, first_lsn: Lsn) {
         let transaction = tick_transaction(label, first_lsn, WalTickDecision::Applied);
+        must_ok(
+            self.store
+                .append_uncommitted_frame(epoch_id(), transaction.frames[0].clone()),
+        );
+    }
+
+    fn append_uncommitted_outbox_frame(&mut self, label: &str, first_lsn: Lsn) {
+        let transaction = materialization_transaction(label, first_lsn, None);
         must_ok(
             self.store
                 .append_uncommitted_frame(epoch_id(), transaction.frames[0].clone()),
@@ -1201,4 +1270,493 @@ fn missing_diagnostic_material_does_not_block_recovery() {
 
     assert_eq!(obstructions.len(), 1);
     assert_eq!(obstructions[0].scope, MissingMaterialScope::DiagnosticLoss);
+}
+
+#[test]
+fn external_effect_requires_committed_outbox_authorization() {
+    let mut fixture = WalHardeningFixture::new("outbox-uncommitted");
+    fixture.append_uncommitted_outbox_frame("uncommitted", Lsn::from_raw(0));
+
+    let report = must_ok(fixture.recover_read_only());
+    let outbox = must_ok(recover_materialization_outbox(&report, &BTreeMap::new()));
+
+    assert_eq!(report.tail_posture, RecoveryTailPosture::WouldTruncateAll);
+    assert!(
+        outbox.is_empty(),
+        "uncommitted outbox intent must not authorize an external effect"
+    );
+}
+
+#[test]
+fn crash_after_effect_before_observation_detects_existing_artifact() {
+    let mut fixture = WalHardeningFixture::new("outbox-existing");
+    must_ok(
+        fixture
+            .store
+            .append_transaction(materialization_transaction(
+                "existing",
+                Lsn::from_raw(0),
+                None,
+            )),
+    );
+    let report = must_ok(fixture.recover_read_only());
+    let intent = materialization_intent("existing");
+    let existing = BTreeMap::from([(intent.effect_id, matching_existing_artifact("existing"))]);
+
+    let outbox = must_ok(recover_materialization_outbox(&report, &existing));
+
+    assert_eq!(
+        must_some(outbox.get(&intent.effect_id), "outbox entry").posture,
+        MaterializationReplayPosture::ExistingArtifactMatches
+    );
+}
+
+#[test]
+fn existing_artifact_digest_mismatch_obstructs() {
+    let mut fixture = WalHardeningFixture::new("outbox-mismatch");
+    must_ok(
+        fixture
+            .store
+            .append_transaction(materialization_transaction(
+                "mismatch",
+                Lsn::from_raw(0),
+                None,
+            )),
+    );
+    let report = must_ok(fixture.recover_read_only());
+    let intent = materialization_intent("mismatch");
+    let existing = BTreeMap::from([(
+        intent.effect_id,
+        ExistingMaterializedArtifact {
+            effect_id: intent.effect_id,
+            artifact_digest: digest("hardening:artifact:mismatch:wrong"),
+            metadata_digest: intent.target_metadata_digest,
+        },
+    )]);
+
+    let outbox = must_ok(recover_materialization_outbox(&report, &existing));
+
+    assert_eq!(
+        must_some(outbox.get(&intent.effect_id), "outbox entry").posture,
+        MaterializationReplayPosture::Obstructed
+    );
+}
+
+#[test]
+fn materialization_observation_marks_effect_already_observed() {
+    let mut fixture = WalHardeningFixture::new("outbox-observed");
+    must_ok(
+        fixture
+            .store
+            .append_transaction(materialization_transaction(
+                "observed",
+                Lsn::from_raw(0),
+                Some(materialization_observation("observed")),
+            )),
+    );
+    let report = must_ok(fixture.recover_read_only());
+    let intent = materialization_intent("observed");
+
+    let outbox = must_ok(recover_materialization_outbox(&report, &BTreeMap::new()));
+    let entry = must_some(outbox.get(&intent.effect_id), "outbox entry");
+
+    assert_eq!(entry.posture, MaterializationReplayPosture::AlreadyObserved);
+    assert_eq!(
+        entry.observation,
+        Some(materialization_observation("observed"))
+    );
+}
+
+#[test]
+fn outbox_replay_uses_idempotency_token() {
+    let mut fixture = WalHardeningFixture::new("outbox-idempotency");
+    must_ok(
+        fixture
+            .store
+            .append_transaction(materialization_transaction(
+                "idempotency",
+                Lsn::from_raw(0),
+                None,
+            )),
+    );
+    let report = must_ok(fixture.recover_read_only());
+    let intent = materialization_intent("idempotency");
+    let existing = BTreeMap::from([(intent.effect_id, matching_existing_artifact("idempotency"))]);
+
+    let outbox = must_ok(recover_materialization_outbox(&report, &existing));
+    let entry = must_some(outbox.get(&intent.effect_id), "outbox entry");
+
+    assert_eq!(entry.intent.idempotency_token, intent.idempotency_token);
+    assert_eq!(
+        entry.posture,
+        MaterializationReplayPosture::ExistingArtifactMatches
+    );
+}
+
+#[test]
+fn pure_replay_same_transactions_same_roots() {
+    let transactions = vec![
+        submission_transaction("pure-replay", Lsn::from_raw(0)),
+        tick_transaction("pure-replay", Lsn::from_raw(2), WalTickDecision::Applied),
+    ];
+
+    let first = replay_state(&transactions);
+    let second = replay_state(&transactions);
+
+    assert_eq!(first, second);
+}
+
+#[test]
+fn pure_replay_order_is_commit_chain_order() {
+    let submission = submission_transaction("order-submission", Lsn::from_raw(0));
+    let tick = tick_transaction("order-tick", Lsn::from_raw(2), WalTickDecision::Applied);
+
+    let forward = replay_state(&[submission.clone(), tick.clone()]);
+    let reversed = replay_state(&[tick.clone(), submission.clone()]);
+
+    assert_eq!(
+        forward.applied_transactions,
+        vec![submission.commit.transaction_id, tick.commit.transaction_id,]
+    );
+    assert_eq!(
+        reversed.applied_transactions,
+        vec![tick.commit.transaction_id, submission.commit.transaction_id,]
+    );
+    assert_ne!(forward.applied_transactions, reversed.applied_transactions);
+}
+
+#[test]
+fn pure_replay_rejects_frontier_mismatch() {
+    let first = submission_transaction("frontier-a", Lsn::from_raw(0));
+    let second = submission_transaction("frontier-b", Lsn::from_raw(2));
+    let state = must_ok(apply_committed_transaction(
+        RecoveredState::default(),
+        &first,
+    ));
+
+    let error = must_err(
+        apply_committed_transaction(state, &second),
+        "frontier mismatch should reject",
+    );
+
+    assert!(matches!(
+        error,
+        WalReplayError::FrontierMismatch {
+            kind: AffectedFrontierKind::SubmissionQueue,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn recovery_reducer_does_not_require_scheduler() {
+    fn reducer_signature(
+        reducer: fn(
+            RecoveredState,
+            &WalCommittedTransaction,
+        ) -> Result<RecoveredState, WalReplayError>,
+    ) -> fn(RecoveredState, &WalCommittedTransaction) -> Result<RecoveredState, WalReplayError>
+    {
+        reducer
+    }
+
+    let reducer = reducer_signature(apply_committed_transaction);
+    let transaction = tick_transaction("no-scheduler", Lsn::from_raw(0), WalTickDecision::Applied);
+    let state = must_ok(reducer(RecoveredState::default(), &transaction));
+
+    assert_eq!(state.applied_transactions.len(), 1);
+}
+
+#[test]
+fn recovery_reducer_does_not_require_app_callbacks() {
+    let transaction = retention_transaction(
+        "no-app-callbacks",
+        &[retained_material(
+            "no-app-callbacks",
+            RetainedMaterialKind::ReadingPayload,
+            EvidenceMaterialPosture::Present,
+        )],
+        Lsn::from_raw(0),
+    );
+
+    let state = must_ok(apply_committed_transaction(
+        RecoveredState::default(),
+        &transaction,
+    ));
+
+    assert_eq!(
+        state.applied_transactions,
+        vec![transaction.commit.transaction_id]
+    );
+}
+
+#[test]
+fn shadow_replay_submission_path_matches_live() {
+    let transaction = submission_transaction("shadow-submission", Lsn::from_raw(0));
+    let live_state = replay_state(std::slice::from_ref(&transaction));
+
+    assert!(must_ok(shadow_replay_matches(&live_state, &[transaction])));
+}
+
+#[test]
+fn shadow_replay_tick_path_matches_live() {
+    let transaction = tick_transaction("shadow-tick", Lsn::from_raw(0), WalTickDecision::Applied);
+    let live_state = replay_state(std::slice::from_ref(&transaction));
+
+    assert!(must_ok(shadow_replay_matches(&live_state, &[transaction])));
+}
+
+#[test]
+fn shadow_replay_retention_path_matches_live() {
+    let transaction = retention_transaction(
+        "shadow-retention",
+        &[retained_material(
+            "shadow-retention",
+            RetainedMaterialKind::ReadingPayload,
+            EvidenceMaterialPosture::Present,
+        )],
+        Lsn::from_raw(0),
+    );
+    let live_state = replay_state(std::slice::from_ref(&transaction));
+
+    assert!(must_ok(shadow_replay_matches(&live_state, &[transaction])));
+}
+
+#[test]
+fn shadow_replay_outbox_path_matches_live() {
+    let transaction = materialization_transaction("shadow-outbox", Lsn::from_raw(0), None);
+    let live_state = replay_state(std::slice::from_ref(&transaction));
+
+    assert!(must_ok(shadow_replay_matches(&live_state, &[transaction])));
+}
+
+#[test]
+fn shadow_replay_reports_first_mismatch() {
+    let transaction = submission_transaction("shadow-mismatch", Lsn::from_raw(0));
+
+    let report = must_ok(shadow_replay_report(
+        &RecoveredState::default(),
+        &[transaction],
+    ));
+
+    assert!(!report.matches);
+    assert!(matches!(
+        report.first_mismatch,
+        Some(ShadowReplayMismatch::AppliedTransactionCount {
+            live: 0,
+            replayed: 1
+        })
+    ));
+}
+
+#[test]
+fn commit_evidence_projects_accepted_pending() {
+    let mut fixture = WalHardeningFixture::new("evidence-accepted");
+    let transaction = fixture.append_submission("evidence-accepted", Lsn::from_raw(0));
+    let report = must_ok(fixture.recover_read_only());
+
+    let evidence = project_causal_commit_evidence(&report);
+
+    assert_eq!(evidence.len(), 1);
+    assert_eq!(evidence[0].posture, CausalCommitEvidencePosture::Present);
+    assert_eq!(evidence[0].source, CausalCommitEvidenceSource::EchoWal);
+    assert_eq!(
+        evidence[0].durability_mode,
+        WalDurabilityMode::StrictFilesystem
+    );
+    assert_eq!(
+        evidence[0].transaction_id,
+        transaction.commit.transaction_id
+    );
+    assert_eq!(evidence[0].lsn, transaction.commit.last_lsn);
+}
+
+#[test]
+fn commit_evidence_projects_decided_applied() {
+    let mut fixture = WalHardeningFixture::new("evidence-applied");
+    fixture.append_submission("evidence-applied", Lsn::from_raw(0));
+    let tick = fixture.append_tick(
+        "evidence-applied",
+        Lsn::from_raw(2),
+        WalTickDecision::Applied,
+    );
+    let report = must_ok(fixture.recover_read_only());
+    let submission_index = must_ok(recover_submission_index(&report));
+
+    let evidence = project_causal_commit_evidence(&report);
+
+    assert_eq!(
+        must_some(
+            submission_index.get(&submission_acceptance("evidence-applied").submission_id),
+            "submission should recover",
+        )
+        .posture,
+        RecoveredSubmissionPosture::DecidedApplied
+    );
+    assert_eq!(
+        must_some(evidence.last(), "tick evidence").transaction_id,
+        tick.commit.transaction_id
+    );
+}
+
+#[test]
+fn commit_evidence_projects_decided_rejected() {
+    let mut fixture = WalHardeningFixture::new("evidence-rejected");
+    fixture.append_submission("evidence-rejected", Lsn::from_raw(0));
+    let tick = fixture.append_tick(
+        "evidence-rejected",
+        Lsn::from_raw(2),
+        WalTickDecision::RejectedFootprintConflict,
+    );
+    let report = must_ok(fixture.recover_read_only());
+    let submission_index = must_ok(recover_submission_index(&report));
+
+    let evidence = project_causal_commit_evidence(&report);
+
+    assert_eq!(
+        must_some(
+            submission_index.get(&submission_acceptance("evidence-rejected").submission_id),
+            "submission should recover",
+        )
+        .posture,
+        RecoveredSubmissionPosture::DecidedRejected
+    );
+    assert_eq!(
+        must_some(evidence.last(), "tick evidence").commit_digest,
+        tick.commit.commit_digest
+    );
+}
+
+#[test]
+fn commit_evidence_projects_obstructed() {
+    let transaction = tick_transaction(
+        "evidence-obstructed",
+        Lsn::from_raw(0),
+        WalTickDecision::Obstructed,
+    );
+    let obstruction_digest = digest("hardening:evidence:obstruction");
+
+    let evidence =
+        project_obstructed_causal_commit_evidence(&transaction.commit, obstruction_digest);
+
+    assert_eq!(evidence.posture, CausalCommitEvidencePosture::Obstructed);
+    assert_eq!(evidence.obstruction_digest, Some(obstruction_digest));
+    assert_eq!(evidence.commit_digest, transaction.commit.commit_digest);
+}
+
+#[test]
+fn commit_evidence_absent_is_explicit() {
+    let evidence = project_absent_causal_commit_evidence(
+        digest("hardening:evidence:absent"),
+        WalDurabilityMode::Disabled,
+    );
+
+    assert_eq!(evidence.posture, CausalCommitEvidencePosture::Absent);
+    assert_eq!(evidence.durability_mode, WalDurabilityMode::Disabled);
+    assert_eq!(evidence.commit_digest, [0; 32]);
+}
+
+#[test]
+fn wal_doctor_clean_report_is_stable() {
+    let mut store = InMemoryWalStore::new();
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    must_ok(store.append_transaction(submission_transaction("doctor-clean", Lsn::from_raw(0))));
+
+    let report = must_ok(doctor_in_memory_store(&store));
+
+    assert_eq!(report.posture, WalDoctorPosture::Recoverable);
+    assert_eq!(report.tail_posture, RecoveryTailPosture::Clean);
+    assert_eq!(
+        WalDoctorReport::stable_field_names(),
+        &[
+            "posture",
+            "tail_posture",
+            "committed_transactions_replayed",
+            "obstruction_count",
+            "recovered_frontier_root",
+            "recovered_indexes_root",
+        ]
+    );
+}
+
+#[test]
+fn wal_doctor_would_truncate_does_not_mutate() {
+    let mut fixture = WalHardeningFixture::new("doctor-would-truncate");
+    fixture.append_submission("doctor-would-truncate", Lsn::from_raw(0));
+    fixture.append_uncommitted_tick_frame("doctor-would-truncate-tail", Lsn::from_raw(2));
+    let before = fixture.segment_bytes();
+
+    let report = must_ok(doctor_filesystem_store(&fixture.root));
+    let after = fixture.segment_bytes();
+
+    assert_eq!(
+        report.posture,
+        WalDoctorPosture::RecoverableWithUncommittedTail
+    );
+    assert_eq!(
+        report.tail_posture,
+        RecoveryTailPosture::WouldTruncateAfter(Lsn::from_raw(1))
+    );
+    assert_eq!(
+        after, before,
+        "doctor must not mutate files in read-only mode"
+    );
+}
+
+#[test]
+fn wal_doctor_corrupt_committed_record_reports_obstructed() {
+    let mut fixture = WalHardeningFixture::new("doctor-corrupt");
+    fixture.append_submission("doctor-corrupt", Lsn::from_raw(0));
+    let mut bytes = fixture.segment_bytes();
+    let last_index = bytes.len() - 1;
+    bytes[last_index] ^= 0x77;
+    fixture.replace_segment_bytes(&bytes);
+
+    let report = must_ok(doctor_filesystem_store(&fixture.root));
+
+    assert_eq!(report.posture, WalDoctorPosture::Obstructed);
+    assert_eq!(report.recovery_certificate.obstruction_count, 1);
+}
+
+#[test]
+fn wal_doctor_missing_material_reports_obstruction() {
+    let mut store = InMemoryWalStore::new();
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    must_ok(store.append_transaction(retention_transaction(
+        "doctor-missing-material",
+        &[retained_material(
+            "doctor-missing-material",
+            RetainedMaterialKind::ReadingPayload,
+            EvidenceMaterialPosture::Present,
+        )],
+        Lsn::from_raw(0),
+    )));
+
+    let report = must_ok(doctor_in_memory_store_with_materials(
+        &store,
+        &BTreeSet::new(),
+    ));
+
+    assert_eq!(report.posture, WalDoctorPosture::Obstructed);
+    assert_eq!(report.recovery_certificate.obstruction_count, 1);
+}
+
+#[test]
+fn recovery_certificate_has_stable_json_shape() {
+    let mut store = InMemoryWalStore::new();
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    must_ok(store.append_transaction(submission_transaction(
+        "doctor-certificate",
+        Lsn::from_raw(0),
+    )));
+
+    let report = must_ok(doctor_in_memory_store(&store));
+    let certificate = report.recovery_certificate;
+
+    assert_eq!(certificate.first_lsn, Some(Lsn::from_raw(0)));
+    assert_eq!(certificate.last_lsn, Some(Lsn::from_raw(1)));
+    assert_eq!(certificate.committed_transactions_replayed, 1);
+    assert_eq!(certificate.tail_posture, RecoveryTailPosture::Clean);
+    assert_eq!(certificate.obstruction_count, 0);
+    assert_eq!(WalDoctorReport::stable_field_names().len(), 6);
 }

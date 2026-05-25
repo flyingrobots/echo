@@ -2025,6 +2025,21 @@ pub struct WalDoctorReport {
     pub tail_posture: RecoveryTailPosture,
 }
 
+impl WalDoctorReport {
+    /// Stable report field names for CLI/MCP adapters.
+    #[must_use]
+    pub const fn stable_field_names() -> &'static [&'static str] {
+        &[
+            "posture",
+            "tail_posture",
+            "committed_transactions_replayed",
+            "obstruction_count",
+            "recovered_frontier_root",
+            "recovered_indexes_root",
+        ]
+    }
+}
+
 /// Local filesystem WAL store backed by segment files.
 #[derive(Clone, Debug)]
 pub struct FilesystemWalStore {
@@ -2262,21 +2277,11 @@ pub fn recover_filesystem_store(
 pub fn doctor_filesystem_store(
     root: impl AsRef<Path>,
 ) -> Result<WalDoctorReport, WalRecoveryError> {
-    let report = recover_filesystem_store(root, RecoveryAccessMode::ReadOnly)?;
-    let posture = match report.tail_posture {
-        RecoveryTailPosture::Clean => WalDoctorPosture::Recoverable,
-        RecoveryTailPosture::WouldTruncateAll | RecoveryTailPosture::WouldTruncateAfter(_) => {
-            WalDoctorPosture::RecoverableWithUncommittedTail
-        }
-        RecoveryTailPosture::TruncatedAll | RecoveryTailPosture::TruncatedAfter(_) => {
-            WalDoctorPosture::Obstructed
-        }
+    let report = match recover_filesystem_store(root, RecoveryAccessMode::ReadOnly) {
+        Ok(report) => report,
+        Err(_) => return Ok(obstructed_doctor_report()),
     };
-    Ok(WalDoctorReport {
-        posture,
-        recovery_certificate: build_recovery_certificate(&report, None, 0, [0; 32], [0; 32]),
-        tail_posture: report.tail_posture,
-    })
+    Ok(doctor_report_from_scan(report, 0, [0; 32], [0; 32]))
 }
 
 /// Object-store read-after-write posture required by strict object storage.
@@ -2604,16 +2609,172 @@ pub fn project_causal_commit_evidence(report: &RecoveryScanReport) -> Vec<Causal
         .collect()
 }
 
+/// Projects explicit absent causal commit evidence.
+#[must_use]
+pub fn project_absent_causal_commit_evidence(
+    evidence_id: Hash,
+    durability_mode: WalDurabilityMode,
+) -> CausalCommitEvidence {
+    CausalCommitEvidence {
+        evidence_id,
+        posture: CausalCommitEvidencePosture::Absent,
+        source: CausalCommitEvidenceSource::EchoWal,
+        durability_mode,
+        writer_epoch: WriterEpochId::from_hash([0; 32]),
+        lsn: Lsn::from_raw(0),
+        transaction_id: WalTransactionId::from_hash([0; 32]),
+        commit_digest: [0; 32],
+        checkpoint_digest: None,
+        recovery_certificate_digest: None,
+        obstruction_digest: None,
+    }
+}
+
+/// Projects obstructed causal commit evidence for a known commit anchor.
+#[must_use]
+pub fn project_obstructed_causal_commit_evidence(
+    commit: &WalTransactionCommit,
+    obstruction_digest: Hash,
+) -> CausalCommitEvidence {
+    CausalCommitEvidence {
+        evidence_id: causal_commit_evidence_id(commit),
+        posture: CausalCommitEvidencePosture::Obstructed,
+        source: CausalCommitEvidenceSource::EchoWal,
+        durability_mode: commit.durability_mode,
+        writer_epoch: commit.writer_epoch,
+        lsn: commit.last_lsn,
+        transaction_id: commit.transaction_id,
+        commit_digest: commit.commit_digest,
+        checkpoint_digest: None,
+        recovery_certificate_digest: None,
+        obstruction_digest: Some(obstruction_digest),
+    }
+}
+
+/// Shadow replay mismatch classification.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShadowReplayMismatch {
+    /// Applied transaction count differs.
+    AppliedTransactionCount {
+        /// Live applied transaction count.
+        live: usize,
+        /// Replayed applied transaction count.
+        replayed: usize,
+    },
+    /// Applied transaction id differs at the first mismatching index.
+    AppliedTransaction {
+        /// First mismatching index.
+        index: usize,
+        /// Live transaction id.
+        live: WalTransactionId,
+        /// Replayed transaction id.
+        replayed: WalTransactionId,
+    },
+    /// Live state is missing a frontier present in replay.
+    MissingLiveFrontier {
+        /// Frontier kind.
+        kind: AffectedFrontierKind,
+    },
+    /// Replay state is missing a frontier present in live state.
+    MissingReplayedFrontier {
+        /// Frontier kind.
+        kind: AffectedFrontierKind,
+    },
+    /// Frontier digest differs.
+    FrontierDigest {
+        /// Frontier kind.
+        kind: AffectedFrontierKind,
+        /// Live frontier digest.
+        live: Hash,
+        /// Replayed frontier digest.
+        replayed: Hash,
+    },
+}
+
+/// Shadow replay comparison report.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ShadowReplayReport {
+    /// `true` when live and replayed state match exactly.
+    pub matches: bool,
+    /// First mismatch, when present.
+    pub first_mismatch: Option<ShadowReplayMismatch>,
+    /// Replayed state produced from committed transactions.
+    pub replayed_state: RecoveredState,
+}
+
 /// Checks that live state and WAL replay produce the same recovered state.
 pub fn shadow_replay_matches(
     live_state: &RecoveredState,
     transactions: &[WalCommittedTransaction],
 ) -> Result<bool, WalReplayError> {
+    Ok(shadow_replay_report(live_state, transactions)?.matches)
+}
+
+/// Reports whether live state and WAL replay produce the same recovered state.
+pub fn shadow_replay_report(
+    live_state: &RecoveredState,
+    transactions: &[WalCommittedTransaction],
+) -> Result<ShadowReplayReport, WalReplayError> {
     let mut replayed = RecoveredState::default();
     for transaction in transactions {
         replayed = apply_committed_transaction(replayed, transaction)?;
     }
-    Ok(&replayed == live_state)
+    let first_mismatch = first_shadow_replay_mismatch(live_state, &replayed);
+    Ok(ShadowReplayReport {
+        matches: first_mismatch.is_none(),
+        first_mismatch,
+        replayed_state: replayed,
+    })
+}
+
+fn first_shadow_replay_mismatch(
+    live_state: &RecoveredState,
+    replayed_state: &RecoveredState,
+) -> Option<ShadowReplayMismatch> {
+    if live_state.applied_transactions.len() != replayed_state.applied_transactions.len() {
+        return Some(ShadowReplayMismatch::AppliedTransactionCount {
+            live: live_state.applied_transactions.len(),
+            replayed: replayed_state.applied_transactions.len(),
+        });
+    }
+    for (index, (live, replayed)) in live_state
+        .applied_transactions
+        .iter()
+        .zip(&replayed_state.applied_transactions)
+        .enumerate()
+    {
+        if live != replayed {
+            return Some(ShadowReplayMismatch::AppliedTransaction {
+                index,
+                live: *live,
+                replayed: *replayed,
+            });
+        }
+    }
+    let frontier_kinds = live_state
+        .frontiers
+        .keys()
+        .chain(replayed_state.frontiers.keys())
+        .copied()
+        .collect::<BTreeSet<_>>();
+    for kind in frontier_kinds {
+        match (
+            live_state.frontiers.get(&kind),
+            replayed_state.frontiers.get(&kind),
+        ) {
+            (Some(live), Some(replayed)) if live != replayed => {
+                return Some(ShadowReplayMismatch::FrontierDigest {
+                    kind,
+                    live: *live,
+                    replayed: *replayed,
+                });
+            }
+            (None, Some(_)) => return Some(ShadowReplayMismatch::MissingLiveFrontier { kind }),
+            (Some(_), None) => return Some(ShadowReplayMismatch::MissingReplayedFrontier { kind }),
+            _ => {}
+        }
+    }
+    None
 }
 
 /// WAL release readiness audit result.
@@ -3397,21 +3558,87 @@ pub fn doctor_in_memory_store(
 ) -> Result<WalDoctorReport, WalRecoveryError> {
     let frames = store.read_frames();
     let commits = store.read_commits();
-    let report = recover_from_frames_and_commits(&frames, &commits, RecoveryAccessMode::ReadOnly)?;
-    let posture = match report.tail_posture {
-        RecoveryTailPosture::Clean => WalDoctorPosture::Recoverable,
-        RecoveryTailPosture::WouldTruncateAll | RecoveryTailPosture::WouldTruncateAfter(_) => {
-            WalDoctorPosture::RecoverableWithUncommittedTail
-        }
-        RecoveryTailPosture::TruncatedAll | RecoveryTailPosture::TruncatedAfter(_) => {
-            WalDoctorPosture::Obstructed
+    let report =
+        match recover_from_frames_and_commits(&frames, &commits, RecoveryAccessMode::ReadOnly) {
+            Ok(report) => report,
+            Err(_) => return Ok(obstructed_doctor_report()),
+        };
+    Ok(doctor_report_from_scan(report, 0, [0; 32], [0; 32]))
+}
+
+/// Runs a read-only WAL doctor over an in-memory store and available material set.
+pub fn doctor_in_memory_store_with_materials(
+    store: &InMemoryWalStore,
+    available_material: &BTreeSet<Hash>,
+) -> Result<WalDoctorReport, WalRecoveryError> {
+    let frames = store.read_frames();
+    let commits = store.read_commits();
+    let report =
+        match recover_from_frames_and_commits(&frames, &commits, RecoveryAccessMode::ReadOnly) {
+            Ok(report) => report,
+            Err(_) => return Ok(obstructed_doctor_report()),
+        };
+    let retention = recover_retention_index(&report)?;
+    let obstruction_count = retained_material_obstructions(&retention, available_material)
+        .into_iter()
+        .filter(|obstruction| obstruction.scope != MissingMaterialScope::DiagnosticLoss)
+        .count();
+    Ok(doctor_report_from_scan(
+        report,
+        len_u64(obstruction_count),
+        [0; 32],
+        [0; 32],
+    ))
+}
+
+fn obstructed_doctor_report() -> WalDoctorReport {
+    WalDoctorReport {
+        posture: WalDoctorPosture::Obstructed,
+        recovery_certificate: RecoveryCertificate {
+            checkpoint_used: None,
+            first_lsn: None,
+            last_lsn: None,
+            committed_transactions_replayed: 0,
+            tail_posture: RecoveryTailPosture::Clean,
+            obstruction_count: 1,
+            recovered_frontier_root: [0; 32],
+            recovered_indexes_root: [0; 32],
+        },
+        tail_posture: RecoveryTailPosture::Clean,
+    }
+}
+
+fn doctor_report_from_scan(
+    report: RecoveryScanReport,
+    obstruction_count: u64,
+    recovered_frontier_root: Hash,
+    recovered_indexes_root: Hash,
+) -> WalDoctorReport {
+    let posture = if obstruction_count > 0 {
+        WalDoctorPosture::Obstructed
+    } else {
+        match report.tail_posture {
+            RecoveryTailPosture::Clean => WalDoctorPosture::Recoverable,
+            RecoveryTailPosture::WouldTruncateAll | RecoveryTailPosture::WouldTruncateAfter(_) => {
+                WalDoctorPosture::RecoverableWithUncommittedTail
+            }
+            RecoveryTailPosture::TruncatedAll | RecoveryTailPosture::TruncatedAfter(_) => {
+                WalDoctorPosture::Obstructed
+            }
         }
     };
-    Ok(WalDoctorReport {
+    let tail_posture = report.tail_posture;
+    WalDoctorReport {
         posture,
-        recovery_certificate: build_recovery_certificate(&report, None, 0, [0; 32], [0; 32]),
-        tail_posture: report.tail_posture,
-    })
+        recovery_certificate: build_recovery_certificate(
+            &report,
+            None,
+            obstruction_count,
+            recovered_frontier_root,
+            recovered_indexes_root,
+        ),
+        tail_posture,
+    }
 }
 
 /// Minimal recovered state used by the pure replay reducer.
@@ -3648,6 +3875,9 @@ pub enum WalRecoveryError {
     /// Store operation failed.
     #[error(transparent)]
     Store(#[from] WalStoreError),
+    /// Recovered index construction failed.
+    #[error(transparent)]
+    Index(#[from] WalRecoveryIndexError),
 }
 
 /// WAL replay errors.

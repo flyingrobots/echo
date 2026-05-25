@@ -685,7 +685,7 @@ completed slice.
 
 ### PR 12: WAL Outbox, Projection, And Inspector Hardening
 
-- [ ] **Slice 56: Side-effect outbox crash matrix**
+- [x] **Slice 56: Side-effect outbox crash matrix**
     - User story: As Echo, external effects must never escape before committed
       authorization and must be idempotent after crash.
     - Acceptance criteria: effect authorization, existing artifact detection,
@@ -693,7 +693,7 @@ completed slice.
       are covered.
     - Test plan: side-effect outbox crash fixtures.
 
-- [ ] **Slice 57: Recovery reducer determinism**
+- [x] **Slice 57: Recovery reducer determinism**
     - User story: As Echo, replay must apply committed facts without scheduler
       callbacks, wall clock, random, network, or app code.
     - Acceptance criteria: pure replay is deterministic; transaction ordering is
@@ -701,7 +701,7 @@ completed slice.
       needed.
     - Test plan: pure replay determinism fixtures.
 
-- [ ] **Slice 58: Shadow replay harness**
+- [x] **Slice 58: Shadow replay harness**
     - User story: As a maintainer, every mutating WAL path should prove live
       state equals recovered state.
     - Acceptance criteria: helper runs live scenario, recovers from WAL, compares
@@ -709,7 +709,7 @@ completed slice.
     - Test plan: submission, tick, retention, outbox, and mismatch shadow replay
       fixtures.
 
-- [ ] **Slice 59: Causal commit evidence projection matrix**
+- [x] **Slice 59: Causal commit evidence projection matrix**
     - User story: As [warp-ttd] or an operator, I need commit evidence posture
       without raw WAL ownership.
     - Acceptance criteria: accepted pending, applied, rejected, obstructed, and
@@ -717,7 +717,7 @@ completed slice.
       durability mode without raw segment authority.
     - Test plan: causal commit evidence projection fixtures.
 
-- [ ] **Slice 60: WAL doctor and inspector contract tests**
+- [x] **Slice 60: WAL doctor and inspector contract tests**
     - User story: As an operator, I need inspection commands/read models to
       report truth without mutating storage.
     - Acceptance criteria: doctor reports clean, would-truncate, obstructed,

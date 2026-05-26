@@ -2343,6 +2343,8 @@ pub struct RecoveredSubmissionEntry {
     pub acceptance: SubmissionAcceptanceRecord,
     /// Current recovered posture.
     pub posture: RecoveredSubmissionPosture,
+    /// Health of the evidence backing the recovered posture.
+    pub evidence_health: RecoveryEvidenceHealth,
     /// Deciding receipt digest, if any.
     pub receipt_digest: Option<Hash>,
 }
@@ -2471,7 +2473,7 @@ impl RecoveredSubmissionIndex {
             idempotency_law: retry_posture.idempotency_law(),
             lifecycle_posture: entry.posture.lifecycle_posture(),
             decision_result: entry.posture.decision_result(),
-            evidence_health: entry.posture.evidence_health(),
+            evidence_health: entry.evidence_health,
         }
     }
 }
@@ -2501,6 +2503,7 @@ pub fn recovered_submission_receipt_index_root(
         }
         hasher.update(&entry.acceptance.acceptance_evidence_digest);
         hasher.update(&[recovered_submission_posture_code(entry.posture)]);
+        hasher.update(&[recovery_evidence_health_code(entry.evidence_health)]);
         match entry.receipt_digest {
             Some(digest) => {
                 hasher.update(&[1]);
@@ -2554,6 +2557,16 @@ fn recovered_submission_posture_code(posture: RecoveredSubmissionPosture) -> u8 
         RecoveredSubmissionPosture::DecidedRejected => 3,
         RecoveredSubmissionPosture::Obstructed => 4,
         RecoveredSubmissionPosture::RecoveryFaulted => 5,
+    }
+}
+
+fn recovery_evidence_health_code(health: RecoveryEvidenceHealth) -> u8 {
+    match health {
+        RecoveryEvidenceHealth::Complete => 1,
+        RecoveryEvidenceHealth::IncompleteEvidence => 2,
+        RecoveryEvidenceHealth::CorruptOrUntrusted => 3,
+        RecoveryEvidenceHealth::MissingRetention => 4,
+        RecoveryEvidenceHealth::Redacted => 5,
     }
 }
 
@@ -4394,6 +4407,10 @@ pub fn recover_submission_index(
 ) -> Result<RecoveredSubmissionIndex, WalRecoveryIndexError> {
     let mut index = RecoveredSubmissionIndex::default();
     for transaction in &report.transactions {
+        let has_state_delta = transaction
+            .frames
+            .iter()
+            .any(|frame| frame.header.record_kind == WalRecordKind::RuntimeStateDeltaRecorded);
         for frame in &transaction.frames {
             match frame.header.record_kind {
                 WalRecordKind::SubmissionAcceptedRecorded => {
@@ -4418,6 +4435,7 @@ pub fn recover_submission_index(
                         RecoveredSubmissionEntry {
                             acceptance: record,
                             posture: RecoveredSubmissionPosture::AcceptedPending,
+                            evidence_health: RecoveryEvidenceHealth::Complete,
                             receipt_digest: None,
                         },
                     );
@@ -4433,6 +4451,12 @@ pub fn recover_submission_index(
                             }
                             WalTickDecision::Obstructed => RecoveredSubmissionPosture::Obstructed,
                         };
+                        entry.evidence_health =
+                            if receipt.decision == WalTickDecision::Applied && !has_state_delta {
+                                RecoveryEvidenceHealth::IncompleteEvidence
+                            } else {
+                                entry.posture.evidence_health()
+                            };
                         entry.receipt_digest = Some(receipt.receipt_digest);
                     }
                 }

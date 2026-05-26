@@ -467,6 +467,14 @@ fn recovery_submission_posture_json_reports_app_safe_schema() -> TestResult {
     assert_eq!(json["intake"]["disposition"], "duplicate_same_submission");
     assert_eq!(json["lifecycle"]["posture"], "decided");
     assert_eq!(json["decision"]["result"], "applied");
+    assert_eq!(
+        json["decision"]["receipt_digest"],
+        hex::encode(digest("receipt:decided"))
+    );
+    assert_eq!(
+        json["decision"]["ticket_digest"],
+        hex::encode(digest("ticket:decided"))
+    );
     assert!(!json.to_string().contains("echo.wal"));
     Ok(())
 }

@@ -267,6 +267,28 @@ fn durable_tick_transaction(
     ))
 }
 
+fn receipt_without_state_transaction(label: &str, first_lsn: Lsn) -> WalCommittedTransaction {
+    let mut builder = builder(
+        transaction_id(&format!("tx:receipt-without-state:{label}")),
+        first_lsn,
+        WalAppendAuthority::TrustedScheduler,
+        WalTransactionKind::SchedulerTick,
+    );
+    must_ok(builder.push_record(
+        WalRecordKind::TickReceiptRecorded,
+        receipt_record(label, WalTickDecision::Applied).to_payload_bytes(),
+    ));
+    must_ok(builder.push_record(
+        WalRecordKind::ReceiptCorrelationRecorded,
+        correlation_record(label).to_payload_bytes(),
+    ));
+    must_ok(builder.commit(vec![frontier(
+        AffectedFrontierKind::ReceiptIndex,
+        &format!("receipt:{label}:before"),
+        &format!("receipt:{label}:after"),
+    )]))
+}
+
 fn recovered_transaction(tx: WalCommittedTransaction) -> WalRecoveredTransaction {
     WalRecoveredTransaction {
         commit: tx.commit,
@@ -800,6 +822,34 @@ fn crash_after_tick_commit_recovers_receipt_and_state_delta() {
             .get(&digest("submission:applied"))
             .copied(),
         Some(digest("receipt:applied"))
+    );
+}
+
+#[test]
+fn applied_receipt_without_state_delta_reports_incomplete_evidence() {
+    let report = RecoveryScanReport {
+        transactions: vec![
+            recovered_transaction(durable_submission_transaction(
+                "missing-state",
+                Lsn::from_raw(0),
+            )),
+            recovered_transaction(receipt_without_state_transaction(
+                "missing-state",
+                Lsn::from_raw(2),
+            )),
+        ],
+        tail_posture: RecoveryTailPosture::Clean,
+    };
+    let submissions = must_ok(recover_submission_index(&report));
+    let status = submissions.status(
+        submission_acceptance("missing-state").submission_id,
+        submission_acceptance("missing-state").canonical_envelope_digest,
+    );
+
+    assert_eq!(status.decision_result, SubmissionDecisionResult::Applied);
+    assert_eq!(
+        status.evidence_health,
+        RecoveryEvidenceHealth::IncompleteEvidence
     );
 }
 

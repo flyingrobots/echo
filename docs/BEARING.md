@@ -63,6 +63,8 @@ sibling application can use that substrate as the authority after the
 application forgets local state, retries, crashes, or attempts to fall back to a
 legacy model.
 
+Runtime ACK drift gate: `cargo xtask test-slice runtime-wal-ack`.
+
 ## What Is Already True
 
 - Echo has deterministic execution through `WorldlineRuntime`,
@@ -294,7 +296,7 @@ follows the gate order below.
 
 ### Gate A: Echo Recovery Truth
 
-- [ ] Slice 1: \[Echo] WAL reality and stale claim cleanup.
+- [x] Slice 1: \[Echo] WAL reality and stale claim cleanup.
 - [ ] Slice 2: \[Echo] accepted-submission evidence contract.
 - [ ] Slice 3: \[Echo] generic recovery posture taxonomy.
 - [ ] Slice 4: \[Echo] duplicate submission and idempotency law.

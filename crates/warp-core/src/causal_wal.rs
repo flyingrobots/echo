@@ -2,10 +2,14 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Echo-owned causal write-ahead log primitives.
 //!
-//! This module is the first in-memory foundation for the causal WAL described in
-//! `docs/design/causal-wal-end-to-end.md`. It deliberately stops short of
-//! filesystem durability and live scheduler integration. The core invariant is
-//! already enforced here:
+//! This module is the Echo-owned causal WAL substrate described in
+//! `docs/design/causal-wal-end-to-end.md`. It includes deterministic in-memory
+//! fixtures, a local filesystem WAL store, strict filesystem sync evidence,
+//! read-only recovery/doctor surfaces, runtime ACK witnesses, and recovery
+//! indexes for submissions, receipts, retained material, and projected commit
+//! evidence. The remaining product proof is not "does a WAL exist"; it is
+//! whether sibling applications can rely on Echo recovery truth without app
+//! nouns or trusted runtime authority. The core invariant is:
 //!
 //! ```text
 //! Records are recorded.

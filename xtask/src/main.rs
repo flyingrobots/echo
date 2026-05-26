@@ -6480,6 +6480,7 @@ mod tests {
             .parent()
             .expect("xtask crate should live under repository root");
         let checked_docs = [
+            "crates/warp-core/src/causal_wal.rs",
             "docs/BEARING.md",
             "docs/design/v0.1.0-jedit-release-gate.md",
             "docs/design/causal-wal-hardening-matrix.md",
@@ -6491,6 +6492,8 @@ mod tests {
             "tick receipts are visible before WAL commit",
             "accepted submission evidence can be returned before WAL commit",
             "jedit recovery fixture contract is still missing",
+            "first in-memory foundation for the causal WAL",
+            "stops short of filesystem durability",
         ];
 
         for relative_path in checked_docs {

@@ -707,8 +707,11 @@ fn runtime_wal_ack_tick_failure_rolls_back_visible_outcome() {
     };
     host.stage_installed_contract_submission(submission.submission_id, &admission_ticket(92))
         .expect("trusted host should stage package-supported ticketed ingress");
-    let overflowing_wal = TrustedRuntimeWal::new_in_memory_at_lsn_for_test(Lsn::from_raw(u64::MAX))
-        .expect("overflow fixture WAL should initialize");
+    let mut overflowing_wal = host
+        .runtime_wal()
+        .expect("runtime WAL should contain accepted submission evidence")
+        .clone();
+    overflowing_wal.force_next_lsn_for_test(Lsn::from_raw(u64::MAX));
     host.replace_runtime_wal_for_test(overflowing_wal);
 
     let err = host
@@ -724,6 +727,29 @@ fn runtime_wal_ack_tick_failure_rolls_back_visible_outcome() {
             .expect("runtime WAL should stay configured")
             .scheduler_tick_count(),
         0
+    );
+    assert_eq!(
+        host.runtime_wal()
+            .expect("runtime WAL should stay configured")
+            .submission_acceptance_count(),
+        1
+    );
+    let recovery = host
+        .runtime_wal()
+        .expect("runtime WAL should stay configured")
+        .recover_read_only()
+        .expect("runtime WAL should recover accepted submission without tick receipt");
+    assert_eq!(
+        recovery
+            .submissions
+            .get(&submission.submission_id)
+            .expect("accepted submission should remain recoverable")
+            .posture,
+        RecoveredSubmissionPosture::AcceptedPending
+    );
+    assert!(
+        recovery.receipts.receipt_by_submission.is_empty(),
+        "failed tick WAL commit must not leave recoverable receipt evidence"
     );
 
     let outcome = {

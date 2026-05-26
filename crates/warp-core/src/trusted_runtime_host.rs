@@ -752,6 +752,11 @@ impl TrustedRuntimeWal {
         Self::new_in_memory_at_lsn(next_lsn)
     }
 
+    /// Forces the next LSN while preserving committed test WAL material.
+    pub fn force_next_lsn_for_test(&mut self, next_lsn: Lsn) {
+        self.next_lsn = next_lsn;
+    }
+
     /// Appends submission acceptance frames without a transaction commit marker.
     pub fn append_uncommitted_submission_acceptance_for_test(
         &mut self,

@@ -1212,6 +1212,8 @@ pub enum WalCrashpointBoundary {
     Submission,
     /// Scheduler-owned tick boundary.
     Tick,
+    /// Echo reading evidence boundary.
+    Reading,
     /// Checkpoint publication boundary.
     Checkpoint,
     /// Retained material or side-effect materialization boundary.
@@ -1222,6 +1224,17 @@ pub enum WalCrashpointBoundary {
     Process,
 }
 
+/// Owner of a crashpoint boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WalCrashpointOwner {
+    /// Echo runtime/recovery owns the boundary.
+    EchoRuntime,
+    /// Cross-repository runner owns the handoff boundary.
+    CrossBoundaryRunner,
+    /// Application adapter owns the local lifecycle boundary.
+    ApplicationAdapter,
+}
+
 /// Canonical crashpoint descriptor used by tests and future CLI/BATS runners.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WalCrashpointDescriptor {
@@ -1229,60 +1242,72 @@ pub struct WalCrashpointDescriptor {
     pub name: &'static str,
     /// Boundary family.
     pub boundary: WalCrashpointBoundary,
+    /// Boundary owner.
+    pub owner: WalCrashpointOwner,
     /// Execution posture.
     pub execution: WalCrashpointExecution,
 }
 
 const WAL_CRASHPOINT_MANIFEST: &[WalCrashpointDescriptor] = &[
     WalCrashpointDescriptor {
-        name: "submission.before_commit",
+        name: "before_accept_commit",
         boundary: WalCrashpointBoundary::Submission,
+        owner: WalCrashpointOwner::EchoRuntime,
         execution: WalCrashpointExecution::SimulatedInProcess,
     },
     WalCrashpointDescriptor {
-        name: "submission.after_commit_before_ack",
+        name: "after_accept_commit_before_ack",
         boundary: WalCrashpointBoundary::Submission,
+        owner: WalCrashpointOwner::EchoRuntime,
         execution: WalCrashpointExecution::SimulatedInProcess,
     },
     WalCrashpointDescriptor {
-        name: "tick.before_commit",
+        name: "after_accept_before_tick",
         boundary: WalCrashpointBoundary::Tick,
+        owner: WalCrashpointOwner::EchoRuntime,
         execution: WalCrashpointExecution::SimulatedInProcess,
     },
     WalCrashpointDescriptor {
-        name: "tick.after_commit_before_publish",
+        name: "after_receipt_before_reading",
         boundary: WalCrashpointBoundary::Tick,
+        owner: WalCrashpointOwner::EchoRuntime,
+        execution: WalCrashpointExecution::SimulatedInProcess,
+    },
+    WalCrashpointDescriptor {
+        name: "after_reading_commit",
+        boundary: WalCrashpointBoundary::Reading,
+        owner: WalCrashpointOwner::EchoRuntime,
         execution: WalCrashpointExecution::SimulatedInProcess,
     },
     WalCrashpointDescriptor {
         name: "checkpoint.before_rename",
         boundary: WalCrashpointBoundary::Checkpoint,
+        owner: WalCrashpointOwner::EchoRuntime,
         execution: WalCrashpointExecution::SimulatedInProcess,
     },
     WalCrashpointDescriptor {
         name: "checkpoint.after_rename_before_publication",
         boundary: WalCrashpointBoundary::Checkpoint,
+        owner: WalCrashpointOwner::EchoRuntime,
         execution: WalCrashpointExecution::SimulatedInProcess,
     },
     WalCrashpointDescriptor {
         name: "material.before_wal_reference",
         boundary: WalCrashpointBoundary::Material,
+        owner: WalCrashpointOwner::EchoRuntime,
         execution: WalCrashpointExecution::SimulatedInProcess,
     },
     WalCrashpointDescriptor {
         name: "material.after_effect_before_observation",
         boundary: WalCrashpointBoundary::Material,
+        owner: WalCrashpointOwner::EchoRuntime,
         execution: WalCrashpointExecution::SimulatedInProcess,
     },
     WalCrashpointDescriptor {
         name: "index.before_publish",
         boundary: WalCrashpointBoundary::Index,
+        owner: WalCrashpointOwner::EchoRuntime,
         execution: WalCrashpointExecution::SimulatedInProcess,
-    },
-    WalCrashpointDescriptor {
-        name: "process.kill.after_wal_commit",
-        boundary: WalCrashpointBoundary::Process,
-        execution: WalCrashpointExecution::ProcessKillFuture,
     },
 ];
 

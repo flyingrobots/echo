@@ -30,12 +30,12 @@ use warp_core::causal_wal::{
     RecoveryAccessMode, RecoveryTailPosture, RetainedMaterialKind, RetainedMaterialRecord,
     ShadowReplayMismatch, SubmissionAcceptanceRecord, SubmissionRetryPosture, TickReceiptRecord,
     WalAppendAuthority, WalBuildError, WalCommittedTransaction, WalCrashpointBoundary,
-    WalCrashpointExecution, WalDoctorPosture, WalDoctorReport, WalDurabilityMode, WalManifest,
-    WalReceiptCorrelationRecord, WalRecordKind, WalRecoveryError, WalReleaseReadinessGates,
-    WalReplayError, WalSegmentId, WalSegmentIdError, WalSegmentPlacementKind,
-    WalSegmentPlacementPolicy, WalSegmentPlacementPolicyError, WalStoreError, WalStorePort,
-    WalTickDecision, WalTransactionBuilder, WalTransactionId, WalTransactionKind,
-    WalValidationError, WriterEpochId, WriterEpochRequest,
+    WalCrashpointExecution, WalCrashpointOwner, WalDoctorPosture, WalDoctorReport,
+    WalDurabilityMode, WalManifest, WalReceiptCorrelationRecord, WalRecordKind, WalRecoveryError,
+    WalReleaseReadinessGates, WalReplayError, WalSegmentId, WalSegmentIdError,
+    WalSegmentPlacementKind, WalSegmentPlacementPolicy, WalSegmentPlacementPolicyError,
+    WalStoreError, WalStorePort, WalTickDecision, WalTransactionBuilder, WalTransactionId,
+    WalTransactionKind, WalValidationError, WriterEpochId, WriterEpochRequest,
 };
 use warp_core::Hash;
 
@@ -1813,13 +1813,15 @@ fn crashpoint_manifest_lists_submission_boundaries() {
     let manifest = wal_crashpoint_manifest();
 
     assert!(manifest.iter().any(|entry| {
-        entry.name == "submission.before_commit"
+        entry.name == "before_accept_commit"
             && entry.boundary == WalCrashpointBoundary::Submission
+            && entry.owner == WalCrashpointOwner::EchoRuntime
             && entry.execution == WalCrashpointExecution::SimulatedInProcess
     }));
     assert!(manifest.iter().any(|entry| {
-        entry.name == "submission.after_commit_before_ack"
+        entry.name == "after_accept_commit_before_ack"
             && entry.boundary == WalCrashpointBoundary::Submission
+            && entry.owner == WalCrashpointOwner::EchoRuntime
             && entry.execution == WalCrashpointExecution::SimulatedInProcess
     }));
 }
@@ -1829,13 +1831,27 @@ fn crashpoint_manifest_lists_tick_boundaries() {
     let manifest = wal_crashpoint_manifest();
 
     assert!(manifest.iter().any(|entry| {
-        entry.name == "tick.before_commit"
+        entry.name == "after_accept_before_tick"
             && entry.boundary == WalCrashpointBoundary::Tick
+            && entry.owner == WalCrashpointOwner::EchoRuntime
             && entry.execution == WalCrashpointExecution::SimulatedInProcess
     }));
     assert!(manifest.iter().any(|entry| {
-        entry.name == "tick.after_commit_before_publish"
+        entry.name == "after_receipt_before_reading"
             && entry.boundary == WalCrashpointBoundary::Tick
+            && entry.owner == WalCrashpointOwner::EchoRuntime
+            && entry.execution == WalCrashpointExecution::SimulatedInProcess
+    }));
+}
+
+#[test]
+fn crashpoint_manifest_lists_reading_commit_boundary() {
+    let manifest = wal_crashpoint_manifest();
+
+    assert!(manifest.iter().any(|entry| {
+        entry.name == "after_reading_commit"
+            && entry.boundary == WalCrashpointBoundary::Reading
+            && entry.owner == WalCrashpointOwner::EchoRuntime
             && entry.execution == WalCrashpointExecution::SimulatedInProcess
     }));
 }
@@ -1847,26 +1863,28 @@ fn crashpoint_manifest_lists_checkpoint_boundaries() {
     assert!(manifest.iter().any(|entry| {
         entry.name == "checkpoint.before_rename"
             && entry.boundary == WalCrashpointBoundary::Checkpoint
+            && entry.owner == WalCrashpointOwner::EchoRuntime
             && entry.execution == WalCrashpointExecution::SimulatedInProcess
     }));
     assert!(manifest.iter().any(|entry| {
         entry.name == "checkpoint.after_rename_before_publication"
             && entry.boundary == WalCrashpointBoundary::Checkpoint
+            && entry.owner == WalCrashpointOwner::EchoRuntime
             && entry.execution == WalCrashpointExecution::SimulatedInProcess
     }));
 }
 
 #[test]
-fn crashpoint_manifest_marks_process_kill_as_future_until_runner_exists() {
-    let process_entries = wal_crashpoint_manifest()
+fn crashpoint_manifest_is_echo_runtime_owned_only() {
+    let non_echo_entries = wal_crashpoint_manifest()
         .iter()
-        .filter(|entry| entry.boundary == WalCrashpointBoundary::Process)
+        .filter(|entry| entry.owner != WalCrashpointOwner::EchoRuntime)
         .collect::<Vec<_>>();
 
-    assert!(!process_entries.is_empty());
-    assert!(process_entries
+    assert!(non_echo_entries.is_empty());
+    assert!(!wal_crashpoint_manifest()
         .iter()
-        .all(|entry| entry.execution == WalCrashpointExecution::ProcessKillFuture));
+        .any(|entry| entry.name.contains("jedit") || entry.name.contains("local_status")));
 }
 
 #[test]

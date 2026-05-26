@@ -56,18 +56,13 @@ Current active signposts:
 Progress bars from the current work stream:
 
 ```text
-[#####-----] Echo/jedit retained-evidence release-gate batch [5/10 slices]
-[#####-----] PR checkpoint batch [5/5 slices before recommended PR]
+[##########] Echo/jedit retained-evidence release-gate batch [10/10 slices]
+[##########] PR checkpoint batch [10/10 slices before next PR]
 [##########] Echo WAL truth boundary and runtime ACK plumbing [95/95 slices]
 ```
 
-Immediate unfinished slice in the current batch:
-
-- Slice 6: Echo product-facing intent outcome API polish.
-- Slice 7: jedit generated structural-history request path.
-- Slice 8: generated package install path.
-- Slice 9: jedit real mutation and query round trip.
-- Slice 10: jedit non-happy path and release-gate report.
+Current batch status: complete; open paired Echo and jedit PRs before starting
+the next implementation batch.
 
 ## Known Cross-Repo And Storage Doctrine Gaps
 

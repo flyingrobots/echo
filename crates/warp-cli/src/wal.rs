@@ -101,6 +101,41 @@ pub(crate) fn submission_posture(
     canonical_envelope_digest: &str,
     format: &OutputFormat,
 ) -> Result<()> {
+    submission_posture_read(
+        root,
+        submission_id,
+        canonical_envelope_digest,
+        format,
+        "echo.wal.submission_posture.v1",
+        "echo-cli wal submission-posture",
+    )
+}
+
+/// Runs `echo-cli recovery submission-posture`.
+pub(crate) fn recovery_submission_posture(
+    root: &Path,
+    submission_id: &str,
+    canonical_envelope_digest: &str,
+    format: &OutputFormat,
+) -> Result<()> {
+    submission_posture_read(
+        root,
+        submission_id,
+        canonical_envelope_digest,
+        format,
+        "echo.recovery.submission_posture.v1",
+        "echo-cli recovery submission-posture",
+    )
+}
+
+fn submission_posture_read(
+    root: &Path,
+    submission_id: &str,
+    canonical_envelope_digest: &str,
+    format: &OutputFormat,
+    schema_version: &'static str,
+    text_header: &'static str,
+) -> Result<()> {
     let submission_id = parse_hash_hex(submission_id)?;
     let canonical_envelope_digest = parse_hash_hex(canonical_envelope_digest)?;
     let recovery = recover_filesystem_store(root, RecoveryAccessMode::ReadOnly)?;
@@ -111,7 +146,7 @@ pub(crate) fn submission_posture(
         .filter(|entry| entry.acceptance.canonical_envelope_digest == canonical_envelope_digest);
     let status = submissions.status(submission_id, canonical_envelope_digest);
     let output = WalSubmissionPostureOutput {
-        schema_version: "echo.wal.submission_posture.v1",
+        schema_version,
         producer: "echo-cli",
         root: root.display().to_string(),
         submission: WalSubmissionIdentityOutput {
@@ -139,7 +174,8 @@ pub(crate) fn submission_posture(
         },
     };
     let text = format!(
-        "echo-cli wal submission-posture\nRoot: {}\nSubmission: {}\nCanonical envelope: {}\nIntake disposition: {}\nIdempotency law: {}\nAccepted evidence: {}\nLifecycle posture: {}\nDecision result: {}\nEvidence health: {}\nReceipt: {}\nTicket: {}\n",
+        "{}\nRoot: {}\nSubmission: {}\nCanonical envelope: {}\nIntake disposition: {}\nIdempotency law: {}\nAccepted evidence: {}\nLifecycle posture: {}\nDecision result: {}\nEvidence health: {}\nReceipt: {}\nTicket: {}\n",
+        text_header,
         output.root,
         output.submission.submission_id,
         output.submission.canonical_envelope_digest,

@@ -193,7 +193,7 @@ handoff between the two.
 - [x] Slice 6: [Echo] filesystem accepted-submission restart fixture.
 - [x] Slice 7: [Echo] crash-before-ACK retry witness.
 - [x] Slice 8: [Echo] conflicting duplicate rejection witness.
-- [ ] Slice 9: [Echo] app-safe submission posture read surface.
+- [x] Slice 9: [Echo] app-safe submission posture read surface.
 - [ ] Slice 10: [Echo] recovery certificate submission posture counts.
 - [ ] Slice 11: [Echo] receipt correlation recovery witness.
 - [ ] Slice 12: [Echo] tick commit-before-publish failure injection.

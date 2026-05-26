@@ -78,6 +78,13 @@ pub enum Commands {
         #[command(subcommand)]
         command: WalCommands,
     },
+
+    /// Read Echo recovery posture without trusted runtime-control authority.
+    Recovery {
+        /// Recovery read command.
+        #[command(subcommand)]
+        command: RecoveryCommands,
+    },
 }
 
 /// WAL inspection subcommands.
@@ -92,6 +99,22 @@ pub enum WalCommands {
     /// Report recovered posture for one submission id/envelope pair.
     SubmissionPosture {
         /// Filesystem WAL root to inspect.
+        root: PathBuf,
+        /// 64-character hex submission id.
+        #[arg(long)]
+        submission_id: String,
+        /// 64-character hex canonical envelope digest.
+        #[arg(long)]
+        canonical_envelope_digest: String,
+    },
+}
+
+/// App-safe recovery read subcommands.
+#[derive(Subcommand, Debug)]
+pub enum RecoveryCommands {
+    /// Report recovered posture for one submission id/envelope pair.
+    SubmissionPosture {
+        /// Runtime recovery root to inspect.
         root: PathBuf,
         /// 64-character hex submission id.
         #[arg(long)]
@@ -283,6 +306,42 @@ mod tests {
                 );
             }
             _ => panic!("expected Wal submission-posture command"),
+        }
+    }
+
+    #[test]
+    fn parse_recovery_submission_posture() {
+        let cli = Cli::try_parse_from([
+            "echo-cli",
+            "recovery",
+            "submission-posture",
+            "runtime-root",
+            "--submission-id",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "--canonical-envelope-digest",
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Recovery {
+                command:
+                    RecoveryCommands::SubmissionPosture {
+                        ref root,
+                        ref submission_id,
+                        ref canonical_envelope_digest,
+                    },
+            } => {
+                assert_eq!(root, &PathBuf::from("runtime-root"));
+                assert_eq!(
+                    submission_id,
+                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                );
+                assert_eq!(
+                    canonical_envelope_digest,
+                    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                );
+            }
+            _ => panic!("expected Recovery submission-posture command"),
         }
     }
 

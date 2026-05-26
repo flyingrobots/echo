@@ -26,7 +26,7 @@ mod verify;
 mod wal;
 mod wsc_loader;
 
-use cli::{Cli, Commands, WalCommands};
+use cli::{Cli, Commands, RecoveryCommands, WalCommands};
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -56,5 +56,18 @@ fn main() -> Result<()> {
                     ref canonical_envelope_digest,
                 },
         } => wal::submission_posture(root, submission_id, canonical_envelope_digest, &cli.format),
+        Commands::Recovery {
+            command:
+                RecoveryCommands::SubmissionPosture {
+                    ref root,
+                    ref submission_id,
+                    ref canonical_envelope_digest,
+                },
+        } => wal::recovery_submission_posture(
+            root,
+            submission_id,
+            canonical_envelope_digest,
+            &cli.format,
+        ),
     }
 }

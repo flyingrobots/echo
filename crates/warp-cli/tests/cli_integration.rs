@@ -321,6 +321,15 @@ fn wal_doctor_help_lists_read_only_doctor() {
 }
 
 #[test]
+fn recovery_help_lists_app_safe_submission_posture() {
+    echo_cli()
+        .args(["recovery", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("submission-posture"));
+}
+
+#[test]
 fn wal_doctor_json_reports_read_only_empty_store() -> TestResult {
     let assert = echo_cli()
         .args(["--format", "json", "wal", "doctor"])
@@ -391,6 +400,56 @@ fn wal_submission_posture_json_reports_generic_recovered_status() -> TestResult 
         json["decision"]["ticket_digest"],
         hex::encode(digest("ticket:decided"))
     );
+    Ok(())
+}
+
+#[test]
+fn recovery_submission_posture_json_reports_app_safe_schema() -> TestResult {
+    let temp = filesystem_wal_with_decided_submission()?;
+    let assert = echo_cli()
+        .args([
+            "--format",
+            "json",
+            "recovery",
+            "submission-posture",
+            temp.path().to_str().ok_or("temp path is not UTF-8")?,
+            "--submission-id",
+            &hex::encode(digest("submission:decided")),
+            "--canonical-envelope-digest",
+            &hex::encode(digest("envelope:decided")),
+        ])
+        .assert()
+        .success();
+    let json: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout)?;
+
+    assert_eq!(
+        json["schema_version"],
+        "echo.recovery.submission_posture.v1"
+    );
+    assert_eq!(json["intake"]["disposition"], "duplicate_same_submission");
+    assert_eq!(json["lifecycle"]["posture"], "decided");
+    assert_eq!(json["decision"]["result"], "applied");
+    assert!(!json.to_string().contains("echo.wal"));
+    Ok(())
+}
+
+#[test]
+fn recovery_submission_posture_rejects_mutation_flags() -> TestResult {
+    let temp = filesystem_wal_with_decided_submission()?;
+    echo_cli()
+        .args([
+            "recovery",
+            "submission-posture",
+            temp.path().to_str().ok_or("temp path is not UTF-8")?,
+            "--submission-id",
+            &hex::encode(digest("submission:decided")),
+            "--canonical-envelope-digest",
+            &hex::encode(digest("envelope:decided")),
+            "--truncate-tail",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("unexpected argument"));
     Ok(())
 }
 

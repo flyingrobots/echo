@@ -27,15 +27,17 @@ use warp_core::causal_wal::{
     MissingMaterialScope, ObjectStoreCapabilityError, ObjectStoreManifestCommitMode,
     ObjectStoreManifestCommitShape, ObjectStoreReadAfterWritePosture, ObjectStoreWalCapabilities,
     PayloadCodecId, PayloadSchemaId, ReadingRefRecord, RecoveredState, RecoveredSubmissionPosture,
-    RecoveryAccessMode, RecoveryTailPosture, RetainedMaterialKind, RetainedMaterialRecord,
-    ShadowReplayMismatch, SubmissionAcceptanceRecord, SubmissionRetryPosture, TickReceiptRecord,
-    WalAppendAuthority, WalBuildError, WalCommittedTransaction, WalCrashpointBoundary,
-    WalCrashpointExecution, WalCrashpointOwner, WalDoctorPosture, WalDoctorReport,
-    WalDurabilityMode, WalManifest, WalReceiptCorrelationRecord, WalRecordKind, WalRecoveryError,
-    WalReleaseReadinessGates, WalReplayError, WalSegmentId, WalSegmentIdError,
-    WalSegmentPlacementKind, WalSegmentPlacementPolicy, WalSegmentPlacementPolicyError,
-    WalStoreError, WalStorePort, WalTickDecision, WalTransactionBuilder, WalTransactionId,
-    WalTransactionKind, WalValidationError, WriterEpochId, WriterEpochRequest,
+    RecoveryAccessMode, RecoveryEvidenceHealth, RecoveryTailPosture, RetainedMaterialKind,
+    RetainedMaterialRecord, ShadowReplayMismatch, SubmissionAcceptanceRecord,
+    SubmissionDecisionResult, SubmissionIdempotencyLaw, SubmissionIntakeDisposition,
+    SubmissionLifecyclePosture, SubmissionRetryPosture, TickReceiptRecord, WalAppendAuthority,
+    WalBuildError, WalCommittedTransaction, WalCrashpointBoundary, WalCrashpointExecution,
+    WalCrashpointOwner, WalDoctorPosture, WalDoctorReport, WalDurabilityMode, WalManifest,
+    WalReceiptCorrelationRecord, WalRecordKind, WalRecoveryError, WalReleaseReadinessGates,
+    WalReplayError, WalSegmentId, WalSegmentIdError, WalSegmentPlacementKind,
+    WalSegmentPlacementPolicy, WalSegmentPlacementPolicyError, WalStoreError, WalStorePort,
+    WalTickDecision, WalTransactionBuilder, WalTransactionId, WalTransactionKind,
+    WalValidationError, WriterEpochId, WriterEpochRequest,
 };
 use warp_core::Hash;
 
@@ -507,6 +509,47 @@ fn hardening_fixture_recovers_committed_submission() {
         SubmissionRetryPosture::AlreadyAcceptedPending,
         "fixture should recover a committed submission as accepted pending"
     );
+}
+
+#[test]
+fn filesystem_reopen_recovers_accepted_submission_status_without_transport_rearrival() {
+    let mut fixture = WalHardeningFixture::new("restart-accepted-submission");
+    fixture.append_submission("restart-accepted", Lsn::from_raw(0));
+    let root = fixture.root.clone();
+    let record = submission_acceptance("restart-accepted");
+
+    drop(fixture);
+
+    let report = must_ok(recover_filesystem_store(
+        &root,
+        RecoveryAccessMode::ReadOnly,
+    ));
+    let index = must_ok(recover_submission_index(&report));
+    let entry = must_some(
+        index.get(&record.submission_id),
+        "fresh recovery should rebuild accepted submission index from WAL",
+    );
+    let status = index.status(record.submission_id, record.canonical_envelope_digest);
+
+    assert_eq!(report.tail_posture, RecoveryTailPosture::Clean);
+    assert_eq!(
+        entry.acceptance.canonical_envelope_digest,
+        record.canonical_envelope_digest
+    );
+    assert_eq!(
+        status.intake_disposition,
+        SubmissionIntakeDisposition::DuplicateSameSubmission
+    );
+    assert_eq!(
+        status.idempotency_law,
+        SubmissionIdempotencyLaw::IdempotentRetry
+    );
+    assert_eq!(
+        status.lifecycle_posture,
+        SubmissionLifecyclePosture::AcceptedPending
+    );
+    assert_eq!(status.decision_result, SubmissionDecisionResult::None);
+    assert_eq!(status.evidence_health, RecoveryEvidenceHealth::Complete);
 }
 
 #[test]

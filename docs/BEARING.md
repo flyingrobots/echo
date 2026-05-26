@@ -302,7 +302,7 @@ follows the gate order below.
 - [x] Slice 4: \[Echo] duplicate submission and idempotency law.
 - [x] Slice 5: \[Echo] crashpoint fixture contract for external apps.
 - [x] Slice 36: \[Echo] no-editor-nouns trusted-runtime guard.
-- [ ] Slice 6: \[Echo] filesystem accepted-submission restart fixture.
+- [x] Slice 6: \[Echo] filesystem accepted-submission restart fixture.
 - [ ] Slice 7: \[Echo] crash-before-ACK retry witness.
 - [ ] Slice 8: \[Echo] conflicting duplicate rejection witness.
 - [ ] Slice 9: \[Echo] app-safe submission posture read surface.

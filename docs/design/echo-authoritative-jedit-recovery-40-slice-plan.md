@@ -2,7 +2,7 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 <!-- markdownlint-disable MD026 -->
 
-# Echo-Authoritative jedit Recovery 40-Slice Plan
+# Echo-Authoritative jedit Recovery 40-Slice Campaign
 
 Last updated: 2026-05-26.
 
@@ -26,13 +26,170 @@ submission posture, receipts, readings, WAL, recovery, and authority
 boundaries. jedit owns editor nouns, session UX, text contract semantics,
 status mapping, and materialization policy. Echo must not learn editor nouns.
 
+This is a gated campaign, not forty equal-status work items. Slice 0 is a
+no-count doctrine slice that must land before the forty budgeted slices begin.
+The numbered slices keep stable identifiers, but execution follows the gate
+order below rather than raw numeric order.
+
+## Gate Structure
+
+| Gate                                     | Slices                               | Gate question                                                                                                                  | Required artifact                                               |
+| ---------------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------- |
+| Gate 0: Invariant Charter                | Slice 0                              | Do Echo and jedit share one state model, duplicate law, crashpoint taxonomy, and source-of-truth rule?                         | State machine and invariant charter.                            |
+| Gate A: Echo Recovery Truth              | Slices 1-17 plus Slice 36 early      | Can Echo prove accepted submissions, duplicate retries, receipts, readings, commit evidence, and recovery posture generically? | Echo recovery report fixture and no-editor-nouns guard.         |
+| Gate B: jedit Consumes Echo Truth        | Slices 18-25 plus Slices 32-34 early | Can jedit consume Echo truth through ports without local memory fallback?                                                      | jedit recovery report with static and runtime tripwire results. |
+| Gate C: Crash-Window Authority           | Slices 26-31                         | Can the system survive every named death window without double-apply or local fallback?                                        | Crash matrix report.                                            |
+| Gate D: Boundary, Report, And Drift Lock | Slices 35 and 37-40                  | Can the final proof resist malicious adapters and produce stable machine/human evidence?                                       | Aggregate gate JSON and human receipt card.                     |
+
+## Canonical State Model
+
+Machine-readable recovery reports must not collapse retry disposition, lifecycle
+posture, scheduler decision, and evidence health into one enum.
+
+```json
+{
+    "submission": {
+        "identity": "sub_...",
+        "envelope_digest": "sha256:...",
+        "contract_identity": "contract:...",
+        "basis": "basis_..."
+    },
+    "intake": {
+        "disposition": "accepted_new | duplicate_same_submission | conflicting_duplicate | validation_failed",
+        "accepted_evidence": "present | absent"
+    },
+    "lifecycle": {
+        "posture": "not_found | accepted_pending | accepted_deciding | decided"
+    },
+    "decision": {
+        "result": "applied | rejected | obstructed | none"
+    },
+    "evidence_health": {
+        "status": "complete | incomplete_evidence | corrupt_or_untrusted | missing_retention | redacted"
+    }
+}
+```
+
+`accepted_deciding` is allowed only if Echo can durably reconstruct a
+scheduler-owned staged/claimed posture without a final committed receipt. If the
+runtime cannot prove that distinction at implementation time, the slice must
+collapse it back to `accepted_pending` rather than invent an unrecoverable mood.
+
+## Machine Contract Rules
+
+- Every machine-readable contract has a `schema_version`.
+- Every report names `producer`, `producer_version`, and compatibility metadata.
+- Unknown schema versions fail closed unless an explicit compatibility rule
+  exists.
+- The release gate must state the durability mode. Product authority requires a
+  filesystem fsync-level mode or a strictly stronger configured mode.
+- `source_of_truth: "echo"` is a gated conclusion, not decorative text.
+- App-facing recovery commands and ports may expose submission posture,
+  causal-chain posture, and recovery evidence; they must not expose WAL as the
+  product noun. WAL-specific wording belongs in Echo diagnostics.
+
+`source_of_truth` may be `echo` only when accepted evidence exists, any final
+decision is scheduler-owned, readings come from retained or read-only
+rederived Echo evidence, jedit used app-owned ports, recovery came from
+WAL-backed Echo state, and no legacy tripwire fired.
+
+`decision.result: "applied"` requires state evidence, not only a receipt. A
+receipt can prove that the trusted scheduler decided; applied posture also needs
+committed or recoverably rederived state/basis evidence that the decision
+affected Echo causal state.
+
+Reading evidence must say how it was obtained:
+
+```json
+{
+    "reading_source": "retained | rederived_from_basis | unavailable",
+    "reading_authority": "echo_committed_reading | echo_read_only_rederivation | none"
+}
+```
+
+Retained readings are stronger than rederived readings. Rederived readings are
+allowed only through read-only Echo observer paths over recovered causal basis.
+Unavailable readings must not be replaced with local memory.
+
+Basis mismatch is a first-class obstruction. It must not be collapsed into
+generic rejection when the submitted operation's basis/preconditions no longer
+match recovered causal state.
+
+## Durability Mode Bar
+
+| Mode                                   | Meaning                                                                                     | Product gate posture                            |
+| -------------------------------------- | ------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `memory_test`                          | Committed to deterministic in-memory test log only.                                         | Not sufficient for product claim.               |
+| `filesystem_buffered`                  | Written to filesystem WAL without strict fsync guarantee.                                   | Soft durability only.                           |
+| `filesystem_fsync`                     | Frame and commit flushed under filesystem policy.                                           | Minimum product gate mode.                      |
+| `filesystem_fsync_with_directory_sync` | WAL file and relevant directory metadata durability boundaries are closed where applicable. | Preferred product gate mode.                    |
+| `strict_object_store`                  | Conditional manifest/object semantics prove strict durability without filesystem fsync.     | Future equivalent if implemented and witnessed. |
+
+## Gate Execution Tiers
+
+The campaign has three executable tiers so the expensive proof does not become
+an every-commit tax and the cheap proof does not pretend to be enough.
+
+| Tier             | Required checks                                                                                                           | Purpose                                            |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| PR smoke         | Schema validation, no-editor-nouns guard, jedit no-legacy guard, duplicate fixtures, posture mapping fixtures.            | Catch drift and cheating before review.            |
+| Integration gate | Filesystem WAL recovery, happy-path jedit recovery, local amnesia, one representative crashpoint.                         | Prove the main cross-repo path during active work. |
+| Release gate     | Full crash matrix, malicious adapter suite, materialization, aggregate JSON report, human receipt card, docs drift audit. | Earn the final Echo-authoritative claim.           |
+
+## Shared Golden Fixtures And Drift Tests
+
+Echo should produce and jedit should consume shared golden fixtures before
+either repo relies on a new report shape:
+
+- `accepted_submission.v1.json`;
+- `posture_pending.v1.json`;
+- `posture_applied_with_reading.v1.json`;
+- `posture_applied_missing_reading.v1.json`;
+- `duplicate_same_submission.v1.json`;
+- `conflicting_duplicate.v1.json`;
+- `causal_chain_complete.v1.json`;
+- `causal_chain_incomplete.v1.json`.
+
+Every cross-repo JSON contract must have a drift test:
+
+- Echo can still produce the schema jedit expects.
+- jedit can still parse the schema Echo produces.
+- Unknown schema versions fail closed.
+- Fixture updates happen in the same slice as producer/consumer contract
+  changes.
+
+## Crashpoint Ownership Taxonomy
+
+Echo crashpoints are runtime durability boundaries. jedit crashpoints are
+application/adapter lifecycle boundaries. Cross-boundary crashpoints involve
+handoff between the two.
+
+| Owner          | Crashpoint                                     | Meaning                                                                   |
+| -------------- | ---------------------------------------------- | ------------------------------------------------------------------------- |
+| Echo           | `before_accept_commit`                         | Process dies before the WAL acceptance commit.                            |
+| Echo           | `after_accept_commit_before_ack`               | Acceptance is committed but the app response is lost.                     |
+| Echo           | `after_accept_before_tick`                     | Accepted submission exists; no final scheduler receipt exists.            |
+| Echo           | `after_receipt_before_reading`                 | Scheduler receipt is committed; bounded reading is absent or rederivable. |
+| Echo           | `after_reading_commit`                         | Reading evidence is committed before app observation.                     |
+| Cross-boundary | `after_echo_publish_before_adapter_record`     | Echo published evidence; adapter-local status has not recorded it.        |
+| jedit          | `after_reading_delivered_before_local_observe` | Adapter delivered reading; jedit app has not observed it.                 |
+| jedit          | `after_app_observe_before_local_status`        | App observed result; local status was not persisted.                      |
+
 ## Slice Checklist
+
+### Gate 0: Invariant Charter
+
+- [ ] Slice 0: \[Echo]\[jedit] authority invariant charter and posture state
+      machine.
+
+### Gate A: Echo Recovery Truth
 
 - [ ] Slice 1: [Echo] WAL reality and stale claim cleanup.
 - [ ] Slice 2: [Echo] accepted-submission evidence contract.
 - [ ] Slice 3: [Echo] generic recovery posture taxonomy.
 - [ ] Slice 4: [Echo] duplicate submission and idempotency law.
 - [ ] Slice 5: [Echo] crashpoint fixture contract for external apps.
+- [ ] Slice 36: [Echo] no-editor-nouns trusted-runtime guard.
 - [ ] Slice 6: [Echo] filesystem accepted-submission restart fixture.
 - [ ] Slice 7: [Echo] crash-before-ACK retry witness.
 - [ ] Slice 8: [Echo] conflicting duplicate rejection witness.
@@ -45,29 +202,123 @@ status mapping, and materialization policy. Echo must not learn editor nouns.
 - [ ] Slice 15: [Echo] receipt-to-reading causal chain read model.
 - [ ] Slice 16: [Echo] causal commit evidence JSON contract.
 - [ ] Slice 17: [Echo] generic external-app recovery gate command.
+
+### Gate B: jedit Consumes Echo Truth
+
 - [ ] Slice 18: [jedit] Echo recovery port interface.
 - [ ] Slice 19: [jedit] Echo recovery adapter implementation.
 - [ ] Slice 20: [jedit] generic-to-editor posture mapping.
 - [ ] Slice 21: [jedit] stable edit submission identity.
 - [ ] Slice 22: [jedit] recovery evidence report fields.
+- [ ] Slice 32: [jedit] production legacy memory static guard.
+- [ ] Slice 33: [jedit] release-gate runtime tripwire mode.
 - [ ] Slice 23: [jedit] recovered bounded reading path.
 - [ ] Slice 24: [jedit] happy-path recovery gate scenario.
 - [ ] Slice 25: [jedit] retry after local amnesia scenario.
+- [ ] Slice 34: [jedit] materialize artifact from recovered causal basis.
+
+### Gate C: Crash-Window Authority
+
 - [ ] Slice 26: \[Echo]\[jedit] crash runner harness.
 - [ ] Slice 27: \[Echo]\[jedit] before-accept-response crash window.
 - [ ] Slice 28: \[Echo]\[jedit] after-accept-before-tick crash window.
 - [ ] Slice 29: \[Echo]\[jedit] after-receipt-before-reading crash window.
 - [ ] Slice 30: \[Echo]\[jedit] after-reading-before-observe crash window.
 - [ ] Slice 31: \[Echo]\[jedit] after-observe-before-local-status crash window.
-- [ ] Slice 32: [jedit] production legacy memory static guard.
-- [ ] Slice 33: [jedit] release-gate runtime tripwire mode.
-- [ ] Slice 34: [jedit] materialize artifact from recovered causal basis.
+
+### Gate D: Boundary, Report, And Drift Lock
+
 - [ ] Slice 35: \[Echo]\[jedit] side-effect authorization boundary.
-- [ ] Slice 36: [Echo] no-editor-nouns trusted-runtime guard.
 - [ ] Slice 37: \[Echo]\[jedit] malicious adapter negative suite.
 - [ ] Slice 38: \[Echo]\[jedit] JSON causal durability report.
 - [ ] Slice 39: \[Echo]\[jedit] human causal receipt card.
 - [ ] Slice 40: \[Echo]\[jedit] aggregate gate, docs, and drift audit.
+
+## Slice 0: \[Echo]\[jedit] Authority Invariant Charter And Posture State Machine
+
+### 1. Feature Overview & Objectives:
+
+Problem statement: The forty-slice campaign spans two repos and several
+machine-readable reports. Without one canonical state model and vocabulary, the
+slices will drift into incompatible meanings for accepted, applied, duplicate,
+reading, recovery, and source of truth.
+
+Target user/audience: Echo maintainers, jedit adapter authors, QA engineers,
+review agents, and future application teams copying the pattern.
+
+Success metrics:
+
+- One documented state model separates intake disposition, lifecycle posture,
+  scheduler decision, and evidence health.
+- One crashpoint ownership taxonomy separates Echo-owned, jedit-owned, and
+  cross-boundary cuts.
+- One `source_of_truth: "echo"` rule defines the exact evidence needed before
+  the final report may claim Echo authority.
+
+### 2. Scope Definition:
+
+In Scope:
+
+- Add the canonical state model used by Echo and jedit reports.
+- Define duplicate/intake disposition separately from recovery posture.
+- Define crashpoint ownership taxonomy.
+- Define schema-version and source-of-truth rules.
+
+Out of Scope:
+
+- Implementing any runtime behavior.
+- Adding jedit adapter code.
+- Renaming existing APIs outside documentation needed to prevent drift.
+
+### 3. Detailed User Stories:
+
+- US1: As an Echo maintainer, I want one state model so that recovery APIs do
+  not overload one enum with lifecycle, decision, and evidence health.
+- US2: As a jedit adapter author, I want duplicate retry disposition separated
+  from recovered submission posture so that retry does not invent fake final
+  states.
+- US3: As a QA engineer, I want crashpoints classified by owner so that tests do
+  not make Echo responsible for jedit-local status lifecycle.
+
+### 4. Acceptance Criteria (BDD Format):
+
+| Story | Given                         | When                           | Then                                                                                                     |
+| ----- | ----------------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| US1   | A recovery report is designed | The report names status fields | It separates `intake.disposition`, `lifecycle.posture`, `decision.result`, and `evidence_health.status`. |
+| US2   | A duplicate retry is reported | The JSON is inspected          | Duplicate status appears under intake disposition, not as a recovery posture.                            |
+| US3   | A crashpoint is added         | The taxonomy is checked        | The crashpoint declares Echo, jedit, or cross-boundary ownership.                                        |
+
+### 5. Detailed Test Plan:
+
+Test Scenarios:
+
+| Scenario         | Fixture/Input           | Expected Result                                                                   |
+| ---------------- | ----------------------- | --------------------------------------------------------------------------------- |
+| State model lint | Report-schema examples  | No single enum carries retry, lifecycle, decision, and evidence health at once.   |
+| Duplicate split  | Duplicate retry example | `duplicate_same_submission` and `applied` can coexist without new posture labels. |
+| Crashpoint owner | Crashpoint manifest     | Every crashpoint has exactly one owner class.                                     |
+
+Happy Path Testing:
+
+1. Validate example JSON against the state model.
+2. Validate the crashpoint table includes all planned death windows.
+3. Confirm the completion bar includes safe retry without duplicate
+   application.
+
+Negative/Edge Case Testing:
+
+- A report that sets `source_of_truth: "echo"` while a legacy tripwire fired
+  must fail schema/gate validation.
+- A report that encodes `already_applied` as lifecycle posture must fail review.
+- A jedit-local crashpoint added to Echo's runtime manifest must be rejected or
+  moved to the cross-repo runner taxonomy.
+
+Non-Functional Testing:
+
+- Performance: charter validation should be static/doc-schema level and fast.
+- Security: source-of-truth rules must fail closed on unknown schema versions.
+- Accessibility: tables must render in VitePress and remain readable in plain
+  Markdown.
 
 ## Slice 1: [Echo] WAL Reality And Stale Claim Cleanup
 
@@ -162,7 +413,8 @@ recovery implementers.
 Success metrics:
 
 - Accepted evidence includes stable submission id, canonical envelope digest,
-  contract/package identity when present, accepted basis, and WAL evidence ref.
+  contract/package identity when present, accepted basis, durability mode, and
+  WAL commit evidence ref.
 - No accepted response exposes scheduler, tick, or WAL append authority.
 - A compile/test fixture proves the evidence contract shape is stable.
 
@@ -171,7 +423,8 @@ Success metrics:
 In Scope:
 
 - Define the accepted-submission evidence fields.
-- Add typed fixtures or ABI schema coverage for those fields.
+- Add typed fixtures or ABI schema coverage for those fields, including
+  `schema_version` and producer/version metadata where serialized.
 - Document that accepted means WAL-committed under the configured durability
   mode.
 
@@ -190,11 +443,11 @@ Out of Scope:
 
 ### 4. Acceptance Criteria (BDD Format):
 
-| Story | Given                                                    | When                           | Then                                                                        |
-| ----- | -------------------------------------------------------- | ------------------------------ | --------------------------------------------------------------------------- |
-| US1   | A submission is accepted through the WAL-backed ACK path | Echo returns accepted evidence | The response includes submission id and canonical envelope digest.          |
-| US1   | A package-backed operation is accepted                   | Echo returns accepted evidence | The response includes contract/package identity without implying execution. |
-| US2   | A caller inspects accepted evidence                      | The evidence is serialized     | It contains no jedit/editor nouns and no trusted control capability.        |
+| Story | Given                                                    | When                           | Then                                                                                                                                     |
+| ----- | -------------------------------------------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| US1   | A submission is accepted through the WAL-backed ACK path | Echo returns accepted evidence | The response includes submission id, canonical envelope digest, durability mode, writer epoch, transaction id or LSN, and commit digest. |
+| US1   | A package-backed operation is accepted                   | Echo returns accepted evidence | The response includes contract/package identity without implying execution.                                                              |
+| US2   | A caller inspects accepted evidence                      | The evidence is serialized     | It contains no jedit/editor nouns and no trusted control capability.                                                                     |
 
 ### 5. Detailed Test Plan:
 
@@ -217,6 +470,8 @@ Negative/Edge Case Testing:
 
 - WAL commit failure must return a typed error and no accepted evidence.
 - Missing envelope digest must fail before acceptance.
+- Durability modes below the product gate bar must not be reported as product
+  authority.
 - Package identity absence is allowed only for non-package fixtures and must be
   explicit.
 
@@ -233,16 +488,19 @@ Non-Functional Testing:
 ### 1. Feature Overview & Objectives:
 
 Problem statement: External apps need more than found/not-found recovery
-answers. Echo must expose generic postures that distinguish accepted pending,
-decided, rejected, obstructed, incomplete, and corrupt history.
+answers. Echo must expose generic lifecycle posture, scheduler decision, and
+evidence health without turning one enum into a junk drawer.
 
 Target user/audience: jedit recovery adapter authors, Echo CLI users, and
 future warp-ttd inspectors.
 
 Success metrics:
 
-- Recovery posture enum includes `not_found`, `accepted_pending`, `applied`,
-  `rejected`, `obstructed`, `incomplete_evidence`, and `corrupt_or_untrusted`.
+- Lifecycle posture includes `not_found`, `accepted_pending`,
+  `accepted_deciding` where reconstructable, and `decided`.
+- Scheduler decision includes `applied`, `rejected`, `obstructed`, or `none`.
+- Evidence health includes `complete`, `incomplete_evidence`,
+  `corrupt_or_untrusted`, `missing_retention`, or `redacted`.
 - The taxonomy is documented without editor nouns.
 - Existing `echo-cli wal submission-posture` output maps to the taxonomy.
 
@@ -250,7 +508,8 @@ Success metrics:
 
 In Scope:
 
-- Define generic posture values and transition meanings.
+- Define generic lifecycle, decision, and evidence-health values plus
+  transition meanings.
 - Update CLI/read-model JSON contract docs.
 - Add unit fixtures for every posture.
 
@@ -269,25 +528,25 @@ Out of Scope:
 
 ### 4. Acceptance Criteria (BDD Format):
 
-| Story | Given                                 | When                        | Then                                                                    |
-| ----- | ------------------------------------- | --------------------------- | ----------------------------------------------------------------------- |
-| US1   | A submission exists with no receipt   | Recovery posture is queried | Echo returns `accepted_pending`.                                        |
-| US1   | A submission has a rejected receipt   | Recovery posture is queried | Echo returns `rejected` and cites receipt evidence.                     |
-| US2   | Required retained material is missing | Recovery posture is queried | Echo returns `incomplete_evidence` or `obstructed` by documented scope. |
-| US2   | Commit digest validation fails        | Recovery posture is queried | Echo returns `corrupt_or_untrusted` or blocks recovery.                 |
+| Story | Given                                 | When                        | Then                                                                                                                           |
+| ----- | ------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| US1   | A submission exists with no receipt   | Recovery posture is queried | Echo returns lifecycle `accepted_pending`, decision `none`, and evidence health `complete` if acceptance evidence is complete. |
+| US1   | A submission has a rejected receipt   | Recovery posture is queried | Echo returns lifecycle `decided`, decision `rejected`, and cites receipt evidence.                                             |
+| US2   | Required retained material is missing | Recovery posture is queried | Echo returns `incomplete_evidence`, `missing_retention`, or `obstructed` by documented scope.                                  |
+| US2   | Commit digest validation fails        | Recovery posture is queried | Echo returns `corrupt_or_untrusted` or blocks recovery.                                                                        |
 
 ### 5. Detailed Test Plan:
 
 Test Scenarios:
 
-| Scenario         | Fixture/Input                      | Expected Result                               |
-| ---------------- | ---------------------------------- | --------------------------------------------- |
-| Empty WAL        | Unknown submission id              | `not_found`.                                  |
-| Acceptance only  | Accepted transaction, no tick      | `accepted_pending`.                           |
-| Receipt applied  | Accepted plus applied receipt      | `applied`.                                    |
-| Receipt rejected | Accepted plus rejection receipt    | `rejected`.                                   |
-| Missing material | Accepted plus missing retained ref | `incomplete_evidence` or scoped `obstructed`. |
-| Corrupt commit   | Bad digest chain                   | `corrupt_or_untrusted` or recovery fault.     |
+| Scenario         | Fixture/Input                                    | Expected Result                                                        |
+| ---------------- | ------------------------------------------------ | ---------------------------------------------------------------------- |
+| Empty WAL        | Unknown submission id                            | lifecycle `not_found`.                                                 |
+| Acceptance only  | Accepted transaction, no tick                    | lifecycle `accepted_pending`, decision `none`.                         |
+| Receipt applied  | Accepted plus applied receipt and state evidence | lifecycle `decided`, decision `applied`.                               |
+| Receipt rejected | Accepted plus rejection receipt                  | lifecycle `decided`, decision `rejected`.                              |
+| Missing material | Accepted plus missing retained ref               | evidence health `incomplete_evidence` or scoped decision `obstructed`. |
+| Corrupt commit   | Bad digest chain                                 | evidence health `corrupt_or_untrusted` or recovery fault.              |
 
 Happy Path Testing:
 
@@ -297,8 +556,9 @@ Happy Path Testing:
 
 Negative/Edge Case Testing:
 
-- Unknown future posture labels must fail schema validation.
-- Duplicate labels with different meanings must be rejected in docs/tests.
+- Unknown future lifecycle, decision, or evidence labels must fail schema
+  validation.
+- Duplicate retry dispositions must not be encoded as lifecycle postures.
 - Mixed receipt states for one submission must return a typed invariant error.
 
 Non-Functional Testing:
@@ -321,7 +581,8 @@ Target user/audience: Echo runtime developers and external app adapter authors.
 
 Success metrics:
 
-- Same submission id plus same envelope returns duplicate-compatible posture.
+- Same submission id plus same envelope returns duplicate-compatible intake
+  disposition plus the recovered submission posture.
 - Same submission id plus different envelope returns protocol violation.
 - New submission id plus same envelope is accepted as new unless explicit
   dedupe policy is present.
@@ -332,7 +593,8 @@ In Scope:
 
 - Document idempotency law.
 - Add fixtures around duplicate retry and conflicting duplicates.
-- Expose generic duplicate posture in recovery/intake APIs.
+- Expose generic duplicate disposition in intake APIs without polluting
+  recovery posture labels.
 
 Out of Scope:
 
@@ -349,22 +611,22 @@ Out of Scope:
 
 ### 4. Acceptance Criteria (BDD Format):
 
-| Story | Given                                                 | When            | Then                                                                      |
-| ----- | ----------------------------------------------------- | --------------- | ------------------------------------------------------------------------- |
-| US1   | Same submission id and envelope were already accepted | The app retries | Echo returns duplicate posture without appending a second acceptance.     |
-| US1   | Same envelope uses a new submission id                | The app submits | Echo treats it as a new submission unless a dedupe policy says otherwise. |
-| US2   | Same submission id has a different envelope digest    | The app retries | Echo rejects with protocol violation and does not mutate WAL.             |
+| Story | Given                                                 | When            | Then                                                                                                                                                    |
+| ----- | ----------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| US1   | Same submission id and envelope were already accepted | The app retries | Echo returns intake disposition `duplicate_same_submission` plus the recovered lifecycle/decision/evidence state without appending a second acceptance. |
+| US1   | Same envelope uses a new submission id                | The app submits | Echo treats it as a new submission unless a dedupe policy says otherwise.                                                                               |
+| US2   | Same submission id has a different envelope digest    | The app retries | Echo returns intake disposition `conflicting_duplicate` or protocol violation and does not mutate WAL.                                                  |
 
 ### 5. Detailed Test Plan:
 
 Test Scenarios:
 
-| Scenario                    | Fixture/Input             | Expected Result                               |
-| --------------------------- | ------------------------- | --------------------------------------------- |
-| Duplicate retry pending     | Accepted transaction only | Duplicate returns `already_accepted_pending`. |
-| Duplicate retry decided     | Accepted plus receipt     | Duplicate returns final decided posture.      |
-| Conflicting duplicate       | Same id, different digest | Protocol violation.                           |
-| Intentional repeated intent | New id, same digest       | New submission accepted.                      |
+| Scenario                    | Fixture/Input             | Expected Result                                                                   |
+| --------------------------- | ------------------------- | --------------------------------------------------------------------------------- |
+| Duplicate retry pending     | Accepted transaction only | Intake disposition `duplicate_same_submission` plus lifecycle `accepted_pending`. |
+| Duplicate retry decided     | Accepted plus receipt     | Intake disposition `duplicate_same_submission` plus final decided posture.        |
+| Conflicting duplicate       | Same id, different digest | Protocol violation or intake disposition `conflicting_duplicate`.                 |
+| Intentional repeated intent | New id, same digest       | New submission accepted.                                                          |
 
 Happy Path Testing:
 
@@ -390,23 +652,26 @@ Non-Functional Testing:
 ### 1. Feature Overview & Objectives:
 
 Problem statement: The external-app proof must kill the process at named
-boundaries. Echo needs a stable crashpoint vocabulary before jedit depends on
-cross-process fixtures.
+boundaries. Echo needs a stable crashpoint vocabulary, but the vocabulary must
+distinguish Echo-owned durability boundaries from jedit-owned local lifecycle
+boundaries.
 
 Target user/audience: Echo QA, jedit QA, and future app teams building recovery
 gates.
 
 Success metrics:
 
-- Crashpoint names exist for all five jedit gate windows.
-- Crashpoints map to Echo-owned boundaries, not jedit internals.
+- Crashpoint names exist for Echo-owned, jedit-owned, and cross-boundary death
+  windows.
+- Echo's runtime manifest contains only Echo-owned boundaries; the cross-repo
+  runner owns jedit and handoff boundaries.
 - A manifest fixture can be consumed by Rust tests and external scripts.
 
 ### 2. Scope Definition:
 
 In Scope:
 
-- Define canonical crashpoint names.
+- Define canonical crashpoint names and ownership classes.
 - Add JSON/CLI-readable crashpoint manifest.
 - Document expected posture for each crashpoint.
 
@@ -425,20 +690,22 @@ Out of Scope:
 
 ### 4. Acceptance Criteria (BDD Format):
 
-| Story | Given                              | When                       | Then                                                                                                                                                             |
-| ----- | ---------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| US1   | The crashpoint manifest is queried | The manifest is serialized | It includes before-accept-response, after-accept-before-tick, after-receipt-before-reading, after-reading-before-observe, and after-observe-before-local-status. |
-| US2   | A crashpoint has expected posture  | jedit reads the manifest   | The expectation is generic Echo posture, not editor wording.                                                                                                     |
+| Story | Given                                     | When                       | Then                                                                                                                                                                     |
+| ----- | ----------------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| US1   | The crashpoint manifest is queried        | The manifest is serialized | It includes Echo-owned `before_accept_commit`, `after_accept_commit_before_ack`, `after_accept_before_tick`, `after_receipt_before_reading`, and `after_reading_commit`. |
+| US1   | The cross-repo runner manifest is queried | The manifest is serialized | It includes cross-boundary and jedit-owned lifecycle crashpoints without adding them to Echo's runtime manifest.                                                         |
+| US2   | A crashpoint has expected posture         | jedit reads the manifest   | The expectation is generic Echo posture, not editor wording.                                                                                                             |
 
 ### 5. Detailed Test Plan:
 
 Test Scenarios:
 
-| Scenario               | Fixture/Input                       | Expected Result                  |
-| ---------------------- | ----------------------------------- | -------------------------------- |
-| Manifest serialization | Crashpoint manifest                 | Stable JSON order and names.     |
-| Missing crashpoint     | Remove one required name in fixture | Test fails with missing name.    |
-| App noun scan          | Manifest labels                     | No editor-specific nouns appear. |
+| Scenario               | Fixture/Input                                       | Expected Result                                  |
+| ---------------------- | --------------------------------------------------- | ------------------------------------------------ |
+| Manifest serialization | Crashpoint manifest                                 | Stable JSON order, names, and ownership classes. |
+| Missing crashpoint     | Remove one required name in fixture                 | Test fails with missing name.                    |
+| Wrong owner            | Put jedit-local crashpoint in Echo runtime manifest | Test fails with ownership error.                 |
+| App noun scan          | Echo-owned manifest labels                          | No editor-specific nouns appear.                 |
 
 Happy Path Testing:
 
@@ -450,7 +717,10 @@ Negative/Edge Case Testing:
 
 - Unknown crashpoint name should be rejected by the runner.
 - Duplicate crashpoint names should fail manifest validation.
-- Crashpoint expectations must not claim final outcome before scheduler decision.
+- Crashpoint expectations must not claim final outcome before scheduler
+  decision.
+- jedit-owned crashpoints must not require Echo to understand local editor
+  status lifecycle.
 
 Non-Functional Testing:
 
@@ -844,7 +1114,10 @@ Success metrics:
 
 - Receipt-by-submission index rebuilds from WAL.
 - Ticket-by-submission and receipt-by-ticket links rebuild.
-- Missing/mismatched correlation becomes invariant error or incomplete evidence.
+- Applied decision claims require receipt evidence plus committed state/basis
+  evidence.
+- Missing/mismatched correlation or missing state evidence becomes invariant
+  error or incomplete evidence.
 
 ### 2. Scope Definition:
 
@@ -853,6 +1126,8 @@ In Scope:
 - Add recovery fixture for submission-to-receipt correlation.
 - Validate receipt/ticket/submission digest links.
 - Expose correlation evidence in generic posture response.
+- Define that a scheduler receipt alone is not sufficient to claim
+  `decision.result: "applied"` without committed state/basis evidence.
 
 Out of Scope:
 
@@ -869,21 +1144,23 @@ Out of Scope:
 
 ### 4. Acceptance Criteria (BDD Format):
 
-| Story | Given                                     | When                              | Then                                                          |
-| ----- | ----------------------------------------- | --------------------------------- | ------------------------------------------------------------- |
-| US1   | Accepted submission has committed receipt | Posture is queried after recovery | Response includes receipt evidence and final decision.        |
-| US2   | Runtime is recovering                     | Receipt indexes are rebuilt       | No scheduler callback or app callback is invoked.             |
-| US2   | Receipt correlation is missing            | Recovery validates                | Echo returns incomplete evidence or invariant error by scope. |
+| Story | Given                                             | When                              | Then                                                                |
+| ----- | ------------------------------------------------- | --------------------------------- | ------------------------------------------------------------------- |
+| US1   | Accepted submission has committed receipt         | Posture is queried after recovery | Response includes receipt evidence and final decision.              |
+| US1   | Receipt says applied but state evidence is absent | Posture is queried after recovery | Echo reports incomplete evidence rather than clean applied posture. |
+| US2   | Runtime is recovering                             | Receipt indexes are rebuilt       | No scheduler callback or app callback is invoked.                   |
+| US2   | Receipt correlation is missing                    | Recovery validates                | Echo returns incomplete evidence or invariant error by scope.       |
 
 ### 5. Detailed Test Plan:
 
 Test Scenarios:
 
-| Scenario            | Fixture/Input                  | Expected Result                   |
-| ------------------- | ------------------------------ | --------------------------------- |
-| Applied receipt     | Acceptance plus applied tick   | `applied` with receipt id/digest. |
-| Rejected receipt    | Acceptance plus rejection tick | `rejected` with blocker evidence. |
-| Missing correlation | Receipt lacks submission link  | Incomplete/invariant posture.     |
+| Scenario                      | Fixture/Input                        | Expected Result                         |
+| ----------------------------- | ------------------------------------ | --------------------------------------- |
+| Applied receipt               | Acceptance plus applied tick         | `applied` with receipt id/digest.       |
+| Applied receipt missing state | Receipt without state/basis evidence | Incomplete evidence, not clean applied. |
+| Rejected receipt              | Acceptance plus rejection tick       | `rejected` with blocker evidence.       |
+| Missing correlation           | Receipt lacks submission link        | Incomplete/invariant posture.           |
 
 Happy Path Testing:
 
@@ -897,6 +1174,7 @@ Negative/Edge Case Testing:
 - Receipt references unknown ticket.
 - Ticket references unknown submission.
 - Multiple receipts claim final decision for one submission.
+- Applied receipt with missing state evidence must not become clean applied.
 
 Non-Functional Testing:
 
@@ -992,6 +1270,10 @@ Success metrics:
 - Query reading identity survives recovery.
 - Reading identity binds query id, vars digest, basis digest, aperture digest,
   observer plan, and package evidence.
+- Reading evidence reports `reading_source` as retained, read-only rederived, or
+  unavailable.
+- Reading evidence reports `reading_authority` as committed reading, read-only
+  rederivation, or none.
 - Reading recovery remains read-only.
 
 ### 2. Scope Definition:
@@ -1001,6 +1283,7 @@ In Scope:
 - Add recovery fixture for retained QueryView reading identity.
 - Rebuild reading lookup by semantic coordinate.
 - Validate basis/aperture/budget identity.
+- Define retained versus rederived reading posture in the recovery response.
 
 Out of Scope:
 
@@ -1017,21 +1300,24 @@ Out of Scope:
 
 ### 4. Acceptance Criteria (BDD Format):
 
-| Story | Given                          | When                          | Then                                                  |
-| ----- | ------------------------------ | ----------------------------- | ----------------------------------------------------- |
-| US1   | A bounded reading was retained | Recovery rebuilds indexes     | Reading identity is queryable by semantic coordinate. |
-| US1   | Reading vars digest changes    | Lookup is attempted           | Echo does not return the old reading as a match.      |
-| US2   | Reading recovery runs          | Recovery applies transactions | No handler mutation or tick occurs.                   |
+| Story | Given                                             | When                          | Then                                                                                                             |
+| ----- | ------------------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| US1   | A bounded reading was retained                    | Recovery rebuilds indexes     | Reading identity is queryable by semantic coordinate.                                                            |
+| US1   | Reading payload is rederived from recovered basis | Recovery response is emitted  | Response states `reading_source: "rederived_from_basis"` and `reading_authority: "echo_read_only_rederivation"`. |
+| US1   | Reading evidence is unavailable                   | Recovery response is emitted  | Response states reading unavailable and does not substitute local memory.                                        |
+| US1   | Reading vars digest changes                       | Lookup is attempted           | Echo does not return the old reading as a match.                                                                 |
+| US2   | Reading recovery runs                             | Recovery applies transactions | No handler mutation or tick occurs.                                                                              |
 
 ### 5. Detailed Test Plan:
 
 Test Scenarios:
 
-| Scenario                          | Fixture/Input                 | Expected Result            |
-| --------------------------------- | ----------------------------- | -------------------------- |
-| Retained reading                  | QueryView reading transaction | Identity recovered.        |
-| Same payload different coordinate | Two readings                  | Both remain distinct.      |
-| Missing reading payload           | Retained envelope only        | Missing-retention posture. |
+| Scenario                          | Fixture/Input                 | Expected Result              |
+| --------------------------------- | ----------------------------- | ---------------------------- |
+| Retained reading                  | QueryView reading transaction | Identity recovered.          |
+| Rederived reading                 | Recovered basis and observer  | Read-only rederived posture. |
+| Same payload different coordinate | Two readings                  | Both remain distinct.        |
+| Missing reading payload           | Retained envelope only        | Missing-retention posture.   |
 
 Happy Path Testing:
 
@@ -1045,6 +1331,7 @@ Negative/Edge Case Testing:
 - Wrong basis digest must not match.
 - Over-budget reading payload must obstruct.
 - Observer plan mismatch must fail lookup.
+- Local-memory reading substitution is forbidden.
 
 Non-Functional Testing:
 
@@ -1142,6 +1429,8 @@ Success metrics:
 
 - Read model returns chain: submission, ticket, receipt, basis, reading.
 - Chain is generic and contains no editor nouns.
+- Complete applied chain requires receipt evidence, committed state/basis
+  evidence, and retained or read-only rederived reading evidence.
 - Missing links produce typed incomplete evidence.
 
 ### 2. Scope Definition:
@@ -1151,6 +1440,7 @@ In Scope:
 - Define generic chain response shape.
 - Populate chain from recovered indexes.
 - Add fixtures for complete and incomplete chains.
+- Define basis mismatch as a first-class obstruction in the chain.
 
 Out of Scope:
 
@@ -1167,21 +1457,23 @@ Out of Scope:
 
 ### 4. Acceptance Criteria (BDD Format):
 
-| Story | Given                                        | When               | Then                                                                                      |
-| ----- | -------------------------------------------- | ------------------ | ----------------------------------------------------------------------------------------- |
-| US1   | A submission is applied and observed         | Chain is queried   | Response includes submission id, receipt id, basis digest, reading id, and evidence refs. |
-| US2   | Receipt exists but reading is absent         | Chain is queried   | Response reports incomplete reading evidence without failing the receipt.                 |
-| US2   | Reading basis does not match receipt outcome | Chain is validated | Echo returns chain inconsistency.                                                         |
+| Story | Given                                              | When               | Then                                                                                      |
+| ----- | -------------------------------------------------- | ------------------ | ----------------------------------------------------------------------------------------- |
+| US1   | A submission is applied and observed               | Chain is queried   | Response includes submission id, receipt id, basis digest, reading id, and evidence refs. |
+| US2   | Receipt exists but reading is absent               | Chain is queried   | Response reports incomplete reading evidence without failing the receipt.                 |
+| US2   | Reading basis does not match receipt outcome       | Chain is validated | Echo returns chain inconsistency.                                                         |
+| US2   | Submission basis no longer matches recovered state | Chain is validated | Echo reports obstruction by basis mismatch or stale basis, not generic rejection.         |
 
 ### 5. Detailed Test Plan:
 
 Test Scenarios:
 
-| Scenario        | Fixture/Input                    | Expected Result             |
-| --------------- | -------------------------------- | --------------------------- |
-| Complete chain  | Applied receipt plus reading     | Complete chain.             |
-| Missing reading | Applied receipt only             | Incomplete reading posture. |
-| Basis mismatch  | Receipt basis A, reading basis B | Chain inconsistency.        |
+| Scenario               | Fixture/Input                         | Expected Result             |
+| ---------------------- | ------------------------------------- | --------------------------- |
+| Complete chain         | Applied receipt plus reading          | Complete chain.             |
+| Missing reading        | Applied receipt only                  | Incomplete reading posture. |
+| Basis mismatch         | Receipt basis A, reading basis B      | Chain inconsistency.        |
+| Stale submission basis | Submission basis A, recovered state B | Basis-mismatch obstruction. |
 
 Happy Path Testing:
 
@@ -1196,6 +1488,7 @@ Negative/Edge Case Testing:
 - Unknown submission returns `not_found`.
 - Multiple readings must require coordinate/basis selection.
 - Stale basis must not be presented as current.
+- Basis mismatch must not be collapsed into rejected work.
 
 Non-Functional Testing:
 
@@ -1217,6 +1510,8 @@ Success metrics:
 
 - JSON schema names source, posture, durability mode, writer epoch, LSN,
   transaction id, commit digest, checkpoint digest, and obstruction.
+- JSON schema includes `schema_version`, `producer`, `producer_version`, and
+  compatibility metadata.
 - Schema is app-noun-free.
 - Roundtrip tests lock field names.
 
@@ -1227,6 +1522,8 @@ In Scope:
 - Define `CausalCommitEvidence` JSON.
 - Add serialization/deserialization tests.
 - Link it from recovery posture and chain read models.
+- Add golden fixtures consumed by jedit and future warp-ttd evidence
+  projection.
 
 Out of Scope:
 
@@ -1245,6 +1542,7 @@ Out of Scope:
 | Story | Given                         | When                      | Then                                                                               |
 | ----- | ----------------------------- | ------------------------- | ---------------------------------------------------------------------------------- |
 | US1   | A committed acceptance exists | Evidence JSON is produced | It contains transaction id, LSN, writer epoch, commit digest, and durability mode. |
+| US1   | Evidence JSON is produced     | Schema is validated       | `schema_version`, producer metadata, and compatibility metadata are present.       |
 | US2   | A debugger consumes evidence  | It receives JSON          | It does not need segment parsing or recovery authority.                            |
 | US2   | Evidence is absent            | JSON is produced          | Posture is `absent` with reason, not omitted.                                      |
 
@@ -1252,11 +1550,12 @@ Out of Scope:
 
 Test Scenarios:
 
-| Scenario            | Fixture/Input         | Expected Result          |
-| ------------------- | --------------------- | ------------------------ |
-| Present evidence    | Committed transaction | `present` evidence JSON. |
-| Absent evidence     | No WAL-backed claim   | `absent` with reason.    |
-| Obstructed evidence | Missing material      | `obstructed` with scope. |
+| Scenario            | Fixture/Input         | Expected Result                               |
+| ------------------- | --------------------- | --------------------------------------------- |
+| Present evidence    | Committed transaction | `present` evidence JSON.                      |
+| Absent evidence     | No WAL-backed claim   | `absent` with reason.                         |
+| Obstructed evidence | Missing material      | `obstructed` with scope.                      |
+| Unknown schema      | Future schema fixture | Fail closed unless compatibility rule exists. |
 
 Happy Path Testing:
 
@@ -1269,6 +1568,7 @@ Negative/Edge Case Testing:
 - Unknown source value fails schema validation.
 - Missing commit digest fails validation.
 - Raw absolute path must not be required for identity.
+- Missing schema or producer metadata fails validation.
 
 Non-Functional Testing:
 
@@ -1654,7 +1954,12 @@ Success metrics:
 
 - Report includes submission id, envelope digest, contract identity, Echo
   posture, receipt evidence, reading evidence, and source-of-truth marker.
+- Report includes `schema_version`, producer metadata, and compatibility
+  metadata.
 - Report explicitly states whether durable replay is available.
+- Report states `source_of_truth: "echo"` only when all gate conditions are
+  satisfied; otherwise it reports `incomplete`, `unknown`, or
+  `local_fallback_detected`.
 - Report schema is tested.
 
 ### 2. Scope Definition:
@@ -1664,6 +1969,8 @@ In Scope:
 - Extend jedit JSON report schema.
 - Add fixtures for present, pending, and unavailable recovery evidence.
 - Ensure fields are generated through ports/adapters.
+- Include reading source/authority, evidence health, tripwire status, and
+  source-of-truth conclusion.
 
 Out of Scope:
 
@@ -1680,21 +1987,24 @@ Out of Scope:
 
 ### 4. Acceptance Criteria (BDD Format):
 
-| Story | Given                                 | When                   | Then                                           |
-| ----- | ------------------------------------- | ---------------------- | ---------------------------------------------- |
-| US1   | jedit runs recovery gate              | JSON report is emitted | Required evidence fields are present.          |
-| US2   | Echo recovery is unavailable          | JSON report is emitted | Report says recovery unavailable, not applied. |
-| US2   | Receipt exists but reading is missing | JSON report is emitted | Report shows incomplete reading evidence.      |
+| Story | Given                                                     | When                   | Then                                                         |
+| ----- | --------------------------------------------------------- | ---------------------- | ------------------------------------------------------------ |
+| US1   | jedit runs recovery gate                                  | JSON report is emitted | Required evidence fields are present.                        |
+| US1   | Full evidence, no tripwire, and Echo recovery are present | JSON report is emitted | `source_of_truth` is `echo`.                                 |
+| US2   | Echo recovery is unavailable                              | JSON report is emitted | Report says recovery unavailable, not applied.               |
+| US2   | Receipt exists but reading is missing                     | JSON report is emitted | Report shows incomplete reading evidence.                    |
+| US2   | Legacy fallback is detected                               | JSON report is emitted | Report fails the gate and records `local_fallback_detected`. |
 
 ### 5. Detailed Test Plan:
 
 Test Scenarios:
 
-| Scenario             | Fixture/Input                | Expected Result              |
-| -------------------- | ---------------------------- | ---------------------------- |
-| Full evidence        | Applied posture plus reading | Complete report.             |
-| Pending evidence     | Acceptance only              | Pending report.              |
-| Unavailable recovery | Adapter failure              | Recovery unavailable report. |
+| Scenario             | Fixture/Input                | Expected Result                               |
+| -------------------- | ---------------------------- | --------------------------------------------- |
+| Full evidence        | Applied posture plus reading | Complete report.                              |
+| Pending evidence     | Acceptance only              | Pending report.                               |
+| Unavailable recovery | Adapter failure              | Recovery unavailable report.                  |
+| Legacy fallback      | Tripwire event               | Failed report, no Echo source-of-truth claim. |
 
 Happy Path Testing:
 
@@ -1707,6 +2017,8 @@ Negative/Edge Case Testing:
 - Missing envelope digest fails schema validation.
 - Missing contract identity is allowed only when explicitly fixture-scoped.
 - Unknown status fails report validation.
+- `source_of_truth: "echo"` with missing accepted evidence, missing reading
+  authority, or fired tripwire fails validation.
 
 Non-Functional Testing:
 
@@ -2832,6 +3144,8 @@ Success metrics:
 - JSON report includes every required section.
 - Schema validation passes.
 - Report says `source_of_truth: "echo"` only when all gate conditions pass.
+- Report includes schema version, producer identity, producer version,
+  compatibility metadata, durability mode, and reading source/authority.
 
 ### 2. Scope Definition:
 
@@ -2840,6 +3154,8 @@ In Scope:
 - Define report schema.
 - Aggregate Echo and jedit evidence into one artifact.
 - Add pass/fail summary.
+- Validate source-of-truth conclusion from evidence fields rather than trusting
+  a precomputed string.
 
 Out of Scope:
 
@@ -2854,22 +3170,24 @@ Out of Scope:
 
 ### 4. Acceptance Criteria (BDD Format):
 
-| Story | Given                       | When              | Then                                                                  |
-| ----- | --------------------------- | ----------------- | --------------------------------------------------------------------- |
-| US1   | Full recovery gate passes   | Report is emitted | `source_of_truth` is `echo` and all required evidence sections exist. |
-| US2   | Reading evidence is missing | Report is emitted | Gate fails or reports incomplete according to scenario expectation.   |
-| US2   | Legacy tripwire fires       | Report is emitted | Gate fails and names the forbidden legacy access.                     |
+| Story | Given                              | When              | Then                                                                                                                                 |
+| ----- | ---------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| US1   | Full recovery gate passes          | Report is emitted | `source_of_truth` is `echo` and all required evidence sections exist.                                                                |
+| US1   | Report claims Echo source of truth | Validator runs    | Validator recomputes the claim from accepted evidence, scheduler ownership, reading authority, tripwire status, and recovery source. |
+| US2   | Reading evidence is missing        | Report is emitted | Gate fails or reports incomplete according to scenario expectation.                                                                  |
+| US2   | Legacy tripwire fires              | Report is emitted | Gate fails and names the forbidden legacy access.                                                                                    |
 
 ### 5. Detailed Test Plan:
 
 Test Scenarios:
 
-| Scenario        | Fixture/Input            | Expected Result       |
-| --------------- | ------------------------ | --------------------- |
-| Full pass       | Happy path               | Valid pass report.    |
-| Pending crash   | After accept before tick | Valid pending report. |
-| Missing reading | Receipt only             | Incomplete report.    |
-| Legacy bypass   | Tripwire event           | Failed report.        |
+| Scenario        | Fixture/Input                           | Expected Result       |
+| --------------- | --------------------------------------- | --------------------- |
+| Full pass       | Happy path                              | Valid pass report.    |
+| Pending crash   | After accept before tick                | Valid pending report. |
+| Missing reading | Receipt only                            | Incomplete report.    |
+| Legacy bypass   | Tripwire event                          | Failed report.        |
+| Overclaim       | Missing evidence plus Echo source claim | Schema/gate failure.  |
 
 Happy Path Testing:
 
@@ -2882,6 +3200,7 @@ Negative/Edge Case Testing:
 - Missing required section fails schema.
 - Contradictory posture fields fail validation.
 - Source-of-truth cannot be Echo if local fallback occurred.
+- Unknown schema version fails closed unless compatibility metadata permits it.
 
 Non-Functional Testing:
 
@@ -3047,9 +3366,9 @@ The forty-slice plan is complete when this sentence is true and executable:
 
 ```text
 A production jedit edit submitted through the app-owned port is durably
-accepted by Echo, decided only by Echo's trusted scheduler, observed only
-through Echo bounded reading evidence, recoverable after restart from Echo WAL
-history, mapped by jedit into editor-facing status without Echo learning editor
-nouns, and materializable from the recovered causal basis without reading
-legacy memory.
+accepted by Echo, safely retryable without duplicate application, decided only
+by Echo's trusted scheduler, observed only through Echo bounded reading
+evidence, recoverable after restart from Echo WAL history, mapped by jedit into
+editor-facing status without Echo learning editor nouns, and materializable
+from the recovered causal basis without reading legacy memory.
 ```

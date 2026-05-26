@@ -267,58 +267,78 @@ Completed slice plans are archived outside the active signpost:
 The current goalpost is the \[Echo]\[jedit] external-app causal durability gate:
 
 a production jedit edit submitted through the app-owned port is durably accepted
-by Echo, decided only by Echo's trusted scheduler, observed only through Echo
-bounded reading evidence, recoverable after restart from Echo WAL history,
-mapped by jedit into editor-facing status without Echo learning editor nouns,
-and materializable from the recovered causal basis without reading legacy
-memory.
+by Echo, safely retryable without duplicate application, decided only by Echo's
+trusted scheduler, observed only through Echo bounded reading evidence,
+recoverable after restart from Echo WAL history, mapped by jedit into
+editor-facing status without Echo learning editor nouns, and materializable from
+the recovered causal basis without reading legacy memory.
 
 The full forty-slice PRD and test plan lives in
 [`echo-authoritative-jedit-recovery-40-slice-plan.md`](design/echo-authoritative-jedit-recovery-40-slice-plan.md).
 
-## Active Forty-Slice Checklist
+## Active Gated Recovery Campaign
 
 Track progress here. Check off slices just before committing the slice that
 satisfies its acceptance criteria. The detailed PRD and test plan for each slice
 is authoritative in
 [`echo-authoritative-jedit-recovery-40-slice-plan.md`](design/echo-authoritative-jedit-recovery-40-slice-plan.md).
 
-- [ ] Slice 1: [Echo] WAL reality and stale claim cleanup.
-- [ ] Slice 2: [Echo] accepted-submission evidence contract.
-- [ ] Slice 3: [Echo] generic recovery posture taxonomy.
-- [ ] Slice 4: [Echo] duplicate submission and idempotency law.
-- [ ] Slice 5: [Echo] crashpoint fixture contract for external apps.
-- [ ] Slice 6: [Echo] filesystem accepted-submission restart fixture.
-- [ ] Slice 7: [Echo] crash-before-ACK retry witness.
-- [ ] Slice 8: [Echo] conflicting duplicate rejection witness.
-- [ ] Slice 9: [Echo] app-safe submission posture read surface.
-- [ ] Slice 10: [Echo] recovery certificate submission posture counts.
-- [ ] Slice 11: [Echo] receipt correlation recovery witness.
-- [ ] Slice 12: [Echo] tick commit-before-publish failure injection.
-- [ ] Slice 13: [Echo] bounded reading identity recovery witness.
-- [ ] Slice 14: [Echo] retained material recovery obstruction witness.
-- [ ] Slice 15: [Echo] receipt-to-reading causal chain read model.
-- [ ] Slice 16: [Echo] causal commit evidence JSON contract.
-- [ ] Slice 17: [Echo] generic external-app recovery gate command.
-- [ ] Slice 18: [jedit] Echo recovery port interface.
-- [ ] Slice 19: [jedit] Echo recovery adapter implementation.
-- [ ] Slice 20: [jedit] generic-to-editor posture mapping.
-- [ ] Slice 21: [jedit] stable edit submission identity.
-- [ ] Slice 22: [jedit] recovery evidence report fields.
-- [ ] Slice 23: [jedit] recovered bounded reading path.
-- [ ] Slice 24: [jedit] happy-path recovery gate scenario.
-- [ ] Slice 25: [jedit] retry after local amnesia scenario.
+This is a gated campaign, not forty equal-status tasks. Slice 0 is a no-count
+doctrine slice. Numeric slice ids stay stable for references, but execution
+follows the gate order below.
+
+### Gate 0: Invariant Charter
+
+- [ ] Slice 0: \[Echo]\[jedit] authority invariant charter and posture state
+      machine.
+
+### Gate A: Echo Recovery Truth
+
+- [ ] Slice 1: \[Echo] WAL reality and stale claim cleanup.
+- [ ] Slice 2: \[Echo] accepted-submission evidence contract.
+- [ ] Slice 3: \[Echo] generic recovery posture taxonomy.
+- [ ] Slice 4: \[Echo] duplicate submission and idempotency law.
+- [ ] Slice 5: \[Echo] crashpoint fixture contract for external apps.
+- [ ] Slice 36: \[Echo] no-editor-nouns trusted-runtime guard.
+- [ ] Slice 6: \[Echo] filesystem accepted-submission restart fixture.
+- [ ] Slice 7: \[Echo] crash-before-ACK retry witness.
+- [ ] Slice 8: \[Echo] conflicting duplicate rejection witness.
+- [ ] Slice 9: \[Echo] app-safe submission posture read surface.
+- [ ] Slice 10: \[Echo] recovery certificate submission posture counts.
+- [ ] Slice 11: \[Echo] receipt correlation recovery witness.
+- [ ] Slice 12: \[Echo] tick commit-before-publish failure injection.
+- [ ] Slice 13: \[Echo] bounded reading identity recovery witness.
+- [ ] Slice 14: \[Echo] retained material recovery obstruction witness.
+- [ ] Slice 15: \[Echo] receipt-to-reading causal chain read model.
+- [ ] Slice 16: \[Echo] causal commit evidence JSON contract.
+- [ ] Slice 17: \[Echo] generic external-app recovery gate command.
+
+### Gate B: jedit Consumes Echo Truth
+
+- [ ] Slice 18: \[jedit] Echo recovery port interface.
+- [ ] Slice 19: \[jedit] Echo recovery adapter implementation.
+- [ ] Slice 20: \[jedit] generic-to-editor posture mapping.
+- [ ] Slice 21: \[jedit] stable edit submission identity.
+- [ ] Slice 22: \[jedit] recovery evidence report fields.
+- [ ] Slice 32: \[jedit] production legacy memory static guard.
+- [ ] Slice 33: \[jedit] release-gate runtime tripwire mode.
+- [ ] Slice 23: \[jedit] recovered bounded reading path.
+- [ ] Slice 24: \[jedit] happy-path recovery gate scenario.
+- [ ] Slice 25: \[jedit] retry after local amnesia scenario.
+- [ ] Slice 34: \[jedit] materialize artifact from recovered causal basis.
+
+### Gate C: Crash-Window Authority
+
 - [ ] Slice 26: \[Echo]\[jedit] crash runner harness.
 - [ ] Slice 27: \[Echo]\[jedit] before-accept-response crash window.
 - [ ] Slice 28: \[Echo]\[jedit] after-accept-before-tick crash window.
 - [ ] Slice 29: \[Echo]\[jedit] after-receipt-before-reading crash window.
 - [ ] Slice 30: \[Echo]\[jedit] after-reading-before-observe crash window.
 - [ ] Slice 31: \[Echo]\[jedit] after-observe-before-local-status crash window.
-- [ ] Slice 32: [jedit] production legacy memory static guard.
-- [ ] Slice 33: [jedit] release-gate runtime tripwire mode.
-- [ ] Slice 34: [jedit] materialize artifact from recovered causal basis.
+
+### Gate D: Boundary, Report, And Drift Lock
+
 - [ ] Slice 35: \[Echo]\[jedit] side-effect authorization boundary.
-- [ ] Slice 36: [Echo] no-editor-nouns trusted-runtime guard.
 - [ ] Slice 37: \[Echo]\[jedit] malicious adapter negative suite.
 - [ ] Slice 38: \[Echo]\[jedit] JSON causal durability report.
 - [ ] Slice 39: \[Echo]\[jedit] human causal receipt card.

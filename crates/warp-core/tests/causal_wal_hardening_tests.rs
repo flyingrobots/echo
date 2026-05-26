@@ -1075,6 +1075,47 @@ fn crash_after_submission_commit_before_ack_recovers_pending() {
 }
 
 #[test]
+fn filesystem_crash_after_accept_commit_before_ack_retry_is_duplicate_without_second_acceptance() {
+    let mut fixture = WalHardeningFixture::new("accept-commit-before-ack-retry");
+    fixture.append_submission("lost-ack", Lsn::from_raw(0));
+    let root = fixture.root.clone();
+    let record = submission_acceptance("lost-ack");
+
+    drop(fixture);
+
+    let report = must_ok(recover_filesystem_store(
+        &root,
+        RecoveryAccessMode::ReadOnly,
+    ));
+    let index = must_ok(recover_submission_index(&report));
+    let status = index.status(record.submission_id, record.canonical_envelope_digest);
+    let acceptance_records = report
+        .transactions
+        .iter()
+        .flat_map(|transaction| transaction.frames.iter())
+        .filter(|frame| frame.header.record_kind == WalRecordKind::SubmissionAcceptedRecorded)
+        .count();
+
+    assert_eq!(
+        index.retry_posture(record.submission_id, record.canonical_envelope_digest),
+        SubmissionRetryPosture::AlreadyAcceptedPending
+    );
+    assert_eq!(
+        status.intake_disposition,
+        SubmissionIntakeDisposition::DuplicateSameSubmission
+    );
+    assert_eq!(
+        status.idempotency_law,
+        SubmissionIdempotencyLaw::IdempotentRetry
+    );
+    assert_eq!(
+        status.lifecycle_posture,
+        SubmissionLifecyclePosture::AcceptedPending
+    );
+    assert_eq!(acceptance_records, 1);
+}
+
+#[test]
 fn crash_after_submission_commit_before_ack_different_envelope_is_protocol_violation() {
     let mut fixture = WalHardeningFixture::new("submission-conflict");
     fixture.append_submission("conflict", Lsn::from_raw(0));

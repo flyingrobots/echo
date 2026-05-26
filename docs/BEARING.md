@@ -289,7 +289,7 @@ follows the gate order below.
 
 ### Gate 0: Invariant Charter
 
-- [ ] Slice 0: \[Echo]\[jedit] authority invariant charter and posture state
+- [x] Slice 0: \[Echo]\[jedit] authority invariant charter and posture state
       machine.
 
 ### Gate A: Echo Recovery Truth

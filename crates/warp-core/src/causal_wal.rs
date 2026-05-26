@@ -2066,6 +2066,187 @@ pub enum SubmissionRetryPosture {
     NewSubmissionWithoutPolicyDedupe,
 }
 
+/// Intake disposition for a recovered submission/idempotency query.
+///
+/// This is intentionally separate from recovered lifecycle posture. A retry can
+/// be a duplicate while the recovered submission itself is pending, decided, or
+/// obstructed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SubmissionIntakeDisposition {
+    /// The id/envelope pair has no duplicate conflict and would be a new intake.
+    AcceptedNew,
+    /// The same submission id and canonical envelope are already recovered.
+    DuplicateSameSubmission,
+    /// The same submission id was recovered with a different envelope.
+    ConflictingDuplicate,
+    /// The submitted pair is invalid before runtime intake.
+    ValidationFailed,
+}
+
+impl SubmissionIntakeDisposition {
+    /// Stable snake-case label for JSON/read-model surfaces.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::AcceptedNew => "accepted_new",
+            Self::DuplicateSameSubmission => "duplicate_same_submission",
+            Self::ConflictingDuplicate => "conflicting_duplicate",
+            Self::ValidationFailed => "validation_failed",
+        }
+    }
+}
+
+/// Generic recovered lifecycle posture for a submission.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SubmissionLifecyclePosture {
+    /// No committed acceptance exists for the queried id/envelope pair.
+    NotFound,
+    /// Acceptance exists, but no scheduler-owned decision is recovered.
+    AcceptedPending,
+    /// Scheduler-owned work was durably claimed, but no final decision exists.
+    AcceptedDeciding,
+    /// A scheduler-owned decision is recovered.
+    Decided,
+}
+
+impl SubmissionLifecyclePosture {
+    /// Stable snake-case label for JSON/read-model surfaces.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::NotFound => "not_found",
+            Self::AcceptedPending => "accepted_pending",
+            Self::AcceptedDeciding => "accepted_deciding",
+            Self::Decided => "decided",
+        }
+    }
+}
+
+/// Generic recovered decision result for a submission.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SubmissionDecisionResult {
+    /// No final scheduler-owned decision exists.
+    None,
+    /// The scheduler-owned decision applied the submission.
+    Applied,
+    /// The scheduler-owned decision lawfully rejected the submission.
+    Rejected,
+    /// The scheduler-owned decision obstructed the submission.
+    Obstructed,
+}
+
+impl SubmissionDecisionResult {
+    /// Stable snake-case label for JSON/read-model surfaces.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Applied => "applied",
+            Self::Rejected => "rejected",
+            Self::Obstructed => "obstructed",
+        }
+    }
+}
+
+/// Health of recovered evidence supporting a submission status.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecoveryEvidenceHealth {
+    /// Recovered evidence is internally complete for the reported posture.
+    Complete,
+    /// Required correlated evidence is missing.
+    IncompleteEvidence,
+    /// Recovered evidence is corrupt or cannot be trusted.
+    CorruptOrUntrusted,
+    /// Retained material required by the reported posture is missing.
+    MissingRetention,
+    /// Evidence exists but is intentionally hidden by revelation policy.
+    Redacted,
+}
+
+impl RecoveryEvidenceHealth {
+    /// Stable snake-case label for JSON/read-model surfaces.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Complete => "complete",
+            Self::IncompleteEvidence => "incomplete_evidence",
+            Self::CorruptOrUntrusted => "corrupt_or_untrusted",
+            Self::MissingRetention => "missing_retention",
+            Self::Redacted => "redacted",
+        }
+    }
+}
+
+/// Generic recovered status split into intake, lifecycle, decision, and
+/// evidence-health axes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RecoveredSubmissionStatus {
+    /// What retry/intake would mean for the queried id/envelope pair.
+    pub intake_disposition: SubmissionIntakeDisposition,
+    /// Recovered submission lifecycle posture.
+    pub lifecycle_posture: SubmissionLifecyclePosture,
+    /// Recovered scheduler-owned decision result.
+    pub decision_result: SubmissionDecisionResult,
+    /// Health of the evidence backing this status.
+    pub evidence_health: RecoveryEvidenceHealth,
+}
+
+impl SubmissionRetryPosture {
+    /// Maps retry posture to the intake-disposition axis.
+    #[must_use]
+    pub const fn intake_disposition(self) -> SubmissionIntakeDisposition {
+        match self {
+            Self::NotAccepted | Self::NewSubmissionWithoutPolicyDedupe => {
+                SubmissionIntakeDisposition::AcceptedNew
+            }
+            Self::AlreadyAcceptedPending
+            | Self::AlreadyDecidedApplied
+            | Self::AlreadyDecidedRejected
+            | Self::AlreadyObstructed => SubmissionIntakeDisposition::DuplicateSameSubmission,
+            Self::ConflictSameIdDifferentEnvelope => {
+                SubmissionIntakeDisposition::ConflictingDuplicate
+            }
+        }
+    }
+}
+
+impl RecoveredSubmissionPosture {
+    /// Maps recovered posture to the generic lifecycle axis.
+    #[must_use]
+    pub const fn lifecycle_posture(self) -> SubmissionLifecyclePosture {
+        match self {
+            Self::AcceptedPending => SubmissionLifecyclePosture::AcceptedPending,
+            Self::DecidedApplied
+            | Self::DecidedRejected
+            | Self::Obstructed
+            | Self::RecoveryFaulted => SubmissionLifecyclePosture::Decided,
+        }
+    }
+
+    /// Maps recovered posture to the generic decision axis.
+    #[must_use]
+    pub const fn decision_result(self) -> SubmissionDecisionResult {
+        match self {
+            Self::AcceptedPending => SubmissionDecisionResult::None,
+            Self::DecidedApplied => SubmissionDecisionResult::Applied,
+            Self::DecidedRejected => SubmissionDecisionResult::Rejected,
+            Self::Obstructed | Self::RecoveryFaulted => SubmissionDecisionResult::Obstructed,
+        }
+    }
+
+    /// Maps recovered posture to the evidence-health axis.
+    #[must_use]
+    pub const fn evidence_health(self) -> RecoveryEvidenceHealth {
+        match self {
+            Self::RecoveryFaulted => RecoveryEvidenceHealth::CorruptOrUntrusted,
+            Self::AcceptedPending
+            | Self::DecidedApplied
+            | Self::DecidedRejected
+            | Self::Obstructed => RecoveryEvidenceHealth::Complete,
+        }
+    }
+}
+
 /// Recovered submission entry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RecoveredSubmissionEntry {
@@ -2137,6 +2318,39 @@ impl RecoveredSubmissionIndex {
             | RecoveredSubmissionPosture::RecoveryFaulted => {
                 SubmissionRetryPosture::AlreadyObstructed
             }
+        }
+    }
+
+    /// Returns the generic recovered status for a submission id and canonical
+    /// envelope digest.
+    #[must_use]
+    pub fn status(
+        &self,
+        submission_id: Hash,
+        canonical_envelope_digest: Hash,
+    ) -> RecoveredSubmissionStatus {
+        let retry_posture = self.retry_posture(submission_id, canonical_envelope_digest);
+        let Some(entry) = self.submissions.get(&submission_id) else {
+            return RecoveredSubmissionStatus {
+                intake_disposition: retry_posture.intake_disposition(),
+                lifecycle_posture: SubmissionLifecyclePosture::NotFound,
+                decision_result: SubmissionDecisionResult::None,
+                evidence_health: RecoveryEvidenceHealth::Complete,
+            };
+        };
+        if entry.acceptance.canonical_envelope_digest != canonical_envelope_digest {
+            return RecoveredSubmissionStatus {
+                intake_disposition: retry_posture.intake_disposition(),
+                lifecycle_posture: SubmissionLifecyclePosture::NotFound,
+                decision_result: SubmissionDecisionResult::None,
+                evidence_health: RecoveryEvidenceHealth::Complete,
+            };
+        }
+        RecoveredSubmissionStatus {
+            intake_disposition: retry_posture.intake_disposition(),
+            lifecycle_posture: entry.posture.lifecycle_posture(),
+            decision_result: entry.posture.decision_result(),
+            evidence_health: entry.posture.evidence_health(),
         }
     }
 }

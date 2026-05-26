@@ -376,13 +376,20 @@ fn wal_submission_posture_json_reports_generic_recovered_status() -> TestResult 
         .success();
     let json: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout)?;
 
-    assert_eq!(json["retry_posture"], "AlreadyDecidedApplied");
-    assert_eq!(json["recovered_posture"], "DecidedApplied");
+    assert_eq!(json["schema_version"], "echo.wal.submission_posture.v1");
+    assert_eq!(json["intake"]["disposition"], "duplicate_same_submission");
+    assert_eq!(json["intake"]["accepted_evidence"], "present");
+    assert_eq!(json["lifecycle"]["posture"], "decided");
+    assert_eq!(json["decision"]["result"], "applied");
+    assert_eq!(json["evidence_health"]["status"], "complete");
     assert_eq!(
-        json["receipt_digest"],
+        json["decision"]["receipt_digest"],
         hex::encode(digest("receipt:decided"))
     );
-    assert_eq!(json["ticket_digest"], hex::encode(digest("ticket:decided")));
+    assert_eq!(
+        json["decision"]["ticket_digest"],
+        hex::encode(digest("ticket:decided"))
+    );
     Ok(())
 }
 
@@ -405,6 +412,9 @@ fn wal_submission_posture_text_reports_canonical_envelope_digest() -> TestResult
     let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
 
     assert!(stdout.contains(&format!("Canonical envelope: {envelope_digest}")));
+    assert!(stdout.contains("Intake disposition: duplicate_same_submission"));
+    assert!(stdout.contains("Lifecycle posture: decided"));
+    assert!(stdout.contains("Decision result: applied"));
     Ok(())
 }
 
@@ -427,10 +437,13 @@ fn wal_submission_posture_json_reports_not_accepted_without_app_nouns() -> TestR
         .success();
     let json: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout)?;
 
-    assert_eq!(json["retry_posture"], "NotAccepted");
-    assert!(json["recovered_posture"].is_null());
-    assert!(json["receipt_digest"].is_null());
-    assert!(json["ticket_digest"].is_null());
+    assert_eq!(json["intake"]["disposition"], "accepted_new");
+    assert_eq!(json["intake"]["accepted_evidence"], "absent");
+    assert_eq!(json["lifecycle"]["posture"], "not_found");
+    assert_eq!(json["decision"]["result"], "none");
+    assert_eq!(json["evidence_health"]["status"], "complete");
+    assert!(json["decision"]["receipt_digest"].is_null());
+    assert!(json["decision"]["ticket_digest"].is_null());
     Ok(())
 }
 
@@ -453,10 +466,13 @@ fn wal_submission_posture_json_suppresses_recovered_fields_for_envelope_conflict
         .success();
     let json: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout)?;
 
-    assert_eq!(json["retry_posture"], "ConflictSameIdDifferentEnvelope");
-    assert!(json["recovered_posture"].is_null());
-    assert!(json["receipt_digest"].is_null());
-    assert!(json["ticket_digest"].is_null());
+    assert_eq!(json["intake"]["disposition"], "conflicting_duplicate");
+    assert_eq!(json["intake"]["accepted_evidence"], "absent");
+    assert_eq!(json["lifecycle"]["posture"], "not_found");
+    assert_eq!(json["decision"]["result"], "none");
+    assert_eq!(json["evidence_health"]["status"], "complete");
+    assert!(json["decision"]["receipt_digest"].is_null());
+    assert!(json["decision"]["ticket_digest"].is_null());
     Ok(())
 }
 

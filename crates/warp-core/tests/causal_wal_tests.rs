@@ -19,13 +19,14 @@ use warp_core::causal_wal::{
     MaterializationObservationRecord, MaterializationReplayPosture, MissingMaterialScope,
     ObjectStoreCapabilityError, ObjectStoreReadAfterWritePosture, ObjectStoreWalCapabilities,
     PayloadCodecId, PayloadSchemaId, ReadingRefRecord, RecoveredState, RecoveredSubmissionPosture,
-    RecoveryAccessMode, RecoveryTailPosture, RetainedMaterialKind, RetainedMaterialRecord,
-    SubmissionAcceptanceRecord, SubmissionRetryPosture, TickReceiptRecord, TransactionLocalIndex,
-    WalAppendAuthority, WalBuildError, WalCommittedTransaction, WalDoctorPosture,
-    WalDurabilityMode, WalManifest, WalReceiptCorrelationRecord, WalRecordKind,
-    WalReleaseReadinessGates, WalSchemaLintError, WalSegmentId, WalStoreError, WalStorePort,
-    WalTickDecision, WalTransactionBuilder, WalTransactionId, WalTransactionKind, WriterEpochId,
-    WriterEpochRequest,
+    RecoveryAccessMode, RecoveryEvidenceHealth, RecoveryTailPosture, RetainedMaterialKind,
+    RetainedMaterialRecord, SubmissionAcceptanceRecord, SubmissionDecisionResult,
+    SubmissionIntakeDisposition, SubmissionLifecyclePosture, SubmissionRetryPosture,
+    TickReceiptRecord, TransactionLocalIndex, WalAppendAuthority, WalBuildError,
+    WalCommittedTransaction, WalDoctorPosture, WalDurabilityMode, WalManifest,
+    WalReceiptCorrelationRecord, WalRecordKind, WalReleaseReadinessGates, WalSchemaLintError,
+    WalSegmentId, WalStoreError, WalStorePort, WalTickDecision, WalTransactionBuilder,
+    WalTransactionId, WalTransactionKind, WriterEpochId, WriterEpochRequest,
 };
 use warp_core::Hash;
 
@@ -571,6 +572,49 @@ fn crash_after_submission_commit_before_ack_retry_returns_duplicate_posture() {
         index.retry_posture(record.submission_id, record.canonical_envelope_digest),
         SubmissionRetryPosture::AlreadyAcceptedPending
     );
+}
+
+#[test]
+fn recovered_submission_status_splits_intake_lifecycle_decision_and_evidence_axes() {
+    let mut store = InMemoryWalStore::new();
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    must_ok(store.append_transaction(durable_submission_transaction("status", Lsn::from_raw(0))));
+    must_ok(store.append_transaction(durable_tick_transaction(
+        "status",
+        Lsn::from_raw(2),
+        WalTickDecision::Applied,
+    )));
+
+    let report = must_ok(recover_in_memory_store(
+        &mut store,
+        RecoveryAccessMode::ReadOnly,
+    ));
+    let index = must_ok(recover_submission_index(&report));
+    let record = submission_acceptance("status");
+    let status = index.status(record.submission_id, record.canonical_envelope_digest);
+
+    assert_eq!(
+        status.intake_disposition,
+        SubmissionIntakeDisposition::DuplicateSameSubmission
+    );
+    assert_eq!(
+        status.lifecycle_posture,
+        SubmissionLifecyclePosture::Decided
+    );
+    assert_eq!(status.decision_result, SubmissionDecisionResult::Applied);
+    assert_eq!(status.evidence_health, RecoveryEvidenceHealth::Complete);
+
+    let missing = index.status(digest("submission:missing"), digest("envelope:missing"));
+    assert_eq!(
+        missing.intake_disposition,
+        SubmissionIntakeDisposition::AcceptedNew
+    );
+    assert_eq!(
+        missing.lifecycle_posture,
+        SubmissionLifecyclePosture::NotFound
+    );
+    assert_eq!(missing.decision_result, SubmissionDecisionResult::None);
+    assert_eq!(missing.evidence_health, RecoveryEvidenceHealth::Complete);
 }
 
 #[test]

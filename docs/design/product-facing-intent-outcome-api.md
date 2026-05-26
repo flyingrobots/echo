@@ -29,8 +29,10 @@ surface returning `IntentOutcome`:
 
 Applied and rejected outcomes carry `IntentOutcomeReceipt`, which names the
 ticketed ingress id, admission ticket digest, tick receipt digest, commit hash,
-worldline tick, entry index, and rule id. Obstructed outcomes use the
-contract-host obstruction taxonomy.
+worldline tick, entry index, rule id, installed contract evidence when present,
+and retained receipt evidence posture where Echo can name a lawful contract
+coordinate. Obstructed outcomes use the contract-host obstruction taxonomy and
+use the same retained receipt coordinate for generated contract work.
 
 ## Invariants
 
@@ -40,6 +42,9 @@ contract-host obstruction taxonomy.
 - Rejected is a lawful scheduler outcome, not a runtime fault.
 - Obstructed means Echo cannot honestly interpret required evidence.
 - Missing receipt evidence maps to `MissingRetention`.
+- Contract-backed outcomes surface retained receipt posture honestly. A missing
+  retained descriptor is reported as `MissingCoordinate`; it is not an empty
+  success and not a fabricated retained byte reference.
 - The surface exposes no tick, step, scheduler, or trusted runtime authority.
 
 ## Non-Goals

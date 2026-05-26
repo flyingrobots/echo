@@ -53,7 +53,11 @@ The remaining work is adapter/API polish above this core surface.
 - Outcome observation can report unknown, pending, applied, rejected, and
   obstructed states.
 - Applied/rejected outcomes bind to the relevant tick receipt evidence.
+- Contract-backed applied/rejected outcomes expose retained receipt evidence
+  posture where Echo can lawfully name the coordinate.
 - Obstructed outcomes use the contract obstruction taxonomy.
+- Missing contract receipt material is reported as missing retention for the
+  retained receipt coordinate, not as an empty success.
 - The API exposes no trusted runtime control and no tick/step command.
 - Duplicate submission behavior is documented and tested.
 

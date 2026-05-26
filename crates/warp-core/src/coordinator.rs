@@ -679,6 +679,12 @@ pub struct IntentOutcomeReceipt {
     pub receipt_entry_index: u32,
     /// Scheduler rule that produced the receipt entry.
     pub rule_id: Hash,
+    /// Retained receipt evidence posture for generated contract work.
+    ///
+    /// This is empty for non-contract work. When contract evidence is present,
+    /// Echo reports the semantic receipt coordinate honestly even if no retained
+    /// descriptor has been written yet.
+    pub retained_evidence: Vec<crate::RetainedEvidencePosture>,
 }
 
 impl IntentOutcomeReceipt {
@@ -699,8 +705,33 @@ impl IntentOutcomeReceipt {
             commit_hash: correlation.commit_hash,
             receipt_entry_index,
             rule_id,
+            retained_evidence: retained_contract_receipt_evidence(correlation),
         }
     }
+}
+
+fn contract_receipt_coordinate(
+    correlation: &ReceiptCorrelationRecord,
+) -> Option<crate::RetainedEvidenceCoordinate> {
+    correlation.contract.as_ref().map(|contract| {
+        crate::RetainedEvidenceCoordinate::new(
+            contract.clone(),
+            crate::RetainedEvidenceRole::ContractReceipt,
+            correlation.tick_receipt_digest,
+        )
+    })
+}
+
+fn retained_contract_receipt_evidence(
+    correlation: &ReceiptCorrelationRecord,
+) -> Vec<crate::RetainedEvidencePosture> {
+    contract_receipt_coordinate(correlation)
+        .map(|coordinate| {
+            vec![crate::RetainedEvidencePosture::missing_coordinate(
+                &coordinate,
+            )]
+        })
+        .unwrap_or_default()
 }
 
 /// App-facing outcome posture for a witnessed intent submission.
@@ -809,11 +840,10 @@ impl IntentOutcome {
                         tick_receipt_digest,
                     },
             } => {
-                let mut obstruction =
-                    crate::ContractObstruction::missing_retention(tick_receipt_digest);
-                if let Some(contract) = correlation.contract.as_ref() {
-                    obstruction = obstruction.with_contract(contract.clone());
-                }
+                let obstruction = contract_receipt_coordinate(&correlation).map_or_else(
+                    || crate::ContractObstruction::missing_retention(tick_receipt_digest),
+                    |coordinate| coordinate.missing_retention_obstruction(),
+                );
                 Self::Obstructed {
                     submission_id: correlation.submission_id,
                     obstruction,
@@ -4617,6 +4647,74 @@ mod tests {
             }
             other => panic!("expected obstructed outcome, got {other:?}"),
         }
+
+        let contract = crate::ContractEvidenceIdentity {
+            package_id: crate::InstalledContractPackageId::from_bytes(hash(13)),
+            echo_abi_version: 1,
+            package_name: "test-package".to_owned(),
+            package_version: "0.1.0".to_owned(),
+            artifact_hash_hex: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                .to_owned(),
+            codec_id: "cbor-canon-v1".to_owned(),
+            registry_version: 1,
+            wesley_generator_version: "echo-wesley-gen/0.1.0".to_owned(),
+            helper_api_version: 1,
+            schema_sha256_hex: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                .to_owned(),
+            op_id: 7,
+            op_kind: crate::ContractOperationKind::Mutation,
+        };
+        let contract_correlation = ReceiptCorrelationRecord {
+            contract: Some(contract.clone()),
+            ..correlation.clone()
+        };
+        let applied_with_contract =
+            IntentOutcome::from_observation(IntentOutcomeObservation::Decided {
+                correlation: Box::new(contract_correlation.clone()),
+                decision: IntentOutcomeDecision::Applied {
+                    receipt_entry_index: 5,
+                    rule_id: hash(14),
+                },
+            });
+        let IntentOutcome::Applied { receipt, .. } = applied_with_contract else {
+            panic!("expected applied contract outcome");
+        };
+        assert_eq!(receipt.contract, Some(contract.clone()));
+        match receipt.retained_evidence.as_slice() {
+            [crate::RetainedEvidencePosture::MissingCoordinate {
+                coordinate,
+                obstruction,
+            }] => {
+                assert_eq!(coordinate.contract, contract);
+                assert_eq!(
+                    coordinate.role,
+                    crate::RetainedEvidenceRole::ContractReceipt
+                );
+                assert_eq!(
+                    coordinate.semantic_digest,
+                    contract_correlation.tick_receipt_digest
+                );
+                assert_eq!(
+                    obstruction.subject,
+                    crate::ContractObstructionSubject::Retention {
+                        retention_id: coordinate.coordinate_id()
+                    }
+                );
+            }
+            other => panic!("expected retained receipt coordinate posture, got {other:?}"),
+        }
+
+        let obstructed_with_contract =
+            IntentOutcome::from_observation(IntentOutcomeObservation::Decided {
+                correlation: Box::new(contract_correlation.clone()),
+                decision: IntentOutcomeDecision::NoMatchingReceiptEntry {
+                    tick_receipt_digest: contract_correlation.tick_receipt_digest,
+                },
+            });
+        let IntentOutcome::Obstructed { obstruction, .. } = obstructed_with_contract else {
+            panic!("expected obstructed contract outcome");
+        };
+        assert!(obstruction.contract.is_some());
     }
 
     #[test]

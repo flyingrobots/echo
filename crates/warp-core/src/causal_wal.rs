@@ -2596,6 +2596,131 @@ pub struct RecoveredRetentionIndex {
     pub readings_by_semantic_coordinate: BTreeMap<Hash, BTreeSet<Hash>>,
 }
 
+/// Source used to answer a recovered reading query.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecoveredReadingSource {
+    /// Reading evidence was retained in committed WAL history.
+    Retained,
+    /// Reading was rederived through a read-only observer path from recovered
+    /// causal basis.
+    RederivedFromBasis,
+    /// No Echo-owned reading evidence is available.
+    Unavailable,
+}
+
+impl RecoveredReadingSource {
+    /// Stable snake-case label for JSON/read-model surfaces.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Retained => "retained",
+            Self::RederivedFromBasis => "rederived_from_basis",
+            Self::Unavailable => "unavailable",
+        }
+    }
+}
+
+/// Authority posture for a recovered reading response.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecoveredReadingAuthority {
+    /// Echo recovered a committed retained reading.
+    EchoCommittedReading,
+    /// Echo rederived the reading without mutating recovered history.
+    EchoReadOnlyRederivation,
+    /// No Echo-owned authority supports the reading response.
+    None,
+}
+
+impl RecoveredReadingAuthority {
+    /// Stable snake-case label for JSON/read-model surfaces.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::EchoCommittedReading => "echo_committed_reading",
+            Self::EchoReadOnlyRederivation => "echo_read_only_rederivation",
+            Self::None => "none",
+        }
+    }
+}
+
+/// Recovered reading evidence without application-domain payload semantics.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RecoveredReadingEvidence {
+    /// Recovered retained reading identity, if Echo owns one.
+    pub reading: Option<ReadingRefRecord>,
+    /// Source used to answer the reading query.
+    pub reading_source: RecoveredReadingSource,
+    /// Authority posture backing the reading response.
+    pub reading_authority: RecoveredReadingAuthority,
+    /// Health of the evidence backing the reading response.
+    pub evidence_health: RecoveryEvidenceHealth,
+}
+
+impl RecoveredReadingEvidence {
+    /// Builds an explicit read-only rederivation response.
+    #[must_use]
+    pub const fn rederived_from_basis(reading: ReadingRefRecord) -> Self {
+        Self {
+            reading: Some(reading),
+            reading_source: RecoveredReadingSource::RederivedFromBasis,
+            reading_authority: RecoveredReadingAuthority::EchoReadOnlyRederivation,
+            evidence_health: RecoveryEvidenceHealth::Complete,
+        }
+    }
+
+    /// Builds an unavailable response. Callers must not substitute local app
+    /// memory for this posture.
+    #[must_use]
+    pub const fn unavailable() -> Self {
+        Self {
+            reading: None,
+            reading_source: RecoveredReadingSource::Unavailable,
+            reading_authority: RecoveredReadingAuthority::None,
+            evidence_health: RecoveryEvidenceHealth::MissingRetention,
+        }
+    }
+}
+
+impl RecoveredRetentionIndex {
+    /// Returns retained reading evidence only when the requested reading id is
+    /// bound to the requested semantic coordinate.
+    #[must_use]
+    pub fn reading_evidence(
+        &self,
+        semantic_coordinate_digest: Hash,
+        reading_id: Hash,
+    ) -> RecoveredReadingEvidence {
+        if !self
+            .readings_by_semantic_coordinate
+            .get(&semantic_coordinate_digest)
+            .is_some_and(|reading_ids| reading_ids.contains(&reading_id))
+        {
+            return RecoveredReadingEvidence::unavailable();
+        }
+        let Some(reading) = self.reading_by_id.get(&reading_id).copied() else {
+            return RecoveredReadingEvidence::unavailable();
+        };
+        RecoveredReadingEvidence {
+            reading: Some(reading),
+            reading_source: RecoveredReadingSource::Retained,
+            reading_authority: RecoveredReadingAuthority::EchoCommittedReading,
+            evidence_health: evidence_material_posture_health(reading.posture),
+        }
+    }
+}
+
+fn evidence_material_posture_health(posture: EvidenceMaterialPosture) -> RecoveryEvidenceHealth {
+    match posture {
+        EvidenceMaterialPosture::Present => RecoveryEvidenceHealth::Complete,
+        EvidenceMaterialPosture::RedactedByPolicy
+        | EvidenceMaterialPosture::EncryptedKeyUnavailable => RecoveryEvidenceHealth::Redacted,
+        EvidenceMaterialPosture::Missing | EvidenceMaterialPosture::Obstructed => {
+            RecoveryEvidenceHealth::MissingRetention
+        }
+        EvidenceMaterialPosture::Corrupt => RecoveryEvidenceHealth::CorruptOrUntrusted,
+    }
+}
+
 /// Retained material obstruction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RetainedMaterialObstruction {

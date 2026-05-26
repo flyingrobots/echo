@@ -18,7 +18,8 @@ use warp_core::causal_wal::{
     FilesystemWalStore, InMemoryWalStore, Lsn, MaterializationIntentRecord,
     MaterializationObservationRecord, MaterializationReplayPosture, MissingMaterialScope,
     ObjectStoreCapabilityError, ObjectStoreReadAfterWritePosture, ObjectStoreWalCapabilities,
-    PayloadCodecId, PayloadSchemaId, ReadingRefRecord, RecoveredState, RecoveredSubmissionPosture,
+    PayloadCodecId, PayloadSchemaId, ReadingRefRecord, RecoveredReadingAuthority,
+    RecoveredReadingEvidence, RecoveredReadingSource, RecoveredState, RecoveredSubmissionPosture,
     RecoveryAccessMode, RecoveryEvidenceHealth, RecoveryScanReport, RecoveryTailPosture,
     RetainedMaterialKind, RetainedMaterialRecord, SubmissionAcceptanceRecord,
     SubmissionDecisionResult, SubmissionIdempotencyLaw, SubmissionIntakeDisposition,
@@ -964,6 +965,81 @@ fn retained_queryview_reading_lookup_recovers_by_semantic_coordinate() {
             .get(&digest("coordinate:query"))
     )
     .contains(&digest("reading:query")));
+    let evidence = retention.reading_evidence(digest("coordinate:query"), digest("reading:query"));
+    let reading = must_some(evidence.reading);
+
+    assert_eq!(evidence.reading_source, RecoveredReadingSource::Retained);
+    assert_eq!(
+        evidence.reading_authority,
+        RecoveredReadingAuthority::EchoCommittedReading
+    );
+    assert_eq!(evidence.evidence_health, RecoveryEvidenceHealth::Complete);
+    assert_eq!(reading.reading_id, digest("reading:query"));
+    assert_eq!(
+        reading.semantic_coordinate_digest,
+        digest("coordinate:query")
+    );
+    assert_eq!(reading.payload_digest, digest("material:query:payload"));
+    assert_eq!(reading.envelope_digest, digest("material:query:envelope"));
+}
+
+#[test]
+fn wrong_semantic_coordinate_does_not_match_retained_reading_identity() {
+    let mut store = InMemoryWalStore::new();
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    let builder = builder(
+        transaction_id("tx:reading-coordinate"),
+        Lsn::from_raw(0),
+        WalAppendAuthority::TrustedScheduler,
+        WalTransactionKind::SchedulerTick,
+    );
+    must_ok(
+        store.append_transaction(must_ok(build_retained_reading_transaction(
+            builder,
+            &[retained_material(
+                "query-coordinate",
+                RetainedMaterialKind::ReadingPayload,
+                EvidenceMaterialPosture::Present,
+            )],
+            reading_ref("query-coordinate", EvidenceMaterialPosture::Present),
+            vec![frontier(
+                AffectedFrontierKind::ReadingIndex,
+                "reading:coordinate:before",
+                "reading:coordinate:after",
+            )],
+        ))),
+    );
+
+    let report = must_ok(recover_in_memory_store(
+        &mut store,
+        RecoveryAccessMode::ReadOnly,
+    ));
+    let retention = must_ok(recover_retention_index(&report));
+    let evidence = retention.reading_evidence(
+        digest("coordinate:wrong"),
+        digest("reading:query-coordinate"),
+    );
+
+    assert_eq!(evidence.reading_source, RecoveredReadingSource::Unavailable);
+    assert_eq!(evidence.reading_authority, RecoveredReadingAuthority::None);
+    assert_eq!(
+        evidence.evidence_health,
+        RecoveryEvidenceHealth::MissingRetention
+    );
+    assert!(evidence.reading.is_none());
+}
+
+#[test]
+fn reading_rederivation_posture_is_explicitly_read_only() {
+    let reading = reading_ref("rederived", EvidenceMaterialPosture::Present);
+    let evidence = RecoveredReadingEvidence::rederived_from_basis(reading);
+
+    assert_eq!(evidence.reading_source.as_str(), "rederived_from_basis");
+    assert_eq!(
+        evidence.reading_authority.as_str(),
+        "echo_read_only_rederivation"
+    );
+    assert_eq!(evidence.evidence_health, RecoveryEvidenceHealth::Complete);
 }
 
 #[test]

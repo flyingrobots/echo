@@ -299,7 +299,7 @@ follows the gate order below.
 - [x] Slice 1: \[Echo] WAL reality and stale claim cleanup.
 - [x] Slice 2: \[Echo] accepted-submission evidence contract.
 - [x] Slice 3: \[Echo] generic recovery posture taxonomy.
-- [ ] Slice 4: \[Echo] duplicate submission and idempotency law.
+- [x] Slice 4: \[Echo] duplicate submission and idempotency law.
 - [ ] Slice 5: \[Echo] crashpoint fixture contract for external apps.
 - [ ] Slice 36: \[Echo] no-editor-nouns trusted-runtime guard.
 - [ ] Slice 6: \[Echo] filesystem accepted-submission restart fixture.

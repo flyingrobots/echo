@@ -47,6 +47,7 @@ pub(crate) struct WalSubmissionIdentityOutput {
 #[derive(Debug, Serialize)]
 pub(crate) struct WalSubmissionIntakeOutput {
     pub(crate) disposition: &'static str,
+    pub(crate) idempotency_law: &'static str,
     pub(crate) accepted_evidence: &'static str,
 }
 
@@ -119,6 +120,7 @@ pub(crate) fn submission_posture(
         },
         intake: WalSubmissionIntakeOutput {
             disposition: status.intake_disposition.as_str(),
+            idempotency_law: status.idempotency_law.as_str(),
             accepted_evidence: accepted_evidence_label(matching_entry.is_some()),
         },
         lifecycle: WalSubmissionLifecycleOutput {
@@ -137,11 +139,12 @@ pub(crate) fn submission_posture(
         },
     };
     let text = format!(
-        "echo-cli wal submission-posture\nRoot: {}\nSubmission: {}\nCanonical envelope: {}\nIntake disposition: {}\nAccepted evidence: {}\nLifecycle posture: {}\nDecision result: {}\nEvidence health: {}\nReceipt: {}\nTicket: {}\n",
+        "echo-cli wal submission-posture\nRoot: {}\nSubmission: {}\nCanonical envelope: {}\nIntake disposition: {}\nIdempotency law: {}\nAccepted evidence: {}\nLifecycle posture: {}\nDecision result: {}\nEvidence health: {}\nReceipt: {}\nTicket: {}\n",
         output.root,
         output.submission.submission_id,
         output.submission.canonical_envelope_digest,
         output.intake.disposition,
+        output.intake.idempotency_law,
         output.intake.accepted_evidence,
         output.lifecycle.posture,
         output.decision.result,

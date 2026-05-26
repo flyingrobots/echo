@@ -378,6 +378,7 @@ fn wal_submission_posture_json_reports_generic_recovered_status() -> TestResult 
 
     assert_eq!(json["schema_version"], "echo.wal.submission_posture.v1");
     assert_eq!(json["intake"]["disposition"], "duplicate_same_submission");
+    assert_eq!(json["intake"]["idempotency_law"], "idempotent_retry");
     assert_eq!(json["intake"]["accepted_evidence"], "present");
     assert_eq!(json["lifecycle"]["posture"], "decided");
     assert_eq!(json["decision"]["result"], "applied");
@@ -413,6 +414,7 @@ fn wal_submission_posture_text_reports_canonical_envelope_digest() -> TestResult
 
     assert!(stdout.contains(&format!("Canonical envelope: {envelope_digest}")));
     assert!(stdout.contains("Intake disposition: duplicate_same_submission"));
+    assert!(stdout.contains("Idempotency law: idempotent_retry"));
     assert!(stdout.contains("Lifecycle posture: decided"));
     assert!(stdout.contains("Decision result: applied"));
     Ok(())
@@ -438,6 +440,7 @@ fn wal_submission_posture_json_reports_not_accepted_without_app_nouns() -> TestR
     let json: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout)?;
 
     assert_eq!(json["intake"]["disposition"], "accepted_new");
+    assert_eq!(json["intake"]["idempotency_law"], "new_submission");
     assert_eq!(json["intake"]["accepted_evidence"], "absent");
     assert_eq!(json["lifecycle"]["posture"], "not_found");
     assert_eq!(json["decision"]["result"], "none");
@@ -467,6 +470,7 @@ fn wal_submission_posture_json_suppresses_recovered_fields_for_envelope_conflict
     let json: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout)?;
 
     assert_eq!(json["intake"]["disposition"], "conflicting_duplicate");
+    assert_eq!(json["intake"]["idempotency_law"], "protocol_violation");
     assert_eq!(json["intake"]["accepted_evidence"], "absent");
     assert_eq!(json["lifecycle"]["posture"], "not_found");
     assert_eq!(json["decision"]["result"], "none");

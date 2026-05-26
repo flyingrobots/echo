@@ -2083,6 +2083,35 @@ pub enum SubmissionIntakeDisposition {
     ValidationFailed,
 }
 
+/// Idempotency law for a recovered submission id/envelope pair.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SubmissionIdempotencyLaw {
+    /// No recovered duplicate relation exists; the pair would be a new
+    /// submission.
+    NewSubmission,
+    /// Same submission id and same canonical envelope is an idempotent retry.
+    IdempotentRetry,
+    /// Same submission id and different canonical envelope is a protocol
+    /// violation.
+    ProtocolViolation,
+    /// Same canonical envelope with a new submission id remains new unless an
+    /// explicit dedupe policy says otherwise.
+    NewSubmissionWithoutPolicyDedupe,
+}
+
+impl SubmissionIdempotencyLaw {
+    /// Stable snake-case label for JSON/read-model surfaces.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::NewSubmission => "new_submission",
+            Self::IdempotentRetry => "idempotent_retry",
+            Self::ProtocolViolation => "protocol_violation",
+            Self::NewSubmissionWithoutPolicyDedupe => "new_submission_without_policy_dedupe",
+        }
+    }
+}
+
 impl SubmissionIntakeDisposition {
     /// Stable snake-case label for JSON/read-model surfaces.
     #[must_use]
@@ -2183,6 +2212,8 @@ impl RecoveryEvidenceHealth {
 pub struct RecoveredSubmissionStatus {
     /// What retry/intake would mean for the queried id/envelope pair.
     pub intake_disposition: SubmissionIntakeDisposition,
+    /// Idempotency law for the queried id/envelope pair.
+    pub idempotency_law: SubmissionIdempotencyLaw,
     /// Recovered submission lifecycle posture.
     pub lifecycle_posture: SubmissionLifecyclePosture,
     /// Recovered scheduler-owned decision result.
@@ -2205,6 +2236,22 @@ impl SubmissionRetryPosture {
             | Self::AlreadyObstructed => SubmissionIntakeDisposition::DuplicateSameSubmission,
             Self::ConflictSameIdDifferentEnvelope => {
                 SubmissionIntakeDisposition::ConflictingDuplicate
+            }
+        }
+    }
+
+    /// Maps retry posture to the idempotency-law axis.
+    #[must_use]
+    pub const fn idempotency_law(self) -> SubmissionIdempotencyLaw {
+        match self {
+            Self::NotAccepted => SubmissionIdempotencyLaw::NewSubmission,
+            Self::AlreadyAcceptedPending
+            | Self::AlreadyDecidedApplied
+            | Self::AlreadyDecidedRejected
+            | Self::AlreadyObstructed => SubmissionIdempotencyLaw::IdempotentRetry,
+            Self::ConflictSameIdDifferentEnvelope => SubmissionIdempotencyLaw::ProtocolViolation,
+            Self::NewSubmissionWithoutPolicyDedupe => {
+                SubmissionIdempotencyLaw::NewSubmissionWithoutPolicyDedupe
             }
         }
     }
@@ -2333,6 +2380,7 @@ impl RecoveredSubmissionIndex {
         let Some(entry) = self.submissions.get(&submission_id) else {
             return RecoveredSubmissionStatus {
                 intake_disposition: retry_posture.intake_disposition(),
+                idempotency_law: retry_posture.idempotency_law(),
                 lifecycle_posture: SubmissionLifecyclePosture::NotFound,
                 decision_result: SubmissionDecisionResult::None,
                 evidence_health: RecoveryEvidenceHealth::Complete,
@@ -2341,6 +2389,7 @@ impl RecoveredSubmissionIndex {
         if entry.acceptance.canonical_envelope_digest != canonical_envelope_digest {
             return RecoveredSubmissionStatus {
                 intake_disposition: retry_posture.intake_disposition(),
+                idempotency_law: retry_posture.idempotency_law(),
                 lifecycle_posture: SubmissionLifecyclePosture::NotFound,
                 decision_result: SubmissionDecisionResult::None,
                 evidence_health: RecoveryEvidenceHealth::Complete,
@@ -2348,6 +2397,7 @@ impl RecoveredSubmissionIndex {
         }
         RecoveredSubmissionStatus {
             intake_disposition: retry_posture.intake_disposition(),
+            idempotency_law: retry_posture.idempotency_law(),
             lifecycle_posture: entry.posture.lifecycle_posture(),
             decision_result: entry.posture.decision_result(),
             evidence_health: entry.posture.evidence_health(),

@@ -21,9 +21,9 @@ use warp_core::causal_wal::{
     PayloadCodecId, PayloadSchemaId, ReadingRefRecord, RecoveredState, RecoveredSubmissionPosture,
     RecoveryAccessMode, RecoveryEvidenceHealth, RecoveryTailPosture, RetainedMaterialKind,
     RetainedMaterialRecord, SubmissionAcceptanceRecord, SubmissionDecisionResult,
-    SubmissionIntakeDisposition, SubmissionLifecyclePosture, SubmissionRetryPosture,
-    TickReceiptRecord, TransactionLocalIndex, WalAppendAuthority, WalBuildError,
-    WalCommittedTransaction, WalDoctorPosture, WalDurabilityMode, WalManifest,
+    SubmissionIdempotencyLaw, SubmissionIntakeDisposition, SubmissionLifecyclePosture,
+    SubmissionRetryPosture, TickReceiptRecord, TransactionLocalIndex, WalAppendAuthority,
+    WalBuildError, WalCommittedTransaction, WalDoctorPosture, WalDurabilityMode, WalManifest,
     WalReceiptCorrelationRecord, WalRecordKind, WalReleaseReadinessGates, WalSchemaLintError,
     WalSegmentId, WalStoreError, WalStorePort, WalTickDecision, WalTransactionBuilder,
     WalTransactionId, WalTransactionKind, WriterEpochId, WriterEpochRequest,
@@ -598,6 +598,10 @@ fn recovered_submission_status_splits_intake_lifecycle_decision_and_evidence_axe
         SubmissionIntakeDisposition::DuplicateSameSubmission
     );
     assert_eq!(
+        status.idempotency_law,
+        SubmissionIdempotencyLaw::IdempotentRetry
+    );
+    assert_eq!(
         status.lifecycle_posture,
         SubmissionLifecyclePosture::Decided
     );
@@ -608,6 +612,10 @@ fn recovered_submission_status_splits_intake_lifecycle_decision_and_evidence_axe
     assert_eq!(
         missing.intake_disposition,
         SubmissionIntakeDisposition::AcceptedNew
+    );
+    assert_eq!(
+        missing.idempotency_law,
+        SubmissionIdempotencyLaw::NewSubmission
     );
     assert_eq!(
         missing.lifecycle_posture,
@@ -640,9 +648,22 @@ fn same_payload_new_submission_id_is_not_duplicate_without_policy() {
         ),
         SubmissionRetryPosture::NewSubmissionWithoutPolicyDedupe
     );
+    let same_envelope_new_id = index.status(
+        digest("submission:new-id"),
+        existing.canonical_envelope_digest,
+    );
+    assert_eq!(
+        same_envelope_new_id.idempotency_law,
+        SubmissionIdempotencyLaw::NewSubmissionWithoutPolicyDedupe
+    );
     assert_eq!(
         index.retry_posture(existing.submission_id, digest("envelope:different")),
         SubmissionRetryPosture::ConflictSameIdDifferentEnvelope
+    );
+    let conflicting = index.status(existing.submission_id, digest("envelope:different"));
+    assert_eq!(
+        conflicting.idempotency_law,
+        SubmissionIdempotencyLaw::ProtocolViolation
     );
 }
 

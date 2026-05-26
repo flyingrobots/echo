@@ -12,7 +12,7 @@ use warp_core::{
     causal_wal::{
         recover_in_memory_store, recover_receipt_index, recover_submission_index,
         recovered_submission_receipt_index_root, Lsn, RecoveredSubmissionPosture,
-        RecoveryAccessMode, WalBuildError, WalTransactionKind,
+        RecoveryAccessMode, WalBuildError, WalDurabilityMode, WalTransactionKind,
     },
     make_head_id, make_intent_kind, make_node_id, make_type_id, AuthoredObserverPlan,
     ContractMutationHandler, ContractOperationKind, ContractPackageIdentity, ContractQueryObserver,
@@ -407,6 +407,19 @@ fn runtime_wal_ack_submit_commits_acceptance_before_returning_handle() {
         app.submit_intent_with_runtime_wal_ack(envelope)
             .expect("runtime WAL ACK submit should return accepted evidence")
     };
+    assert_eq!(submission.evidence.schema_version, 1);
+    assert_eq!(submission.evidence.submission_id, submission.submission_id);
+    assert_eq!(
+        submission.evidence.canonical_envelope_digest,
+        envelope_digest
+    );
+    assert_eq!(
+        submission.evidence.durability_mode,
+        WalDurabilityMode::Buffered
+    );
+    assert_eq!(submission.evidence.lsn, Lsn::from_raw(1));
+    assert_ne!(submission.evidence.transaction_id.as_hash(), [0; 32]);
+    assert_ne!(submission.evidence.commit_digest, [0; 32]);
 
     let runtime_wal = host
         .runtime_wal()
@@ -450,6 +463,14 @@ fn runtime_wal_ack_duplicate_submit_does_not_append_second_acceptance() {
     assert!(!first.duplicate);
     assert!(duplicate.duplicate);
     assert_eq!(duplicate.submission_id, first.submission_id);
+    assert_eq!(
+        duplicate.evidence.commit_digest,
+        first.evidence.commit_digest
+    );
+    assert_eq!(
+        duplicate.evidence.transaction_id,
+        first.evidence.transaction_id
+    );
     assert_eq!(
         host.runtime_wal()
             .expect("runtime WAL should stay configured")

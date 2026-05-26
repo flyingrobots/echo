@@ -337,8 +337,9 @@ pub use tick_patch::{
 };
 #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 pub use trusted_runtime_host::{
-    TrustedRuntimeApp, TrustedRuntimeHost, TrustedRuntimeHostError, TrustedRuntimeHostRunReport,
-    TrustedRuntimeWal, TrustedRuntimeWalError,
+    RuntimeWalAcceptedSubmission, RuntimeWalAcceptedSubmissionEvidence, TrustedRuntimeApp,
+    TrustedRuntimeHost, TrustedRuntimeHostError, TrustedRuntimeHostRunReport, TrustedRuntimeWal,
+    TrustedRuntimeWalError,
 };
 pub use tx::TxId;
 pub use warp_state::{WarpInstance, WarpState};

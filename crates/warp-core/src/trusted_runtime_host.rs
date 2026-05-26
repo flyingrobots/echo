@@ -20,9 +20,10 @@ use crate::{
         RecoveredReceiptIndex, RecoveredSubmissionIndex, RecoveryAccessMode, RecoveryCertificate,
         RecoveryScanReport, SubmissionAcceptanceRecord, SubmissionRetryPosture, TickReceiptRecord,
         WalAppendAuthority, WalBuildError, WalCommittedTransaction, WalDurabilityMode,
-        WalReceiptCorrelationRecord, WalRecoveryError, WalSegmentId, WalStoreError, WalStorePort,
-        WalTickDecision, WalTransactionBuilder, WalTransactionCommit, WalTransactionId,
-        WalTransactionKind, WriterEpochId, WriterEpochRequest,
+        WalReceiptCorrelationRecord, WalRecordKind, WalRecoveryError, WalRecoveryIndexError,
+        WalSegmentId, WalStoreError, WalStorePort, WalTickDecision, WalTransactionBuilder,
+        WalTransactionCommit, WalTransactionId, WalTransactionKind, WriterEpochId,
+        WriterEpochRequest, CAUSAL_WAL_VERSION,
     },
     Engine, IngressEnvelope, InstalledContractPackage, InstalledContractPackageError,
     InstalledContractPackageRecord, IntentOutcome, IntentOutcomeDecision, IntentOutcomeObservation,
@@ -30,6 +31,7 @@ use crate::{
     ObservationService, OpticAdmissionTicket, ProvenanceService, ReceiptCorrelationRecord,
     RuntimeError, SchedulerCoordinator, StepRecord, TickReceiptRejection,
     TicketedRuntimeIngressAuthority, TicketedRuntimeIngressDisposition, WorldlineRuntime,
+    WriterHeadKey,
 };
 use crate::{Hash, HistoryError};
 
@@ -76,6 +78,13 @@ pub enum TrustedRuntimeWalError {
     /// WAL recovery failed while rebuilding runtime evidence.
     #[error("trusted runtime WAL recovery error: {0}")]
     Recovery(#[from] WalRecoveryError),
+    /// The duplicate retry path found committed acceptance posture but could
+    /// not recover the corresponding acceptance commit evidence.
+    #[error("trusted runtime WAL committed acceptance evidence missing for submission {submission_id:?}")]
+    CommittedAcceptanceEvidenceMissing {
+        /// Submission whose committed acceptance evidence should have existed.
+        submission_id: Hash,
+    },
     /// Runtime outcome evidence could not be matched to the receipt correlation.
     #[error(
         "trusted runtime WAL tick outcome unavailable for submission {submission_id:?} receipt {receipt_digest:?}"
@@ -116,6 +125,80 @@ pub struct TrustedRuntimeWalRecovery {
     pub submissions: RecoveredSubmissionIndex,
     /// Rebuilt receipt/correlation index.
     pub receipts: RecoveredReceiptIndex,
+}
+
+/// WAL-backed acceptance evidence returned only after the acceptance
+/// transaction has crossed the configured commit boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RuntimeWalAcceptedSubmissionEvidence {
+    /// Evidence schema version.
+    pub schema_version: u16,
+    /// Witnessed Echo submission id.
+    pub submission_id: Hash,
+    /// Canonical envelope digest accepted by Echo.
+    pub canonical_envelope_digest: Hash,
+    /// Digest for the accepted causal basis/head.
+    pub accepted_basis_digest: Hash,
+    /// Acceptance evidence digest returned to the caller.
+    pub acceptance_evidence_digest: Hash,
+    /// WAL durability mode used for the acceptance transaction.
+    pub durability_mode: WalDurabilityMode,
+    /// Writer epoch that committed the transaction.
+    pub writer_epoch: WriterEpochId,
+    /// Transaction id for the acceptance transaction.
+    pub transaction_id: WalTransactionId,
+    /// Last LSN for the committed acceptance transaction.
+    pub lsn: Lsn,
+    /// Commit digest for the accepted submission transaction.
+    pub commit_digest: Hash,
+}
+
+/// App-facing WAL-backed accepted submission handle.
+///
+/// The duplicated handle fields preserve the existing app-facing handle shape
+/// while making the durable evidence explicit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RuntimeWalAcceptedSubmission {
+    /// Content-addressed canonical ingress id.
+    pub ingress_id: Hash,
+    /// Resolved semantic writer-head target.
+    pub head_key: WriterHeadKey,
+    /// Witnessed Echo submission id.
+    pub submission_id: Hash,
+    /// Echo-owned intake/correlation generation.
+    pub submission_generation: crate::IngressSubmissionGeneration,
+    /// `true` when Echo had already witnessed this semantic submission.
+    pub duplicate: bool,
+    /// WAL-backed acceptance evidence.
+    pub evidence: RuntimeWalAcceptedSubmissionEvidence,
+}
+
+impl RuntimeWalAcceptedSubmission {
+    fn from_handle(
+        handle: IntentSubmissionHandle,
+        evidence: RuntimeWalAcceptedSubmissionEvidence,
+    ) -> Self {
+        Self {
+            ingress_id: handle.ingress_id,
+            head_key: handle.head_key,
+            submission_id: handle.submission_id,
+            submission_generation: handle.submission_generation,
+            duplicate: handle.duplicate,
+            evidence,
+        }
+    }
+
+    /// Returns the legacy app-facing submission handle fields.
+    #[must_use]
+    pub const fn handle(self) -> IntentSubmissionHandle {
+        IntentSubmissionHandle {
+            ingress_id: self.ingress_id,
+            head_key: self.head_key,
+            submission_id: self.submission_id,
+            submission_generation: self.submission_generation,
+            duplicate: self.duplicate,
+        }
+    }
 }
 
 /// Local trusted runtime host for the app-safe contract-host path.
@@ -487,7 +570,7 @@ impl TrustedRuntimeWal {
         &mut self,
         envelope: &IngressEnvelope,
         handle: IntentSubmissionHandle,
-    ) -> Result<WalTransactionCommit, TrustedRuntimeWalError> {
+    ) -> Result<(SubmissionAcceptanceRecord, WalTransactionCommit), TrustedRuntimeWalError> {
         let record = SubmissionAcceptanceRecord {
             submission_id: handle.submission_id,
             canonical_envelope_digest: envelope.ingress_id(),
@@ -511,7 +594,53 @@ impl TrustedRuntimeWal {
         )?;
         let commit = self.append_transaction(transaction)?;
         self.submission_frontier_digest = next_submission_frontier;
-        Ok(commit)
+        Ok((record, commit))
+    }
+
+    fn recovered_submission_acceptance(
+        &self,
+        submission_id: Hash,
+        canonical_envelope_digest: Hash,
+    ) -> Result<Option<(SubmissionAcceptanceRecord, WalTransactionCommit)>, TrustedRuntimeWalError>
+    {
+        let mut store = self.cloned_store();
+        let report = recover_in_memory_store(&mut store, RecoveryAccessMode::ReadOnly)?;
+        for transaction in report.transactions {
+            for frame in &transaction.frames {
+                if frame.header.record_kind == WalRecordKind::SubmissionAcceptedRecorded {
+                    let record = SubmissionAcceptanceRecord::from_payload_bytes(
+                        &frame.payload.canonical_bytes,
+                    )
+                    .map_err(WalRecoveryIndexError::from)
+                    .map_err(WalRecoveryError::from)?;
+                    if record.submission_id == submission_id
+                        && record.canonical_envelope_digest == canonical_envelope_digest
+                    {
+                        return Ok(Some((record, transaction.commit)));
+                    }
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    fn accepted_submission_evidence(
+        handle: IntentSubmissionHandle,
+        record: SubmissionAcceptanceRecord,
+        commit: WalTransactionCommit,
+    ) -> RuntimeWalAcceptedSubmissionEvidence {
+        RuntimeWalAcceptedSubmissionEvidence {
+            schema_version: CAUSAL_WAL_VERSION,
+            submission_id: handle.submission_id,
+            canonical_envelope_digest: record.canonical_envelope_digest,
+            accepted_basis_digest: accepted_basis_digest(handle.head_key),
+            acceptance_evidence_digest: record.acceptance_evidence_digest,
+            durability_mode: commit.durability_mode,
+            writer_epoch: commit.writer_epoch,
+            transaction_id: commit.transaction_id,
+            lsn: commit.last_lsn,
+            commit_digest: commit.commit_digest,
+        }
     }
 
     fn record_tick_receipt(
@@ -706,21 +835,38 @@ impl TrustedRuntimeApp<'_> {
     pub fn submit_intent_with_runtime_wal_ack(
         &mut self,
         envelope: IngressEnvelope,
-    ) -> Result<IntentSubmissionHandle, TrustedRuntimeHostError> {
+    ) -> Result<RuntimeWalAcceptedSubmission, TrustedRuntimeHostError> {
         if self.host.runtime_wal.is_none() {
             return Err(TrustedRuntimeHostError::RuntimeWalUnavailable);
         }
 
         let before_runtime = self.host.runtime.clone();
+        let canonical_envelope_digest = envelope.ingress_id();
         let handle = self.host.runtime.submit_app_intent(envelope.clone())?;
         let Some(runtime_wal) = self.host.runtime_wal.as_mut() else {
             self.host.runtime = before_runtime;
             return Err(TrustedRuntimeHostError::RuntimeWalUnavailable);
         };
         if handle.duplicate {
-            match runtime_wal.has_submission_acceptance(handle.submission_id, envelope.ingress_id())
+            match runtime_wal
+                .has_submission_acceptance(handle.submission_id, canonical_envelope_digest)
             {
-                Ok(true) => return Ok(handle),
+                Ok(true) => {
+                    let Some((record, commit)) = runtime_wal.recovered_submission_acceptance(
+                        handle.submission_id,
+                        canonical_envelope_digest,
+                    )?
+                    else {
+                        self.host.runtime = before_runtime;
+                        return Err(TrustedRuntimeWalError::CommittedAcceptanceEvidenceMissing {
+                            submission_id: handle.submission_id,
+                        }
+                        .into());
+                    };
+                    let evidence =
+                        TrustedRuntimeWal::accepted_submission_evidence(handle, record, commit);
+                    return Ok(RuntimeWalAcceptedSubmission::from_handle(handle, evidence));
+                }
                 Ok(false) => {}
                 Err(error) => {
                     self.host.runtime = before_runtime;
@@ -728,11 +874,15 @@ impl TrustedRuntimeApp<'_> {
                 }
             }
         }
-        if let Err(error) = runtime_wal.record_submission_acceptance(&envelope, handle) {
-            self.host.runtime = before_runtime;
-            return Err(error.into());
-        }
-        Ok(handle)
+        let (record, commit) = match runtime_wal.record_submission_acceptance(&envelope, handle) {
+            Ok(evidence) => evidence,
+            Err(error) => {
+                self.host.runtime = before_runtime;
+                return Err(error.into());
+            }
+        };
+        let evidence = TrustedRuntimeWal::accepted_submission_evidence(handle, record, commit);
+        Ok(RuntimeWalAcceptedSubmission::from_handle(handle, evidence))
     }
 
     /// Observes the product-facing outcome for one witnessed submission.
@@ -787,6 +937,15 @@ fn acceptance_evidence_digest(handle: IntentSubmissionHandle) -> Hash {
     hasher.update(&handle.submission_id);
     hasher.update(&handle.submission_generation.as_u64().to_le_bytes());
     hasher.update(&[u8::from(handle.duplicate)]);
+    hasher.finalize().into()
+}
+
+fn accepted_basis_digest(head_key: WriterHeadKey) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
+    hasher.update(b"accepted-basis");
+    hasher.update(head_key.worldline_id.as_bytes());
+    hasher.update(head_key.head_id.as_bytes());
     hasher.finalize().into()
 }
 

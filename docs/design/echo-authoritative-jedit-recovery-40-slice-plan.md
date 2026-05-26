@@ -185,7 +185,7 @@ handoff between the two.
 ### Gate A: Echo Recovery Truth
 
 - [x] Slice 1: [Echo] WAL reality and stale claim cleanup.
-- [ ] Slice 2: [Echo] accepted-submission evidence contract.
+- [x] Slice 2: [Echo] accepted-submission evidence contract.
 - [ ] Slice 3: [Echo] generic recovery posture taxonomy.
 - [ ] Slice 4: [Echo] duplicate submission and idempotency law.
 - [ ] Slice 5: [Echo] crashpoint fixture contract for external apps.

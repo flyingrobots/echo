@@ -1122,6 +1122,10 @@ fn crash_after_submission_commit_before_ack_different_envelope_is_protocol_viola
 
     let report = must_ok(fixture.recover_read_only());
     let index = must_ok(recover_submission_index(&report));
+    let status = index.status(
+        submission_acceptance("conflict").submission_id,
+        digest("hardening:envelope:conflict:changed"),
+    );
 
     assert_eq!(
         index.retry_posture(
@@ -1130,6 +1134,20 @@ fn crash_after_submission_commit_before_ack_different_envelope_is_protocol_viola
         ),
         SubmissionRetryPosture::ConflictSameIdDifferentEnvelope
     );
+    assert_eq!(
+        status.intake_disposition,
+        SubmissionIntakeDisposition::ConflictingDuplicate
+    );
+    assert_eq!(
+        status.idempotency_law,
+        SubmissionIdempotencyLaw::ProtocolViolation
+    );
+    assert_eq!(
+        status.lifecycle_posture,
+        SubmissionLifecyclePosture::NotFound
+    );
+    assert_eq!(status.decision_result, SubmissionDecisionResult::None);
+    assert_eq!(status.evidence_health, RecoveryEvidenceHealth::Complete);
 }
 
 #[test]

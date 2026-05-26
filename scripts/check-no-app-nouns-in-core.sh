@@ -11,21 +11,50 @@ FORBIDDEN_PATTERNS=(
   'createBuffer'
   'replaceRange'
   'textWindow'
+  'TextBuffer'
   'TextBufferOptic'
+  'TextBufferSession'
+  'insertText'
+  'deleteRange'
+  'saveFile'
   'jedit'
+  'editor'
 )
 
-CORE_SOURCE_DIRS=(
-  "$ROOT_DIR/crates/warp-core/src"
-  "$ROOT_DIR/crates/warp-wasm/src"
-  "$ROOT_DIR/crates/echo-wasm-abi/src"
-)
+if [[ "${1:-}" == "--self-test" ]]; then
+  tmp_dir="$(mktemp -d)"
+  trap 'rm -rf "$tmp_dir"' EXIT
+
+  mkdir -p "$tmp_dir/generic-src" "$tmp_dir/violating-src"
+  printf 'pub struct RuntimeContract;\n' >"$tmp_dir/generic-src/lib.rs"
+  printf 'pub struct TextBuffer;\n' >"$tmp_dir/violating-src/lib.rs"
+
+  ECHO_APP_NOUN_GUARD_ROOTS="$tmp_dir/generic-src" "$0"
+  if ECHO_APP_NOUN_GUARD_ROOTS="$tmp_dir/violating-src" "$0" >/tmp/echo-app-noun-guard.out 2>&1; then
+    echo "self-test expected app-noun guard to fail on TextBuffer fixture" >&2
+    cat /tmp/echo-app-noun-guard.out >&2
+    exit 1
+  fi
+
+  echo "app-noun guard self-test passed"
+  exit 0
+fi
+
+if [[ -n "${ECHO_APP_NOUN_GUARD_ROOTS:-}" ]]; then
+  IFS=: read -r -a CORE_SOURCE_DIRS <<<"$ECHO_APP_NOUN_GUARD_ROOTS"
+else
+  CORE_SOURCE_DIRS=(
+    "$ROOT_DIR/crates/warp-core/src"
+    "$ROOT_DIR/crates/warp-wasm/src"
+    "$ROOT_DIR/crates/echo-wasm-abi/src"
+  )
+fi
 
 # Scope is intentional: production core source must stay generic. Tests and
 # docs may still carry app-shaped fixtures as external-consumer examples.
 matches=0
 for pattern in "${FORBIDDEN_PATTERNS[@]}"; do
-  if rg -n --fixed-strings "$pattern" "${CORE_SOURCE_DIRS[@]}"; then
+  if rg -n --fixed-strings --ignore-case "$pattern" "${CORE_SOURCE_DIRS[@]}"; then
     matches=1
   fi
 done

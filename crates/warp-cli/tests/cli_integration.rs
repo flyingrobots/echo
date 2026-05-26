@@ -341,6 +341,12 @@ fn wal_doctor_json_reports_read_only_empty_store() -> TestResult {
     assert_eq!(json["tail_posture"], "Clean");
     assert_eq!(json["committed_transactions_replayed"], 0);
     assert_eq!(json["obstruction_count"], 0);
+    assert_eq!(json["submission_posture_counts"]["total"], 0);
+    assert_eq!(json["submission_posture_counts"]["accepted_pending"], 0);
+    assert_eq!(json["submission_posture_counts"]["decided_applied"], 0);
+    assert_eq!(json["submission_posture_counts"]["decided_rejected"], 0);
+    assert_eq!(json["submission_posture_counts"]["obstructed"], 0);
+    assert_eq!(json["submission_posture_counts"]["recovery_faulted"], 0);
     Ok(())
 }
 
@@ -363,6 +369,38 @@ fn wal_doctor_json_reports_committed_filesystem_wal() -> TestResult {
     assert_eq!(json["tail_posture"], "Clean");
     assert_eq!(json["committed_transactions_replayed"], 1);
     assert_eq!(json["obstruction_count"], 0);
+    assert_eq!(json["submission_posture_counts"]["total"], 1);
+    assert_eq!(json["submission_posture_counts"]["accepted_pending"], 1);
+    assert_eq!(json["submission_posture_counts"]["decided_applied"], 0);
+    assert_eq!(json["submission_posture_counts"]["decided_rejected"], 0);
+    assert_eq!(json["submission_posture_counts"]["obstructed"], 0);
+    assert_eq!(json["submission_posture_counts"]["recovery_faulted"], 0);
+    Ok(())
+}
+
+#[test]
+fn wal_doctor_json_reports_decided_submission_counts() -> TestResult {
+    let temp = filesystem_wal_with_decided_submission()?;
+    let assert = echo_cli()
+        .args([
+            "--format",
+            "json",
+            "wal",
+            "doctor",
+            temp.path().to_str().ok_or("temp path is not UTF-8")?,
+        ])
+        .assert()
+        .success();
+    let json: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout)?;
+
+    assert_eq!(json["posture"], "Recoverable");
+    assert_eq!(json["committed_transactions_replayed"], 2);
+    assert_eq!(json["submission_posture_counts"]["total"], 1);
+    assert_eq!(json["submission_posture_counts"]["accepted_pending"], 0);
+    assert_eq!(json["submission_posture_counts"]["decided_applied"], 1);
+    assert_eq!(json["submission_posture_counts"]["decided_rejected"], 0);
+    assert_eq!(json["submission_posture_counts"]["obstructed"], 0);
+    assert_eq!(json["submission_posture_counts"]["recovery_faulted"], 0);
     Ok(())
 }
 

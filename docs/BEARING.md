@@ -306,7 +306,7 @@ follows the gate order below.
 - [x] Slice 7: \[Echo] crash-before-ACK retry witness.
 - [x] Slice 8: \[Echo] conflicting duplicate rejection witness.
 - [x] Slice 9: \[Echo] app-safe submission posture read surface.
-- [ ] Slice 10: \[Echo] recovery certificate submission posture counts.
+- [x] Slice 10: \[Echo] recovery certificate submission posture counts.
 - [ ] Slice 11: \[Echo] receipt correlation recovery witness.
 - [ ] Slice 12: \[Echo] tick commit-before-publish failure injection.
 - [ ] Slice 13: \[Echo] bounded reading identity recovery witness.

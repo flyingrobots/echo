@@ -8,7 +8,8 @@ use anyhow::{bail, Result};
 use serde::Serialize;
 use warp_core::causal_wal::{
     doctor_filesystem_store, recover_filesystem_store, recover_receipt_index,
-    recover_submission_index, RecoveryAccessMode, RecoveryTailPosture,
+    recover_submission_index, RecoveryAccessMode, RecoverySubmissionPostureCounts,
+    RecoveryTailPosture,
 };
 
 use crate::cli::OutputFormat;
@@ -21,6 +22,18 @@ pub(crate) struct WalDoctorOutput {
     pub(crate) tail_posture: String,
     pub(crate) committed_transactions_replayed: u64,
     pub(crate) obstruction_count: u64,
+    pub(crate) submission_posture_counts: WalSubmissionPostureCountsOutput,
+}
+
+/// Recovered submission count fields for WAL doctor reports.
+#[derive(Debug, Serialize)]
+pub(crate) struct WalSubmissionPostureCountsOutput {
+    pub(crate) total: u64,
+    pub(crate) accepted_pending: u64,
+    pub(crate) decided_applied: u64,
+    pub(crate) decided_rejected: u64,
+    pub(crate) obstructed: u64,
+    pub(crate) recovery_faulted: u64,
 }
 
 /// Read-only recovered posture for one submission id/envelope pair.
@@ -81,17 +94,39 @@ pub(crate) fn doctor(root: &Path, format: &OutputFormat) -> Result<()> {
             .recovery_certificate
             .committed_transactions_replayed,
         obstruction_count: report.recovery_certificate.obstruction_count,
+        submission_posture_counts: submission_posture_counts_output(
+            report.recovery_certificate.submission_posture_counts,
+        ),
     };
     let text = format!(
-        "echo-cli wal doctor\nRoot: {}\nPosture: {}\nTail: {}\nCommitted transactions replayed: {}\nObstructions: {}\n",
+        "echo-cli wal doctor\nRoot: {}\nPosture: {}\nTail: {}\nCommitted transactions replayed: {}\nObstructions: {}\nRecovered submissions: total={} accepted_pending={} decided_applied={} decided_rejected={} obstructed={} recovery_faulted={}\n",
         root.display(),
         output.posture,
         output.tail_posture,
         output.committed_transactions_replayed,
-        output.obstruction_count
+        output.obstruction_count,
+        output.submission_posture_counts.total,
+        output.submission_posture_counts.accepted_pending,
+        output.submission_posture_counts.decided_applied,
+        output.submission_posture_counts.decided_rejected,
+        output.submission_posture_counts.obstructed,
+        output.submission_posture_counts.recovery_faulted
     );
     let json = serde_json::to_value(&output)?;
     emit(format, &text, &json)
+}
+
+fn submission_posture_counts_output(
+    counts: RecoverySubmissionPostureCounts,
+) -> WalSubmissionPostureCountsOutput {
+    WalSubmissionPostureCountsOutput {
+        total: counts.total,
+        accepted_pending: counts.accepted_pending,
+        decided_applied: counts.decided_applied,
+        decided_rejected: counts.decided_rejected,
+        obstructed: counts.obstructed,
+        recovery_faulted: counts.recovery_faulted,
+    }
 }
 
 /// Runs `echo-cli wal submission-posture`.

@@ -2071,6 +2071,23 @@ pub enum RecoveredSubmissionPosture {
     RecoveryFaulted,
 }
 
+/// Counts recovered submissions by durable posture.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RecoverySubmissionPostureCounts {
+    /// Total recovered submission posture entries across all buckets.
+    pub total: u64,
+    /// Accepted submissions without a committed scheduler decision.
+    pub accepted_pending: u64,
+    /// Submissions decided as applied.
+    pub decided_applied: u64,
+    /// Submissions decided as rejected.
+    pub decided_rejected: u64,
+    /// Submissions decided as obstructed.
+    pub obstructed: u64,
+    /// Submissions whose recovered evidence is faulted.
+    pub recovery_faulted: u64,
+}
+
 /// Retry posture for a submitted id/envelope pair after recovery.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SubmissionRetryPosture {
@@ -2354,6 +2371,35 @@ impl RecoveredSubmissionIndex {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.submissions.is_empty()
+    }
+
+    /// Counts recovered submissions by durable posture.
+    #[must_use]
+    pub fn posture_counts(&self) -> RecoverySubmissionPostureCounts {
+        let mut counts = RecoverySubmissionPostureCounts {
+            total: len_u64(self.submissions.len()),
+            ..RecoverySubmissionPostureCounts::default()
+        };
+        for entry in self.submissions.values() {
+            match entry.posture {
+                RecoveredSubmissionPosture::AcceptedPending => {
+                    counts.accepted_pending += 1;
+                }
+                RecoveredSubmissionPosture::DecidedApplied => {
+                    counts.decided_applied += 1;
+                }
+                RecoveredSubmissionPosture::DecidedRejected => {
+                    counts.decided_rejected += 1;
+                }
+                RecoveredSubmissionPosture::Obstructed => {
+                    counts.obstructed += 1;
+                }
+                RecoveredSubmissionPosture::RecoveryFaulted => {
+                    counts.recovery_faulted += 1;
+                }
+            }
+        }
+        counts
     }
 
     /// Classifies retry posture for a submission id and canonical envelope.
@@ -2688,6 +2734,8 @@ pub struct RecoveryCertificate {
     pub tail_posture: RecoveryTailPosture,
     /// Obstruction count.
     pub obstruction_count: u64,
+    /// Recovered submission counts by durable posture.
+    pub submission_posture_counts: RecoverySubmissionPostureCounts,
     /// Final frontier root.
     pub recovered_frontier_root: Hash,
     /// Final index root.
@@ -2726,6 +2774,7 @@ impl WalDoctorReport {
             "tail_posture",
             "committed_transactions_replayed",
             "obstruction_count",
+            "submission_posture_counts",
             "recovered_frontier_root",
             "recovered_indexes_root",
         ]
@@ -4571,6 +4620,14 @@ pub fn build_recovery_certificate(
     recovered_frontier_root: Hash,
     recovered_indexes_root: Hash,
 ) -> RecoveryCertificate {
+    let submission_posture_counts = recover_submission_index(report).map_or_else(
+        |_| RecoverySubmissionPostureCounts {
+            total: 1,
+            recovery_faulted: 1,
+            ..RecoverySubmissionPostureCounts::default()
+        },
+        |index| index.posture_counts(),
+    );
     RecoveryCertificate {
         checkpoint_used,
         first_lsn: report.first_committed_lsn(),
@@ -4578,6 +4635,7 @@ pub fn build_recovery_certificate(
         committed_transactions_replayed: len_u64(report.transactions.len()),
         tail_posture: report.tail_posture,
         obstruction_count,
+        submission_posture_counts,
         recovered_frontier_root,
         recovered_indexes_root,
     }
@@ -4632,6 +4690,11 @@ fn obstructed_doctor_report() -> WalDoctorReport {
             committed_transactions_replayed: 0,
             tail_posture: RecoveryTailPosture::Clean,
             obstruction_count: 1,
+            submission_posture_counts: RecoverySubmissionPostureCounts {
+                total: 1,
+                recovery_faulted: 1,
+                ..RecoverySubmissionPostureCounts::default()
+            },
             recovered_frontier_root: [0; 32],
             recovered_indexes_root: [0; 32],
         },

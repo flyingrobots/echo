@@ -19,14 +19,15 @@ use warp_core::causal_wal::{
     MaterializationObservationRecord, MaterializationReplayPosture, MissingMaterialScope,
     ObjectStoreCapabilityError, ObjectStoreReadAfterWritePosture, ObjectStoreWalCapabilities,
     PayloadCodecId, PayloadSchemaId, ReadingRefRecord, RecoveredState, RecoveredSubmissionPosture,
-    RecoveryAccessMode, RecoveryEvidenceHealth, RecoveryTailPosture, RetainedMaterialKind,
-    RetainedMaterialRecord, SubmissionAcceptanceRecord, SubmissionDecisionResult,
-    SubmissionIdempotencyLaw, SubmissionIntakeDisposition, SubmissionLifecyclePosture,
-    SubmissionRetryPosture, TickReceiptRecord, TransactionLocalIndex, WalAppendAuthority,
-    WalBuildError, WalCommittedTransaction, WalDoctorPosture, WalDurabilityMode, WalManifest,
-    WalReceiptCorrelationRecord, WalRecordKind, WalReleaseReadinessGates, WalSchemaLintError,
-    WalSegmentId, WalStoreError, WalStorePort, WalTickDecision, WalTransactionBuilder,
-    WalTransactionId, WalTransactionKind, WriterEpochId, WriterEpochRequest,
+    RecoveryAccessMode, RecoveryEvidenceHealth, RecoveryScanReport, RecoveryTailPosture,
+    RetainedMaterialKind, RetainedMaterialRecord, SubmissionAcceptanceRecord,
+    SubmissionDecisionResult, SubmissionIdempotencyLaw, SubmissionIntakeDisposition,
+    SubmissionLifecyclePosture, SubmissionRetryPosture, TickReceiptRecord, TransactionLocalIndex,
+    WalAppendAuthority, WalBuildError, WalCommittedTransaction, WalDoctorPosture,
+    WalDurabilityMode, WalManifest, WalReceiptCorrelationRecord, WalRecordKind,
+    WalRecoveredTransaction, WalReleaseReadinessGates, WalSchemaLintError, WalSegmentId,
+    WalStoreError, WalStorePort, WalTickDecision, WalTransactionBuilder, WalTransactionId,
+    WalTransactionKind, WriterEpochId, WriterEpochRequest,
 };
 use warp_core::Hash;
 
@@ -264,6 +265,13 @@ fn durable_tick_transaction(
             ),
         ],
     ))
+}
+
+fn recovered_transaction(tx: WalCommittedTransaction) -> WalRecoveredTransaction {
+    WalRecoveredTransaction {
+        commit: tx.commit,
+        frames: tx.frames,
+    }
 }
 
 #[test]
@@ -687,6 +695,57 @@ fn recovery_certificate_reports_clean_submission_posture() {
     assert_eq!(certificate.first_lsn, Some(Lsn::from_raw(0)));
     assert_eq!(certificate.last_lsn, Some(Lsn::from_raw(1)));
     assert_eq!(certificate.tail_posture, RecoveryTailPosture::Clean);
+    assert_eq!(certificate.submission_posture_counts.total, 1);
+    assert_eq!(certificate.submission_posture_counts.accepted_pending, 1);
+    assert_eq!(certificate.submission_posture_counts.decided_applied, 0);
+    assert_eq!(certificate.submission_posture_counts.decided_rejected, 0);
+    assert_eq!(certificate.submission_posture_counts.obstructed, 0);
+    assert_eq!(certificate.submission_posture_counts.recovery_faulted, 0);
+}
+
+#[test]
+fn recovery_certificate_counts_mixed_submission_postures() {
+    let report = RecoveryScanReport {
+        transactions: vec![
+            recovered_transaction(durable_submission_transaction("pending", Lsn::from_raw(0))),
+            recovered_transaction(durable_submission_transaction("applied", Lsn::from_raw(2))),
+            recovered_transaction(durable_tick_transaction(
+                "applied",
+                Lsn::from_raw(4),
+                WalTickDecision::Applied,
+            )),
+            recovered_transaction(durable_submission_transaction("rejected", Lsn::from_raw(8))),
+            recovered_transaction(durable_tick_transaction(
+                "rejected",
+                Lsn::from_raw(10),
+                WalTickDecision::RejectedFootprintConflict,
+            )),
+            recovered_transaction(durable_submission_transaction(
+                "obstructed",
+                Lsn::from_raw(14),
+            )),
+            recovered_transaction(durable_tick_transaction(
+                "obstructed",
+                Lsn::from_raw(16),
+                WalTickDecision::Obstructed,
+            )),
+        ],
+        tail_posture: RecoveryTailPosture::Clean,
+    };
+    let index = recover_submission_index(&report).expect("mixed submission index should recover");
+    let certificate =
+        build_recovery_certificate(&report, None, 0, digest("frontiers"), digest("indexes"));
+
+    assert_eq!(
+        certificate.submission_posture_counts,
+        index.posture_counts()
+    );
+    assert_eq!(certificate.submission_posture_counts.total, 4);
+    assert_eq!(certificate.submission_posture_counts.accepted_pending, 1);
+    assert_eq!(certificate.submission_posture_counts.decided_applied, 1);
+    assert_eq!(certificate.submission_posture_counts.decided_rejected, 1);
+    assert_eq!(certificate.submission_posture_counts.obstructed, 1);
+    assert_eq!(certificate.submission_posture_counts.recovery_faulted, 0);
 }
 
 #[test]

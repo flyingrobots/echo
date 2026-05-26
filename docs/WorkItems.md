@@ -56,14 +56,13 @@ Current active signposts:
 Progress bars from the current work stream:
 
 ```text
-[######----] Echo/jedit retained-evidence release-gate batch [6/10 slices]
-[######----] PR checkpoint batch [6/10 slices before next PR]
+[#######---] Echo/jedit retained-evidence release-gate batch [7/10 slices]
+[#######---] PR checkpoint batch [7/10 slices before next PR]
 [##########] Echo WAL truth boundary and runtime ACK plumbing [95/95 slices]
 ```
 
 Immediate unfinished slice in the current batch:
 
-- Slice 7: jedit generated structural-history request path.
 - Slice 8: generated package install path.
 - Slice 9: jedit real mutation and query round trip.
 - Slice 10: jedit non-happy path and release-gate report.

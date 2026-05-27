@@ -153,6 +153,18 @@ pub enum WalDurabilityMode {
 }
 
 impl WalDurabilityMode {
+    /// Stable snake-case label for JSON/read-model surfaces.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::StrictFilesystem => "strict_filesystem",
+            Self::StrictObjectStore => "strict_object_store",
+            Self::Buffered => "buffered",
+            Self::ReadOnlyRecovery => "read_only_recovery",
+            Self::Disabled => "disabled",
+        }
+    }
+
     fn code(self) -> u8 {
         match self {
             Self::StrictFilesystem => 1,
@@ -3752,6 +3764,18 @@ pub enum CausalCommitEvidenceSource {
     EchoRecoveryCertificate,
 }
 
+impl CausalCommitEvidenceSource {
+    /// Stable snake-case label for JSON/read-model surfaces.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::EchoWal => "echo_wal",
+            Self::EchoCheckpoint => "echo_checkpoint",
+            Self::EchoRecoveryCertificate => "echo_recovery_certificate",
+        }
+    }
+}
+
 /// Causal commit evidence posture.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CausalCommitEvidencePosture {
@@ -3761,6 +3785,18 @@ pub enum CausalCommitEvidencePosture {
     Absent,
     /// Commit evidence is obstructed.
     Obstructed,
+}
+
+impl CausalCommitEvidencePosture {
+    /// Stable snake-case label for JSON/read-model surfaces.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Present => "present",
+            Self::Absent => "absent",
+            Self::Obstructed => "obstructed",
+        }
+    }
 }
 
 /// Host-neutral causal commit evidence projected for debuggers and operators.

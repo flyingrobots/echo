@@ -7,13 +7,18 @@ use std::path::Path;
 use anyhow::{bail, Result};
 use serde::Serialize;
 use warp_core::causal_wal::{
-    doctor_filesystem_store, recover_filesystem_store, recover_receipt_index,
-    recover_submission_index, RecoveryAccessMode, RecoverySubmissionPostureCounts,
-    RecoveryTailPosture,
+    doctor_filesystem_store, project_absent_causal_commit_evidence, project_causal_commit_evidence,
+    recover_filesystem_store, recover_receipt_index, recover_submission_index,
+    CausalCommitEvidence, CausalCommitEvidencePosture, RecoveryAccessMode,
+    RecoverySubmissionPostureCounts, RecoveryTailPosture, WalDurabilityMode,
 };
 
 use crate::cli::OutputFormat;
 use crate::output::{emit, hex_hash};
+
+const CAUSAL_COMMIT_EVIDENCE_SCHEMA_VERSION: &str = "echo.causal_commit_evidence.v1";
+const CAUSAL_COMMIT_EVIDENCE_CONTRACT: &str = "echo.causal_commit_evidence";
+const ECHO_CLI_PRODUCER: &str = "echo-cli";
 
 /// Read-only WAL doctor JSON/text report.
 #[derive(Debug, Serialize)]
@@ -84,6 +89,40 @@ pub(crate) struct WalSubmissionEvidenceHealthOutput {
     pub(crate) status: &'static str,
 }
 
+/// Versioned causal commit evidence envelope.
+#[derive(Debug, Serialize)]
+pub(crate) struct CausalCommitEvidenceEnvelopeOutput {
+    pub(crate) schema_version: &'static str,
+    pub(crate) producer: &'static str,
+    pub(crate) producer_version: &'static str,
+    pub(crate) compatibility: CausalCommitEvidenceCompatibilityOutput,
+    pub(crate) evidence: Vec<CausalCommitEvidenceOutput>,
+}
+
+/// Compatibility metadata for external consumers.
+#[derive(Debug, Serialize)]
+pub(crate) struct CausalCommitEvidenceCompatibilityOutput {
+    pub(crate) contract: &'static str,
+    pub(crate) minimum_consumer_schema_version: &'static str,
+}
+
+/// Stable JSON shape for one causal commit evidence anchor.
+#[derive(Debug, Serialize)]
+pub(crate) struct CausalCommitEvidenceOutput {
+    pub(crate) evidence_id: String,
+    pub(crate) posture: &'static str,
+    pub(crate) source: &'static str,
+    pub(crate) durability_mode: &'static str,
+    pub(crate) writer_epoch: String,
+    pub(crate) lsn: u64,
+    pub(crate) transaction_id: String,
+    pub(crate) commit_digest: String,
+    pub(crate) checkpoint_digest: Option<String>,
+    pub(crate) recovery_certificate_digest: Option<String>,
+    pub(crate) obstruction_digest: Option<String>,
+    pub(crate) reason: Option<&'static str>,
+}
+
 /// Runs `echo-cli wal doctor`.
 pub(crate) fn doctor(root: &Path, format: &OutputFormat) -> Result<()> {
     let report = doctor_filesystem_store(root)?;
@@ -126,6 +165,80 @@ fn submission_posture_counts_output(
         decided_rejected: counts.decided_rejected,
         obstructed: counts.obstructed,
         recovery_faulted: counts.recovery_faulted,
+    }
+}
+
+/// Runs `echo-cli recovery commit-evidence`.
+pub(crate) fn recovery_commit_evidence(
+    root: &Path,
+    evidence_id: Option<&str>,
+    format: &OutputFormat,
+) -> Result<()> {
+    let recovery = recover_filesystem_store(root, RecoveryAccessMode::ReadOnly)?;
+    let evidence_filter = evidence_id.map(parse_hash_hex).transpose()?;
+    let mut evidence = project_causal_commit_evidence(&recovery);
+    if let Some(evidence_id) = evidence_filter {
+        evidence.retain(|item| item.evidence_id == evidence_id);
+        if evidence.is_empty() {
+            evidence.push(project_absent_causal_commit_evidence(
+                evidence_id,
+                WalDurabilityMode::ReadOnlyRecovery,
+            ));
+        }
+    }
+    let output = causal_commit_evidence_envelope(evidence);
+    let text = format!(
+        "echo-cli recovery commit-evidence\nRoot: {}\nSchema: {}\nEvidence count: {}\n",
+        root.display(),
+        output.schema_version,
+        output.evidence.len()
+    );
+    let json = serde_json::to_value(&output)?;
+    emit(format, &text, &json)
+}
+
+fn causal_commit_evidence_envelope(
+    evidence: Vec<CausalCommitEvidence>,
+) -> CausalCommitEvidenceEnvelopeOutput {
+    CausalCommitEvidenceEnvelopeOutput {
+        schema_version: CAUSAL_COMMIT_EVIDENCE_SCHEMA_VERSION,
+        producer: ECHO_CLI_PRODUCER,
+        producer_version: env!("CARGO_PKG_VERSION"),
+        compatibility: CausalCommitEvidenceCompatibilityOutput {
+            contract: CAUSAL_COMMIT_EVIDENCE_CONTRACT,
+            minimum_consumer_schema_version: CAUSAL_COMMIT_EVIDENCE_SCHEMA_VERSION,
+        },
+        evidence: evidence
+            .into_iter()
+            .map(causal_commit_evidence_output)
+            .collect(),
+    }
+}
+
+fn causal_commit_evidence_output(evidence: CausalCommitEvidence) -> CausalCommitEvidenceOutput {
+    CausalCommitEvidenceOutput {
+        evidence_id: hex_hash(&evidence.evidence_id),
+        posture: evidence.posture.as_str(),
+        source: evidence.source.as_str(),
+        durability_mode: evidence.durability_mode.as_str(),
+        writer_epoch: hex_hash(&evidence.writer_epoch.as_hash()),
+        lsn: evidence.lsn.as_u64(),
+        transaction_id: hex_hash(&evidence.transaction_id.as_hash()),
+        commit_digest: hex_hash(&evidence.commit_digest),
+        checkpoint_digest: evidence.checkpoint_digest.map(|digest| hex_hash(&digest)),
+        recovery_certificate_digest: evidence
+            .recovery_certificate_digest
+            .map(|digest| hex_hash(&digest)),
+        obstruction_digest: evidence.obstruction_digest.map(|digest| hex_hash(&digest)),
+        reason: causal_commit_evidence_reason(evidence),
+    }
+}
+
+fn causal_commit_evidence_reason(evidence: CausalCommitEvidence) -> Option<&'static str> {
+    match evidence.posture {
+        CausalCommitEvidencePosture::Present => None,
+        CausalCommitEvidencePosture::Absent => Some("no_recovered_commit_anchor"),
+        CausalCommitEvidencePosture::Obstructed => Some("commit_anchor_obstructed"),
     }
 }
 

@@ -326,7 +326,8 @@ fn recovery_help_lists_app_safe_submission_posture() {
         .args(["recovery", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("submission-posture"));
+        .stdout(predicate::str::contains("submission-posture"))
+        .stdout(predicate::str::contains("commit-evidence"));
 }
 
 #[test]
@@ -496,6 +497,99 @@ fn recovery_submission_posture_rejects_mutation_flags() -> TestResult {
         .assert()
         .failure()
         .stderr(predicate::str::contains("unexpected argument"));
+    Ok(())
+}
+
+#[test]
+fn recovery_commit_evidence_json_reports_versioned_contract() -> TestResult {
+    let temp = filesystem_wal_with_decided_submission()?;
+    let assert = echo_cli()
+        .args([
+            "--format",
+            "json",
+            "recovery",
+            "commit-evidence",
+            temp.path().to_str().ok_or("temp path is not UTF-8")?,
+        ])
+        .assert()
+        .success();
+    let json: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout)?;
+    let encoded = json.to_string();
+
+    assert_eq!(json["schema_version"], "echo.causal_commit_evidence.v1");
+    assert_eq!(json["producer"], "echo-cli");
+    assert!(json["producer_version"]
+        .as_str()
+        .is_some_and(|v| !v.is_empty()));
+    assert_eq!(
+        json["compatibility"]["contract"],
+        "echo.causal_commit_evidence"
+    );
+    assert_eq!(
+        json["compatibility"]["minimum_consumer_schema_version"],
+        "echo.causal_commit_evidence.v1"
+    );
+    assert_eq!(
+        json["evidence"]
+            .as_array()
+            .ok_or("evidence is not array")?
+            .len(),
+        2
+    );
+    assert_eq!(json["evidence"][0]["posture"], "present");
+    assert_eq!(json["evidence"][0]["source"], "echo_wal");
+    assert_eq!(json["evidence"][0]["durability_mode"], "buffered");
+    assert_eq!(
+        json["evidence"][0]["writer_epoch"],
+        hex::encode(digest("epoch"))
+    );
+    assert_eq!(json["evidence"][0]["lsn"], 1);
+    assert_eq!(
+        json["evidence"][0]["transaction_id"],
+        hex::encode(digest("transaction:accepted"))
+    );
+    assert!(json["evidence"][0]["evidence_id"]
+        .as_str()
+        .is_some_and(|id| id.len() == 64));
+    assert!(json["evidence"][0]["commit_digest"]
+        .as_str()
+        .is_some_and(|digest| digest.len() == 64));
+    assert!(json["evidence"][0]["reason"].is_null());
+    assert!(!encoded.contains(temp.path().to_str().ok_or("temp path is not UTF-8")?));
+    assert!(!encoded.contains("jedit"));
+    Ok(())
+}
+
+#[test]
+fn recovery_commit_evidence_json_reports_absent_filtered_anchor() -> TestResult {
+    let temp = filesystem_wal_with_decided_submission()?;
+    let missing_evidence_id = hex::encode(digest("missing:evidence"));
+    let assert = echo_cli()
+        .args([
+            "--format",
+            "json",
+            "recovery",
+            "commit-evidence",
+            temp.path().to_str().ok_or("temp path is not UTF-8")?,
+            "--evidence-id",
+            &missing_evidence_id,
+        ])
+        .assert()
+        .success();
+    let json: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout)?;
+
+    assert_eq!(
+        json["evidence"]
+            .as_array()
+            .ok_or("evidence is not array")?
+            .len(),
+        1
+    );
+    assert_eq!(json["evidence"][0]["evidence_id"], missing_evidence_id);
+    assert_eq!(json["evidence"][0]["posture"], "absent");
+    assert_eq!(json["evidence"][0]["source"], "echo_wal");
+    assert_eq!(json["evidence"][0]["durability_mode"], "read_only_recovery");
+    assert_eq!(json["evidence"][0]["reason"], "no_recovered_commit_anchor");
     Ok(())
 }
 

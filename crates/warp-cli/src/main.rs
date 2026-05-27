@@ -58,6 +58,13 @@ fn main() -> Result<()> {
         } => wal::submission_posture(root, submission_id, canonical_envelope_digest, &cli.format),
         Commands::Recovery {
             command:
+                RecoveryCommands::CommitEvidence {
+                    ref root,
+                    ref evidence_id,
+                },
+        } => wal::recovery_commit_evidence(root, evidence_id.as_deref(), &cli.format),
+        Commands::Recovery {
+            command:
                 RecoveryCommands::SubmissionPosture {
                     ref root,
                     ref submission_id,

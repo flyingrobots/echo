@@ -112,6 +112,14 @@ pub enum WalCommands {
 /// App-safe recovery read subcommands.
 #[derive(Subcommand, Debug)]
 pub enum RecoveryCommands {
+    /// Report host-neutral causal commit evidence anchors.
+    CommitEvidence {
+        /// Runtime recovery root to inspect.
+        root: PathBuf,
+        /// Optional 64-character evidence id to filter or report as absent.
+        #[arg(long)]
+        evidence_id: Option<String>,
+    },
     /// Report recovered posture for one submission id/envelope pair.
     SubmissionPosture {
         /// Runtime recovery root to inspect.
@@ -342,6 +350,35 @@ mod tests {
                 );
             }
             _ => panic!("expected Recovery submission-posture command"),
+        }
+    }
+
+    #[test]
+    fn parse_recovery_commit_evidence() {
+        let cli = Cli::try_parse_from([
+            "echo-cli",
+            "recovery",
+            "commit-evidence",
+            "runtime-root",
+            "--evidence-id",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Recovery {
+                command:
+                    RecoveryCommands::CommitEvidence {
+                        ref root,
+                        ref evidence_id,
+                    },
+            } => {
+                assert_eq!(root, &PathBuf::from("runtime-root"));
+                assert_eq!(
+                    evidence_id.as_deref(),
+                    Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+                );
+            }
+            _ => panic!("expected Recovery commit-evidence command"),
         }
     }
 

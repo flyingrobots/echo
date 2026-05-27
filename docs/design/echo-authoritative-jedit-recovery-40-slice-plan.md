@@ -198,7 +198,7 @@ handoff between the two.
 - [x] Slice 11: [Echo] receipt correlation recovery witness.
 - [x] Slice 12: [Echo] tick commit-before-publish failure injection.
 - [x] Slice 13: [Echo] bounded reading identity recovery witness.
-- [ ] Slice 14: [Echo] retained material recovery obstruction witness.
+- [x] Slice 14: [Echo] retained material recovery obstruction witness.
 - [ ] Slice 15: [Echo] receipt-to-reading causal chain read model.
 - [ ] Slice 16: [Echo] causal commit evidence JSON contract.
 - [ ] Slice 17: [Echo] generic external-app recovery gate command.

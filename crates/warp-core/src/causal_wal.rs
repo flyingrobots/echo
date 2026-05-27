@@ -1900,6 +1900,20 @@ impl EvidenceMaterialPosture {
             }),
         }
     }
+
+    /// Maps retained material posture to the app-safe recovery evidence-health
+    /// axis without exposing payload bytes.
+    #[must_use]
+    pub const fn recovery_evidence_health(self) -> RecoveryEvidenceHealth {
+        match self {
+            Self::Present => RecoveryEvidenceHealth::Complete,
+            Self::RedactedByPolicy | Self::EncryptedKeyUnavailable => {
+                RecoveryEvidenceHealth::Redacted
+            }
+            Self::Missing | Self::Obstructed => RecoveryEvidenceHealth::MissingRetention,
+            Self::Corrupt => RecoveryEvidenceHealth::CorruptOrUntrusted,
+        }
+    }
 }
 
 /// Inspector-facing material posture.
@@ -2704,20 +2718,8 @@ impl RecoveredRetentionIndex {
             reading: Some(reading),
             reading_source: RecoveredReadingSource::Retained,
             reading_authority: RecoveredReadingAuthority::EchoCommittedReading,
-            evidence_health: evidence_material_posture_health(reading.posture),
+            evidence_health: reading.posture.recovery_evidence_health(),
         }
-    }
-}
-
-fn evidence_material_posture_health(posture: EvidenceMaterialPosture) -> RecoveryEvidenceHealth {
-    match posture {
-        EvidenceMaterialPosture::Present => RecoveryEvidenceHealth::Complete,
-        EvidenceMaterialPosture::RedactedByPolicy
-        | EvidenceMaterialPosture::EncryptedKeyUnavailable => RecoveryEvidenceHealth::Redacted,
-        EvidenceMaterialPosture::Missing | EvidenceMaterialPosture::Obstructed => {
-            RecoveryEvidenceHealth::MissingRetention
-        }
-        EvidenceMaterialPosture::Corrupt => RecoveryEvidenceHealth::CorruptOrUntrusted,
     }
 }
 
@@ -2732,6 +2734,14 @@ pub struct RetainedMaterialObstruction {
     pub scope: MissingMaterialScope,
     /// Evidence posture.
     pub posture: EvidenceMaterialPosture,
+}
+
+impl RetainedMaterialObstruction {
+    /// Returns the app-safe evidence-health axis for this obstruction.
+    #[must_use]
+    pub const fn evidence_health(self) -> RecoveryEvidenceHealth {
+        self.posture.recovery_evidence_health()
+    }
 }
 
 /// WAL checkpoint record.

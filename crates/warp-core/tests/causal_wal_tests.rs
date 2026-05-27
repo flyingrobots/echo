@@ -1111,6 +1111,68 @@ fn security_and_redaction_postures_decode_without_becoming_missing() {
 }
 
 #[test]
+fn reading_evidence_distinguishes_missing_redacted_corrupt_and_obstructed() {
+    for (posture, expected_health) in [
+        (
+            EvidenceMaterialPosture::Missing,
+            RecoveryEvidenceHealth::MissingRetention,
+        ),
+        (
+            EvidenceMaterialPosture::RedactedByPolicy,
+            RecoveryEvidenceHealth::Redacted,
+        ),
+        (
+            EvidenceMaterialPosture::EncryptedKeyUnavailable,
+            RecoveryEvidenceHealth::Redacted,
+        ),
+        (
+            EvidenceMaterialPosture::Corrupt,
+            RecoveryEvidenceHealth::CorruptOrUntrusted,
+        ),
+        (
+            EvidenceMaterialPosture::Obstructed,
+            RecoveryEvidenceHealth::MissingRetention,
+        ),
+    ] {
+        let mut store = InMemoryWalStore::new();
+        must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+        let builder = builder(
+            WalTransactionId::from_hash(digest(&format!("tx:reading-posture:{posture:?}"))),
+            Lsn::from_raw(0),
+            WalAppendAuthority::TrustedScheduler,
+            WalTransactionKind::SchedulerTick,
+        );
+        must_ok(
+            store.append_transaction(must_ok(build_retained_reading_transaction(
+                builder,
+                &[retained_material(
+                    "reading-posture",
+                    RetainedMaterialKind::ReadingPayload,
+                    posture,
+                )],
+                reading_ref("reading-posture", posture),
+                vec![frontier(
+                    AffectedFrontierKind::ReadingIndex,
+                    "reading:posture:before",
+                    "reading:posture:after",
+                )],
+            ))),
+        );
+        let report = must_ok(recover_in_memory_store(
+            &mut store,
+            RecoveryAccessMode::ReadOnly,
+        ));
+        let retention = must_ok(recover_retention_index(&report));
+        let evidence = retention.reading_evidence(
+            digest("coordinate:reading-posture"),
+            digest("reading:reading-posture"),
+        );
+
+        assert_eq!(evidence.evidence_health, expected_health);
+    }
+}
+
+#[test]
 fn missing_retained_material_scope_matrix_is_precise() {
     assert_eq!(
         missing_material_scope(RetainedMaterialKind::SubmissionPayload),
@@ -1171,6 +1233,10 @@ fn missing_retained_material_returns_typed_obstruction() {
     assert_eq!(obstructions.len(), 1);
     assert_eq!(obstructions[0].scope, MissingMaterialScope::RuntimeGlobal);
     assert_eq!(obstructions[0].posture, EvidenceMaterialPosture::Missing);
+    assert_eq!(
+        obstructions[0].evidence_health(),
+        RecoveryEvidenceHealth::MissingRetention
+    );
 }
 
 #[test]

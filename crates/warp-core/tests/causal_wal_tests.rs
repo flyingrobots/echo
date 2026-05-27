@@ -11,24 +11,25 @@ use warp_core::causal_wal::{
     project_causal_commit_evidence, read_checkpoint_record, recover_checkpoint_publications,
     recover_filesystem_store, recover_in_memory_store, recover_materialization_outbox,
     recover_receipt_index, recover_retention_index, recover_submission_index,
-    retained_material_obstructions, shadow_replay_matches, validate_checkpoint_record,
-    validate_strict_object_store_capabilities, write_checkpoint_record_atomic, AffectedFrontier,
-    AffectedFrontierKind, CheckpointPublicationRecord, CheckpointRecord,
-    CheckpointValidationPosture, EvidenceMaterialPosture, ExistingMaterializedArtifact,
-    FilesystemWalStore, InMemoryWalStore, Lsn, MaterializationIntentRecord,
-    MaterializationObservationRecord, MaterializationReplayPosture, MissingMaterialScope,
-    ObjectStoreCapabilityError, ObjectStoreReadAfterWritePosture, ObjectStoreWalCapabilities,
-    PayloadCodecId, PayloadSchemaId, ReadingRefRecord, RecoveredReadingAuthority,
-    RecoveredReadingEvidence, RecoveredReadingSource, RecoveredState, RecoveredSubmissionPosture,
-    RecoveryAccessMode, RecoveryEvidenceHealth, RecoveryScanReport, RecoveryTailPosture,
-    RetainedMaterialKind, RetainedMaterialRecord, SubmissionAcceptanceRecord,
-    SubmissionDecisionResult, SubmissionIdempotencyLaw, SubmissionIntakeDisposition,
-    SubmissionLifecyclePosture, SubmissionRetryPosture, TickReceiptRecord, TransactionLocalIndex,
-    WalAppendAuthority, WalBuildError, WalCommittedTransaction, WalDoctorPosture,
-    WalDurabilityMode, WalManifest, WalReceiptCorrelationRecord, WalRecordKind,
-    WalRecoveredTransaction, WalReleaseReadinessGates, WalSchemaLintError, WalSegmentId,
-    WalStoreError, WalStorePort, WalTickDecision, WalTransactionBuilder, WalTransactionId,
-    WalTransactionKind, WriterEpochId, WriterEpochRequest,
+    recovered_receipt_reading_chain, retained_material_obstructions, shadow_replay_matches,
+    validate_checkpoint_record, validate_strict_object_store_capabilities,
+    write_checkpoint_record_atomic, AffectedFrontier, AffectedFrontierKind,
+    CheckpointPublicationRecord, CheckpointRecord, CheckpointValidationPosture,
+    EvidenceMaterialPosture, ExistingMaterializedArtifact, FilesystemWalStore, InMemoryWalStore,
+    Lsn, MaterializationIntentRecord, MaterializationObservationRecord,
+    MaterializationReplayPosture, MissingMaterialScope, ObjectStoreCapabilityError,
+    ObjectStoreReadAfterWritePosture, ObjectStoreWalCapabilities, PayloadCodecId, PayloadSchemaId,
+    ReadingRefRecord, RecoveredCausalChainPosture, RecoveredReadingAuthority,
+    RecoveredReadingEvidence, RecoveredReadingSource, RecoveredReceiptReadingChainRequest,
+    RecoveredState, RecoveredSubmissionPosture, RecoveryAccessMode, RecoveryEvidenceHealth,
+    RecoveryScanReport, RecoveryTailPosture, RetainedMaterialKind, RetainedMaterialRecord,
+    SubmissionAcceptanceRecord, SubmissionDecisionResult, SubmissionIdempotencyLaw,
+    SubmissionIntakeDisposition, SubmissionLifecyclePosture, SubmissionRetryPosture,
+    TickReceiptRecord, TransactionLocalIndex, WalAppendAuthority, WalBuildError,
+    WalCommittedTransaction, WalDoctorPosture, WalDurabilityMode, WalManifest,
+    WalReceiptCorrelationRecord, WalRecordKind, WalRecoveredTransaction, WalReleaseReadinessGates,
+    WalSchemaLintError, WalSegmentId, WalStoreError, WalStorePort, WalTickDecision,
+    WalTransactionBuilder, WalTransactionId, WalTransactionKind, WriterEpochId, WriterEpochRequest,
 };
 use warp_core::Hash;
 
@@ -288,6 +289,37 @@ fn receipt_without_state_transaction(label: &str, first_lsn: Lsn) -> WalCommitte
         &format!("receipt:{label}:before"),
         &format!("receipt:{label}:after"),
     )]))
+}
+
+fn retained_reading_transaction(label: &str, first_lsn: Lsn) -> WalCommittedTransaction {
+    let material = [
+        retained_material(
+            label,
+            RetainedMaterialKind::ReadingPayload,
+            EvidenceMaterialPosture::Present,
+        ),
+        RetainedMaterialRecord {
+            material_digest: digest(&format!("material:{label}:envelope")),
+            semantic_coordinate_digest: digest(&format!("coordinate:{label}")),
+            kind: RetainedMaterialKind::ReadingEnvelope,
+            posture: EvidenceMaterialPosture::Present,
+        },
+    ];
+    must_ok(build_retained_reading_transaction(
+        builder(
+            transaction_id(&format!("tx:reading:{label}")),
+            first_lsn,
+            WalAppendAuthority::TrustedScheduler,
+            WalTransactionKind::SchedulerTick,
+        ),
+        &material,
+        reading_ref(label, EvidenceMaterialPosture::Present),
+        vec![frontier(
+            AffectedFrontierKind::ReadingIndex,
+            &format!("reading:{label}:before"),
+            &format!("reading:{label}:after"),
+        )],
+    ))
 }
 
 fn recovered_transaction(tx: WalCommittedTransaction) -> WalRecoveredTransaction {
@@ -1040,6 +1072,145 @@ fn reading_rederivation_posture_is_explicitly_read_only() {
         "echo_read_only_rederivation"
     );
     assert_eq!(evidence.evidence_health, RecoveryEvidenceHealth::Complete);
+}
+
+#[test]
+fn receipt_to_reading_chain_recovers_complete_generic_evidence() {
+    let report = RecoveryScanReport {
+        transactions: vec![
+            recovered_transaction(durable_submission_transaction("chain", Lsn::from_raw(0))),
+            recovered_transaction(durable_tick_transaction(
+                "chain",
+                Lsn::from_raw(2),
+                WalTickDecision::Applied,
+            )),
+            recovered_transaction(retained_reading_transaction("chain", Lsn::from_raw(6))),
+        ],
+        tail_posture: RecoveryTailPosture::Clean,
+    };
+    let submissions = must_ok(recover_submission_index(&report));
+    let receipts = must_ok(recover_receipt_index(&report));
+    let retention = must_ok(recover_retention_index(&report));
+    let chain = recovered_receipt_reading_chain(
+        &submissions,
+        &receipts,
+        &retention,
+        RecoveredReceiptReadingChainRequest {
+            submission_id: digest("submission:chain"),
+            basis_digest: digest("basis:chain"),
+            reading_basis_digest: digest("basis:chain"),
+            semantic_coordinate_digest: digest("coordinate:chain"),
+            reading_id: digest("reading:chain"),
+        },
+    );
+
+    assert_eq!(chain.chain_posture, RecoveredCausalChainPosture::Complete);
+    assert_eq!(chain.evidence_health, RecoveryEvidenceHealth::Complete);
+    assert_eq!(chain.submission_id, digest("submission:chain"));
+    assert_eq!(chain.ticket_digest, Some(digest("ticket:chain")));
+    assert_eq!(chain.receipt_digest, Some(digest("receipt:chain")));
+    assert_eq!(chain.basis_digest, digest("basis:chain"));
+    assert_eq!(chain.reading_id, digest("reading:chain"));
+    assert_eq!(
+        chain.reading_evidence.reading_source,
+        RecoveredReadingSource::Retained
+    );
+}
+
+#[test]
+fn receipt_to_reading_chain_reports_missing_reading_as_incomplete() {
+    let report = RecoveryScanReport {
+        transactions: vec![
+            recovered_transaction(durable_submission_transaction(
+                "missing-reading",
+                Lsn::from_raw(0),
+            )),
+            recovered_transaction(durable_tick_transaction(
+                "missing-reading",
+                Lsn::from_raw(2),
+                WalTickDecision::Applied,
+            )),
+        ],
+        tail_posture: RecoveryTailPosture::Clean,
+    };
+    let submissions = must_ok(recover_submission_index(&report));
+    let receipts = must_ok(recover_receipt_index(&report));
+    let retention = must_ok(recover_retention_index(&report));
+    let chain = recovered_receipt_reading_chain(
+        &submissions,
+        &receipts,
+        &retention,
+        RecoveredReceiptReadingChainRequest {
+            submission_id: digest("submission:missing-reading"),
+            basis_digest: digest("basis:missing-reading"),
+            reading_basis_digest: digest("basis:missing-reading"),
+            semantic_coordinate_digest: digest("coordinate:missing-reading"),
+            reading_id: digest("reading:missing-reading"),
+        },
+    );
+
+    assert_eq!(
+        chain.chain_posture,
+        RecoveredCausalChainPosture::IncompleteEvidence
+    );
+    assert_eq!(
+        chain.receipt_digest,
+        Some(digest("receipt:missing-reading"))
+    );
+    assert_eq!(
+        chain.reading_evidence.reading_source,
+        RecoveredReadingSource::Unavailable
+    );
+    assert_eq!(
+        chain.evidence_health,
+        RecoveryEvidenceHealth::MissingRetention
+    );
+}
+
+#[test]
+fn receipt_to_reading_chain_reports_basis_mismatch() {
+    let report = RecoveryScanReport {
+        transactions: vec![
+            recovered_transaction(durable_submission_transaction(
+                "basis-mismatch",
+                Lsn::from_raw(0),
+            )),
+            recovered_transaction(durable_tick_transaction(
+                "basis-mismatch",
+                Lsn::from_raw(2),
+                WalTickDecision::Applied,
+            )),
+            recovered_transaction(retained_reading_transaction(
+                "basis-mismatch",
+                Lsn::from_raw(6),
+            )),
+        ],
+        tail_posture: RecoveryTailPosture::Clean,
+    };
+    let submissions = must_ok(recover_submission_index(&report));
+    let receipts = must_ok(recover_receipt_index(&report));
+    let retention = must_ok(recover_retention_index(&report));
+    let chain = recovered_receipt_reading_chain(
+        &submissions,
+        &receipts,
+        &retention,
+        RecoveredReceiptReadingChainRequest {
+            submission_id: digest("submission:basis-mismatch"),
+            basis_digest: digest("basis:receipt"),
+            reading_basis_digest: digest("basis:reading"),
+            semantic_coordinate_digest: digest("coordinate:basis-mismatch"),
+            reading_id: digest("reading:basis-mismatch"),
+        },
+    );
+
+    assert_eq!(
+        chain.chain_posture,
+        RecoveredCausalChainPosture::BasisMismatch
+    );
+    assert_eq!(
+        chain.evidence_health,
+        RecoveryEvidenceHealth::MissingRetention
+    );
 }
 
 #[test]

@@ -2670,6 +2670,72 @@ pub struct RecoveredReadingEvidence {
     pub evidence_health: RecoveryEvidenceHealth,
 }
 
+/// Posture for a recovered submission-to-reading causal chain.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecoveredCausalChainPosture {
+    /// Submission, scheduler receipt, basis, and reading evidence are complete.
+    Complete,
+    /// The requested submission was not recovered.
+    NotFound,
+    /// One or more chain links are missing or unhealthy.
+    IncompleteEvidence,
+    /// Reading basis does not match the expected receipt/basis digest.
+    BasisMismatch,
+}
+
+impl RecoveredCausalChainPosture {
+    /// Stable snake-case label for JSON/read-model surfaces.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Complete => "complete",
+            Self::NotFound => "not_found",
+            Self::IncompleteEvidence => "incomplete_evidence",
+            Self::BasisMismatch => "basis_mismatch",
+        }
+    }
+}
+
+/// Generic recovered causal chain from submission to bounded reading.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RecoveredReceiptReadingChain {
+    /// Submission being explained.
+    pub submission_id: Hash,
+    /// Scheduler ticket digest, if recovered.
+    pub ticket_digest: Option<Hash>,
+    /// Scheduler receipt digest, if recovered.
+    pub receipt_digest: Option<Hash>,
+    /// Expected causal basis digest for the reading.
+    pub basis_digest: Hash,
+    /// Basis digest declared by the recovered reading query path.
+    pub reading_basis_digest: Hash,
+    /// Semantic coordinate used to recover the reading.
+    pub semantic_coordinate_digest: Hash,
+    /// Requested reading identity.
+    pub reading_id: Hash,
+    /// Recovered reading evidence.
+    pub reading_evidence: RecoveredReadingEvidence,
+    /// Overall chain posture.
+    pub chain_posture: RecoveredCausalChainPosture,
+    /// Aggregate evidence-health axis for the chain.
+    pub evidence_health: RecoveryEvidenceHealth,
+}
+
+/// Input coordinates for a recovered receipt-to-reading chain lookup.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RecoveredReceiptReadingChainRequest {
+    /// Submission being explained.
+    pub submission_id: Hash,
+    /// Expected causal basis digest for the reading.
+    pub basis_digest: Hash,
+    /// Basis digest declared by the recovered reading query path.
+    pub reading_basis_digest: Hash,
+    /// Semantic coordinate used to recover the reading.
+    pub semantic_coordinate_digest: Hash,
+    /// Requested reading identity.
+    pub reading_id: Hash,
+}
+
 impl RecoveredReadingEvidence {
     /// Builds an explicit read-only rederivation response.
     #[must_use]
@@ -2692,6 +2758,81 @@ impl RecoveredReadingEvidence {
             reading_authority: RecoveredReadingAuthority::None,
             evidence_health: RecoveryEvidenceHealth::MissingRetention,
         }
+    }
+}
+
+/// Builds a generic recovered causal chain from submission to bounded reading.
+#[must_use]
+pub fn recovered_receipt_reading_chain(
+    submissions: &RecoveredSubmissionIndex,
+    receipts: &RecoveredReceiptIndex,
+    retention: &RecoveredRetentionIndex,
+    request: RecoveredReceiptReadingChainRequest,
+) -> RecoveredReceiptReadingChain {
+    let reading_evidence =
+        retention.reading_evidence(request.semantic_coordinate_digest, request.reading_id);
+    let receipt_digest = receipts
+        .receipt_by_submission
+        .get(&request.submission_id)
+        .copied();
+    let ticket_digest = receipts
+        .ticket_by_submission
+        .get(&request.submission_id)
+        .copied();
+    let Some(submission) = submissions.get(&request.submission_id) else {
+        return RecoveredReceiptReadingChain {
+            submission_id: request.submission_id,
+            ticket_digest,
+            receipt_digest,
+            basis_digest: request.basis_digest,
+            reading_basis_digest: request.reading_basis_digest,
+            semantic_coordinate_digest: request.semantic_coordinate_digest,
+            reading_id: request.reading_id,
+            reading_evidence,
+            chain_posture: RecoveredCausalChainPosture::NotFound,
+            evidence_health: RecoveryEvidenceHealth::MissingRetention,
+        };
+    };
+    let chain_posture = if request.basis_digest != request.reading_basis_digest {
+        RecoveredCausalChainPosture::BasisMismatch
+    } else if submission.posture != RecoveredSubmissionPosture::DecidedApplied
+        || submission.evidence_health != RecoveryEvidenceHealth::Complete
+        || receipt_digest.is_none()
+        || ticket_digest.is_none()
+        || reading_evidence.reading_source == RecoveredReadingSource::Unavailable
+        || reading_evidence.evidence_health != RecoveryEvidenceHealth::Complete
+    {
+        RecoveredCausalChainPosture::IncompleteEvidence
+    } else {
+        RecoveredCausalChainPosture::Complete
+    };
+    let evidence_health = match chain_posture {
+        RecoveredCausalChainPosture::Complete => RecoveryEvidenceHealth::Complete,
+        RecoveredCausalChainPosture::NotFound | RecoveredCausalChainPosture::BasisMismatch => {
+            RecoveryEvidenceHealth::MissingRetention
+        }
+        RecoveredCausalChainPosture::IncompleteEvidence => {
+            if submission.evidence_health != RecoveryEvidenceHealth::Complete {
+                submission.evidence_health
+            } else if reading_evidence.evidence_health != RecoveryEvidenceHealth::Complete {
+                reading_evidence.evidence_health
+            } else {
+                RecoveryEvidenceHealth::IncompleteEvidence
+            }
+        }
+    };
+
+    RecoveredReceiptReadingChain {
+        submission_id: request.submission_id,
+        ticket_digest,
+        receipt_digest,
+        basis_digest: request.basis_digest,
+        reading_basis_digest: request.reading_basis_digest,
+        semantic_coordinate_digest: request.semantic_coordinate_digest,
+        reading_id: request.reading_id,
+        reading_evidence,
+        chain_posture,
+        evidence_health,
     }
 }
 

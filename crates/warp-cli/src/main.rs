@@ -65,6 +65,29 @@ fn main() -> Result<()> {
         } => wal::recovery_commit_evidence(root, evidence_id.as_deref(), &cli.format),
         Commands::Recovery {
             command:
+                RecoveryCommands::Gate {
+                    ref root,
+                    ref submission_id,
+                    ref canonical_envelope_digest,
+                    ref basis_digest,
+                    ref reading_basis_digest,
+                    ref semantic_coordinate_digest,
+                    ref reading_id,
+                },
+        } => wal::recovery_gate(
+            root,
+            submission_id,
+            canonical_envelope_digest,
+            wal::RecoveryGateReadingArgs {
+                basis_digest: basis_digest.as_deref(),
+                reading_basis_digest: reading_basis_digest.as_deref(),
+                semantic_coordinate_digest: semantic_coordinate_digest.as_deref(),
+                reading_id: reading_id.as_deref(),
+            },
+            &cli.format,
+        ),
+        Commands::Recovery {
+            command:
                 RecoveryCommands::SubmissionPosture {
                     ref root,
                     ref submission_id,

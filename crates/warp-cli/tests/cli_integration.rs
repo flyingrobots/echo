@@ -226,6 +226,83 @@ fn filesystem_wal_with_decided_submission() -> TestResult<TempDir> {
     Ok(temp)
 }
 
+fn filesystem_wal_with_uncommitted_tail() -> TestResult<(TempDir, std::path::PathBuf)> {
+    let temp = TempDir::new()?;
+    let epoch = writer_epoch_request();
+    let mut store = FilesystemWalStore::open(temp.path(), WalSegmentId::from_raw(1))?;
+    store.acquire_writer_epoch(epoch.clone())?;
+    let acceptance = build_submission_acceptance_transaction(
+        WalTransactionBuilder::new(
+            epoch.epoch_id,
+            WalSegmentId::from_raw(1),
+            WalTransactionId::from_hash(digest("transaction")),
+            WalTransactionKind::SubmissionIntake,
+            WalAppendAuthority::SubmissionIntake,
+            Lsn::from_raw(0),
+            digest("previous-frame"),
+            digest("previous-commit"),
+            WalDurabilityMode::Buffered,
+            PayloadCodecId::from_hash(digest("codec")),
+            PayloadSchemaId::from_hash(digest("schema")),
+            1,
+            1,
+            digest("domain"),
+        ),
+        SubmissionAcceptanceRecord {
+            submission_id: digest("submission"),
+            canonical_envelope_digest: digest("envelope"),
+            idempotency_key_digest: None,
+            acceptance_evidence_digest: digest("evidence"),
+        },
+        vec![AffectedFrontier {
+            kind: AffectedFrontierKind::SubmissionQueue,
+            before_digest: digest("frontier-before"),
+            after_digest: digest("frontier-after"),
+        }],
+    )?;
+    store.append_transaction(acceptance)?;
+    let receipt = TickReceiptRecord {
+        submission_id: digest("submission"),
+        ticket_digest: digest("ticket"),
+        receipt_digest: digest("receipt"),
+        decision: WalTickDecision::Applied,
+    };
+    let correlation = WalReceiptCorrelationRecord {
+        submission_id: receipt.submission_id,
+        ticket_digest: receipt.ticket_digest,
+        receipt_digest: receipt.receipt_digest,
+    };
+    let tick = build_tick_transaction(
+        WalTransactionBuilder::new(
+            epoch.epoch_id,
+            WalSegmentId::from_raw(1),
+            WalTransactionId::from_hash(digest("transaction:tail")),
+            WalTransactionKind::SchedulerTick,
+            WalAppendAuthority::TrustedScheduler,
+            Lsn::from_raw(2),
+            digest("tail-previous-frame"),
+            digest("tail-previous-commit"),
+            WalDurabilityMode::Buffered,
+            PayloadCodecId::from_hash(digest("codec")),
+            PayloadSchemaId::from_hash(digest("schema")),
+            1,
+            1,
+            digest("domain"),
+        ),
+        receipt,
+        correlation,
+        digest("state-delta"),
+        vec![AffectedFrontier {
+            kind: AffectedFrontierKind::ReceiptIndex,
+            before_digest: digest("receipt-frontier-before"),
+            after_digest: digest("receipt-frontier-after"),
+        }],
+    )?;
+    store.append_uncommitted_frame(epoch.epoch_id, tick.frames[0].clone())?;
+    let segment_path = store.segment_path();
+    Ok((temp, segment_path))
+}
+
 #[test]
 fn help_shows_all_subcommands() {
     echo_cli()
@@ -590,6 +667,128 @@ fn recovery_commit_evidence_json_reports_absent_filtered_anchor() -> TestResult 
     assert_eq!(json["evidence"][0]["source"], "echo_wal");
     assert_eq!(json["evidence"][0]["durability_mode"], "read_only_recovery");
     assert_eq!(json["evidence"][0]["reason"], "no_recovered_commit_anchor");
+    Ok(())
+}
+
+#[test]
+fn recovery_gate_json_reports_generic_external_app_payload() -> TestResult {
+    let temp = filesystem_wal_with_decided_submission()?;
+    let assert = echo_cli()
+        .args([
+            "--format",
+            "json",
+            "recovery",
+            "gate",
+            temp.path().to_str().ok_or("temp path is not UTF-8")?,
+            "--submission-id",
+            &hex::encode(digest("submission:decided")),
+            "--canonical-envelope-digest",
+            &hex::encode(digest("envelope:decided")),
+        ])
+        .assert()
+        .success();
+    let json: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout)?;
+
+    assert_eq!(json["schema_version"], "echo.recovery.external_app_gate.v1");
+    assert_eq!(json["producer"], "echo-cli");
+    assert_eq!(
+        json["compatibility"]["contract"],
+        "echo.recovery.external_app_gate"
+    );
+    assert_eq!(json["tail_posture"], "Clean");
+    assert_eq!(json["certificate"]["committed_transactions_replayed"], 2);
+    assert_eq!(
+        json["certificate"]["submission_posture_counts"]["decided_applied"],
+        1
+    );
+    assert_eq!(
+        json["submission"]["schema_version"],
+        "echo.recovery.submission_posture.v1"
+    );
+    assert_eq!(json["submission"]["lifecycle"]["posture"], "decided");
+    assert_eq!(json["submission"]["decision"]["result"], "applied");
+    assert_eq!(json["causal_chain"]["status"], "not_requested");
+    assert!(json["causal_chain"]["posture"].is_null());
+    assert_eq!(
+        json["causal_chain"]["receipt_digest"],
+        hex::encode(digest("receipt:decided"))
+    );
+    assert_eq!(
+        json["causal_chain"]["ticket_digest"],
+        hex::encode(digest("ticket:decided"))
+    );
+    assert_eq!(
+        json["commit_evidence"]["schema_version"],
+        "echo.causal_commit_evidence.v1"
+    );
+    assert_eq!(
+        json["commit_evidence"]["evidence"]
+            .as_array()
+            .ok_or("commit evidence is not array")?
+            .len(),
+        2
+    );
+    assert!(!json.to_string().contains("jedit"));
+    Ok(())
+}
+
+#[test]
+fn recovery_gate_read_only_reports_tail_without_truncating() -> TestResult {
+    let (temp, segment_path) = filesystem_wal_with_uncommitted_tail()?;
+    let before = fs::metadata(&segment_path)?.len();
+    let assert = echo_cli()
+        .args([
+            "--format",
+            "json",
+            "recovery",
+            "gate",
+            temp.path().to_str().ok_or("temp path is not UTF-8")?,
+            "--submission-id",
+            &hex::encode(digest("submission")),
+            "--canonical-envelope-digest",
+            &hex::encode(digest("envelope")),
+        ])
+        .assert()
+        .success();
+    let after = fs::metadata(&segment_path)?.len();
+    let json: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout)?;
+
+    assert_eq!(json["tail_posture"], "WouldTruncateAfter");
+    assert_eq!(after, before);
+    assert_eq!(
+        json["submission"]["lifecycle"]["posture"],
+        "accepted_pending"
+    );
+    assert_eq!(
+        json["commit_evidence"]["evidence"]
+            .as_array()
+            .ok_or("commit evidence is not array")?
+            .len(),
+        1
+    );
+    Ok(())
+}
+
+#[test]
+fn recovery_gate_rejects_partial_reading_chain_args() -> TestResult {
+    let temp = filesystem_wal_with_decided_submission()?;
+    echo_cli()
+        .args([
+            "recovery",
+            "gate",
+            temp.path().to_str().ok_or("temp path is not UTF-8")?,
+            "--submission-id",
+            &hex::encode(digest("submission:decided")),
+            "--canonical-envelope-digest",
+            &hex::encode(digest("envelope:decided")),
+            "--basis-digest",
+            &hex::encode(digest("basis:only")),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "reading chain arguments must be supplied together",
+        ));
     Ok(())
 }
 

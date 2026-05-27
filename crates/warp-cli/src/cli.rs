@@ -120,6 +120,29 @@ pub enum RecoveryCommands {
         #[arg(long)]
         evidence_id: Option<String>,
     },
+    /// Report a generic external-app recovery gate payload.
+    Gate {
+        /// Runtime recovery root to inspect.
+        root: PathBuf,
+        /// 64-character hex submission id.
+        #[arg(long)]
+        submission_id: String,
+        /// 64-character hex canonical envelope digest.
+        #[arg(long)]
+        canonical_envelope_digest: String,
+        /// Optional 64-character expected reading basis digest.
+        #[arg(long)]
+        basis_digest: Option<String>,
+        /// Optional 64-character recovered reading-basis digest.
+        #[arg(long)]
+        reading_basis_digest: Option<String>,
+        /// Optional 64-character semantic coordinate digest for reading lookup.
+        #[arg(long)]
+        semantic_coordinate_digest: Option<String>,
+        /// Optional 64-character reading id.
+        #[arg(long)]
+        reading_id: Option<String>,
+    },
     /// Report recovered posture for one submission id/envelope pair.
     SubmissionPosture {
         /// Runtime recovery root to inspect.
@@ -379,6 +402,70 @@ mod tests {
                 );
             }
             _ => panic!("expected Recovery commit-evidence command"),
+        }
+    }
+
+    #[test]
+    fn parse_recovery_gate() {
+        let cli = Cli::try_parse_from([
+            "echo-cli",
+            "recovery",
+            "gate",
+            "runtime-root",
+            "--submission-id",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "--canonical-envelope-digest",
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "--basis-digest",
+            "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "--reading-basis-digest",
+            "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "--semantic-coordinate-digest",
+            "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "--reading-id",
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Recovery {
+                command:
+                    RecoveryCommands::Gate {
+                        ref root,
+                        ref submission_id,
+                        ref canonical_envelope_digest,
+                        ref basis_digest,
+                        ref reading_basis_digest,
+                        ref semantic_coordinate_digest,
+                        ref reading_id,
+                    },
+            } => {
+                assert_eq!(root, &PathBuf::from("runtime-root"));
+                assert_eq!(
+                    submission_id,
+                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                );
+                assert_eq!(
+                    canonical_envelope_digest,
+                    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                );
+                assert_eq!(
+                    basis_digest.as_deref(),
+                    Some("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc")
+                );
+                assert_eq!(
+                    reading_basis_digest.as_deref(),
+                    Some("dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd")
+                );
+                assert_eq!(
+                    semantic_coordinate_digest.as_deref(),
+                    Some("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee")
+                );
+                assert_eq!(
+                    reading_id.as_deref(),
+                    Some("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+                );
+            }
+            _ => panic!("expected Recovery gate command"),
         }
     }
 

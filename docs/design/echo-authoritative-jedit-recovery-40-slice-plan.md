@@ -201,7 +201,7 @@ handoff between the two.
 - [x] Slice 14: [Echo] retained material recovery obstruction witness.
 - [x] Slice 15: [Echo] receipt-to-reading causal chain read model.
 - [x] Slice 16: [Echo] causal commit evidence JSON contract.
-- [ ] Slice 17: [Echo] generic external-app recovery gate command.
+- [x] Slice 17: [Echo] generic external-app recovery gate command.
 
 ### Gate B: jedit Consumes Echo Truth
 

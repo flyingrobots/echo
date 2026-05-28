@@ -30,6 +30,9 @@ pub enum CodecError {
     /// Bool tag byte was not 0x00 or 0x01.
     #[error("invalid bool tag")]
     InvalidBoolTag,
+    /// Trailing bytes remain after a complete decode.
+    #[error("trailing bytes after decode")]
+    Trailing,
 }
 
 /// Trait for deterministic encoding to bytes.
@@ -51,10 +54,14 @@ pub fn encode_to_vec<T: Encode>(value: &T) -> Result<Vec<u8>, CodecError> {
     Ok(writer.into_vec())
 }
 
-/// Decode a value from a byte slice.
+/// Decode a value from a byte slice, failing if any trailing bytes remain.
 pub fn decode_from_bytes<T: Decode>(bytes: &[u8]) -> Result<T, CodecError> {
     let mut reader = Reader::new(bytes);
-    T::decode(&mut reader)
+    let value = T::decode(&mut reader)?;
+    if reader.remaining() > 0 {
+        return Err(CodecError::Trailing);
+    }
+    Ok(value)
 }
 
 /// Deterministic writer for little-endian scalars and length-prefixed bytes.
@@ -189,6 +196,12 @@ impl<'a> Reader<'a> {
     #[must_use]
     pub fn new(bytes: &'a [u8]) -> Self {
         Self { bytes, offset: 0 }
+    }
+
+    /// Return the number of unread bytes remaining in the buffer.
+    #[must_use]
+    pub fn remaining(&self) -> usize {
+        self.bytes.len().saturating_sub(self.offset)
     }
 
     fn take(&mut self, len: usize) -> Result<&'a [u8], CodecError> {

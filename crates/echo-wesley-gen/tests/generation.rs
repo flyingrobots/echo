@@ -109,7 +109,7 @@ type Mutation {
     assert!(stdout.contains("pub struct CounterValue"));
     assert!(stdout.contains("pub struct IncrementInput"));
     assert!(stdout.contains("pub const ECHO_CONTRACT_ABI_VERSION: u32 = 1"));
-    assert!(stdout.contains("pub const CODEC_ID: &str = \"cbor-canon-v1\""));
+    assert!(stdout.contains("pub const CODEC_ID: &str = \"le-binary-v1\""));
     assert!(stdout.contains("pub const REGISTRY_VERSION: u32 = 1"));
     assert!(stdout.contains("pub const WESLEY_GENERATOR_VERSION: &str = \"echo-wesley-gen/0.1.0\""));
     assert!(stdout.contains("pub const CONTRACT_HOST_HELPER_API_VERSION: u32 = 1"));
@@ -237,6 +237,7 @@ mod tests {
         SchedulerState, SchedulerStatus, WorkState, WorldlineId, WorldlineTick, ABI_VERSION,
     };
     use echo_wasm_abi::{decode_cbor, encode_cbor, unpack_intent_v1};
+    use echo_wasm_abi::codec::decode_from_bytes;
 
     #[derive(Default)]
     struct ToyKernel {
@@ -266,7 +267,7 @@ mod tests {
                 message: error.to_string(),
             })?;
             assert_eq!(op_id, OP_INCREMENT);
-            let decoded: IncrementVars = decode_cbor(vars).map_err(|error| AbiError {
+            let decoded: IncrementVars = decode_from_bytes(vars).map_err(|error| AbiError {
                 code: 2,
                 message: error.to_string(),
             })?;
@@ -295,7 +296,7 @@ mod tests {
             };
             assert_eq!(*query_id, OP_COUNTER_VALUE);
             let _decoded: CounterValueVars =
-                decode_cbor(vars_bytes).map_err(|error| AbiError {
+                decode_from_bytes(vars_bytes).map_err(|error| AbiError {
                     code: 3,
                     message: error.to_string(),
                 })?;
@@ -428,7 +429,7 @@ mod tests {
         .unwrap();
         let (op_id, vars) = unpack_intent_v1(&intent).unwrap();
         assert_eq!(op_id, OP_INCREMENT);
-        let decoded: IncrementVars = decode_cbor(vars).unwrap();
+        let decoded: IncrementVars = decode_from_bytes(vars).unwrap();
         assert_eq!(decoded.input.amount, 42);
 
         let mut kernel = ToyKernel::default();
@@ -547,7 +548,7 @@ mod tests {
         let OpticIntentPayload::EintV1 { bytes } = &dispatch.payload;
         let (op_id, vars_bytes) = unpack_intent_v1(bytes).unwrap();
         assert_eq!(op_id, OP_INCREMENT);
-        let decoded: IncrementVars = decode_cbor(vars_bytes).unwrap();
+        let decoded: IncrementVars = decode_from_bytes(vars_bytes).unwrap();
         assert_eq!(decoded.input.amount, 42);
     }
 
@@ -1404,7 +1405,7 @@ fn test_generate_from_json() {
     assert!(stdout.contains("pub theme: Theme"));
     assert!(stdout.contains("pub tags: Option<Vec<String>>"));
     assert!(stdout.contains("pub const SCHEMA_SHA256: &str = \"abc123\""));
-    assert!(stdout.contains("pub const CODEC_ID: &str = \"cbor-canon-v1\""));
+    assert!(stdout.contains("pub const CODEC_ID: &str = \"le-binary-v1\""));
     assert!(stdout.contains("pub const REGISTRY_VERSION: u32 = 7"));
     assert!(stdout.contains("pub const OP_SET_THEME: u32 = 111"));
     assert!(stdout.contains("pub const OP_APP_STATE: u32 = 222"));

@@ -27,6 +27,9 @@ pub enum CodecError {
     /// Enum decoding failed.
     #[error("invalid enum value")]
     InvalidEnum,
+    /// Bool tag byte was not 0x00 or 0x01.
+    #[error("invalid bool tag")]
+    InvalidBoolTag,
 }
 
 /// Trait for deterministic encoding to bytes.
@@ -114,6 +117,59 @@ impl Writer {
         self.write_len_prefixed_bytes(bytes)
     }
 
+    /// Write a little-endian i32.
+    pub fn write_i32_le(&mut self, value: i32) {
+        self.buf.extend_from_slice(&value.to_le_bytes());
+    }
+
+    /// Write a canonicalized little-endian f32.
+    ///
+    /// Applies the same canonicalization as `F32Scalar::new()` before writing:
+    /// - NaN → `0x7fc00000` (positive quiet NaN)
+    /// - subnormal → `+0.0` (`0x00000000`)
+    /// - `-0.0` → `+0.0`
+    /// - all other values pass through unchanged
+    pub fn write_f32_le(&mut self, value: f32) {
+        let canonical = canonicalize_f32(value);
+        self.buf.extend_from_slice(&canonical.to_le_bytes());
+    }
+
+    /// Write a bool as a single byte: `0x00` = false, `0x01` = true.
+    pub fn write_bool(&mut self, value: bool) {
+        self.buf.push(u8::from(value));
+    }
+
+    /// Write an optional value: `0x00` = null, `0x01` + encoded payload = present.
+    pub fn write_option<T, F>(&mut self, value: Option<T>, encode: F) -> Result<(), CodecError>
+    where
+        F: FnOnce(&mut Writer, T) -> Result<(), CodecError>,
+    {
+        match value {
+            None => self.write_u8(0x00),
+            Some(v) => {
+                self.write_u8(0x01);
+                encode(self, v)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Write a list: `u32 LE` element count, then each element encoded inline.
+    pub fn write_list<T, F>(&mut self, values: &[T], encode: F) -> Result<(), CodecError>
+    where
+        F: Fn(&mut Writer, &T) -> Result<(), CodecError>,
+    {
+        let count: u32 = values
+            .len()
+            .try_into()
+            .map_err(|_| CodecError::LengthTooLarge)?;
+        self.write_u32_le(count);
+        for v in values {
+            encode(self, v)?;
+        }
+        Ok(())
+    }
+
     /// Consume the writer and return the buffer.
     #[must_use]
     pub fn into_vec(self) -> Vec<u8> {
@@ -191,6 +247,74 @@ impl<'a> Reader<'a> {
             .map(ToOwned::to_owned)
             .map_err(|_| CodecError::InvalidUtf8)
     }
+
+    /// Read a little-endian i32.
+    pub fn read_i32_le(&mut self) -> Result<i32, CodecError> {
+        let chunk = self.take(4)?;
+        let raw: [u8; 4] = chunk.try_into().map_err(|_| CodecError::OutOfBounds)?;
+        Ok(i32::from_le_bytes(raw))
+    }
+
+    /// Read a little-endian f32 (stored as canonicalized bits).
+    pub fn read_f32_le(&mut self) -> Result<f32, CodecError> {
+        let chunk = self.take(4)?;
+        let raw: [u8; 4] = chunk.try_into().map_err(|_| CodecError::OutOfBounds)?;
+        Ok(f32::from_le_bytes(raw))
+    }
+
+    /// Read a bool from a single byte (`0x00` = false, `0x01` = true).
+    pub fn read_bool(&mut self) -> Result<bool, CodecError> {
+        match self.read_u8()? {
+            0x00 => Ok(false),
+            0x01 => Ok(true),
+            _ => Err(CodecError::InvalidBoolTag),
+        }
+    }
+
+    /// Read an optional value: `0x00` = `None`, `0x01` = `Some(decode(r))`.
+    pub fn read_option<T, F>(&mut self, decode: F) -> Result<Option<T>, CodecError>
+    where
+        F: FnOnce(&mut Reader<'_>) -> Result<T, CodecError>,
+    {
+        match self.read_u8()? {
+            0x00 => Ok(None),
+            0x01 => Ok(Some(decode(self)?)),
+            _ => Err(CodecError::InvalidBoolTag),
+        }
+    }
+
+    /// Read a list: `u32 LE` element count, then decode each element.
+    pub fn read_list<T, F>(&mut self, decode: F) -> Result<Vec<T>, CodecError>
+    where
+        F: Fn(&mut Reader<'_>) -> Result<T, CodecError>,
+    {
+        let count = self.read_u32_le()? as usize;
+        let mut out = Vec::with_capacity(count);
+        for _ in 0..count {
+            out.push(decode(self)?);
+        }
+        Ok(out)
+    }
+}
+
+/// Canonicalize an `f32` to a deterministic bit pattern.
+///
+/// Mirrors `F32Scalar::new()` from `warp-math` without taking that crate as a dependency:
+/// - NaN (any variant) → `0x7fc00000` (positive quiet NaN)
+/// - subnormal → `+0.0` (`0x00000000`)
+/// - `-0.0` → `+0.0`
+/// - all other values pass through unchanged
+#[inline]
+#[must_use]
+pub fn canonicalize_f32(v: f32) -> f32 {
+    if v.is_nan() {
+        f32::from_bits(0x7fc0_0000)
+    } else if v.is_subnormal() {
+        0.0_f32
+    } else {
+        // Maps -0.0 → +0.0; all other normal values are unchanged.
+        v + 0.0_f32
+    }
 }
 
 /// Convert an integer to Q32.32 fixed-point representation.
@@ -240,4 +364,279 @@ pub fn vec3_fx_from_i64(x: i64, y: i64, z: i64) -> [i64; 3] {
 #[must_use]
 pub fn vec3_fx_from_f32(x: f32, y: f32, z: f32) -> [i64; 3] {
     [fx_from_f32(x), fx_from_f32(y), fx_from_f32(z)]
+}
+
+#[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::redundant_closure_for_method_calls
+)]
+mod tests {
+    use super::*;
+
+    // ── helpers ──────────────────────────────────────────────────────────────
+
+    fn roundtrip<T, W, R>(write: W, read: R) -> T
+    where
+        W: FnOnce(&mut Writer),
+        R: FnOnce(&mut Reader<'_>) -> Result<T, CodecError>,
+    {
+        let mut w = Writer::default();
+        write(&mut w);
+        let buf = w.into_vec();
+        let mut r = Reader::new(&buf);
+        read(&mut r).expect("decode failed")
+    }
+
+    // ── i32 ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn i32_roundtrip_zero() {
+        let v = roundtrip(|w| w.write_i32_le(0), |r| r.read_i32_le());
+        assert_eq!(v, 0);
+    }
+
+    #[test]
+    fn i32_roundtrip_positive() {
+        let v = roundtrip(|w| w.write_i32_le(42), |r| r.read_i32_le());
+        assert_eq!(v, 42);
+    }
+
+    #[test]
+    fn i32_roundtrip_negative() {
+        let v = roundtrip(|w| w.write_i32_le(-1), |r| r.read_i32_le());
+        assert_eq!(v, -1);
+    }
+
+    #[test]
+    fn i32_roundtrip_min() {
+        let v = roundtrip(|w| w.write_i32_le(i32::MIN), |r| r.read_i32_le());
+        assert_eq!(v, i32::MIN);
+    }
+
+    #[test]
+    fn i32_roundtrip_max() {
+        let v = roundtrip(|w| w.write_i32_le(i32::MAX), |r| r.read_i32_le());
+        assert_eq!(v, i32::MAX);
+    }
+
+    #[test]
+    fn i32_wire_bytes() {
+        // 0x01020304 in LE → [0x04, 0x03, 0x02, 0x01]
+        let mut w = Writer::default();
+        w.write_i32_le(0x0102_0304);
+        assert_eq!(w.into_vec(), [0x04, 0x03, 0x02, 0x01]);
+    }
+
+    // ── f32 canonicalization ─────────────────────────────────────────────────
+
+    #[test]
+    fn f32_canonicalize_nan_any_becomes_quiet_nan() {
+        // All NaN variants must produce the same canonical bit pattern 0x7fc00000.
+        let quiet_nan = f32::from_bits(0x7fc0_0000);
+        let signaling_nan = f32::from_bits(0x7f80_0001);
+        let neg_nan = f32::from_bits(0xffc0_0000);
+        assert_eq!(canonicalize_f32(quiet_nan).to_bits(), 0x7fc0_0000);
+        assert_eq!(canonicalize_f32(signaling_nan).to_bits(), 0x7fc0_0000);
+        assert_eq!(canonicalize_f32(neg_nan).to_bits(), 0x7fc0_0000);
+    }
+
+    #[test]
+    fn f32_canonicalize_subnormal_becomes_positive_zero() {
+        // Smallest positive subnormal: 0x00000001.
+        let subnormal = f32::from_bits(0x0000_0001);
+        assert!(subnormal.is_subnormal());
+        assert_eq!(canonicalize_f32(subnormal).to_bits(), 0x0000_0000);
+    }
+
+    #[test]
+    fn f32_canonicalize_negative_zero_becomes_positive_zero() {
+        let neg_zero = -0.0_f32;
+        assert_eq!(neg_zero.to_bits(), 0x8000_0000);
+        assert_eq!(canonicalize_f32(neg_zero).to_bits(), 0x0000_0000);
+    }
+
+    #[test]
+    fn f32_canonicalize_positive_infinity_unchanged() {
+        let inf = f32::INFINITY;
+        assert_eq!(canonicalize_f32(inf).to_bits(), inf.to_bits());
+    }
+
+    #[test]
+    fn f32_canonicalize_normal_values_unchanged() {
+        for v in [1.0_f32, -1.0, 42.5, f32::MAX, f32::MIN] {
+            assert_eq!(canonicalize_f32(v).to_bits(), v.to_bits(), "value: {v}");
+        }
+    }
+
+    #[test]
+    fn f32_roundtrip_normal() {
+        let v = roundtrip(|w| w.write_f32_le(1.5), |r| r.read_f32_le());
+        assert_eq!(v.to_bits(), 1.5_f32.to_bits());
+    }
+
+    #[test]
+    fn f32_roundtrip_nan_canonicalizes() {
+        // write_f32_le must canonicalize; the decoded bits must be 0x7fc00000.
+        let v = roundtrip(|w| w.write_f32_le(f32::NAN), |r| r.read_f32_le());
+        assert_eq!(v.to_bits(), 0x7fc0_0000);
+    }
+
+    #[test]
+    fn f32_roundtrip_subnormal_canonicalizes_to_zero() {
+        let subnormal = f32::from_bits(0x0000_0001);
+        let v = roundtrip(|w| w.write_f32_le(subnormal), |r| r.read_f32_le());
+        assert_eq!(v.to_bits(), 0x0000_0000);
+    }
+
+    #[test]
+    fn f32_roundtrip_negative_zero_canonicalizes_to_positive_zero() {
+        let v = roundtrip(|w| w.write_f32_le(-0.0_f32), |r| r.read_f32_le());
+        assert_eq!(v.to_bits(), 0x0000_0000);
+    }
+
+    #[test]
+    fn f32_roundtrip_positive_infinity() {
+        let v = roundtrip(|w| w.write_f32_le(f32::INFINITY), |r| r.read_f32_le());
+        assert!(v.is_infinite() && v.is_sign_positive());
+    }
+
+    // ── bool ─────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn bool_roundtrip_false() {
+        let v = roundtrip(|w| w.write_bool(false), |r| r.read_bool());
+        assert!(!v);
+    }
+
+    #[test]
+    fn bool_roundtrip_true() {
+        let v = roundtrip(|w| w.write_bool(true), |r| r.read_bool());
+        assert!(v);
+    }
+
+    #[test]
+    fn bool_wire_bytes() {
+        let mut w = Writer::default();
+        w.write_bool(false);
+        w.write_bool(true);
+        assert_eq!(w.into_vec(), [0x00, 0x01]);
+    }
+
+    #[test]
+    fn bool_invalid_tag_returns_error() {
+        let buf = [0x02_u8];
+        let mut r = Reader::new(&buf);
+        assert_eq!(r.read_bool(), Err(CodecError::InvalidBoolTag));
+    }
+
+    // ── option ───────────────────────────────────────────────────────────────
+
+    #[test]
+    fn option_roundtrip_none() {
+        let mut w = Writer::default();
+        w.write_option::<u32, _>(None, |w, v| {
+            w.write_u32_le(v);
+            Ok(())
+        })
+        .unwrap();
+        let buf = w.into_vec();
+        assert_eq!(buf, [0x00]);
+        let mut r = Reader::new(&buf);
+        let v: Option<u32> = r.read_option(|r| r.read_u32_le()).unwrap();
+        assert_eq!(v, None);
+    }
+
+    #[test]
+    fn option_roundtrip_some() {
+        let mut w = Writer::default();
+        w.write_option(Some(999_u32), |w, v| {
+            w.write_u32_le(v);
+            Ok(())
+        })
+        .unwrap();
+        let buf = w.into_vec();
+        // presence tag 0x01, then 999u32 LE = [0xe7, 0x03, 0x00, 0x00]
+        assert_eq!(buf[0], 0x01);
+        let mut r = Reader::new(&buf);
+        let v: Option<u32> = r.read_option(|r| r.read_u32_le()).unwrap();
+        assert_eq!(v, Some(999));
+    }
+
+    #[test]
+    fn option_nested_string() {
+        let input: Option<&str> = Some("hello");
+        let mut w = Writer::default();
+        w.write_option(input, |w, v| w.write_string(v, usize::MAX))
+            .unwrap();
+        let buf = w.into_vec();
+        let mut r = Reader::new(&buf);
+        let v = r.read_option(|r| r.read_string(usize::MAX)).unwrap();
+        assert_eq!(v, Some("hello".to_owned()));
+    }
+
+    // ── list ─────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn list_roundtrip_empty() {
+        let input: &[u32] = &[];
+        let mut w = Writer::default();
+        w.write_list(input, |w, v| {
+            w.write_u32_le(*v);
+            Ok(())
+        })
+        .unwrap();
+        let buf = w.into_vec();
+        // count = 0 → 4 zero bytes
+        assert_eq!(buf, [0x00, 0x00, 0x00, 0x00]);
+        let mut r = Reader::new(&buf);
+        let v: Vec<u32> = r.read_list(|r| r.read_u32_le()).unwrap();
+        assert_eq!(v, [] as [u32; 0]);
+    }
+
+    #[test]
+    fn list_roundtrip_three_elements() {
+        let input = [1_u32, 2, 3];
+        let mut w = Writer::default();
+        w.write_list(&input, |w, v| {
+            w.write_u32_le(*v);
+            Ok(())
+        })
+        .unwrap();
+        let buf = w.into_vec();
+        let mut r = Reader::new(&buf);
+        let v: Vec<u32> = r.read_list(|r| r.read_u32_le()).unwrap();
+        assert_eq!(v, [1, 2, 3]);
+    }
+
+    #[test]
+    fn list_roundtrip_strings() {
+        let input = ["alpha", "beta", "gamma"];
+        let mut w = Writer::default();
+        w.write_list(&input, |w, v| w.write_string(v, usize::MAX))
+            .unwrap();
+        let buf = w.into_vec();
+        let mut r = Reader::new(&buf);
+        let v: Vec<String> = r.read_list(|r| r.read_string(usize::MAX)).unwrap();
+        assert_eq!(v, ["alpha", "beta", "gamma"]);
+    }
+
+    // ── canonicalize_f32 public function ────────────────────────────────────
+
+    #[test]
+    fn canonicalize_f32_all_nan_bits_map_to_canonical() {
+        // Exhaustively sample a range of NaN bit patterns.
+        for payload in [0u32, 1, 0x003f_ffff, 0x0040_0000, 0x007f_ffff] {
+            // Quiet NaN: exponent all-1s, fraction MSB set, positive
+            let bits = 0x7f80_0000 | 0x0040_0000 | payload;
+            let nan = f32::from_bits(bits);
+            assert!(nan.is_nan());
+            assert_eq!(
+                canonicalize_f32(nan).to_bits(),
+                0x7fc0_0000,
+                "bits={bits:#010x}"
+            );
+        }
+    }
 }

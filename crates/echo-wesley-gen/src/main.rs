@@ -176,6 +176,23 @@ fn operation_type_rank(operation_type: wesley_core::OperationType) -> u8 {
     }
 }
 
+/// FNV-1a 32-bit op id derivation. Must stay bytewise identical to
+/// `wesley_core::stable_op_id` (added in wesley-core ≥0.0.5). The duplication
+/// will collapse when echo bumps its wesley-core dependency to 0.0.5+; until
+/// then both copies are pinned to the same outputs in unit tests.
+fn stable_op_id(operation_type: &wesley_core::OperationType, field_name: &str) -> u32 {
+    let mut hash = 2_166_136_261_u32;
+    hash = fnv1a_step(hash, operation_type_rank(*operation_type));
+    for byte in field_name.as_bytes() {
+        hash = fnv1a_step(hash, *byte);
+    }
+    hash
+}
+
+fn fnv1a_step(hash: u32, byte: u8) -> u32 {
+    hash.wrapping_mul(16_777_619) ^ u32::from(byte)
+}
+
 fn op_kind_from_wesley(operation_type: wesley_core::OperationType) -> OpKind {
     match operation_type {
         wesley_core::OperationType::Query | wesley_core::OperationType::Subscription => {
@@ -212,19 +229,6 @@ fn type_kind_from_wesley(type_kind: wesley_core::TypeKind) -> TypeKind {
         wesley_core::TypeKind::Scalar => TypeKind::Scalar,
         wesley_core::TypeKind::InputObject => TypeKind::InputObject,
     }
-}
-
-fn stable_op_id(operation_type: &wesley_core::OperationType, field_name: &str) -> u32 {
-    let mut hash = 2_166_136_261_u32;
-    hash = fnv1a_step(hash, operation_type_rank(*operation_type));
-    for byte in field_name.as_bytes() {
-        hash = fnv1a_step(hash, *byte);
-    }
-    hash
-}
-
-fn fnv1a_step(hash: u32, byte: u8) -> u32 {
-    hash.wrapping_mul(16_777_619) ^ u32::from(byte)
 }
 
 fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
@@ -2018,5 +2022,39 @@ fn map_helper_type(gql_type: &str, args: &Args) -> TokenStream {
             let ident = safe_ident(other);
             quote! { super::#ident }
         }
+    }
+}
+
+#[cfg(test)]
+mod stable_op_id_pinned {
+    use super::stable_op_id;
+    use wesley_core::OperationType;
+
+    /// These u32 outputs are the cross-language contract surface. They MUST
+    /// stay bytewise identical to `wesley_core::stable_op_id` and to every
+    /// TypeScript / WASM consumer that routes EINT envelopes by op id. If a
+    /// value changes here, every contract that uses that op id breaks.
+    #[test]
+    fn rope_operation_op_ids_are_pinned() {
+        assert_eq!(
+            stable_op_id(&OperationType::Mutation, "createBufferWorldline"),
+            2_519_122_874
+        );
+        assert_eq!(
+            stable_op_id(&OperationType::Mutation, "replaceRangeAsTick"),
+            3_329_158_538
+        );
+        assert_eq!(
+            stable_op_id(&OperationType::Mutation, "createCheckpoint"),
+            3_744_251_216
+        );
+        assert_eq!(
+            stable_op_id(&OperationType::Query, "worldlineSnapshot"),
+            3_219_688_859
+        );
+        assert_eq!(
+            stable_op_id(&OperationType::Query, "textWindow"),
+            2_414_231_278
+        );
     }
 }

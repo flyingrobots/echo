@@ -228,32 +228,41 @@ where in the pipeline the refusal happened:
 
 ```text
 IntentRejected {
-  session_id?: SessionId         // absent only when session lookup itself failed
-  intent_id : IntentId
-  stage     : SessionGate | HeadInboxAdmission | Execution
-  reason    : UnknownSession | ClosedSession | CapabilityDenied
-            | BaseHeadMismatch | Cancelled | <other admission/execution reason>
+  session_id?: SessionId         // absent only when no session_id was in the envelope at all
+  intent_id? : IntentId          // absent only when decode failed before intent_id could be read
+  stage      : Decode | SessionGate | HeadInboxAdmission | Execution
+  reason     : MissingSession | UnknownSession | ClosedSession | CapabilityDenied
+             | BaseHeadMismatch | Cancelled | <other admission/execution reason>
 }
 ```
 
-Three cases that look similar but record differently:
+Four cases that look similar but record differently:
 
-- **Unknown session** — rejected at the session gate. Cannot appear in
+- **`MissingSession`** — envelope reached the decode boundary but
+  carried no `session_id` for a session-aware operation. Stage =
+  `Decode`. Has no `session_id` to attribute to. Recorded on the engine
+  event log for diagnostics; no `SessionEventLog` projection to land
+  in. Distinct from `UnknownSession`: missing means "header absent";
+  unknown means "header present but does not resolve."
+- **`UnknownSession`** — envelope carried a `session_id` but no session
+  with that id exists. Stage = `SessionGate`. Cannot appear in
   `SessionEventLog(session_id)`, because the named session does not
-  exist. The rejection is observable on the engine event log (for
-  diagnostics and operator visibility) but has no session projection
-  to land in.
-- **Closed session** — rejected at the session gate. Appears in
+  exist. Observable on the engine event log.
+- **`ClosedSession`** — envelope carried a `session_id` resolving to a
+  Closed session. Stage = `SessionGate`. Appears in
   `SessionEventLog(session_id)` for the named closed session. Closed
   sessions remain queryable as provenance; "submission attempted after
   close" is part of their record.
-- **`BaseHeadMismatch`** — rejected at `HeadInboxAdmission` by the
-  existing worldline/head admission logic. Attributed to the valid
+- **`BaseHeadMismatch`** — envelope passed the session gate, was
+  admitted to `HeadInbox`, but rejected by the existing worldline/head
+  admission. Stage = `HeadInboxAdmission`. Attributed to the valid
   session that made the submission. Appears in that session's
   projection.
 
-The invariant: only sessions that exist can have a `SessionEventLog`. An
-unknown-session rejection is engine-level, not session-level.
+The invariant: only sessions that exist can have a `SessionEventLog`.
+`MissingSession` and `UnknownSession` rejections are engine-level, not
+session-level. The two are not silently folded together — they are
+different bugs.
 
 ### Why two settlement events instead of one
 
@@ -352,24 +361,42 @@ Phrased as a **session admission gate**, not as draining an owned queue:
 - **Abortive close** cancels interruptible accepted work and waits for
   cancellation quiescence.
 
-### Ingress attribution prerequisite
+### Abortive close v1 scope: pending-ingress cancellation deferred
 
-Abortive close cannot rescind ingress it cannot find. For "cancel pending
-ingress under this `session_id`" to be a real operation, this cycle must:
+`IngressEnvelope` is BLAKE3 content-addressed and `HeadInbox` keys its
+pending map by `ingress_id`. Adding `session_id` either changes the
+content-address input (determinism-critical, with replay implications) or
+requires a secondary index. Either path is moderate surgery on a
+determinism-load-bearing component, in the same cycle as the introduction
+of Session itself.
+
+**V1 takes the weaker variant deliberately, not by accident:**
+
+- Abortive close v1 blocks new submissions at the session gate and
+  cancels interruptible **accepted** work attributed to the session
+  (cancellation receipts emitted; cancellation quiesced before
+  `SessionClosed`).
+- Pending-ingress cancellation — rejecting envelopes already in
+  `HeadInbox` but not yet admitted — is **out of v1**.
+- Practical consequence: a pending envelope under an abortively-closing
+  session may still be admitted by the existing ingress path; once
+  admitted, the in-flight cancellation logic handles it.
+
+The follow-up cycle that adds pending-ingress cancellation will:
 
 - Extend `IngressEnvelope` (in `warp-core::head_inbox`) to carry
-  `session_id` attribution alongside its existing routing fields.
+  `session_id` attribution, deciding explicitly whether the field is
+  part of the content address (replay-determinism implications) or a
+  separate attribution column.
 - Add a `HeadInbox` API surface for rejecting/cancelling pending
-  envelopes filtered by `session_id`.
+  envelopes filtered by `session_id`. `HeadInbox` remains the queue
+  owner; the session admission gate requests cancellation, the inbox
+  honors it per its own determinism / ordering rules.
 
-`HeadInbox` remains the queue owner; Session does not reach into it
-directly. The cancel API is a request from the session admission gate
-that `HeadInbox` honors per its own determinism / ordering rules.
-
-If the `HeadInbox` extension proves too invasive for v1, fall back to the
-weaker variant: abortive close only blocks new submissions and cancels
-interruptible accepted work; pending-ingress cancellation is deferred.
-This must be a deliberate scope call, not silent gap.
+This deferral is named so RED tests do not test pending-ingress
+cancellation in v1, and so the abortive-close invariant is honest: v1
+abortive close means "no new submissions, no in-flight accepted work,"
+not "no envelope addressed to this session anywhere in the engine."
 
 ### Invariant
 
@@ -524,6 +551,20 @@ as a raw Rust enum. The engine maps `IngressAddress` → `IngressTarget`
 internally at decode time. Codecs become graveyards when they casually
 import runtime types; this seam keeps the wire shape and the runtime
 type free to evolve independently.
+
+**Naming discipline (binding on RED tests):**
+
+| Layer               | Type name                                       | Where it lives                                  |
+| ------------------- | ----------------------------------------------- | ----------------------------------------------- |
+| Wire / EINT         | `IngressAddress`                                | protocol-shaped LE binary codec value           |
+| Decode boundary     | `IngressAddress` → `IngressTarget` map function | this cycle's decode layer                       |
+| Runtime / admission | `IngressTarget`                                 | existing `warp-core::head_inbox::IngressTarget` |
+
+RED tests for the wire surface assert on `IngressAddress` serialization;
+RED tests for the admission gate assert on `IngressTarget` values.
+Neither test should assert that the wire directly serializes
+`IngressTarget`; the decode boundary exists precisely so the runtime type
+can change without breaking the wire and vice versa.
 
 The engine decides: is this session open, is this principal authorized to
 submit under it, what worldline does `target` reach, what head / tick does
@@ -690,11 +731,10 @@ Proposed. No code in Phase 1.
    `session_id` + `intent_id` headers and an `IngressAddress`-shaped
    protocol target value that maps to `warp-core::head_inbox::IngressTarget`
    at decode.
-6. Extend `IngressEnvelope` (in `warp-core::head_inbox`) to carry
-   `session_id` attribution, and add a `HeadInbox` API for
-   rejecting/cancelling pending envelopes by `session_id`. If the
-   extension proves too invasive for v1, fall back to deferring
-   pending-ingress cancellation per the abortive-close scope call.
+6. **Deferred to follow-up cycle.** `IngressEnvelope` is not extended
+   with `session_id` attribution in v1; pending-ingress cancellation is
+   not added in v1. Abortive close v1 blocks new submissions and
+   cancels interruptible accepted work only.
 7. Implement `SessionEventLog(session_id)` as a read-only projection over
    the existing event stream filtered by attribution, ordered by the
    engine event log's deterministic event order (`LogicalTime` / event
@@ -735,8 +775,12 @@ To be expanded in Phase 2. Minimum coverage required:
 - Two sessions targeting the same worldline: second writer obstructs via
   existing `baseHeadMismatch`; the rejection is attributed to the
   second session.
-- An envelope missing `session_id` for a session-aware operation is a
-  hard reject (covers the no-null-default invariant).
+- An envelope missing `session_id` for a session-aware operation is
+  rejected at stage `Decode` with reason `MissingSession`; no
+  `SessionEventLog` entry is produced (no session to attribute to).
+- An envelope carrying an unknown `SessionId` is rejected at stage
+  `SessionGate` with reason `UnknownSession`; the two cases
+  (`MissingSession` vs `UnknownSession`) must not silently collapse.
 - A multi-target / atomic-batch submission is not accepted in v1
   (covers the deferred multi-target invariant). Existing `IngressTarget`
   variants are the only accepted shapes.
@@ -753,10 +797,11 @@ To be expanded in Phase 2. Minimum coverage required:
   not produce a `SessionEventLog` entry (covers rejection-stage attribution).
 - A closed-session rejection appears in that session's `SessionEventLog`
   (covers closed-session provenance).
-- A pending ingress envelope attributable to a session being abortively
-  closed is cancelled by the existing `HeadInbox` cancel-by-`session_id`
-  API; if that API is deferred per the abortive-close scope call,
-  pending-ingress cancellation is explicitly out of v1 instead.
+- An abortive close on a session blocks new submissions at the session
+  gate and cancels interruptible accepted work (cancellation receipts
+  emitted, cancellation quiesced before `SessionClosed`). Pending
+  ingress envelopes already in `HeadInbox` may still admit — this is
+  the v1 deferral, explicitly tested as such, not silently observed.
 
 ---
 

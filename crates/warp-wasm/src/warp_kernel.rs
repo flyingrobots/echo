@@ -649,6 +649,11 @@ impl WarpKernel {
             .map_err(Self::map_observation_error)
     }
 
+    /// Return the default worldline id in ABI form for use by native embedders.
+    pub(super) fn default_worldline_id(&self) -> AbiWorldlineId {
+        AbiWorldlineId::from_bytes(*self.default_worldline.as_bytes())
+    }
+
     pub(crate) fn current_head(&self) -> Result<HeadInfo, AbiError> {
         let request = ObservationRequest::builtin_one_shot(
             ObservationCoordinate {

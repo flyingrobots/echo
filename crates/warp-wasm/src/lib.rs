@@ -27,13 +27,13 @@ use js_sys::Uint8Array;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsValue;
 
-#[cfg(feature = "engine")]
-use echo_wasm_abi::kernel_port::HeadInfo;
 use echo_wasm_abi::kernel_port::{
     self, AbiError, DispatchOpticIntentRequest, ErrEnvelope, KernelPort, ObservationRequest,
     ObserveOpticRequest, OkEnvelope, OpticIntentPayload, SettlementRequest,
     TrustedKernelControlPort,
 };
+#[cfg(feature = "engine")]
+use echo_wasm_abi::kernel_port::{HeadInfo, WorldlineId};
 use echo_wasm_abi::{unpack_control_intent_v1, unpack_intent_v1, CONTROL_INTENT_V1_OP_ID};
 
 use std::cell::RefCell;
@@ -387,6 +387,39 @@ where
         }
         Err(err) => encode_err(&err),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Native embedding surface (non-wasm-bindgen, feature = "engine")
+// ---------------------------------------------------------------------------
+
+/// State returned by [`init_embedded`] describing the freshly initialized kernel.
+#[cfg(feature = "engine")]
+pub struct EmbeddedHandle {
+    /// The default worldline id to use when constructing observation requests.
+    pub worldline_id: WorldlineId,
+    /// Head info as of kernel initialization (tick 0, real hashes).
+    pub head: HeadInfo,
+}
+
+/// Initialize the default engine kernel for native (non-WASM) embedding.
+///
+/// Creates a [`warp_kernel::WarpKernel`] backed by `warp-core`, installs it as
+/// the module-scoped trusted kernel, and returns an [`EmbeddedHandle`] with the
+/// default worldline id and initial head. After this call, [`observe_cbor`],
+/// [`dispatch_intent_cbor`], and [`dispatch_control_intent_trusted_cbor`] are
+/// all ready to use without a JavaScript host.
+///
+/// # Errors
+///
+/// Returns [`AbiError`] if kernel construction or the initial head observation
+/// fails. Leaves no kernel installed on failure.
+#[cfg(feature = "engine")]
+pub fn init_embedded() -> Result<EmbeddedHandle, AbiError> {
+    let (kernel, head) = build_kernel_head(warp_kernel::WarpKernel::new)?;
+    let worldline_id = kernel.default_worldline_id();
+    install_trusted_kernel(Box::new(kernel));
+    Ok(EmbeddedHandle { worldline_id, head })
 }
 
 // ---------------------------------------------------------------------------

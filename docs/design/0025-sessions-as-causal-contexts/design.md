@@ -24,7 +24,7 @@ Integrates with (does not replace):
   worldline-scoped ingress and admission. Session attributes work flowing
   through this; it does not introduce a second ingress queue.
 - `warp-core::optic_artifact::PrincipalRef` — existing principal identity
-  surface, used directly as `Session.writer_ref`.
+  surface, used directly as `Session.principal_ref`.
 - `Worldline`, `head`, `tick`, `strand`, `braid` — mutation ordering /
   state-lineage primitives. Session attributes, it does not reorder.
 
@@ -130,8 +130,8 @@ concepts should use `Connection` / `TransportConnection` / similar.
 ```text
 Session
   id              : SessionId            // unified with existing playback::SessionId
-  writer_ref      : PrincipalRef         // existing warp-core type
-  writer_label?   : String               // human-readable, optional
+  principal_ref      : PrincipalRef         // existing warp-core type
+  principal_label?   : String               // human-readable, optional
   status          : Open | Closing | Closed
   created_at      : LogicalTime
   closed_at?      : LogicalTime
@@ -190,6 +190,19 @@ derived, and does not own ordering or admission.
 It is a queryable view over the existing event stream filtered by
 `session_id`, not a new event-producing structure.
 
+### Ordering
+
+`SessionEventLog(session_id)` is ordered by the engine event log's
+deterministic event order: `LogicalTime` / event sequence, with a stable
+content-address tie-breaker where the engine already uses one.
+
+**`SessionEventLog` order is not mutation order.** Worldline head / tick
+order remains mutation order. The projection's order reflects when events
+were observed by the engine event log, not when their underlying causal
+effects took place on any particular worldline. A reader that needs
+worldline-level causal order must query worldline state directly, not
+infer it from the session projection.
+
 ---
 
 ## Lifecycle events
@@ -198,7 +211,7 @@ It is a queryable view over the existing event stream filtered by
 SessionOpened
 IntentSubmitted              // session-gated; entered HeadInbox
 IntentAccepted               // worldline-admitted; named in this session
-IntentRejected               // refused either at session gate or at admission
+IntentRejected               // refused at session gate, head_inbox admission, or execution; stage is recorded
 IntentStarted                // execution began
 EffectEmitted                // a downstream effect was produced
 IntentReceiptIssued          // primary receipt for this intent is in
@@ -207,6 +220,40 @@ SessionCloseRequested        // close initiated
 SessionClosing               // admission gate refusing new submissions
 SessionClosed                // no accepted in-flight bounded work remains
 ```
+
+### Rejection stages
+
+`IntentRejected` carries a stage and a reason so callers and audits know
+where in the pipeline the refusal happened:
+
+```text
+IntentRejected {
+  session_id?: SessionId         // absent only when session lookup itself failed
+  intent_id : IntentId
+  stage     : SessionGate | HeadInboxAdmission | Execution
+  reason    : UnknownSession | ClosedSession | CapabilityDenied
+            | BaseHeadMismatch | Cancelled | <other admission/execution reason>
+}
+```
+
+Three cases that look similar but record differently:
+
+- **Unknown session** — rejected at the session gate. Cannot appear in
+  `SessionEventLog(session_id)`, because the named session does not
+  exist. The rejection is observable on the engine event log (for
+  diagnostics and operator visibility) but has no session projection
+  to land in.
+- **Closed session** — rejected at the session gate. Appears in
+  `SessionEventLog(session_id)` for the named closed session. Closed
+  sessions remain queryable as provenance; "submission attempted after
+  close" is part of their record.
+- **`BaseHeadMismatch`** — rejected at `HeadInboxAdmission` by the
+  existing worldline/head admission logic. Attributed to the valid
+  session that made the submission. Appears in that session's
+  projection.
+
+The invariant: only sessions that exist can have a `SessionEventLog`. An
+unknown-session rejection is engine-level, not session-level.
 
 ### Why two settlement events instead of one
 
@@ -232,6 +279,26 @@ open-ended observers do not keep an intent forever unquiesced. Participants
 wanting to register bounded child work do so explicitly via the
 intent → effect attribution surface; otherwise they stay out of the
 quiescence calculation.
+
+### Quiescence registration rule
+
+To prevent quiescence from becoming a race:
+
+- **Bounded child work must be registered before it can keep an intent
+  non-quiescent.** Registration goes through the intent → effect
+  attribution surface and happens before the registering participant
+  could observe `IntentEffectsQuiesced` for the parent intent.
+- **After `IntentEffectsQuiesced` is emitted for an intent, no new
+  bounded child work may be registered for that intent.** Late
+  registrations are rejected. (Unbounded participants — watchers,
+  subscriptions — are unaffected; they were never in the quiescence
+  calculation.)
+
+Without this rule, a participant could register a bounded child after
+the engine has already observed all known bounded work as quiesced,
+flipping the intent back to non-quiescent and making "quiesced" a
+moving target. The rule turns `IntentEffectsQuiesced` into a one-way
+gate per intent.
 
 ---
 
@@ -276,14 +343,33 @@ Phrased as a **session admission gate**, not as draining an owned queue:
 
 - **Reject new submissions** under this `session_id` at the session gate,
   before they ever enter `HeadInbox`.
-- **Cancel / reject unaccepted work** still pending in `HeadInbox` that is
-  attributable to this session (where the existing admission policy
-  permits cancellation).
+- **Cancel / reject pending ingress** still queued in `HeadInbox` and
+  attributable to this session — only feasible because ingress envelopes
+  carry `session_id` attribution (see below).
 - **Accepted work remains attached** to the session for attribution; its
   causal record persists.
 - **Graceful close** drains accepted bounded work to `EffectsQuiesced`.
-- **Abortive close** cancels interruptible work and waits for
+- **Abortive close** cancels interruptible accepted work and waits for
   cancellation quiescence.
+
+### Ingress attribution prerequisite
+
+Abortive close cannot rescind ingress it cannot find. For "cancel pending
+ingress under this `session_id`" to be a real operation, this cycle must:
+
+- Extend `IngressEnvelope` (in `warp-core::head_inbox`) to carry
+  `session_id` attribution alongside its existing routing fields.
+- Add a `HeadInbox` API surface for rejecting/cancelling pending
+  envelopes filtered by `session_id`.
+
+`HeadInbox` remains the queue owner; Session does not reach into it
+directly. The cancel API is a request from the session admission gate
+that `HeadInbox` honors per its own determinism / ordering rules.
+
+If the `HeadInbox` extension proves too invasive for v1, fall back to the
+weaker variant: abortive close only blocks new submissions and cancels
+interruptible accepted work; pending-ingress cancellation is deferred.
+This must be a deliberate scope call, not silent gap.
 
 ### Invariant
 
@@ -322,26 +408,37 @@ coat. Multi-writer concurrent merge semantics are intentionally deferred.
 
 ---
 
-## Multi-worldline intents
+## Single-target routing in v1; atomic multi-target deferred
 
-The intent type admits plural targets:
+V1 session-aware submission carries exactly one routing target, using the
+existing warp-core address type:
 
 ```text
-Intent {
-  target_worldlines : NonEmptyList<WorldlineRef>
-  ...
+Submission {
+  session_id : SessionId
+  intent_id  : IntentId
+  target     : IngressTarget   // existing warp-core::head_inbox type
+  payload    : <bytes>
 }
 ```
 
-The v1 protocol enforces `target_worldlines.length == 1`. Atomic
-multi-worldline transactions are deferred.
+`IngressTarget` already supports `DefaultWriter { worldline_id }`,
+`InboxAddress { worldline_id, inbox }`, and (for control/debug)
+`ExactHead { key }`. V1 reuses it unchanged.
 
-The plural type is intentional: it leaves room for future cross-buffer
-atomic operations (project-wide rename, refactor-across-files) without
-needing a wire-shape break. Implementing those atomically — multiple base
-heads, all-or-nothing commit, cross-worldline obstruction, rollback /
-compensation, lock ordering — is real machinery, not "just plural." Out of
-v1.
+Atomic multi-target submissions are **deferred**. Future shapes might be:
+
+```text
+target : NonEmptyList<IngressTarget>
+// or
+target : AtomicIngressBatch
+```
+
+The deferral is not just typing. Atomic multi-target work requires
+multiple base heads, all-or-nothing commit, cross-target obstruction,
+rollback / compensation, lock ordering to avoid deadlock, and
+cross-target receipt semantics. Real machinery, not just plural. Out of
+v1; a future cycle picks up the shape and the semantics together.
 
 ---
 
@@ -364,6 +461,28 @@ is resolved with the hybrid approach:
 This keeps "session-opening is observable" true for everything after boot
 without requiring genesis itself to be observable as an intent. There has
 to be one bottom turtle; name it and move on.
+
+### Genesis principal identity
+
+`system/genesis` is **not anonymous**. It carries a real `PrincipalRef`,
+not a null or empty identity. Proposed shape, subject to Echo's existing
+`PrincipalRef` conventions:
+
+```text
+system/genesis.principal_ref = PrincipalRef::system("genesis")
+```
+
+(Or whatever constructor / domain convention `warp-core` already uses for
+system principals — implementation phase confirms the exact form.)
+
+Invariants:
+
+- No null session anywhere.
+- No null principal anywhere — not even on `system/genesis`.
+- Other system sessions (`system/bootstrap`, `system/indexer`, etc.)
+  similarly carry concrete `PrincipalRef::system(...)`-shaped identities.
+
+One bottom turtle, with a name tag.
 
 ---
 
@@ -390,11 +509,21 @@ The EINT envelope gains session addressing in header metadata:
 Envelope {
   session_id     : SessionId              // required for session-aware ops
   intent_id      : IntentId
-  target         : IngressTarget          // existing routing
+  target         : IngressAddress         // protocol-shaped routing value
   correlation_id?: CorrelationId          // caller-supplied opt-in
   payload        : <vars bytes per 0024>
 }
 ```
+
+The `target` field is an **`IngressAddress`-shaped protocol value** —
+discriminated by the same variant taxonomy as `warp-core::head_inbox::
+IngressTarget` (`DefaultWriter { worldline_id }`,
+`InboxAddress { worldline_id, inbox }`, `ExactHead { key }`), but
+serialized through the 0024 universal LE binary codec rather than smuggled
+as a raw Rust enum. The engine maps `IngressAddress` → `IngressTarget`
+internally at decode time. Codecs become graveyards when they casually
+import runtime types; this seam keeps the wire shape and the runtime
+type free to evolve independently.
 
 The engine decides: is this session open, is this principal authorized to
 submit under it, what worldline does `target` reach, what head / tick does
@@ -452,9 +581,14 @@ provides scope, not object identity.
    accepted intent attributed to that session remains short of
    `EffectsQuiesced`.
 7. `SessionClosed` implies invariant 6 for the closed session.
-8. No null / default session anywhere in the system.
+8. No null / default session anywhere in the system. No null principal
+   anywhere — even `system/genesis` carries a concrete
+   `PrincipalRef::system("genesis")`-shaped identity.
 9. Exactly one `SessionId` concept exists in `warp-core`. The
    `playback::SessionId` is unified with this cycle's `SessionId`.
+10. `IntentEffectsQuiesced` is a one-way gate per intent: no bounded child
+    work may be registered for an intent after that intent has been
+    observed quiesced.
 
 ---
 
@@ -545,7 +679,7 @@ Proposed. No code in Phase 1.
    Narrow `ViewSession` to "read/playback view facet attached to a
    `SessionId`."
 2. Add the `Session` node type to the causal graph schema, carrying
-   `writer_ref: PrincipalRef`, status, lifecycle timestamps,
+   `principal_ref: PrincipalRef`, status, lifecycle timestamps,
    `primary_worldline?`. No inbox field, no lane field.
 3. Add the lifecycle event set as first-class events with stable IDs.
 4. Add the session admission gate before `HeadInbox`: a submission with
@@ -553,15 +687,26 @@ Proposed. No code in Phase 1.
    principal lacks capability (when capability is checked) is rejected;
    otherwise it proceeds to existing ingress unchanged.
 5. Extend the EINT envelope shape (coordinated with 0024) to carry
-   `session_id` + `intent_id` headers.
-6. Implement `SessionEventLog(session_id)` as a read-only projection over
-   the existing event stream filtered by attribution.
-7. Implement two-stage close with graceful and abortive modes, expressed
+   `session_id` + `intent_id` headers and an `IngressAddress`-shaped
+   protocol target value that maps to `warp-core::head_inbox::IngressTarget`
+   at decode.
+6. Extend `IngressEnvelope` (in `warp-core::head_inbox`) to carry
+   `session_id` attribution, and add a `HeadInbox` API for
+   rejecting/cancelling pending envelopes by `session_id`. If the
+   extension proves too invasive for v1, fall back to deferring
+   pending-ingress cancellation per the abortive-close scope call.
+7. Implement `SessionEventLog(session_id)` as a read-only projection over
+   the existing event stream filtered by attribution, ordered by the
+   engine event log's deterministic event order (`LogicalTime` / event
+   sequence with stable content-address tie-breaker).
+8. Implement two-stage close with graceful and abortive modes, expressed
    as session admission-gate state transitions.
-8. Implement `runUntilIdle(session, until)` against attributed work.
-9. Establish `system/genesis` as a primordial Session created by genesis;
-   open `system/bootstrap` etc. through normal Open intents.
-10. Coordinate the jedit migration via
+9. Implement `runUntilIdle(session, until)` against attributed work, with
+   the one-way quiescence gate enforced on bounded-child registration.
+10. Establish `system/genesis` as a primordial Session created by genesis,
+    carrying a concrete `PrincipalRef::system("genesis")`-shaped identity;
+    open `system/bootstrap` etc. through normal Open intents.
+11. Coordinate the jedit migration via
     `jedit/docs/method/backlog/asap/sessions-migration.md`. Deprecate
     `JeditWorldlineSessionPort` once the engine surface ships;
     delete it once jedit threads `SessionId` through its optic-client
@@ -592,14 +737,26 @@ To be expanded in Phase 2. Minimum coverage required:
   second session.
 - An envelope missing `session_id` for a session-aware operation is a
   hard reject (covers the no-null-default invariant).
-- An intent with `target_worldlines.length > 1` is rejected in v1
-  (covers the deferred multi-worldline invariant).
+- A multi-target / atomic-batch submission is not accepted in v1
+  (covers the deferred multi-target invariant). Existing `IngressTarget`
+  variants are the only accepted shapes.
 - `system/genesis` exists at engine boot without an originating intent.
 - `system/bootstrap` is opened by an Open intent submitted under
   `system/genesis` and its `SessionOpened` event is attributed to
   `system/genesis`.
 - `playback::ViewSession` continues to function attached to the unified
   `SessionId` (no regression on the existing read-side concept).
+- Attempting to register a bounded child work item for an intent that has
+  already emitted `IntentEffectsQuiesced` is rejected (covers the
+  one-way-gate invariant).
+- An unknown-session rejection appears on the engine event log but does
+  not produce a `SessionEventLog` entry (covers rejection-stage attribution).
+- A closed-session rejection appears in that session's `SessionEventLog`
+  (covers closed-session provenance).
+- A pending ingress envelope attributable to a session being abortively
+  closed is cancelled by the existing `HeadInbox` cancel-by-`session_id`
+  API; if that API is deferred per the abortive-close scope call,
+  pending-ingress cancellation is explicitly out of v1 instead.
 
 ---
 

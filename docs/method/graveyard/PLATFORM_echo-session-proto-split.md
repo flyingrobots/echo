@@ -3,6 +3,18 @@
 
 # Split echo-session-proto into retained bridge contracts vs legacy transport residue
 
+**Retired 2026-05-29.** The networked-session inspection prototype this card
+proposed splitting is out of scope; the entire `echo-session-proto` direction
+is being retired rather than refactored. The unqualified name "Session" is
+reclaimed for the causal-context sense defined in
+[0025 — Sessions as Causal Contexts](../../design/0025-sessions-as-causal-contexts/design.md).
+Transport-layer concepts should use `Connection` / `TransportConnection` /
+similar going forward.
+
+Original card text preserved below for provenance.
+
+---
+
 `echo-session-proto` still mixes two different things:
 
 - retained TTD/browser bridge contracts:

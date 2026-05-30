@@ -64,16 +64,41 @@ if command -v rustup >/dev/null 2>&1; then
 fi
 
 # 3) Format (auto-fix if opted in)
+#
+# Auto-stage protocol: when ECHO_AUTO_FMT is on and rustfmt/prettier rewrite
+# files, the hook used to abort and force a manual restage-and-recommit cycle
+# (paying cargo + lint costs twice). Instead, if the working tree was *clean*
+# relative to the index before the formatter ran, the formatted output is
+# safe to auto-add: every modified line came from the staged content, so we
+# stage the result and continue. Partial staging (any unstaged changes
+# present before the formatter) still aborts, because we can't tell whether
+# the formatter touched staged hunks, unstaged hunks, or both.
 _auto_fmt="${ECHO_AUTO_FMT:-1}"
+
+# Snapshot whether the working tree has unstaged changes BEFORE any
+# auto-formatter runs. `git diff --quiet` exits 0 if clean, 1 if dirty.
+if git diff --quiet; then
+  HAD_UNSTAGED_BEFORE_FMT=0
+else
+  HAD_UNSTAGED_BEFORE_FMT=1
+fi
+
 case "${_auto_fmt}" in
   1|true|TRUE|yes|YES|on|ON)
     echo "pre-commit: ECHO_AUTO_FMT=${_auto_fmt} → checking format"
     if ! cargo fmt --all -- --check; then
       echo "pre-commit: running cargo fmt to apply changes" >&2
       cargo fmt --all || { echo "pre-commit: cargo fmt failed" >&2; exit 1; }
-      echo "pre-commit: rustfmt updated files. Aborting commit to preserve index integrity (partial staging safe)." >&2
-      echo "Hint: review changes, restage (e.g., 'git add -p' or 'git add -A'), then commit again." >&2
-      exit 1
+      if [[ "$HAD_UNSTAGED_BEFORE_FMT" -eq 0 ]]; then
+        echo "pre-commit: rustfmt updated files; auto-staging (working tree was clean)." >&2
+        git add -u || { echo "pre-commit: failed to re-stage rustfmt changes" >&2; exit 1; }
+        # Refresh STAGED so later steps see the post-fmt index.
+        STAGED=$(git diff --cached --name-only)
+      else
+        echo "pre-commit: rustfmt updated files but you had unstaged changes; aborting to preserve partial-staging integrity." >&2
+        echo "Hint: review changes, restage (e.g., 'git add -p' or 'git add -A'), then commit again." >&2
+        exit 1
+      fi
     fi
     ;;
   0|false|FALSE|no|NO|off|OFF)
@@ -139,14 +164,27 @@ if [[ ${#MD_FILES[@]} -gt 0 ]] && command -v npx >/dev/null 2>&1; then
         : # Already formatted
       else
         echo "pre-commit: running prettier on markdown files" >&2
+        # Re-snapshot working-tree dirtiness for the markdown path specifically.
+        # The rustfmt step above may have auto-staged its own changes, so the
+        # earlier HAD_UNSTAGED_BEFORE_FMT value is stale by this point.
+        if git diff --quiet -- "${MD_FILES[@]}"; then
+          MD_HAD_UNSTAGED=0
+        else
+          MD_HAD_UNSTAGED=1
+        fi
         # Write changes; suppress stdout but preserve stderr for errors
         if ! npx prettier --write "${MD_FILES[@]}" >/dev/null; then
           echo "pre-commit: prettier failed" >&2
           exit 1
         fi
-        echo "pre-commit: prettier updated markdown files. Aborting commit to preserve index integrity." >&2
-        echo "Hint: review changes, restage (e.g., 'git add -p' or 'git add -A'), then commit again." >&2
-        exit 1
+        if [[ "$MD_HAD_UNSTAGED" -eq 0 ]]; then
+          echo "pre-commit: prettier updated markdown files; auto-staging (markdown working tree was clean)." >&2
+          git add -- "${MD_FILES[@]}" || { echo "pre-commit: failed to re-stage prettier changes" >&2; exit 1; }
+        else
+          echo "pre-commit: prettier updated markdown files but you had unstaged markdown edits; aborting to preserve partial-staging integrity." >&2
+          echo "Hint: review changes, restage (e.g., 'git add -p' or 'git add -A'), then commit again." >&2
+          exit 1
+        fi
       fi
       ;;
   esac

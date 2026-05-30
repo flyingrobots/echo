@@ -1,30 +1,134 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 //! Integration test for the echo-wesley-gen CLI (Wesley IR -> Rust code).
 
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::sync::OnceLock;
 
 const TOY_COUNTER_IR: &str = include_str!("fixtures/toy-counter/echo-ir-v1.json");
 
-/// Spawns `cargo run -p echo-wesley-gen --`, pipes `ir` to stdin, and returns the output.
+// ---------------------------------------------------------------------------
+// Test harness speedups.
+//
+// The integration tests in this file used to be 60-120s each because every
+// one of them paid two avoidable costs:
+//
+//   1. `cargo run -p echo-wesley-gen --` on every invocation, which forced
+//      cargo to re-check freshness across the whole dependency graph even
+//      when the binary was already current.
+//   2. Each generated consumer crate (under `target/echo-wesley-gen-*-smoke
+//      /<PID>/...`) had its own independent `target/` directory, so
+//      `echo-wasm-abi`, `echo-registry-api`, and `serde` were recompiled
+//      from scratch for every test instead of shared across the suite.
+//
+// The two helpers below kill both costs:
+//
+//   * `wesley_gen_binary()` builds `echo-wesley-gen` once per test binary
+//     (`OnceLock`) and returns the path to the compiled binary. All later
+//     invocations exec the binary directly, skipping cargo's freshness check.
+//   * `shared_consumer_target_dir()` returns a single stable path under the
+//     workspace `target/` directory. Every cargo invocation against a
+//     generated consumer crate runs with `CARGO_TARGET_DIR` set to that
+//     path, so the heavy upstream dependencies compile exactly once for the
+//     entire suite and stay cached across `cargo test` runs.
+// ---------------------------------------------------------------------------
+
+/// Build `echo-wesley-gen` once per test binary and reuse the compiled path.
+///
+/// The binary is built under the workspace's normal target directory so the
+/// dev profile artifacts are shared with day-to-day workflows. Cargo is
+/// still invoked once (the first call) so the binary is guaranteed fresh
+/// against the current source; subsequent calls return immediately.
+fn wesley_gen_binary() -> &'static Path {
+    static BINARY: OnceLock<PathBuf> = OnceLock::new();
+    BINARY
+        .get_or_init(|| {
+            // Use `--message-format=json` so we can read the compiler-
+            // executable path directly instead of guessing where the binary
+            // landed (works across debug/release and custom profiles).
+            let output = Command::new("cargo")
+                .args([
+                    "build",
+                    "-p",
+                    "echo-wesley-gen",
+                    "--bin",
+                    "echo-wesley-gen",
+                    "--message-format=json-render-diagnostics",
+                ])
+                .stderr(Stdio::inherit())
+                .output()
+                .expect("failed to build echo-wesley-gen for tests");
+            assert!(
+                output.status.success(),
+                "cargo build of echo-wesley-gen failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            for line in output.stdout.split(|b| *b == b'\n') {
+                if line.is_empty() {
+                    continue;
+                }
+                let msg: serde_json::Value = match serde_json::from_slice(line) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+                if msg.get("reason").and_then(|r| r.as_str()) != Some("compiler-artifact") {
+                    continue;
+                }
+                let target = msg.get("target").and_then(|t| t.as_object());
+                let is_bin = target
+                    .and_then(|t| t.get("kind"))
+                    .and_then(|k| k.as_array())
+                    .is_some_and(|kinds| kinds.iter().any(|k| k.as_str() == Some("bin")));
+                let name_matches = target.and_then(|t| t.get("name")).and_then(|n| n.as_str())
+                    == Some("echo-wesley-gen");
+                if !(is_bin && name_matches) {
+                    continue;
+                }
+                if let Some(exe) = msg.get("executable").and_then(|e| e.as_str()) {
+                    return PathBuf::from(exe);
+                }
+            }
+            panic!(
+                "cargo build produced no echo-wesley-gen bin artifact in JSON output:\n{}",
+                String::from_utf8_lossy(&output.stdout)
+            );
+        })
+        .as_path()
+}
+
+/// Returns the shared `CARGO_TARGET_DIR` path used for every generated
+/// consumer crate. All consumer crates share this directory so upstream
+/// deps (`echo-wasm-abi`, `echo-registry-api`, `serde`, …) compile once
+/// for the whole suite instead of once per test, both within a single
+/// `cargo test` run and across runs while the path stays warm.
+fn shared_consumer_target_dir() -> PathBuf {
+    let dir = workspace_root()
+        .join("target")
+        .join("echo-wesley-gen-test-consumer-cache");
+    fs::create_dir_all(&dir).expect("failed to create shared consumer target dir");
+    dir
+}
+
+/// Spawns the pre-built `echo-wesley-gen` binary, pipes `ir` to stdin, and
+/// returns the output. Equivalent to the old `cargo run -p echo-wesley-gen
+/// -- <args>` flow but without re-checking freshness per invocation.
 fn run_wesley_gen(ir: &str) -> Output {
     run_wesley_gen_with_args(ir, &[])
 }
 
-/// Spawns `cargo run -p echo-wesley-gen -- <args>`, pipes `ir` to stdin, and returns the output.
+/// Spawns the pre-built `echo-wesley-gen` binary with extra CLI args.
 fn run_wesley_gen_with_args(ir: &str, args: &[&str]) -> Output {
-    let mut child = Command::new("cargo")
-        .args(["run", "-p", "echo-wesley-gen", "--"])
+    let mut child = Command::new(wesley_gen_binary())
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("failed to spawn cargo run");
+        .expect("failed to spawn echo-wesley-gen");
 
     let mut stdin = child.stdin.take().expect("failed to get stdin");
     stdin
@@ -36,13 +140,13 @@ fn run_wesley_gen_with_args(ir: &str, args: &[&str]) -> Output {
 }
 
 fn run_wesley_gen_schema(schema_path: &Path) -> Output {
-    Command::new("cargo")
-        .args(["run", "-p", "echo-wesley-gen", "--", "--schema"])
+    Command::new(wesley_gen_binary())
+        .args(["--schema"])
         .arg(schema_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
-        .expect("failed to run cargo run")
+        .expect("failed to run echo-wesley-gen")
 }
 
 fn generated_str_const<'a>(source: &'a str, name: &str) -> &'a str {
@@ -1283,6 +1387,7 @@ mod tests {
 
 fn assert_generated_crate_checks(crate_dir: &Path) {
     let output = Command::new("cargo")
+        .env("CARGO_TARGET_DIR", shared_consumer_target_dir())
         .args(["check", "--manifest-path"])
         .arg(crate_dir.join("Cargo.toml"))
         .output()
@@ -1336,6 +1441,7 @@ fn test_reserved_control_op_id_fails_closed() {
 fn test_generated_optic_helper_shape_compiles_against_abi() {
     let crate_dir = write_optic_binding_smoke_crate();
     let output = Command::new("cargo")
+        .env("CARGO_TARGET_DIR", shared_consumer_target_dir())
         .args(["test", "--manifest-path"])
         .arg(crate_dir.join("Cargo.toml"))
         .output()
@@ -1748,6 +1854,7 @@ fn test_toy_contract_generated_output_compiles_in_consumer_crate() {
     let generated = String::from_utf8_lossy(&output.stdout);
     let crate_dir = write_consumer_smoke_crate(&generated);
     let output = Command::new("cargo")
+        .env("CARGO_TARGET_DIR", shared_consumer_target_dir())
         .args(["test", "--manifest-path"])
         .arg(crate_dir.join("Cargo.toml"))
         .output()
@@ -1777,6 +1884,7 @@ fn test_toy_contract_generated_contract_host_query_observer_compiles_in_consumer
     assert!(generated.contains("pub fn counter_value_observer_vars"));
     let crate_dir = write_contract_host_smoke_crate(&generated);
     let output = Command::new("cargo")
+        .env("CARGO_TARGET_DIR", shared_consumer_target_dir())
         .args(["test", "--manifest-path"])
         .arg(crate_dir.join("Cargo.toml"))
         .output()
@@ -1844,29 +1952,7 @@ fn test_generate_no_std_minicbor() {
         "ops": []
     }"#;
 
-    // Run with flags
-    let mut child = Command::new("cargo")
-        .args([
-            "run",
-            "-p",
-            "echo-wesley-gen",
-            "--",
-            "--no-std",
-            "--minicbor",
-        ])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("failed to spawn cargo run");
-
-    let mut stdin = child.stdin.take().expect("failed to get stdin");
-    stdin
-        .write_all(ir.as_bytes())
-        .expect("failed to write to stdin");
-    drop(stdin);
-
-    let output = child.wait_with_output().expect("failed to wait on child");
+    let output = run_wesley_gen_with_args(ir, &["--no-std", "--minicbor"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         output.status.success(),

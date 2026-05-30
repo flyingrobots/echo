@@ -268,11 +268,19 @@ impl<'a> Reader<'a> {
         Ok(i32::from_le_bytes(raw))
     }
 
-    /// Read a little-endian f32 (stored as canonicalized bits).
+    /// Read a little-endian f32 and canonicalize the result so identical
+    /// values cannot have two distinct wire encodings.
+    ///
+    /// The writer canonicalizes (NaN -> 0x7fc00000, subnormal -> +0.0,
+    /// -0.0 -> +0.0), so honest senders cannot produce non-canonical bytes.
+    /// But untrusted EINT or query var payloads can: without the same
+    /// canonicalization on decode, two distinct byte strings can represent
+    /// the same intended float value and break the determinism contract.
+    /// `canonicalize_f32` is idempotent on already-canonical inputs.
     pub fn read_f32_le(&mut self) -> Result<f32, CodecError> {
         let chunk = self.take(4)?;
         let raw: [u8; 4] = chunk.try_into().map_err(|_| CodecError::OutOfBounds)?;
-        Ok(f32::from_le_bytes(raw))
+        Ok(canonicalize_f32(f32::from_le_bytes(raw)))
     }
 
     /// Read a bool from a single byte (`0x00` = false, `0x01` = true).
@@ -297,12 +305,23 @@ impl<'a> Reader<'a> {
     }
 
     /// Read a list: `u32 LE` element count, then decode each element.
+    ///
+    /// Capacity allocation is bounded by the remaining buffer length so a
+    /// malformed payload claiming `count = 0xFFFF_FFFF` followed by zero
+    /// bytes cannot force a multi-gigabyte `Vec::with_capacity` (DoS) before
+    /// element validation runs. Honest decoders are unaffected: the cap is
+    /// looser than any real workload would need.
     pub fn read_list<T, F>(&mut self, decode: F) -> Result<Vec<T>, CodecError>
     where
         F: Fn(&mut Reader<'_>) -> Result<T, CodecError>,
     {
         let count = self.read_u32_le()? as usize;
-        let mut out = Vec::with_capacity(count);
+        let remaining = self.bytes.len().saturating_sub(self.offset);
+        // A list element occupies at least 1 byte (e.g. a u8 tag); cap the
+        // initial allocation at the byte budget so we never pre-reserve more
+        // entries than the payload could possibly contain.
+        let initial_capacity = core::cmp::min(count, remaining);
+        let mut out = Vec::with_capacity(initial_capacity);
         for _ in 0..count {
             out.push(decode(self)?);
         }

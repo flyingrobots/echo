@@ -22,7 +22,7 @@ mod ir;
 use ir::{OpKind, TypeKind, WesleyIR};
 
 const ECHO_IR_VERSION: &str = "echo-ir/v1";
-const DEFAULT_CODEC_ID: &str = "cbor-canon-v1";
+const DEFAULT_CODEC_ID: &str = "le-binary-v1";
 const DEFAULT_REGISTRY_VERSION: u32 = 1;
 const RESERVED_CONTROL_OP_ID: u32 = u32::MAX;
 const WESLEY_CORE_VERSION: &str = "0.0.4";
@@ -61,7 +61,7 @@ fn main() -> Result<()> {
         bail!("--contract-host requires std and cannot be combined with --no-std");
     }
 
-    let ir = if let Some(schema_path) = &args.schema {
+    let mut ir = if let Some(schema_path) = &args.schema {
         let schema_sdl = std::fs::read_to_string(schema_path)?;
         echo_ir_from_schema_sdl(&schema_sdl)?
     } else {
@@ -72,6 +72,13 @@ fn main() -> Result<()> {
         validate_version(&ir)?;
         ir
     };
+    // Normalize codec_id to the canonical value BEFORE any artifact hash,
+    // observer identity, or footprint certificate preimage is computed.
+    // Otherwise an IR that declares e.g. "cbor-canon-v1" would carry that
+    // value into the preimage while the emitted CODEC_ID const advertises
+    // "le-binary-v1", so the artifact would claim the new wire contract
+    // under a hash derived from the old one.
+    ir.codec_id = Some(DEFAULT_CODEC_ID.to_string());
 
     let code = generate_rust(&ir, &args)?;
 
@@ -176,6 +183,28 @@ fn operation_type_rank(operation_type: wesley_core::OperationType) -> u8 {
     }
 }
 
+/// FNV-1 32-bit op id derivation. Despite an earlier "1a" misnomer in this
+/// file, the actual byte step multiplies first and then xors (`hash *
+/// prime ^ byte`), which is FNV-1, not FNV-1a (`(hash ^ byte) * prime`).
+/// The cross-language op-id contract — including the pinned vectors in
+/// `stable_op_id_pinned` — is locked to this FNV-1 ordering. Must stay
+/// bytewise identical to `wesley_core::stable_op_id` (added in wesley-core
+/// ≥0.0.5). The duplication will collapse when echo bumps its wesley-core
+/// dependency to 0.0.5+; until then both copies are pinned to the same
+/// outputs in unit tests.
+fn stable_op_id(operation_type: &wesley_core::OperationType, field_name: &str) -> u32 {
+    let mut hash = 2_166_136_261_u32;
+    hash = fnv1_step(hash, operation_type_rank(*operation_type));
+    for byte in field_name.as_bytes() {
+        hash = fnv1_step(hash, *byte);
+    }
+    hash
+}
+
+fn fnv1_step(hash: u32, byte: u8) -> u32 {
+    hash.wrapping_mul(16_777_619) ^ u32::from(byte)
+}
+
 fn op_kind_from_wesley(operation_type: wesley_core::OperationType) -> OpKind {
     match operation_type {
         wesley_core::OperationType::Query | wesley_core::OperationType::Subscription => {
@@ -214,19 +243,6 @@ fn type_kind_from_wesley(type_kind: wesley_core::TypeKind) -> TypeKind {
     }
 }
 
-fn stable_op_id(operation_type: &wesley_core::OperationType, field_name: &str) -> u32 {
-    let mut hash = 2_166_136_261_u32;
-    hash = fnv1a_step(hash, operation_type_rank(*operation_type));
-    for byte in field_name.as_bytes() {
-        hash = fnv1a_step(hash, *byte);
-    }
-    hash
-}
-
-fn fnv1a_step(hash: u32, byte: u8) -> u32 {
-    hash.wrapping_mul(16_777_619) ^ u32::from(byte)
-}
-
 fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
     validate_operation_ids(ir)?;
     validate_generated_item_names(ir)?;
@@ -243,8 +259,13 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
         });
     }
 
+    // Bring the codec traits into scope at the top of the generated module
+    // so Encode/Decode impl bodies can call .encode(w) / Type::decode(r) on
+    // nested user types via method/associated-fn syntax without needing a
+    // fully-qualified path at every call site.
     tokens.extend(quote! {
         use serde::{Serialize, Deserialize};
+        use echo_wasm_abi::codec::{Decode as _, Encode as _};
     });
 
     if args.minicbor {
@@ -255,7 +276,7 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
 
     // Metadata constants
     let schema_sha = ir.schema_sha256.as_deref().unwrap_or("");
-    let codec_id = ir.codec_id.as_deref().unwrap_or("cbor-canon-v1");
+    let codec_id = DEFAULT_CODEC_ID;
     let registry_version = ir.registry_version.unwrap_or(1);
     let generated_rust_artifact_hash = generated_rust_artifact_hash(ir, args)?;
     let wesley_generator_version = format!("echo-wesley-gen/{}", env!("CARGO_PKG_VERSION"));
@@ -280,7 +301,7 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
 
         match type_def.kind {
             TypeKind::Enum => {
-                let variants = type_def.values.iter().map(|v| safe_ident(v));
+                let variants: Vec<_> = type_def.values.iter().map(|v| safe_ident(v)).collect();
                 tokens.extend(quote! {
                     #[derive(#derives, Copy, Eq)]
                     #[cbor(index_only)]
@@ -288,8 +309,99 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
                         #(#variants),*
                     }
                 });
+                // Emit LE binary Encode/Decode for Enum types.
+                let variant_arms = type_def.values.iter().enumerate().map(|(i, _v)| {
+                    let variant = safe_ident(&type_def.values[i]);
+                    // Safety: realistic enums have far fewer than u32::MAX variants.
+                    #[allow(clippy::cast_possible_truncation)]
+                    let discriminant = i as u32;
+                    quote! { #discriminant => Ok(Self::#variant) }
+                });
+                // Safety: realistic enums have far fewer than u32::MAX variants.
+                #[allow(clippy::cast_possible_truncation)]
+                let num_variants = type_def.values.len() as u32;
+                tokens.extend(quote! {
+                    impl echo_wasm_abi::codec::Encode for #name {
+                        fn encode(&self, w: &mut echo_wasm_abi::codec::Writer) -> Result<(), echo_wasm_abi::codec::CodecError> {
+                            w.write_u32_le(*self as u32);
+                            Ok(())
+                        }
+                    }
+                    impl echo_wasm_abi::codec::Decode for #name {
+                        fn decode(r: &mut echo_wasm_abi::codec::Reader<'_>) -> Result<Self, echo_wasm_abi::codec::CodecError> {
+                            let discriminant = r.read_u32_le()?;
+                            match discriminant {
+                                #(#variant_arms,)*
+                                _ => Err(echo_wasm_abi::codec::CodecError::InvalidEnum),
+                            }
+                        }
+                    }
+                });
+                // Reject discriminant values >= num_variants to ensure exhaustive match.
+                let _ = num_variants;
             }
-            TypeKind::Object | TypeKind::InputObject => {
+            TypeKind::InputObject => {
+                let fields = type_def.fields.iter().enumerate().map(|(i, f)| {
+                    let field_name = safe_ident(&f.name);
+                    let base_ty = map_type(&f.type_name, args);
+                    let list_ty: TokenStream = if f.list {
+                        quote! { Vec<#base_ty> }
+                    } else {
+                        quote! { #base_ty }
+                    };
+
+                    let field_tokens = if f.required {
+                        quote! { pub #field_name: #list_ty }
+                    } else {
+                        quote! { pub #field_name: Option<#list_ty> }
+                    };
+
+                    if args.minicbor {
+                        let idx = i as u64;
+                        quote! {
+                            #[n(#idx)]
+                            #field_tokens
+                        }
+                    } else {
+                        field_tokens
+                    }
+                });
+
+                tokens.extend(quote! {
+                    #[derive(#derives)]
+                    pub struct #name {
+                        #(#fields),*
+                    }
+                });
+
+                // Emit LE binary Encode/Decode for InputObject types.
+                let encode_stmts: Vec<TokenStream> = type_def
+                    .fields
+                    .iter()
+                    .map(|f| encode_field_stmt(f, args))
+                    .collect();
+                let decode_fields: Vec<TokenStream> = type_def
+                    .fields
+                    .iter()
+                    .map(|f| decode_field_expr(f, args))
+                    .collect();
+                tokens.extend(quote! {
+                    impl echo_wasm_abi::codec::Encode for #name {
+                        fn encode(&self, w: &mut echo_wasm_abi::codec::Writer) -> Result<(), echo_wasm_abi::codec::CodecError> {
+                            #(#encode_stmts)*
+                            Ok(())
+                        }
+                    }
+                    impl echo_wasm_abi::codec::Decode for #name {
+                        fn decode(r: &mut echo_wasm_abi::codec::Reader<'_>) -> Result<Self, echo_wasm_abi::codec::CodecError> {
+                            Ok(Self {
+                                #(#decode_fields),*
+                            })
+                        }
+                    }
+                });
+            }
+            TypeKind::Object => {
                 let fields = type_def.fields.iter().enumerate().map(|(i, f)| {
                     let field_name = safe_ident(&f.name);
                     let base_ty = map_type(&f.type_name, args);
@@ -483,6 +595,14 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
             });
         }
 
+        // Vars Encode/Decode impls inside __echo_wesley_generated call
+        // .encode(w) / Type::decode(r) on user-defined types that live in
+        // the parent module; without these imports the trait methods are
+        // unresolvable from inside the private module.
+        helper_prelude.extend(quote! {
+            use echo_wasm_abi::codec::{Decode as _, Encode as _};
+        });
+
         let has_query_ops = ir.ops.iter().any(|op| op.kind == OpKind::Query);
         let has_mutation_ops = ir.ops.iter().any(|op| op.kind == OpKind::Mutation);
 
@@ -520,8 +640,8 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
                 /// Error produced while building a generated EINT intent.
                 #[derive(Debug)]
                 pub enum GeneratedIntentError {
-                    /// Operation vars could not be encoded canonically.
-                    EncodeVars(echo_wasm_abi::CanonError),
+                    /// Operation vars could not be encoded.
+                    EncodeVars(echo_wasm_abi::codec::CodecError),
                     /// Encoded vars could not be packed into an EINT envelope.
                     PackEnvelope(echo_wasm_abi::EnvelopeError),
                 }
@@ -550,33 +670,59 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
             let helper_name_string = to_snake_case(&op.name);
             let helper_name = format_ident!("{}", helper_name_string);
             let vars_name = format_ident!("{}Vars", to_pascal_case(&op.name));
-            let vars_fields = op.args.iter().map(|a| {
-                let field_name = safe_ident(&a.name);
-                let base_ty = map_helper_type(&a.type_name, args);
-                let list_ty: TokenStream = if a.list {
-                    quote! { Vec<#base_ty> }
-                } else {
-                    quote! { #base_ty }
-                };
+            let vars_fields: Vec<TokenStream> = op
+                .args
+                .iter()
+                .map(|a| {
+                    let field_name = safe_ident(&a.name);
+                    let base_ty = map_helper_type(&a.type_name, args);
+                    let list_ty: TokenStream = if a.list {
+                        quote! { Vec<#base_ty> }
+                    } else {
+                        quote! { #base_ty }
+                    };
 
-                if a.required {
-                    quote! { pub #field_name: #list_ty }
-                } else {
-                    quote! { pub #field_name: Option<#list_ty> }
-                }
-            });
+                    if a.required {
+                        quote! { pub #field_name: #list_ty }
+                    } else {
+                        quote! { pub #field_name: Option<#list_ty> }
+                    }
+                })
+                .collect();
             let encode_fn_name = format_ident!("encode_{}_vars", helper_name);
             helper_exports.push(encode_fn_name.clone());
+
+            // Encode/Decode impls for the Vars struct (use super:: for user-defined types).
+            let vars_encode_stmts: Vec<TokenStream> =
+                op.args.iter().map(|a| encode_arg_stmt(a, args)).collect();
+            let vars_decode_fields: Vec<TokenStream> =
+                op.args.iter().map(|a| decode_arg_expr(a, args)).collect();
+
             helper_tokens.extend(quote! {
-                /// Canonical vars payload for this generated operation.
+                /// LE binary vars payload for this generated operation.
                 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
                 pub struct #vars_name {
                     #(#vars_fields),*
                 }
 
-                /// Encode this operation's vars using Echo canonical CBOR.
-                pub fn #encode_fn_name(vars: &#vars_name) -> Result<Vec<u8>, echo_wasm_abi::CanonError> {
-                    echo_wasm_abi::encode_cbor(vars)
+                impl echo_wasm_abi::codec::Encode for #vars_name {
+                    fn encode(&self, w: &mut echo_wasm_abi::codec::Writer) -> Result<(), echo_wasm_abi::codec::CodecError> {
+                        #(#vars_encode_stmts)*
+                        Ok(())
+                    }
+                }
+
+                impl echo_wasm_abi::codec::Decode for #vars_name {
+                    fn decode(r: &mut echo_wasm_abi::codec::Reader<'_>) -> Result<Self, echo_wasm_abi::codec::CodecError> {
+                        Ok(Self {
+                            #(#vars_decode_fields),*
+                        })
+                    }
+                }
+
+                /// Encode this operation's vars using the LE binary codec.
+                pub fn #encode_fn_name(vars: &#vars_name) -> Result<Vec<u8>, echo_wasm_abi::codec::CodecError> {
+                    echo_wasm_abi::codec::encode_to_vec(vars)
                 }
             });
             match op.kind {
@@ -694,7 +840,7 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
                             /// EINT runtime ingress event.
                             pub fn #contract_vars_fn_name(view: GraphView<'_>, scope: &NodeId) -> Option<#vars_name> {
                                 let vars = warp_core::eint_vars_for_op(view, scope, super::#const_name)?;
-                                echo_wasm_abi::decode_cbor(vars).ok()
+                                echo_wasm_abi::codec::decode_from_bytes(vars).ok()
                             }
 
                             /// Base footprint for reading this mutation's runtime ingress event.
@@ -745,7 +891,7 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
                     helper_exports.push(optic_raw_fn_name.clone());
                     helper_tokens.extend(quote! {
                         /// Encode this query's vars and build a frontier query-view observation request.
-                        pub fn #fn_name(worldline_id: WorldlineId, vars: &#vars_name) -> Result<ObservationRequest, echo_wasm_abi::CanonError> {
+                        pub fn #fn_name(worldline_id: WorldlineId, vars: &#vars_name) -> Result<ObservationRequest, echo_wasm_abi::codec::CodecError> {
                             let vars_bytes = #encode_fn_name(vars)?;
                             Ok(#raw_fn_name(worldline_id, &vars_bytes))
                         }
@@ -777,7 +923,7 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
                             reducer_version: Option<ReducerVersion>,
                             budget: OpticReadBudget,
                             vars: &#vars_name,
-                        ) -> Result<ObserveOpticRequest, echo_wasm_abi::CanonError> {
+                        ) -> Result<ObserveOpticRequest, echo_wasm_abi::codec::CodecError> {
                             let vars_bytes = #encode_fn_name(vars)?;
                             Ok(#optic_raw_fn_name(
                                 optic_id,
@@ -866,8 +1012,8 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
                             /// Decode this query's generated vars from read-only observer context.
                             pub fn #observer_vars_fn_name(
                                 context: &warp_core::ContractQueryObserverContext<'_>,
-                            ) -> Result<#vars_name, echo_wasm_abi::CanonError> {
-                                echo_wasm_abi::decode_cbor(context.vars_bytes)
+                            ) -> Result<#vars_name, echo_wasm_abi::codec::CodecError> {
+                                echo_wasm_abi::codec::decode_from_bytes(context.vars_bytes)
                             }
 
                             /// Build a read-only `warp-core` query observer for this generated query.
@@ -1671,6 +1817,267 @@ fn op_kind_name(kind: &OpKind) -> &'static str {
     }
 }
 
+/// Generate a single encode statement for an ArgDefinition inside a Vars struct (`self.field`).
+///
+/// User-defined types use `super::TypeName` path convention.
+fn encode_arg_stmt(arg: &ir::ArgDefinition, args: &Args) -> TokenStream {
+    let field_name = safe_ident(&arg.name);
+    if arg.list {
+        let inner_encode = scalar_list_element_encoder(&arg.type_name, args);
+        if arg.required {
+            return quote! {
+                w.write_list(&self.#field_name, #inner_encode)?;
+            };
+        }
+        // Nullable list: Vars field is Option<Vec<_>>; must wrap with write_option.
+        return quote! {
+            w.write_option(self.#field_name.as_ref(), |w, v| {
+                w.write_list(v, #inner_encode)
+            })?;
+        };
+    }
+    // no_std maps the GraphQL ID scalar to [u8; 32]; encode the raw bytes
+    // instead of treating it like String.
+    let id_is_bytes = args.no_std && arg.type_name == "ID";
+    if arg.required {
+        match arg.type_name.as_str() {
+            "Boolean" => quote! { w.write_bool(self.#field_name); },
+            "Int" => quote! { w.write_i32_le(self.#field_name); },
+            "Float" => quote! { w.write_f32_le(self.#field_name); },
+            "ID" if id_is_bytes => quote! { w.write_bytes(&self.#field_name); },
+            "String" | "ID" => quote! { w.write_string(&self.#field_name, usize::MAX)?; },
+            _ => quote! { self.#field_name.encode(w)?; },
+        }
+    } else {
+        match arg.type_name.as_str() {
+            "Boolean" => quote! {
+                w.write_option(self.#field_name, |w, v| { w.write_bool(v); Ok(()) })?;
+            },
+            "Int" => quote! {
+                w.write_option(self.#field_name, |w, v| { w.write_i32_le(v); Ok(()) })?;
+            },
+            "Float" => quote! {
+                w.write_option(self.#field_name, |w, v| { w.write_f32_le(v); Ok(()) })?;
+            },
+            "ID" if id_is_bytes => quote! {
+                w.write_option(self.#field_name.as_ref(), |w, v| { w.write_bytes(v); Ok(()) })?;
+            },
+            "String" | "ID" => quote! {
+                w.write_option(self.#field_name.as_deref(), |w, v| w.write_string(v, usize::MAX))?;
+            },
+            _ => quote! {
+                w.write_option(self.#field_name.as_ref(), |w, v| v.encode(w))?;
+            },
+        }
+    }
+}
+
+/// Generate the field initializer for an ArgDefinition inside a Vars Decode impl.
+///
+/// User-defined types use `super::TypeName::decode(r)?` path convention.
+fn decode_arg_expr(arg: &ir::ArgDefinition, args: &Args) -> TokenStream {
+    let field_name = safe_ident(&arg.name);
+    if arg.list {
+        // Vars Decode impl sits inside the private __echo_wesley_generated
+        // module; user-defined element types live in the parent module and
+        // need `super::` qualification.
+        let inner_decode =
+            scalar_list_element_decoder(&arg.type_name, args, /* super_qualified */ true);
+        if arg.required {
+            return quote! {
+                #field_name: r.read_list(#inner_decode)?
+            };
+        }
+        // Nullable list: field is Option<Vec<_>>; wrap with read_option.
+        return quote! {
+            #field_name: r.read_option(|r| r.read_list(#inner_decode))?
+        };
+    }
+    let id_is_bytes = args.no_std && arg.type_name == "ID";
+    if arg.required {
+        let expr = match arg.type_name.as_str() {
+            "Boolean" => quote! { r.read_bool()? },
+            "Int" => quote! { r.read_i32_le()? },
+            "Float" => quote! { r.read_f32_le()? },
+            "ID" if id_is_bytes => quote! { r.read_byte_array::<32>()? },
+            "String" | "ID" => quote! { r.read_string(usize::MAX)? },
+            _ => {
+                let ty = safe_ident(&arg.type_name);
+                quote! { super::#ty::decode(r)? }
+            }
+        };
+        quote! { #field_name: #expr }
+    } else {
+        let expr = match arg.type_name.as_str() {
+            "Boolean" => quote! { r.read_option(|r| r.read_bool())? },
+            "Int" => quote! { r.read_option(|r| r.read_i32_le())? },
+            "Float" => quote! { r.read_option(|r| r.read_f32_le())? },
+            "ID" if id_is_bytes => quote! { r.read_option(|r| r.read_byte_array::<32>())? },
+            "String" | "ID" => quote! { r.read_option(|r| r.read_string(usize::MAX))? },
+            _ => {
+                let ty = safe_ident(&arg.type_name);
+                quote! { r.read_option(|r| super::#ty::decode(r))? }
+            }
+        };
+        quote! { #field_name: #expr }
+    }
+}
+
+/// Generate a single encode statement for a FieldDefinition on a named struct (`self.field`).
+///
+/// Uses the LE binary codec primitives from `echo_wasm_abi::codec`.
+fn encode_field_stmt(field: &ir::FieldDefinition, args: &Args) -> TokenStream {
+    let field_name = safe_ident(&field.name);
+    if field.list {
+        let inner_encode = scalar_list_element_encoder(&field.type_name, args);
+        if field.required {
+            // [T!]! required list
+            return quote! {
+                w.write_list(&self.#field_name, #inner_encode)?;
+            };
+        }
+        // [T!] nullable list: field is Option<Vec<_>>; wrap with write_option.
+        return quote! {
+            w.write_option(self.#field_name.as_ref(), |w, v| {
+                w.write_list(v, #inner_encode)
+            })?;
+        };
+    }
+    let id_is_bytes = args.no_std && field.type_name == "ID";
+    if field.required {
+        // Required (non-nullable) scalar or user type
+        match field.type_name.as_str() {
+            "Boolean" => quote! { w.write_bool(self.#field_name); },
+            "Int" => quote! { w.write_i32_le(self.#field_name); },
+            "Float" => quote! { w.write_f32_le(self.#field_name); },
+            "ID" if id_is_bytes => quote! { w.write_bytes(&self.#field_name); },
+            "String" | "ID" => quote! { w.write_string(&self.#field_name, usize::MAX)?; },
+            _ => {
+                // User-defined type — delegate to its Encode impl
+                quote! { self.#field_name.encode(w)?; }
+            }
+        }
+    } else {
+        // Nullable (Option<T>)
+        match field.type_name.as_str() {
+            "Boolean" => quote! {
+                w.write_option(self.#field_name, |w, v| { w.write_bool(v); Ok(()) })?;
+            },
+            "Int" => quote! {
+                w.write_option(self.#field_name, |w, v| { w.write_i32_le(v); Ok(()) })?;
+            },
+            "Float" => quote! {
+                w.write_option(self.#field_name, |w, v| { w.write_f32_le(v); Ok(()) })?;
+            },
+            "ID" if id_is_bytes => quote! {
+                w.write_option(self.#field_name.as_ref(), |w, v| { w.write_bytes(v); Ok(()) })?;
+            },
+            "String" | "ID" => quote! {
+                w.write_option(self.#field_name.as_deref(), |w, v| w.write_string(v, usize::MAX))?;
+            },
+            _ => {
+                // User-defined type — delegate to its Encode impl
+                quote! {
+                    w.write_option(self.#field_name.as_ref(), |w, v| v.encode(w))?;
+                }
+            }
+        }
+    }
+}
+
+/// Generate the field initializer for a FieldDefinition inside a Decode impl (`field_name: ...`).
+fn decode_field_expr(field: &ir::FieldDefinition, args: &Args) -> TokenStream {
+    let field_name = safe_ident(&field.name);
+    if field.list {
+        // FieldDefinition Decode impls live alongside the user types
+        // themselves; no `super::` qualification needed.
+        let inner_decode =
+            scalar_list_element_decoder(&field.type_name, args, /* super_qualified */ false);
+        if field.required {
+            return quote! {
+                #field_name: r.read_list(#inner_decode)?
+            };
+        }
+        return quote! {
+            #field_name: r.read_option(|r| r.read_list(#inner_decode))?
+        };
+    }
+    let id_is_bytes = args.no_std && field.type_name == "ID";
+    if field.required {
+        let expr = match field.type_name.as_str() {
+            "Boolean" => quote! { r.read_bool()? },
+            "Int" => quote! { r.read_i32_le()? },
+            "Float" => quote! { r.read_f32_le()? },
+            "ID" if id_is_bytes => quote! { r.read_byte_array::<32>()? },
+            "String" | "ID" => quote! { r.read_string(usize::MAX)? },
+            _ => {
+                let ty = safe_ident(&field.type_name);
+                quote! { #ty::decode(r)? }
+            }
+        };
+        quote! { #field_name: #expr }
+    } else {
+        let expr = match field.type_name.as_str() {
+            "Boolean" => quote! { r.read_option(|r| r.read_bool())? },
+            "Int" => quote! { r.read_option(|r| r.read_i32_le())? },
+            "Float" => quote! { r.read_option(|r| r.read_f32_le())? },
+            "ID" if id_is_bytes => quote! { r.read_option(|r| r.read_byte_array::<32>())? },
+            "String" | "ID" => quote! { r.read_option(|r| r.read_string(usize::MAX))? },
+            _ => {
+                let ty = safe_ident(&field.type_name);
+                quote! { r.read_option(|r| #ty::decode(r))? }
+            }
+        };
+        quote! { #field_name: #expr }
+    }
+}
+
+/// Generate a list element encoder closure for `write_list`.
+fn scalar_list_element_encoder(type_name: &str, args: &Args) -> TokenStream {
+    // no_std maps GraphQL ID to [u8; 32]; encoder must emit raw bytes, not
+    // treat the element as &String.
+    let id_is_bytes = args.no_std && type_name == "ID";
+    match type_name {
+        "Boolean" => quote! { |w, v| { w.write_bool(*v); Ok(()) } },
+        "Int" => quote! { |w, v| { w.write_i32_le(*v); Ok(()) } },
+        "Float" => quote! { |w, v| { w.write_f32_le(*v); Ok(()) } },
+        "ID" if id_is_bytes => quote! { |w, v| { w.write_bytes(v); Ok(()) } },
+        "String" | "ID" => quote! { |w, v| w.write_string(v.as_str(), usize::MAX) },
+        _ => quote! { |w, v| v.encode(w) },
+    }
+}
+
+/// Generate a list element decoder closure for `read_list`.
+///
+/// `super_qualified` matters for user-defined element types: Vars Decode
+/// impls are emitted inside the `__echo_wesley_generated` private module
+/// (so user types live in the parent and need `super::`), but
+/// FieldDefinition Decode impls are emitted alongside the user types
+/// themselves (so `super::` would over-qualify). The non-list scalar
+/// decoders pick the right form already; this helper had been emitting a
+/// bare `#ty::decode(r)` regardless, so list-of-user-types under Vars
+/// failed to compile (`tags: [Tag!]!` → `Tag::decode` unresolved).
+fn scalar_list_element_decoder(type_name: &str, args: &Args, super_qualified: bool) -> TokenStream {
+    // no_std maps GraphQL ID to [u8; 32]; decoder must read a fixed-size
+    // byte array, not a length-prefixed String.
+    let id_is_bytes = args.no_std && type_name == "ID";
+    match type_name {
+        "Boolean" => quote! { |r| r.read_bool() },
+        "Int" => quote! { |r| r.read_i32_le() },
+        "Float" => quote! { |r| r.read_f32_le() },
+        "ID" if id_is_bytes => quote! { |r| r.read_byte_array::<32>() },
+        "String" | "ID" => quote! { |r| r.read_string(usize::MAX) },
+        _ => {
+            let ty = safe_ident(type_name);
+            if super_qualified {
+                quote! { |r| super::#ty::decode(r) }
+            } else {
+                quote! { |r| #ty::decode(r) }
+            }
+        }
+    }
+}
+
 /// Map a GraphQL base type name to a Rust type used in generated DTOs.
 ///
 /// GraphQL `Float` intentionally maps to `f32` (not `f64`) so generated types
@@ -1713,5 +2120,39 @@ fn map_helper_type(gql_type: &str, args: &Args) -> TokenStream {
             let ident = safe_ident(other);
             quote! { super::#ident }
         }
+    }
+}
+
+#[cfg(test)]
+mod stable_op_id_pinned {
+    use super::stable_op_id;
+    use wesley_core::OperationType;
+
+    /// These u32 outputs are the cross-language contract surface. They MUST
+    /// stay bytewise identical to `wesley_core::stable_op_id` and to every
+    /// TypeScript / WASM consumer that routes EINT envelopes by op id. If a
+    /// value changes here, every contract that uses that op id breaks.
+    #[test]
+    fn rope_operation_op_ids_are_pinned() {
+        assert_eq!(
+            stable_op_id(&OperationType::Mutation, "createBufferWorldline"),
+            2_519_122_874
+        );
+        assert_eq!(
+            stable_op_id(&OperationType::Mutation, "replaceRangeAsTick"),
+            3_329_158_538
+        );
+        assert_eq!(
+            stable_op_id(&OperationType::Mutation, "createCheckpoint"),
+            3_744_251_216
+        );
+        assert_eq!(
+            stable_op_id(&OperationType::Query, "worldlineSnapshot"),
+            3_219_688_859
+        );
+        assert_eq!(
+            stable_op_id(&OperationType::Query, "textWindow"),
+            2_414_231_278
+        );
     }
 }

@@ -1,7 +1,7 @@
 {
   "ir_version": "echo-ir/v1",
   "schema_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-  "codec_id": "cbor-canon-v1",
+  "codec_id": "le-binary-v1",
   "registry_version": 1,
   "types": [
     {

@@ -211,7 +211,7 @@ The canonical hash path is where domain correctness is strongest: if traversal a
 
 ```mermaid
 flowchart TD
-  V1[verify::run(snapshot, expected?)] --> V2[WscFile::open]
+  V1["verify::run(snapshot, expected?)"] --> V2["WscFile::open"]
   V2 --> V3[validate_wsc]
   V3 --> V4{Validation pass?}
   V4 -->|No| V4Err[Return ReadError / validation issue]

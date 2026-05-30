@@ -1799,15 +1799,27 @@ fn encode_arg_stmt(arg: &ir::ArgDefinition, args: &Args) -> TokenStream {
     let field_name = safe_ident(&arg.name);
     if arg.list {
         let inner_encode = scalar_list_element_encoder(&arg.type_name, args);
+        if arg.required {
+            return quote! {
+                w.write_list(&self.#field_name, #inner_encode)?;
+            };
+        }
+        // Nullable list: Vars field is Option<Vec<_>>; must wrap with write_option.
         return quote! {
-            w.write_list(&self.#field_name, #inner_encode)?;
+            w.write_option(self.#field_name.as_ref(), |w, v| {
+                w.write_list(v, #inner_encode)
+            })?;
         };
     }
+    // no_std maps the GraphQL ID scalar to [u8; 32]; encode the raw bytes
+    // instead of treating it like String.
+    let id_is_bytes = args.no_std && arg.type_name == "ID";
     if arg.required {
         match arg.type_name.as_str() {
             "Boolean" => quote! { w.write_bool(self.#field_name); },
             "Int" => quote! { w.write_i32_le(self.#field_name); },
             "Float" => quote! { w.write_f32_le(self.#field_name); },
+            "ID" if id_is_bytes => quote! { w.write_bytes(&self.#field_name); },
             "String" | "ID" => quote! { w.write_string(&self.#field_name, usize::MAX)?; },
             _ => quote! { self.#field_name.encode(w)?; },
         }
@@ -1821,6 +1833,9 @@ fn encode_arg_stmt(arg: &ir::ArgDefinition, args: &Args) -> TokenStream {
             },
             "Float" => quote! {
                 w.write_option(self.#field_name, |w, v| { w.write_f32_le(v); Ok(()) })?;
+            },
+            "ID" if id_is_bytes => quote! {
+                w.write_option(self.#field_name.as_ref(), |w, v| { w.write_bytes(v); Ok(()) })?;
             },
             "String" | "ID" => quote! {
                 w.write_option(self.#field_name.as_deref(), |w, v| w.write_string(v, usize::MAX))?;
@@ -1838,16 +1853,28 @@ fn encode_arg_stmt(arg: &ir::ArgDefinition, args: &Args) -> TokenStream {
 fn decode_arg_expr(arg: &ir::ArgDefinition, args: &Args) -> TokenStream {
     let field_name = safe_ident(&arg.name);
     if arg.list {
-        let inner_decode = scalar_list_element_decoder(&arg.type_name, args);
+        // Vars Decode impl sits inside the private __echo_wesley_generated
+        // module; user-defined element types live in the parent module and
+        // need `super::` qualification.
+        let inner_decode =
+            scalar_list_element_decoder(&arg.type_name, args, /* super_qualified */ true);
+        if arg.required {
+            return quote! {
+                #field_name: r.read_list(#inner_decode)?
+            };
+        }
+        // Nullable list: field is Option<Vec<_>>; wrap with read_option.
         return quote! {
-            #field_name: r.read_list(#inner_decode)?
+            #field_name: r.read_option(|r| r.read_list(#inner_decode))?
         };
     }
+    let id_is_bytes = args.no_std && arg.type_name == "ID";
     if arg.required {
         let expr = match arg.type_name.as_str() {
             "Boolean" => quote! { r.read_bool()? },
             "Int" => quote! { r.read_i32_le()? },
             "Float" => quote! { r.read_f32_le()? },
+            "ID" if id_is_bytes => quote! { r.read_byte_array::<32>()? },
             "String" | "ID" => quote! { r.read_string(usize::MAX)? },
             _ => {
                 let ty = safe_ident(&arg.type_name);
@@ -1860,6 +1887,7 @@ fn decode_arg_expr(arg: &ir::ArgDefinition, args: &Args) -> TokenStream {
             "Boolean" => quote! { r.read_option(|r| r.read_bool())? },
             "Int" => quote! { r.read_option(|r| r.read_i32_le())? },
             "Float" => quote! { r.read_option(|r| r.read_f32_le())? },
+            "ID" if id_is_bytes => quote! { r.read_option(|r| r.read_byte_array::<32>())? },
             "String" | "ID" => quote! { r.read_option(|r| r.read_string(usize::MAX))? },
             _ => {
                 let ty = safe_ident(&arg.type_name);
@@ -1876,18 +1904,28 @@ fn decode_arg_expr(arg: &ir::ArgDefinition, args: &Args) -> TokenStream {
 fn encode_field_stmt(field: &ir::FieldDefinition, args: &Args) -> TokenStream {
     let field_name = safe_ident(&field.name);
     if field.list {
-        // [T!]! required list
         let inner_encode = scalar_list_element_encoder(&field.type_name, args);
+        if field.required {
+            // [T!]! required list
+            return quote! {
+                w.write_list(&self.#field_name, #inner_encode)?;
+            };
+        }
+        // [T!] nullable list: field is Option<Vec<_>>; wrap with write_option.
         return quote! {
-            w.write_list(&self.#field_name, #inner_encode)?;
+            w.write_option(self.#field_name.as_ref(), |w, v| {
+                w.write_list(v, #inner_encode)
+            })?;
         };
     }
+    let id_is_bytes = args.no_std && field.type_name == "ID";
     if field.required {
         // Required (non-nullable) scalar or user type
         match field.type_name.as_str() {
             "Boolean" => quote! { w.write_bool(self.#field_name); },
             "Int" => quote! { w.write_i32_le(self.#field_name); },
             "Float" => quote! { w.write_f32_le(self.#field_name); },
+            "ID" if id_is_bytes => quote! { w.write_bytes(&self.#field_name); },
             "String" | "ID" => quote! { w.write_string(&self.#field_name, usize::MAX)?; },
             _ => {
                 // User-defined type — delegate to its Encode impl
@@ -1906,6 +1944,9 @@ fn encode_field_stmt(field: &ir::FieldDefinition, args: &Args) -> TokenStream {
             "Float" => quote! {
                 w.write_option(self.#field_name, |w, v| { w.write_f32_le(v); Ok(()) })?;
             },
+            "ID" if id_is_bytes => quote! {
+                w.write_option(self.#field_name.as_ref(), |w, v| { w.write_bytes(v); Ok(()) })?;
+            },
             "String" | "ID" => quote! {
                 w.write_option(self.#field_name.as_deref(), |w, v| w.write_string(v, usize::MAX))?;
             },
@@ -1923,16 +1964,26 @@ fn encode_field_stmt(field: &ir::FieldDefinition, args: &Args) -> TokenStream {
 fn decode_field_expr(field: &ir::FieldDefinition, args: &Args) -> TokenStream {
     let field_name = safe_ident(&field.name);
     if field.list {
-        let inner_decode = scalar_list_element_decoder(&field.type_name, args);
+        // FieldDefinition Decode impls live alongside the user types
+        // themselves; no `super::` qualification needed.
+        let inner_decode =
+            scalar_list_element_decoder(&field.type_name, args, /* super_qualified */ false);
+        if field.required {
+            return quote! {
+                #field_name: r.read_list(#inner_decode)?
+            };
+        }
         return quote! {
-            #field_name: r.read_list(#inner_decode)?
+            #field_name: r.read_option(|r| r.read_list(#inner_decode))?
         };
     }
+    let id_is_bytes = args.no_std && field.type_name == "ID";
     if field.required {
         let expr = match field.type_name.as_str() {
             "Boolean" => quote! { r.read_bool()? },
             "Int" => quote! { r.read_i32_le()? },
             "Float" => quote! { r.read_f32_le()? },
+            "ID" if id_is_bytes => quote! { r.read_byte_array::<32>()? },
             "String" | "ID" => quote! { r.read_string(usize::MAX)? },
             _ => {
                 let ty = safe_ident(&field.type_name);
@@ -1945,6 +1996,7 @@ fn decode_field_expr(field: &ir::FieldDefinition, args: &Args) -> TokenStream {
             "Boolean" => quote! { r.read_option(|r| r.read_bool())? },
             "Int" => quote! { r.read_option(|r| r.read_i32_le())? },
             "Float" => quote! { r.read_option(|r| r.read_f32_le())? },
+            "ID" if id_is_bytes => quote! { r.read_option(|r| r.read_byte_array::<32>())? },
             "String" | "ID" => quote! { r.read_option(|r| r.read_string(usize::MAX))? },
             _ => {
                 let ty = safe_ident(&field.type_name);
@@ -1967,7 +2019,20 @@ fn scalar_list_element_encoder(type_name: &str, _args: &Args) -> TokenStream {
 }
 
 /// Generate a list element decoder closure for `read_list`.
-fn scalar_list_element_decoder(type_name: &str, _args: &Args) -> TokenStream {
+///
+/// `super_qualified` matters for user-defined element types: Vars Decode
+/// impls are emitted inside the `__echo_wesley_generated` private module
+/// (so user types live in the parent and need `super::`), but
+/// FieldDefinition Decode impls are emitted alongside the user types
+/// themselves (so `super::` would over-qualify). The non-list scalar
+/// decoders pick the right form already; this helper had been emitting a
+/// bare `#ty::decode(r)` regardless, so list-of-user-types under Vars
+/// failed to compile (`tags: [Tag!]!` → `Tag::decode` unresolved).
+fn scalar_list_element_decoder(
+    type_name: &str,
+    _args: &Args,
+    super_qualified: bool,
+) -> TokenStream {
     match type_name {
         "Boolean" => quote! { |r| r.read_bool() },
         "Int" => quote! { |r| r.read_i32_le() },
@@ -1975,7 +2040,11 @@ fn scalar_list_element_decoder(type_name: &str, _args: &Args) -> TokenStream {
         "String" | "ID" => quote! { |r| r.read_string(usize::MAX) },
         _ => {
             let ty = safe_ident(type_name);
-            quote! { |r| #ty::decode(r) }
+            if super_qualified {
+                quote! { |r| super::#ty::decode(r) }
+            } else {
+                quote! { |r| #ty::decode(r) }
+            }
         }
     }
 }

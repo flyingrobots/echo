@@ -224,6 +224,13 @@ impl<'a> Reader<'a> {
         Ok(u32::from_le_bytes(raw))
     }
 
+    /// Read a fixed-size byte array. Used for `no_std` ID fields where
+    /// the GraphQL `ID` scalar maps to `[u8; 32]` instead of `String`.
+    pub fn read_byte_array<const N: usize>(&mut self) -> Result<[u8; N], CodecError> {
+        let chunk = self.take(N)?;
+        chunk.try_into().map_err(|_| CodecError::OutOfBounds)
+    }
+
     /// Read a single byte.
     pub fn read_u8(&mut self) -> Result<u8, CodecError> {
         let chunk = self.take(1)?;

@@ -39,5 +39,5 @@ This slice should answer:
 2. which legacy WVP/session-transport types can be deleted outright
 3. whether the retained TTD/browser framing belongs in a renamed crate
 
-The goal is not “save every old protocol type.” The goal is to stop keeping a
+The goal is not "save every old protocol type." The goal is to stop keeping a
 dead session-hub ontology fused to the surviving browser/TTD bridge path.

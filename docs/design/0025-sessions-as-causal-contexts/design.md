@@ -57,7 +57,7 @@ becomes a temporary compatibility bridge with a defined deletion criterion
 ### What this cycle does _not_ do
 
 Echo already has a deterministic ingress and admission system
-(`head_inbox.rs`, ADR-0008 Phase 3). Worldlines have inboxes; routing
+(`head_inbox.rs` — per its module comment, ADR-0008 Phase 3). Worldlines have inboxes; routing
 addresses worldlines via `IngressTarget::DefaultWriter { worldline_id }` or
 `IngressTarget::InboxAddress { worldline_id, inbox }`. Mutation ordering is
 owned by worldline / head / tick / strand / braid machinery.
@@ -129,13 +129,13 @@ concepts should use `Connection` / `TransportConnection` / similar.
 
 ```text
 Session
-  id              : SessionId            // unified with existing playback::SessionId
-  principal_ref      : PrincipalRef         // existing warp-core type
-  principal_label?   : String               // human-readable, optional
-  status          : Open | Closing | Closed
-  created_at      : LogicalTime
-  closed_at?      : LogicalTime
-  primary_worldline? : WorldlineId       // convenience hint only, not authoritative
+  id                 : SessionId        // unified with existing playback::SessionId
+  principal_ref      : PrincipalRef     // existing warp-core::optic_artifact type
+  principal_label?   : String           // human-readable, optional
+  status             : Open | Closing | Closed
+  created_at         : LogicalTime
+  closed_at?         : LogicalTime
+  primary_worldline? : WorldlineId      // convenience hint only, not authoritative
 ```
 
 Notes:
@@ -352,9 +352,9 @@ Phrased as a **session admission gate**, not as draining an owned queue:
 
 - **Reject new submissions** under this `session_id` at the session gate,
   before they ever enter `HeadInbox`.
-- **Cancel / reject pending ingress** still queued in `HeadInbox` and
-  attributable to this session — only feasible because ingress envelopes
-  carry `session_id` attribution (see below).
+- **Pending-ingress cancellation is deferred** — envelopes already in
+  `HeadInbox` may still admit. See the next subsection for the rationale
+  and the follow-up cycle that adds this capability.
 - **Accepted work remains attached** to the session for attribution; its
   causal record persists.
 - **Graceful close** drains accepted bounded work to `EffectsQuiesced`.
@@ -602,8 +602,9 @@ provides scope, not object identity.
 - `intent_id` = unit of requested work
 - `effect_id` / `receipt_id` = result identity
 - worldline head / tick = mutation order (existing primitive)
-- session position in `SessionEventLog` = submission order (derived
-  projection)
+- session position in `SessionEventLog` = engine event log deterministic
+  order (derived projection; see §Ordering above — not mutation order
+  and not raw submission order)
 
 ---
 
@@ -762,7 +763,9 @@ To be expanded in Phase 2. Minimum coverage required:
   gate, never reaches `HeadInbox`.
 - A submission naming a Closed session is rejected at the session gate.
 - An accepted intent appears in `SessionEventLog(session_id)` with both
-  `IntentSubmitted` and `IntentAccepted` events in submission order.
+  `IntentSubmitted` and `IntentAccepted` events in the engine event log's
+  deterministic order (`IntentSubmitted` precedes `IntentAccepted` for
+  the same intent_id; not "submission order" in any caller-clock sense).
 - A rejected intent appears in `SessionEventLog` with `IntentRejected`
   and never reaches `IntentAccepted`.
 - `runUntilIdle(session, receipt)` returns when all in-flight attributed
@@ -860,8 +863,11 @@ To be expanded in Phase 2. Minimum coverage required:
   is required, not optional).
 - Multi-writer concurrent merge on a single worldline (deferred; v1 is
   obstruction-only).
-- Atomic multi-worldline intents (type admits plural; v1 enforces
-  singleton).
+- Atomic multi-target submissions (v1 routing is single-target via
+  existing `IngressTarget`; a future cycle picks both the shape — e.g.
+  `NonEmptyList<IngressTarget>` or `AtomicIngressBatch` — and the
+  semantics, including multiple base heads, all-or-nothing commit,
+  cross-target obstruction, rollback, and lock ordering).
 - Backpressure, fairness, priority policies on ingress (the existing
   `HeadInbox` already handles ingress; session-level policy is future
   work that builds on top).

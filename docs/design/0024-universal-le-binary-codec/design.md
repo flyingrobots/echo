@@ -81,8 +81,12 @@ a new codec version.
 **String max bound**: enforced by the generator based on schema constraints
 (default `usize::MAX` / `u32::MAX` bytes for unconstrained fields).
 
-**Enum discriminant**: zero-based, ordered by SDL declaration order. Adding a
-new variant at the end is safe. Reordering or inserting is a breaking change.
+**Enum discriminant**: zero-based, ordered by SDL declaration order. Every
+schema edit — append, insert, reorder, rename — is a breaking change against
+peers running a different schema version, because the framing in Lines 206–214
+hard-gates every payload by `SCHEMA_SHA256` and any of those edits perturbs
+that hash. The declaration-order rule is therefore a determinism guarantee for
+peers on the _same_ schema version, not a compatibility promise across them.
 
 ---
 

@@ -1302,7 +1302,7 @@ fn test_reserved_control_op_id_fails_closed() {
     let ir = r#"{
         "ir_version": "echo-ir/v1",
         "schema_sha256": "abc123",
-        "codec_id": "cbor-canon-v1",
+        "codec_id": "le-binary-v1",
         "registry_version": 1,
         "types": [
             { "name": "RunStatus", "kind": "OBJECT", "fields": [
@@ -1355,7 +1355,7 @@ fn test_generate_from_json() {
     let ir = r#"{
         "ir_version": "echo-ir/v1",
         "schema_sha256": "abc123",
-        "codec_id": "cbor-canon-v1",
+        "codec_id": "le-binary-v1",
         "registry_version": 7,
         "types": [
             {
@@ -1532,7 +1532,7 @@ fn test_footprint_artifact_hash_changes_when_generated_args_change() {
     let without_arg = r#"{
         "ir_version": "echo-ir/v1",
         "schema_sha256": "abc123",
-        "codec_id": "cbor-canon-v1",
+        "codec_id": "le-binary-v1",
         "registry_version": 1,
         "types": [
             { "name": "CounterValue", "kind": "OBJECT", "fields": [
@@ -1558,7 +1558,7 @@ fn test_footprint_artifact_hash_changes_when_generated_args_change() {
     let with_arg = r#"{
         "ir_version": "echo-ir/v1",
         "schema_sha256": "abc123",
-        "codec_id": "cbor-canon-v1",
+        "codec_id": "le-binary-v1",
         "registry_version": 1,
         "types": [
             { "name": "CounterValue", "kind": "OBJECT", "fields": [
@@ -1614,7 +1614,7 @@ fn test_query_only_contract_does_not_import_intent_packer() {
     let ir = r#"{
         "ir_version": "echo-ir/v1",
         "schema_sha256": "abc123",
-        "codec_id": "cbor-canon-v1",
+        "codec_id": "le-binary-v1",
         "registry_version": 1,
         "types": [],
         "ops": [
@@ -1643,7 +1643,7 @@ fn test_operation_vars_type_collision_uses_helper_namespace() {
     let ir = r#"{
         "ir_version": "echo-ir/v1",
         "schema_sha256": "abc123",
-        "codec_id": "cbor-canon-v1",
+        "codec_id": "le-binary-v1",
         "registry_version": 1,
         "types": [
             {
@@ -1681,7 +1681,7 @@ fn test_generated_intent_error_user_type_does_not_collide_with_helper_error() {
     let ir = r#"{
         "ir_version": "echo-ir/v1",
         "schema_sha256": "abc123",
-        "codec_id": "cbor-canon-v1",
+        "codec_id": "le-binary-v1",
         "registry_version": 1,
         "types": [
             {
@@ -1719,7 +1719,7 @@ fn test_query_mutation_operation_name_collision_fails_with_clear_diagnostic() {
     let ir = r#"{
         "ir_version": "echo-ir/v1",
         "schema_sha256": "abc123",
-        "codec_id": "cbor-canon-v1",
+        "codec_id": "le-binary-v1",
         "registry_version": 1,
         "types": [],
         "ops": [
@@ -1808,6 +1808,50 @@ fn test_toy_contract_no_std_generated_output_checks_in_consumer_crate() {
     assert_generated_crate_checks(&write_basic_generated_crate(
         generated.as_ref(),
         "toy-no-std",
+        true,
+    ));
+}
+
+#[test]
+fn test_no_std_id_list_field_compiles_in_consumer_crate() {
+    // Regression: scalar_list_element_{encoder,decoder} used to treat ID as
+    // String unconditionally, so under --no-std a [ID] field generated
+    // v.as_str() on [u8; 32] (encode) and read_string into Vec<[u8; 32]>
+    // (decode), neither of which compile. The list element helpers must
+    // honor the same no_std ID -> [u8; 32] mapping as the scalar helpers.
+    let ir = r#"{
+        "ir_version": "echo-ir/v1",
+        "types": [
+            {
+                "name": "TagBag",
+                "kind": "INPUT_OBJECT",
+                "fields": [
+                    { "name": "tags", "type": "ID", "required": true, "list": true },
+                    { "name": "optional_tags", "type": "ID", "required": false, "list": true }
+                ]
+            }
+        ],
+        "ops": []
+    }"#;
+    let output = run_wesley_gen_with_args(ir, &["--no-std"]);
+    assert!(
+        output.status.success(),
+        "CLI failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let generated = String::from_utf8_lossy(&output.stdout);
+    // The generated struct must declare list elements as [u8; 32], not String.
+    assert!(
+        generated.contains("pub tags: Vec<[u8; 32]>"),
+        "expected Vec<[u8; 32]> for required [ID] under no_std, got:\n{generated}"
+    );
+    assert!(
+        generated.contains("pub optional_tags: Option<Vec<[u8; 32]>>"),
+        "expected Option<Vec<[u8; 32]>> for nullable [ID] under no_std, got:\n{generated}"
+    );
+    assert_generated_crate_checks(&write_basic_generated_crate(
+        generated.as_ref(),
+        "no-std-id-list",
         true,
     ));
 }

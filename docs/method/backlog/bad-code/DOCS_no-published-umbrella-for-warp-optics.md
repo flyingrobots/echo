@@ -115,5 +115,5 @@ from imagined needs.
   context do I drop this in?" becomes loudest)
 - Anyone asks "where should I start looking at your work?"
 - Before any external talk / publication mentioning multiple projects
-- Before WARP DRIVE goes from vapor to v0.0.1 — the umbrella story is
-  what justifies WARP DRIVE existing at all
+- Before WARPDrive goes from vapor to v0.0.1 — the umbrella story is
+  what justifies WARPDrive existing at all

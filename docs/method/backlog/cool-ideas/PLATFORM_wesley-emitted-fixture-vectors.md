@@ -36,8 +36,8 @@ equal `hex`. The fixture file is the cross-boundary contract.
 Today (post-0024) cross-language byte parity is asserted by
 hand-duplicated hex literals in two places:
 
-- `echo/crates/echo-wasm-abi/tests/jedit_rope_cross_boundary.rs`
-- `jedit/spec/rope-codec.spec.mjs`
+- `crates/echo-wasm-abi/tests/jedit_rope_cross_boundary.rs` (this repo)
+- `jedit/spec/rope-codec.spec.mjs` (jedit repo)
 
 (And similarly for EINT: `jedit_rope_cross_boundary_eint.rs` plus
 `spec/eint.spec.mjs`.)

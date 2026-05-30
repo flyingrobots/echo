@@ -661,6 +661,58 @@ mod tests {
         assert_eq!(v, ["alpha", "beta", "gamma"]);
     }
 
+    // ── decode_from_bytes Trailing contract ─────────────────────────────────
+
+    // A tiny Decode shape so the trailing-bytes contract is exercised end-to-
+    // end through the public decode_from_bytes API rather than a hand-rolled
+    // call into reader internals.
+    #[derive(Debug, PartialEq, Eq)]
+    struct OneInt(i32);
+
+    impl Decode for OneInt {
+        fn decode(reader: &mut Reader<'_>) -> Result<Self, CodecError> {
+            Ok(Self(reader.read_i32_le()?))
+        }
+    }
+
+    impl Encode for OneInt {
+        fn encode(&self, writer: &mut Writer) -> Result<(), CodecError> {
+            writer.write_i32_le(self.0);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn decode_from_bytes_accepts_exact_payload() {
+        let bytes = encode_to_vec(&OneInt(0x0102_0304)).unwrap();
+        assert_eq!(decode_from_bytes::<OneInt>(&bytes), Ok(OneInt(0x0102_0304)));
+    }
+
+    #[test]
+    fn decode_from_bytes_rejects_one_trailing_byte() {
+        // Lock in the public contract: any byte past the structurally-declared
+        // end of the payload must fail with CodecError::Trailing. Otherwise
+        // canonical + garbage and canonical-alone would decode to the same
+        // value while producing distinct recorded byte strings, which breaks
+        // submission-identity / replay invariants downstream.
+        let mut bytes = encode_to_vec(&OneInt(42)).unwrap();
+        bytes.push(0xff);
+        assert_eq!(
+            decode_from_bytes::<OneInt>(&bytes),
+            Err(CodecError::Trailing)
+        );
+    }
+
+    #[test]
+    fn decode_from_bytes_rejects_many_trailing_bytes() {
+        let mut bytes = encode_to_vec(&OneInt(-1)).unwrap();
+        bytes.extend_from_slice(&[0x00, 0x01, 0x02, 0x03]);
+        assert_eq!(
+            decode_from_bytes::<OneInt>(&bytes),
+            Err(CodecError::Trailing)
+        );
+    }
+
     // ── canonicalize_f32 public function ────────────────────────────────────
 
     #[test]

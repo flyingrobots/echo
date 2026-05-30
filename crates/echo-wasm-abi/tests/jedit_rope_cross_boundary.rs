@@ -346,6 +346,70 @@ fn replace_range_as_tick_vars_roundtrips_with_optional_author() {
 }
 
 #[test]
+fn replace_range_as_tick_vars_minimal_matches_pinned_bytes() {
+    // Local-roundtrip alone won't catch encoder/decoder drift — pin literal
+    // wire bytes the same way create_buffer_worldline does. This vector is
+    // also the wire image that any TS-side rope-codec spec must produce for
+    // the same input; keep both sides in lockstep.
+    let bytes = encode_replace_range_as_tick_vars(&ReplaceRangeAsTickInput {
+        worldline_id: "w".to_string(),
+        base_head_id: "b".to_string(),
+        start_byte: 0,
+        end_byte: 1,
+        insert_text: String::new(),
+        author: None,
+    });
+    let expected: Vec<u8> = vec![
+        // worldlineId: u32 LE length = 1, "w"
+        0x01, 0x00, 0x00, 0x00, b'w', // baseHeadId: u32 LE length = 1, "b"
+        0x01, 0x00, 0x00, 0x00, b'b', // startByte: i32 LE = 0
+        0x00, 0x00, 0x00, 0x00, // endByte: i32 LE = 1
+        0x01, 0x00, 0x00, 0x00, // insertText: u32 LE length = 0
+        0x00, 0x00, 0x00, 0x00, // author: null
+        0x00,
+    ];
+    assert_eq!(bytes, expected);
+    // Decoder must accept the literal vector and produce the original input.
+    let mut r = Reader::new(&expected);
+    let decoded = decode_replace_range_as_tick_input(&mut r);
+    assert_eq!(
+        decoded,
+        ReplaceRangeAsTickInput {
+            worldline_id: "w".to_string(),
+            base_head_id: "b".to_string(),
+            start_byte: 0,
+            end_byte: 1,
+            insert_text: String::new(),
+            author: None,
+        }
+    );
+}
+
+#[test]
+fn replace_range_as_tick_vars_with_author_matches_pinned_bytes() {
+    let bytes = encode_replace_range_as_tick_vars(&ReplaceRangeAsTickInput {
+        worldline_id: "wl-002".to_string(),
+        base_head_id: "hd-002".to_string(),
+        start_byte: 10,
+        end_byte: 20,
+        insert_text: "replacement".to_string(),
+        author: Some("james".to_string()),
+    });
+    let expected: Vec<u8> = vec![
+        // worldlineId: len=6, "wl-002"
+        0x06, 0x00, 0x00, 0x00, b'w', b'l', b'-', b'0', b'0', b'2',
+        // baseHeadId: len=6, "hd-002"
+        0x06, 0x00, 0x00, 0x00, b'h', b'd', b'-', b'0', b'0', b'2', // startByte: 10
+        0x0a, 0x00, 0x00, 0x00, // endByte: 20
+        0x14, 0x00, 0x00, 0x00, // insertText: len=11, "replacement"
+        0x0b, 0x00, 0x00, 0x00, b'r', b'e', b'p', b'l', b'a', b'c', b'e', b'm', b'e', b'n', b't',
+        // author: present + len=5 + "james"
+        0x01, 0x05, 0x00, 0x00, 0x00, b'j', b'a', b'm', b'e', b's',
+    ];
+    assert_eq!(bytes, expected);
+}
+
+#[test]
 fn create_checkpoint_vars_roundtrips_with_manual_save_and_label() {
     let input = CreateCheckpointInput {
         worldline_id: "wl-001".to_string(),
@@ -369,4 +433,57 @@ fn create_checkpoint_vars_roundtrips_with_auto_save_and_no_label() {
     let mut r = Reader::new(&bytes);
     let decoded = decode_create_checkpoint_input(&mut r);
     assert_eq!(decoded, input);
+}
+
+#[test]
+fn create_checkpoint_vars_manual_save_with_label_matches_pinned_bytes() {
+    let bytes = encode_create_checkpoint_vars(&CreateCheckpointInput {
+        worldline_id: "wl-001".to_string(),
+        kind: CheckpointKind::ManualSave,
+        label: Some("before refactor".to_string()),
+    });
+    let expected: Vec<u8> = vec![
+        // worldlineId: len=6, "wl-001"
+        0x06, 0x00, 0x00, 0x00, b'w', b'l', b'-', b'0', b'0', b'1',
+        // kind: MANUAL_SAVE = u32 LE 1
+        0x01, 0x00, 0x00, 0x00, // label: present + len=15 + "before refactor"
+        0x01, 0x0f, 0x00, 0x00, 0x00, b'b', b'e', b'f', b'o', b'r', b'e', b' ', b'r', b'e', b'f',
+        b'a', b'c', b't', b'o', b'r',
+    ];
+    assert_eq!(bytes, expected);
+    let mut r = Reader::new(&expected);
+    assert_eq!(
+        decode_create_checkpoint_input(&mut r),
+        CreateCheckpointInput {
+            worldline_id: "wl-001".to_string(),
+            kind: CheckpointKind::ManualSave,
+            label: Some("before refactor".to_string()),
+        }
+    );
+}
+
+#[test]
+fn create_checkpoint_vars_auto_save_no_label_matches_pinned_bytes() {
+    let bytes = encode_create_checkpoint_vars(&CreateCheckpointInput {
+        worldline_id: "wl-001".to_string(),
+        kind: CheckpointKind::AutoSave,
+        label: None,
+    });
+    let expected: Vec<u8> = vec![
+        // worldlineId: len=6, "wl-001"
+        0x06, 0x00, 0x00, 0x00, b'w', b'l', b'-', b'0', b'0', b'1',
+        // kind: AUTO_SAVE = u32 LE 2
+        0x02, 0x00, 0x00, 0x00, // label: null
+        0x00,
+    ];
+    assert_eq!(bytes, expected);
+    let mut r = Reader::new(&expected);
+    assert_eq!(
+        decode_create_checkpoint_input(&mut r),
+        CreateCheckpointInput {
+            worldline_id: "wl-001".to_string(),
+            kind: CheckpointKind::AutoSave,
+            label: None,
+        }
+    );
 }

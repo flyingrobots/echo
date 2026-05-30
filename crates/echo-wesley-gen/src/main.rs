@@ -61,7 +61,7 @@ fn main() -> Result<()> {
         bail!("--contract-host requires std and cannot be combined with --no-std");
     }
 
-    let ir = if let Some(schema_path) = &args.schema {
+    let mut ir = if let Some(schema_path) = &args.schema {
         let schema_sdl = std::fs::read_to_string(schema_path)?;
         echo_ir_from_schema_sdl(&schema_sdl)?
     } else {
@@ -72,6 +72,13 @@ fn main() -> Result<()> {
         validate_version(&ir)?;
         ir
     };
+    // Normalize codec_id to the canonical value BEFORE any artifact hash,
+    // observer identity, or footprint certificate preimage is computed.
+    // Otherwise an IR that declares e.g. "cbor-canon-v1" would carry that
+    // value into the preimage while the emitted CODEC_ID const advertises
+    // "le-binary-v1", so the artifact would claim the new wire contract
+    // under a hash derived from the old one.
+    ir.codec_id = Some(DEFAULT_CODEC_ID.to_string());
 
     let code = generate_rust(&ir, &args)?;
 
@@ -156,7 +163,7 @@ fn echo_ir_from_schema_sdl(schema_sdl: &str) -> Result<WesleyIR> {
             .map(type_definition_from_wesley)
             .collect(),
         ops,
-        codec_id: Some("le-binary-v1".to_string()),
+        codec_id: Some(DEFAULT_CODEC_ID.to_string()),
         registry_version: Some(DEFAULT_REGISTRY_VERSION),
     })
 }
@@ -176,20 +183,25 @@ fn operation_type_rank(operation_type: wesley_core::OperationType) -> u8 {
     }
 }
 
-/// FNV-1a 32-bit op id derivation. Must stay bytewise identical to
-/// `wesley_core::stable_op_id` (added in wesley-core ≥0.0.5). The duplication
-/// will collapse when echo bumps its wesley-core dependency to 0.0.5+; until
-/// then both copies are pinned to the same outputs in unit tests.
+/// FNV-1 32-bit op id derivation. Despite an earlier "1a" misnomer in this
+/// file, the actual byte step multiplies first and then xors (`hash *
+/// prime ^ byte`), which is FNV-1, not FNV-1a (`(hash ^ byte) * prime`).
+/// The cross-language op-id contract — including the pinned vectors in
+/// `stable_op_id_pinned` — is locked to this FNV-1 ordering. Must stay
+/// bytewise identical to `wesley_core::stable_op_id` (added in wesley-core
+/// ≥0.0.5). The duplication will collapse when echo bumps its wesley-core
+/// dependency to 0.0.5+; until then both copies are pinned to the same
+/// outputs in unit tests.
 fn stable_op_id(operation_type: &wesley_core::OperationType, field_name: &str) -> u32 {
     let mut hash = 2_166_136_261_u32;
-    hash = fnv1a_step(hash, operation_type_rank(*operation_type));
+    hash = fnv1_step(hash, operation_type_rank(*operation_type));
     for byte in field_name.as_bytes() {
-        hash = fnv1a_step(hash, *byte);
+        hash = fnv1_step(hash, *byte);
     }
     hash
 }
 
-fn fnv1a_step(hash: u32, byte: u8) -> u32 {
+fn fnv1_step(hash: u32, byte: u8) -> u32 {
     hash.wrapping_mul(16_777_619) ^ u32::from(byte)
 }
 
@@ -247,8 +259,13 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
         });
     }
 
+    // Bring the codec traits into scope at the top of the generated module
+    // so Encode/Decode impl bodies can call .encode(w) / Type::decode(r) on
+    // nested user types via method/associated-fn syntax without needing a
+    // fully-qualified path at every call site.
     tokens.extend(quote! {
         use serde::{Serialize, Deserialize};
+        use echo_wasm_abi::codec::{Decode as _, Encode as _};
     });
 
     if args.minicbor {
@@ -259,7 +276,7 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
 
     // Metadata constants
     let schema_sha = ir.schema_sha256.as_deref().unwrap_or("");
-    let codec_id = "le-binary-v1";
+    let codec_id = DEFAULT_CODEC_ID;
     let registry_version = ir.registry_version.unwrap_or(1);
     let generated_rust_artifact_hash = generated_rust_artifact_hash(ir, args)?;
     let wesley_generator_version = format!("echo-wesley-gen/{}", env!("CARGO_PKG_VERSION"));
@@ -577,6 +594,14 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
                 use alloc::vec::Vec;
             });
         }
+
+        // Vars Encode/Decode impls inside __echo_wesley_generated call
+        // .encode(w) / Type::decode(r) on user-defined types that live in
+        // the parent module; without these imports the trait methods are
+        // unresolvable from inside the private module.
+        helper_prelude.extend(quote! {
+            use echo_wasm_abi::codec::{Decode as _, Encode as _};
+        });
 
         let has_query_ops = ir.ops.iter().any(|op| op.kind == OpKind::Query);
         let has_mutation_ops = ir.ops.iter().any(|op| op.kind == OpKind::Mutation);
@@ -2008,11 +2033,15 @@ fn decode_field_expr(field: &ir::FieldDefinition, args: &Args) -> TokenStream {
 }
 
 /// Generate a list element encoder closure for `write_list`.
-fn scalar_list_element_encoder(type_name: &str, _args: &Args) -> TokenStream {
+fn scalar_list_element_encoder(type_name: &str, args: &Args) -> TokenStream {
+    // no_std maps GraphQL ID to [u8; 32]; encoder must emit raw bytes, not
+    // treat the element as &String.
+    let id_is_bytes = args.no_std && type_name == "ID";
     match type_name {
         "Boolean" => quote! { |w, v| { w.write_bool(*v); Ok(()) } },
         "Int" => quote! { |w, v| { w.write_i32_le(*v); Ok(()) } },
         "Float" => quote! { |w, v| { w.write_f32_le(*v); Ok(()) } },
+        "ID" if id_is_bytes => quote! { |w, v| { w.write_bytes(v); Ok(()) } },
         "String" | "ID" => quote! { |w, v| w.write_string(v.as_str(), usize::MAX) },
         _ => quote! { |w, v| v.encode(w) },
     }
@@ -2028,15 +2057,15 @@ fn scalar_list_element_encoder(type_name: &str, _args: &Args) -> TokenStream {
 /// decoders pick the right form already; this helper had been emitting a
 /// bare `#ty::decode(r)` regardless, so list-of-user-types under Vars
 /// failed to compile (`tags: [Tag!]!` → `Tag::decode` unresolved).
-fn scalar_list_element_decoder(
-    type_name: &str,
-    _args: &Args,
-    super_qualified: bool,
-) -> TokenStream {
+fn scalar_list_element_decoder(type_name: &str, args: &Args, super_qualified: bool) -> TokenStream {
+    // no_std maps GraphQL ID to [u8; 32]; decoder must read a fixed-size
+    // byte array, not a length-prefixed String.
+    let id_is_bytes = args.no_std && type_name == "ID";
     match type_name {
         "Boolean" => quote! { |r| r.read_bool() },
         "Int" => quote! { |r| r.read_i32_le() },
         "Float" => quote! { |r| r.read_f32_le() },
+        "ID" if id_is_bytes => quote! { |r| r.read_byte_array::<32>() },
         "String" | "ID" => quote! { |r| r.read_string(usize::MAX) },
         _ => {
             let ty = safe_ident(type_name);

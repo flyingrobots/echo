@@ -26,10 +26,14 @@
 - [15. Architectural Decisions and Trade-offs](#15-architectural-decisions-and-trade-offs)
 - [16. Timeline of a Commit](#16-timeline-of-a-commit)
 - [16.1 Project Progress and Future Use Cases](#161-project-progress-and-future-use-cases)
+- [16.2 Core-CLI Coupling and Service Migration Path](#162-core-cli-coupling-and-service-migration-path)
+- [16.3 Design Critiques: Assumptions and Risk Hotspots](#163-design-critiques-assumptions-and-risk-hotspots)
+- [16.4 Typed Pseudo-Definitions for Core Runtime Types](#164-typed-pseudo-definitions-for-core-runtime-types)
 - [17. Deep Dives: Technical Feats and Trade-Offs](#17-deep-dives-technical-feats-and-trade-offs)
 - [18. Entity-Relationship View](#18-entity-relationship-view)
 - [Appendix A: Type-Intent to Data Layout Mapping](#appendix-a-type-intent-to-data-layout-mapping)
 - [Appendix B: Reference Command Paths](#appendix-b-reference-command-paths)
+- [Appendix C: Pseudo Type Definitions](#appendix-c-pseudo-type-definitions)
 
 ## System Mind Map
 
@@ -869,6 +873,181 @@ flowchart TD
 - **Education and onboarding**: the CLI + command-level JSON outputs form an unusually strong teaching surface for deterministic distributed systems concepts.
 - **Benchmark governance**: baseline-tracked benchmark deltas as pull-request quality gates for runtime changes.
 
+## 16.2 Core-CLI Coupling and Service Migration Path
+
+At present, CLI tooling is the primary user-facing façade. That is intentional for early-stage systems, but it creates a coupling pattern worth making explicit:
+
+- CLI owns command parsing and argument semantics.
+- Core owns graph/state mechanics.
+- Output shape is chosen by CLI conventions, not by domain contracts.
+
+This is healthy now, but it makes non-CLI consumers implement their own parsing/formatting assumptions.
+
+```mermaid
+flowchart TD
+  U[User/CI] --> CLI[Warp CLI]
+  CLI --> Core[Core APIs: verify/inspect/engine]
+  Core --> S[Snapshots, hashes, receipts]
+  Core --> O[Structured outputs]
+  CLI --> O2[Text/JSON printers]
+```
+
+### Migration strategy (non-breaking)
+
+The safest path is to preserve CLI as a transport while extracting service-first domain application services:
+
+1. Extract pure command workflows into `application` modules:
+   - `verify_snapshot(request) -> VerifyResult`
+   - `inspect_snapshot(request) -> InspectResult`
+   - `run_bench(request) -> BenchResult`
+2. Introduce DTOs that are UI-neutral (`Rust structs + serde`), then have CLI render from those DTOs.
+3. Add an internal adapter that maps CLI requests to DTOs (no behavior change).
+4. Add API surface (HTTP/RPC) that consumes the same DTOs.
+5. Add compatibility tests that compare API responses to CLI JSON for a set of golden fixtures.
+
+```mermaid
+flowchart TD
+  A[CLI input] --> B[Command parser]
+  B --> C[Application services]
+  C --> D[Core engine + wsc]
+  C --> E[Result DTOs]
+  A --> |legacy| F[CLI formatter]
+  E --> G[HTTP/gRPC adapters]\nFuture\n
+  E --> H[CLI JSON output]
+  H --> I[Legacy UX]
+  G --> J[Programmatic clients]
+```
+
+### Why this direction is compelling
+
+- Keeps deterministic execution logic untouched.
+- Improves observability (same receipt and hash contracts everywhere).
+- Opens room for policy engines, event-sourcing gateways, and scheduler dashboards without cloning logic.
+
+## 16.3 Design Critiques: Assumptions and Risk Hotspots
+
+A useful teardown should surface not only “what works,” but also where the current architecture can fail under edge stress.
+
+### Assumption map
+
+| Assumption | Why it exists | Failure mode | Mitigation |
+| --- | --- | --- | --- |
+| Deterministic ordering of collections is stable | State hash correctness and replayability | Non-deterministic iteration in a refactor changes hash output silently | Lock ordering into canonical sort-by-key before any hash or merge point |
+| Fixed binary schema is stable across versions | Faster parse + simpler hashing contract | Schema drift breaks older readers | Maintain versioned headers + migration policy around row-table changes |
+| All payloads fit practical in-memory graph reification | Simplifies execution and merge logic | Large snapshots OOM or latency spikes | Add staged loading, bounded caches, and compact node/edge representations |
+| Conflict resolver is conservative | Prioritize safety over throughput | Increased rejection under high parallel contention | Expand shard-aware policy tuning + conflict instrumentation |
+| CLI JSON output is sufficient for tooling | Early integrations are mostly scripts | Tooling becomes fragile and parsing brittle | Add API DTO contract and versioned schema tests |
+
+### Risk hotspots
+
+1. **Validation bypass at boundary conversion points**
+   - If a new command path feeds malformed ranges/indices directly into `WarpView`, validation must stay centralized.
+   - Recommended guardrail: shared entrypoint validator and fuzz tests for each accessor.
+
+2. **Duplicate write-key handling in merge**
+   - `merge_parallel_deltas` rejects hard conflicts for safety.
+   - Under some workloads this can look like “false” failures if duplicate keys are an expected commutative class.
+   - Recommended guardrail: explicit rule contracts that mark commutative operations when lawful.
+
+3. **Output-coupled observability**
+- Metrics and posture data are present, but mostly emitted in human-oriented command formats.
+- For long-term operations, machine schema drift can hide regression in consumer scripts.
+- Recommended guardrail: schema snapshots and contract tests.
+
+4. **Environment-driven tuning without budget controls**
+   - `ECHO_WORKERS` can over-allocate and impact host contention.
+   - Recommended guardrail: hard ceilings + dynamic fallback when scheduler latency rises.
+
+## 16.4 Typed Pseudo-Definitions for Core Runtime Types
+
+These are **conceptual** type sketches to quickly reason about the most important boundaries. They intentionally abstract implementation details while preserving intent.
+
+```rust
+// A simplified request/response envelope for lifecycle state.
+pub struct Engine {
+    scheduler: Scheduler,
+    state: GraphStore,
+    root_key: RootKey,
+    policy_id: PolicyId,
+    worker_count: usize,
+    telemetry: Option<TelemetryBus>,
+    ledger: TickHistory,
+    live_transactions: TxSet,
+    materialization_bus: MaterializationBus,
+}
+
+pub struct Scheduler {
+    pending_intents: BTreeMap<TxId, Vec<PendingIntent>>,
+    active_rewrites: HashMap<TxId, Vec<PendingRewrite>>,
+    ack_state: AckState,
+    in_flight_writes: HashSet<WriteKey>,
+}
+
+pub struct GraphStore {
+    nodes_by_id: BTreeMap<NodeId, Node>,
+    out_edges: BTreeMap<NodeId, Vec<Edge>>,
+    reverse_in_edges: BTreeMap<NodeId, Vec<EdgeId>>,
+    attachments: BTreeMap<AttachmentTarget, Vec<Attachment>>,
+}
+
+pub struct Snapshot {
+    tick: Tick,
+    tick_history: u64,
+    root_key: RootKey,
+    state_root: StateRoot,
+    state_root_v2: Option<StateRootV2>,
+    hash: SnapshotHash,
+}
+
+pub struct TickReceipt {
+    tx_id: TxId,
+    status: ReceiptStatus, // Accepted | Rejected
+    blockers: Vec<TxId>,
+    planned_rewrites: Vec<RewritePlanDigest>,
+    errors: Vec<ConflictError>,
+}
+```
+
+### Why these sketches are useful
+
+- They expose that execution correctness is mostly determined by two control-plane objects (`Engine`, `Scheduler`) plus two state-plane objects (`GraphStore`, `Snapshot`).
+- They make it clear that `TickReceipt` is a contract surface suitable for API migration and machine analysis.
+
+```mermaid
+classDiagram
+  class Engine {
+    +scheduler: Scheduler
+    +state: GraphStore
+    +ledger: TickHistory
+    +begin() TxId
+    +apply() PendingRewrite
+    +commit_with_receipt() TickReceipt
+  }
+  class Scheduler {
+    +pending_intents: BTreeMap
+    +active_rewrites: HashMap
+    +reserve_for_receipt()
+  }
+  class GraphStore {
+    +nodes_by_id: BTreeMap
+    +out_edges: BTreeMap
+    +reverse_in_edges: BTreeMap
+  }
+  class Snapshot {
+    +tick
+    +state_root
+    +snapshot_hash
+  }
+  class TickReceipt {
+    +status
+    +blockers
+    +planned_rewrites
+  }
+  Engine --> Scheduler
+  Engine --> GraphStore
+  Engine --> Snapshot
+  Engine --> TickReceipt
+
 ## 17. Deep Dives: Technical Feats and Trade-Offs
 
 The following sections focus on the parts where the implementation makes intentional, high-leverage design decisions.
@@ -1097,3 +1276,65 @@ flowchart TD
 - wsc reader/validator: [`crates/warp-core/src/wsc/mod.rs`](/Users/james/git/echo-teardown/crates/warp-core/src/wsc/mod.rs), [`crates/warp-core/src/wsc/read.rs`](/Users/james/git/echo-teardown/crates/warp-core/src/wsc/read.rs), [`crates/warp-core/src/wsc/validate.rs`](/Users/james/git/echo-teardown/crates/warp-core/src/wsc/validate.rs), [`crates/warp-core/src/wsc/view.rs`](/Users/james/git/echo-teardown/crates/warp-core/src/wsc/view.rs)
 - core engine internals: [`crates/warp-core/src/engine_impl.rs`](/Users/james/git/echo-teardown/crates/warp-core/src/engine_impl.rs), [`crates/warp-core/src/parallel/exec.rs`](/Users/james/git/echo-teardown/crates/warp-core/src/parallel/exec.rs), [`crates/warp-core/src/parallel/shard.rs`](/Users/james/git/echo-teardown/crates/warp-core/src/parallel/shard.rs)
 - graph/snapshot roots: [`crates/warp-core/src/graph.rs`](/Users/james/git/echo-teardown/crates/warp-core/src/graph.rs), [`crates/warp-core/src/snapshot.rs`](/Users/james/git/echo-teardown/crates/warp-core/src/snapshot.rs)
+
+## Appendix C: Pseudo Type Definitions
+
+```rust
+// Conceptual request contracts to decouple CLI from core behavior.
+pub struct VerifyRequest {
+    pub snapshot_path: PathBuf,
+    pub expected_root: Option<StateHash>,
+    pub format: OutputFormat,
+}
+
+pub struct VerifyResult {
+    pub snapshot_tick: Tick,
+    pub warp_count: usize,
+    pub per_warp_hashes: Vec<(WarpId, StateRootHash)>,
+    pub expected_match: Option<bool>,
+    pub elapsed_ns: u128,
+    pub errors: Vec<String>,
+}
+
+pub struct InspectRequest {
+    pub snapshot_path: PathBuf,
+    pub show_tree: bool,
+    pub tree_depth: Option<usize>,
+    pub raw_payloads: bool,
+    pub format: OutputFormat,
+}
+
+pub struct InspectResult {
+    pub snapshot: SnapshotInfo,
+    pub warps: Vec<WarpInspectSummary>,
+    pub warnings: Vec<String>,
+}
+
+pub struct WalPostureRequest {
+    pub root: RootId,
+    pub submission_id: Option<SubmissionId>,
+    pub submission_digest: Option<SubmissionDigest>,
+}
+
+pub struct WalPostureResult {
+    pub posture: WalPosture,
+    pub blockers: Vec<BlockerHint>,
+    pub details: String,
+}
+
+pub struct BenchRequest {
+    pub filter: Option<String>,
+    pub baseline: Option<PathBuf>,
+}
+
+pub struct BenchResult {
+    pub benchmark: String,
+    pub mean_ns: u64,
+    pub median_ns: u64,
+    pub stddev_ns: u64,
+    pub baseline_delta_ns: Option<i64>,
+    pub status_marker: Option<char>, // '+', '-', '='
+}
+```
+
+These definitions mirror how the same data can be surfaced through CLI, API, or observability tooling without changing core logic.

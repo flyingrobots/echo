@@ -88,21 +88,23 @@ This teardown is written for a reader who has not seen this codebase before. It 
 
 ## Glossary: Domain Dictionary
 
-- **WSC (Warp Snapshot Container)**: A binary snapshot format that stores one or more _warps_ (stateful graph partitions) with nodes, edges, and attachments.
-- **Warp**: A deterministic unit of graph state used by the execution model.
-- **Node**: A vertex in the graph. In runtime terms, nodes are the state-bearing objects that rules read from and mutate.
-- **Edge**: A directed relation between nodes (for example parent/child, dependency, or domain-specific arcs).
-- **Attachment**: Binary metadata associated with nodes or edges; often a typed payload.
-- **Blob**: Raw binary payload storage referenced by attachments.
-- **Engine**: The execution engine that accepts intents, schedules rewrites, applies rules, updates graph state, and produces snapshots.
-- **Intent**: A unit of requested work submitted into a transaction; converted into canonical IDs and scheduled as pending work.
-- **Tick**: A unit-of-progress marker in state evolution.
-- **Tick Receipt**: The engine result artifact that says whether a transaction committed cleanly, plus conflict details.
-- **Ledger**: Sequence of execution history entries recording root state progression.
-- **Scope Hash**: A digest derived from rule inputs/metadata used during conflict planning.
-- **Ingestion (`ingest_intent`)**: Canonicalized intake path for incoming intents into runtime graph form.
-- **Dispatcher / Scheduler**: Internal subsystem managing pending transactions, intents, and queued rewrite commands.
-- **Parallel Work Unit**: Chunk of deterministic rewrite operations split across worker shards.
+| Term | Definition | Why it matters |
+| --- | --- | --- |
+| WSC (Warp Snapshot Container) | Binary snapshot format storing one or more _warps_ (stateful graph partitions) with nodes, edges, and attachments. | It is the transport and persistence substrate for the runtime’s canonical data. |
+| Warp | A deterministic unit of graph state used by the execution model. | It sets the boundary for hash computation, validation, and execution traversal. |
+| Node | A vertex in the graph. In runtime terms, nodes are the state-bearing objects that rules read from and mutate. | Core object that gets read and mutated by rules. |
+| Edge | A directed relation between nodes (for example parent/child, dependency, or domain-specific arcs). | Encodes topology and traversal semantics. |
+| Attachment | Binary metadata associated with nodes or edges; often a typed payload. | Captures payload-bearing semantics without changing the row shape. |
+| Blob | Raw binary payload storage referenced by attachments. | Separates large payload bytes from structured row tables via offsets/lengths. |
+| Engine | The execution engine that accepts intents, schedules rewrites, applies rules, updates graph state, and produces snapshots. | The authoritative coordinator for deterministic execution. |
+| Intent | A unit of requested work submitted into a transaction. | Source object that becomes pending rewrites in a transaction. |
+| Tick | A unit-of-progress marker in state evolution. | Enables historical progression and snapshot indexing. |
+| Tick Receipt | The engine artifact that says whether a transaction committed cleanly, plus conflict details. | Exposes acceptance/rejection and blocker details for diagnostics. |
+| Ledger | Sequence of execution history entries recording root state progression. | Provides auditability and time-travel context. |
+| Scope Hash | A digest derived from rule inputs/metadata used during conflict planning. | Helps arbitration and conflict checks remain deterministic. |
+| Ingestion (`ingest_intent`) | Canonicalized intake path for incoming intents into runtime graph form. | Enforces idempotent behavior and graph materialization of submissions. |
+| Dispatcher / Scheduler | Internal subsystem managing pending transactions, intents, and queued rewrite commands. | Controls ordering and fairness of execution work. |
+| Parallel Work Unit | Chunk of deterministic rewrite operations split across worker shards. | Supports throughput scaling while preserving deterministic merge semantics. |
 
 ## High-Level Mental Model
 

@@ -127,7 +127,7 @@ flowchart TD
   B -->|wal doctor| E[Read WAL metadata and classify posture]
   B -->|wal submission-posture| F[Inspect submission-level posture]
   B -->|bench| G[Run criterion benchmarks and diff baseline]
-  C --> H[Output sink: Text | JSON]
+  C --> H[Output sink: Text / JSON]
   D --> H
   E --> H
   F --> H

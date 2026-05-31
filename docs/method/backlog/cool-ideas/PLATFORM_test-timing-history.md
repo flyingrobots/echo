@@ -43,8 +43,9 @@ One JSON object per test result, append-only:
 ```
 
 Capture happens via a `cargo test` wrapper or a libtest reporter
-hook (Rust nightly has unstable JSON output; stable can wrap
-`--format=json` parsing). On Node side (jedit), wrap the
+hook (structured libtest JSON output is a nightly/unstable path;
+on stable, use a wrapper strategy that records per-test timings
+from supported output/reporting surfaces). On Node side (jedit), wrap the
 `node --test` JSON reporter.
 
 The JSONL log is gitignored — it is local history, not shared

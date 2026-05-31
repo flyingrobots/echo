@@ -88,7 +88,9 @@ Resolve this card when:
 
 1. `cargo xtask leash-audit` reads every
    `docs/method/backlog/leash/*.md` frontmatter and prints the
-   active leashes with per-symbol grep hit counts.
+   active leashes with per-symbol grep hit counts. Leashes are
+   printed in canonical order by `scaffold`, then `repo`, and
+   per-leash symbols are sorted lexicographically.
 2. The grep is run against the leash's declared `repo` working
    tree (resolved via a configurable repo-root map, or against the
    current working directory when no map is provided).

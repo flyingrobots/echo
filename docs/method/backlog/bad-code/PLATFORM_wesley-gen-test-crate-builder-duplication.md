@@ -51,13 +51,17 @@ options struct) that owns:
 - the `[workspace]` boilerplate
 - the dep declarations (no_std vs std switching)
 - the lib.rs shim selection
-- the crate-dir layout (drop the PID segment; use only the
-  label/purpose)
+- the crate-dir layout (dropping the PID segment changes path
+  semantics and is safe only if deterministic unique labels or
+  explicit tempdir guarantees preserve parallel-test isolation)
 
 Each call site then declares only what's unique to it: the label,
 the no_std flag, the generated source, and any extra deps.
 
-This is a structural cleanup, not a behavior change. After the
+This is a structural cleanup whose path-layout change is
+behavior-preserving only when uniqueness and isolation invariants
+are retained. Dropping the PID segment can otherwise change
+collision behavior under parallel runs or label reuse. After the
 extraction, adding a fifth generated-output test path should be a
 ~5-line call, not a ~40-line copy of the previous one.
 

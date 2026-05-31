@@ -100,6 +100,12 @@ Resolve this card when:
 3. METHOD Phase 3 documentation references the generator as the
    canonical path (hand-written playback docs become an exception,
    not the default).
+4. Two consecutive runs with identical inputs produce
+   byte-identical `docs/method/playback/<cycle>/playback.md`, and
+   sign-off association remains unchanged.
+5. The verification step re-runs `xtask method playback <cycle>` on
+   identical inputs, compares output bytes, and checks the
+   `playback-signoffs.md` question-id mapping is unchanged.
 
 ## Companion
 

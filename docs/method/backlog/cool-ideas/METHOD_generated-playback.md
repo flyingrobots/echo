@@ -41,13 +41,25 @@ time Phase 3 starts.
 docs/method/playback/<cycle>/playback.md
 ```
 
-A markdown document where each playback question is a section, and
+A Markdown document where each playback question is a section, and
 each section auto-fills:
 
 - The question (from the scaffold).
 - The matching RED test names and their pass/fail at last run.
 - The witness command(s) and their last-recorded output.
 - A boxed sign-off slot ("Sponsor 1: **_ / Sponsor 2: _**").
+
+Determinism contract:
+
+- Section order is canonical, sorted by explicit `question_id`
+  from the scaffold.
+- Test names within a section are canonical, sorted
+  lexicographically.
+- Witness commands within a section preserve scaffold declaration
+  order.
+- `question_id` is an explicit immutable scaffold field, never
+  derived from mutable prose text, and sign-offs are keyed only by
+  that id.
 
 The doc is regenerable. If a test renames, the next regen picks up
 the new name; if a witness command emits new output, the doc

@@ -92,23 +92,23 @@ This teardown is written for a reader who has not seen this codebase before. It 
 
 ## Glossary: Domain Dictionary
 
-| Term | Definition | Why it matters |
-| --- | --- | --- |
-| WSC (Warp Snapshot Container) | Binary snapshot format storing one or more _warps_ (stateful graph partitions) with nodes, edges, and attachments. | It is the transport and persistence substrate for the runtime’s canonical data. |
-| Warp | A deterministic unit of graph state used by the execution model. | It sets the boundary for hash computation, validation, and execution traversal. |
-| Node | A vertex in the graph. In runtime terms, nodes are the state-bearing objects that rules read from and mutate. | Core object that gets read and mutated by rules. |
-| Edge | A directed relation between nodes (for example parent/child, dependency, or domain-specific arcs). | Encodes topology and traversal semantics. |
-| Attachment | Binary metadata associated with nodes or edges; often a typed payload. | Captures payload-bearing semantics without changing the row shape. |
-| Blob | Raw binary payload storage referenced by attachments. | Separates large payload bytes from structured row tables via offsets/lengths. |
-| Engine | The execution engine that accepts intents, schedules rewrites, applies rules, updates graph state, and produces snapshots. | The authoritative coordinator for deterministic execution. |
-| Intent | A unit of requested work submitted into a transaction. | Source object that becomes pending rewrites in a transaction. |
-| Tick | A unit-of-progress marker in state evolution. | Enables historical progression and snapshot indexing. |
-| Tick Receipt | The engine artifact that says whether a transaction committed cleanly, plus conflict details. | Exposes acceptance/rejection and blocker details for diagnostics. |
-| Ledger | Sequence of execution history entries recording root state progression. | Provides auditability and time-travel context. |
-| Scope Hash | A digest derived from rule inputs/metadata used during conflict planning. | Helps arbitration and conflict checks remain deterministic. |
-| Ingestion (`ingest_intent`) | Canonicalized intake path for incoming intents into runtime graph form. | Enforces idempotent behavior and graph materialization of submissions. |
-| Dispatcher / Scheduler | Internal subsystem managing pending transactions, intents, and queued rewrite commands. | Controls ordering and fairness of execution work. |
-| Parallel Work Unit | Chunk of deterministic rewrite operations split across worker shards. | Supports throughput scaling while preserving deterministic merge semantics. |
+| Term                          | Definition                                                                                                                 | Why it matters                                                                  |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| WSC (Warp Snapshot Container) | Binary snapshot format storing one or more _warps_ (stateful graph partitions) with nodes, edges, and attachments.         | It is the transport and persistence substrate for the runtime’s canonical data. |
+| Warp                          | A deterministic unit of graph state used by the execution model.                                                           | It sets the boundary for hash computation, validation, and execution traversal. |
+| Node                          | A vertex in the graph. In runtime terms, nodes are the state-bearing objects that rules read from and mutate.              | Core object that gets read and mutated by rules.                                |
+| Edge                          | A directed relation between nodes (for example parent/child, dependency, or domain-specific arcs).                         | Encodes topology and traversal semantics.                                       |
+| Attachment                    | Binary metadata associated with nodes or edges; often a typed payload.                                                     | Captures payload-bearing semantics without changing the row shape.              |
+| Blob                          | Raw binary payload storage referenced by attachments.                                                                      | Separates large payload bytes from structured row tables via offsets/lengths.   |
+| Engine                        | The execution engine that accepts intents, schedules rewrites, applies rules, updates graph state, and produces snapshots. | The authoritative coordinator for deterministic execution.                      |
+| Intent                        | A unit of requested work submitted into a transaction.                                                                     | Source object that becomes pending rewrites in a transaction.                   |
+| Tick                          | A unit-of-progress marker in state evolution.                                                                              | Enables historical progression and snapshot indexing.                           |
+| Tick Receipt                  | The engine artifact that says whether a transaction committed cleanly, plus conflict details.                              | Exposes acceptance/rejection and blocker details for diagnostics.               |
+| Ledger                        | Sequence of execution history entries recording root state progression.                                                    | Provides auditability and time-travel context.                                  |
+| Scope Hash                    | A digest derived from rule inputs/metadata used during conflict planning.                                                  | Helps arbitration and conflict checks remain deterministic.                     |
+| Ingestion (`ingest_intent`)   | Canonicalized intake path for incoming intents into runtime graph form.                                                    | Enforces idempotent behavior and graph materialization of submissions.          |
+| Dispatcher / Scheduler        | Internal subsystem managing pending transactions, intents, and queued rewrite commands.                                    | Controls ordering and fairness of execution work.                               |
+| Parallel Work Unit            | Chunk of deterministic rewrite operations split across worker shards.                                                      | Supports throughput scaling while preserving deterministic merge semantics.     |
 
 ## High-Level Mental Model
 
@@ -893,9 +893,9 @@ flowchart TD
 The safest path is to preserve CLI as a transport while extracting service-first domain application services:
 
 1. Extract pure command workflows into `application` modules:
-   - `verify_snapshot(request) -> VerifyResult`
-   - `inspect_snapshot(request) -> InspectResult`
-   - `run_bench(request) -> BenchResult`
+    - `verify_snapshot(request) -> VerifyResult`
+    - `inspect_snapshot(request) -> InspectResult`
+    - `run_bench(request) -> BenchResult`
 2. Introduce DTOs that are UI-neutral (`Rust structs + serde`), then have CLI render from those DTOs.
 3. Add an internal adapter that maps CLI requests to DTOs (no behavior change).
 4. Add API surface (HTTP/RPC) that consumes the same DTOs.
@@ -926,33 +926,34 @@ A useful teardown should surface not only “what works,” but also where the c
 
 ### Assumption map
 
-| Assumption | Why it exists | Failure mode | Mitigation |
-| --- | --- | --- | --- |
-| Deterministic ordering of collections is stable | State hash correctness and replayability | Non-deterministic iteration in a refactor changes hash output silently | Lock ordering into canonical sort-by-key before any hash or merge point |
-| Fixed binary schema is stable across versions | Faster parse + simpler hashing contract | Schema drift breaks older readers | Maintain versioned headers + migration policy around row-table changes |
-| All payloads fit practical in-memory graph reification | Simplifies execution and merge logic | Large snapshots OOM or latency spikes | Add staged loading, bounded caches, and compact node/edge representations |
-| Conflict resolver is conservative | Prioritize safety over throughput | Increased rejection under high parallel contention | Expand shard-aware policy tuning + conflict instrumentation |
-| CLI JSON output is sufficient for tooling | Early integrations are mostly scripts | Tooling becomes fragile and parsing brittle | Add API DTO contract and versioned schema tests |
+| Assumption                                             | Why it exists                            | Failure mode                                                           | Mitigation                                                                |
+| ------------------------------------------------------ | ---------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Deterministic ordering of collections is stable        | State hash correctness and replayability | Non-deterministic iteration in a refactor changes hash output silently | Lock ordering into canonical sort-by-key before any hash or merge point   |
+| Fixed binary schema is stable across versions          | Faster parse + simpler hashing contract  | Schema drift breaks older readers                                      | Maintain versioned headers + migration policy around row-table changes    |
+| All payloads fit practical in-memory graph reification | Simplifies execution and merge logic     | Large snapshots OOM or latency spikes                                  | Add staged loading, bounded caches, and compact node/edge representations |
+| Conflict resolver is conservative                      | Prioritize safety over throughput        | Increased rejection under high parallel contention                     | Expand shard-aware policy tuning + conflict instrumentation               |
+| CLI JSON output is sufficient for tooling              | Early integrations are mostly scripts    | Tooling becomes fragile and parsing brittle                            | Add API DTO contract and versioned schema tests                           |
 
 ### Risk hotspots
 
 1. **Validation bypass at boundary conversion points**
-   - If a new command path feeds malformed ranges/indices directly into `WarpView`, validation must stay centralized.
-   - Recommended guardrail: shared entrypoint validator and fuzz tests for each accessor.
+    - If a new command path feeds malformed ranges/indices directly into `WarpView`, validation must stay centralized.
+    - Recommended guardrail: shared entrypoint validator and fuzz tests for each accessor.
 
 2. **Duplicate write-key handling in merge**
-   - `merge_parallel_deltas` rejects hard conflicts for safety.
-   - Under some workloads this can look like “false” failures if duplicate keys are an expected commutative class.
-   - Recommended guardrail: explicit rule contracts that mark commutative operations when lawful.
+    - `merge_parallel_deltas` rejects hard conflicts for safety.
+    - Under some workloads this can look like “false” failures if duplicate keys are an expected commutative class.
+    - Recommended guardrail: explicit rule contracts that mark commutative operations when lawful.
 
 3. **Output-coupled observability**
+
 - Metrics and posture data are present, but mostly emitted in human-oriented command formats.
 - For long-term operations, machine schema drift can hide regression in consumer scripts.
 - Recommended guardrail: schema snapshots and contract tests.
 
 4. **Environment-driven tuning without budget controls**
-   - `ECHO_WORKERS` can over-allocate and impact host contention.
-   - Recommended guardrail: hard ceilings + dynamic fallback when scheduler latency rises.
+    - `ECHO_WORKERS` can over-allocate and impact host contention.
+    - Recommended guardrail: hard ceilings + dynamic fallback when scheduler latency rises.
 
 ## 16.4 Typed Pseudo-Definitions for Core Runtime Types
 

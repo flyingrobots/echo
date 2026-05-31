@@ -6,6 +6,18 @@
 use std::path::{Path, PathBuf};
 
 /// Known backlog lane names.
+///
+/// `leash` is the structural-deletion-contract lane defined in
+/// `docs/method/backlog/cool-ideas/METHOD_leash-files.md`. Each file
+/// in `docs/method/backlog/leash/` is a small YAML-frontmatter record
+/// tying a temporary scaffold to its deletion trigger (typically a
+/// cycle/phase) and the symbols whose disappearance proves the
+/// scaffold is gone. Registered here so `cargo xtask method status`
+/// surfaces leash files alongside other backlog lanes; the dedicated
+/// `xtask leash-audit` that walks the trigger / symbol / status
+/// machinery lands separately, after the second leash file gets
+/// created (the "you only need a Tool when you have two of the
+/// thing" rule).
 pub(crate) const LANES: &[&str] = &[
     "inbox",
     "asap",
@@ -13,6 +25,7 @@ pub(crate) const LANES: &[&str] = &[
     "up-next",
     "cool-ideas",
     "bad-code",
+    "leash",
 ];
 
 /// A validated METHOD workspace rooted at a filesystem path.

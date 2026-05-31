@@ -18,6 +18,7 @@ const GRAPH_LANES: &[&str] = &[
     "inbox",
     "cool-ideas",
     "bad-code",
+    "leash",
 ];
 
 const TASK_SECTION_PREFIX: &str = "## T-";
@@ -1210,6 +1211,10 @@ fn lane_colors(lane: &str) -> (&'static str, &'static str) {
         "inbox" => ("#e5e7eb", "#4b5563"),
         "cool-ideas" => ("#ede9fe", "#7c3aed"),
         "bad-code" => ("#fee2e2", "#b91c1c"),
+        // Amber + dark-orange: "tied, on a clock." Distinct from asap's
+        // soft yellow (urgent but open-ended) — leash files are
+        // structurally committed-to-deletion, not just prioritized.
+        "leash" => ("#fed7aa", "#9a3412"),
         _ => ("#f8fafc", "#64748b"),
     }
 }

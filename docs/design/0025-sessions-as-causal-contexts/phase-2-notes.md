@@ -78,26 +78,29 @@ is the wrong attribution.
 **Question:** Where does the protocol-shaped `IngressAddress` type
 live, and how is it encoded?
 
-**Proposed:** New module **`warp-core::ingress_address`** — a thin
-sibling to `warp-core::head_inbox::IngressTarget`. Encoded under the
-0024 universal LE binary codec **via Wesley emission**, not by hand,
-once the schema is declared.
+**Proposed:** New module **`echo-wasm-abi::ingress_address`** for the
+wire-facing protocol value. `warp-core::head_inbox::IngressTarget`
+remains the runtime routing target. Encoded under the 0024 universal
+LE binary codec **via Wesley emission**, not by hand, once the schema
+is declared.
 
 **Rationale:**
 
 - The pair `IngressAddress (wire) <-> IngressTarget (runtime)` is
-  conceptually one routing surface. Keeping both in `warp-core`
-  keeps the routing semantics in one place and avoids a
-  cross-crate dependency cycle (echo-wasm-abi knowing about a
-  routing type that warp-core owns).
+  conceptually one routing surface, but the current crate graph is
+  directional: `warp-core` depends on `echo-wasm-abi`, and
+  `echo-wasm-abi` does not depend on `warp-core`. Keeping the
+  wire-facing type in `echo-wasm-abi` preserves that direction and
+  avoids an ABI -> core dependency cycle.
 - Wesley-emitting the codec keeps the wire format in lockstep with
-  the runtime type. Hand-rolled codecs accrue the same hand-edit
+  the protocol type. Hand-rolled codecs accrue the same hand-edit
   bugs we just carded in
   `jedit/docs/method/backlog/bad-code/generated-rope-codec-manual-fixes.md`.
   Don't reintroduce the smell.
-- `echo-wasm-abi` is the wire / kernel-port crate; it imports types
-  from warp-core, not the other way around. Putting
-  `IngressAddress` in `warp-core` matches that direction.
+- `echo-wasm-abi` is the wire / kernel-port crate; `warp-core`
+  imports ABI protocol types and maps them into runtime-owned
+  structures. Putting `IngressAddress` in `echo-wasm-abi` matches
+  that direction.
 
 **Status:** `proposed`
 

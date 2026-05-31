@@ -31,9 +31,9 @@ This card is therefore two things, not one:
 
 Add filter flags that the current surface lacks:
 
-- `--since <duration>` (e.g. `--since 7d`, `--since 24h`) so a
-  session-pickup query can scope to recent work without re-ranking
-  ancient entries.
+- `--since <duration>` using canonical ISO 8601 durations (e.g.
+  `--since P7D`, `--since PT24H`) so a session-pickup query can
+  scope to recent work without re-ranking ancient entries.
 - `--repo <name>` to match entries that mention a particular repo
   in their body or were captured while that repo was the cwd. (The
   receipt store may already carry this metadata; if so, this is a
@@ -45,8 +45,8 @@ Acceptance criteria for the enhancement:
 
 ```text
 claude-think --remember "0025 sessions"
-claude-think --remember --since 14d "jedit EINT cutover"
-claude-think --remember --repo echo --since 7d "dev-loop speedup"
+claude-think --remember --since P14D "jedit EINT cutover"
+claude-think --remember --repo echo --since P7D "dev-loop speedup"
 ```
 
 Output for each match:
@@ -96,8 +96,8 @@ the canonical command in CLAUDE.md closes the loop.
 
 Resolve this card when:
 
-1. `claude-think --remember --since <duration>` accepts ISO 8601
-   duration or human-friendly forms and filters correctly.
+1. `claude-think --remember --since <duration>` accepts a single
+   canonical duration format (ISO 8601) and filters correctly.
 2. `claude-think --remember --repo <name>` filters by inferred
    repo metadata.
 3. `~/.claude/CLAUDE.md` updates the session-start ritual to

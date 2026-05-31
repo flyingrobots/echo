@@ -19,7 +19,7 @@ recall (verified by running `--help` after the user flagged the
 misunderstanding). The current surface:
 
 ```text
-think --remember [--brief] [--limit=N] [query]
+claude-think --remember [--brief] [--limit=N] [query]
 ```
 
 This card is therefore two things, not one:

@@ -91,21 +91,35 @@ context.
 
 ## What tooling has to do
 
-A single script (proposed: `xtask leash-audit`) runs in CI / locally:
+This card lands the lane registration so existing tooling sees
+leash files from day one:
 
-- Parse every `docs/method/backlog/leash/*.md` frontmatter.
+- `crates/method/src/workspace.rs` `LANES` includes `"leash"` so
+  `cargo xtask method status` counts leash files alongside other
+  backlog lanes.
+- `crates/method/src/graph.rs` `GRAPH_LANES` includes `"leash"`
+  and `lane_colors()` gives it an amber + dark-orange palette
+  ("tied, on a clock" — distinct from asap's soft yellow).
+- `crates/method/tests/status_tests.rs` includes
+  `status_counts_leash_lane_files` as a regression so a future
+  refactor cannot silently drop the lane.
+
+The deeper trigger machinery is proposed as a follow-up:
+`xtask leash-audit` runs in CI / locally and:
+
+- Parses every `docs/method/backlog/leash/*.md` frontmatter.
 - For each `active` leash:
     - If the `deletion_trigger.cycle` has closed (look at
       `docs/method/retro/<cycle>/`), promote to `triggered`.
 - For each `triggered` leash:
-    - Grep the leash's repo for every entry in `symbols`. If zero
+    - Greps the leash's repo for every entry in `symbols`. If zero
       hits, promote to `deleted` and move to graveyard. If any hits,
       surface as a warning.
 - For `triggered` leashes older than the configured grace window
   (default: 1 cycle), promote to `escalated`.
 
-The script is dumb on purpose. The hard work is keeping the leash
-records honest, not the matching.
+The audit script is dumb on purpose. The hard work is keeping the
+leash records honest, not the matching.
 
 ## Why this is the right size of mechanism
 
@@ -138,9 +152,11 @@ Phase 2 GREEN.
 
 ## Not in scope here
 
-- The `xtask leash-audit` implementation. Land the convention
-  first; build the audit when the second leash file gets created
-  (the universal "you only need a Tool when you have two of the
+- The `xtask leash-audit` implementation (the trigger / symbol /
+  status transition machinery). This card ships the lane
+  registration so leash files are visible to existing tooling from
+  day one; the audit gets built when the second leash file shows
+  up (the universal "you only need a Tool when you have two of the
   thing" rule).
 - Cross-repo automation that opens deletion PRs automatically. That
   is the natural next step but adds blast radius; ship the manual

@@ -18,6 +18,7 @@ fn scaffold(root: &std::path::Path) {
         "up-next",
         "cool-ideas",
         "bad-code",
+        "leash",
     ] {
         fs::create_dir_all(root.join(format!("docs/method/backlog/{lane}"))).ok();
     }
@@ -75,7 +76,29 @@ fn status_counts_lane_files() {
     assert_eq!(report.lanes.get("up-next"), Some(&0));
     assert_eq!(report.lanes.get("cool-ideas"), Some(&0));
     assert_eq!(report.lanes.get("bad-code"), Some(&0));
+    assert_eq!(report.lanes.get("leash"), Some(&0));
     assert_eq!(report.total_items, 5);
+}
+
+#[test]
+fn status_counts_leash_lane_files() {
+    // Regression for the convention registration in
+    // crates/method/src/workspace.rs LANES and graph.rs GRAPH_LANES:
+    // a leash file in docs/method/backlog/leash/ must be visible to
+    // `xtask method status` from day one, so the lane is not invisible
+    // tooling waiting for `xtask leash-audit` to ship.
+    let tmp = tempfile::tempdir().expect("tempdir");
+    scaffold(tmp.path());
+
+    let leash = tmp.path().join("docs/method/backlog/leash");
+    touch_md(&leash.join("PLATFORM_some-scaffold.md"));
+    touch_md(&leash.join("KERNEL_other-scaffold.md"));
+
+    let ws = MethodWorkspace::discover(tmp.path()).expect("discover");
+    let report = StatusReport::build(&ws).expect("status");
+
+    assert_eq!(report.lanes.get("leash"), Some(&2));
+    assert_eq!(report.total_items, 2);
 }
 
 // ── Active cycle detection ──────────────────────────────────────────

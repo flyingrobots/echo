@@ -17,6 +17,7 @@ fn scaffold(root: &std::path::Path) {
         "up-next",
         "cool-ideas",
         "bad-code",
+        "leash",
     ] {
         fs::create_dir_all(root.join(format!("docs/method/backlog/{lane}"))).expect("create lane");
     }

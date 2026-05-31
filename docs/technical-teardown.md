@@ -1257,11 +1257,11 @@ flowchart TD
 
 ### CLI flows
 
-- `echo verify <snapshot> [--expected <hex>] [--format json|text]`
-- `echo inspect <snapshot> [--tree] [--raw]`
-- `echo wal doctor <root>`
-- `echo wal submission-posture <root> <submission_id> <submission_digest>`
-- `echo bench [--filter <regex>] [--baseline <path>]`
+- `echo-cli verify <snapshot> [--expected <hex>] [--format json|text]`
+- `echo-cli inspect <snapshot> [--tree] [--raw]`
+- `echo-cli wal doctor <root>`
+- `echo-cli wal submission-posture <root> --submission-id <submission_id> --canonical-envelope-digest <submission_digest>`
+- `echo-cli bench [--filter <regex>] [--baseline <path>]`
 
 ### Core paths referenced in this teardown
 

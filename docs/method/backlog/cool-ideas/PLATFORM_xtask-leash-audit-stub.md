@@ -101,6 +101,6 @@ Resolve this card when:
 
 - `docs/method/backlog/cool-ideas/METHOD_leash-files.md` — the
   convention this audit walks.
-- `jedit/docs/method/backlog/leash/jedit-session-port.md` — the
-  first leash, and the one that will make this tool
-  immediately useful.
+- `https://github.com/flyingrobots/jedit/blob/main/docs/method/backlog/leash/jedit-session-port.md`
+  — the external jedit leash that will make this tool immediately
+  useful.

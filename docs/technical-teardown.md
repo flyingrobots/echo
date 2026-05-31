@@ -21,7 +21,7 @@
 - [7. Golden Path: Core Engine Execution](#7-golden-path-core-engine-execution)
 - [8. Data Structures and Payload Anatomy](#8-data-structures-and-payload-anatomy)
 - [9. Source of Truth Map](#9-source-of-truth-map)
-- [10. Concurrency and Parallel Execution](#10-concurrency-and-parallel-execution)
+- [10. Concurrency and Asynchronous Flows](#10-concurrency-and-asynchronous-flows)
 - [11. Error Surfaces and Unhappy Paths](#11-error-surfaces-and-unhappy-paths)
 - [12. External Boundaries and Trust Model](#12-external-boundaries-and-trust-model)
 - [13. Configuration and Tuning](#13-configuration-and-tuning)
@@ -141,12 +141,12 @@ flowchart TD
 
 ### `main.rs`: command parsing and dispatch
 
-The true startup boundary is the CLI executable entrypoint in [`crates/warp-cli/src/main.rs`](/Users/james/git/echo-teardown/crates/warp-cli/src/main.rs).
+The true startup boundary is the CLI executable entrypoint in [`crates/warp-cli/src/main.rs`](../crates/warp-cli/src/main.rs).
 
 At startup:
 
 - The process executes `main()`.
-- It uses generated Clap definitions from [`crates/warp-cli/src/cli.rs`](/Users/james/git/echo-teardown/crates/warp-cli/src/cli.rs) to parse subcommands and options.
+- It uses generated Clap definitions from [`crates/warp-cli/src/cli.rs`](../crates/warp-cli/src/cli.rs) to parse subcommands and options.
 - A structured output mode is selected (`text` or `json`), then control transfers to the command implementation (`verify`, `inspect`, `wal`, or `bench`).
 
 ```mermaid
@@ -954,7 +954,7 @@ A useful teardown should surface not only “what works,” but also where the c
 - For long-term operations, machine schema drift can hide regression in consumer scripts.
 - Recommended guardrail: schema snapshots and contract tests.
 
-4. **Environment-driven tuning without budget controls**
+1. **Environment-driven tuning without budget controls**
     - `ECHO_WORKERS` can over-allocate and impact host contention.
     - Recommended guardrail: hard ceilings + dynamic fallback when scheduler latency rises.
 
@@ -1265,16 +1265,16 @@ flowchart TD
 
 ### Core paths referenced in this teardown
 
-- CLI dispatch: [`crates/warp-cli/src/main.rs`](/Users/james/git/echo-teardown/crates/warp-cli/src/main.rs)
-- Command schema: [`crates/warp-cli/src/cli.rs`](/Users/james/git/echo-teardown/crates/warp-cli/src/cli.rs)
-- Output format: [`crates/warp-cli/src/output.rs`](/Users/james/git/echo-teardown/crates/warp-cli/src/output.rs)
-- verify flow: [`crates/warp-cli/src/verify.rs`](/Users/james/git/echo-teardown/crates/warp-cli/src/verify.rs)
-- inspect flow: [`crates/warp-cli/src/inspect.rs`](/Users/james/git/echo-teardown/crates/warp-cli/src/inspect.rs)
-- wal utilities: [`crates/warp-cli/src/wal.rs`](/Users/james/git/echo-teardown/crates/warp-cli/src/wal.rs)
-- bench utilities: [`crates/warp-cli/src/bench.rs`](/Users/james/git/echo-teardown/crates/warp-cli/src/bench.rs)
-- wsc reader/validator: [`crates/warp-core/src/wsc/mod.rs`](/Users/james/git/echo-teardown/crates/warp-core/src/wsc/mod.rs), [`crates/warp-core/src/wsc/read.rs`](/Users/james/git/echo-teardown/crates/warp-core/src/wsc/read.rs), [`crates/warp-core/src/wsc/validate.rs`](/Users/james/git/echo-teardown/crates/warp-core/src/wsc/validate.rs), [`crates/warp-core/src/wsc/view.rs`](/Users/james/git/echo-teardown/crates/warp-core/src/wsc/view.rs)
-- core engine internals: [`crates/warp-core/src/engine_impl.rs`](/Users/james/git/echo-teardown/crates/warp-core/src/engine_impl.rs), [`crates/warp-core/src/parallel/exec.rs`](/Users/james/git/echo-teardown/crates/warp-core/src/parallel/exec.rs), [`crates/warp-core/src/parallel/shard.rs`](/Users/james/git/echo-teardown/crates/warp-core/src/parallel/shard.rs)
-- graph/snapshot roots: [`crates/warp-core/src/graph.rs`](/Users/james/git/echo-teardown/crates/warp-core/src/graph.rs), [`crates/warp-core/src/snapshot.rs`](/Users/james/git/echo-teardown/crates/warp-core/src/snapshot.rs)
+- CLI dispatch: [`crates/warp-cli/src/main.rs`](../crates/warp-cli/src/main.rs)
+- Command schema: [`crates/warp-cli/src/cli.rs`](../crates/warp-cli/src/cli.rs)
+- Output format: [`crates/warp-cli/src/output.rs`](../crates/warp-cli/src/output.rs)
+- verify flow: [`crates/warp-cli/src/verify.rs`](../crates/warp-cli/src/verify.rs)
+- inspect flow: [`crates/warp-cli/src/inspect.rs`](../crates/warp-cli/src/inspect.rs)
+- wal utilities: [`crates/warp-cli/src/wal.rs`](../crates/warp-cli/src/wal.rs)
+- bench utilities: [`crates/warp-cli/src/bench.rs`](../crates/warp-cli/src/bench.rs)
+- wsc reader/validator: [`crates/warp-core/src/wsc/mod.rs`](../crates/warp-core/src/wsc/mod.rs), [`crates/warp-core/src/wsc/read.rs`](../crates/warp-core/src/wsc/read.rs), [`crates/warp-core/src/wsc/validate.rs`](../crates/warp-core/src/wsc/validate.rs), [`crates/warp-core/src/wsc/view.rs`](../crates/warp-core/src/wsc/view.rs)
+- core engine internals: [`crates/warp-core/src/engine_impl.rs`](../crates/warp-core/src/engine_impl.rs), [`crates/warp-core/src/parallel/exec.rs`](../crates/warp-core/src/parallel/exec.rs), [`crates/warp-core/src/parallel/shard.rs`](../crates/warp-core/src/parallel/shard.rs)
+- graph/snapshot roots: [`crates/warp-core/src/graph.rs`](../crates/warp-core/src/graph.rs), [`crates/warp-core/src/snapshot.rs`](../crates/warp-core/src/snapshot.rs)
 
 ## Appendix C: Pseudo Type Definitions
 

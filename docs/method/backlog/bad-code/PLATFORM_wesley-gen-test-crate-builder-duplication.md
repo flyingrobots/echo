@@ -10,10 +10,10 @@ Legend: `PLATFORM`
 `crates/echo-wesley-gen/tests/generation.rs` has four consumer-crate
 builder functions:
 
-- `write_basic_generated_crate` (line ~944)
-- `write_consumer_smoke_crate` (line ~167)
-- `write_contract_host_smoke_crate` (line ~602)
-- `write_optic_binding_smoke_crate` (line ~1018)
+- `write_basic_generated_crate`
+- `write_consumer_smoke_crate`
+- `write_contract_host_smoke_crate`
+- `write_optic_binding_smoke_crate`
 
 Each one writes a `Cargo.toml` + `src/lib.rs` + `src/generated.rs` and
 uses essentially the same boilerplate:

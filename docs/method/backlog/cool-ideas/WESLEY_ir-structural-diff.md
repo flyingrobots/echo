@@ -87,8 +87,13 @@ Wesley cycle.
 ## How it gets used
 
 - Pre-push gate on any change that touches a `.ir.json` or a
-  `.graphql` schema: run `wesley diff origin/main HEAD` and refuse
-  the push if breaking changes are present without a version bump.
+  `.graphql` schema: materialize base and head IR artifacts first
+  (for example, `target/wesley-diff/base.ir.json` and
+  `target/wesley-diff/head.ir.json`), then run
+  `wesley diff target/wesley-diff/base.ir.json target/wesley-diff/head.ir.json`.
+  The hook never passes git refs directly to `wesley diff`; it
+  refuses the push if breaking changes are present without a
+  version bump.
 - PR review: a bot posts the diff classification on every schema-
   touching PR. Reviewers no longer need to mentally model "did
   this hash change?"

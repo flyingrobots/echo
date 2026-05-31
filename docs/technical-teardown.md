@@ -211,7 +211,7 @@ The canonical hash path is where domain correctness is strongest: if traversal a
 
 ```mermaid
 flowchart TD
-  V1["verify::run(snapshot, expected?)"] --> V2["WscFile::open"]
+  V1["verify run snapshot expected"] --> V2["WscFile::open"]
   V2 --> V3[validate_wsc]
   V3 --> V4{Validation pass?}
   V4 -->|No| V4Err[Return ReadError / validation issue]
@@ -220,7 +220,7 @@ flowchart TD
   V6 --> V7[Walk graph and compute canonical_state_hash]
   V7 --> V8{expected provided?}
   V8 -->|No| V8a[Collect per-warp hash list]
-  V8 -->|Yes| V9[Compare warp[0] hash exactly]
+  V8 -->|Yes| V9[Compare warp zero hash exactly]
   V9 --> V10{Match?}
   V10 -->|No| V10Err[Exit with mismatch result]
   V10 -->|Yes| V8a
@@ -250,12 +250,11 @@ Payload decoding has two modes:
 
 ```mermaid
 sequenceDiagram
-  autonumber
-  participant CLI as inspect::run
-  participant W as WscFile
-  participant V as WarpView
-  participant G as graph_store_from_warp_view
-  participant S as Serializer
+  participant CLI
+  participant W
+  participant V
+  participant G
+  participant S
 
   CLI->>W: open(path)
   W->>W: validate_wsc()
@@ -299,10 +298,9 @@ WAL tools are operational observability surfaces.
 
 ```mermaid
 sequenceDiagram
-  autonumber
-  participant CLI as wal::run
-  participant W as causal_wal
-  participant F as formatter
+  participant CLI
+  participant W
+  participant F
 
   CLI->>W: parse hex identifiers
   W-->>CLI: posture enum + metadata
@@ -330,7 +328,7 @@ flowchart TD
   B5 --> B6{baseline exists?}
   B6 -->|No| B7[Print raw timing report]
   B6 -->|Yes| B8[Compute baseline delta]
-  B8 --> B9[Add status marker (+/−/=)]
+  B8 --> B9[Add status marker]
   B7 --> B10[Emit JSON/Text]
   B9 --> B10
 ```
@@ -368,14 +366,13 @@ stateDiagram-v2
 
 ```mermaid
 sequenceDiagram
-  autonumber
-  participant Tx as Transaction API
-  participant Eng as Engine
-  participant Sch as Scheduler
-  participant Match as Rule Matchers
-  participant Ex as execute_work_queue
-  participant Patch as WarpTickPatchV1
-  participant Hist as Tick Ledger
+  participant Tx
+  participant Eng
+  participant Sch
+  participant Match
+  participant Ex
+  participant Patch
+  participant Hist
 
   Tx->>Eng: begin()
   Eng->>Sch: allocate tx id
@@ -567,11 +564,11 @@ Hashing order and encoding order are deliberate: deterministic ordering eliminat
 
 ```mermaid
 flowchart TD
-  S1[(On-disk WSC file)] -->|open + validate| S2[WscFile]
-  S2 -->|warp_view slices| S3[Reader views (zero-copy)]
+  S1[On-disk WSC file] -->|open + validate| S2[WscFile]
+  S2 -->|warp_view slices| S3[Reader views zero-copy]
   S3 -->|reified| S4[GraphStore in memory]
   S4 -->|apply_to_state| S5[Ledger + Snapshot history]
-  S5 -->|snapshot()/jump_to_tick| S6[Persistence boundaries for checkpoints]
+  S5 -->|snapshot and jump_to_tick| S6[Persistence boundaries for checkpoints]
   S4 -->|dispatch| S7[Parallel executor]
   S7 -->|validated deltas| S5
 ```
@@ -706,7 +703,7 @@ This is a classic throughput/latency trade-off boundary:
 flowchart TD
   CFG[ECHO_WORKERS env var]
   CFG -->|present and valid| W[Use requested worker count]
-  CFG -->|missing/invalid| W2[Use available_parallelism().min(NUM_SHARDS)]
+  CFG -->|missing/invalid| W2[Use minimum parallelism and NUM_SHARDS]
   W --> R[Execution policy selection]
   W2 --> R
   R --> P[Parallel rewrite throughput]
@@ -736,17 +733,16 @@ A conceptual security analogy:
 
 ```mermaid
 sequenceDiagram
-  autonumber
-  participant Actor as External actor
-  participant CLI as cli/run
-  participant Core as Engine
+  participant A
+  participant B
+  participant C
 
-  Actor->>CLI: submit intent payload
-  CLI->>Core: apply(payload)
-  Core->>Core: derive intent_id = H(payload bytes)
-  Core->>Core: check tx lifecycle and permissions-like scope
-  Core->>Core: schedule deterministic rewrite
-  Core-->>Actor: receipt with accept/reject + blockers
+  A->>B: submit intent payload
+  B->>C: apply(payload)
+  C->>C: derive intent_id = H(payload bytes)
+  C->>C: check tx lifecycle and permissions-like scope
+  C->>C: schedule deterministic rewrite
+  C-->>A: receipt with accept/reject + blockers
 ```
 
 ## 15. Architectural Decisions and Trade-offs
@@ -912,7 +908,7 @@ flowchart TD
   C --> D[Core engine + wsc]
   C --> E[Result DTOs]
   A --> |legacy| F[CLI formatter]
-  E --> G[HTTP/gRPC adapters]\nFuture\n
+  E --> G[HTTP and gRPC adapters]
   E --> H[CLI JSON output]
   H --> I[Legacy UX]
   G --> J[Programmatic clients]
@@ -1047,6 +1043,7 @@ classDiagram
   Engine --> GraphStore
   Engine --> Snapshot
   Engine --> TickReceipt
+```
 
 ## 17. Deep Dives: Technical Feats and Trade-Offs
 
@@ -1072,7 +1069,7 @@ This means equality is not “similarity” but exact semantic equivalence of gr
 
 ```mermaid
 flowchart TD
-  H1[canonical_state_hash()] --> H2[Gather warp range and root key]
+  H1[canonical_state_hash] --> H2[Gather warp range and root key]
   H2 --> H3[Sort nodes ascending by NodeId]
   H3 --> H4[For each node: emit node tuple]
   H4 --> H5[Emit sorted outgoing edges by source]
@@ -1101,22 +1098,21 @@ This sequence is intentionally important: it prevents work being done for doomed
 
 ```mermaid
 sequenceDiagram
-  autonumber
-  participant X as Intent Submitter
-  participant E as Engine
-  participant S as Scheduler
-  participant R as Receipt Resolver
-  participant V as Value Store
+  participant X
+  participant E
+  participant S
+  participant R
+  participant V
 
-  X->>E: commit_with_receipt(tx)\nplan prepared
-  E->>S: snapshot pending intents\nfor tx\n
-  S->>R: build candidate scopes\n
+  X->>E: commit_with_receipt(tx)<br/>plan prepared
+  E->>S: snapshot pending intents<br/>for tx
+  S->>R: build candidate scopes
   R->>V: probe active footprints
   alt no conflicts
-    V-->>R: clean read/write set\n
+    V-->>R: clean read/write set
     R-->>E: Accepted + plan digest
   else conflict
-    V-->>R: active blocker tx\n
+    V-->>R: active blocker tx
     R-->>E: Rejected + blockers
   end
   E->>X: receipt (accepted/rejected)
@@ -1137,9 +1133,9 @@ The reification boundary is where most complexity hides:
 
 ```mermaid
 flowchart TD
-  A[Raw bytes from file] --> B[read::<T>() bounds+alignment]
+  A[Raw bytes from file] --> B[read helper: typed row decode]
   B --> C[Row structs with exact sizes]
-  C --> D[WarpView methods]\n(no allocation)
+  C --> D[WarpView methods no allocation]
   D --> E{Consumer expects graph logic?}
   E -->|No| F[Keep as slice references]
   E -->|Yes| G[graph_store_from_warp_view]
@@ -1162,14 +1158,14 @@ The merge step is where semantics are enforced:
 
 ```mermaid
 flowchart TD
-  P0[work queue by rule execution] --> P1[partition_into_shards]\n=256 shards
+  P0[work queue by rule execution] --> P1[partition into shards<br/>=256 shards]
   P1 --> P2[worker executes per policy]
-  P2 --> P3[WorkerResult {delta ops, errors}]
+  P2 --> P3[WorkerResult with delta ops and errors]
   P3 --> P4[collect_and_sort_by sort_key]
   P4 --> P5{Duplicate write key?}
-  P5 -->|yes| P6[poisoned + reject tx]\nnon-determinism guard\n
+  P5 -->|yes| P6[poisoned + reject tx<br/>non-determinism guard]
   P5 -->|no| P7[merge op stream]
-  P7 --> P8[apply_to_state]\nif op valid\n
+  P7 --> P8[apply_to_state<br/>if op valid]
   P8 --> P9[snapshot + history]
 ```
 
@@ -1193,7 +1189,7 @@ flowchart TD
   BM5 -->|yes| BM7[load baseline JSON]
   BM7 --> BM8[match benchmark by name]
   BM8 --> BM9[delta = current - baseline]
-  BM9 --> BM10[mark status (+ / - / =)]
+  BM9 --> BM10[mark status with comparison marker]
 ```
 
 ## 18. Entity-Relationship View
@@ -1225,7 +1221,7 @@ flowchart TD
   X4 --> X5
   X2 --> X6[StateRoot + hash]
   X1 --> X7[Ledger]
-  X7 --> X8[Transaction history]\nreceipt + conflicts\n
+  X7 --> X8[Transaction history<br/>receipt + conflicts]
 ```
 
 ## Appendix A: Type-Intent to Data Layout Mapping
@@ -1240,18 +1236,17 @@ flowchart TD
 ```mermaid
 flowchart TD
   E1[Raw intent bytes] --> E2[Read intent bytes]
-  E2 --> E3[H(intent_bytes)]
+  E2 --> E3[hash intent bytes]
   E3 --> E4[Warp inbox node + edges + attachments]
   E4 --> E5[Pending rewrite graph op]
 
-  F1[WSC node row] --> F2[WarpView::nodes()]
-  F3[WSC edge row] --> F4[WarpView::out_edges_for_node()]
-  F5[WSC attachment row] --> F6[AttachmentValue::decode]
+  F1[WSC node row] --> F2[WarpView nodes]
+  F3[WSC edge row] --> F4[WarpView out edges for node]
+  F5[WSC attachment row] --> F6[AttachmentValue decode]
   F2 --> G[GraphStore]
   F4 --> G
   F6 --> G
-  G --> H[canonical_state_hash
-+snapshot/state]
+  G --> H[canonical_state_hash + snapshot/state]
 ```
 
 ## Appendix B: Reference Command Paths

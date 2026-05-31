@@ -76,6 +76,9 @@ a maintainer.
 Even for docs-only direct pushes:
 
 - state the exception before pushing;
+- record the explicit authorizer identity and authorization evidence, such as a
+  link or citation to the issue, PR comment, thread, or chat log where the
+  exception was approved;
 - run the relevant docs validation;
 - record exact commits and changed files;
 - confirm no source/runtime code was touched;

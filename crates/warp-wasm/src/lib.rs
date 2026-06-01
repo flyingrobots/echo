@@ -44,6 +44,7 @@ use std::cell::RefCell;
 /// non-default native-embedding fixture that lets WARP DRIVE prove that normal
 /// file bytes can come back through Echo's existing query-observation ABI.
 #[cfg(all(feature = "engine", feature = "experimental-warp-drive-g2b"))]
+#[doc(hidden)]
 pub mod experimental_warp_drive_g2b {
     /// Temporary query id for the G2b head projection.
     ///
@@ -446,7 +447,7 @@ pub fn init_embedded() -> Result<EmbeddedHandle, AbiError> {
 mod default_engine_tests {
     use super::*;
     use echo_wasm_abi::kernel_port::{
-        ObservationAt, ObservationCoordinate, ObservationFrame, ObservationProjection,
+        error_codes, ObservationAt, ObservationCoordinate, ObservationFrame, ObservationProjection,
         ObservationRequest,
     };
 
@@ -469,11 +470,7 @@ mod default_engine_tests {
         let request_bytes = echo_wasm_abi::encode_cbor(&request).unwrap();
         let response_bytes = observe_cbor(&request_bytes);
         let error = echo_wasm_abi::decode_cbor::<ErrEnvelope>(&response_bytes).unwrap();
-        assert!(
-            error.message.contains("not installed") || error.message.contains("unsupported"),
-            "unexpected error: {}",
-            error.message
-        );
+        assert_eq!(error.code, error_codes::UNSUPPORTED_QUERY);
     }
 }
 
@@ -481,7 +478,7 @@ mod default_engine_tests {
 mod experimental_warp_drive_g2b_tests {
     use super::*;
     use echo_wasm_abi::kernel_port::{
-        ObservationArtifact, ObservationAt, ObservationCoordinate, ObservationFrame,
+        error_codes, ObservationArtifact, ObservationAt, ObservationCoordinate, ObservationFrame,
         ObservationPayload, ObservationProjection, ObservationRequest,
     };
 
@@ -493,22 +490,20 @@ mod experimental_warp_drive_g2b_tests {
         };
         let json = String::from_utf8(data).unwrap();
         assert!(json.contains("\"kind\":\"echo-projected-file\""));
+        assert!(json.contains("\"gate\":\"G2b\""));
         assert!(json.contains("\"source\":\"echo-observation-payload\""));
         assert!(json.contains("\"projection_hash\""));
+        for field in ["worldline", "frontier", "state_root", "projection_hash"] {
+            assert_nonzero_hex64(field, json_string_value(&json, field));
+        }
+        assert!(!json.contains("/echo/head.json"));
         assert!(!json.contains("\"artifact_hash\""));
     }
 
     #[test]
     fn experimental_query_observer_rejects_invalid_vars() {
         let error = observe_g2b(b"{\"path\":\"/echo/head.json\"}".to_vec()).unwrap_err();
-        assert!(
-            error.message.contains("invalid query vars")
-                || error
-                    .message
-                    .contains("expected WARP DRIVE G2b head projection vars"),
-            "unexpected error: {}",
-            error.message
-        );
+        assert_eq!(error.code, error_codes::CODEC_ERROR);
     }
 
     fn observe_g2b(vars_bytes: Vec<u8>) -> Result<ObservationArtifact, ErrEnvelope> {
@@ -532,6 +527,33 @@ mod experimental_warp_drive_g2b_tests {
             Ok(envelope) => Ok(envelope.data),
             Err(_) => Err(echo_wasm_abi::decode_cbor::<ErrEnvelope>(&response_bytes).unwrap()),
         }
+    }
+
+    fn json_string_value<'a>(json: &'a str, key: &str) -> &'a str {
+        let needle = format!("\"{key}\":\"");
+        let start = json
+            .find(&needle)
+            .unwrap_or_else(|| panic!("missing JSON string field `{key}`"))
+            + needle.len();
+        let rest = &json[start..];
+        let end = rest
+            .find('"')
+            .unwrap_or_else(|| panic!("unterminated JSON string field `{key}`"));
+        &rest[..end]
+    }
+
+    fn assert_nonzero_hex64(field: &str, value: &str) {
+        assert_eq!(value.len(), 64, "{field} should be 64 hex chars");
+        assert!(
+            value
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+            "{field} should be lowercase hex: {value}"
+        );
+        assert!(
+            value.bytes().any(|byte| byte != b'0'),
+            "{field} should not be all zeros"
+        );
     }
 }
 

@@ -850,12 +850,13 @@ No test should call a global graph mutation or direct setter as the public path.
 
 ## Backlog
 
-The executable versions of these tasks were split into top-level METHOD backlog
-cards. Completed backlog cards are pruned from `docs/method/backlog/**`; current
-unresolved work is visible through `cargo xtask method status` and
-`docs/audits/backlog-staleness-audit.md`. This section records the source task
-detail for the design packet; it is not the scheduling surface. New executable
-work should be added as a visible card with explicit `Depends on:` links.
+The executable versions of these tasks now live in GitHub Issues, with Method
+lanes represented by labels. Historical filesystem cards were migrated out of
+`docs/method/backlog/**` and archived under
+`docs/method/graveyard/github-issue-migration/`. This section records the
+source task detail for the design packet; it is not the scheduling surface. New
+executable work should be added as a GitHub Issue with explicit dependency
+links and the appropriate Method lane label.
 
 ### TASK-001: Add Echo Optics doctrine packet
 

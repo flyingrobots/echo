@@ -38,15 +38,25 @@ use echo_wasm_abi::{unpack_control_intent_v1, unpack_intent_v1, CONTROL_INTENT_V
 
 use std::cell::RefCell;
 
-/// Temporary WARP DRIVE G2b query id for `/echo/head.json` projection bytes.
+/// Temporary downstream gate scaffold for WARP DRIVE G2b.
 ///
-/// This is a native embedding scaffold, not a general Echo filesystem ABI.
-#[cfg(feature = "engine")]
-pub const WARP_DRIVE_G2B_HEAD_QUERY_ID: u32 = 0x5744_4732;
+/// This module is not Echo's filesystem contract. It is an explicit,
+/// non-default native-embedding fixture that lets WARP DRIVE prove that normal
+/// file bytes can come back through Echo's existing query-observation ABI.
+#[cfg(all(feature = "engine", feature = "experimental-warp-drive-g2b"))]
+pub mod experimental_warp_drive_g2b {
+    /// Temporary query id for the G2b head projection.
+    ///
+    /// The value is namespaced by this experimental feature and must not be
+    /// treated as a stable Echo operation id.
+    pub const HEAD_QUERY_ID: u32 = 0x5744_4732;
 
-/// Temporary WARP DRIVE G2b query vars for the `/echo/head.json` projection.
-#[cfg(feature = "engine")]
-pub const WARP_DRIVE_G2B_HEAD_QUERY_VARS: &[u8] = b"{\"path\":\"/echo/head.json\"}";
+    /// Temporary query vars for the G2b head projection.
+    ///
+    /// This intentionally names a projection, not a POSIX path. Paths are
+    /// WARP DRIVE membrane concerns; Echo observes projection identities.
+    pub const HEAD_QUERY_VARS: &[u8] = b"{\"projection\":\"g2b-head\",\"version\":1}";
+}
 
 // ---------------------------------------------------------------------------
 // Kernel storage (module-scoped, single-threaded WASM)
@@ -423,13 +433,106 @@ pub struct EmbeddedHandle {
 /// # Errors
 ///
 /// Returns [`AbiError`] if kernel construction or the initial head observation
-/// fails. Leaves no kernel installed on failure.
+/// fails. Does not install a new kernel on failure.
 #[cfg(feature = "engine")]
 pub fn init_embedded() -> Result<EmbeddedHandle, AbiError> {
     let (kernel, head) = build_kernel_head(warp_kernel::WarpKernel::new)?;
     let worldline_id = kernel.default_worldline_id();
     install_trusted_kernel(Box::new(kernel));
     Ok(EmbeddedHandle { worldline_id, head })
+}
+
+#[cfg(all(test, feature = "engine", not(feature = "experimental-warp-drive-g2b")))]
+mod default_engine_tests {
+    use super::*;
+    use echo_wasm_abi::kernel_port::{
+        ObservationAt, ObservationCoordinate, ObservationFrame, ObservationProjection,
+        ObservationRequest,
+    };
+
+    #[test]
+    fn default_init_embedded_does_not_register_warp_drive_g2b_observer() {
+        let handle = init_embedded().unwrap();
+        let request = ObservationRequest::builtin_one_shot(
+            ObservationCoordinate {
+                worldline_id: handle.worldline_id,
+                at: ObservationAt::Frontier,
+            },
+            ObservationFrame::QueryView,
+            ObservationProjection::Query {
+                query_id: 0x5744_4732,
+                vars_bytes: b"{\"projection\":\"g2b-head\",\"version\":1}".to_vec(),
+            },
+        )
+        .unwrap();
+
+        let request_bytes = echo_wasm_abi::encode_cbor(&request).unwrap();
+        let response_bytes = observe_cbor(&request_bytes);
+        let error = echo_wasm_abi::decode_cbor::<ErrEnvelope>(&response_bytes).unwrap();
+        assert!(
+            error.message.contains("not installed") || error.message.contains("unsupported"),
+            "unexpected error: {}",
+            error.message
+        );
+    }
+}
+
+#[cfg(all(test, feature = "engine", feature = "experimental-warp-drive-g2b"))]
+mod experimental_warp_drive_g2b_tests {
+    use super::*;
+    use echo_wasm_abi::kernel_port::{
+        ObservationArtifact, ObservationAt, ObservationCoordinate, ObservationFrame,
+        ObservationPayload, ObservationProjection, ObservationRequest,
+    };
+
+    #[test]
+    fn experimental_query_observer_returns_query_bytes() {
+        let artifact = observe_g2b(experimental_warp_drive_g2b::HEAD_QUERY_VARS.to_vec()).unwrap();
+        let ObservationPayload::QueryBytes { data } = artifact.payload else {
+            panic!("expected QueryBytes payload");
+        };
+        let json = String::from_utf8(data).unwrap();
+        assert!(json.contains("\"kind\":\"echo-projected-file\""));
+        assert!(json.contains("\"source\":\"echo-observation-payload\""));
+        assert!(json.contains("\"projection_hash\""));
+        assert!(!json.contains("\"artifact_hash\""));
+    }
+
+    #[test]
+    fn experimental_query_observer_rejects_invalid_vars() {
+        let error = observe_g2b(b"{\"path\":\"/echo/head.json\"}".to_vec()).unwrap_err();
+        assert!(
+            error.message.contains("invalid query vars")
+                || error
+                    .message
+                    .contains("expected WARP DRIVE G2b head projection vars"),
+            "unexpected error: {}",
+            error.message
+        );
+    }
+
+    fn observe_g2b(vars_bytes: Vec<u8>) -> Result<ObservationArtifact, ErrEnvelope> {
+        let handle = init_embedded().unwrap();
+        let request = ObservationRequest::builtin_one_shot(
+            ObservationCoordinate {
+                worldline_id: handle.worldline_id,
+                at: ObservationAt::Frontier,
+            },
+            ObservationFrame::QueryView,
+            ObservationProjection::Query {
+                query_id: experimental_warp_drive_g2b::HEAD_QUERY_ID,
+                vars_bytes,
+            },
+        )
+        .unwrap();
+
+        let request_bytes = echo_wasm_abi::encode_cbor(&request).unwrap();
+        let response_bytes = observe_cbor(&request_bytes);
+        match echo_wasm_abi::decode_cbor::<OkEnvelope<ObservationArtifact>>(&response_bytes) {
+            Ok(envelope) => Ok(envelope.data),
+            Err(_) => Err(echo_wasm_abi::decode_cbor::<ErrEnvelope>(&response_bytes).unwrap()),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

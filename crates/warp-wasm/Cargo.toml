@@ -22,6 +22,8 @@ console-panic = ["console_error_panic_hook", "web-sys"]
 # Enable the warp-core engine kernel implementation.
 # Apps compile with this feature to get a real Engine behind the WASM exports.
 engine = ["dep:warp-core", "warp-core/native_rule_bootstrap"]
+# Temporary downstream gate scaffold for WARP DRIVE G2b. Not enabled by default.
+experimental-warp-drive-g2b = ["engine"]
 
 [dependencies]
 echo-registry-api = { workspace = true }

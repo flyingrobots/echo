@@ -39,15 +39,14 @@ use echo_wasm_abi::{
 use warp_core::{
     make_head_id, make_intent_kind, make_node_id, make_type_id, AttachmentDescentPolicy,
     AttachmentKey, AttachmentOwner, AttachmentPlane, AuthoredObserverPlan, BraidId,
-    ContractQueryObserver, ContractQueryObserverError, ContractQueryObserverResult, CoordinateAt,
-    EchoCoordinate, EdgeKey, Engine, EngineBuilder, EngineError, GlobalTick, GraphStore,
-    HeadEligibility, HeadId, HistoryError, IngressDisposition, IngressEnvelope, IngressTarget,
-    NeighborhoodError, NeighborhoodSiteService, NodeKey, NodeRecord, ObservationAt,
-    ObservationCoordinate, ObservationError, ObservationFrame, ObservationPayload,
-    ObservationProjection, ObservationReadBudget, ObservationRequest, ObservationRights,
-    ObservationService, ObserveOpticRequest, ObserverInstanceId, ObserverInstanceRef,
-    ObserverPlanId, OpticAperture, OpticApertureShape, OpticCapabilityId, OpticFocus,
-    OpticReadBudget, PlaybackMode, ProjectionVersion, ProvenanceRef, ProvenanceService,
+    ContractQueryObserverError, CoordinateAt, EchoCoordinate, EdgeKey, Engine, EngineBuilder,
+    EngineError, GlobalTick, GraphStore, HeadEligibility, HeadId, HistoryError, IngressDisposition,
+    IngressEnvelope, IngressTarget, NeighborhoodError, NeighborhoodSiteService, NodeKey,
+    NodeRecord, ObservationAt, ObservationCoordinate, ObservationError, ObservationFrame,
+    ObservationPayload, ObservationProjection, ObservationReadBudget, ObservationRequest,
+    ObservationRights, ObservationService, ObserveOpticRequest, ObserverInstanceId,
+    ObserverInstanceRef, ObserverPlanId, OpticAperture, OpticApertureShape, OpticCapabilityId,
+    OpticFocus, OpticReadBudget, PlaybackMode, ProjectionVersion, ProvenanceRef, ProvenanceService,
     ReadingObserverPlan, ReducerVersion, RetainedReadingKey, RunId, RuntimeError,
     SchedulerCoordinator, SchedulerKind, SettlementError, SettlementService, StrandId, TypeId,
     WorldlineId, WorldlineRuntime, WorldlineState, WorldlineStateError, WorldlineTick, WriterHead,
@@ -81,7 +80,17 @@ impl fmt::Display for KernelInitError {
     }
 }
 
-impl std::error::Error for KernelInitError {}
+impl std::error::Error for KernelInitError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::NonFreshEngine => None,
+            Self::WorldlineState(err) => Some(err.as_ref()),
+            Self::Provenance(err) => Some(err.as_ref()),
+            Self::Runtime(err) => Some(err.as_ref()),
+            Self::Engine(err) => Some(err.as_ref()),
+        }
+    }
+}
 
 impl From<WorldlineStateError> for KernelInitError {
     fn from(value: WorldlineStateError) -> Self {
@@ -107,70 +116,88 @@ impl From<EngineError> for KernelInitError {
     }
 }
 
-fn warp_drive_g2b_head_query_observer() -> ContractQueryObserver {
-    ContractQueryObserver::new(
-        crate::WARP_DRIVE_G2B_HEAD_QUERY_ID,
-        AuthoredObserverPlan {
-            plan_id: ObserverPlanId::from_bytes(warp_drive_g2b_hash(
-                b"warp-drive:g2b:head-query:plan-id:v1",
-            )),
-            artifact_hash: warp_drive_g2b_hash(b"warp-drive:g2b:head-query:artifact:v1"),
-            schema_hash: warp_drive_g2b_hash(b"warp-drive:g2b:head-query:schema:v1"),
-            state_schema_hash: warp_drive_g2b_hash(b"warp-drive:g2b:head-query:state-schema:v1"),
-            update_law_hash: warp_drive_g2b_hash(b"warp-drive:g2b:head-query:update-law:v1"),
-            emission_law_hash: warp_drive_g2b_hash(b"warp-drive:g2b:head-query:emission-law:v1"),
-        },
-        |context| {
-            if context.vars_bytes != crate::WARP_DRIVE_G2B_HEAD_QUERY_VARS {
-                return Err(ContractQueryObserverError::invalid_vars(
-                    context.query_id,
-                    "expected WARP DRIVE G2b /echo/head.json query vars",
-                ));
-            }
+#[cfg(feature = "experimental-warp-drive-g2b")]
+mod experimental_warp_drive_g2b {
+    use super::{AuthoredObserverPlan, ObserverPlanId};
+    use warp_core::{
+        ContractQueryObserver, ContractQueryObserverError, ContractQueryObserverResult,
+    };
 
-            let worldline = context.resolved.worldline_id.as_bytes();
-            let frontier = &context.resolved.commit_hash;
-            let state_root = &context.resolved.state_root;
-            let artifact_hash = warp_drive_g2b_projection_hash(worldline, frontier, state_root);
-            let bytes = format!(
-                "{{\"kind\":\"echo-projected-file\",\"gate\":\"G2b\",\"source\":\"echo-observation-payload\",\"worldline\":\"{}\",\"frontier\":\"{}\",\"state_root\":\"{}\",\"artifact_hash\":\"{}\"}}\n",
-                warp_drive_g2b_hex(worldline),
-                warp_drive_g2b_hex(frontier),
-                warp_drive_g2b_hex(state_root),
-                warp_drive_g2b_hex(&artifact_hash)
-            )
-            .into_bytes();
+    pub(super) fn head_query_observer() -> ContractQueryObserver {
+        ContractQueryObserver::new(
+            crate::experimental_warp_drive_g2b::HEAD_QUERY_ID,
+            synthetic_observer_plan(),
+            |context| {
+                if context.vars_bytes != crate::experimental_warp_drive_g2b::HEAD_QUERY_VARS {
+                    return Err(ContractQueryObserverError::invalid_vars(
+                        context.query_id,
+                        "expected WARP DRIVE G2b head projection vars",
+                    ));
+                }
 
-            Ok(ContractQueryObserverResult::complete(bytes))
-        },
-    )
-}
+                // ObservationService resolves the coordinate and records the
+                // reading envelope before dispatching this observer. This
+                // scaffold only emits a tiny deterministic payload from that
+                // resolved context; it does not bypass Echo's observation path.
+                let worldline = context.resolved.worldline_id.as_bytes();
+                let frontier = &context.resolved.commit_hash;
+                let state_root = &context.resolved.state_root;
+                let projection_hash = projection_hash(worldline, frontier, state_root);
+                let bytes = format!(
+                    "{{\"kind\":\"echo-projected-file\",\"gate\":\"G2b\",\"source\":\"echo-observation-payload\",\"worldline\":\"{}\",\"frontier\":\"{}\",\"state_root\":\"{}\",\"projection_hash\":\"{}\"}}\n",
+                    hex(worldline),
+                    hex(frontier),
+                    hex(state_root),
+                    hex(&projection_hash)
+                )
+                .into_bytes();
 
-fn warp_drive_g2b_projection_hash(
-    worldline: &[u8; 32],
-    frontier: &[u8; 32],
-    state_root: &[u8; 32],
-) -> [u8; 32] {
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(b"warp-drive:g2b:echo-head-json:v1\0");
-    hasher.update(worldline);
-    hasher.update(frontier);
-    hasher.update(state_root);
-    *hasher.finalize().as_bytes()
-}
-
-fn warp_drive_g2b_hash(bytes: &[u8]) -> [u8; 32] {
-    *blake3::hash(bytes).as_bytes()
-}
-
-fn warp_drive_g2b_hex(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        out.push(char::from(HEX[usize::from(byte >> 4)]));
-        out.push(char::from(HEX[usize::from(byte & 0x0f)]));
+                Ok(ContractQueryObserverResult::complete(bytes))
+            },
+        )
     }
-    out
+
+    fn synthetic_observer_plan() -> AuthoredObserverPlan {
+        // Synthetic observer plan used only by the experimental WARP DRIVE G2b
+        // gate. These hashes are deterministic scaffold identifiers, not
+        // finalized law/schema artifact hashes for a production filesystem
+        // contract.
+        AuthoredObserverPlan {
+            plan_id: ObserverPlanId::from_bytes(hash(b"warp-drive:g2b:head-query:plan-id:v1")),
+            artifact_hash: hash(b"warp-drive:g2b:head-query:artifact:v1"),
+            schema_hash: hash(b"warp-drive:g2b:head-query:schema:v1"),
+            state_schema_hash: hash(b"warp-drive:g2b:head-query:state-schema:v1"),
+            update_law_hash: hash(b"warp-drive:g2b:head-query:update-law:v1"),
+            emission_law_hash: hash(b"warp-drive:g2b:head-query:emission-law:v1"),
+        }
+    }
+
+    fn projection_hash(
+        worldline: &[u8; 32],
+        frontier: &[u8; 32],
+        state_root: &[u8; 32],
+    ) -> [u8; 32] {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"warp-drive:g2b:echo-head-json:v1\0");
+        hasher.update(worldline);
+        hasher.update(frontier);
+        hasher.update(state_root);
+        *hasher.finalize().as_bytes()
+    }
+
+    fn hash(bytes: &[u8]) -> [u8; 32] {
+        *blake3::hash(bytes).as_bytes()
+    }
+
+    fn hex(bytes: &[u8]) -> String {
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        let mut out = String::with_capacity(bytes.len() * 2);
+        for byte in bytes {
+            out.push(char::from(HEX[usize::from(byte >> 4)]));
+            out.push(char::from(HEX[usize::from(byte & 0x0f)]));
+        }
+        out
+    }
 }
 
 /// App-agnostic kernel wrapping a `warp-core::Engine`.
@@ -233,7 +260,9 @@ impl WarpKernel {
             return Err(KernelInitError::NonFreshEngine);
         }
         engine.register_rule(warp_core::import_suffix_intent_rule())?;
-        engine.register_contract_query_observer(warp_drive_g2b_head_query_observer())?;
+        #[cfg(feature = "experimental-warp-drive-g2b")]
+        engine
+            .register_contract_query_observer(experimental_warp_drive_g2b::head_query_observer())?;
         let root = engine.root_key();
         let default_worldline = WorldlineId::from_bytes(root.warp_id.0);
         let mut runtime = WorldlineRuntime::new();

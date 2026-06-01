@@ -503,6 +503,8 @@ mod experimental_warp_drive_g2b_tests {
     #[test]
     fn experimental_query_observer_rejects_invalid_vars() {
         let error = observe_g2b(b"{\"path\":\"/echo/head.json\"}".to_vec()).unwrap_err();
+        // TODO: replace CODEC_ERROR with INVALID_QUERY_VARS once the ABI
+        // exposes a more precise query-vars error code.
         assert_eq!(error.code, error_codes::CODEC_ERROR);
     }
 

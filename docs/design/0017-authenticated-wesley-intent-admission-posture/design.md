@@ -14,7 +14,7 @@ Depends on:
 - [0014 - EINT, Registry, And Observation Boundary Inventory](../0014-eint-registry-observation-boundary-inventory/design.md)
 - [0015 - Registry Provider Host Boundary Decision](../0015-registry-provider-host-boundary-decision/design.md)
 - [0016 - Wesley To Echo Toy Contract Proof](../0016-wesley-to-echo-toy-contract-proof/design.md)
-- [Authenticated Wesley Intent Admission Posture](../../method/backlog/up-next/PLATFORM_authenticated-wesley-intent-admission-posture.md)
+- [#482 Authenticated Wesley Intent Admission Posture](https://github.com/flyingrobots/echo/issues/482)
 
 ## Status
 

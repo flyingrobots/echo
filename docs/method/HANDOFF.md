@@ -3,10 +3,9 @@
 
 # Echo Handoff
 
-Status: current operational handoff for branch `chore/land-braids`.
-Replace this file when it goes stale. Git history is the archive.
+Status: historical handoff retained for context. This predates the 2026-06-01 GitHub Issues migration; filesystem-backlog paths below are historical, not the live tracker. Git history is the archive.
 
-## Current Anchor
+## Historical Anchor
 
 - Branch: `chore/land-braids`
 - HEAD: `413f85c feat: add method inbox capture`
@@ -47,7 +46,7 @@ Implemented:
 
 Behavior:
 
-- Creates `docs/method/backlog/inbox/<slug>.md`.
+- Historically created `docs/method/backlog/inbox/<slug>.md`; new work now starts as a GitHub Issue with Method labels.
 - Writes SPDX/copyright header.
 - Writes a simple Method-compatible scaffold.
 - Prints the created path.

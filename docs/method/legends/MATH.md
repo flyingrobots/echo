@@ -58,9 +58,6 @@ operation is safe under Echo's canonicalization rules.
 ## Current cycle and backlog
 
 - latest completed cycle: (none under METHOD yet)
-- live backlog:
-    - `asap/MATH_deterministic-trig.md`
-    - `cool-ideas/MATH_tumble-tower-stage-0-aabb.md`
-    - `cool-ideas/MATH_tumble-tower-stage-1-rotation.md`
-    - `cool-ideas/MATH_tumble-tower-stage-2-friction.md`
-    - `cool-ideas/MATH_tumble-tower-stage-3-sleeping.md`
+- live backlog is tracked in GitHub Issues with `legend:math` plus a
+  `lane:*` label.
+- migrated math issues include #393 and #425 through #428.

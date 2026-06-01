@@ -27,16 +27,37 @@ use js_sys::Uint8Array;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsValue;
 
-#[cfg(feature = "engine")]
-use echo_wasm_abi::kernel_port::HeadInfo;
 use echo_wasm_abi::kernel_port::{
     self, AbiError, DispatchOpticIntentRequest, ErrEnvelope, KernelPort, ObservationRequest,
     ObserveOpticRequest, OkEnvelope, OpticIntentPayload, SettlementRequest,
     TrustedKernelControlPort,
 };
+#[cfg(feature = "engine")]
+use echo_wasm_abi::kernel_port::{HeadInfo, WorldlineId};
 use echo_wasm_abi::{unpack_control_intent_v1, unpack_intent_v1, CONTROL_INTENT_V1_OP_ID};
 
 use std::cell::RefCell;
+
+/// Temporary downstream gate scaffold for WARP DRIVE G2b.
+///
+/// This module is not Echo's filesystem contract. It is an explicit,
+/// non-default native-embedding fixture that lets WARP DRIVE prove that normal
+/// file bytes can come back through Echo's existing query-observation ABI.
+#[cfg(all(feature = "engine", feature = "experimental-warp-drive-g2b"))]
+#[doc(hidden)]
+pub mod experimental_warp_drive_g2b {
+    /// Temporary query id for the G2b head projection.
+    ///
+    /// The value is namespaced by this experimental feature and must not be
+    /// treated as a stable Echo operation id.
+    pub const HEAD_QUERY_ID: u32 = 0x5744_4732;
+
+    /// Temporary query vars for the G2b head projection.
+    ///
+    /// This intentionally names a projection, not a POSIX path. Paths are
+    /// WARP DRIVE membrane concerns; Echo observes projection identities.
+    pub const HEAD_QUERY_VARS: &[u8] = b"{\"projection\":\"g2b-head\",\"version\":1}";
+}
 
 // ---------------------------------------------------------------------------
 // Kernel storage (module-scoped, single-threaded WASM)
@@ -386,6 +407,157 @@ where
             }
         }
         Err(err) => encode_err(&err),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Native embedding surface (non-wasm-bindgen, feature = "engine")
+// ---------------------------------------------------------------------------
+
+/// State returned by [`init_embedded`] describing the freshly initialized kernel.
+#[cfg(feature = "engine")]
+pub struct EmbeddedHandle {
+    /// The default worldline id to use when constructing observation requests.
+    pub worldline_id: WorldlineId,
+    /// Head info as of kernel initialization (tick 0, real hashes).
+    pub head: HeadInfo,
+}
+
+/// Initialize the default engine kernel for native (non-WASM) embedding.
+///
+/// Creates a [`warp_kernel::WarpKernel`] backed by `warp-core`, installs it as
+/// the module-scoped trusted kernel, and returns an [`EmbeddedHandle`] with the
+/// default worldline id and initial head. After this call, [`observe_cbor`],
+/// [`dispatch_intent_cbor`], and [`dispatch_control_intent_trusted_cbor`] are
+/// all ready to use without a JavaScript host.
+///
+/// # Errors
+///
+/// Returns [`AbiError`] if kernel construction or the initial head observation
+/// fails. Success replaces any previously installed module-scoped kernel. Failure
+/// clears any previously installed module-scoped kernel through the same
+/// initialization failure behavior as [`init`].
+#[cfg(feature = "engine")]
+pub fn init_embedded() -> Result<EmbeddedHandle, AbiError> {
+    let (kernel, head) = build_kernel_head(warp_kernel::WarpKernel::new)?;
+    let worldline_id = kernel.default_worldline_id();
+    install_trusted_kernel(Box::new(kernel));
+    Ok(EmbeddedHandle { worldline_id, head })
+}
+
+#[cfg(all(test, feature = "engine", not(feature = "experimental-warp-drive-g2b")))]
+mod default_engine_tests {
+    use super::*;
+    use echo_wasm_abi::kernel_port::{
+        error_codes, ObservationAt, ObservationCoordinate, ObservationFrame, ObservationProjection,
+        ObservationRequest,
+    };
+
+    #[test]
+    fn default_init_embedded_does_not_register_warp_drive_g2b_observer() {
+        let handle = init_embedded().unwrap();
+        let request = ObservationRequest::builtin_one_shot(
+            ObservationCoordinate {
+                worldline_id: handle.worldline_id,
+                at: ObservationAt::Frontier,
+            },
+            ObservationFrame::QueryView,
+            ObservationProjection::Query {
+                query_id: 0x5744_4732,
+                vars_bytes: b"{\"projection\":\"g2b-head\",\"version\":1}".to_vec(),
+            },
+        )
+        .unwrap();
+
+        let request_bytes = echo_wasm_abi::encode_cbor(&request).unwrap();
+        let response_bytes = observe_cbor(&request_bytes);
+        let error = echo_wasm_abi::decode_cbor::<ErrEnvelope>(&response_bytes).unwrap();
+        assert_eq!(error.code, error_codes::UNSUPPORTED_QUERY);
+    }
+}
+
+#[cfg(all(test, feature = "engine", feature = "experimental-warp-drive-g2b"))]
+mod experimental_warp_drive_g2b_tests {
+    use super::*;
+    use echo_wasm_abi::kernel_port::{
+        error_codes, ObservationArtifact, ObservationAt, ObservationCoordinate, ObservationFrame,
+        ObservationPayload, ObservationProjection, ObservationRequest,
+    };
+
+    #[test]
+    fn experimental_query_observer_returns_query_bytes() {
+        let artifact = observe_g2b(experimental_warp_drive_g2b::HEAD_QUERY_VARS.to_vec()).unwrap();
+        let ObservationPayload::QueryBytes { data } = artifact.payload else {
+            panic!("expected QueryBytes payload");
+        };
+        let json = String::from_utf8(data).unwrap();
+        assert!(json.contains("\"kind\":\"echo-projected-file\""));
+        assert!(json.contains("\"gate\":\"G2b\""));
+        assert!(json.contains("\"source\":\"echo-observation-payload\""));
+        assert!(json.contains("\"projection_hash\""));
+        for field in ["worldline", "frontier", "state_root", "projection_hash"] {
+            assert_nonzero_hex64(field, json_string_value(&json, field));
+        }
+        assert!(!json.contains("/echo/head.json"));
+        assert!(!json.contains("\"artifact_hash\""));
+    }
+
+    #[test]
+    fn experimental_query_observer_rejects_invalid_vars() {
+        let error = observe_g2b(b"{\"path\":\"/echo/head.json\"}".to_vec()).unwrap_err();
+        // TODO: replace CODEC_ERROR with INVALID_QUERY_VARS once the ABI
+        // exposes a more precise query-vars error code.
+        assert_eq!(error.code, error_codes::CODEC_ERROR);
+    }
+
+    fn observe_g2b(vars_bytes: Vec<u8>) -> Result<ObservationArtifact, ErrEnvelope> {
+        let handle = init_embedded().unwrap();
+        let request = ObservationRequest::builtin_one_shot(
+            ObservationCoordinate {
+                worldline_id: handle.worldline_id,
+                at: ObservationAt::Frontier,
+            },
+            ObservationFrame::QueryView,
+            ObservationProjection::Query {
+                query_id: experimental_warp_drive_g2b::HEAD_QUERY_ID,
+                vars_bytes,
+            },
+        )
+        .unwrap();
+
+        let request_bytes = echo_wasm_abi::encode_cbor(&request).unwrap();
+        let response_bytes = observe_cbor(&request_bytes);
+        match echo_wasm_abi::decode_cbor::<OkEnvelope<ObservationArtifact>>(&response_bytes) {
+            Ok(envelope) => Ok(envelope.data),
+            Err(_) => Err(echo_wasm_abi::decode_cbor::<ErrEnvelope>(&response_bytes).unwrap()),
+        }
+    }
+
+    fn json_string_value<'a>(json: &'a str, key: &str) -> &'a str {
+        let needle = format!("\"{key}\":\"");
+        let start = json
+            .find(&needle)
+            .unwrap_or_else(|| panic!("missing JSON string field `{key}`"))
+            + needle.len();
+        let rest = &json[start..];
+        let end = rest
+            .find('"')
+            .unwrap_or_else(|| panic!("unterminated JSON string field `{key}`"));
+        &rest[..end]
+    }
+
+    fn assert_nonzero_hex64(field: &str, value: &str) {
+        assert_eq!(value.len(), 64, "{field} should be 64 hex chars");
+        assert!(
+            value
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+            "{field} should be lowercase hex: {value}"
+        );
+        assert!(
+            value.bytes().any(|byte| byte != b'0'),
+            "{field} should not be all zeros"
+        );
     }
 }
 

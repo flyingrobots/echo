@@ -434,7 +434,9 @@ pub struct EmbeddedHandle {
 /// # Errors
 ///
 /// Returns [`AbiError`] if kernel construction or the initial head observation
-/// fails. Does not install a new kernel on failure.
+/// fails. Success replaces any previously installed module-scoped kernel. Failure
+/// clears any previously installed module-scoped kernel through the same
+/// initialization failure behavior as [`init`].
 #[cfg(feature = "engine")]
 pub fn init_embedded() -> Result<EmbeddedHandle, AbiError> {
     let (kernel, head) = build_kernel_head(warp_kernel::WarpKernel::new)?;

@@ -66,13 +66,9 @@ Witnesses are not victory photos. They are rerunnable proof.
 ```text
 docs/
   method/
-    backlog/
-      inbox/                        raw ideas, anyone, anytime
-      asap/                         do this now
-      up-next/                      do this soon
-      cool-ideas/                   experiments, wild thoughts
-      bad-code/                     tech debt
-      *.md                          everything else
+    backlog/                      legacy workspace marker only; no live cards
+    graveyard/github-issue-migration/
+                                    archived pre-migration backlog cards
     legends/                        named domains
     retro/<cycle>/retro.md          closed-cycle retrospectives
     guide.md                        operator advice and non-doctrinal practice notes
@@ -93,62 +89,73 @@ state of the repo; they do not create commitments.
 | ----------------------- | ------------------------------------------------------------------------ |
 | `README.md`             | The project root. What Echo is and how to build it.                      |
 | `docs/BEARING.md`       | Current direction, last shipped cycle, and tensions at cycle boundaries. |
-| `docs/method/README.md` | The operating doctrine and filesystem shape (this file).                 |
+| `docs/method/README.md` | The operating doctrine and tracker shape (this file).                    |
 
 ---
 
 ## Backlog
 
-Markdown files. Each describes work worth doing. The filesystem is
-the index.
+GitHub Issues are the live backlog. Labels are the index. Historical
+filesystem backlog cards were migrated to GitHub Issues on 2026-06-01 and
+archived under `docs/method/graveyard/github-issue-migration/`.
+
+The `docs/method/backlog/` directory remains only as a compatibility marker
+for legacy `cargo xtask method ...` workspace discovery. Do not add new live
+work cards there.
 
 ### Inbox
 
-Anyone — human or agent — drops ideas in at any time. A sentence is
-enough. No legend, no scope, no ceremony. Capture it. Keep moving.
-The inbox is processed during maintenance.
+Anyone — human or agent — opens an issue at any time. A sentence is enough.
+No legend, no scope, no ceremony. Capture it. Keep moving. The inbox is
+processed during maintenance by applying or changing Method labels.
 
 ### Lanes
 
-| Lane          | Purpose                       |
-| ------------- | ----------------------------- |
-| `inbox/`      | Unprocessed.                  |
-| `asap/`       | Pull into a cycle soon.       |
-| `up-next/`    | Next in line.                 |
-| `cool-ideas/` | Not commitments.              |
-| `bad-code/`   | It works, but it bothers you. |
+| Label             | Purpose                       |
+| ----------------- | ----------------------------- |
+| `lane:inbox`      | Unprocessed.                  |
+| `lane:asap`       | Pull into a cycle soon.       |
+| `lane:up-next`    | Next in line.                 |
+| `lane:cool-ideas` | Not commitments.              |
+| `lane:bad-code`   | It works, but it bothers you. |
+| `lane:release`    | Release-bar work.             |
 
-Anything else sits in the backlog root.
+Each live work issue should carry exactly one lane label unless it is being
+actively re-triaged.
 
 ### Naming
 
-Legend prefix if applicable. No numeric IDs.
+Use sane issue titles and Method labels. Apply a `legend:*` label when the
+work belongs to a named domain. Branch names should be lowercase slugs of the
+issue title.
 
 ```text
-KERNEL_writer-head-registry.md
-PLATFORM_xtask-method-cli.md
-debt-scheduler-god-module.md
+Issue: Writer head registry
+Labels: lane:asap, legend:kernel
+Branch: writer-head-registry
 ```
 
 ### Visibility
 
-Backlog cards must not hide executable subtasks that need independent
-scheduling or dependency tracking. If a card discovers a sequence of
+GitHub Issues must not hide executable subtasks that need independent
+scheduling or dependency tracking. If an issue discovers a sequence of
 implementation slices, promote those slices into visible backlog cards and
 connect them with `Depends on:` links.
 
-A card may remain as an index for a design packet or hill, but that index must
+An issue may remain as an index for a design packet or hill, but that index must
 not be the only place executable work exists.
 
 ### Promoting
 
-When a backlog item is pulled into a cycle, it becomes a design doc:
+When an issue is pulled into a cycle, create or update the design doc and keep
+the issue as the public tracker:
 
 ```text
-backlog/asap/KERNEL_writer-head-registry.md -> design/<cycle>/writer-head-registry.md
+issue #123 Writer head registry -> docs/design/<cycle>/writer-head-registry.md
 ```
 
-The backlog file is removed. Work does not live in two places.
+The issue links to the design packet. The design packet links back to the
+issue. Work does not hide in two unlinked places.
 
 ### Commitment
 
@@ -157,7 +164,7 @@ agent) in the design doc. It does not go back.
 
 - **Finish** — hill met.
 - **Pivot** — end early, write the retro. Remaining work re-enters
-  the backlog as a new item with fresh scope.
+  GitHub Issues as a new item with fresh scope.
 
 ### Maintenance
 
@@ -188,9 +195,7 @@ timelines — they are reference frames, not milestones. A legend never
 starts or finishes. It describes what it covers, who cares, what
 success looks like, and how you know.
 
-A legend code prefixes backlog filenames so that `ls` reveals domain
-load at a glance. Legends live in `docs/method/legends/` as standalone
-documents.
+A `legend:*` label marks issue domain so GitHub queries reveal domain load at a glance. Legends live in `docs/method/legends/` as standalone documents.
 
 The current legends in this repo are:
 
@@ -218,10 +223,11 @@ in one sentence, the cycle is too big. Split it.
 
 ### The loop
 
-0. **Pull** — choose from the backlog. Create a `cycle/<id>` branch
-   off `main` (e.g., `cycle/0003-dt-policy`). Move the backlog item
-   into `docs/design/<cycle>/`. You are now committed. All cycle work
-   happens on this branch.
+0. **Pull** — choose a GitHub Issue. Create a branch named from the issue
+   title, or `cycle/<id>-<slug>` when the work is explicitly cycle-shaped.
+   Create or update the design packet under `docs/design/<cycle>/` and link
+   it to the issue. You are now committed. All cycle work happens on this
+   branch.
 
 1. **Design** — write a design doc from the template at
    `docs/method/design-template.md`. Required sections:
@@ -327,7 +333,7 @@ a standup:
 - What is everyone working on? → active design docs in `docs/design/`
   that do not have a matching `docs/method/retro/<cycle>/retro.md`
 - What is committed? → each design doc names its sponsors and hill
-- What is next? → `ls docs/method/backlog/asap/`
+- What is next? → open GitHub Issues labeled `lane:asap`
 - What closed, failed, or drifted? → `ls docs/method/retro/`
 - What was deleted? → the audit entry or git history for the decision
 
@@ -349,13 +355,9 @@ cycle boundaries — not mid-cycle. It answers three questions:
 direction; it does not create commitments, replace backlog items, or
 record decisions that belong in design docs, retros, or the backlog.
 
-### Conflict at the backlog
+### Conflict at the tracker
 
-Two people pulling conflicting work from `asap/` is a design-doc
-problem, not a process problem. Active design docs are visible through
-the repo itself. If your hill contradicts an active cycle's hill, you
-should see it at step 1. Resolve it there or file it as a tension in
-`docs/BEARING.md`.
+Two people pulling conflicting `lane:asap` issues is a design-doc problem, not a process problem. Active design docs are visible through the repo itself. If your hill contradicts an active cycle's hill, you should see it at step 1. Resolve it there or file it as a tension in `docs/BEARING.md`.
 
 ### What this does not add
 
@@ -369,7 +371,7 @@ single source of truth. Read it.
 
 Rejected work does not get a live museum directory. If the reason
 matters to current operators, capture it in the active design, retro,
-audit entry, or backlog item that made the decision, then delete the
+audit entry, or GitHub Issue that made the decision, then delete the
 stale file. Git history is the archive.
 
 ---
@@ -377,8 +379,8 @@ stale file. Git history is the archive.
 ## Flow
 
 ```text
-idea -> inbox/ -> cool-ideas/ -> up-next/ -> asap/
-  -> cycle/<id> branch off main
+idea -> GitHub Issue lane:inbox -> lane:cool-ideas -> lane:up-next -> lane:asap
+  -> issue-named branch off main
   -> design/<cycle>/  (committed)
   -> RED -> GREEN -> playback (witness)
   -> retro/<cycle>/   (cycle packet closed on branch)
@@ -393,16 +395,15 @@ idea -> inbox/ -> cool-ideas/ -> up-next/ -> asap/
 METHOD operations in this repo are performed via `cargo xtask`. The
 following commands are implemented:
 
-| Command                            | Purpose                                                  |
-| ---------------------------------- | -------------------------------------------------------- |
-| `cargo xtask method inbox "idea"`  | Capture a backlog note in `inbox/`.                      |
-| `cargo xtask method status`        | Summarize backlog lanes, active cycles, and legend load. |
-| `cargo xtask method status --json` | Emit the same status report for agents and tooling.      |
-| `cargo xtask method matrix`        | Regenerate `task-matrix.md` and `task-matrix.csv`.       |
-| `cargo xtask method dag`           | Regenerate `task-dag.dot` and `task-dag.svg`.            |
-| `cargo xtask method frontier`      | Print tasks with no unresolved backlog-task blockers.    |
-| `cargo xtask method critical-path` | Print the unweighted longest dependency chain.           |
-| `cargo xtask method check-dag`     | Fail if graph artifacts are stale or cyclic.             |
+| Command                            | Purpose                                                            |
+| ---------------------------------- | ------------------------------------------------------------------ |
+| `cargo xtask method status`        | Summarize legacy filesystem lanes, active cycles, and legend load. |
+| `cargo xtask method status --json` | Emit the same status report for agents and tooling.                |
+
+Legacy filesystem-backlog commands may still exist for compatibility, but new
+work is tracked in GitHub Issues. Do not use `cargo xtask method inbox`,
+`matrix`, `dag`, `frontier`, `critical-path`, or `check-dag` as the
+source of truth for live work after the GitHub Issues migration.
 
 The following commands are planned but **not yet implemented**:
 
@@ -412,11 +413,10 @@ The following commands are planned but **not yet implemented**:
 | `cargo xtask method close [cycle]` | Write a retro and create its `witness/` directory.               |
 | `cargo xtask method drift [cycle]` | Check active cycle playback questions against test descriptions. |
 
-Until each command exists, that operation is done manually via the
-filesystem. `ls` and `mv` are the primitives.
-
-See backlog items in `asap/` prefixed with `PLATFORM_` for tooling
-work.
+GitHub issue creation, labeling, and branch naming are now the primitives for
+work tracking. Filesystem backlog commands are historical compatibility
+surfaces until the embedded METHOD crate is retired or taught to speak GitHub
+Issues directly.
 
 ---
 
@@ -424,8 +424,7 @@ work.
 
 No milestones. No velocity. No ticket numbers. No required meetings.
 
-The backlog is tiered by lane. Choice within a lane is judgment at
-pull time. Coordination is reading the filesystem. That is enough.
+The issue tracker is tiered by lane labels. Choice within a lane is judgment at pull time. Coordination is reading the repo plus the GitHub Issues surface. That is enough.
 
 ---
 

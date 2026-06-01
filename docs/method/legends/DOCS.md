@@ -57,6 +57,8 @@ actually shipped.
 
 ## Current cycle and backlog
 
-- Use `cargo xtask method status` for the current live backlog.
-- Completed backlog cards are removed from `docs/method/backlog/**`; git
-  history and retros are the archive.
+- Use GitHub Issues for the current live backlog.
+- Method lanes are represented by `lane:*` labels and domains by
+  `legend:*` labels.
+- Completed work is closed in GitHub Issues; git history and retros remain the
+  archive for shipped evidence.

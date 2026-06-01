@@ -38,6 +38,16 @@ use echo_wasm_abi::{unpack_control_intent_v1, unpack_intent_v1, CONTROL_INTENT_V
 
 use std::cell::RefCell;
 
+/// Temporary WARP DRIVE G2b query id for `/echo/head.json` projection bytes.
+///
+/// This is a native embedding scaffold, not a general Echo filesystem ABI.
+#[cfg(feature = "engine")]
+pub const WARP_DRIVE_G2B_HEAD_QUERY_ID: u32 = 0x5744_4732;
+
+/// Temporary WARP DRIVE G2b query vars for the `/echo/head.json` projection.
+#[cfg(feature = "engine")]
+pub const WARP_DRIVE_G2B_HEAD_QUERY_VARS: &[u8] = b"{\"path\":\"/echo/head.json\"}";
+
 // ---------------------------------------------------------------------------
 // Kernel storage (module-scoped, single-threaded WASM)
 // ---------------------------------------------------------------------------

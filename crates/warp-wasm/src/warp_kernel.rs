@@ -39,14 +39,15 @@ use echo_wasm_abi::{
 use warp_core::{
     make_head_id, make_intent_kind, make_node_id, make_type_id, AttachmentDescentPolicy,
     AttachmentKey, AttachmentOwner, AttachmentPlane, AuthoredObserverPlan, BraidId,
-    ContractQueryObserverError, CoordinateAt, EchoCoordinate, EdgeKey, Engine, EngineBuilder,
-    EngineError, GlobalTick, GraphStore, HeadEligibility, HeadId, HistoryError, IngressDisposition,
-    IngressEnvelope, IngressTarget, NeighborhoodError, NeighborhoodSiteService, NodeKey,
-    NodeRecord, ObservationAt, ObservationCoordinate, ObservationError, ObservationFrame,
-    ObservationPayload, ObservationProjection, ObservationReadBudget, ObservationRequest,
-    ObservationRights, ObservationService, ObserveOpticRequest, ObserverInstanceId,
-    ObserverInstanceRef, ObserverPlanId, OpticAperture, OpticApertureShape, OpticCapabilityId,
-    OpticFocus, OpticReadBudget, PlaybackMode, ProjectionVersion, ProvenanceRef, ProvenanceService,
+    ContractQueryObserver, ContractQueryObserverError, ContractQueryObserverResult, CoordinateAt,
+    EchoCoordinate, EdgeKey, Engine, EngineBuilder, EngineError, GlobalTick, GraphStore,
+    HeadEligibility, HeadId, HistoryError, IngressDisposition, IngressEnvelope, IngressTarget,
+    NeighborhoodError, NeighborhoodSiteService, NodeKey, NodeRecord, ObservationAt,
+    ObservationCoordinate, ObservationError, ObservationFrame, ObservationPayload,
+    ObservationProjection, ObservationReadBudget, ObservationRequest, ObservationRights,
+    ObservationService, ObserveOpticRequest, ObserverInstanceId, ObserverInstanceRef,
+    ObserverPlanId, OpticAperture, OpticApertureShape, OpticCapabilityId, OpticFocus,
+    OpticReadBudget, PlaybackMode, ProjectionVersion, ProvenanceRef, ProvenanceService,
     ReadingObserverPlan, ReducerVersion, RetainedReadingKey, RunId, RuntimeError,
     SchedulerCoordinator, SchedulerKind, SettlementError, SettlementService, StrandId, TypeId,
     WorldlineId, WorldlineRuntime, WorldlineState, WorldlineStateError, WorldlineTick, WriterHead,
@@ -59,13 +60,13 @@ pub enum KernelInitError {
     /// The supplied engine has already advanced and cannot seed a fresh runtime.
     NonFreshEngine,
     /// The engine's backing state does not satisfy [`WorldlineState`] invariants.
-    WorldlineState(WorldlineStateError),
+    WorldlineState(Box<WorldlineStateError>),
     /// Provenance registration failed while installing the default worldline.
-    Provenance(HistoryError),
+    Provenance(Box<HistoryError>),
     /// Runtime registration failed while installing the default worldline/head.
-    Runtime(RuntimeError),
+    Runtime(Box<RuntimeError>),
     /// Kernel-owned command rule registration failed.
-    Engine(EngineError),
+    Engine(Box<EngineError>),
 }
 
 impl fmt::Display for KernelInitError {
@@ -84,26 +85,92 @@ impl std::error::Error for KernelInitError {}
 
 impl From<WorldlineStateError> for KernelInitError {
     fn from(value: WorldlineStateError) -> Self {
-        Self::WorldlineState(value)
+        Self::WorldlineState(Box::new(value))
     }
 }
 
 impl From<RuntimeError> for KernelInitError {
     fn from(value: RuntimeError) -> Self {
-        Self::Runtime(value)
+        Self::Runtime(Box::new(value))
     }
 }
 
 impl From<HistoryError> for KernelInitError {
     fn from(value: HistoryError) -> Self {
-        Self::Provenance(value)
+        Self::Provenance(Box::new(value))
     }
 }
 
 impl From<EngineError> for KernelInitError {
     fn from(value: EngineError) -> Self {
-        Self::Engine(value)
+        Self::Engine(Box::new(value))
     }
+}
+
+fn warp_drive_g2b_head_query_observer() -> ContractQueryObserver {
+    ContractQueryObserver::new(
+        crate::WARP_DRIVE_G2B_HEAD_QUERY_ID,
+        AuthoredObserverPlan {
+            plan_id: ObserverPlanId::from_bytes(warp_drive_g2b_hash(
+                b"warp-drive:g2b:head-query:plan-id:v1",
+            )),
+            artifact_hash: warp_drive_g2b_hash(b"warp-drive:g2b:head-query:artifact:v1"),
+            schema_hash: warp_drive_g2b_hash(b"warp-drive:g2b:head-query:schema:v1"),
+            state_schema_hash: warp_drive_g2b_hash(b"warp-drive:g2b:head-query:state-schema:v1"),
+            update_law_hash: warp_drive_g2b_hash(b"warp-drive:g2b:head-query:update-law:v1"),
+            emission_law_hash: warp_drive_g2b_hash(b"warp-drive:g2b:head-query:emission-law:v1"),
+        },
+        |context| {
+            if context.vars_bytes != crate::WARP_DRIVE_G2B_HEAD_QUERY_VARS {
+                return Err(ContractQueryObserverError::invalid_vars(
+                    context.query_id,
+                    "expected WARP DRIVE G2b /echo/head.json query vars",
+                ));
+            }
+
+            let worldline = context.resolved.worldline_id.as_bytes();
+            let frontier = &context.resolved.commit_hash;
+            let state_root = &context.resolved.state_root;
+            let artifact_hash = warp_drive_g2b_projection_hash(worldline, frontier, state_root);
+            let bytes = format!(
+                "{{\"kind\":\"echo-projected-file\",\"gate\":\"G2b\",\"source\":\"echo-observation-payload\",\"worldline\":\"{}\",\"frontier\":\"{}\",\"state_root\":\"{}\",\"artifact_hash\":\"{}\"}}\n",
+                warp_drive_g2b_hex(worldline),
+                warp_drive_g2b_hex(frontier),
+                warp_drive_g2b_hex(state_root),
+                warp_drive_g2b_hex(&artifact_hash)
+            )
+            .into_bytes();
+
+            Ok(ContractQueryObserverResult::complete(bytes))
+        },
+    )
+}
+
+fn warp_drive_g2b_projection_hash(
+    worldline: &[u8; 32],
+    frontier: &[u8; 32],
+    state_root: &[u8; 32],
+) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"warp-drive:g2b:echo-head-json:v1\0");
+    hasher.update(worldline);
+    hasher.update(frontier);
+    hasher.update(state_root);
+    *hasher.finalize().as_bytes()
+}
+
+fn warp_drive_g2b_hash(bytes: &[u8]) -> [u8; 32] {
+    *blake3::hash(bytes).as_bytes()
+}
+
+fn warp_drive_g2b_hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push(char::from(HEX[usize::from(byte >> 4)]));
+        out.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    out
 }
 
 /// App-agnostic kernel wrapping a `warp-core::Engine`.
@@ -166,6 +233,7 @@ impl WarpKernel {
             return Err(KernelInitError::NonFreshEngine);
         }
         engine.register_rule(warp_core::import_suffix_intent_rule())?;
+        engine.register_contract_query_observer(warp_drive_g2b_head_query_observer())?;
         let root = engine.root_key();
         let default_worldline = WorldlineId::from_bytes(root.warp_id.0);
         let mut runtime = WorldlineRuntime::new();

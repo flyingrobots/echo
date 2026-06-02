@@ -2101,6 +2101,31 @@ impl RecoveredSubmissionIndex {
         Ok(index)
     }
 
+    /// Builds a recovered index from accepted submission and tick receipt records.
+    ///
+    /// Accepted submissions with no matching receipt remain accepted pending.
+    /// Matching receipt records move accepted submissions to their decided or
+    /// obstructed posture without inventing retries.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WalRecoveryIndexError::SubmissionEnvelopeConflict`] when one
+    /// submission id is associated with conflicting canonical envelope digests.
+    pub fn from_acceptance_and_receipt_records<I, J>(
+        acceptances: I,
+        receipts: J,
+    ) -> Result<Self, WalRecoveryIndexError>
+    where
+        I: IntoIterator<Item = SubmissionAcceptanceRecord>,
+        J: IntoIterator<Item = TickReceiptRecord>,
+    {
+        let mut index = Self::from_acceptance_records(acceptances)?;
+        for receipt in receipts {
+            index.apply_tick_receipt_record(receipt);
+        }
+        Ok(index)
+    }
+
     fn insert_acceptance_record(
         &mut self,
         record: SubmissionAcceptanceRecord,
@@ -2124,6 +2149,19 @@ impl RecoveredSubmissionIndex {
                 receipt_digest: None,
             });
         Ok(())
+    }
+
+    fn apply_tick_receipt_record(&mut self, receipt: TickReceiptRecord) {
+        if let Some(entry) = self.submissions.get_mut(&receipt.submission_id) {
+            entry.posture = match receipt.decision {
+                WalTickDecision::Applied => RecoveredSubmissionPosture::DecidedApplied,
+                WalTickDecision::RejectedFootprintConflict => {
+                    RecoveredSubmissionPosture::DecidedRejected
+                }
+                WalTickDecision::Obstructed => RecoveredSubmissionPosture::Obstructed,
+            };
+            entry.receipt_digest = Some(receipt.receipt_digest);
+        }
     }
 
     /// Returns a recovered submission entry.
@@ -4181,16 +4219,7 @@ pub fn recover_submission_index(
                 WalRecordKind::TickReceiptRecorded => {
                     let receipt =
                         TickReceiptRecord::from_payload_bytes(&frame.payload.canonical_bytes)?;
-                    if let Some(entry) = index.submissions.get_mut(&receipt.submission_id) {
-                        entry.posture = match receipt.decision {
-                            WalTickDecision::Applied => RecoveredSubmissionPosture::DecidedApplied,
-                            WalTickDecision::RejectedFootprintConflict => {
-                                RecoveredSubmissionPosture::DecidedRejected
-                            }
-                            WalTickDecision::Obstructed => RecoveredSubmissionPosture::Obstructed,
-                        };
-                        entry.receipt_digest = Some(receipt.receipt_digest);
-                    }
+                    index.apply_tick_receipt_record(receipt);
                 }
                 _ => {}
             }

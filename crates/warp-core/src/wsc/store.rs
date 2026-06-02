@@ -809,6 +809,37 @@ pub fn receipt_correlation_records_from_wsc_envelope(
     })
 }
 
+/// Recovers receipt and ticket correlation records from committed WSC store envelopes.
+///
+/// # Errors
+///
+/// Returns a typed WSC store obstruction when a committed receipt-correlation
+/// envelope is malformed.
+pub fn receipt_correlation_records_from_wsc_store<P>(
+    store: &P,
+) -> Result<WscReceiptCorrelationRecords, WscStoreObstruction>
+where
+    P: WscStorePort + ?Sized,
+{
+    let mut receipts = Vec::new();
+    let mut correlations = Vec::new();
+    for envelope_id in store.list_envelopes() {
+        let envelope = store.read_envelope(envelope_id)?;
+        if envelope.record_kind() != WscStoreRecordKind::CausalHistory
+            || !envelope_has_schema(&envelope, WSC_RECEIPT_CORRELATION_SCHEMA)?
+        {
+            continue;
+        }
+        let recovered = receipt_correlation_records_from_wsc_envelope(&envelope)?;
+        receipts.extend(recovered.receipts);
+        correlations.extend(recovered.correlations);
+    }
+    Ok(WscReceiptCorrelationRecords {
+        receipts: canonical_tick_receipts(&receipts),
+        correlations: canonical_receipt_correlations(&correlations),
+    })
+}
+
 /// Builds a generic WSC envelope for retained material and reading records.
 ///
 /// Duplicate identical records are represented once.

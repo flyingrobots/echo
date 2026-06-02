@@ -16,9 +16,10 @@ use warp_core::causal_wal::{
 use warp_core::wsc::{
     accepted_submission_records_from_wsc_envelope, accepted_submission_records_from_wsc_store,
     accepted_submission_records_to_wsc_envelope, receipt_correlation_records_from_wsc_envelope,
-    receipt_correlation_records_to_wsc_envelope, retention_records_from_wsc_envelope,
-    retention_records_to_wsc_envelope, write_wsc_one_warp, InMemoryWscStore, OneWarpInput,
-    WscStoreEnvelope, WscStoreObstructionKind, WscStorePort, WscStoreRecordKind, WscStoreSubject,
+    receipt_correlation_records_from_wsc_store, receipt_correlation_records_to_wsc_envelope,
+    retention_records_from_wsc_envelope, retention_records_to_wsc_envelope, write_wsc_one_warp,
+    InMemoryWscStore, OneWarpInput, WscStoreEnvelope, WscStoreObstructionKind, WscStorePort,
+    WscStoreRecordKind, WscStoreSubject,
 };
 
 #[test]
@@ -215,6 +216,89 @@ fn receipt_correlation_records_round_trip_through_wsc_envelope() {
     assert_eq!(
         index.decisions_by_receipt.get(&[27; 32]),
         Some(&WalTickDecision::Applied)
+    );
+}
+
+#[test]
+fn decided_submissions_recover_from_committed_wsc_store() {
+    let applied = submission_acceptance(8, 38);
+    let rejected = submission_acceptance(9, 39);
+    let applied_receipt = tick_receipt(8, 18, 28, WalTickDecision::Applied);
+    let rejected_receipt = tick_receipt(9, 19, 29, WalTickDecision::RejectedFootprintConflict);
+    let mut store = InMemoryWscStore::default();
+    store
+        .write_envelope(
+            accepted_submission_records_to_wsc_envelope(&[rejected, applied])
+                .expect("accepted WSC envelope"),
+        )
+        .expect("committed accepted WSC envelope");
+    store
+        .write_envelope(
+            receipt_correlation_records_to_wsc_envelope(
+                &[rejected_receipt, applied_receipt],
+                &[
+                    receipt_correlation(8, 18, 28),
+                    receipt_correlation(9, 19, 29),
+                ],
+            )
+            .expect("receipt WSC envelope"),
+        )
+        .expect("committed receipt WSC envelope");
+
+    let accepted =
+        accepted_submission_records_from_wsc_store(&store).expect("recovered accepted records");
+    let receipt_records =
+        receipt_correlation_records_from_wsc_store(&store).expect("recovered receipt records");
+    let submissions = RecoveredSubmissionIndex::from_acceptance_and_receipt_records(
+        accepted,
+        receipt_records.receipts.clone(),
+    )
+    .expect("decided submission index");
+    let receipts = RecoveredReceiptIndex::from_receipt_correlation_records(
+        receipt_records.receipts,
+        receipt_records.correlations,
+    );
+
+    let applied_entry = submissions
+        .get(&applied.submission_id)
+        .expect("recovered applied submission");
+    assert_eq!(
+        applied_entry.posture,
+        RecoveredSubmissionPosture::DecidedApplied
+    );
+    assert_eq!(
+        applied_entry.receipt_digest,
+        Some(applied_receipt.receipt_digest)
+    );
+    assert_eq!(
+        submissions.retry_posture(applied.submission_id, applied.canonical_envelope_digest),
+        SubmissionRetryPosture::AlreadyDecidedApplied
+    );
+
+    let rejected_entry = submissions
+        .get(&rejected.submission_id)
+        .expect("recovered rejected submission");
+    assert_eq!(
+        rejected_entry.posture,
+        RecoveredSubmissionPosture::DecidedRejected
+    );
+    assert_eq!(
+        rejected_entry.receipt_digest,
+        Some(rejected_receipt.receipt_digest)
+    );
+    assert_eq!(
+        submissions.retry_posture(rejected.submission_id, rejected.canonical_envelope_digest),
+        SubmissionRetryPosture::AlreadyDecidedRejected
+    );
+    assert_eq!(
+        receipts.receipt_by_submission.get(&applied.submission_id),
+        Some(&applied_receipt.receipt_digest)
+    );
+    assert_eq!(
+        receipts
+            .decisions_by_receipt
+            .get(&rejected_receipt.receipt_digest),
+        Some(&WalTickDecision::RejectedFootprintConflict)
     );
 }
 

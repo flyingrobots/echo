@@ -318,7 +318,7 @@ impl CapsuleArtifacts {
     }
 }
 
-fn run_capsule(out_dir: &PathBuf) -> Result<CapsuleArtifacts> {
+fn run_capsule(out_dir: &Path) -> Result<CapsuleArtifacts> {
     std::fs::create_dir_all(out_dir)
         .with_context(|| format!("failed to create {}", out_dir.display()))?;
 

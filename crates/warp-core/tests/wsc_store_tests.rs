@@ -4,11 +4,13 @@
 
 #![allow(clippy::expect_used)]
 
+use std::collections::BTreeSet;
+
 use warp_core::causal_wal::{
-    EvidenceMaterialPosture, ReadingRefRecord, RecoveredReceiptIndex, RecoveredRetentionIndex,
-    RecoveredSubmissionIndex, RetainedMaterialKind, RetainedMaterialRecord,
-    SubmissionAcceptanceRecord, SubmissionRetryPosture, TickReceiptRecord,
-    WalReceiptCorrelationRecord, WalTickDecision,
+    retained_material_obstructions, EvidenceMaterialPosture, MissingMaterialScope,
+    ReadingRefRecord, RecoveredReceiptIndex, RecoveredRetentionIndex, RecoveredSubmissionIndex,
+    RetainedMaterialKind, RetainedMaterialRecord, SubmissionAcceptanceRecord,
+    SubmissionRetryPosture, TickReceiptRecord, WalReceiptCorrelationRecord, WalTickDecision,
 };
 use warp_core::wsc::{
     accepted_submission_records_from_wsc_envelope, accepted_submission_records_to_wsc_envelope,
@@ -186,6 +188,15 @@ fn retention_records_round_trip_through_wsc_envelope() {
         .get(&[41; 32])
         .expect("reading semantic coordinate")
         .contains(&[51; 32]));
+
+    let available_material = BTreeSet::from([[31; 32]]);
+    let obstructions = retained_material_obstructions(&index, &available_material);
+    assert_eq!(obstructions.len(), 1);
+    let obstruction = obstructions[0];
+    assert_eq!(obstruction.material_digest, [32; 32]);
+    assert_eq!(obstruction.kind, RetainedMaterialKind::ReadingPayload);
+    assert_eq!(obstruction.scope, MissingMaterialScope::Reading);
+    assert_eq!(obstruction.posture, EvidenceMaterialPosture::Missing);
 }
 
 fn fixture_wsc_bytes(tick: u64) -> Vec<u8> {

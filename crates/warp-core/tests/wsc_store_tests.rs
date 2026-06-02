@@ -9,15 +9,16 @@ use std::collections::BTreeSet;
 use warp_core::causal_wal::{
     retained_material_obstructions, EvidenceMaterialPosture, MissingMaterialScope,
     ReadingRefRecord, RecoveredReceiptIndex, RecoveredRetentionIndex, RecoveredSubmissionIndex,
-    RetainedMaterialKind, RetainedMaterialRecord, SubmissionAcceptanceRecord,
-    SubmissionRetryPosture, TickReceiptRecord, WalReceiptCorrelationRecord, WalTickDecision,
+    RecoveredSubmissionPosture, RetainedMaterialKind, RetainedMaterialRecord,
+    SubmissionAcceptanceRecord, SubmissionRetryPosture, TickReceiptRecord,
+    WalReceiptCorrelationRecord, WalTickDecision,
 };
 use warp_core::wsc::{
-    accepted_submission_records_from_wsc_envelope, accepted_submission_records_to_wsc_envelope,
-    receipt_correlation_records_from_wsc_envelope, receipt_correlation_records_to_wsc_envelope,
-    retention_records_from_wsc_envelope, retention_records_to_wsc_envelope, write_wsc_one_warp,
-    InMemoryWscStore, OneWarpInput, WscStoreEnvelope, WscStoreObstructionKind, WscStorePort,
-    WscStoreRecordKind, WscStoreSubject,
+    accepted_submission_records_from_wsc_envelope, accepted_submission_records_from_wsc_store,
+    accepted_submission_records_to_wsc_envelope, receipt_correlation_records_from_wsc_envelope,
+    receipt_correlation_records_to_wsc_envelope, retention_records_from_wsc_envelope,
+    retention_records_to_wsc_envelope, write_wsc_one_warp, InMemoryWscStore, OneWarpInput,
+    WscStoreEnvelope, WscStoreObstructionKind, WscStorePort, WscStoreRecordKind, WscStoreSubject,
 };
 
 #[test]
@@ -163,6 +164,32 @@ fn accepted_submission_records_round_trip_through_wsc_envelope() {
         RecoveredSubmissionIndex::from_acceptance_records(recovered).expect("recovered index");
     assert_eq!(
         index.retry_posture([1; 32], [11; 32]),
+        SubmissionRetryPosture::AlreadyAcceptedPending
+    );
+}
+
+#[test]
+fn pending_submission_recovers_from_committed_wsc_store_without_decision() {
+    let pending = submission_acceptance(3, 33);
+    let envelope =
+        accepted_submission_records_to_wsc_envelope(&[pending]).expect("accepted WSC envelope");
+    let mut store = InMemoryWscStore::default();
+    store
+        .write_envelope(envelope)
+        .expect("committed accepted WSC envelope");
+
+    let recovered_records =
+        accepted_submission_records_from_wsc_store(&store).expect("recovered accepted records");
+    let recovered =
+        RecoveredSubmissionIndex::from_acceptance_records(recovered_records).expect("index");
+
+    let entry = recovered
+        .get(&pending.submission_id)
+        .expect("recovered pending submission");
+    assert_eq!(entry.posture, RecoveredSubmissionPosture::AcceptedPending);
+    assert_eq!(entry.receipt_digest, None);
+    assert_eq!(
+        recovered.retry_posture(pending.submission_id, pending.canonical_envelope_digest),
         SubmissionRetryPosture::AlreadyAcceptedPending
     );
 }

@@ -689,6 +689,34 @@ pub fn accepted_submission_records_from_wsc_envelope(
     canonical_accepted_submission_records(&records)
 }
 
+/// Recovers accepted submission records from committed WSC store envelopes.
+///
+/// Incomplete staged writes are not visible through [`WscStorePort::list_envelopes`],
+/// and any incomplete envelope read returns a typed obstruction.
+///
+/// # Errors
+///
+/// Returns a typed WSC store obstruction when a committed accepted-submission
+/// envelope is malformed or conflicting duplicate submission material is found.
+pub fn accepted_submission_records_from_wsc_store<P>(
+    store: &P,
+) -> Result<Vec<SubmissionAcceptanceRecord>, WscStoreObstruction>
+where
+    P: WscStorePort + ?Sized,
+{
+    let mut records = Vec::new();
+    for envelope_id in store.list_envelopes() {
+        let envelope = store.read_envelope(envelope_id)?;
+        if envelope.record_kind() != WscStoreRecordKind::CausalHistory
+            || !envelope_has_schema(&envelope, WSC_ACCEPTED_SUBMISSION_SCHEMA)?
+        {
+            continue;
+        }
+        records.extend(accepted_submission_records_from_wsc_envelope(&envelope)?);
+    }
+    canonical_accepted_submission_records(&records)
+}
+
 /// Builds a generic WSC envelope for receipt and ticket correlation records.
 ///
 /// # Errors
@@ -978,6 +1006,17 @@ fn atom_payload_bytes<'a>(
     }
     view.blob_for_attachment(attachment)
         .ok_or_else(|| WscStoreObstruction::invalid_wsc(wsc_digest))
+}
+
+fn envelope_has_schema(
+    envelope: &WscStoreEnvelope,
+    schema: &str,
+) -> Result<bool, WscStoreObstruction> {
+    let wsc_digest = *envelope.wsc_digest();
+    let file = WscFile::from_bytes(envelope.wsc_bytes().to_vec())
+        .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+    validate_wsc(&file).map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+    Ok(file.schema_hash() == &make_type_id(schema).0)
 }
 
 fn canonical_tick_receipts(records: &[TickReceiptRecord]) -> Vec<TickReceiptRecord> {

@@ -735,13 +735,14 @@ where
 ///
 /// # Errors
 ///
-/// Returns a typed obstruction when generated WSC material fails validation.
+/// Returns a typed obstruction when generated WSC material fails validation or
+/// when duplicate receipt/correlation keys map to conflicting material.
 pub fn receipt_correlation_records_to_wsc_envelope(
     receipts: &[TickReceiptRecord],
     correlations: &[WalReceiptCorrelationRecord],
 ) -> Result<WscStoreEnvelope, WscStoreObstruction> {
-    let receipts = canonical_tick_receipts(receipts);
-    let correlations = canonical_receipt_correlations(correlations);
+    let receipts = canonical_tick_receipts(receipts)?;
+    let correlations = canonical_receipt_correlations(correlations)?;
     let mut store = GraphStore::new(make_warp_id(WSC_RECEIPT_CORRELATION_WARP));
     let root = make_node_id(WSC_RECEIPT_CORRELATION_ROOT);
     store.insert_node(
@@ -818,8 +819,8 @@ pub fn receipt_correlation_records_from_wsc_envelope(
         }
     }
     Ok(WscReceiptCorrelationRecords {
-        receipts: canonical_tick_receipts(&receipts),
-        correlations: canonical_receipt_correlations(&correlations),
+        receipts: canonical_tick_receipts(&receipts)?,
+        correlations: canonical_receipt_correlations(&correlations)?,
     })
 }
 
@@ -849,8 +850,8 @@ where
         correlations.extend(recovered.correlations);
     }
     Ok(WscReceiptCorrelationRecords {
-        receipts: canonical_tick_receipts(&receipts),
-        correlations: canonical_receipt_correlations(&correlations),
+        receipts: canonical_tick_receipts(&receipts)?,
+        correlations: canonical_receipt_correlations(&correlations)?,
     })
 }
 
@@ -973,6 +974,37 @@ pub fn retention_records_from_wsc_envelope(
     })
 }
 
+/// Recovers retained material and reading records from committed WSC store envelopes.
+///
+/// # Errors
+///
+/// Returns a typed WSC store obstruction when a committed retention envelope is
+/// malformed.
+pub fn retention_records_from_wsc_store<P>(
+    store: &P,
+) -> Result<WscRetentionRecords, WscStoreObstruction>
+where
+    P: WscStorePort + ?Sized,
+{
+    let mut materials = Vec::new();
+    let mut readings = Vec::new();
+    for envelope_id in store.list_envelopes() {
+        let envelope = store.read_envelope(envelope_id)?;
+        if envelope.record_kind() != WscStoreRecordKind::RetainedEvidence
+            || !envelope_has_schema(&envelope, WSC_RETENTION_SCHEMA)?
+        {
+            continue;
+        }
+        let recovered = retention_records_from_wsc_envelope(&envelope)?;
+        materials.extend(recovered.materials);
+        readings.extend(recovered.readings);
+    }
+    Ok(WscRetentionRecords {
+        materials: canonical_retained_material_records(&materials),
+        readings: canonical_reading_ref_records(&readings),
+    })
+}
+
 fn read_array<const N: usize>(bytes: &[u8], offset: usize) -> Result<[u8; N], WscStoreObstruction> {
     let end = offset
         .checked_add(N)
@@ -1087,19 +1119,70 @@ fn envelope_has_schema(
     Ok(file.schema_hash() == &make_type_id(schema).0)
 }
 
-fn canonical_tick_receipts(records: &[TickReceiptRecord]) -> Vec<TickReceiptRecord> {
+fn canonical_tick_receipts(
+    records: &[TickReceiptRecord],
+) -> Result<Vec<TickReceiptRecord>, WscStoreObstruction> {
     let mut by_receipt = BTreeMap::new();
+    let mut by_submission = BTreeMap::new();
+    let mut by_ticket = BTreeMap::new();
     for record in records {
+        if let Some(existing) = by_receipt.get(&record.receipt_digest) {
+            if existing != record {
+                return Err(WscStoreObstruction::duplicate_mismatch(
+                    WscStoreEnvelopeId::from_hash(record.receipt_digest),
+                ));
+            }
+        }
+        if let Some(existing) = by_submission.get(&record.submission_id) {
+            if existing != record {
+                return Err(WscStoreObstruction::duplicate_mismatch(
+                    WscStoreEnvelopeId::from_hash(record.submission_id),
+                ));
+            }
+        }
+        if let Some(existing) = by_ticket.get(&record.ticket_digest) {
+            if existing != record {
+                return Err(WscStoreObstruction::duplicate_mismatch(
+                    WscStoreEnvelopeId::from_hash(record.ticket_digest),
+                ));
+            }
+        }
         by_receipt.insert(record.receipt_digest, *record);
+        by_submission.insert(record.submission_id, *record);
+        by_ticket.insert(record.ticket_digest, *record);
     }
-    by_receipt.into_values().collect()
+    Ok(by_receipt.into_values().collect())
 }
 
 fn canonical_receipt_correlations(
     records: &[WalReceiptCorrelationRecord],
-) -> Vec<WalReceiptCorrelationRecord> {
+) -> Result<Vec<WalReceiptCorrelationRecord>, WscStoreObstruction> {
     let mut by_correlation = BTreeMap::new();
+    let mut by_submission = BTreeMap::new();
+    let mut by_ticket = BTreeMap::new();
+    let mut by_receipt = BTreeMap::new();
     for record in records {
+        if let Some(existing) = by_submission.get(&record.submission_id) {
+            if existing != record {
+                return Err(WscStoreObstruction::duplicate_mismatch(
+                    WscStoreEnvelopeId::from_hash(record.submission_id),
+                ));
+            }
+        }
+        if let Some(existing) = by_ticket.get(&record.ticket_digest) {
+            if existing != record {
+                return Err(WscStoreObstruction::duplicate_mismatch(
+                    WscStoreEnvelopeId::from_hash(record.ticket_digest),
+                ));
+            }
+        }
+        if let Some(existing) = by_receipt.get(&record.receipt_digest) {
+            if existing != record {
+                return Err(WscStoreObstruction::duplicate_mismatch(
+                    WscStoreEnvelopeId::from_hash(record.receipt_digest),
+                ));
+            }
+        }
         by_correlation.insert(
             (
                 record.submission_id,
@@ -1108,8 +1191,11 @@ fn canonical_receipt_correlations(
             ),
             *record,
         );
+        by_submission.insert(record.submission_id, *record);
+        by_ticket.insert(record.ticket_digest, *record);
+        by_receipt.insert(record.receipt_digest, *record);
     }
-    by_correlation.into_values().collect()
+    Ok(by_correlation.into_values().collect())
 }
 
 fn validate_wsc_causal_history_records(

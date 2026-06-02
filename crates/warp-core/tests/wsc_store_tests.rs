@@ -17,9 +17,10 @@ use warp_core::wsc::{
     accepted_submission_records_from_wsc_envelope, accepted_submission_records_from_wsc_store,
     accepted_submission_records_to_wsc_envelope, receipt_correlation_records_from_wsc_envelope,
     receipt_correlation_records_from_wsc_store, receipt_correlation_records_to_wsc_envelope,
-    retention_records_from_wsc_envelope, retention_records_to_wsc_envelope,
-    validate_wsc_causal_history_store, write_wsc_one_warp, InMemoryWscStore, OneWarpInput,
-    WscStoreEnvelope, WscStoreObstructionKind, WscStorePort, WscStoreRecordKind, WscStoreSubject,
+    retention_records_from_wsc_envelope, retention_records_from_wsc_store,
+    retention_records_to_wsc_envelope, validate_wsc_causal_history_store, write_wsc_one_warp,
+    InMemoryWscStore, OneWarpInput, WscStoreEnvelope, WscStoreObstructionKind, WscStorePort,
+    WscStoreRecordKind, WscStoreSubject,
 };
 
 #[test]
@@ -216,6 +217,23 @@ fn receipt_correlation_records_round_trip_through_wsc_envelope() {
     assert_eq!(
         index.decisions_by_receipt.get(&[27; 32]),
         Some(&WalTickDecision::Applied)
+    );
+}
+
+#[test]
+fn receipt_correlation_records_reject_conflicting_duplicate_receipt() {
+    let receipt = tick_receipt(7, 17, 27, WalTickDecision::Applied);
+    let conflicting_receipt = tick_receipt(8, 18, 27, WalTickDecision::Obstructed);
+
+    let obstruction = receipt_correlation_records_to_wsc_envelope(
+        &[receipt, conflicting_receipt],
+        &[receipt_correlation(7, 17, 27)],
+    )
+    .expect_err("conflicting duplicate receipt obstructs");
+
+    assert_eq!(
+        obstruction.kind,
+        WscStoreObstructionKind::DuplicateEnvelopeMismatch
     );
 }
 
@@ -423,6 +441,29 @@ fn retention_records_round_trip_through_wsc_envelope() {
     assert_eq!(obstruction.kind, RetainedMaterialKind::ReadingPayload);
     assert_eq!(obstruction.scope, MissingMaterialScope::Reading);
     assert_eq!(obstruction.posture, EvidenceMaterialPosture::Missing);
+}
+
+#[test]
+fn retention_records_recover_from_committed_wsc_store() {
+    let material = retained_material(
+        33,
+        43,
+        RetainedMaterialKind::ReadingEnvelope,
+        EvidenceMaterialPosture::Present,
+    );
+    let reading = reading_ref(53, 43, 63, 73, EvidenceMaterialPosture::Present);
+    let mut store = InMemoryWscStore::default();
+    store
+        .write_envelope(
+            retention_records_to_wsc_envelope(&[material], &[reading])
+                .expect("retention WSC envelope"),
+        )
+        .expect("committed retention WSC envelope");
+
+    let recovered = retention_records_from_wsc_store(&store).expect("recovered retention");
+
+    assert_eq!(recovered.materials, vec![material]);
+    assert_eq!(recovered.readings, vec![reading]);
 }
 
 fn fixture_wsc_bytes(tick: u64) -> Vec<u8> {

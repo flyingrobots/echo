@@ -11,8 +11,11 @@ publish = false
 
 [dependencies]
 anyhow = "1"
+blake3 = "1.0"
+bytes = ">=1.11.1"
 clap = { version = "4", features = ["derive"] }
 clap_mangen = "0.2"
+hex = "0.4"
 method = { path = "../crates/method", version = "0.1.0" }
 pulldown-cmark = { version = "0.13", default-features = false }
 serde = { version = "1", features = ["derive"] }
@@ -20,6 +23,7 @@ serde_json = "1"
 sha2 = "0.10"
 time = { version = "0.3.47", features = ["formatting", "parsing"] }
 warp-cli = { path = "../crates/warp-cli", version = "0.1.0" }
+warp-core = { workspace = true, features = ["native_rule_bootstrap"] }
 
 
 [lints]

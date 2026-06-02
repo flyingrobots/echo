@@ -8,7 +8,9 @@ use blake3::Hasher;
 use bytes::Bytes;
 
 use crate::attachment::{AtomPayload, AttachmentValue};
-use crate::causal_wal::SubmissionAcceptanceRecord;
+use crate::causal_wal::{
+    SubmissionAcceptanceRecord, TickReceiptRecord, WalReceiptCorrelationRecord,
+};
 use crate::graph::GraphStore;
 use crate::ident::{make_node_id, make_type_id, make_warp_id, EdgeId, Hash, NodeId};
 use crate::record::{EdgeRecord, NodeRecord};
@@ -34,6 +36,18 @@ const WSC_ACCEPTED_SUBMISSION_NODE_TYPE: &str = "echo/wsc-store/accepted-submiss
 const WSC_ACCEPTED_SUBMISSION_EDGE_TYPE: &str = "echo/wsc-store/accepted-submissions/member/v1";
 const WSC_ACCEPTED_SUBMISSION_ATTACHMENT_TYPE: &str =
     "echo/wsc-store/accepted-submissions/record/v1";
+const WSC_RECEIPT_CORRELATION_BASIS_DOMAIN: &[u8] =
+    b"echo:wsc_store:receipt_correlation_basis:v1\0";
+const WSC_RECEIPT_CORRELATION_NODE_DOMAIN: &[u8] = b"echo:wsc_store:receipt_correlation_node:v1\0";
+const WSC_RECEIPT_CORRELATION_EDGE_DOMAIN: &[u8] = b"echo:wsc_store:receipt_correlation_edge:v1\0";
+const WSC_RECEIPT_CORRELATION_SCHEMA: &str = "echo/wsc-store/receipt-correlations/v1";
+const WSC_RECEIPT_CORRELATION_WARP: &str = "echo/wsc-store/receipt-correlations";
+const WSC_RECEIPT_CORRELATION_ROOT: &str = "echo/wsc-store/receipt-correlations/root";
+const WSC_RECEIPT_CORRELATION_NODE_TYPE: &str = "echo/wsc-store/receipt-correlations/node/v1";
+const WSC_RECEIPT_CORRELATION_EDGE_TYPE: &str = "echo/wsc-store/receipt-correlations/member/v1";
+const WSC_TICK_RECEIPT_ATTACHMENT_TYPE: &str = "echo/wsc-store/receipt-correlations/receipt/v1";
+const WSC_RECEIPT_CORRELATION_ATTACHMENT_TYPE: &str =
+    "echo/wsc-store/receipt-correlations/correlation/v1";
 const HEADER_LEN: usize = 124;
 
 /// Stable identifier for a WSC store envelope.
@@ -348,6 +362,15 @@ pub struct WscStoreWriteReceipt {
     pub encoded_len: u64,
 }
 
+/// Receipt and correlation records recovered from WSC material.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WscReceiptCorrelationRecords {
+    /// Tick receipt records with decision posture.
+    pub receipts: Vec<TickReceiptRecord>,
+    /// Ticket/submission/receipt correlation records.
+    pub correlations: Vec<WalReceiptCorrelationRecord>,
+}
+
 /// Generic WSC store port.
 pub trait WscStorePort {
     /// Writes a validated WSC envelope.
@@ -500,6 +523,98 @@ pub fn accepted_submission_records_from_wsc_envelope(
     canonical_accepted_submission_records(&records)
 }
 
+/// Builds a generic WSC envelope for receipt and ticket correlation records.
+///
+/// # Errors
+///
+/// Returns a typed obstruction when generated WSC material fails validation.
+pub fn receipt_correlation_records_to_wsc_envelope(
+    receipts: &[TickReceiptRecord],
+    correlations: &[WalReceiptCorrelationRecord],
+) -> Result<WscStoreEnvelope, WscStoreObstruction> {
+    let receipts = canonical_tick_receipts(receipts);
+    let correlations = canonical_receipt_correlations(correlations);
+    let mut store = GraphStore::new(make_warp_id(WSC_RECEIPT_CORRELATION_WARP));
+    let root = make_node_id(WSC_RECEIPT_CORRELATION_ROOT);
+    store.insert_node(
+        root,
+        NodeRecord {
+            ty: make_type_id(WSC_RECEIPT_CORRELATION_NODE_TYPE),
+        },
+    );
+    for receipt in &receipts {
+        insert_receipt_material_node(
+            &mut store,
+            root,
+            receipt_node_id(&receipt.receipt_digest),
+            WSC_TICK_RECEIPT_ATTACHMENT_TYPE,
+            receipt.to_payload_bytes(),
+        );
+    }
+    for correlation in &correlations {
+        insert_receipt_material_node(
+            &mut store,
+            root,
+            correlation_node_id(&correlation.submission_id, &correlation.ticket_digest),
+            WSC_RECEIPT_CORRELATION_ATTACHMENT_TYPE,
+            correlation.to_payload_bytes(),
+        );
+    }
+    let basis_digest = receipt_correlation_basis_digest(&receipts, &correlations);
+    let input = build_one_warp_input(&store, root);
+    let wsc_bytes = write_wsc_one_warp(&input, make_type_id(WSC_RECEIPT_CORRELATION_SCHEMA).0, 0)
+        .map_err(|_| WscStoreObstruction::invalid_wsc(basis_digest))?;
+    WscStoreEnvelope::validated(WscStoreRecordKind::CausalHistory, basis_digest, wsc_bytes)
+}
+
+/// Recovers receipt and ticket correlation records from a generic WSC envelope.
+///
+/// # Errors
+///
+/// Returns a typed WSC store obstruction when the envelope is not receipt
+/// correlation material or when record payloads are malformed.
+pub fn receipt_correlation_records_from_wsc_envelope(
+    envelope: &WscStoreEnvelope,
+) -> Result<WscReceiptCorrelationRecords, WscStoreObstruction> {
+    if envelope.record_kind() != WscStoreRecordKind::CausalHistory {
+        return Err(WscStoreObstruction::invalid_envelope(0));
+    }
+    let wsc_digest = *envelope.wsc_digest();
+    let file = WscFile::from_bytes(envelope.wsc_bytes().to_vec())
+        .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+    validate_wsc(&file).map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+    if file.schema_hash() != &make_type_id(WSC_RECEIPT_CORRELATION_SCHEMA).0 {
+        return Err(WscStoreObstruction::invalid_wsc(wsc_digest));
+    }
+    let view = file
+        .warp_view(0)
+        .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+    let mut receipts = Vec::new();
+    let mut correlations = Vec::new();
+    for node_index in 0..view.nodes().len() {
+        for attachment in view.node_attachments(node_index) {
+            let payload = atom_payload_bytes(&view, attachment, wsc_digest)?;
+            if attachment.type_or_warp == make_type_id(WSC_TICK_RECEIPT_ATTACHMENT_TYPE).0 {
+                let receipt = TickReceiptRecord::from_payload_bytes(payload)
+                    .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+                receipts.push(receipt);
+            } else if attachment.type_or_warp
+                == make_type_id(WSC_RECEIPT_CORRELATION_ATTACHMENT_TYPE).0
+            {
+                let correlation = WalReceiptCorrelationRecord::from_payload_bytes(payload)
+                    .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+                correlations.push(correlation);
+            } else {
+                return Err(WscStoreObstruction::invalid_wsc(wsc_digest));
+            }
+        }
+    }
+    Ok(WscReceiptCorrelationRecords {
+        receipts: canonical_tick_receipts(&receipts),
+        correlations: canonical_receipt_correlations(&correlations),
+    })
+}
+
 fn read_array<const N: usize>(bytes: &[u8], offset: usize) -> Result<[u8; N], WscStoreObstruction> {
     let end = offset
         .checked_add(N)
@@ -588,4 +703,101 @@ fn atom_payload_bytes<'a>(
     }
     view.blob_for_attachment(attachment)
         .ok_or_else(|| WscStoreObstruction::invalid_wsc(wsc_digest))
+}
+
+fn canonical_tick_receipts(records: &[TickReceiptRecord]) -> Vec<TickReceiptRecord> {
+    let mut by_receipt = BTreeMap::new();
+    for record in records {
+        by_receipt.insert(record.receipt_digest, *record);
+    }
+    by_receipt.into_values().collect()
+}
+
+fn canonical_receipt_correlations(
+    records: &[WalReceiptCorrelationRecord],
+) -> Vec<WalReceiptCorrelationRecord> {
+    let mut by_correlation = BTreeMap::new();
+    for record in records {
+        by_correlation.insert(
+            (
+                record.submission_id,
+                record.ticket_digest,
+                record.receipt_digest,
+            ),
+            *record,
+        );
+    }
+    by_correlation.into_values().collect()
+}
+
+fn insert_receipt_material_node(
+    store: &mut GraphStore,
+    root: NodeId,
+    node: NodeId,
+    attachment_type: &str,
+    payload_bytes: Vec<u8>,
+) {
+    store.insert_node(
+        node,
+        NodeRecord {
+            ty: make_type_id(WSC_RECEIPT_CORRELATION_NODE_TYPE),
+        },
+    );
+    store.insert_edge(
+        root,
+        EdgeRecord {
+            id: receipt_material_edge_id(&node.0),
+            from: root,
+            to: node,
+            ty: make_type_id(WSC_RECEIPT_CORRELATION_EDGE_TYPE),
+        },
+    );
+    store.set_node_attachment(
+        node,
+        Some(AttachmentValue::Atom(AtomPayload::new(
+            make_type_id(attachment_type),
+            Bytes::from(payload_bytes),
+        ))),
+    );
+}
+
+fn receipt_correlation_basis_digest(
+    receipts: &[TickReceiptRecord],
+    correlations: &[WalReceiptCorrelationRecord],
+) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(WSC_RECEIPT_CORRELATION_BASIS_DOMAIN);
+    for receipt in receipts {
+        hasher.update(b"receipt");
+        hasher.update(&receipt.to_payload_bytes());
+    }
+    for correlation in correlations {
+        hasher.update(b"correlation");
+        hasher.update(&correlation.to_payload_bytes());
+    }
+    hasher.finalize().into()
+}
+
+fn receipt_node_id(receipt_digest: &Hash) -> NodeId {
+    let mut hasher = Hasher::new();
+    hasher.update(WSC_RECEIPT_CORRELATION_NODE_DOMAIN);
+    hasher.update(b"receipt");
+    hasher.update(receipt_digest);
+    NodeId(hasher.finalize().into())
+}
+
+fn correlation_node_id(submission_id: &Hash, ticket_digest: &Hash) -> NodeId {
+    let mut hasher = Hasher::new();
+    hasher.update(WSC_RECEIPT_CORRELATION_NODE_DOMAIN);
+    hasher.update(b"correlation");
+    hasher.update(submission_id);
+    hasher.update(ticket_digest);
+    NodeId(hasher.finalize().into())
+}
+
+fn receipt_material_edge_id(node_id: &Hash) -> EdgeId {
+    let mut hasher = Hasher::new();
+    hasher.update(WSC_RECEIPT_CORRELATION_EDGE_DOMAIN);
+    hasher.update(node_id);
+    EdgeId(hasher.finalize().into())
 }

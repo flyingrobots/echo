@@ -5,10 +5,12 @@
 #![allow(clippy::expect_used)]
 
 use warp_core::causal_wal::{
-    RecoveredSubmissionIndex, SubmissionAcceptanceRecord, SubmissionRetryPosture,
+    RecoveredReceiptIndex, RecoveredSubmissionIndex, SubmissionAcceptanceRecord,
+    SubmissionRetryPosture, TickReceiptRecord, WalReceiptCorrelationRecord, WalTickDecision,
 };
 use warp_core::wsc::{
     accepted_submission_records_from_wsc_envelope, accepted_submission_records_to_wsc_envelope,
+    receipt_correlation_records_from_wsc_envelope, receipt_correlation_records_to_wsc_envelope,
     write_wsc_one_warp, InMemoryWscStore, OneWarpInput, WscStoreEnvelope, WscStoreObstructionKind,
     WscStorePort, WscStoreRecordKind, WscStoreSubject,
 };
@@ -114,6 +116,30 @@ fn accepted_submission_records_round_trip_through_wsc_envelope() {
     );
 }
 
+#[test]
+fn receipt_correlation_records_round_trip_through_wsc_envelope() {
+    let receipt = tick_receipt(7, 17, 27, WalTickDecision::Applied);
+    let correlation = receipt_correlation(7, 17, 27);
+    let envelope = receipt_correlation_records_to_wsc_envelope(&[receipt], &[correlation])
+        .expect("receipt correlation WSC envelope");
+
+    let recovered = receipt_correlation_records_from_wsc_envelope(&envelope)
+        .expect("recovered receipt correlations");
+    assert_eq!(recovered.receipts, vec![receipt]);
+    assert_eq!(recovered.correlations, vec![correlation]);
+
+    let index = RecoveredReceiptIndex::from_receipt_correlation_records(
+        recovered.receipts,
+        recovered.correlations,
+    );
+    assert_eq!(index.receipt_by_submission.get(&[7; 32]), Some(&[27; 32]));
+    assert_eq!(index.receipt_by_ticket.get(&[17; 32]), Some(&[27; 32]));
+    assert_eq!(
+        index.decisions_by_receipt.get(&[27; 32]),
+        Some(&WalTickDecision::Applied)
+    );
+}
+
 fn fixture_wsc_bytes(tick: u64) -> Vec<u8> {
     let input = OneWarpInput {
         warp_id: [1; 32],
@@ -140,5 +166,31 @@ fn submission_acceptance(submission_byte: u8, envelope_byte: u8) -> SubmissionAc
         canonical_envelope_digest: [envelope_byte; 32],
         idempotency_key_digest: None,
         acceptance_evidence_digest: [submission_byte ^ envelope_byte; 32],
+    }
+}
+
+fn tick_receipt(
+    submission_byte: u8,
+    ticket_byte: u8,
+    receipt_byte: u8,
+    decision: WalTickDecision,
+) -> TickReceiptRecord {
+    TickReceiptRecord {
+        submission_id: [submission_byte; 32],
+        ticket_digest: [ticket_byte; 32],
+        receipt_digest: [receipt_byte; 32],
+        decision,
+    }
+}
+
+fn receipt_correlation(
+    submission_byte: u8,
+    ticket_byte: u8,
+    receipt_byte: u8,
+) -> WalReceiptCorrelationRecord {
+    WalReceiptCorrelationRecord {
+        submission_id: [submission_byte; 32],
+        ticket_digest: [ticket_byte; 32],
+        receipt_digest: [receipt_byte; 32],
     }
 }

@@ -2276,6 +2276,48 @@ pub struct RecoveredReceiptIndex {
     pub decisions_by_receipt: BTreeMap<Hash, WalTickDecision>,
 }
 
+impl RecoveredReceiptIndex {
+    /// Builds a recovered receipt index from receipt and correlation records.
+    ///
+    /// Tick receipt records carry decision posture. Correlation records can
+    /// restore ticket/submission/receipt lookup handles when decision material
+    /// is not present in the same source.
+    #[must_use]
+    pub fn from_receipt_correlation_records<I, J>(receipts: I, correlations: J) -> Self
+    where
+        I: IntoIterator<Item = TickReceiptRecord>,
+        J: IntoIterator<Item = WalReceiptCorrelationRecord>,
+    {
+        let mut index = Self::default();
+        for receipt in receipts {
+            index
+                .receipt_by_submission
+                .insert(receipt.submission_id, receipt.receipt_digest);
+            index
+                .receipt_by_ticket
+                .insert(receipt.ticket_digest, receipt.receipt_digest);
+            index
+                .ticket_by_submission
+                .insert(receipt.submission_id, receipt.ticket_digest);
+            index
+                .decisions_by_receipt
+                .insert(receipt.receipt_digest, receipt.decision);
+        }
+        for correlation in correlations {
+            index
+                .receipt_by_submission
+                .insert(correlation.submission_id, correlation.receipt_digest);
+            index
+                .receipt_by_ticket
+                .insert(correlation.ticket_digest, correlation.receipt_digest);
+            index
+                .ticket_by_submission
+                .insert(correlation.submission_id, correlation.ticket_digest);
+        }
+        index
+    }
+}
+
 /// Recovered retained material and reading index.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RecoveredRetentionIndex {

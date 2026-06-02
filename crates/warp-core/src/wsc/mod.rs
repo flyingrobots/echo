@@ -71,9 +71,10 @@ pub use build::build_one_warp_input;
 pub use read::ReadError;
 pub use store::{
     accepted_submission_records_from_wsc_envelope, accepted_submission_records_to_wsc_envelope,
-    InMemoryWscStore, WscStoreEnvelope, WscStoreEnvelopeId, WscStoreObstruction,
-    WscStoreObstructionKind, WscStorePort, WscStoreRecordKind, WscStoreSubject,
-    WscStoreWriteReceipt,
+    receipt_correlation_records_from_wsc_envelope, receipt_correlation_records_to_wsc_envelope,
+    InMemoryWscStore, WscReceiptCorrelationRecords, WscStoreEnvelope, WscStoreEnvelopeId,
+    WscStoreObstruction, WscStoreObstructionKind, WscStorePort, WscStoreRecordKind,
+    WscStoreSubject, WscStoreWriteReceipt,
 };
 pub use validate::validate_wsc;
 pub use view::{AttachmentRef, WarpView, WscFile};

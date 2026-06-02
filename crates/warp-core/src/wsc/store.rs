@@ -5,16 +5,35 @@
 use std::collections::BTreeMap;
 
 use blake3::Hasher;
+use bytes::Bytes;
 
-use crate::ident::Hash;
+use crate::attachment::{AtomPayload, AttachmentValue};
+use crate::causal_wal::SubmissionAcceptanceRecord;
+use crate::graph::GraphStore;
+use crate::ident::{make_node_id, make_type_id, make_warp_id, EdgeId, Hash, NodeId};
+use crate::record::{EdgeRecord, NodeRecord};
 
+use super::build::build_one_warp_input;
+use super::types::AttRow;
 use super::validate::validate_wsc;
 use super::view::WscFile;
+use super::write::write_wsc_one_warp;
 
 const WSC_STORE_ENVELOPE_MAGIC: &[u8; 8] = b"ECWSCST1";
 const WSC_STORE_ENVELOPE_VERSION: u16 = 1;
 const WSC_STORE_ENVELOPE_ID_DOMAIN: &[u8] = b"echo:wsc_store:envelope_id:v1\0";
 const WSC_STORE_BYTES_DOMAIN: &[u8] = b"echo:wsc_store:wsc_bytes:v1\0";
+const WSC_ACCEPTED_SUBMISSION_BASIS_DOMAIN: &[u8] =
+    b"echo:wsc_store:accepted_submission_basis:v1\0";
+const WSC_ACCEPTED_SUBMISSION_NODE_DOMAIN: &[u8] = b"echo:wsc_store:accepted_submission_node:v1\0";
+const WSC_ACCEPTED_SUBMISSION_EDGE_DOMAIN: &[u8] = b"echo:wsc_store:accepted_submission_edge:v1\0";
+const WSC_ACCEPTED_SUBMISSION_SCHEMA: &str = "echo/wsc-store/accepted-submissions/v1";
+const WSC_ACCEPTED_SUBMISSION_WARP: &str = "echo/wsc-store/accepted-submissions";
+const WSC_ACCEPTED_SUBMISSION_ROOT: &str = "echo/wsc-store/accepted-submissions/root";
+const WSC_ACCEPTED_SUBMISSION_NODE_TYPE: &str = "echo/wsc-store/accepted-submissions/node/v1";
+const WSC_ACCEPTED_SUBMISSION_EDGE_TYPE: &str = "echo/wsc-store/accepted-submissions/member/v1";
+const WSC_ACCEPTED_SUBMISSION_ATTACHMENT_TYPE: &str =
+    "echo/wsc-store/accepted-submissions/record/v1";
 const HEADER_LEN: usize = 124;
 
 /// Stable identifier for a WSC store envelope.
@@ -390,6 +409,97 @@ impl WscStorePort for InMemoryWscStore {
     }
 }
 
+/// Builds a generic WSC envelope for accepted submission records.
+///
+/// Duplicate identical records are represented once. A duplicate submission id
+/// with different material is a typed obstruction.
+///
+/// # Errors
+///
+/// Returns [`WscStoreObstructionKind::DuplicateEnvelopeMismatch`] for
+/// conflicting duplicate submission ids or [`WscStoreObstructionKind::InvalidWsc`]
+/// when generated WSC material fails validation.
+pub fn accepted_submission_records_to_wsc_envelope(
+    records: &[SubmissionAcceptanceRecord],
+) -> Result<WscStoreEnvelope, WscStoreObstruction> {
+    let records = canonical_accepted_submission_records(records)?;
+    let mut store = GraphStore::new(make_warp_id(WSC_ACCEPTED_SUBMISSION_WARP));
+    let root = make_node_id(WSC_ACCEPTED_SUBMISSION_ROOT);
+    store.insert_node(
+        root,
+        NodeRecord {
+            ty: make_type_id(WSC_ACCEPTED_SUBMISSION_NODE_TYPE),
+        },
+    );
+    for record in &records {
+        let node = accepted_submission_node_id(&record.submission_id);
+        store.insert_node(
+            node,
+            NodeRecord {
+                ty: make_type_id(WSC_ACCEPTED_SUBMISSION_NODE_TYPE),
+            },
+        );
+        store.insert_edge(
+            root,
+            EdgeRecord {
+                id: accepted_submission_edge_id(&record.submission_id),
+                from: root,
+                to: node,
+                ty: make_type_id(WSC_ACCEPTED_SUBMISSION_EDGE_TYPE),
+            },
+        );
+        store.set_node_attachment(
+            node,
+            Some(AttachmentValue::Atom(AtomPayload::new(
+                make_type_id(WSC_ACCEPTED_SUBMISSION_ATTACHMENT_TYPE),
+                Bytes::from(record.to_payload_bytes()),
+            ))),
+        );
+    }
+    let basis_digest = accepted_submission_basis_digest(&records);
+    let input = build_one_warp_input(&store, root);
+    let wsc_bytes = write_wsc_one_warp(&input, make_type_id(WSC_ACCEPTED_SUBMISSION_SCHEMA).0, 0)
+        .map_err(|_| WscStoreObstruction::invalid_wsc(basis_digest))?;
+    WscStoreEnvelope::validated(WscStoreRecordKind::CausalHistory, basis_digest, wsc_bytes)
+}
+
+/// Recovers accepted submission records from a generic WSC envelope.
+///
+/// # Errors
+///
+/// Returns a typed WSC store obstruction when the envelope is not accepted
+/// submission causal-history material or when record payloads are malformed.
+pub fn accepted_submission_records_from_wsc_envelope(
+    envelope: &WscStoreEnvelope,
+) -> Result<Vec<SubmissionAcceptanceRecord>, WscStoreObstruction> {
+    if envelope.record_kind() != WscStoreRecordKind::CausalHistory {
+        return Err(WscStoreObstruction::invalid_envelope(0));
+    }
+    let wsc_digest = *envelope.wsc_digest();
+    let file = WscFile::from_bytes(envelope.wsc_bytes().to_vec())
+        .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+    validate_wsc(&file).map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+    if file.schema_hash() != &make_type_id(WSC_ACCEPTED_SUBMISSION_SCHEMA).0 {
+        return Err(WscStoreObstruction::invalid_wsc(wsc_digest));
+    }
+    let view = file
+        .warp_view(0)
+        .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+    let mut records = Vec::new();
+    for node_index in 0..view.nodes().len() {
+        for attachment in view.node_attachments(node_index) {
+            if attachment.type_or_warp != make_type_id(WSC_ACCEPTED_SUBMISSION_ATTACHMENT_TYPE).0 {
+                return Err(WscStoreObstruction::invalid_wsc(wsc_digest));
+            }
+            let payload = atom_payload_bytes(&view, attachment, wsc_digest)?;
+            let record = SubmissionAcceptanceRecord::from_payload_bytes(payload)
+                .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+            records.push(record);
+        }
+    }
+    canonical_accepted_submission_records(&records)
+}
+
 fn read_array<const N: usize>(bytes: &[u8], offset: usize) -> Result<[u8; N], WscStoreObstruction> {
     let end = offset
         .checked_add(N)
@@ -426,4 +536,56 @@ fn digest_wsc_bytes(bytes: &[u8]) -> Hash {
     hasher.update(WSC_STORE_BYTES_DOMAIN);
     hasher.update(bytes);
     hasher.finalize().into()
+}
+
+fn canonical_accepted_submission_records(
+    records: &[SubmissionAcceptanceRecord],
+) -> Result<Vec<SubmissionAcceptanceRecord>, WscStoreObstruction> {
+    let mut by_submission = BTreeMap::new();
+    for record in records {
+        if let Some(existing) = by_submission.get(&record.submission_id) {
+            if existing != record {
+                return Err(WscStoreObstruction::duplicate_mismatch(
+                    WscStoreEnvelopeId::from_hash(record.submission_id),
+                ));
+            }
+        }
+        by_submission.insert(record.submission_id, *record);
+    }
+    Ok(by_submission.into_values().collect())
+}
+
+fn accepted_submission_basis_digest(records: &[SubmissionAcceptanceRecord]) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(WSC_ACCEPTED_SUBMISSION_BASIS_DOMAIN);
+    for record in records {
+        hasher.update(&record.to_payload_bytes());
+    }
+    hasher.finalize().into()
+}
+
+fn accepted_submission_node_id(submission_id: &Hash) -> NodeId {
+    let mut hasher = Hasher::new();
+    hasher.update(WSC_ACCEPTED_SUBMISSION_NODE_DOMAIN);
+    hasher.update(submission_id);
+    NodeId(hasher.finalize().into())
+}
+
+fn accepted_submission_edge_id(submission_id: &Hash) -> EdgeId {
+    let mut hasher = Hasher::new();
+    hasher.update(WSC_ACCEPTED_SUBMISSION_EDGE_DOMAIN);
+    hasher.update(submission_id);
+    EdgeId(hasher.finalize().into())
+}
+
+fn atom_payload_bytes<'a>(
+    view: &'a super::view::WarpView<'a>,
+    attachment: &AttRow,
+    wsc_digest: Hash,
+) -> Result<&'a [u8], WscStoreObstruction> {
+    if !attachment.is_atom() {
+        return Err(WscStoreObstruction::invalid_wsc(wsc_digest));
+    }
+    view.blob_for_attachment(attachment)
+        .ok_or_else(|| WscStoreObstruction::invalid_wsc(wsc_digest))
 }

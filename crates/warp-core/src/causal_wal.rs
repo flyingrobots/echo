@@ -2081,6 +2081,51 @@ pub struct RecoveredSubmissionIndex {
 }
 
 impl RecoveredSubmissionIndex {
+    /// Builds a recovered index from accepted submission records.
+    ///
+    /// Every recovered record starts as accepted pending because no scheduler
+    /// decision material is supplied by this constructor.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WalRecoveryIndexError::SubmissionEnvelopeConflict`] when one
+    /// submission id is associated with conflicting canonical envelope digests.
+    pub fn from_acceptance_records<I>(records: I) -> Result<Self, WalRecoveryIndexError>
+    where
+        I: IntoIterator<Item = SubmissionAcceptanceRecord>,
+    {
+        let mut index = Self::default();
+        for record in records {
+            index.insert_acceptance_record(record)?;
+        }
+        Ok(index)
+    }
+
+    fn insert_acceptance_record(
+        &mut self,
+        record: SubmissionAcceptanceRecord,
+    ) -> Result<(), WalRecoveryIndexError> {
+        if let Some(existing) = self.submissions.get(&record.submission_id) {
+            if existing.acceptance.canonical_envelope_digest != record.canonical_envelope_digest {
+                return Err(WalRecoveryIndexError::SubmissionEnvelopeConflict {
+                    submission_id: record.submission_id,
+                });
+            }
+        }
+        self.envelope_to_submissions
+            .entry(record.canonical_envelope_digest)
+            .or_default()
+            .insert(record.submission_id);
+        self.submissions
+            .entry(record.submission_id)
+            .or_insert(RecoveredSubmissionEntry {
+                acceptance: record,
+                posture: RecoveredSubmissionPosture::AcceptedPending,
+                receipt_digest: None,
+            });
+        Ok(())
+    }
+
     /// Returns a recovered submission entry.
     #[must_use]
     pub fn get(&self, submission_id: &Hash) -> Option<&RecoveredSubmissionEntry> {
@@ -4058,27 +4103,7 @@ pub fn recover_submission_index(
                     let record = SubmissionAcceptanceRecord::from_payload_bytes(
                         &frame.payload.canonical_bytes,
                     )?;
-                    if let Some(existing) = index.submissions.get(&record.submission_id) {
-                        if existing.acceptance.canonical_envelope_digest
-                            != record.canonical_envelope_digest
-                        {
-                            return Err(WalRecoveryIndexError::SubmissionEnvelopeConflict {
-                                submission_id: record.submission_id,
-                            });
-                        }
-                    }
-                    index
-                        .envelope_to_submissions
-                        .entry(record.canonical_envelope_digest)
-                        .or_default()
-                        .insert(record.submission_id);
-                    index.submissions.entry(record.submission_id).or_insert(
-                        RecoveredSubmissionEntry {
-                            acceptance: record,
-                            posture: RecoveredSubmissionPosture::AcceptedPending,
-                            receipt_digest: None,
-                        },
-                    );
+                    index.insert_acceptance_record(record)?;
                 }
                 WalRecordKind::TickReceiptRecorded => {
                     let receipt =

@@ -4,7 +4,11 @@
 
 #![allow(clippy::expect_used)]
 
+use warp_core::causal_wal::{
+    RecoveredSubmissionIndex, SubmissionAcceptanceRecord, SubmissionRetryPosture,
+};
 use warp_core::wsc::{
+    accepted_submission_records_from_wsc_envelope, accepted_submission_records_to_wsc_envelope,
     write_wsc_one_warp, InMemoryWscStore, OneWarpInput, WscStoreEnvelope, WscStoreObstructionKind,
     WscStorePort, WscStoreRecordKind, WscStoreSubject,
 };
@@ -88,6 +92,28 @@ fn wsc_store_module_has_no_jedit_nouns() {
     assert!(!source.to_lowercase().contains("jedit"));
 }
 
+#[test]
+fn accepted_submission_records_round_trip_through_wsc_envelope() {
+    let duplicate = submission_acceptance(1, 11);
+    let envelope = accepted_submission_records_to_wsc_envelope(&[
+        submission_acceptance(2, 22),
+        duplicate,
+        duplicate,
+    ])
+    .expect("accepted submission WSC envelope");
+
+    let recovered =
+        accepted_submission_records_from_wsc_envelope(&envelope).expect("recovered records");
+    assert_eq!(recovered, vec![duplicate, submission_acceptance(2, 22)]);
+
+    let index =
+        RecoveredSubmissionIndex::from_acceptance_records(recovered).expect("recovered index");
+    assert_eq!(
+        index.retry_posture([1; 32], [11; 32]),
+        SubmissionRetryPosture::AlreadyAcceptedPending
+    );
+}
+
 fn fixture_wsc_bytes(tick: u64) -> Vec<u8> {
     let input = OneWarpInput {
         warp_id: [1; 32],
@@ -106,4 +132,13 @@ fn fixture_wsc_bytes(tick: u64) -> Vec<u8> {
         blobs: vec![],
     };
     write_wsc_one_warp(&input, [8; 32], tick).expect("fixture WSC bytes")
+}
+
+fn submission_acceptance(submission_byte: u8, envelope_byte: u8) -> SubmissionAcceptanceRecord {
+    SubmissionAcceptanceRecord {
+        submission_id: [submission_byte; 32],
+        canonical_envelope_digest: [envelope_byte; 32],
+        idempotency_key_digest: None,
+        acceptance_evidence_digest: [submission_byte ^ envelope_byte; 32],
+    }
 }

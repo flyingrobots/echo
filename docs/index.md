@@ -62,9 +62,15 @@ Echo's live documentation centers on the runtime carrier, the retained witnesses
 ## Contributor Workflow
 
 - Contributor workflow: [/workflows](/workflows)
+- Docs lifecycle: [/procedures/DOCS-LIFECYCLE](/procedures/DOCS-LIFECYCLE)
 - PR submission loop: [/procedures/PR-SUBMISSION-REVIEW-LOOP](/procedures/PR-SUBMISSION-REVIEW-LOOP)
 - Extract PR comments: [/procedures/EXTRACT-PR-COMMENTS](/procedures/EXTRACT-PR-COMMENTS)
 
 ## Archive Boundary
 
-The old guide/course/demo surface has been removed from the live docs corpus. The Method, Design, and Retrospective trees remain source material, but they are not part of the public docs map.
+The old guide/course/demo surface has been removed from the live docs corpus.
+The Method, Design, and Retrospective trees remain source material, but they
+are not part of the public docs map. Use the
+[Docs Lifecycle](/procedures/DOCS-LIFECYCLE) policy to decide when active
+design material should be absorbed into canonical domain docs, marked
+superseded, or archived as evidence.

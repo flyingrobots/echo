@@ -2352,8 +2352,11 @@ name = "xtask"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "blake3",
+ "bytes",
  "clap",
  "clap_mangen",
+ "hex",
  "method",
  "pulldown-cmark",
  "serde",
@@ -2361,6 +2364,7 @@ dependencies = [
  "sha2",
  "time",
  "warp-cli",
+ "warp-core",
 ]
 
 [[package]]

@@ -13,6 +13,13 @@ This doc is the “official workflow index” for Echo: how we work, what invari
 
 - Record architectural decisions in active design packets (`docs/design/`),
   Method items (`docs/method/`), or PR descriptions.
+- When a design packet is created or materially changed, follow the
+  [Docs Lifecycle](./procedures/DOCS-LIFECYCLE.md) policy: name its lifecycle
+  status, domain, canonical output, and evidence path.
+- When implementation lands, absorb current behavior into the relevant
+  canonical domain doc before treating the design packet as done. Mark the
+  design `absorbed`, `superseded`, or `archived` once it no longer owns current
+  reader-path truth.
 - Before opening a PR, run the validation workflow below.
 
 ---

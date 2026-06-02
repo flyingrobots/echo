@@ -2369,34 +2369,74 @@ pub struct RecoveredRetentionIndex {
     pub readings_by_semantic_coordinate: BTreeMap<Hash, BTreeSet<Hash>>,
 }
 
+/// Error returned while building a recovered retention index.
+#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
+pub enum RecoveredRetentionIndexError {
+    /// A material digest mapped to conflicting retained material records.
+    #[error("retained material digest maps to conflicting records")]
+    ConflictingMaterialDigest {
+        /// Conflicting retained material digest.
+        material_digest: Hash,
+    },
+    /// A reading id mapped to conflicting reading reference records.
+    #[error("retained reading id maps to conflicting records")]
+    ConflictingReadingId {
+        /// Conflicting reading id.
+        reading_id: Hash,
+    },
+}
+
 impl RecoveredRetentionIndex {
     /// Builds a recovered retention index from retained material and reading records.
-    #[must_use]
-    pub fn from_retention_records<I, J>(materials: I, readings: J) -> Self
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when retained evidence records carry conflicting
+    /// material digests or reading ids.
+    pub fn from_retention_records<I, J>(
+        materials: I,
+        readings: J,
+    ) -> Result<Self, RecoveredRetentionIndexError>
     where
         I: IntoIterator<Item = RetainedMaterialRecord>,
         J: IntoIterator<Item = ReadingRefRecord>,
     {
         let mut index = Self::default();
         for record in materials {
+            if let Some(existing) = index.material_by_digest.get(&record.material_digest) {
+                if existing != &record {
+                    return Err(RecoveredRetentionIndexError::ConflictingMaterialDigest {
+                        material_digest: record.material_digest,
+                    });
+                }
+            } else {
+                index
+                    .material_by_digest
+                    .insert(record.material_digest, record);
+            }
             index
                 .material_by_semantic_coordinate
                 .entry(record.semantic_coordinate_digest)
                 .or_default()
                 .insert(record.material_digest);
-            index
-                .material_by_digest
-                .insert(record.material_digest, record);
         }
         for record in readings {
+            if let Some(existing) = index.reading_by_id.get(&record.reading_id) {
+                if existing != &record {
+                    return Err(RecoveredRetentionIndexError::ConflictingReadingId {
+                        reading_id: record.reading_id,
+                    });
+                }
+            } else {
+                index.reading_by_id.insert(record.reading_id, record);
+            }
             index
                 .readings_by_semantic_coordinate
                 .entry(record.semantic_coordinate_digest)
                 .or_default()
                 .insert(record.reading_id);
-            index.reading_by_id.insert(record.reading_id, record);
         }
-        index
+        Ok(index)
     }
 }
 

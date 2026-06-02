@@ -884,13 +884,14 @@ where
 ///
 /// # Errors
 ///
-/// Returns a typed obstruction when generated WSC material fails validation.
+/// Returns a typed obstruction when retained evidence identities conflict or
+/// generated WSC material fails validation.
 pub fn retention_records_to_wsc_envelope(
     materials: &[RetainedMaterialRecord],
     readings: &[ReadingRefRecord],
 ) -> Result<WscStoreEnvelope, WscStoreObstruction> {
-    let materials = canonical_retained_material_records(materials);
-    let readings = canonical_reading_ref_records(readings);
+    let materials = canonical_retained_material_records(materials)?;
+    let readings = canonical_reading_ref_records(readings)?;
     let mut store = GraphStore::new(make_warp_id(WSC_RETENTION_WARP));
     let root = make_node_id(WSC_RETENTION_ROOT);
     store.insert_node(
@@ -933,7 +934,8 @@ pub fn retention_records_to_wsc_envelope(
 /// # Errors
 ///
 /// Returns a typed WSC store obstruction when the envelope is not retained
-/// evidence material or when record payloads are malformed.
+/// evidence material, when record payloads are malformed, or when retained
+/// evidence identities conflict.
 pub fn retention_records_from_wsc_envelope(
     envelope: &WscStoreEnvelope,
 ) -> Result<WscRetentionRecords, WscStoreObstruction> {
@@ -969,8 +971,8 @@ pub fn retention_records_from_wsc_envelope(
         }
     }
     Ok(WscRetentionRecords {
-        materials: canonical_retained_material_records(&materials),
-        readings: canonical_reading_ref_records(&readings),
+        materials: canonical_retained_material_records(&materials)?,
+        readings: canonical_reading_ref_records(&readings)?,
     })
 }
 
@@ -979,7 +981,7 @@ pub fn retention_records_from_wsc_envelope(
 /// # Errors
 ///
 /// Returns a typed WSC store obstruction when a committed retention envelope is
-/// malformed.
+/// malformed or when retained evidence identities conflict.
 pub fn retention_records_from_wsc_store<P>(
     store: &P,
 ) -> Result<WscRetentionRecords, WscStoreObstruction>
@@ -1000,8 +1002,8 @@ where
         readings.extend(recovered.readings);
     }
     Ok(WscRetentionRecords {
-        materials: canonical_retained_material_records(&materials),
-        readings: canonical_reading_ref_records(&readings),
+        materials: canonical_retained_material_records(&materials)?,
+        readings: canonical_reading_ref_records(&readings)?,
     })
 }
 
@@ -1336,20 +1338,40 @@ fn receipt_material_edge_id(node_id: &Hash) -> EdgeId {
 
 fn canonical_retained_material_records(
     records: &[RetainedMaterialRecord],
-) -> Vec<RetainedMaterialRecord> {
+) -> Result<Vec<RetainedMaterialRecord>, WscStoreObstruction> {
     let mut by_payload = BTreeMap::new();
+    let mut by_material_digest = BTreeMap::new();
     for record in records {
+        if let Some(existing) = by_material_digest.get(&record.material_digest) {
+            if existing != record {
+                return Err(WscStoreObstruction::duplicate_mismatch(
+                    WscStoreEnvelopeId::from_hash(record.material_digest),
+                ));
+            }
+        }
         by_payload.insert(record.to_payload_bytes(), *record);
+        by_material_digest.insert(record.material_digest, *record);
     }
-    by_payload.into_values().collect()
+    Ok(by_payload.into_values().collect())
 }
 
-fn canonical_reading_ref_records(records: &[ReadingRefRecord]) -> Vec<ReadingRefRecord> {
+fn canonical_reading_ref_records(
+    records: &[ReadingRefRecord],
+) -> Result<Vec<ReadingRefRecord>, WscStoreObstruction> {
     let mut by_payload = BTreeMap::new();
+    let mut by_reading_id = BTreeMap::new();
     for record in records {
+        if let Some(existing) = by_reading_id.get(&record.reading_id) {
+            if existing != record {
+                return Err(WscStoreObstruction::duplicate_mismatch(
+                    WscStoreEnvelopeId::from_hash(record.reading_id),
+                ));
+            }
+        }
         by_payload.insert(record.to_payload_bytes(), *record);
+        by_reading_id.insert(record.reading_id, *record);
     }
-    by_payload.into_values().collect()
+    Ok(by_payload.into_values().collect())
 }
 
 fn insert_retention_record_node(

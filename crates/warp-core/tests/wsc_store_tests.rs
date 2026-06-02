@@ -8,9 +8,9 @@ use std::collections::BTreeSet;
 
 use warp_core::causal_wal::{
     retained_material_obstructions, EvidenceMaterialPosture, MissingMaterialScope,
-    ReadingRefRecord, RecoveredReceiptIndex, RecoveredRetentionIndex, RecoveredSubmissionIndex,
-    RecoveredSubmissionPosture, RetainedMaterialKind, RetainedMaterialRecord,
-    SubmissionAcceptanceRecord, SubmissionRetryPosture, TickReceiptRecord,
+    ReadingRefRecord, RecoveredReceiptIndex, RecoveredRetentionIndex, RecoveredRetentionIndexError,
+    RecoveredSubmissionIndex, RecoveredSubmissionPosture, RetainedMaterialKind,
+    RetainedMaterialRecord, SubmissionAcceptanceRecord, SubmissionRetryPosture, TickReceiptRecord,
     WalReceiptCorrelationRecord, WalTickDecision,
 };
 use warp_core::wsc::{
@@ -415,7 +415,8 @@ fn retention_records_round_trip_through_wsc_envelope() {
     assert_eq!(recovered.readings, vec![reading]);
 
     let index =
-        RecoveredRetentionIndex::from_retention_records(recovered.materials, recovered.readings);
+        RecoveredRetentionIndex::from_retention_records(recovered.materials, recovered.readings)
+            .expect("recovered retention index");
     assert_eq!(index.material_by_digest.get(&[31; 32]), Some(&material));
     assert_eq!(
         index.material_by_digest.get(&[32; 32]),
@@ -464,6 +465,154 @@ fn retention_records_recover_from_committed_wsc_store() {
 
     assert_eq!(recovered.materials, vec![material]);
     assert_eq!(recovered.readings, vec![reading]);
+}
+
+#[test]
+fn retention_records_from_committed_wsc_store_rejects_conflicting_material_digest() {
+    let material = retained_material(
+        34,
+        44,
+        RetainedMaterialKind::ReadingEnvelope,
+        EvidenceMaterialPosture::Present,
+    );
+    let conflicting_material = retained_material(
+        34,
+        45,
+        RetainedMaterialKind::ReadingPayload,
+        EvidenceMaterialPosture::Missing,
+    );
+    let mut store = InMemoryWscStore::default();
+    store
+        .write_envelope(
+            retention_records_to_wsc_envelope(&[material], &[]).expect("retention WSC envelope"),
+        )
+        .expect("committed retention WSC envelope");
+    store
+        .write_envelope(
+            retention_records_to_wsc_envelope(&[conflicting_material], &[])
+                .expect("conflicting retention WSC envelope"),
+        )
+        .expect("committed conflicting retention WSC envelope");
+
+    let obstruction = retention_records_from_wsc_store(&store)
+        .expect_err("conflicting material digest obstructs");
+
+    assert_eq!(
+        obstruction.kind,
+        WscStoreObstructionKind::DuplicateEnvelopeMismatch
+    );
+}
+
+#[test]
+fn retention_records_from_committed_wsc_store_rejects_conflicting_reading_id() {
+    let reading = reading_ref(54, 44, 64, 74, EvidenceMaterialPosture::Present);
+    let conflicting_reading = reading_ref(54, 45, 65, 75, EvidenceMaterialPosture::Missing);
+    let mut store = InMemoryWscStore::default();
+    store
+        .write_envelope(
+            retention_records_to_wsc_envelope(&[], &[reading]).expect("retention WSC envelope"),
+        )
+        .expect("committed retention WSC envelope");
+    store
+        .write_envelope(
+            retention_records_to_wsc_envelope(&[], &[conflicting_reading])
+                .expect("conflicting retention WSC envelope"),
+        )
+        .expect("committed conflicting retention WSC envelope");
+
+    let obstruction =
+        retention_records_from_wsc_store(&store).expect_err("conflicting reading id obstructs");
+
+    assert_eq!(
+        obstruction.kind,
+        WscStoreObstructionKind::DuplicateEnvelopeMismatch
+    );
+}
+
+#[test]
+fn retention_records_reject_conflicting_duplicate_material_digest() {
+    let material = retained_material(
+        34,
+        44,
+        RetainedMaterialKind::ReadingEnvelope,
+        EvidenceMaterialPosture::Present,
+    );
+    let conflicting_material = retained_material(
+        34,
+        45,
+        RetainedMaterialKind::ReadingPayload,
+        EvidenceMaterialPosture::Missing,
+    );
+
+    let obstruction = retention_records_to_wsc_envelope(&[material, conflicting_material], &[])
+        .expect_err("conflicting duplicate material digest obstructs");
+
+    assert_eq!(
+        obstruction.kind,
+        WscStoreObstructionKind::DuplicateEnvelopeMismatch
+    );
+}
+
+#[test]
+fn retention_records_reject_conflicting_duplicate_reading_id() {
+    let reading = reading_ref(54, 44, 64, 74, EvidenceMaterialPosture::Present);
+    let conflicting_reading = reading_ref(54, 45, 65, 75, EvidenceMaterialPosture::Missing);
+
+    let obstruction = retention_records_to_wsc_envelope(&[], &[reading, conflicting_reading])
+        .expect_err("conflicting duplicate reading id obstructs");
+
+    assert_eq!(
+        obstruction.kind,
+        WscStoreObstructionKind::DuplicateEnvelopeMismatch
+    );
+}
+
+#[test]
+fn recovered_retention_index_rejects_conflicting_material_digest() {
+    let material = retained_material(
+        35,
+        45,
+        RetainedMaterialKind::ReadingEnvelope,
+        EvidenceMaterialPosture::Present,
+    );
+    let conflicting_material = retained_material(
+        35,
+        46,
+        RetainedMaterialKind::ReadingPayload,
+        EvidenceMaterialPosture::Missing,
+    );
+
+    let error = RecoveredRetentionIndex::from_retention_records(
+        [material, conflicting_material],
+        Vec::<ReadingRefRecord>::new(),
+    )
+    .expect_err("conflicting material digest obstructs");
+
+    assert_eq!(
+        error,
+        RecoveredRetentionIndexError::ConflictingMaterialDigest {
+            material_digest: [35; 32]
+        }
+    );
+}
+
+#[test]
+fn recovered_retention_index_rejects_conflicting_reading_id() {
+    let reading = reading_ref(55, 45, 65, 75, EvidenceMaterialPosture::Present);
+    let conflicting_reading = reading_ref(55, 46, 66, 76, EvidenceMaterialPosture::Missing);
+
+    let error = RecoveredRetentionIndex::from_retention_records(
+        Vec::<RetainedMaterialRecord>::new(),
+        [reading, conflicting_reading],
+    )
+    .expect_err("conflicting reading id obstructs");
+
+    assert_eq!(
+        error,
+        RecoveredRetentionIndexError::ConflictingReadingId {
+            reading_id: [55; 32]
+        }
+    );
 }
 
 fn fixture_wsc_bytes(tick: u64) -> Vec<u8> {

@@ -587,6 +587,9 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- `warp-core` WSC retained-evidence recovery now rejects conflicting duplicate
+  retained material digests and reading ids instead of letting recovery or the
+  recovered retention index silently overwrite evidence identity collisions.
 - `echo-cli wal doctor` now inspects a real filesystem WAL root through
   Echo's read-only filesystem WAL doctor instead of reporting a fresh empty
   in-memory store. The command accepts an optional WAL root path, defaults to

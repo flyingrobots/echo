@@ -17,9 +17,9 @@ use warp_core::wsc::{
     accepted_submission_records_from_wsc_envelope, accepted_submission_records_from_wsc_store,
     accepted_submission_records_to_wsc_envelope, receipt_correlation_records_from_wsc_envelope,
     receipt_correlation_records_from_wsc_store, receipt_correlation_records_to_wsc_envelope,
-    retention_records_from_wsc_envelope, retention_records_to_wsc_envelope, write_wsc_one_warp,
-    InMemoryWscStore, OneWarpInput, WscStoreEnvelope, WscStoreObstructionKind, WscStorePort,
-    WscStoreRecordKind, WscStoreSubject,
+    retention_records_from_wsc_envelope, retention_records_to_wsc_envelope,
+    validate_wsc_causal_history_store, write_wsc_one_warp, InMemoryWscStore, OneWarpInput,
+    WscStoreEnvelope, WscStoreObstructionKind, WscStorePort, WscStoreRecordKind, WscStoreSubject,
 };
 
 #[test]
@@ -299,6 +299,75 @@ fn decided_submissions_recover_from_committed_wsc_store() {
             .decisions_by_receipt
             .get(&rejected_receipt.receipt_digest),
         Some(&WalTickDecision::RejectedFootprintConflict)
+    );
+}
+
+#[test]
+fn wsc_causal_history_rejects_receipt_without_committed_acceptance() {
+    let acceptance = submission_acceptance(10, 40);
+    let receipt = tick_receipt(10, 20, 30, WalTickDecision::Applied);
+    let mut store = InMemoryWscStore::default();
+    store
+        .stage_envelope_without_commit_marker(
+            accepted_submission_records_to_wsc_envelope(&[acceptance])
+                .expect("accepted WSC envelope"),
+        )
+        .expect("staged accepted WSC envelope");
+    store
+        .write_envelope(
+            receipt_correlation_records_to_wsc_envelope(
+                &[receipt],
+                &[receipt_correlation(10, 20, 30)],
+            )
+            .expect("receipt WSC envelope"),
+        )
+        .expect("committed receipt WSC envelope");
+
+    let obstruction =
+        validate_wsc_causal_history_store(&store).expect_err("half-accepted history obstructs");
+
+    assert_eq!(
+        obstruction.kind,
+        WscStoreObstructionKind::IncompleteCausalHistory
+    );
+    assert_eq!(
+        obstruction.subject,
+        WscStoreSubject::CausalHistory {
+            subject_digest: receipt.receipt_digest
+        }
+    );
+}
+
+#[test]
+fn wsc_causal_history_rejects_receipt_without_correlation() {
+    let acceptance = submission_acceptance(11, 41);
+    let receipt = tick_receipt(11, 21, 31, WalTickDecision::Applied);
+    let mut store = InMemoryWscStore::default();
+    store
+        .write_envelope(
+            accepted_submission_records_to_wsc_envelope(&[acceptance])
+                .expect("accepted WSC envelope"),
+        )
+        .expect("committed accepted WSC envelope");
+    store
+        .write_envelope(
+            receipt_correlation_records_to_wsc_envelope(&[receipt], &[])
+                .expect("receipt WSC envelope"),
+        )
+        .expect("committed receipt WSC envelope");
+
+    let obstruction =
+        validate_wsc_causal_history_store(&store).expect_err("missing correlation obstructs");
+
+    assert_eq!(
+        obstruction.kind,
+        WscStoreObstructionKind::IncompleteCausalHistory
+    );
+    assert_eq!(
+        obstruction.subject,
+        WscStoreSubject::CausalHistory {
+            subject_digest: receipt.receipt_digest
+        }
     );
 }
 

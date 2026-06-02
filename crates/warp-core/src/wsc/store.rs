@@ -2,7 +2,7 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Generic WSC storage port and deterministic envelope format.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use blake3::Hasher;
 use bytes::Bytes;
@@ -136,6 +136,11 @@ pub enum WscStoreSubject {
         /// Digest of the invalid WSC payload.
         digest: Hash,
     },
+    /// Causal-history material was inconsistent.
+    CausalHistory {
+        /// Digest naming the inconsistent causal-history subject.
+        subject_digest: Hash,
+    },
 }
 
 /// Generic WSC store obstruction kind.
@@ -155,6 +160,8 @@ pub enum WscStoreObstructionKind {
     IncompleteEnvelopeWrite,
     /// Commit marker does not match the envelope material.
     CommitMarkerMismatch,
+    /// Committed causal-history records are missing required partner material.
+    IncompleteCausalHistory,
 }
 
 /// Typed obstruction returned instead of hidden fallback or invented success.
@@ -213,6 +220,13 @@ impl WscStoreObstruction {
         Self {
             kind: WscStoreObstructionKind::CommitMarkerMismatch,
             subject: WscStoreSubject::Envelope { envelope_id },
+        }
+    }
+
+    fn incomplete_causal_history(subject_digest: Hash) -> Self {
+        Self {
+            kind: WscStoreObstructionKind::IncompleteCausalHistory,
+            subject: WscStoreSubject::CausalHistory { subject_digest },
         }
     }
 }
@@ -840,6 +854,29 @@ where
     })
 }
 
+/// Validates committed WSC causal-history records for required partner material.
+///
+/// Accepted submissions may remain pending without receipts. Receipt records
+/// and receipt-correlation records, however, require a committed accepted
+/// submission and a matching receipt/correlation pair.
+///
+/// # Errors
+///
+/// Returns [`WscStoreObstructionKind::IncompleteCausalHistory`] when committed
+/// records reference missing partner material.
+pub fn validate_wsc_causal_history_store<P>(store: &P) -> Result<(), WscStoreObstruction>
+where
+    P: WscStorePort + ?Sized,
+{
+    let acceptances = accepted_submission_records_from_wsc_store(store)?;
+    let receipt_records = receipt_correlation_records_from_wsc_store(store)?;
+    validate_wsc_causal_history_records(
+        &acceptances,
+        &receipt_records.receipts,
+        &receipt_records.correlations,
+    )
+}
+
 /// Builds a generic WSC envelope for retained material and reading records.
 ///
 /// Duplicate identical records are represented once.
@@ -1073,6 +1110,70 @@ fn canonical_receipt_correlations(
         );
     }
     by_correlation.into_values().collect()
+}
+
+fn validate_wsc_causal_history_records(
+    acceptances: &[SubmissionAcceptanceRecord],
+    receipts: &[TickReceiptRecord],
+    correlations: &[WalReceiptCorrelationRecord],
+) -> Result<(), WscStoreObstruction> {
+    let accepted_submissions: BTreeSet<Hash> = acceptances
+        .iter()
+        .map(|record| record.submission_id)
+        .collect();
+    let receipt_keys: BTreeSet<(Hash, Hash, Hash)> = receipts
+        .iter()
+        .map(|record| {
+            (
+                record.submission_id,
+                record.ticket_digest,
+                record.receipt_digest,
+            )
+        })
+        .collect();
+    let correlation_keys: BTreeSet<(Hash, Hash, Hash)> = correlations
+        .iter()
+        .map(|record| {
+            (
+                record.submission_id,
+                record.ticket_digest,
+                record.receipt_digest,
+            )
+        })
+        .collect();
+    for receipt in receipts {
+        if !accepted_submissions.contains(&receipt.submission_id) {
+            return Err(WscStoreObstruction::incomplete_causal_history(
+                receipt.receipt_digest,
+            ));
+        }
+        if !correlation_keys.contains(&(
+            receipt.submission_id,
+            receipt.ticket_digest,
+            receipt.receipt_digest,
+        )) {
+            return Err(WscStoreObstruction::incomplete_causal_history(
+                receipt.receipt_digest,
+            ));
+        }
+    }
+    for correlation in correlations {
+        if !accepted_submissions.contains(&correlation.submission_id) {
+            return Err(WscStoreObstruction::incomplete_causal_history(
+                correlation.receipt_digest,
+            ));
+        }
+        if !receipt_keys.contains(&(
+            correlation.submission_id,
+            correlation.ticket_digest,
+            correlation.receipt_digest,
+        )) {
+            return Err(WscStoreObstruction::incomplete_causal_history(
+                correlation.receipt_digest,
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn insert_receipt_material_node(

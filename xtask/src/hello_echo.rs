@@ -6,7 +6,7 @@
 use anyhow::{bail, Context, Result};
 use bytes::Bytes;
 use serde::Serialize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 use warp_core::inbox::INTENT_ATTACHMENT_TYPE;
 use warp_core::wsc::{build_one_warp_input, validate_wsc, write_wsc_one_warp, WscFile};
@@ -242,11 +242,9 @@ impl CapsuleArtifacts {
             &wsc_path,
             self.continuum.outcome,
         );
-        let inspect_tree = format!("cargo run -p warp-cli -- inspect {} --tree", wsc_path);
-        let verify_wsc = format!(
-            "cargo run -p warp-cli -- verify {} --expected {}",
-            wsc_path, wsc_warp_state_root
-        );
+        let inspect_tree = format!("cargo run -p warp-cli -- inspect {wsc_path} --tree");
+        let verify_wsc =
+            format!("cargo run -p warp-cli -- verify {wsc_path} --expected {wsc_warp_state_root}");
 
         HelloEchoReport {
             demo: "hello-echo",
@@ -519,7 +517,7 @@ fn read_counter_from_state(state: &WorldlineState) -> Result<u64> {
 
 fn write_and_validate_wsc(
     state: &WorldlineState,
-    out_dir: &PathBuf,
+    out_dir: &Path,
 ) -> Result<(PathBuf, Hash, Hash, bool, WscCounts)> {
     let store = state
         .store(&state.root().warp_id)

@@ -58,6 +58,52 @@ fn in_memory_wsc_store_writes_reads_and_lists_envelopes() {
 }
 
 #[test]
+fn in_memory_wsc_store_ignores_uncommitted_staged_write() {
+    let envelope =
+        WscStoreEnvelope::validated(WscStoreRecordKind::Snapshot, [6; 32], fixture_wsc_bytes(19))
+            .expect("valid WSC envelope");
+    let id = envelope.id();
+    let mut store = InMemoryWscStore::default();
+
+    let staged_id = store
+        .stage_envelope_without_commit_marker(envelope)
+        .expect("staged WSC envelope");
+
+    assert_eq!(staged_id, id);
+    assert!(store.list_envelopes().is_empty());
+    let obstruction = store
+        .read_envelope(id)
+        .expect_err("uncommitted staged write obstructs");
+    assert_eq!(
+        obstruction.kind,
+        WscStoreObstructionKind::IncompleteEnvelopeWrite
+    );
+}
+
+#[test]
+fn in_memory_wsc_store_commits_staged_write_idempotently() {
+    let envelope =
+        WscStoreEnvelope::validated(WscStoreRecordKind::Snapshot, [7; 32], fixture_wsc_bytes(23))
+            .expect("valid WSC envelope");
+    let id = envelope.id();
+    let mut store = InMemoryWscStore::default();
+
+    store
+        .stage_envelope_without_commit_marker(envelope.clone())
+        .expect("staged WSC envelope");
+    let committed = store
+        .commit_staged_envelope(id)
+        .expect("committed staged WSC envelope");
+    let committed_again = store
+        .write_envelope(envelope.clone())
+        .expect("idempotent write");
+
+    assert_eq!(committed, committed_again);
+    assert_eq!(store.list_envelopes(), vec![id]);
+    assert_eq!(store.read_envelope(id), Ok(envelope));
+}
+
+#[test]
 fn in_memory_wsc_store_missing_envelope_returns_typed_obstruction() {
     let store = InMemoryWscStore::default();
     let missing_id = WscStoreEnvelope::validated(

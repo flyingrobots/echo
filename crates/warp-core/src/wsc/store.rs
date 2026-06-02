@@ -26,6 +26,7 @@ const WSC_STORE_ENVELOPE_MAGIC: &[u8; 8] = b"ECWSCST1";
 const WSC_STORE_ENVELOPE_VERSION: u16 = 1;
 const WSC_STORE_ENVELOPE_ID_DOMAIN: &[u8] = b"echo:wsc_store:envelope_id:v1\0";
 const WSC_STORE_BYTES_DOMAIN: &[u8] = b"echo:wsc_store:wsc_bytes:v1\0";
+const WSC_STORE_COMMIT_MARKER_DOMAIN: &[u8] = b"echo:wsc_store:commit_marker:v1\0";
 const WSC_ACCEPTED_SUBMISSION_BASIS_DOMAIN: &[u8] =
     b"echo:wsc_store:accepted_submission_basis:v1\0";
 const WSC_ACCEPTED_SUBMISSION_NODE_DOMAIN: &[u8] = b"echo:wsc_store:accepted_submission_node:v1\0";
@@ -150,6 +151,10 @@ pub enum WscStoreObstructionKind {
     DigestMismatch,
     /// Existing envelope id maps to different material.
     DuplicateEnvelopeMismatch,
+    /// Envelope material exists without a matching commit marker, or vice versa.
+    IncompleteEnvelopeWrite,
+    /// Commit marker does not match the envelope material.
+    CommitMarkerMismatch,
 }
 
 /// Typed obstruction returned instead of hidden fallback or invented success.
@@ -193,6 +198,20 @@ impl WscStoreObstruction {
     fn duplicate_mismatch(envelope_id: WscStoreEnvelopeId) -> Self {
         Self {
             kind: WscStoreObstructionKind::DuplicateEnvelopeMismatch,
+            subject: WscStoreSubject::Envelope { envelope_id },
+        }
+    }
+
+    fn incomplete_write(envelope_id: WscStoreEnvelopeId) -> Self {
+        Self {
+            kind: WscStoreObstructionKind::IncompleteEnvelopeWrite,
+            subject: WscStoreSubject::Envelope { envelope_id },
+        }
+    }
+
+    fn commit_marker_mismatch(envelope_id: WscStoreEnvelopeId) -> Self {
+        Self {
+            kind: WscStoreObstructionKind::CommitMarkerMismatch,
             subject: WscStoreSubject::Envelope { envelope_id },
         }
     }
@@ -367,10 +386,75 @@ impl WscStoreEnvelope {
 pub struct WscStoreWriteReceipt {
     /// Written envelope id.
     pub envelope_id: WscStoreEnvelopeId,
+    /// Commit marker digest proving the envelope was published.
+    pub commit_marker_digest: Hash,
     /// WSC payload digest.
     pub wsc_digest: Hash,
     /// Encoded envelope byte length.
     pub encoded_len: u64,
+}
+
+/// Commit marker for a completed WSC envelope write.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WscStoreCommitMarker {
+    envelope_id: WscStoreEnvelopeId,
+    record_kind: WscStoreRecordKind,
+    basis_digest: Hash,
+    schema_hash: Hash,
+    tick: u64,
+    wsc_digest: Hash,
+    encoded_len: u64,
+    marker_digest: Hash,
+}
+
+impl WscStoreCommitMarker {
+    fn from_envelope(envelope: &WscStoreEnvelope) -> Result<Self, WscStoreObstruction> {
+        let encoded_len = u64::try_from(envelope.encode().len())
+            .map_err(|_| WscStoreObstruction::invalid_envelope(HEADER_LEN))?;
+        let marker_digest = derive_commit_marker_digest(envelope, encoded_len);
+        Ok(Self {
+            envelope_id: envelope.id(),
+            record_kind: envelope.record_kind(),
+            basis_digest: *envelope.basis_digest(),
+            schema_hash: *envelope.schema_hash(),
+            tick: envelope.tick(),
+            wsc_digest: *envelope.wsc_digest(),
+            encoded_len,
+            marker_digest,
+        })
+    }
+
+    /// Returns the envelope id committed by this marker.
+    #[must_use]
+    pub const fn envelope_id(&self) -> WscStoreEnvelopeId {
+        self.envelope_id
+    }
+
+    /// Returns the marker digest.
+    #[must_use]
+    pub const fn marker_digest(&self) -> Hash {
+        self.marker_digest
+    }
+
+    fn write_receipt(self) -> WscStoreWriteReceipt {
+        WscStoreWriteReceipt {
+            envelope_id: self.envelope_id,
+            commit_marker_digest: self.marker_digest,
+            wsc_digest: self.wsc_digest,
+            encoded_len: self.encoded_len,
+        }
+    }
+
+    fn matches_envelope(self, envelope: &WscStoreEnvelope) -> bool {
+        self.envelope_id == envelope.id()
+            && self.record_kind == envelope.record_kind()
+            && self.basis_digest == *envelope.basis_digest()
+            && self.schema_hash == *envelope.schema_hash()
+            && self.tick == envelope.tick()
+            && self.wsc_digest == *envelope.wsc_digest()
+            && self.encoded_len == u64::try_from(envelope.encode().len()).unwrap_or(u64::MAX)
+            && self.marker_digest == derive_commit_marker_digest(envelope, self.encoded_len)
+    }
 }
 
 /// Receipt and correlation records recovered from WSC material.
@@ -412,7 +496,64 @@ pub trait WscStorePort {
 /// In-memory WSC store implementation for tests and adapters.
 #[derive(Debug, Default)]
 pub struct InMemoryWscStore {
-    envelopes: BTreeMap<WscStoreEnvelopeId, WscStoreEnvelope>,
+    staged_envelopes: BTreeMap<WscStoreEnvelopeId, WscStoreEnvelope>,
+    commit_markers: BTreeMap<WscStoreEnvelopeId, WscStoreCommitMarker>,
+}
+
+impl InMemoryWscStore {
+    /// Stages an envelope without publishing its commit marker.
+    ///
+    /// This models the pre-commit phase of an atomic write. Callers that read
+    /// through [`WscStorePort`] will not observe the staged envelope until
+    /// [`Self::commit_staged_envelope`] publishes the matching marker.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed obstruction when the same envelope id already maps to
+    /// different staged material.
+    pub fn stage_envelope_without_commit_marker(
+        &mut self,
+        envelope: WscStoreEnvelope,
+    ) -> Result<WscStoreEnvelopeId, WscStoreObstruction> {
+        let envelope_id = envelope.id();
+        if let Some(existing) = self.staged_envelopes.get(&envelope_id) {
+            if existing != &envelope {
+                return Err(WscStoreObstruction::duplicate_mismatch(envelope_id));
+            }
+        }
+        if let Some(marker) = self.commit_markers.get(&envelope_id) {
+            if !marker.matches_envelope(&envelope) {
+                return Err(WscStoreObstruction::commit_marker_mismatch(envelope_id));
+            }
+        }
+        self.staged_envelopes.insert(envelope_id, envelope);
+        Ok(envelope_id)
+    }
+
+    /// Publishes the commit marker for a staged envelope.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed obstruction when the staged envelope is absent or when
+    /// an existing marker does not match the staged material.
+    pub fn commit_staged_envelope(
+        &mut self,
+        envelope_id: WscStoreEnvelopeId,
+    ) -> Result<WscStoreWriteReceipt, WscStoreObstruction> {
+        let envelope = self
+            .staged_envelopes
+            .get(&envelope_id)
+            .ok_or_else(|| WscStoreObstruction::incomplete_write(envelope_id))?;
+        let marker = WscStoreCommitMarker::from_envelope(envelope)?;
+        if let Some(existing) = self.commit_markers.get(&envelope_id) {
+            if existing != &marker {
+                return Err(WscStoreObstruction::commit_marker_mismatch(envelope_id));
+            }
+            return Ok(existing.write_receipt());
+        }
+        self.commit_markers.insert(envelope_id, marker);
+        Ok(marker.write_receipt())
+    }
 }
 
 impl WscStorePort for InMemoryWscStore {
@@ -421,34 +562,39 @@ impl WscStorePort for InMemoryWscStore {
         envelope: WscStoreEnvelope,
     ) -> Result<WscStoreWriteReceipt, WscStoreObstruction> {
         let envelope_id = envelope.id();
-        if let Some(existing) = self.envelopes.get(&envelope_id) {
-            if existing != &envelope {
-                return Err(WscStoreObstruction::duplicate_mismatch(envelope_id));
-            }
-        }
-        let encoded_len = u64::try_from(envelope.encode().len())
-            .map_err(|_| WscStoreObstruction::invalid_envelope(HEADER_LEN))?;
-        let receipt = WscStoreWriteReceipt {
-            envelope_id,
-            wsc_digest: envelope.wsc_digest,
-            encoded_len,
-        };
-        self.envelopes.insert(envelope_id, envelope);
-        Ok(receipt)
+        self.stage_envelope_without_commit_marker(envelope)?;
+        self.commit_staged_envelope(envelope_id)
     }
 
     fn read_envelope(
         &self,
         envelope_id: WscStoreEnvelopeId,
     ) -> Result<WscStoreEnvelope, WscStoreObstruction> {
-        self.envelopes
-            .get(&envelope_id)
-            .cloned()
-            .ok_or_else(|| WscStoreObstruction::missing_envelope(envelope_id))
+        match (
+            self.staged_envelopes.get(&envelope_id),
+            self.commit_markers.get(&envelope_id),
+        ) {
+            (Some(envelope), Some(marker)) if marker.matches_envelope(envelope) => {
+                Ok(envelope.clone())
+            }
+            (Some(_), Some(_)) => Err(WscStoreObstruction::commit_marker_mismatch(envelope_id)),
+            (Some(_), None) | (None, Some(_)) => {
+                Err(WscStoreObstruction::incomplete_write(envelope_id))
+            }
+            (None, None) => Err(WscStoreObstruction::missing_envelope(envelope_id)),
+        }
     }
 
     fn list_envelopes(&self) -> Vec<WscStoreEnvelopeId> {
-        self.envelopes.keys().copied().collect()
+        self.commit_markers
+            .iter()
+            .filter_map(|(envelope_id, marker)| {
+                self.staged_envelopes
+                    .get(envelope_id)
+                    .filter(|envelope| marker.matches_envelope(envelope))
+                    .map(|_| *envelope_id)
+            })
+            .collect()
     }
 }
 
@@ -760,6 +906,19 @@ fn derive_envelope_id(
     hasher.update(wsc_digest);
     hasher.update(&wsc_len.to_le_bytes());
     WscStoreEnvelopeId(hasher.finalize().into())
+}
+
+fn derive_commit_marker_digest(envelope: &WscStoreEnvelope, encoded_len: u64) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(WSC_STORE_COMMIT_MARKER_DOMAIN);
+    hasher.update(&envelope.id().as_hash());
+    hasher.update(&envelope.record_kind().code().to_le_bytes());
+    hasher.update(envelope.basis_digest());
+    hasher.update(envelope.schema_hash());
+    hasher.update(&envelope.tick().to_le_bytes());
+    hasher.update(envelope.wsc_digest());
+    hasher.update(&encoded_len.to_le_bytes());
+    hasher.finalize().into()
 }
 
 fn digest_wsc_bytes(bytes: &[u8]) -> Hash {

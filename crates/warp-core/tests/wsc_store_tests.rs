@@ -5,14 +5,17 @@
 #![allow(clippy::expect_used)]
 
 use warp_core::causal_wal::{
-    RecoveredReceiptIndex, RecoveredSubmissionIndex, SubmissionAcceptanceRecord,
-    SubmissionRetryPosture, TickReceiptRecord, WalReceiptCorrelationRecord, WalTickDecision,
+    EvidenceMaterialPosture, ReadingRefRecord, RecoveredReceiptIndex, RecoveredRetentionIndex,
+    RecoveredSubmissionIndex, RetainedMaterialKind, RetainedMaterialRecord,
+    SubmissionAcceptanceRecord, SubmissionRetryPosture, TickReceiptRecord,
+    WalReceiptCorrelationRecord, WalTickDecision,
 };
 use warp_core::wsc::{
     accepted_submission_records_from_wsc_envelope, accepted_submission_records_to_wsc_envelope,
     receipt_correlation_records_from_wsc_envelope, receipt_correlation_records_to_wsc_envelope,
-    write_wsc_one_warp, InMemoryWscStore, OneWarpInput, WscStoreEnvelope, WscStoreObstructionKind,
-    WscStorePort, WscStoreRecordKind, WscStoreSubject,
+    retention_records_from_wsc_envelope, retention_records_to_wsc_envelope, write_wsc_one_warp,
+    InMemoryWscStore, OneWarpInput, WscStoreEnvelope, WscStoreObstructionKind, WscStorePort,
+    WscStoreRecordKind, WscStoreSubject,
 };
 
 #[test]
@@ -140,6 +143,51 @@ fn receipt_correlation_records_round_trip_through_wsc_envelope() {
     );
 }
 
+#[test]
+fn retention_records_round_trip_through_wsc_envelope() {
+    let material = retained_material(
+        31,
+        41,
+        RetainedMaterialKind::ReadingEnvelope,
+        EvidenceMaterialPosture::Present,
+    );
+    let missing_material = retained_material(
+        32,
+        42,
+        RetainedMaterialKind::ReadingPayload,
+        EvidenceMaterialPosture::Missing,
+    );
+    let reading = reading_ref(51, 41, 61, 71, EvidenceMaterialPosture::Present);
+    let envelope = retention_records_to_wsc_envelope(
+        &[missing_material, material, material],
+        &[reading, reading],
+    )
+    .expect("retention WSC envelope");
+
+    let recovered = retention_records_from_wsc_envelope(&envelope).expect("recovered retention");
+    assert_eq!(recovered.materials, vec![material, missing_material]);
+    assert_eq!(recovered.readings, vec![reading]);
+
+    let index =
+        RecoveredRetentionIndex::from_retention_records(recovered.materials, recovered.readings);
+    assert_eq!(index.material_by_digest.get(&[31; 32]), Some(&material));
+    assert_eq!(
+        index.material_by_digest.get(&[32; 32]),
+        Some(&missing_material)
+    );
+    assert_eq!(index.reading_by_id.get(&[51; 32]), Some(&reading));
+    assert!(index
+        .material_by_semantic_coordinate
+        .get(&[41; 32])
+        .expect("material semantic coordinate")
+        .contains(&[31; 32]));
+    assert!(index
+        .readings_by_semantic_coordinate
+        .get(&[41; 32])
+        .expect("reading semantic coordinate")
+        .contains(&[51; 32]));
+}
+
 fn fixture_wsc_bytes(tick: u64) -> Vec<u8> {
     let input = OneWarpInput {
         warp_id: [1; 32],
@@ -192,5 +240,35 @@ fn receipt_correlation(
         submission_id: [submission_byte; 32],
         ticket_digest: [ticket_byte; 32],
         receipt_digest: [receipt_byte; 32],
+    }
+}
+
+fn retained_material(
+    material_byte: u8,
+    semantic_byte: u8,
+    kind: RetainedMaterialKind,
+    posture: EvidenceMaterialPosture,
+) -> RetainedMaterialRecord {
+    RetainedMaterialRecord {
+        material_digest: [material_byte; 32],
+        semantic_coordinate_digest: [semantic_byte; 32],
+        kind,
+        posture,
+    }
+}
+
+fn reading_ref(
+    reading_byte: u8,
+    semantic_byte: u8,
+    payload_byte: u8,
+    envelope_byte: u8,
+    posture: EvidenceMaterialPosture,
+) -> ReadingRefRecord {
+    ReadingRefRecord {
+        reading_id: [reading_byte; 32],
+        semantic_coordinate_digest: [semantic_byte; 32],
+        payload_digest: [payload_byte; 32],
+        envelope_digest: [envelope_byte; 32],
+        posture,
     }
 }

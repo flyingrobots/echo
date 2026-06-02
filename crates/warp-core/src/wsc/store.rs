@@ -9,7 +9,8 @@ use bytes::Bytes;
 
 use crate::attachment::{AtomPayload, AttachmentValue};
 use crate::causal_wal::{
-    SubmissionAcceptanceRecord, TickReceiptRecord, WalReceiptCorrelationRecord,
+    ReadingRefRecord, RetainedMaterialRecord, SubmissionAcceptanceRecord, TickReceiptRecord,
+    WalReceiptCorrelationRecord,
 };
 use crate::graph::GraphStore;
 use crate::ident::{make_node_id, make_type_id, make_warp_id, EdgeId, Hash, NodeId};
@@ -48,6 +49,16 @@ const WSC_RECEIPT_CORRELATION_EDGE_TYPE: &str = "echo/wsc-store/receipt-correlat
 const WSC_TICK_RECEIPT_ATTACHMENT_TYPE: &str = "echo/wsc-store/receipt-correlations/receipt/v1";
 const WSC_RECEIPT_CORRELATION_ATTACHMENT_TYPE: &str =
     "echo/wsc-store/receipt-correlations/correlation/v1";
+const WSC_RETENTION_BASIS_DOMAIN: &[u8] = b"echo:wsc_store:retention_basis:v1\0";
+const WSC_RETENTION_NODE_DOMAIN: &[u8] = b"echo:wsc_store:retention_node:v1\0";
+const WSC_RETENTION_EDGE_DOMAIN: &[u8] = b"echo:wsc_store:retention_edge:v1\0";
+const WSC_RETENTION_SCHEMA: &str = "echo/wsc-store/retention/v1";
+const WSC_RETENTION_WARP: &str = "echo/wsc-store/retention";
+const WSC_RETENTION_ROOT: &str = "echo/wsc-store/retention/root";
+const WSC_RETENTION_NODE_TYPE: &str = "echo/wsc-store/retention/node/v1";
+const WSC_RETENTION_EDGE_TYPE: &str = "echo/wsc-store/retention/member/v1";
+const WSC_RETAINED_MATERIAL_ATTACHMENT_TYPE: &str = "echo/wsc-store/retention/material/v1";
+const WSC_READING_REF_ATTACHMENT_TYPE: &str = "echo/wsc-store/retention/reading/v1";
 const HEADER_LEN: usize = 124;
 
 /// Stable identifier for a WSC store envelope.
@@ -371,6 +382,15 @@ pub struct WscReceiptCorrelationRecords {
     pub correlations: Vec<WalReceiptCorrelationRecord>,
 }
 
+/// Retained material and reading records recovered from WSC material.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WscRetentionRecords {
+    /// Retained material references with evidence posture.
+    pub materials: Vec<RetainedMaterialRecord>,
+    /// Retained reading references with semantic coordinates.
+    pub readings: Vec<ReadingRefRecord>,
+}
+
 /// Generic WSC store port.
 pub trait WscStorePort {
     /// Writes a validated WSC envelope.
@@ -615,6 +635,102 @@ pub fn receipt_correlation_records_from_wsc_envelope(
     })
 }
 
+/// Builds a generic WSC envelope for retained material and reading records.
+///
+/// Duplicate identical records are represented once.
+///
+/// # Errors
+///
+/// Returns a typed obstruction when generated WSC material fails validation.
+pub fn retention_records_to_wsc_envelope(
+    materials: &[RetainedMaterialRecord],
+    readings: &[ReadingRefRecord],
+) -> Result<WscStoreEnvelope, WscStoreObstruction> {
+    let materials = canonical_retained_material_records(materials);
+    let readings = canonical_reading_ref_records(readings);
+    let mut store = GraphStore::new(make_warp_id(WSC_RETENTION_WARP));
+    let root = make_node_id(WSC_RETENTION_ROOT);
+    store.insert_node(
+        root,
+        NodeRecord {
+            ty: make_type_id(WSC_RETENTION_NODE_TYPE),
+        },
+    );
+    for material in &materials {
+        insert_retention_record_node(
+            &mut store,
+            root,
+            retention_node_id(b"material", &material.to_payload_bytes()),
+            WSC_RETAINED_MATERIAL_ATTACHMENT_TYPE,
+            material.to_payload_bytes(),
+        );
+    }
+    for reading in &readings {
+        insert_retention_record_node(
+            &mut store,
+            root,
+            retention_node_id(b"reading", &reading.to_payload_bytes()),
+            WSC_READING_REF_ATTACHMENT_TYPE,
+            reading.to_payload_bytes(),
+        );
+    }
+    let basis_digest = retention_basis_digest(&materials, &readings);
+    let input = build_one_warp_input(&store, root);
+    let wsc_bytes = write_wsc_one_warp(&input, make_type_id(WSC_RETENTION_SCHEMA).0, 0)
+        .map_err(|_| WscStoreObstruction::invalid_wsc(basis_digest))?;
+    WscStoreEnvelope::validated(
+        WscStoreRecordKind::RetainedEvidence,
+        basis_digest,
+        wsc_bytes,
+    )
+}
+
+/// Recovers retained material and reading records from a generic WSC envelope.
+///
+/// # Errors
+///
+/// Returns a typed WSC store obstruction when the envelope is not retained
+/// evidence material or when record payloads are malformed.
+pub fn retention_records_from_wsc_envelope(
+    envelope: &WscStoreEnvelope,
+) -> Result<WscRetentionRecords, WscStoreObstruction> {
+    if envelope.record_kind() != WscStoreRecordKind::RetainedEvidence {
+        return Err(WscStoreObstruction::invalid_envelope(0));
+    }
+    let wsc_digest = *envelope.wsc_digest();
+    let file = WscFile::from_bytes(envelope.wsc_bytes().to_vec())
+        .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+    validate_wsc(&file).map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+    if file.schema_hash() != &make_type_id(WSC_RETENTION_SCHEMA).0 {
+        return Err(WscStoreObstruction::invalid_wsc(wsc_digest));
+    }
+    let view = file
+        .warp_view(0)
+        .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+    let mut materials = Vec::new();
+    let mut readings = Vec::new();
+    for node_index in 0..view.nodes().len() {
+        for attachment in view.node_attachments(node_index) {
+            let payload = atom_payload_bytes(&view, attachment, wsc_digest)?;
+            if attachment.type_or_warp == make_type_id(WSC_RETAINED_MATERIAL_ATTACHMENT_TYPE).0 {
+                let material = RetainedMaterialRecord::from_payload_bytes(payload)
+                    .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+                materials.push(material);
+            } else if attachment.type_or_warp == make_type_id(WSC_READING_REF_ATTACHMENT_TYPE).0 {
+                let reading = ReadingRefRecord::from_payload_bytes(payload)
+                    .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+                readings.push(reading);
+            } else {
+                return Err(WscStoreObstruction::invalid_wsc(wsc_digest));
+            }
+        }
+    }
+    Ok(WscRetentionRecords {
+        materials: canonical_retained_material_records(&materials),
+        readings: canonical_reading_ref_records(&readings),
+    })
+}
+
 fn read_array<const N: usize>(bytes: &[u8], offset: usize) -> Result<[u8; N], WscStoreObstruction> {
     let end = offset
         .checked_add(N)
@@ -798,6 +914,87 @@ fn correlation_node_id(submission_id: &Hash, ticket_digest: &Hash) -> NodeId {
 fn receipt_material_edge_id(node_id: &Hash) -> EdgeId {
     let mut hasher = Hasher::new();
     hasher.update(WSC_RECEIPT_CORRELATION_EDGE_DOMAIN);
+    hasher.update(node_id);
+    EdgeId(hasher.finalize().into())
+}
+
+fn canonical_retained_material_records(
+    records: &[RetainedMaterialRecord],
+) -> Vec<RetainedMaterialRecord> {
+    let mut by_payload = BTreeMap::new();
+    for record in records {
+        by_payload.insert(record.to_payload_bytes(), *record);
+    }
+    by_payload.into_values().collect()
+}
+
+fn canonical_reading_ref_records(records: &[ReadingRefRecord]) -> Vec<ReadingRefRecord> {
+    let mut by_payload = BTreeMap::new();
+    for record in records {
+        by_payload.insert(record.to_payload_bytes(), *record);
+    }
+    by_payload.into_values().collect()
+}
+
+fn insert_retention_record_node(
+    store: &mut GraphStore,
+    root: NodeId,
+    node: NodeId,
+    attachment_type: &str,
+    payload_bytes: Vec<u8>,
+) {
+    store.insert_node(
+        node,
+        NodeRecord {
+            ty: make_type_id(WSC_RETENTION_NODE_TYPE),
+        },
+    );
+    store.insert_edge(
+        root,
+        EdgeRecord {
+            id: retention_edge_id(&node.0),
+            from: root,
+            to: node,
+            ty: make_type_id(WSC_RETENTION_EDGE_TYPE),
+        },
+    );
+    store.set_node_attachment(
+        node,
+        Some(AttachmentValue::Atom(AtomPayload::new(
+            make_type_id(attachment_type),
+            Bytes::from(payload_bytes),
+        ))),
+    );
+}
+
+fn retention_basis_digest(
+    materials: &[RetainedMaterialRecord],
+    readings: &[ReadingRefRecord],
+) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(WSC_RETENTION_BASIS_DOMAIN);
+    for material in materials {
+        hasher.update(b"material");
+        hasher.update(&material.to_payload_bytes());
+    }
+    for reading in readings {
+        hasher.update(b"reading");
+        hasher.update(&reading.to_payload_bytes());
+    }
+    hasher.finalize().into()
+}
+
+fn retention_node_id(role: &[u8], payload_bytes: &[u8]) -> NodeId {
+    let mut hasher = Hasher::new();
+    hasher.update(WSC_RETENTION_NODE_DOMAIN);
+    hasher.update(role);
+    hasher.update(payload_bytes);
+    NodeId(hasher.finalize().into())
+}
+
+fn retention_edge_id(node_id: &Hash) -> EdgeId {
+    let mut hasher = Hasher::new();
+    hasher.update(WSC_RETENTION_EDGE_DOMAIN);
     hasher.update(node_id);
     EdgeId(hasher.finalize().into())
 }

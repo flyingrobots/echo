@@ -72,7 +72,8 @@ pub use read::ReadError;
 pub use store::{
     accepted_submission_records_from_wsc_envelope, accepted_submission_records_to_wsc_envelope,
     receipt_correlation_records_from_wsc_envelope, receipt_correlation_records_to_wsc_envelope,
-    InMemoryWscStore, WscReceiptCorrelationRecords, WscStoreEnvelope, WscStoreEnvelopeId,
+    retention_records_from_wsc_envelope, retention_records_to_wsc_envelope, InMemoryWscStore,
+    WscReceiptCorrelationRecords, WscRetentionRecords, WscStoreEnvelope, WscStoreEnvelopeId,
     WscStoreObstruction, WscStoreObstructionKind, WscStorePort, WscStoreRecordKind,
     WscStoreSubject, WscStoreWriteReceipt,
 };

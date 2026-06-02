@@ -2331,6 +2331,37 @@ pub struct RecoveredRetentionIndex {
     pub readings_by_semantic_coordinate: BTreeMap<Hash, BTreeSet<Hash>>,
 }
 
+impl RecoveredRetentionIndex {
+    /// Builds a recovered retention index from retained material and reading records.
+    #[must_use]
+    pub fn from_retention_records<I, J>(materials: I, readings: J) -> Self
+    where
+        I: IntoIterator<Item = RetainedMaterialRecord>,
+        J: IntoIterator<Item = ReadingRefRecord>,
+    {
+        let mut index = Self::default();
+        for record in materials {
+            index
+                .material_by_semantic_coordinate
+                .entry(record.semantic_coordinate_digest)
+                .or_default()
+                .insert(record.material_digest);
+            index
+                .material_by_digest
+                .insert(record.material_digest, record);
+        }
+        for record in readings {
+            index
+                .readings_by_semantic_coordinate
+                .entry(record.semantic_coordinate_digest)
+                .or_default()
+                .insert(record.reading_id);
+            index.reading_by_id.insert(record.reading_id, record);
+        }
+        index
+    }
+}
+
 /// Retained material obstruction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RetainedMaterialObstruction {

@@ -171,6 +171,33 @@ fn accepted_submission_records_round_trip_through_wsc_envelope() {
 }
 
 #[test]
+fn accepted_submission_records_reject_basis_digest_mismatch() {
+    let envelope = accepted_submission_records_to_wsc_envelope(&[submission_acceptance(4, 14)])
+        .expect("accepted submission WSC envelope");
+    let forged = WscStoreEnvelope::validated(
+        envelope.record_kind(),
+        [99; 32],
+        envelope.wsc_bytes().to_vec(),
+    )
+    .expect("basis-forged accepted submission WSC envelope");
+
+    let obstruction = accepted_submission_records_from_wsc_envelope(&forged)
+        .expect_err("basis mismatch obstructs accepted submission recovery");
+
+    assert_eq!(
+        obstruction.kind,
+        WscStoreObstructionKind::BasisDigestMismatch
+    );
+    assert_eq!(
+        obstruction.subject,
+        WscStoreSubject::EnvelopeDigest {
+            expected: [99; 32],
+            actual: *envelope.basis_digest()
+        }
+    );
+}
+
+#[test]
 fn pending_submission_recovers_from_committed_wsc_store_without_decision() {
     let pending = submission_acceptance(3, 33);
     let envelope =
@@ -217,6 +244,36 @@ fn receipt_correlation_records_round_trip_through_wsc_envelope() {
     assert_eq!(
         index.decisions_by_receipt.get(&[27; 32]),
         Some(&WalTickDecision::Applied)
+    );
+}
+
+#[test]
+fn receipt_correlation_records_reject_basis_digest_mismatch() {
+    let envelope = receipt_correlation_records_to_wsc_envelope(
+        &[tick_receipt(12, 22, 32, WalTickDecision::Applied)],
+        &[receipt_correlation(12, 22, 32)],
+    )
+    .expect("receipt correlation WSC envelope");
+    let forged = WscStoreEnvelope::validated(
+        envelope.record_kind(),
+        [98; 32],
+        envelope.wsc_bytes().to_vec(),
+    )
+    .expect("basis-forged receipt correlation WSC envelope");
+
+    let obstruction = receipt_correlation_records_from_wsc_envelope(&forged)
+        .expect_err("basis mismatch obstructs receipt correlation recovery");
+
+    assert_eq!(
+        obstruction.kind,
+        WscStoreObstructionKind::BasisDigestMismatch
+    );
+    assert_eq!(
+        obstruction.subject,
+        WscStoreSubject::EnvelopeDigest {
+            expected: [98; 32],
+            actual: *envelope.basis_digest()
+        }
     );
 }
 
@@ -442,6 +499,47 @@ fn retention_records_round_trip_through_wsc_envelope() {
     assert_eq!(obstruction.kind, RetainedMaterialKind::ReadingPayload);
     assert_eq!(obstruction.scope, MissingMaterialScope::Reading);
     assert_eq!(obstruction.posture, EvidenceMaterialPosture::Missing);
+}
+
+#[test]
+fn retention_records_reject_basis_digest_mismatch() {
+    let envelope = retention_records_to_wsc_envelope(
+        &[retained_material(
+            36,
+            46,
+            RetainedMaterialKind::ReadingEnvelope,
+            EvidenceMaterialPosture::Present,
+        )],
+        &[reading_ref(
+            56,
+            46,
+            66,
+            76,
+            EvidenceMaterialPosture::Present,
+        )],
+    )
+    .expect("retention WSC envelope");
+    let forged = WscStoreEnvelope::validated(
+        envelope.record_kind(),
+        [97; 32],
+        envelope.wsc_bytes().to_vec(),
+    )
+    .expect("basis-forged retention WSC envelope");
+
+    let obstruction = retention_records_from_wsc_envelope(&forged)
+        .expect_err("basis mismatch obstructs retention recovery");
+
+    assert_eq!(
+        obstruction.kind,
+        WscStoreObstructionKind::BasisDigestMismatch
+    );
+    assert_eq!(
+        obstruction.subject,
+        WscStoreSubject::EnvelopeDigest {
+            expected: [97; 32],
+            actual: *envelope.basis_digest()
+        }
+    );
 }
 
 #[test]

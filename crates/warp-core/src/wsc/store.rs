@@ -154,6 +154,8 @@ pub enum WscStoreObstructionKind {
     InvalidWsc,
     /// Encoded envelope digest did not match its payload.
     DigestMismatch,
+    /// Envelope basis digest did not match recovered canonical records.
+    BasisDigestMismatch,
     /// Existing envelope id maps to different material.
     DuplicateEnvelopeMismatch,
     /// Envelope material exists without a matching commit marker, or vice versa.
@@ -191,6 +193,13 @@ impl WscStoreObstruction {
     fn digest_mismatch(expected: Hash, actual: Hash) -> Self {
         Self {
             kind: WscStoreObstructionKind::DigestMismatch,
+            subject: WscStoreSubject::EnvelopeDigest { expected, actual },
+        }
+    }
+
+    fn basis_digest_mismatch(expected: Hash, actual: Hash) -> Self {
+        Self {
+            kind: WscStoreObstructionKind::BasisDigestMismatch,
             subject: WscStoreSubject::EnvelopeDigest { expected, actual },
         }
     }
@@ -671,7 +680,8 @@ pub fn accepted_submission_records_to_wsc_envelope(
 /// # Errors
 ///
 /// Returns a typed WSC store obstruction when the envelope is not accepted
-/// submission causal-history material or when record payloads are malformed.
+/// submission causal-history material, when record payloads are malformed, or
+/// when the envelope basis digest does not match recovered canonical records.
 pub fn accepted_submission_records_from_wsc_envelope(
     envelope: &WscStoreEnvelope,
 ) -> Result<Vec<SubmissionAcceptanceRecord>, WscStoreObstruction> {
@@ -700,7 +710,15 @@ pub fn accepted_submission_records_from_wsc_envelope(
             records.push(record);
         }
     }
-    canonical_accepted_submission_records(&records)
+    let records = canonical_accepted_submission_records(&records)?;
+    let basis_digest = accepted_submission_basis_digest(&records);
+    if envelope.basis_digest() != &basis_digest {
+        return Err(WscStoreObstruction::basis_digest_mismatch(
+            *envelope.basis_digest(),
+            basis_digest,
+        ));
+    }
+    Ok(records)
 }
 
 /// Recovers accepted submission records from committed WSC store envelopes.
@@ -781,7 +799,8 @@ pub fn receipt_correlation_records_to_wsc_envelope(
 /// # Errors
 ///
 /// Returns a typed WSC store obstruction when the envelope is not receipt
-/// correlation material or when record payloads are malformed.
+/// correlation material, when record payloads are malformed, or when the
+/// envelope basis digest does not match recovered canonical records.
 pub fn receipt_correlation_records_from_wsc_envelope(
     envelope: &WscStoreEnvelope,
 ) -> Result<WscReceiptCorrelationRecords, WscStoreObstruction> {
@@ -818,9 +837,18 @@ pub fn receipt_correlation_records_from_wsc_envelope(
             }
         }
     }
+    let receipts = canonical_tick_receipts(&receipts)?;
+    let correlations = canonical_receipt_correlations(&correlations)?;
+    let basis_digest = receipt_correlation_basis_digest(&receipts, &correlations);
+    if envelope.basis_digest() != &basis_digest {
+        return Err(WscStoreObstruction::basis_digest_mismatch(
+            *envelope.basis_digest(),
+            basis_digest,
+        ));
+    }
     Ok(WscReceiptCorrelationRecords {
-        receipts: canonical_tick_receipts(&receipts)?,
-        correlations: canonical_receipt_correlations(&correlations)?,
+        receipts,
+        correlations,
     })
 }
 
@@ -935,7 +963,8 @@ pub fn retention_records_to_wsc_envelope(
 ///
 /// Returns a typed WSC store obstruction when the envelope is not retained
 /// evidence material, when record payloads are malformed, or when retained
-/// evidence identities conflict.
+/// evidence identities conflict, or when the envelope basis digest does not
+/// match recovered canonical records.
 pub fn retention_records_from_wsc_envelope(
     envelope: &WscStoreEnvelope,
 ) -> Result<WscRetentionRecords, WscStoreObstruction> {
@@ -970,9 +999,18 @@ pub fn retention_records_from_wsc_envelope(
             }
         }
     }
+    let materials = canonical_retained_material_records(&materials)?;
+    let readings = canonical_reading_ref_records(&readings)?;
+    let basis_digest = retention_basis_digest(&materials, &readings);
+    if envelope.basis_digest() != &basis_digest {
+        return Err(WscStoreObstruction::basis_digest_mismatch(
+            *envelope.basis_digest(),
+            basis_digest,
+        ));
+    }
     Ok(WscRetentionRecords {
-        materials: canonical_retained_material_records(&materials)?,
-        readings: canonical_reading_ref_records(&readings)?,
+        materials,
+        readings,
     })
 }
 

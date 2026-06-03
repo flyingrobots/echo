@@ -124,7 +124,7 @@ pub enum WscStoreSubject {
         /// Byte offset implicated by the obstruction.
         offset: usize,
     },
-    /// Encoded bytes carried a digest mismatch.
+    /// Envelope digest evidence mismatched.
     EnvelopeDigest {
         /// Expected digest recorded by the envelope.
         expected: Hash,
@@ -729,7 +729,8 @@ pub fn accepted_submission_records_from_wsc_envelope(
 /// # Errors
 ///
 /// Returns a typed WSC store obstruction when a committed accepted-submission
-/// envelope is malformed or conflicting duplicate submission material is found.
+/// envelope is malformed, basis-mismatched, or conflicting duplicate submission
+/// material is found.
 pub fn accepted_submission_records_from_wsc_store<P>(
     store: &P,
 ) -> Result<Vec<SubmissionAcceptanceRecord>, WscStoreObstruction>
@@ -857,7 +858,7 @@ pub fn receipt_correlation_records_from_wsc_envelope(
 /// # Errors
 ///
 /// Returns a typed WSC store obstruction when a committed receipt-correlation
-/// envelope is malformed.
+/// envelope is malformed or basis-mismatched.
 pub fn receipt_correlation_records_from_wsc_store<P>(
     store: &P,
 ) -> Result<WscReceiptCorrelationRecords, WscStoreObstruction>
@@ -1019,7 +1020,7 @@ pub fn retention_records_from_wsc_envelope(
 /// # Errors
 ///
 /// Returns a typed WSC store obstruction when a committed retention envelope is
-/// malformed or when retained evidence identities conflict.
+/// malformed, basis-mismatched, or when retained evidence identities conflict.
 pub fn retention_records_from_wsc_store<P>(
     store: &P,
 ) -> Result<WscRetentionRecords, WscStoreObstruction>

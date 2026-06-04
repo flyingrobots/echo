@@ -124,54 +124,79 @@ This teardown is written for a reader who has not seen this codebase before. It 
 
 ## Glossary: Domain Dictionary
 
-| Term                          | Definition                                                                                                                 | Why it matters                                                                  |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| WSC (Warp Snapshot Container) | Binary snapshot format storing one or more _warps_ (stateful graph partitions) with nodes, edges, and attachments.         | It is the transport and persistence substrate for the runtime’s canonical data. |
-| Warp                          | A deterministic unit of graph state used by the execution model.                                                           | It sets the boundary for hash computation, validation, and execution traversal. |
-| Node                          | A vertex in the graph. In runtime terms, nodes are the state-bearing objects that rules read from and mutate.              | Core object that gets read and mutated by rules.                                |
-| Edge                          | A directed relation between nodes (for example parent/child, dependency, or domain-specific arcs).                         | Encodes topology and traversal semantics.                                       |
-| Attachment                    | Binary metadata associated with nodes or edges; often a typed payload.                                                     | Captures payload-bearing semantics without changing the row shape.              |
-| Blob                          | Raw binary payload storage referenced by attachments.                                                                      | Separates large payload bytes from structured row tables via offsets/lengths.   |
-| Engine                        | The execution engine that accepts intents, schedules rewrites, applies rules, updates graph state, and produces snapshots. | The authoritative coordinator for deterministic execution.                      |
-| Intent                        | A unit of requested work submitted into a transaction.                                                                     | Source object that becomes pending rewrites in a transaction.                   |
-| Tick                          | A unit-of-progress marker in state evolution.                                                                              | Enables historical progression and snapshot indexing.                           |
-| Tick Receipt                  | The engine artifact that says whether a transaction committed cleanly, plus conflict details.                              | Exposes acceptance/rejection and blocker details for diagnostics.               |
-| Ledger                        | Sequence of execution history entries recording root state progression.                                                    | Provides auditability and time-travel context.                                  |
-| Scope Hash                    | A digest derived from rule inputs/metadata used during conflict planning.                                                  | Helps arbitration and conflict checks remain deterministic.                     |
-| Ingestion (`ingest_intent`)   | Canonicalized intake path for incoming intents into runtime graph form.                                                    | Enforces idempotent behavior and graph materialization of submissions.          |
-| GraphQL Contract              | Authored application schema that names domain types, operations, and footprint claims before Wesley compiles them.         | Keeps application nouns above the Echo runtime kernel.                          |
-| Wesley                        | Contract compiler/generator that emits helpers, codecs, registry metadata, and ABI-facing artifacts from authored schemas. | Bridges authored domain semantics into Echo's generic runtime boundary.         |
-| EINT                          | Canonical Echo intent envelope used at ABI/runtime ingress.                                                                | Gives submitted operation bytes stable structure before scheduler admission.    |
-| BTR                           | Boundary Transition Record: a contiguous provenance segment with input/output boundary hashes and validated entries.       | Packages a witnessed suffix for validation, replay, or causal exchange.         |
-| Fork                          | A copied worldline prefix at a precise tick, usually used to create a speculative child lane.                              | Gives time-travel and counterfactual work an exact causal basis.                |
-| Strand                        | A named relation over a child worldline derived from a source lane at a fork basis.                                        | Makes speculative work inspectable instead of anonymous branch state.           |
-| Braid                         | Read-only plural geometry over one observed lane plus support-pinned lanes.                                                | Lets observation include multiple exact coordinates without settlement.         |
-| File Aperture                 | Echo-owned contract for observing host file bytes, admitting drift, and materializing lawful writes.                       | Prevents apps from maintaining a shadow causal history for files.               |
-| Dispatcher / Scheduler        | Internal subsystem managing pending transactions, intents, and queued rewrite commands.                                    | Controls ordering and fairness of execution work.                               |
-| Parallel Work Unit            | Chunk of deterministic rewrite operations split across worker shards.                                                      | Supports throughput scaling while preserving deterministic merge semantics.     |
+| Term                          | Definition                                                                                                                 | Why it matters                                                                                 |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| WSC (Warp Snapshot Container) | Binary snapshot/evidence format storing graph partitions and, in newer store paths, causal-history envelopes.              | It carries durable verification, retention, and recovery evidence around the causal authority. |
+| Warp                          | A deterministic unit of graph state used by the execution model.                                                           | It sets the boundary for hash computation, validation, and execution traversal.                |
+| Node                          | A vertex in the graph. In runtime terms, nodes are the state-bearing objects that rules read from and mutate.              | Core object that gets read and mutated by rules.                                               |
+| Edge                          | A directed relation between nodes (for example parent/child, dependency, or domain-specific arcs).                         | Encodes topology and traversal semantics.                                                      |
+| Attachment                    | Binary metadata associated with nodes or edges; often a typed payload.                                                     | Captures payload-bearing semantics without changing the row shape.                             |
+| Blob                          | Raw binary payload storage referenced by attachments.                                                                      | Separates large payload bytes from structured row tables via offsets/lengths.                  |
+| Engine                        | The execution engine that accepts intents, schedules rewrites, applies rules, updates graph state, and produces snapshots. | The authoritative coordinator for deterministic execution.                                     |
+| Intent                        | A unit of requested work submitted into a transaction.                                                                     | Source object that becomes pending rewrites in a transaction.                                  |
+| Tick                          | A unit-of-progress marker in state evolution.                                                                              | Enables historical progression and snapshot indexing.                                          |
+| Tick Receipt                  | The engine artifact that says whether a transaction committed cleanly, plus conflict details.                              | Exposes acceptance/rejection and blocker details for diagnostics.                              |
+| Ledger                        | Sequence of execution history entries recording root state progression.                                                    | Provides auditability and time-travel context.                                                 |
+| Scope Hash                    | A digest derived from rule inputs/metadata used during conflict planning.                                                  | Helps arbitration and conflict checks remain deterministic.                                    |
+| Ingestion (`ingest_intent`)   | Canonicalized intake path for incoming intents into runtime graph form.                                                    | Enforces idempotent behavior and graph materialization of submissions.                         |
+| GraphQL Contract              | Authored application schema that names domain types, operations, and footprint claims before Wesley compiles them.         | Keeps application nouns above the Echo runtime kernel.                                         |
+| Wesley                        | Contract compiler/generator that emits helpers, codecs, registry metadata, and ABI-facing artifacts from authored schemas. | Bridges authored domain semantics into Echo's generic runtime boundary.                        |
+| EINT                          | Canonical Echo intent envelope used at ABI/runtime ingress.                                                                | Gives submitted operation bytes stable structure before scheduler admission.                   |
+| BTR                           | Boundary Transition Record: a contiguous provenance segment with input/output boundary hashes and validated entries.       | Packages a witnessed suffix for validation, replay, or causal exchange.                        |
+| Fork                          | A copied worldline prefix at a precise tick, usually used to create a speculative child lane.                              | Gives time-travel and counterfactual work an exact causal basis.                               |
+| Strand                        | A named relation over a child worldline derived from a source lane at a fork basis.                                        | Makes speculative work inspectable instead of anonymous branch state.                          |
+| Braid                         | Read-only plural geometry over one observed lane plus support-pinned lanes.                                                | Lets observation include multiple exact coordinates without settlement.                        |
+| File Aperture                 | Echo-owned contract for observing host file bytes, admitting drift, and materializing lawful writes.                       | Prevents apps from maintaining a shadow causal history for files.                              |
+| Dispatcher / Scheduler        | Internal subsystem managing pending transactions, intents, and queued rewrite commands.                                    | Controls ordering and fairness of execution work.                                              |
+| Parallel Work Unit            | Chunk of deterministic rewrite operations split across worker shards.                                                      | Supports throughput scaling while preserving deterministic merge semantics.                    |
 
 ## High-Level Mental Model
 
-Echo is split into two cooperating layers:
+Echo is a deterministic WARP runtime over witnessed causal history. The useful
+mental model is no longer "a CLI wrapped around a graph engine." That was a
+good early entry point, but the current system has five cooperating surfaces:
 
-1. A command-line interface layer (`warp-cli`) that lets you validate, inspect, and benchmark artifacts.
-2. A runtime core (`warp-core`) that owns state representation, scheduling, deterministic execution, and snapshot/hash logic.
+1. **Diagnostic tools** (`warp-cli`) validate, inspect, benchmark, and report
+   WAL or recovery posture without becoming the authority.
+2. **Runtime core** (`warp-core`) owns scheduling, deterministic execution,
+   receipt production, installed contract dispatch, QueryView routing,
+   retained evidence posture, and crash-recoverable causal history.
+3. **Contract ingress** lets authored GraphQL/Wesley artifacts become canonical
+   EINT envelopes, witnessed submissions, ticketed runtime ingress, and
+   scheduler-owned ticks.
+4. **Observation and retention** make reads first-class through
+   `ReadingEnvelope`/QueryView outputs, retained material references, WAL/WSC
+   evidence, and explicit obstruction posture.
+5. **Standard apertures** such as `echo-file-aperture` define reusable boundary
+   contracts for host artifacts without smuggling application nouns into the
+   kernel.
 
-The CLI is largely a thin orchestration layer: it reads inputs, invokes validation or runtime helpers, then formats output (text or JSON). The heavy technical behavior sits in the core modules.
+The CLI remains a thin orchestration layer: it reads inputs, invokes validation
+or runtime helpers, then formats text or JSON. The deeper behavior sits in
+runtime crates and standard aperture crates.
 
 ```mermaid
 flowchart TD
-  A[CLI Entrypoint: main.rs] --> B{Command parsed by clap}
-  B -->|verify| C[WSC validation + per-warp canonical hash]
-  B -->|inspect| D[Decode and summarize graph topology]
-  B -->|wal doctor| E[Read WAL metadata and classify posture]
-  B -->|wal submission-posture| F[Inspect submission-level posture]
-  B -->|bench| G[Run criterion benchmarks and diff baseline]
-  C --> H[Output sink: Text / JSON]
-  D --> H
-  E --> H
-  F --> H
-  G --> H
+  CLI[warp-cli diagnostics] --> FORMAT[Text / JSON output]
+  CLI --> VERIFY[WSC verify / inspect]
+  CLI --> WAL[WAL doctor / submission posture]
+  CLI --> BENCH[Bench report]
+
+  CONTRACT[GraphQL + Wesley artifacts] --> EINT[Canonical EINT envelope]
+  EINT --> SUB[Witnessed submission]
+  SUB --> HOST[Trusted host ticketed ingress]
+  HOST --> CORE[warp-core scheduler-owned tick]
+
+  CORE --> RECEIPT[TickReceipt / obstruction]
+  CORE --> READING[QueryView ReadingEnvelope]
+  CORE --> RETAIN[Retained material refs]
+  CORE --> HISTORY[WAL / WSC causal evidence]
+
+  APERTURE[echo-file-aperture] --> HOSTOBS[Host file observation]
+  APERTURE --> HOSTMAT[Host materialization verification]
+  HOSTOBS --> SUB
+  RECEIPT --> FORMAT
+  READING --> FORMAT
 ```
 
 ## 1. Entry Point
@@ -604,21 +629,38 @@ Hashing order and encoding order are deliberate: deterministic ordering eliminat
 
 ```mermaid
 flowchart TD
-  S1[On-disk WSC file] -->|open + validate| S2[WscFile]
-  S2 -->|warp_view slices| S3[Reader views zero-copy]
-  S3 -->|reified| S4[GraphStore in memory]
-  S4 -->|apply_to_state| S5[Ledger + Snapshot history]
-  S5 -->|snapshot and jump_to_tick| S6[Persistence boundaries for checkpoints]
-  S4 -->|dispatch| S7[Parallel executor]
-  S7 -->|validated deltas| S5
+  A[Witnessed submissions] --> B[Ticketed runtime ingress]
+  B --> C[Scheduler-owned ticks]
+  C --> D[Receipts + provenance entries]
+  D --> E[WAL / WSC causal evidence]
+  D --> F[Retained material refs]
+  D --> G[Reading envelopes]
+  G --> H[Product readings and diagnostics]
+  F --> H
+  E --> I[Recovery / replay posture]
+  E --> J[Snapshot or suffix export]
+  K[On-disk WSC snapshot] -->|open + validate| L[WscFile]
+  L -->|warp_view slices| M[Reader views]
+  M -->|reified| N[GraphStore in memory]
+  N -->|apply_to_state| C
+  O[Host file bytes] --> P[File aperture observation]
+  P --> A
+  D --> Q[Materialization intent]
+  Q --> R[Host file verification]
 ```
 
 ### Practical implications
 
-- **On disk**: long-lived source of truth for transport/verification.
-- **In memory**: fast execution working state.
-- **Snapshot history**: auditability and time-travel checkpoints.
-- **WAL (causal)**: externalized execution posture and submission diagnostics.
+- **Causal history**: witnessed submissions, ticketed ingress, ticks, receipts,
+  and retained evidence are the authority.
+- **On disk**: WSC/WAL artifacts are durable evidence and recovery material, not
+  a shortcut around admission law.
+- **In memory**: runtime state is fast working material derived from causal
+  history and checkpoint/snapshot inputs.
+- **Readings**: `ReadingEnvelope` and QueryView outputs are bounded
+  observations with explicit basis and retained-evidence posture.
+- **Files**: host files are observed boundary artifacts and materialization
+  targets. They are not Echo state.
 
 ## 10. Concurrency and Asynchronous Flows
 
@@ -847,7 +889,10 @@ timeline
 
 ## 16.1 Project Progress and Future Use Cases
 
-This project is at an unusually useful middle point: the core runtime primitives exist, operational tooling is wired, but a lot of external integration scaffolding remains intentionally lightweight.
+This project is at an unusually useful middle point: the runtime authority
+model is much more real than the early CLI-only teardown implied, but the
+product-facing integration surface is still being hardened under `jedit`
+pressure.
 
 ### Where it is today
 
@@ -856,41 +901,66 @@ This project is at an unusually useful middle point: the core runtime primitives
     - bounded-parallel rewrite planning,
     - conflict-aware reservation,
     - and checkpointed history/snapshot mechanics.
+- Installed contract packages can dispatch mutation handlers through
+  witnessed, ticketed, scheduler-owned ticks.
+- QueryView routes can reach installed query observers and return
+  `ReadingEnvelope` posture with authored observer identity and retained
+  evidence coordinates.
+- WAL-backed runtime ACK/recovery work has moved accepted submissions, tick
+  outcomes, receipt correlations, retained refs, and recovery posture toward
+  crash-recoverable evidence instead of process memory.
+- WSC store contracts and envelope tests cover accepted submissions, receipt
+  correlations, retained material, reading refs, commit markers, and corrupted
+  history obstruction posture.
+- `echo-file-aperture` exists as the first Echo-owned standard file aperture
+  slice. It deterministically identifies host file sites, records observations,
+  reconciles basis drift, proposes content, obstructs stale writes, and verifies
+  materialized output in memory.
 - Runtime and CLI boundaries are well separated: command tooling does not mutate core scheduler state except through explicit paths.
-- Observability is mostly artifact-driven (text/JSON output + WAL posture maps), not yet full telemetry streaming.
+- Observability is mostly artifact-driven: text/JSON output, WAL posture maps,
+  WSC envelope checks, reading envelopes, and focused witnesses. It is not yet
+  a polished telemetry streaming product.
 - There is already a strong testability story from determinism (hashes, canonical ordering, strict validation), which is ideal for replay and bisecting regressions.
+- The file aperture is not yet bound end-to-end to the scheduler, WAL/WSC
+  retention, and host materialization outbox. That is the next integration hill,
+  not completed truth.
 
 ### Where it is heading
 
 Based on the present design, the roadmap is likely to continue toward:
 
-1. **Richer command surfaces**
-    - REST/HTTP adapters that call the same engine primitives.
-    - Programmatic entry points that reuse `verify`/`inspect` logic rather than reimplementing it.
-2. **Stronger production hardening**
-    - WAL posture hooks becoming first-class monitoring outputs,
-    - explicit SLA/error budget handling around benchmark drift,
-    - safer defaults around concurrency tuning and worker saturation.
-3. **Incremental persistence improvements**
-    - smarter snapshot compaction around tick deltas,
-    - optional lazy loading for very large WSC payloads,
-    - stronger migration paths if schema version evolves.
+1. **File aperture integration**
+    - bind `echo-file-aperture` observations to witnessed submissions,
+    - admit external drift as causal history,
+    - form deterministic write/content intents from proposed host bytes,
+    - authorize materialization only after durable causal commit.
+2. **Product release gate with jedit**
+    - keep `jedit` nouns in `jedit` contracts and adapters,
+    - make ordinary open/edit/save/recover/export behavior consume Echo
+      authority,
+    - prove recovery without a jedit-owned shadow causal ledger.
+3. **Stronger production hardening**
+    - make WAL/WSC posture first-class monitoring output,
+    - stabilize contract-aware obstruction taxonomy,
+    - harden retained evidence recovery across restart and replay.
 4. **Tooling and introspection maturity**
     - richer JSON schema for inspection output,
-    - machine-parseable receipts for dashboards,
-    - CLI output modes optimized for CI (CSV/NDJSON variants).
+    - machine-parseable receipts and readings for dashboards,
+    - CLI output modes optimized for CI and agent witnesses.
 
 ```mermaid
 flowchart TD
-  P[Current state] --> C1[Expose typed APIs]
-  P --> C2[Improve telemetry]
-  P --> C3[Improve persistence ergonomics]
-  C1 --> H1[Graph services / RPC layer]
-  C2 --> H2[Continuous health dashboards]
-  C3 --> H3[Faster snapshots + lower memory]
-  H1 --> F[Future use cases]
+  P[Current state] --> C1[File aperture integration]
+  P --> C2[jedit release gate]
+  P --> C3[WAL / WSC recovery hardening]
+  C1 --> H1[Host observation + drift admission]
+  C1 --> H2[Authorized materialization]
+  C2 --> H3[Open / edit / save / recover]
+  C3 --> H4[Retained evidence replay]
+  H1 --> F[External consumers]
   H2 --> F
   H3 --> F
+  H4 --> F
 ```
 
 ### Cool ideas
@@ -898,6 +968,9 @@ flowchart TD
 - Use the deterministic hash as a cross-language conformance gate in polyglot agent pipelines.
 - Export `inspect` output into a governance compliance feed (e.g., graph anomaly reports by edge/attachment histograms).
 - Build a `chaos mode` for `commit_with_receipt` that intentionally injects conflict conditions for testing scheduler robustness.
+- Add a file-aperture witness that opens arbitrary host bytes, admits drift,
+  authorizes materialization, and verifies the final artifact from retained
+  evidence.
 - Add pluggable policy modules for alternative sharding strategies (e.g., topology-aware or latency-aware sharding).
 - Create an educational “execution tracer” mode that emits Mermaid-ready spans from sequence/state traces already implied by this teardown.
 

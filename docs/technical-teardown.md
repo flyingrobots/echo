@@ -33,6 +33,9 @@
 - [16.3 Design Critiques: Assumptions and Risk Hotspots](#163-design-critiques-assumptions-and-risk-hotspots)
 - [16.4 Typed Pseudo-Definitions for Core Runtime Types](#164-typed-pseudo-definitions-for-core-runtime-types)
 - [17. Deep Dives: Technical Feats and Trade-Offs](#17-deep-dives-technical-feats-and-trade-offs)
+    - [17.6 Echo Tick: From GraphQL to BTR](#176-echo-tick-from-graphql-to-btr)
+    - [17.7 Forks, Strands, and Braids](#177-forks-strands-and-braids)
+    - [17.8 File Materialization and Ingest](#178-file-materialization-and-ingest)
 - [18. Entity-Relationship View](#18-entity-relationship-view)
 - [Appendix A: Type-Intent to Data Layout Mapping](#appendix-a-type-intent-to-data-layout-mapping)
 - [Appendix B: Reference Command Paths](#appendix-b-reference-command-paths)
@@ -110,6 +113,14 @@ This teardown is written for a reader who has not seen this codebase before. It 
 | Ledger                        | Sequence of execution history entries recording root state progression.                                                    | Provides auditability and time-travel context.                                  |
 | Scope Hash                    | A digest derived from rule inputs/metadata used during conflict planning.                                                  | Helps arbitration and conflict checks remain deterministic.                     |
 | Ingestion (`ingest_intent`)   | Canonicalized intake path for incoming intents into runtime graph form.                                                    | Enforces idempotent behavior and graph materialization of submissions.          |
+| GraphQL Contract              | Authored application schema that names domain types, operations, and footprint claims before Wesley compiles them.         | Keeps application nouns above the Echo runtime kernel.                          |
+| Wesley                        | Contract compiler/generator that emits helpers, codecs, registry metadata, and ABI-facing artifacts from authored schemas. | Bridges authored domain semantics into Echo's generic runtime boundary.         |
+| EINT                          | Canonical Echo intent envelope used at ABI/runtime ingress.                                                                | Gives submitted operation bytes stable structure before scheduler admission.    |
+| BTR                           | Boundary Transition Record: a contiguous provenance segment with input/output boundary hashes and validated entries.       | Packages a witnessed suffix for validation, replay, or causal exchange.         |
+| Fork                          | A copied worldline prefix at a precise tick, usually used to create a speculative child lane.                              | Gives time-travel and counterfactual work an exact causal basis.                |
+| Strand                        | A named relation over a child worldline derived from a source lane at a fork basis.                                        | Makes speculative work inspectable instead of anonymous branch state.           |
+| Braid                         | Read-only plural geometry over one observed lane plus support-pinned lanes.                                                | Lets observation include multiple exact coordinates without settlement.         |
+| File Aperture                 | Echo-owned contract for observing host file bytes, admitting drift, and materializing lawful writes.                       | Prevents apps from maintaining a shadow causal history for files.               |
 | Dispatcher / Scheduler        | Internal subsystem managing pending transactions, intents, and queued rewrite commands.                                    | Controls ordering and fairness of execution work.                               |
 | Parallel Work Unit            | Chunk of deterministic rewrite operations split across worker shards.                                                      | Supports throughput scaling while preserving deterministic merge semantics.     |
 
@@ -1194,6 +1205,329 @@ flowchart TD
   BM7 --> BM8[match benchmark by name]
   BM8 --> BM9[delta = current - baseline]
   BM9 --> BM10[mark status with comparison marker]
+```
+
+### 17.6 Echo Tick: From GraphQL to BTR
+
+The most useful way to understand Echo's contract-hosting path is to follow one
+operation all the way from authored schema to exportable causal suffix.
+
+The path is:
+
+1. A developer authors a GraphQL contract.
+2. Wesley compiles that contract into operation ids, codecs, registry metadata,
+   and footprint-shaped runtime artifacts.
+3. A host packs a canonical EINT envelope for the chosen operation.
+4. Echo records the submission as witnessed ingress material.
+5. A trusted runtime boundary tickets and stages that envelope into runtime
+   ingress.
+6. The scheduler owns the tick that dispatches the handler and applies any
+   admitted rewrite.
+7. The tick emits receipt evidence and advances provenance.
+8. A contiguous provenance segment can be packaged as a BTR.
+
+The important point is that only the scheduler-owned tick mutates runtime
+state. GraphQL authors vocabulary. Wesley compiles it. EINT carries canonical
+bytes. Ticketed ingress stages work. The tick is where lawful execution becomes
+history.
+
+```mermaid
+sequenceDiagram
+  participant Dev
+  participant Wesley
+  participant Host
+  participant Echo
+  participant Scheduler
+  participant Prov
+
+  Dev->>Wesley: GraphQL contract + directives
+  Wesley-->>Host: op ids, codecs, registry metadata, footprints
+  Host->>Echo: EINT envelope bytes
+  Echo-->>Host: witnessed submission id
+  Host->>Echo: admission ticket + envelope
+  Echo-->>Scheduler: ticketed runtime ingress
+  Scheduler->>Scheduler: scheduler-owned tick
+  Scheduler->>Scheduler: decode op + vars, check footprint, execute handler
+  Scheduler-->>Echo: TickReceipt + state patch
+  Echo->>Prov: append provenance entry
+  Prov-->>Echo: state root + commit hash
+  Host->>Prov: build_btr(worldline, start, end)
+  Prov-->>Host: BoundaryTransitionRecord
+```
+
+That sequence has several authority boundaries:
+
+| Boundary             | Owns                                                     | Does not own                       |
+| -------------------- | -------------------------------------------------------- | ---------------------------------- |
+| GraphQL contract     | domain nouns, operation shape, declared footprint        | runtime scheduling or tick cadence |
+| Wesley artifacts     | generated codecs, ids, registry metadata, ABI helpers    | mutable runtime state              |
+| EINT envelope        | canonical operation bytes                                | admission or execution             |
+| witnessed submission | durable ingress evidence                                 | scheduler-visible work             |
+| ticketed ingress     | trusted staging into a writer head inbox                 | handler execution                  |
+| scheduler tick       | admission, dispatch, conflict checks, receipt production | host-side materialization          |
+| BTR                  | contiguous witnessed suffix export                       | new state mutation                 |
+
+In code terms, the runtime distinguishes submission evidence from executable
+work. App-facing submission records canonical ingress material but does not
+tick, stage runtime ingress, dispatch handlers, or mutate application state. A
+trusted boundary later stages ticketed runtime ingress. The scheduler then
+correlates the eventual receipt back to the witnessed submission and ticketed
+ingress ids.
+
+```mermaid
+flowchart TD
+  GQL[GraphQL contract] --> WES[Wesley generated artifacts]
+  WES --> EINT[EINT canonical envelope]
+  EINT --> SUB[Witnessed submission]
+  SUB --> TICKET[Admission ticket]
+  TICKET --> STAGE[Ticketed runtime ingress]
+  STAGE --> TICK[Scheduler-owned tick]
+  TICK --> RECEIPT[Tick receipt correlation]
+  TICK --> PROV[Provenance entry]
+  PROV --> BTR[Boundary Transition Record]
+```
+
+A BTR is not a checkpoint and not a replay shortcut by itself. It is a
+validated contiguous segment:
+
+- one `worldline_id`;
+- one `u0_ref`;
+- input boundary hash before the segment;
+- output boundary hash after the segment;
+- ordered provenance entries for the selected tick range;
+- logical counter and auth tag material for the transport or authority layer.
+
+Validation checks the selected range against registered provenance. It rejects
+unknown worldlines, mismatched `u0_ref`, wrong input/output boundary hashes,
+non-contiguous ticks, mixed worldlines, and entries that do not exactly match
+stored history.
+
+The practical consequence:
+
+- a GraphQL mutation is not "called" in the usual app-framework sense;
+- it is compiled into canonical runtime material;
+- the runtime admits and ticks it under Echo law;
+- the resulting history can be exported as a witnessed suffix.
+
+### 17.7 Forks, Strands, and Braids
+
+Echo uses three related but distinct ideas for counterfactual and plural
+history work:
+
+| Concept | What it is                                                  | What it is not                              |
+| ------- | ----------------------------------------------------------- | ------------------------------------------- |
+| Fork    | A copied worldline prefix at one precise tick.              | A semantic relationship by itself.          |
+| Strand  | A named relation over a forked child worldline.             | A separate substrate or private scheduler.  |
+| Braid   | Read-only support geometry across exact strand coordinates. | Settlement, import, or conflict resolution. |
+
+The distinction matters because each concept answers a different question.
+
+- A **fork** answers: "what state did this child lane start from?"
+- A **strand** answers: "what is the named speculative relation between this
+  child lane and its basis?"
+- A **braid** answers: "which exact support lanes participate in this local
+  reading?"
+
+```mermaid
+flowchart TD
+  P[Parent worldline] -->|fork at tick N| C[Child worldline]
+  C --> S[Strand relation]
+  S --> B[ForkBasisRef<br/>source lane + tick + commit + boundary]
+  S --> H[Writer heads<br/>ordinary runtime control]
+  S --> PINS[Support pins]
+  PINS --> SUP1[Support strand at pinned tick]
+  PINS --> SUP2[Support strand at pinned tick]
+  SUP1 --> SITE[Observed braided site]
+  SUP2 --> SITE
+  S --> SITE
+```
+
+A fork copies enough provenance to create a child worldline at the requested
+basis. Runtime forking is failure-atomic: if provenance copy, replay,
+worldline registration, writer-head registration, or strand registration fails,
+Echo restores runtime and provenance to their pre-fork state. The fork must not
+leave partial truth behind.
+
+A strand then makes the relationship inspectable. The strand records:
+
+- stable `strand_id`;
+- immutable `fork_basis_ref`;
+- `child_worldline_id`;
+- writer heads authorized for the child lane;
+- optional read-only support pins.
+
+The fork basis is deliberately redundant:
+
+- source lane id;
+- fork tick;
+- commit hash at that tick;
+- output boundary hash at that tick;
+- provenance ref for native lookup.
+
+Those fields must all name the same provenance coordinate. If they disagree,
+strand construction is invalid.
+
+Braids are narrower than settlement. A support pin says:
+
+```text
+when reading this strand's local site,
+also include that support strand at this exact pinned tick
+```
+
+It does not copy the support lane, authorize writes through it, merge it,
+settle it, or create a new worldline. It only changes the observation geometry
+for a bounded reading.
+
+```mermaid
+stateDiagram-v2
+  [*] --> ParentWorldline
+  ParentWorldline --> ForkedChild : fork(source, tick)
+  ForkedChild --> LiveStrand : register Strand
+  LiveStrand --> BraidedSite : add support pins
+  BraidedSite --> LiveStrand : unpin support
+  LiveStrand --> Dropped : drop strand
+  Dropped --> [*]
+```
+
+Settlement is the next layer. It compares a strand suffix against its basis,
+decides whether a suffix can become history on another lane, and produces
+conflict artifacts when it cannot. Braid geometry should feed settlement, but
+it should not be collapsed into settlement.
+
+For debugger and observer surfaces, the useful rule is:
+
+```text
+Forks establish basis.
+Strands name speculative lanes.
+Braids publish plural local sites.
+Settlement decides what can become history.
+```
+
+### 17.8 File Materialization and Ingest
+
+File support sits at an awkward boundary because users think in ordinary files
+while Echo thinks in witnessed causal history.
+
+The architectural rule is:
+
+```text
+A host file is not Echo state.
+It is an observed boundary artifact and a materialization target.
+```
+
+That means opening a file and saving a file can both create causal events. A
+read can discover external drift. A write can authorize external
+materialization. Echo should own the causal record for both; applications such
+as Jedit or WARP-drive should not maintain a parallel causal ledger.
+
+#### Ingest: host bytes into causal history
+
+When a host file is opened, the user-visible guarantee is simple:
+
+```text
+open file -> see the exact bytes currently on disk
+```
+
+The Echo-facing flow is more explicit:
+
+1. Resolve a `FileCoordinate` from the host path and available platform file
+   identity.
+2. Read bytes and relevant metadata through a host capability.
+3. Compute canonical content and metadata digests.
+4. Compare those digests with the latest retained Echo basis for that
+   coordinate.
+5. If Echo has no basis, admit the host bytes as an observed boundary artifact.
+6. If disk has drifted from the retained basis, admit that drift as an external
+   observation.
+7. Return a reading envelope containing exact bytes, basis, digest, and
+   evidence posture.
+
+```mermaid
+flowchart TD
+  Open[User opens path] --> Coord[Resolve FileCoordinate]
+  Coord --> HostRead[Read host bytes + metadata]
+  HostRead --> Digest[Canonical digests]
+  Digest --> Compare{Matches Echo basis?}
+  Compare -->|unknown| Observe[Admit host observation]
+  Compare -->|drifted| Drift[Admit external drift observation]
+  Compare -->|yes| Existing[Use retained basis]
+  Observe --> Reading[File reading envelope]
+  Drift --> Reading
+  Existing --> Reading
+  Reading --> App[App renders exact file contents]
+```
+
+The application should not ask, "does my private sidecar know this file?" It
+should ask Echo for the file aperture reading and render the bytes it receives.
+If evidence is missing, redacted, encrypted-unavailable, or corrupt, Echo
+should return an obstruction posture rather than silently delegating authority
+back to the app.
+
+#### Materialization: causal history back to host files
+
+Saving a file is the inverse path. The editor or mount adapter proposes target
+content. Echo compares it to the current basis, forms lawful write intents, and
+authorizes materialization only after the causal transaction is durable.
+
+The WAL posture for external effects is already the right shape:
+
+```text
+No external side effect may be performed before the causal transaction
+authorizing that side effect is durably committed.
+```
+
+For files, that means:
+
+1. Form a deterministic write intent from old basis and new content.
+2. Admit and execute the intent under scheduler-owned tick law.
+3. Commit receipt, state delta, and materialization intent to durable history.
+4. Publish an idempotent materialization effect token.
+5. Write a temporary artifact.
+6. `fsync` the temporary artifact.
+7. Atomically rename it into place.
+8. `fsync` the containing directory.
+9. Verify final path digest and metadata.
+10. Record `MaterializationEffectObserved`.
+
+```mermaid
+sequenceDiagram
+  participant App
+  participant Echo
+  participant WAL
+  participant Outbox
+  participant Worker
+  participant FS as Host Filesystem
+
+  App->>Echo: proposed file content
+  Echo->>Echo: diff against causal basis
+  Echo->>Echo: scheduler-owned tick
+  Echo->>WAL: commit receipt + materialization intent
+  WAL-->>Echo: durable commit
+  Echo->>Outbox: idempotent effect token
+  Worker->>Outbox: claim effect token
+  Worker->>FS: temp write + fsync + atomic rename
+  Worker->>FS: verify final digest
+  Worker->>WAL: MaterializationEffectObserved
+```
+
+The hard case is crash recovery:
+
+- if Echo crashes before WAL commit, the file change was never authorized;
+- if Echo crashes after WAL commit but before materialization, recovery can
+  retry from the idempotent token;
+- if Echo crashes after materialization but before the observation record,
+  recovery verifies the final artifact and records, retries, repairs, or
+  obstructs according to policy.
+
+This is why file ingest and file materialization belong in Echo's shared
+aperture layer rather than in each consumer. WARP-drive may present a POSIX
+mount. Jedit may present an editor buffer. Both are product surfaces over the
+same lower truth:
+
+```text
+Echo owns file observation, drift admission, write intent formation,
+materialization authorization, and retained evidence posture.
+Consumers own presentation and host affordances.
 ```
 
 ## 18. Entity-Relationship View

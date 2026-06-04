@@ -24,42 +24,58 @@ The Echo work doctrine: A backlog, a loop, and honest bookkeeping.
 | **`CONTINUUM.md`**    | Platform memo: hot/cold split and shared contracts. |
 | **`METHOD.md`**       | Repo work doctrine (this document).                 |
 
-## Backlog Lanes
+## Backlog
 
-| Lane              | Purpose                                                     |
-| :---------------- | :---------------------------------------------------------- |
-| **`asap/`**       | Imminent work; pull into the next cycle.                    |
-| **`v0.1.0/`**     | Release-bar blockers for the local contract-host milestone. |
-| **`up-next/`**    | Queued after `asap/`, outside the release-bar lane.         |
-| **`cool-ideas/`** | Uncommitted experiments.                                    |
-| **`bad-code/`**   | Technical debt that must be addressed.                      |
-| **`inbox/`**      | Raw ideas.                                                  |
+GitHub Issues are the live backlog. Labels are the index.
 
-`v0.1.0/` is a milestone lane, not an automatic priority override. Move a
-release-blocking card into `asap/` only when it becomes the current pull.
+| Label                 | Purpose                        |
+| :-------------------- | :----------------------------- |
+| **`lane:inbox`**      | Unprocessed work or raw ideas. |
+| **`lane:asap`**       | Pull into a cycle soon.        |
+| **`lane:up-next`**    | Queued after `asap`.           |
+| **`lane:cool-ideas`** | Uncommitted experiments.       |
+| **`lane:bad-code`**   | Technical debt.                |
+| **`lane:release`**    | Release-bar work.              |
+
+Historical filesystem backlog cards are archived under
+`docs/method/graveyard/github-issue-migration/`. The `docs/method/backlog/`
+directory remains only as a compatibility marker for legacy `cargo xtask
+method ...` workspace discovery. Do not add new live work cards there.
 
 ## The Cycle Loop
 
 ```mermaid
 stateDiagram-v2
     direction LR
-    [*] --> Pull: asap/
+    [*] --> Pull: issue
     Pull --> Branch: cycle/
-    Branch --> Red: failing tests
+    Branch --> Design: template
+    Design --> Red: failing tests
     Red --> Green: passing tests
     Green --> Retro: findings/debt
     Retro --> Ship: PR to main
     Ship --> [*]
 ```
 
-1. **Pull**: Move an item from `backlog/asap/` to `docs/design/`.
-2. **Branch**: Create `cycle/<cycle_id>-<slug>`.
-3. **Red**: Write failing tests. Playback questions become specs.
-4. **Green**: Make them pass. Fix determinism drift (DIND).
-5. **Retro**: Document findings and follow-on debt in the cycle doc.
-6. **Ship**: Open a PR to `main`. Update `BEARING.md` and `CHANGELOG.md` after merge.
+1. **Pull**: Choose a GitHub Issue with Method labels. Create or update a
+   design doc under `docs/design/` and link it to the issue.
+2. **Branch**: Create a branch named from the issue title, or
+   `cycle/<id>-<slug>` when the work is explicitly cycle-shaped.
+3. **Design**: Use `docs/method/design-template.md`.
+4. **Red**: Write failing tests from the design's playback questions.
+5. **Green**: Make them pass. Fix determinism drift with DIND when relevant.
+6. **Witness**: Record the reproducible proof.
+7. **Retro**: Document drift and follow-on debt.
+8. **Ship**: Open a PR to `main`.
+
+Design docs may define intent, but they do not prove implementation. Runtime
+and product work must include at least one executable behavior witness such as
+Rust API behavior, CLI output, WASM ABI behavior, schema validation, WAL/WSC
+recovery, DIND determinism, or generated contract behavior.
 
 ## Naming Convention
 
-Backlog and cycle files follow: `<ID>-<slug>.md` or `<LEGEND>-<slug>.md`
-Example: `RE-017-byte-pipeline.md`
+Issues use readable titles and Method labels. Branches use lowercase slugs of
+the issue title unless a cycle id is explicitly assigned.
+
+Design docs use the Echo template at `docs/method/design-template.md`.

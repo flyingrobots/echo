@@ -11,6 +11,7 @@ members = [
     "crates/warp-geom",
     "crates/warp-benches",
     "crates/echo-app-core",
+    "crates/echo-file-aperture",
     "crates/echo-config-fs",
     "crates/echo-session-proto",
     "crates/echo-graph",
@@ -42,6 +43,7 @@ echo-cas = { version = "0.1.0", path = "crates/echo-cas" }
 echo-config-fs = { version = "0.1.0", path = "crates/echo-config-fs" }
 echo-dind-tests = { version = "0.1.0", path = "crates/echo-dind-tests" }
 echo-dry-tests = { version = "0.1.0", path = "crates/echo-dry-tests" }
+echo-file-aperture = { version = "0.1.0", path = "crates/echo-file-aperture" }
 echo-graph = { version = "0.1.0", path = "crates/echo-graph" }
 echo-runtime-schema = { version = "0.1.0", path = "crates/echo-runtime-schema", default-features = false }
 echo-registry-api = { version = "0.1.0", path = "crates/echo-registry-api" }

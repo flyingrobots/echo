@@ -72,6 +72,15 @@ mindmap
       Parallel Executor
       Snapshot
       Ledger
+    Contract Ingress
+      GraphQL Contract
+      Wesley Artifacts
+      EINT Envelope
+      Witnessed Submission
+      Ticketed Runtime Ingress
+      Scheduler-Owned Tick
+      Tick Receipt
+      BTR Suffix
     Graph Model
       Node
       Edge
@@ -79,10 +88,27 @@ mindmap
       Attachment Value
       Scope Hashes
       State Root
+    Worldline Geometry
+      Fork
+      Strand
+      Support Pin
+      Braid
+      Settlement
+    File Aperture
+      Host Observation
+      File Site
+      File Projection
+      Content Intent
+      Host Materialization
+      Verification Receipt
     Data Stores
       On-disk WSC snapshot
       In-memory GraphStore
+      Causal WAL
+      CAS / Retained Material
       Tick History
+      Reading Envelopes
+      Materialization Outbox
       Policy + Telemetry
     Supporting Systems
       clap CLI

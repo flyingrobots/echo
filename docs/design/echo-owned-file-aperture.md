@@ -2,7 +2,7 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 <!-- prettier-ignore-start -->
-<!-- markdownlint-disable -->
+<!-- markdownlint-disable MD007 MD032 MD034 -->
 ---
 title: "PLATFORM-0533 - Echo-Owned File Aperture"
 legend: "PLATFORM"
@@ -14,7 +14,7 @@ owners:
 created: "2026-06-06"
 updated: "2026-06-06"
 ---
-<!-- markdownlint-enable -->
+<!-- markdownlint-enable MD007 MD032 MD034 -->
 <!-- prettier-ignore-end -->
 
 # PLATFORM-0533 - Echo-Owned File Aperture
@@ -217,16 +217,14 @@ structured data, not English-only text.
 
 ## Data / State Model
 
-State posture:
-
-- Source of truth: in this slice, `InMemoryFileAperture`; later WAL/WSC.
-- Derived state: `FileSiteId`, `FileBasisToken`, content and metadata digests.
-- Invalid states: empty path evidence, empty platform identity, stale basis,
-  and site mismatch.
-- Reset behavior: dropping the in-memory aperture drops state.
-- Serialization: hash preimages use domain prefixes and length prefixes.
-- Determinism: `BTreeMap` ordering and BLAKE3 provide local deterministic
-  results.
+| Category                  | Description                                                                 |
+| ------------------------- | --------------------------------------------------------------------------- |
+| Source of truth           | In this slice, `InMemoryFileAperture` state; future slices bind to WAL/WSC. |
+| Derived state             | `FileSiteId`, `FileBasisToken`, content digest, metadata digest.            |
+| Invalid states            | Empty path evidence, empty platform identity, stale basis, site mismatch.   |
+| Reset behavior            | Dropping the in-memory aperture drops state; this is intentional for now.   |
+| Serialization             | Stable byte preimages use explicit domain prefixes and length prefixes.     |
+| Deterministic assumptions | `BTreeMap` ordering and BLAKE3 digests provide deterministic local results. |
 
 ```mermaid
 stateDiagram-v2
@@ -292,14 +290,13 @@ Future WAL/WSC work must retain enough evidence to answer:
 
 ## Accessibility Posture
 
-Accessibility posture:
-
-- Semantic labels or facts: receipts expose posture enums and digests.
-- Focus order or ownership: not applicable; this is not rendered.
-- Hidden or visual-only information: not applicable; no UI scraping required.
-- Keyboard behavior: not applicable.
-- Secret or redaction behavior: future retention must report missing or
-  redacted material structurally.
+| Concern                           | Posture                                                              |
+| --------------------------------- | -------------------------------------------------------------------- |
+| Semantic labels or facts          | Receipts expose posture enums and digests.                           |
+| Focus order or ownership          | Not applicable; this is not a rendered surface.                      |
+| Hidden or visual-only information | Not applicable; the contract is inspectable without UI scraping.     |
+| Keyboard behavior                 | Not applicable.                                                      |
+| Secret or redaction behavior      | Future retention must report missing/redacted material structurally. |
 
 ## Localization / Directionality Posture
 

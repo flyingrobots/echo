@@ -1529,8 +1529,8 @@ open file -> see the exact bytes currently on disk
 
 The Echo-facing flow is more explicit:
 
-1. Resolve a `FileCoordinate` from the host path and available platform file
-   identity.
+1. Resolve a host-aperture `FileSiteId` and identity posture from the host path
+   and available platform file identity.
 2. Read bytes and relevant metadata through a host capability.
 3. Compute canonical content and metadata digests.
 4. Compare those digests with the latest retained Echo basis for that
@@ -1555,6 +1555,19 @@ flowchart TD
   Existing --> Reading
   Reading --> App[App renders exact file contents]
 ```
+
+The resolution rule is tiered. When stable platform identity exists, Echo
+derives `FileSiteId` from that platform identity and reports
+`PlatformStable`. The path remains observation evidence, so a rename keeps the
+same file site. When platform identity is unavailable, Echo derives a
+domain-separated path-bound id and reports `PathBound`; a rename cannot be
+proven as the same host file from path evidence alone.
+
+`FileSiteId` is not `WorldlineId`. `FileSiteId` binds local host-aperture
+observations. `WorldlineId` remains the portable logical document identity for
+causal history. Future rebinding between them should be explicit through
+binding or anchor records, not hidden by treating host file identity as WSC
+identity.
 
 The application should not ask, "does my private sidecar know this file?" It
 should ask Echo for the file aperture reading and render the bytes it receives.

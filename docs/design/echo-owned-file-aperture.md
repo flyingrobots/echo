@@ -1,375 +1,519 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# Echo-Owned File Aperture
+<!-- prettier-ignore-start -->
+<!-- markdownlint-disable -->
+---
+title: "PLATFORM-0533 - Echo-Owned File Aperture"
+legend: "PLATFORM"
+lane: "design"
+issue: "https://github.com/flyingrobots/echo/issues/533"
+status: "active"
+owners:
+  - "@flyingrobots"
+created: "2026-06-06"
+updated: "2026-06-06"
+---
+<!-- markdownlint-enable -->
+<!-- prettier-ignore-end -->
 
-Status: active design note.  
-Scope: shared Echo standard artifact for host-file observation,
-reconciliation, projection, mutation, and materialization.
+# PLATFORM-0533 - Echo-Owned File Aperture
+
+## Linked Issue
+
+- [Issue #533](https://github.com/flyingrobots/echo/issues/533)
 
 ## Decision Summary
 
-The file aperture belongs in Echo as a standard Echo-owned contract/runtime
-artifact. Wesley may describe and generate the contract shape, but Wesley does
-not own file semantics. Jedit and WARP DRIVE are client membranes over the same
-Echo file aperture. They may provide host capabilities and user interfaces, but
-they must not maintain causal file history.
+Echo owns the standard host-file aperture contract used by Jedit, WARP DRIVE,
+and other local-file consumers. The aperture observes host bytes, resolves
+host-local file-site identity posture, admits external drift, accepts content
+proposals against explicit basis tokens, and verifies materialization without
+letting applications maintain private causal file ledgers.
 
-This artifact is not an Echo kernel primitive. Echo core remains substrate
-generic and app-noun-clean. The file aperture is a standard optic hosted by
-Echo: it uses Echo admission, WAL/WSC retention, receipts, reading envelopes,
-witnesses, and materialization posture to make host-file interactions lawful.
+## Sponsored Human
 
-## Sponsored Humans
+A Jedit user wants to open any file from disk, see exactly the bytes there,
+edit normally, and save normally so that the editor feels ordinary, without
+having to understand Echo observations, basis tokens, drift receipts, or
+materialization verification.
 
-A Jedit user wants to open any file from disk, see exactly the bytes that are
-there, edit normally, and save normally, without knowing that Echo is observing,
-admitting, diffing, retaining, and materializing causal file history.
-
-A WARP DRIVE user wants ordinary POSIX tools such as `cat`, `vim`, `rg`, and
-build tools to see files, while Echo remains the authority behind the projected
-bytes and every basis-aware write.
-
-## Sponsored Agents
+## Sponsored Agent
 
 An agent needs a machine-readable file aperture contract so it can inspect why
 a file has particular bytes, replay or reconstruct a retained coordinate, and
-distinguish admitted host observations from materializations without scraping
-Jedit UI state or WARP DRIVE FUSE internals.
+distinguish host observations from materializations, without inferring state
+from Jedit UI caches, WARP DRIVE FUSE internals, or private app logs.
 
 ## Hill
 
-By the end of the file aperture cycle, Jedit and WARP DRIVE can both open a
-host file through Echo, receive a witnessed file projection, submit changes
-against an explicit basis, and inspect receipts proving whether Echo admitted,
-obstructed, or materialized the file state.
+By the end of this cycle, Echo exposes a reusable Rust file aperture crate that
+can observe host file material, resolve file-site identity posture, project
+bytes at a basis, obstruct stale proposals, and verify materialized host bytes,
+and the repo proves it with focused `echo-file-aperture` contract tests.
 
 ## Current Truth
 
-Echo already has the generic runtime ingredients:
+Before this branch, Echo already had the runtime ingredients for witnessed
+admission, scheduler-owned receipt correlation, QueryView readings, retained
+evidence posture, and app-noun-clean contract hosting:
+[`docs/BEARING.md#52:d5945169511a5ab937824fd6e49adf06f4c19ae9`](https://github.com/flyingrobots/echo/blob/d5945169511a5ab937824fd6e49adf06f4c19ae9/docs/BEARING.md#L52)
+and
+[`docs/BEARING.md#66:d5945169511a5ab937824fd6e49adf06f4c19ae9`](https://github.com/flyingrobots/echo/blob/d5945169511a5ab937824fd6e49adf06f4c19ae9/docs/BEARING.md#L66).
 
-- witnessed submission ingress;
-- scheduler-owned tick receipts;
-- receipt correlation;
-- retained material references;
-- `ReadingEnvelope`-backed QueryView observations;
-- WAL and WSC storage boundaries for recoverable causal evidence.
+Before this branch, the workspace did not contain an `echo-file-aperture`
+member; the merge-target workspace member list moved directly from
+`echo-app-core` to `echo-config-fs`:
+[`Cargo.toml#13:d5945169511a5ab937824fd6e49adf06f4c19ae9`](https://github.com/flyingrobots/echo/blob/d5945169511a5ab937824fd6e49adf06f4c19ae9/Cargo.toml#L13).
 
-Jedit currently has product pressure for opening arbitrary host files and
-rendering text in an editor. It must not become a second causal ledger.
+Before this branch, Method used filesystem backlog cards as the primary pull
+source and did not yet require every design packet to link a GitHub Issue:
+[`METHOD.md#55:d5945169511a5ab937824fd6e49adf06f4c19ae9`](https://github.com/flyingrobots/echo/blob/d5945169511a5ab937824fd6e49adf06f4c19ae9/METHOD.md#L55).
 
-WARP DRIVE already proves a read-path slice: Echo can produce normal file-like
-bytes through an observation/projection payload, and WARP DRIVE can expose
-those bytes through POSIX reads. Its current FUSE scaffold is not the shared
-domain contract.
+The implementation added by this branch is intentionally in-memory. It does
+not yet bind observations, proposals, or materialization receipts to WAL/WSC
+durability.
 
 ## Problem
 
-Opening a host file is usually called a read. Saving a host file is usually
-called a write. Those words are wrong at the Echo boundary.
+Host files sit at an awkward boundary. Users call opening a file a read and
+saving a file a write, but at the Echo boundary both actions can create causal
+history. Opening can import unknown bytes or admit external drift. Saving must
+admit desired content against an explicit basis before any host write can be
+called successful.
 
-Inside Echo, both actions can advance causal history:
+The first implementation also exposed a real contract bug: `FileSiteId` was
+originally derived from both `path_evidence` and `platform_identity`, making it
+path-sensitive even when stable platform identity existed. That poisoned the
+rename story because the same host-local file moved from `/a/demo.txt` to
+`/b/demo.txt` became two different file sites.
 
-- Opening a host file may discover bytes Echo has never admitted.
-- Opening a known host file may discover that another program changed it.
-- Saving a file must admit the desired content against a basis before any host
-  materialization can be called successful.
-- A host write must be followed by observation or verification before Echo can
-  claim the external material matches the causal projection.
+## Scope
 
-Therefore both user-level reads and user-level writes contain causal write
-phases. The Echo vocabulary must name the actual boundary acts.
+This cycle includes:
 
-## Boundary Vocabulary
+- adding the `echo-file-aperture` crate as a workspace member;
+- defining host snapshot, file site, basis, content proposal, observation, and
+  materialization verification types;
+- resolving file-site identity by authority tier instead of hashing all
+  evidence together;
+- exposing `PlatformStable` versus `PathBound` identity posture;
+- proving path moves preserve `FileSiteId` only when platform identity is
+  available;
+- documenting that `FileSiteId` is host-aperture evidence, not portable WSC
+  causal identity.
 
-Use these names inside Echo designs and APIs:
+## Non-Goals
 
-- **Host observation:** external host material enters Echo causal history.
-- **Host snapshot:** the observed bytes, digest, stat posture, path evidence,
-  platform identity, and capability witness for host material.
-- **File site:** Echo's durable identity for a file-like host artifact.
-- **File projection:** a bounded Echo reading of file content or directory
-  membership at a causal coordinate.
-- **Content intent:** Echo's canonical mutation shape after diffing an observed
-  or proposed byte sequence against a basis.
-- **Host materialization:** Echo-authorized attempt to write an admitted
-  projection back to a host path.
-- **Materialization verification:** follow-up host observation proving whether
-  the external bytes match the admitted Echo projection.
+This cycle does not include:
 
-Avoid treating POSIX `read` and `write` as Echo ontology. They are client
-membrane operations.
+- implementing a FUSE mount in Echo;
+- making Echo core a filesystem runtime;
+- adding Jedit editor nouns to Echo production core;
+- using WARP DRIVE inode or fixture-tree scaffolding as the shared contract;
+- wiring file aperture records into scheduler-owned ticks, WAL, WSC, or CAS;
+- guaranteeing reconstruction after Echo retention policy redacts, prunes,
+  encrypts, or obstructs required support material.
 
-## Core Invariants
+## User Experience / Product Shape
 
-- Echo owns file causality inside the file aperture.
-- The application defines vocabulary and host affordances; it does not manage
-  causal history.
-- A host file path is evidence, not authority.
-- A host file read may be an Echo admission.
-- A host file save is admission plus materialization plus verification.
-- Echo owns accepting a host snapshot, diffing it against causal basis, and
-  decomposing the result into canonical content intents.
-- A cached file projection is an acceleration over Echo truth, not authority.
-- If retained file material is missing, redacted, encrypted-unavailable,
-  corrupt, or obstructed, the information is unavailable through Echo. Clients
-  must not reconstruct it from private app logs.
-- Jedit and WARP DRIVE consume the same Echo file aperture. Neither project
-  owns the shared file semantics.
-- Echo core stays app-noun-clean. File aperture vocabulary may live in an
-  Echo-owned standard artifact, not in the substrate kernel as privileged
-  mutable filesystem state.
-
-## User Experience Shape
-
-The successful user experience remains ordinary:
+The happy-path product shape remains ordinary:
 
 ```text
 open file -> contents appear
 edit -> text changes
 save -> saved
-external edit -> current disk bytes appear or a clear conflict is reported
+external edit -> current disk bytes appear or a clear obstruction is reported
 ```
 
-The Echo sequence for opening a host file is:
+The Echo-facing open flow is:
+
+```mermaid
+flowchart TD
+  Open[User selects path] --> HostRead[Host bytes and identity evidence]
+  HostRead --> Resolve[Resolve FileSiteId and identity posture]
+  Resolve --> Compare{Matches current Echo basis?}
+  Compare -->|unknown| Import[Initial import]
+  Compare -->|changed| Drift[External-change admission]
+  Compare -->|same| Unchanged[No-change observation]
+  Import --> Projection[FileContentProjection]
+  Drift --> Projection
+  Unchanged --> Projection
+  Projection --> Render[Client renders exact bytes]
+```
+
+The Echo-facing save flow is:
+
+```mermaid
+flowchart TD
+  Save[User saves] --> Proposal[FileContentProposal with explicit basis]
+  Proposal --> Basis{Basis current?}
+  Basis -->|no| Stale[StaleBasis obstruction]
+  Basis -->|yes| Admit[Admit content proposal]
+  Admit --> Materialize[Host writes admitted bytes]
+  Materialize --> Verify[Verify final host digest]
+  Verify --> Receipt[FileMaterializationReceipt]
+```
+
+### Accessibility Considerations
+
+Rendered clients should not expose Echo jargon during successful open and save.
+When an obstruction affects the user, clients should translate the structured
+posture into clear product language while preserving machine-readable receipts.
+
+## Runtime / API Contract
+
+The contract is the `echo-file-aperture` Rust crate.
+
+Relevant exported types:
+
+- `HostFileIdentity`
+- `HostFileSnapshot`
+- `FileSiteId`
+- `FileSiteIdentityPosture`
+- `FileSiteResolution`
+- `FileContentDigest`
+- `FileBasisToken`
+- `FileContentProjection`
+- `HostFileObservationReceipt`
+- `FileContentProposal`
+- `FileContentIntentReceipt`
+- `FileMaterializationReceipt`
+- `FileApertureError`
+- `InMemoryFileAperture`
+
+Identity rules:
+
+- path evidence is observation evidence;
+- platform identity is stronger host-local file evidence;
+- `FileSiteId` is host-aperture evidence used to bind local file observations;
+- `FileSiteId` is not `WorldlineId`;
+- `WorldlineId` remains portable logical document identity;
+- `ContentRef` or equivalent retained material refs name immutable bytes;
+- future `BindingRef` or `AnchorId` machinery should express rebinding between
+  host file sites and causal document worldlines.
+
+Derivation rules:
 
 ```text
-user selects path
--> client asks Echo file aperture to observe host material
--> host capability supplies bytes, digest, stat posture, and path evidence
--> Echo maps or creates a file site
--> Echo compares observed material with retained causal history
--> Echo admits initial import, no-change observation, or external-change intent
--> Echo returns a witnessed file projection
--> client renders the projection
+if platform_identity exists:
+  FileSiteId = H("echo.file-site.v2.platform", platform_identity)
+  posture = PlatformStable
+else:
+  FileSiteId = H("echo.file-site.v2.path-bound", path_evidence)
+  posture = PathBound
 ```
 
-The Echo sequence for saving a host file is:
+Platform identity bytes should include any host or aperture namespace needed to
+make the bytes meaningful for that local filesystem aperture. Echo must not
+treat platform identity as universal WSC identity across machines.
 
-```text
-user saves
--> client submits desired content or delta against a basis
--> Echo admits canonical content intents or obstructs stale/invalid basis
--> Echo authorizes host materialization for the admitted projection
--> host capability writes bytes
--> Echo observes/verifies host bytes
--> Echo records materialization receipt or obstruction
--> client reports saved only if verification posture permits it
+## Lower Modes
+
+This cycle is a Rust API and test-surface change, not a rendered UI. The lower
+mode is the deterministic contract test output from `cargo test -p
+echo-file-aperture`. Future CLI or pipe surfaces must expose posture as
+structured data, not English-only text.
+
+## Data / State Model
+
+State posture:
+
+- Source of truth: in this slice, `InMemoryFileAperture`; later WAL/WSC.
+- Derived state: `FileSiteId`, `FileBasisToken`, content and metadata digests.
+- Invalid states: empty path evidence, empty platform identity, stale basis,
+  and site mismatch.
+- Reset behavior: dropping the in-memory aperture drops state.
+- Serialization: hash preimages use domain prefixes and length prefixes.
+- Determinism: `BTreeMap` ordering and BLAKE3 provide local deterministic
+  results.
+
+```mermaid
+stateDiagram-v2
+  [*] --> Unknown
+  Unknown --> InitialImport: observe unknown host bytes
+  InitialImport --> Unchanged: observe same digest
+  InitialImport --> ExternalChange: observe changed host digest
+  ExternalChange --> Proposed: propose content at current basis
+  Proposed --> StaleBasis: basis mismatch
+  Proposed --> Admitted: basis current
+  Admitted --> Verified: host digest matches projection
+  Admitted --> DigestMismatch: host digest differs
 ```
 
-Normal clients should translate Echo posture into product language. The history
-or inspector surface may expose receipts and witnesses directly.
+## Echo Authority Boundary
 
-## Runtime Contract Sketch
+Echo owns:
 
-The exact Wesley surface is future work, but the Echo artifact should include
-operations with this shape:
+- file-site resolution posture;
+- basis-token derivation;
+- content admission;
+- stale-basis obstruction;
+- materialization verification posture;
+- future WAL/WSC retention for file aperture evidence.
 
-```text
-acceptHostFileObservation(input) -> HostFileObservationReceipt
-reconcileHostFileObservation(input) -> FileReconciliationReceipt
-projectFileContent(input) -> FileContentReading
-proposeFileContent(input) -> FileContentIntentReceipt
-materializeFileProjection(input) -> FileMaterializationReceipt
-explainFileState(input) -> FileProvenanceReading
-```
+Applications and host adapters provide:
 
-The contract should expose generic file-aperture types:
+- host path evidence;
+- platform identity evidence when available;
+- exact observed bytes;
+- host read/write capabilities;
+- product-specific UI and localized copy.
 
-```text
-FileSiteId
-HostFileIdentity
-HostFileObservation
-HostFileFingerprint
-FileContentDigest
-FileContentProjection
-DirectoryProjection
-FileBasisToken
-ExternalChangeReceipt
-ContentIntentReceipt
-MaterializationReceipt
-FileObstructionReason
-```
+Applications must not keep private causal file logs as fallback authority. If
+Echo lacks retained evidence because of policy, redaction, corruption, or
+missing material, the information is unavailable through Echo.
 
-Jedit-facing editor nouns such as buffer, cursor, selection, vim mode, panel,
-or tab do not belong in this shared Echo artifact. Those remain application
-vocabulary above the file aperture.
+## Determinism / DIND Posture
 
-WARP DRIVE-facing POSIX nouns such as inode, file handle, FUSE request, errno,
-or `.warp` synthetic path also do not belong in the shared Echo artifact. Those
-remain membrane vocabulary below the user tool surface.
+This slice touches hashing and canonical identity. Hash preimages are
+domain-separated and length-prefixed. File aperture state uses `BTreeMap` so
+iteration order remains deterministic. No clocks, randomness, or wall-time
+cadence are involved.
 
-## Data And State Model
+The focused determinism witness is the contract test matrix in
+`crates/echo-file-aperture/tests/file_aperture_tests.rs`. Full DIND is deferred
+until file aperture records bind into scheduler-owned ticks or WAL/WSC replay.
 
-The file aperture should distinguish these authorities:
+## WAL / WSC / Retention Posture
 
-| Concept                | Authority                   | Notes                                                          |
-| ---------------------- | --------------------------- | -------------------------------------------------------------- |
-| Host path string       | Host/client evidence        | Useful to locate material, never the causal authority.         |
-| Host file bytes        | Host observation material   | Must be admitted before a client can render it as Echo-backed. |
-| File site identity     | Echo                        | Durable coordinate for file-like history.                      |
-| Content digest         | Echo-retained evidence      | Names bytes, but does not by itself prove semantic coordinate. |
-| File projection        | Echo reading                | Bounded reading over a basis and aperture.                     |
-| Basis token            | Echo                        | Required for lawful mutations and stale-basis detection.       |
-| Materialization effect | Echo-authorized host effect | Not successful until verified or honestly obstructed.          |
+This slice is explicitly in-memory. It defines the contract shape and
+deterministic identity behavior but does not claim crash-recoverable file
+history.
 
-Initial import, external edit, user edit, and save verification should all flow
-through Echo admission and retention. They differ by cause and direction, not
-by whether they matter causally.
+Future WAL/WSC work must retain enough evidence to answer:
 
-## Diff Ownership
-
-Echo owns the diff from observed or proposed bytes to canonical content
-intents.
-
-Clients may supply helpful hints, such as a text edit range or a known previous
-reading id, but Echo decides the admitted mutation shape. For text files, Echo
-may choose range edits, line patches, rope chunks, or whole-file replacement
-according to policy. For binary files, Echo may choose chunk replacement or
-whole-blob replacement. The caller does not own causal canonicalization.
-
-External host edits and Jedit edits should converge into the same retained
-content history shape once admitted.
+- which host observation was accepted;
+- which basis was current;
+- whether a proposal was admitted or obstructed;
+- which materialization was authorized;
+- whether verification matched the admitted projection;
+- why reconstruction is unavailable when support material is missing.
 
 ## Accessibility Posture
 
-Rendered clients must not expose Echo jargon during happy-path file open and
-save. When an obstruction affects the user, clients should translate it into
-clear product language while preserving agent-readable receipts.
+Accessibility posture:
 
-Examples:
+- Semantic labels or facts: receipts expose posture enums and digests.
+- Focus order or ownership: not applicable; this is not rendered.
+- Hidden or visual-only information: not applicable; no UI scraping required.
+- Keyboard behavior: not applicable.
+- Secret or redaction behavior: future retention must report missing or
+  redacted material structurally.
 
-```text
-The file changed on disk. Jedit reopened the current disk contents.
-```
+## Localization / Directionality Posture
 
-```text
-Could not save because the file changed since this buffer was opened.
-```
+No user-visible strings are added to product surfaces. Error messages are Rust
+diagnostics, not localized UI copy. Clients such as Jedit and WARP DRIVE own
+localized wording for user-facing file-open, file-save, and obstruction flows.
 
-```text
-Saved, but verification failed: the file on disk does not match the saved content.
-```
+## Agent Inspectability / Explainability Posture
 
-## Localization Posture
+Agents can inspect:
 
-The Echo artifact should return stable obstruction codes and structured facts,
-not user-facing English as the authority. Jedit and WARP DRIVE own localized
-copy for their surfaces.
+- `FileSiteId`;
+- `FileSiteIdentityPosture`;
+- `HostFileObservationReceipt`;
+- `FileBasisToken`;
+- `ContentAdmissionPosture`;
+- `MaterializationVerificationPosture`;
+- expected and observed digests;
+- typed `FileApertureError` variants.
 
-## Agent Inspectability
+No agent has to scrape pixels, terminal prose, or app-local caches to tell
+whether identity was platform-stable or path-bound.
 
-An agent must be able to inspect:
+## Linked Invariants
 
-- the file site;
-- the host observation receipt;
-- the basis token used for a content intent;
-- whether a host snapshot became an initial import, no-change observation, or
-  external-change admission;
-- the materialization receipt;
-- the verification digest;
-- the obstruction reason when reconstruction or save is unavailable.
+- Tests are executable spec.
+- Echo owns causality; applications own presentation.
+- Paths are evidence, not authority.
+- `FileSiteId` is not `WorldlineId`.
+- Missing retained evidence obstructs; apps do not invent fallback truth.
+- Echo core remains app-noun-clean.
 
-This should be possible without scraping pixels, terminal prose, or app-owned
-private caches.
+## Design Alternatives Considered
 
-## Non-Goals
+### Option A: Hash all identity evidence together
 
-- Do not implement a FUSE mount in Echo.
-- Do not make Echo core a filesystem runtime.
-- Do not put Jedit editor nouns in Echo core.
-- Do not make WARP DRIVE's fixture tree or inode scaffolding the shared
-  contract.
-- Do not let applications keep private causal file logs as fallback authority.
-- Do not guarantee reconstruction after Echo retention policy redacts, prunes,
-  encrypts, or obstructs required support material.
+Pros:
+
+- Simple implementation.
+- Every changed input changes the digest.
+
+Cons:
+
+- Path moves create new file sites even when stable platform identity exists.
+- The preimage hides authority precedence behind field order.
+- It violates the path-as-evidence invariant.
+
+### Option B: Select one authority tier
+
+Pros:
+
+- Platform-stable identity survives rename.
+- Path-only identity is honestly weaker and visibly `PathBound`.
+- Domain-separated preimages make authority tier explicit.
+
+Cons:
+
+- Callers must inspect posture.
+- Future cross-machine rebinding needs explicit `WorldlineId` or binding
+  machinery instead of pretending host IDs are portable.
+
+## Decision
+
+Choose Option B. `FileSiteId` derivation selects a single identity authority
+tier. Platform identity wins when present and path evidence remains observation
+evidence. Path-only identity remains supported but is explicitly path-bound.
+
+## Implementation Slices
+
+- [x] Slice 1: Record Echo-owned file aperture design.
+- [x] Slice 2: Add `echo-file-aperture` crate with in-memory observations,
+      proposals, basis obstruction, and materialization verification.
+- [x] Slice 3: Fix `FileSiteId` derivation so platform identity does not include
+      path bytes and expose identity posture.
+- [ ] Slice 4: Bind file aperture observations and receipts to scheduler-owned
+      ticks.
+- [ ] Slice 5: Retain file aperture evidence through WAL/WSC/CAS.
+- [ ] Slice 6: Add client conformance fixtures for Jedit and WARP DRIVE.
 
 ## Tests To Write First
 
-- Opening an unknown host file admits an initial import before returning a file
-  projection.
-- Opening a known unchanged host file returns an Echo projection and records
-  honest no-change observation posture.
-- Opening a known changed host file admits an external-change transition by
-  diffing observed bytes against the causal basis.
-- Saving with a current basis admits content intents, materializes the
-  projection, verifies host digest, and records a materialization receipt.
-- Saving with a stale basis returns a typed obstruction and does not claim
-  saved.
-- Materialization write succeeds but verification digest differs returns a
-  materialization obstruction.
-- Missing retained evidence prevents reconstruction instead of falling back to
-  host bytes or app logs.
+Behavior tests required:
+
+- [x] Unknown host file admits initial import before returning projection.
+- [x] Known unchanged host file records no-change posture.
+- [x] Known changed host file admits external-change transition.
+- [x] Current-basis save admits content and verifies materialization.
+- [x] Stale-basis save obstructs without changing projection.
+- [x] Digest mismatch returns materialization obstruction.
+- [x] Same platform identity with different path evidence keeps one
+      `FileSiteId`.
+- [x] Different platform identity with same path evidence produces different
+      `FileSiteId`.
+- [x] Path-only identity is explicitly `PathBound`.
+- [x] Platform identity derivation does not include path bytes.
+
+Documentation and process tests:
+
+- [x] Design packet links GitHub Issue #533.
+- [x] Design packet names real validation commands.
 
 ## Acceptance Criteria
 
-- Jedit can open an arbitrary host file through Echo and render the exact bytes
-  after Echo admits or reconciles the observation.
-- Jedit can save through Echo and report saved only after admitted projection
-  materialization is verified.
-- WARP DRIVE can consume the same Echo file projection and content intent
-  contract without owning file causality.
-- Echo reports explainable receipts for initial import, external change,
-  content admission, obstruction, materialization, and verification.
-- No Jedit or WARP DRIVE implementation nouns enter Echo production core.
+The work is done when:
+
+- [x] Behavior tests prove the in-memory file aperture contract.
+- [x] Runtime API exposes `PlatformStable` versus `PathBound` posture.
+- [x] Path moves preserve `FileSiteId` only when stable platform identity is
+      available.
+- [x] Docs state that `FileSiteId` is not `WorldlineId`.
+- [x] Issue and design packet are linked.
+- [ ] WAL/WSC durability is proven in a later cycle.
+- [ ] Jedit and WARP DRIVE consume the shared contract in later cycles.
 
 ## Validation Plan
 
-Early validation should be contract-level before client polish:
+Commands expected before PR:
 
-```text
-cargo test -p warp-core --test file_aperture_tests
-cargo test -p warp-cli --test file_aperture_cli_tests
-cargo xtask dind run
+```bash
+docs=(
+  docs/design/echo-owned-file-aperture.md
+  crates/echo-file-aperture/README.md
+  docs/method/design-template.md
+  docs/method/README.md
+  docs/technical-teardown.md
+  METHOD.md
+  docs/BEARING.md
+)
+
+cargo fmt --check -p echo-file-aperture
+cargo test -p echo-file-aperture
+cargo clippy -p echo-file-aperture --all-targets -- -D warnings
+cargo check --workspace
+./scripts/check-no-app-nouns-in-core.sh
+pnpm exec markdownlint-cli2 "${docs[@]}"
+pnpm exec prettier --check "${docs[@]}"
+dead_ref_args=()
+for doc in "${docs[@]}"; do
+  dead_ref_args+=(--file "$doc")
+done
+cargo xtask lint-dead-refs "${dead_ref_args[@]}"
+git diff --check origin/main...HEAD
 ```
 
-Client follow-through should later prove the same semantic cases through Jedit
-and WARP DRIVE harnesses.
+Full `cargo xtask lint-dead-refs` is currently blocked by repository baseline
+dead links from the historical backlog migration. Use the touched-file scoped
+command for this cycle unless that baseline is repaired separately.
 
 ## Playback / Witness
 
-The first useful witness should be:
+Run:
 
-```text
-1. Create a temporary host file with "one".
-2. Ask Echo to open it through the file aperture.
-3. Verify Echo admits initial import and returns "one".
-4. Mutate the host file externally to "two".
-5. Ask Echo to open it again.
-6. Verify Echo admits external change and returns "two".
-7. Submit a save to "three" against the current basis.
-8. Verify Echo materializes "three" and records matching host digest.
+```bash
+cargo test -p echo-file-aperture
 ```
 
-Jedit should eventually run this witness without showing Echo terminology in
-the happy path. WARP DRIVE should eventually run the same witness through
-normal POSIX reads and writes.
+Review the identity-specific tests:
+
+- `platform_identity_keeps_file_site_stable_across_path_move`
+- `different_platform_identity_wins_over_same_path`
+- `path_only_identity_is_explicitly_path_bound`
+- `path_only_move_creates_distinct_path_bound_sites`
+- `platform_site_derivation_does_not_include_path_bytes`
+
+These prove the corrected authority-tier behavior.
 
 ## Risks
 
-- Path evidence can be mistaken for durable identity. Mitigation: make file
-  site identity explicit and treat paths as host observations.
-- Diff canonicalization can become editor-specific. Mitigation: Echo owns
-  canonical content intents; editor hints remain optional evidence.
-- Whole-file replacement can be wasteful. Mitigation: permit policy-selected
-  diff granularity without changing the external contract.
-- Happy-path UX can leak causal jargon. Mitigation: clients translate
-  structured posture into product copy and keep receipts inspectable elsewhere.
-- A client can accidentally keep a private fallback ledger. Mitigation: tests
-  must prove missing Echo evidence obstructs reconstruction.
+Known risks:
 
-## Follow-On Work
+- Platform identity bytes from two host apertures can collide if callers omit
+  host namespace evidence.
+- Path-bound IDs can still be mistaken for durable document identity.
+- Whole-file content proposals are simple but may be wasteful.
+- In-memory receipts can be mistaken for durability.
 
-- Define the Wesley contract artifact for the file aperture.
-- Decide whether the implementation crate is named `echo-file-aperture`,
-  `echo-fs-runtime`, or another standard-artifact name.
-- Add a no-app-nouns guard for file aperture production code that allows
-  generic file vocabulary but rejects Jedit/WARP DRIVE implementation nouns.
-- Build shared conformance fixtures consumed by Echo, Jedit, and WARP DRIVE.
+Mitigations:
+
+- Document that platform identity should include host/aperture namespace.
+- Expose `FileSiteIdentityPosture` everywhere callers need to inspect site
+  strength.
+- Keep `FileSiteId` separate from `WorldlineId`.
+- Leave WAL/WSC integration as explicit follow-on work.
+
+## Follow-On Debt
+
+- Create WAL/WSC integration issues when the next file aperture cycle begins.
+- Add shared conformance fixtures for Jedit and WARP DRIVE.
 - Add an explanation surface equivalent to WARP DRIVE's proposed
   `/.warp/why/<path>` and Jedit's history drawer.
+- Decide whether future APIs need explicit `BindingRef` or `AnchorId` types for
+  local file site to worldline rebinding.
 
 ## Retrospective
 
-Not yet implemented. This note records the architectural target before the
-contract and runtime slices begin.
+What changed from the design:
+
+- The review found a P1 identity bug. `FileSiteId` now selects one authority
+  tier instead of hashing path and platform evidence together.
+- The design packet now follows the Echo template and links Issue #533.
+
+What the tests proved:
+
+- Platform-stable identity survives path moves.
+- Path-only identity is explicit and rename-sensitive.
+- Platform-derived `FileSiteId` preimages do not include path bytes.
+- Stale-basis and materialization-obstruction behavior still works.
+
+What remains open:
+
+- WAL/WSC durability.
+- Scheduler-owned admission for file aperture events.
+- Jedit and WARP DRIVE client integration.
+
+PR:
+
+- Not opened yet for this branch.

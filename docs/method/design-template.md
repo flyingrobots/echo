@@ -17,7 +17,7 @@ updated: "YYYY-MM-DD"
 <!-- markdownlint-enable -->
 <!-- prettier-ignore-end -->
 
-## {LEGEND}-{ID} - {Short Title}
+# {LEGEND}-{ID} - {Short Title}
 
 ## Linked Issue
 

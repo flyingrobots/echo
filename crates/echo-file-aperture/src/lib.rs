@@ -19,8 +19,10 @@ use std::fmt;
 /// Number of bytes in Echo file-aperture digests.
 const DIGEST_LEN: usize = 32;
 
-/// Domain prefix for file-site identity.
-const FILE_SITE_DOMAIN: &[u8] = b"echo:file-aperture:site:v1";
+/// Domain prefix for platform-stable file-site identity.
+const FILE_SITE_PLATFORM_DOMAIN: &[u8] = b"echo.file-site.v2.platform";
+/// Domain prefix for path-bound file-site identity.
+const FILE_SITE_PATH_BOUND_DOMAIN: &[u8] = b"echo.file-site.v2.path-bound";
 /// Domain prefix for host metadata fingerprints.
 const HOST_METADATA_DOMAIN: &[u8] = b"echo:file-aperture:metadata:v1";
 /// Domain prefix for basis tokens.
@@ -32,25 +34,55 @@ const BASIS_DOMAIN: &[u8] = b"echo:file-aperture:basis:v1";
 pub struct FileSiteId([u8; DIGEST_LEN]);
 
 impl FileSiteId {
-    /// Derives a file site id from host identity evidence.
+    /// Derives a file site id from the strongest available identity tier.
     ///
     /// # Errors
     ///
     /// Returns [`FileApertureError::LengthOverflow`] if identity evidence is
     /// too large to length-prefix deterministically.
     pub fn for_identity(identity: &HostFileIdentity) -> Result<Self, FileApertureError> {
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(FILE_SITE_DOMAIN);
-        update_len_prefixed(&mut hasher, &identity.path_evidence)?;
-        match &identity.platform_identity {
-            Some(platform_identity) => {
-                hasher.update(&[1]);
-                update_len_prefixed(&mut hasher, platform_identity)?;
-            }
-            None => {
-                hasher.update(&[0]);
-            }
+        Ok(identity.site_resolution()?.file_site_id)
+    }
+
+    /// Derives a platform-stable file site id.
+    ///
+    /// Platform identity should include any host or aperture namespace needed to
+    /// make the bytes meaningful within the local filesystem aperture. This id
+    /// is host-aperture evidence, not portable WSC causal identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FileApertureError::EmptyPlatformIdentity`] when
+    /// `platform_identity` is empty, or [`FileApertureError::LengthOverflow`]
+    /// when it is too large to length-prefix deterministically.
+    pub fn from_platform_identity(platform_identity: &[u8]) -> Result<Self, FileApertureError> {
+        if platform_identity.is_empty() {
+            return Err(FileApertureError::EmptyPlatformIdentity);
         }
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(FILE_SITE_PLATFORM_DOMAIN);
+        update_len_prefixed(&mut hasher, platform_identity)?;
+        Ok(Self(*hasher.finalize().as_bytes()))
+    }
+
+    /// Derives a path-bound file site id.
+    ///
+    /// Path-bound identity is weaker than platform-stable identity. It is useful
+    /// when no stronger host-local identity exists, but a rename cannot be
+    /// proven as the same file site from path evidence alone.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FileApertureError::EmptyPathEvidence`] when `path_evidence` is
+    /// empty, or [`FileApertureError::LengthOverflow`] when it is too large to
+    /// length-prefix deterministically.
+    pub fn from_path_bound_evidence(path_evidence: &[u8]) -> Result<Self, FileApertureError> {
+        if path_evidence.is_empty() {
+            return Err(FileApertureError::EmptyPathEvidence);
+        }
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(FILE_SITE_PATH_BOUND_DOMAIN);
+        update_len_prefixed(&mut hasher, path_evidence)?;
         Ok(Self(*hasher.finalize().as_bytes()))
     }
 
@@ -71,6 +103,24 @@ impl fmt::Display for FileSiteId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write_hex(f, &self.0)
     }
+}
+
+/// Identity posture for an Echo file site resolution.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FileSiteIdentityPosture {
+    /// Site id was derived from stable host-local platform identity evidence.
+    PlatformStable,
+    /// Site id was derived only from path evidence and is rename-sensitive.
+    PathBound,
+}
+
+/// Resolved host identity for a file-like local aperture artifact.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FileSiteResolution {
+    /// Resolved host-aperture file site id.
+    pub file_site_id: FileSiteId,
+    /// Identity strength that produced `file_site_id`.
+    pub posture: FileSiteIdentityPosture,
 }
 
 /// Content digest for a file projection.
@@ -145,21 +195,24 @@ impl fmt::Display for FileBasisToken {
 pub struct HostFileIdentity {
     /// Host path bytes or path-like evidence supplied by the caller.
     pub path_evidence: Vec<u8>,
-    /// Optional platform file identity, such as device/inode or file id bytes.
+    /// Optional platform file identity, such as namespaced device/inode or file
+    /// id bytes.
     pub platform_identity: Option<Vec<u8>>,
 }
 
 impl HostFileIdentity {
     /// Builds host file identity evidence.
     ///
-    /// Path evidence is required because it is the user's visible coordinate
-    /// even when a platform identity is available.
+    /// Path evidence is required because it is the user's visible observation
+    /// coordinate even when a stronger platform identity is available.
     ///
     /// # Errors
     ///
     /// Returns [`FileApertureError::EmptyPathEvidence`] when `path_evidence`
-    /// is empty, or [`FileApertureError::LengthOverflow`] when evidence is too
-    /// large to length-prefix deterministically.
+    /// is empty, [`FileApertureError::EmptyPlatformIdentity`] when
+    /// `platform_identity` is present but empty, or
+    /// [`FileApertureError::LengthOverflow`] when evidence is too large to
+    /// length-prefix deterministically.
     pub fn new(
         path_evidence: impl Into<Vec<u8>>,
         platform_identity: Option<Vec<u8>>,
@@ -170,11 +223,35 @@ impl HostFileIdentity {
         }
         ensure_len_fits(path_evidence.len())?;
         if let Some(platform_identity) = &platform_identity {
+            if platform_identity.is_empty() {
+                return Err(FileApertureError::EmptyPlatformIdentity);
+            }
             ensure_len_fits(platform_identity.len())?;
         }
         Ok(Self {
             path_evidence,
             platform_identity,
+        })
+    }
+
+    /// Resolves the Echo file site id and identity posture for this host
+    /// identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FileApertureError::LengthOverflow`] if identity evidence is
+    /// too large to length-prefix deterministically.
+    pub fn site_resolution(&self) -> Result<FileSiteResolution, FileApertureError> {
+        if let Some(platform_identity) = &self.platform_identity {
+            return Ok(FileSiteResolution {
+                file_site_id: FileSiteId::from_platform_identity(platform_identity)?,
+                posture: FileSiteIdentityPosture::PlatformStable,
+            });
+        }
+
+        Ok(FileSiteResolution {
+            file_site_id: FileSiteId::from_path_bound_evidence(&self.path_evidence)?,
+            posture: FileSiteIdentityPosture::PathBound,
         })
     }
 
@@ -185,7 +262,7 @@ impl HostFileIdentity {
     /// Returns [`FileApertureError::LengthOverflow`] if identity evidence is
     /// too large to length-prefix deterministically.
     pub fn site_id(&self) -> Result<FileSiteId, FileApertureError> {
-        FileSiteId::for_identity(self)
+        Ok(self.site_resolution()?.file_site_id)
     }
 }
 
@@ -283,6 +360,8 @@ impl HostFileSnapshot {
 pub struct FileContentProjection {
     /// Echo file site being projected.
     pub site_id: FileSiteId,
+    /// Identity strength for the projected file site.
+    pub site_identity_posture: FileSiteIdentityPosture,
     /// Basis token for this exact projection.
     pub basis: FileBasisToken,
     /// Content digest for the projected bytes.
@@ -312,6 +391,8 @@ pub struct HostFileObservationReceipt {
     pub observation_id: u64,
     /// File site named by the observation.
     pub site_id: FileSiteId,
+    /// Identity strength used to resolve `site_id`.
+    pub site_identity_posture: FileSiteIdentityPosture,
     /// Observation posture.
     pub posture: HostObservationPosture,
     /// Host fingerprint observed by this receipt.
@@ -405,6 +486,9 @@ pub enum FileApertureError {
     /// Host identity did not include path evidence.
     #[error("host file identity path evidence is empty")]
     EmptyPathEvidence,
+    /// Host identity carried an empty platform identity.
+    #[error("host file identity platform identity is empty")]
+    EmptyPlatformIdentity,
     /// Input length cannot be represented in deterministic file aperture
     /// encodings.
     #[error("file aperture input length overflows deterministic encoding")]
@@ -453,7 +537,8 @@ impl InMemoryFileAperture {
         &mut self,
         snapshot: HostFileSnapshot,
     ) -> Result<HostFileObservationReceipt, FileApertureError> {
-        let site_id = snapshot.identity.site_id()?;
+        let site_resolution = snapshot.identity.site_resolution()?;
+        let site_id = site_resolution.file_site_id;
         let observation_id = self.next_observation_id;
         self.next_observation_id = self
             .next_observation_id
@@ -472,7 +557,11 @@ impl InMemoryFileAperture {
             None => {
                 self.sites.insert(
                     site_id,
-                    FileState::new(fingerprint.content_digest, snapshot.bytes),
+                    FileState::new(
+                        fingerprint.content_digest,
+                        snapshot.bytes,
+                        site_resolution.posture,
+                    ),
                 );
                 HostObservationPosture::InitialImport
             }
@@ -482,6 +571,7 @@ impl InMemoryFileAperture {
         Ok(HostFileObservationReceipt {
             observation_id,
             site_id,
+            site_identity_posture: site_resolution.posture,
             posture,
             fingerprint,
             projection,
@@ -605,14 +695,20 @@ impl InMemoryFileAperture {
 struct FileState {
     generation: u64,
     content_digest: FileContentDigest,
+    identity_posture: FileSiteIdentityPosture,
     bytes: Vec<u8>,
 }
 
 impl FileState {
-    fn new(content_digest: FileContentDigest, bytes: Vec<u8>) -> Self {
+    fn new(
+        content_digest: FileContentDigest,
+        bytes: Vec<u8>,
+        identity_posture: FileSiteIdentityPosture,
+    ) -> Self {
         Self {
             generation: 0,
             content_digest,
+            identity_posture,
             bytes,
         }
     }
@@ -639,6 +735,7 @@ impl FileState {
     fn projection(&self, site_id: FileSiteId) -> Result<FileContentProjection, FileApertureError> {
         Ok(FileContentProjection {
             site_id,
+            site_identity_posture: self.identity_posture,
             basis: self.basis(site_id),
             content_digest: self.content_digest,
             byte_len: ensure_len_fits(self.bytes.len())?,

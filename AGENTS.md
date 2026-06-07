@@ -70,6 +70,8 @@ Do not audit the repository by recursively walking the filesystem. Follow the au
 
 - **`docs/BEARING.md`**: Current execution gravity and active tensions.
 - **`docs/design/ROADMAP.md`**: Broad strategic horizon and targets.
+- **`docs/method/roadmap-planning.md`**: Versioned release, release-gate,
+  slice, and proof policy.
 - **`backlog/`**: The active source of truth for pending work.
 
 ### 4. The Proof

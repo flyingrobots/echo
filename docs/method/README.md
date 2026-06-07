@@ -73,6 +73,7 @@ docs/
     retro/<cycle>/retro.md          closed-cycle retrospectives
     guide.md                        operator advice and non-doctrinal practice notes
     process.md                      how cycles run
+    roadmap-planning.md             release-roadmap and release-gate policy
   design/
     <cycle>/<task>.md               cycle design docs
     *.md                            living documents
@@ -85,11 +86,12 @@ docs/
 METHOD expects a few bounded repo-level signposts. They summarize the
 state of the repo; they do not create commitments.
 
-| Signpost                | Role                                                                     |
-| ----------------------- | ------------------------------------------------------------------------ |
-| `README.md`             | The project root. What Echo is and how to build it.                      |
-| `docs/BEARING.md`       | Current direction, last shipped cycle, and tensions at cycle boundaries. |
-| `docs/method/README.md` | The operating doctrine and tracker shape (this file).                    |
+| Signpost                          | Role                                                                     |
+| --------------------------------- | ------------------------------------------------------------------------ |
+| `README.md`                       | The project root. What Echo is and how to build it.                      |
+| `docs/BEARING.md`                 | Current direction, last shipped cycle, and tensions at cycle boundaries. |
+| `docs/method/README.md`           | The operating doctrine and tracker shape (this file).                    |
+| `docs/method/roadmap-planning.md` | Release-roadmap, release-gate, and proof policy.                         |
 
 ---
 
@@ -102,6 +104,11 @@ archived under `docs/method/graveyard/github-issue-migration/`.
 The `docs/method/backlog/` directory remains only as a compatibility marker
 for legacy `cargo xtask method ...` workspace discovery. Do not add new live
 work cards there.
+
+Release-bar and multi-cycle planning follow
+`docs/method/roadmap-planning.md`. That document defines how versioned release
+plans, release gates, Method issues, design packets, slices, PRs, and witnesses
+connect without turning roadmap prose into implementation proof.
 
 ### Inbox
 

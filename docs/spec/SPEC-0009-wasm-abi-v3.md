@@ -109,6 +109,14 @@ The EINT v1 byte layout is:
 + vars (exactly vars_len bytes)
 ```
 
+This v1 layout is the WASM ABI intake format: application dispatch routes
+`OpticIntentPayload::EintV1` bytes into `KernelPort::dispatch_intent`
+[`crates/echo-wasm-abi/src/kernel_port.rs#2687@2048da5c`]. A richer EINT v2
+envelope (versioned header, flags, in-envelope schema hash, op version,
+blake3 payload checksum, canonical-CBOR payload) exists at the session
+protocol layer [`crates/echo-session-proto/src/eint_v2.rs#3@2048da5c`] and is
+**not** part of ABI v3 application dispatch.
+
 Trusted runtime control still uses `ControlIntentV1` internally. For those
 privileged control intents, `op_id` is always `0xffffffff` and `vars` are
 canonical-CBOR bytes that decode as `ControlIntentV1`; those bytes must not be

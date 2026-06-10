@@ -17,7 +17,10 @@ cd "$REPO_ROOT"
 PINNED_FROM_FILE=$(awk -F '"' '/^channel/ {print $2}' rust-toolchain.toml 2>/dev/null || echo "")
 PINNED="${PINNED:-${PINNED_FROM_FILE:-1.90.0}}"
 VERIFY_FORCE="${VERIFY_FORCE:-0}"
-STAMP_DIR="${VERIFY_STAMP_DIR:-.git/verify-local}"
+# Resolve the real gitdir so stamps work in linked worktrees, where .git is
+# a file pointer rather than a directory.
+GIT_DIR_RESOLVED="$(git rev-parse --git-dir 2>/dev/null || echo .git)"
+STAMP_DIR="${VERIFY_STAMP_DIR:-$GIT_DIR_RESOLVED/verify-local}"
 VERIFY_USE_NEXTEST="${VERIFY_USE_NEXTEST:-0}"
 VERIFY_LANE_MODE="${VERIFY_LANE_MODE:-parallel}"
 VERIFY_LANE_ROOT="${VERIFY_LANE_ROOT:-target/verify-lanes}"

@@ -587,6 +587,14 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- `scripts/verify-local.sh` stamp storage now resolves the real gitdir via
+  `git rev-parse --git-dir`, so pre-commit and pre-push hooks work in linked
+  worktrees where `.git` is a file rather than a directory. Stamps are
+  per-worktree as a result.
+- `docs/spec/SPEC-0009-wasm-abi-v3.md` now states that the documented EINT v1
+  layout is the ABI v3 application-dispatch intake
+  (`OpticIntentPayload::EintV1`) and cites the session-protocol EINT v2
+  envelope as a separate layer outside ABI v3 dispatch.
 - `warp-core` WSC retained-evidence recovery now rejects conflicting duplicate
   retained material digests and reading ids instead of letting recovery or the
   recovered retention index silently overwrite evidence identity collisions.

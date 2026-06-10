@@ -3,8 +3,30 @@
 
 # Echo: End-to-End Technical Teardown
 
+## Maintenance Posture
+
+This teardown is a deep reference for Echo's runtime shape. It is not the
+active roadmap and should not be treated as the freshest status ledger.
+
+Use these documents for current planning posture:
+
+- [`docs/BEARING.md`](BEARING.md) for compact current truth and next work.
+- [`docs/index.md`](index.md) for the live docs map.
+- [`docs/design/v0.1.0-release-plan.md`](design/v0.1.0-release-plan.md) for the
+  release target.
+- [`docs/design/v0.1.0-jedit-release-gate.md`](design/v0.1.0-jedit-release-gate.md)
+  for the sibling jedit proof bar.
+- [`docs/design/causal-wal-end-to-end.md`](design/causal-wal-end-to-end.md) for
+  WAL/WSC durability direction.
+
+Keep this file accurate with compact truth passes when architectural claims
+become misleading. Defer a full rewrite until retained evidence, WAL/WSC
+recovery, product-facing obstruction APIs, and the jedit release-gate proof have
+settled through executable evidence.
+
 ## Table of Contents
 
+- [Maintenance Posture](#maintenance-posture)
 - [Who This Document Is For](#who-this-document-is-for)
 - [Glossary: Domain Dictionary](#glossary-domain-dictionary)
 - [High-Level Mental Model](#high-level-mental-model)

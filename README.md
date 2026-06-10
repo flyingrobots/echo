@@ -41,6 +41,13 @@ when Echo ticks. Applications submit canonical intents. Echo admits, schedules,
 settles, and executes them at runtime-owned tick boundaries, then emits receipts
 and evidence-carrying observations.
 
+Current release posture lives in [docs/BEARING.md](docs/BEARING.md). The
+short version: Echo `v0.1.0` is gated by real sibling-application proof from
+jedit, not by an in-repo toy fixture. The active hard boundary is generic
+contract hosting plus retained evidence, WAL/WSC recovery, bounded readings,
+trusted-host lifecycle, and deterministic replay without importing application
+nouns into Echo core.
+
 ## A Concrete Problem
 
 Consider a collaborative editor, game simulation, build graph, or contract host

@@ -144,10 +144,14 @@ canonical, deterministic, and tied to a schema identity.
 
 ## Ownership model
 
-Echo owns geometry semantics. Applications own domain meaning and presentation.
+Echo currently hosts the seed geometry semantics. After Bunny is established,
+generally reusable graphics primitives move toward Bunny. Echo keeps causal
+authority over how those primitives are admitted, retained, queried, and proven.
+Applications own domain meaning and presentation.
 
 | Layer        | Owns                                                                  | Does not own           |
 | ------------ | --------------------------------------------------------------------- | ---------------------- |
+| Bunny        | reusable math, geometry, query, mesh, optics, and schema contracts    | causal runtime facts   |
 | `warp-math`  | scalar policy, vectors, matrices, quaternions, deterministic ops      | application entities   |
 | `warp-geom`  | shapes, transforms, queries, contact patches, acceleration contracts  | renderer materials     |
 | GraphQL SDL  | primitive names, field order, query/result contracts, schema identity | app-specific nouns     |
@@ -157,13 +161,32 @@ Echo owns geometry semantics. Applications own domain meaning and presentation.
 
 Authority order:
 
-1. Executable runtime behavior in `warp-math` and `warp-geom`.
+1. Executable runtime behavior in Bunny, `warp-math`, and `warp-geom`.
 2. Cross-language golden fixtures and deterministic command output.
 3. Generated Rust / TypeScript code and schema hashes.
 4. GraphQL SDL and design docs.
 5. jedit adapter code.
 
 Design docs explain the target. They do not prove it.
+
+### Bunny Extraction Update
+
+The long-term invariant is:
+
+```text
+Bunny owns reusable graphics primitives.
+Echo owns causal use of those primitives.
+```
+
+This means Echo's deterministic math and geometry crates are extraction
+candidates, not permanent project boundaries. Move a primitive toward Bunny when
+it is pure graphics substrate: scalars, vectors, matrices, quaternions,
+transforms, shapes, contacts, rays, overlap tests, swept tests, broad phase,
+mesh contracts, optics, or lighting math.
+
+Keep a primitive in Echo when it names causal authority: strands, braids,
+intents, readings, WSC storage, retained evidence, transaction semantics,
+admission policy, or provenance.
 
 ## Vocabulary
 
@@ -183,7 +206,7 @@ Use renderer-neutral names. Echo should not expose names such as
 
 ## Contract surface
 
-The initial SDL family should live under reusable runtime schemas:
+The original Echo-local SDL plan was:
 
 ```text
 schemas/runtime/echo-math.graphql
@@ -191,6 +214,16 @@ schemas/runtime/echo-geometry-2d.graphql
 schemas/runtime/echo-geometry-3d.graphql
 schemas/runtime/echo-geometry-query.graphql
 ```
+
+After the Bunny decision, the reusable primitive schemas should instead live in
+Bunny-owned schema files such as:
+
+```text
+schemas/bunny/v0/graphics.graphql
+```
+
+Echo can generate or vendor bindings from Bunny schemas, but Echo should not
+become the owner of shared graphics schemas.
 
 Those modules should be importable by application contracts without making
 application nouns part of Echo core.

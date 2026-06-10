@@ -22,6 +22,8 @@ use std::process::Command;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
+mod hello_echo;
+
 #[derive(Parser)]
 #[command(
     name = "xtask",
@@ -41,6 +43,8 @@ enum Commands {
     Dags(DagsArgs),
     /// Emit agent-native Doghouse recorder events.
     Doghouse(DoghouseArgs),
+    /// Run the 30-second Hello Echo evidence capsule.
+    HelloEcho(HelloEchoArgs),
     /// Summarize current-head PR status, unresolved threads, and check state.
     PrStatus(PrStatusArgs),
     /// Record a durable PR review-state snapshot under local ignored artifacts.
@@ -75,6 +79,19 @@ struct TestSliceArgs {
     /// Print the exact commands without running them.
     #[arg(long)]
     dry_run: bool,
+}
+
+#[derive(Args)]
+struct HelloEchoArgs {
+    /// Output the evidence capsule as JSON.
+    #[arg(long)]
+    json: bool,
+    /// Directory for generated WSC and report artifacts.
+    #[arg(long, default_value = "target/hello-echo")]
+    out_dir: PathBuf,
+    /// Fail if the demo exceeds this local wall-clock budget in milliseconds.
+    #[arg(long, default_value = "30000")]
+    max_ms: u64,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -504,6 +521,7 @@ fn main() -> Result<()> {
         Commands::Bench(args) => run_bench(args),
         Commands::Dags(args) => run_dags(args),
         Commands::Doghouse(args) => run_doghouse(args),
+        Commands::HelloEcho(args) => run_hello_echo(args),
         Commands::PrStatus(args) => run_pr_status(args),
         Commands::PrSnapshot(args) => run_pr_snapshot(args),
         Commands::PrThreads(args) => run_pr_threads(args),
@@ -517,6 +535,38 @@ fn main() -> Result<()> {
         Commands::Wesley(args) => run_wesley(args),
         Commands::TestSlice(args) => run_test_slice(args),
     }
+}
+
+fn run_hello_echo(args: HelloEchoArgs) -> Result<()> {
+    let report = hello_echo::run(hello_echo::HelloEchoConfig {
+        out_dir: args.out_dir,
+        max_ms: args.max_ms,
+    })?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        println!("Hello Echo: {}", report.verdict);
+        println!(
+            "elapsed={}ms budget={}ms evidence={}",
+            report.elapsed_ms, report.max_ms, report.deterministic_evidence_digest
+        );
+        println!(
+            "tick={} applied={} rejected={} conflict={}",
+            report.worldline.current_tick,
+            report.receipt.applied_count,
+            report.receipt.rejected_count,
+            report.receipt.conflict_count
+        );
+        println!(
+            "counter={} wsc={} suffix={}",
+            report.counter.value, report.wsc.path, report.continuum.outcome
+        );
+        println!("inspect: {}", report.inspection.inspect_tree);
+        println!("verify:  {}", report.inspection.verify_wsc);
+    }
+
+    Ok(())
 }
 
 fn run_test_slice(args: TestSliceArgs) -> Result<()> {

@@ -60,6 +60,7 @@
 
 pub mod build;
 pub mod read;
+pub mod store;
 pub mod types;
 pub mod validate;
 pub mod view;
@@ -68,6 +69,16 @@ pub mod write;
 // Re-exports for convenient access
 pub use build::build_one_warp_input;
 pub use read::ReadError;
+pub use store::{
+    accepted_submission_records_from_wsc_envelope, accepted_submission_records_from_wsc_store,
+    accepted_submission_records_to_wsc_envelope, receipt_correlation_records_from_wsc_envelope,
+    receipt_correlation_records_from_wsc_store, receipt_correlation_records_to_wsc_envelope,
+    retention_records_from_wsc_envelope, retention_records_from_wsc_store,
+    retention_records_to_wsc_envelope, validate_wsc_causal_history_store, InMemoryWscStore,
+    WscReceiptCorrelationRecords, WscRetentionRecords, WscStoreEnvelope, WscStoreEnvelopeId,
+    WscStoreObstruction, WscStoreObstructionKind, WscStorePort, WscStoreRecordKind,
+    WscStoreSubject, WscStoreWriteReceipt,
+};
 pub use validate::validate_wsc;
 pub use view::{AttachmentRef, WarpView, WscFile};
 pub use write::{write_wsc_one_warp, OneWarpInput};

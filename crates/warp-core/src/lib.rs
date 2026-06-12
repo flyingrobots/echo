@@ -142,6 +142,7 @@ mod receipt;
 mod record;
 mod retained_evidence;
 mod retention;
+mod revelation;
 mod rule;
 mod sandbox;
 mod scheduler;
@@ -306,6 +307,10 @@ pub use provenance_store::{
 };
 pub use receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection};
 pub use record::{EdgeRecord, NodeRecord};
+pub use revelation::{
+    least_revealed, promote_posture, shell_posture_obstruction, PostureObstruction,
+    PosturePromotion, RevelationPosture,
+};
 #[cfg(feature = "native_rule_bootstrap")]
 pub use rule::{ConflictPolicy, ExecuteFn, MatchFn, PatternGraph, RewriteRule};
 pub use sandbox::DeterminismError;

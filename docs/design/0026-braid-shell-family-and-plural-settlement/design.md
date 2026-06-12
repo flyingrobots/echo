@@ -10,7 +10,11 @@ optic lowering instead of a service-layer function call._
 
 Legend: `PLATFORM`
 
-Status: **proposed — awaiting packet + test-plan review**
+Status: **approved with enhancements (James review, 2026-06-12) — RED next**
+
+> A plural braid shell is not a note that plurality happened. It is the
+> retained boundary that makes plurality replayable without reopening the
+> strands. — review verdict
 
 ## Doctrine
 
@@ -21,13 +25,14 @@ AIΩN Paper VII (DOI 10.5281/zenodo.19751149):
   retained holographic boundaries living inside the causal graph. That
   containment is what makes replay cheap at every scale.
 - **§4.2** — "irreducible plurality need not be treated as merge failure":
-  `Plural` is a first-class arm of the outcome algebra
-  `Derived ⊔ Plural ⊔ Conflict ⊔ Obstruction`, not a staging posture.
+  the outcome algebra is `Derived ⊔ Plural ⊔ Conflict ⊔ Obstruction` and
+  **those are the only arms**. Collapse is a witnessed _transition_ that
+  produces a new `Derived` record; it is never a fifth arm.
 
 Tracking issues: flyingrobots/echo#537 (shell-family doctrine, requirements
-1–2 of 5), with #538 (three-tier posture) as a field-level rider. Connective
-doctrine for #470 / #476 / #483 — whichever braid/settlement work lands
-first establishes the shell family; this packet is that work.
+1–2 of 5), #538 (three-tier posture; E0-lite lands as the first commit of
+this slice). Connective doctrine for #470 / #476 / #483 — this packet
+establishes the shell family the others must reuse.
 
 ## Current state (verified @465cf61e)
 
@@ -35,90 +40,265 @@ first establishes the shell family; this packet is that work.
   plural arm; `ImportCandidate` lowers to `AdmissionOutcomeKind::Derived`
   (`settlement.rs#158`) and conflicts carry `ConflictReason`
   (`settlement.rs#36`). Settlement compares **one strand** against base.
+- `AdmissionOutcomeKind::Plural` **already exists**
+  (`crates/warp-core/src/admission.rs#150-152`) — the algebra is minted at
+  admission scope; this slice extends it to settlement scope with no new
+  ABI discriminant. Admission-side and settlement-side plurality are the
+  **same doctrine at different optic scales**, never two meanings.
 - Braid identities exist without substance: `OpticFocus::Braid`
   (`crates/warp-core/src/optic.rs#161`), `EchoCoordinate::Braid`
   (`optic.rs#297`), `SupportPin` geometry implemented and
   invariant-validated — but no reducer materializes a braid and nothing
   emits a braid-level shell.
 - `BoundaryTransitionRecord` (`crates/warp-core/src/provenance_store.rs#626`)
-  is the existing retained-shell mechanics at strand boundaries — the
-  family to extend, **not** a pattern to duplicate.
-- Plurality exists only admission-side: `PluralIntent`,
-  `PluralityRequiresExplicitPolicy` (optic.rs admission path). Below
-  admission, plurality is destroyed (admit-one/block-one per tick).
+  is the existing retained-shell mechanics — the family to extend as a
+  subkind, **not** a pattern to duplicate.
 
 ## Hill
 
-A settlement comparison over two or more strands sharing a fork basis can
-end in a **retained plural outcome**: a θ_braid shell, resident in the
-provenance store, carrying the comparison basis, member strand refs, the
-outcome arm (`Collapsed`/`Plural`/`Conflict`), and its witness — such that
-**the braid outcome can be replayed from the shell alone**, without
-rematerializing member strands. That replay test is the definition of done.
+A settlement comparison over strands sharing a fork basis can end in a
+**retained plural outcome**: a θ_braid shell, resident in the provenance
+store, carrying the comparison basis, canonical member entries with compact
+verdict snapshots, policy identity, outcome arm, witness digest, and
+revelation posture — such that **the braid outcome replays from the shell
+alone**, with member strand-history loaders replaced by panic stubs. That
+hostile replay test is the definition of done. If replay needs member
+histories, θ_braid is not a shell; it is a souvenir.
 
 ## Campaign map (this packet = E1)
 
-| Slice  | Scope                                                                                                           | Status                                                               |
-| :----- | :-------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------- |
-| E0     | Tier posture field (`scratch \| author-only \| shared`) on strand creation (echo#538)                           | optional preface; if not first, E1 carries the field on θ_braid only |
-| **E1** | **`SettlementDecision::Plural` + θ_braid shell family + replay-from-shell (this packet)**                       | proposed                                                             |
-| E2     | Holographic strand origins — fork via checkpoint-pinned basis ref, empty entry vector (echo#537 comment design) | next                                                                 |
-| E3     | Braid reducer/weave over N strands + collapse policies                                                          | after E2 (needs cheap strands)                                       |
+| Slice  | Scope                                                                                   | Status                             |
+| :----- | :-------------------------------------------------------------------------------------- | :--------------------------------- |
+| E0     | Full tier-posture system on strand creation (echo#538)                                  | E0-lite lands as E1's first commit |
+| **E1** | **`SettlementDecision::Plural` + θ_braid shell family + hostile replay-from-shell**     | approved with enhancements         |
+| E2     | Holographic strand origins — checkpoint-pinned basis ref, empty entry vector (echo#537) | next                               |
+| E3     | Braid reducer/weave over N strands + collapse-policy library                            | after E2 (needs cheap strands)     |
 
-## Acceptance criteria
+**Honesty rule (N-strand):** E1 data structures are N-capable (`Vec`
+members, canonical ordering); E1 _behavior_ is regression-pinned for
+two-member braid settlement. General N-strand reducer/weave semantics
+remain E3. This packet does not claim them.
 
-1. `SettlementDecision` gains a `Plural` arm carrying the surviving
-   alternatives as refs (not clones), lowering to
-   `AdmissionOutcomeKind::Plural`; existing `Derived`/`Conflict` paths are
-   byte-identical for single-strand settlement (regression-pinned).
-2. A `BraidShell` (θ_braid) record exists in the
-   `BoundaryTransitionRecord` family: comparison basis (fork basis ref +
-   frontier facts), member strand refs with their `SupportPin` posture,
-   outcome arm, witness digest. It is written into the provenance store —
-   in-graph, content-addressed, retained.
-3. **Replay-from-shell acceptance test**: given only the θ_braid shell and
-   the provenance store, replay reproduces the settlement outcome
-   (same arm, same member verdicts, same digests) without loading member
-   strand histories.
-4. Plurality is never silently collapsed: a plural result requires an
-   explicit, witnessed collapse act (policy-named) to become `Derived`;
-   absent policy, `Plural` is the retained truth.
-5. θ_braid carries a revelation-posture field (E0 rider:
-   `scratch | author-only | shared`, default `author-only`) so the shell
-   family never hardens around implicit shared visibility (echo#538).
-6. No new record family parallel to `BoundaryTransitionRecord`; extension
-   only.
+## The two policies (never blurred)
 
-## Test plan (for review before RED)
+1. **Plural-settlement policy** — permits multiple lawful alternatives to
+   survive a settlement comparison.
+2. **Collapse policy** — permits a retained plural result to become
+   `Derived` via a new witnessed shell-family record.
 
-1. **Plural arm shape** — settlement over two strands with disjoint lawful
-   rewrites of the same footprint region under an explicit plural policy
-   yields `SettlementDecision::Plural` with both members referenced;
-   ABI lowering maps to `AdmissionOutcomeKind::Plural`.
-2. **Single-strand regression** — existing settle paths produce identical
-   outcomes and digests before/after (golden fixtures from current tests).
-3. **Shell emission** — every settlement that ends `Collapsed`/`Plural`/
-   `Conflict` at braid scope writes exactly one θ_braid into provenance;
-   shell digest is deterministic across runs.
-4. **Replay-from-shell** — drop/forget member strand materializations;
-   replay from θ_braid reproduces arm + member verdicts + witness digest.
-   (The headline test; failure here fails the hill.)
-5. **No silent collapse** — plural result + no collapse policy stays
-   `Plural` across ticks; collapse without named policy is an
+The rules:
+
+> A settlement may produce `Plural` only when plurality is lawful under an
+> explicit plural-settlement policy or already-witnessed plural intent.
+> Once `Plural` exists, it may become `Derived` only through an explicit,
+> named, witnessed collapse policy. Absent collapse policy, `Plural`
+> remains `Plural`. Absent plural-settlement policy, incompatible overlap
+> remains `Conflict`.
+
+No default winner. No first-alternative-wins. No stable-sort-picks-winner.
+No UI-selected-top-one. Plural is not indecision; it is a lawful retained
+outcome.
+
+## Planned shape
+
+Settlement decision (algebraic arms only; collapse is a transition):
+
+```rust
+enum SettlementDecision {
+    Derived(DerivedSettlement),
+    Plural(PluralSettlement),      // refs + canonical digests, no clones
+    Conflict(ConflictSettlement),
+    Obstruction(ObstructionSettlement),
+}
+```
+
+θ_braid as a subkind of the existing retained shell family (θ_tick,
+θ_braid, θ_import are siblings; no `BraidSettlementStore`, no parallel log,
+no service-layer result cache — ever):
+
+```rust
+struct BraidShell {
+    version: ShellVersion,
+    coordinate: EchoCoordinate,    // Braid(...) — first real consumer
+    basis: BraidBasis,
+    members: Vec<BraidShellMember>, // canonically ordered
+    policy: SettlementPolicyRef,
+    outcome: BraidShellOutcome,
+    witness: BraidWitness,
+    posture: RevelationPosture,
+    digest: ContentDigest,
+}
+
+struct BraidShellMember {
+    strand_ref: StrandRef,
+    support_pin_ref: SupportPinRef,
+    support_pin_digest: ContentDigest,
+    basis_digest: ContentDigest,
+    frontier_digest: ContentDigest,
+    footprint_digest: ContentDigest,
+    claim_digest: ContentDigest,
+    verdict: MemberVerdict,        // compact snapshot, not history
+    verdict_digest: ContentDigest,
+    posture: RevelationPosture,
+}
+
+enum BraidShellOutcome {
+    Derived {
+        result_ref: DerivedRef,
+        collapse_policy: Option<PolicyRef>,
+        collapsed_from: Option<BraidShellRef>, // plural→derived lineage
+    },
+    Plural { alternatives: Vec<PluralMemberRef> },
+    Conflict { reasons: Vec<ConflictReason> },
+    Obstruction { reason: ObstructionReason, witness: WitnessDigest },
+}
+```
+
+The shell binds `basis + members + member verdicts + policy + outcome +
+witness`. It contains **no entry vectors and no strand histories** — enough
+compact, content-addressed facts that replay never calls the restaurant.
+
+**E0-lite posture core (first commit of E1):**
+
+```rust
+enum RevelationPosture { Scratch, AuthorOnly, Shared }
+```
+
+Default `AuthorOnly`. Promotion to `Shared` is an explicit witnessed act.
+Invariant: **a braid shell cannot reveal more than its least-revealed
+member** unless a witnessed redaction/promotion transform exists. Posture
+is load-bearing, not cosmetic: it affects query, replay digests, promotion,
+and visibility.
+
+**Shells are append-only.** Collapse never mutates the plural shell; it
+creates a new `Derived` shell-family record with
+`collapsed_from: Some(prior_shell_ref)`. The old plural shell remains true
+forever:
+
+```text
+θ_braid_plural ──collapsed_by(policy)──▶ θ_braid_derived
+```
+
+**Determinism:** members are canonically ordered (sort key:
+`basis_digest, strand_ref, support_pin_digest, claim_digest` — or a single
+canonical `member_digest`). Digest domains are explicit and separated:
+`echo.shell.tick.v1`, `echo.shell.braid.v1`, `echo.shell.import.v1`,
+`echo.braid.member.v1`, `echo.braid.witness.v1`.
+
+**Serialization honesty:** `SettlementDecision`'s canonical encoding uses
+stable explicit variant tags (not derived-serializer ordinal accident).
+No wire-format ABI breakage; Rust source exhaustiveness may require
+downstream match updates unless the enum is already `non_exhaustive` or
+internal — the compiler will tell it straight, and so does this packet.
+
+**Conflict structure:** braid-scope conflict carries enough structure to
+distinguish incompatible-rewrite, missing-plural-policy
+(plurality-would-have-been-lawful), basis mismatch, invalid support pin,
+frontier-fact mismatch, and policy obstruction. No flattening into one
+reason.
+
+## Acceptance criteria (enhanced per review)
+
+1. `SettlementDecision` gains a `Plural` arm carrying surviving
+   alternatives by refs plus canonical member/verdict digests. It lowers
+   to `AdmissionOutcomeKind::Plural`.
+2. Existing single-strand `Derived`, `Conflict`, and `Obstruction`
+   behavior remains byte-identical at the canonical serialization/digest
+   layer, with golden fixtures proving it.
+3. `BraidShell` / θ_braid is added as a subkind of the existing
+   `BoundaryTransitionRecord` shell family, not as a parallel record
+   family.
+4. θ_braid records basis, canonical member refs, support-pin digests,
+   member verdict summaries, policy ref/digest, outcome arm, witness
+   digest, and revelation posture.
+5. θ_braid outcome uses the same algebraic arms as settlement: `Derived`,
+   `Plural`, `Conflict`, `Obstruction`. Collapse is represented as a
+   witnessed transition producing `Derived`, not as a separate outcome
+   arm.
+6. Replay from θ_braid reproduces outcome arm, member verdicts, policy
+   digest, and witness digest using only the shell and provenance-store
+   shell records, without loading member strand histories.
+7. Plurality is never silently collapsed. A plural result remains plural
+   until a named, witnessed collapse policy emits a new shell-family
+   record.
+8. Missing collapse policy yields retained `Plural`; missing
+   plural-settlement policy for incompatible overlapping rewrites yields
+   existing `Conflict` behavior.
+9. θ_braid defaults to author-only; promotion to shared is explicit,
+   witnessed, and cannot reveal more than member postures permit.
+10. Member ordering is canonical. Input strand permutation does not change
+    shell digest or replay result.
+11. θ_braid can be queried by shell digest, braid coordinate, basis ref,
+    member strand ref, outcome arm, and posture.
+12. Tampering with basis digest, member verdict digest, policy digest,
+    posture witness, or outcome digest causes replay failure.
+
+## Test plan (enhanced per review)
+
+1. **Plural arm shape** — two lawful alternatives over the same bounded
+   site under explicit plural-settlement policy produce
+   `SettlementDecision::Plural { alternatives: [a, b], .. }` lowering to
+   `AdmissionOutcomeKind::Plural`.
+2. **Single-strand regression** — golden fixtures prove canonical digest
+   and serialized output are unchanged for existing single-strand paths.
+3. **Shell emission** — every braid-scope `Derived`, `Plural`, `Conflict`,
+   or `Obstruction` emits exactly one θ_braid-family boundary record.
+4. **Hostile replay-from-shell** (the sacred test) — member strand-history
+   loaders replaced with panic stubs; replay from θ_braid still reproduces
+   outcome arm, member verdicts, policy digest, witness digest, and shell
+   digest. The test fails if replay touches `load_strand_history`-shaped
+   surfaces. Instrumented brutally; cheating impossible.
+5. **No silent collapse** — plural without collapse policy remains
+   `Plural` across ticks; attempted collapse without named policy emits
    `Obstruction` with witness.
-6. **Posture default** — θ_braid created from debugger/counterfactual
-   strands defaults `author-only`; promotion to `shared` is an explicit
-   act that re-witnesses.
-7. **Conflict still conflicts** — overlapping rewrites without plural
-   policy keep today's `Conflict` + `ConflictReason` behavior exactly.
+6. **Explicit collapse** — plural + named collapse policy emits a new
+   `Derived` shell referencing the prior plural shell
+   (`collapsed_from`); the original plural shell is unchanged.
+7. **Conflict still conflicts** — overlapping incompatible rewrites
+   without plural-settlement policy keep today's `Conflict` +
+   `ConflictReason` behavior exactly.
+8. **Posture default and promotion** — θ_braid defaults author-only;
+   promotion to shared requires witnessed promotion; promotion fails or
+   redacts when member posture forbids sharing.
+9. **Deterministic ordering** — same members in different input order
+   produce the same θ_braid digest and same replay result.
+10. **Tamper resistance** — changing member verdict digest, basis digest,
+    outcome arm, or policy digest makes replay fail.
+11. **Queryability** — shell retrievable by digest, basis, braid
+    coordinate, member strand, outcome arm, and posture.
+
+## Design notes (COULD tier, adopt where cheap)
+
+- `BraidShellReplayPlan { shell_ref, required_records, forbidden_loads }`
+  as the internal structure that makes the hostile harness auditable.
+- θ_braid as the first real consumer of `EchoCoordinate::Braid`:
+  `BraidCoordinate = hash(basis_ref, canonical_member_digest_list,
+settlement_policy_digest)`; the shell lives at that coordinate.
+- `PluralSetDigest(ContentDigest)` over canonical alternatives — a stable
+  identity for "these alternatives lawfully coexist" independent of shell
+  wrapper details.
+- Collapse-lineage graph affordances: "all derived outcomes that collapsed
+  plural alternatives", "all plural shells not yet collapsed", "all
+  collapses by policy X".
+
+## Refusals (DON'T tier — hard lines)
+
+- No parallel braid result store beside the provenance store.
+- No silent plural→derived degradation by time, pressure, convenience, UI
+  default, or last-writer-wins.
+- No `Collapsed` as an algebra arm — event/witness/transition names only.
+- No claimed N-strand reducer semantics (E3 owns them).
+- No cosmetic posture field.
 
 ## Playback questions
 
 1. Can a plural settlement outcome be retained, queried, and replayed from
-   its shell without rematerializing member strands?
+   its shell — with strand-history loaders panicking — without
+   rematerializing member strands?
 2. Is the θ_braid shell demonstrably the same record family as the
    existing boundary-transition mechanics (one family, per Prop 3.5)?
 3. Does any path silently collapse plurality?
+4. Does posture observably gate query, replay digests, and promotion?
 
 ## Non-goals
 
@@ -126,20 +306,19 @@ rematerializing member strands. That replay test is the definition of done.
 - No suffix-transport shell θ_rep / import idempotence (later slice).
 - No fork-mechanics change (E2 owns holographic origins).
 - No session implementation (design 0025 owns that).
-- No public ABI breakage beyond the additive `Plural` arm.
+- No wire-format ABI breakage (source exhaustiveness updates permitted,
+  stated honestly above).
 
-## Open questions (for James at packet review)
+## Resolved questions (James review, 2026-06-12)
 
-1. Should E0 (tier posture on strand creation) land first as its own tiny
-   slice, or is the θ_braid-only posture field (criterion 5) the right
-   E1-scoped compromise?
-2. `Plural` member refs: strand ids + basis digests, or full
-   `SupportPin` snapshots? (Refs keep the shell holographic; pins make it
-   self-contained. Recommendation: refs + pin digests.)
-3. ~~Does `AdmissionOutcomeKind` already reserve a `Plural` discriminant in
-   the ABI?~~ **Resolved during packet drafting**: yes —
-   `AdmissionOutcomeKind::Plural` exists at
-   `crates/warp-core/src/admission.rs#150-152@465cf61e` ("Multiple claims
-   remained lawfully plural over one bounded site"). The outcome algebra is
-   already minted at admission scope; this slice extends it to settlement
-   scope (`SettlementDecision`) with no new ABI discriminant.
+1. **E0 first?** Not as a separate blocker — E0-lite (the
+   `RevelationPosture` enum, author-only default, promotion witness,
+   least-revealed-member invariant) lands as the **first commit of E1**.
+   θ_braid never ships with implicit visibility.
+2. **Member refs?** Neither extreme: refs + canonical support-pin digest +
+   compact member verdict snapshot (shape in Planned shape above).
+   Self-contained for replay of the settlement result; not self-contained
+   for reconstruction of the strand. The middle way is the blade.
+3. **ABI?** `AdmissionOutcomeKind::Plural` exists
+   (`admission.rs#150-152@465cf61e`); settlement-side plurality is the
+   same doctrine at a different optic scale — one meaning, two scopes.

@@ -31,6 +31,7 @@ use crate::worldline::{
 use crate::WorldlineState;
 
 const CONFLICT_ARTIFACT_DOMAIN: &[u8] = b"echo:settlement-conflict-artifact:v1\0";
+const PLURAL_ARTIFACT_DOMAIN: &[u8] = b"echo:settlement-plural-artifact:v1\0";
 const REFUSE_PLURAL_POLICY_DOMAIN: &[u8] = b"echo:settlement-policy:refuse-plural:v1\0";
 
 /// Deterministic reasons a source settlement step could not be imported.
@@ -665,7 +666,6 @@ impl SettlementService {
         strand_id: StrandId,
         policy: &SettlementPolicy,
     ) -> Result<SettlementPlan, SettlementError> {
-        let _ = policy;
         let strand = strand(runtime.strands(), strand_id)?;
         let delta = Self::compare(runtime, provenance, strand_id)?;
         let target_worldline = strand.fork_basis_ref.source_lane_id;
@@ -781,6 +781,20 @@ impl SettlementService {
                 Some(StrandOverlapRevalidation::Clean {
                     overlapping_slots: entry_overlap_slots,
                 })
+            } else if policy.plural == PluralSettlementPolicy::AllowOverFootprintOverlap {
+                // Each claim applied lawfully on its own; the contention is
+                // retained as a lawful plural alternative instead of conflict.
+                // The base worldline never silently takes the strand's value,
+                // and later suffix entries cannot import past retained
+                // plurality.
+                blocked_reason = Some(ConflictReason::PluralUpstream);
+                decisions.push(SettlementDecision::PluralAlternative(plural_draft(
+                    target_worldline,
+                    &source_entry,
+                    entry_overlap_slots,
+                    policy,
+                )));
+                continue;
             } else {
                 blocked_reason = Some(ConflictReason::ParentFootprintOverlap);
                 decisions.push(SettlementDecision::ConflictArtifact(
@@ -1223,6 +1237,48 @@ fn conflict_draft_with_revalidation(
         reason,
         overlap_revalidation,
     }
+}
+
+fn plural_draft(
+    target_worldline: WorldlineId,
+    source_entry: &ProvenanceEntry,
+    overlapping_slots: Vec<SlotId>,
+    policy: &SettlementPolicy,
+) -> PluralAlternativeDraft {
+    PluralAlternativeDraft {
+        plural_id: compute_plural_artifact_id(
+            target_worldline,
+            source_entry.as_ref(),
+            &overlapping_slots,
+            policy.policy_id,
+        ),
+        source_ref: source_entry.as_ref(),
+        channel_ids: source_entry
+            .outputs
+            .iter()
+            .map(|(channel, _)| *channel)
+            .collect(),
+        overlapping_slots,
+        policy_id: policy.policy_id,
+        posture: RevelationPosture::default(),
+    }
+}
+
+fn compute_plural_artifact_id(
+    target_worldline: WorldlineId,
+    source_ref: ProvenanceRef,
+    overlapping_slots: &[SlotId],
+    policy_id: Hash,
+) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(PLURAL_ARTIFACT_DOMAIN);
+    hasher.update(target_worldline.as_bytes());
+    hasher.update(source_ref.worldline_id.as_bytes());
+    hasher.update(&source_ref.worldline_tick.as_u64().to_le_bytes());
+    hasher.update(&source_ref.commit_hash);
+    hasher.update(&settlement_overlap_slots_digest(overlapping_slots));
+    hasher.update(&policy_id);
+    hasher.finalize().into()
 }
 
 fn compute_conflict_artifact_id(

@@ -221,6 +221,29 @@ Named debts from the checkpoint review:
    empty/null witness digests or introduce a `WitnessDigest` newtype.
    A witness must never be a 32-byte shrug.
 
+## E1 landed laws (post-θ_braid review, 2026-06-12)
+
+- **Empty-settlement law:** an empty settlement is not a braid-scope
+  settlement act and emits no θ_braid (no claims means no braid outcome).
+  Tested as `empty_settlement_emits_no_shell_by_law`.
+- **No-leak law:** no failed settlement may leak a shell; the shell is the
+  final fallible step of `settle_with_policy`. Tested as
+  `failed_settlement_retains_no_shell`.
+- **One boundary family in code:** `RetainedBoundaryRecord` /
+  `RetainedBoundaryKind` are implemented by both
+  `BoundaryTransitionRecord` (θ_tick) and `BraidShell` (θ_braid);
+  θ_import joins later.
+- **Canonical set order:** plural `alternative_ids` are a sorted set
+  (member verdict digests bind the ordered transcript); support pins and
+  overlap slots digest in canonical order.
+- **Residue ↔ boundary, both directions:** shell outcome lists plural
+  artifact ids; `braid_shell_for_plural` resolves residue → shell.
+- **Collapse law:** `collapse_braid_shell` never mutates the plural
+  parent; named witnessed policy → new `Derived` shell with full lineage
+  (`collapse_policy` + `collapse_witness` + `collapsed_from`, all-or-none
+  coherent); missing policy → retained `Obstruction` shell. `WitnessDigest`
+  refuses zero/empty digests.
+
 ## Acceptance criteria (enhanced per review)
 
 1. `SettlementDecision` gains a `Plural` arm carrying surviving

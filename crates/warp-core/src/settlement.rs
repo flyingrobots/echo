@@ -601,6 +601,9 @@ pub enum SettlementError {
     /// Strand live-basis analysis failed.
     #[error(transparent)]
     StrandBasis(#[from] StrandError),
+    /// Retaining the θ_braid shell for a settlement act failed.
+    #[error(transparent)]
+    BraidShell(#[from] crate::braid_shell::BraidShellError),
 }
 
 /// Deterministic source-basis settlement service.
@@ -871,6 +874,10 @@ impl SettlementService {
                 braid_shell: None,
             });
         }
+        let (fork_basis_ref, support_pins) = {
+            let settled = strand(runtime.strands(), strand_id)?;
+            (settled.fork_basis_ref, settled.support_pins.clone())
+        };
 
         let runtime_before = runtime.clone();
         let provenance_before = provenance.checkpoint_for([plan.target_worldline])?;
@@ -915,12 +922,23 @@ impl SettlementService {
                 }
             }
 
+            // The shell is the final fallible step: a failed settle restores
+            // entries before any shell describing them could be retained.
+            let shell = build_braid_shell(
+                &plan,
+                fork_basis_ref,
+                &support_pins,
+                policy,
+                &appended_imports,
+            )?;
+            let braid_shell = provenance.append_braid_shell(shell)?;
+
             Ok(SettlementResult {
                 plan,
                 appended_imports,
                 appended_conflicts,
                 appended_plurals,
-                braid_shell: None,
+                braid_shell: Some(braid_shell),
             })
         })();
 
@@ -1255,6 +1273,136 @@ fn conflict_draft_with_revalidation(
         reason,
         overlap_revalidation,
     }
+}
+
+/// Builds the θ_braid shell summarizing one settlement act.
+///
+/// E1 settles one strand against its base, so the shell carries one member
+/// whose verdict summarizes the per-entry decisions (plural > conflict >
+/// derived precedence) and whose verdict digest binds the full ordered
+/// decision sequence. Data structures are N-capable; N-strand weave
+/// semantics remain E3.
+fn build_braid_shell(
+    plan: &SettlementPlan,
+    fork_basis_ref: crate::strand::ForkBasisRef,
+    support_pins: &[crate::strand::SupportPin],
+    policy: &SettlementPolicy,
+    appended_imports: &[ProvenanceRef],
+) -> Result<crate::braid_shell::BraidShell, crate::braid_shell::BraidShellError> {
+    use crate::braid_shell::{BraidShell, BraidShellMember, BraidShellOutcome, MemberVerdict};
+
+    let mut plural_ids = Vec::new();
+    let mut conflict_codes = Vec::new();
+    let mut claim_hasher = Hasher::new();
+    claim_hasher.update(b"echo.braid.member.claims.v1\0");
+    let mut verdict_hasher = Hasher::new();
+    verdict_hasher.update(b"echo.braid.member.verdicts.v1\0");
+    for decision in &plan.decisions {
+        match decision {
+            SettlementDecision::ImportCandidate(candidate) => {
+                claim_hasher.update(&candidate.source_ref.commit_hash);
+                verdict_hasher.update(&[1]);
+                verdict_hasher.update(&candidate.imported_op_id);
+            }
+            SettlementDecision::ConflictArtifact(draft) => {
+                claim_hasher.update(&draft.source_ref.commit_hash);
+                verdict_hasher.update(&[2]);
+                verdict_hasher.update(&draft.artifact_id);
+                verdict_hasher.update(&[draft.reason.code()]);
+                conflict_codes.push(draft.reason.code());
+            }
+            SettlementDecision::PluralAlternative(draft) => {
+                claim_hasher.update(&draft.source_ref.commit_hash);
+                verdict_hasher.update(&[3]);
+                verdict_hasher.update(&draft.plural_id);
+                plural_ids.push(draft.plural_id);
+            }
+        }
+    }
+
+    let verdict = if plural_ids.is_empty() {
+        if conflict_codes.is_empty() {
+            MemberVerdict::Derived
+        } else {
+            MemberVerdict::Conflict
+        }
+    } else {
+        MemberVerdict::Plural
+    };
+    let outcome = if plural_ids.is_empty() {
+        if conflict_codes.is_empty() {
+            BraidShellOutcome::Derived {
+                result_refs: appended_imports.to_vec(),
+                collapse_policy: None,
+                collapsed_from: None,
+            }
+        } else {
+            BraidShellOutcome::Conflict {
+                reason_codes: conflict_codes,
+            }
+        }
+    } else {
+        BraidShellOutcome::Plural {
+            alternative_ids: plural_ids,
+        }
+    };
+
+    let overlap_slots = settlement_basis_overlap_slots(&plan.basis_report).unwrap_or_default();
+    let member = BraidShellMember {
+        strand_ref: plan.strand_id,
+        support_pin_digest: support_pins_digest(support_pins),
+        basis_digest: fork_basis_digest(fork_basis_ref),
+        frontier_digest: frontier_digest(plan.basis_report.realized_parent_ref),
+        footprint_digest: settlement_overlap_slots_digest(&overlap_slots),
+        claim_digest: claim_hasher.finalize().into(),
+        verdict,
+        verdict_digest: verdict_hasher.finalize().into(),
+        posture: RevelationPosture::default(),
+    };
+
+    BraidShell::assemble(
+        plan.target_worldline,
+        plan.target_base_ref,
+        vec![member],
+        policy.policy_id,
+        outcome,
+        RevelationPosture::default(),
+    )
+}
+
+fn support_pins_digest(pins: &[crate::strand::SupportPin]) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(b"echo.braid.member.pins.v1\0");
+    hasher.update(&(pins.len() as u64).to_le_bytes());
+    for pin in pins {
+        hasher.update(pin.strand_id.as_bytes());
+        hasher.update(pin.worldline_id.as_bytes());
+        hasher.update(&pin.pinned_tick.as_u64().to_le_bytes());
+        hasher.update(&pin.state_hash);
+    }
+    hasher.finalize().into()
+}
+
+fn fork_basis_digest(basis: crate::strand::ForkBasisRef) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(b"echo.braid.member.basis.v1\0");
+    hasher.update(basis.source_lane_id.as_bytes());
+    hasher.update(&basis.fork_tick.as_u64().to_le_bytes());
+    hasher.update(&basis.commit_hash);
+    hasher.update(&basis.boundary_hash);
+    hasher.update(basis.provenance_ref.worldline_id.as_bytes());
+    hasher.update(&basis.provenance_ref.worldline_tick.as_u64().to_le_bytes());
+    hasher.update(&basis.provenance_ref.commit_hash);
+    hasher.finalize().into()
+}
+
+fn frontier_digest(realized_parent_ref: ProvenanceRef) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(b"echo.braid.member.frontier.v1\0");
+    hasher.update(realized_parent_ref.worldline_id.as_bytes());
+    hasher.update(&realized_parent_ref.worldline_tick.as_u64().to_le_bytes());
+    hasher.update(&realized_parent_ref.commit_hash);
+    hasher.finalize().into()
 }
 
 fn plural_draft(

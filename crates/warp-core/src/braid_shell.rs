@@ -204,18 +204,22 @@ fn hash_optional_digest(hasher: &mut Hasher, digest: Option<&Hash>) {
 }
 
 /// Obstructions raised while assembling, validating, or replaying a shell.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum BraidShellError {
     /// A shell must summarize at least one member.
+    #[error("braid shell must summarize at least one member")]
     EmptyMembers,
     /// The shell posture exceeds its least-revealed member.
+    #[error("braid shell posture exceeds least-revealed member: {0:?}")]
     PostureExceedsMembers(PostureObstruction),
     /// Outcome arm and member verdicts disagree.
+    #[error("braid shell outcome {outcome:?} disagrees with member verdicts")]
     OutcomeMemberMismatch {
         /// Outcome arm the shell claims.
         outcome: AdmissionOutcomeKind,
     },
     /// The stored digest does not match the recomputed canonical body.
+    #[error("braid shell digest mismatch: stored {stored:?}, recomputed {recomputed:?}")]
     DigestMismatch {
         /// Digest stored on the shell.
         stored: Hash,
@@ -223,6 +227,7 @@ pub enum BraidShellError {
         recomputed: Hash,
     },
     /// The stored witness digest does not match the recomputed body witness.
+    #[error("braid shell witness mismatch: stored {stored:?}, recomputed {recomputed:?}")]
     WitnessMismatch {
         /// Witness digest stored on the shell.
         stored: Hash,
@@ -230,18 +235,22 @@ pub enum BraidShellError {
         recomputed: Hash,
     },
     /// Member entries are not in canonical order.
+    #[error("braid shell members are not in canonical order")]
     NonCanonicalMemberOrder,
     /// No shell record exists for the requested digest.
+    #[error("no braid shell retained for digest {digest:?}")]
     ShellNotFound {
         /// Digest that resolved to nothing.
         digest: Hash,
     },
     /// A collapse lineage parent is missing or not plural.
+    #[error("collapse lineage parent {collapsed_from:?} is missing or not plural")]
     InvalidCollapseLineage {
         /// Parent shell digest named by `collapsed_from`.
         collapsed_from: Hash,
     },
     /// A shell with this digest is already retained with different content.
+    #[error("a divergent braid shell already claims digest {digest:?}")]
     DuplicateDigestDivergentContent {
         /// Digest both shells claim.
         digest: Hash,

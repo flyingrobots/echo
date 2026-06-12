@@ -197,6 +197,30 @@ distinguish incompatible-rewrite, missing-plural-policy
 frontier-fact mismatch, and policy obstruction. No flattening into one
 reason.
 
+## E1a hierarchy (checkpoint review, 2026-06-12)
+
+The plural-arm checkpoint landed as per-entry residue plumbing. The
+hierarchy must never blur:
+
+> `PluralAlternative` is an E1a per-entry residue noun. θ_braid is the
+> plural settlement boundary. The final replayable plural outcome is the
+> `BraidShell`, not the individual `PluralAlternative` event.
+
+Named debts from the checkpoint review:
+
+1. **`ProvenanceEventKind::PluralArtifact { plural_id }` is a marker, not
+   a body.** The durable replayable truth is the θ_braid shell record;
+   the event kind points at it. Shell facts are never re-derived from
+   in-memory drafts.
+2. **`ConflictReason::PluralUpstream` is temporary residue shape.** Once
+   `SettlementDecision::Obstruction` exists, suffix entries blocked by
+   prior retained plurality become Obstruction/PluralDependency rather
+   than Conflict.
+3. **Posture witnesses need a quality bar.** `promote_posture` accepts
+   any 32-byte value today; before shell promotion law lands, reject
+   empty/null witness digests or introduce a `WitnessDigest` newtype.
+   A witness must never be a 32-byte shrug.
+
 ## Acceptance criteria (enhanced per review)
 
 1. `SettlementDecision` gains a `Plural` arm carrying surviving

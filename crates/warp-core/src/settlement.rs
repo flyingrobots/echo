@@ -463,53 +463,66 @@ fn overlap_revalidation_to_abi(
     }
 }
 
-fn settlement_overlap_slots_digest(slots: &[SlotId]) -> Hash {
-    let mut hasher = Hasher::new();
-    hasher.update(b"echo:settlement-overlap-slots:v1\0");
-    hasher.update(&(slots.len() as u64).to_le_bytes());
-    for slot in slots {
-        hash_settlement_slot(&mut hasher, slot);
-    }
-    hasher.finalize().into()
-}
-
-fn hash_settlement_slot(hasher: &mut Hasher, slot: &SlotId) {
+/// Canonical byte key for one settlement slot.
+///
+/// Slot digests and retained plural facts must not depend on upstream
+/// iteration order, so every multi-slot digest sorts by this key first.
+fn canonical_slot_bytes(slot: &SlotId) -> Vec<u8> {
+    let mut bytes = Vec::new();
     match slot {
         SlotId::Node(node) => {
-            hasher.update(&[1]);
-            hasher.update(node.warp_id.as_bytes());
-            hasher.update(node.local_id.as_bytes());
+            bytes.push(1);
+            bytes.extend_from_slice(node.warp_id.as_bytes());
+            bytes.extend_from_slice(node.local_id.as_bytes());
         }
         SlotId::Edge(edge) => {
-            hasher.update(&[2]);
-            hasher.update(edge.warp_id.as_bytes());
-            hasher.update(edge.local_id.as_bytes());
+            bytes.push(2);
+            bytes.extend_from_slice(edge.warp_id.as_bytes());
+            bytes.extend_from_slice(edge.local_id.as_bytes());
         }
         SlotId::Attachment(attachment) => {
-            hasher.update(&[3]);
+            bytes.push(3);
             match attachment.owner {
                 AttachmentOwner::Node(node) => {
-                    hasher.update(&[1]);
-                    hasher.update(node.warp_id.as_bytes());
-                    hasher.update(node.local_id.as_bytes());
+                    bytes.push(1);
+                    bytes.extend_from_slice(node.warp_id.as_bytes());
+                    bytes.extend_from_slice(node.local_id.as_bytes());
                 }
                 AttachmentOwner::Edge(edge) => {
-                    hasher.update(&[2]);
-                    hasher.update(edge.warp_id.as_bytes());
-                    hasher.update(edge.local_id.as_bytes());
+                    bytes.push(2);
+                    bytes.extend_from_slice(edge.warp_id.as_bytes());
+                    bytes.extend_from_slice(edge.local_id.as_bytes());
                 }
             }
             match attachment.plane {
-                AttachmentPlane::Alpha => hasher.update(&[1]),
-                AttachmentPlane::Beta => hasher.update(&[2]),
-            };
+                AttachmentPlane::Alpha => bytes.push(1),
+                AttachmentPlane::Beta => bytes.push(2),
+            }
         }
         SlotId::Port((warp_id, port_key)) => {
-            hasher.update(&[4]);
-            hasher.update(warp_id.as_bytes());
-            hasher.update(&port_key.to_le_bytes());
+            bytes.push(4);
+            bytes.extend_from_slice(warp_id.as_bytes());
+            bytes.extend_from_slice(&port_key.to_le_bytes());
         }
     }
+    bytes
+}
+
+/// Sorts slots into canonical digest order.
+fn canonicalize_slots(slots: &mut [SlotId]) {
+    slots.sort_by_key(canonical_slot_bytes);
+}
+
+fn settlement_overlap_slots_digest(slots: &[SlotId]) -> Hash {
+    let mut encoded: Vec<Vec<u8>> = slots.iter().map(canonical_slot_bytes).collect();
+    encoded.sort_unstable();
+    let mut hasher = Hasher::new();
+    hasher.update(b"echo:settlement-overlap-slots:v1\0");
+    hasher.update(&(encoded.len() as u64).to_le_bytes());
+    for slot_bytes in &encoded {
+        hasher.update(slot_bytes);
+    }
+    hasher.finalize().into()
 }
 
 fn provenance_ref_to_abi(reference: ProvenanceRef) -> abi::ProvenanceRef {
@@ -1242,9 +1255,10 @@ fn conflict_draft_with_revalidation(
 fn plural_draft(
     target_worldline: WorldlineId,
     source_entry: &ProvenanceEntry,
-    overlapping_slots: Vec<SlotId>,
+    mut overlapping_slots: Vec<SlotId>,
     policy: &SettlementPolicy,
 ) -> PluralAlternativeDraft {
+    canonicalize_slots(&mut overlapping_slots);
     PluralAlternativeDraft {
         plural_id: compute_plural_artifact_id(
             target_worldline,
@@ -2167,6 +2181,40 @@ mod tests {
                 SettlementDecision::ConflictArtifact(_)
             ),
             "absent plural-settlement policy, incompatible overlap remains Conflict"
+        );
+    }
+
+    #[test]
+    fn slot_order_does_not_move_plural_id_or_overlap_digest() {
+        let warp_id = crate::ident::make_warp_id("plural-slot-order");
+        let slot_a = SlotId::Node(crate::ident::NodeKey {
+            warp_id,
+            local_id: make_node_id("slot-a"),
+        });
+        let slot_b = SlotId::Node(crate::ident::NodeKey {
+            warp_id,
+            local_id: make_node_id("slot-b"),
+        });
+        let slot_c = SlotId::Edge(crate::ident::EdgeKey {
+            warp_id,
+            local_id: make_edge_id("slot-c"),
+        });
+
+        let forward = [slot_a, slot_b, slot_c];
+        let reversed = [slot_c, slot_b, slot_a];
+        assert_eq!(
+            settlement_overlap_slots_digest(&forward),
+            settlement_overlap_slots_digest(&reversed),
+        );
+
+        let source_ref = ProvenanceRef {
+            worldline_id: wl(9),
+            worldline_tick: wt(1),
+            commit_hash: [0x42; 32],
+        };
+        assert_eq!(
+            compute_plural_artifact_id(wl(1), source_ref, &forward, [0x5E; 32]),
+            compute_plural_artifact_id(wl(1), source_ref, &reversed, [0x5E; 32]),
         );
     }
 

@@ -1088,6 +1088,7 @@ fn conflict_reason_to_abi(reason: ConflictReason) -> abi::ConflictReason {
         ConflictReason::BaseDivergence => abi::ConflictReason::BaseDivergence,
         ConflictReason::ParentFootprintOverlap => abi::ConflictReason::ParentFootprintOverlap,
         ConflictReason::QuantumMismatch => abi::ConflictReason::QuantumMismatch,
+        ConflictReason::PluralUpstream => abi::ConflictReason::PluralUpstream,
     }
 }
 

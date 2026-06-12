@@ -322,8 +322,9 @@ pub use serializable::{
     SerializableReceipt, SerializableReceiptEntry, SerializableSnapshot, SerializableTick,
 };
 pub use settlement::{
-    ConflictArtifactDraft, ConflictReason, ImportCandidate, SettlementDecision, SettlementDelta,
-    SettlementError, SettlementPlan, SettlementResult, SettlementService,
+    ConflictArtifactDraft, ConflictReason, ImportCandidate, PluralAlternativeDraft,
+    PluralSettlementPolicy, SettlementDecision, SettlementDelta, SettlementError, SettlementPlan,
+    SettlementPolicy, SettlementResult, SettlementService,
 };
 pub use snapshot::{
     compute_commit_hash_v2, compute_emissions_digest, compute_op_emission_index_digest,

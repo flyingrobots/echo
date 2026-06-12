@@ -453,6 +453,11 @@ pub enum ProvenanceEventKind {
         /// Stable conflict artifact id.
         artifact_id: Hash,
     },
+    /// A lawful plural alternative retained at settlement scope.
+    PluralArtifact {
+        /// Stable plural artifact id.
+        plural_id: Hash,
+    },
 }
 
 /// Single authoritative provenance record for one worldline step.

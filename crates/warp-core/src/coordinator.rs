@@ -2435,6 +2435,10 @@ fn hash_provenance_event_kind(hasher: &mut blake3::Hasher, event_kind: &Provenan
             hasher.update(b"conflict-artifact");
             hasher.update(artifact_id);
         }
+        ProvenanceEventKind::PluralArtifact { plural_id } => {
+            hasher.update(b"plural-artifact");
+            hasher.update(plural_id);
+        }
     }
 }
 

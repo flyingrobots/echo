@@ -18,6 +18,7 @@ use crate::provenance_store::{
     ProvenanceEventKind, ProvenanceRef, ProvenanceService, ProvenanceStore,
 };
 use crate::record::{EdgeRecord, NodeRecord};
+use crate::revelation::RevelationPosture;
 use crate::snapshot::{compute_commit_hash_v2, compute_state_root_for_warp_state};
 use crate::strand::{
     StrandBasisReport, StrandError, StrandId, StrandOverlapRevalidation, StrandRegistry,
@@ -30,6 +31,7 @@ use crate::worldline::{
 use crate::WorldlineState;
 
 const CONFLICT_ARTIFACT_DOMAIN: &[u8] = b"echo:settlement-conflict-artifact:v1\0";
+const REFUSE_PLURAL_POLICY_DOMAIN: &[u8] = b"echo:settlement-policy:refuse-plural:v1\0";
 
 /// Deterministic reasons a source settlement step could not be imported.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -44,6 +46,9 @@ pub enum ConflictReason {
     ParentFootprintOverlap,
     /// The source and target lanes disagree on time-quantum assumptions.
     QuantumMismatch,
+    /// An earlier suffix entry remained lawfully plural; later entries cannot
+    /// import past retained plurality.
+    PluralUpstream,
 }
 
 impl ConflictReason {
@@ -54,6 +59,7 @@ impl ConflictReason {
             Self::BaseDivergence => 3,
             Self::ParentFootprintOverlap => 4,
             Self::QuantumMismatch => 5,
+            Self::PluralUpstream => 6,
         }
     }
 
@@ -64,6 +70,54 @@ impl ConflictReason {
             Self::BaseDivergence => abi::ConflictReason::BaseDivergence,
             Self::ParentFootprintOverlap => abi::ConflictReason::ParentFootprintOverlap,
             Self::QuantumMismatch => abi::ConflictReason::QuantumMismatch,
+            Self::PluralUpstream => abi::ConflictReason::PluralUpstream,
+        }
+    }
+}
+
+/// Settlement-scope plural law: when may multiple lawful alternatives survive?
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum PluralSettlementPolicy {
+    /// Plurality is refused; contended overlap remains explicit conflict
+    /// residue. This is today's behavior and the default.
+    #[default]
+    Refused,
+    /// Contended footprint overlap where each claim applies lawfully on its
+    /// own may be retained as plural alternatives instead of conflict.
+    AllowOverFootprintOverlap,
+}
+
+/// Named law governing one settlement act.
+///
+/// The plural-settlement policy decides whether plurality may *exist*; it is
+/// deliberately separate from any future collapse policy, which would decide
+/// whether retained plurality may later become `Derived` (design 0026).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SettlementPolicy {
+    /// Stable policy identity committed into retained plural artifacts.
+    pub policy_id: Hash,
+    /// Plural-settlement law selected for this act.
+    pub plural: PluralSettlementPolicy,
+}
+
+impl SettlementPolicy {
+    /// Policy that permits lawful plurality over contended footprint overlap.
+    #[must_use]
+    pub fn allow_plural_over_footprint_overlap(policy_id: Hash) -> Self {
+        Self {
+            policy_id,
+            plural: PluralSettlementPolicy::AllowOverFootprintOverlap,
+        }
+    }
+}
+
+impl Default for SettlementPolicy {
+    fn default() -> Self {
+        let mut hasher = Hasher::new();
+        hasher.update(REFUSE_PLURAL_POLICY_DOMAIN);
+        Self {
+            policy_id: hasher.finalize().into(),
+            plural: PluralSettlementPolicy::Refused,
         }
     }
 }
@@ -148,6 +202,8 @@ pub enum SettlementDecision {
     ImportCandidate(ImportCandidate),
     /// Source history that must remain explicit residue.
     ConflictArtifact(ConflictArtifactDraft),
+    /// Source history retained as a lawful plural alternative.
+    PluralAlternative(PluralAlternativeDraft),
 }
 
 impl SettlementDecision {
@@ -157,6 +213,7 @@ impl SettlementDecision {
         match self {
             Self::ImportCandidate(_) => AdmissionOutcomeKind::Derived,
             Self::ConflictArtifact(_) => AdmissionOutcomeKind::Conflict,
+            Self::PluralAlternative(_) => AdmissionOutcomeKind::Plural,
         }
     }
 
@@ -166,6 +223,9 @@ impl SettlementDecision {
                 candidate: candidate.to_abi(),
             },
             Self::ConflictArtifact(artifact) => abi::SettlementDecision::ConflictArtifact {
+                artifact: artifact.to_abi(),
+            },
+            Self::PluralAlternative(artifact) => abi::SettlementDecision::PluralAlternative {
                 artifact: artifact.to_abi(),
             },
         }
@@ -197,6 +257,52 @@ impl ImportCandidate {
                 .overlap_revalidation
                 .as_ref()
                 .map(overlap_revalidation_to_abi),
+        }
+    }
+}
+
+/// One lawful plural alternative retained at settlement scope.
+///
+/// Plurality is not indecision: each alternative applied lawfully on its own,
+/// the claims contend over the same slots, and an explicit plural-settlement
+/// policy made their coexistence lawful. The base worldline never silently
+/// takes the strand's value; the alternative is retained as residue with its
+/// own provenance entry.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PluralAlternativeDraft {
+    /// Stable plural artifact identifier for this retained alternative.
+    pub plural_id: Hash,
+    /// Source provenance coordinate whose claim remains lawfully plural.
+    pub source_ref: ProvenanceRef,
+    /// Channels implicated by the plural source entry.
+    pub channel_ids: Vec<ChannelId>,
+    /// Contended slots over which plurality remained lawful.
+    pub overlapping_slots: Vec<SlotId>,
+    /// Plural-settlement policy that made this plurality lawful.
+    pub policy_id: Hash,
+    /// Revelation posture carried by the retained alternative.
+    pub posture: RevelationPosture,
+}
+
+impl PluralAlternativeDraft {
+    fn to_abi(&self) -> abi::PluralAlternativeDraft {
+        abi::PluralAlternativeDraft {
+            plural_id: self.plural_id.to_vec(),
+            source_ref: provenance_ref_to_abi(self.source_ref),
+            channel_ids: self
+                .channel_ids
+                .iter()
+                .map(|channel_id| channel_id.0.to_vec())
+                .collect(),
+            overlapping_slot_count: self.overlapping_slots.len() as u64,
+            overlapping_slots_digest: settlement_overlap_slots_digest(&self.overlapping_slots)
+                .to_vec(),
+            policy_id: self.policy_id.to_vec(),
+            posture: match self.posture {
+                RevelationPosture::Scratch => abi::RevelationPosture::Scratch,
+                RevelationPosture::AuthorOnly => abi::RevelationPosture::AuthorOnly,
+                RevelationPosture::Shared => abi::RevelationPosture::Shared,
+            },
         }
     }
 }
@@ -244,6 +350,8 @@ pub struct SettlementResult {
     pub appended_imports: Vec<ProvenanceRef>,
     /// Target-worldline refs appended as `ConflictArtifact`.
     pub appended_conflicts: Vec<ProvenanceRef>,
+    /// Target-worldline refs appended as `PluralArtifact`.
+    pub appended_plurals: Vec<ProvenanceRef>,
 }
 
 impl SettlementResult {
@@ -260,6 +368,12 @@ impl SettlementResult {
                 .collect(),
             appended_conflicts: self
                 .appended_conflicts
+                .iter()
+                .copied()
+                .map(provenance_ref_to_abi)
+                .collect(),
+            appended_plurals: self
+                .appended_plurals
                 .iter()
                 .copied()
                 .map(provenance_ref_to_abi)
@@ -541,6 +655,17 @@ impl SettlementService {
         provenance: &ProvenanceService,
         strand_id: StrandId,
     ) -> Result<SettlementPlan, SettlementError> {
+        Self::plan_with_policy(runtime, provenance, strand_id, &SettlementPolicy::default())
+    }
+
+    /// Produces a deterministic settlement plan under an explicit named policy.
+    pub fn plan_with_policy(
+        runtime: &WorldlineRuntime,
+        provenance: &ProvenanceService,
+        strand_id: StrandId,
+        policy: &SettlementPolicy,
+    ) -> Result<SettlementPlan, SettlementError> {
+        let _ = policy;
         let strand = strand(runtime.strands(), strand_id)?;
         let delta = Self::compare(runtime, provenance, strand_id)?;
         let target_worldline = strand.fork_basis_ref.source_lane_id;
@@ -696,12 +821,23 @@ impl SettlementService {
         provenance: &mut ProvenanceService,
         strand_id: StrandId,
     ) -> Result<SettlementResult, SettlementError> {
-        let plan = Self::plan(runtime, provenance, strand_id)?;
+        Self::settle_with_policy(runtime, provenance, strand_id, &SettlementPolicy::default())
+    }
+
+    /// Executes the deterministic settlement plan under an explicit named policy.
+    pub fn settle_with_policy(
+        runtime: &mut WorldlineRuntime,
+        provenance: &mut ProvenanceService,
+        strand_id: StrandId,
+        policy: &SettlementPolicy,
+    ) -> Result<SettlementResult, SettlementError> {
+        let plan = Self::plan_with_policy(runtime, provenance, strand_id, policy)?;
         if plan.decisions.is_empty() {
             return Ok(SettlementResult {
                 plan,
                 appended_imports: Vec::new(),
                 appended_conflicts: Vec::new(),
+                appended_plurals: Vec::new(),
             });
         }
 
@@ -710,6 +846,7 @@ impl SettlementService {
         let outcome = (|| {
             let mut appended_imports = Vec::new();
             let mut appended_conflicts = Vec::new();
+            let mut appended_plurals = Vec::new();
 
             for decision in &plan.decisions {
                 let commit_global_tick = runtime.advance_global_tick()?;
@@ -728,11 +865,21 @@ impl SettlementService {
                         draft,
                         commit_global_tick,
                     )?,
+                    SettlementDecision::PluralAlternative(draft) => append_plural_artifact(
+                        runtime,
+                        provenance,
+                        plan.target_worldline,
+                        draft,
+                        commit_global_tick,
+                    )?,
                 };
                 match decision {
                     SettlementDecision::ImportCandidate(_) => appended_imports.push(appended_ref),
                     SettlementDecision::ConflictArtifact(_) => {
                         appended_conflicts.push(appended_ref);
+                    }
+                    SettlementDecision::PluralAlternative(_) => {
+                        appended_plurals.push(appended_ref);
                     }
                 }
             }
@@ -741,6 +888,7 @@ impl SettlementService {
                 plan,
                 appended_imports,
                 appended_conflicts,
+                appended_plurals,
             })
         })();
 
@@ -920,6 +1068,44 @@ fn append_conflict_artifact(
         RecordedEntryDraft {
             event_kind: ProvenanceEventKind::ConflictArtifact {
                 artifact_id: draft.artifact_id,
+            },
+            patch: no_op_patch,
+            expected_state_root,
+            outputs: Vec::new(),
+            atom_writes: Vec::new(),
+            source_ref: None,
+        },
+    )
+}
+
+fn append_plural_artifact(
+    runtime: &mut WorldlineRuntime,
+    provenance: &mut ProvenanceService,
+    target_worldline: WorldlineId,
+    draft: &PluralAlternativeDraft,
+    commit_global_tick: GlobalTick,
+) -> Result<ProvenanceRef, SettlementError> {
+    let warp_id = runtime
+        .worldlines()
+        .get(&target_worldline)
+        .ok_or(RuntimeError::UnknownWorldline(target_worldline))?
+        .state()
+        .root()
+        .warp_id;
+    let no_op_patch = empty_worldline_patch(warp_id, commit_global_tick);
+    let expected_state_root = runtime
+        .worldlines()
+        .get(&target_worldline)
+        .ok_or(RuntimeError::UnknownWorldline(target_worldline))?
+        .state()
+        .state_root();
+    append_recorded_entry(
+        runtime,
+        provenance,
+        target_worldline,
+        RecordedEntryDraft {
+            event_kind: ProvenanceEventKind::PluralArtifact {
+                plural_id: draft.plural_id,
             },
             patch: no_op_patch,
             expected_state_root,
@@ -1809,14 +1995,141 @@ mod tests {
     fn import_candidate(decision: &SettlementDecision) -> Option<&ImportCandidate> {
         match decision {
             SettlementDecision::ImportCandidate(candidate) => Some(candidate),
-            SettlementDecision::ConflictArtifact(_) => None,
+            SettlementDecision::ConflictArtifact(_) | SettlementDecision::PluralAlternative(_) => {
+                None
+            }
         }
     }
 
     fn conflict_artifact(decision: &SettlementDecision) -> Option<&ConflictArtifactDraft> {
         match decision {
             SettlementDecision::ConflictArtifact(draft) => Some(draft),
-            SettlementDecision::ImportCandidate(_) => None,
+            SettlementDecision::ImportCandidate(_) | SettlementDecision::PluralAlternative(_) => {
+                None
+            }
         }
+    }
+
+    fn plural_alternative(decision: &SettlementDecision) -> Option<&PluralAlternativeDraft> {
+        match decision {
+            SettlementDecision::PluralAlternative(draft) => Some(draft),
+            SettlementDecision::ImportCandidate(_) | SettlementDecision::ConflictArtifact(_) => {
+                None
+            }
+        }
+    }
+
+    fn plural_policy() -> SettlementPolicy {
+        SettlementPolicy::allow_plural_over_footprint_overlap([0x5E; 32])
+    }
+
+    #[test]
+    fn settlement_plans_plural_alternative_under_explicit_plural_policy() {
+        let (runtime, provenance, strand_id, _, child_worldline) =
+            setup_runtime_with_strand(ParentDrift::OverlapDifferent);
+
+        let plan =
+            SettlementService::plan_with_policy(&runtime, &provenance, strand_id, &plural_policy())
+                .unwrap();
+        assert_eq!(plan.decisions.len(), 1);
+        assert_eq!(
+            plan.decisions[0].admission_outcome_kind(),
+            AdmissionOutcomeKind::Plural,
+            "contended-but-individually-lawful overlap under explicit plural \
+             policy must remain lawfully plural, not conflict"
+        );
+        let Some(draft) = plural_alternative(&plan.decisions[0]) else {
+            assert!(
+                matches!(&plan.decisions[0], SettlementDecision::PluralAlternative(_)),
+                "expected a retained plural alternative under explicit plural policy"
+            );
+            return;
+        };
+        assert_eq!(draft.policy_id, plural_policy().policy_id);
+        assert_eq!(draft.posture, RevelationPosture::AuthorOnly);
+        assert!(!draft.overlapping_slots.is_empty());
+        assert_eq!(draft.source_ref.worldline_id, child_worldline);
+
+        let replanned =
+            SettlementService::plan_with_policy(&runtime, &provenance, strand_id, &plural_policy())
+                .unwrap();
+        assert_eq!(replanned, plan, "plural planning must be deterministic");
+    }
+
+    #[test]
+    fn settlement_retains_plural_artifact_without_collapsing_base_state() {
+        let (mut runtime, mut provenance, strand_id, base_worldline, _) =
+            setup_runtime_with_strand(ParentDrift::OverlapDifferent);
+
+        let result = SettlementService::settle_with_policy(
+            &mut runtime,
+            &mut provenance,
+            strand_id,
+            &plural_policy(),
+        )
+        .unwrap();
+        assert_eq!(result.appended_plurals.len(), 1);
+        assert!(result.appended_imports.is_empty());
+        assert!(result.appended_conflicts.is_empty());
+
+        let retained = provenance.entry(base_worldline, wt(2)).unwrap();
+        assert!(matches!(
+            retained.event_kind,
+            ProvenanceEventKind::PluralArtifact { .. }
+        ));
+
+        // No silent collapse: the base worldline keeps its own claim.
+        let state = runtime.worldlines().get(&base_worldline).unwrap().state();
+        let root_warp = state.root().warp_id;
+        let node = state
+            .store(&root_warp)
+            .unwrap()
+            .node(&make_node_id("child-node"))
+            .unwrap()
+            .clone();
+        assert_eq!(node.ty, make_type_id("parent-node"));
+    }
+
+    #[test]
+    fn default_policy_plan_matches_legacy_plan_exactly() {
+        let (runtime, provenance, strand_id, _, _) =
+            setup_runtime_with_strand(ParentDrift::OverlapDifferent);
+
+        let legacy = SettlementService::plan(&runtime, &provenance, strand_id).unwrap();
+        let defaulted = SettlementService::plan_with_policy(
+            &runtime,
+            &provenance,
+            strand_id,
+            &SettlementPolicy::default(),
+        )
+        .unwrap();
+
+        assert_eq!(defaulted, legacy);
+        assert!(
+            matches!(
+                &legacy.decisions[0],
+                SettlementDecision::ConflictArtifact(_)
+            ),
+            "absent plural-settlement policy, incompatible overlap remains Conflict"
+        );
+    }
+
+    #[test]
+    fn plural_policy_leaves_clean_overlap_imports_derived() {
+        let (runtime, provenance, strand_id, _, _) =
+            setup_runtime_with_strand(ParentDrift::OverlapSame);
+
+        let plan =
+            SettlementService::plan_with_policy(&runtime, &provenance, strand_id, &plural_policy())
+                .unwrap();
+        assert_eq!(plan.decisions.len(), 1);
+        assert!(
+            matches!(&plan.decisions[0], SettlementDecision::ImportCandidate(_)),
+            "plural policy must not pluralize overlap that revalidates clean"
+        );
+        assert_eq!(
+            plan.decisions[0].admission_outcome_kind(),
+            AdmissionOutcomeKind::Derived
+        );
     }
 }

@@ -136,5 +136,10 @@ rematerializing member strands. That replay test is the definition of done.
 2. `Plural` member refs: strand ids + basis digests, or full
    `SupportPin` snapshots? (Refs keep the shell holographic; pins make it
    self-contained. Recommendation: refs + pin digests.)
-3. Does `AdmissionOutcomeKind` already reserve a `Plural` discriminant in
-   the ABI, or does this slice mint it (ABI version note required)?
+3. ~~Does `AdmissionOutcomeKind` already reserve a `Plural` discriminant in
+   the ABI?~~ **Resolved during packet drafting**: yes —
+   `AdmissionOutcomeKind::Plural` exists at
+   `crates/warp-core/src/admission.rs#150-152@465cf61e` ("Multiple claims
+   remained lawfully plural over one bounded site"). The outcome algebra is
+   already minted at admission scope; this slice extends it to settlement
+   scope (`SettlementDecision`) with no new ABI discriminant.

@@ -1725,6 +1725,8 @@ pub struct ProvenanceService {
     store: LocalProvenanceStore,
     /// Retained braid shells by canonical shell digest (θ_braid family).
     braid_shells: BTreeMap<Hash, crate::braid_shell::BraidShell>,
+    /// Residue → boundary index: plural artifact id to braid shell digest.
+    plural_shell_index: BTreeMap<Hash, Hash>,
 }
 
 impl ProvenanceService {
@@ -1760,8 +1762,38 @@ impl ProvenanceService {
             }
             return Ok(digest);
         }
+        if let crate::braid_shell::BraidShellOutcome::Plural { alternative_ids } = &shell.outcome {
+            for plural_id in alternative_ids {
+                self.plural_shell_index.insert(*plural_id, digest);
+            }
+        }
         self.braid_shells.insert(digest, shell);
         Ok(digest)
+    }
+
+    /// Resolves a retained plural artifact id to its braid shell.
+    ///
+    /// The shell→residue link lives in the shell outcome; this index gives
+    /// the residue→shell direction so starting from a `PluralArtifact`
+    /// provenance event never requires scanning every shell.
+    #[must_use]
+    pub fn braid_shell_for_plural(
+        &self,
+        plural_id: &Hash,
+    ) -> Option<&crate::braid_shell::BraidShell> {
+        self.plural_shell_index
+            .get(plural_id)
+            .and_then(|digest| self.braid_shells.get(digest))
+    }
+
+    /// Scan-backed query over retained braid shells.
+    pub fn query_braid_shells(
+        &self,
+        query: crate::braid_shell::BraidShellQuery,
+    ) -> impl Iterator<Item = &crate::braid_shell::BraidShell> {
+        self.braid_shells
+            .values()
+            .filter(move |shell| shell.matches(&query))
     }
 
     /// Returns the retained braid shell with the given digest, if any.

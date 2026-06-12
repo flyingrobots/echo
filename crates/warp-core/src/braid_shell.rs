@@ -112,6 +112,8 @@ pub enum BraidShellOutcome {
         result_refs: Vec<ProvenanceRef>,
         /// Collapse policy when this derivation collapsed retained plurality.
         collapse_policy: Option<Hash>,
+        /// Witness for the explicit collapse act, when applicable.
+        collapse_witness: Option<Hash>,
         /// Plural parent shell this derivation collapsed, when applicable.
         collapsed_from: Option<Hash>,
     },
@@ -151,6 +153,7 @@ impl BraidShellOutcome {
             Self::Derived {
                 result_refs,
                 collapse_policy,
+                collapse_witness,
                 collapsed_from,
             } => {
                 hasher.update(&[1]);
@@ -159,6 +162,7 @@ impl BraidShellOutcome {
                     hash_provenance_ref(hasher, reference);
                 }
                 hash_optional_digest(hasher, collapse_policy.as_ref());
+                hash_optional_digest(hasher, collapse_witness.as_ref());
                 hash_optional_digest(hasher, collapsed_from.as_ref());
             }
             Self::Plural { alternative_ids } => {
@@ -255,6 +259,48 @@ pub enum BraidShellError {
         /// Digest both shells claim.
         digest: Hash,
     },
+    /// The shell claims a body version this build does not speak.
+    #[error("unsupported braid shell version {stored} (supported: {supported})")]
+    UnsupportedVersion {
+        /// Version stored on the shell.
+        stored: u32,
+        /// Version this build supports.
+        supported: u32,
+    },
+    /// Plural alternatives are not in canonical set order.
+    #[error("braid shell plural alternatives are not in canonical order")]
+    NonCanonicalAlternativeOrder,
+    /// Collapse lineage fields must be all present or all absent.
+    #[error("derived shell carries incoherent collapse fields")]
+    IncoherentCollapseFields,
+    /// A witness digest must never be a 32-byte shrug.
+    #[error("empty or null witness digest refused")]
+    EmptyWitness,
+}
+
+/// Witness digest with a quality bar: zero and empty-input digests refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WitnessDigest(Hash);
+
+impl WitnessDigest {
+    /// Wraps a witness digest, refusing shrug values.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BraidShellError::EmptyWitness`] for the all-zero digest and
+    /// the digest of empty input.
+    pub fn new(hash: Hash) -> Result<Self, BraidShellError> {
+        if hash == [0; 32] || hash == crate::blake3_empty() {
+            return Err(BraidShellError::EmptyWitness);
+        }
+        Ok(Self(hash))
+    }
+
+    /// Returns the underlying digest.
+    #[must_use]
+    pub fn as_hash(&self) -> &Hash {
+        &self.0
+    }
 }
 
 /// Retained braid-scale settlement boundary (θ_braid).
@@ -294,13 +340,18 @@ impl BraidShell {
         basis: ProvenanceRef,
         mut members: Vec<BraidShellMember>,
         policy_id: Hash,
-        outcome: BraidShellOutcome,
+        mut outcome: BraidShellOutcome,
         posture: RevelationPosture,
     ) -> Result<Self, BraidShellError> {
         if members.is_empty() {
             return Err(BraidShellError::EmptyMembers);
         }
         members.sort_by_key(BraidShellMember::member_digest);
+        if let BraidShellOutcome::Plural { alternative_ids } = &mut outcome {
+            // Retained alternatives are a set; canonical order, not transcript
+            // order (the member verdict digest binds the ordered transcript).
+            alternative_ids.sort_unstable();
+        }
         if let Some(obstruction) =
             shell_posture_obstruction(posture, members.iter().map(|member| member.posture))
         {
@@ -308,9 +359,17 @@ impl BraidShell {
         }
         check_outcome_member_coherence(&outcome, &members)?;
 
-        let witness_digest =
-            compute_witness_digest(worldline_id, &basis, &members, policy_id, &outcome, posture);
+        let witness_digest = compute_witness_digest(
+            BRAID_SHELL_VERSION,
+            worldline_id,
+            &basis,
+            &members,
+            policy_id,
+            &outcome,
+            posture,
+        );
         let digest = compute_shell_digest(
+            BRAID_SHELL_VERSION,
             worldline_id,
             &basis,
             &members,
@@ -340,6 +399,12 @@ impl BraidShell {
     /// posture floor is violated, outcome and members disagree, or the
     /// stored witness/shell digests do not match the recomputed body.
     pub fn validate(&self) -> Result<(), BraidShellError> {
+        if self.version != BRAID_SHELL_VERSION {
+            return Err(BraidShellError::UnsupportedVersion {
+                stored: self.version,
+                supported: BRAID_SHELL_VERSION,
+            });
+        }
         if self.members.is_empty() {
             return Err(BraidShellError::EmptyMembers);
         }
@@ -353,6 +418,11 @@ impl BraidShell {
             }
             previous = Some(current);
         }
+        if let BraidShellOutcome::Plural { alternative_ids } = &self.outcome {
+            if alternative_ids.windows(2).any(|pair| pair[0] > pair[1]) {
+                return Err(BraidShellError::NonCanonicalAlternativeOrder);
+            }
+        }
         if let Some(obstruction) = shell_posture_obstruction(
             self.posture,
             self.members.iter().map(|member| member.posture),
@@ -362,6 +432,7 @@ impl BraidShell {
         check_outcome_member_coherence(&self.outcome, &self.members)?;
 
         let witness = compute_witness_digest(
+            self.version,
             self.worldline_id,
             &self.basis,
             &self.members,
@@ -376,6 +447,7 @@ impl BraidShell {
             });
         }
         let digest = compute_shell_digest(
+            self.version,
             self.worldline_id,
             &self.basis,
             &self.members,
@@ -419,7 +491,26 @@ fn check_outcome_member_coherence(
         .iter()
         .any(|member| member.verdict == MemberVerdict::Conflict);
     let coherent = match outcome {
-        BraidShellOutcome::Derived { .. } => !any_plural && !any_conflict,
+        BraidShellOutcome::Derived {
+            collapse_policy,
+            collapse_witness,
+            collapsed_from,
+            ..
+        } => {
+            let lineage_fields = [
+                collapse_policy.is_some(),
+                collapse_witness.is_some(),
+                collapsed_from.is_some(),
+            ];
+            if lineage_fields.iter().any(|present| *present)
+                && lineage_fields.iter().any(|present| !*present)
+            {
+                return Err(BraidShellError::IncoherentCollapseFields);
+            }
+            // A collapse-derived shell summarizes the plural members it
+            // collapsed; a settlement-derived shell must carry none.
+            collapsed_from.is_some() || (!any_plural && !any_conflict)
+        }
         BraidShellOutcome::Plural { .. } => any_plural,
         BraidShellOutcome::Conflict { .. } => any_conflict && !any_plural,
         BraidShellOutcome::Obstruction { .. } => true,
@@ -433,8 +524,10 @@ fn check_outcome_member_coherence(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn hash_shell_body(
     hasher: &mut Hasher,
+    version: u32,
     worldline_id: WorldlineId,
     basis: &ProvenanceRef,
     members: &[BraidShellMember],
@@ -442,7 +535,7 @@ fn hash_shell_body(
     outcome: &BraidShellOutcome,
     posture: RevelationPosture,
 ) {
-    hasher.update(&BRAID_SHELL_VERSION.to_le_bytes());
+    hasher.update(&version.to_le_bytes());
     hasher.update(worldline_id.as_bytes());
     hash_provenance_ref(hasher, basis);
     hasher.update(&(members.len() as u64).to_le_bytes());
@@ -454,7 +547,9 @@ fn hash_shell_body(
     hasher.update(&[posture.canonical_tag()]);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn compute_witness_digest(
+    version: u32,
     worldline_id: WorldlineId,
     basis: &ProvenanceRef,
     members: &[BraidShellMember],
@@ -466,6 +561,7 @@ fn compute_witness_digest(
     hasher.update(WITNESS_DOMAIN);
     hash_shell_body(
         &mut hasher,
+        version,
         worldline_id,
         basis,
         members,
@@ -476,7 +572,9 @@ fn compute_witness_digest(
     hasher.finalize().into()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn compute_shell_digest(
+    version: u32,
     worldline_id: WorldlineId,
     basis: &ProvenanceRef,
     members: &[BraidShellMember],
@@ -489,6 +587,7 @@ fn compute_shell_digest(
     hasher.update(SHELL_DOMAIN);
     hash_shell_body(
         &mut hasher,
+        version,
         worldline_id,
         basis,
         members,
@@ -586,6 +685,178 @@ pub fn replay_braid_shell(
         witness_digest: shell.witness_digest,
         posture: shell.posture,
     })
+}
+
+/// Deterministic reason code: collapse attempted without a named policy.
+pub const COLLAPSE_WITHOUT_POLICY_REASON: u8 = 1;
+
+const COLLAPSE_OBSTRUCTION_WITNESS_DOMAIN: &[u8] = b"echo.braid.collapse.obstruction.v1\0";
+const ABSENT_COLLAPSE_POLICY_DOMAIN: &[u8] = b"echo.braid.collapse-policy.absent.v1\0";
+
+/// Named, witnessed law permitting one collapse of retained plurality.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CollapsePolicy {
+    /// Stable collapse policy identity.
+    pub policy_id: Hash,
+    /// Witness for the explicit collapse act.
+    pub witness: WitnessDigest,
+}
+
+/// Outcome of one collapse attempt. Both arms are retained law.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CollapseResult {
+    /// The plurality lawfully collapsed into a new derived shell.
+    Derived(BraidShell),
+    /// The collapse was refused; the obstruction is itself a retained shell.
+    Obstructed(BraidShell),
+}
+
+/// Collapses a retained plural shell into a new shell-family record.
+///
+/// The plural parent is never mutated: a named, witnessed collapse policy
+/// produces a new `Derived` shell whose `collapsed_from` references the
+/// parent; a missing policy produces a retained `Obstruction` shell. Either
+/// way the original plural shell remains byte-identical truth forever.
+/// Append-only or bust.
+///
+/// # Errors
+///
+/// Returns [`BraidShellError`] when the plural shell is missing, fails
+/// validation, or is not plural.
+pub fn collapse_braid_shell(
+    records: &dyn BraidShellRecords,
+    plural_shell_digest: Hash,
+    selected_result_refs: Vec<ProvenanceRef>,
+    policy: Option<CollapsePolicy>,
+) -> Result<CollapseResult, BraidShellError> {
+    let plural = records
+        .shell(&plural_shell_digest)
+        .ok_or(BraidShellError::ShellNotFound {
+            digest: plural_shell_digest,
+        })?;
+    plural.validate()?;
+    if !matches!(plural.outcome, BraidShellOutcome::Plural { .. }) {
+        return Err(BraidShellError::InvalidCollapseLineage {
+            collapsed_from: plural_shell_digest,
+        });
+    }
+
+    if let Some(policy) = policy {
+        let derived = BraidShell::assemble(
+            plural.worldline_id,
+            plural.basis,
+            plural.members.clone(),
+            policy.policy_id,
+            BraidShellOutcome::Derived {
+                result_refs: selected_result_refs,
+                collapse_policy: Some(policy.policy_id),
+                collapse_witness: Some(*policy.witness.as_hash()),
+                collapsed_from: Some(plural_shell_digest),
+            },
+            plural.posture,
+        )?;
+        return Ok(CollapseResult::Derived(derived));
+    }
+
+    let mut witness_hasher = Hasher::new();
+    witness_hasher.update(COLLAPSE_OBSTRUCTION_WITNESS_DOMAIN);
+    witness_hasher.update(&plural_shell_digest);
+    let mut policy_hasher = Hasher::new();
+    policy_hasher.update(ABSENT_COLLAPSE_POLICY_DOMAIN);
+    let obstructed = BraidShell::assemble(
+        plural.worldline_id,
+        plural.basis,
+        plural.members.clone(),
+        policy_hasher.finalize().into(),
+        BraidShellOutcome::Obstruction {
+            reason_code: COLLAPSE_WITHOUT_POLICY_REASON,
+            witness: witness_hasher.finalize().into(),
+        },
+        plural.posture,
+    )?;
+    Ok(CollapseResult::Obstructed(obstructed))
+}
+
+/// Kind discriminator for the retained boundary shell family.
+///
+/// θ_tick and θ_braid are siblings in one retained boundary family
+/// (AIΩN Paper VII Prop 3.5); θ_import joins later.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RetainedBoundaryKind {
+    /// A contiguous tick-segment boundary record.
+    Tick,
+    /// A braid-scale settlement boundary shell.
+    Braid,
+}
+
+/// Shared contract for retained boundary shells of every scale.
+pub trait RetainedBoundaryRecord {
+    /// Returns which family member this record is.
+    fn boundary_kind(&self) -> RetainedBoundaryKind;
+    /// Returns the canonical content digest for the record.
+    fn boundary_digest(&self) -> Hash;
+}
+
+impl RetainedBoundaryRecord for BraidShell {
+    fn boundary_kind(&self) -> RetainedBoundaryKind {
+        RetainedBoundaryKind::Braid
+    }
+
+    fn boundary_digest(&self) -> Hash {
+        self.digest
+    }
+}
+
+const TICK_SHELL_DOMAIN: &[u8] = b"echo.shell.tick.v1\0";
+
+impl RetainedBoundaryRecord for crate::provenance_store::BoundaryTransitionRecord {
+    fn boundary_kind(&self) -> RetainedBoundaryKind {
+        RetainedBoundaryKind::Tick
+    }
+
+    fn boundary_digest(&self) -> Hash {
+        let mut hasher = Hasher::new();
+        hasher.update(TICK_SHELL_DOMAIN);
+        hasher.update(self.worldline_id.as_bytes());
+        hasher.update(self.u0_ref.as_bytes());
+        hasher.update(&self.input_boundary_hash);
+        hasher.update(&self.output_boundary_hash);
+        hasher.update(&self.logical_counter.to_le_bytes());
+        hasher.update(&(self.payload.entries.len() as u64).to_le_bytes());
+        for entry in &self.payload.entries {
+            hasher.update(&entry.expected.commit_hash);
+        }
+        hasher.finalize().into()
+    }
+}
+
+/// Scan-backed query over retained braid shells.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct BraidShellQuery {
+    /// Match shells judged against this comparison basis.
+    pub basis: Option<ProvenanceRef>,
+    /// Match shells summarizing this member strand.
+    pub member_strand: Option<StrandId>,
+    /// Match shells with this outcome arm.
+    pub outcome: Option<AdmissionOutcomeKind>,
+    /// Match shells with this revelation posture.
+    pub posture: Option<RevelationPosture>,
+}
+
+impl BraidShell {
+    /// Returns whether the shell matches every present query field.
+    #[must_use]
+    pub fn matches(&self, query: &BraidShellQuery) -> bool {
+        query.basis.is_none_or(|basis| self.basis == basis)
+            && query
+                .member_strand
+                .as_ref()
+                .is_none_or(|strand| self.has_member_strand(strand))
+            && query
+                .outcome
+                .is_none_or(|outcome| self.outcome_kind() == outcome)
+            && query.posture.is_none_or(|posture| self.posture == posture)
+    }
 }
 
 #[cfg(test)]
@@ -771,6 +1042,7 @@ mod tests {
             BraidShellOutcome::Derived {
                 result_refs: vec![basis_ref()],
                 collapse_policy: Some([0x77; 32]),
+                collapse_witness: Some([0x78; 32]),
                 collapsed_from: Some(plural_digest),
             },
             RevelationPosture::AuthorOnly,
@@ -789,5 +1061,150 @@ mod tests {
                 collapsed_from: plural_digest,
             })
         );
+    }
+
+    #[test]
+    fn tampering_with_version_fails_validation() {
+        let mut shell = plural_shell(vec![member("member-a", MemberVerdict::Plural)]);
+        shell.version = 999;
+        assert_eq!(
+            shell.validate(),
+            Err(BraidShellError::UnsupportedVersion {
+                stored: 999,
+                supported: BRAID_SHELL_VERSION,
+            })
+        );
+    }
+
+    #[test]
+    fn plural_alternatives_are_a_canonical_set() {
+        let members = vec![member("member-a", MemberVerdict::Plural)];
+        let forward = BraidShell::assemble(
+            wl(1),
+            basis_ref(),
+            members.clone(),
+            [0x5E; 32],
+            BraidShellOutcome::Plural {
+                alternative_ids: vec![[0x32; 32], [0x31; 32]],
+            },
+            RevelationPosture::AuthorOnly,
+        )
+        .unwrap();
+        let reversed = BraidShell::assemble(
+            wl(1),
+            basis_ref(),
+            members,
+            [0x5E; 32],
+            BraidShellOutcome::Plural {
+                alternative_ids: vec![[0x31; 32], [0x32; 32]],
+            },
+            RevelationPosture::AuthorOnly,
+        )
+        .unwrap();
+        assert_eq!(forward.digest, reversed.digest);
+
+        let mut tampered = forward;
+        tampered.outcome = BraidShellOutcome::Plural {
+            alternative_ids: vec![[0x32; 32], [0x31; 32]],
+        };
+        assert_eq!(
+            tampered.validate(),
+            Err(BraidShellError::NonCanonicalAlternativeOrder)
+        );
+    }
+
+    #[test]
+    fn witness_digest_refuses_shrug_values() {
+        assert_eq!(
+            WitnessDigest::new([0; 32]),
+            Err(BraidShellError::EmptyWitness)
+        );
+        assert_eq!(
+            WitnessDigest::new(crate::blake3_empty()),
+            Err(BraidShellError::EmptyWitness)
+        );
+        assert!(WitnessDigest::new([0x99; 32]).is_ok());
+    }
+
+    #[test]
+    fn collapse_with_named_policy_derives_without_mutating_the_plural_parent() {
+        let plural = plural_shell(vec![member("member-a", MemberVerdict::Plural)]);
+        let plural_digest = plural.digest;
+        let snapshot = plural.clone();
+        let records = Records::with([plural]);
+
+        let policy = CollapsePolicy {
+            policy_id: [0x77; 32],
+            witness: WitnessDigest::new([0x99; 32]).unwrap(),
+        };
+        let CollapseResult::Derived(derived) =
+            collapse_braid_shell(&records, plural_digest, vec![basis_ref()], Some(policy)).unwrap()
+        else {
+            unreachable!("named collapse policy must derive");
+        };
+
+        assert_eq!(
+            derived.outcome,
+            BraidShellOutcome::Derived {
+                result_refs: vec![basis_ref()],
+                collapse_policy: Some([0x77; 32]),
+                collapse_witness: Some([0x99; 32]),
+                collapsed_from: Some(plural_digest),
+            }
+        );
+        assert_eq!(records.shell(&plural_digest), Some(&snapshot));
+
+        let mut store = Records::with([snapshot]);
+        store.0.insert(derived.digest, derived.clone());
+        let replay = replay_braid_shell(&derived.digest, &store).unwrap();
+        assert_eq!(replay.outcome_kind, AdmissionOutcomeKind::Derived);
+    }
+
+    #[test]
+    fn collapse_without_policy_is_a_retained_obstruction() {
+        let plural = plural_shell(vec![member("member-a", MemberVerdict::Plural)]);
+        let plural_digest = plural.digest;
+        let records = Records::with([plural]);
+
+        let CollapseResult::Obstructed(obstructed) =
+            collapse_braid_shell(&records, plural_digest, Vec::new(), None).unwrap()
+        else {
+            unreachable!("collapse without policy must obstruct");
+        };
+
+        assert_eq!(obstructed.outcome_kind(), AdmissionOutcomeKind::Obstruction);
+        let BraidShellOutcome::Obstruction { reason_code, .. } = obstructed.outcome else {
+            unreachable!("obstructed collapse carries an obstruction outcome");
+        };
+        assert_eq!(reason_code, COLLAPSE_WITHOUT_POLICY_REASON);
+        obstructed.validate().unwrap();
+    }
+
+    #[test]
+    fn tick_and_braid_records_are_one_boundary_family() {
+        let shell = plural_shell(vec![member("member-a", MemberVerdict::Plural)]);
+        assert_eq!(shell.boundary_kind(), RetainedBoundaryKind::Braid);
+        assert_eq!(shell.boundary_digest(), shell.digest);
+    }
+
+    #[test]
+    fn query_matches_by_basis_member_outcome_and_posture() {
+        let shell = plural_shell(vec![member("member-a", MemberVerdict::Plural)]);
+
+        assert!(shell.matches(&BraidShellQuery::default()));
+        assert!(shell.matches(&BraidShellQuery {
+            basis: Some(basis_ref()),
+            member_strand: Some(make_strand_id("member-a")),
+            outcome: Some(AdmissionOutcomeKind::Plural),
+            posture: Some(RevelationPosture::AuthorOnly),
+        }));
+        assert!(!shell.matches(&BraidShellQuery {
+            outcome: Some(AdmissionOutcomeKind::Conflict),
+            ..BraidShellQuery::default()
+        }));
+        assert!(!shell.matches(&BraidShellQuery {
+            member_strand: Some(make_strand_id("nobody")),
+            ..BraidShellQuery::default()
+        }));
     }
 }

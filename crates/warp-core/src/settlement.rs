@@ -1300,19 +1300,19 @@ fn build_braid_shell(
     for decision in &plan.decisions {
         match decision {
             SettlementDecision::ImportCandidate(candidate) => {
-                claim_hasher.update(&candidate.source_ref.commit_hash);
+                hash_claim_source_ref(&mut claim_hasher, candidate.source_ref);
                 verdict_hasher.update(&[1]);
                 verdict_hasher.update(&candidate.imported_op_id);
             }
             SettlementDecision::ConflictArtifact(draft) => {
-                claim_hasher.update(&draft.source_ref.commit_hash);
+                hash_claim_source_ref(&mut claim_hasher, draft.source_ref);
                 verdict_hasher.update(&[2]);
                 verdict_hasher.update(&draft.artifact_id);
                 verdict_hasher.update(&[draft.reason.code()]);
                 conflict_codes.push(draft.reason.code());
             }
             SettlementDecision::PluralAlternative(draft) => {
-                claim_hasher.update(&draft.source_ref.commit_hash);
+                hash_claim_source_ref(&mut claim_hasher, draft.source_ref);
                 verdict_hasher.update(&[3]);
                 verdict_hasher.update(&draft.plural_id);
                 plural_ids.push(draft.plural_id);
@@ -1334,6 +1334,7 @@ fn build_braid_shell(
             BraidShellOutcome::Derived {
                 result_refs: appended_imports.to_vec(),
                 collapse_policy: None,
+                collapse_witness: None,
                 collapsed_from: None,
             }
         } else {
@@ -1370,15 +1371,32 @@ fn build_braid_shell(
     )
 }
 
+fn hash_claim_source_ref(hasher: &mut Hasher, source_ref: ProvenanceRef) {
+    hasher.update(source_ref.worldline_id.as_bytes());
+    hasher.update(&source_ref.worldline_tick.as_u64().to_le_bytes());
+    hasher.update(&source_ref.commit_hash);
+}
+
 fn support_pins_digest(pins: &[crate::strand::SupportPin]) -> Hash {
+    // Pin order is not semantic; sort encoded pins so the digest cannot
+    // depend on registration order.
+    let mut encoded: Vec<Vec<u8>> = pins
+        .iter()
+        .map(|pin| {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(pin.strand_id.as_bytes());
+            bytes.extend_from_slice(pin.worldline_id.as_bytes());
+            bytes.extend_from_slice(&pin.pinned_tick.as_u64().to_le_bytes());
+            bytes.extend_from_slice(&pin.state_hash);
+            bytes
+        })
+        .collect();
+    encoded.sort_unstable();
     let mut hasher = Hasher::new();
     hasher.update(b"echo.braid.member.pins.v1\0");
-    hasher.update(&(pins.len() as u64).to_le_bytes());
-    for pin in pins {
-        hasher.update(pin.strand_id.as_bytes());
-        hasher.update(pin.worldline_id.as_bytes());
-        hasher.update(&pin.pinned_tick.as_u64().to_le_bytes());
-        hasher.update(&pin.state_hash);
+    hasher.update(&(encoded.len() as u64).to_le_bytes());
+    for pin_bytes in &encoded {
+        hasher.update(pin_bytes);
     }
     hasher.finalize().into()
 }
@@ -1758,6 +1776,7 @@ mod tests {
     #[derive(Clone, Copy)]
     enum ParentDrift {
         None,
+        NoSuffix,
         Disjoint,
         OverlapSame,
         OverlapSamePlusDisjointChild,
@@ -1836,7 +1855,7 @@ mod tests {
         runtime.register_strand(strand).unwrap();
 
         let parent_drift_patch = match parent_drift {
-            ParentDrift::None => None,
+            ParentDrift::None | ParentDrift::NoSuffix => None,
             ParentDrift::Disjoint => Some(node_upsert_patch(&base_state, "base-diverged", gt(2))),
             ParentDrift::OverlapSame => Some(node_upsert_patch(&base_state, "child-node", gt(2))),
             ParentDrift::OverlapSamePlusDisjointChild => Some(node_record_upsert_patch(
@@ -1894,25 +1913,30 @@ mod tests {
         }
 
         let child_patch = match parent_drift {
-            ParentDrift::OverlapSamePlusDisjointChild => overlap_plus_disjoint_node_patch(
+            ParentDrift::OverlapSamePlusDisjointChild => Some(overlap_plus_disjoint_node_patch(
                 &child_state,
                 "overlap-node",
                 "disjoint-node",
                 gt(3),
-            ),
+            )),
             ParentDrift::None
             | ParentDrift::Disjoint
             | ParentDrift::OverlapSame
-            | ParentDrift::OverlapDifferent => node_upsert_patch(&child_state, "child-node", gt(3)),
+            | ParentDrift::OverlapDifferent => {
+                Some(node_upsert_patch(&child_state, "child-node", gt(3)))
+            }
+            ParentDrift::NoSuffix => None,
         };
-        append_local_patch(
-            &mut child_state,
-            &mut provenance,
-            child_worldline,
-            child_head,
-            gt(3),
-            child_patch,
-        );
+        if let Some(child_patch) = child_patch {
+            append_local_patch(
+                &mut child_state,
+                &mut provenance,
+                child_worldline,
+                child_head,
+                gt(3),
+                child_patch,
+            );
+        }
         runtime = WorldlineRuntime::new();
         runtime
             .register_worldline(base_worldline, base_state)
@@ -2460,6 +2484,109 @@ mod tests {
                 .outcome_kind(),
             AdmissionOutcomeKind::Conflict
         );
+    }
+
+    #[test]
+    fn empty_settlement_emits_no_shell_by_law() {
+        // Law: no claims means no braid outcome. An empty settlement is not
+        // a braid-scope settlement act and retains no theta_braid shell.
+        let (mut runtime, mut provenance, strand_id, _, _) =
+            setup_runtime_with_strand(ParentDrift::NoSuffix);
+
+        let result = SettlementService::settle(&mut runtime, &mut provenance, strand_id).unwrap();
+        assert!(result.plan.decisions.is_empty());
+        assert_eq!(result.braid_shell, None);
+        assert_eq!(provenance.braid_shells().count(), 0);
+    }
+
+    #[test]
+    fn failed_settlement_retains_no_shell() {
+        // Law: no failed settlement may leak a shell. A lie with a valid
+        // digest is the exact bug this system exists to murder.
+        let (mut runtime, mut provenance, strand_id, _, child_worldline) =
+            setup_runtime_with_strand(ParentDrift::OverlapDifferent);
+
+        // Induce runtime/provenance drift on the source lane so settlement
+        // fails after planning begins.
+        let head_key = WriterHeadKey {
+            worldline_id: child_worldline,
+            head_id: make_head_id("drift-head"),
+        };
+        let mut drift_state = runtime
+            .worldlines()
+            .get(&child_worldline)
+            .unwrap()
+            .state()
+            .clone();
+        let drift_patch = node_upsert_patch(&drift_state, "drift-node", gt(9));
+        append_local_patch(
+            &mut drift_state,
+            &mut provenance,
+            child_worldline,
+            head_key,
+            gt(9),
+            drift_patch,
+        );
+
+        let outcome = SettlementService::settle_with_policy(
+            &mut runtime,
+            &mut provenance,
+            strand_id,
+            &plural_policy(),
+        );
+        assert!(outcome.is_err());
+        assert_eq!(provenance.braid_shells().count(), 0);
+    }
+
+    #[test]
+    fn plural_artifact_resolves_to_its_braid_shell() {
+        let (mut runtime, mut provenance, strand_id, _, _) =
+            setup_runtime_with_strand(ParentDrift::OverlapDifferent);
+
+        let result = SettlementService::settle_with_policy(
+            &mut runtime,
+            &mut provenance,
+            strand_id,
+            &plural_policy(),
+        )
+        .unwrap();
+        let shell_digest = result.braid_shell.unwrap();
+        let plural_id = result
+            .plan
+            .decisions
+            .iter()
+            .find_map(|decision| plural_alternative(decision).map(|draft| draft.plural_id))
+            .unwrap();
+
+        let resolved = provenance.braid_shell_for_plural(&plural_id).unwrap();
+        assert_eq!(resolved.digest, shell_digest);
+    }
+
+    #[test]
+    fn braid_shells_are_queryable_by_member_outcome_and_posture() {
+        let (mut runtime, mut provenance, strand_id, _, _) =
+            setup_runtime_with_strand(ParentDrift::OverlapDifferent);
+        SettlementService::settle_with_policy(
+            &mut runtime,
+            &mut provenance,
+            strand_id,
+            &plural_policy(),
+        )
+        .unwrap();
+
+        let query = crate::braid_shell::BraidShellQuery {
+            member_strand: Some(strand_id),
+            outcome: Some(AdmissionOutcomeKind::Plural),
+            posture: Some(crate::revelation::RevelationPosture::AuthorOnly),
+            ..crate::braid_shell::BraidShellQuery::default()
+        };
+        assert_eq!(provenance.query_braid_shells(query).count(), 1);
+
+        let miss = crate::braid_shell::BraidShellQuery {
+            outcome: Some(AdmissionOutcomeKind::Conflict),
+            ..crate::braid_shell::BraidShellQuery::default()
+        };
+        assert_eq!(provenance.query_braid_shells(miss).count(), 0);
     }
 
     #[test]

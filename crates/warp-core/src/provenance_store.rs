@@ -1623,6 +1623,12 @@ impl LocalProvenanceStore {
     }
 }
 
+impl crate::braid_shell::BraidShellRecords for ProvenanceService {
+    fn shell(&self, digest: &Hash) -> Option<&crate::braid_shell::BraidShell> {
+        self.braid_shells.get(digest)
+    }
+}
+
 impl ProvenanceStore for LocalProvenanceStore {
     fn u0(&self, w: WorldlineId) -> Result<WarpId, HistoryError> {
         Ok(self.history(w)?.u0_ref)
@@ -1717,6 +1723,8 @@ impl ProvenanceStore for LocalProvenanceStore {
 #[derive(Debug, Clone, Default)]
 pub struct ProvenanceService {
     store: LocalProvenanceStore,
+    /// Retained braid shells by canonical shell digest (θ_braid family).
+    braid_shells: BTreeMap<Hash, crate::braid_shell::BraidShell>,
 }
 
 impl ProvenanceService {
@@ -1724,6 +1732,57 @@ impl ProvenanceService {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Retains one validated braid shell.
+    ///
+    /// Shells are append-only retained truth: callers must append a shell
+    /// only after the histories it describes are durable (settlement appends
+    /// the shell as its final fallible step, so a failed settle never leaks
+    /// a shell describing history that was rolled back). Re-appending an
+    /// identical shell is idempotent.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::braid_shell::BraidShellError`] when the shell fails
+    /// self-validation or a different shell already claims the same digest.
+    pub fn append_braid_shell(
+        &mut self,
+        shell: crate::braid_shell::BraidShell,
+    ) -> Result<Hash, crate::braid_shell::BraidShellError> {
+        shell.validate()?;
+        let digest = shell.digest;
+        if let Some(existing) = self.braid_shells.get(&digest) {
+            if *existing != shell {
+                return Err(
+                    crate::braid_shell::BraidShellError::DuplicateDigestDivergentContent { digest },
+                );
+            }
+            return Ok(digest);
+        }
+        self.braid_shells.insert(digest, shell);
+        Ok(digest)
+    }
+
+    /// Returns the retained braid shell with the given digest, if any.
+    #[must_use]
+    pub fn braid_shell(&self, digest: &Hash) -> Option<&crate::braid_shell::BraidShell> {
+        self.braid_shells.get(digest)
+    }
+
+    /// Iterates all retained braid shells in canonical digest order.
+    pub fn braid_shells(&self) -> impl Iterator<Item = &crate::braid_shell::BraidShell> {
+        self.braid_shells.values()
+    }
+
+    /// Moves all retained braid shells out of the service.
+    ///
+    /// Exists for hostile replay proofs: a caller can extract the shells and
+    /// drop the runtime, registry, and provenance entries entirely, then
+    /// replay outcomes from the shells alone.
+    #[must_use]
+    pub fn take_braid_shells(&mut self) -> BTreeMap<Hash, crate::braid_shell::BraidShell> {
+        std::mem::take(&mut self.braid_shells)
     }
 
     /// Registers a worldline using its deterministic replay base.

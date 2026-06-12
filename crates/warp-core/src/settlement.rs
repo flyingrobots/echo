@@ -353,6 +353,8 @@ pub struct SettlementResult {
     pub appended_conflicts: Vec<ProvenanceRef>,
     /// Target-worldline refs appended as `PluralArtifact`.
     pub appended_plurals: Vec<ProvenanceRef>,
+    /// Digest of the retained θ_braid shell for this settlement act, if any.
+    pub braid_shell: Option<Hash>,
 }
 
 impl SettlementResult {
@@ -379,6 +381,7 @@ impl SettlementResult {
                 .copied()
                 .map(provenance_ref_to_abi)
                 .collect(),
+            braid_shell_digest: self.braid_shell.map(|digest| digest.to_vec()),
         }
     }
 }
@@ -865,6 +868,7 @@ impl SettlementService {
                 appended_imports: Vec::new(),
                 appended_conflicts: Vec::new(),
                 appended_plurals: Vec::new(),
+                braid_shell: None,
             });
         }
 
@@ -916,6 +920,7 @@ impl SettlementService {
                 appended_imports,
                 appended_conflicts,
                 appended_plurals,
+                braid_shell: None,
             })
         })();
 
@@ -2181,6 +2186,131 @@ mod tests {
                 SettlementDecision::ConflictArtifact(_)
             ),
             "absent plural-settlement policy, incompatible overlap remains Conflict"
+        );
+    }
+
+    #[test]
+    fn plural_settlement_retains_exactly_one_braid_shell_with_full_body() {
+        let (mut runtime, mut provenance, strand_id, base_worldline, _) =
+            setup_runtime_with_strand(ParentDrift::OverlapDifferent);
+
+        let result = SettlementService::settle_with_policy(
+            &mut runtime,
+            &mut provenance,
+            strand_id,
+            &plural_policy(),
+        )
+        .unwrap();
+
+        let Some(shell_digest) = result.braid_shell else {
+            assert!(
+                result.braid_shell.is_some(),
+                "a braid-scope settlement must retain exactly one theta_braid shell"
+            );
+            return;
+        };
+        assert_eq!(provenance.braid_shells().count(), 1);
+        let shell = provenance.braid_shell(&shell_digest).unwrap();
+
+        assert_eq!(shell.policy_id, plural_policy().policy_id);
+        assert_eq!(
+            shell.posture,
+            crate::revelation::RevelationPosture::AuthorOnly
+        );
+        assert_eq!(shell.worldline_id, base_worldline);
+        assert!(shell.has_member_strand(&strand_id));
+        assert_eq!(shell.members.len(), 1);
+        assert_eq!(
+            shell.members[0].verdict,
+            crate::braid_shell::MemberVerdict::Plural
+        );
+        assert_ne!(shell.members[0].verdict_digest, [0; 32]);
+        let expected_plural_ids: Vec<Hash> = result
+            .plan
+            .decisions
+            .iter()
+            .filter_map(|decision| plural_alternative(decision).map(|draft| draft.plural_id))
+            .collect();
+        assert_eq!(
+            shell.outcome,
+            crate::braid_shell::BraidShellOutcome::Plural {
+                alternative_ids: expected_plural_ids,
+            }
+        );
+    }
+
+    #[test]
+    fn braid_shell_replays_after_runtime_and_histories_are_dropped() {
+        let (mut runtime, mut provenance, strand_id, _, _) =
+            setup_runtime_with_strand(ParentDrift::OverlapDifferent);
+
+        let result = SettlementService::settle_with_policy(
+            &mut runtime,
+            &mut provenance,
+            strand_id,
+            &plural_policy(),
+        )
+        .unwrap();
+        let Some(shell_digest) = result.braid_shell else {
+            assert!(
+                result.braid_shell.is_some(),
+                "settlement must retain a shell"
+            );
+            return;
+        };
+
+        // Hostile replay: extract the shells, then destroy every path back
+        // to strand histories — runtime, registry, and provenance entries.
+        let shells = provenance.take_braid_shells();
+        drop(runtime);
+        drop(provenance);
+
+        let replay = crate::braid_shell::replay_braid_shell(&shell_digest, &shells).unwrap();
+        assert_eq!(replay.outcome_kind, AdmissionOutcomeKind::Plural);
+        assert_eq!(
+            replay.member_verdicts,
+            vec![(strand_id, crate::braid_shell::MemberVerdict::Plural)]
+        );
+        assert_eq!(replay.policy_id, plural_policy().policy_id);
+    }
+
+    #[test]
+    fn derived_and_conflict_settlements_also_retain_braid_shells() {
+        let (mut runtime, mut provenance, strand_id, _, _) =
+            setup_runtime_with_strand(ParentDrift::None);
+        let derived = SettlementService::settle(&mut runtime, &mut provenance, strand_id).unwrap();
+        let Some(derived_digest) = derived.braid_shell else {
+            assert!(
+                derived.braid_shell.is_some(),
+                "derived settlement must retain a shell"
+            );
+            return;
+        };
+        assert_eq!(
+            provenance
+                .braid_shell(&derived_digest)
+                .unwrap()
+                .outcome_kind(),
+            AdmissionOutcomeKind::Derived
+        );
+
+        let (mut runtime, mut provenance, strand_id, _, _) =
+            setup_runtime_with_strand(ParentDrift::OverlapDifferent);
+        let conflicted =
+            SettlementService::settle(&mut runtime, &mut provenance, strand_id).unwrap();
+        let Some(conflict_digest) = conflicted.braid_shell else {
+            assert!(
+                conflicted.braid_shell.is_some(),
+                "conflict settlement must retain a shell"
+            );
+            return;
+        };
+        assert_eq!(
+            provenance
+                .braid_shell(&conflict_digest)
+                .unwrap()
+                .outcome_kind(),
+            AdmissionOutcomeKind::Conflict
         );
     }
 

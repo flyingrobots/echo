@@ -2270,6 +2270,9 @@ pub struct SettlementResult {
     /// Target-worldline refs appended as `PluralArtifact`.
     #[serde(default)]
     pub appended_plurals: Vec<ProvenanceRef>,
+    /// Digest of the retained braid shell for this settlement act, if any.
+    #[serde(default)]
+    pub braid_shell_digest: Option<Vec<u8>>,
 }
 
 /// Compact shell for judging a witnessed suffix without transport or sync.

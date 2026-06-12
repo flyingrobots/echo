@@ -41,6 +41,7 @@ pub mod wsc;
 
 mod admission;
 mod attachment;
+mod braid_shell;
 mod causal_facts;
 pub mod causal_wal;
 mod clock;
@@ -255,6 +256,10 @@ pub use retained_evidence::{
 // --- Session types ---
 pub use playback::{SessionId, ViewSession};
 // --- Truth delivery ---
+pub use braid_shell::{
+    replay_braid_shell, BraidShell, BraidShellError, BraidShellMember, BraidShellOutcome,
+    BraidShellRecords, BraidShellReplay, MemberVerdict, BRAID_SHELL_VERSION,
+};
 pub use neighborhood::{
     NeighborhoodCore, NeighborhoodError, NeighborhoodParticipant, NeighborhoodParticipantRole,
     NeighborhoodPlurality, NeighborhoodSite, NeighborhoodSiteId, NeighborhoodSiteService,

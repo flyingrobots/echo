@@ -3,7 +3,7 @@
 
 # BEARING
 
-Last updated: 2026-05-25.
+Last updated: 2026-06-03.
 
 This signpost summarizes current direction. It does not create commitments or
 replace backlog items, design docs, retros, or CLI status. If it disagrees with

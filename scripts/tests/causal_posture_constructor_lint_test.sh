@@ -84,6 +84,80 @@ RS
 assert_not "raw SessionContext literal is rejected" \
   env CAUSAL_POSTURE_LINT_PATHS="${session_fixture}" "${guard}"
 
+tail_fixture="${tmpdir}/bad-tail.rs"
+cat >"${tail_fixture}" <<'RS'
+fn bad_fixture() -> RetentionPosture {
+    RetentionPosture {
+        causal_posture,
+        posture_derivation,
+        authority,
+        retention_contract,
+        admission_scope,
+    }
+}
+RS
+
+assert_not "tail-expression RetentionPosture literal is rejected" \
+  env CAUSAL_POSTURE_LINT_PATHS="${tail_fixture}" "${guard}"
+
+return_fixture="${tmpdir}/bad-return.rs"
+cat >"${return_fixture}" <<'RS'
+fn bad_fixture() -> SessionContext {
+    return SessionContext {
+        session_id,
+        origin_id,
+        actor_id,
+        author_domain,
+        authority_binding,
+        seal_strength,
+        default_posture,
+        default_admission_scope,
+        retention_contract,
+    };
+}
+RS
+
+assert_not "return SessionContext literal is rejected" \
+  env CAUSAL_POSTURE_LINT_PATHS="${return_fixture}" "${guard}"
+
+bracket_fixture="${tmpdir}/bad-bracket.rs"
+cat >"${bracket_fixture}" <<'RS'
+fn bad_fixture() {
+    let _postures = vec![RetentionPosture {
+        causal_posture,
+        posture_derivation,
+        authority,
+        retention_contract,
+        admission_scope,
+    }];
+}
+RS
+
+assert_not "bracketed RetentionPosture literal is rejected" \
+  env CAUSAL_POSTURE_LINT_PATHS="${bracket_fixture}" "${guard}"
+
+match_fixture="${tmpdir}/bad-match.rs"
+cat >"${match_fixture}" <<'RS'
+fn bad_fixture() -> SessionContext {
+    match posture {
+        _ => SessionContext {
+            session_id,
+            origin_id,
+            actor_id,
+            author_domain,
+            authority_binding,
+            seal_strength,
+            default_posture,
+            default_admission_scope,
+            retention_contract,
+        },
+    }
+}
+RS
+
+assert_not "match-arm SessionContext literal is rejected" \
+  env CAUSAL_POSTURE_LINT_PATHS="${match_fixture}" "${guard}"
+
 default_call_fixture="${tmpdir}/bad-default-call.rs"
 cat >"${default_call_fixture}" <<'RS'
 fn bad_fixture() {
@@ -117,6 +191,44 @@ RS
 
 assert_not "derive Default on CausalPosture is rejected" \
   env CAUSAL_POSTURE_LINT_PATHS="${derive_default_fixture}" "${guard}"
+
+echo ""
+echo "3. Valid constructor calls are accepted"
+valid_retention_fixture="${tmpdir}/valid-retention.rs"
+cat >"${valid_retention_fixture}" <<'RS'
+fn valid_fixture() {
+    let _posture = RetentionPosture::new(
+        causal_posture,
+        posture_derivation,
+        authority,
+        retention_contract,
+        admission_scope,
+    );
+}
+RS
+
+assert "RetentionPosture::new is allowed" \
+  env CAUSAL_POSTURE_LINT_PATHS="${valid_retention_fixture}" "${guard}"
+
+valid_session_fixture="${tmpdir}/valid-session.rs"
+cat >"${valid_session_fixture}" <<'RS'
+fn valid_fixture() {
+    let _session = SessionContext::new(
+        session_id,
+        origin_id,
+        actor_id,
+        author_domain,
+        authority_binding,
+        seal_strength,
+        default_posture,
+        default_admission_scope,
+        retention_contract,
+    );
+}
+RS
+
+assert "SessionContext::new is allowed" \
+  env CAUSAL_POSTURE_LINT_PATHS="${valid_session_fixture}" "${guard}"
 
 echo ""
 echo "=== Results: ${passed} passed, ${failed} failed ==="

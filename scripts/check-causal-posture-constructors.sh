@@ -59,7 +59,7 @@ check_rg \
 check_rg \
   "RetentionPosture and SessionContext literals bypass constructor invariants" \
   -n -P --glob '*.rs' \
-  '(^|[=(:,]\s*)([A-Za-z0-9_]+::)*(RetentionPosture|SessionContext)\s*\{'
+  '(^\s*|[=(:,\[]\s*|=>\s*|\breturn\s+)([A-Za-z0-9_]+::)*(RetentionPosture|SessionContext)\s*\{'
 
 if [[ "$violations" -ne 0 ]]; then
   echo "causal-posture-constructors: FAILED." >&2

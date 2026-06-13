@@ -21,7 +21,7 @@
 //! simply the `WarpId`. The engine's `initial_state` for a warp serves as the U0
 //! starting point for replay.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use thiserror::Error;
 
@@ -1210,9 +1210,17 @@ struct ProvenanceWorldlineCheckpoint {
 }
 
 /// Lightweight rollback marker for touched provenance worldlines.
-#[derive(Clone, Debug, PartialEq, Eq)]
+///
+/// Also snapshots the retained braid-shell key sets so [`ProvenanceService`]
+/// can roll back shell and residue-index inserts. Shells are append-only and
+/// content-addressed, so "retain only the keys present at checkpoint time" is
+/// exact rollback — this is what makes the no-leak property a mechanism, not
+/// a sequencing convention.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct ProvenanceCheckpoint {
     worldlines: BTreeMap<WorldlineId, ProvenanceWorldlineCheckpoint>,
+    braid_shell_keys: BTreeSet<Hash>,
+    plural_index_keys: BTreeSet<Hash>,
 }
 
 /// In-memory provenance store backed by `Vec`s.
@@ -1608,7 +1616,12 @@ impl LocalProvenanceStore {
                 },
             );
         }
-        Ok(ProvenanceCheckpoint { worldlines })
+        // Shell key sets are filled in by the `ProvenanceService` wrapper,
+        // which owns the shell maps; the store layer leaves them empty.
+        Ok(ProvenanceCheckpoint {
+            worldlines,
+            ..ProvenanceCheckpoint::default()
+        })
     }
 
     fn restore(&mut self, checkpoint: &ProvenanceCheckpoint) {
@@ -1625,7 +1638,7 @@ impl LocalProvenanceStore {
 
 impl crate::braid_shell::BraidShellRecords for ProvenanceService {
     fn shell(&self, digest: &Hash) -> Option<&crate::braid_shell::BraidShell> {
-        self.braid_shells.get(digest)
+        self.braid_shell(digest)
     }
 }
 
@@ -1828,7 +1841,8 @@ impl ProvenanceService {
     ///
     /// Exists for hostile replay proofs: a caller can extract the shells and
     /// drop the runtime, registry, and provenance entries entirely, then
-    /// replay outcomes from the shells alone.
+    /// replay outcomes from the shells alone. Not part of the stable surface.
+    #[doc(hidden)]
     #[must_use]
     pub fn take_braid_shells(&mut self) -> BTreeMap<Hash, crate::braid_shell::BraidShell> {
         // The residue index describes the shells; taking one without the
@@ -1940,12 +1954,23 @@ impl ProvenanceService {
     where
         I: IntoIterator<Item = WorldlineId>,
     {
-        self.store.checkpoint_for(worldline_ids)
+        let mut checkpoint = self.store.checkpoint_for(worldline_ids)?;
+        checkpoint.braid_shell_keys = self.braid_shells.keys().copied().collect();
+        checkpoint.plural_index_keys = self.plural_shell_index.keys().copied().collect();
+        Ok(checkpoint)
     }
 
     /// Restores touched worldlines to a previously captured rollback checkpoint.
+    ///
+    /// Also prunes any braid shells and residue-index bindings retained after
+    /// the checkpoint, so a rolled-back settlement can never leave a shell
+    /// describing history that no longer exists.
     pub fn restore(&mut self, checkpoint: &ProvenanceCheckpoint) {
         self.store.restore(checkpoint);
+        self.braid_shells
+            .retain(|digest, _| checkpoint.braid_shell_keys.contains(digest));
+        self.plural_shell_index
+            .retain(|plural_id, _| checkpoint.plural_index_keys.contains(plural_id));
     }
 
     /// Reconstructs full [`WorldlineState`] for a worldline up to `target_tick`.
@@ -3602,6 +3627,63 @@ mod tests {
             result,
             Err(ReplayError::InitialBoundaryHashMismatch { .. })
         ));
+    }
+
+    fn minimal_plural_shell(alt_id: u8) -> crate::braid_shell::BraidShell {
+        use crate::braid_shell::{BraidShellMember, BraidShellOutcome, MemberVerdict};
+        use crate::revelation::RevelationPosture;
+        let member = BraidShellMember {
+            strand_ref: crate::strand::make_strand_id("m"),
+            support_pin_digest: [1; 32],
+            basis_digest: [2; 32],
+            frontier_digest: [3; 32],
+            footprint_digest: [4; 32],
+            claim_digest: [5; 32],
+            verdict: MemberVerdict::Plural,
+            verdict_digest: [6; 32],
+            posture: RevelationPosture::AuthorOnly,
+        };
+        crate::braid_shell::BraidShell::assemble(
+            test_worldline_id(),
+            ProvenanceRef {
+                worldline_id: test_worldline_id(),
+                worldline_tick: wt(0),
+                commit_hash: [7; 32],
+            },
+            vec![member],
+            [8; 32],
+            BraidShellOutcome::Plural {
+                alternative_ids: vec![[alt_id; 32]],
+            },
+            RevelationPosture::AuthorOnly,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn restore_rolls_back_braid_shells_and_plural_index_added_after_checkpoint() {
+        let mut service = ProvenanceService::new();
+        let shell_a = minimal_plural_shell(0xA1);
+        let digest_a = service.append_braid_shell(shell_a).unwrap();
+        let plural_a = [0xA1; 32];
+
+        // Checkpoint AFTER shell A is retained.
+        let checkpoint = service.checkpoint_for([]).unwrap();
+
+        // Retain a second shell, then roll back to the checkpoint.
+        let shell_b = minimal_plural_shell(0xB2);
+        let digest_b = service.append_braid_shell(shell_b).unwrap();
+        assert_ne!(digest_a, digest_b);
+        assert_eq!(service.braid_shells().count(), 2);
+
+        service.restore(&checkpoint);
+
+        // Shell A and its residue binding survive; shell B and its binding are gone.
+        assert_eq!(service.braid_shells().count(), 1);
+        assert!(service.braid_shell(&digest_a).is_some());
+        assert!(service.braid_shell(&digest_b).is_none());
+        assert!(service.braid_shell_for_plural(&plural_a).is_some());
+        assert!(service.braid_shell_for_plural(&[0xB2; 32]).is_none());
     }
 
     #[test]

@@ -244,6 +244,34 @@ Named debts from the checkpoint review:
   coherent); missing policy → retained `Obstruction` shell. `WitnessDigest`
   refuses zero/empty digests.
 
+## Record-law remediations (Code Lawyer self-review, 2026-06-13)
+
+A pedantic self-review surfaced eleven findings (0 critical, 1 major, 3
+medium, 7 low); all resolved before merge:
+
+- **M1 — no-leak is now a mechanism, not a convention.**
+  `ProvenanceCheckpoint` snapshots the braid-shell and plural-index key
+  sets; `ProvenanceService::restore` prunes any shell or residue binding
+  retained after the checkpoint. A rolled-back settlement can no longer
+  leak a shell describing vanished history, even if a future fallible step
+  is added after shell append.
+- **D1 — witnessed-promotion law enforced by the type system.**
+  `WitnessDigest` moved to `revelation` (the witness-primitives module);
+  `promote_posture` now takes `WitnessDigest`, so a shrug witness cannot
+  reach it. One shrug-rejection implementation, shared with the braid
+  shell family.
+- **D2 — one event-kind digest scheme.** `BoundaryTransitionRecord`
+  reuses the canonical `coordinator::hash_provenance_event_kind` instead
+  of a parallel encoder.
+- **D3 — member digests computed once** per `assemble`/`validate`
+  (`sort_by_cached_key` + a single digest vector feeding coordinate,
+  witness, and shell digests).
+- **L1–L7:** accurate `# Errors` docs; obstruction lineage uses
+  `InvalidLineageParent { parent }`; `take_braid_shells` is
+  `#[doc(hidden)]`; collapse's no-policy ref-drop documented; the
+  `witness_digest` self-witness scaffolding documented; trait method
+  delegation deduped; export grouping clarified.
+
 ## Acceptance criteria (enhanced per review)
 
 1. `SettlementDecision` gains a `Plural` arm carrying surviving

@@ -89,6 +89,37 @@ pub enum PostureObstruction {
         /// Least-revealed posture among the shell's members.
         least_revealed_member: RevelationPosture,
     },
+    /// A witness digest must never be a 32-byte shrug.
+    EmptyWitness,
+}
+
+/// Witness digest with a quality bar: zero and empty-input digests refused.
+///
+/// The witnessed-act law is enforced by the type system: any API that takes
+/// a `WitnessDigest` cannot be handed a shrug, because the shrug never
+/// constructs. Shared by posture promotion and the braid shell family.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WitnessDigest(Hash);
+
+impl WitnessDigest {
+    /// Wraps a witness digest, refusing shrug values.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PostureObstruction::EmptyWitness`] for the all-zero digest
+    /// and the digest of empty input.
+    pub fn new(hash: Hash) -> Result<Self, PostureObstruction> {
+        if hash == [0; 32] || hash == crate::blake3_empty() {
+            return Err(PostureObstruction::EmptyWitness);
+        }
+        Ok(Self(hash))
+    }
+
+    /// Returns the underlying digest.
+    #[must_use]
+    pub fn as_hash(&self) -> &Hash {
+        &self.0
+    }
 }
 
 /// Returns the least-revealed posture among `members`.
@@ -129,7 +160,9 @@ where
 /// Performs one explicit, witnessed posture promotion.
 ///
 /// Promotion only widens posture. Narrowing and same-posture requests are
-/// obstructions: a posture change must always be a real, witnessed act.
+/// obstructions: a posture change must always be a real, witnessed act. The
+/// witness arrives as a [`WitnessDigest`], so a shrug witness cannot reach
+/// this function — the type system holds the door.
 ///
 /// # Errors
 ///
@@ -139,7 +172,7 @@ where
 pub fn promote_posture(
     from: RevelationPosture,
     to: RevelationPosture,
-    witness: Hash,
+    witness: WitnessDigest,
 ) -> Result<PosturePromotion, PostureObstruction> {
     if to < from {
         return Err(PostureObstruction::NarrowingRefused {
@@ -150,15 +183,33 @@ pub fn promote_posture(
     if to == from {
         return Err(PostureObstruction::AlreadyAtPosture { posture: from });
     }
-    Ok(PosturePromotion { from, to, witness })
+    Ok(PosturePromotion {
+        from,
+        to,
+        witness: *witness.as_hash(),
+    })
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
-    fn witness() -> Hash {
-        [0xA7; 32]
+    fn witness() -> WitnessDigest {
+        WitnessDigest::new([0xA7; 32]).unwrap()
+    }
+
+    #[test]
+    fn witness_digest_refuses_shrug_values() {
+        assert_eq!(
+            WitnessDigest::new([0; 32]),
+            Err(PostureObstruction::EmptyWitness)
+        );
+        assert_eq!(
+            WitnessDigest::new(crate::blake3_empty()),
+            Err(PostureObstruction::EmptyWitness)
+        );
+        assert!(WitnessDigest::new([0x99; 32]).is_ok());
     }
 
     #[test]
@@ -242,7 +293,7 @@ mod tests {
             Ok(PosturePromotion {
                 from: RevelationPosture::AuthorOnly,
                 to: RevelationPosture::Shared,
-                witness: witness(),
+                witness: *witness().as_hash(),
             })
         );
     }

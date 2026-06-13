@@ -22,7 +22,9 @@ use blake3::Hasher;
 use crate::admission::AdmissionOutcomeKind;
 use crate::ident::Hash;
 use crate::provenance_store::ProvenanceRef;
-use crate::revelation::{shell_posture_obstruction, PostureObstruction, RevelationPosture};
+use crate::revelation::{
+    shell_posture_obstruction, PostureObstruction, RevelationPosture, WitnessDigest,
+};
 use crate::strand::StrandId;
 use crate::worldline::WorldlineId;
 
@@ -252,12 +254,6 @@ pub enum BraidShellError {
         /// Digest that resolved to nothing.
         digest: Hash,
     },
-    /// A collapse lineage parent is missing or not plural.
-    #[error("collapse lineage parent {collapsed_from:?} is missing or not plural")]
-    InvalidCollapseLineage {
-        /// Parent shell digest named by `collapsed_from`.
-        collapsed_from: Hash,
-    },
     /// A shell with this digest is already retained with different content.
     #[error("a divergent braid shell already claims digest {digest:?}")]
     DuplicateDigestDivergentContent {
@@ -281,6 +277,12 @@ pub enum BraidShellError {
     /// A witness digest must never be a 32-byte shrug.
     #[error("empty or null witness digest refused")]
     EmptyWitness,
+    /// A lineage parent shell is missing or not plural.
+    #[error("lineage parent {parent:?} is missing or not plural")]
+    InvalidLineageParent {
+        /// Parent shell digest named by a collapse or obstruction lineage.
+        parent: Hash,
+    },
     /// The stored braid coordinate does not match the recomputed body.
     #[error("braid coordinate mismatch")]
     CoordinateMismatch,
@@ -316,41 +318,16 @@ pub enum BraidShellError {
 pub struct BraidCoordinate(pub Hash);
 
 impl BraidCoordinate {
-    fn derive(basis: &ProvenanceRef, members: &[BraidShellMember], policy_id: Hash) -> Self {
+    fn derive(basis: &ProvenanceRef, member_digests: &[Hash], policy_id: Hash) -> Self {
         let mut hasher = Hasher::new();
         hasher.update(COORDINATE_DOMAIN);
         hash_provenance_ref(&mut hasher, basis);
-        hasher.update(&(members.len() as u64).to_le_bytes());
-        for member in members {
-            hasher.update(&member.member_digest());
+        hasher.update(&(member_digests.len() as u64).to_le_bytes());
+        for member_digest in member_digests {
+            hasher.update(member_digest);
         }
         hasher.update(&policy_id);
         Self(hasher.finalize().into())
-    }
-}
-
-/// Witness digest with a quality bar: zero and empty-input digests refused.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct WitnessDigest(Hash);
-
-impl WitnessDigest {
-    /// Wraps a witness digest, refusing shrug values.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`BraidShellError::EmptyWitness`] for the all-zero digest and
-    /// the digest of empty input.
-    pub fn new(hash: Hash) -> Result<Self, BraidShellError> {
-        if hash == [0; 32] || hash == crate::blake3_empty() {
-            return Err(BraidShellError::EmptyWitness);
-        }
-        Ok(Self(hash))
-    }
-
-    /// Returns the underlying digest.
-    #[must_use]
-    pub fn as_hash(&self) -> &Hash {
-        &self.0
     }
 }
 
@@ -372,6 +349,12 @@ pub struct BraidShell {
     /// Outcome arm over the shared lawful algebra.
     pub outcome: BraidShellOutcome,
     /// Witness digest binding the settlement act.
+    ///
+    /// E1 scaffolding: this is a domain-separated self-witness — a hash of
+    /// the same shell body — folded into `digest`. It guarantees integrity,
+    /// not independent attestation (anyone who can compute the shell can
+    /// compute it). A real external witness replaces it when settlement
+    /// gains witness-bearing authority.
     pub witness_digest: Hash,
     /// Revelation posture of the shell itself.
     pub posture: RevelationPosture,
@@ -385,9 +368,17 @@ impl BraidShell {
     ///
     /// # Errors
     ///
-    /// Returns [`BraidShellError`] when the member set is empty, the shell
-    /// posture exceeds its least-revealed member, or the outcome arm
-    /// disagrees with member verdicts.
+    /// Returns [`BraidShellError`] for an empty member set
+    /// ([`BraidShellError::EmptyMembers`]), a duplicate member strand or
+    /// plural alternative ([`BraidShellError::DuplicateMemberStrand`],
+    /// [`BraidShellError::DuplicateAlternativeId`]), an empty witness on a
+    /// collapse/obstruction outcome ([`BraidShellError::EmptyWitness`]),
+    /// incoherent collapse fields
+    /// ([`BraidShellError::IncoherentCollapseFields`]), a posture exceeding
+    /// the least-revealed member
+    /// ([`BraidShellError::PostureExceedsMembers`]), or an outcome arm that
+    /// disagrees with member verdicts
+    /// ([`BraidShellError::OutcomeMemberMismatch`]).
     pub fn assemble(
         worldline_id: WorldlineId,
         basis: ProvenanceRef,
@@ -399,7 +390,7 @@ impl BraidShell {
         if members.is_empty() {
             return Err(BraidShellError::EmptyMembers);
         }
-        members.sort_by_key(BraidShellMember::member_digest);
+        members.sort_by_cached_key(BraidShellMember::member_digest);
         check_unique_member_strands(&members)?;
         if let BraidShellOutcome::Plural { alternative_ids } = &mut outcome {
             // Retained alternatives are a set; canonical order, not transcript
@@ -423,12 +414,18 @@ impl BraidShell {
         }
         check_outcome_member_coherence(&outcome, &members)?;
 
-        let coordinate = BraidCoordinate::derive(&basis, &members, policy_id);
+        // Compute each member digest once; coordinate, witness, and shell
+        // digests all consume it.
+        let member_digests: Vec<Hash> = members
+            .iter()
+            .map(BraidShellMember::member_digest)
+            .collect();
+        let coordinate = BraidCoordinate::derive(&basis, &member_digests, policy_id);
         let witness_digest = compute_witness_digest(
             BRAID_SHELL_VERSION,
             worldline_id,
             &basis,
-            &members,
+            &member_digests,
             policy_id,
             &outcome,
             posture,
@@ -437,7 +434,7 @@ impl BraidShell {
             BRAID_SHELL_VERSION,
             worldline_id,
             &basis,
-            &members,
+            &member_digests,
             policy_id,
             &outcome,
             witness_digest,
@@ -461,9 +458,12 @@ impl BraidShell {
     ///
     /// # Errors
     ///
-    /// Returns [`BraidShellError`] when member order is non-canonical, the
-    /// posture floor is violated, outcome and members disagree, or the
-    /// stored witness/shell digests do not match the recomputed body.
+    /// Returns [`BraidShellError`] for an unsupported version, empty or
+    /// non-canonically-ordered members, a duplicate member strand,
+    /// non-canonical or duplicate plural alternatives, an empty
+    /// collapse/obstruction witness, a posture floor violation, an
+    /// outcome/member disagreement, a coordinate mismatch, or a stored
+    /// witness/shell digest that does not match the recomputed body.
     pub fn validate(&self) -> Result<(), BraidShellError> {
         if self.version != BRAID_SHELL_VERSION {
             return Err(BraidShellError::UnsupportedVersion {
@@ -474,15 +474,15 @@ impl BraidShell {
         if self.members.is_empty() {
             return Err(BraidShellError::EmptyMembers);
         }
-        let mut previous: Option<Hash> = None;
-        for member in &self.members {
-            let current = member.member_digest();
-            if let Some(prior) = previous {
-                if prior > current {
-                    return Err(BraidShellError::NonCanonicalMemberOrder);
-                }
-            }
-            previous = Some(current);
+        // Compute each member digest once; the order check, coordinate,
+        // witness, and shell digests all consume it.
+        let member_digests: Vec<Hash> = self
+            .members
+            .iter()
+            .map(BraidShellMember::member_digest)
+            .collect();
+        if member_digests.windows(2).any(|pair| pair[0] > pair[1]) {
+            return Err(BraidShellError::NonCanonicalMemberOrder);
         }
         check_unique_member_strands(&self.members)?;
         if let BraidShellOutcome::Plural { alternative_ids } = &self.outcome {
@@ -507,7 +507,8 @@ impl BraidShell {
             return Err(BraidShellError::PostureExceedsMembers(obstruction));
         }
         check_outcome_member_coherence(&self.outcome, &self.members)?;
-        if BraidCoordinate::derive(&self.basis, &self.members, self.policy_id) != self.coordinate {
+        if BraidCoordinate::derive(&self.basis, &member_digests, self.policy_id) != self.coordinate
+        {
             return Err(BraidShellError::CoordinateMismatch);
         }
 
@@ -515,7 +516,7 @@ impl BraidShell {
             self.version,
             self.worldline_id,
             &self.basis,
-            &self.members,
+            &member_digests,
             self.policy_id,
             &self.outcome,
             self.posture,
@@ -530,7 +531,7 @@ impl BraidShell {
             self.version,
             self.worldline_id,
             &self.basis,
-            &self.members,
+            &member_digests,
             self.policy_id,
             &self.outcome,
             self.witness_digest,
@@ -569,7 +570,7 @@ fn check_outcome_law(outcome: &BraidShellOutcome) -> Result<(), BraidShellError>
             ..
         }
         | BraidShellOutcome::Obstruction { witness, .. } => {
-            WitnessDigest::new(*witness)?;
+            WitnessDigest::new(*witness).map_err(|_| BraidShellError::EmptyWitness)?;
         }
         _ => {}
     }
@@ -641,7 +642,7 @@ fn hash_shell_body(
     version: u32,
     worldline_id: WorldlineId,
     basis: &ProvenanceRef,
-    members: &[BraidShellMember],
+    member_digests: &[Hash],
     policy_id: Hash,
     outcome: &BraidShellOutcome,
     posture: RevelationPosture,
@@ -649,9 +650,9 @@ fn hash_shell_body(
     hasher.update(&version.to_le_bytes());
     hasher.update(worldline_id.as_bytes());
     hash_provenance_ref(hasher, basis);
-    hasher.update(&(members.len() as u64).to_le_bytes());
-    for member in members {
-        hasher.update(&member.member_digest());
+    hasher.update(&(member_digests.len() as u64).to_le_bytes());
+    for member_digest in member_digests {
+        hasher.update(member_digest);
     }
     hasher.update(&policy_id);
     outcome.hash_into(hasher);
@@ -663,7 +664,7 @@ fn compute_witness_digest(
     version: u32,
     worldline_id: WorldlineId,
     basis: &ProvenanceRef,
-    members: &[BraidShellMember],
+    member_digests: &[Hash],
     policy_id: Hash,
     outcome: &BraidShellOutcome,
     posture: RevelationPosture,
@@ -675,7 +676,7 @@ fn compute_witness_digest(
         version,
         worldline_id,
         basis,
-        members,
+        member_digests,
         policy_id,
         outcome,
         posture,
@@ -688,7 +689,7 @@ fn compute_shell_digest(
     version: u32,
     worldline_id: WorldlineId,
     basis: &ProvenanceRef,
-    members: &[BraidShellMember],
+    member_digests: &[Hash],
     policy_id: Hash,
     outcome: &BraidShellOutcome,
     witness_digest: Hash,
@@ -701,7 +702,7 @@ fn compute_shell_digest(
         version,
         worldline_id,
         basis,
-        members,
+        member_digests,
         policy_id,
         outcome,
         posture,
@@ -782,13 +783,13 @@ pub fn replay_braid_shell(
         let parent =
             records
                 .shell(&parent_digest)
-                .ok_or(BraidShellError::InvalidCollapseLineage {
-                    collapsed_from: parent_digest,
+                .ok_or(BraidShellError::InvalidLineageParent {
+                    parent: parent_digest,
                 })?;
         parent.validate()?;
         if !matches!(parent.outcome, BraidShellOutcome::Plural { .. }) {
-            return Err(BraidShellError::InvalidCollapseLineage {
-                collapsed_from: parent_digest,
+            return Err(BraidShellError::InvalidLineageParent {
+                parent: parent_digest,
             });
         }
     }
@@ -837,6 +838,9 @@ pub enum CollapseResult {
 /// way the original plural shell remains byte-identical truth forever.
 /// Append-only or bust.
 ///
+/// When `policy` is `None`, `selected_result_refs` is ignored: an obstructed
+/// collapse retains no derived result, only the refusal.
+///
 /// # Errors
 ///
 /// Returns [`BraidShellError`] when the plural shell is missing, fails
@@ -854,8 +858,8 @@ pub fn collapse_braid_shell(
         })?;
     plural.validate()?;
     if !matches!(plural.outcome, BraidShellOutcome::Plural { .. }) {
-        return Err(BraidShellError::InvalidCollapseLineage {
-            collapsed_from: plural_shell_digest,
+        return Err(BraidShellError::InvalidLineageParent {
+            parent: plural_shell_digest,
         });
     }
 
@@ -928,43 +932,6 @@ impl RetainedBoundaryRecord for BraidShell {
 
 const TICK_SHELL_DOMAIN: &[u8] = b"echo.shell.tick.v1\0";
 
-fn hash_event_kind(hasher: &mut Hasher, kind: &crate::provenance_store::ProvenanceEventKind) {
-    use crate::provenance_store::ProvenanceEventKind;
-    match kind {
-        ProvenanceEventKind::LocalCommit => {
-            hasher.update(&[1]);
-        }
-        ProvenanceEventKind::CrossWorldlineMessage {
-            source_worldline,
-            source_worldline_tick,
-            message_id,
-        } => {
-            hasher.update(&[2]);
-            hasher.update(source_worldline.as_bytes());
-            hasher.update(&source_worldline_tick.as_u64().to_le_bytes());
-            hasher.update(message_id);
-        }
-        ProvenanceEventKind::MergeImport {
-            source_worldline,
-            source_worldline_tick,
-            op_id,
-        } => {
-            hasher.update(&[3]);
-            hasher.update(source_worldline.as_bytes());
-            hasher.update(&source_worldline_tick.as_u64().to_le_bytes());
-            hasher.update(op_id);
-        }
-        ProvenanceEventKind::ConflictArtifact { artifact_id } => {
-            hasher.update(&[4]);
-            hasher.update(artifact_id);
-        }
-        ProvenanceEventKind::PluralArtifact { plural_id } => {
-            hasher.update(&[5]);
-            hasher.update(plural_id);
-        }
-    }
-}
-
 impl RetainedBoundaryRecord for crate::provenance_store::BoundaryTransitionRecord {
     fn boundary_kind(&self) -> RetainedBoundaryKind {
         RetainedBoundaryKind::Tick
@@ -1003,7 +970,7 @@ impl RetainedBoundaryRecord for crate::provenance_store::BoundaryTransitionRecor
                     hasher.update(&[0]);
                 }
             }
-            hash_event_kind(&mut hasher, &entry.event_kind);
+            crate::coordinator::hash_provenance_event_kind(&mut hasher, &entry.event_kind);
             hasher.update(&(entry.parents.len() as u64).to_le_bytes());
             for parent in &entry.parents {
                 hash_provenance_ref(&mut hasher, parent);
@@ -1099,7 +1066,6 @@ impl BraidShell {
 mod tests {
     use super::*;
     use crate::clock::WorldlineTick;
-    use crate::ident::make_warp_id;
     use crate::strand::make_strand_id;
     use std::collections::BTreeMap;
 
@@ -1422,8 +1388,8 @@ mod tests {
         let missing_parent = Records::with([derived]);
         assert_eq!(
             replay_braid_shell(&derived_digest, &missing_parent),
-            Err(BraidShellError::InvalidCollapseLineage {
-                collapsed_from: plural_digest,
+            Err(BraidShellError::InvalidLineageParent {
+                parent: plural_digest,
             })
         );
     }
@@ -1478,18 +1444,10 @@ mod tests {
         );
     }
 
-    #[test]
-    fn witness_digest_refuses_shrug_values() {
-        assert_eq!(
-            WitnessDigest::new([0; 32]),
-            Err(BraidShellError::EmptyWitness)
-        );
-        assert_eq!(
-            WitnessDigest::new(crate::blake3_empty()),
-            Err(BraidShellError::EmptyWitness)
-        );
-        assert!(WitnessDigest::new([0x99; 32]).is_ok());
-    }
+    // WitnessDigest shrug-rejection is owned and tested in `revelation`;
+    // `check_outcome_law` maps it to `BraidShellError::EmptyWitness`, covered
+    // by `derived_shell_rejects_empty_collapse_witness` /
+    // `obstruction_shell_rejects_empty_witness` below.
 
     #[test]
     fn collapse_with_named_policy_derives_without_mutating_the_plural_parent() {

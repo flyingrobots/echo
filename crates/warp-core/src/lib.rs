@@ -255,12 +255,12 @@ pub use retained_evidence::{
 };
 // --- Session types ---
 pub use playback::{SessionId, ViewSession};
-// --- Truth delivery ---
+// --- Retained boundary shell family (θ_tick, θ_braid) ---
 pub use braid_shell::{
     collapse_braid_shell, replay_braid_shell, BraidCoordinate, BraidShell, BraidShellError,
     BraidShellMember, BraidShellOutcome, BraidShellQuery, BraidShellRecords, BraidShellReplay,
     CollapsePolicy, CollapseResult, MemberVerdict, RetainedBoundaryKind, RetainedBoundaryRecord,
-    WitnessDigest, BRAID_SHELL_VERSION, COLLAPSE_WITHOUT_POLICY_REASON,
+    BRAID_SHELL_VERSION, COLLAPSE_WITHOUT_POLICY_REASON,
 };
 pub use neighborhood::{
     NeighborhoodCore, NeighborhoodError, NeighborhoodParticipant, NeighborhoodParticipantRole,
@@ -316,7 +316,7 @@ pub use receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickRec
 pub use record::{EdgeRecord, NodeRecord};
 pub use revelation::{
     least_revealed, promote_posture, shell_posture_obstruction, PostureObstruction,
-    PosturePromotion, RevelationPosture,
+    PosturePromotion, RevelationPosture, WitnessDigest,
 };
 #[cfg(feature = "native_rule_bootstrap")]
 pub use rule::{ConflictPolicy, ExecuteFn, MatchFn, PatternGraph, RewriteRule};

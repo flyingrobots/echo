@@ -31,6 +31,8 @@ use warp_core::Hash;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
+use std::io::ErrorKind;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -42,35 +44,49 @@ fn digest(label: &str) -> Hash {
 fn must_ok<T, E>(result: Result<T, E>) -> T {
     match result {
         Ok(value) => value,
-        Err(_) => std::process::abort(),
+        Err(_) => panic!("expected Ok(..), got Err(..)"),
     }
 }
 
 fn must_some<T>(option: Option<T>) -> T {
     match option {
         Some(value) => value,
-        None => std::process::abort(),
+        None => panic!("expected Some(..), got None"),
     }
 }
 
-fn temp_checkpoint_path(label: &str) -> std::path::PathBuf {
-    let unique = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!(
-        "echo-causal-wal-{label}-{}-{unique}",
-        std::process::id()
-    ));
-    must_ok(fs::create_dir_all(&dir));
-    dir.join("checkpoint.ecwal")
+fn deterministic_test_dir(prefix: &str, label: &str) -> PathBuf {
+    let root = PathBuf::from("target").join("warp-core-test-tmp");
+    must_ok(fs::create_dir_all(&root));
+    for _ in 0..1024 {
+        let unique = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir = root.join(format!("{prefix}-{label}-{unique}"));
+        match fs::create_dir(&dir) {
+            Ok(()) => return dir,
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => {
+                must_ok(fs::remove_dir_all(&dir));
+                match fs::create_dir(&dir) {
+                    Ok(()) => return dir,
+                    Err(retry_error) if retry_error.kind() == ErrorKind::AlreadyExists => continue,
+                    Err(retry_error) => {
+                        panic!(
+                            "failed to recreate deterministic test directory {dir:?}: {retry_error}"
+                        )
+                    }
+                }
+            }
+            Err(error) => panic!("failed to create deterministic test directory {dir:?}: {error}"),
+        }
+    }
+    panic!("exhausted deterministic test directory attempts for {prefix}-{label}");
 }
 
-fn temp_wal_dir(label: &str) -> std::path::PathBuf {
-    let unique = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!(
-        "echo-causal-wal-store-{label}-{}-{unique}",
-        std::process::id()
-    ));
-    must_ok(fs::create_dir_all(&dir));
-    dir
+fn temp_checkpoint_path(label: &str) -> PathBuf {
+    deterministic_test_dir("echo-causal-wal", label).join("checkpoint.ecwal")
+}
+
+fn temp_wal_dir(label: &str) -> PathBuf {
+    deterministic_test_dir("echo-causal-wal-store", label)
 }
 
 fn epoch_id() -> WriterEpochId {

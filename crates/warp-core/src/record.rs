@@ -16,7 +16,6 @@ use crate::ident::{EdgeId, NodeId, TypeId};
 /// - `ty` must be a valid type identifier in the current schema.
 /// - The node identifier is not embedded here; the store supplies it externally.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct NodeRecord {
     /// Type identifier describing the node.
     pub ty: TypeId,
@@ -37,7 +36,6 @@ pub struct NodeRecord {
 /// - `from` and `to` reference existing nodes in the same store.
 /// - `ty` must be a valid edge type in the current schema.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct EdgeRecord {
     /// Stable identifier for the edge (see [`crate::make_edge_id`]).
     pub id: EdgeId,

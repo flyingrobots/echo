@@ -29,7 +29,6 @@ const INSTALLED_CONTRACT_PACKAGE_ID_DOMAIN: &[u8] = b"echo:installed-contract-pa
 /// Deterministic identity for an installed generated contract package.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct InstalledContractPackageId(Hash);
 
 impl InstalledContractPackageId {
@@ -48,7 +47,6 @@ impl InstalledContractPackageId {
 
 /// Installed contract operation kind carried by evidence surfaces.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ContractOperationKind {
     /// Generated mutation operation.
     Mutation,
@@ -71,7 +69,6 @@ impl From<ContractOperationKind> for OpKind {
 /// query rights, and does not make CAS hashes semantic. It names the installed
 /// package boundary that supplied the mutation handler or query observer.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ContractEvidenceIdentity {
     /// Deterministic installed package id.
     pub package_id: InstalledContractPackageId,

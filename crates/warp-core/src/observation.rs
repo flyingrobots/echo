@@ -55,7 +55,6 @@ macro_rules! opaque_id {
         $(#[$meta])*
         #[repr(transparent)]
         #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-        #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
         pub struct $name([u8; 32]);
 
         impl $name {

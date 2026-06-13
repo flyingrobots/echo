@@ -30,7 +30,6 @@ macro_rules! opaque_id {
         $(#[$meta])*
         #[repr(transparent)]
         #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-        #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
         pub struct $name([u8; 32]);
 
         impl $name {
@@ -92,8 +91,6 @@ opaque_id!(
 /// Version of the projection law used by an optic read.
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(transparent))]
 pub struct ProjectionVersion(u32);
 
 impl ProjectionVersion {
@@ -117,8 +114,6 @@ impl ProjectionVersion {
 /// Version of the reducer law used by an optic read, when present.
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(transparent))]
 pub struct ReducerVersion(u32);
 
 impl ReducerVersion {
@@ -145,7 +140,6 @@ impl ReducerVersion {
 /// focused substrate subject or boundary that can be observed under an explicit
 /// coordinate and capability.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum OpticFocus {
     /// A whole worldline.
     Worldline {
@@ -235,7 +229,6 @@ impl OpticFocus {
 
 /// Requested position within a substrate coordinate.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum CoordinateAt {
     /// Observe or target the current frontier.
     Frontier,
@@ -275,7 +268,6 @@ impl CoordinateAt {
 
 /// Causal coordinate named by an optic.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum EchoCoordinate {
     /// Coordinate on a worldline.
     Worldline {
@@ -379,7 +371,6 @@ impl EchoCoordinate {
 
 /// Attachment recursion policy for an optic aperture.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum AttachmentDescentPolicy {
     /// Stop at the attachment boundary and expose only the boundary reference.
     BoundaryOnly,
@@ -405,7 +396,6 @@ impl AttachmentDescentPolicy {
 
 /// Budget bound for an optic read.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct OpticReadBudget {
     /// Maximum payload bytes to produce.
     pub max_bytes: Option<u64>,
@@ -437,7 +427,6 @@ impl OpticReadBudget {
 
 /// Bounded aperture shape selected by an optic read.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum OpticApertureShape {
     /// Head/frontier metadata only.
     Head,
@@ -519,7 +508,6 @@ impl OpticApertureShape {
 
 /// Complete aperture for one optic read.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct OpticAperture {
     /// Shape of the read aperture.
     pub shape: OpticApertureShape,
@@ -558,7 +546,6 @@ impl OpticAperture {
 
 /// Opened optic descriptor. This is not a mutable handle.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct EchoOptic {
     /// Stable optic identity derived from the descriptor.
     pub optic_id: OpticId,
@@ -623,7 +610,6 @@ impl EchoOptic {
 
 /// Reason an optic read identity cannot name a complete witness basis yet.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum MissingWitnessBasisReason {
     /// Required witness evidence is unavailable.
     EvidenceUnavailable,
@@ -657,7 +643,6 @@ impl MissingWitnessBasisReason {
 
 /// Witness basis named by a read identity.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum WitnessBasis {
     /// One resolved provenance commit witnesses the reading.
     ResolvedCommit {
@@ -783,7 +768,6 @@ impl WitnessBasis {
 
 /// Stable identity of the question an optic read answered.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ReadIdentity {
     /// Stable hash over all identity fields.
     pub read_identity_hash: Hash,
@@ -902,7 +886,6 @@ impl ReadIdentity {
 
 /// Reading envelope plus first-class optic read identity.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct OpticReadingEnvelope {
     /// Existing observation reading envelope.
     pub reading: ReadingEnvelope,
@@ -949,7 +932,6 @@ impl RetainedReadingKey {
 /// the semantic read identity and codec, so equal bytes answering different
 /// questions do not alias.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RetainedReadingDescriptor {
     /// Stable key derived from the semantic read identity and byte identity.
     pub key: RetainedReadingKey,
@@ -1136,7 +1118,6 @@ impl RetainedReadingCache {
 
 /// Bounded read request through an Echo optic.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ObserveOpticRequest {
     /// Optic being observed.
     pub optic_id: OpticId,
@@ -1172,7 +1153,6 @@ impl ObserveOpticRequest {
 
 /// Intent payload dispatched through an optic.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum OpticIntentPayload {
     /// Canonical Echo intent v1 bytes.
     EintV1 {
@@ -1198,7 +1178,6 @@ impl OpticIntentPayload {
 /// This is not a setter. It names an explicit causal basis and carries an
 /// intent payload for normal Echo admission.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DispatchOpticIntentRequest {
     /// Optic being used as the proposal boundary.
     pub optic_id: OpticId,
@@ -1330,7 +1309,6 @@ impl DispatchOpticIntentRequest {
 
 /// Successful bounded reading returned through an optic.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct OpticReading {
     /// Reading-envelope metadata.
     pub envelope: ReadingEnvelope,
@@ -1357,7 +1335,6 @@ impl OpticReading {
 
 /// Result of observing an optic.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ObserveOpticResult {
     /// The optic emitted a bounded reading.
     Reading(Box<OpticReading>),
@@ -1380,7 +1357,6 @@ impl ObserveOpticResult {
 
 /// Deterministic reason an optic read or dispatch could not lawfully proceed.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum OpticObstructionKind {
     /// Required witness evidence is unavailable.
     MissingWitness,
@@ -1434,7 +1410,6 @@ impl OpticObstructionKind {
 
 /// Typed obstruction returned instead of a hidden fallback or fake success.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct OpticObstruction {
     /// Deterministic obstruction kind.
     pub kind: OpticObstructionKind,
@@ -1467,7 +1442,6 @@ impl OpticObstruction {
 
 /// Admission result for an optic intent that Echo accepted into witnessed history.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct AdmittedIntent {
     /// Optic through which the intent was dispatched.
     pub optic_id: OpticId,
@@ -1497,7 +1471,6 @@ impl AdmittedIntent {
 
 /// Reason an optic intent is staged instead of admitted immediately.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum StagedIntentReason {
     /// The proposal needs an explicit rebase before admission can proceed.
     RebaseRequired,
@@ -1522,7 +1495,6 @@ impl StagedIntentReason {
 
 /// Admission result for an optic intent retained without mutating the frontier.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct StagedIntent {
     /// Optic through which the intent was dispatched.
     pub optic_id: OpticId,
@@ -1552,7 +1524,6 @@ impl StagedIntent {
 
 /// Admission result that preserves lawful plurality instead of selecting one winner.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PluralIntent {
     /// Optic through which the intent was dispatched.
     pub optic_id: OpticId,
@@ -1587,7 +1558,6 @@ impl PluralIntent {
 
 /// Deterministic conflict reason for an optic intent dispatch.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum IntentConflictReason {
     /// The named base coordinate is no longer the applicable basis.
     StaleBasis,
@@ -1620,7 +1590,6 @@ impl IntentConflictReason {
 
 /// Admission result for incompatible causal claims under an optic dispatch.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IntentConflict {
     /// Optic through which the intent was dispatched.
     pub optic_id: OpticId,
@@ -1656,7 +1625,6 @@ impl IntentConflict {
 
 /// Typed top-level result for dispatching an intent through an optic.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum IntentDispatchResult {
     /// Echo accepted the intent into witnessed history.
     Admitted(AdmittedIntent),
@@ -1688,7 +1656,6 @@ impl IntentDispatchResult {
 
 /// Auditable cause for opening, closing, observing, or dispatching through an optic.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct OpticCause {
     /// Actor associated with the cause.
     pub actor: OpticActorId,
@@ -1712,7 +1679,6 @@ impl OpticCause {
 
 /// Capability grant used while validating an optic descriptor.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct OpticCapability {
     /// Stable capability identity retained in opened optic descriptors.
     pub capability_id: OpticCapabilityId,
@@ -1754,7 +1720,6 @@ impl OpticCapability {
 
 /// Capability posture returned after successfully validating an optic descriptor.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum CapabilityPosture {
     /// The descriptor is authorized by the named capability grant.
     Granted {
@@ -1789,7 +1754,6 @@ impl CapabilityPosture {
 
 /// Descriptor-validation request for opening a session-local optic resource.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct OpenOpticRequest {
     /// Lawful subject being observed or targeted by intent dispatch.
     pub focus: OpticFocus,
@@ -1902,7 +1866,6 @@ impl OpenOpticRequest {
 
 /// Successful descriptor-validation result for opening an optic.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct OpenOpticResult {
     /// Opened optic descriptor. This is not a mutable subject handle.
     pub optic: EchoOptic,
@@ -1923,7 +1886,6 @@ impl OpenOpticResult {
 
 /// Error returned while opening an optic descriptor.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum OpticOpenError {
     /// Opening failed with a typed obstruction.
     Obstructed(Box<OpticObstruction>),
@@ -1941,7 +1903,6 @@ impl OpticOpenError {
 
 /// Request for releasing a session-local optic descriptor resource.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CloseOpticRequest {
     /// Optic descriptor to release from the session.
     pub optic_id: OpticId,
@@ -1970,7 +1931,6 @@ impl CloseOpticRequest {
 
 /// Result for releasing a session-local optic descriptor resource.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CloseOpticResult {
     /// Optic descriptor released from the session.
     pub optic_id: OpticId,
@@ -1988,7 +1948,6 @@ impl CloseOpticResult {
 
 /// Error returned while closing an optic descriptor.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum OpticCloseError {
     /// Closing failed with a typed obstruction.
     Obstructed(Box<OpticObstruction>),
@@ -2011,7 +1970,6 @@ impl OpticCloseError {
 /// substrate. It is still only a request builder: reads go through
 /// `observe_optic`, and proposals go through `dispatch_optic_intent`.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct WorldlineHeadOptic {
     /// Opened optic descriptor. This is not a mutable handle.
     pub optic: EchoOptic,

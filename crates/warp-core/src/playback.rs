@@ -62,7 +62,6 @@ macro_rules! impl_hash_id_bytes {
 /// multiple cursors within the same session or across sessions.
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CursorId(pub Hash);
 
 impl_hash_id_bytes!(CursorId);
@@ -73,7 +72,6 @@ impl_hash_id_bytes!(CursorId);
 /// Multiple cursors can be associated with a single session.
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SessionId(pub Hash);
 
 impl_hash_id_bytes!(SessionId);
@@ -84,7 +82,6 @@ impl_hash_id_bytes!(SessionId);
 /// - Writers can advance the worldline by executing ticks.
 /// - Readers can only replay existing history via patches.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum CursorRole {
     /// Writer cursor: can advance the worldline by executing ticks.
     ///
@@ -106,7 +103,6 @@ pub enum CursorRole {
 /// Modes form a simple state machine with transitions triggered by `step()`
 /// and seek operations.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum PlaybackMode {
     /// Cursor is paused; `step()` is a no-op.
     #[default]
@@ -135,7 +131,6 @@ pub enum PlaybackMode {
 
 /// Behavior after a seek operation completes.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum SeekThen {
     /// Transition to Paused after reaching target.
     #[default]
@@ -151,7 +146,6 @@ pub enum SeekThen {
 /// the truth bus. It enables clients to verify that values came from
 /// a specific cursor at a specific tick.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CursorReceipt {
     /// Session that owns this cursor.
     pub session_id: SessionId,
@@ -177,7 +171,6 @@ pub struct CursorReceipt {
 /// 2. Verify the value hash matches for tamper detection
 /// 3. Subscribe to specific channels for selective delivery
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct TruthFrame {
     /// Cursor context for this frame (provenance).
     pub cursor: CursorReceipt,
@@ -295,7 +288,6 @@ pub enum SeekError {
 /// This enum indicates what happened during a `step()` call, allowing callers
 /// to distinguish between no-ops, advances, seeks, and frontier conditions.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum StepResult {
     /// No operation performed (e.g., cursor was paused).
     NoOp,

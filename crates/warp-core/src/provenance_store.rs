@@ -379,7 +379,6 @@ pub enum ReplayError {
 
 /// Reference to a checkpoint within the provenance store.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CheckpointRef {
     /// Cursor coordinate where this checkpoint was taken.
     ///
@@ -415,7 +414,6 @@ impl ReplayCheckpoint {
 
 /// Reference to a parent provenance commit.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ProvenanceRef {
     /// Parent worldline.
     pub worldline_id: WorldlineId,
@@ -427,7 +425,6 @@ pub struct ProvenanceRef {
 
 /// Event kind recorded by a provenance entry.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ProvenanceEventKind {
     /// A local writer-head commit produced by the live runtime.
     LocalCommit,
@@ -465,7 +462,6 @@ pub enum ProvenanceEventKind {
 
 /// Single authoritative provenance record for one worldline step.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ProvenanceEntry {
     /// Worldline that owns this entry.
     pub worldline_id: WorldlineId,
@@ -559,7 +555,6 @@ impl ProvenanceEntry {
 
 /// Single-worldline contiguous provenance payload.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct BtrPayload {
     /// Worldline represented by this payload.
     pub worldline_id: WorldlineId,
@@ -630,7 +625,6 @@ impl BtrPayload {
 
 /// Boundary Transition Record (BTR) for a contiguous provenance segment.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct BoundaryTransitionRecord {
     /// Worldline carried by this record.
     pub worldline_id: WorldlineId,

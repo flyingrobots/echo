@@ -9,9 +9,9 @@
 )]
 //! Thread-count determinism harness tests for M003.
 //!
-//! The report is rendered as deterministic JSON text by hand. Do not use
-//! `serde_json` in `warp-core`; JSON here is a diagnostic test artifact, not a
-//! causal encoding boundary.
+//! The report is rendered as deterministic JSON text by hand. Do not use JSON
+//! serializer crates in `warp-core`; JSON here is a diagnostic test artifact,
+//! not a causal encoding boundary.
 
 mod common;
 

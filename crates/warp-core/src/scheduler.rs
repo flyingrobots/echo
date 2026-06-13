@@ -10,9 +10,7 @@
 //! - Byte-lexicographic order over full 32-byte scope hash preserved exactly.
 
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, HashMap};
-
-use rustc_hash::FxHashMap;
+use std::collections::BTreeMap;
 
 use std::sync::Arc;
 
@@ -63,10 +61,10 @@ impl ActiveFootprints {
 #[derive(Debug, Default)]
 pub(crate) struct RadixScheduler {
     /// Pending rewrites per transaction, stored for O(1) enqueue and O(n) drain.
-    pending: HashMap<TxId, PendingTx<PendingRewrite>>,
+    pending: BTreeMap<TxId, PendingTx<PendingRewrite>>,
     /// Active footprints per transaction for O(m) independence checking via `GenSets`.
     /// Checks all aspects: nodes (read/write), edges (read/write), and boundary ports.
-    pub(crate) active: HashMap<TxId, ActiveFootprints>,
+    pub(crate) active: BTreeMap<TxId, ActiveFootprints>,
 }
 
 /// Internal representation of a rewrite waiting to be applied.
@@ -280,7 +278,7 @@ struct RewriteThin {
 struct PendingTx<P> {
     next_nonce: u32,
     /// Last-wins dedupe on (`scope_hash`, `compact_rule`).
-    index: FxHashMap<([u8; 32], u32), usize>,
+    index: BTreeMap<([u8; 32], u32), usize>,
     /// Thin keys + handles (sorted during drain).
     thin: Vec<RewriteThin>,
     /// Fat payloads (indexed by handle).
@@ -296,7 +294,7 @@ impl<P> Default for PendingTx<P> {
     fn default() -> Self {
         Self {
             next_nonce: 0,
-            index: FxHashMap::default(),
+            index: BTreeMap::default(),
             thin: Vec::new(),
             fat: Vec::new(),
             scratch: Vec::new(),
@@ -489,15 +487,15 @@ fn bucket16(r: &RewriteThin, pass: usize) -> u16 {
 #[derive(Debug)]
 pub(crate) struct GenSet<K> {
     gen: u32,
-    seen: FxHashMap<K, u32>,
+    seen: BTreeMap<K, u32>,
 }
 
-impl<K: std::hash::Hash + Eq + Copy> GenSet<K> {
+impl<K: Ord + Copy> GenSet<K> {
     /// Creates a new generation set.
     pub fn new() -> Self {
         Self {
             gen: 1,
-            seen: FxHashMap::default(),
+            seen: BTreeMap::default(),
         }
     }
 
@@ -520,8 +518,8 @@ impl<K: std::hash::Hash + Eq + Copy> GenSet<K> {
 
 #[derive(Debug, Default)]
 pub(crate) struct LegacyScheduler {
-    pending: HashMap<TxId, BTreeMap<(Hash, Hash), PendingRewrite>>,
-    active: HashMap<TxId, Vec<Footprint>>,
+    pending: BTreeMap<TxId, BTreeMap<(Hash, Hash), PendingRewrite>>,
+    active: BTreeMap<TxId, Vec<Footprint>>,
 }
 
 impl LegacyScheduler {
@@ -591,7 +589,7 @@ pub(crate) struct DeterministicScheduler {
     inner: SchedulerImpl,
     telemetry: Arc<dyn TelemetrySink>,
     /// Per-transaction counters: (reserved, conflict).
-    counters: HashMap<TxId, (u64, u64)>,
+    counters: BTreeMap<TxId, (u64, u64)>,
 }
 
 impl std::fmt::Debug for DeterministicScheduler {
@@ -627,7 +625,7 @@ impl DeterministicScheduler {
         Self {
             inner,
             telemetry,
-            counters: HashMap::new(),
+            counters: BTreeMap::new(),
         }
     }
 

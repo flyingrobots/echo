@@ -92,6 +92,7 @@ hash_id!(AuthorityCapabilityDigest);
 hash_id!(AdmissionScopeId);
 hash_id!(RetentionContractId);
 hash_id!(IntentId);
+hash_id!(ImportedArtifactId);
 hash_id!(KeyId);
 hash_id!(KeyProofId);
 hash_id!(DelegationProofId);
@@ -773,6 +774,8 @@ impl SharedAdmission {
 pub struct ImportAdmissionReceipt {
     /// Intent that admitted the import locally.
     pub intent_id: IntentId,
+    /// Imported artifact identity this receipt admits.
+    pub imported_artifact_id: ImportedArtifactId,
     /// Authority domain authorizing local admission.
     pub authorized_by: AuthorityDomainRef,
     /// Authority proof.
@@ -792,6 +795,7 @@ impl ImportAdmissionReceipt {
     /// `authorized_by`.
     pub fn new(
         intent_id: IntentId,
+        imported_artifact_id: ImportedArtifactId,
         authorized_by: AuthorityDomainRef,
         authority_proof: AuthorityResolutionProof,
         admission_scope: AdmissionScopeId,
@@ -800,6 +804,7 @@ impl ImportAdmissionReceipt {
         authority_proof.authorizes_new_admission(authorized_by)?;
         Ok(Self {
             intent_id,
+            imported_artifact_id,
             authorized_by,
             authority_proof,
             admission_scope,
@@ -845,9 +850,10 @@ pub enum ImportPostureDisposition {
 
 /// Classifies imported posture without laundering remote visibility into local truth.
 #[must_use]
-pub const fn import_posture_disposition(
+pub fn import_posture_disposition(
     source_posture: CausalPosture,
     authority_resolved: bool,
+    imported_artifact_id: ImportedArtifactId,
     local_admission: Option<ImportAdmissionReceipt>,
 ) -> ImportPostureDisposition {
     match source_posture {
@@ -859,10 +865,12 @@ pub const fn import_posture_disposition(
             namespace: ImportQuarantineNamespace::ForeignAuthorOnlyQuarantine,
         },
         CausalPosture::Shared => match local_admission {
-            Some(receipt) => ImportPostureDisposition::LocallyAdmittedShared {
-                admission_scope: receipt.admission_scope,
-            },
-            None => ImportPostureDisposition::SourceSharedPendingAdmission {
+            Some(receipt) if receipt.imported_artifact_id.0 == imported_artifact_id.0 => {
+                ImportPostureDisposition::LocallyAdmittedShared {
+                    admission_scope: receipt.admission_scope,
+                }
+            }
+            Some(_) | None => ImportPostureDisposition::SourceSharedPendingAdmission {
                 namespace: ImportQuarantineNamespace::SourceSharedPendingAdmission,
             },
         },
@@ -1415,7 +1423,12 @@ mod tests {
     #[test]
     fn imported_source_shared_is_not_local_admitted_without_admission_scope() {
         assert_eq!(
-            import_posture_disposition(CausalPosture::Shared, false, None),
+            import_posture_disposition(
+                CausalPosture::Shared,
+                false,
+                ImportedArtifactId::from_bytes([0xA1; 32]),
+                None,
+            ),
             ImportPostureDisposition::SourceSharedPendingAdmission {
                 namespace: ImportQuarantineNamespace::SourceSharedPendingAdmission,
             }
@@ -1424,8 +1437,11 @@ mod tests {
 
     #[test]
     fn imported_source_shared_requires_local_admission_receipt() {
+        let import_a = ImportedArtifactId::from_bytes([0xA1; 32]);
+        let import_b = ImportedArtifactId::from_bytes([0xB1; 32]);
         let receipt = ImportAdmissionReceipt::new(
             IntentId::from_bytes([0x11; 32]),
+            import_a,
             fixture_authority_ref(),
             AuthorityResolutionProof::LocalAuthorityDomain(fixture_authority_ref()),
             AdmissionScopeId::from_bytes([0x55; 32]),
@@ -1434,15 +1450,21 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            import_posture_disposition(CausalPosture::Shared, false, None),
+            import_posture_disposition(CausalPosture::Shared, false, import_a, None),
             ImportPostureDisposition::SourceSharedPendingAdmission {
                 namespace: ImportQuarantineNamespace::SourceSharedPendingAdmission,
             }
         );
         assert_eq!(
-            import_posture_disposition(CausalPosture::Shared, false, Some(receipt)),
+            import_posture_disposition(CausalPosture::Shared, false, import_a, Some(receipt)),
             ImportPostureDisposition::LocallyAdmittedShared {
                 admission_scope: AdmissionScopeId::from_bytes([0x55; 32]),
+            }
+        );
+        assert_eq!(
+            import_posture_disposition(CausalPosture::Shared, false, import_b, Some(receipt)),
+            ImportPostureDisposition::SourceSharedPendingAdmission {
+                namespace: ImportQuarantineNamespace::SourceSharedPendingAdmission,
             }
         );
     }

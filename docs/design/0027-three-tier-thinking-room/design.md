@@ -774,7 +774,9 @@ Required import namespaces:
   not been admitted into a local `AdmissionScopeId`.
 
 Import is not admission. Readable source-shared bytes are not local shared
-truth until Echo records a local admission.
+truth until Echo records a local admission. Local admission receipts MUST bind
+to the specific imported artifact they admit; a receipt for one import MUST NOT
+admit another imported artifact.
 
 ## Echo Authority Boundary
 
@@ -914,7 +916,8 @@ Design approval implies these implementation criteria:
 16. Across-machine import preserves remote origin and authority; unresolved
     AuthorOnly imports stay sealed.
 17. Imported source-shared material is readable only according to source rights
-    and is not locally admitted without a local `AdmissionScopeId`.
+    and is not locally admitted without a local receipt that binds the imported
+    artifact to a local `AdmissionScopeId`.
 18. `Shared` retained posture always carries `AdmissionScopeId`.
 19. Authority equality uses `AuthorityDomainRef`, key proof, delegation proof,
     or explicit import/adoption grant; `AuthorityDomainId` alone is not

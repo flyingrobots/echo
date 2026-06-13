@@ -296,7 +296,7 @@ fn multiwarp_repeated_execution_determinism() {
 /// # Why This Matters
 ///
 /// The Engine uses parallel execution for rule evaluation.
-/// `ECHO_WORKERS` (or `EngineBuilder::workers()`) controls the thread pool size.
+/// `EngineBuilder::workers()` controls the thread pool size explicitly.
 /// This test proves that scaling workers doesn't change the deterministic outcome.
 #[test]
 fn worker_count_invariance_for_writer_advance() {

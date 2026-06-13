@@ -1,18 +1,14 @@
-crates/echo-wasm-abi/src/lib.rs
-crates/warp-core/src/attachment.rs
-crates/warp-wasm/src/lib.rs
-# WSC module uses std::fs for file I/O (reading/writing snapshot files)
-# This is intentional - WSC is for native tooling, not WASM determinism
-crates/warp-core/src/wsc/mod.rs
-crates/warp-core/src/wsc/view.rs
-# parallel exec uses std::env for feature-gated stride fallback (ECHO_PARALLEL_STRIDE)
-# This is a build-time debug toggle, not runtime non-determinism
-crates/warp-core/src/parallel/exec.rs
-# engine_impl uses std::env for ECHO_WORKERS configuration
-# This is read once at engine construction for worker count - determinism is not affected
-# because the worker count doesn't change execution results, only parallelism level
-crates/warp-core/src/engine_impl.rs
-# Test file uses std::fs to read/write golden vector binaries for determinism verification
-# This is test-only I/O, not simulation code — it validates determinism, not violates it
-crates/warp-core/tests/trig_golden_vectors.rs
-crates/warp-math/tests/trig_golden_vectors.rs
+# Rule-scoped deterministic-boundary waivers.
+# Format:
+#   <rule-id> <path> <reason>
+#
+# These entries waive only the named rule for the named path. They are not
+# file-wide exemptions.
+
+std-env crates/warp-core/build.rs build script reads OUT_DIR; follow-up should move generated constants out of build.rs.
+std-fs crates/warp-core/build.rs build script writes generated constants; follow-up should move generated constants out of build.rs.
+std-fs crates/warp-core/src/causal_wal.rs native WAL filesystem adapter pending extraction to a boundary crate.
+std-fs crates/warp-core/src/wsc/view.rs native WSC file-open helper pending extraction to a boundary adapter.
+std-fs crates/warp-core/tests/causal_wal_tests.rs WAL filesystem fixture I/O only.
+std-fs crates/warp-core/tests/causal_wal_hardening_tests.rs WAL filesystem fixture I/O only.
+std-fs crates/warp-math/tests/trig_golden_vectors.rs golden-vector fixture read/write only.

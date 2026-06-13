@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Core rewrite engine implementation.
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 
 use blake3::Hasher;
 use thiserror::Error;
@@ -146,28 +146,13 @@ pub struct ExistingState {
     root: NodeKey,
 }
 
-/// Returns the default worker count for parallel execution.
+/// Returns the deterministic default worker count for parallel execution.
 ///
-/// Precedence:
-/// 1. `ECHO_WORKERS` environment variable (if set and valid)
-/// 2. `available_parallelism().min(NUM_SHARDS)` (capped at shard count)
-///
-/// # Environment Variable
-///
-/// Set `ECHO_WORKERS=N` to override the default. Useful for:
-/// - CI environments (deterministic worker count)
-/// - Debugging (force serial with `ECHO_WORKERS=1`)
-/// - Benchmarking (compare different parallelism levels)
-fn default_worker_count() -> usize {
-    if let Ok(val) = std::env::var("ECHO_WORKERS") {
-        if let Ok(n) = val.parse::<usize>() {
-            return n.max(1);
-        }
-    }
-    std::thread::available_parallelism()
-        .map(std::num::NonZero::get)
-        .unwrap_or(1)
-        .min(NUM_SHARDS)
+/// Callers that want parallel execution must choose it explicitly with
+/// [`EngineBuilder::workers`] or the `with_*_and_workers` constructors. The
+/// default path must not read ambient host state.
+const fn default_worker_count() -> usize {
+    1
 }
 
 /// Fluent builder for constructing [`Engine`] instances.
@@ -228,7 +213,7 @@ impl EngineBuilder<FreshStore> {
     /// Defaults:
     /// - Scheduler: [`SchedulerKind::Radix`]
     /// - Policy ID: [`crate::POLICY_ID_NO_POLICY_V0`]
-    /// - Worker count: `default_worker_count()` (env `ECHO_WORKERS` or `available_parallelism`)
+    /// - Worker count: deterministic serial default (`1`)
     /// - Telemetry: [`NullTelemetrySink`]
     /// - `MaterializationBus`: A fresh bus with no pre-registered channels
     pub fn new(store: GraphStore, root: NodeId) -> Self {
@@ -267,7 +252,7 @@ impl EngineBuilder<ExistingState> {
     /// Defaults:
     /// - Scheduler: [`SchedulerKind::Radix`]
     /// - Policy ID: [`crate::POLICY_ID_NO_POLICY_V0`]
-    /// - Worker count: `default_worker_count()` (env `ECHO_WORKERS` or `available_parallelism`)
+    /// - Worker count: deterministic serial default (`1`)
     /// - Telemetry: [`NullTelemetrySink`]
     /// - `MaterializationBus`: A fresh bus with no pre-registered channels
     pub fn from_state(state: WarpState, root: NodeKey) -> Self {
@@ -323,13 +308,13 @@ impl<S> EngineBuilder<S> {
 
     /// Sets the worker count for parallel execution.
     ///
-    /// Default: `default_worker_count()` (env `ECHO_WORKERS` or `available_parallelism`).
+    /// Default: deterministic serial execution (`1` worker).
     ///
     /// # Notes
     ///
     /// - Workers are capped at `NUM_SHARDS` (256) internally
     /// - Values less than 1 are treated as 1
-    /// - Use `ECHO_WORKERS=1` environment variable to force serial execution for debugging
+    /// - Use explicit worker counts in benchmarks to compare parallelism levels
     #[must_use]
     pub fn workers(mut self, n: usize) -> Self {
         self.worker_count = n.max(1);
@@ -432,11 +417,11 @@ impl<S> EngineBuilder<S> {
 /// Legacy constructors are also available for backward compatibility.
 pub struct Engine {
     state: WarpState,
-    rules: HashMap<&'static str, RewriteRule>,
+    rules: BTreeMap<&'static str, RewriteRule>,
     #[cfg_attr(not(feature = "native_rule_bootstrap"), allow(dead_code))]
-    rules_by_id: HashMap<Hash, &'static str>,
-    compact_rule_ids: HashMap<Hash, CompactRuleId>,
-    rules_by_compact: HashMap<CompactRuleId, &'static str>,
+    rules_by_id: BTreeMap<Hash, &'static str>,
+    compact_rule_ids: BTreeMap<Hash, CompactRuleId>,
+    rules_by_compact: BTreeMap<CompactRuleId, &'static str>,
     canonical_cmd_rules: Vec<(Hash, &'static str)>,
     #[cfg_attr(not(feature = "native_rule_bootstrap"), allow(dead_code))]
     installed_contract_packages:
@@ -457,11 +442,11 @@ pub struct Engine {
     policy_id: u32,
     /// Worker count for parallel execution.
     ///
-    /// Capped at `NUM_SHARDS` internally. Use [`EngineBuilder::workers`] to override
-    /// the default (which respects `ECHO_WORKERS` env var).
+    /// Capped at `NUM_SHARDS` internally. Use [`EngineBuilder::workers`] to opt
+    /// into parallel execution.
     worker_count: usize,
     tx_counter: u64,
-    live_txs: HashSet<u64>,
+    live_txs: BTreeSet<u64>,
     current_root: NodeKey,
     last_snapshot: Option<Snapshot>,
     /// Sequential history of all committed ticks (Snapshot, Receipt, Patch).
@@ -533,7 +518,7 @@ struct RuntimeCommitStateGuard<'a> {
     saved_tx_counter: u64,
     original_worldline_tx_counter: u64,
     saved_scheduler: SavedField<DeterministicScheduler>,
-    saved_live_txs: SavedField<HashSet<u64>>,
+    saved_live_txs: SavedField<BTreeSet<u64>>,
     armed: bool,
 }
 
@@ -867,10 +852,10 @@ impl Engine {
         let initial_state = state.clone();
         Self {
             state,
-            rules: HashMap::new(),
-            rules_by_id: HashMap::new(),
-            compact_rule_ids: HashMap::new(),
-            rules_by_compact: HashMap::new(),
+            rules: BTreeMap::new(),
+            rules_by_id: BTreeMap::new(),
+            compact_rule_ids: BTreeMap::new(),
+            rules_by_compact: BTreeMap::new(),
             canonical_cmd_rules: Vec::new(),
             installed_contract_packages: BTreeMap::new(),
             contract_mutation_handlers: BTreeMap::new(),
@@ -882,7 +867,7 @@ impl Engine {
             policy_id,
             worker_count: worker_count.clamp(1, NUM_SHARDS),
             tx_counter: 0,
-            live_txs: HashSet::new(),
+            live_txs: BTreeSet::new(),
             current_root: NodeKey {
                 warp_id: root_warp,
                 local_id: root,
@@ -1060,10 +1045,10 @@ impl Engine {
         let initial_state = state.clone();
         Ok(Self {
             state,
-            rules: HashMap::new(),
-            rules_by_id: HashMap::new(),
-            compact_rule_ids: HashMap::new(),
-            rules_by_compact: HashMap::new(),
+            rules: BTreeMap::new(),
+            rules_by_id: BTreeMap::new(),
+            compact_rule_ids: BTreeMap::new(),
+            rules_by_compact: BTreeMap::new(),
             canonical_cmd_rules: Vec::new(),
             installed_contract_packages: BTreeMap::new(),
             contract_mutation_handlers: BTreeMap::new(),
@@ -1075,7 +1060,7 @@ impl Engine {
             policy_id,
             worker_count: worker_count.clamp(1, NUM_SHARDS),
             tx_counter: 0,
-            live_txs: HashSet::new(),
+            live_txs: BTreeSet::new(),
             current_root: root,
             last_snapshot: None,
             tick_history: Vec::new(),
@@ -2605,7 +2590,7 @@ type RewritesByWarp = BTreeMap<WarpId, Vec<(PendingRewrite, crate::rule::Execute
 #[cfg(not(feature = "unsafe_graph"))]
 fn collect_guard_metadata(
     by_warp: &RewritesByWarp,
-) -> HashMap<(crate::tick_delta::OpOrigin, NodeKey), (crate::footprint::Footprint, &'static str)> {
+) -> BTreeMap<(crate::tick_delta::OpOrigin, NodeKey), (crate::footprint::Footprint, &'static str)> {
     by_warp
         .values()
         .flatten()
@@ -2631,7 +2616,7 @@ fn collect_guard_metadata(
 #[cfg(not(feature = "unsafe_graph"))]
 fn attach_footprint_guards(
     units: &mut [crate::parallel::WorkUnit],
-    guard_meta: &HashMap<
+    guard_meta: &BTreeMap<
         (crate::tick_delta::OpOrigin, NodeKey),
         (crate::footprint::Footprint, &'static str),
     >,

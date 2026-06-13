@@ -25,7 +25,6 @@ use crate::warp_state::{WarpInstance, WarpState};
 
 /// Commit status of a tick patch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum TickCommitStatus {
     /// Tick committed successfully.
     Committed,
@@ -48,7 +47,6 @@ impl TickCommitStatus {
 /// This ensures resources in different warps are tracked distinctly for receipt
 /// attribution and provenance bookkeeping.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum SlotId {
     /// Full node record at `NodeKey` (warp-scoped skeleton record).
     Node(NodeKey),
@@ -96,7 +94,6 @@ impl Ord for SlotId {
 
 /// A canonical delta operation applied to the graph store.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum WarpOp {
     /// Open a descended attachment portal atomically (Stage B1.1).
     ///
@@ -169,7 +166,6 @@ pub enum WarpOp {
 
 /// Initialization policy for [`WarpOp::OpenPortal`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum PortalInit {
     /// Create a new child instance with only a root node (using `root_record`).
     Empty {
@@ -319,7 +315,6 @@ impl WarpOp {
 /// - `in_slots` / `out_slots`, and
 /// - `ops`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct WarpTickPatchV1 {
     policy_id: u32,
     rule_pack_id: ContentHash,

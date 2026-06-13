@@ -515,6 +515,10 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Removed
 
+- Removed the broken `warp-core/serde` feature and the gated `Serializable*`
+  wrapper exports. `warp-core` no longer declares direct `serde`, `serde-value`,
+  or `ciborium` dependencies; authoritative core serialization must stay in
+  explicit canonical boundary encoders rather than general serde derives.
 - Removed the legacy `ttd-browser` crate from Echo's active workspace. The
   release browser/runtime boundary now stays centered on `warp-wasm` and
   `echo-wasm-abi`; debugger session semantics and browser delivery adapters
@@ -534,6 +538,25 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Changed
 
+- Local determinism tooling now fails closed around
+  `scripts/check-warp-core-serialization-boundaries.sh`. The serialization
+  boundary guard is mandatory, runs through `bash` rather than executable mode,
+  works without `rg`, rejects table-form serde/ciborium dependencies, and
+  blocks direct, grouped, multiline, or aliased canonical ABI serialization
+  imports outside explicit `warp-core` boundary modules.
+- The nondeterminism guard now shares the same `rg`/Perl fallback scanner,
+  supports `DETERMINISM_FORCE_NO_RG=1` regression coverage, catches namespace
+  imports and alias calls for `std::env`, `std::fs`, and `std::process`, bans
+  `std::thread::available_parallelism`, and replaces file-wide allowlists with
+  rule-scoped waivers for build/native filesystem boundaries and test fixtures.
+- `warp-core` engine and scheduler state now use ordered `BTreeMap`/`BTreeSet`
+  storage instead of `HashMap`, `HashSet`, or `FxHashMap` in deterministic core
+  paths. WAL filesystem tests also recreate stale deterministic fixture roots
+  before use so previous local residue cannot change the test outcome.
+- `warp-core` engine construction now defaults to deterministic serial
+  execution instead of reading `ECHO_WORKERS` or host CPU availability. Callers
+  can still opt into parallel execution explicitly with
+  `EngineBuilder::workers(...)` or worker-count constructors.
 - `echo-cli wal submission-posture` now exposes generic read-only recovery JSON
   for one submission id and canonical envelope digest. The output reports retry
   posture, recovered submission posture, receipt digest, and ticket digest

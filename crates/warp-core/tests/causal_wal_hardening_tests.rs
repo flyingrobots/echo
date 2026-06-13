@@ -41,6 +41,7 @@ use warp_core::Hash;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
+use std::io::ErrorKind;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -57,22 +58,14 @@ fn digest(label: &str) -> Hash {
 fn must_ok<T, E: std::fmt::Debug>(result: Result<T, E>) -> T {
     match result {
         Ok(value) => value,
-        Err(error) => {
-            let ok = false;
-            assert!(ok, "expected Ok(..), got {error:?}");
-            std::process::abort();
-        }
+        Err(error) => panic!("expected Ok(..), got {error:?}"),
     }
 }
 
 fn must_err<T: std::fmt::Debug, E>(result: Result<T, E>, context: &str) -> E {
     match result {
         Err(error) => error,
-        Ok(value) => {
-            let ok = false;
-            assert!(ok, "{context}: expected Err(..), got Ok({value:?})");
-            std::process::abort();
-        }
+        Ok(value) => panic!("{context}: expected Err(..), got Ok({value:?})"),
     }
 }
 
@@ -80,9 +73,7 @@ fn must_some<T>(option: Option<T>, context: &str) -> T {
     if let Some(value) = option {
         value
     } else {
-        let ok = false;
-        assert!(ok, "{context}: expected Some(..), got None");
-        std::process::abort();
+        panic!("{context}: expected Some(..), got None");
     }
 }
 
@@ -337,13 +328,27 @@ fn refresh_commit_digest(transaction: &mut WalCommittedTransaction) {
 }
 
 fn temp_wal_root(label: &str) -> PathBuf {
-    let unique = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let root = std::env::temp_dir().join(format!(
-        "echo-wal-hardening-{label}-{}-{unique}",
-        std::process::id()
-    ));
-    must_ok(fs::create_dir_all(&root));
-    root
+    let parent = PathBuf::from("target").join("warp-core-test-tmp");
+    must_ok(fs::create_dir_all(&parent));
+    for _ in 0..1024 {
+        let unique = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let root = parent.join(format!("echo-wal-hardening-{label}-{unique}"));
+        match fs::create_dir(&root) {
+            Ok(()) => return root,
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => {
+                must_ok(fs::remove_dir_all(&root));
+                match fs::create_dir(&root) {
+                    Ok(()) => return root,
+                    Err(retry_error) if retry_error.kind() == ErrorKind::AlreadyExists => continue,
+                    Err(retry_error) => {
+                        panic!("failed to recreate deterministic WAL root {root:?}: {retry_error}")
+                    }
+                }
+            }
+            Err(error) => panic!("failed to create deterministic WAL root {root:?}: {error}"),
+        }
+    }
+    panic!("exhausted deterministic WAL root attempts for {label}");
 }
 
 struct WalHardeningFixture {

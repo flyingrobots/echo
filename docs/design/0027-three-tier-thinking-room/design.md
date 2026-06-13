@@ -98,7 +98,7 @@ Merge target truth is `origin/main` at
   [docs/design/0025-sessions-as-causal-contexts/design.md#L128:a0af2512800be030e80fb39914c7d3d1a3d8fb89](https://github.com/flyingrobots/echo/blob/a0af2512800be030e80fb39914c7d3d1a3d8fb89/docs/design/0025-sessions-as-causal-contexts/design.md#L128).
 - Design 0026 explicitly deferred the full tier-posture system on strand
   creation to issue #538, while landing E0-lite posture for braid shells:
-  [docs/design/0026-braid-shell-family-and-plural-settlement/design.md#L67:a0af2512800be030e80fb39914c7d3d1a3d8fb89](https://github.com/flyingrobots/echo/blob/a0af2512800be030e80fb39914c7d3d1a3d8fb89/docs/design/0026-braid-shell-family-and-plural-settlement/design.md#L67).
+  [docs/design/0026-braid-shell-family-and-plural-settlement/design.md#L72:a0af2512800be030e80fb39914c7d3d1a3d8fb89](https://github.com/flyingrobots/echo/blob/a0af2512800be030e80fb39914c7d3d1a3d8fb89/docs/design/0026-braid-shell-family-and-plural-settlement/design.md#L72).
 
 ## Problem
 

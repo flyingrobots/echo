@@ -3,13 +3,13 @@
 //! Revelation posture for retained causal artifacts (Three-Tier Thinking
 //! Room, AIΩN Paper VII §6.3; tracked by echo#538).
 //!
-//! Every retained shell-family artifact carries an explicit revelation
+//! Every retained shell-family artifact carries an explicit causal/revelation
 //! posture instead of implicit shared visibility:
 //!
-//! - [`RevelationPosture::Scratch`] — local, weakly retained, disposable.
-//! - [`RevelationPosture::AuthorOnly`] — durable and replayable, sealed to
-//!   the creating principal until explicitly promoted.
-//! - [`RevelationPosture::Shared`] — collaboratively admitted visibility.
+//! - [`CausalPosture::Scratch`] — local, weakly retained, disposable.
+//! - [`CausalPosture::AuthorOnly`] — durable and replayable, sealed to the
+//!   creating authority until explicitly admitted.
+//! - [`CausalPosture::Shared`] — scoped, collaboratively admitted visibility.
 //!
 //! Posture is load-bearing, not cosmetic. Two laws are enforced here:
 //!
@@ -27,24 +27,52 @@
 //! remains echo#538.
 
 use crate::ident::Hash;
+use crate::playback::SessionId;
+use crate::strand::StrandId;
 
-/// Revelation tier for one retained causal artifact.
+macro_rules! hash_id {
+    ($name:ident) => {
+        #[doc = concat!("Opaque hash-backed identifier for `", stringify!($name), "`.")]
+        #[repr(transparent)]
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        pub struct $name(Hash);
+
+        impl $name {
+            /// Construct this identifier from raw canonical bytes.
+            #[must_use]
+            pub const fn from_bytes(bytes: Hash) -> Self {
+                Self(bytes)
+            }
+
+            /// Returns this identifier's raw canonical bytes.
+            #[must_use]
+            pub const fn as_bytes(&self) -> &Hash {
+                &self.0
+            }
+        }
+    };
+}
+
+/// Causal/revelation posture for one retained causal artifact.
 ///
 /// Ordering is revelation breadth: `Scratch < AuthorOnly < Shared`. The
-/// default is [`RevelationPosture::AuthorOnly`] so nothing ships with
-/// implicit shared visibility.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub enum RevelationPosture {
+/// type intentionally has no global default; named constructors and migration
+/// paths are the only places that may choose posture policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CausalPosture {
     /// Local, weakly retained, disposable working tier.
     Scratch,
     /// Durable and replayable, sealed to the creating principal.
-    #[default]
     AuthorOnly,
-    /// Collaboratively admitted visibility.
+    /// Scoped, collaboratively admitted visibility.
     Shared,
 }
 
-impl RevelationPosture {
+/// Compatibility alias for E0-lite callers. New code uses [`CausalPosture`].
+#[deprecated(note = "Use CausalPosture")]
+pub type RevelationPosture = CausalPosture;
+
+impl CausalPosture {
     /// Stable wire tag for canonical serialization and digest domains.
     #[must_use]
     pub fn canonical_tag(self) -> u8 {
@@ -56,15 +84,249 @@ impl RevelationPosture {
     }
 }
 
+hash_id!(OriginId);
+hash_id!(ActorId);
+hash_id!(AuthorityDomainId);
+hash_id!(AuthorityCapabilityDigest);
+hash_id!(AdmissionScopeId);
+hash_id!(RetentionContractId);
+hash_id!(IntentId);
+hash_id!(KeyId);
+hash_id!(KeyProofId);
+hash_id!(DelegationProofId);
+hash_id!(ImportGrantId);
+hash_id!(ProjectionSpecId);
+hash_id!(AdmissionId);
+
 /// Witnessed record that one artifact's posture lawfully widened.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PosturePromotion {
     /// Posture before the promotion act.
-    pub from: RevelationPosture,
+    pub from: CausalPosture,
     /// Posture after the promotion act.
-    pub to: RevelationPosture,
+    pub to: CausalPosture,
     /// Witness digest binding the explicit promotion act.
     pub witness: Hash,
+}
+
+/// Globally comparable authority-domain reference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct AuthorityDomainRef {
+    /// Origin where this authority domain was minted.
+    pub origin_id: OriginId,
+    /// Authority domain local to `origin_id`.
+    pub domain_id: AuthorityDomainId,
+}
+
+impl AuthorityDomainRef {
+    /// Builds a canonical authority-domain reference.
+    #[must_use]
+    pub const fn new(origin_id: OriginId, domain_id: AuthorityDomainId) -> Self {
+        Self {
+            origin_id,
+            domain_id,
+        }
+    }
+}
+
+/// Binding proof shape for an authority domain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthorityBinding {
+    /// Local policy-only authority tied to an origin.
+    LocalUnbound {
+        /// Local origin creating the authority.
+        origin: OriginId,
+    },
+    /// Local authority tied to a key id.
+    LocalKeyed {
+        /// Key identifier.
+        key_id: KeyId,
+    },
+    /// Delegated authority from another domain.
+    Delegated {
+        /// Delegating authority.
+        from: AuthorityDomainRef,
+        /// Delegation proof identifier.
+        proof: DelegationProofId,
+    },
+    /// Imported authority not yet resolved locally.
+    ImportedUnresolved {
+        /// Remote origin carrying the authority.
+        remote_origin: OriginId,
+        /// Remote authority reference.
+        remote_authority: AuthorityDomainRef,
+    },
+}
+
+/// Honest strength of an author-only seal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SealStrength {
+    /// Metadata/policy only.
+    Advisory,
+    /// Enforced by local runtime process boundaries.
+    LocalProcess,
+    /// Enforced by local storage permissions or keychain.
+    LocalStorage,
+    /// Enforced by cryptographic wrapping/signing.
+    Cryptographic,
+}
+
+/// Capability evidence usable before full identity exists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CapabilityProof {
+    /// Current session presents authority.
+    LocalSessionAuthority(SessionId),
+    /// Local authority-domain proof.
+    LocalAuthorityDomain(AuthorityDomainRef),
+    /// Digest of a witnessed delegated authority/capability claim.
+    AuthorityCapabilityDigest(AuthorityCapabilityDigest),
+    /// Delegation proof.
+    DelegationProof(DelegationProofId),
+    /// Explicit import/adoption grant.
+    ImportGrant(ImportGrantId),
+}
+
+impl CapabilityProof {
+    /// Rejects generic causal witnesses as authority proof.
+    ///
+    /// # Errors
+    ///
+    /// Always returns [`PostureObstruction::WitnessIsNotAuthorityCapability`].
+    pub const fn from_causal_witness(_witness: WitnessDigest) -> Result<Self, PostureObstruction> {
+        Err(PostureObstruction::WitnessIsNotAuthorityCapability)
+    }
+}
+
+/// Authority context attached to retained causal work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CausalAuthority {
+    /// Origin where this work was created.
+    pub origin_id: OriginId,
+    /// Concrete actor that performed creation.
+    pub actor_id: ActorId,
+    /// Authority domain controlling revelation/admission.
+    pub author_domain: AuthorityDomainRef,
+    /// Binding strength for `author_domain`.
+    pub binding: AuthorityBinding,
+    /// Enforcement quality of the seal.
+    pub seal_strength: SealStrength,
+}
+
+/// Records how posture was assigned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PostureDerivation {
+    /// Explicit admission or construction intent.
+    ExplicitIntent,
+    /// Inherited from a session default.
+    SessionDefault,
+    /// Debugger constructor default.
+    DebuggerDefault,
+    /// Counterfactual constructor default.
+    CounterfactualDefault,
+    /// Legacy durable evidence assumed shared for compatibility.
+    LegacyDurableAssumedShared,
+    /// Legacy ephemeral registry assumed scratch.
+    LegacyEphemeralAssumedScratch,
+    /// Imported manifest supplied the posture.
+    ImportedManifest,
+}
+
+/// Posture, authority, scope, derivation, and retention contract bundle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RetentionPosture {
+    /// Effective causal posture.
+    pub causal_posture: CausalPosture,
+    /// How posture was assigned.
+    pub posture_derivation: PostureDerivation,
+    /// Causal authority for revelation/admission.
+    pub authority: CausalAuthority,
+    /// Retention contract Lambda.
+    pub retention_contract: RetentionContractId,
+    /// Shared-admission scope, present only for `Shared`.
+    pub admission_scope: Option<AdmissionScopeId>,
+}
+
+impl RetentionPosture {
+    /// Builds a validated retention posture bundle.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PostureObstruction::MissingAdmissionScope`] when `Shared`
+    /// lacks a scope, and [`PostureObstruction::UnexpectedAdmissionScope`]
+    /// when non-`Shared` work carries one.
+    pub fn new(
+        causal_posture: CausalPosture,
+        posture_derivation: PostureDerivation,
+        authority: CausalAuthority,
+        retention_contract: RetentionContractId,
+        admission_scope: Option<AdmissionScopeId>,
+    ) -> Result<Self, PostureObstruction> {
+        validate_admission_scope(causal_posture, admission_scope)?;
+        Ok(Self {
+            causal_posture,
+            posture_derivation,
+            authority,
+            retention_contract,
+            admission_scope,
+        })
+    }
+}
+
+/// Session context posture and authority defaults.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SessionContext {
+    /// Session identifier.
+    pub session_id: SessionId,
+    /// Local/remote origin.
+    pub origin_id: OriginId,
+    /// Concrete actor performing operations.
+    pub actor_id: ActorId,
+    /// Authority domain work is created under.
+    pub author_domain: AuthorityDomainRef,
+    /// Authority binding proof shape.
+    pub authority_binding: AuthorityBinding,
+    /// Seal strength for author-only work.
+    pub seal_strength: SealStrength,
+    /// Default posture for newly created work.
+    pub default_posture: CausalPosture,
+    /// Default admission scope. Present only when default posture is shared.
+    pub default_admission_scope: Option<AdmissionScopeId>,
+    /// Retention contract Lambda.
+    pub retention_contract: RetentionContractId,
+}
+
+impl SessionContext {
+    /// Builds a validated session context.
+    ///
+    /// # Errors
+    ///
+    /// Returns an admission-scope obstruction when the session default posture
+    /// and default admission scope do not agree.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        session_id: SessionId,
+        origin_id: OriginId,
+        actor_id: ActorId,
+        author_domain: AuthorityDomainRef,
+        authority_binding: AuthorityBinding,
+        seal_strength: SealStrength,
+        default_posture: CausalPosture,
+        default_admission_scope: Option<AdmissionScopeId>,
+        retention_contract: RetentionContractId,
+    ) -> Result<Self, PostureObstruction> {
+        validate_admission_scope(default_posture, default_admission_scope)?;
+        Ok(Self {
+            session_id,
+            origin_id,
+            actor_id,
+            author_domain,
+            authority_binding,
+            seal_strength,
+            default_posture,
+            default_admission_scope,
+            retention_contract,
+        })
+    }
 }
 
 /// Obstruction raised when a posture act is unlawful.
@@ -73,24 +335,51 @@ pub enum PostureObstruction {
     /// Posture may only widen; narrowing is never a promotion.
     NarrowingRefused {
         /// Posture the artifact currently holds.
-        from: RevelationPosture,
+        from: CausalPosture,
         /// Narrower posture that was unlawfully requested.
-        requested: RevelationPosture,
+        requested: CausalPosture,
     },
     /// Promotion to the same posture is a no-op dressed as an act.
     AlreadyAtPosture {
         /// Posture the artifact already holds.
-        posture: RevelationPosture,
+        posture: CausalPosture,
     },
     /// A composite shell may not reveal more than its least-revealed member.
     ExceedsLeastRevealedMember {
         /// Posture requested for the composite shell.
-        shell: RevelationPosture,
+        shell: CausalPosture,
         /// Least-revealed posture among the shell's members.
-        least_revealed_member: RevelationPosture,
+        least_revealed_member: CausalPosture,
     },
     /// A witness digest must never be a 32-byte shrug.
     EmptyWitness,
+    /// Shared posture requires an explicit admission scope.
+    MissingAdmissionScope {
+        /// Posture that requires the missing scope.
+        posture: CausalPosture,
+    },
+    /// Non-shared posture must not carry an admission scope.
+    UnexpectedAdmissionScope {
+        /// Posture that unlawfully carried a scope.
+        posture: CausalPosture,
+    },
+    /// Durable materialization has exactly one posture pair:
+    /// `Scratch -> AuthorOnly`.
+    InvalidMaterializationTransition {
+        /// Requested source posture.
+        from: CausalPosture,
+        /// Requested target posture.
+        to: CausalPosture,
+    },
+    /// Shared admission must target `Shared`.
+    PromotionRequiresSharedTarget {
+        /// Requested target posture.
+        to: CausalPosture,
+    },
+    /// Legacy shared compatibility proof is not authority for new admission.
+    LegacyAuthorityCannotAuthorizeNewAdmission,
+    /// Generic causal witness digests are not authority-capability proofs.
+    WitnessIsNotAuthorityCapability,
 }
 
 /// Witness digest with a quality bar: zero and empty-input digests refused.
@@ -122,15 +411,266 @@ impl WitnessDigest {
     }
 }
 
+/// Authority-resolution proof for admission/materialization operations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthorityResolutionProof {
+    /// Local authority-domain proof.
+    LocalAuthorityDomain(AuthorityDomainRef),
+    /// Local capability presentation.
+    LocalCapability(CapabilityProof),
+    /// Key proof.
+    KeyProof(KeyProofId),
+    /// Delegation proof.
+    DelegationProof(DelegationProofId),
+    /// Explicit import/adoption grant.
+    ImportGrant(ImportGrantId),
+    /// Compatibility-only explanation for migrated legacy shared visibility.
+    LegacySharedAuthority,
+}
+
+impl AuthorityResolutionProof {
+    fn authorizes_new_admission(self) -> Result<(), PostureObstruction> {
+        match self {
+            Self::LegacySharedAuthority => {
+                Err(PostureObstruction::LegacyAuthorityCannotAuthorizeNewAdmission)
+            }
+            Self::LocalAuthorityDomain(_)
+            | Self::LocalCapability(_)
+            | Self::KeyProof(_)
+            | Self::DelegationProof(_)
+            | Self::ImportGrant(_) => Ok(()),
+        }
+    }
+}
+
+/// Basis for durable scratch materialization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MaterializationBasis {
+    /// User/tool explicitly saved the scratch object.
+    ExplicitSave,
+}
+
+/// Receipt for a durable `Scratch -> AuthorOnly` materialization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MaterializationReceipt {
+    /// Source strand being materialized.
+    pub source: StrandId,
+    /// Source posture.
+    pub from: CausalPosture,
+    /// Target posture.
+    pub to: CausalPosture,
+    /// Concrete actor performing the save.
+    pub actor: ActorId,
+    /// Authority domain authorizing retention.
+    pub authorized_by: AuthorityDomainRef,
+    /// Authority proof.
+    pub authority_proof: AuthorityResolutionProof,
+    /// Retention contract Lambda.
+    pub retention_contract: RetentionContractId,
+    /// Materialization basis.
+    pub basis: MaterializationBasis,
+}
+
+impl MaterializationReceipt {
+    /// Builds a validated materialization receipt.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PostureObstruction::InvalidMaterializationTransition`] unless
+    /// the transition is exactly `Scratch -> AuthorOnly`, or
+    /// [`PostureObstruction::LegacyAuthorityCannotAuthorizeNewAdmission`] when
+    /// legacy shared compatibility proof is used as authority.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        source: StrandId,
+        from: CausalPosture,
+        to: CausalPosture,
+        actor: ActorId,
+        authorized_by: AuthorityDomainRef,
+        authority_proof: AuthorityResolutionProof,
+        retention_contract: RetentionContractId,
+        basis: MaterializationBasis,
+    ) -> Result<Self, PostureObstruction> {
+        if from != CausalPosture::Scratch || to != CausalPosture::AuthorOnly {
+            return Err(PostureObstruction::InvalidMaterializationTransition { from, to });
+        }
+        authority_proof.authorizes_new_admission()?;
+        Ok(Self {
+            source,
+            from,
+            to,
+            actor,
+            authorized_by,
+            authority_proof,
+            retention_contract,
+            basis,
+        })
+    }
+}
+
+/// Basis for promotion/admission to shared history.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PromotionBasis {
+    /// Explicit admission intent.
+    ExplicitAdmission,
+}
+
+/// Projection policy for shared admission.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProjectionPolicy {
+    /// Admit only the final result projection.
+    FinalResultOnly,
+    /// Admit result with redacted basis.
+    ResultPlusRedactedBasis,
+    /// Admit result with stubbed basis.
+    ResultPlusStubbedBasis,
+    /// Admit the full source chain.
+    FullSourceChain,
+    /// Custom projection spec.
+    CustomProjection(ProjectionSpecId),
+}
+
+/// Source disclosure policy for shared admission.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceDisclosurePolicy {
+    /// Reveal no source.
+    RevealNone,
+    /// Reveal a source stub.
+    RevealStub,
+    /// Reveal redacted source.
+    RevealRedacted,
+    /// Reveal full source.
+    RevealFull,
+    /// Reveal source only to authority holders.
+    RevealByAuthorityOnly,
+}
+
+/// Explicit, witnessed admission intent for shared history.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PromotionIntent {
+    /// Intent identity.
+    pub intent_id: IntentId,
+    /// Concrete actor performing admission.
+    pub actor: ActorId,
+    /// Authority domain authorizing admission.
+    pub authorized_by: AuthorityDomainRef,
+    /// Authority proof.
+    pub authority_proof: AuthorityResolutionProof,
+    /// Source strand being admitted.
+    pub source_strand: StrandId,
+    /// Source posture.
+    pub from: CausalPosture,
+    /// Target posture. Must be `Shared`.
+    pub to: CausalPosture,
+    /// Target admission scope.
+    pub admission_scope: AdmissionScopeId,
+    /// Witness binding the admission act.
+    pub witness: WitnessDigest,
+    /// Promotion basis.
+    pub basis: PromotionBasis,
+    /// Projection policy.
+    pub projection_policy: ProjectionPolicy,
+    /// Source disclosure policy.
+    pub source_disclosure: SourceDisclosurePolicy,
+}
+
+impl PromotionIntent {
+    /// Builds a validated promotion intent targeting shared history.
+    ///
+    /// # Errors
+    ///
+    /// Returns an obstruction when authority is legacy compatibility only or
+    /// when the source posture is already `Shared`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn admit_shared(
+        intent_id: IntentId,
+        actor: ActorId,
+        authorized_by: AuthorityDomainRef,
+        authority_proof: AuthorityResolutionProof,
+        source_strand: StrandId,
+        from: CausalPosture,
+        admission_scope: AdmissionScopeId,
+        witness: WitnessDigest,
+        basis: PromotionBasis,
+        projection_policy: ProjectionPolicy,
+        source_disclosure: SourceDisclosurePolicy,
+    ) -> Result<Self, PostureObstruction> {
+        authority_proof.authorizes_new_admission()?;
+        if from == CausalPosture::Shared {
+            return Err(PostureObstruction::AlreadyAtPosture {
+                posture: CausalPosture::Shared,
+            });
+        }
+        Ok(Self {
+            intent_id,
+            actor,
+            authorized_by,
+            authority_proof,
+            source_strand,
+            from,
+            to: CausalPosture::Shared,
+            admission_scope,
+            witness,
+            basis,
+            projection_policy,
+            source_disclosure,
+        })
+    }
+}
+
+/// Shared admission projection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SharedAdmission {
+    /// Admission identity.
+    pub admission_id: AdmissionId,
+    /// Sealed source strand.
+    pub source_strand: StrandId,
+    /// Digest of the shared projection.
+    pub projection_digest: Hash,
+    /// Admission scope.
+    pub admission_scope: AdmissionScopeId,
+    /// Source disclosure policy.
+    pub source_disclosure: SourceDisclosurePolicy,
+}
+
+/// Revelation-only operations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RevelationOperation {
+    /// Read an object.
+    Read,
+    /// Replay an object.
+    Replay,
+    /// Inspect an object.
+    Inspect,
+    /// Debug-view an object.
+    DebugView,
+}
+
+/// Posture effect of an operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OperationPostureEffect {
+    /// Operation leaves posture unchanged.
+    Unchanged(CausalPosture),
+}
+
+/// Returns the posture effect of a revelation-only operation.
+#[must_use]
+pub const fn revelation_operation_effect(
+    source: CausalPosture,
+    _operation: RevelationOperation,
+) -> OperationPostureEffect {
+    OperationPostureEffect::Unchanged(source)
+}
+
 /// Returns the least-revealed posture among `members`.
 ///
 /// An empty member set has no revelation to leak, so it imposes no bound;
 /// this returns `None` and callers treat the shell posture as the only
 /// constraint.
 #[must_use]
-pub fn least_revealed<I>(members: I) -> Option<RevelationPosture>
+pub fn least_revealed<I>(members: I) -> Option<CausalPosture>
 where
-    I: IntoIterator<Item = RevelationPosture>,
+    I: IntoIterator<Item = CausalPosture>,
 {
     members.into_iter().min()
 }
@@ -140,12 +680,9 @@ where
 /// Returns the obstruction when `shell` would reveal more than the
 /// least-revealed member; `None` means the posture is admissible.
 #[must_use]
-pub fn shell_posture_obstruction<I>(
-    shell: RevelationPosture,
-    members: I,
-) -> Option<PostureObstruction>
+pub fn shell_posture_obstruction<I>(shell: CausalPosture, members: I) -> Option<PostureObstruction>
 where
-    I: IntoIterator<Item = RevelationPosture>,
+    I: IntoIterator<Item = CausalPosture>,
 {
     let floor = least_revealed(members)?;
     if shell > floor {
@@ -170,8 +707,8 @@ where
 /// than `from`, and [`PostureObstruction::AlreadyAtPosture`] when `to`
 /// equals `from`.
 pub fn promote_posture(
-    from: RevelationPosture,
-    to: RevelationPosture,
+    from: CausalPosture,
+    to: CausalPosture,
     witness: WitnessDigest,
 ) -> Result<PosturePromotion, PostureObstruction> {
     if to < from {
@@ -188,6 +725,20 @@ pub fn promote_posture(
         to,
         witness: *witness.as_hash(),
     })
+}
+
+fn validate_admission_scope(
+    posture: CausalPosture,
+    admission_scope: Option<AdmissionScopeId>,
+) -> Result<(), PostureObstruction> {
+    match (posture, admission_scope) {
+        (CausalPosture::Shared, None) => Err(PostureObstruction::MissingAdmissionScope { posture }),
+        (CausalPosture::Scratch | CausalPosture::AuthorOnly, Some(_)) => {
+            Err(PostureObstruction::UnexpectedAdmissionScope { posture })
+        }
+        (CausalPosture::Scratch | CausalPosture::AuthorOnly, None)
+        | (CausalPosture::Shared, Some(_)) => Ok(()),
+    }
 }
 
 #[cfg(test)]
@@ -213,32 +764,27 @@ mod tests {
     }
 
     #[test]
-    fn posture_defaults_to_author_only() {
-        assert_eq!(RevelationPosture::default(), RevelationPosture::AuthorOnly);
-    }
-
-    #[test]
     fn revelation_breadth_orders_scratch_below_author_only_below_shared() {
-        assert!(RevelationPosture::Scratch < RevelationPosture::AuthorOnly);
-        assert!(RevelationPosture::AuthorOnly < RevelationPosture::Shared);
+        assert!(CausalPosture::Scratch < CausalPosture::AuthorOnly);
+        assert!(CausalPosture::AuthorOnly < CausalPosture::Shared);
     }
 
     #[test]
     fn canonical_tags_are_stable() {
-        assert_eq!(RevelationPosture::Scratch.canonical_tag(), 0x01);
-        assert_eq!(RevelationPosture::AuthorOnly.canonical_tag(), 0x02);
-        assert_eq!(RevelationPosture::Shared.canonical_tag(), 0x03);
+        assert_eq!(CausalPosture::Scratch.canonical_tag(), 0x01);
+        assert_eq!(CausalPosture::AuthorOnly.canonical_tag(), 0x02);
+        assert_eq!(CausalPosture::Shared.canonical_tag(), 0x03);
     }
 
     #[test]
     fn least_revealed_finds_the_floor() {
         assert_eq!(
             least_revealed([
-                RevelationPosture::Shared,
-                RevelationPosture::Scratch,
-                RevelationPosture::AuthorOnly,
+                CausalPosture::Shared,
+                CausalPosture::Scratch,
+                CausalPosture::AuthorOnly,
             ]),
-            Some(RevelationPosture::Scratch)
+            Some(CausalPosture::Scratch)
         );
         assert_eq!(least_revealed([]), None);
     }
@@ -246,15 +792,15 @@ mod tests {
     #[test]
     fn shell_cannot_reveal_more_than_least_revealed_member() {
         let obstruction = shell_posture_obstruction(
-            RevelationPosture::Shared,
-            [RevelationPosture::Shared, RevelationPosture::AuthorOnly],
+            CausalPosture::Shared,
+            [CausalPosture::Shared, CausalPosture::AuthorOnly],
         );
 
         assert_eq!(
             obstruction,
             Some(PostureObstruction::ExceedsLeastRevealedMember {
-                shell: RevelationPosture::Shared,
-                least_revealed_member: RevelationPosture::AuthorOnly,
+                shell: CausalPosture::Shared,
+                least_revealed_member: CausalPosture::AuthorOnly,
             })
         );
     }
@@ -263,36 +809,29 @@ mod tests {
     fn shell_at_or_below_member_floor_is_admissible() {
         assert_eq!(
             shell_posture_obstruction(
-                RevelationPosture::AuthorOnly,
-                [RevelationPosture::Shared, RevelationPosture::AuthorOnly],
+                CausalPosture::AuthorOnly,
+                [CausalPosture::Shared, CausalPosture::AuthorOnly],
             ),
             None
         );
         assert_eq!(
-            shell_posture_obstruction(RevelationPosture::Scratch, [RevelationPosture::AuthorOnly],),
+            shell_posture_obstruction(CausalPosture::Scratch, [CausalPosture::AuthorOnly],),
             None
         );
     }
 
     #[test]
     fn empty_member_set_imposes_no_floor() {
-        assert_eq!(
-            shell_posture_obstruction(RevelationPosture::Shared, []),
-            None
-        );
+        assert_eq!(shell_posture_obstruction(CausalPosture::Shared, []), None);
     }
 
     #[test]
     fn promotion_widens_with_witness() {
         assert_eq!(
-            promote_posture(
-                RevelationPosture::AuthorOnly,
-                RevelationPosture::Shared,
-                witness(),
-            ),
+            promote_posture(CausalPosture::AuthorOnly, CausalPosture::Shared, witness(),),
             Ok(PosturePromotion {
-                from: RevelationPosture::AuthorOnly,
-                to: RevelationPosture::Shared,
+                from: CausalPosture::AuthorOnly,
+                to: CausalPosture::Shared,
                 witness: *witness().as_hash(),
             })
         );
@@ -301,14 +840,10 @@ mod tests {
     #[test]
     fn narrowing_is_refused_not_silently_applied() {
         assert_eq!(
-            promote_posture(
-                RevelationPosture::Shared,
-                RevelationPosture::AuthorOnly,
-                witness(),
-            ),
+            promote_posture(CausalPosture::Shared, CausalPosture::AuthorOnly, witness(),),
             Err(PostureObstruction::NarrowingRefused {
-                from: RevelationPosture::Shared,
-                requested: RevelationPosture::AuthorOnly,
+                from: CausalPosture::Shared,
+                requested: CausalPosture::AuthorOnly,
             })
         );
     }
@@ -317,13 +852,205 @@ mod tests {
     fn promotion_to_same_posture_is_an_obstruction_not_a_noop() {
         assert_eq!(
             promote_posture(
-                RevelationPosture::AuthorOnly,
-                RevelationPosture::AuthorOnly,
+                CausalPosture::AuthorOnly,
+                CausalPosture::AuthorOnly,
                 witness(),
             ),
             Err(PostureObstruction::AlreadyAtPosture {
-                posture: RevelationPosture::AuthorOnly,
+                posture: CausalPosture::AuthorOnly,
             })
         );
+    }
+
+    #[test]
+    fn causal_posture_has_no_global_default() {
+        let source = include_str!("revelation.rs");
+        let enum_start = source.find("pub enum CausalPosture").unwrap();
+        let derive_line = source[..enum_start]
+            .lines()
+            .rev()
+            .find(|line| line.contains("#[derive("))
+            .unwrap();
+        let impl_default = ["impl Default for ", "CausalPosture"].concat();
+
+        assert!(!derive_line.contains("Default"));
+        assert!(!source.contains(&impl_default));
+    }
+
+    #[test]
+    fn authority_domain_ref_controls_cross_machine_equality() {
+        let origin_a = OriginId::from_bytes([0xA1; 32]);
+        let origin_b = OriginId::from_bytes([0xB1; 32]);
+        let domain = AuthorityDomainId::from_bytes([0xD0; 32]);
+
+        assert_eq!(
+            AuthorityDomainRef::new(origin_a, domain),
+            AuthorityDomainRef::new(origin_a, domain)
+        );
+        assert_ne!(
+            AuthorityDomainRef::new(origin_a, domain),
+            AuthorityDomainRef::new(origin_b, domain)
+        );
+    }
+
+    #[test]
+    fn new_shared_record_without_admission_scope_is_rejected() {
+        let authority = fixture_authority();
+        let retention_contract = RetentionContractId::from_bytes([0xA7; 32]);
+
+        assert_eq!(
+            RetentionPosture::new(
+                CausalPosture::Shared,
+                PostureDerivation::ExplicitIntent,
+                authority,
+                retention_contract,
+                None,
+            ),
+            Err(PostureObstruction::MissingAdmissionScope {
+                posture: CausalPosture::Shared,
+            })
+        );
+        assert!(RetentionPosture::new(
+            CausalPosture::AuthorOnly,
+            PostureDerivation::SessionDefault,
+            authority,
+            retention_contract,
+            None,
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn replay_of_scratch_strand_does_not_materialize() {
+        assert_eq!(
+            revelation_operation_effect(CausalPosture::Scratch, RevelationOperation::Replay),
+            OperationPostureEffect::Unchanged(CausalPosture::Scratch)
+        );
+        assert_eq!(
+            revelation_operation_effect(CausalPosture::Scratch, RevelationOperation::Inspect),
+            OperationPostureEffect::Unchanged(CausalPosture::Scratch)
+        );
+    }
+
+    #[test]
+    fn materialization_requires_explicit_receipt() {
+        let receipt = MaterializationReceipt::new(
+            crate::strand::make_strand_id("scratch"),
+            CausalPosture::Scratch,
+            CausalPosture::AuthorOnly,
+            ActorId::from_bytes([0xA2; 32]),
+            fixture_authority_ref(),
+            AuthorityResolutionProof::LocalAuthorityDomain(fixture_authority_ref()),
+            RetentionContractId::from_bytes([0xC0; 32]),
+            MaterializationBasis::ExplicitSave,
+        );
+
+        assert!(receipt.is_ok());
+        assert_eq!(
+            MaterializationReceipt::new(
+                crate::strand::make_strand_id("scratch"),
+                CausalPosture::Scratch,
+                CausalPosture::Shared,
+                ActorId::from_bytes([0xA2; 32]),
+                fixture_authority_ref(),
+                AuthorityResolutionProof::LocalAuthorityDomain(fixture_authority_ref()),
+                RetentionContractId::from_bytes([0xC0; 32]),
+                MaterializationBasis::ExplicitSave,
+            ),
+            Err(PostureObstruction::InvalidMaterializationTransition {
+                from: CausalPosture::Scratch,
+                to: CausalPosture::Shared,
+            })
+        );
+    }
+
+    #[test]
+    fn promotion_to_shared_requires_authority_scope_intent_and_witness() {
+        let admission_scope = AdmissionScopeId::from_bytes([0x55; 32]);
+        let promotion = PromotionIntent::admit_shared(
+            IntentId::from_bytes([0x11; 32]),
+            ActorId::from_bytes([0xA2; 32]),
+            fixture_authority_ref(),
+            AuthorityResolutionProof::LocalAuthorityDomain(fixture_authority_ref()),
+            crate::strand::make_strand_id("author-only"),
+            CausalPosture::AuthorOnly,
+            admission_scope,
+            witness(),
+            PromotionBasis::ExplicitAdmission,
+            ProjectionPolicy::FinalResultOnly,
+            SourceDisclosurePolicy::RevealNone,
+        );
+
+        assert!(promotion.is_ok());
+        assert_eq!(promotion.unwrap().admission_scope, admission_scope);
+    }
+
+    #[test]
+    fn legacy_shared_authority_cannot_authorize_new_admission() {
+        assert_eq!(
+            PromotionIntent::admit_shared(
+                IntentId::from_bytes([0x11; 32]),
+                ActorId::from_bytes([0xA2; 32]),
+                fixture_authority_ref(),
+                AuthorityResolutionProof::LegacySharedAuthority,
+                crate::strand::make_strand_id("legacy"),
+                CausalPosture::AuthorOnly,
+                AdmissionScopeId::from_bytes([0x55; 32]),
+                witness(),
+                PromotionBasis::ExplicitAdmission,
+                ProjectionPolicy::FinalResultOnly,
+                SourceDisclosurePolicy::RevealNone,
+            ),
+            Err(PostureObstruction::LegacyAuthorityCannotAuthorizeNewAdmission)
+        );
+    }
+
+    #[test]
+    fn generic_witness_digest_is_not_authority_capability() {
+        assert_eq!(
+            CapabilityProof::from_causal_witness(witness()),
+            Err(PostureObstruction::WitnessIsNotAuthorityCapability)
+        );
+    }
+
+    #[test]
+    fn shared_session_default_requires_default_admission_scope() {
+        assert_eq!(
+            SessionContext::new(
+                SessionId([0x51; 32]),
+                OriginId::from_bytes([0xA1; 32]),
+                ActorId::from_bytes([0xA2; 32]),
+                fixture_authority_ref(),
+                AuthorityBinding::LocalUnbound {
+                    origin: OriginId::from_bytes([0xA1; 32]),
+                },
+                SealStrength::Advisory,
+                CausalPosture::Shared,
+                None,
+                RetentionContractId::from_bytes([0xC0; 32]),
+            ),
+            Err(PostureObstruction::MissingAdmissionScope {
+                posture: CausalPosture::Shared,
+            })
+        );
+    }
+
+    fn fixture_authority_ref() -> AuthorityDomainRef {
+        AuthorityDomainRef::new(
+            OriginId::from_bytes([0xA1; 32]),
+            AuthorityDomainId::from_bytes([0xD0; 32]),
+        )
+    }
+
+    fn fixture_authority() -> CausalAuthority {
+        CausalAuthority {
+            origin_id: OriginId::from_bytes([0xA1; 32]),
+            actor_id: ActorId::from_bytes([0xA2; 32]),
+            author_domain: fixture_authority_ref(),
+            binding: AuthorityBinding::LocalUnbound {
+                origin: OriginId::from_bytes([0xA1; 32]),
+            },
+            seal_strength: SealStrength::Advisory,
+        }
     }
 }

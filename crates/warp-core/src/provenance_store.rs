@@ -3631,7 +3631,7 @@ mod tests {
 
     fn minimal_plural_shell(alt_id: u8) -> crate::braid_shell::BraidShell {
         use crate::braid_shell::{BraidShellMember, BraidShellOutcome, MemberVerdict};
-        use crate::revelation::RevelationPosture;
+        use crate::revelation::CausalPosture;
         let member = BraidShellMember {
             strand_ref: crate::strand::make_strand_id("m"),
             support_pin_digest: [1; 32],
@@ -3641,7 +3641,7 @@ mod tests {
             claim_digest: [5; 32],
             verdict: MemberVerdict::Plural,
             verdict_digest: [6; 32],
-            posture: RevelationPosture::AuthorOnly,
+            posture: CausalPosture::AuthorOnly,
         };
         crate::braid_shell::BraidShell::assemble(
             test_worldline_id(),
@@ -3655,7 +3655,7 @@ mod tests {
             BraidShellOutcome::Plural {
                 alternative_ids: vec![[alt_id; 32]],
             },
-            RevelationPosture::AuthorOnly,
+            CausalPosture::AuthorOnly,
         )
         .unwrap()
     }

@@ -23,7 +23,7 @@ use crate::admission::AdmissionOutcomeKind;
 use crate::ident::Hash;
 use crate::provenance_store::ProvenanceRef;
 use crate::revelation::{
-    shell_posture_obstruction, PostureObstruction, RevelationPosture, WitnessDigest,
+    shell_posture_obstruction, CausalPosture, PostureObstruction, WitnessDigest,
 };
 use crate::strand::StrandId;
 use crate::worldline::WorldlineId;
@@ -81,7 +81,7 @@ pub struct BraidShellMember {
     /// Digest over the member's ordered per-claim decisions.
     pub verdict_digest: Hash,
     /// Revelation posture carried by the member's claims.
-    pub posture: RevelationPosture,
+    pub posture: CausalPosture,
 }
 
 impl BraidShellMember {
@@ -357,7 +357,7 @@ pub struct BraidShell {
     /// gains witness-bearing authority.
     pub witness_digest: Hash,
     /// Revelation posture of the shell itself.
-    pub posture: RevelationPosture,
+    pub posture: CausalPosture,
     /// Canonical content digest of the full shell body.
     pub digest: Hash,
 }
@@ -385,7 +385,7 @@ impl BraidShell {
         mut members: Vec<BraidShellMember>,
         policy_id: Hash,
         mut outcome: BraidShellOutcome,
-        posture: RevelationPosture,
+        posture: CausalPosture,
     ) -> Result<Self, BraidShellError> {
         if members.is_empty() {
             return Err(BraidShellError::EmptyMembers);
@@ -645,7 +645,7 @@ fn hash_shell_body(
     member_digests: &[Hash],
     policy_id: Hash,
     outcome: &BraidShellOutcome,
-    posture: RevelationPosture,
+    posture: CausalPosture,
 ) {
     hasher.update(&version.to_le_bytes());
     hasher.update(worldline_id.as_bytes());
@@ -667,7 +667,7 @@ fn compute_witness_digest(
     member_digests: &[Hash],
     policy_id: Hash,
     outcome: &BraidShellOutcome,
-    posture: RevelationPosture,
+    posture: CausalPosture,
 ) -> Hash {
     let mut hasher = Hasher::new();
     hasher.update(WITNESS_DOMAIN);
@@ -693,7 +693,7 @@ fn compute_shell_digest(
     policy_id: Hash,
     outcome: &BraidShellOutcome,
     witness_digest: Hash,
-    posture: RevelationPosture,
+    posture: CausalPosture,
 ) -> Hash {
     let mut hasher = Hasher::new();
     hasher.update(SHELL_DOMAIN);
@@ -739,7 +739,7 @@ pub struct BraidShellReplay {
     /// Witness digest binding the act.
     pub witness_digest: Hash,
     /// Revelation posture of the shell.
-    pub posture: RevelationPosture,
+    pub posture: CausalPosture,
 }
 
 /// Replays a braid-scope settlement outcome from retained shell records.
@@ -1039,7 +1039,7 @@ pub struct BraidShellQuery {
     /// Match shells with this outcome arm.
     pub outcome: Option<AdmissionOutcomeKind>,
     /// Match shells with this revelation posture.
-    pub posture: Option<RevelationPosture>,
+    pub posture: Option<CausalPosture>,
 }
 
 impl BraidShell {
@@ -1091,7 +1091,7 @@ mod tests {
             claim_digest: [0x25; 32],
             verdict,
             verdict_digest: [0x26; 32],
-            posture: RevelationPosture::AuthorOnly,
+            posture: CausalPosture::AuthorOnly,
         }
     }
 
@@ -1104,7 +1104,7 @@ mod tests {
             BraidShellOutcome::Plural {
                 alternative_ids: vec![[0x31; 32]],
             },
-            RevelationPosture::AuthorOnly,
+            CausalPosture::AuthorOnly,
         )
         .unwrap()
     }
@@ -1157,7 +1157,7 @@ mod tests {
         assert_eq!(replay.outcome_kind, AdmissionOutcomeKind::Plural);
         assert_eq!(replay.member_verdicts, expected_verdicts);
         assert_eq!(replay.policy_id, [0x5E; 32]);
-        assert_eq!(replay.posture, RevelationPosture::AuthorOnly);
+        assert_eq!(replay.posture, CausalPosture::AuthorOnly);
     }
 
     #[test]
@@ -1182,7 +1182,7 @@ mod tests {
         ));
 
         let mut posture_tampered = shell.clone();
-        posture_tampered.posture = RevelationPosture::Scratch;
+        posture_tampered.posture = CausalPosture::Scratch;
         assert!(matches!(
             posture_tampered.validate(),
             Err(BraidShellError::WitnessMismatch { .. } | BraidShellError::DigestMismatch { .. })
@@ -1215,7 +1215,7 @@ mod tests {
                 collapse_witness: Some([0; 32]),
                 collapsed_from: Some([0x88; 32]),
             },
-            RevelationPosture::AuthorOnly,
+            CausalPosture::AuthorOnly,
         );
         assert_eq!(result, Err(BraidShellError::EmptyWitness));
     }
@@ -1232,7 +1232,7 @@ mod tests {
                 witness: crate::blake3_empty(),
                 obstructed_from: None,
             },
-            RevelationPosture::AuthorOnly,
+            CausalPosture::AuthorOnly,
         );
         assert_eq!(result, Err(BraidShellError::EmptyWitness));
     }
@@ -1247,7 +1247,7 @@ mod tests {
             BraidShellOutcome::Plural {
                 alternative_ids: vec![[0x31; 32], [0x31; 32]],
             },
-            RevelationPosture::AuthorOnly,
+            CausalPosture::AuthorOnly,
         );
         assert_eq!(
             result,
@@ -1269,7 +1269,7 @@ mod tests {
             BraidShellOutcome::Plural {
                 alternative_ids: vec![[0x31; 32]],
             },
-            RevelationPosture::AuthorOnly,
+            CausalPosture::AuthorOnly,
         );
         assert_eq!(
             result,
@@ -1333,7 +1333,7 @@ mod tests {
             BraidShellOutcome::Plural {
                 alternative_ids: vec![[0x31; 32]],
             },
-            RevelationPosture::Shared,
+            CausalPosture::Shared,
         );
         assert!(matches!(
             result,
@@ -1351,7 +1351,7 @@ mod tests {
             BraidShellOutcome::Plural {
                 alternative_ids: vec![[0x31; 32]],
             },
-            RevelationPosture::AuthorOnly,
+            CausalPosture::AuthorOnly,
         );
         assert_eq!(
             result,
@@ -1376,7 +1376,7 @@ mod tests {
                 collapse_witness: Some([0x78; 32]),
                 collapsed_from: Some(plural_digest),
             },
-            RevelationPosture::AuthorOnly,
+            CausalPosture::AuthorOnly,
         )
         .unwrap();
         let derived_digest = derived.digest;
@@ -1418,7 +1418,7 @@ mod tests {
             BraidShellOutcome::Plural {
                 alternative_ids: vec![[0x32; 32], [0x31; 32]],
             },
-            RevelationPosture::AuthorOnly,
+            CausalPosture::AuthorOnly,
         )
         .unwrap();
         let reversed = BraidShell::assemble(
@@ -1429,7 +1429,7 @@ mod tests {
             BraidShellOutcome::Plural {
                 alternative_ids: vec![[0x31; 32], [0x32; 32]],
             },
-            RevelationPosture::AuthorOnly,
+            CausalPosture::AuthorOnly,
         )
         .unwrap();
         assert_eq!(forward.digest, reversed.digest);
@@ -1520,7 +1520,7 @@ mod tests {
             basis: Some(basis_ref()),
             member_strand: Some(make_strand_id("member-a")),
             outcome: Some(AdmissionOutcomeKind::Plural),
-            posture: Some(RevelationPosture::AuthorOnly),
+            posture: Some(CausalPosture::AuthorOnly),
         }));
         assert!(!shell.matches(&BraidShellQuery {
             outcome: Some(AdmissionOutcomeKind::Conflict),

@@ -7,6 +7,11 @@
 
 ### Added
 
+- `warp-core` strand creation now carries explicit `RetentionPosture` through
+  `ForkStrandRequest`, `ForkStrandReceipt`, and `Strand`. Session-default and
+  debugger fork constructors choose posture policy explicitly, debugger forks
+  never silently become `Shared`, and `StrandRegistry` rejects incoherent
+  retained posture such as `Shared` without an admission scope.
 - `warp-core` import admission receipts now bind local source-shared import
   admission to an explicit imported artifact identity. A receipt minted for one
   imported artifact cannot admit another import into a local shared admission

@@ -2575,6 +2575,11 @@ mod tests {
     use crate::provenance_store::replay_artifacts_for_entry;
     use crate::receipt::TickReceipt;
     use crate::record::{EdgeRecord, NodeRecord};
+    use crate::revelation::{
+        ActorId, AuthorityBinding, AuthorityDomainId, AuthorityDomainRef, CausalAuthority,
+        CausalPosture, OriginId, PostureDerivation, RetentionContractId, RetentionPosture,
+        SealStrength,
+    };
     use crate::snapshot::compute_commit_hash_v2;
     use crate::strand::{make_strand_id, ForkBasisRef, Strand};
     use crate::tick_patch::{SlotId, TickCommitStatus, WarpOp, WarpTickPatchV1};
@@ -2620,6 +2625,27 @@ mod tests {
 
     fn gt(raw: u64) -> GlobalTick {
         GlobalTick::from_raw(raw)
+    }
+
+    fn test_retention_posture() -> RetentionPosture {
+        let origin_id = OriginId::from_bytes([0x41; 32]);
+        let authority =
+            AuthorityDomainRef::new(origin_id, AuthorityDomainId::from_bytes([0x42; 32]));
+        RetentionPosture::new(
+            CausalPosture::AuthorOnly,
+            PostureDerivation::ExplicitIntent,
+            CausalAuthority::new(
+                origin_id,
+                ActorId::from_bytes([0x43; 32]),
+                authority,
+                AuthorityBinding::LocalUnbound { origin: origin_id },
+                SealStrength::Advisory,
+            )
+            .unwrap(),
+            RetentionContractId::from_bytes([0x44; 32]),
+            None,
+        )
+        .unwrap()
     }
 
     fn optic_request(
@@ -2996,6 +3022,7 @@ mod tests {
                 child_worldline_id: child_worldline,
                 writer_heads: vec![child_head],
                 support_pins: Vec::new(),
+                retention_posture: test_retention_posture(),
             })
             .unwrap();
 

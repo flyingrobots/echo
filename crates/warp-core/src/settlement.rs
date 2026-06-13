@@ -1542,6 +1542,10 @@ mod tests {
     use crate::ident::{make_edge_id, make_node_id, make_type_id};
     use crate::playback::PlaybackMode;
     use crate::record::{EdgeRecord, NodeRecord};
+    use crate::revelation::{
+        ActorId, AuthorityBinding, AuthorityDomainId, AuthorityDomainRef, CausalAuthority,
+        OriginId, PostureDerivation, RetentionContractId, RetentionPosture, SealStrength,
+    };
     use crate::strand::{ForkBasisRef, Strand};
     use crate::tick_patch::{SlotId, WarpOp};
     use crate::{GraphStore, WorldlineState};
@@ -1556,6 +1560,27 @@ mod tests {
 
     fn gt(raw: u64) -> GlobalTick {
         GlobalTick::from_raw(raw)
+    }
+
+    fn test_retention_posture() -> RetentionPosture {
+        let origin_id = OriginId::from_bytes([0x51; 32]);
+        let authority =
+            AuthorityDomainRef::new(origin_id, AuthorityDomainId::from_bytes([0x52; 32]));
+        RetentionPosture::new(
+            CausalPosture::AuthorOnly,
+            PostureDerivation::ExplicitIntent,
+            CausalAuthority::new(
+                origin_id,
+                ActorId::from_bytes([0x53; 32]),
+                authority,
+                AuthorityBinding::LocalUnbound { origin: origin_id },
+                SealStrength::Advisory,
+            )
+            .unwrap(),
+            RetentionContractId::from_bytes([0x54; 32]),
+            None,
+        )
+        .unwrap()
     }
 
     fn register_head(
@@ -1852,6 +1877,7 @@ mod tests {
             child_worldline_id: child_worldline,
             writer_heads: vec![child_head],
             support_pins: Vec::new(),
+            retention_posture: test_retention_posture(),
         };
         runtime.register_strand(strand).unwrap();
 
@@ -1909,6 +1935,7 @@ mod tests {
                     child_worldline_id: child_worldline,
                     writer_heads: vec![child_head],
                     support_pins: Vec::new(),
+                    retention_posture: test_retention_posture(),
                 })
                 .unwrap();
         }
@@ -1960,6 +1987,7 @@ mod tests {
                 child_worldline_id: child_worldline,
                 writer_heads: vec![child_head],
                 support_pins: Vec::new(),
+                retention_posture: test_retention_posture(),
             })
             .unwrap();
         (

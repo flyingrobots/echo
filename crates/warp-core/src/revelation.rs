@@ -303,6 +303,18 @@ impl RetentionPosture {
             admission_scope,
         })
     }
+
+    /// Re-validates a retained posture bundle after direct field mutation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an obstruction when the posture/scope pair, derivation, or
+    /// authority context is incoherent.
+    pub fn validate(&self) -> Result<(), PostureObstruction> {
+        validate_admission_scope(self.causal_posture, self.admission_scope)?;
+        validate_posture_derivation(self.causal_posture, self.posture_derivation)?;
+        self.authority.validate()
+    }
 }
 
 /// Session context posture and authority defaults.
@@ -360,6 +372,58 @@ impl SessionContext {
             default_admission_scope,
             retention_contract,
         })
+    }
+
+    /// Builds retained work posture from this session's explicit default.
+    ///
+    /// # Errors
+    ///
+    /// Returns a posture obstruction if this session's authority/default
+    /// posture no longer validates.
+    pub fn retention_posture(
+        &self,
+        posture_derivation: PostureDerivation,
+    ) -> Result<RetentionPosture, PostureObstruction> {
+        RetentionPosture::new(
+            self.default_posture,
+            posture_derivation,
+            CausalAuthority::new(
+                self.origin_id,
+                self.actor_id,
+                self.author_domain,
+                self.authority_binding,
+                self.seal_strength,
+            )?,
+            self.retention_contract,
+            self.default_admission_scope,
+        )
+    }
+
+    /// Builds debugger-created strand posture for this session.
+    ///
+    /// Debugger work is real causal work, but it is never silently admitted
+    /// into shared history. The named constructor is the policy boundary that
+    /// chooses `AuthorOnly` even when the surrounding session default is
+    /// `Shared`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a posture obstruction if this session's authority context does
+    /// not validate.
+    pub fn debugger_retention_posture(&self) -> Result<RetentionPosture, PostureObstruction> {
+        RetentionPosture::new(
+            CausalPosture::AuthorOnly,
+            PostureDerivation::DebuggerDefault,
+            CausalAuthority::new(
+                self.origin_id,
+                self.actor_id,
+                self.author_domain,
+                self.authority_binding,
+                self.seal_strength,
+            )?,
+            self.retention_contract,
+            None,
+        )
     }
 }
 

@@ -69,6 +69,21 @@ name = "warp-core"
 version = "0.0.0"
 
 [dependencies]
+serde.workspace = true
+EOF
+
+if (cd "$tmp" && scripts/check-warp-core-serialization-boundaries.sh >/dev/null 2>&1); then
+  fail "guard should reject dotted serde manifest entries"
+else
+  pass "guard rejects dotted serde manifest entries"
+fi
+
+cat >"$tmp/crates/warp-core/Cargo.toml" <<'EOF'
+[package]
+name = "warp-core"
+version = "0.0.0"
+
+[dependencies]
 EOF
 cat >"$tmp/crates/warp-core/src/lib.rs" <<'EOF'
 #[derive(serde::Serialize, serde::Deserialize)]

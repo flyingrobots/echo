@@ -30,6 +30,9 @@ manifest_matches="$(
     '^[[:space:]]*(serde|serde-value|ciborium)[[:space:]]*=' \
     crates/warp-core/Cargo.toml || true
   det_scan_line "warp-core-serialization-manifest" \
+    '^[[:space:]]*(serde|serde-value|ciborium)\.[[:alnum:]_-]+[[:space:]]*=' \
+    crates/warp-core/Cargo.toml || true
+  det_scan_line "warp-core-serialization-manifest" \
     '^[[:space:]]*\[(dependencies|dev-dependencies|build-dependencies)\.(serde|serde-value|ciborium)\]' \
     crates/warp-core/Cargo.toml || true
 )"

@@ -121,6 +121,7 @@ use std::{
     process,
 };
 use std::collections::{HashMap, HashSet};
+use std::thread as host_thread;
 use rustc_hash::FxHashMap;
 
 type BadMap = HashMap<u64, u64>;
@@ -131,6 +132,7 @@ pub fn leak() {
     let _ = env::var("ECHO_WORKERS");
     let _ = fs::read("x");
     let _ = process::id();
+    let _ = host_thread::available_parallelism();
 }
 EOF
 if (

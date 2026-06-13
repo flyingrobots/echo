@@ -36,6 +36,7 @@ PATTERNS=(
   'thread-sleep	\bstd::thread::sleep\b'
   'thread-sleep	\b(tokio|async_std)::time::sleep\b'
   'host-parallelism	\bstd::thread::available_parallelism\b'
+  'host-parallelism	\bavailable_parallelism[[:space:]]*\('
 
   # Randomness
   'random	\brand::\b'

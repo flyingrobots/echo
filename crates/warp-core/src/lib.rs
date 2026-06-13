@@ -317,10 +317,11 @@ pub use record::{EdgeRecord, NodeRecord};
 #[allow(deprecated)]
 pub use revelation::RevelationPosture;
 pub use revelation::{
-    least_revealed, promote_posture, revelation_operation_effect, shell_posture_obstruction,
-    ActorId, AdmissionId, AdmissionScopeId, AuthorityBinding, AuthorityCapabilityDigest,
-    AuthorityDomainId, AuthorityDomainRef, AuthorityResolutionProof, CapabilityProof,
-    CausalAuthority, CausalPosture, IntentId, KeyId, KeyProofId, MaterializationBasis,
+    import_posture_disposition, least_revealed, promote_posture, revelation_operation_effect,
+    shell_posture_obstruction, ActorId, AdmissionId, AdmissionScopeId, AuthorityBinding,
+    AuthorityCapabilityDigest, AuthorityDomainId, AuthorityDomainRef, AuthorityResolutionProof,
+    CapabilityProof, CausalAuthority, CausalPosture, ImportPostureDisposition,
+    ImportQuarantineNamespace, IntentId, KeyId, KeyProofId, MaterializationBasis,
     MaterializationReceipt, OperationPostureEffect, OriginId, PostureDerivation,
     PostureObstruction, PosturePromotion, ProjectionPolicy, ProjectionSpecId, PromotionBasis,
     PromotionIntent, RetentionContractId, RetentionPosture, RevelationOperation, SealStrength,

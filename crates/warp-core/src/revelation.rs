@@ -633,6 +633,85 @@ pub struct SharedAdmission {
     pub source_disclosure: SourceDisclosurePolicy,
 }
 
+impl SharedAdmission {
+    /// Builds a shared admission from a validated promotion intent.
+    #[must_use]
+    pub const fn from_promotion(
+        admission_id: AdmissionId,
+        promotion: PromotionIntent,
+        projection_digest: Hash,
+    ) -> Self {
+        Self {
+            admission_id,
+            source_strand: promotion.source_strand,
+            projection_digest,
+            admission_scope: promotion.admission_scope,
+            source_disclosure: promotion.source_disclosure,
+        }
+    }
+}
+
+/// Quarantine or pending-admission namespace for imports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImportQuarantineNamespace {
+    /// Imported material with unresolved authority.
+    ImportedUnresolvedLane,
+    /// Foreign author-only material sealed pending authority resolution.
+    ForeignAuthorOnlyQuarantine,
+    /// Source-shared material readable elsewhere but not locally admitted.
+    SourceSharedPendingAdmission,
+}
+
+/// Import disposition for source posture and local authority/scope state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImportPostureDisposition {
+    /// Scratch is not imported by default.
+    ScratchNotImportedByDefault,
+    /// Foreign author-only material remains sealed.
+    ForeignAuthorOnlySealed {
+        /// Quarantine namespace.
+        namespace: ImportQuarantineNamespace,
+    },
+    /// Author-only material can be revealed under resolved authority.
+    AuthorOnlyResolved,
+    /// Source-shared material awaits local admission.
+    SourceSharedPendingAdmission {
+        /// Pending-admission namespace.
+        namespace: ImportQuarantineNamespace,
+    },
+    /// Source-shared material has a local admission scope.
+    LocallyAdmittedShared {
+        /// Local admission scope.
+        admission_scope: AdmissionScopeId,
+    },
+}
+
+/// Classifies imported posture without laundering remote visibility into local truth.
+#[must_use]
+pub const fn import_posture_disposition(
+    source_posture: CausalPosture,
+    authority_resolved: bool,
+    local_admission_scope: Option<AdmissionScopeId>,
+) -> ImportPostureDisposition {
+    match source_posture {
+        CausalPosture::Scratch => ImportPostureDisposition::ScratchNotImportedByDefault,
+        CausalPosture::AuthorOnly if authority_resolved => {
+            ImportPostureDisposition::AuthorOnlyResolved
+        }
+        CausalPosture::AuthorOnly => ImportPostureDisposition::ForeignAuthorOnlySealed {
+            namespace: ImportQuarantineNamespace::ForeignAuthorOnlyQuarantine,
+        },
+        CausalPosture::Shared => match local_admission_scope {
+            Some(admission_scope) => {
+                ImportPostureDisposition::LocallyAdmittedShared { admission_scope }
+            }
+            None => ImportPostureDisposition::SourceSharedPendingAdmission {
+                namespace: ImportQuarantineNamespace::SourceSharedPendingAdmission,
+            },
+        },
+    }
+}
+
 /// Revelation-only operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RevelationOperation {
@@ -983,6 +1062,47 @@ mod tests {
 
         assert!(promotion.is_ok());
         assert_eq!(promotion.unwrap().admission_scope, admission_scope);
+    }
+
+    #[test]
+    fn imported_source_shared_is_not_local_admitted_without_admission_scope() {
+        assert_eq!(
+            import_posture_disposition(CausalPosture::Shared, false, None),
+            ImportPostureDisposition::SourceSharedPendingAdmission {
+                namespace: ImportQuarantineNamespace::SourceSharedPendingAdmission,
+            }
+        );
+    }
+
+    #[test]
+    fn shared_admission_reveals_projection_without_source_chain() {
+        let source_strand = crate::strand::make_strand_id("sealed-source");
+        let promotion = PromotionIntent::admit_shared(
+            IntentId::from_bytes([0x11; 32]),
+            ActorId::from_bytes([0xA2; 32]),
+            fixture_authority_ref(),
+            AuthorityResolutionProof::LocalAuthorityDomain(fixture_authority_ref()),
+            source_strand,
+            CausalPosture::AuthorOnly,
+            AdmissionScopeId::from_bytes([0x55; 32]),
+            witness(),
+            PromotionBasis::ExplicitAdmission,
+            ProjectionPolicy::FinalResultOnly,
+            SourceDisclosurePolicy::RevealNone,
+        )
+        .unwrap();
+        let admission = SharedAdmission::from_promotion(
+            AdmissionId::from_bytes([0xAD; 32]),
+            promotion,
+            [0x44; 32],
+        );
+
+        assert_eq!(admission.source_strand, source_strand);
+        assert_eq!(admission.projection_digest, [0x44; 32]);
+        assert_eq!(
+            admission.source_disclosure,
+            SourceDisclosurePolicy::RevealNone
+        );
     }
 
     #[test]

@@ -32,7 +32,7 @@
 //!
 //! let input = build_one_warp_input(&store, root_node_id);
 //! let bytes = write_wsc_one_warp(&input, blake3_empty(), 0)?;
-//! std::fs::write("state.wsc", bytes)?;
+//! # let _bytes = bytes;
 //! # Ok(())
 //! # }
 //! ```

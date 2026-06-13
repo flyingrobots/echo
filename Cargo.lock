@@ -228,9 +228,6 @@ name = "bytes"
 version = "1.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
-dependencies = [
- "serde",
-]
 
 [[package]]
 name = "cast"
@@ -2038,7 +2035,6 @@ dependencies = [
  "blake3",
  "bytemuck",
  "bytes",
- "ciborium",
  "echo-cas",
  "echo-dry-tests",
  "echo-registry-api",
@@ -2047,8 +2043,6 @@ dependencies = [
  "hex",
  "proptest",
  "rustc-hash 2.1.1",
- "serde",
- "serde-value",
  "thiserror 1.0.69",
  "warp-math",
 ]

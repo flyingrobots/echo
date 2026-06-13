@@ -498,7 +498,7 @@ mod tests {
 
     #[test]
     fn f32_canonicalize_positive_infinity_unchanged() {
-        let inf = f32::INFINITY;
+        let inf = f32::from_bits(0x7f80_0000);
         assert_eq!(canonicalize_f32(inf).to_bits(), inf.to_bits());
     }
 
@@ -518,7 +518,10 @@ mod tests {
     #[test]
     fn f32_roundtrip_nan_canonicalizes() {
         // write_f32_le must canonicalize; the decoded bits must be 0x7fc00000.
-        let v = roundtrip(|w| w.write_f32_le(f32::NAN), |r| r.read_f32_le());
+        let v = roundtrip(
+            |w| w.write_f32_le(f32::from_bits(0x7fc0_0000)),
+            |r| r.read_f32_le(),
+        );
         assert_eq!(v.to_bits(), 0x7fc0_0000);
     }
 
@@ -537,7 +540,10 @@ mod tests {
 
     #[test]
     fn f32_roundtrip_positive_infinity() {
-        let v = roundtrip(|w| w.write_f32_le(f32::INFINITY), |r| r.read_f32_le());
+        let v = roundtrip(
+            |w| w.write_f32_le(f32::from_bits(0x7f80_0000)),
+            |r| r.read_f32_le(),
+        );
         assert!(v.is_infinite() && v.is_sign_positive());
     }
 

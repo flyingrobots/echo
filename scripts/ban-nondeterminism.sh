@@ -124,10 +124,11 @@ PATTERNS=(
   # Time / entropy (core determinism killers)
   '\bstd::time::SystemTime\b'
   '\bSystemTime::now\b'
-  '\bstd::time::Instant\b'
-  '\bInstant::now\b'
-  '\bstd::thread::sleep\b'
-  '\b(tokio|async_std)::time::sleep\b'
+	  '\bstd::time::Instant\b'
+	  '\bInstant::now\b'
+	  '\bstd::thread::sleep\b'
+	  '\b(tokio|async_std)::time::sleep\b'
+	  '\bstd::thread::available_parallelism\b'
 
   # Randomness
   '\brand::\b'
@@ -163,9 +164,9 @@ PATTERNS=(
   '\.pow[f]?\('
 
   # Host/environment variability
-  '\bstd::env::\b'
-  '\bstd::fs::\b'
-  '\bstd::process::\b'
+	  '\bstd::env(::|[[:space:]]*[;,{])'
+	  '\bstd::fs(::|[[:space:]]*[;,{])'
+	  '\bstd::process(::|[[:space:]]*[;,{])'
 
   # Concurrency primitives (optional—uncomment if you want core to be single-thread-only)
   # '\bstd::sync::Mutex\b'
@@ -193,6 +194,10 @@ if [[ $violations -ne 0 ]]; then
   echo "ban-nondeterminism: FAILED ($violations pattern group(s) matched)."
   echo "Fix the code or (rarely) justify an exception in $ALLOWLIST."
   exit 1
+fi
+
+if [[ -x scripts/check-warp-core-serialization-boundaries.sh ]]; then
+  scripts/check-warp-core-serialization-boundaries.sh
 fi
 
 echo "ban-nondeterminism: PASSED."

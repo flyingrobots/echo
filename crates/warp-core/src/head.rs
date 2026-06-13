@@ -44,7 +44,6 @@ pub fn make_head_id(label: &str) -> HeadId {
 /// plane: admission stays a two-state policy (`Dormant` vs `Admitted`) while
 /// pause/run behavior remains orthogonal in [`PlaybackMode`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum HeadEligibility {
     /// Head is intentionally excluded from scheduling.
     Dormant,

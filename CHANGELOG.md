@@ -515,6 +515,10 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Removed
 
+- Removed the broken `warp-core/serde` feature and the gated `Serializable*`
+  wrapper exports. `warp-core` no longer declares direct `serde`, `serde-value`,
+  or `ciborium` dependencies; authoritative core serialization must stay in
+  explicit canonical boundary encoders rather than general serde derives.
 - Removed the legacy `ttd-browser` crate from Echo's active workspace. The
   release browser/runtime boundary now stays centered on `warp-wasm` and
   `echo-wasm-abi`; debugger session semantics and browser delivery adapters
@@ -534,6 +538,18 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Changed
 
+- Local determinism tooling now runs
+  `scripts/check-warp-core-serialization-boundaries.sh`, which rejects direct
+  serde plumbing in `warp-core` and restricts canonical ABI serialization calls
+  to explicit boundary modules.
+- The nondeterminism guard now catches namespace imports for `std::env`,
+  `std::fs`, and `std::process`, bans `std::thread::available_parallelism`, and
+  carries a narrowed allowlist limited to build/native filesystem boundaries and
+  test fixtures.
+- `warp-core` engine construction now defaults to deterministic serial
+  execution instead of reading `ECHO_WORKERS` or host CPU availability. Callers
+  can still opt into parallel execution explicitly with
+  `EngineBuilder::workers(...)` or worker-count constructors.
 - `echo-cli wal submission-posture` now exposes generic read-only recovery JSON
   for one submission id and canonical envelope digest. The output reports retry
   posture, recovered submission posture, receipt digest, and ticket digest

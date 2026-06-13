@@ -1,18 +1,9 @@
-crates/echo-wasm-abi/src/lib.rs
-crates/warp-core/src/attachment.rs
-crates/warp-wasm/src/lib.rs
-# WSC module uses std::fs for file I/O (reading/writing snapshot files)
-# This is intentional - WSC is for native tooling, not WASM determinism
-crates/warp-core/src/wsc/mod.rs
+# Build script uses OUT_DIR and writes generated constants at compile time.
+crates/warp-core/build.rs
+# Filesystem WAL and WSC readers are explicit native boundary ports.
+crates/warp-core/src/causal_wal.rs
 crates/warp-core/src/wsc/view.rs
-# parallel exec uses std::env for feature-gated stride fallback (ECHO_PARALLEL_STRIDE)
-# This is a build-time debug toggle, not runtime non-determinism
-crates/warp-core/src/parallel/exec.rs
-# engine_impl uses std::env for ECHO_WORKERS configuration
-# This is read once at engine construction for worker count - determinism is not affected
-# because the worker count doesn't change execution results, only parallelism level
-crates/warp-core/src/engine_impl.rs
-# Test file uses std::fs to read/write golden vector binaries for determinism verification
-# This is test-only I/O, not simulation code — it validates determinism, not violates it
-crates/warp-core/tests/trig_golden_vectors.rs
+# Test fixtures use filesystem I/O only to build or verify durable artifacts.
+crates/warp-core/tests/causal_wal_tests.rs
+crates/warp-core/tests/causal_wal_hardening_tests.rs
 crates/warp-math/tests/trig_golden_vectors.rs

@@ -145,8 +145,6 @@ mod retention;
 mod rule;
 mod sandbox;
 mod scheduler;
-#[cfg(feature = "serde")]
-mod serializable;
 mod settlement;
 mod snapshot;
 mod snapshot_accum;
@@ -312,10 +310,6 @@ pub use sandbox::DeterminismError;
 #[cfg(feature = "native_rule_bootstrap")]
 pub use sandbox::{build_engine, run_pair_determinism, EchoConfig};
 pub use scheduler::SchedulerKind;
-#[cfg(feature = "serde")]
-pub use serializable::{
-    SerializableReceipt, SerializableReceiptEntry, SerializableSnapshot, SerializableTick,
-};
 pub use settlement::{
     ConflictArtifactDraft, ConflictReason, ImportCandidate, SettlementDecision, SettlementDelta,
     SettlementError, SettlementPlan, SettlementResult, SettlementService,

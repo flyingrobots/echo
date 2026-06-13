@@ -31,7 +31,6 @@ use crate::worldline_state::WorldlineState;
 /// overall commit hash. Cursors verify all three values match after seeking
 /// to ensure replay integrity.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct HashTriplet {
     /// Hash of the resulting state after applying the patch.
     pub state_root: Hash,
@@ -47,7 +46,6 @@ pub struct HashTriplet {
 /// global tick. It captures the policy, rule pack, and digests of planning and
 /// decision phases.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct WorldlineTickHeaderV1 {
     /// Runtime cycle stamp for the commit that produced this patch.
     pub commit_global_tick: GlobalTick,
@@ -75,7 +73,6 @@ pub struct WorldlineTickHeaderV1 {
 /// engine's internal format, this type is designed for external worldline storage
 /// and includes the header context needed for independent replay.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct WorldlineTickPatchV1 {
     /// Shared tick header metadata.
     pub header: WorldlineTickHeaderV1,
@@ -179,7 +176,6 @@ pub type OutputFrameSet = Vec<(ChannelId, Vec<u8>)>;
 /// Higher-level layers can interpret these bytes using the appropriate codec
 /// based on the atom's type.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct AtomWrite {
     /// The atom (node) that was written.
     pub atom: NodeKey,

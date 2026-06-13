@@ -146,28 +146,13 @@ pub struct ExistingState {
     root: NodeKey,
 }
 
-/// Returns the default worker count for parallel execution.
+/// Returns the deterministic default worker count for parallel execution.
 ///
-/// Precedence:
-/// 1. `ECHO_WORKERS` environment variable (if set and valid)
-/// 2. `available_parallelism().min(NUM_SHARDS)` (capped at shard count)
-///
-/// # Environment Variable
-///
-/// Set `ECHO_WORKERS=N` to override the default. Useful for:
-/// - CI environments (deterministic worker count)
-/// - Debugging (force serial with `ECHO_WORKERS=1`)
-/// - Benchmarking (compare different parallelism levels)
-fn default_worker_count() -> usize {
-    if let Ok(val) = std::env::var("ECHO_WORKERS") {
-        if let Ok(n) = val.parse::<usize>() {
-            return n.max(1);
-        }
-    }
-    std::thread::available_parallelism()
-        .map(std::num::NonZero::get)
-        .unwrap_or(1)
-        .min(NUM_SHARDS)
+/// Callers that want parallel execution must choose it explicitly with
+/// [`EngineBuilder::workers`] or the `with_*_and_workers` constructors. The
+/// default path must not read ambient host state.
+const fn default_worker_count() -> usize {
+    1
 }
 
 /// Fluent builder for constructing [`Engine`] instances.
@@ -228,7 +213,7 @@ impl EngineBuilder<FreshStore> {
     /// Defaults:
     /// - Scheduler: [`SchedulerKind::Radix`]
     /// - Policy ID: [`crate::POLICY_ID_NO_POLICY_V0`]
-    /// - Worker count: `default_worker_count()` (env `ECHO_WORKERS` or `available_parallelism`)
+    /// - Worker count: deterministic serial default (`1`)
     /// - Telemetry: [`NullTelemetrySink`]
     /// - `MaterializationBus`: A fresh bus with no pre-registered channels
     pub fn new(store: GraphStore, root: NodeId) -> Self {
@@ -267,7 +252,7 @@ impl EngineBuilder<ExistingState> {
     /// Defaults:
     /// - Scheduler: [`SchedulerKind::Radix`]
     /// - Policy ID: [`crate::POLICY_ID_NO_POLICY_V0`]
-    /// - Worker count: `default_worker_count()` (env `ECHO_WORKERS` or `available_parallelism`)
+    /// - Worker count: deterministic serial default (`1`)
     /// - Telemetry: [`NullTelemetrySink`]
     /// - `MaterializationBus`: A fresh bus with no pre-registered channels
     pub fn from_state(state: WarpState, root: NodeKey) -> Self {
@@ -323,13 +308,13 @@ impl<S> EngineBuilder<S> {
 
     /// Sets the worker count for parallel execution.
     ///
-    /// Default: `default_worker_count()` (env `ECHO_WORKERS` or `available_parallelism`).
+    /// Default: deterministic serial execution (`1` worker).
     ///
     /// # Notes
     ///
     /// - Workers are capped at `NUM_SHARDS` (256) internally
     /// - Values less than 1 are treated as 1
-    /// - Use `ECHO_WORKERS=1` environment variable to force serial execution for debugging
+    /// - Use explicit worker counts in benchmarks to compare parallelism levels
     #[must_use]
     pub fn workers(mut self, n: usize) -> Self {
         self.worker_count = n.max(1);
@@ -457,8 +442,8 @@ pub struct Engine {
     policy_id: u32,
     /// Worker count for parallel execution.
     ///
-    /// Capped at `NUM_SHARDS` internally. Use [`EngineBuilder::workers`] to override
-    /// the default (which respects `ECHO_WORKERS` env var).
+    /// Capped at `NUM_SHARDS` internally. Use [`EngineBuilder::workers`] to opt
+    /// into parallel execution.
     worker_count: usize,
     tx_counter: u64,
     live_txs: HashSet<u64>,

@@ -21,7 +21,6 @@ pub type Hash = [u8; 32];
 /// label, or that ids are reversible back into strings.
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct NodeId(pub Hash);
 
 impl NodeId {
@@ -38,7 +37,6 @@ impl NodeId {
 /// a dedicated wrapper prevents accidental mixing of node and type identifiers.
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct TypeId(pub Hash);
 
 impl TypeId {
@@ -52,7 +50,6 @@ impl TypeId {
 /// Identifier for a directed edge within the graph.
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct EdgeId(pub Hash);
 
 impl EdgeId {
@@ -70,7 +67,6 @@ impl EdgeId {
 /// addressed by `(warp_id, local_id)`.
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct WarpId(pub Hash);
 
 impl WarpId {
@@ -123,7 +119,6 @@ pub fn make_warp_id(label: &str) -> WarpId {
 
 /// Instance-scoped identifier for a node.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct NodeKey {
     /// Warp instance that namespaces the local node id.
     pub warp_id: WarpId,
@@ -133,7 +128,6 @@ pub struct NodeKey {
 
 /// Instance-scoped identifier for an edge.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct EdgeKey {
     /// Warp instance that namespaces the local edge id.
     pub warp_id: WarpId,

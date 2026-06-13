@@ -31,13 +31,14 @@ Current findings:
   they still allow host-authored Rust code to touch ambient state unless the
   project treats this API as trusted/bootstrap-only.
 
-- **Worker count is an ambient knob, but not yet a proven semantic break.**
-  `warp-core::engine_impl` reads `ECHO_WORKERS` and falls back to
-  `available_parallelism()`. The audit did not find evidence that different
-  worker counts change committed state on their own: rewrites are grouped in
-  canonical order, parallel deltas are merged canonically, and the parallel
-  executor already tests all policies against a serial oracle. Still, ambient
-  worker selection widens the blast radius if rule code itself is impure.
+- **Worker count was an ambient knob, but has been closed.**
+  `warp-core::engine_impl` now defaults to serial execution and requires
+  explicit worker-count selection for parallel execution. The audit did not find
+  evidence that different worker counts changed committed state on their own:
+  rewrites are grouped in canonical order, parallel deltas are merged
+  canonically, and the parallel executor already tests all policies against a
+  serial oracle. Removing ambient worker selection narrows the blast radius if
+  rule code itself is impure.
 
 - **Unordered containers exist, but the critical ordering surfaces inspected in
   this audit are already being canonicalised.**

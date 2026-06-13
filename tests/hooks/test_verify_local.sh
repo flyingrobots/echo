@@ -74,10 +74,22 @@ if grep -q 'PATHS_DEFAULT=.*crates/warp-math' scripts/ban-nondeterminism.sh; the
 else
   fail "nondeterminism guard should scan warp-math by default"
 fi
-if grep -q 'serde = .*warp-math/serde' crates/warp-core/Cargo.toml; then
-  pass "warp-core serde feature forwards the re-exported warp-math serde support"
+if grep -Fq '\bstd::thread::available_parallelism\b' scripts/ban-nondeterminism.sh; then
+  pass "nondeterminism guard rejects ambient host parallelism probes"
 else
-  fail "warp-core serde should forward warp-math/serde for the math re-export surface"
+  fail "nondeterminism guard should reject ambient host parallelism probes"
+fi
+if grep -Fq '\bstd::fs(::|[[:space:]]*[;,{])' scripts/ban-nondeterminism.sh \
+  && grep -Fq '\bstd::env(::|[[:space:]]*[;,{])' scripts/ban-nondeterminism.sh \
+  && grep -Fq '\bstd::process(::|[[:space:]]*[;,{])' scripts/ban-nondeterminism.sh; then
+  pass "nondeterminism guard rejects env/fs/process namespace imports"
+else
+  fail "nondeterminism guard should reject env/fs/process namespace imports"
+fi
+if scripts/check-warp-core-serialization-boundaries.sh >/dev/null 2>&1; then
+  pass "warp-core keeps serde and serialization plumbing at explicit boundaries"
+else
+  fail "warp-core must not expose direct serde or non-boundary serialization plumbing"
 fi
 
 extract_log_section() {

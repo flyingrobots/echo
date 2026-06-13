@@ -694,8 +694,8 @@ flowchart TD
 
 The runtime uses explicit environmental tuning knobs to control scale behavior:
 
-- `ECHO_WORKERS`: preferred worker count for parallel execution if set and parseable.
-- If unset or invalid, default falls back to `available_parallelism().min(NUM_SHARDS)`.
+- Worker count defaults to deterministic serial execution (`1` worker).
+- Callers must opt into parallel execution explicitly with `EngineBuilder::workers(...)`.
 
 This is a classic throughput/latency trade-off boundary:
 
@@ -704,7 +704,7 @@ This is a classic throughput/latency trade-off boundary:
 
 ```mermaid
 flowchart TD
-  CFG[ECHO_WORKERS env var]
+  CFG[explicit worker count]
   CFG -->|present and valid| W[Use requested worker count]
   CFG -->|missing/invalid| W2[Use minimum parallelism and NUM_SHARDS]
   W --> R[Execution policy selection]
@@ -955,7 +955,7 @@ A useful teardown should surface not only “what works,” but also where the c
 - Recommended guardrail: schema snapshots and contract tests.
 
 1. **Environment-driven tuning without budget controls**
-    - `ECHO_WORKERS` can over-allocate and impact host contention.
+    - Explicit worker counts can over-allocate and impact host contention.
     - Recommended guardrail: hard ceilings + dynamic fallback when scheduler latency rises.
 
 ## 16.4 Typed Pseudo-Definitions for Core Runtime Types

@@ -2406,7 +2406,12 @@ fn hash_provenance_ref(hasher: &mut blake3::Hasher, reference: &ProvenanceRef) {
     hasher.update(&reference.commit_hash);
 }
 
-fn hash_provenance_event_kind(hasher: &mut blake3::Hasher, event_kind: &ProvenanceEventKind) {
+/// Canonical event-kind encoding shared by commit hashing and the retained
+/// boundary shell family, so the enum has exactly one digest scheme.
+pub(crate) fn hash_provenance_event_kind(
+    hasher: &mut blake3::Hasher,
+    event_kind: &ProvenanceEventKind,
+) {
     match event_kind {
         ProvenanceEventKind::LocalCommit => {
             hasher.update(b"local-commit");
@@ -2434,6 +2439,10 @@ fn hash_provenance_event_kind(hasher: &mut blake3::Hasher, event_kind: &Provenan
         ProvenanceEventKind::ConflictArtifact { artifact_id } => {
             hasher.update(b"conflict-artifact");
             hasher.update(artifact_id);
+        }
+        ProvenanceEventKind::PluralArtifact { plural_id } => {
+            hasher.update(b"plural-artifact");
+            hasher.update(plural_id);
         }
     }
 }

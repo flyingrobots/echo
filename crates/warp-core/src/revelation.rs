@@ -1601,6 +1601,33 @@ mod tests {
     }
 
     #[test]
+    fn promotion_rejects_nested_local_capability_authority_mismatch() {
+        assert_eq!(
+            PromotionIntent::admit_shared(
+                IntentId::from_bytes([0x11; 32]),
+                ActorId::from_bytes([0xA2; 32]),
+                fixture_authority_ref(),
+                AuthorityResolutionProof::LocalCapability(CapabilityProof::LocalAuthorityDomain(
+                    AuthorityDomainRef::new(
+                        OriginId::from_bytes([0xB1; 32]),
+                        AuthorityDomainId::from_bytes([0xD0; 32]),
+                    ),
+                )),
+                crate::strand::make_strand_id("author-only"),
+                CausalPosture::AuthorOnly,
+                AdmissionScopeId::from_bytes([0x55; 32]),
+                witness(),
+                PromotionBasis::ExplicitAdmission,
+                ProjectionPolicy::FinalResultOnly,
+                SourceDisclosurePolicy::RevealNone,
+            ),
+            Err(PostureObstruction::AuthorityProofMismatch {
+                authorized_by: fixture_authority_ref(),
+            })
+        );
+    }
+
+    #[test]
     fn imported_source_shared_is_not_local_admitted_without_admission_scope() {
         assert_eq!(
             import_posture_disposition(

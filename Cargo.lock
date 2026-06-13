@@ -612,6 +612,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "echo-file-aperture"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "echo-graph"
 version = "0.1.0"
 dependencies = [

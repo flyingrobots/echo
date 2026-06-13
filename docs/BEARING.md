@@ -3,7 +3,7 @@
 
 # BEARING
 
-Last updated: 2026-05-25.
+Last updated: 2026-06-03.
 
 This signpost summarizes current direction. It does not create commitments or
 replace backlog items, design docs, retros, or CLI status. If it disagrees with
@@ -23,6 +23,9 @@ Trusted runtime-control history is defined in
 
 The causal WAL doctrine and recovery design is defined in
 `docs/design/causal-wal-end-to-end.md`.
+
+The Echo-owned file aperture design is defined in
+`docs/design/echo-owned-file-aperture.md`.
 
 The WAL/WSC storage relationship is tracked in
 `docs/method/backlog/v0.1.0/PLATFORM_wal-wsc-storage-relationship.md`.

@@ -131,14 +131,15 @@ fi
 echo
 
 # Issue 9: ban-nondeterminism allowlist
-echo "[Issue 9] ban-nondeterminism: boundary files should be in allowlist"
-if grep -E 'crates/warp-core/src/wsc/view\.rs' .ban-nondeterminism-allowlist >/dev/null 2>&1 && \
-   grep -E 'crates/warp-core/src/causal_wal\.rs' .ban-nondeterminism-allowlist >/dev/null 2>&1 && \
-   grep -E 'crates/warp-core/build\.rs' .ban-nondeterminism-allowlist >/dev/null 2>&1 && \
+echo "[Issue 9] ban-nondeterminism: boundary waivers should be rule-scoped"
+if grep -E '^std-fs[[:space:]]+crates/warp-core/src/wsc/view\.rs[[:space:]]' .ban-nondeterminism-allowlist >/dev/null 2>&1 && \
+   grep -E '^std-fs[[:space:]]+crates/warp-core/src/causal_wal\.rs[[:space:]]' .ban-nondeterminism-allowlist >/dev/null 2>&1 && \
+   grep -E '^std-env[[:space:]]+crates/warp-core/build\.rs[[:space:]]' .ban-nondeterminism-allowlist >/dev/null 2>&1 && \
+   ! grep -E '^[[:space:]]*crates/' .ban-nondeterminism-allowlist >/dev/null 2>&1 && \
    ! grep -E 'crates/warp-core/src/wsc/mod\.rs' .ban-nondeterminism-allowlist >/dev/null 2>&1; then
-  pass "only active boundary files are in allowlist"
+  pass "boundary waivers are rule-scoped and narrow"
 else
-  fail "boundary allowlist should be active and narrow"
+  fail "boundary allowlist should use active rule-scoped waivers"
 fi
 echo
 

@@ -98,7 +98,7 @@ pub fn make_node_id(label: &str) -> NodeId {
 /// The engine maps canonical 256-bit rule ids (family ids) to compact u32
 /// handles at registration time. These handles are never serialized; they are
 /// purely an in-process acceleration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CompactRuleId(pub u32);
 
 /// Produces a stable, domain‑separated edge identifier (prefix `b"edge:"`) using BLAKE3.

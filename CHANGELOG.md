@@ -538,14 +538,21 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Changed
 
-- Local determinism tooling now runs
-  `scripts/check-warp-core-serialization-boundaries.sh`, which rejects direct
-  serde plumbing in `warp-core` and restricts canonical ABI serialization calls
-  to explicit boundary modules.
-- The nondeterminism guard now catches namespace imports for `std::env`,
-  `std::fs`, and `std::process`, bans `std::thread::available_parallelism`, and
-  carries a narrowed allowlist limited to build/native filesystem boundaries and
-  test fixtures.
+- Local determinism tooling now fails closed around
+  `scripts/check-warp-core-serialization-boundaries.sh`. The serialization
+  boundary guard is mandatory, runs through `bash` rather than executable mode,
+  works without `rg`, rejects table-form serde/ciborium dependencies, and
+  blocks direct, grouped, multiline, or aliased canonical ABI serialization
+  imports outside explicit `warp-core` boundary modules.
+- The nondeterminism guard now shares the same `rg`/Perl fallback scanner,
+  supports `DETERMINISM_FORCE_NO_RG=1` regression coverage, catches namespace
+  imports and alias calls for `std::env`, `std::fs`, and `std::process`, bans
+  `std::thread::available_parallelism`, and replaces file-wide allowlists with
+  rule-scoped waivers for build/native filesystem boundaries and test fixtures.
+- `warp-core` engine and scheduler state now use ordered `BTreeMap`/`BTreeSet`
+  storage instead of `HashMap`, `HashSet`, or `FxHashMap` in deterministic core
+  paths. WAL filesystem tests also recreate stale deterministic fixture roots
+  before use so previous local residue cannot change the test outcome.
 - `warp-core` engine construction now defaults to deterministic serial
   execution instead of reading `ECHO_WORKERS` or host CPU availability. Callers
   can still opt into parallel execution explicitly with

@@ -63,7 +63,18 @@ fn deterministic_test_dir(prefix: &str, label: &str) -> PathBuf {
         let dir = root.join(format!("{prefix}-{label}-{unique}"));
         match fs::create_dir(&dir) {
             Ok(()) => return dir,
-            Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => {
+                must_ok(fs::remove_dir_all(&dir));
+                match fs::create_dir(&dir) {
+                    Ok(()) => return dir,
+                    Err(retry_error) if retry_error.kind() == ErrorKind::AlreadyExists => continue,
+                    Err(retry_error) => {
+                        panic!(
+                            "failed to recreate deterministic test directory {dir:?}: {retry_error}"
+                        )
+                    }
+                }
+            }
             Err(error) => panic!("failed to create deterministic test directory {dir:?}: {error}"),
         }
     }

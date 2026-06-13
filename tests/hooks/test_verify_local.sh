@@ -91,6 +91,70 @@ if scripts/check-warp-core-serialization-boundaries.sh >/dev/null 2>&1; then
 else
   fail "warp-core must not expose direct serde or non-boundary serialization plumbing"
 fi
+if DETERMINISM_FORCE_NO_RG=1 scripts/check-warp-core-serialization-boundaries.sh >/dev/null 2>&1; then
+  pass "warp-core serialization guard works without ripgrep"
+else
+  fail "warp-core serialization guard should work without ripgrep"
+fi
+if DETERMINISM_FORCE_NO_RG=1 scripts/ban-nondeterminism.sh >/dev/null 2>&1; then
+  pass "nondeterminism guard works without ripgrep"
+else
+  fail "nondeterminism guard should work without ripgrep"
+fi
+
+guard_tmp="$(mktemp -d)"
+trap 'rm -rf "$guard_tmp"' EXIT
+mkdir -p "$guard_tmp/scripts/lib" "$guard_tmp/crates/warp-core/src"
+cp scripts/ban-nondeterminism.sh "$guard_tmp/scripts/ban-nondeterminism.sh"
+cp scripts/check-warp-core-serialization-boundaries.sh \
+  "$guard_tmp/scripts/check-warp-core-serialization-boundaries.sh"
+cp scripts/lib/determinism-scan.sh "$guard_tmp/scripts/lib/determinism-scan.sh"
+cat >"$guard_tmp/crates/warp-core/Cargo.toml" <<'EOF'
+[package]
+name = "warp-core"
+version = "0.0.0"
+EOF
+cat >"$guard_tmp/crates/warp-core/src/lib.rs" <<'EOF'
+use std::{
+    env,
+    fs,
+    process,
+};
+use std::collections::{HashMap, HashSet};
+use rustc_hash::FxHashMap;
+
+type BadMap = HashMap<u64, u64>;
+type BadSet = HashSet<u64>;
+type BadFx = FxHashMap<u64, u64>;
+
+pub fn leak() {
+    let _ = env::var("ECHO_WORKERS");
+    let _ = fs::read("x");
+    let _ = process::id();
+}
+EOF
+if (
+  cd "$guard_tmp" &&
+    DETERMINISM_PATHS=crates/warp-core bash scripts/ban-nondeterminism.sh >/dev/null 2>&1
+); then
+  fail "nondeterminism guard should reject grouped std imports and unqualified unordered containers"
+else
+  pass "nondeterminism guard rejects grouped std imports and unqualified unordered containers"
+fi
+
+rm -f "$guard_tmp/scripts/check-warp-core-serialization-boundaries.sh"
+cat >"$guard_tmp/crates/warp-core/src/lib.rs" <<'EOF'
+pub fn ok() {}
+EOF
+missing_guard_output="$(
+  cd "$guard_tmp" &&
+    DETERMINISM_PATHS=crates/warp-core bash scripts/ban-nondeterminism.sh 2>&1 || true
+)"
+if printf '%s\n' "$missing_guard_output" | grep -q 'missing required guard'; then
+  pass "nondeterminism guard fails closed when serialization guard is missing"
+else
+  fail "nondeterminism guard should fail closed when serialization guard is missing"
+fi
 
 extract_log_section() {
   local section="$1"

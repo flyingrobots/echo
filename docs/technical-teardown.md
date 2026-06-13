@@ -692,7 +692,7 @@ flowchart TD
 
 ## 13. Configuration and Tuning
 
-The runtime uses explicit environmental tuning knobs to control scale behavior:
+The runtime uses explicit tuning knobs to control scale behavior:
 
 - Worker count defaults to deterministic serial execution (`1` worker).
 - Callers must opt into parallel execution explicitly with `EngineBuilder::workers(...)`.
@@ -706,9 +706,11 @@ This is a classic throughput/latency trade-off boundary:
 flowchart TD
   CFG[explicit worker count]
   CFG -->|present and valid| W[Use requested worker count]
-  CFG -->|missing/invalid| W2[Use minimum parallelism and NUM_SHARDS]
+  CFG -->|missing| W2[Use deterministic serial worker count 1]
+  CFG -->|invalid| W3[Clamp to worker count 1]
   W --> R[Execution policy selection]
   W2 --> R
+  W3 --> R
   R --> P[Parallel rewrite throughput]
 ```
 

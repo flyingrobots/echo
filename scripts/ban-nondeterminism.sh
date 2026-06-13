@@ -17,156 +17,68 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+source scripts/lib/determinism-scan.sh
 
 PATHS_DEFAULT="crates/warp-core crates/warp-math crates/warp-wasm crates/echo-wasm-abi"
 PATHS="${DETERMINISM_PATHS:-$PATHS_DEFAULT}"
 
 ALLOWLIST="${DETERMINISM_ALLOWLIST:-.ban-nondeterminism-allowlist}"
-
-RG_ARGS=(
-  --hidden
-  --no-ignore
-  --glob '!**/.git/**'
-  --glob '!**/target/**'
-  --glob '!**/node_modules/**'
-  --glob '!**/.clippy.toml'
-)
-
-# You can allow file-level exceptions via allowlist (keep it tiny).
-ALLOW_GLOBS=()
-ALLOW_PATH_PATTERNS=()
-if [[ -f "$ALLOWLIST" ]]; then
-  while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-    [[ "$line" =~ ^# ]] && continue
-    pat="${line%%$'\t'*}"
-    pat="${pat%% *}"
-    [[ -z "$pat" ]] && continue
-    ALLOW_GLOBS+=(--glob "!$pat")
-    ALLOW_PATH_PATTERNS+=("$pat")
-  done < "$ALLOWLIST"
-fi
-
-is_allowlisted_path() {
-  local file="$1"
-
-  for pat in "${ALLOW_PATH_PATTERNS[@]}"; do
-    if [[ "$file" == $pat ]]; then
-      return 0
-    fi
-  done
-
-  return 1
-}
-
-search_pattern_with_perl() {
-  local pat="$1"
-  local found=1
-  local status=0
-
-  if ! command -v perl >/dev/null 2>&1; then
-    echo "ERROR: ripgrep (rg) or perl is required." >&2
-    return 2
-  fi
-
-  while IFS= read -r -d '' file; do
-    if is_allowlisted_path "$file"; then
-      continue
-    fi
-
-    if SEARCH_PATTERN="$pat" perl -ne '
-      BEGIN { $found = 0; $pattern = $ENV{"SEARCH_PATTERN"}; }
-      if (/$pattern/) { print "$ARGV:$.:$_"; $found = 1; }
-      END { exit($found ? 0 : 1); }
-    ' "$file"; then
-      found=0
-    else
-      status=$?
-      if [[ $status -gt 1 ]]; then
-        return "$status"
-      fi
-    fi
-  done < <(find $PATHS -type f \
-    \( -name '*.rs' \
-      -o -name '*.toml' \
-      -o -name '*.sh' \
-      -o -name '*.mjs' \
-      -o -name '*.js' \
-      -o -name '*.ts' \
-      -o -name '*.md' \
-      -o -name '*.graphql' \
-      -o -name '*.json' \
-      -o -name '*.yaml' \
-      -o -name '*.yml' \) \
-    -not -path '*/.git/*' \
-    -not -path '*/target/*' \
-    -not -path '*/node_modules/*' \
-    -not -name '.clippy.toml' \
-    -print0)
-
-  return "$found"
-}
-
-search_pattern() {
-  local pat="$1"
-
-  if command -v rg >/dev/null 2>&1; then
-    rg "${RG_ARGS[@]}" "${ALLOW_GLOBS[@]}" -n -S "$pat" $PATHS
-    return $?
-  fi
-
-  search_pattern_with_perl "$pat"
-}
+det_load_waivers "$ALLOWLIST"
 
 # Patterns: conservative and intentionally annoying.
 # If you hit a false positive, refactor; don't immediately allowlist.
 PATTERNS=(
   # Time / entropy (core determinism killers)
-  '\bstd::time::SystemTime\b'
-  '\bSystemTime::now\b'
-	  '\bstd::time::Instant\b'
-	  '\bInstant::now\b'
-	  '\bstd::thread::sleep\b'
-	  '\b(tokio|async_std)::time::sleep\b'
-	  '\bstd::thread::available_parallelism\b'
+  'time-system	\bstd::time::SystemTime\b'
+  'time-system	\bSystemTime::now\b'
+  'time-instant	\bstd::time::Instant\b'
+  'time-instant	\bInstant::now\b'
+  'thread-sleep	\bstd::thread::sleep\b'
+  'thread-sleep	\b(tokio|async_std)::time::sleep\b'
+  'host-parallelism	\bstd::thread::available_parallelism\b'
 
   # Randomness
-  '\brand::\b'
-  '\bgetrandom::\b'
-  '\bfastrand::\b'
+  'random	\brand::\b'
+  'random	\bgetrandom::\b'
+  'random	\bfastrand::\b'
 
   # Host-supplied callback / network escape hatches
-  '\bjs_sys::Function\b'
-  '\bwasm_bindgen::closure::Closure\b'
-  '\bClosure<'
-  '\bstd::net::\b'
-  '\breqwest::\b'
-  '\bureq::\b'
+  'host-callback	\bjs_sys::Function\b'
+  'host-callback	\bwasm_bindgen::closure::Closure\b'
+  'host-callback	\bClosure<'
+  'network	\bstd::net::\b'
+  'network	\breqwest::\b'
+  'network	\bureq::\b'
 
   # Unordered containers that will betray you if they cross a boundary
-  '\bstd::collections::HashMap\b'
-  '\bstd::collections::HashSet\b'
-  '\bhashbrown::HashMap\b'
-  '\bhashbrown::HashSet\b'
+  'unordered-container	\bstd::collections::HashMap\b'
+  'unordered-container	\bstd::collections::HashSet\b'
+  'unordered-container	\bhashbrown::HashMap\b'
+  'unordered-container	\bhashbrown::HashSet\b'
+  'unordered-container	\brustc_hash::FxHashMap\b'
+  'unordered-container	\brustc_hash::FxHashSet\b'
+  'unordered-container	\buse[[:space:]]+std::collections::\{[^;]*\bHash(Map|Set)\b'
+  'unordered-container	\buse[[:space:]]+rustc_hash::\{?[^;]*\bFxHash(Map|Set)\b'
+  'unordered-container	\b(HashMap|HashSet|FxHashMap|FxHashSet)[[:space:]]*<'
 
   # JSON & “helpful” serialization in core paths
-  '\bserde_json::\b'
-  '\bserde_wasm_bindgen::\b'
+  'json-serialization	\bserde_json::\b'
+  'wasm-serde	\bserde_wasm_bindgen::\b'
 
   # Float nondeterminism hotspots (you can tune these)
-  '\b(f32|f64)::NAN\b'
-  '\b(f32|f64)::INFINITY\b'
-  '\b(f32|f64)::NEG_INFINITY\b'
-  '\.sin\('
-  '\.cos\('
-  '\.tan\('
-  '\.sqrt\('
-  '\.pow[f]?\('
+  'float-sentinel	\b(f32|f64)::NAN\b'
+  'float-sentinel	\b(f32|f64)::INFINITY\b'
+  'float-sentinel	\b(f32|f64)::NEG_INFINITY\b'
+  'float-op	\.sin\('
+  'float-op	\.cos\('
+  'float-op	\.tan\('
+  'float-op	\.sqrt\('
+  'float-op	\.pow[f]?\('
 
   # Host/environment variability
-	  '\bstd::env(::|[[:space:]]*[;,{])'
-	  '\bstd::fs(::|[[:space:]]*[;,{])'
-	  '\bstd::process(::|[[:space:]]*[;,{])'
+  'std-env	\bstd::env(::|[[:space:]]*[;,{])|\buse[[:space:]]+std::\{[^;]*\benv\b|\benv::(args|args_os|current_dir|current_exe|home_dir|join_paths|remove_var|set_current_dir|set_var|split_paths|temp_dir|var|var_os|vars|vars_os)\b'
+  'std-fs	\bstd::fs(::|[[:space:]]*[;,{])|\buse[[:space:]]+std::\{[^;]*\bfs\b|\bfs::(canonicalize|copy|create_dir|create_dir_all|hard_link|metadata|read|read_dir|read_link|read_to_string|remove_dir|remove_dir_all|remove_file|rename|set_permissions|soft_link|symlink_metadata|write)\b'
+  'std-process	\bstd::process(::|[[:space:]]*[;,{])|\buse[[:space:]]+std::\{[^;]*\bprocess\b|\bprocess::(abort|Command|exit|id)\b'
 
   # Concurrency primitives (optional—uncomment if you want core to be single-thread-only)
   # '\bstd::sync::Mutex\b'
@@ -179,16 +91,18 @@ for p in $PATHS; do echo "  - $p"; done
 echo
 
 violations=0
-for pat in "${PATTERNS[@]}"; do
-  echo "Checking: $pat"
-  if search_pattern "$pat"; then
+for entry in "${PATTERNS[@]}"; do
+  rule="${entry%%$'\t'*}"
+  pat="${entry#*$'\t'}"
+  echo "Checking [$rule]: $pat"
+  if det_scan_line "$rule" "$pat" $PATHS; then
     echo
     violations=$((violations+1))
   else
     echo "  OK"
   fi
   echo
- done
+done
 
 if [[ $violations -ne 0 ]]; then
   echo "ban-nondeterminism: FAILED ($violations pattern group(s) matched)."
@@ -196,8 +110,11 @@ if [[ $violations -ne 0 ]]; then
   exit 1
 fi
 
-if [[ -x scripts/check-warp-core-serialization-boundaries.sh ]]; then
-  scripts/check-warp-core-serialization-boundaries.sh
+serialization_guard="scripts/check-warp-core-serialization-boundaries.sh"
+if [[ ! -f "$serialization_guard" ]]; then
+  echo "ban-nondeterminism: missing required guard: $serialization_guard" >&2
+  exit 1
 fi
+bash "$serialization_guard"
 
 echo "ban-nondeterminism: PASSED."

@@ -335,7 +335,16 @@ fn temp_wal_root(label: &str) -> PathBuf {
         let root = parent.join(format!("echo-wal-hardening-{label}-{unique}"));
         match fs::create_dir(&root) {
             Ok(()) => return root,
-            Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => {
+                must_ok(fs::remove_dir_all(&root));
+                match fs::create_dir(&root) {
+                    Ok(()) => return root,
+                    Err(retry_error) if retry_error.kind() == ErrorKind::AlreadyExists => continue,
+                    Err(retry_error) => {
+                        panic!("failed to recreate deterministic WAL root {root:?}: {retry_error}")
+                    }
+                }
+            }
             Err(error) => panic!("failed to create deterministic WAL root {root:?}: {error}"),
         }
     }

@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+[package]
+name = "echo-file-aperture"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Echo-owned host file aperture contract"
+readme = "README.md"
+keywords = ["echo", "files", "causal", "aperture"]
+categories = ["filesystem", "data-structures"]
+
+[dependencies]
+blake3 = "1.5"
+thiserror = "2"
+
+[lints]
+workspace = true

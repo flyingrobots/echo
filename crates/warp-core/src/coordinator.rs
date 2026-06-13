@@ -2440,9 +2440,10 @@ pub(crate) fn hash_provenance_event_kind(
             hasher.update(b"conflict-artifact");
             hasher.update(artifact_id);
         }
-        ProvenanceEventKind::PluralArtifact { plural_id } => {
+        ProvenanceEventKind::PluralArtifact { plural_id, posture } => {
             hasher.update(b"plural-artifact");
             hasher.update(plural_id);
+            hasher.update(&[posture.canonical_tag()]);
         }
     }
 }

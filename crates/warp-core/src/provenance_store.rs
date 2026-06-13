@@ -30,6 +30,7 @@ use crate::head::WriterHeadKey;
 use crate::ident::{Hash, NodeKey, WarpId};
 use crate::materialization::FinalizedChannel;
 use crate::receipt::TickReceipt;
+use crate::revelation::CausalPosture;
 use crate::snapshot::{compute_commit_hash_v2, compute_state_root_for_warp_state, Snapshot};
 use crate::tick_patch::{TickCommitStatus, WarpTickPatchV1};
 use crate::tx::TxId;
@@ -454,6 +455,8 @@ pub enum ProvenanceEventKind {
     PluralArtifact {
         /// Stable plural artifact id.
         plural_id: Hash,
+        /// Revelation posture retained with the plural alternative.
+        posture: CausalPosture,
     },
 }
 
@@ -3625,7 +3628,7 @@ mod tests {
 
     fn minimal_plural_shell(alt_id: u8) -> crate::braid_shell::BraidShell {
         use crate::braid_shell::{BraidShellMember, BraidShellOutcome, MemberVerdict};
-        use crate::revelation::RevelationPosture;
+        use crate::revelation::CausalPosture;
         let member = BraidShellMember {
             strand_ref: crate::strand::make_strand_id("m"),
             support_pin_digest: [1; 32],
@@ -3635,7 +3638,7 @@ mod tests {
             claim_digest: [5; 32],
             verdict: MemberVerdict::Plural,
             verdict_digest: [6; 32],
-            posture: RevelationPosture::AuthorOnly,
+            posture: CausalPosture::AuthorOnly,
         };
         crate::braid_shell::BraidShell::assemble(
             test_worldline_id(),
@@ -3649,7 +3652,7 @@ mod tests {
             BraidShellOutcome::Plural {
                 alternative_ids: vec![[alt_id; 32]],
             },
-            RevelationPosture::AuthorOnly,
+            CausalPosture::AuthorOnly,
         )
         .unwrap()
     }
@@ -3678,6 +3681,29 @@ mod tests {
         assert!(service.braid_shell(&digest_b).is_none());
         assert!(service.braid_shell_for_plural(&plural_a).is_some());
         assert!(service.braid_shell_for_plural(&[0xB2; 32]).is_none());
+    }
+
+    #[test]
+    fn plural_artifact_event_hash_includes_posture() {
+        let plural_id = [0xA7; 32];
+        let mut author_only = blake3::Hasher::new();
+        crate::coordinator::hash_provenance_event_kind(
+            &mut author_only,
+            &ProvenanceEventKind::PluralArtifact {
+                plural_id,
+                posture: crate::revelation::CausalPosture::AuthorOnly,
+            },
+        );
+        let mut shared = blake3::Hasher::new();
+        crate::coordinator::hash_provenance_event_kind(
+            &mut shared,
+            &ProvenanceEventKind::PluralArtifact {
+                plural_id,
+                posture: crate::revelation::CausalPosture::Shared,
+            },
+        );
+
+        assert_ne!(author_only.finalize(), shared.finalize());
     }
 
     #[test]

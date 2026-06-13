@@ -1539,6 +1539,10 @@ run_pattern_guards() {
   ensure_command rg
 
   echo "[verify-local] scanning banned patterns"
+  if [[ -x scripts/check-causal-posture-constructors.sh ]]; then
+    scripts/check-causal-posture-constructors.sh
+  fi
+
   local match_output
   if match_output=$(rg -n '#!\[allow\([^]]*missing_docs[^]]*\)\]' \
     crates \

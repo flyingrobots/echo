@@ -312,9 +312,19 @@ pub use provenance_store::{
 };
 pub use receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection};
 pub use record::{EdgeRecord, NodeRecord};
+#[allow(deprecated)]
+pub use revelation::RevelationPosture;
 pub use revelation::{
-    least_revealed, promote_posture, shell_posture_obstruction, PostureObstruction,
-    PosturePromotion, RevelationPosture, WitnessDigest,
+    import_posture_disposition, least_revealed, revelation_operation_effect,
+    shell_posture_obstruction, ActorId, AdmissionId, AdmissionScopeId, AdmissionSourceDisclosure,
+    AuthorityBinding, AuthorityCapabilityDigest, AuthorityDomainId, AuthorityDomainRef,
+    AuthorityResolutionProof, CapabilityProof, CausalAuthority, CausalPosture,
+    ImportAdmissionReceipt, ImportPostureDisposition, ImportQuarantineNamespace,
+    ImportedArtifactId, IntentId, KeyId, KeyProofId, MaterializationBasis, MaterializationReceipt,
+    OperationPostureEffect, OriginId, PostureDerivation, PostureObstruction, ProjectionPolicy,
+    ProjectionSpecId, PromotionBasis, PromotionIntent, RetentionContractId, RetentionPosture,
+    RevelationOperation, SealStrength, SessionContext, SharedAdmission, SourceDisclosurePolicy,
+    WitnessDigest,
 };
 #[cfg(feature = "native_rule_bootstrap")]
 pub use rule::{ConflictPolicy, ExecuteFn, MatchFn, PatternGraph, RewriteRule};

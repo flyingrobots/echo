@@ -18,7 +18,7 @@ use crate::provenance_store::{
     ProvenanceEventKind, ProvenanceRef, ProvenanceService, ProvenanceStore,
 };
 use crate::record::{EdgeRecord, NodeRecord};
-use crate::revelation::RevelationPosture;
+use crate::revelation::CausalPosture;
 use crate::snapshot::{compute_commit_hash_v2, compute_state_root_for_warp_state};
 use crate::strand::{
     StrandBasisReport, StrandError, StrandId, StrandOverlapRevalidation, StrandRegistry,
@@ -282,7 +282,7 @@ pub struct PluralAlternativeDraft {
     /// Plural-settlement policy that made this plurality lawful.
     pub policy_id: Hash,
     /// Revelation posture carried by the retained alternative.
-    pub posture: RevelationPosture,
+    pub posture: CausalPosture,
 }
 
 impl PluralAlternativeDraft {
@@ -300,9 +300,9 @@ impl PluralAlternativeDraft {
                 .to_vec(),
             policy_id: self.policy_id.to_vec(),
             posture: match self.posture {
-                RevelationPosture::Scratch => abi::RevelationPosture::Scratch,
-                RevelationPosture::AuthorOnly => abi::RevelationPosture::AuthorOnly,
-                RevelationPosture::Shared => abi::RevelationPosture::Shared,
+                CausalPosture::Scratch => abi::RevelationPosture::Scratch,
+                CausalPosture::AuthorOnly => abi::RevelationPosture::AuthorOnly,
+                CausalPosture::Shared => abi::RevelationPosture::Shared,
             },
         }
     }
@@ -1156,6 +1156,7 @@ fn append_plural_artifact(
         RecordedEntryDraft {
             event_kind: ProvenanceEventKind::PluralArtifact {
                 plural_id: draft.plural_id,
+                posture: draft.posture,
             },
             patch: no_op_patch,
             expected_state_root,
@@ -1358,7 +1359,7 @@ fn build_braid_shell(
         claim_digest: claim_hasher.finalize().into(),
         verdict,
         verdict_digest: verdict_hasher.finalize().into(),
-        posture: RevelationPosture::default(),
+        posture: CausalPosture::AuthorOnly,
     };
 
     BraidShell::assemble(
@@ -1367,7 +1368,7 @@ fn build_braid_shell(
         vec![member],
         policy.policy_id,
         outcome,
-        RevelationPosture::default(),
+        CausalPosture::AuthorOnly,
     )
 }
 
@@ -1445,7 +1446,7 @@ fn plural_draft(
             .collect(),
         overlapping_slots,
         policy_id: policy.policy_id,
-        posture: RevelationPosture::default(),
+        posture: CausalPosture::AuthorOnly,
     }
 }
 
@@ -2293,7 +2294,7 @@ mod tests {
             return;
         };
         assert_eq!(draft.policy_id, plural_policy().policy_id);
-        assert_eq!(draft.posture, RevelationPosture::AuthorOnly);
+        assert_eq!(draft.posture, CausalPosture::AuthorOnly);
         assert!(!draft.overlapping_slots.is_empty());
         assert_eq!(draft.source_ref.worldline_id, child_worldline);
 
@@ -2322,7 +2323,10 @@ mod tests {
         let retained = provenance.entry(base_worldline, wt(2)).unwrap();
         assert!(matches!(
             retained.event_kind,
-            ProvenanceEventKind::PluralArtifact { .. }
+            ProvenanceEventKind::PluralArtifact {
+                posture: CausalPosture::AuthorOnly,
+                ..
+            }
         ));
 
         // No silent collapse: the base worldline keeps its own claim.
@@ -2385,10 +2389,7 @@ mod tests {
         let shell = provenance.braid_shell(&shell_digest).unwrap();
 
         assert_eq!(shell.policy_id, plural_policy().policy_id);
-        assert_eq!(
-            shell.posture,
-            crate::revelation::RevelationPosture::AuthorOnly
-        );
+        assert_eq!(shell.posture, crate::revelation::CausalPosture::AuthorOnly);
         assert_eq!(shell.worldline_id, base_worldline);
         assert!(shell.has_member_strand(&strand_id));
         assert_eq!(shell.members.len(), 1);
@@ -2613,13 +2614,13 @@ mod tests {
                 claim_digest: [5; 32],
                 verdict: crate::braid_shell::MemberVerdict::Plural,
                 verdict_digest: [6; 32],
-                posture: crate::revelation::RevelationPosture::AuthorOnly,
+                posture: crate::revelation::CausalPosture::AuthorOnly,
             }],
             [0xAB; 32],
             crate::braid_shell::BraidShellOutcome::Plural {
                 alternative_ids: vec![plural_id],
             },
-            crate::revelation::RevelationPosture::AuthorOnly,
+            crate::revelation::CausalPosture::AuthorOnly,
         )
         .unwrap();
         let dummy_digest = provenance.append_braid_shell(dummy).unwrap();
@@ -2704,7 +2705,7 @@ mod tests {
         let query = crate::braid_shell::BraidShellQuery {
             member_strand: Some(strand_id),
             outcome: Some(AdmissionOutcomeKind::Plural),
-            posture: Some(crate::revelation::RevelationPosture::AuthorOnly),
+            posture: Some(crate::revelation::CausalPosture::AuthorOnly),
             ..crate::braid_shell::BraidShellQuery::default()
         };
         assert_eq!(provenance.query_braid_shells(query).count(), 1);

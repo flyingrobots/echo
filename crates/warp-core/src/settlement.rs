@@ -2487,6 +2487,53 @@ mod tests {
     }
 
     #[test]
+    fn btr_boundary_digest_binds_patch_outputs_and_atom_writes() {
+        use crate::braid_shell::RetainedBoundaryRecord;
+        let (_, provenance, _, base_worldline, _) = setup_runtime_with_strand(ParentDrift::None);
+        let entry = provenance.entry(base_worldline, wt(0)).unwrap();
+        let warp_id = entry.patch.as_ref().unwrap().warp_id;
+        let make_btr = |entry: ProvenanceEntry| crate::provenance_store::BoundaryTransitionRecord {
+            worldline_id: base_worldline,
+            u0_ref: warp_id,
+            input_boundary_hash: [0; 32],
+            output_boundary_hash: entry.expected.state_root,
+            payload: crate::provenance_store::BtrPayload {
+                worldline_id: base_worldline,
+                start_worldline_tick: wt(0),
+                entries: vec![entry],
+            },
+            logical_counter: 1,
+            auth_tag: Vec::new(),
+        };
+        let baseline = make_btr(entry.clone()).boundary_digest();
+
+        let mut patch_stripped = entry.clone();
+        patch_stripped.patch = None;
+        assert_ne!(make_btr(patch_stripped).boundary_digest(), baseline);
+
+        let mut outputs_changed = entry.clone();
+        outputs_changed
+            .outputs
+            .push((make_type_id("tamper-channel"), vec![1, 2, 3]));
+        assert_ne!(make_btr(outputs_changed).boundary_digest(), baseline);
+
+        let mut atoms_changed = entry;
+        atoms_changed
+            .atom_writes
+            .push(crate::worldline::AtomWrite::new(
+                crate::ident::NodeKey {
+                    warp_id,
+                    local_id: make_node_id("tampered-atom"),
+                },
+                [0xEE; 32],
+                7,
+                None,
+                vec![9, 9, 9],
+            ));
+        assert_ne!(make_btr(atoms_changed).boundary_digest(), baseline);
+    }
+
+    #[test]
     fn empty_settlement_emits_no_shell_by_law() {
         // Law: no claims means no braid outcome. An empty settlement is not
         // a braid-scope settlement act and retains no theta_braid shell.

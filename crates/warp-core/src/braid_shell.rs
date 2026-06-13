@@ -971,11 +971,13 @@ impl RetainedBoundaryRecord for crate::provenance_store::BoundaryTransitionRecor
     }
 
     /// Full canonical content digest over the retained BTR body: boundary
-    /// facts, payload coordinates, every entry's coordinate, event kind,
-    /// head key, parents, and hash triplet, plus the auth tag. The entry
-    /// commit hash transitively binds each patch digest, state root, and
-    /// parent set, but the coordinates and event facts are bound explicitly
-    /// here — this is a record digest, not a vibes checksum.
+    /// facts, payload coordinates, and for every entry its coordinate,
+    /// event kind, head key, parents, hash triplet, retained patch body
+    /// commitment (header fields explicitly — `patch_digest` does not bind
+    /// the header — plus the canonical `patch_digest` which binds ops and
+    /// slots), materialization outputs, and atom-write provenance, plus the
+    /// auth tag. No retained field named like content is excluded — this is
+    /// a record digest, not a vibes checksum.
     fn boundary_digest(&self) -> Hash {
         let mut hasher = Hasher::new();
         hasher.update(TICK_SHELL_DOMAIN);
@@ -1009,6 +1011,48 @@ impl RetainedBoundaryRecord for crate::provenance_store::BoundaryTransitionRecor
             hasher.update(&entry.expected.state_root);
             hasher.update(&entry.expected.patch_digest);
             hasher.update(&entry.expected.commit_hash);
+            match &entry.patch {
+                Some(patch) => {
+                    hasher.update(&[1]);
+                    hasher.update(&patch.header.commit_global_tick.as_u64().to_le_bytes());
+                    hasher.update(&patch.header.policy_id.to_le_bytes());
+                    hasher.update(&patch.header.rule_pack_id);
+                    hasher.update(&patch.header.plan_digest);
+                    hasher.update(&patch.header.decision_digest);
+                    hasher.update(&patch.header.rewrites_digest);
+                    hasher.update(patch.warp_id.as_bytes());
+                    hasher.update(&patch.patch_digest);
+                }
+                None => {
+                    hasher.update(&[0]);
+                }
+            }
+            hasher.update(&(entry.outputs.len() as u64).to_le_bytes());
+            for (channel, data) in &entry.outputs {
+                hasher.update(&(channel.0.len() as u64).to_le_bytes());
+                hasher.update(channel.0.as_ref());
+                hasher.update(&(data.len() as u64).to_le_bytes());
+                hasher.update(data);
+            }
+            hasher.update(&(entry.atom_writes.len() as u64).to_le_bytes());
+            for atom_write in &entry.atom_writes {
+                hasher.update(atom_write.atom.warp_id.as_bytes());
+                hasher.update(atom_write.atom.local_id.as_bytes());
+                hasher.update(&atom_write.rule_id);
+                hasher.update(&atom_write.tick.to_le_bytes());
+                match &atom_write.old_value {
+                    Some(old_value) => {
+                        hasher.update(&[1]);
+                        hasher.update(&(old_value.len() as u64).to_le_bytes());
+                        hasher.update(old_value);
+                    }
+                    None => {
+                        hasher.update(&[0]);
+                    }
+                }
+                hasher.update(&(atom_write.new_value.len() as u64).to_le_bytes());
+                hasher.update(&atom_write.new_value);
+            }
         }
         hasher.update(&(self.auth_tag.len() as u64).to_le_bytes());
         hasher.update(&self.auth_tag);

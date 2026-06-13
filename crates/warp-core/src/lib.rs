@@ -41,6 +41,7 @@ pub mod wsc;
 
 mod admission;
 mod attachment;
+mod braid_shell;
 mod causal_facts;
 pub mod causal_wal;
 mod clock;
@@ -142,6 +143,7 @@ mod receipt;
 mod record;
 mod retained_evidence;
 mod retention;
+mod revelation;
 mod rule;
 mod sandbox;
 mod scheduler;
@@ -253,7 +255,13 @@ pub use retained_evidence::{
 };
 // --- Session types ---
 pub use playback::{SessionId, ViewSession};
-// --- Truth delivery ---
+// --- Retained boundary shell family (θ_tick, θ_braid) ---
+pub use braid_shell::{
+    collapse_braid_shell, replay_braid_shell, BraidCoordinate, BraidShell, BraidShellError,
+    BraidShellMember, BraidShellOutcome, BraidShellQuery, BraidShellRecords, BraidShellReplay,
+    CollapsePolicy, CollapseResult, MemberVerdict, RetainedBoundaryKind, RetainedBoundaryRecord,
+    BRAID_SHELL_VERSION, COLLAPSE_WITHOUT_POLICY_REASON,
+};
 pub use neighborhood::{
     NeighborhoodCore, NeighborhoodError, NeighborhoodParticipant, NeighborhoodParticipantRole,
     NeighborhoodPlurality, NeighborhoodSite, NeighborhoodSiteId, NeighborhoodSiteService,
@@ -306,6 +314,10 @@ pub use provenance_store::{
 };
 pub use receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection};
 pub use record::{EdgeRecord, NodeRecord};
+pub use revelation::{
+    least_revealed, promote_posture, shell_posture_obstruction, PostureObstruction,
+    PosturePromotion, RevelationPosture, WitnessDigest,
+};
 #[cfg(feature = "native_rule_bootstrap")]
 pub use rule::{ConflictPolicy, ExecuteFn, MatchFn, PatternGraph, RewriteRule};
 pub use sandbox::DeterminismError;
@@ -317,8 +329,9 @@ pub use serializable::{
     SerializableReceipt, SerializableReceiptEntry, SerializableSnapshot, SerializableTick,
 };
 pub use settlement::{
-    ConflictArtifactDraft, ConflictReason, ImportCandidate, SettlementDecision, SettlementDelta,
-    SettlementError, SettlementPlan, SettlementResult, SettlementService,
+    ConflictArtifactDraft, ConflictReason, ImportCandidate, PluralAlternativeDraft,
+    PluralSettlementPolicy, SettlementDecision, SettlementDelta, SettlementError, SettlementPlan,
+    SettlementPolicy, SettlementResult, SettlementService,
 };
 pub use snapshot::{
     compute_commit_hash_v2, compute_emissions_digest, compute_op_emission_index_digest,

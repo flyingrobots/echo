@@ -2065,6 +2065,21 @@ pub enum ConflictReason {
     ParentFootprintOverlap,
     /// The source and target lanes disagree on time-quantum assumptions.
     QuantumMismatch,
+    /// An earlier suffix entry remained lawfully plural; later entries cannot
+    /// import past retained plurality.
+    PluralUpstream,
+}
+
+/// Revelation tier carried by retained settlement artifacts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RevelationPosture {
+    /// Local, weakly retained, disposable working tier.
+    Scratch,
+    /// Durable and replayable, sealed to the creating principal.
+    AuthorOnly,
+    /// Collaboratively admitted visibility.
+    Shared,
 }
 
 /// Parent-basis posture used while comparing or planning settlement.
@@ -2188,6 +2203,25 @@ pub struct ConflictArtifactDraft {
     pub overlap_revalidation: Option<SettlementOverlapRevalidation>,
 }
 
+/// One lawful plural alternative retained at settlement scope.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluralAlternativeDraft {
+    /// Stable plural artifact identifier for this retained alternative.
+    pub plural_id: Vec<u8>,
+    /// Source provenance coordinate whose claim remains lawfully plural.
+    pub source_ref: ProvenanceRef,
+    /// Channels implicated by the plural source entry.
+    pub channel_ids: Vec<Vec<u8>>,
+    /// Count of contended slots over which plurality remained lawful.
+    pub overlapping_slot_count: u64,
+    /// Deterministic digest of the contended slots.
+    pub overlapping_slots_digest: Vec<u8>,
+    /// Plural-settlement policy that made this plurality lawful.
+    pub policy_id: Vec<u8>,
+    /// Revelation posture carried by the retained alternative.
+    pub posture: RevelationPosture,
+}
+
 /// One deterministic settlement decision.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -2201,6 +2235,11 @@ pub enum SettlementDecision {
     ConflictArtifact {
         /// Residue detail.
         artifact: ConflictArtifactDraft,
+    },
+    /// Source history retained as a lawful plural alternative.
+    PluralAlternative {
+        /// Retained plural alternative detail.
+        artifact: PluralAlternativeDraft,
     },
 }
 
@@ -2228,6 +2267,12 @@ pub struct SettlementResult {
     pub appended_imports: Vec<ProvenanceRef>,
     /// Target-worldline refs appended as `ConflictArtifact`.
     pub appended_conflicts: Vec<ProvenanceRef>,
+    /// Target-worldline refs appended as `PluralArtifact`.
+    #[serde(default)]
+    pub appended_plurals: Vec<ProvenanceRef>,
+    /// Digest of the retained braid shell for this settlement act, if any.
+    #[serde(default)]
+    pub braid_shell_digest: Option<Vec<u8>>,
 }
 
 /// Compact shell for judging a witnessed suffix without transport or sync.

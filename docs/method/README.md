@@ -183,8 +183,8 @@ Same loop regardless:
 
 - **Feature** — design, test, build, ship.
 - **Design** — the deliverable is docs, not code.
-- **Debt** — pull from `bad-code/`. The hill is "this no longer
-  bothers us."
+- **Debt** — pull from GitHub Issues labeled `lane:bad-code`. The hill is
+  "this no longer bothers us."
 
 ---
 
@@ -231,25 +231,55 @@ in one sentence, the cycle is too big. Split it.
 
 1. **Design** — write a design doc from the template at
    `docs/method/design-template.md`. Required sections:
-    - **Title and legend** — cycle number, name, legend link.
-    - **Why this cycle exists** — motivation and context.
-    - **Depends on** — explicit dependency chain (or "nothing").
-    - **Human users / jobs / hills** — who benefits, what they do,
-      one-sentence hill from the human perspective.
-    - **Agent users / jobs / hills** — same, from the agent
-      perspective.
-    - **Human playback** — concrete walk-through scenario proving
-      the human hill.
-    - **Agent playback** — concrete walk-through scenario proving
-      the agent hill.
-    - **Implementation outline** — numbered steps of what the code
-      (or docs) will do.
-    - **Tests to write first** — the RED phase, named in the design.
-    - **Risks / unknowns** — what might go wrong.
-    - **Postures** — accessibility, localization, agent
-      inspectability. If not relevant, say so explicitly. Silence
-      is not a position.
-    - **Non-goals** — what this cycle will not do.
+    - **Linked Issue** — public tracker for the pulled work.
+    - **Decision Summary** — the specific boundary and behavior this
+      cycle will create or change.
+    - **Sponsored Human / Sponsored Agent / Hill** — who benefits and
+      the observable outcome they need.
+    - **Current Truth** — factual evidence from files, commands, APIs,
+      issues, PRs, and known tests. Strong claims cite permalinks with
+      fully qualified commit SHAs.
+    - **Problem, Scope, Non-Goals** — the defect or gap, what this
+      cycle includes, and what it explicitly excludes.
+    - **User Experience / Product Shape** — required for rendered UI,
+      visible CLI, docs, or user-facing behavior.
+    - **Runtime / API Contract** — required for code-facing changes.
+    - **Lower Modes** — required for user-visible, agent-visible, CLI,
+      JSON, fixture, dry-run, DIND, or partial-evidence behavior.
+    - **Data / State Model** — source of truth, derived state, invalid
+      states, reset behavior, serialization, and deterministic
+      assumptions.
+    - **Echo Authority Boundary** — who owns causality, admission,
+      receipts, readings, materialization, retention, recovery, and
+      host capabilities.
+    - **Determinism / DIND Posture** — required when runtime,
+      scheduling, math, replay, storage ordering, host observation,
+      clocks, randomness, hashing, or canonicalization are involved.
+    - **WAL / WSC / Retention Posture** — required when causal
+      history, durable recovery, retained material, receipts,
+      readings, snapshots, checkpoints, materialization, or missing
+      evidence are involved.
+    - **Accessibility, Localization, Agent Inspectability** — state
+      the posture or say "Not applicable" with a reason. Silence is
+      not a position.
+    - **App-Noun Boundary** — required when work is motivated by
+      Jedit, WARP DRIVE, git-warp, Graft, Bijou, or another external
+      consumer.
+    - **Linked Invariants, Alternatives, Decision** — the governing
+      repo invariants, rejected options, and chosen approach.
+    - **Implementation Slices, Tests To Write First, Acceptance
+      Criteria, Validation Plan, Playback / Witness, Risks,
+      Follow-On Debt, Retrospective** — how the cycle will be proven
+      and closed.
+
+    A design doc may define intent, but it does not prove
+    implementation. For implementation work, at least one required test
+    must exercise the actual software surface: Rust API, runtime
+    behavior, CLI output, WASM ABI, schema validation, WAL/WSC recovery,
+    DIND determinism, generated contract behavior, or another executable
+    surface. Documentation assertions are allowed as evidence-ledger
+    checks, but they cannot be the only acceptance test for runtime or
+    product work.
 
 2. **RED** — write failing tests. Playback questions become specs.
    Default to agent surface first.
@@ -269,8 +299,8 @@ in one sentence, the cycle is too big. Split it.
 5. **Close** — write the retro and witness packet on the branch.
     - Drift check (mandatory). Undocumented drift is the only true
       failure mode.
-    - New debt to `bad-code/`.
-    - Cool ideas to `cool-ideas/`.
+    - New debt becomes a GitHub Issue labeled `lane:bad-code`.
+    - Cool ideas become GitHub Issues labeled `lane:cool-ideas`.
     - Backlog maintenance.
 
     Closing the cycle packet does not mean `main` has accepted it yet.
@@ -409,7 +439,7 @@ The following commands are planned but **not yet implemented**:
 
 | Command                            | Purpose                                                          |
 | ---------------------------------- | ---------------------------------------------------------------- |
-| `cargo xtask method pull <item>`   | Promote a backlog item into the next numbered cycle.             |
+| `cargo xtask method pull <item>`   | Promote a legacy filesystem card into the next numbered cycle.   |
 | `cargo xtask method close [cycle]` | Write a retro and create its `witness/` directory.               |
 | `cargo xtask method drift [cycle]` | Check active cycle playback questions against test descriptions. |
 
@@ -430,10 +460,10 @@ The issue tracker is tiered by lane labels. Choice within a lane is judgment at 
 
 ## Naming conventions
 
-| Convention           | Example                          | When                       |
-| -------------------- | -------------------------------- | -------------------------- |
-| `ALL_CAPS.md`        | `BEARING.md`                     | Signpost — root or `docs/` |
-| `lowercase.md`       | `guide.md`                       | Everything else            |
-| `<LEGEND>_<name>.md` | `KERNEL_writer-head-registry.md` | Backlog with legend        |
-| `<name>.md`          | `debt-scheduler-god-module.md`   | Backlog without legend     |
-| `<cycle>/`           | `0001-docs-audit/`               | Cycle directory            |
+| Convention           | Example                          | When                          |
+| -------------------- | -------------------------------- | ----------------------------- |
+| `ALL_CAPS.md`        | `BEARING.md`                     | Signpost — root or `docs/`    |
+| `lowercase.md`       | `guide.md`                       | Everything else               |
+| `<LEGEND>_<name>.md` | `KERNEL_writer-head-registry.md` | Legacy backlog with legend    |
+| `<name>.md`          | `debt-scheduler-god-module.md`   | Legacy backlog without legend |
+| `<cycle>/`           | `0001-docs-audit/`               | Cycle directory               |

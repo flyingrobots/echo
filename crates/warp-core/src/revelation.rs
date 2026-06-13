@@ -13,9 +13,10 @@
 //!
 //! Posture is load-bearing, not cosmetic. Two laws are enforced here:
 //!
-//! 1. **Promotion is explicit and witnessed.** Posture only widens through
-//!    [`promote_posture`], which demands a witness digest; silent widening
-//!    and any narrowing are obstructions, never no-ops.
+//! 1. **Admission is explicit and witnessed.** Shared admission only widens
+//!    through [`PromotionIntent`], which binds authority, scope, intent, and
+//!    witness; silent widening and any narrowing are obstructions, never
+//!    no-ops.
 //! 2. **Least-revealed-member invariant.** A composite artifact (for
 //!    example a braid shell over member strands) cannot reveal more than
 //!    its least-revealed member unless a witnessed redaction/promotion
@@ -99,8 +100,9 @@ hash_id!(ProjectionSpecId);
 hash_id!(AdmissionId);
 
 /// Witnessed record that one artifact's posture lawfully widened.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PosturePromotion {
+struct PosturePromotion {
     /// Posture before the promotion act.
     pub from: CausalPosture,
     /// Posture after the promotion act.
@@ -212,6 +214,35 @@ pub struct CausalAuthority {
     pub seal_strength: SealStrength,
 }
 
+impl CausalAuthority {
+    /// Builds a validated authority context.
+    ///
+    /// # Errors
+    ///
+    /// Returns an authority-coherence obstruction when the work origin,
+    /// author-domain origin, or binding origin/domain disagree.
+    pub fn new(
+        origin_id: OriginId,
+        actor_id: ActorId,
+        author_domain: AuthorityDomainRef,
+        binding: AuthorityBinding,
+        seal_strength: SealStrength,
+    ) -> Result<Self, PostureObstruction> {
+        validate_authority_coherence(origin_id, author_domain, binding)?;
+        Ok(Self {
+            origin_id,
+            actor_id,
+            author_domain,
+            binding,
+            seal_strength,
+        })
+    }
+
+    fn validate(&self) -> Result<(), PostureObstruction> {
+        validate_authority_coherence(self.origin_id, self.author_domain, self.binding)
+    }
+}
+
 /// Records how posture was assigned.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PostureDerivation {
@@ -251,9 +282,8 @@ impl RetentionPosture {
     ///
     /// # Errors
     ///
-    /// Returns [`PostureObstruction::MissingAdmissionScope`] when `Shared`
-    /// lacks a scope, and [`PostureObstruction::UnexpectedAdmissionScope`]
-    /// when non-`Shared` work carries one.
+    /// Returns an obstruction when the posture/scope pair, derivation, or
+    /// authority context is incoherent.
     pub fn new(
         causal_posture: CausalPosture,
         posture_derivation: PostureDerivation,
@@ -262,6 +292,8 @@ impl RetentionPosture {
         admission_scope: Option<AdmissionScopeId>,
     ) -> Result<Self, PostureObstruction> {
         validate_admission_scope(causal_posture, admission_scope)?;
+        validate_posture_derivation(causal_posture, posture_derivation)?;
+        authority.validate()?;
         Ok(Self {
             causal_posture,
             posture_derivation,
@@ -315,6 +347,7 @@ impl SessionContext {
         retention_contract: RetentionContractId,
     ) -> Result<Self, PostureObstruction> {
         validate_admission_scope(default_posture, default_admission_scope)?;
+        validate_authority_coherence(origin_id, author_domain, authority_binding)?;
         Ok(Self {
             session_id,
             origin_id,
@@ -376,6 +409,39 @@ pub enum PostureObstruction {
         /// Requested target posture.
         to: CausalPosture,
     },
+    /// Shared admission requires [`PromotionIntent`], not raw posture widening.
+    SharedAdmissionRequiresIntent,
+    /// Authority proof names a different authority than the operation.
+    AuthorityProofMismatch {
+        /// Authority named by the operation.
+        authorized_by: AuthorityDomainRef,
+    },
+    /// Authority-domain origin does not match the work origin.
+    AuthorityOriginMismatch {
+        /// Work origin.
+        origin_id: OriginId,
+        /// Origin carried by the authority domain.
+        authority_origin: OriginId,
+    },
+    /// Binding origin does not match the work origin.
+    AuthorityBindingOriginMismatch {
+        /// Work origin.
+        origin_id: OriginId,
+        /// Origin carried by the binding.
+        binding_origin: OriginId,
+    },
+    /// Binding authority domain does not match the work authority domain.
+    AuthorityBindingDomainMismatch {
+        /// Authority domain carried by the work.
+        author_domain: AuthorityDomainRef,
+    },
+    /// Posture derivation cannot truthfully explain the effective posture.
+    PostureDerivationMismatch {
+        /// Effective posture.
+        posture: CausalPosture,
+        /// Claimed derivation.
+        derivation: PostureDerivation,
+    },
     /// Legacy shared compatibility proof is not authority for new admission.
     LegacyAuthorityCannotAuthorizeNewAdmission,
     /// Generic causal witness digests are not authority-capability proofs.
@@ -429,10 +495,19 @@ pub enum AuthorityResolutionProof {
 }
 
 impl AuthorityResolutionProof {
-    fn authorizes_new_admission(self) -> Result<(), PostureObstruction> {
+    fn authorizes_new_admission(
+        self,
+        authorized_by: AuthorityDomainRef,
+    ) -> Result<(), PostureObstruction> {
         match self {
             Self::LegacySharedAuthority => {
                 Err(PostureObstruction::LegacyAuthorityCannotAuthorizeNewAdmission)
+            }
+            Self::LocalAuthorityDomain(proof_authority)
+            | Self::LocalCapability(CapabilityProof::LocalAuthorityDomain(proof_authority))
+                if proof_authority != authorized_by =>
+            {
+                Err(PostureObstruction::AuthorityProofMismatch { authorized_by })
             }
             Self::LocalAuthorityDomain(_)
             | Self::LocalCapability(_)
@@ -494,7 +569,7 @@ impl MaterializationReceipt {
         if from != CausalPosture::Scratch || to != CausalPosture::AuthorOnly {
             return Err(PostureObstruction::InvalidMaterializationTransition { from, to });
         }
-        authority_proof.authorizes_new_admission()?;
+        authority_proof.authorizes_new_admission(authorized_by)?;
         Ok(Self {
             source,
             from,
@@ -595,7 +670,7 @@ impl PromotionIntent {
         projection_policy: ProjectionPolicy,
         source_disclosure: SourceDisclosurePolicy,
     ) -> Result<Self, PostureObstruction> {
-        authority_proof.authorizes_new_admission()?;
+        authority_proof.authorizes_new_admission(authorized_by)?;
         if from == CausalPosture::Shared {
             return Err(PostureObstruction::AlreadyAtPosture {
                 posture: CausalPosture::Shared,
@@ -618,13 +693,52 @@ impl PromotionIntent {
     }
 }
 
+/// Source identity disclosed by a shared admission projection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AdmissionSourceDisclosure {
+    /// Source identity is withheld from the shared projection.
+    Hidden,
+    /// Source identity is disclosed as a stub.
+    Stub {
+        /// Sealed source strand.
+        source_strand: StrandId,
+    },
+    /// Source identity is disclosed with redacted backing detail.
+    Redacted {
+        /// Sealed source strand.
+        source_strand: StrandId,
+    },
+    /// Full source identity is disclosed.
+    Full {
+        /// Sealed source strand.
+        source_strand: StrandId,
+    },
+    /// Source identity is available only to authority holders.
+    AuthorityOnly {
+        /// Sealed source strand.
+        source_strand: StrandId,
+    },
+}
+
+impl AdmissionSourceDisclosure {
+    const fn from_policy(policy: SourceDisclosurePolicy, source_strand: StrandId) -> Self {
+        match policy {
+            SourceDisclosurePolicy::RevealNone => Self::Hidden,
+            SourceDisclosurePolicy::RevealStub => Self::Stub { source_strand },
+            SourceDisclosurePolicy::RevealRedacted => Self::Redacted { source_strand },
+            SourceDisclosurePolicy::RevealFull => Self::Full { source_strand },
+            SourceDisclosurePolicy::RevealByAuthorityOnly => Self::AuthorityOnly { source_strand },
+        }
+    }
+}
+
 /// Shared admission projection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SharedAdmission {
     /// Admission identity.
     pub admission_id: AdmissionId,
-    /// Sealed source strand.
-    pub source_strand: StrandId,
+    /// Source identity disclosure for this shared projection.
+    pub source: AdmissionSourceDisclosure,
     /// Digest of the shared projection.
     pub projection_digest: Hash,
     /// Admission scope.
@@ -643,11 +757,54 @@ impl SharedAdmission {
     ) -> Self {
         Self {
             admission_id,
-            source_strand: promotion.source_strand,
+            source: AdmissionSourceDisclosure::from_policy(
+                promotion.source_disclosure,
+                promotion.source_strand,
+            ),
             projection_digest,
             admission_scope: promotion.admission_scope,
             source_disclosure: promotion.source_disclosure,
         }
+    }
+}
+
+/// Receipt proving imported source-shared material was admitted locally.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ImportAdmissionReceipt {
+    /// Intent that admitted the import locally.
+    pub intent_id: IntentId,
+    /// Authority domain authorizing local admission.
+    pub authorized_by: AuthorityDomainRef,
+    /// Authority proof.
+    pub authority_proof: AuthorityResolutionProof,
+    /// Local admission scope.
+    pub admission_scope: AdmissionScopeId,
+    /// Witness binding the import admission.
+    pub witness: WitnessDigest,
+}
+
+impl ImportAdmissionReceipt {
+    /// Builds a validated import admission receipt.
+    ///
+    /// # Errors
+    ///
+    /// Returns an obstruction when the authority proof cannot authorize
+    /// `authorized_by`.
+    pub fn new(
+        intent_id: IntentId,
+        authorized_by: AuthorityDomainRef,
+        authority_proof: AuthorityResolutionProof,
+        admission_scope: AdmissionScopeId,
+        witness: WitnessDigest,
+    ) -> Result<Self, PostureObstruction> {
+        authority_proof.authorizes_new_admission(authorized_by)?;
+        Ok(Self {
+            intent_id,
+            authorized_by,
+            authority_proof,
+            admission_scope,
+            witness,
+        })
     }
 }
 
@@ -691,7 +848,7 @@ pub enum ImportPostureDisposition {
 pub const fn import_posture_disposition(
     source_posture: CausalPosture,
     authority_resolved: bool,
-    local_admission_scope: Option<AdmissionScopeId>,
+    local_admission: Option<ImportAdmissionReceipt>,
 ) -> ImportPostureDisposition {
     match source_posture {
         CausalPosture::Scratch => ImportPostureDisposition::ScratchNotImportedByDefault,
@@ -701,10 +858,10 @@ pub const fn import_posture_disposition(
         CausalPosture::AuthorOnly => ImportPostureDisposition::ForeignAuthorOnlySealed {
             namespace: ImportQuarantineNamespace::ForeignAuthorOnlyQuarantine,
         },
-        CausalPosture::Shared => match local_admission_scope {
-            Some(admission_scope) => {
-                ImportPostureDisposition::LocallyAdmittedShared { admission_scope }
-            }
+        CausalPosture::Shared => match local_admission {
+            Some(receipt) => ImportPostureDisposition::LocallyAdmittedShared {
+                admission_scope: receipt.admission_scope,
+            },
             None => ImportPostureDisposition::SourceSharedPendingAdmission {
                 namespace: ImportQuarantineNamespace::SourceSharedPendingAdmission,
             },
@@ -785,7 +942,8 @@ where
 /// Returns [`PostureObstruction::NarrowingRefused`] when `to` is narrower
 /// than `from`, and [`PostureObstruction::AlreadyAtPosture`] when `to`
 /// equals `from`.
-pub fn promote_posture(
+#[cfg(test)]
+fn promote_posture(
     from: CausalPosture,
     to: CausalPosture,
     witness: WitnessDigest,
@@ -798,6 +956,9 @@ pub fn promote_posture(
     }
     if to == from {
         return Err(PostureObstruction::AlreadyAtPosture { posture: from });
+    }
+    if to == CausalPosture::Shared {
+        return Err(PostureObstruction::SharedAdmissionRequiresIntent);
     }
     Ok(PosturePromotion {
         from,
@@ -817,6 +978,68 @@ fn validate_admission_scope(
         }
         (CausalPosture::Scratch | CausalPosture::AuthorOnly, None)
         | (CausalPosture::Shared, Some(_)) => Ok(()),
+    }
+}
+
+fn validate_posture_derivation(
+    posture: CausalPosture,
+    derivation: PostureDerivation,
+) -> Result<(), PostureObstruction> {
+    let valid = match derivation {
+        PostureDerivation::LegacyDurableAssumedShared => posture == CausalPosture::Shared,
+        PostureDerivation::LegacyEphemeralAssumedScratch => posture == CausalPosture::Scratch,
+        PostureDerivation::DebuggerDefault | PostureDerivation::CounterfactualDefault => {
+            posture != CausalPosture::Shared
+        }
+        PostureDerivation::ExplicitIntent
+        | PostureDerivation::SessionDefault
+        | PostureDerivation::ImportedManifest => true,
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(PostureObstruction::PostureDerivationMismatch {
+            posture,
+            derivation,
+        })
+    }
+}
+
+fn validate_authority_coherence(
+    origin_id: OriginId,
+    author_domain: AuthorityDomainRef,
+    binding: AuthorityBinding,
+) -> Result<(), PostureObstruction> {
+    if author_domain.origin_id != origin_id {
+        return Err(PostureObstruction::AuthorityOriginMismatch {
+            origin_id,
+            authority_origin: author_domain.origin_id,
+        });
+    }
+    match binding {
+        AuthorityBinding::LocalUnbound { origin } if origin != origin_id => {
+            Err(PostureObstruction::AuthorityBindingOriginMismatch {
+                origin_id,
+                binding_origin: origin,
+            })
+        }
+        AuthorityBinding::ImportedUnresolved { remote_origin, .. }
+            if remote_origin != origin_id =>
+        {
+            Err(PostureObstruction::AuthorityBindingOriginMismatch {
+                origin_id,
+                binding_origin: remote_origin,
+            })
+        }
+        AuthorityBinding::ImportedUnresolved {
+            remote_authority, ..
+        } if remote_authority != author_domain => {
+            Err(PostureObstruction::AuthorityBindingDomainMismatch { author_domain })
+        }
+        AuthorityBinding::LocalUnbound { .. }
+        | AuthorityBinding::LocalKeyed { .. }
+        | AuthorityBinding::Delegated { .. }
+        | AuthorityBinding::ImportedUnresolved { .. } => Ok(()),
     }
 }
 
@@ -905,14 +1128,22 @@ mod tests {
     }
 
     #[test]
-    fn promotion_widens_with_witness() {
+    fn non_shared_promotion_widens_with_witness() {
         assert_eq!(
-            promote_posture(CausalPosture::AuthorOnly, CausalPosture::Shared, witness(),),
+            promote_posture(CausalPosture::Scratch, CausalPosture::AuthorOnly, witness(),),
             Ok(PosturePromotion {
-                from: CausalPosture::AuthorOnly,
-                to: CausalPosture::Shared,
+                from: CausalPosture::Scratch,
+                to: CausalPosture::AuthorOnly,
                 witness: *witness().as_hash(),
             })
+        );
+    }
+
+    #[test]
+    fn shared_promotion_requires_admission_intent() {
+        assert_eq!(
+            promote_posture(CausalPosture::AuthorOnly, CausalPosture::Shared, witness(),),
+            Err(PostureObstruction::SharedAdmissionRequiresIntent)
         );
     }
 
@@ -1000,6 +1231,76 @@ mod tests {
     }
 
     #[test]
+    fn legacy_derivation_must_match_effective_posture() {
+        let authority = fixture_authority();
+        let retention_contract = RetentionContractId::from_bytes([0xA7; 32]);
+
+        assert_eq!(
+            RetentionPosture::new(
+                CausalPosture::AuthorOnly,
+                PostureDerivation::LegacyDurableAssumedShared,
+                authority,
+                retention_contract,
+                None,
+            ),
+            Err(PostureObstruction::PostureDerivationMismatch {
+                posture: CausalPosture::AuthorOnly,
+                derivation: PostureDerivation::LegacyDurableAssumedShared,
+            })
+        );
+        assert_eq!(
+            RetentionPosture::new(
+                CausalPosture::Shared,
+                PostureDerivation::LegacyEphemeralAssumedScratch,
+                authority,
+                retention_contract,
+                Some(AdmissionScopeId::from_bytes([0x55; 32])),
+            ),
+            Err(PostureObstruction::PostureDerivationMismatch {
+                posture: CausalPosture::Shared,
+                derivation: PostureDerivation::LegacyEphemeralAssumedScratch,
+            })
+        );
+    }
+
+    #[test]
+    fn causal_authority_rejects_incoherent_local_binding() {
+        assert_eq!(
+            CausalAuthority::new(
+                OriginId::from_bytes([0xA1; 32]),
+                ActorId::from_bytes([0xA2; 32]),
+                AuthorityDomainRef::new(
+                    OriginId::from_bytes([0xB1; 32]),
+                    AuthorityDomainId::from_bytes([0xD0; 32]),
+                ),
+                AuthorityBinding::LocalUnbound {
+                    origin: OriginId::from_bytes([0xA1; 32]),
+                },
+                SealStrength::Advisory,
+            ),
+            Err(PostureObstruction::AuthorityOriginMismatch {
+                origin_id: OriginId::from_bytes([0xA1; 32]),
+                authority_origin: OriginId::from_bytes([0xB1; 32]),
+            })
+        );
+        assert_eq!(
+            CausalAuthority::new(
+                OriginId::from_bytes([0xA1; 32]),
+                ActorId::from_bytes([0xA2; 32]),
+                fixture_authority_ref(),
+                AuthorityBinding::LocalUnbound {
+                    origin: OriginId::from_bytes([0xB1; 32]),
+                },
+                SealStrength::Advisory,
+            ),
+            Err(PostureObstruction::AuthorityBindingOriginMismatch {
+                origin_id: OriginId::from_bytes([0xA1; 32]),
+                binding_origin: OriginId::from_bytes([0xB1; 32]),
+            })
+        );
+    }
+
+    #[test]
     fn replay_of_scratch_strand_does_not_materialize() {
         assert_eq!(
             revelation_operation_effect(CausalPosture::Scratch, RevelationOperation::Replay),
@@ -1044,6 +1345,28 @@ mod tests {
     }
 
     #[test]
+    fn materialization_rejects_mismatched_authority_proof() {
+        assert_eq!(
+            MaterializationReceipt::new(
+                crate::strand::make_strand_id("scratch"),
+                CausalPosture::Scratch,
+                CausalPosture::AuthorOnly,
+                ActorId::from_bytes([0xA2; 32]),
+                fixture_authority_ref(),
+                AuthorityResolutionProof::LocalAuthorityDomain(AuthorityDomainRef::new(
+                    OriginId::from_bytes([0xB1; 32]),
+                    AuthorityDomainId::from_bytes([0xD0; 32]),
+                )),
+                RetentionContractId::from_bytes([0xC0; 32]),
+                MaterializationBasis::ExplicitSave,
+            ),
+            Err(PostureObstruction::AuthorityProofMismatch {
+                authorized_by: fixture_authority_ref(),
+            })
+        );
+    }
+
+    #[test]
     fn promotion_to_shared_requires_authority_scope_intent_and_witness() {
         let admission_scope = AdmissionScopeId::from_bytes([0x55; 32]);
         let promotion = PromotionIntent::admit_shared(
@@ -1065,11 +1388,61 @@ mod tests {
     }
 
     #[test]
+    fn promotion_rejects_mismatched_authority_proof() {
+        assert_eq!(
+            PromotionIntent::admit_shared(
+                IntentId::from_bytes([0x11; 32]),
+                ActorId::from_bytes([0xA2; 32]),
+                fixture_authority_ref(),
+                AuthorityResolutionProof::LocalAuthorityDomain(AuthorityDomainRef::new(
+                    OriginId::from_bytes([0xB1; 32]),
+                    AuthorityDomainId::from_bytes([0xD0; 32]),
+                )),
+                crate::strand::make_strand_id("author-only"),
+                CausalPosture::AuthorOnly,
+                AdmissionScopeId::from_bytes([0x55; 32]),
+                witness(),
+                PromotionBasis::ExplicitAdmission,
+                ProjectionPolicy::FinalResultOnly,
+                SourceDisclosurePolicy::RevealNone,
+            ),
+            Err(PostureObstruction::AuthorityProofMismatch {
+                authorized_by: fixture_authority_ref(),
+            })
+        );
+    }
+
+    #[test]
     fn imported_source_shared_is_not_local_admitted_without_admission_scope() {
         assert_eq!(
             import_posture_disposition(CausalPosture::Shared, false, None),
             ImportPostureDisposition::SourceSharedPendingAdmission {
                 namespace: ImportQuarantineNamespace::SourceSharedPendingAdmission,
+            }
+        );
+    }
+
+    #[test]
+    fn imported_source_shared_requires_local_admission_receipt() {
+        let receipt = ImportAdmissionReceipt::new(
+            IntentId::from_bytes([0x11; 32]),
+            fixture_authority_ref(),
+            AuthorityResolutionProof::LocalAuthorityDomain(fixture_authority_ref()),
+            AdmissionScopeId::from_bytes([0x55; 32]),
+            witness(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            import_posture_disposition(CausalPosture::Shared, false, None),
+            ImportPostureDisposition::SourceSharedPendingAdmission {
+                namespace: ImportQuarantineNamespace::SourceSharedPendingAdmission,
+            }
+        );
+        assert_eq!(
+            import_posture_disposition(CausalPosture::Shared, false, Some(receipt)),
+            ImportPostureDisposition::LocallyAdmittedShared {
+                admission_scope: AdmissionScopeId::from_bytes([0x55; 32]),
             }
         );
     }
@@ -1097,7 +1470,7 @@ mod tests {
             [0x44; 32],
         );
 
-        assert_eq!(admission.source_strand, source_strand);
+        assert_eq!(admission.source, AdmissionSourceDisclosure::Hidden);
         assert_eq!(admission.projection_digest, [0x44; 32]);
         assert_eq!(
             admission.source_disclosure,
@@ -1163,14 +1536,15 @@ mod tests {
     }
 
     fn fixture_authority() -> CausalAuthority {
-        CausalAuthority {
-            origin_id: OriginId::from_bytes([0xA1; 32]),
-            actor_id: ActorId::from_bytes([0xA2; 32]),
-            author_domain: fixture_authority_ref(),
-            binding: AuthorityBinding::LocalUnbound {
+        CausalAuthority::new(
+            OriginId::from_bytes([0xA1; 32]),
+            ActorId::from_bytes([0xA2; 32]),
+            fixture_authority_ref(),
+            AuthorityBinding::LocalUnbound {
                 origin: OriginId::from_bytes([0xA1; 32]),
             },
-            seal_strength: SealStrength::Advisory,
-        }
+            SealStrength::Advisory,
+        )
+        .unwrap()
     }
 }

@@ -45,11 +45,11 @@ assert "constructor posture guard exists" \
   test -x "${guard}"
 
 echo ""
-echo "2. Raw retained posture construction is rejected"
+echo "2. Raw posture construction and default regressions are rejected"
 tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/causal-posture-lint.XXXXXX")"
 trap 'rm -rf "${tmpdir}"' EXIT
-fixture="${tmpdir}/bad.rs"
-cat >"${fixture}" <<'RS'
+retention_fixture="${tmpdir}/bad-retention.rs"
+cat >"${retention_fixture}" <<'RS'
 fn bad_fixture() {
     let _posture = RetentionPosture {
         causal_posture,
@@ -62,7 +62,61 @@ fn bad_fixture() {
 RS
 
 assert_not "raw RetentionPosture literal is rejected" \
-  env CAUSAL_POSTURE_LINT_PATHS="${fixture}" "${guard}"
+  env CAUSAL_POSTURE_LINT_PATHS="${retention_fixture}" "${guard}"
+
+session_fixture="${tmpdir}/bad-session.rs"
+cat >"${session_fixture}" <<'RS'
+fn bad_fixture() {
+    let _session = SessionContext {
+        session_id,
+        origin_id,
+        actor_id,
+        author_domain,
+        authority_binding,
+        seal_strength,
+        default_posture,
+        default_admission_scope,
+        retention_contract,
+    };
+}
+RS
+
+assert_not "raw SessionContext literal is rejected" \
+  env CAUSAL_POSTURE_LINT_PATHS="${session_fixture}" "${guard}"
+
+default_call_fixture="${tmpdir}/bad-default-call.rs"
+cat >"${default_call_fixture}" <<'RS'
+fn bad_fixture() {
+    let _posture = CausalPosture::default();
+}
+RS
+
+assert_not "CausalPosture::default call is rejected" \
+  env CAUSAL_POSTURE_LINT_PATHS="${default_call_fixture}" "${guard}"
+
+impl_default_fixture="${tmpdir}/bad-impl-default.rs"
+cat >"${impl_default_fixture}" <<'RS'
+impl Default for CausalPosture {
+    fn default() -> Self {
+        Self::AuthorOnly
+    }
+}
+RS
+
+assert_not "impl Default for CausalPosture is rejected" \
+  env CAUSAL_POSTURE_LINT_PATHS="${impl_default_fixture}" "${guard}"
+
+derive_default_fixture="${tmpdir}/bad-derive-default.rs"
+cat >"${derive_default_fixture}" <<'RS'
+#[derive(Debug, Default)]
+pub enum CausalPosture {
+    #[default]
+    AuthorOnly,
+}
+RS
+
+assert_not "derive Default on CausalPosture is rejected" \
+  env CAUSAL_POSTURE_LINT_PATHS="${derive_default_fixture}" "${guard}"
 
 echo ""
 echo "=== Results: ${passed} passed, ${failed} failed ==="

@@ -578,14 +578,26 @@ pub enum SourceDisclosurePolicy {
     RevealByAuthorityOnly,
 }
 
+pub enum AdmissionSourceDisclosure {
+    Hidden,
+    Stub { source_strand: StrandId },
+    Redacted { source_strand: StrandId },
+    Full { source_strand: StrandId },
+    AuthorityOnly { source_strand: StrandId },
+}
+
 pub struct SharedAdmission {
     pub admission_id: AdmissionId,
-    pub source_strand: StrandId,
+    pub source: AdmissionSourceDisclosure,
     pub projection_digest: Digest,
     pub admission_scope: AdmissionScopeId,
     pub source_disclosure: SourceDisclosurePolicy,
 }
 ```
+
+`SourceDisclosurePolicy::RevealNone` must produce
+`AdmissionSourceDisclosure::Hidden`; a shared projection may reveal the result
+without revealing the sealed source strand id.
 
 `LegacySharedAuthority` explains migrated legacy shared visibility only. It
 must not authorize new promotion, materialization, import adoption, or fresh

@@ -1156,6 +1156,7 @@ fn append_plural_artifact(
         RecordedEntryDraft {
             event_kind: ProvenanceEventKind::PluralArtifact {
                 plural_id: draft.plural_id,
+                posture: draft.posture,
             },
             patch: no_op_patch,
             expected_state_root,
@@ -2322,7 +2323,10 @@ mod tests {
         let retained = provenance.entry(base_worldline, wt(2)).unwrap();
         assert!(matches!(
             retained.event_kind,
-            ProvenanceEventKind::PluralArtifact { .. }
+            ProvenanceEventKind::PluralArtifact {
+                posture: CausalPosture::AuthorOnly,
+                ..
+            }
         ));
 
         // No silent collapse: the base worldline keeps its own claim.

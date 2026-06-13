@@ -11,6 +11,9 @@
   admission to an explicit imported artifact identity. A receipt minted for one
   imported artifact cannot admit another import into a local shared admission
   scope.
+- `warp-core` retained plural settlement artifacts now persist their causal
+  posture in `ProvenanceEventKind::PluralArtifact` and include the posture tag
+  in canonical provenance-event hashing.
 - `warp-core` now exposes a generic contract obstruction taxonomy for
   product-facing contract-host surfaces. `ContractObstructionKind`,
   `ContractObstructionSubject`, and `ContractObstruction` classify unsupported

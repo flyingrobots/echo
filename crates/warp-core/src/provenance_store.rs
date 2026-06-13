@@ -30,6 +30,7 @@ use crate::head::WriterHeadKey;
 use crate::ident::{Hash, NodeKey, WarpId};
 use crate::materialization::FinalizedChannel;
 use crate::receipt::TickReceipt;
+use crate::revelation::CausalPosture;
 use crate::snapshot::{compute_commit_hash_v2, compute_state_root_for_warp_state, Snapshot};
 use crate::tick_patch::{TickCommitStatus, WarpTickPatchV1};
 use crate::tx::TxId;
@@ -457,6 +458,8 @@ pub enum ProvenanceEventKind {
     PluralArtifact {
         /// Stable plural artifact id.
         plural_id: Hash,
+        /// Revelation posture retained with the plural alternative.
+        posture: CausalPosture,
     },
 }
 
@@ -3684,6 +3687,29 @@ mod tests {
         assert!(service.braid_shell(&digest_b).is_none());
         assert!(service.braid_shell_for_plural(&plural_a).is_some());
         assert!(service.braid_shell_for_plural(&[0xB2; 32]).is_none());
+    }
+
+    #[test]
+    fn plural_artifact_event_hash_includes_posture() {
+        let plural_id = [0xA7; 32];
+        let mut author_only = blake3::Hasher::new();
+        crate::coordinator::hash_provenance_event_kind(
+            &mut author_only,
+            &ProvenanceEventKind::PluralArtifact {
+                plural_id,
+                posture: crate::revelation::CausalPosture::AuthorOnly,
+            },
+        );
+        let mut shared = blake3::Hasher::new();
+        crate::coordinator::hash_provenance_event_kind(
+            &mut shared,
+            &ProvenanceEventKind::PluralArtifact {
+                plural_id,
+                posture: crate::revelation::CausalPosture::Shared,
+            },
+        );
+
+        assert_ne!(author_only.finalize(), shared.finalize());
     }
 
     #[test]

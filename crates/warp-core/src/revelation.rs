@@ -60,7 +60,6 @@ macro_rules! hash_id {
 /// type intentionally has no global default; named constructors and migration
 /// paths are the only places that may choose posture policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum CausalPosture {
     /// Local, weakly retained, disposable working tier.
     Scratch,

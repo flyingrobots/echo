@@ -587,6 +587,10 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- `echo-file-aperture` now normalizes `HostFileSnapshot` material at the
+  aperture boundary so caller-forged snapshot metadata or fingerprints cannot
+  bind a basis, observation receipt, or materialization verification to bytes
+  different from the observed host bytes.
 - `scripts/verify-local.sh` stamp storage now resolves the real gitdir via
   `git rev-parse --git-dir`, so pre-commit and pre-push hooks work in linked
   worktrees where `.git` is a file rather than a directory. Stamps are

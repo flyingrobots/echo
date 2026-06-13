@@ -353,6 +353,23 @@ impl HostFileSnapshot {
             fingerprint,
         })
     }
+
+    fn into_observed_material(self) -> Result<ObservedHostFileMaterial, FileApertureError> {
+        let metadata = HostFileMetadata::for_bytes(&self.bytes)?;
+        let fingerprint = HostFileFingerprint::from_parts(&self.bytes, metadata);
+        Ok(ObservedHostFileMaterial {
+            identity: self.identity,
+            bytes: self.bytes,
+            fingerprint,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ObservedHostFileMaterial {
+    identity: HostFileIdentity,
+    bytes: Vec<u8>,
+    fingerprint: HostFileFingerprint,
 }
 
 /// Bounded Echo projection of file content at a basis.
@@ -537,6 +554,7 @@ impl InMemoryFileAperture {
         &mut self,
         snapshot: HostFileSnapshot,
     ) -> Result<HostFileObservationReceipt, FileApertureError> {
+        let snapshot = snapshot.into_observed_material()?;
         let site_resolution = snapshot.identity.site_resolution()?;
         let site_id = site_resolution.file_site_id;
         let observation_id = self.next_observation_id;
@@ -653,6 +671,7 @@ impl InMemoryFileAperture {
         basis: FileBasisToken,
         snapshot: HostFileSnapshot,
     ) -> Result<FileMaterializationReceipt, FileApertureError> {
+        let snapshot = snapshot.into_observed_material()?;
         let observed_site_id = snapshot.identity.site_id()?;
         if observed_site_id != site_id {
             return Err(FileApertureError::SiteIdentityMismatch {

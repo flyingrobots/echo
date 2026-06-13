@@ -3,9 +3,9 @@
 //! Contract tests for the Echo-owned file aperture.
 
 use echo_file_aperture::{
-    ContentAdmissionPosture, FileApertureError, FileContentProposal, FileSiteId,
-    FileSiteIdentityPosture, HostFileIdentity, HostFileSnapshot, HostObservationPosture,
-    InMemoryFileAperture, MaterializationVerificationPosture,
+    ContentAdmissionPosture, FileApertureError, FileContentDigest, FileContentProposal, FileSiteId,
+    FileSiteIdentityPosture, HostFileFingerprint, HostFileIdentity, HostFileSnapshot,
+    HostObservationPosture, InMemoryFileAperture, MaterializationVerificationPosture,
 };
 
 fn snapshot(path: &str, bytes: &[u8]) -> Result<HostFileSnapshot, FileApertureError> {
@@ -147,6 +147,32 @@ fn unknown_host_file_admits_initial_import_before_projection() -> Result<(), Fil
     assert_eq!(
         receipt.projection.content_digest,
         receipt.fingerprint.content_digest
+    );
+    Ok(())
+}
+
+#[test]
+fn forged_snapshot_fingerprint_cannot_override_observed_bytes() -> Result<(), FileApertureError> {
+    let mut aperture = InMemoryFileAperture::default();
+    let identity = HostFileIdentity::new(b"/tmp/demo.txt", None)?;
+    let forged_metadata = echo_file_aperture::HostFileMetadata { byte_len: 3 };
+    let forged_snapshot = HostFileSnapshot {
+        identity,
+        bytes: b"one".to_vec(),
+        metadata: forged_metadata,
+        fingerprint: HostFileFingerprint::from_parts(b"two", forged_metadata),
+    };
+
+    let receipt = aperture.observe(forged_snapshot)?;
+
+    assert_eq!(receipt.projection.bytes, b"one");
+    assert_eq!(
+        receipt.projection.content_digest,
+        FileContentDigest::for_bytes(b"one")
+    );
+    assert_eq!(
+        receipt.fingerprint.content_digest,
+        FileContentDigest::for_bytes(b"one")
     );
     Ok(())
 }

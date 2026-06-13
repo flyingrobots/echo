@@ -2539,6 +2539,86 @@ mod tests {
     }
 
     #[test]
+    fn late_shell_retention_failure_rolls_back_entries_and_leaks_nothing() {
+        let (mut runtime, mut provenance, strand_id, base_worldline, _) =
+            setup_runtime_with_strand(ParentDrift::OverlapDifferent);
+
+        // Compute the deterministic plural id this settlement will produce,
+        // then pre-bind it to a different shell so the real settlement's
+        // shell append fails AFTER entries are appended.
+        let plan =
+            SettlementService::plan_with_policy(&runtime, &provenance, strand_id, &plural_policy())
+                .unwrap();
+        let plural_id = plan
+            .decisions
+            .iter()
+            .find_map(|decision| plural_alternative(decision).map(|draft| draft.plural_id))
+            .unwrap();
+        let dummy = crate::braid_shell::BraidShell::assemble(
+            base_worldline,
+            plan.target_base_ref,
+            vec![crate::braid_shell::BraidShellMember {
+                strand_ref: crate::strand::make_strand_id("dummy-binder"),
+                support_pin_digest: [1; 32],
+                basis_digest: [2; 32],
+                frontier_digest: [3; 32],
+                footprint_digest: [4; 32],
+                claim_digest: [5; 32],
+                verdict: crate::braid_shell::MemberVerdict::Plural,
+                verdict_digest: [6; 32],
+                posture: crate::revelation::RevelationPosture::AuthorOnly,
+            }],
+            [0xAB; 32],
+            crate::braid_shell::BraidShellOutcome::Plural {
+                alternative_ids: vec![plural_id],
+            },
+            crate::revelation::RevelationPosture::AuthorOnly,
+        )
+        .unwrap();
+        let dummy_digest = provenance.append_braid_shell(dummy).unwrap();
+
+        let entries_before = provenance.len(base_worldline).unwrap();
+        let frontier_before = runtime
+            .worldlines()
+            .get(&base_worldline)
+            .unwrap()
+            .frontier_tick();
+
+        let outcome = SettlementService::settle_with_policy(
+            &mut runtime,
+            &mut provenance,
+            strand_id,
+            &plural_policy(),
+        );
+        assert!(matches!(
+            outcome,
+            Err(SettlementError::BraidShell(
+                crate::braid_shell::BraidShellError::PluralArtifactAlreadyBound { .. }
+            ))
+        ));
+
+        // Rollback law: entries restored, runtime restored, no new shell,
+        // residue index unchanged. The pants exist.
+        assert_eq!(provenance.len(base_worldline).unwrap(), entries_before);
+        assert_eq!(
+            runtime
+                .worldlines()
+                .get(&base_worldline)
+                .unwrap()
+                .frontier_tick(),
+            frontier_before
+        );
+        assert_eq!(provenance.braid_shells().count(), 1);
+        assert_eq!(
+            provenance
+                .braid_shell_for_plural(&plural_id)
+                .unwrap()
+                .digest,
+            dummy_digest
+        );
+    }
+
+    #[test]
     fn plural_artifact_resolves_to_its_braid_shell() {
         let (mut runtime, mut provenance, strand_id, _, _) =
             setup_runtime_with_strand(ParentDrift::OverlapDifferent);

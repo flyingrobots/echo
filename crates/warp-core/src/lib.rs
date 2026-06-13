@@ -257,10 +257,10 @@ pub use retained_evidence::{
 pub use playback::{SessionId, ViewSession};
 // --- Truth delivery ---
 pub use braid_shell::{
-    collapse_braid_shell, replay_braid_shell, BraidShell, BraidShellError, BraidShellMember,
-    BraidShellOutcome, BraidShellQuery, BraidShellRecords, BraidShellReplay, CollapsePolicy,
-    CollapseResult, MemberVerdict, RetainedBoundaryKind, RetainedBoundaryRecord, WitnessDigest,
-    BRAID_SHELL_VERSION, COLLAPSE_WITHOUT_POLICY_REASON,
+    collapse_braid_shell, replay_braid_shell, BraidCoordinate, BraidShell, BraidShellError,
+    BraidShellMember, BraidShellOutcome, BraidShellQuery, BraidShellRecords, BraidShellReplay,
+    CollapsePolicy, CollapseResult, MemberVerdict, RetainedBoundaryKind, RetainedBoundaryRecord,
+    WitnessDigest, BRAID_SHELL_VERSION, COLLAPSE_WITHOUT_POLICY_REASON,
 };
 pub use neighborhood::{
     NeighborhoodCore, NeighborhoodError, NeighborhoodParticipant, NeighborhoodParticipantRole,

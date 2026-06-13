@@ -29,6 +29,7 @@ use crate::worldline::WorldlineId;
 const SHELL_DOMAIN: &[u8] = b"echo.shell.braid.v1\0";
 const MEMBER_DOMAIN: &[u8] = b"echo.braid.member.v1\0";
 const WITNESS_DOMAIN: &[u8] = b"echo.braid.witness.v1\0";
+const COORDINATE_DOMAIN: &[u8] = b"echo.braid.coordinate.v1\0";
 
 /// Current braid shell body version.
 pub const BRAID_SHELL_VERSION: u32 = 1;
@@ -133,6 +134,8 @@ pub enum BraidShellOutcome {
         reason_code: u8,
         /// Witness digest for the obstruction.
         witness: Hash,
+        /// Shell whose transition this obstruction refused, when applicable.
+        obstructed_from: Option<Hash>,
     },
 }
 
@@ -180,10 +183,12 @@ impl BraidShellOutcome {
             Self::Obstruction {
                 reason_code,
                 witness,
+                obstructed_from,
             } => {
                 hasher.update(&[4]);
                 hasher.update(&[*reason_code]);
                 hasher.update(witness);
+                hash_optional_digest(hasher, obstructed_from.as_ref());
             }
         }
     }
@@ -276,6 +281,52 @@ pub enum BraidShellError {
     /// A witness digest must never be a 32-byte shrug.
     #[error("empty or null witness digest refused")]
     EmptyWitness,
+    /// The stored braid coordinate does not match the recomputed body.
+    #[error("braid coordinate mismatch")]
+    CoordinateMismatch,
+    /// Plural alternatives are a set; duplicates are refused.
+    #[error("duplicate plural alternative id {alternative_id:?}")]
+    DuplicateAlternativeId {
+        /// Alternative id that appeared more than once.
+        alternative_id: Hash,
+    },
+    /// One strand may appear at most once among shell members.
+    #[error("duplicate member strand {strand_id:?}")]
+    DuplicateMemberStrand {
+        /// Strand that appeared more than once.
+        strand_id: StrandId,
+    },
+    /// A retained plural artifact id may never migrate to a different shell.
+    #[error("plural artifact {plural_id:?} already bound to shell {existing_shell:?}")]
+    PluralArtifactAlreadyBound {
+        /// Plural artifact id being bound.
+        plural_id: Hash,
+        /// Shell digest the id is already bound to.
+        existing_shell: Hash,
+        /// Shell digest the rebind attempted.
+        attempted_shell: Hash,
+    },
+}
+
+/// Canonical coordinate of a braid: where the shell lives in braid space.
+///
+/// `hash(basis_ref, canonical_member_digest_list, policy_id)` — the first
+/// real consumer of braid-scale addressing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct BraidCoordinate(pub Hash);
+
+impl BraidCoordinate {
+    fn derive(basis: &ProvenanceRef, members: &[BraidShellMember], policy_id: Hash) -> Self {
+        let mut hasher = Hasher::new();
+        hasher.update(COORDINATE_DOMAIN);
+        hash_provenance_ref(&mut hasher, basis);
+        hasher.update(&(members.len() as u64).to_le_bytes());
+        for member in members {
+            hasher.update(&member.member_digest());
+        }
+        hasher.update(&policy_id);
+        Self(hasher.finalize().into())
+    }
 }
 
 /// Witness digest with a quality bar: zero and empty-input digests refused.
@@ -308,6 +359,8 @@ impl WitnessDigest {
 pub struct BraidShell {
     /// Shell body version.
     pub version: u32,
+    /// Canonical braid coordinate this shell lives at.
+    pub coordinate: BraidCoordinate,
     /// Target worldline the settlement judged into.
     pub worldline_id: WorldlineId,
     /// Comparison basis the members were judged against.
@@ -347,11 +400,22 @@ impl BraidShell {
             return Err(BraidShellError::EmptyMembers);
         }
         members.sort_by_key(BraidShellMember::member_digest);
+        check_unique_member_strands(&members)?;
         if let BraidShellOutcome::Plural { alternative_ids } = &mut outcome {
             // Retained alternatives are a set; canonical order, not transcript
             // order (the member verdict digest binds the ordered transcript).
             alternative_ids.sort_unstable();
+            if let Some(duplicate) = alternative_ids
+                .windows(2)
+                .find(|pair| pair[0] == pair[1])
+                .map(|pair| pair[0])
+            {
+                return Err(BraidShellError::DuplicateAlternativeId {
+                    alternative_id: duplicate,
+                });
+            }
         }
+        check_outcome_law(&outcome)?;
         if let Some(obstruction) =
             shell_posture_obstruction(posture, members.iter().map(|member| member.posture))
         {
@@ -359,6 +423,7 @@ impl BraidShell {
         }
         check_outcome_member_coherence(&outcome, &members)?;
 
+        let coordinate = BraidCoordinate::derive(&basis, &members, policy_id);
         let witness_digest = compute_witness_digest(
             BRAID_SHELL_VERSION,
             worldline_id,
@@ -380,6 +445,7 @@ impl BraidShell {
         );
         Ok(Self {
             version: BRAID_SHELL_VERSION,
+            coordinate,
             worldline_id,
             basis,
             members,
@@ -418,11 +484,22 @@ impl BraidShell {
             }
             previous = Some(current);
         }
+        check_unique_member_strands(&self.members)?;
         if let BraidShellOutcome::Plural { alternative_ids } = &self.outcome {
             if alternative_ids.windows(2).any(|pair| pair[0] > pair[1]) {
                 return Err(BraidShellError::NonCanonicalAlternativeOrder);
             }
+            if let Some(duplicate) = alternative_ids
+                .windows(2)
+                .find(|pair| pair[0] == pair[1])
+                .map(|pair| pair[0])
+            {
+                return Err(BraidShellError::DuplicateAlternativeId {
+                    alternative_id: duplicate,
+                });
+            }
         }
+        check_outcome_law(&self.outcome)?;
         if let Some(obstruction) = shell_posture_obstruction(
             self.posture,
             self.members.iter().map(|member| member.posture),
@@ -430,6 +507,9 @@ impl BraidShell {
             return Err(BraidShellError::PostureExceedsMembers(obstruction));
         }
         check_outcome_member_coherence(&self.outcome, &self.members)?;
+        if BraidCoordinate::derive(&self.basis, &self.members, self.policy_id) != self.coordinate {
+            return Err(BraidShellError::CoordinateMismatch);
+        }
 
         let witness = compute_witness_digest(
             self.version,
@@ -478,6 +558,37 @@ impl BraidShell {
             .iter()
             .any(|member| member.strand_ref == *strand_id)
     }
+}
+
+/// Witness-bearing outcome fields must clear the [`WitnessDigest`] bar:
+/// the newtype bouncer guards every door, not just the constructor.
+fn check_outcome_law(outcome: &BraidShellOutcome) -> Result<(), BraidShellError> {
+    match outcome {
+        BraidShellOutcome::Derived {
+            collapse_witness: Some(witness),
+            ..
+        }
+        | BraidShellOutcome::Obstruction { witness, .. } => {
+            WitnessDigest::new(*witness)?;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// One strand may appear at most once among shell members.
+fn check_unique_member_strands(members: &[BraidShellMember]) -> Result<(), BraidShellError> {
+    for (index, member) in members.iter().enumerate() {
+        if members[..index]
+            .iter()
+            .any(|earlier| earlier.strand_ref == member.strand_ref)
+        {
+            return Err(BraidShellError::DuplicateMemberStrand {
+                strand_id: member.strand_ref,
+            });
+        }
+    }
+    Ok(())
 }
 
 fn check_outcome_member_coherence(
@@ -656,21 +767,28 @@ pub fn replay_braid_shell(
             recomputed: shell.digest,
         });
     }
-    if let BraidShellOutcome::Derived {
-        collapsed_from: Some(parent_digest),
-        ..
-    } = &shell.outcome
-    {
+    let lineage_parent = match &shell.outcome {
+        BraidShellOutcome::Derived {
+            collapsed_from: Some(parent_digest),
+            ..
+        }
+        | BraidShellOutcome::Obstruction {
+            obstructed_from: Some(parent_digest),
+            ..
+        } => Some(*parent_digest),
+        _ => None,
+    };
+    if let Some(parent_digest) = lineage_parent {
         let parent =
             records
-                .shell(parent_digest)
+                .shell(&parent_digest)
                 .ok_or(BraidShellError::InvalidCollapseLineage {
-                    collapsed_from: *parent_digest,
+                    collapsed_from: parent_digest,
                 })?;
         parent.validate()?;
         if !matches!(parent.outcome, BraidShellOutcome::Plural { .. }) {
             return Err(BraidShellError::InvalidCollapseLineage {
-                collapsed_from: *parent_digest,
+                collapsed_from: parent_digest,
             });
         }
     }
@@ -771,6 +889,7 @@ pub fn collapse_braid_shell(
         BraidShellOutcome::Obstruction {
             reason_code: COLLAPSE_WITHOUT_POLICY_REASON,
             witness: witness_hasher.finalize().into(),
+            obstructed_from: Some(plural_shell_digest),
         },
         plural.posture,
     )?;
@@ -809,11 +928,54 @@ impl RetainedBoundaryRecord for BraidShell {
 
 const TICK_SHELL_DOMAIN: &[u8] = b"echo.shell.tick.v1\0";
 
+fn hash_event_kind(hasher: &mut Hasher, kind: &crate::provenance_store::ProvenanceEventKind) {
+    use crate::provenance_store::ProvenanceEventKind;
+    match kind {
+        ProvenanceEventKind::LocalCommit => {
+            hasher.update(&[1]);
+        }
+        ProvenanceEventKind::CrossWorldlineMessage {
+            source_worldline,
+            source_worldline_tick,
+            message_id,
+        } => {
+            hasher.update(&[2]);
+            hasher.update(source_worldline.as_bytes());
+            hasher.update(&source_worldline_tick.as_u64().to_le_bytes());
+            hasher.update(message_id);
+        }
+        ProvenanceEventKind::MergeImport {
+            source_worldline,
+            source_worldline_tick,
+            op_id,
+        } => {
+            hasher.update(&[3]);
+            hasher.update(source_worldline.as_bytes());
+            hasher.update(&source_worldline_tick.as_u64().to_le_bytes());
+            hasher.update(op_id);
+        }
+        ProvenanceEventKind::ConflictArtifact { artifact_id } => {
+            hasher.update(&[4]);
+            hasher.update(artifact_id);
+        }
+        ProvenanceEventKind::PluralArtifact { plural_id } => {
+            hasher.update(&[5]);
+            hasher.update(plural_id);
+        }
+    }
+}
+
 impl RetainedBoundaryRecord for crate::provenance_store::BoundaryTransitionRecord {
     fn boundary_kind(&self) -> RetainedBoundaryKind {
         RetainedBoundaryKind::Tick
     }
 
+    /// Full canonical content digest over the retained BTR body: boundary
+    /// facts, payload coordinates, every entry's coordinate, event kind,
+    /// head key, parents, and hash triplet, plus the auth tag. The entry
+    /// commit hash transitively binds each patch digest, state root, and
+    /// parent set, but the coordinates and event facts are bound explicitly
+    /// here — this is a record digest, not a vibes checksum.
     fn boundary_digest(&self) -> Hash {
         let mut hasher = Hasher::new();
         hasher.update(TICK_SHELL_DOMAIN);
@@ -822,10 +984,34 @@ impl RetainedBoundaryRecord for crate::provenance_store::BoundaryTransitionRecor
         hasher.update(&self.input_boundary_hash);
         hasher.update(&self.output_boundary_hash);
         hasher.update(&self.logical_counter.to_le_bytes());
+        hasher.update(self.payload.worldline_id.as_bytes());
+        hasher.update(&self.payload.start_worldline_tick.as_u64().to_le_bytes());
         hasher.update(&(self.payload.entries.len() as u64).to_le_bytes());
         for entry in &self.payload.entries {
+            hasher.update(entry.worldline_id.as_bytes());
+            hasher.update(&entry.worldline_tick.as_u64().to_le_bytes());
+            hasher.update(&entry.commit_global_tick.as_u64().to_le_bytes());
+            match &entry.head_key {
+                Some(head_key) => {
+                    hasher.update(&[1]);
+                    hasher.update(head_key.worldline_id.as_bytes());
+                    hasher.update(head_key.head_id.as_bytes());
+                }
+                None => {
+                    hasher.update(&[0]);
+                }
+            }
+            hash_event_kind(&mut hasher, &entry.event_kind);
+            hasher.update(&(entry.parents.len() as u64).to_le_bytes());
+            for parent in &entry.parents {
+                hash_provenance_ref(&mut hasher, parent);
+            }
+            hasher.update(&entry.expected.state_root);
+            hasher.update(&entry.expected.patch_digest);
             hasher.update(&entry.expected.commit_hash);
         }
+        hasher.update(&(self.auth_tag.len() as u64).to_le_bytes());
+        hasher.update(&self.auth_tag);
         hasher.finalize().into()
     }
 }
@@ -833,6 +1019,8 @@ impl RetainedBoundaryRecord for crate::provenance_store::BoundaryTransitionRecor
 /// Scan-backed query over retained braid shells.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct BraidShellQuery {
+    /// Match the shell at this braid coordinate.
+    pub coordinate: Option<BraidCoordinate>,
     /// Match shells judged against this comparison basis.
     pub basis: Option<ProvenanceRef>,
     /// Match shells summarizing this member strand.
@@ -847,7 +1035,10 @@ impl BraidShell {
     /// Returns whether the shell matches every present query field.
     #[must_use]
     pub fn matches(&self, query: &BraidShellQuery) -> bool {
-        query.basis.is_none_or(|basis| self.basis == basis)
+        query
+            .coordinate
+            .is_none_or(|coordinate| self.coordinate == coordinate)
+            && query.basis.is_none_or(|basis| self.basis == basis)
             && query
                 .member_strand
                 .as_ref()
@@ -975,7 +1166,9 @@ mod tests {
         verdict_tampered.members[0].verdict_digest = [0xBB; 32];
         assert!(matches!(
             verdict_tampered.validate(),
-            Err(BraidShellError::WitnessMismatch { .. } | BraidShellError::DigestMismatch { .. })
+            Err(BraidShellError::WitnessMismatch { .. }
+                | BraidShellError::DigestMismatch { .. }
+                | BraidShellError::CoordinateMismatch)
         ));
 
         let mut posture_tampered = shell.clone();
@@ -990,6 +1183,134 @@ mod tests {
             reason_codes: vec![4],
         };
         assert!(outcome_tampered.validate().is_err());
+    }
+
+    #[test]
+    fn tampering_with_coordinate_fails_validation() {
+        let mut shell = plural_shell(vec![member("member-a", MemberVerdict::Plural)]);
+        shell.coordinate = BraidCoordinate([0xCC; 32]);
+        assert_eq!(shell.validate(), Err(BraidShellError::CoordinateMismatch));
+    }
+
+    #[test]
+    fn derived_shell_rejects_empty_collapse_witness() {
+        let result = BraidShell::assemble(
+            wl(1),
+            basis_ref(),
+            vec![member("member-a", MemberVerdict::Derived)],
+            [0x5E; 32],
+            BraidShellOutcome::Derived {
+                result_refs: vec![basis_ref()],
+                collapse_policy: Some([0x77; 32]),
+                collapse_witness: Some([0; 32]),
+                collapsed_from: Some([0x88; 32]),
+            },
+            RevelationPosture::AuthorOnly,
+        );
+        assert_eq!(result, Err(BraidShellError::EmptyWitness));
+    }
+
+    #[test]
+    fn obstruction_shell_rejects_empty_witness() {
+        let result = BraidShell::assemble(
+            wl(1),
+            basis_ref(),
+            vec![member("member-a", MemberVerdict::Obstructed)],
+            [0x5E; 32],
+            BraidShellOutcome::Obstruction {
+                reason_code: 1,
+                witness: crate::blake3_empty(),
+                obstructed_from: None,
+            },
+            RevelationPosture::AuthorOnly,
+        );
+        assert_eq!(result, Err(BraidShellError::EmptyWitness));
+    }
+
+    #[test]
+    fn duplicate_alternative_ids_are_refused() {
+        let result = BraidShell::assemble(
+            wl(1),
+            basis_ref(),
+            vec![member("member-a", MemberVerdict::Plural)],
+            [0x5E; 32],
+            BraidShellOutcome::Plural {
+                alternative_ids: vec![[0x31; 32], [0x31; 32]],
+            },
+            RevelationPosture::AuthorOnly,
+        );
+        assert_eq!(
+            result,
+            Err(BraidShellError::DuplicateAlternativeId {
+                alternative_id: [0x31; 32],
+            })
+        );
+    }
+
+    #[test]
+    fn duplicate_member_strands_are_refused() {
+        let mut duplicate = member("member-a", MemberVerdict::Plural);
+        duplicate.claim_digest = [0x99; 32];
+        let result = BraidShell::assemble(
+            wl(1),
+            basis_ref(),
+            vec![member("member-a", MemberVerdict::Plural), duplicate],
+            [0x5E; 32],
+            BraidShellOutcome::Plural {
+                alternative_ids: vec![[0x31; 32]],
+            },
+            RevelationPosture::AuthorOnly,
+        );
+        assert_eq!(
+            result,
+            Err(BraidShellError::DuplicateMemberStrand {
+                strand_id: make_strand_id("member-a"),
+            })
+        );
+    }
+
+    #[test]
+    fn obstructed_collapse_names_its_plural_parent() {
+        let plural = plural_shell(vec![member("member-a", MemberVerdict::Plural)]);
+        let plural_digest = plural.digest;
+        let records = Records::with([plural.clone()]);
+
+        let CollapseResult::Obstructed(obstructed) =
+            collapse_braid_shell(&records, plural_digest, Vec::new(), None).unwrap()
+        else {
+            unreachable!("collapse without policy must obstruct");
+        };
+        let BraidShellOutcome::Obstruction {
+            obstructed_from, ..
+        } = obstructed.outcome
+        else {
+            unreachable!("obstructed collapse carries an obstruction outcome");
+        };
+        assert_eq!(obstructed_from, Some(plural_digest));
+
+        // Replay verifies the named parent is retained and plural.
+        let mut store = Records::with([plural]);
+        let CollapseResult::Obstructed(obstructed) =
+            collapse_braid_shell(&store, plural_digest, Vec::new(), None).unwrap()
+        else {
+            unreachable!();
+        };
+        store.0.insert(obstructed.digest, obstructed.clone());
+        let replay = replay_braid_shell(&obstructed.digest, &store).unwrap();
+        assert_eq!(replay.outcome_kind, AdmissionOutcomeKind::Obstruction);
+    }
+
+    #[test]
+    fn shells_are_queryable_by_coordinate() {
+        let shell = plural_shell(vec![member("member-a", MemberVerdict::Plural)]);
+        assert!(shell.matches(&BraidShellQuery {
+            coordinate: Some(shell.coordinate),
+            ..BraidShellQuery::default()
+        }));
+        assert!(!shell.matches(&BraidShellQuery {
+            coordinate: Some(BraidCoordinate([0xDD; 32])),
+            ..BraidShellQuery::default()
+        }));
     }
 
     #[test]
@@ -1193,6 +1514,7 @@ mod tests {
 
         assert!(shell.matches(&BraidShellQuery::default()));
         assert!(shell.matches(&BraidShellQuery {
+            coordinate: Some(shell.coordinate),
             basis: Some(basis_ref()),
             member_strand: Some(make_strand_id("member-a")),
             outcome: Some(AdmissionOutcomeKind::Plural),

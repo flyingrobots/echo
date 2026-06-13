@@ -1762,7 +1762,24 @@ impl ProvenanceService {
             }
             return Ok(digest);
         }
+        // Index bindings are append-only retained truth: a plural artifact
+        // id may never migrate to a different shell. Check every binding
+        // before inserting anything so a refused append leaves no partial
+        // state behind.
         if let crate::braid_shell::BraidShellOutcome::Plural { alternative_ids } = &shell.outcome {
+            for plural_id in alternative_ids {
+                if let Some(existing) = self.plural_shell_index.get(plural_id) {
+                    if *existing != digest {
+                        return Err(
+                            crate::braid_shell::BraidShellError::PluralArtifactAlreadyBound {
+                                plural_id: *plural_id,
+                                existing_shell: *existing,
+                                attempted_shell: digest,
+                            },
+                        );
+                    }
+                }
+            }
             for plural_id in alternative_ids {
                 self.plural_shell_index.insert(*plural_id, digest);
             }
@@ -1814,6 +1831,9 @@ impl ProvenanceService {
     /// replay outcomes from the shells alone.
     #[must_use]
     pub fn take_braid_shells(&mut self) -> BTreeMap<Hash, crate::braid_shell::BraidShell> {
+        // The residue index describes the shells; taking one without the
+        // other would leave the service internally inconsistent.
+        self.plural_shell_index.clear();
         std::mem::take(&mut self.braid_shells)
     }
 

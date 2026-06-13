@@ -530,24 +530,72 @@ pub enum MaterializationBasis {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MaterializationReceipt {
     /// Source strand being materialized.
-    pub source: StrandId,
+    source: StrandId,
     /// Source posture.
-    pub from: CausalPosture,
+    from: CausalPosture,
     /// Target posture.
-    pub to: CausalPosture,
+    to: CausalPosture,
     /// Concrete actor performing the save.
-    pub actor: ActorId,
+    actor: ActorId,
     /// Authority domain authorizing retention.
-    pub authorized_by: AuthorityDomainRef,
+    authorized_by: AuthorityDomainRef,
     /// Authority proof.
-    pub authority_proof: AuthorityResolutionProof,
+    authority_proof: AuthorityResolutionProof,
     /// Retention contract Lambda.
-    pub retention_contract: RetentionContractId,
+    retention_contract: RetentionContractId,
     /// Materialization basis.
-    pub basis: MaterializationBasis,
+    basis: MaterializationBasis,
 }
 
 impl MaterializationReceipt {
+    /// Returns the source strand being materialized.
+    #[must_use]
+    pub const fn source(&self) -> StrandId {
+        self.source
+    }
+
+    /// Returns the source posture.
+    #[must_use]
+    pub const fn from(&self) -> CausalPosture {
+        self.from
+    }
+
+    /// Returns the target posture.
+    #[must_use]
+    pub const fn to(&self) -> CausalPosture {
+        self.to
+    }
+
+    /// Returns the actor that performed the save.
+    #[must_use]
+    pub const fn actor(&self) -> ActorId {
+        self.actor
+    }
+
+    /// Returns the authority domain authorizing retention.
+    #[must_use]
+    pub const fn authorized_by(&self) -> AuthorityDomainRef {
+        self.authorized_by
+    }
+
+    /// Returns the authority proof.
+    #[must_use]
+    pub const fn authority_proof(&self) -> AuthorityResolutionProof {
+        self.authority_proof
+    }
+
+    /// Returns the retention contract.
+    #[must_use]
+    pub const fn retention_contract(&self) -> RetentionContractId {
+        self.retention_contract
+    }
+
+    /// Returns the materialization basis.
+    #[must_use]
+    pub const fn basis(&self) -> MaterializationBasis {
+        self.basis
+    }
+
     /// Builds a validated materialization receipt.
     ///
     /// # Errors
@@ -625,32 +673,104 @@ pub enum SourceDisclosurePolicy {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PromotionIntent {
     /// Intent identity.
-    pub intent_id: IntentId,
+    intent_id: IntentId,
     /// Concrete actor performing admission.
-    pub actor: ActorId,
+    actor: ActorId,
     /// Authority domain authorizing admission.
-    pub authorized_by: AuthorityDomainRef,
+    authorized_by: AuthorityDomainRef,
     /// Authority proof.
-    pub authority_proof: AuthorityResolutionProof,
+    authority_proof: AuthorityResolutionProof,
     /// Source strand being admitted.
-    pub source_strand: StrandId,
+    source_strand: StrandId,
     /// Source posture.
-    pub from: CausalPosture,
+    from: CausalPosture,
     /// Target posture. Must be `Shared`.
-    pub to: CausalPosture,
+    to: CausalPosture,
     /// Target admission scope.
-    pub admission_scope: AdmissionScopeId,
+    admission_scope: AdmissionScopeId,
     /// Witness binding the admission act.
-    pub witness: WitnessDigest,
+    witness: WitnessDigest,
     /// Promotion basis.
-    pub basis: PromotionBasis,
+    basis: PromotionBasis,
     /// Projection policy.
-    pub projection_policy: ProjectionPolicy,
+    projection_policy: ProjectionPolicy,
     /// Source disclosure policy.
-    pub source_disclosure: SourceDisclosurePolicy,
+    source_disclosure: SourceDisclosurePolicy,
 }
 
 impl PromotionIntent {
+    /// Returns the intent identity.
+    #[must_use]
+    pub const fn intent_id(&self) -> IntentId {
+        self.intent_id
+    }
+
+    /// Returns the actor performing admission.
+    #[must_use]
+    pub const fn actor(&self) -> ActorId {
+        self.actor
+    }
+
+    /// Returns the authority domain authorizing admission.
+    #[must_use]
+    pub const fn authorized_by(&self) -> AuthorityDomainRef {
+        self.authorized_by
+    }
+
+    /// Returns the authority proof.
+    #[must_use]
+    pub const fn authority_proof(&self) -> AuthorityResolutionProof {
+        self.authority_proof
+    }
+
+    /// Returns the source strand being admitted.
+    #[must_use]
+    pub const fn source_strand(&self) -> StrandId {
+        self.source_strand
+    }
+
+    /// Returns the source posture.
+    #[must_use]
+    pub const fn from(&self) -> CausalPosture {
+        self.from
+    }
+
+    /// Returns the target posture.
+    #[must_use]
+    pub const fn to(&self) -> CausalPosture {
+        self.to
+    }
+
+    /// Returns the target admission scope.
+    #[must_use]
+    pub const fn admission_scope(&self) -> AdmissionScopeId {
+        self.admission_scope
+    }
+
+    /// Returns the witness binding the admission act.
+    #[must_use]
+    pub const fn witness(&self) -> WitnessDigest {
+        self.witness
+    }
+
+    /// Returns the promotion basis.
+    #[must_use]
+    pub const fn basis(&self) -> PromotionBasis {
+        self.basis
+    }
+
+    /// Returns the projection policy.
+    #[must_use]
+    pub const fn projection_policy(&self) -> ProjectionPolicy {
+        self.projection_policy
+    }
+
+    /// Returns the source disclosure policy.
+    #[must_use]
+    pub const fn source_disclosure(&self) -> SourceDisclosurePolicy {
+        self.source_disclosure
+    }
+
     /// Builds a validated promotion intent targeting shared history.
     ///
     /// # Errors
@@ -773,20 +893,56 @@ impl SharedAdmission {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ImportAdmissionReceipt {
     /// Intent that admitted the import locally.
-    pub intent_id: IntentId,
+    intent_id: IntentId,
     /// Imported artifact identity this receipt admits.
-    pub imported_artifact_id: ImportedArtifactId,
+    imported_artifact_id: ImportedArtifactId,
     /// Authority domain authorizing local admission.
-    pub authorized_by: AuthorityDomainRef,
+    authorized_by: AuthorityDomainRef,
     /// Authority proof.
-    pub authority_proof: AuthorityResolutionProof,
+    authority_proof: AuthorityResolutionProof,
     /// Local admission scope.
-    pub admission_scope: AdmissionScopeId,
+    admission_scope: AdmissionScopeId,
     /// Witness binding the import admission.
-    pub witness: WitnessDigest,
+    witness: WitnessDigest,
 }
 
 impl ImportAdmissionReceipt {
+    /// Returns the intent that admitted the import locally.
+    #[must_use]
+    pub const fn intent_id(&self) -> IntentId {
+        self.intent_id
+    }
+
+    /// Returns the imported artifact identity this receipt admits.
+    #[must_use]
+    pub const fn imported_artifact_id(&self) -> ImportedArtifactId {
+        self.imported_artifact_id
+    }
+
+    /// Returns the authority domain authorizing local admission.
+    #[must_use]
+    pub const fn authorized_by(&self) -> AuthorityDomainRef {
+        self.authorized_by
+    }
+
+    /// Returns the authority proof.
+    #[must_use]
+    pub const fn authority_proof(&self) -> AuthorityResolutionProof {
+        self.authority_proof
+    }
+
+    /// Returns the local admission scope.
+    #[must_use]
+    pub const fn admission_scope(&self) -> AdmissionScopeId {
+        self.admission_scope
+    }
+
+    /// Returns the witness binding the import admission.
+    #[must_use]
+    pub const fn witness(&self) -> WitnessDigest {
+        self.witness
+    }
+
     /// Builds a validated import admission receipt.
     ///
     /// # Errors
@@ -1350,6 +1506,29 @@ mod tests {
                 to: CausalPosture::Shared,
             })
         );
+    }
+
+    #[test]
+    fn validated_posture_tokens_keep_invariant_fields_private() {
+        let source = include_str!("revelation.rs");
+        for type_name in [
+            "MaterializationReceipt",
+            "PromotionIntent",
+            "ImportAdmissionReceipt",
+        ] {
+            let struct_start = source.find(&format!("pub struct {type_name}")).unwrap();
+            let fields_start = source[struct_start..].find('{').unwrap() + struct_start;
+            let impl_start = source[fields_start..]
+                .find(&format!("impl {type_name}"))
+                .unwrap()
+                + fields_start;
+            let field_block = &source[fields_start..impl_start];
+
+            assert!(
+                !field_block.contains("\n    pub "),
+                "{type_name} exposes public fields that bypass validated constructors"
+            );
+        }
     }
 
     #[test]

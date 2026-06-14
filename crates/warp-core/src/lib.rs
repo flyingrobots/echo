@@ -41,6 +41,7 @@ pub mod wsc;
 
 mod admission;
 mod attachment;
+mod braid;
 mod braid_shell;
 mod causal_facts;
 pub mod causal_wal;
@@ -256,6 +257,8 @@ pub use retained_evidence::{
 pub use playback::{SessionId, ViewSession};
 // --- Proof types ---
 pub use proof::{ObserverHonestyClaim, ProofEnvelope, ProofKind};
+// --- Braid Log types ---
+pub use braid::{Braid, BraidEvent};
 // --- Retained boundary shell family (θ_tick, θ_braid) ---
 pub use braid_shell::{
     collapse_braid_shell, replay_braid_shell, BraidCoordinate, BraidShell, BraidShellError,

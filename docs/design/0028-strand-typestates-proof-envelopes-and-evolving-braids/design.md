@@ -7,7 +7,7 @@ _Close the remaining gaps in the warp-core specs for AION Paper VIII / Continuum
 
 Legend: `PLATFORM`
 
-Status: **approved (James review, 2026-06-14) — RED next**
+Status: **draft / in-review**
 
 > Statically preventing a non-Shared strand from entering settlement is not a runtime validation; it is a compilation invariance. Combined with ZK-honest claims and blinded references, we make the braid a zero-knowledge boundary. — review verdict
 
@@ -167,8 +167,8 @@ impl BraidShell {
     ) -> Result<Self, BraidShellError> {
         // ... sorting and validation of members and posture ...
         if let Some(ref p) = proof {
-            if let Err(err) = p.verify(witness_digest) {
-                return Err(BraidShellError::ProofVerificationFailed { reason: err });
+            if let Err(err) = p.validate_shape(witness_digest) {
+                return Err(BraidShellError::ProofShapeValidationFailed { reason: err });
             }
         }
         // ... computes shell digest and returns Self ...

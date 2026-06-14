@@ -29,12 +29,12 @@ pub struct ProofEnvelope {
 }
 
 impl ProofEnvelope {
-    /// Validates the proof against the expected public inputs hash.
+    /// Validates the envelope shape and public inputs hash.
     ///
     /// # Errors
     ///
     /// Returns a validation error string if proof bytes are empty or public inputs mismatch.
-    pub fn verify(&self, expected_public_inputs_hash: Hash) -> Result<(), String> {
+    pub fn validate_shape(&self, expected_public_inputs_hash: Hash) -> Result<(), String> {
         if self.proof_bytes.is_empty() {
             return Err("Proof payload is empty".to_string());
         }

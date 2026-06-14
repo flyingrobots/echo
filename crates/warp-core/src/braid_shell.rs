@@ -314,10 +314,10 @@ pub enum BraidShellError {
         /// Witness digest recomputed from the body.
         recomputed: Hash,
     },
-    /// The proof verification failed.
-    #[error("proof verification failed: {reason}")]
-    ProofVerificationFailed {
-        /// Reason for verification failure.
+    /// The proof shape validation failed.
+    #[error("proof shape validation failed: {reason}")]
+    ProofShapeValidationFailed {
+        /// Reason for shape validation failure.
         reason: String,
     },
     /// Member entries are not in canonical order.
@@ -537,8 +537,8 @@ impl BraidShell {
         );
 
         if let Some(ref p) = proof {
-            if let Err(err) = p.verify(witness_digest) {
-                return Err(BraidShellError::ProofVerificationFailed { reason: err });
+            if let Err(err) = p.validate_shape(witness_digest) {
+                return Err(BraidShellError::ProofShapeValidationFailed { reason: err });
             }
         }
 
@@ -641,8 +641,8 @@ impl BraidShell {
             });
         }
         if let Some(ref p) = self.proof {
-            if let Err(err) = p.verify(self.witness_digest) {
-                return Err(BraidShellError::ProofVerificationFailed { reason: err });
+            if let Err(err) = p.validate_shape(self.witness_digest) {
+                return Err(BraidShellError::ProofShapeValidationFailed { reason: err });
             }
         }
 
@@ -1739,7 +1739,7 @@ mod tests {
         );
         assert!(matches!(
             result_mismatch,
-            Err(BraidShellError::ProofVerificationFailed { .. })
+            Err(BraidShellError::ProofShapeValidationFailed { .. })
         ));
 
         // Invalid proof: empty proof bytes
@@ -1761,7 +1761,7 @@ mod tests {
         );
         assert!(matches!(
             result_empty,
-            Err(BraidShellError::ProofVerificationFailed { .. })
+            Err(BraidShellError::ProofShapeValidationFailed { .. })
         ));
     }
 

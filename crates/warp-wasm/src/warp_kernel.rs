@@ -1542,6 +1542,7 @@ mod tests {
                 writer_heads: vec![child_head],
                 support_pins: Vec::new(),
                 retention_posture: retention_posture.clone(),
+                _marker: std::marker::PhantomData,
             })
             .unwrap();
 
@@ -1604,6 +1605,7 @@ mod tests {
                 writer_heads: vec![child_head],
                 support_pins: Vec::new(),
                 retention_posture,
+                _marker: std::marker::PhantomData,
             })
             .unwrap();
         (

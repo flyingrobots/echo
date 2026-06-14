@@ -724,6 +724,7 @@ impl SettlementService {
         policy: &SettlementPolicy,
     ) -> Result<SettlementPlan, SettlementError> {
         let strand_id = strand.strand_id;
+        ensure_shared_runtime_posture(strand)?;
         let strand_posture = strand.retention_posture.causal_posture;
         let delta = Self::compare_internal(runtime, provenance, strand)?;
         let target_worldline = strand.fork_basis_ref.source_lane_id;
@@ -919,6 +920,7 @@ impl SettlementService {
         strand: &crate::strand::Strand<crate::revelation::Shared>,
         policy: &SettlementPolicy,
     ) -> Result<SettlementResult, SettlementError> {
+        ensure_shared_runtime_posture(strand)?;
         let plan = Self::plan_with_policy_internal(runtime, provenance, strand, policy)?;
         if plan.decisions.is_empty() {
             return Ok(SettlementResult {
@@ -1026,6 +1028,19 @@ fn shared_strand(
             strand_id,
             posture: d_strand.retention_posture.causal_posture,
         })
+}
+
+fn ensure_shared_runtime_posture(
+    strand: &crate::strand::Strand<crate::revelation::Shared>,
+) -> Result<(), SettlementError> {
+    if strand.retention_posture.causal_posture == CausalPosture::Shared {
+        Ok(())
+    } else {
+        Err(SettlementError::NonSharedStrand {
+            strand_id: strand.strand_id,
+            posture: strand.retention_posture.causal_posture,
+        })
+    }
 }
 
 fn ensure_frontier_matches_provenance(
@@ -2190,15 +2205,98 @@ mod tests {
         ));
         let mut runtime_for_settle = runtime.clone();
         let mut provenance_for_settle = provenance.clone();
-        assert!(
-            SettlementService::settle(
-                &mut runtime_for_settle,
-                &mut provenance_for_settle,
-                strand_id
+        let settle_err = SettlementService::settle(
+            &mut runtime_for_settle,
+            &mut provenance_for_settle,
+            strand_id,
+        )
+        .expect_err("settle must not bypass the planning gate");
+        assert!(matches!(
+            settle_err,
+            SettlementError::NonSharedStrand {
+                strand_id: rejected,
+                posture: CausalPosture::AuthorOnly,
+            } if rejected == strand_id
+        ));
+    }
+
+    #[test]
+    fn settlement_internals_reject_forged_shared_typestate() {
+        let (runtime, provenance, strand_id, _, _) =
+            setup_runtime_with_strand_posture(ParentDrift::None, author_only_retention_posture());
+        let dynamic = runtime
+            .strands()
+            .get(&strand_id)
+            .expect("registered strand")
+            .clone();
+        let forged_shared = Strand::<crate::revelation::Shared> {
+            strand_id: dynamic.strand_id,
+            fork_basis_ref: dynamic.fork_basis_ref,
+            child_worldline_id: dynamic.child_worldline_id,
+            writer_heads: dynamic.writer_heads,
+            support_pins: dynamic.support_pins,
+            retention_posture: dynamic.retention_posture,
+            _marker: std::marker::PhantomData,
+        };
+
+        let plan_err = SettlementService::plan_with_policy_internal(
+            &runtime,
+            &provenance,
+            &forged_shared,
+            &SettlementPolicy::default(),
+        )
+        .expect_err("forged Shared typestate must not bypass planning posture check");
+        assert!(matches!(
+            plan_err,
+            SettlementError::NonSharedStrand {
+                strand_id: rejected,
+                posture: CausalPosture::AuthorOnly,
+            } if rejected == strand_id
+        ));
+
+        let method_err = forged_shared
+            .plan(&runtime, &provenance)
+            .expect_err("Strand<Shared>::plan must revalidate runtime posture");
+        assert!(matches!(
+            method_err,
+            SettlementError::NonSharedStrand {
+                strand_id: rejected,
+                posture: CausalPosture::AuthorOnly,
+            } if rejected == strand_id
+        ));
+
+        let mut runtime_for_settle = runtime.clone();
+        let mut provenance_for_settle = provenance.clone();
+        let settle_err = SettlementService::settle_with_policy_internal(
+            &mut runtime_for_settle,
+            &mut provenance_for_settle,
+            &forged_shared,
+            &SettlementPolicy::default(),
+        )
+        .expect_err("forged Shared typestate must not bypass settlement posture check");
+        assert!(matches!(
+            settle_err,
+            SettlementError::NonSharedStrand {
+                strand_id: rejected,
+                posture: CausalPosture::AuthorOnly,
+            } if rejected == strand_id
+        ));
+
+        let mut runtime_for_method_settle = runtime;
+        let mut provenance_for_method_settle = provenance;
+        let method_settle_err = forged_shared
+            .settle(
+                &mut runtime_for_method_settle,
+                &mut provenance_for_method_settle,
             )
-            .is_err(),
-            "settle must not bypass the planning gate"
-        );
+            .expect_err("Strand<Shared>::settle must revalidate runtime posture");
+        assert!(matches!(
+            method_settle_err,
+            SettlementError::NonSharedStrand {
+                strand_id: rejected,
+                posture: CausalPosture::AuthorOnly,
+            } if rejected == strand_id
+        ));
     }
 
     #[test]

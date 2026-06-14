@@ -630,6 +630,9 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- `warp-wasm` settlement publication now maps non-`Shared` strand admission
+  rejection to the stable `INVALID_STRAND` ABI error code instead of
+  collapsing the lawful posture denial into `ENGINE_ERROR`.
 - `echo-file-aperture` now normalizes `HostFileSnapshot` material at the
   aperture boundary so caller-forged snapshot metadata or fingerprints cannot
   bind a basis, observation receipt, or materialization verification to bytes

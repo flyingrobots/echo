@@ -700,6 +700,7 @@ impl SettlementService {
                 posture: strand.retention_posture.causal_posture,
             });
         }
+        let strand_posture = strand.retention_posture.causal_posture;
         let delta = Self::compare(runtime, provenance, strand_id)?;
         let target_worldline = strand.fork_basis_ref.source_lane_id;
         let target_frontier_tick =
@@ -826,6 +827,7 @@ impl SettlementService {
                     &source_entry,
                     entry_overlap_slots,
                     policy,
+                    strand_posture,
                 )));
                 continue;
             } else {
@@ -888,9 +890,13 @@ impl SettlementService {
                 braid_shell: None,
             });
         }
-        let (fork_basis_ref, support_pins) = {
+        let (fork_basis_ref, support_pins, strand_posture) = {
             let settled = strand(runtime.strands(), strand_id)?;
-            (settled.fork_basis_ref, settled.support_pins.clone())
+            (
+                settled.fork_basis_ref,
+                settled.support_pins.clone(),
+                settled.retention_posture.causal_posture,
+            )
         };
 
         let runtime_before = runtime.clone();
@@ -942,6 +948,7 @@ impl SettlementService {
                 &plan,
                 fork_basis_ref,
                 &support_pins,
+                strand_posture,
                 policy,
                 &appended_imports,
             )?;
@@ -1301,6 +1308,7 @@ fn build_braid_shell(
     plan: &SettlementPlan,
     fork_basis_ref: crate::strand::ForkBasisRef,
     support_pins: &[crate::strand::SupportPin],
+    strand_posture: CausalPosture,
     policy: &SettlementPolicy,
     appended_imports: &[ProvenanceRef],
 ) -> Result<crate::braid_shell::BraidShell, crate::braid_shell::BraidShellError> {
@@ -1373,7 +1381,7 @@ fn build_braid_shell(
         claim_digest: claim_hasher.finalize().into(),
         verdict,
         verdict_digest: verdict_hasher.finalize().into(),
-        posture: CausalPosture::AuthorOnly,
+        posture: strand_posture,
     };
 
     BraidShell::assemble(
@@ -1382,7 +1390,7 @@ fn build_braid_shell(
         vec![member],
         policy.policy_id,
         outcome,
-        CausalPosture::AuthorOnly,
+        strand_posture,
     )
 }
 
@@ -1443,6 +1451,7 @@ fn plural_draft(
     source_entry: &ProvenanceEntry,
     mut overlapping_slots: Vec<SlotId>,
     policy: &SettlementPolicy,
+    posture: CausalPosture,
 ) -> PluralAlternativeDraft {
     canonicalize_slots(&mut overlapping_slots);
     PluralAlternativeDraft {
@@ -1460,7 +1469,7 @@ fn plural_draft(
             .collect(),
         overlapping_slots,
         policy_id: policy.policy_id,
-        posture: CausalPosture::AuthorOnly,
+        posture,
     }
 }
 
@@ -2387,7 +2396,7 @@ mod tests {
             return;
         };
         assert_eq!(draft.policy_id, plural_policy().policy_id);
-        assert_eq!(draft.posture, CausalPosture::AuthorOnly);
+        assert_eq!(draft.posture, CausalPosture::Shared);
         assert!(!draft.overlapping_slots.is_empty());
         assert_eq!(draft.source_ref.worldline_id, child_worldline);
 
@@ -2417,7 +2426,7 @@ mod tests {
         assert!(matches!(
             retained.event_kind,
             ProvenanceEventKind::PluralArtifact {
-                posture: CausalPosture::AuthorOnly,
+                posture: CausalPosture::Shared,
                 ..
             }
         ));
@@ -2482,7 +2491,7 @@ mod tests {
         let shell = provenance.braid_shell(&shell_digest).unwrap();
 
         assert_eq!(shell.policy_id, plural_policy().policy_id);
-        assert_eq!(shell.posture, crate::revelation::CausalPosture::AuthorOnly);
+        assert_eq!(shell.posture, crate::revelation::CausalPosture::Shared);
         assert_eq!(shell.worldline_id, base_worldline);
         assert!(shell.has_member_strand(&strand_id));
         assert_eq!(shell.members.len(), 1);
@@ -2798,7 +2807,7 @@ mod tests {
         let query = crate::braid_shell::BraidShellQuery {
             member_strand: Some(strand_id),
             outcome: Some(AdmissionOutcomeKind::Plural),
-            posture: Some(crate::revelation::CausalPosture::AuthorOnly),
+            posture: Some(crate::revelation::CausalPosture::Shared),
             ..crate::braid_shell::BraidShellQuery::default()
         };
         assert_eq!(provenance.query_braid_shells(query).count(), 1);

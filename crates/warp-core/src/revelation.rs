@@ -380,13 +380,10 @@ impl SessionContext {
     ///
     /// Returns a posture obstruction if this session's authority/default
     /// posture no longer validates.
-    pub fn retention_posture(
-        &self,
-        posture_derivation: PostureDerivation,
-    ) -> Result<RetentionPosture, PostureObstruction> {
+    pub fn retention_posture(&self) -> Result<RetentionPosture, PostureObstruction> {
         RetentionPosture::new(
             self.default_posture,
-            posture_derivation,
+            PostureDerivation::SessionDefault,
             CausalAuthority::new(
                 self.origin_id,
                 self.actor_id,
@@ -1817,6 +1814,30 @@ mod tests {
             Err(PostureObstruction::MissingAdmissionScope {
                 posture: CausalPosture::Shared,
             })
+        );
+    }
+
+    #[test]
+    fn session_default_posture_derivation_is_not_caller_selectable() {
+        let session = SessionContext::new(
+            SessionId([0x51; 32]),
+            OriginId::from_bytes([0xA1; 32]),
+            ActorId::from_bytes([0xA2; 32]),
+            fixture_authority_ref(),
+            AuthorityBinding::LocalUnbound {
+                origin: OriginId::from_bytes([0xA1; 32]),
+            },
+            SealStrength::Advisory,
+            CausalPosture::Shared,
+            Some(AdmissionScopeId::from_bytes([0x55; 32])),
+            RetentionContractId::from_bytes([0xC0; 32]),
+        )
+        .unwrap();
+
+        let posture = session.retention_posture().unwrap();
+        assert_eq!(
+            posture.posture_derivation,
+            PostureDerivation::SessionDefault
         );
     }
 

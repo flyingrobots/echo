@@ -895,7 +895,7 @@ impl ForkStrandRequest {
             fork_tick,
             child_worldline_id,
             writer_heads,
-            retention_posture: session.retention_posture(PostureDerivation::SessionDefault)?,
+            retention_posture: session.retention_posture()?,
         })
     }
 
@@ -3453,7 +3453,7 @@ mod tests {
 
     fn test_retention_posture(n: u8) -> RetentionPosture {
         test_session_context(n, CausalPosture::AuthorOnly, None)
-            .retention_posture(PostureDerivation::SessionDefault)
+            .retention_posture()
             .unwrap()
     }
 

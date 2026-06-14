@@ -2,6 +2,8 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Evolving coordination log ("Braid") representation.
 
+use thiserror::Error;
+
 use crate::braid_shell::BraidMemberRef;
 use crate::ident::Hash;
 use crate::revelation::AuthorityDomainRef;
@@ -15,6 +17,36 @@ pub enum BraidStatus {
     Finalized,
     /// Braid has been collapsed from a plural state to a single derived state.
     Collapsed,
+}
+
+/// Error kinds returned during coordination braid lifecycle updates or folds.
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
+pub enum BraidError {
+    /// The event log was empty.
+    #[error("empty event stream")]
+    EmptyLog,
+    /// The event log did not begin with BraidCreated.
+    #[error("first event must be BraidCreated")]
+    MissingCreated,
+    /// The BraidCreated event appeared more than once.
+    #[error("BraidCreated event can only appear once at the start of the log")]
+    DuplicateCreated,
+    /// The member sequence number was out of order.
+    #[error("incoherent member sequence: expected {expected}, got {actual}")]
+    IncoherentSequence {
+        /// Expected sequence number.
+        expected: u64,
+        /// Actual sequence number.
+        actual: u64,
+    },
+    /// An invalid transition was attempted for the current braid status.
+    #[error("cannot transition braid state: cannot {action} in status {status:?}")]
+    InvalidTransition {
+        /// Attempted action or event kind.
+        action: String,
+        /// Current braid status.
+        status: BraidStatus,
+    },
 }
 
 /// Lifecycle events that define the evolution of a coordination braid.
@@ -115,55 +147,53 @@ impl Braid {
     ///
     /// # Errors
     ///
-    /// Returns an error message string if the event log is empty, if the log does
+    /// Returns a [`BraidError`] if the event log is empty, if the log does
     /// not begin with `BraidCreated`, or if any sequence numbering is incoherent.
-    pub fn fold(events: impl IntoIterator<Item = BraidEvent>) -> Result<Self, String> {
+    pub fn fold(events: impl IntoIterator<Item = BraidEvent>) -> Result<Self, BraidError> {
         let mut iter = events.into_iter();
-        let first = iter
-            .next()
-            .ok_or_else(|| "Empty event stream".to_string())?;
+        let first = iter.next().ok_or(BraidError::EmptyLog)?;
 
         let mut braid = match &first {
             BraidEvent::BraidCreated {
                 braid_id,
                 creator_domain,
             } => Self::new(*braid_id, *creator_domain),
-            _ => return Err("First event must be BraidCreated".to_string()),
+            _ => return Err(BraidError::MissingCreated),
         };
 
         for event in iter {
             match &event {
                 BraidEvent::BraidCreated { .. } => {
-                    return Err(
-                        "BraidCreated event can only appear once at the start of the log"
-                            .to_string(),
-                    );
+                    return Err(BraidError::DuplicateCreated);
                 }
                 BraidEvent::MemberWoven { sequence_num, .. } => {
                     if braid.status != BraidStatus::Active {
-                        return Err(format!("Cannot weave members in status {:?}", braid.status));
+                        return Err(BraidError::InvalidTransition {
+                            action: "weave member".to_string(),
+                            status: braid.status,
+                        });
                     }
                     if *sequence_num != braid.next_sequence_num {
-                        return Err(format!(
-                            "Incoherent member sequence: expected {}, got {}",
-                            braid.next_sequence_num, sequence_num
-                        ));
+                        return Err(BraidError::IncoherentSequence {
+                            expected: braid.next_sequence_num,
+                            actual: *sequence_num,
+                        });
                     }
                 }
                 BraidEvent::SettlementFinalized { .. } => {
                     if braid.status != BraidStatus::Active {
-                        return Err(format!(
-                            "Cannot finalize settlement in status {:?}",
-                            braid.status
-                        ));
+                        return Err(BraidError::InvalidTransition {
+                            action: "finalize settlement".to_string(),
+                            status: braid.status,
+                        });
                     }
                 }
                 BraidEvent::BraidCollapsed { .. } => {
                     if braid.status != BraidStatus::Finalized {
-                        return Err(format!(
-                            "Cannot collapse braid in status {:?}",
-                            braid.status
-                        ));
+                        return Err(BraidError::InvalidTransition {
+                            action: "collapse braid".to_string(),
+                            status: braid.status,
+                        });
                     }
                 }
             }
@@ -180,6 +210,7 @@ impl Braid {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::strand::make_strand_id;
@@ -279,7 +310,10 @@ mod tests {
             member_ref: m1,
             sequence_num: 0,
         }];
-        assert!(Braid::fold(bad_events_no_created).is_err());
+        assert_eq!(
+            Braid::fold(bad_events_no_created),
+            Err(BraidError::MissingCreated)
+        );
 
         // Invalid: duplicate BraidCreated
         let bad_events_dup_created = vec![
@@ -292,7 +326,10 @@ mod tests {
                 creator_domain: auth,
             },
         ];
-        assert!(Braid::fold(bad_events_dup_created).is_err());
+        assert_eq!(
+            Braid::fold(bad_events_dup_created),
+            Err(BraidError::DuplicateCreated)
+        );
 
         // Invalid: out-of-order sequence
         let bad_events_out_of_order = vec![
@@ -305,7 +342,13 @@ mod tests {
                 sequence_num: 1, // Expected 0
             },
         ];
-        assert!(Braid::fold(bad_events_out_of_order).is_err());
+        assert_eq!(
+            Braid::fold(bad_events_out_of_order),
+            Err(BraidError::IncoherentSequence {
+                expected: 0,
+                actual: 1
+            })
+        );
 
         // Invalid: MemberWoven after finalized
         let bad_events_weave_after_finalized = vec![
@@ -321,7 +364,13 @@ mod tests {
                 sequence_num: 0,
             },
         ];
-        assert!(Braid::fold(bad_events_weave_after_finalized).is_err());
+        assert_eq!(
+            Braid::fold(bad_events_weave_after_finalized),
+            Err(BraidError::InvalidTransition {
+                action: "weave member".to_string(),
+                status: BraidStatus::Finalized
+            })
+        );
 
         // Invalid: BraidCollapsed before finalized
         let bad_events_collapse_before_finalized = vec![
@@ -334,6 +383,12 @@ mod tests {
                 outcome_digest: collapse_outcome,
             },
         ];
-        assert!(Braid::fold(bad_events_collapse_before_finalized).is_err());
+        assert_eq!(
+            Braid::fold(bad_events_collapse_before_finalized),
+            Err(BraidError::InvalidTransition {
+                action: "collapse braid".to_string(),
+                status: BraidStatus::Active
+            })
+        );
     }
 }

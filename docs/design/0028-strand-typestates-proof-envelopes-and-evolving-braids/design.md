@@ -97,26 +97,29 @@ Member references inside the public `BraidShell` can be sealed to protect user/s
 ```rust
 pub enum BraidMemberRef {
     Revealed(StrandId),
-    Sealed(Hash),
+    Sealed {
+        blinded_commitment: Hash,
+        authority: AuthorityDomainRef,
+    },
 }
 
 impl BraidMemberRef {
-    pub fn seal(strand_id: StrandId) -> Self {
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(b"braid-member-seal:");
+    pub fn seal(strand_id: StrandId, child_worldline_id: WorldlineId) -> Hash {
+        let mut hasher = Hasher::new();
+        hasher.update(SEALED_MEMBER_DOMAIN);
+        hasher.update(child_worldline_id.as_bytes());
         hasher.update(strand_id.as_bytes());
-        Self::Sealed(Hash::from_bytes(hasher.finalize().into()))
+        hasher.finalize().into()
     }
 
-    pub fn matches(&self, strand_id: StrandId) -> bool {
+    pub fn matches_strand(&self, strand_id: &StrandId, child_worldline_id: &WorldlineId) -> bool {
         match self {
-            Self::Revealed(r) => *r == strand_id,
-            Self::Sealed(h) => {
-                let expected = Self::seal(strand_id);
-                match expected {
-                    Self::Sealed(expected_hash) => *h == expected_hash,
-                    Self::Revealed(_) => unreachable!(),
-                }
+            Self::Revealed(id) => *id == *strand_id,
+            Self::Sealed {
+                blinded_commitment, ..
+            } => {
+                let expected = Self::seal(*strand_id, *child_worldline_id);
+                *blinded_commitment == expected
             }
         }
     }
@@ -131,22 +134,21 @@ A `ProofEnvelope` contains the observer honesty claim and the cryptographic proo
 
 ```rust
 pub enum ProofKind {
-    ZeroKnowledge,
-    Verkle,
-    Merkle,
-    Custom(String),
+    ZkSnark,
+    ReplayTrace,
+    VectorOpening,
 }
 
 pub struct ProofEnvelope {
     pub kind: ProofKind,
-    pub honesty_claim: ObserverHonestyClaim,
     pub proof_bytes: Vec<u8>,
+    pub public_inputs_hash: Hash,
 }
 
 pub struct ObserverHonestyClaim {
-    pub observer_id: ActorId,
-    pub braid_id: Hash,
-    pub state_root: Hash,
+    pub coordinate: BraidCoordinate,
+    pub shell_digest: Hash,
+    pub observer_domain: AuthorityDomainRef,
 }
 ```
 
@@ -155,14 +157,21 @@ Validation occurs during shell assembly:
 ```rust
 impl BraidShell {
     pub fn assemble_with_proof(
-        mut self,
-        proof: ProofEnvelope,
-    ) -> Result<Self, SettlementError> {
-        if proof.honesty_claim.braid_id != self.coordinate.as_hash() {
-            return Err(SettlementError::ProofValidation("braid_id mismatch"));
+        worldline_id: WorldlineId,
+        basis: ProvenanceRef,
+        mut members: Vec<BraidShellMember>,
+        policy_id: Hash,
+        mut outcome: BraidShellOutcome,
+        posture: CausalPosture,
+        proof: Option<crate::proof::ProofEnvelope>,
+    ) -> Result<Self, BraidShellError> {
+        // ... sorting and validation of members and posture ...
+        if let Some(ref p) = proof {
+            if let Err(err) = p.verify(witness_digest) {
+                return Err(BraidShellError::ProofVerificationFailed { reason: err });
+            }
         }
-        self.proof_envelope = Some(proof);
-        Ok(self)
+        // ... computes shell digest and returns Self ...
     }
 }
 ```
@@ -174,26 +183,51 @@ impl BraidShell {
 Evolving braids transition through discrete events folded sequentially:
 
 ```rust
+pub enum BraidStatus {
+    Active,
+    Finalized,
+    Collapsed,
+}
+
+pub enum BraidError {
+    EmptyLog,
+    MissingCreated,
+    DuplicateCreated,
+    IncoherentSequence {
+        expected: u64,
+        actual: u64,
+    },
+    InvalidTransition {
+        action: String,
+        status: BraidStatus,
+    },
+}
+
 pub enum BraidEvent {
-    Created {
+    BraidCreated {
         braid_id: Hash,
-        policy: PolicyId,
+        creator_domain: AuthorityDomainRef,
     },
     MemberWoven {
-        member: BraidMemberRef,
-        frontier: Hash,
+        member_ref: BraidMemberRef,
+        sequence_num: u64,
     },
     SettlementFinalized {
+        settlement_digest: Hash,
+    },
+    BraidCollapsed {
+        collapse_witness: Hash,
         outcome_digest: Hash,
     },
 }
 
 pub struct Braid {
     pub braid_id: Hash,
-    pub policy: PolicyId,
+    pub events: Vec<BraidEvent>,
     pub members: Vec<BraidMemberRef>,
+    pub next_sequence_num: u64,
+    pub latest_settlement: Option<Hash>,
     pub status: BraidStatus,
-    pub version: u64,
 }
 ```
 

@@ -32,6 +32,7 @@ const SHELL_DOMAIN: &[u8] = b"echo.shell.braid.v1\0";
 const MEMBER_DOMAIN: &[u8] = b"echo.braid.member.v1\0";
 const WITNESS_DOMAIN: &[u8] = b"echo.braid.witness.v1\0";
 const COORDINATE_DOMAIN: &[u8] = b"echo.braid.coordinate.v1\0";
+const SEALED_MEMBER_DOMAIN: &[u8] = b"echo.braid.member.sealed.v1\0";
 
 /// Current braid shell body version.
 pub const BRAID_SHELL_VERSION: u32 = 1;
@@ -81,7 +82,7 @@ impl BraidMemberRef {
     #[must_use]
     pub fn seal(strand_id: StrandId, child_worldline_id: WorldlineId) -> Hash {
         let mut hasher = Hasher::new();
-        hasher.update(b"echo.braid.member.sealed.v1\0");
+        hasher.update(SEALED_MEMBER_DOMAIN);
         hasher.update(child_worldline_id.as_bytes());
         hasher.update(strand_id.as_bytes());
         hasher.finalize().into()

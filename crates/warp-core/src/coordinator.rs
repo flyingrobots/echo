@@ -1614,6 +1614,7 @@ impl WorldlineRuntime {
                     writer_heads: writer_heads.clone(),
                     support_pins: Vec::new(),
                     retention_posture,
+                    _marker: std::marker::PhantomData,
                 })?;
 
                 Ok(ForkStrandReceipt {
@@ -3393,7 +3394,7 @@ impl SchedulerCoordinator {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
     use crate::head::{make_head_id, WriterHead};
@@ -5044,7 +5045,7 @@ mod tests {
         };
         let contract_correlation = ReceiptCorrelationRecord {
             contract: Some(contract.clone()),
-            ..correlation.clone()
+            ..correlation
         };
         let applied_with_contract =
             IntentOutcome::from_observation(IntentOutcomeObservation::Decided {

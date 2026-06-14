@@ -323,14 +323,14 @@ pub use revelation::RevelationPosture;
 pub use revelation::{
     import_posture_disposition, least_revealed, revelation_operation_effect,
     shell_posture_obstruction, ActorId, AdmissionId, AdmissionScopeId, AdmissionSourceDisclosure,
-    AuthorityBinding, AuthorityCapabilityDigest, AuthorityDomainId, AuthorityDomainRef,
-    AuthorityResolutionProof, CapabilityProof, CausalAuthority, CausalPosture,
-    ImportAdmissionReceipt, ImportPostureDisposition, ImportQuarantineNamespace,
+    AuthorOnly, AuthorityBinding, AuthorityCapabilityDigest, AuthorityDomainId, AuthorityDomainRef,
+    AuthorityResolutionProof, CapabilityProof, CausalAuthority, CausalPosture, CausalPostureState,
+    DynamicPosture, ImportAdmissionReceipt, ImportPostureDisposition, ImportQuarantineNamespace,
     ImportedArtifactId, IntentId, KeyId, KeyProofId, MaterializationBasis, MaterializationReceipt,
     OperationPostureEffect, OriginId, PostureDerivation, PostureObstruction, ProjectionPolicy,
     ProjectionSpecId, PromotionBasis, PromotionIntent, RetentionContractId, RetentionPosture,
-    RevelationOperation, SealStrength, SessionContext, SharedAdmission, SourceDisclosurePolicy,
-    WitnessDigest,
+    RevelationOperation, Scratch, SealStrength, SessionContext, Shared, SharedAdmission,
+    SourceDisclosurePolicy, WitnessDigest,
 };
 #[cfg(feature = "native_rule_bootstrap")]
 pub use rule::{ConflictPolicy, ExecuteFn, MatchFn, PatternGraph, RewriteRule};

@@ -644,7 +644,17 @@ impl SettlementService {
         provenance: &ProvenanceService,
         strand_id: StrandId,
     ) -> Result<SettlementDelta, SettlementError> {
-        let strand = strand(runtime.strands(), strand_id)?;
+        let d_strand = strand(runtime.strands(), strand_id)?;
+        Self::compare_internal(runtime, provenance, d_strand)
+    }
+
+    /// Compares the strand suffix against its recorded base coordinate, generic over posture.
+    pub fn compare_internal<P: crate::revelation::CausalPostureState>(
+        runtime: &WorldlineRuntime,
+        provenance: &ProvenanceService,
+        strand: &crate::strand::Strand<P>,
+    ) -> Result<SettlementDelta, SettlementError> {
+        let strand_id = strand.strand_id;
         ensure_frontier_matches_provenance(
             runtime,
             provenance,
@@ -692,21 +702,30 @@ impl SettlementService {
     }
 
     /// Produces a deterministic settlement plan under an explicit named policy.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`SettlementError`] if the plan cannot be generated.
     pub fn plan_with_policy(
         runtime: &WorldlineRuntime,
         provenance: &ProvenanceService,
         strand_id: StrandId,
         policy: &SettlementPolicy,
     ) -> Result<SettlementPlan, SettlementError> {
-        let strand = strand(runtime.strands(), strand_id)?;
-        if strand.retention_posture.causal_posture != CausalPosture::Shared {
-            return Err(SettlementError::NonSharedStrand {
-                strand_id,
-                posture: strand.retention_posture.causal_posture,
-            });
-        }
+        let strand = shared_strand(runtime.strands(), strand_id)?;
+        Self::plan_with_policy_internal(runtime, provenance, &strand, policy)
+    }
+
+    /// Produces a deterministic settlement plan under an explicit named policy, statically gated on Shared posture.
+    pub fn plan_with_policy_internal(
+        runtime: &WorldlineRuntime,
+        provenance: &ProvenanceService,
+        strand: &crate::strand::Strand<crate::revelation::Shared>,
+        policy: &SettlementPolicy,
+    ) -> Result<SettlementPlan, SettlementError> {
+        let strand_id = strand.strand_id;
         let strand_posture = strand.retention_posture.causal_posture;
-        let delta = Self::compare(runtime, provenance, strand_id)?;
+        let delta = Self::compare_internal(runtime, provenance, strand)?;
         let target_worldline = strand.fork_basis_ref.source_lane_id;
         let target_frontier_tick =
             ensure_frontier_matches_provenance(runtime, provenance, target_worldline)?;
@@ -879,13 +898,28 @@ impl SettlementService {
     }
 
     /// Executes the deterministic settlement plan under an explicit named policy.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`SettlementError`] if settlement fails.
     pub fn settle_with_policy(
         runtime: &mut WorldlineRuntime,
         provenance: &mut ProvenanceService,
         strand_id: StrandId,
         policy: &SettlementPolicy,
     ) -> Result<SettlementResult, SettlementError> {
-        let plan = Self::plan_with_policy(runtime, provenance, strand_id, policy)?;
+        let strand = shared_strand(runtime.strands(), strand_id)?;
+        Self::settle_with_policy_internal(runtime, provenance, &strand, policy)
+    }
+
+    /// Executes the deterministic settlement plan under an explicit named policy, statically gated on Shared posture.
+    pub fn settle_with_policy_internal(
+        runtime: &mut WorldlineRuntime,
+        provenance: &mut ProvenanceService,
+        strand: &crate::strand::Strand<crate::revelation::Shared>,
+        policy: &SettlementPolicy,
+    ) -> Result<SettlementResult, SettlementError> {
+        let plan = Self::plan_with_policy_internal(runtime, provenance, strand, policy)?;
         if plan.decisions.is_empty() {
             return Ok(SettlementResult {
                 plan,
@@ -895,14 +929,9 @@ impl SettlementService {
                 braid_shell: None,
             });
         }
-        let (fork_basis_ref, support_pins, retention_posture) = {
-            let settled = strand(runtime.strands(), strand_id)?;
-            (
-                settled.fork_basis_ref,
-                settled.support_pins.clone(),
-                settled.retention_posture,
-            )
-        };
+        let fork_basis_ref = strand.fork_basis_ref;
+        let support_pins = strand.support_pins.clone();
+        let retention_posture = strand.retention_posture;
 
         let runtime_before = runtime.clone();
         let provenance_before = provenance.checkpoint_for([plan.target_worldline])?;
@@ -979,10 +1008,24 @@ impl SettlementService {
 fn strand(
     registry: &StrandRegistry,
     strand_id: StrandId,
-) -> Result<&crate::strand::Strand, SettlementError> {
+) -> Result<&crate::strand::Strand<crate::revelation::DynamicPosture>, SettlementError> {
     registry
         .get(&strand_id)
         .ok_or(SettlementError::StrandNotFound(strand_id))
+}
+
+fn shared_strand(
+    registry: &StrandRegistry,
+    strand_id: StrandId,
+) -> Result<crate::strand::Strand<crate::revelation::Shared>, SettlementError> {
+    let d_strand = strand(registry, strand_id)?;
+    d_strand
+        .clone()
+        .try_into_shared()
+        .map_err(|_| SettlementError::NonSharedStrand {
+            strand_id,
+            posture: d_strand.retention_posture.causal_posture,
+        })
 }
 
 fn ensure_frontier_matches_provenance(
@@ -1946,6 +1989,7 @@ mod tests {
             writer_heads: vec![child_head],
             support_pins: Vec::new(),
             retention_posture,
+            _marker: std::marker::PhantomData,
         };
         runtime.register_strand(strand).unwrap();
 
@@ -2004,6 +2048,7 @@ mod tests {
                     writer_heads: vec![child_head],
                     support_pins: Vec::new(),
                     retention_posture,
+                    _marker: std::marker::PhantomData,
                 })
                 .unwrap();
         }
@@ -2056,6 +2101,7 @@ mod tests {
                 writer_heads: vec![child_head],
                 support_pins: Vec::new(),
                 retention_posture,
+                _marker: std::marker::PhantomData,
             })
             .unwrap();
         (

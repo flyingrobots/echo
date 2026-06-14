@@ -13,12 +13,12 @@ use warp_core::strand::{
 };
 use warp_core::{
     make_head_id, make_node_id, make_type_id, make_warp_id, ActorId, AuthorityBinding,
-    AuthorityDomainId, AuthorityDomainRef, CausalAuthority, CausalPosture, GlobalTick, GraphStore,
-    HashTriplet, HeadEligibility, LocalProvenanceStore, NodeRecord, OriginId, PlaybackHeadRegistry,
-    PlaybackMode, PostureDerivation, PostureObstruction, ProvenanceEntry, ProvenanceRef,
-    ProvenanceService, ProvenanceStore, RetentionContractId, RetentionPosture, RunnableWriterSet,
-    SealStrength, SlotId, WarpId, WorldlineId, WorldlineState, WorldlineTick,
-    WorldlineTickHeaderV1, WorldlineTickPatchV1, WriterHead, WriterHeadKey,
+    AuthorityDomainId, AuthorityDomainRef, CausalAuthority, CausalPosture, DynamicPosture,
+    GlobalTick, GraphStore, HashTriplet, HeadEligibility, LocalProvenanceStore, NodeRecord,
+    OriginId, PlaybackHeadRegistry, PlaybackMode, PostureDerivation, PostureObstruction,
+    ProvenanceEntry, ProvenanceRef, ProvenanceService, ProvenanceStore, RetentionContractId,
+    RetentionPosture, RunnableWriterSet, SealStrength, SlotId, WarpId, WorldlineId, WorldlineState,
+    WorldlineTick, WorldlineTickHeaderV1, WorldlineTickPatchV1, WriterHead, WriterHeadKey,
 };
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -116,6 +116,7 @@ fn make_test_strand(
         writer_heads: vec![head_key],
         support_pins: Vec::new(),
         retention_posture: test_retention_posture(),
+        _marker: std::marker::PhantomData,
     }
 }
 
@@ -429,6 +430,7 @@ fn live_basis_report_allows_parent_advance_outside_owned_footprint() {
         }],
         support_pins: Vec::new(),
         retention_posture: test_retention_posture(),
+        _marker: std::marker::PhantomData::<DynamicPosture>,
     };
 
     let report = strand
@@ -501,6 +503,7 @@ fn live_basis_report_requires_revalidation_when_parent_invades_owned_footprint()
         }],
         support_pins: Vec::new(),
         retention_posture: test_retention_posture(),
+        _marker: std::marker::PhantomData::<DynamicPosture>,
     };
 
     let report = strand
@@ -608,6 +611,7 @@ fn registry_insert_rejects_inv_s8_wrong_head_worldline() {
         }],
         support_pins: Vec::new(),
         retention_posture: test_retention_posture(),
+        _marker: std::marker::PhantomData,
     };
     let err = registry.insert(strand).expect_err("INV-S8 should reject");
     assert!(
@@ -739,6 +743,7 @@ fn registry_insert_rejects_duplicate_support_target() {
             },
         ],
         retention_posture: test_retention_posture(),
+        _marker: std::marker::PhantomData,
     };
     let err = registry
         .insert(owner)

@@ -3023,6 +3023,7 @@ mod tests {
                 writer_heads: vec![child_head],
                 support_pins: Vec::new(),
                 retention_posture: test_retention_posture(),
+                _marker: std::marker::PhantomData,
             })
             .unwrap();
 

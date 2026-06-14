@@ -73,6 +73,48 @@ pub enum CausalPosture {
 #[deprecated(note = "Use CausalPosture")]
 pub type RevelationPosture = CausalPosture;
 
+/// Trait representing compile-time typestate for causal posture.
+pub trait CausalPostureState: Clone + std::fmt::Debug + PartialEq + Eq {
+    /// Returns the runtime CausalPosture value for this typestate, or None if dynamic.
+    fn causal_posture() -> Option<CausalPosture>;
+}
+
+/// Marker struct representing the Shared causal posture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Shared;
+impl CausalPostureState for Shared {
+    fn causal_posture() -> Option<CausalPosture> {
+        Some(CausalPosture::Shared)
+    }
+}
+
+/// Marker struct representing the AuthorOnly causal posture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AuthorOnly;
+impl CausalPostureState for AuthorOnly {
+    fn causal_posture() -> Option<CausalPosture> {
+        Some(CausalPosture::AuthorOnly)
+    }
+}
+
+/// Marker struct representing the Scratch causal posture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Scratch;
+impl CausalPostureState for Scratch {
+    fn causal_posture() -> Option<CausalPosture> {
+        Some(CausalPosture::Scratch)
+    }
+}
+
+/// Representation of causal posture whose type is dynamic/erased at compile-time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DynamicPosture;
+impl CausalPostureState for DynamicPosture {
+    fn causal_posture() -> Option<CausalPosture> {
+        None
+    }
+}
+
 impl CausalPosture {
     /// Stable wire tag for canonical serialization and digest domains.
     #[must_use]

@@ -887,6 +887,7 @@ mod tests {
                 writer_heads: vec![support_head],
                 support_pins: Vec::new(),
                 retention_posture: test_retention_posture(),
+                _marker: std::marker::PhantomData,
             })
             .unwrap();
 
@@ -909,6 +910,7 @@ mod tests {
                 writer_heads: vec![primary_head],
                 support_pins: Vec::new(),
                 retention_posture: test_retention_posture(),
+                _marker: std::marker::PhantomData,
             })
             .unwrap();
         runtime
@@ -1076,6 +1078,7 @@ mod tests {
                 writer_heads: vec![support_head],
                 support_pins: Vec::new(),
                 retention_posture: test_retention_posture(),
+                _marker: std::marker::PhantomData,
             })
             .unwrap();
         let primary_strand_id = make_strand_id("primary");
@@ -1097,6 +1100,7 @@ mod tests {
                 writer_heads: vec![primary_head],
                 support_pins: Vec::new(),
                 retention_posture: test_retention_posture(),
+                _marker: std::marker::PhantomData,
             })
             .unwrap();
         runtime

@@ -33,7 +33,9 @@ use thiserror::Error;
 use crate::clock::WorldlineTick;
 use crate::ident::Hash;
 use crate::provenance_store::{ProvenanceRef, ProvenanceService, ProvenanceStore};
-use crate::revelation::{PostureObstruction, RetentionPosture};
+use crate::revelation::{
+    CausalPostureState, DynamicPosture, PostureObstruction, RetentionPosture, Shared,
+};
 use crate::tick_patch::SlotId;
 use crate::worldline::WorldlineId;
 
@@ -133,7 +135,7 @@ pub struct DropReceipt {
 /// (dropped). There is no lifecycle field — operational state is derived
 /// from the writer heads.
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct Strand {
+pub struct Strand<P: CausalPostureState = DynamicPosture> {
     /// Unique strand identity.
     pub strand_id: StrandId,
     /// Immutable fork coordinate.
@@ -146,9 +148,11 @@ pub struct Strand {
     pub support_pins: Vec<SupportPin>,
     /// Explicit retention, authority, and admission posture for the strand.
     pub retention_posture: RetentionPosture,
+    /// Phantom marker for the static causal posture typestate.
+    pub _marker: std::marker::PhantomData<P>,
 }
 
-impl Strand {
+impl<P: CausalPostureState> Strand<P> {
     /// Builds a basis-relative report for this strand against current parent history.
     ///
     /// The report is the first live-strand seam: the strand still records an
@@ -161,9 +165,9 @@ impl Strand {
     ///
     /// Returns [`StrandError`] when provenance is unavailable or the fork tick
     /// cannot be advanced to the suffix start coordinate.
-    pub fn live_basis_report<P: ProvenanceStore>(
+    pub fn live_basis_report<S: ProvenanceStore>(
         &self,
-        provenance: &P,
+        provenance: &S,
     ) -> Result<StrandBasisReport, StrandError> {
         let suffix_start = self
             .fork_basis_ref
@@ -231,6 +235,86 @@ impl Strand {
             parent_movement,
             parent_revalidation,
         })
+    }
+}
+
+impl<P: CausalPostureState> Strand<P> {
+    /// Erases the static posture type parameter, converting to DynamicPosture.
+    #[must_use]
+    pub fn into_dynamic(self) -> Strand<DynamicPosture> {
+        Strand {
+            strand_id: self.strand_id,
+            fork_basis_ref: self.fork_basis_ref,
+            child_worldline_id: self.child_worldline_id,
+            writer_heads: self.writer_heads,
+            support_pins: self.support_pins,
+            retention_posture: self.retention_posture,
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl Strand<DynamicPosture> {
+    /// Attempts to cast this dynamically postured strand to a statically postured Shared strand.
+    ///
+    /// # Errors
+    ///
+    /// Returns a posture obstruction error if the strand's actual posture is not Shared.
+    pub fn try_into_shared(self) -> Result<Strand<Shared>, StrandError> {
+        if self.retention_posture.causal_posture == crate::revelation::CausalPosture::Shared {
+            Ok(Strand {
+                strand_id: self.strand_id,
+                fork_basis_ref: self.fork_basis_ref,
+                child_worldline_id: self.child_worldline_id,
+                writer_heads: self.writer_heads,
+                support_pins: self.support_pins,
+                retention_posture: self.retention_posture,
+                _marker: std::marker::PhantomData,
+            })
+        } else {
+            Err(StrandError::Posture(PostureObstruction::NarrowingRefused {
+                from: self.retention_posture.causal_posture,
+                requested: crate::revelation::CausalPosture::Shared,
+            }))
+        }
+    }
+}
+
+impl Strand<Shared> {
+    /// Produces a deterministic import/conflict plan for the strand suffix.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`crate::settlement::SettlementError`] if the plan cannot be generated.
+    pub fn plan(
+        &self,
+        runtime: &crate::coordinator::WorldlineRuntime,
+        provenance: &ProvenanceService,
+    ) -> Result<crate::settlement::SettlementPlan, crate::settlement::SettlementError> {
+        crate::settlement::SettlementService::plan_with_policy_internal(
+            runtime,
+            provenance,
+            self,
+            &crate::settlement::SettlementPolicy::default(),
+        )
+    }
+
+    /// Executes the deterministic settlement plan.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`crate::settlement::SettlementError`] if settlement fails.
+    pub fn settle(
+        &self,
+        runtime: &mut crate::coordinator::WorldlineRuntime,
+        provenance: &mut ProvenanceService,
+    ) -> Result<crate::settlement::SettlementResult, crate::settlement::SettlementError> {
+        crate::settlement::SettlementService::settle_with_policy_internal(
+            runtime,
+            provenance,
+            self,
+            &crate::settlement::SettlementPolicy::default(),
+        )
     }
 }
 

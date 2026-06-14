@@ -7,6 +7,12 @@
 
 ### Added
 
+- `warp-core` strand creation now carries explicit `RetentionPosture` through
+  `ForkStrandRequest`, `ForkStrandReceipt`, and `Strand`. Session-default and
+  debugger fork constructors choose posture policy explicitly, session-default
+  work always records `PostureDerivation::SessionDefault`, debugger forks never
+  silently become `Shared`, and `StrandRegistry` rejects incoherent retained
+  posture such as `Shared` without an admission scope.
 - `warp-core` import admission receipts now bind local source-shared import
   admission to an explicit imported artifact identity. A receipt minted for one
   imported artifact cannot admit another import into a local shared admission
@@ -545,6 +551,13 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Changed
 
+- `warp-core` settlement planning now rejects non-`Shared` strands before
+  producing import candidates. Author-only/debugger strand suffixes can remain
+  real causal work, but they cannot enter base shared history without an
+  explicit shared admission posture.
+- `warp-core` settlement plural artifacts and retained braid shells now carry
+  the source strand posture instead of hard-coding author-only posture for
+  shared settlement records.
 - Local determinism tooling now fails closed around
   `scripts/check-warp-core-serialization-boundaries.sh`. The serialization
   boundary guard is mandatory, runs through `bash` rather than executable mode,

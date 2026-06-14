@@ -303,6 +303,18 @@ impl RetentionPosture {
             admission_scope,
         })
     }
+
+    /// Re-validates a retained posture bundle after direct field mutation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an obstruction when the posture/scope pair, derivation, or
+    /// authority context is incoherent.
+    pub fn validate(&self) -> Result<(), PostureObstruction> {
+        validate_admission_scope(self.causal_posture, self.admission_scope)?;
+        validate_posture_derivation(self.causal_posture, self.posture_derivation)?;
+        self.authority.validate()
+    }
 }
 
 /// Session context posture and authority defaults.
@@ -360,6 +372,55 @@ impl SessionContext {
             default_admission_scope,
             retention_contract,
         })
+    }
+
+    /// Builds retained work posture from this session's explicit default.
+    ///
+    /// # Errors
+    ///
+    /// Returns a posture obstruction if this session's authority/default
+    /// posture no longer validates.
+    pub fn retention_posture(&self) -> Result<RetentionPosture, PostureObstruction> {
+        RetentionPosture::new(
+            self.default_posture,
+            PostureDerivation::SessionDefault,
+            CausalAuthority::new(
+                self.origin_id,
+                self.actor_id,
+                self.author_domain,
+                self.authority_binding,
+                self.seal_strength,
+            )?,
+            self.retention_contract,
+            self.default_admission_scope,
+        )
+    }
+
+    /// Builds debugger-created strand posture for this session.
+    ///
+    /// Debugger work is real causal work, but it is never silently admitted
+    /// into shared history. The named constructor is the policy boundary that
+    /// chooses `AuthorOnly` even when the surrounding session default is
+    /// `Shared`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a posture obstruction if this session's authority context does
+    /// not validate.
+    pub fn debugger_retention_posture(&self) -> Result<RetentionPosture, PostureObstruction> {
+        RetentionPosture::new(
+            CausalPosture::AuthorOnly,
+            PostureDerivation::DebuggerDefault,
+            CausalAuthority::new(
+                self.origin_id,
+                self.actor_id,
+                self.author_domain,
+                self.authority_binding,
+                self.seal_strength,
+            )?,
+            self.retention_contract,
+            None,
+        )
     }
 }
 
@@ -1753,6 +1814,30 @@ mod tests {
             Err(PostureObstruction::MissingAdmissionScope {
                 posture: CausalPosture::Shared,
             })
+        );
+    }
+
+    #[test]
+    fn session_default_posture_derivation_is_not_caller_selectable() {
+        let session = SessionContext::new(
+            SessionId([0x51; 32]),
+            OriginId::from_bytes([0xA1; 32]),
+            ActorId::from_bytes([0xA2; 32]),
+            fixture_authority_ref(),
+            AuthorityBinding::LocalUnbound {
+                origin: OriginId::from_bytes([0xA1; 32]),
+            },
+            SealStrength::Advisory,
+            CausalPosture::Shared,
+            Some(AdmissionScopeId::from_bytes([0x55; 32])),
+            RetentionContractId::from_bytes([0xC0; 32]),
+        )
+        .unwrap();
+
+        let posture = session.retention_posture().unwrap();
+        assert_eq!(
+            posture.posture_derivation,
+            PostureDerivation::SessionDefault
         );
     }
 

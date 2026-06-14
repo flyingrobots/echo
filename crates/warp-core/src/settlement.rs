@@ -552,6 +552,14 @@ pub enum SettlementError {
     /// The strand fork coordinate cannot advance to a suffix start tick.
     #[error("fork tick overflow for strand {0:?}")]
     ForkTickOverflow(StrandId),
+    /// Settlement may only admit shared strands into base history.
+    #[error("strand {strand_id:?} with posture {posture:?} is not shared-admitted for settlement")]
+    NonSharedStrand {
+        /// Strand that attempted settlement.
+        strand_id: StrandId,
+        /// Effective posture carried by the strand.
+        posture: CausalPosture,
+    },
     /// Runtime frontier state and provenance history disagree for a worldline.
     #[error("runtime/provenance drift for worldline {worldline_id:?}: frontier {frontier_tick}, provenance {provenance_len}")]
     RuntimeProvenanceDrift {
@@ -686,6 +694,13 @@ impl SettlementService {
         policy: &SettlementPolicy,
     ) -> Result<SettlementPlan, SettlementError> {
         let strand = strand(runtime.strands(), strand_id)?;
+        if strand.retention_posture.causal_posture != CausalPosture::Shared {
+            return Err(SettlementError::NonSharedStrand {
+                strand_id,
+                posture: strand.retention_posture.causal_posture,
+            });
+        }
+        let strand_posture = strand.retention_posture.causal_posture;
         let delta = Self::compare(runtime, provenance, strand_id)?;
         let target_worldline = strand.fork_basis_ref.source_lane_id;
         let target_frontier_tick =
@@ -812,6 +827,7 @@ impl SettlementService {
                     &source_entry,
                     entry_overlap_slots,
                     policy,
+                    strand_posture,
                 )));
                 continue;
             } else {
@@ -874,9 +890,13 @@ impl SettlementService {
                 braid_shell: None,
             });
         }
-        let (fork_basis_ref, support_pins) = {
+        let (fork_basis_ref, support_pins, strand_posture) = {
             let settled = strand(runtime.strands(), strand_id)?;
-            (settled.fork_basis_ref, settled.support_pins.clone())
+            (
+                settled.fork_basis_ref,
+                settled.support_pins.clone(),
+                settled.retention_posture.causal_posture,
+            )
         };
 
         let runtime_before = runtime.clone();
@@ -928,6 +948,7 @@ impl SettlementService {
                 &plan,
                 fork_basis_ref,
                 &support_pins,
+                strand_posture,
                 policy,
                 &appended_imports,
             )?;
@@ -1287,6 +1308,7 @@ fn build_braid_shell(
     plan: &SettlementPlan,
     fork_basis_ref: crate::strand::ForkBasisRef,
     support_pins: &[crate::strand::SupportPin],
+    strand_posture: CausalPosture,
     policy: &SettlementPolicy,
     appended_imports: &[ProvenanceRef],
 ) -> Result<crate::braid_shell::BraidShell, crate::braid_shell::BraidShellError> {
@@ -1359,7 +1381,7 @@ fn build_braid_shell(
         claim_digest: claim_hasher.finalize().into(),
         verdict,
         verdict_digest: verdict_hasher.finalize().into(),
-        posture: CausalPosture::AuthorOnly,
+        posture: strand_posture,
     };
 
     BraidShell::assemble(
@@ -1368,7 +1390,7 @@ fn build_braid_shell(
         vec![member],
         policy.policy_id,
         outcome,
-        CausalPosture::AuthorOnly,
+        strand_posture,
     )
 }
 
@@ -1429,6 +1451,7 @@ fn plural_draft(
     source_entry: &ProvenanceEntry,
     mut overlapping_slots: Vec<SlotId>,
     policy: &SettlementPolicy,
+    posture: CausalPosture,
 ) -> PluralAlternativeDraft {
     canonicalize_slots(&mut overlapping_slots);
     PluralAlternativeDraft {
@@ -1446,7 +1469,7 @@ fn plural_draft(
             .collect(),
         overlapping_slots,
         policy_id: policy.policy_id,
-        posture: CausalPosture::AuthorOnly,
+        posture,
     }
 }
 
@@ -1542,6 +1565,11 @@ mod tests {
     use crate::ident::{make_edge_id, make_node_id, make_type_id};
     use crate::playback::PlaybackMode;
     use crate::record::{EdgeRecord, NodeRecord};
+    use crate::revelation::{
+        ActorId, AdmissionScopeId, AuthorityBinding, AuthorityDomainId, AuthorityDomainRef,
+        CausalAuthority, OriginId, PostureDerivation, RetentionContractId, RetentionPosture,
+        SealStrength,
+    };
     use crate::strand::{ForkBasisRef, Strand};
     use crate::tick_patch::{SlotId, WarpOp};
     use crate::{GraphStore, WorldlineState};
@@ -1556,6 +1584,37 @@ mod tests {
 
     fn gt(raw: u64) -> GlobalTick {
         GlobalTick::from_raw(raw)
+    }
+
+    fn test_retention_posture(posture: CausalPosture) -> RetentionPosture {
+        let origin_id = OriginId::from_bytes([0x51; 32]);
+        let authority =
+            AuthorityDomainRef::new(origin_id, AuthorityDomainId::from_bytes([0x52; 32]));
+        let admission_scope =
+            (posture == CausalPosture::Shared).then_some(AdmissionScopeId::from_bytes([0x55; 32]));
+        RetentionPosture::new(
+            posture,
+            PostureDerivation::ExplicitIntent,
+            CausalAuthority::new(
+                origin_id,
+                ActorId::from_bytes([0x53; 32]),
+                authority,
+                AuthorityBinding::LocalUnbound { origin: origin_id },
+                SealStrength::Advisory,
+            )
+            .unwrap(),
+            RetentionContractId::from_bytes([0x54; 32]),
+            admission_scope,
+        )
+        .unwrap()
+    }
+
+    fn shared_retention_posture() -> RetentionPosture {
+        test_retention_posture(CausalPosture::Shared)
+    }
+
+    fn author_only_retention_posture() -> RetentionPosture {
+        test_retention_posture(CausalPosture::AuthorOnly)
     }
 
     fn register_head(
@@ -1793,6 +1852,19 @@ mod tests {
         WorldlineId,
         WorldlineId,
     ) {
+        setup_runtime_with_strand_posture(parent_drift, shared_retention_posture())
+    }
+
+    fn setup_runtime_with_strand_posture(
+        parent_drift: ParentDrift,
+        retention_posture: RetentionPosture,
+    ) -> (
+        WorldlineRuntime,
+        ProvenanceService,
+        StrandId,
+        WorldlineId,
+        WorldlineId,
+    ) {
         let base_worldline = wl(1);
         let child_worldline = wl(2);
         let mut base_store = GraphStore::new(crate::ident::make_warp_id("settlement-root"));
@@ -1852,6 +1924,7 @@ mod tests {
             child_worldline_id: child_worldline,
             writer_heads: vec![child_head],
             support_pins: Vec::new(),
+            retention_posture,
         };
         runtime.register_strand(strand).unwrap();
 
@@ -1909,6 +1982,7 @@ mod tests {
                     child_worldline_id: child_worldline,
                     writer_heads: vec![child_head],
                     support_pins: Vec::new(),
+                    retention_posture,
                 })
                 .unwrap();
         }
@@ -1960,6 +2034,7 @@ mod tests {
                 child_worldline_id: child_worldline,
                 writer_heads: vec![child_head],
                 support_pins: Vec::new(),
+                retention_posture,
             })
             .unwrap();
         (
@@ -2021,6 +2096,33 @@ mod tests {
             .unwrap()
             .node(&node_id)
             .is_some());
+    }
+
+    #[test]
+    fn settlement_rejects_author_only_strand_without_shared_admission() {
+        let (runtime, provenance, strand_id, _, _) =
+            setup_runtime_with_strand_posture(ParentDrift::None, author_only_retention_posture());
+
+        let err = SettlementService::plan(&runtime, &provenance, strand_id)
+            .expect_err("AuthorOnly strand suffixes must not settle into shared base history");
+        assert!(matches!(
+            err,
+            SettlementError::NonSharedStrand {
+                strand_id: rejected,
+                posture: CausalPosture::AuthorOnly,
+            } if rejected == strand_id
+        ));
+        let mut runtime_for_settle = runtime.clone();
+        let mut provenance_for_settle = provenance.clone();
+        assert!(
+            SettlementService::settle(
+                &mut runtime_for_settle,
+                &mut provenance_for_settle,
+                strand_id
+            )
+            .is_err(),
+            "settle must not bypass the planning gate"
+        );
     }
 
     #[test]
@@ -2294,7 +2396,7 @@ mod tests {
             return;
         };
         assert_eq!(draft.policy_id, plural_policy().policy_id);
-        assert_eq!(draft.posture, CausalPosture::AuthorOnly);
+        assert_eq!(draft.posture, CausalPosture::Shared);
         assert!(!draft.overlapping_slots.is_empty());
         assert_eq!(draft.source_ref.worldline_id, child_worldline);
 
@@ -2324,7 +2426,7 @@ mod tests {
         assert!(matches!(
             retained.event_kind,
             ProvenanceEventKind::PluralArtifact {
-                posture: CausalPosture::AuthorOnly,
+                posture: CausalPosture::Shared,
                 ..
             }
         ));
@@ -2389,7 +2491,7 @@ mod tests {
         let shell = provenance.braid_shell(&shell_digest).unwrap();
 
         assert_eq!(shell.policy_id, plural_policy().policy_id);
-        assert_eq!(shell.posture, crate::revelation::CausalPosture::AuthorOnly);
+        assert_eq!(shell.posture, crate::revelation::CausalPosture::Shared);
         assert_eq!(shell.worldline_id, base_worldline);
         assert!(shell.has_member_strand(&strand_id));
         assert_eq!(shell.members.len(), 1);
@@ -2705,7 +2807,7 @@ mod tests {
         let query = crate::braid_shell::BraidShellQuery {
             member_strand: Some(strand_id),
             outcome: Some(AdmissionOutcomeKind::Plural),
-            posture: Some(crate::revelation::CausalPosture::AuthorOnly),
+            posture: Some(crate::revelation::CausalPosture::Shared),
             ..crate::braid_shell::BraidShellQuery::default()
         };
         assert_eq!(provenance.query_braid_shells(query).count(), 1);

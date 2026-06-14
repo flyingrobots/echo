@@ -23,7 +23,7 @@ use crate::admission::AdmissionOutcomeKind;
 use crate::ident::Hash;
 use crate::provenance_store::ProvenanceRef;
 use crate::revelation::{
-    shell_posture_obstruction, CausalPosture, PostureObstruction, WitnessDigest,
+    shell_posture_obstruction, AuthorityDomainRef, CausalPosture, PostureObstruction, WitnessDigest,
 };
 use crate::strand::StrandId;
 use crate::worldline::WorldlineId;
@@ -61,11 +61,54 @@ impl MemberVerdict {
     }
 }
 
+/// Reference to a braid member, supporting both revealed and cryptographically sealed references.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BraidMemberRef {
+    /// Publicly revealed strand identity.
+    Revealed(StrandId),
+    /// Cryptographically sealed/blinded member reference.
+    Sealed {
+        /// Salted or randomized commitment digest of the member's identity.
+        blinded_commitment: Hash,
+        /// Causal authority domain controlling the private history.
+        authority: AuthorityDomainRef,
+    },
+}
+
+impl BraidMemberRef {
+    /// Stable wire tag for canonical serialization.
+    #[must_use]
+    pub fn canonical_tag(self) -> u8 {
+        match self {
+            Self::Revealed(_) => 0x01,
+            Self::Sealed { .. } => 0x02,
+        }
+    }
+
+    /// Hash this member reference into the given hasher.
+    pub fn hash_into(self, hasher: &mut Hasher) {
+        hasher.update(&[self.canonical_tag()]);
+        match self {
+            Self::Revealed(strand_id) => {
+                hasher.update(strand_id.as_bytes());
+            }
+            Self::Sealed {
+                blinded_commitment,
+                authority,
+            } => {
+                hasher.update(&blinded_commitment);
+                hasher.update(authority.origin_id.as_bytes());
+                hasher.update(authority.domain_id.as_bytes());
+            }
+        }
+    }
+}
+
 /// One member entry in a braid shell: compact replay facts, never history.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BraidShellMember {
-    /// Strand whose claims this member summarizes.
-    pub strand_ref: StrandId,
+    /// Reference to the member strand, which may be revealed or sealed.
+    pub member_ref: BraidMemberRef,
     /// Digest over the member's support-pin set.
     pub support_pin_digest: Hash,
     /// Digest over the member's fork basis facts.
@@ -90,7 +133,7 @@ impl BraidShellMember {
     pub fn member_digest(&self) -> Hash {
         let mut hasher = Hasher::new();
         hasher.update(MEMBER_DOMAIN);
-        hasher.update(self.strand_ref.as_bytes());
+        self.member_ref.hash_into(&mut hasher);
         hasher.update(&self.support_pin_digest);
         hasher.update(&self.basis_digest);
         hasher.update(&self.frontier_digest);
@@ -293,10 +336,10 @@ pub enum BraidShellError {
         alternative_id: Hash,
     },
     /// One strand may appear at most once among shell members.
-    #[error("duplicate member strand {strand_id:?}")]
+    #[error("duplicate member strand {member_ref:?}")]
     DuplicateMemberStrand {
-        /// Strand that appeared more than once.
-        strand_id: StrandId,
+        /// Member reference that appeared more than once.
+        member_ref: BraidMemberRef,
     },
     /// A retained plural artifact id may never migrate to a different shell.
     #[error("plural artifact {plural_id:?} already bound to shell {existing_shell:?}")]
@@ -555,9 +598,10 @@ impl BraidShell {
     /// Returns whether the shell summarizes the given member strand.
     #[must_use]
     pub fn has_member_strand(&self, strand_id: &StrandId) -> bool {
-        self.members
-            .iter()
-            .any(|member| member.strand_ref == *strand_id)
+        self.members.iter().any(|member| match member.member_ref {
+            BraidMemberRef::Revealed(id) => id == *strand_id,
+            BraidMemberRef::Sealed { .. } => false,
+        })
     }
 }
 
@@ -582,10 +626,23 @@ fn check_unique_member_strands(members: &[BraidShellMember]) -> Result<(), Braid
     for (index, member) in members.iter().enumerate() {
         if members[..index]
             .iter()
-            .any(|earlier| earlier.strand_ref == member.strand_ref)
+            .any(|earlier| match (earlier.member_ref, member.member_ref) {
+                (BraidMemberRef::Revealed(e_id), BraidMemberRef::Revealed(m_id)) => e_id == m_id,
+                (
+                    BraidMemberRef::Sealed {
+                        blinded_commitment: e_c,
+                        ..
+                    },
+                    BraidMemberRef::Sealed {
+                        blinded_commitment: m_c,
+                        ..
+                    },
+                ) => e_c == m_c,
+                _ => false,
+            })
         {
             return Err(BraidShellError::DuplicateMemberStrand {
-                strand_id: member.strand_ref,
+                member_ref: member.member_ref,
             });
         }
     }
@@ -733,7 +790,7 @@ pub struct BraidShellReplay {
     /// Outcome arm reproduced from the shell.
     pub outcome_kind: AdmissionOutcomeKind,
     /// Member verdicts in canonical member order.
-    pub member_verdicts: Vec<(StrandId, MemberVerdict)>,
+    pub member_verdicts: Vec<(BraidMemberRef, MemberVerdict)>,
     /// Settlement policy identity the act ran under.
     pub policy_id: Hash,
     /// Witness digest binding the act.
@@ -798,7 +855,7 @@ pub fn replay_braid_shell(
         member_verdicts: shell
             .members
             .iter()
-            .map(|member| (member.strand_ref, member.verdict))
+            .map(|member| (member.member_ref, member.verdict))
             .collect(),
         policy_id: shell.policy_id,
         witness_digest: shell.witness_digest,
@@ -1083,7 +1140,7 @@ mod tests {
 
     fn member(label: &str, verdict: MemberVerdict) -> BraidShellMember {
         BraidShellMember {
-            strand_ref: make_strand_id(label),
+            member_ref: BraidMemberRef::Revealed(make_strand_id(label)),
             support_pin_digest: [0x21; 32],
             basis_digest: [0x22; 32],
             frontier_digest: [0x23; 32],
@@ -1146,10 +1203,10 @@ mod tests {
             member("member-b", MemberVerdict::Derived),
         ]);
         let digest = shell.digest;
-        let expected_verdicts: Vec<(StrandId, MemberVerdict)> = shell
+        let expected_verdicts: Vec<(BraidMemberRef, MemberVerdict)> = shell
             .members
             .iter()
-            .map(|member| (member.strand_ref, member.verdict))
+            .map(|member| (member.member_ref, member.verdict))
             .collect();
         let records = Records::with([shell]);
 
@@ -1274,7 +1331,7 @@ mod tests {
         assert_eq!(
             result,
             Err(BraidShellError::DuplicateMemberStrand {
-                strand_id: make_strand_id("member-a"),
+                member_ref: BraidMemberRef::Revealed(make_strand_id("member-a")),
             })
         );
     }

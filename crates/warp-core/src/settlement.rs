@@ -18,7 +18,7 @@ use crate::provenance_store::{
     ProvenanceEventKind, ProvenanceRef, ProvenanceService, ProvenanceStore,
 };
 use crate::record::{EdgeRecord, NodeRecord};
-use crate::revelation::CausalPosture;
+use crate::revelation::{CausalPosture, RetentionPosture};
 use crate::snapshot::{compute_commit_hash_v2, compute_state_root_for_warp_state};
 use crate::strand::{
     StrandBasisReport, StrandError, StrandId, StrandOverlapRevalidation, StrandRegistry,
@@ -895,12 +895,12 @@ impl SettlementService {
                 braid_shell: None,
             });
         }
-        let (fork_basis_ref, support_pins, strand_posture) = {
+        let (fork_basis_ref, support_pins, retention_posture) = {
             let settled = strand(runtime.strands(), strand_id)?;
             (
                 settled.fork_basis_ref,
                 settled.support_pins.clone(),
-                settled.retention_posture.causal_posture,
+                settled.retention_posture,
             )
         };
 
@@ -953,7 +953,7 @@ impl SettlementService {
                 &plan,
                 fork_basis_ref,
                 &support_pins,
-                strand_posture,
+                &retention_posture,
                 policy,
                 &appended_imports,
             )?;
@@ -1313,11 +1313,13 @@ fn build_braid_shell(
     plan: &SettlementPlan,
     fork_basis_ref: crate::strand::ForkBasisRef,
     support_pins: &[crate::strand::SupportPin],
-    strand_posture: CausalPosture,
+    retention_posture: &RetentionPosture,
     policy: &SettlementPolicy,
     appended_imports: &[ProvenanceRef],
 ) -> Result<crate::braid_shell::BraidShell, crate::braid_shell::BraidShellError> {
-    use crate::braid_shell::{BraidShell, BraidShellMember, BraidShellOutcome, MemberVerdict};
+    use crate::braid_shell::{
+        BraidMemberRef, BraidShell, BraidShellMember, BraidShellOutcome, MemberVerdict,
+    };
 
     let mut plural_ids = Vec::new();
     let mut conflict_codes = Vec::new();
@@ -1376,9 +1378,23 @@ fn build_braid_shell(
         }
     };
 
+    let strand_posture = retention_posture.causal_posture;
+    let member_ref = if strand_posture == CausalPosture::Shared {
+        BraidMemberRef::Revealed(plan.strand_id)
+    } else {
+        let mut commitment_hasher = Hasher::new();
+        commitment_hasher.update(b"echo.braid.member.sealed.v1\0");
+        commitment_hasher.update(plan.strand_id.as_bytes());
+        let blinded_commitment: [u8; 32] = commitment_hasher.finalize().into();
+        BraidMemberRef::Sealed {
+            blinded_commitment,
+            authority: retention_posture.authority.author_domain,
+        }
+    };
+
     let overlap_slots = settlement_basis_overlap_slots(&plan.basis_report).unwrap_or_default();
     let member = BraidShellMember {
-        strand_ref: plan.strand_id,
+        member_ref,
         support_pin_digest: support_pins_digest(support_pins),
         basis_digest: fork_basis_digest(fork_basis_ref),
         frontier_digest: frontier_digest(plan.basis_report.realized_parent_ref),
@@ -2554,7 +2570,10 @@ mod tests {
         assert_eq!(replay.outcome_kind, AdmissionOutcomeKind::Plural);
         assert_eq!(
             replay.member_verdicts,
-            vec![(strand_id, crate::braid_shell::MemberVerdict::Plural)]
+            vec![(
+                crate::braid_shell::BraidMemberRef::Revealed(strand_id),
+                crate::braid_shell::MemberVerdict::Plural
+            )]
         );
         assert_eq!(replay.policy_id, plural_policy().policy_id);
     }
@@ -2718,7 +2737,9 @@ mod tests {
             base_worldline,
             plan.target_base_ref,
             vec![crate::braid_shell::BraidShellMember {
-                strand_ref: crate::strand::make_strand_id("dummy-binder"),
+                member_ref: crate::braid_shell::BraidMemberRef::Revealed(
+                    crate::strand::make_strand_id("dummy-binder"),
+                ),
                 support_pin_digest: [1; 32],
                 basis_digest: [2; 32],
                 frontier_digest: [3; 32],

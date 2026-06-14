@@ -552,6 +552,14 @@ pub enum SettlementError {
     /// The strand fork coordinate cannot advance to a suffix start tick.
     #[error("fork tick overflow for strand {0:?}")]
     ForkTickOverflow(StrandId),
+    /// Settlement may only admit shared strands into base history.
+    #[error("strand {strand_id:?} with posture {posture:?} is not shared-admitted for settlement")]
+    NonSharedStrand {
+        /// Strand that attempted settlement.
+        strand_id: StrandId,
+        /// Effective posture carried by the strand.
+        posture: CausalPosture,
+    },
     /// Runtime frontier state and provenance history disagree for a worldline.
     #[error("runtime/provenance drift for worldline {worldline_id:?}: frontier {frontier_tick}, provenance {provenance_len}")]
     RuntimeProvenanceDrift {
@@ -686,6 +694,12 @@ impl SettlementService {
         policy: &SettlementPolicy,
     ) -> Result<SettlementPlan, SettlementError> {
         let strand = strand(runtime.strands(), strand_id)?;
+        if strand.retention_posture.causal_posture != CausalPosture::Shared {
+            return Err(SettlementError::NonSharedStrand {
+                strand_id,
+                posture: strand.retention_posture.causal_posture,
+            });
+        }
         let delta = Self::compare(runtime, provenance, strand_id)?;
         let target_worldline = strand.fork_basis_ref.source_lane_id;
         let target_frontier_tick =
@@ -1543,8 +1557,9 @@ mod tests {
     use crate::playback::PlaybackMode;
     use crate::record::{EdgeRecord, NodeRecord};
     use crate::revelation::{
-        ActorId, AuthorityBinding, AuthorityDomainId, AuthorityDomainRef, CausalAuthority,
-        OriginId, PostureDerivation, RetentionContractId, RetentionPosture, SealStrength,
+        ActorId, AdmissionScopeId, AuthorityBinding, AuthorityDomainId, AuthorityDomainRef,
+        CausalAuthority, OriginId, PostureDerivation, RetentionContractId, RetentionPosture,
+        SealStrength,
     };
     use crate::strand::{ForkBasisRef, Strand};
     use crate::tick_patch::{SlotId, WarpOp};
@@ -1562,12 +1577,14 @@ mod tests {
         GlobalTick::from_raw(raw)
     }
 
-    fn test_retention_posture() -> RetentionPosture {
+    fn test_retention_posture(posture: CausalPosture) -> RetentionPosture {
         let origin_id = OriginId::from_bytes([0x51; 32]);
         let authority =
             AuthorityDomainRef::new(origin_id, AuthorityDomainId::from_bytes([0x52; 32]));
+        let admission_scope =
+            (posture == CausalPosture::Shared).then_some(AdmissionScopeId::from_bytes([0x55; 32]));
         RetentionPosture::new(
-            CausalPosture::AuthorOnly,
+            posture,
             PostureDerivation::ExplicitIntent,
             CausalAuthority::new(
                 origin_id,
@@ -1578,9 +1595,17 @@ mod tests {
             )
             .unwrap(),
             RetentionContractId::from_bytes([0x54; 32]),
-            None,
+            admission_scope,
         )
         .unwrap()
+    }
+
+    fn shared_retention_posture() -> RetentionPosture {
+        test_retention_posture(CausalPosture::Shared)
+    }
+
+    fn author_only_retention_posture() -> RetentionPosture {
+        test_retention_posture(CausalPosture::AuthorOnly)
     }
 
     fn register_head(
@@ -1818,6 +1843,19 @@ mod tests {
         WorldlineId,
         WorldlineId,
     ) {
+        setup_runtime_with_strand_posture(parent_drift, shared_retention_posture())
+    }
+
+    fn setup_runtime_with_strand_posture(
+        parent_drift: ParentDrift,
+        retention_posture: RetentionPosture,
+    ) -> (
+        WorldlineRuntime,
+        ProvenanceService,
+        StrandId,
+        WorldlineId,
+        WorldlineId,
+    ) {
         let base_worldline = wl(1);
         let child_worldline = wl(2);
         let mut base_store = GraphStore::new(crate::ident::make_warp_id("settlement-root"));
@@ -1877,7 +1915,7 @@ mod tests {
             child_worldline_id: child_worldline,
             writer_heads: vec![child_head],
             support_pins: Vec::new(),
-            retention_posture: test_retention_posture(),
+            retention_posture,
         };
         runtime.register_strand(strand).unwrap();
 
@@ -1935,7 +1973,7 @@ mod tests {
                     child_worldline_id: child_worldline,
                     writer_heads: vec![child_head],
                     support_pins: Vec::new(),
-                    retention_posture: test_retention_posture(),
+                    retention_posture,
                 })
                 .unwrap();
         }
@@ -1987,7 +2025,7 @@ mod tests {
                 child_worldline_id: child_worldline,
                 writer_heads: vec![child_head],
                 support_pins: Vec::new(),
-                retention_posture: test_retention_posture(),
+                retention_posture,
             })
             .unwrap();
         (
@@ -2049,6 +2087,33 @@ mod tests {
             .unwrap()
             .node(&node_id)
             .is_some());
+    }
+
+    #[test]
+    fn settlement_rejects_author_only_strand_without_shared_admission() {
+        let (runtime, provenance, strand_id, _, _) =
+            setup_runtime_with_strand_posture(ParentDrift::None, author_only_retention_posture());
+
+        let err = SettlementService::plan(&runtime, &provenance, strand_id)
+            .expect_err("AuthorOnly strand suffixes must not settle into shared base history");
+        assert!(matches!(
+            err,
+            SettlementError::NonSharedStrand {
+                strand_id: rejected,
+                posture: CausalPosture::AuthorOnly,
+            } if rejected == strand_id
+        ));
+        let mut runtime_for_settle = runtime.clone();
+        let mut provenance_for_settle = provenance.clone();
+        assert!(
+            SettlementService::settle(
+                &mut runtime_for_settle,
+                &mut provenance_for_settle,
+                strand_id
+            )
+            .is_err(),
+            "settle must not bypass the planning gate"
+        );
     }
 
     #[test]

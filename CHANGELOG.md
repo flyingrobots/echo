@@ -550,6 +550,10 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Changed
 
+- `warp-core` settlement planning now rejects non-`Shared` strands before
+  producing import candidates. Author-only/debugger strand suffixes can remain
+  real causal work, but they cannot enter base shared history without an
+  explicit shared admission posture.
 - Local determinism tooling now fails closed around
   `scripts/check-warp-core-serialization-boundaries.sh`. The serialization
   boundary guard is mandatory, runs through `bash` rather than executable mode,

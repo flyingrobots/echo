@@ -7,6 +7,8 @@
 
 ### Added
 
+- `warp-core` casting a dynamically postured strand to statically shared now returns a semantically precise `PostureObstruction::PostureMismatch` instead of `PostureObstruction::NarrowingRefused`.
+- `warp-core` renamed `ProofEnvelope::verify` to `validate_shape` and updated error variants to `ProofShapeValidationFailed` to accurately reflect shape/input checks rather than full cryptographic proof verification.
 - `warp-core` strand creation now carries explicit `RetentionPosture` through
   `ForkStrandRequest`, `ForkStrandReceipt`, and `Strand`. Session-default and
   debugger fork constructors choose posture policy explicitly, session-default

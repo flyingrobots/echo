@@ -2957,6 +2957,11 @@ fn hash_posture_obstruction(hasher: &mut blake3::Hasher, obstruction: &PostureOb
         PostureObstruction::WitnessIsNotAuthorityCapability => {
             hasher.update(b"witness-is-not-authority-capability");
         }
+        PostureObstruction::PostureMismatch { actual, expected } => {
+            hasher.update(b"posture-mismatch");
+            hash_causal_posture(hasher, *actual);
+            hash_causal_posture(hasher, *expected);
+        }
     }
 }
 

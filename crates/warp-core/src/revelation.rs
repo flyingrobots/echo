@@ -550,6 +550,13 @@ pub enum PostureObstruction {
     LegacyAuthorityCannotAuthorizeNewAdmission,
     /// Generic causal witness digests are not authority-capability proofs.
     WitnessIsNotAuthorityCapability,
+    /// Expected a specific posture (e.g. Shared), but found a different one.
+    PostureMismatch {
+        /// The actual posture of the artifact.
+        actual: CausalPosture,
+        /// The expected posture.
+        expected: CausalPosture,
+    },
 }
 
 /// Witness digest with a quality bar: zero and empty-input digests refused.

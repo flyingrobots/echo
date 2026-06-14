@@ -1057,3 +1057,20 @@ fn drop_receipt_carries_correct_fields() {
     assert_eq!(receipt.child_worldline_id, wl(2));
     assert_eq!(receipt.final_tick, wt(10));
 }
+
+#[test]
+fn test_try_into_shared_posture_mismatch() {
+    let strand = make_test_strand("mismatch-test", wl(1), wl(2), wt(5));
+    assert_eq!(
+        strand.retention_posture.causal_posture,
+        CausalPosture::AuthorOnly
+    );
+    let result = strand.try_into_shared();
+    assert!(matches!(
+        result,
+        Err(StrandError::Posture(PostureObstruction::PostureMismatch {
+            actual: CausalPosture::AuthorOnly,
+            expected: CausalPosture::Shared,
+        }))
+    ));
+}

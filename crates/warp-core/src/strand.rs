@@ -272,9 +272,9 @@ impl Strand<DynamicPosture> {
                 _marker: std::marker::PhantomData,
             })
         } else {
-            Err(StrandError::Posture(PostureObstruction::NarrowingRefused {
-                from: self.retention_posture.causal_posture,
-                requested: crate::revelation::CausalPosture::Shared,
+            Err(StrandError::Posture(PostureObstruction::PostureMismatch {
+                actual: self.retention_posture.causal_posture,
+                expected: crate::revelation::CausalPosture::Shared,
             }))
         }
     }

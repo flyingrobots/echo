@@ -138,6 +138,7 @@ mod optic_artifact;
 pub mod parallel;
 mod payload;
 mod playback;
+pub mod proof;
 mod provenance_store;
 mod receipt;
 mod record;
@@ -253,6 +254,8 @@ pub use retained_evidence::{
 };
 // --- Session types ---
 pub use playback::{SessionId, ViewSession};
+// --- Proof types ---
+pub use proof::{ObserverHonestyClaim, ProofEnvelope, ProofKind};
 // --- Retained boundary shell family (θ_tick, θ_braid) ---
 pub use braid_shell::{
     collapse_braid_shell, replay_braid_shell, BraidCoordinate, BraidShell, BraidShellError,

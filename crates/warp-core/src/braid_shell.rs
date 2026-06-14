@@ -288,6 +288,12 @@ pub enum BraidShellError {
         /// Witness digest recomputed from the body.
         recomputed: Hash,
     },
+    /// The proof verification failed.
+    #[error("proof verification failed: {reason}")]
+    ProofVerificationFailed {
+        /// Reason for verification failure.
+        reason: String,
+    },
     /// Member entries are not in canonical order.
     #[error("braid shell members are not in canonical order")]
     NonCanonicalMemberOrder,
@@ -401,6 +407,8 @@ pub struct BraidShell {
     pub witness_digest: Hash,
     /// Revelation posture of the shell itself.
     pub posture: CausalPosture,
+    /// Optional proof envelope verifying the correctness of this settlement.
+    pub proof: Option<crate::proof::ProofEnvelope>,
     /// Canonical content digest of the full shell body.
     pub digest: Hash,
 }
@@ -425,10 +433,38 @@ impl BraidShell {
     pub fn assemble(
         worldline_id: WorldlineId,
         basis: ProvenanceRef,
+        members: Vec<BraidShellMember>,
+        policy_id: Hash,
+        outcome: BraidShellOutcome,
+        posture: CausalPosture,
+    ) -> Result<Self, BraidShellError> {
+        Self::assemble_with_proof(
+            worldline_id,
+            basis,
+            members,
+            policy_id,
+            outcome,
+            posture,
+            None,
+        )
+    }
+
+    /// Assembles a shell with a cryptographic proof envelope: validates member
+    /// order, checks posture floor and coherence, verifies the proof envelope
+    /// (if present) against the derived witness, and seals the shell.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BraidShellError`] if any structure constraints are violated or if
+    /// the proof envelope validation fails.
+    pub fn assemble_with_proof(
+        worldline_id: WorldlineId,
+        basis: ProvenanceRef,
         mut members: Vec<BraidShellMember>,
         policy_id: Hash,
         mut outcome: BraidShellOutcome,
         posture: CausalPosture,
+        proof: Option<crate::proof::ProofEnvelope>,
     ) -> Result<Self, BraidShellError> {
         if members.is_empty() {
             return Err(BraidShellError::EmptyMembers);
@@ -473,6 +509,13 @@ impl BraidShell {
             &outcome,
             posture,
         );
+
+        if let Some(ref p) = proof {
+            if let Err(err) = p.verify(witness_digest) {
+                return Err(BraidShellError::ProofVerificationFailed { reason: err });
+            }
+        }
+
         let digest = compute_shell_digest(
             BRAID_SHELL_VERSION,
             worldline_id,
@@ -494,6 +537,7 @@ impl BraidShell {
             witness_digest,
             posture,
             digest,
+            proof,
         })
     }
 
@@ -570,6 +614,12 @@ impl BraidShell {
                 recomputed: witness,
             });
         }
+        if let Some(ref p) = self.proof {
+            if let Err(err) = p.verify(self.witness_digest) {
+                return Err(BraidShellError::ProofVerificationFailed { reason: err });
+            }
+        }
+
         let digest = compute_shell_digest(
             self.version,
             self.worldline_id,
@@ -1587,5 +1637,91 @@ mod tests {
             member_strand: Some(make_strand_id("nobody")),
             ..BraidShellQuery::default()
         }));
+    }
+
+    #[test]
+    fn assemble_with_proof_validates_envelope() {
+        use crate::proof::{ProofEnvelope, ProofKind};
+
+        let members = vec![member("member-a", MemberVerdict::Plural)];
+
+        // Build it without proof first to retrieve the expected witness digest.
+        let temp_shell = BraidShell::assemble(
+            wl(1),
+            basis_ref(),
+            members.clone(),
+            [0x5E; 32],
+            BraidShellOutcome::Plural {
+                alternative_ids: vec![[0x31; 32]],
+            },
+            CausalPosture::AuthorOnly,
+        )
+        .unwrap();
+        let expected_witness = temp_shell.witness_digest;
+
+        // Valid proof: matches the witness_digest and has non-empty bytes
+        let valid_proof = ProofEnvelope {
+            kind: ProofKind::ZkSnark,
+            proof_bytes: vec![1, 2, 3],
+            public_inputs_hash: expected_witness,
+        };
+
+        let shell_with_valid_proof = BraidShell::assemble_with_proof(
+            wl(1),
+            basis_ref(),
+            members.clone(),
+            [0x5E; 32],
+            BraidShellOutcome::Plural {
+                alternative_ids: vec![[0x31; 32]],
+            },
+            CausalPosture::AuthorOnly,
+            Some(valid_proof),
+        )
+        .unwrap();
+        shell_with_valid_proof.validate().unwrap();
+
+        // Invalid proof: mismatched public inputs hash
+        let invalid_proof_mismatch = ProofEnvelope {
+            kind: ProofKind::ZkSnark,
+            proof_bytes: vec![1, 2, 3],
+            public_inputs_hash: [0x99; 32],
+        };
+        let result_mismatch = BraidShell::assemble_with_proof(
+            wl(1),
+            basis_ref(),
+            members.clone(),
+            [0x5E; 32],
+            BraidShellOutcome::Plural {
+                alternative_ids: vec![[0x31; 32]],
+            },
+            CausalPosture::AuthorOnly,
+            Some(invalid_proof_mismatch),
+        );
+        assert!(matches!(
+            result_mismatch,
+            Err(BraidShellError::ProofVerificationFailed { .. })
+        ));
+
+        // Invalid proof: empty proof bytes
+        let invalid_proof_empty = ProofEnvelope {
+            kind: ProofKind::ZkSnark,
+            proof_bytes: Vec::new(),
+            public_inputs_hash: expected_witness,
+        };
+        let result_empty = BraidShell::assemble_with_proof(
+            wl(1),
+            basis_ref(),
+            members,
+            [0x5E; 32],
+            BraidShellOutcome::Plural {
+                alternative_ids: vec![[0x31; 32]],
+            },
+            CausalPosture::AuthorOnly,
+            Some(invalid_proof_empty),
+        );
+        assert!(matches!(
+            result_empty,
+            Err(BraidShellError::ProofVerificationFailed { .. })
+        ));
     }
 }

@@ -1425,10 +1425,8 @@ fn build_braid_shell(
     let member_ref = if strand_posture == CausalPosture::Shared {
         BraidMemberRef::Revealed(plan.strand_id)
     } else {
-        let mut commitment_hasher = Hasher::new();
-        commitment_hasher.update(b"echo.braid.member.sealed.v1\0");
-        commitment_hasher.update(plan.strand_id.as_bytes());
-        let blinded_commitment: [u8; 32] = commitment_hasher.finalize().into();
+        let blinded_commitment =
+            BraidMemberRef::seal(plan.strand_id, plan.basis_report.child_worldline_id);
         BraidMemberRef::Sealed {
             blinded_commitment,
             authority: retention_posture.authority.author_domain,
@@ -1620,7 +1618,13 @@ fn empty_worldline_patch(
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::large_types_passed_by_value,
+    clippy::redundant_clone
+)]
 mod tests {
     use super::*;
 

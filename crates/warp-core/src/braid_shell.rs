@@ -76,6 +76,31 @@ pub enum BraidMemberRef {
 }
 
 impl BraidMemberRef {
+    /// Computes the cryptographically secure blinded commitment for a sealed reference
+    /// using the private child worldline ID as a high-entropy salt.
+    #[must_use]
+    pub fn seal(strand_id: StrandId, child_worldline_id: WorldlineId) -> Hash {
+        let mut hasher = Hasher::new();
+        hasher.update(b"echo.braid.member.sealed.v1\0");
+        hasher.update(child_worldline_id.as_bytes());
+        hasher.update(strand_id.as_bytes());
+        hasher.finalize().into()
+    }
+
+    /// Returns whether this member reference matches the given strand ID and private child worldline ID.
+    #[must_use]
+    pub fn matches_strand(&self, strand_id: &StrandId, child_worldline_id: &WorldlineId) -> bool {
+        match self {
+            Self::Revealed(id) => *id == *strand_id,
+            Self::Sealed {
+                blinded_commitment, ..
+            } => {
+                let expected = Self::seal(*strand_id, *child_worldline_id);
+                *blinded_commitment == expected
+            }
+        }
+    }
+
     /// Stable wire tag for canonical serialization.
     #[must_use]
     pub fn canonical_tag(self) -> u8 {
@@ -651,6 +676,20 @@ impl BraidShell {
         self.members.iter().any(|member| match member.member_ref {
             BraidMemberRef::Revealed(id) => id == *strand_id,
             BraidMemberRef::Sealed { .. } => false,
+        })
+    }
+
+    /// Returns whether the shell summarizes the given member strand, using its private child worldline ID for sealed references.
+    #[must_use]
+    pub fn has_member_strand_secure(
+        &self,
+        strand_id: &StrandId,
+        child_worldline_id: &WorldlineId,
+    ) -> bool {
+        self.members.iter().any(|member| {
+            member
+                .member_ref
+                .matches_strand(strand_id, child_worldline_id)
         })
     }
 }
@@ -1723,5 +1762,32 @@ mod tests {
             result_empty,
             Err(BraidShellError::ProofVerificationFailed { .. })
         ));
+    }
+
+    #[test]
+    fn test_secure_sealed_member_matching() {
+        let strand_id = make_strand_id("secure-member");
+        let child_worldline = WorldlineId::from_bytes([0x88; 32]);
+        let authority = AuthorityDomainRef::new(
+            crate::revelation::OriginId::from_bytes([0x10; 32]),
+            crate::revelation::AuthorityDomainId::from_bytes([0x20; 32]),
+        );
+
+        let blinded_commitment = BraidMemberRef::seal(strand_id, child_worldline);
+        let sealed_ref = BraidMemberRef::Sealed {
+            blinded_commitment,
+            authority,
+        };
+
+        // Verification matches correctly
+        assert!(sealed_ref.matches_strand(&strand_id, &child_worldline));
+
+        // Mismatched strand_id fails
+        let wrong_strand_id = make_strand_id("wrong-member");
+        assert!(!sealed_ref.matches_strand(&wrong_strand_id, &child_worldline));
+
+        // Mismatched child_worldline fails
+        let wrong_child_worldline = WorldlineId::from_bytes([0x99; 32]);
+        assert!(!sealed_ref.matches_strand(&strand_id, &wrong_child_worldline));
     }
 }

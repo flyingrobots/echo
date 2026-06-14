@@ -554,7 +554,9 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 - `warp-core` settlement planning now rejects non-`Shared` strands before
   producing import candidates. Author-only/debugger strand suffixes can remain
   real causal work, but they cannot enter base shared history without an
-  explicit shared admission posture.
+  explicit shared admission posture. Settlement compare remains local
+  revelation/inspection only: it can inspect a locally held strand suffix
+  without promoting, planning, admitting, or settling it.
 - `warp-core` settlement plural artifacts and retained braid shells now carry
   the source strand posture instead of hard-coding author-only posture for
   shared settlement records.

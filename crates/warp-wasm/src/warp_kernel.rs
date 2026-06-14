@@ -2360,9 +2360,9 @@ mod tests {
     }
 
     #[test]
-    fn settlement_publication_rejects_author_only_strand_as_invalid_strand() {
+    fn settlement_compare_inspects_author_only_while_plan_settle_reject() {
         let mut kernel = WarpKernel::new().unwrap();
-        let (runtime, provenance, strand_id, base_worldline, _) =
+        let (runtime, provenance, strand_id, base_worldline, child_worldline) =
             setup_runtime_with_strand_posture(ParentDrift::None, author_only_retention_posture());
         kernel.runtime = runtime;
         kernel.provenance = provenance;
@@ -2371,6 +2371,10 @@ mod tests {
         let request = AbiSettlementRequest {
             strand_id: echo_wasm_abi::kernel_port::StrandId::from_bytes(*strand_id.as_bytes()),
         };
+        let delta = kernel.compare_settlement(request.clone()).unwrap();
+        assert_eq!(delta.source_worldline_id, abi_worldline_id(child_worldline));
+        assert_eq!(delta.source_entries.len(), 1);
+
         let plan_err = kernel.plan_settlement(request.clone()).unwrap_err();
         assert_eq!(plan_err.code, error_codes::INVALID_STRAND);
         assert!(plan_err.message.contains("AuthorOnly"));

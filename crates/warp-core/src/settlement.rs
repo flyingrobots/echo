@@ -634,6 +634,11 @@ struct RecordedEntryDraft {
 
 impl SettlementService {
     /// Compares the strand suffix against its recorded base coordinate.
+    ///
+    /// Compare is local inspection/revelation only: it identifies the suffix
+    /// window and basis evidence without promoting, planning, admitting, or
+    /// settling the strand. Shared-admission gates live on planning and
+    /// settlement execution.
     pub fn compare(
         runtime: &WorldlineRuntime,
         provenance: &ProvenanceService,
@@ -2099,9 +2104,14 @@ mod tests {
     }
 
     #[test]
-    fn settlement_rejects_author_only_strand_without_shared_admission() {
+    fn settlement_compare_inspects_author_only_while_plan_settle_reject() {
         let (runtime, provenance, strand_id, _, _) =
             setup_runtime_with_strand_posture(ParentDrift::None, author_only_retention_posture());
+
+        let delta = SettlementService::compare(&runtime, &provenance, strand_id)
+            .expect("compare is revelation-only local strand inspection");
+        assert_eq!(delta.strand_id, strand_id);
+        assert_eq!(delta.source_entries.len(), 1);
 
         let err = SettlementService::plan(&runtime, &provenance, strand_id)
             .expect_err("AuthorOnly strand suffixes must not settle into shared base history");

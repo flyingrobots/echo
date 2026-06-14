@@ -1187,13 +1187,16 @@ mod tests {
     };
     use warp_core::{
         compute_commit_hash_v2, make_edge_id, make_head_id, make_node_id, make_strand_id,
-        make_type_id, make_warp_id, materialization::make_channel_id, AdmissionLawId, CoordinateAt,
-        EchoCoordinate, EdgeRecord, ForkBasisRef, GlobalTick, GraphStore, HashTriplet, InboxPolicy,
-        IntentFamilyId, NodeId, NodeKey, NodeRecord, OpticActorId, OpticCapabilityId, OpticCause,
-        OpticReadBudget, PlaybackMode, ProvenanceEntry, ProvenanceService, ProvenanceStore, SlotId,
-        Strand, StrandId, TickCommitStatus, WarpOp, WarpTickPatchV1, WorldlineHeadOptic,
-        WorldlineRuntime, WorldlineState, WorldlineTick, WorldlineTickHeaderV1,
-        WorldlineTickPatchV1, WriterHead, WriterHeadKey,
+        make_type_id, make_warp_id, materialization::make_channel_id, ActorId, AdmissionLawId,
+        AdmissionScopeId, AuthorityBinding, AuthorityDomainId, AuthorityDomainRef, CausalAuthority,
+        CausalPosture, CoordinateAt, EchoCoordinate, EdgeRecord, ForkBasisRef, GlobalTick,
+        GraphStore, HashTriplet, InboxPolicy, IntentFamilyId, NodeId, NodeKey, NodeRecord,
+        OpticActorId, OpticCapabilityId, OpticCause, OpticReadBudget, OriginId, PlaybackMode,
+        PostureDerivation, ProvenanceEntry, ProvenanceService, ProvenanceStore,
+        RetentionContractId, RetentionPosture, SealStrength, SlotId, Strand, StrandId,
+        TickCommitStatus, WarpOp, WarpTickPatchV1, WorldlineHeadOptic, WorldlineRuntime,
+        WorldlineState, WorldlineTick, WorldlineTickHeaderV1, WorldlineTickPatchV1, WriterHead,
+        WriterHeadKey,
     };
 
     fn start_until_idle(kernel: &mut WarpKernel, cycle_limit: Option<u32>) -> DispatchResponse {
@@ -1206,6 +1209,27 @@ mod tests {
         projection: AbiObservationProjection,
     ) -> AbiObservationRequest {
         AbiObservationRequest::builtin_one_shot(coordinate, frame, projection).unwrap()
+    }
+
+    fn shared_retention_posture() -> RetentionPosture {
+        let origin_id = OriginId::from_bytes([0x51; 32]);
+        let authority =
+            AuthorityDomainRef::new(origin_id, AuthorityDomainId::from_bytes([0x52; 32]));
+        RetentionPosture::new(
+            CausalPosture::Shared,
+            PostureDerivation::ExplicitIntent,
+            CausalAuthority::new(
+                origin_id,
+                ActorId::from_bytes([0x53; 32]),
+                authority,
+                AuthorityBinding::LocalUnbound { origin: origin_id },
+                SealStrength::Advisory,
+            )
+            .unwrap(),
+            RetentionContractId::from_bytes([0x54; 32]),
+            Some(AdmissionScopeId::from_bytes([0x55; 32])),
+        )
+        .unwrap()
     }
 
     fn start_until_idle_result(
@@ -1477,6 +1501,7 @@ mod tests {
                 child_worldline_id: child_worldline,
                 writer_heads: vec![child_head],
                 support_pins: Vec::new(),
+                retention_posture: shared_retention_posture(),
             })
             .unwrap();
 
@@ -1538,6 +1563,7 @@ mod tests {
                 child_worldline_id: child_worldline,
                 writer_heads: vec![child_head],
                 support_pins: Vec::new(),
+                retention_posture: shared_retention_posture(),
             })
             .unwrap();
         (

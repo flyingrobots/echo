@@ -3,10 +3,9 @@
 
 //! External-consumer braid public API checks.
 
-use warp_core::strand::make_strand_id;
 use warp_core::{
-    AuthorityDomainId, AuthorityDomainRef, Braid, BraidError, BraidEvent, BraidMemberRef,
-    BraidStatus, OriginId,
+    make_strand_id, AuthorityDomainId, AuthorityDomainRef, Braid, BraidError, BraidEvent,
+    BraidMemberRef, BraidStatus, OriginId,
 };
 
 fn authority_ref() -> AuthorityDomainRef {

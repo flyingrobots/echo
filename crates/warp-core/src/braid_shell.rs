@@ -93,22 +93,24 @@ impl BraidMemberRef {
         hasher.finalize().into()
     }
 
-    /// Returns whether this member reference matches the given strand ID,
-    /// child worldline ID, and blinding material.
+    /// Returns whether this sealed member reference matches the given strand
+    /// ID, child worldline ID, authority, and blinding material.
     #[must_use]
     pub fn matches_strand(
         &self,
         strand_id: &StrandId,
         child_worldline_id: &WorldlineId,
+        authority: &AuthorityDomainRef,
         blinding_secret: &Hash,
     ) -> bool {
         match self {
-            Self::Revealed(id) => *id == *strand_id,
+            Self::Revealed(_) => false,
             Self::Sealed {
-                blinded_commitment, ..
+                blinded_commitment,
+                authority: member_authority,
             } => {
                 let expected = Self::seal(*strand_id, *child_worldline_id, *blinding_secret);
-                *blinded_commitment == expected
+                member_authority == authority && *blinded_commitment == expected
             }
         }
     }
@@ -711,12 +713,16 @@ impl BraidShell {
         &self,
         strand_id: &StrandId,
         child_worldline_id: &WorldlineId,
+        authority: &AuthorityDomainRef,
         blinding_secret: &Hash,
     ) -> bool {
         self.members.iter().any(|member| {
-            member
-                .member_ref
-                .matches_strand(strand_id, child_worldline_id, blinding_secret)
+            member.member_ref.matches_strand(
+                strand_id,
+                child_worldline_id,
+                authority,
+                blinding_secret,
+            )
         })
     }
 }
@@ -1207,14 +1213,27 @@ impl RetainedBoundaryRecord for crate::provenance_store::BoundaryTransitionRecor
 }
 
 /// Secure member lookup material for sealed braid member references.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct BraidShellMemberQuery {
     /// Strand identity being matched.
     pub strand_id: StrandId,
     /// Child worldline identity bound into sealed member commitments.
     pub child_worldline_id: WorldlineId,
+    /// Causal authority domain bound into the sealed member reference.
+    pub authority: AuthorityDomainRef,
     /// Non-public blinding material used to derive sealed member commitments.
     pub blinding_secret: Hash,
+}
+
+impl core::fmt::Debug for BraidShellMemberQuery {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("BraidShellMemberQuery")
+            .field("strand_id", &self.strand_id)
+            .field("child_worldline_id", &self.child_worldline_id)
+            .field("authority", &self.authority)
+            .field("blinding_secret", &"<redacted>")
+            .finish()
+    }
 }
 
 /// Scan-backed query over retained braid shells.
@@ -1250,6 +1269,7 @@ impl BraidShell {
                 self.has_member_strand_secure(
                     &member.strand_id,
                     &member.child_worldline_id,
+                    &member.authority,
                     &member.blinding_secret,
                 )
             })
@@ -1819,17 +1839,29 @@ mod tests {
     fn sealed_member_query_requires_secure_material() {
         let strand_id = make_strand_id("sealed-member");
         let child_worldline_id = wl(9);
+        let member_authority = authority(0xA1, 0xB1);
         let blinding_secret = [0xA5; 32];
         let member_ref = BraidMemberRef::seal(strand_id, child_worldline_id, blinding_secret);
         let shell = plural_shell(vec![sealed_member(
             member_ref,
-            authority(0xA1, 0xB1),
+            member_authority,
             MemberVerdict::Plural,
             0x27,
         )]);
 
         assert!(!shell.has_revealed_member_strand(&strand_id));
-        assert!(shell.has_member_strand_secure(&strand_id, &child_worldline_id, &blinding_secret));
+        assert!(shell.has_member_strand_secure(
+            &strand_id,
+            &child_worldline_id,
+            &member_authority,
+            &blinding_secret
+        ));
+        assert!(!shell.has_member_strand_secure(
+            &strand_id,
+            &child_worldline_id,
+            &authority(0xA1, 0xB2),
+            &blinding_secret
+        ));
         assert!(!shell.matches(&BraidShellQuery {
             revealed_member_strand: Some(strand_id),
             ..BraidShellQuery::default()
@@ -1838,10 +1870,22 @@ mod tests {
             secure_member: Some(BraidShellMemberQuery {
                 strand_id,
                 child_worldline_id,
+                authority: member_authority,
                 blinding_secret,
             }),
             ..BraidShellQuery::default()
         }));
+        let debug = format!(
+            "{:?}",
+            BraidShellMemberQuery {
+                strand_id,
+                child_worldline_id,
+                authority: member_authority,
+                blinding_secret,
+            }
+        );
+        assert!(debug.contains("blinding_secret: \"<redacted>\""));
+        assert!(!debug.contains("blinding_secret: ["));
     }
 
     #[test]
@@ -1988,27 +2032,63 @@ mod tests {
     fn test_secure_sealed_member_matching() {
         let strand_id = make_strand_id("secure-member");
         let child_worldline = WorldlineId::from_bytes([0x88; 32]);
-        let authority = authority(0x10, 0x20);
+        let member_authority = authority(0x10, 0x20);
         let blinding_secret = [0x44; 32];
 
         let blinded_commitment = BraidMemberRef::seal(strand_id, child_worldline, blinding_secret);
         let sealed_ref = BraidMemberRef::Sealed {
             blinded_commitment,
-            authority,
+            authority: member_authority,
         };
 
-        // Verification matches correctly
-        assert!(sealed_ref.matches_strand(&strand_id, &child_worldline, &blinding_secret));
+        // Verification matches correctly.
+        assert!(sealed_ref.matches_strand(
+            &strand_id,
+            &child_worldline,
+            &member_authority,
+            &blinding_secret
+        ));
 
-        // Mismatched strand_id fails
+        // Revealed references are not accepted by the sealed secure path.
+        assert!(!BraidMemberRef::Revealed(strand_id).matches_strand(
+            &strand_id,
+            &child_worldline,
+            &member_authority,
+            &blinding_secret
+        ));
+
+        // Mismatched strand_id fails.
         let wrong_strand_id = make_strand_id("wrong-member");
-        assert!(!sealed_ref.matches_strand(&wrong_strand_id, &child_worldline, &blinding_secret));
+        assert!(!sealed_ref.matches_strand(
+            &wrong_strand_id,
+            &child_worldline,
+            &member_authority,
+            &blinding_secret
+        ));
 
-        // Mismatched child_worldline fails
+        // Mismatched child_worldline fails.
         let wrong_child_worldline = WorldlineId::from_bytes([0x99; 32]);
-        assert!(!sealed_ref.matches_strand(&strand_id, &wrong_child_worldline, &blinding_secret));
+        assert!(!sealed_ref.matches_strand(
+            &strand_id,
+            &wrong_child_worldline,
+            &member_authority,
+            &blinding_secret
+        ));
+
+        // Mismatched authority fails.
+        assert!(!sealed_ref.matches_strand(
+            &strand_id,
+            &child_worldline,
+            &authority(0x10, 0x21),
+            &blinding_secret
+        ));
 
         // Mismatched blinding secret fails.
-        assert!(!sealed_ref.matches_strand(&strand_id, &child_worldline, &[0x45; 32]));
+        assert!(!sealed_ref.matches_strand(
+            &strand_id,
+            &child_worldline,
+            &member_authority,
+            &[0x45; 32]
+        ));
     }
 }

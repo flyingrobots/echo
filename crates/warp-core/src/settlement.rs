@@ -1504,25 +1504,7 @@ fn settlement_member_blinding(plan: &SettlementPlan, retention_posture: &Retenti
     hasher.update(SETTLEMENT_MEMBER_BLINDING_DOMAIN);
     hasher.update(plan.strand_id.as_bytes());
     hasher.update(plan.basis_report.child_worldline_id.as_bytes());
-    hasher.update(plan.target_worldline.as_bytes());
-    hasher.update(plan.target_base_ref.worldline_id.as_bytes());
-    hasher.update(&plan.target_base_ref.worldline_tick.as_u64().to_le_bytes());
-    hasher.update(&plan.target_base_ref.commit_hash);
-    hasher.update(
-        plan.basis_report
-            .realized_parent_ref
-            .worldline_id
-            .as_bytes(),
-    );
-    hasher.update(
-        &plan
-            .basis_report
-            .realized_parent_ref
-            .worldline_tick
-            .as_u64()
-            .to_le_bytes(),
-    );
-    hasher.update(&plan.basis_report.realized_parent_ref.commit_hash);
+    hasher.update(&[retention_posture.causal_posture.canonical_tag()]);
     hasher.update(retention_posture.retention_contract.as_bytes());
     hasher.update(
         retention_posture
@@ -1743,7 +1725,7 @@ mod tests {
         CausalAuthority, OriginId, PostureDerivation, RetentionContractId, RetentionPosture,
         SealStrength, SourceDisclosurePolicy,
     };
-    use crate::strand::{ForkBasisRef, Strand};
+    use crate::strand::{make_strand_id, ForkBasisRef, Strand};
     use crate::tick_patch::{SlotId, WarpOp};
     use crate::{GraphStore, WorldlineState};
 
@@ -1788,6 +1770,71 @@ mod tests {
 
     fn author_only_retention_posture() -> RetentionPosture {
         test_retention_posture(CausalPosture::AuthorOnly)
+    }
+
+    fn test_provenance_ref(worldline: u8, tick: u64, hash: u8) -> ProvenanceRef {
+        ProvenanceRef {
+            worldline_id: wl(worldline),
+            worldline_tick: wt(tick),
+            commit_hash: [hash; 32],
+        }
+    }
+
+    #[test]
+    fn sealed_member_blinding_is_stable_across_parent_frontier_movement() {
+        let strand_id = make_strand_id("stable-hidden-member");
+        let parent = wl(1);
+        let child = wl(9);
+        let anchor_ref = test_provenance_ref(1, 0, 0x11);
+        let parent_to_before = test_provenance_ref(1, 2, 0x22);
+        let parent_to_after = test_provenance_ref(1, 5, 0x55);
+        let fork_basis_ref = ForkBasisRef {
+            source_lane_id: parent,
+            fork_tick: wt(0),
+            commit_hash: [0x11; 32],
+            boundary_hash: [0x12; 32],
+            provenance_ref: anchor_ref,
+        };
+        let base_report = StrandBasisReport {
+            strand_id,
+            parent_anchor: fork_basis_ref,
+            child_worldline_id: child,
+            source_suffix_start_tick: wt(1),
+            source_suffix_end_tick: Some(wt(3)),
+            realized_parent_ref: parent_to_before,
+            owned_divergence: crate::strand::StrandDivergenceFootprint::default(),
+            parent_movement: crate::strand::ParentMovementFootprint::default(),
+            parent_revalidation: StrandRevalidationState::ParentAdvancedDisjoint {
+                parent_from: anchor_ref,
+                parent_to: parent_to_before,
+            },
+        };
+        let moved_report = StrandBasisReport {
+            realized_parent_ref: parent_to_after,
+            parent_revalidation: StrandRevalidationState::ParentAdvancedDisjoint {
+                parent_from: anchor_ref,
+                parent_to: parent_to_after,
+            },
+            ..base_report.clone()
+        };
+        let base_plan = SettlementPlan {
+            strand_id,
+            target_worldline: parent,
+            target_base_ref: parent_to_before,
+            basis_report: base_report,
+            decisions: Vec::new(),
+        };
+        let moved_plan = SettlementPlan {
+            target_base_ref: parent_to_after,
+            basis_report: moved_report,
+            ..base_plan.clone()
+        };
+        let retention_posture = author_only_retention_posture();
+
+        assert_eq!(
+            settlement_member_blinding(&base_plan, &retention_posture),
+            settlement_member_blinding(&moved_plan, &retention_posture)
+        );
     }
 
     fn register_head(
@@ -2846,7 +2893,12 @@ mod tests {
         ));
 
         let blinding_secret = settlement_member_blinding(&result.plan, &retention_posture);
-        assert!(shell.has_member_strand_secure(&strand_id, &child_worldline, &blinding_secret));
+        assert!(shell.has_member_strand_secure(
+            &strand_id,
+            &child_worldline,
+            &retention_posture.authority.author_domain,
+            &blinding_secret
+        ));
     }
 
     #[test]

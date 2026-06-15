@@ -123,15 +123,17 @@ impl BraidMemberRef {
         &self,
         strand_id: &StrandId,
         child_worldline_id: &WorldlineId,
+        authority: &AuthorityDomainRef,
         blinding_secret: &Hash,
     ) -> bool {
         match self {
-            Self::Revealed(id) => *id == *strand_id,
+            Self::Revealed(_) => false,
             Self::Sealed {
-                blinded_commitment, ..
+                blinded_commitment,
+                authority: member_authority,
             } => {
                 let expected = Self::seal(*strand_id, *child_worldline_id, *blinding_secret);
-                *blinded_commitment == expected
+                member_authority == authority && *blinded_commitment == expected
             }
         }
     }

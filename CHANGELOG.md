@@ -13,6 +13,12 @@
   use fixture builders and accessors, `ProofEnvelope::validate_shape(...)`
   returns structured `ProofError`, and invalid braid lifecycle transitions
   report typed `BraidTransitionKind` instead of action strings.
+- `warp-core` now locks the second braids/strands roadmap goalpost with golden
+  vectors for replay-trace proof-envelope identity, proofless and
+  proof-bearing braid shell identity, revealed and sealed member identity, and
+  sealed-member salt effects. The vector metadata marks these identities as
+  E1 scaffolding identity, and API docs now state that deterministic member
+  blinding defaults are reproducibility tools, not unlinkability boundaries.
 - `warp-core` now enforces the v1 single-writer-head strand invariant through
   both `Strand::new(...)` and `StrandRegistry::insert(...)`, and runtime strand
   forking constructs the registered relation through the same constructor

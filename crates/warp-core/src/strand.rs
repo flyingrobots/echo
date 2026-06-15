@@ -240,8 +240,9 @@ impl<P: CausalPostureState> Strand<P> {
     ///
     /// Returns [`StrandError`] when the retained posture is incoherent, the
     /// static posture marker disagrees with runtime posture, the child and
-    /// source worldlines are the same, writer heads target the wrong child
-    /// worldline, or support pins are self-targeted or duplicate one another.
+    /// source worldlines are the same, the v1 writer-head set does not contain
+    /// exactly one head, writer heads target the wrong child worldline, or
+    /// support pins are self-targeted or duplicate one another.
     pub fn new(
         strand_id: StrandId,
         fork_basis_ref: ForkBasisRef,

@@ -92,6 +92,12 @@ The vocabulary stays sharp:
 | Retained plurality | Preserved multiple claims not collapsed to one fact.     |
 | Collapse law       | Named law that interprets or reduces retained plurality. |
 
+Claim lifecycle:
+
+```text
+created -> admitted -> projected -> witnessed -> replayed -> interpreted
+```
+
 ## Dependency Graph
 
 This is a dependency chain, not a menu.
@@ -131,7 +137,8 @@ Every issue created from this roadmap MUST include:
 1. One failing regression witness before the fix, unless the issue is
    explicitly design-only.
 2. One focused implementation change.
-3. One stable test, vector, fixture, replay fact, or DIND proof.
+3. One stable test, vector, fixture, replay fact, or deterministic integration
+   proof.
 4. Documentation when public semantics, privacy posture, digest identity, or
    replay output changes.
 5. No hidden reliance on parsing display strings.
@@ -140,7 +147,18 @@ Every issue created from this roadmap MUST include:
 8. No application-domain nouns in Echo core.
 
 Design-only issues MUST name the later runtime, API, golden-vector, replay, or
-DIND witness that closes the claim.
+deterministic integration witness that closes the claim.
+
+## Issue Output Format
+
+Every execution issue created from this roadmap MUST include:
+
+1. Invariant being protected.
+2. Failing witness.
+3. Implementation surface.
+4. Compatibility class affected.
+5. Acceptance test.
+6. Documentation, vector, or replay impact.
 
 ## Non-Goals
 
@@ -182,6 +200,9 @@ Golden vectors and replay fixtures MUST mark identity stability explicitly:
 
 Intentional digest, proof, shell, witness, or replay identity changes MUST
 state which compatibility class changed and how callers migrate.
+
+Any public stable identity change MUST include a migration path, a version
+bump, or an explicit declaration that no prior stable identity was published.
 
 ## Execution Order
 
@@ -346,8 +367,8 @@ Work:
 
 Acceptance:
 
-- A braid created with `s0` and `s1`, then woven with `s2`, reports `s2` only
-  at coordinates after the weave event.
+- A braid whose initial interval includes `s0` and `s1`, then later weaves in
+  `s2`, reports `s2` only at coordinates after the weave event.
 - Current membership and historical membership are both deterministic
   projections over the same event log.
 - Settlement can admit a braid projection without pretending member strands
@@ -534,7 +555,7 @@ hidden caller policy.
 Work:
 
 1. Define a registry shape for settlement, collapse, conflict-preserving,
-   quorum, editorial, and authority laws.
+   quorum, authority, and adapter-provided law families.
 2. Make the law name and version part of the witnessed reading.
 3. Attach capability, support, budget, and evidence posture to law execution.
 4. Keep application nouns out of Echo core; authored contracts provide
@@ -562,17 +583,17 @@ Acceptance:
 
 Follow-up implementation work MUST be split into small PRs:
 
-| PR  | Scope                                                  |
-| --- | ------------------------------------------------------ |
-| A   | Private `Strand<P>` construction plus fixture builders |
-| B   | `ProofError` plus `BraidTransitionKind`                |
-| C   | Golden vectors                                         |
-| D   | Blinding salt docs and tests                           |
-| E   | Historical braid membership views                      |
-| F   | Replay and audit optic                                 |
-| G   | `WitnessReceipt` boundary plus simulator fixtures      |
-| H   | Sealed membership capability design                    |
-| I   | Named plurality law registry design                    |
+| PR  | Scope                                                  | Risk if skipped                                  |
+| --- | ------------------------------------------------------ | ------------------------------------------------ |
+| A   | Private `Strand<P>` construction plus fixture builders | typestate-looking forgery remains API-shaped     |
+| B   | `ProofError` plus `BraidTransitionKind`                | callers parse strings                            |
+| C   | Golden vectors                                         | digest drift goes undetected                     |
+| D   | Blinding salt docs and tests                           | reproducibility gets mistaken for privacy        |
+| E   | Historical braid membership views                      | event history degrades into current-only state   |
+| F   | Replay and audit optic                                 | law-bearing readings remain hard to inspect      |
+| G   | `WitnessReceipt` boundary plus simulator fixtures      | self-witness scaffolding becomes permanent model |
+| H   | Sealed membership capability design                    | sealed membership turns into privacy theater     |
+| I   | Named plurality law registry design                    | interpretation policy hides in callers           |
 
 PRs A-D are the hardening foundation. PRs E-I MUST NOT introduce runtime or
 public API dependencies that bypass A-D.
@@ -605,7 +626,7 @@ before more public APIs depend on the new shapes.
 |        5 | settlement blinding    | deterministic default invites overtrust | sharper docs and salt-path tests     |
 |        6 | braid shell witnessing | self-witness is only E1 scaffolding     | named witness receipt design         |
 
-## Cool-Idea Commitments
+## Promoted Design Targets
 
 These ideas are promoted into the roadmap as ordered extensions. They are
 mandatory design targets, but they MUST respect the dependency graph.
@@ -654,5 +675,5 @@ roadmap is pulled into execution:
 9. Named plurality law registry with Law Cards.
 
 Each issue MUST carry one executable witness. Design-only issues MUST state
-which later runtime, API, golden-vector, replay, or DIND proof closes the
-claim.
+which later runtime, API, golden-vector, replay, or deterministic integration
+proof closes the claim.

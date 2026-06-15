@@ -1,25 +1,21 @@
 ---
 audit-date: 2026-06-15
+audit-commit: 5f85dae5727d36acf4a82aad8d7cdb0488cb67be
 audit-status: keep
 topics:
     - method
     - doctor
     - triage
-accuracy: 90%
+accuracy: 0.90
 issue: 497
 findings:
     - claim: "Method crate status and check subcommands are implemented"
       ruling: true
       evidence:
-          filepath: "crates/method/Cargo.toml"
+          filepath: crates/method/Cargo.toml
           line: 1
-          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
     - claim: "Upstream method doctor utility is integrated for local workspace triage"
       ruling: false
-      evidence:
-          filepath: "xtask/src/main.rs"
-          line: 66
-          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
 ---
 
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
@@ -32,8 +28,8 @@ should not become an open-ended "refresh everything" cleanup pass.
 
 The right bounded follow-up is:
 
-1. compare Echo's local METHOD surface against `~/git/method`
-2. run the doctor once as a diagnostic, not a gate
+1. compare Echo's local METHOD surface against `~/git/method` [🟢, 95%, [crates/method/Cargo.toml:1](file:///Users/james/git/echo/crates/method/Cargo.toml#L1)]
+2. run the doctor once as a diagnostic, not a gate [🔴, 90%, (no supporting evidence was found - may be false 🤥)]
 3. sort findings into:
     - blocking now
     - worth batching soon

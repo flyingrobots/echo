@@ -1,19 +1,19 @@
 ---
 audit-date: 2026-06-15
+audit-commit: 5f85dae5727d36acf4a82aad8d7cdb0488cb67be
 audit-status: archive
 topics:
     - admission
     - outcome
     - algebra
-accuracy: 100%
+accuracy: 1.00
 issue: 468
 findings:
     - claim: "The AdmissionOutcomeKind fact family (Admitted, Staged, Plural, Conflict, Obstructed) is fully implemented"
       ruling: true
       evidence:
-          filepath: "crates/warp-core/src/admission.rs"
+          filepath: crates/warp-core/src/admission.rs
           line: 178
-          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
 ---
 
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
@@ -21,7 +21,7 @@ findings:
 
 # KERNEL - Admission Outcome Family
 
-Echo now has an explicit `AdmissionOutcomeKind` family, but outcome-shaped truth
+Echo now has an explicit `AdmissionOutcomeKind` family, but outcome-shaped truth [🟢, 95%, [crates/warp-core/src/admission.rs:178](file:///Users/james/git/echo/crates/warp-core/src/admission.rs#L178)]
 still needs to be threaded consistently across tick receipts, settlement reason
 classes, and braid/collapse language so the runtime, docs, and future shared
 publication surface all point to the same causal vocabulary.

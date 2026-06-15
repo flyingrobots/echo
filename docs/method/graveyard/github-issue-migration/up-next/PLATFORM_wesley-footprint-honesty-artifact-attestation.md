@@ -1,25 +1,21 @@
 ---
 audit-date: 2026-06-15
+audit-commit: 5f85dae5727d36acf4a82aad8d7cdb0488cb67be
 audit-status: keep
 topics:
     - wesley
     - footprint
     - attestation
-accuracy: 90%
+accuracy: 0.90
 issue: 501
 findings:
     - claim: "Load-time contract artifact verification and attestation exist"
       ruling: true
       evidence:
-          filepath: "crates/echo-wesley-gen/src/lib.rs"
+          filepath: crates/echo-wesley-gen/src/lib.rs
           line: 1
-          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
     - claim: "Attestation enforces the compile-time capability boundary across Rust/TypeScript"
       ruling: false
-      evidence:
-          filepath: "crates/echo-wesley-gen/src/lib.rs"
-          line: 1
-          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
 ---
 
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
@@ -87,7 +83,7 @@ At runtime, Echo or the host should compare the loaded artifact's certificate
 hash and generated artifact hash with the trusted registry metadata on first
 load. After that:
 
-- trusted compile-time-certified artifacts may use the optimized release path
+- trusted compile-time-certified artifacts may use the optimized release path [🟢, 95%, [crates/echo-wesley-gen/src/lib.rs:1](file:///Users/james/git/echo/crates/echo-wesley-gen/src/lib.rs#L1)]
   without per-access footprint guards;
 - debug builds and `footprint_enforce_release` may still run guards as a safety
   net;
@@ -140,7 +136,7 @@ Initial Echo-side runway landed:
   generated artifact hashes, and a policy requiring mutation operations to be
   backed by expected certificates.
 
-This is not the full closeout. The remaining hardening is the real
+This is not the full closeout. The remaining hardening is the real [🔴, 90%, (no supporting evidence was found - may be false 🤥)]
 compile-time capability boundary and cross-artifact Rust/TypeScript compiled
 artifact identity.
 

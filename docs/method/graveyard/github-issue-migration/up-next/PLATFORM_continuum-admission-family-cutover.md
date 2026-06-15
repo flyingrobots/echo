@@ -1,31 +1,29 @@
 ---
 audit-date: 2026-06-15
+audit-commit: 5f85dae5727d36acf4a82aad8d7cdb0488cb67be
 audit-status: archive
 topics:
     - continuum
     - admission
     - schema
-accuracy: 80%
+accuracy: 0.80
 issue: 485
 findings:
     - claim: "TickReceiptDisposition::Applied/Rejected maps to Derived/Obstruction outcome kinds"
       ruling: true
       evidence:
-          filepath: "crates/warp-core/src/receipt.rs"
+          filepath: crates/warp-core/src/receipt.rs
           line: 143
-          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
     - claim: "NeighborhoodSite::Singleton/Braided maps to Derived/Plural outcome kinds"
       ruling: true
       evidence:
-          filepath: "crates/warp-core/src/neighborhood.rs"
+          filepath: crates/warp-core/src/neighborhood.rs
           line: 69
-          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
     - claim: "SettlementDecision::ImportCandidate/ConflictArtifact/PluralAlternative maps to Derived/Conflict/Plural outcome kinds"
       ruling: true
       evidence:
-          filepath: "crates/warp-core/src/settlement.rs"
+          filepath: crates/warp-core/src/settlement.rs
           line: 253
-          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
 ---
 
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
@@ -49,11 +47,11 @@ trying to move the whole runtime across the boundary at once.
 
 The current runtime now has enough truthful mapping to drive that platform cut:
 
-- `TickReceiptDisposition::Applied` => `Derived`
+- `TickReceiptDisposition::Applied` => `Derived` [🟢, 95%, [crates/warp-core/src/receipt.rs:143](file:///Users/james/git/echo/crates/warp-core/src/receipt.rs#L143)]
 - `TickReceiptDisposition::Rejected(FootprintConflict)` => `Obstruction`
-- `NeighborhoodSite::Singleton` => `Derived`
+- `NeighborhoodSite::Singleton` => `Derived` [🟢, 95%, [crates/warp-core/src/neighborhood.rs:69](file:///Users/james/git/echo/crates/warp-core/src/neighborhood.rs#L69)]
 - `NeighborhoodSite::Braided` => `Plural`
-- `SettlementDecision::ImportCandidate` => `Derived`
+- `SettlementDecision::ImportCandidate` => `Derived` [🟢, 95%, [crates/warp-core/src/settlement.rs:253](file:///Users/james/git/echo/crates/warp-core/src/settlement.rs#L253)]
 - `SettlementDecision::ConflictArtifact` => `Conflict`
 
 The next step is not inventing more local nouns. It is selecting one generated

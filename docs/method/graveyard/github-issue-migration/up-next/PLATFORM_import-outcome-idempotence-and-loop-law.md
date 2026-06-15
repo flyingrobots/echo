@@ -1,25 +1,21 @@
 ---
 audit-date: 2026-06-15
+audit-commit: 5f85dae5727d36acf4a82aad8d7cdb0488cb67be
 audit-status: keep
 topics:
     - import
     - idempotence
     - sync
-accuracy: 90%
+accuracy: 0.90
 issue: 492
 findings:
     - claim: "Import path de-duplicates known imports and evaluates novelty"
       ruling: true
       evidence:
-          filepath: "crates/warp-core/src/witnessed_suffix.rs"
+          filepath: crates/warp-core/src/witnessed_suffix.rs
           line: 1
-          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
     - claim: "Import loop prevention via a retained novelty/idempotence index is implemented"
       ruling: false
-      evidence:
-          filepath: "crates/warp-core/src/witnessed_suffix.rs"
-          line: 1
-          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
 ---
 
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
@@ -90,8 +86,8 @@ This card is now the import-idempotence umbrella. The executable slices are:
 - `docs/method/backlog/asap/PLATFORM_import-transport-intent-admission-path.md`
 - `docs/method/backlog/up-next/PLATFORM_import-outcome-retention-novelty-index.md`
 
-The first slice makes inbound transport causal by routing it through an import
-Intent. The second slice adds retained novelty/idempotence posture after the
+The first slice makes inbound transport causal by routing it through an import [🟢, 95%, [crates/warp-core/src/witnessed_suffix.rs:1](file:///Users/james/git/echo/crates/warp-core/src/witnessed_suffix.rs#L1)]
+Intent. The second slice adds retained novelty/idempotence posture after the [🔴, 90%, (no supporting evidence was found - may be false 🤥)]
 Intent path exists.
 
 ## Repo evidence

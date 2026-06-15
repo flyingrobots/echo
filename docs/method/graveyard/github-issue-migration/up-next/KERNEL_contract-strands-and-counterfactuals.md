@@ -1,19 +1,19 @@
 ---
 audit-date: 2026-06-15
+audit-commit: 5f85dae5727d36acf4a82aad8d7cdb0488cb67be
 audit-status: archive
 topics:
     - strand
     - settlement
     - counterfactual
-accuracy: 100%
+accuracy: 1.00
 issue: 473
 findings:
     - claim: "Speculative execution and the full settlement decisions algebra are implemented and tested"
       ruling: true
       evidence:
-          filepath: "crates/warp-core/src/settlement.rs"
+          filepath: crates/warp-core/src/settlement.rs
           line: 253
-          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
 ---
 
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
@@ -67,7 +67,7 @@ as a special ontology. The useful requirement belongs here:
 
 ## Acceptance criteria
 
-- A fake contract intent can be applied inside a strand without changing the
+- A fake contract intent can be applied inside a strand without changing the [🟢, 95%, [crates/warp-core/src/settlement.rs:253](file:///Users/james/git/echo/crates/warp-core/src/settlement.rs#L253)]
   parent frontier.
 - Observing the strand returns a reading envelope that names strand basis and
   contract identity.

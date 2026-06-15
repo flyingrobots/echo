@@ -1,19 +1,19 @@
 ---
 audit-date: 2026-06-15
+audit-commit: 5f85dae5727d36acf4a82aad8d7cdb0488cb67be
 audit-status: archive
 topics:
     - wesley
     - repo
     - ci
-accuracy: 90%
+accuracy: 0.90
 issue: 502
 findings:
     - claim: "Wesley compiler is public and open-source"
       ruling: true
       evidence:
-          filepath: "crates/echo-wesley-gen/README.md"
+          filepath: crates/echo-wesley-gen/README.md
           line: 1
-          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
 ---
 
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
@@ -23,7 +23,7 @@ findings:
 
 > **Milestone:** First Light | **Priority:** P1 | **Repo:** Wesley
 
-Wesley-repo work. Prepare the Wesley repository for open-source release: README polish, contributor documentation, CI hardening, and legal review.
+Wesley-repo work. Prepare the Wesley repository for open-source release: README polish, contributor documentation, CI hardening, and legal review. [🟢, 95%, [crates/echo-wesley-gen/README.md:1](file:///Users/james/git/echo/crates/echo-wesley-gen/README.md#L1)]
 
 ## T-2-3-1: README, contributor guide, and CI hardening
 

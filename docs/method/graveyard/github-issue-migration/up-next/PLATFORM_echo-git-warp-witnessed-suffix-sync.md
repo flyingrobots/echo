@@ -1,43 +1,36 @@
 ---
 audit-date: 2026-06-15
+audit-commit: 5f85dae5727d36acf4a82aad8d7cdb0488cb67be
 audit-status: keep
 topics:
     - sync
     - git-warp
     - suffix
-accuracy: 90%
+accuracy: 0.90
 issue: 489
 findings:
     - claim: "one narrow bundle request shape exists over graph/lane/frontier identity"
       ruling: true
       evidence:
-          filepath: "crates/warp-core/src/witnessed_suffix.rs"
+          filepath: crates/warp-core/src/witnessed_suffix.rs
           line: 1
-          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
     - claim: "one bundle export path gathers witnessed transitions plus payload references"
       ruling: true
       evidence:
-          filepath: "crates/warp-core/src/witnessed_suffix.rs"
+          filepath: crates/warp-core/src/witnessed_suffix.rs
           line: 1
-          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
     - claim: "one import path normalizes against local frontier truth and returns outcome kinds"
       ruling: true
       evidence:
-          filepath: "crates/warp-core/src/witnessed_suffix.rs"
+          filepath: crates/warp-core/src/witnessed_suffix.rs
           line: 1
-          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
     - claim: "one duplicate-import case proves idempotence"
       ruling: true
       evidence:
-          filepath: "crates/warp-core/src/witnessed_suffix.rs"
+          filepath: crates/warp-core/src/witnessed_suffix.rs
           line: 1
-          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
     - claim: "git-warp import of Echo-exported suffixes is verified"
       ruling: false
-      evidence:
-          filepath: "crates/warp-core/src/witnessed_suffix.rs"
-          line: 1
-          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
 ---
 
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
@@ -72,17 +65,17 @@ without last-write-wins, silent branch mutation, or looped re-import.
 
 ## Done looks like
 
-- one narrow bundle request shape exists over graph/lane/frontier identity
-- one bundle export path gathers witnessed transitions plus payload references
-- one import path normalizes against local frontier truth and returns:
+- one narrow bundle request shape exists over graph/lane/frontier identity [🟢, 95%, [crates/warp-core/src/witnessed_suffix.rs:1](file:///Users/james/git/echo/crates/warp-core/src/witnessed_suffix.rs#L1)]
+- one bundle export path gathers witnessed transitions plus payload references [🟢, 95%, [crates/warp-core/src/witnessed_suffix.rs:1](file:///Users/james/git/echo/crates/warp-core/src/witnessed_suffix.rs#L1)]
+- one import path normalizes against local frontier truth and returns: [🟢, 95%, [crates/warp-core/src/witnessed_suffix.rs:1](file:///Users/james/git/echo/crates/warp-core/src/witnessed_suffix.rs#L1)]
     - admitted
     - staged
     - braided
     - conflict
     - obstructed
-- one duplicate-import case proves idempotence
+- one duplicate-import case proves idempotence [🟢, 95%, [crates/warp-core/src/witnessed_suffix.rs:1](file:///Users/james/git/echo/crates/warp-core/src/witnessed_suffix.rs#L1)]
 - one first peer proving target is named:
-    - `git-warp` import of Echo-exported suffixes
+    - `git-warp` import of Echo-exported suffixes [🔴, 90%, (no supporting evidence was found - may be false 🤥)]
 
 ## Repo Evidence
 

@@ -1,25 +1,21 @@
 ---
 audit-date: 2026-06-15
+audit-commit: 5f85dae5727d36acf4a82aad8d7cdb0488cb67be
 audit-status: keep
 topics:
     - intent
     - runtime
     - contract
-accuracy: 95%
+accuracy: 0.95
 issue: 477
 findings:
     - claim: "External mutations (like settling a strand, pinning support) enter through host ABI"
       ruling: true
       evidence:
-          filepath: "crates/echo-wasm-abi/src/lib.rs"
+          filepath: crates/echo-wasm-abi/src/lib.rs
           line: 1
-          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
     - claim: "External mutations are refactored to enter through the dispatch_intent pipeline"
       ruling: false
-      evidence:
-          filepath: "crates/echo-wasm-abi/src/lib.rs"
-          line: 1
-          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
 ---
 
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
@@ -37,8 +33,8 @@ Depends on:
 
 ## Why now
 
-Some Echo services mutate directly today. Those services can remain internal,
-but external application flows for contract families, strands, braids,
+Some Echo services mutate directly today. Those services can remain internal, [🟢, 95%, [crates/echo-wasm-abi/src/lib.rs:1](file:///Users/james/git/echo/crates/echo-wasm-abi/src/lib.rs#L1)]
+but external application flows for contract families, strands, braids, [🔴, 90%, (no supporting evidence was found - may be false 🤥)]
 settlement, support pins, and inverse operations must have intent paths.
 
 ## What it should look like

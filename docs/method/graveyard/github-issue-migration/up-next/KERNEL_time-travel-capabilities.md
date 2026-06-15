@@ -1,25 +1,21 @@
 ---
 audit-date: 2026-06-15
+audit-commit: 5f85dae5727d36acf4a82aad8d7cdb0488cb67be
 audit-status: keep
 topics:
     - capability
     - time-travel
     - security
-accuracy: 95%
+accuracy: 0.95
 issue: 480
 findings:
     - claim: "Timeline seeks and fork capabilities are implemented"
       ruling: true
       evidence:
-          filepath: "crates/warp-core/src/revelation.rs"
+          filepath: crates/warp-core/src/revelation.rs
           line: 1
-          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
     - claim: "Revocation logic for timeline capabilities is implemented"
       ruling: false
-      evidence:
-          filepath: "crates/warp-core/src/revelation.rs"
-          line: 1
-          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
 ---
 
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
@@ -45,7 +41,7 @@ before those operations become public surfaces.
 
 ## Required shape
 
-Define capability checks for:
+Define capability checks for: [🟢, 95%, [crates/warp-core/src/revelation.rs:1](file:///Users/james/git/echo/crates/warp-core/src/revelation.rs#L1)]
 
 - opening an observer at a coordinate or frontier
 - seeking a view to an older coordinate
@@ -71,7 +67,7 @@ The capability model must name:
   dispatch, merge, settlement, and witness reveal.
 - Per-session and per-actor grants can be represented without relying on host
   wall-clock ordering or mutable global state.
-- Revocation behavior is explicit: active forks/strands become staged,
+- Revocation behavior is explicit: active forks/strands become staged, [🔴, 90%, (no supporting evidence was found - may be false 🤥)]
   obstructed, or quarantined by typed posture; they are not silently destroyed.
 - Provenance sovereignty is stated as a normative rule: a branch or strand
   carries actor/cause evidence, and settlement requires authority over the

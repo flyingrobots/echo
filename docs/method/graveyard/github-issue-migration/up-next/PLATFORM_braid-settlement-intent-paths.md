@@ -1,19 +1,19 @@
 ---
 audit-date: 2026-06-15
+audit-commit: 5f85dae5727d36acf4a82aad8d7cdb0488cb67be
 audit-status: keep
 topics:
     - braid
     - settlement
     - intent
-accuracy: 95%
+accuracy: 0.95
 issue: 483
 findings:
     - claim: "Braid settlement executes as a direct host ABI service call instead of an Intent path"
       ruling: true
       evidence:
-          filepath: "crates/echo-wasm-abi/src/lib.rs"
+          filepath: crates/echo-wasm-abi/src/lib.rs
           line: 1
-          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
 ---
 
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
@@ -54,7 +54,7 @@ side-effect free.
 ## Acceptance criteria
 
 - Compare/plan settlement remain read-only publication surfaces.
-- Executing settlement has an Intent equivalent and records causal receipt
+- Executing settlement has an Intent equivalent and records causal receipt [🟢, 95%, [crates/echo-wasm-abi/src/lib.rs:1](file:///Users/james/git/echo/crates/echo-wasm-abi/src/lib.rs#L1)]
   evidence.
 - Appending a braid member, settling/collapsing a braid, or admitting a braid
   projection is represented as an Intent when exposed externally.

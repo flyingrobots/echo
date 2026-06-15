@@ -1,19 +1,16 @@
 ---
 audit-date: 2026-06-15
+audit-commit: 5f85dae5727d36acf4a82aad8d7cdb0488cb67be
 audit-status: archive
 topics:
     - wasm
     - abi
     - historical
-accuracy: 10%
+accuracy: 0.10
 issue: 500
 findings:
     - claim: "WASM runtime uses a historical step-driven API"
       ruling: false
-      evidence:
-          filepath: "crates/echo-wasm-abi/src/lib.rs"
-          line: 1
-          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
 ---
 
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
@@ -28,7 +25,7 @@ findings:
 > planning archaeology, not as the current WASM API contract. The live public
 > boundary is documented in [SPEC-0009 WASM ABI](../../../spec/SPEC-0009-wasm-abi.md).
 >
-> Historical First Light plan for wiring warp-wasm exports to real engine
+> Historical First Light plan for wiring warp-wasm exports to real engine [🔴, 90%, (no supporting evidence was found - may be false 🤥)]
 > logic. It reflects an earlier `step(...)`-driven browser boundary that has
 > since been replaced.
 

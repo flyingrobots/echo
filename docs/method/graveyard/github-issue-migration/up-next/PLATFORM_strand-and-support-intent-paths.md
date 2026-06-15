@@ -1,25 +1,21 @@
 ---
 audit-date: 2026-06-15
+audit-commit: 5f85dae5727d36acf4a82aad8d7cdb0488cb67be
 audit-status: keep
 topics:
     - strand
     - support
     - intent
-accuracy: 90%
+accuracy: 0.90
 issue: 499
 findings:
     - claim: "Speculative strand operations are implemented programmatically in the kernel"
       ruling: true
       evidence:
-          filepath: "crates/warp-core/src/strand.rs"
+          filepath: crates/warp-core/src/strand.rs
           line: 1
-          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
     - claim: "Intent-level paths for creating strands and pinning support are present in the WASM/EINT ABI"
       ruling: false
-      evidence:
-          filepath: "crates/echo-wasm-abi/src/lib.rs"
-          line: 1
-          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
 ---
 
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
@@ -42,14 +38,14 @@ create strands or support geometry through direct service mutation calls.
 
 ## Goal
 
-Add narrow Intent-level external paths for creating a contract/runtime strand
+Add narrow Intent-level external paths for creating a contract/runtime strand [🔴, 90%, (no supporting evidence was found - may be false 🤥)]
 from an explicit basis and for pinning/unpinning support when that is exposed to
 application flows.
 
 ## Likely files touched
 
 - `crates/echo-wasm-abi/src/kernel_port.rs`
-- `crates/warp-core/src/strand.rs`
+- `crates/warp-core/src/strand.rs` [🟢, 95%, [crates/warp-core/src/strand.rs:1](file:///Users/james/git/echo/crates/warp-core/src/strand.rs#L1)]
 - `crates/warp-core/src/coordinator.rs`
 - `crates/warp-core/src/cmd.rs`
 - `crates/warp-wasm/src/warp_kernel.rs`

@@ -1,25 +1,21 @@
 ---
 audit-date: 2026-06-15
+audit-commit: 5f85dae5727d36acf4a82aad8d7cdb0488cb67be
 audit-status: keep
 topics:
     - mcp
     - cli
     - agent
-accuracy: 95%
+accuracy: 0.95
 issue: 487
 findings:
     - claim: "Echo has a CLI tool surface exposing verify/inspect/bench subcommands"
       ruling: true
       evidence:
-          filepath: "crates/warp-cli/README.md"
+          filepath: crates/warp-cli/README.md
           line: 1
-          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
     - claim: "Echo has an inspectable MCP server surface exposing echo nouns to AI agents"
       ruling: false
-      evidence:
-          filepath: "crates/warp-cli/README.md"
-          line: 1
-          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
 ---
 
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
@@ -39,8 +35,8 @@ Today the repo has:
 
 What it does **not** have is one explicit, inspectable agent boundary such as:
 
-- a narrow CLI for observation, playback, neighborhood, and receipt inspection
-- an MCP surface exposing the same nouns and controls to tools/agents
+- a narrow CLI for observation, playback, neighborhood, and receipt inspection [🟢, 95%, [crates/warp-cli/README.md:1](file:///Users/james/git/echo/crates/warp-cli/README.md#L1)]
+- an MCP surface exposing the same nouns and controls to tools/agents [🔴, 90%, (no supporting evidence was found - may be false 🤥)]
 
 That gap matters for at least three reasons:
 

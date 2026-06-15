@@ -1,19 +1,16 @@
 ---
 audit-date: 2026-06-15
+audit-commit: 5f85dae5727d36acf4a82aad8d7cdb0488cb67be
 audit-status: keep
 topics:
     - graft
     - jedit
     - frontier
-accuracy: 90%
+accuracy: 0.90
 issue: 491
 findings:
     - claim: "Structural analysis readings over live Echo frontiers for Graft are implemented"
       ruling: false
-      evidence:
-          filepath: "crates/warp-core/src/frontier.rs"
-          line: 1
-          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
 ---
 
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
@@ -30,7 +27,7 @@ Depends on:
 
 ## Why now
 
-Once `jedit` edits through Echo-hosted contract intents, Graft should observe
+Once `jedit` edits through Echo-hosted contract intents, Graft should observe [🔴, 90%, (no supporting evidence was found - may be false 🤥)]
 the live contract frontier instead of only saved files or ad hoc editor state.
 
 Graft must consume readings and frontiers. It must not mutate Echo state

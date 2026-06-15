@@ -1,19 +1,19 @@
 ---
 audit-date: 2026-06-15
+audit-commit: 5f85dae5727d36acf4a82aad8d7cdb0488cb67be
 audit-status: archive
 topics:
     - wesley
     - typescript
     - zod
-accuracy: 100%
+accuracy: 1.00
 issue: 505
 findings:
     - claim: "TypeScript types and Zod schemas are generated via Wesley under packages/ttd-protocol-ts"
       ruling: true
       evidence:
-          filepath: "packages/ttd-protocol-ts/package.json"
+          filepath: packages/ttd-protocol-ts/package.json
           line: 1
-          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
 ---
 
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
@@ -23,7 +23,7 @@ findings:
 
 > **Milestone:** First Light | **Priority:** P1 | **Repo:** Shared
 
-Ensure Wesley-generated types are usable across the JS/WASM boundary. TypeScript types + Zod validators generated from Wesley IR, with a serialization bridge to the WASM Rust side.
+Ensure Wesley-generated types are usable across the JS/WASM boundary. TypeScript types + Zod validators generated from Wesley IR, with a serialization bridge to the WASM Rust side. [🟢, 95%, [packages/ttd-protocol-ts/package.json:1](file:///Users/james/git/echo/packages/ttd-protocol-ts/package.json#L1)]
 
 ## T-4-4-1: TypeScript type generation from Wesley IR
 

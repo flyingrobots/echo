@@ -1862,9 +1862,9 @@ mod tests {
         .unwrap();
         let expected_witness = temp_shell.witness_digest;
 
-        // Valid proof: matches the witness_digest and has non-empty bytes
+        // Valid replay-trace evidence: matches the witness_digest and has non-empty bytes.
         let valid_proof = ProofEnvelope {
-            kind: ProofKind::ZkSnark,
+            kind: ProofKind::ReplayTrace,
             proof_bytes: vec![1, 2, 3],
             public_inputs_hash: expected_witness,
         };
@@ -1901,7 +1901,7 @@ mod tests {
 
         // Invalid proof: mismatched public inputs hash
         let invalid_proof_mismatch = ProofEnvelope {
-            kind: ProofKind::ZkSnark,
+            kind: ProofKind::ReplayTrace,
             proof_bytes: vec![1, 2, 3],
             public_inputs_hash: [0x99; 32],
         };
@@ -1923,7 +1923,7 @@ mod tests {
 
         // Invalid proof: empty proof bytes
         let invalid_proof_empty = ProofEnvelope {
-            kind: ProofKind::ZkSnark,
+            kind: ProofKind::ReplayTrace,
             proof_bytes: Vec::new(),
             public_inputs_hash: expected_witness,
         };
@@ -1942,6 +1942,46 @@ mod tests {
             result_empty,
             Err(BraidShellError::ProofShapeValidationFailed { .. })
         ));
+    }
+
+    #[test]
+    fn cryptographic_proof_kinds_require_verifier_backend() {
+        use crate::proof::{ProofEnvelope, ProofKind};
+
+        let members = vec![member("member-a", MemberVerdict::Plural)];
+        let temp_shell = BraidShell::assemble(
+            wl(1),
+            basis_ref(),
+            members.clone(),
+            [0x5E; 32],
+            BraidShellOutcome::Plural {
+                alternative_ids: vec![[0x31; 32]],
+            },
+            CausalPosture::AuthorOnly,
+        )
+        .unwrap();
+
+        for kind in [ProofKind::ZkSnark, ProofKind::VectorOpening] {
+            let result = BraidShell::assemble_with_proof(
+                wl(1),
+                basis_ref(),
+                members.clone(),
+                [0x5E; 32],
+                BraidShellOutcome::Plural {
+                    alternative_ids: vec![[0x31; 32]],
+                },
+                CausalPosture::AuthorOnly,
+                Some(ProofEnvelope {
+                    kind,
+                    proof_bytes: vec![1, 2, 3],
+                    public_inputs_hash: temp_shell.witness_digest,
+                }),
+            );
+            assert!(matches!(
+                result,
+                Err(BraidShellError::ProofShapeValidationFailed { .. })
+            ));
+        }
     }
 
     #[test]

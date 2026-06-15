@@ -17,7 +17,7 @@ AIΩN Paper VIII (Continuum):
 
 - **Prop 5.1 (Typestate Partitioning)** — Causal posture transitions (e.g. `Scratch` → `AuthorOnly` → `Shared`) form a one-way lattice. Executions or operations requesting global settlement must statically prove they act on a `Shared` posture, guaranteeing no un-revalidated local context leaks.
 - **§3.4 (Zero-Knowledge Braid Boundaries)** — To maintain participant privacy and prevent linkability across independent braids, membership reference identities in public braid shells must be sealable. Verifiers should check the validity of a braid's members using blinded domain-separated commitments.
-- **§6.2 (Verkle/ZK Envelopes)** — Any braid shell carrying zero-knowledge or Verkle-style evidence must bind that evidence through an explicit `ProofEnvelope`. The current implementation validates envelope shape and public-input binding; cryptographic verifier backends remain a later cutover.
+- **§6.2 (Verkle/ZK Envelopes)** — Any braid shell carrying zero-knowledge or Verkle-style evidence must bind that evidence through an explicit `ProofEnvelope`. The current implementation validates replay-trace envelope shape and public-input binding; zero-knowledge and vector-opening proof kinds are reserved until verifier backends exist.
 
 ## Current state
 
@@ -33,7 +33,7 @@ All four key gaps from the Echo codebase gap analysis now have current E1 surfac
     - Sealed variants commit to the `StrandId`, child worldline, and caller-supplied non-public blinding material using a domain-separated `blake3` commitment.
 3. **ZK/Verkle Proof Envelopes (`proof.rs`, `braid_shell.rs`):**
     - Defined `ProofKind` (`ZkSnark`, `ReplayTrace`, `VectorOpening`), `ProofEnvelope`, and `ObserverHonestyClaim`.
-    - Added `BraidShell::assemble_with_proof` to attach proof-shaped evidence envelopes, validate shape/public-input binding, and bind the proof envelope digest into shell identity.
+    - Added `BraidShell::assemble_with_proof` to attach replay-trace evidence envelopes, validate shape/public-input binding, reject cryptographic proof kinds without verifier backends, and bind the proof envelope digest into shell identity.
 4. **Evolving Braid Logs (`braid.rs`):**
     - Created `BraidEvent` representing state transition logs (`BraidCreated`, `MemberWoven`, `SettlementFinalized`, `BraidCollapsed`).
     - Implemented checked incremental application and event folding with lifecycle, duplicate-member, sequence overflow, and collapse-witness checks.
@@ -142,7 +142,7 @@ impl BraidMemberRef {
 
 ### 3. Proof-Shaped Envelopes
 
-A `ProofEnvelope` contains proof-shaped evidence bytes and the public-input hash they claim to bind. `ObserverHonestyClaim` is a separate assertion type; `validate_shape` does not cryptographically verify proof transcripts.
+A `ProofEnvelope` contains proof-shaped evidence bytes and the public-input hash they claim to bind. `ObserverHonestyClaim` is a separate assertion type; `validate_shape` admits replay-trace evidence only and rejects `ZkSnark`/`VectorOpening` envelopes until real verifier backends exist.
 
 ```rust
 pub enum ProofKind {
@@ -164,7 +164,7 @@ pub struct ObserverHonestyClaim {
 }
 ```
 
-Shape validation and proof-envelope digest binding occur during shell assembly:
+Replay-trace shape validation and proof-envelope digest binding occur during shell assembly:
 
 ```rust
 impl BraidShell {

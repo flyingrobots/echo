@@ -14,10 +14,14 @@ const PROOF_ENVELOPE_DOMAIN: &[u8] = b"echo.proof.envelope.v1\0";
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ProofKind {
     /// Zero-Knowledge Succinct Non-Interactive Argument of Knowledge.
+    ///
+    /// Reserved until a verifier backend is wired.
     ZkSnark,
-    /// Plain execution replay trace proof.
+    /// Plain execution replay trace evidence.
     ReplayTrace,
     /// Verkle/Merkle vector commitment opening.
+    ///
+    /// Reserved until a verifier backend is wired.
     VectorOpening,
 }
 
@@ -31,9 +35,14 @@ impl ProofKind {
             Self::VectorOpening => 0x03,
         }
     }
+
+    const fn accepts_shape_only(self) -> bool {
+        matches!(self, Self::ReplayTrace)
+    }
 }
 
-/// A proof-shaped envelope whose current validation checks structure and public-input binding.
+/// A proof-shaped envelope whose current validation admits replay-trace
+/// evidence by checking structure and public-input binding.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProofEnvelope {
     /// The style/kind of proof-shaped evidence.
@@ -52,6 +61,12 @@ impl ProofEnvelope {
     ///
     /// Returns a validation error string if proof bytes are empty or public inputs mismatch.
     pub fn validate_shape(&self, expected_public_inputs_hash: Hash) -> Result<(), String> {
+        if !self.kind.accepts_shape_only() {
+            return Err(format!(
+                "{:?} proof envelopes require a verifier backend before admission",
+                self.kind
+            ));
+        }
         if self.proof_bytes.is_empty() {
             return Err("Proof payload is empty".to_string());
         }

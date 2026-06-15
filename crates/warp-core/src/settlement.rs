@@ -33,6 +33,8 @@ use crate::WorldlineState;
 const CONFLICT_ARTIFACT_DOMAIN: &[u8] = b"echo:settlement-conflict-artifact:v1\0";
 const PLURAL_ARTIFACT_DOMAIN: &[u8] = b"echo:settlement-plural-artifact:v1\0";
 const REFUSE_PLURAL_POLICY_DOMAIN: &[u8] = b"echo:settlement-policy:refuse-plural:v1\0";
+const DEFAULT_MEMBER_BLINDING_SALT_DOMAIN: &[u8] =
+    b"echo:settlement-member-blinding-salt:default:v1\0";
 const SETTLEMENT_MEMBER_BLINDING_DOMAIN: &[u8] = b"echo.settlement.member.blinding.v1\0";
 
 /// Deterministic reasons a source settlement step could not be imported.
@@ -89,6 +91,24 @@ pub enum PluralSettlementPolicy {
     AllowOverFootprintOverlap,
 }
 
+/// Non-public settlement-local salt for sealed braid member commitments.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct MemberBlindingSalt(Hash);
+
+impl MemberBlindingSalt {
+    /// Builds a member blinding salt from caller-supplied entropy.
+    #[must_use]
+    pub const fn from_bytes(bytes: Hash) -> Self {
+        Self(bytes)
+    }
+}
+
+impl core::fmt::Debug for MemberBlindingSalt {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("MemberBlindingSalt(<redacted>)")
+    }
+}
+
 /// Named law governing one settlement act.
 ///
 /// The plural-settlement policy decides whether plurality may *exist*; it is
@@ -100,6 +120,8 @@ pub struct SettlementPolicy {
     pub policy_id: Hash,
     /// Plural-settlement law selected for this act.
     pub plural: PluralSettlementPolicy,
+    /// Non-public salt mixed into sealed braid member commitments.
+    pub member_blinding_salt: MemberBlindingSalt,
 }
 
 impl SettlementPolicy {
@@ -109,7 +131,15 @@ impl SettlementPolicy {
         Self {
             policy_id,
             plural: PluralSettlementPolicy::AllowOverFootprintOverlap,
+            member_blinding_salt: default_member_blinding_salt(policy_id),
         }
+    }
+
+    /// Sets the non-public salt used for sealed braid member commitments.
+    #[must_use]
+    pub const fn with_member_blinding_salt(mut self, salt: MemberBlindingSalt) -> Self {
+        self.member_blinding_salt = salt;
+        self
     }
 }
 
@@ -117,11 +147,20 @@ impl Default for SettlementPolicy {
     fn default() -> Self {
         let mut hasher = Hasher::new();
         hasher.update(REFUSE_PLURAL_POLICY_DOMAIN);
+        let policy_id = hasher.finalize().into();
         Self {
-            policy_id: hasher.finalize().into(),
+            policy_id,
             plural: PluralSettlementPolicy::Refused,
+            member_blinding_salt: default_member_blinding_salt(policy_id),
         }
     }
+}
+
+fn default_member_blinding_salt(policy_id: Hash) -> MemberBlindingSalt {
+    let mut hasher = Hasher::new();
+    hasher.update(DEFAULT_MEMBER_BLINDING_SALT_DOMAIN);
+    hasher.update(&policy_id);
+    MemberBlindingSalt(hasher.finalize().into())
 }
 
 /// Compare surface for one strand suffix relative to its recorded base.
@@ -1464,7 +1503,8 @@ fn build_braid_shell(
     let member_ref = if source_identity_public {
         BraidMemberRef::Revealed(plan.strand_id)
     } else {
-        let blinding_secret = settlement_member_blinding(plan, retention_posture);
+        let blinding_secret =
+            settlement_member_blinding(plan, retention_posture, policy.member_blinding_salt);
         let blinded_commitment = BraidMemberRef::seal(
             plan.strand_id,
             plan.basis_report.child_worldline_id,
@@ -1499,9 +1539,14 @@ fn build_braid_shell(
     )
 }
 
-fn settlement_member_blinding(plan: &SettlementPlan, retention_posture: &RetentionPosture) -> Hash {
+fn settlement_member_blinding(
+    plan: &SettlementPlan,
+    retention_posture: &RetentionPosture,
+    member_blinding_salt: MemberBlindingSalt,
+) -> Hash {
     let mut hasher = Hasher::new();
     hasher.update(SETTLEMENT_MEMBER_BLINDING_DOMAIN);
+    hasher.update(&member_blinding_salt.0);
     hasher.update(plan.strand_id.as_bytes());
     hasher.update(plan.basis_report.child_worldline_id.as_bytes());
     hasher.update(&[retention_posture.causal_posture.canonical_tag()]);
@@ -1830,10 +1875,72 @@ mod tests {
             ..base_plan.clone()
         };
         let retention_posture = author_only_retention_posture();
+        let policy = plural_policy();
 
         assert_eq!(
-            settlement_member_blinding(&base_plan, &retention_posture),
-            settlement_member_blinding(&moved_plan, &retention_posture)
+            settlement_member_blinding(&base_plan, &retention_posture, policy.member_blinding_salt),
+            settlement_member_blinding(
+                &moved_plan,
+                &retention_posture,
+                policy.member_blinding_salt
+            )
+        );
+    }
+
+    #[test]
+    fn sealed_member_blinding_changes_with_settlement_salt() {
+        let strand_id = make_strand_id("independent-hidden-member");
+        let parent = wl(1);
+        let child = wl(9);
+        let parent_ref = test_provenance_ref(1, 2, 0x22);
+        let fork_basis_ref = ForkBasisRef {
+            source_lane_id: parent,
+            fork_tick: wt(0),
+            commit_hash: [0x11; 32],
+            boundary_hash: [0x12; 32],
+            provenance_ref: test_provenance_ref(1, 0, 0x11),
+        };
+        let plan = SettlementPlan {
+            strand_id,
+            target_worldline: parent,
+            target_base_ref: parent_ref,
+            basis_report: StrandBasisReport {
+                strand_id,
+                parent_anchor: fork_basis_ref,
+                child_worldline_id: child,
+                source_suffix_start_tick: wt(1),
+                source_suffix_end_tick: Some(wt(3)),
+                realized_parent_ref: parent_ref,
+                owned_divergence: crate::strand::StrandDivergenceFootprint::default(),
+                parent_movement: crate::strand::ParentMovementFootprint::default(),
+                parent_revalidation: StrandRevalidationState::ParentAdvancedDisjoint {
+                    parent_from: test_provenance_ref(1, 0, 0x11),
+                    parent_to: parent_ref,
+                },
+            },
+            decisions: Vec::new(),
+        };
+        let retention_posture = author_only_retention_posture();
+        let first_policy =
+            plural_policy().with_member_blinding_salt(MemberBlindingSalt::from_bytes([0xA1; 32]));
+        let second_policy =
+            plural_policy().with_member_blinding_salt(MemberBlindingSalt::from_bytes([0xB2; 32]));
+
+        let first_blinding = settlement_member_blinding(
+            &plan,
+            &retention_posture,
+            first_policy.member_blinding_salt,
+        );
+        let second_blinding = settlement_member_blinding(
+            &plan,
+            &retention_posture,
+            second_policy.member_blinding_salt,
+        );
+
+        assert_ne!(first_blinding, second_blinding);
+        assert_ne!(
+            crate::braid_shell::BraidMemberRef::seal(strand_id, child, first_blinding),
+            crate::braid_shell::BraidMemberRef::seal(strand_id, child, second_blinding)
         );
     }
 
@@ -2892,7 +2999,11 @@ mod tests {
             crate::braid_shell::BraidMemberRef::Sealed { .. }
         ));
 
-        let blinding_secret = settlement_member_blinding(&result.plan, &retention_posture);
+        let blinding_secret = settlement_member_blinding(
+            &result.plan,
+            &retention_posture,
+            plural_policy().member_blinding_salt,
+        );
         assert!(shell.has_member_strand_secure(
             &strand_id,
             &child_worldline,

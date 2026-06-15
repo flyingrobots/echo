@@ -340,9 +340,9 @@ pub use sandbox::DeterminismError;
 pub use sandbox::{build_engine, run_pair_determinism, EchoConfig};
 pub use scheduler::SchedulerKind;
 pub use settlement::{
-    ConflictArtifactDraft, ConflictReason, ImportCandidate, PluralAlternativeDraft,
-    PluralSettlementPolicy, SettlementDecision, SettlementDelta, SettlementError, SettlementPlan,
-    SettlementPolicy, SettlementResult, SettlementService,
+    ConflictArtifactDraft, ConflictReason, ImportCandidate, MemberBlindingSalt,
+    PluralAlternativeDraft, PluralSettlementPolicy, SettlementDecision, SettlementDelta,
+    SettlementError, SettlementPlan, SettlementPolicy, SettlementResult, SettlementService,
 };
 pub use snapshot::{
     compute_commit_hash_v2, compute_emissions_digest, compute_op_emission_index_digest,

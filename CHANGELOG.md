@@ -654,9 +654,10 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
   Shape-only proof envelope admission is limited to replay-trace evidence;
   cryptographic proof kinds require a verifier backend before admission.
 - `warp-core` sealed braid members now require caller-supplied blinding material,
-  preserve hidden shared source disclosure in settlement shells, reject mixed
-  revealed/sealed shell member sets, and treat sealed member authority as part
-  of duplicate-member identity.
+  preserve hidden shared source disclosure in settlement shells, mix a
+  settlement-local `MemberBlindingSalt` into hidden settlement member
+  commitments, reject mixed revealed/sealed shell member sets, and treat sealed
+  member authority as part of duplicate-member identity.
 - `warp-core` retained braid shell queries now distinguish revealed member
   lookup from sealed member lookup: `has_revealed_member_strand` and
   `BraidShellQuery::revealed_member_strand` only match revealed references,

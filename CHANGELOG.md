@@ -13,6 +13,10 @@
   use fixture builders and accessors, `ProofEnvelope::validate_shape(...)`
   returns structured `ProofError`, and invalid braid lifecycle transitions
   report typed `BraidTransitionKind` instead of action strings.
+- `warp-core` now enforces the v1 single-writer-head strand invariant through
+  both `Strand::new(...)` and `StrandRegistry::insert(...)`, and runtime strand
+  forking constructs the registered relation through the same constructor
+  boundary used by external callers.
 - `warp-core` casting a dynamically postured strand to statically shared now returns a semantically precise `PostureObstruction::PostureMismatch` instead of `PostureObstruction::NarrowingRefused`.
 - `warp-core` renamed `ProofEnvelope::verify` to `validate_shape` and updated error variants to `ProofShapeValidationFailed` to accurately reflect shape/input checks rather than full cryptographic proof verification.
 - `warp-core` strand creation now carries explicit `RetentionPosture` through

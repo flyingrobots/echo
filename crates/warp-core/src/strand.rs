@@ -174,6 +174,59 @@ pub struct Strand<P: CausalPostureState = DynamicPosture> {
     pub(crate) _marker: std::marker::PhantomData<P>,
 }
 
+const V1_WRITER_HEAD_COUNT_INVARIANT: &str =
+    "INV-S2: v1 strands must carry exactly one writer head";
+
+fn validate_local_strand_invariants<P: CausalPostureState>(
+    strand_id: StrandId,
+    fork_basis_ref: &ForkBasisRef,
+    child_worldline_id: WorldlineId,
+    writer_heads: &[WriterHeadKey],
+    support_pins: &[SupportPin],
+    retention_posture: &RetentionPosture,
+) -> Result<(), StrandError> {
+    retention_posture.validate().map_err(StrandError::Posture)?;
+    if let Some(expected) = P::causal_posture() {
+        if retention_posture.causal_posture != expected {
+            return Err(StrandError::Posture(PostureObstruction::PostureMismatch {
+                actual: retention_posture.causal_posture,
+                expected,
+            }));
+        }
+    }
+    if child_worldline_id == fork_basis_ref.source_lane_id {
+        return Err(StrandError::InvariantViolation(
+            "INV-S7: child_worldline_id must differ from fork_basis_ref.source_lane_id",
+        ));
+    }
+    if writer_heads.len() != 1 {
+        return Err(StrandError::InvariantViolation(
+            V1_WRITER_HEAD_COUNT_INVARIANT,
+        ));
+    }
+    for head_key in writer_heads {
+        if head_key.worldline_id != child_worldline_id {
+            return Err(StrandError::InvariantViolation(
+                "INV-S8: every writer head must belong to child_worldline_id",
+            ));
+        }
+    }
+    let mut seen_support_targets = BTreeSet::new();
+    for support_pin in support_pins {
+        if support_pin.strand_id == strand_id {
+            return Err(StrandError::SelfSupportPin(strand_id));
+        }
+        if !seen_support_targets.insert(support_pin.strand_id) {
+            return Err(StrandError::DuplicateSupportTarget {
+                owner: strand_id,
+                target: support_pin.strand_id,
+            });
+        }
+    }
+
+    Ok(())
+}
+
 impl<P: CausalPostureState> Strand<P> {
     /// Creates a strand through a posture-aware constructor boundary.
     ///
@@ -197,39 +250,14 @@ impl<P: CausalPostureState> Strand<P> {
         support_pins: Vec<SupportPin>,
         retention_posture: RetentionPosture,
     ) -> Result<Self, StrandError> {
-        retention_posture.validate().map_err(StrandError::Posture)?;
-        if let Some(expected) = P::causal_posture() {
-            if retention_posture.causal_posture != expected {
-                return Err(StrandError::Posture(PostureObstruction::PostureMismatch {
-                    actual: retention_posture.causal_posture,
-                    expected,
-                }));
-            }
-        }
-        if child_worldline_id == fork_basis_ref.source_lane_id {
-            return Err(StrandError::InvariantViolation(
-                "INV-S7: child_worldline_id must differ from fork_basis_ref.source_lane_id",
-            ));
-        }
-        for head_key in &writer_heads {
-            if head_key.worldline_id != child_worldline_id {
-                return Err(StrandError::InvariantViolation(
-                    "INV-S8: every writer head must belong to child_worldline_id",
-                ));
-            }
-        }
-        let mut seen_support_targets = BTreeSet::new();
-        for support_pin in &support_pins {
-            if support_pin.strand_id == strand_id {
-                return Err(StrandError::SelfSupportPin(strand_id));
-            }
-            if !seen_support_targets.insert(support_pin.strand_id) {
-                return Err(StrandError::DuplicateSupportTarget {
-                    owner: strand_id,
-                    target: support_pin.strand_id,
-                });
-            }
-        }
+        validate_local_strand_invariants::<P>(
+            strand_id,
+            &fork_basis_ref,
+            child_worldline_id,
+            &writer_heads,
+            &support_pins,
+            &retention_posture,
+        )?;
 
         Ok(Self {
             strand_id,
@@ -794,6 +822,7 @@ impl StrandRegistry {
     /// Inserts a fully constructed strand into the registry.
     ///
     /// Validates contract invariants before insertion:
+    /// - INV-S2: v1 strands carry exactly one writer head
     /// - INV-S7: `child_worldline_id != fork_basis_ref.source_lane_id`
     /// - INV-S8: every writer head belongs to `child_worldline_id`
     /// - support pins, when present, reference already-live strands and do not
@@ -808,24 +837,14 @@ impl StrandRegistry {
         if self.strands.contains_key(&strand.strand_id) {
             return Err(StrandError::AlreadyExists(strand.strand_id));
         }
-        strand
-            .retention_posture
-            .validate()
-            .map_err(StrandError::Posture)?;
-        // INV-S7: distinct worldlines.
-        if strand.child_worldline_id == strand.fork_basis_ref.source_lane_id {
-            return Err(StrandError::InvariantViolation(
-                "INV-S7: child_worldline_id must differ from fork_basis_ref.source_lane_id",
-            ));
-        }
-        // INV-S8: head ownership.
-        for head_key in &strand.writer_heads {
-            if head_key.worldline_id != strand.child_worldline_id {
-                return Err(StrandError::InvariantViolation(
-                    "INV-S8: every writer head must belong to child_worldline_id",
-                ));
-            }
-        }
+        validate_local_strand_invariants::<DynamicPosture>(
+            strand.strand_id,
+            &strand.fork_basis_ref,
+            strand.child_worldline_id,
+            &strand.writer_heads,
+            &strand.support_pins,
+            &strand.retention_posture,
+        )?;
         self.validate_support_pins(&strand)?;
         self.strands.insert(strand.strand_id, strand);
         Ok(())

@@ -169,6 +169,46 @@ fn strand_constructor_rejects_static_runtime_posture_mismatch() {
     );
 }
 
+#[test]
+fn strand_constructor_rejects_missing_v1_writer_head() {
+    let err =
+        make_test_strand_with_parts("missing-head", wl(1), wl(2), wt(5), Vec::new(), Vec::new())
+            .expect_err("v1 strand construction must reject missing writer head");
+
+    assert_eq!(
+        err,
+        StrandError::InvariantViolation("INV-S2: v1 strands must carry exactly one writer head")
+    );
+}
+
+#[test]
+fn strand_constructor_rejects_multiple_v1_writer_heads() {
+    let child_worldline = wl(2);
+    let err = make_test_strand_with_parts(
+        "multiple-heads",
+        wl(1),
+        child_worldline,
+        wt(5),
+        vec![
+            WriterHeadKey {
+                worldline_id: child_worldline,
+                head_id: make_head_id("multiple-heads-a"),
+            },
+            WriterHeadKey {
+                worldline_id: child_worldline,
+                head_id: make_head_id("multiple-heads-b"),
+            },
+        ],
+        Vec::new(),
+    )
+    .expect_err("v1 strand construction must reject multiple writer heads");
+
+    assert_eq!(
+        err,
+        StrandError::InvariantViolation("INV-S2: v1 strands must carry exactly one writer head")
+    );
+}
+
 fn append_committed_tick(
     provenance: &mut ProvenanceService,
     worldline_id: WorldlineId,

@@ -646,6 +646,8 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
   preserve hidden shared source disclosure in settlement shells, reject mixed
   revealed/sealed shell member sets, and treat sealed member authority as part
   of duplicate-member identity.
+- `warp-core` crate-root braid exports now include `BraidError`, `BraidStatus`,
+  and `BraidMemberRef` so external consumers can handle public braid results.
 - `warp-wasm` settlement publication now maps non-`Shared` strand admission
   rejection to the stable `INVALID_STRAND` ABI error code instead of
   collapsing the lawful posture denial into `ENGINE_ERROR`.

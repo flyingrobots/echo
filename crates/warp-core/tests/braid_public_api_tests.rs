@@ -5,8 +5,8 @@
 
 use warp_core::{
     make_strand_id, AuthorityDomainId, AuthorityDomainRef, Braid, BraidError, BraidEvent,
-    BraidMemberRef, BraidStatus, BraidTransitionKind, OriginId, ProofEnvelope, ProofError,
-    ProofKind,
+    BraidMemberRef, BraidMembershipEntry, BraidStatus, BraidTransitionKind, OriginId,
+    ProofEnvelope, ProofError, ProofKind,
 };
 
 fn authority_ref() -> AuthorityDomainRef {
@@ -39,21 +39,17 @@ fn crate_root_exports_braid_lifecycle_error_and_member_types() -> Result<(), Bra
 }
 
 #[test]
-fn public_braid_transition_failures_are_typed() {
+fn public_braid_transition_failures_are_typed() -> Result<(), BraidError> {
     let member_ref = BraidMemberRef::Revealed(make_strand_id("typed-transition-member"));
     let mut braid = Braid::new([0xAC; 32], authority_ref());
 
-    braid
-        .apply(BraidEvent::MemberWoven {
-            member_ref,
-            sequence_num: 0,
-        })
-        .expect("first member weave");
-    braid
-        .apply(BraidEvent::SettlementFinalized {
-            settlement_digest: [0x5E; 32],
-        })
-        .expect("settlement finalization");
+    braid.apply(BraidEvent::MemberWoven {
+        member_ref,
+        sequence_num: 0,
+    })?;
+    braid.apply(BraidEvent::SettlementFinalized {
+        settlement_digest: [0x5E; 32],
+    })?;
 
     assert_eq!(
         braid.apply(BraidEvent::MemberWoven {
@@ -65,6 +61,7 @@ fn public_braid_transition_failures_are_typed() {
             status: BraidStatus::Finalized,
         })
     );
+    Ok(())
 }
 
 #[test]
@@ -78,6 +75,59 @@ fn public_braid_transition_display_is_human_facing() {
         err.to_string(),
         "cannot transition braid state: cannot weave member in status Finalized"
     );
+}
+
+#[test]
+fn public_braid_membership_history_is_append_only_event_history() -> Result<(), BraidError> {
+    let first = BraidMemberRef::Revealed(make_strand_id("history-member-a"));
+    let second = BraidMemberRef::Revealed(make_strand_id("history-member-b"));
+    let late = BraidMemberRef::Revealed(make_strand_id("history-member-late"));
+    let mut braid = Braid::new([0xAD; 32], authority_ref());
+
+    braid.apply(BraidEvent::MemberWoven {
+        member_ref: first,
+        sequence_num: 0,
+    })?;
+    assert_eq!(
+        braid.apply(BraidEvent::MemberWoven {
+            member_ref: first,
+            sequence_num: 1,
+        }),
+        Err(BraidError::DuplicateMember { member_ref: first })
+    );
+    braid.apply(BraidEvent::MemberWoven {
+        member_ref: second,
+        sequence_num: 1,
+    })?;
+    braid.apply(BraidEvent::SettlementFinalized {
+        settlement_digest: [0x5E; 32],
+    })?;
+    assert_eq!(
+        braid.apply(BraidEvent::MemberWoven {
+            member_ref: late,
+            sequence_num: 2,
+        }),
+        Err(BraidError::InvalidTransition {
+            transition: BraidTransitionKind::WeaveMember,
+            status: BraidStatus::Finalized,
+        })
+    );
+
+    assert_eq!(
+        braid.membership_history(),
+        vec![
+            BraidMembershipEntry {
+                member_ref: first,
+                sequence_num: 0,
+            },
+            BraidMembershipEntry {
+                member_ref: second,
+                sequence_num: 1,
+            },
+        ]
+    );
+    assert_eq!(braid.frontier(), &[first, second]);
+    Ok(())
 }
 
 #[test]

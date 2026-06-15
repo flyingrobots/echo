@@ -92,11 +92,18 @@ pub enum PluralSettlementPolicy {
 }
 
 /// Non-public settlement-local salt for sealed braid member commitments.
+///
+/// The deterministic default salt is for reproducibility, not unlinkability.
+/// Privacy-preserving flows MUST provide authority-local, capability-local, or
+/// session-local blinding material.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct MemberBlindingSalt(Hash);
 
 impl MemberBlindingSalt {
     /// Builds a member blinding salt from caller-supplied entropy.
+    ///
+    /// Caller-supplied salts are the privacy boundary for sealed member
+    /// commitments; deterministic defaults are not.
     #[must_use]
     pub const fn from_bytes(bytes: Hash) -> Self {
         Self(bytes)
@@ -121,11 +128,20 @@ pub struct SettlementPolicy {
     /// Plural-settlement law selected for this act.
     pub plural: PluralSettlementPolicy,
     /// Non-public salt mixed into sealed braid member commitments.
+    ///
+    /// The default is derived deterministically from the policy id for local
+    /// reproducibility. It is not an unlinkability boundary across independent
+    /// settlements.
     pub member_blinding_salt: MemberBlindingSalt,
 }
 
 impl SettlementPolicy {
     /// Policy that permits lawful plurality over contended footprint overlap.
+    ///
+    /// The deterministic default salt is for reproducibility, not unlinkability.
+    /// Privacy-preserving flows MUST provide authority-local,
+    /// capability-local, or session-local blinding material through
+    /// [`Self::with_member_blinding_salt`].
     #[must_use]
     pub fn allow_plural_over_footprint_overlap(policy_id: Hash) -> Self {
         Self {
@@ -136,6 +152,9 @@ impl SettlementPolicy {
     }
 
     /// Sets the non-public salt used for sealed braid member commitments.
+    ///
+    /// Use this for privacy-sensitive settlement flows. Reusing one salt across
+    /// unlinkability domains can correlate sealed member commitments.
     #[must_use]
     pub const fn with_member_blinding_salt(mut self, salt: MemberBlindingSalt) -> Self {
         self.member_blinding_salt = salt;

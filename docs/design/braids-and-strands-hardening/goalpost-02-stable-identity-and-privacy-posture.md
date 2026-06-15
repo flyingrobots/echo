@@ -3,7 +3,7 @@
 
 # Goalpost 2: Stable Identity And Privacy Posture
 
-Status: planned.
+Status: implemented.
 
 Roadmap:
 [`../braids-and-strands-roadmap.md`](../braids-and-strands-roadmap.md)
@@ -61,6 +61,41 @@ This goalpost does not include:
 | GP2-S3 | Add revealed/sealed member reference vectors | vector and salt-effect tests            |
 | GP2-S4 | Mark compatibility classes                   | fixture metadata or docs assertion      |
 | GP2-S5 | Document deterministic blinding salt risk    | docs/examples plus salt-path regression |
+
+## Vector Fixtures
+
+The executable vector witness is
+`crates/warp-core/tests/braid_identity_golden_vectors.rs`.
+
+It locks:
+
+- replay-trace `ProofEnvelope::digest`;
+- proofless `BraidShell::digest`;
+- proof-bearing `BraidShell::digest`;
+- proof-envelope digest binding for the shell replay trace;
+- revealed `BraidShellMember::member_digest`;
+- sealed `BraidMemberRef::seal` commitments with two blinding values;
+- sealed `BraidShellMember::member_digest`;
+- unsupported proof-kind rejection shape.
+
+The vector file marks each vector with a compatibility class. Current GP2
+vectors are `E1 scaffolding identity`: accidental drift fails CI, and
+intentional drift requires an explicit compatibility note. Later work may
+promote selected vectors to `public stable identity`; that promotion must name
+the migration path, version bump, or declaration that no prior public stable
+identity was published.
+
+## Privacy Posture
+
+The deterministic default salt is for reproducibility, not unlinkability.
+Privacy-preserving flows MUST provide authority-local, capability-local, or
+session-local blinding material.
+
+The default member blinding salt is derived deterministically from policy
+identity so local tests and reproducible settlement flows stay stable.
+Callers must not treat that default as an unlinkability boundary across
+independent settlements. Privacy-sensitive examples and adapters must use
+caller-supplied blinding material through `with_member_blinding_salt(...)`.
 
 ## Acceptance
 

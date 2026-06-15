@@ -75,12 +75,12 @@ Design:
 Design:
 [`goalpost-02-stable-identity-and-privacy-posture.md`](braids-and-strands-hardening/goalpost-02-stable-identity-and-privacy-posture.md)
 
-- [ ] GP2-S1: Add golden vectors for replay-trace `ProofEnvelope` identity.
-- [ ] GP2-S2: Add proofless and proof-bearing `BraidShell` identity vectors.
-- [ ] GP2-S3: Add revealed and sealed `BraidMemberRef` vectors, including salt
+- [x] GP2-S1: Add golden vectors for replay-trace `ProofEnvelope` identity.
+- [x] GP2-S2: Add proofless and proof-bearing `BraidShell` identity vectors.
+- [x] GP2-S3: Add revealed and sealed `BraidMemberRef` vectors, including salt
       effect.
-- [ ] GP2-S4: Mark vector compatibility classes and migration/versioning rules.
-- [ ] GP2-S5: Document deterministic blinding salt risk in API docs and
+- [x] GP2-S4: Mark vector compatibility classes and migration/versioning rules.
+- [x] GP2-S5: Document deterministic blinding salt risk in API docs and
       privacy-sensitive examples.
 
 ### Goalpost 3: Historical Membership And Replay

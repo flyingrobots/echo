@@ -1,17 +1,12 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
-
-## <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
-
+---
 audit-date: 2026-06-15
 audit-status: archive
 topics:
-
-- braid
-- settlement
-- admission
-  accuracy: 100%
-  issue: 470
-
+    - braid
+    - settlement
+    - admission
+accuracy: 100%
+issue: 470
 ---
 
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->

@@ -1,17 +1,12 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
-
-## <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
-
+---
 audit-date: 2026-06-15
 audit-status: archive
 topics:
-
-- wasm
-- abi
-- historical
-  accuracy: 10%
-  issue: 500
-
+    - wasm
+    - abi
+    - historical
+accuracy: 10%
+issue: 500
 ---
 
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->

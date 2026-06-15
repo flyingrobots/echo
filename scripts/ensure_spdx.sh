@@ -125,6 +125,22 @@ check_valid_header() {
       i=1
   fi
 
+  # Skip YAML frontmatter if present (starts with ---)
+  if [[ "$first_line_in_file" == "---" ]]; then
+      local len=${#file_lines[@]}
+      for ((j=1; j<len; j++)); do
+          if [[ "${file_lines[j]}" == "---" ]]; then
+              i=$((j + 1))
+              break
+          fi
+      done
+  fi
+
+  # Skip blank lines
+  while [[ $i -lt ${#file_lines[@]} && -z "${file_lines[i]}" ]]; do
+      i=$((i + 1))
+  done
+
   # Extract the lines from expected_header_block
   local expected_lines=()
   # Use process substitution with IFS=$'\n' to split multi-line string into array elements
@@ -136,7 +152,7 @@ check_valid_header() {
   fi
 
   # Check if file has enough lines to compare the header
-  if [[ ${#file_lines[@]} -lt $((i + 1)) ]]; then return 1; fi # Not enough lines for header
+  if [[ ${#file_lines[@]} -lt $((i + 2)) ]]; then return 1; fi # Not enough lines for header
 
   # Compare line by line
   if [[ "${file_lines[i]:-}" == "${expected_lines[0]}" && "${file_lines[i+1]:-}" == "${expected_lines[1]}" ]]; then
@@ -167,37 +183,40 @@ strip_existing_headers() {
   local temp_file
   temp_file=$(mktemp)
   
-  # Use AWK to filter out lines in the first 15 lines that match SPDX/Copyright patterns.
-  # This effectively removes "bad" headers or "wrong license" headers.
-  # We preserve shebangs because they typically don't match the pattern.
-  
+  # Use AWK to filter out lines in the first 15 lines (after any YAML frontmatter or shebangs)
+  # that match SPDX/Copyright patterns.
   awk '
-    BEGIN { header_block_active = 1; line_num = 0 }
+    BEGIN { header_block_active = 1; line_num = 0; yaml_active = 0; yaml_count = 0 }
     {
       line_num++;
+      if (line_num == 1 && $0 == "---") {
+          yaml_active = 1;
+          yaml_count = 1;
+          print;
+          next;
+      }
+      if (yaml_active) {
+          if ($0 == "---") {
+              yaml_count++;
+              if (yaml_count == 2) {
+                  yaml_active = 0;
+                  header_block_active = 1;
+                  line_num = 0;
+              }
+          }
+          print;
+          next;
+      }
       if (header_block_active) {
-        # Once we pass line 15, we are out of the header block.
         if (line_num > 15) { header_block_active = 0; }
-
-        # If it is not a SPDX/Copyright line, and it is not a shebang/xml declaration,
-        # then we are likely past the header block.
-        # This condition is crucial for `in_header_block` to become 0.
-        if (line_num > 1 && $0 !~ /^#!/ && $0 !~ /^\<\?xml/ && $0 !~ /SPDX-License-Identifier/ && $0 !~ /James Ross .* FLYING/) {
+        if (line_num > 0 && $0 !~ /^#!/ && $0 !~ /^\<\?xml/ && $0 !~ /SPDX-License-Identifier/ && $0 !~ /James Ross .* FLYING/) {
           header_block_active = 0;
         }
-
-        # If still in header block, and it IS a shebang/xml declaration, always print it and continue.
-        if (line_num == 1 && ($0 ~ /^#!/ || $0 ~ /^\<\?xml/)) {
-            print;
-            next;
-        }
-
-        # If it is a SPDX/Copyright line AND we are in the header block, skip it.
         if (($0 ~ /SPDX-License-Identifier/ || $0 ~ /James Ross .* FLYING/) && header_block_active) {
           next;
         }
       }
-      print; # Print all other lines not skipped.
+      print;
     }
   ' "$f" > "$temp_file"
   
@@ -211,10 +230,44 @@ insert_header() {
   local temp_file
   temp_file=$(mktemp)
   
+  local file_lines=()
+  while IFS= read -r line; do
+    file_lines+=("$line")
+  done < "$f"
+
+  if [[ "${file_lines[0]:-}" == "---" ]]; then
+      # Find closing ---
+      local len=${#file_lines[@]}
+      local yaml_end=-1
+      for ((j=1; j<len; j++)); do
+          if [[ "${file_lines[j]}" == "---" ]]; then
+              yaml_end=$j
+              break
+          fi
+      done
+      
+      if [[ $yaml_end -ne -1 ]]; then
+          for ((j=0; j<=yaml_end; j++)); do
+              echo "${file_lines[j]}" >> "$temp_file"
+          done
+          echo "$header" >> "$temp_file"
+          # Skip any empty lines directly after YAML block so we don't multiply spacing
+          local start_idx=$((yaml_end + 1))
+          while [[ $start_idx -lt $len && -z "${file_lines[start_idx]}" ]]; do
+              start_idx=$((start_idx + 1))
+          done
+          for ((j=start_idx; j<len; j++)); do
+              echo "${file_lines[j]}" >> "$temp_file"
+          done
+          cat "$temp_file" > "$f"
+          rm "$temp_file"
+          return
+      fi
+  fi
+
   local first_line
-  first_line=$(head -n 1 "$f" || true)
+  first_line="${file_lines[0]:-}"
   
-  # Logic to insert header AFTER shebang/xml declaration if present
   if [[ "$first_line" =~ ^#! ]]; then
     echo "$first_line" > "$temp_file"
     echo "$header" >> "$temp_file"

@@ -11,9 +11,9 @@ findings:
     - claim: "jedit Text Contract Hosting MVP is implemented and tested as a generic host with rope checkpoints in CAS"
       ruling: true
       evidence:
-          - filepath: "crates/warp-core/tests/external_consumer_contract_fixture_tests.rs"
-            line: 1
-            git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
+          filepath: "crates/warp-core/tests/external_consumer_contract_fixture_tests.rs"
+          line: 1
+          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
 ---
 
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->

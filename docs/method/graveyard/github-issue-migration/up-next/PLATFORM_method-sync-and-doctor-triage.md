@@ -11,9 +11,9 @@ findings:
     - claim: "Comparing local method scaffolding against upstream and integrating the doctor utility remains an active diagnostic item"
       ruling: true
       evidence:
-          - filepath: "crates/method/Cargo.toml"
-            line: 1
-            git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
+          filepath: "crates/method/Cargo.toml"
+          line: 1
+          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
 ---
 
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->

@@ -11,9 +11,9 @@ findings:
     - claim: "Evolution/backfill script generation in Wesley is in scope for Echo"
       ruling: false
       evidence:
-          - filepath: "xtask/src/main.rs"
-            line: 1
-            git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
+          filepath: "xtask/src/main.rs"
+          line: 1
+          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
 ---
 
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->

@@ -3,7 +3,7 @@
 
 # Braids And Strands Roadmap
 
-Status: active roadmap slice.
+Status: active hardening roadmap slice.
 
 Last updated: 2026-06-15.
 
@@ -15,6 +15,12 @@ and evolving braid logs from concept-level scaffolding into checked
 hardening sequence that carries the new surfaces from public data shapes into
 law-bearing admission APIs, witnessed transitions, stable identity vectors,
 and replayable audit tools.
+
+This roadmap is ordered. Items 1-4 are hardening prerequisites. Items 5-9 MUST
+NOT bypass them except for design-only exploration that creates no public
+runtime, API, digest, privacy, or witness dependency.
+
+No law-bearing object is born by accident.
 
 The destination is:
 
@@ -45,7 +51,7 @@ Replay can show exactly what law admitted, retained, concealed, or rejected.
 
 ## North Star
 
-Echo should feel less like a crate full of important structs and more like a
+Echo must feel less like a crate full of important structs and more like a
 causal operating system with lawful doors:
 
 | Today                           | Target                                         |
@@ -59,12 +65,134 @@ causal operating system with lawful doors:
 | Sealing a member                | backed by authority/capability-local blinding  |
 | Interpreting retained plurality | governed by named settlement and collapse laws |
 
+Every important causal claim must answer:
+
+1. Who admitted this?
+2. Under what authority?
+3. With what posture?
+4. Bound to what identity?
+5. Replayable by whom, revealing how much?
+
+The vocabulary stays sharp:
+
+| Term               | Meaning                                                  |
+| ------------------ | -------------------------------------------------------- |
+| Struct             | Represents a fact.                                       |
+| Constructor        | Admits a fact through a named door.                      |
+| Witness            | Supports a fact with evidence.                           |
+| Replay             | Explains a fact from recorded causes.                    |
+| Law                | Interprets a fact under named authority and posture.     |
+| Digest             | Preserves the identity of a fact.                        |
+| Admission          | Decides whether a claim enters Echo history.             |
+| Settlement         | Admits history; it is not merge semantics.               |
+| Projection         | Materializes one bounded reading from admitted history.  |
+| Sealed member      | Hides member identity behind authorized proof material.  |
+| Revealed member    | Exposes member identity directly.                        |
+| Posture floor      | Lowest causal posture the reading can honestly claim.    |
+| Retained plurality | Preserved multiple claims not collapsed to one fact.     |
+| Collapse law       | Named law that interprets or reduces retained plurality. |
+
+## Dependency Graph
+
+This is a dependency chain, not a menu.
+
+| Item                             | Depends on                              | Why                                                 |
+| -------------------------------- | --------------------------------------- | --------------------------------------------------- |
+| Private `Strand<P>` construction | PR #545 final model                     | prevents typestate-looking forgery                  |
+| Structured errors                | current proof and braid APIs            | stops tests and callers from parsing strings        |
+| Golden vectors                   | current digest and proof binding        | freezes identity semantics                          |
+| Blinding salt docs and tests     | current sealed member API               | prevents reproducibility from being sold as privacy |
+| Historical braid membership      | checked `BraidEvent` model              | turns event log into source of truth                |
+| Replay optic                     | shell identity and historical views     | shows lawful reading                                |
+| External witness receipts        | golden vectors and typed proof errors   | prevents witness model drift                        |
+| Sealed membership capability     | blinding docs and historical membership | prevents privacy overclaim                          |
+| Named plurality laws             | replay optic and witness boundary       | makes interpretation law visible                    |
+
+## Ownership Labels
+
+Each item owns a primary surface so issue triage stays narrow.
+
+| Item | Surface                 |
+| ---: | ----------------------- |
+|    1 | API/runtime             |
+|    2 | API/testability         |
+|    3 | digest compatibility    |
+|    4 | privacy/API             |
+|    5 | runtime/history         |
+|    6 | replay/agent inspection |
+|    7 | witnessing/API          |
+|    8 | privacy/capability      |
+|    9 | law machinery/design    |
+
+## Universal Definition Of Done
+
+Every issue created from this roadmap MUST include:
+
+1. One failing regression witness before the fix, unless the issue is
+   explicitly design-only.
+2. One focused implementation change.
+3. One stable test, vector, fixture, replay fact, or DIND proof.
+4. Documentation when public semantics, privacy posture, digest identity, or
+   replay output changes.
+5. No hidden reliance on parsing display strings.
+6. No public constructor that bypasses law-bearing validation.
+7. No weakening of live runtime posture or registry checks.
+8. No application-domain nouns in Echo core.
+
+Design-only issues MUST name the later runtime, API, golden-vector, replay, or
+DIND witness that closes the claim.
+
+## Non-Goals
+
+This roadmap slice does not include:
+
+- Real ZK backend implementation.
+- Application-domain law nouns in Echo core.
+- Settlement-as-merge semantics.
+- Any promise that deterministic member blinding defaults provide
+  unlinkability.
+- Replacement of runtime admission checks with typestate alone.
+- Current-only braid history.
+- Self-witness branding as independent attestation.
+
+## Threat Model Notes
+
+- Sealed member references hide global strand identity only when blinding
+  material remains non-public and is not reused across unlinkability domains.
+- The deterministic default salt is for reproducibility, not unlinkability.
+  Privacy-preserving flows MUST provide authority-local, capability-local, or
+  session-local blinding material.
+- Authority-local and capability-local salts are the preferred privacy
+  boundary.
+- Replay MUST reveal what was lawfully proven without revealing concealed
+  source chains beyond the requested aperture.
+- `SelfWitness` means integrity-only local witness unless an external receipt
+  says otherwise.
+- Typestate is a guardrail. Runtime admission is the courthouse.
+
+## Compatibility Classes
+
+Golden vectors and replay fixtures MUST mark identity stability explicitly:
+
+| Class                      | Rule                                                          |
+| -------------------------- | ------------------------------------------------------------- |
+| Public stable identity     | MUST NOT change without migration note and compatibility plan |
+| E1 scaffolding identity    | Changes require an explicit compatibility note                |
+| Test-only fixture identity | Carries no compatibility promise beyond the fixture           |
+
+Intentional digest, proof, shell, witness, or replay identity changes MUST
+state which compatibility class changed and how callers migrate.
+
 ## Execution Order
 
 ### 1. Seal The Constructor Boundary
 
-Goal: callers should not be able to fabricate law-looking strand values with
-public struct literals.
+Surfaces: API/runtime.
+
+Depends on: PR #545 final model.
+
+Goal: callers MUST NOT fabricate law-looking strand values with public struct
+literals.
 
 Work:
 
@@ -74,6 +202,8 @@ Work:
    `AuthorOnly`, and `Shared` paths.
 4. Keep registry/runtime checks authoritative.
 5. Move tests to fixture builders instead of public struct literals.
+6. Ensure the public API cannot construct a value whose type-level posture and
+   runtime retention posture disagree.
 
 Acceptance:
 
@@ -82,21 +212,46 @@ Acceptance:
   cannot bypass runtime posture validation.
 - Public API docs state that typestate narrows normal construction but does
   not replace live admission checks.
+- Negative tests prove `Strand<Shared>` cannot be publicly constructed with
+  `AuthorOnly` retention posture.
 
 ### 2. Type The Error And Transition Vocabulary
 
-Goal: validation and transition failures should be structured facts, not
+Surfaces: API/testability.
+
+Depends on: current proof and braid APIs.
+
+Goal: validation and transition failures MUST be structured facts, not
 stringly diagnostics.
 
 Work:
 
 1. Replace `ProofEnvelope::validate_shape(...) -> Result<(), String>` with a
    structured `ProofError`.
-2. Split malformed replay-trace envelope, public-input mismatch, unsupported
-   proof kind, and future backend rejection into distinct variants.
-3. Replace braid transition action strings with a typed
+2. Split malformed replay-trace envelope, empty payload, public-input
+   mismatch, unsupported proof kind, and future backend rejection into distinct
+   variants.
+3. Reserve this shape:
+
+    ```rust
+    pub enum ProofError {
+        UnsupportedKind { kind: ProofKind },
+        EmptyPayload,
+        PublicInputsMismatch {
+            expected: Hash,
+            actual: Hash,
+        },
+        MalformedEnvelope,
+        BackendRejected {
+            kind: ProofKind,
+            reason: VerificationFailureCode,
+        },
+    }
+    ```
+
+4. Replace braid transition action strings with a typed
    `BraidTransitionKind`.
-4. Preserve stable display text for humans while exposing typed variants to
+5. Preserve stable display text for humans while exposing typed variants to
    callers and tests.
 
 Acceptance:
@@ -104,52 +259,80 @@ Acceptance:
 - Tests assert exact `ProofError` variants.
 - Tests assert exact invalid braid transition kinds.
 - No caller depends on parsing error strings for behavior.
+- Negative tests prove display text is not the behavior contract.
 
 ### 3. Lock Digest And Proof Identity With Golden Vectors
 
-Goal: accidental identity drift should fail loudly and boringly.
+Surfaces: digest compatibility.
+
+Depends on: current digest and proof binding.
+
+Goal: accidental identity drift MUST fail loudly and boringly.
 
 Work:
 
-1. Add golden vectors for `ProofEnvelope::digest`.
-2. Add golden vectors for proofless and proof-bearing `BraidShell` identity.
-3. Add vectors for revealed and sealed member references.
-4. Keep vector fixtures small, hand-reviewable, and domain-separated.
-5. Add a compatibility note for intentional vector changes.
+1. Add golden vectors for `ProofEnvelope::digest` for replay traces.
+2. Add vectors for rejected or unsupported proof-kind shape where applicable.
+3. Add golden vectors for proofless and proof-bearing `BraidShell` identity.
+4. Add vectors for revealed and sealed `BraidMemberRef` identity.
+5. Add vectors proving member blinding salt effect.
+6. Keep vector fixtures small, hand-reviewable, and domain-separated.
+7. Add a compatibility note for intentional vector changes.
 
 Acceptance:
 
 - A formatting-only or field-order refactor cannot silently change shell or
   proof identity.
 - CI catches digest drift in a targeted test.
-- The vector file explains which identities are public compatibility promises
-  and which are internal E1 scaffolding.
+- The vector file marks each identity as public stable, E1 scaffolding, or
+  test-only fixture.
+- Negative tests prove salt changes alter sealed member commitments where
+  required.
 
 ### 4. Clarify Privacy Posture Around Blinding Salt
 
-Goal: deterministic defaults must not be mistaken for unlinkability guarantees.
+Surfaces: privacy/API.
+
+Depends on: current sealed member API and golden vector plan.
+
+Goal: deterministic defaults MUST NOT be mistaken for unlinkability
+guarantees.
 
 Work:
 
-1. Document that the default member blinding salt is deterministic.
-2. State that the default salt is not an unlinkability boundary across
+1. Put this sentence in API docs, examples, and this roadmap:
+
+    ```text
+    The deterministic default salt is for reproducibility, not unlinkability.
+    Privacy-preserving flows MUST provide authority-local, capability-local, or
+    session-local blinding material.
+    ```
+
+2. Document that the default member blinding salt is deterministic.
+3. State that the default salt is not an unlinkability boundary across
    independent settlements.
-3. Require or strongly route privacy-preserving sealed-member flows through
-   authority-local, capability-local, or session-local blinding material.
-4. Add tests showing caller-supplied salt changes sealed member commitments.
+4. Route privacy-preserving sealed-member flows through authority-local,
+   capability-local, or session-local blinding material.
+5. Add tests showing caller-supplied salt changes sealed member commitments.
 
 Acceptance:
 
-- API docs say the quiet part clearly.
+- API docs say the deterministic-default risk clearly.
 - Privacy-sensitive examples never use the deterministic default as their
   privacy boundary.
 - Tests distinguish reproducible local defaults from unlinkability-oriented
   caller material.
+- Negative tests or docs examples prove deterministic salt reuse is surfaced as
+  caller risk.
 
 ### 5. Make Braid Membership Historical
 
-Goal: braid membership changes should be append-only history, not current
-state with a log nearby.
+Surfaces: runtime/history.
+
+Depends on: checked `BraidEvent` model.
+
+Goal: braid membership changes MUST be append-only history, not current state
+with a log nearby.
 
 Work:
 
@@ -158,6 +341,8 @@ Work:
 3. Add historical membership views by braid coordinate or event sequence.
 4. Preserve current membership as a projection.
 5. Keep sealed member references lawful at historical coordinates.
+6. Add `braid.diff_membership(from_coordinate, to_coordinate)` as a design
+   target for replay, UI, and audit.
 
 Acceptance:
 
@@ -167,10 +352,18 @@ Acceptance:
   projections over the same event log.
 - Settlement can admit a braid projection without pretending member strands
   merged.
+- Negative tests prove a current-only membership projection cannot satisfy a
+  historical coordinate request.
+- Historical membership diff can report added, removed, revealed, and
+  concealed member changes.
 
 ### 6. Add Replay And Audit Optics
 
-Goal: the architecture should be able to show its work.
+Surfaces: replay/agent inspection.
+
+Depends on: shell identity and historical views.
+
+Goal: the architecture MUST show its work.
 
 Work:
 
@@ -180,6 +373,24 @@ Work:
 3. Keep concealed member source chains concealed while reporting the lawful
    reason they are concealed.
 4. Add lower-mode output suitable for CLI, JSON, and docs examples.
+5. Define a Braid Flight Recorder artifact that records:
+
+    ```text
+    event log
+    -> membership projection
+    -> shell assembly
+    -> proof binding
+    -> witness reading
+    -> replay verdict
+    ```
+
+6. Define a Causal X-Ray CLI target:
+
+    ```text
+    echo braid inspect <shell-digest>
+    ```
+
+7. Add generated audit examples in JSON form.
 
 Acceptance:
 
@@ -188,11 +399,43 @@ Acceptance:
 - Replay distinguishes admitted, retained, concealed, conflicted, obstructed,
   and unsupported claims.
 - Tests can assert replay facts without depending on ornamental formatting.
+- Replay cannot treat `SelfWitness` as independent attestation.
+- Audit examples include warnings such as deterministic blinding salt usage.
+
+Example future audit output:
+
+```json
+{
+    "braid": "bsh1...",
+    "coordinate": "bc1...",
+    "members": [
+        {
+            "reference": "sealed",
+            "verdict": "Plural",
+            "concealment": "AuthorityScoped"
+        }
+    ],
+    "posture_floor": "AuthorOnly",
+    "settlement_law": "AllowPluralOverFootprintOverlap",
+    "proof": {
+        "kind": "ReplayTrace",
+        "binding": "Matched"
+    },
+    "witness": {
+        "kind": "SelfWitness",
+        "attestation": "IntegrityOnly"
+    }
+}
+```
 
 ### 7. Name External Witness Receipts
 
-Goal: the current self-witness should remain honest E1 scaffolding, not become
-the permanent witness model by accident.
+Surfaces: witnessing/API.
+
+Depends on: golden vectors and typed proof errors.
+
+Goal: the current self-witness MUST remain honest E1 scaffolding and MUST NOT
+become the permanent witness model by accident.
 
 Work:
 
@@ -203,6 +446,18 @@ Work:
    replay-trace receipt, ZK verifier receipt, and vector-opening receipt.
 4. Bind witness receipt identity into braid shell or retained evidence identity
    only through an explicit compatibility rule.
+5. Build a witness backend simulator before real witness backends:
+   `SelfWitness`, `SignedWitnessFixture`, `ThresholdWitnessFixture`,
+   `RejectedWitnessFixture`, and `UnsupportedWitnessFixture`.
+6. Reserve a migration hook shape:
+
+    ```rust
+    pub enum CompatibilityRule {
+        StableV1,
+        E1Scaffold,
+        RequiresMigration { from: u32, to: u32 },
+    }
+    ```
 
 Acceptance:
 
@@ -211,10 +466,16 @@ Acceptance:
 - Adding a real witness backend does not require changing braid shell member
   semantics.
 - Unsupported witness kinds fail as typed unsupported-backend outcomes.
+- Simulator fixtures harden the boundary before real cryptographic backends
+  arrive.
 
 ### 8. Build Sealed Membership Capabilities
 
-Goal: a holder should be able to prove authorized membership for a purpose
+Surfaces: privacy/capability.
+
+Depends on: blinding docs and historical membership.
+
+Goal: a holder MUST be able to prove authorized membership for a purpose
 without revealing global strand identity or the source chain.
 
 Work:
@@ -226,6 +487,30 @@ Work:
    more than the aperture permits.
 4. Keep revealed-member and sealed-member paths visibly different in API and
    replay output.
+5. Add disclosure budget labels:
+
+    ```rust
+    pub enum DisclosureBudget {
+        Public,
+        AuthorityScoped,
+        CapabilityScoped,
+        HolderOnly,
+        ZeroKnowledge,
+    }
+    ```
+
+6. Preserve the target token shape:
+
+    ```rust
+    pub struct SealedMembershipPresentation {
+        pub braid_coordinate: BraidCoordinate,
+        pub purpose: PresentationPurpose,
+        pub authority_domain: AuthorityDomainRef,
+        pub member_commitment: Hash,
+        pub proof_or_receipt: MembershipEvidence,
+        pub disclosure_budget: DisclosureBudget,
+    }
+    ```
 
 Acceptance:
 
@@ -234,10 +519,16 @@ Acceptance:
 - Reusing material across independent settlements is either impossible by API
   shape or explicitly visible as caller risk.
 - Replay records what was proven and what remained sealed.
+- Replay says not just that a member is sealed, but why and under which
+  disclosure budget.
 
 ### 9. Introduce Named Plurality Laws
 
-Goal: retained plural strand claims should be interpreted by named law, not
+Surfaces: law machinery/design.
+
+Depends on: replay optic and witness boundary.
+
+Goal: retained plural strand claims MUST be interpreted by named law, not
 hidden caller policy.
 
 Work:
@@ -246,8 +537,17 @@ Work:
    quorum, editorial, and authority laws.
 2. Make the law name and version part of the witnessed reading.
 3. Attach capability, support, budget, and evidence posture to law execution.
-4. Keep application nouns out of Echo core; authored contracts may provide
+4. Keep application nouns out of Echo core; authored contracts provide
    domain-specific laws through generated adapters.
+5. Add Law Cards:
+
+    ```text
+    name = "allow-plural-over-footprint-overlap"
+    version = 1
+    requires = ["support-pins", "frontier-digest", "posture-floor"]
+    emits = ["PluralArtifact"]
+    conceals = ["sealed-member-source-chain"]
+    ```
 
 Acceptance:
 
@@ -255,32 +555,70 @@ Acceptance:
 - Two different laws over the same retained support produce distinct witnessed
   readings.
 - Unsupported or unauthorized law execution yields typed obstruction evidence.
+- Law cards are machine-readable without baking application-domain nouns into
+  Echo core.
+
+## Required PR Sequence
+
+Follow-up implementation work MUST be split into small PRs:
+
+| PR  | Scope                                                  |
+| --- | ------------------------------------------------------ |
+| A   | Private `Strand<P>` construction plus fixture builders |
+| B   | `ProofError` plus `BraidTransitionKind`                |
+| C   | Golden vectors                                         |
+| D   | Blinding salt docs and tests                           |
+| E   | Historical braid membership views                      |
+| F   | Replay and audit optic                                 |
+| G   | `WitnessReceipt` boundary plus simulator fixtures      |
+| H   | Sealed membership capability design                    |
+| I   | Named plurality law registry design                    |
+
+PRs A-D are the hardening foundation. PRs E-I MUST NOT introduce runtime or
+public API dependencies that bypass A-D.
+
+## Mandatory Negative Capability Tests
+
+The execution issues MUST include negative witnesses for these claims:
+
+- Cannot construct `Strand<Shared>` with `AuthorOnly` retention posture through
+  public API.
+- Cannot parse behavior from `ProofError` display text.
+- Cannot silently reuse deterministic salt in a privacy-sensitive example.
+- Cannot satisfy a historical membership coordinate with current-only
+  membership.
+- Cannot treat `SelfWitness` as independent attestation.
+- Cannot introduce a plurality law without a law name, version, and evidence
+  posture.
 
 ## Bad-Code Register
 
-These are not revert-class defects. They are hardening debt that should be
-closed before more public APIs depend on the new shapes.
+These are not revert-class defects. They are hardening debt that MUST be closed
+before more public APIs depend on the new shapes.
 
-| Priority | Area                   | Debt                                     | Recommended next move                |
-| -------: | ---------------------- | ---------------------------------------- | ------------------------------------ |
-|        1 | `Strand<P>`            | public construction weakens typestate    | private fields plus fixture builders |
-|        2 | `ProofEnvelope`        | validation returns strings               | structured `ProofError`              |
-|        3 | digest identity        | no golden vectors yet                    | proof and shell vector fixtures      |
-|        4 | `Braid::apply`         | transition names are strings             | typed `BraidTransitionKind`          |
-|        5 | settlement blinding    | deterministic default may be overtrusted | sharper docs and salt-path tests     |
-|        6 | braid shell witnessing | self-witness is only E1 scaffolding      | named witness receipt design         |
+| Priority | Area                   | Debt                                    | Required next move                   |
+| -------: | ---------------------- | --------------------------------------- | ------------------------------------ |
+|        1 | `Strand<P>`            | public construction weakens typestate   | private fields plus fixture builders |
+|        2 | `ProofEnvelope`        | validation returns strings              | structured `ProofError`              |
+|        3 | digest identity        | no golden vectors yet                   | proof and shell vector fixtures      |
+|        4 | `Braid::apply`         | transition names are strings            | typed `BraidTransitionKind`          |
+|        5 | settlement blinding    | deterministic default invites overtrust | sharper docs and salt-path tests     |
+|        6 | braid shell witnessing | self-witness is only E1 scaffolding     | named witness receipt design         |
 
-## Cool-Idea Queue
+## Cool-Idea Commitments
 
-Preserve these without letting them jump the hardening queue.
+These ideas are promoted into the roadmap as ordered extensions. They are
+mandatory design targets, but they MUST respect the dependency graph.
 
-| Rank | Idea                         | Why it matters                                  |
-| ---: | ---------------------------- | ----------------------------------------------- |
-|    1 | braid replay explorer        | forces the model to show its work               |
-|    2 | append-only membership views | makes braided history actually historical       |
-|    3 | external witness plugins     | opens adversarial and institutional deployment  |
-|    4 | sealed membership capability | unlocks privacy-preserving authorization proofs |
-|    5 | plurality law registry       | turns interpretation policy into witnessed law  |
+| Rank | Idea                                 | Required placement |
+| ---: | ------------------------------------ | ------------------ |
+|    1 | Braid Flight Recorder                | replay optic       |
+|    2 | Causal X-Ray CLI                     | replay optic       |
+|    3 | Privacy Budget Labels                | sealed capability  |
+|    4 | Law Cards                            | plurality laws     |
+|    5 | Witness Backend Simulator            | witness receipts   |
+|    6 | Historical Membership Diff           | historical views   |
+|    7 | Sealed Membership Presentation Token | sealed capability  |
 
 ## Sequencing Guardrails
 
@@ -295,6 +633,10 @@ Preserve these without letting them jump the hardening queue.
   replay tools.
 - Do not make current braid membership the only queryable shape once event
   history exists.
+- Do not implement witness backends before typed proof errors, witness receipt
+  identity, and simulator fixtures exist.
+- Do not implement sealed membership capability before blinding docs,
+  salt-effect vectors, and historical membership are in place.
 
 ## Issue Seeds
 
@@ -305,12 +647,12 @@ roadmap is pulled into execution:
 2. Structured `ProofError` and typed braid transition kinds.
 3. Golden vectors for proof envelope and braid shell identity.
 4. Blinding salt privacy docs and salt-path tests.
-5. Append-only braid membership historical views.
-6. Braid replay and audit optic.
-7. External witness receipt boundary.
-8. Purpose-bound sealed membership capability.
-9. Named plurality law registry.
+5. Append-only braid membership historical views and membership diff.
+6. Braid replay, Braid Flight Recorder, and Causal X-Ray optic.
+7. External witness receipt boundary and witness backend simulator.
+8. Purpose-bound sealed membership capability with disclosure budgets.
+9. Named plurality law registry with Law Cards.
 
-Each issue should carry one executable witness. Design-only issues must state
-which later runtime, API, golden-vector, replay, or DIND proof will close the
+Each issue MUST carry one executable witness. Design-only issues MUST state
+which later runtime, API, golden-vector, replay, or DIND proof closes the
 claim.

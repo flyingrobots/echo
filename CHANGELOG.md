@@ -646,6 +646,10 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
   preserve hidden shared source disclosure in settlement shells, reject mixed
   revealed/sealed shell member sets, and treat sealed member authority as part
   of duplicate-member identity.
+- `warp-core` retained braid shell queries now distinguish revealed member
+  lookup from sealed member lookup: `has_revealed_member_strand` and
+  `BraidShellQuery::revealed_member_strand` only match revealed references,
+  while `BraidShellMemberQuery` carries blinding material for sealed matches.
 - `warp-core` crate-root braid exports now include `BraidError`, `BraidStatus`,
   and `BraidMemberRef` so external consumers can handle public braid results.
 - `warp-core` shared-strand settlement handles now re-enter the live registry

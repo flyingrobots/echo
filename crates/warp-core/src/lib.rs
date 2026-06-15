@@ -262,9 +262,10 @@ pub use braid::{Braid, BraidError, BraidEvent, BraidStatus};
 // --- Retained boundary shell family (θ_tick, θ_braid) ---
 pub use braid_shell::{
     collapse_braid_shell, replay_braid_shell, BraidCoordinate, BraidMemberRef, BraidShell,
-    BraidShellError, BraidShellMember, BraidShellOutcome, BraidShellQuery, BraidShellRecords,
-    BraidShellReplay, CollapsePolicy, CollapseResult, MemberVerdict, RetainedBoundaryKind,
-    RetainedBoundaryRecord, BRAID_SHELL_VERSION, COLLAPSE_WITHOUT_POLICY_REASON,
+    BraidShellError, BraidShellMember, BraidShellMemberQuery, BraidShellOutcome, BraidShellQuery,
+    BraidShellRecords, BraidShellReplay, CollapsePolicy, CollapseResult, MemberVerdict,
+    RetainedBoundaryKind, RetainedBoundaryRecord, BRAID_SHELL_VERSION,
+    COLLAPSE_WITHOUT_POLICY_REASON,
 };
 pub use neighborhood::{
     NeighborhoodCore, NeighborhoodError, NeighborhoodParticipant, NeighborhoodParticipantRole,

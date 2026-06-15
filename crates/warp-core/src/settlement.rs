@@ -2799,7 +2799,7 @@ mod tests {
         assert_eq!(shell.policy_id, plural_policy().policy_id);
         assert_eq!(shell.posture, crate::revelation::CausalPosture::Shared);
         assert_eq!(shell.worldline_id, base_worldline);
-        assert!(shell.has_member_strand(&strand_id));
+        assert!(shell.has_revealed_member_strand(&strand_id));
         assert_eq!(shell.members.len(), 1);
         assert_eq!(
             shell.members[0].verdict,
@@ -2839,7 +2839,7 @@ mod tests {
         let shell_digest = result.braid_shell.unwrap();
         let shell = provenance.braid_shell(&shell_digest).unwrap();
 
-        assert!(!shell.has_member_strand(&strand_id));
+        assert!(!shell.has_revealed_member_strand(&strand_id));
         assert!(matches!(
             shell.members[0].member_ref,
             crate::braid_shell::BraidMemberRef::Sealed { .. }
@@ -3145,7 +3145,7 @@ mod tests {
         .unwrap();
 
         let query = crate::braid_shell::BraidShellQuery {
-            member_strand: Some(strand_id),
+            revealed_member_strand: Some(strand_id),
             outcome: Some(AdmissionOutcomeKind::Plural),
             posture: Some(crate::revelation::CausalPosture::Shared),
             ..crate::braid_shell::BraidShellQuery::default()

@@ -10,6 +10,7 @@ topics:
 - idempotence
 - sync
   accuracy: 90%
+  issue: 492
 
 ---
 

@@ -10,6 +10,7 @@ topics:
 - typescript
 - zod
   accuracy: 100%
+  issue: 505
 
 ---
 

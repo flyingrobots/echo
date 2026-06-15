@@ -10,6 +10,7 @@ topics:
 - contract
 - testing
   accuracy: 100%
+  issue: 496
 
 ---
 

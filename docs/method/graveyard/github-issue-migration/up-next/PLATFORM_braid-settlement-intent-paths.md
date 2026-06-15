@@ -10,6 +10,7 @@ topics:
 - settlement
 - intent
   accuracy: 95%
+  issue: 483
 
 ---
 

@@ -10,6 +10,7 @@ topics:
 - doctor
 - triage
   accuracy: 90%
+  issue: 497
 
 ---
 

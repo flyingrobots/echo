@@ -634,6 +634,11 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- `warp-core` evolving braid logs now reject unchecked incremental mutations:
+  `Braid::apply` returns typed lifecycle errors, rejects duplicate member
+  weaving, detects member sequence overflow with checked arithmetic, rejects
+  empty collapse witnesses, and exposes folded state through read-only
+  accessors instead of public mutable fields.
 - `warp-wasm` settlement publication now maps non-`Shared` strand admission
   rejection to the stable `INVALID_STRAND` ABI error code instead of
   collapsing the lawful posture denial into `ENGINE_ERROR`.

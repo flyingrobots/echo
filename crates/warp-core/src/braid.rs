@@ -6,7 +6,7 @@ use thiserror::Error;
 
 use crate::braid_shell::BraidMemberRef;
 use crate::ident::Hash;
-use crate::revelation::AuthorityDomainRef;
+use crate::revelation::{AuthorityDomainRef, WitnessDigest};
 
 /// Concrete status of a coordination braid lifecycle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -47,6 +47,21 @@ pub enum BraidError {
         /// Current braid status.
         status: BraidStatus,
     },
+    /// The member sequence number cannot advance without overflowing.
+    #[error("member sequence number overflow at {sequence_num}")]
+    SequenceOverflow {
+        /// Sequence number that could not be advanced.
+        sequence_num: u64,
+    },
+    /// A member reference was woven more than once.
+    #[error("duplicate braid member reference {member_ref:?}")]
+    DuplicateMember {
+        /// Member reference that appeared more than once.
+        member_ref: BraidMemberRef,
+    },
+    /// Collapse events must carry a non-empty witness digest.
+    #[error("braid collapse witness must be non-empty")]
+    EmptyCollapseWitness,
 }
 
 /// Lifecycle events that define the evolution of a coordination braid.
@@ -84,17 +99,17 @@ pub enum BraidEvent {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Braid {
     /// Unique identifier of the braid.
-    pub braid_id: Hash,
+    id: Hash,
     /// Ordered event stream.
-    pub events: Vec<BraidEvent>,
-    /// Set of current member references in coordination order.
-    pub members: Vec<BraidMemberRef>,
+    events: Vec<BraidEvent>,
+    /// Ordered list of woven member references.
+    members: Vec<BraidMemberRef>,
     /// Expected sequence number of the next member to be woven.
-    pub next_sequence_num: u64,
+    next_sequence_num: u64,
     /// Digest of the latest finalized settlement, if any.
-    pub latest_settlement: Option<Hash>,
+    latest_settlement: Option<Hash>,
     /// Current lifecycle status of the braid.
-    pub status: BraidStatus,
+    status: BraidStatus,
 }
 
 impl Braid {
@@ -105,42 +120,89 @@ impl Braid {
             braid_id,
             creator_domain,
         };
-        let mut braid = Self {
-            braid_id,
-            events: Vec::new(),
+        Self {
+            id: braid_id,
+            events: vec![initial_event],
             members: Vec::new(),
             next_sequence_num: 0,
             latest_settlement: None,
             status: BraidStatus::Active,
-        };
-        braid.apply(initial_event);
-        braid
+        }
     }
 
     /// Appends an event to the log and updates the folded state.
-    pub fn apply(&mut self, event: BraidEvent) {
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`BraidError`] if the event would violate lifecycle,
+    /// membership, sequence, or witness invariants.
+    pub fn apply(&mut self, event: BraidEvent) -> Result<(), BraidError> {
         match &event {
             BraidEvent::BraidCreated { braid_id, .. } => {
-                self.braid_id = *braid_id;
+                if !self.events.is_empty() {
+                    return Err(BraidError::DuplicateCreated);
+                }
+                self.id = *braid_id;
                 self.status = BraidStatus::Active;
             }
             BraidEvent::MemberWoven {
                 member_ref,
                 sequence_num,
             } => {
+                if self.status != BraidStatus::Active {
+                    return Err(BraidError::InvalidTransition {
+                        action: "weave member".to_string(),
+                        status: self.status,
+                    });
+                }
+                if *sequence_num != self.next_sequence_num {
+                    return Err(BraidError::IncoherentSequence {
+                        expected: self.next_sequence_num,
+                        actual: *sequence_num,
+                    });
+                }
+                if self.members.contains(member_ref) {
+                    return Err(BraidError::DuplicateMember {
+                        member_ref: *member_ref,
+                    });
+                }
+                let next_sequence_num =
+                    sequence_num
+                        .checked_add(1)
+                        .ok_or(BraidError::SequenceOverflow {
+                            sequence_num: *sequence_num,
+                        })?;
                 self.members.push(*member_ref);
-                self.next_sequence_num = sequence_num + 1;
+                self.next_sequence_num = next_sequence_num;
             }
             BraidEvent::SettlementFinalized { settlement_digest } => {
+                if self.status != BraidStatus::Active {
+                    return Err(BraidError::InvalidTransition {
+                        action: "finalize settlement".to_string(),
+                        status: self.status,
+                    });
+                }
                 self.latest_settlement = Some(*settlement_digest);
                 self.status = BraidStatus::Finalized;
             }
-            BraidEvent::BraidCollapsed { outcome_digest, .. } => {
+            BraidEvent::BraidCollapsed {
+                collapse_witness,
+                outcome_digest,
+            } => {
+                if self.status != BraidStatus::Finalized {
+                    return Err(BraidError::InvalidTransition {
+                        action: "collapse braid".to_string(),
+                        status: self.status,
+                    });
+                }
+                WitnessDigest::new(*collapse_witness)
+                    .map_err(|_| BraidError::EmptyCollapseWitness)?;
                 self.latest_settlement = Some(*outcome_digest);
                 self.status = BraidStatus::Collapsed;
             }
         }
         self.events.push(event);
+        Ok(())
     }
 
     /// Reconstructs the braid state by folding over a stream of events.
@@ -162,44 +224,39 @@ impl Braid {
         };
 
         for event in iter {
-            match &event {
-                BraidEvent::BraidCreated { .. } => {
-                    return Err(BraidError::DuplicateCreated);
-                }
-                BraidEvent::MemberWoven { sequence_num, .. } => {
-                    if braid.status != BraidStatus::Active {
-                        return Err(BraidError::InvalidTransition {
-                            action: "weave member".to_string(),
-                            status: braid.status,
-                        });
-                    }
-                    if *sequence_num != braid.next_sequence_num {
-                        return Err(BraidError::IncoherentSequence {
-                            expected: braid.next_sequence_num,
-                            actual: *sequence_num,
-                        });
-                    }
-                }
-                BraidEvent::SettlementFinalized { .. } => {
-                    if braid.status != BraidStatus::Active {
-                        return Err(BraidError::InvalidTransition {
-                            action: "finalize settlement".to_string(),
-                            status: braid.status,
-                        });
-                    }
-                }
-                BraidEvent::BraidCollapsed { .. } => {
-                    if braid.status != BraidStatus::Finalized {
-                        return Err(BraidError::InvalidTransition {
-                            action: "collapse braid".to_string(),
-                            status: braid.status,
-                        });
-                    }
-                }
-            }
-            braid.apply(event);
+            braid.apply(event)?;
         }
         Ok(braid)
+    }
+
+    /// Returns the braid identifier.
+    #[must_use]
+    pub fn braid_id(&self) -> Hash {
+        self.id
+    }
+
+    /// Returns the ordered event log.
+    #[must_use]
+    pub fn events(&self) -> &[BraidEvent] {
+        &self.events
+    }
+
+    /// Returns the next expected member sequence number.
+    #[must_use]
+    pub fn next_sequence_num(&self) -> u64 {
+        self.next_sequence_num
+    }
+
+    /// Returns the latest finalized or collapsed settlement digest.
+    #[must_use]
+    pub fn latest_settlement(&self) -> Option<Hash> {
+        self.latest_settlement
+    }
+
+    /// Returns the current braid lifecycle status.
+    #[must_use]
+    pub fn status(&self) -> BraidStatus {
+        self.status
     }
 
     /// Returns the current coordination frontier (active woven members).
@@ -228,44 +285,51 @@ mod tests {
         let auth = authority_ref();
 
         let mut braid = Braid::new(braid_id, auth);
-        assert_eq!(braid.braid_id, braid_id);
-        assert_eq!(braid.next_sequence_num, 0);
-        assert_eq!(braid.status, BraidStatus::Active);
-        assert!(braid.members.is_empty());
+        assert_eq!(braid.braid_id(), braid_id);
+        assert_eq!(braid.next_sequence_num(), 0);
+        assert_eq!(braid.status(), BraidStatus::Active);
+        assert!(braid.frontier().is_empty());
 
         let m1 = BraidMemberRef::Revealed(make_strand_id("strand-1"));
-        braid.apply(BraidEvent::MemberWoven {
-            member_ref: m1,
-            sequence_num: 0,
-        });
-        assert_eq!(braid.next_sequence_num, 1);
-        assert_eq!(braid.members, vec![m1]);
-        assert_eq!(braid.status, BraidStatus::Active);
+        braid
+            .apply(BraidEvent::MemberWoven {
+                member_ref: m1,
+                sequence_num: 0,
+            })
+            .unwrap();
+        assert_eq!(braid.next_sequence_num(), 1);
+        assert_eq!(braid.frontier(), &[m1]);
+        assert_eq!(braid.status(), BraidStatus::Active);
 
         let m2 = BraidMemberRef::Revealed(make_strand_id("strand-2"));
-        braid.apply(BraidEvent::MemberWoven {
-            member_ref: m2,
-            sequence_num: 1,
-        });
-        assert_eq!(braid.next_sequence_num, 2);
-        assert_eq!(braid.members, vec![m1, m2]);
+        braid
+            .apply(BraidEvent::MemberWoven {
+                member_ref: m2,
+                sequence_num: 1,
+            })
+            .unwrap();
+        assert_eq!(braid.next_sequence_num(), 2);
         assert_eq!(braid.frontier(), &[m1, m2]);
 
         let settlement = [0x5E; 32];
-        braid.apply(BraidEvent::SettlementFinalized {
-            settlement_digest: settlement,
-        });
-        assert_eq!(braid.latest_settlement, Some(settlement));
-        assert_eq!(braid.status, BraidStatus::Finalized);
+        braid
+            .apply(BraidEvent::SettlementFinalized {
+                settlement_digest: settlement,
+            })
+            .unwrap();
+        assert_eq!(braid.latest_settlement(), Some(settlement));
+        assert_eq!(braid.status(), BraidStatus::Finalized);
 
         let collapse_witness = [0x33; 32];
         let collapse_outcome = [0x88; 32];
-        braid.apply(BraidEvent::BraidCollapsed {
-            collapse_witness,
-            outcome_digest: collapse_outcome,
-        });
-        assert_eq!(braid.latest_settlement, Some(collapse_outcome));
-        assert_eq!(braid.status, BraidStatus::Collapsed);
+        braid
+            .apply(BraidEvent::BraidCollapsed {
+                collapse_witness,
+                outcome_digest: collapse_outcome,
+            })
+            .unwrap();
+        assert_eq!(braid.latest_settlement(), Some(collapse_outcome));
+        assert_eq!(braid.status(), BraidStatus::Collapsed);
     }
 
     #[test]
@@ -301,9 +365,9 @@ mod tests {
             },
         ];
         let braid = Braid::fold(events).unwrap();
-        assert_eq!(braid.braid_id, braid_id);
-        assert_eq!(braid.members, vec![m1, m2]);
-        assert_eq!(braid.status, BraidStatus::Collapsed);
+        assert_eq!(braid.braid_id(), braid_id);
+        assert_eq!(braid.frontier(), &[m1, m2]);
+        assert_eq!(braid.status(), BraidStatus::Collapsed);
 
         // Invalid: missing initial BraidCreated
         let bad_events_no_created = vec![BraidEvent::MemberWoven {
@@ -388,6 +452,137 @@ mod tests {
             Err(BraidError::InvalidTransition {
                 action: "collapse braid".to_string(),
                 status: BraidStatus::Active
+            })
+        );
+    }
+
+    #[test]
+    fn test_braid_apply_rejects_invalid_incremental_events() {
+        let braid_id = [0xAA; 32];
+        let auth = authority_ref();
+        let m1 = BraidMemberRef::Revealed(make_strand_id("strand-1"));
+        let m2 = BraidMemberRef::Revealed(make_strand_id("strand-2"));
+        let mut braid = Braid::new(braid_id, auth);
+
+        assert_eq!(
+            braid.apply(BraidEvent::BraidCreated {
+                braid_id,
+                creator_domain: auth,
+            }),
+            Err(BraidError::DuplicateCreated)
+        );
+        assert_eq!(
+            braid.apply(BraidEvent::MemberWoven {
+                member_ref: m1,
+                sequence_num: 1,
+            }),
+            Err(BraidError::IncoherentSequence {
+                expected: 0,
+                actual: 1,
+            })
+        );
+        braid
+            .apply(BraidEvent::MemberWoven {
+                member_ref: m1,
+                sequence_num: 0,
+            })
+            .unwrap();
+        assert_eq!(
+            braid.apply(BraidEvent::MemberWoven {
+                member_ref: m1,
+                sequence_num: 1,
+            }),
+            Err(BraidError::DuplicateMember { member_ref: m1 })
+        );
+        braid
+            .apply(BraidEvent::MemberWoven {
+                member_ref: m2,
+                sequence_num: 1,
+            })
+            .unwrap();
+        braid
+            .apply(BraidEvent::SettlementFinalized {
+                settlement_digest: [0x5E; 32],
+            })
+            .unwrap();
+        assert_eq!(
+            braid.apply(BraidEvent::MemberWoven {
+                member_ref: BraidMemberRef::Revealed(make_strand_id("strand-3")),
+                sequence_num: 2,
+            }),
+            Err(BraidError::InvalidTransition {
+                action: "weave member".to_string(),
+                status: BraidStatus::Finalized,
+            })
+        );
+    }
+
+    #[test]
+    fn test_braid_fold_rejects_duplicate_member_and_empty_collapse_witness() {
+        let braid_id = [0xAA; 32];
+        let auth = authority_ref();
+        let member = BraidMemberRef::Revealed(make_strand_id("strand-1"));
+
+        let duplicate_member_events = vec![
+            BraidEvent::BraidCreated {
+                braid_id,
+                creator_domain: auth,
+            },
+            BraidEvent::MemberWoven {
+                member_ref: member,
+                sequence_num: 0,
+            },
+            BraidEvent::MemberWoven {
+                member_ref: member,
+                sequence_num: 1,
+            },
+        ];
+        assert_eq!(
+            Braid::fold(duplicate_member_events),
+            Err(BraidError::DuplicateMember { member_ref: member })
+        );
+
+        let empty_collapse_witness_events = vec![
+            BraidEvent::BraidCreated {
+                braid_id,
+                creator_domain: auth,
+            },
+            BraidEvent::SettlementFinalized {
+                settlement_digest: [0x5E; 32],
+            },
+            BraidEvent::BraidCollapsed {
+                collapse_witness: [0; 32],
+                outcome_digest: [0x88; 32],
+            },
+        ];
+        assert_eq!(
+            Braid::fold(empty_collapse_witness_events),
+            Err(BraidError::EmptyCollapseWitness)
+        );
+    }
+
+    #[test]
+    fn test_braid_apply_rejects_sequence_overflow() {
+        let braid_id = [0xAA; 32];
+        let auth = authority_ref();
+        let mut braid = Braid {
+            id: braid_id,
+            events: vec![BraidEvent::BraidCreated {
+                braid_id,
+                creator_domain: auth,
+            }],
+            members: Vec::new(),
+            next_sequence_num: u64::MAX,
+            latest_settlement: None,
+            status: BraidStatus::Active,
+        };
+        assert_eq!(
+            braid.apply(BraidEvent::MemberWoven {
+                member_ref: BraidMemberRef::Revealed(make_strand_id("max-seq")),
+                sequence_num: u64::MAX,
+            }),
+            Err(BraidError::SequenceOverflow {
+                sequence_num: u64::MAX,
             })
         );
     }

@@ -121,7 +121,7 @@ pub struct TrustedRuntimeWalRecovery {
 /// Local trusted runtime host for the app-safe contract-host path.
 ///
 /// Application code should receive [`TrustedRuntimeApp`], not this type. This
-/// host owns package installation, ticketed runtime ingress, scheduler passes,
+/// host owns package registration, ticketed runtime ingress, scheduler passes,
 /// and read-only observation service access.
 pub struct TrustedRuntimeHost {
     runtime: WorldlineRuntime,
@@ -213,23 +213,23 @@ impl TrustedRuntimeHost {
     }
 
     /// Returns the app-facing surface. This surface can submit and observe, but
-    /// it cannot tick, stage ticketed ingress, install packages, or recover
+    /// it cannot tick, stage ticketed ingress, register packages, or recover
     /// scheduler faults.
     pub fn app(&mut self) -> TrustedRuntimeApp<'_> {
         TrustedRuntimeApp { host: self }
     }
 
-    /// Installs a generated contract package through the trusted host boundary.
+    /// Registers a generated contract package through the trusted host boundary.
     ///
     /// # Errors
     ///
     /// Returns an installed-package error when registry verification fails or
     /// any handler/observer conflicts with existing runtime state.
-    pub fn install_contract_package<'a>(
+    pub fn register_contract_package<'a>(
         &mut self,
         package: InstalledContractPackage<'a>,
     ) -> Result<InstalledContractPackageRecord, InstalledContractPackageError<'a>> {
-        self.engine.install_contract_package(package)
+        self.engine.register_contract_package(package)
     }
 
     /// Stages one witnessed installed-contract submission into runtime ingress.
@@ -671,7 +671,7 @@ impl TrustedRuntimeWal {
 
 /// App-facing handle for a trusted local runtime host.
 ///
-/// This type intentionally exposes no scheduler control, package installation,
+/// This type intentionally exposes no scheduler control, package registration,
 /// ticketed ingress staging, or fault recovery authority.
 pub struct TrustedRuntimeApp<'a> {
     host: &'a mut TrustedRuntimeHost,
@@ -694,7 +694,7 @@ impl TrustedRuntimeApp<'_> {
     /// runtime WAL has committed the acceptance transaction.
     ///
     /// This is the ACK-boundary path for hosts that have configured a runtime
-    /// WAL. It does not tick, stage ticketed ingress, install packages, or
+    /// WAL. It does not tick, stage ticketed ingress, register packages, or
     /// expose WAL append authority to the application.
     ///
     /// # Errors

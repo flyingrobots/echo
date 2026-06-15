@@ -553,6 +553,10 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Changed
 
+- `warp-core` renamed the generated contract package host API from
+  `install_contract_package(...)` to `register_contract_package(...)` so the
+  trusted-runtime boundary reads as explicit runtime-owned registration instead
+  of process-global installation.
 - `warp-core` settlement planning now rejects non-`Shared` strands before
   producing import candidates. Author-only/debugger strand suffixes can remain
   real causal work, but they cannot enter base shared history without an

@@ -145,6 +145,37 @@ check_valid_header() {
   return 1
 }
 
+check_valid_frontmatter_header() {
+  local f="$1"
+  local expected_spdx_expression="$2"
+
+  case "$f" in
+    *.md) ;;
+    *) return 1 ;;
+  esac
+
+  local first_line
+  first_line=$(head -n 1 "$f" || true)
+  [[ "$first_line" == "---" ]] || return 1
+
+  local frontmatter
+  frontmatter=$(awk '
+    NR == 1 { next }
+    /^---$/ { exit }
+    { print }
+  ' "$f")
+
+  if ! printf '%s\n' "$frontmatter" | grep -Fqx "spdx_license: \"$expected_spdx_expression\""; then
+    return 1
+  fi
+
+  if ! printf '%s\n' "$frontmatter" | grep -Fqx "copyright: \"$COPYRIGHT\""; then
+    return 1
+  fi
+
+  return 0
+}
+
 
 has_malformed_header() {
   local f="$1"
@@ -223,6 +254,19 @@ insert_header() {
     echo "$first_line" > "$temp_file"
     echo "$header" >> "$temp_file"
     tail -n +2 "$f" >> "$temp_file"
+  elif [[ "$f" == *.md && "$first_line" == "---" ]]; then
+    local inserted=0
+    local line_num=0
+    local line
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      line_num=$((line_num + 1))
+      echo "$line" >> "$temp_file"
+      if [[ "$inserted" -eq 0 && "$line_num" -gt 1 && "$line" == "---" ]]; then
+        echo "" >> "$temp_file"
+        echo "$header" >> "$temp_file"
+        inserted=1
+      fi
+    done < "$f"
   else
     echo "$header" > "$temp_file"
     cat "$f" >> "$temp_file"
@@ -242,6 +286,17 @@ process_file() {
   
   local expected_header_block
   expected_header_block=$(get_header_content "$f" "$style")
+  local expected_license_line
+  if is_dual_licensed_material "$f"; then
+    expected_license_line="$DUAL_LICENSE"
+  else
+    expected_license_line="$CODE_LICENSE"
+  fi
+  local expected_spdx_expression="${expected_license_line#SPDX-License-Identifier: }"
+
+  if check_valid_frontmatter_header "$f" "$expected_spdx_expression"; then
+    return 0
+  fi
   
   if check_valid_header "$f" "$expected_header_block"; then
     return 0 # Header is already perfect, nothing to do.

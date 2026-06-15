@@ -1,8 +1,3 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
-<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
-
-<!-- prettier-ignore-start -->
-<!-- markdownlint-disable -->
 ---
 title: "PLATFORM - Echo-Wesley Contract Compiler"
 legend: "PLATFORM"
@@ -10,14 +5,18 @@ lane: "design"
 issue: "TBD"
 status: "active"
 owners:
-  - "@flyingrobots"
+    - "@flyingrobots"
 created: "2026-06-15"
 updated: "2026-06-15"
+spdx_license: "Apache-2.0 OR LicenseRef-MIND-UCAL-1.0"
+copyright: "© James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>"
 ---
-<!-- markdownlint-enable -->
-<!-- prettier-ignore-end -->
+
+<!-- markdownlint-disable MD025 -->
 
 # PLATFORM - Echo-Wesley Contract Compiler
+
+<!-- markdownlint-enable MD025 -->
 
 ## Linked Issue
 

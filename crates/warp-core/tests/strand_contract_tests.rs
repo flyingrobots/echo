@@ -678,9 +678,11 @@ fn strand_constructor_rejects_inv_s7_same_worldline() {
         Vec::new(),
     )
     .expect_err("INV-S7 should reject");
-    assert!(
-        matches!(err, StrandError::InvariantViolation(_)),
-        "expected InvariantViolation, got {err:?}"
+    assert_eq!(
+        err,
+        StrandError::InvariantViolation(
+            "INV-S7: child_worldline_id must differ from fork_basis_ref.source_lane_id"
+        )
     );
 }
 
@@ -698,9 +700,11 @@ fn strand_constructor_rejects_inv_s8_wrong_head_worldline() {
         Vec::new(),
     )
     .expect_err("INV-S8 should reject");
-    assert!(
-        matches!(err, StrandError::InvariantViolation(_)),
-        "expected InvariantViolation, got {err:?}"
+    assert_eq!(
+        err,
+        StrandError::InvariantViolation(
+            "INV-S8: every writer head must belong to child_worldline_id"
+        )
     );
 }
 

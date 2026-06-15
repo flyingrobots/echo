@@ -258,6 +258,8 @@ pub enum BraidError {
     DuplicateMember {
         member_ref: BraidMemberRef,
     },
+    MixedMemberReferencePosture,
+    EmptySettlementFrontier,
     EmptyCollapseWitness,
 }
 
@@ -290,4 +292,4 @@ pub struct Braid {
 }
 ```
 
-Checked `apply` and `fold` preserve these invariants: duplicate creation is rejected, member sequence numbers must match the expected cursor, duplicate members are refused through a deterministic membership index, sequence overflow is explicit, settlement/collapse lifecycle order is enforced, and collapse witnesses must clear the `WitnessDigest` quality bar.
+Checked `apply` and `fold` preserve these invariants: duplicate creation is rejected, member sequence numbers must match the expected cursor, duplicate members are refused through a deterministic membership index, revealed and sealed member references may not mix, empty member frontiers may not finalize, sequence overflow is explicit, settlement/collapse lifecycle order is enforced, and collapse witnesses must clear the `WitnessDigest` quality bar.

@@ -7,6 +7,13 @@ topics:
     - protocol
 accuracy: 100%
 issue: 471
+findings:
+    - claim: "ComplianceUpdate/ViolationDetected events and compliance status protocol extensions are implemented"
+      ruling: true
+      evidence:
+          - filepath: "crates/echo-ttd/src/compliance.rs"
+            line: 1
+            git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
 ---
 
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->

@@ -7,6 +7,13 @@ topics:
     - intent
 accuracy: 95%
 issue: 483
+findings:
+    - claim: "Execute settlement is triggered as a direct host ABI service call instead of a causal Intent path"
+      ruling: true
+      evidence:
+          - filepath: "crates/echo-wasm-abi/src/lib.rs"
+            line: 1
+            git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
 ---
 
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->

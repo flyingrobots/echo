@@ -7,6 +7,13 @@ topics:
     - agent
 accuracy: 95%
 issue: 487
+findings:
+    - claim: "Echo lacks an inspectable Model Context Protocol (MCP) server surface exposing echo nouns to AI agents"
+      ruling: true
+      evidence:
+          - filepath: "crates/warp-cli/README.md"
+            line: 1
+            git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
 ---
 
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->

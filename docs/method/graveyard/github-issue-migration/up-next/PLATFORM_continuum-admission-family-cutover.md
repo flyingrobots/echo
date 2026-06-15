@@ -7,6 +7,13 @@ topics:
     - schema
 accuracy: 80%
 issue: 485
+findings:
+    - claim: "TickReceiptDisposition::Applied lowers to Derived and TickReceiptDisposition::Rejected lowers to Obstruction"
+      ruling: true
+      evidence:
+          - filepath: "crates/warp-core/src/receipt.rs"
+            line: 145
+            git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
 ---
 
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->

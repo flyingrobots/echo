@@ -7,6 +7,13 @@ topics:
     - zod
 accuracy: 100%
 issue: 505
+findings:
+    - claim: "TS types and Zod schemas are generated via Wesley under packages/ttd-protocol-ts"
+      ruling: true
+      evidence:
+          - filepath: "packages/ttd-protocol-ts/package.json"
+            line: 1
+            git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
 ---
 
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->

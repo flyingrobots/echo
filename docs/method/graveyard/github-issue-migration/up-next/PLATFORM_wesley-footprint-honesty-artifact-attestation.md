@@ -7,6 +7,13 @@ topics:
     - attestation
 accuracy: 90%
 issue: 501
+findings:
+    - claim: "Enforcing the compile-time capability boundary across Rust/TypeScript remains open"
+      ruling: true
+      evidence:
+          - filepath: "crates/echo-wesley-gen/src/lib.rs"
+            line: 1
+            git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
 ---
 
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->

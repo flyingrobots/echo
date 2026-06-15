@@ -7,6 +7,13 @@ topics:
     - algebra
 accuracy: 100%
 issue: 468
+findings:
+    - claim: "The AdmissionOutcomeKind fact family (Admitted, Staged, Plural, Conflict, Obstructed) is fully implemented"
+      ruling: true
+      evidence:
+          - filepath: "crates/warp-core/src/admission.rs"
+            line: 178
+            git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
 ---
 
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->

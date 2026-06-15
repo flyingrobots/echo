@@ -43,8 +43,8 @@ cat ir.json | cargo run -p echo-wesley-gen -- --contract-host --out generated.rs
 - Supports ENUM and OBJECT kinds from Wesley IR.
 - Preserves per-operation directive metadata as `OpDef::directives_json`.
   Existing compatibility code still recognizes legacy `wes_footprint` metadata;
-  new Echo contracts should migrate to Echo-owned directives or sidecar
-  metadata.
+  new Echo contracts should migrate to Echo-owned directives. Sidecar metadata
+  is reserved for a later design slice with explicit precedence rules.
 - Emits footprint certificate constants for recognized footprint metadata.
   Those certificates include the generated Rust artifact manifest hash and the
   operation argument shape, and hosts can verify them through

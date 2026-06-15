@@ -27,10 +27,10 @@ updated: "2026-06-15"
 
 Echo-Wesley is the app-facing compiler for Echo contracts. Wesley parses
 GraphQL into neutral IR and preserves directives as opaque data. Echo-Wesley
-consumes that IR, interprets Echo-owned directives or sidecar metadata, and
-emits the Rust and TypeScript artifacts that let applications register contract
-packages, submit intent instances, observe receipts, and install read-only query
-observers without hand-writing Echo wire protocol boilerplate.
+consumes that IR, interprets Echo-owned contract metadata, and emits the Rust
+and TypeScript artifacts that let applications register generated Echo types,
+contract packages, operation bindings, codecs, intent packers, query observers,
+and artifact manifests without hand-writing Echo wire protocol boilerplate.
 
 The contract rule is deliberately narrow:
 
@@ -44,12 +44,18 @@ Applications such as Graft and jedit should call `echo-wesley compile`, not raw
 `wesley emit ...` commands, for Echo contracts. Echo-Wesley may reuse Wesley
 libraries internally, but the application build surface is Echo-owned.
 
+The initial implementation uses Echo-owned GraphQL directives in SDL. Sidecar
+metadata is reserved for a later compatibility/design slice. If both are later
+supported, Echo-Wesley must define explicit precedence rules and conflict
+diagnostics before accepting both sources in the same compile path.
+
 ## Sponsored Human
 
 An application author wants to define app-specific Echo intents and read models
 in GraphQL so that Echo-Wesley generates secure Rust and TypeScript contract
-glue, without hand-writing EINT envelopes, registration manifests, op ids,
-receipt decoders, or query observer registration code.
+glue, without hand-writing EINT envelopes, Echo type registration, operation
+bindings, codec registration, registration manifests, op ids, receipt decoders,
+or query observer registration code.
 
 ## Sponsored Agent
 
@@ -67,6 +73,7 @@ compile command over its GraphQL contract and receive:
 - generated TypeScript app artifacts;
 - generated registration/bootstrap helpers;
 - generated typed submit/observe client helpers;
+- generated Echo type, codec, operation, and observer registration bindings;
 - generated artifact manifest and hashes;
 - generated footprint certificates and restricted handler contexts;
 - tests proving app code cannot gain tick authority or mutate outside declared
@@ -143,11 +150,13 @@ This compiler campaign includes:
 
 - making Echo-Wesley the only app-facing compiler entrypoint for Echo contracts;
 - moving Echo operation, footprint, registration, admission, and artifact-hash
-  interpretation behind Echo-owned directives or sidecar metadata;
+  interpretation behind Echo-owned directives;
 - replacing legacy `wes_op` and `wes_footprint` names for new Echo contracts;
 - generating Rust contract-host package constructors and restricted handler
   contexts;
 - generating TypeScript registration/client helpers;
+- generating Echo type descriptors, operation registry entries, codec bindings,
+  observer descriptors, and package metadata;
 - hashing generated Rust, generated TypeScript, codec, operation metadata, and
   footprint certificate artifacts;
 - adding verification that stale or tampered generated artifacts fail closed;
@@ -194,6 +203,34 @@ const submission = await client.recordGitWarpImportBatch(vars);
 const outcome = await client.observeIntentOutcome(submission.submissionId);
 ```
 
+The generated TypeScript target shape is concrete, not a vague helper bucket:
+
+```ts
+export const GRAFT_STRUCTURAL_HISTORY_CONTRACT: EchoGeneratedContractPackage;
+
+export async function registerGraftStructuralHistoryContract(
+    echo: EchoContractRegistrationPort,
+): Promise<ContractRegistrationReceipt>;
+
+export function createGraftStructuralHistoryClient(
+    echo: EchoContractRuntimePort,
+): GraftStructuralHistoryClient;
+
+export interface GraftStructuralHistoryClient {
+    recordGitWarpImportBatch(
+        vars: RecordGitWarpImportBatchVars,
+    ): Promise<IntentSubmissionHandle>;
+
+    observeIntentOutcome(
+        submissionId: IntentSubmissionId,
+    ): Promise<IntentOutcome>;
+
+    structuralReadings(
+        vars: StructuralReadingsVars,
+    ): Promise<StructuralReadingsResult>;
+}
+```
+
 ### User Journey
 
 ```mermaid
@@ -228,17 +265,20 @@ directly to the cause.
 
 - Wesley owns GraphQL parsing, schema validation, neutral IR, and opaque
   directive preservation. It must not own Echo, optics, footprints, EINT,
-  registration, admission, or app bootstrapping.
+  operation ids, registration, admission, or app bootstrapping.
 - Echo-Wesley owns Echo directives, observer/rewrite semantics, footprints,
-  hashes, Rust/TypeScript artifact generation, and registration glue. It must
-  not own generic GraphQL parser internals.
+  Echo operation identity, hashes, Rust/TypeScript artifact generation, and
+  registration glue. It must not own generic GraphQL parser internals.
 - Apps own app schemas and app handler bodies. They must not own handwritten
   Echo protocol boilerplate, raw Wesley compiler orchestration, or manual type
   registration glue.
 
 ### Echo-Owned Directives
 
-New Echo contracts must use Echo-owned directives or an Echo-owned sidecar.
+New Echo contracts must use Echo-owned directives. The first implementation
+slice must not build a parallel sidecar metadata path. Sidecar metadata may be
+introduced later only with explicit precedence and conflict diagnostics.
+
 Example directive vocabulary:
 
 ```graphql
@@ -257,6 +297,29 @@ directive @echo_footprint(
 The names may still change during implementation. The invariant may not:
 Echo-specific directives are not `wes_*`, and Wesley treats them as opaque
 directive data.
+
+Legacy `@wes_op` and `@wes_footprint` are rejected by default in the normal
+`echo-wesley compile` path. A temporary migration command may read legacy
+directives and emit equivalent Echo-owned directives:
+
+```bash
+echo-wesley migrate-legacy-directives \
+  --schema schemas/graft-structural-history.graphql \
+  --out schemas/graft-structural-history.echo.graphql
+```
+
+The migration path is a source rewrite aid, not a compatibility mode for normal
+contract compilation.
+
+### Operation Identity
+
+Wesley may expose generic GraphQL operation coordinates, root fields, field
+names, and opaque directive payloads. Echo-Wesley owns all Echo operation
+identity, including EINT operation ids, operation-id preimages, collision
+policy, and operation-id constants emitted into Rust or TypeScript.
+
+No Wesley API or documentation may describe an operation id as an EINT id, Echo
+runtime envelope id, Echo admission id, or Echo contract package id.
 
 ### Echo Contract IR
 
@@ -287,11 +350,19 @@ pub struct EchoOperation {
 }
 ```
 
+The `op_id` field is Echo-owned and is derived only after Echo-Wesley has
+interpreted Echo contract metadata. It is not a Wesley stable operation id.
+
 ### Restricted Handler Contexts
 
-Compile-time footprint honesty requires generated handler contexts. A generated
-mutation/rewrite handler must not receive raw `TickDelta`, unrestricted
-`GraphView`, or arbitrary graph mutation authority through the normal app API.
+Compile-time footprint honesty means app handler code using the normal
+generated handler API cannot access mutation capabilities outside the declared
+footprint. It does not prove the handler's business logic is semantically
+correct.
+
+A generated mutation/rewrite handler must not receive raw `TickDelta`,
+unrestricted `GraphView`, or arbitrary graph mutation authority through the
+normal app API.
 
 Generated shape:
 
@@ -324,7 +395,7 @@ not the default generated app contract path.
 Echo-Wesley emits:
 
 - type and vars structures;
-- deterministic operation ids;
+- Echo-owned deterministic operation ids;
 - vars encode/decode helpers;
 - EINT packers;
 - generated registry provider;
@@ -339,6 +410,7 @@ Echo-Wesley emits:
 
 Echo-Wesley emits:
 
+- concrete generated contract package object;
 - operation vars types;
 - codec encode/decode helpers, using Wesley emitter libraries internally when
   useful;
@@ -350,6 +422,30 @@ Echo-Wesley emits:
 - artifact hash constants;
 - generated manifest shape.
 
+### Generated Echo Type Registration
+
+Echo-Wesley generated TypeScript must include bootstrap code that registers the
+compiled contract package with Echo, including:
+
+- schema identity;
+- generated type descriptors;
+- operation registry entries;
+- operation id to codec bindings;
+- vars/result codec registrations;
+- observer request/response codecs;
+- intent envelope packers;
+- artifact manifest hashes;
+- package and generator version metadata.
+
+Application code must not manually bind GraphQL operation names, operation ids,
+codecs, generated type descriptors, observer descriptors, or generated artifact
+hashes to Echo.
+
+Generated TypeScript registration helpers must include manifest constants and
+submit those constants during package registration. Echo verifies them against
+the runtime-accepted package manifest before accepting registration. TypeScript
+may help detect stale artifacts early, but Echo is the verifier.
+
 ### App-Safe Registration Port
 
 Generated TypeScript should target an app-safe registration surface:
@@ -357,18 +453,40 @@ Generated TypeScript should target an app-safe registration surface:
 ```ts
 export interface EchoContractRegistrationPort {
     registerContractPackage(
-        packageBytes: Uint8Array,
+        pkg: EchoGeneratedContractPackage,
     ): Promise<ContractRegistrationReceipt>;
+}
+
+export interface EchoContractRuntimePort {
     submitIntentBytes(intentBytes: Uint8Array): Promise<IntentSubmissionHandle>;
     observeBytes(requestBytes: Uint8Array): Promise<Uint8Array>;
 }
 ```
 
+At the lower runtime boundary, Echo may canonical-encode the package into bytes.
+Application-facing generated TypeScript should pass a typed generated package,
+not require app code to hand-pack an opaque byte blob.
+
+Package registration installs generated contract metadata into Echo, including:
+
+- package identity;
+- schema hash;
+- generator identity;
+- artifact manifest;
+- operation registry;
+- codec registry;
+- query observer descriptors;
+- mutation/rewrite handler descriptors where applicable;
+- footprint certificates;
+- generated artifact hashes.
+
+Registration does not grant scheduler tick authority.
+
 If the current WASM package does not yet expose the needed registration surface,
 that is an Echo runtime gap to close. It must not be filled by exposing trusted
 tick control to app code.
 
-## Lower Modes
+## Local / Deterministic Compile Mode
 
 Echo-Wesley must support a local deterministic compile mode that does not
 require network access, GitHub, a running Echo kernel, or a trusted runtime
@@ -380,8 +498,9 @@ Echo metadata, compiler version, and codec version.
 - Source of truth: app GraphQL schema plus Echo-owned contract metadata.
 - Derived state: Echo contract IR, generated Rust, generated TypeScript,
   manifest, and hashes.
-- Invalid states: legacy `wes_op` or `wes_footprint` in new Echo contracts,
-  stale artifacts, hash mismatch, or generated app handlers with raw mutation
+- Invalid states: legacy `wes_op` or `wes_footprint` in normal new-contract
+  compilation, stale artifacts, hash mismatch, raw Wesley orchestration in an
+  app Echo-contract build path, or generated app handlers with raw mutation
   authority.
 - Reset behavior: regenerate artifacts from source schema and Echo metadata.
 - Serialization: deterministic LE binary vars plus manifest canonical encoding.
@@ -446,24 +565,34 @@ receipts, and footprint certificates as evidence.
 - Wesley core does not interpret `wes_op` or `wes_footprint`.
 - Wesley preserves Echo directives as opaque IR data.
 - Echo-Wesley rejects legacy `wes_op` and `wes_footprint` for new contracts.
-- Echo-Wesley accepts Echo-owned directives or sidecar metadata.
+- Echo-Wesley accepts Echo-owned directives for the first implementation slice.
 - Echo-Wesley emits a single app-facing compile command.
 - Generated Rust provides an installed package constructor.
+- Generated TypeScript automatically registers generated GraphQL-derived Echo
+  types, codecs, operation bindings, observer bindings, and package metadata
+  with Echo.
 - Generated TypeScript provides package registration and typed submit/observe
   helpers.
 - Generated handler contexts expose only footprint-scoped capabilities through
   the normal app handler API.
 - Generated artifact hash mismatch fails registration or admission.
+- Graft and jedit Echo contract build paths invoke Echo-Wesley only, not raw
+  `wesley emit ...` commands.
+- Echo-Wesley may reuse Wesley crates internally, but no app-facing build script
+  orchestrates Wesley and Echo-Wesley as separate compiler stages.
 - Graft can remove handwritten structural-history EINT/observe boilerplate and
   consume generated Echo-Wesley TypeScript.
+- Graft and jedit no longer contain app-local Echo type registration boilerplate
+  for generated contracts.
 
 ## Playback Questions
 
 - Can an app compile an Echo contract without invoking raw Wesley commands?
 - Can Wesley lower the same schema while knowing nothing about Echo footprints
   or optics?
-- Can Echo-Wesley interpret Echo metadata from opaque directives or sidecar
-  data?
+- Can Echo-Wesley interpret Echo metadata from opaque Echo-owned directives?
+- Can generated TypeScript register GraphQL-derived Echo types, operation
+  bindings, codecs, and package metadata without app-local glue?
 - Can generated TypeScript register the package and submit an intent instance?
 - Can generated TypeScript observe an applied, rejected, pending, unknown, or
   obstructed outcome?
@@ -478,12 +607,16 @@ receipts, and footprint certificates as evidence.
 - `wesley_core_has_no_optic_public_api`
 - `wesley_core_preserves_echo_directives_without_interpreting_them`
 - `echo_wesley_rejects_legacy_wes_directives_for_new_contracts`
+- `echo_wesley_migrates_legacy_wes_directives_to_echo_directives`
 - `echo_wesley_compiles_echo_directives_to_contract_ir`
+- `wesley_operation_ids_are_not_echo_eint_ids`
 - `generated_rust_handler_context_does_not_expose_raw_tick_delta`
 - `generated_rust_out_of_footprint_write_fixture_fails_to_compile`
+- `generated_typescript_registers_generated_echo_types_and_codecs`
 - `generated_typescript_registers_contract_package`
 - `generated_typescript_submits_intent_and_observes_receipt`
 - `artifact_hash_mismatch_rejects_registration`
+- `graft_build_path_invokes_echo_wesley_not_raw_wesley`
 - `graft_structural_history_consumes_generated_echo_client`
 
 ## Migration Plan
@@ -492,12 +625,16 @@ receipts, and footprint certificates as evidence.
 2. In Wesley, remove or quarantine public optic APIs and `wes_footprint`
    interpretation while preserving opaque directive passthrough.
 3. In Echo-Wesley, introduce Echo contract IR and Echo-owned directive parsing.
-4. In Echo-Wesley, add generated Rust package constructors and restricted
+4. In Echo-Wesley, add a legacy directive migration command that rewrites
+   `@wes_op` and `@wes_footprint` into Echo-owned directives while keeping the
+   normal compile path fail-closed.
+5. In Echo-Wesley, add generated Rust package constructors and restricted
    handler contexts.
-5. In Echo-Wesley, add generated TypeScript registration/client artifacts.
-6. In Graft, replace raw Wesley build calls for Echo contracts with
+6. In Echo-Wesley, add generated TypeScript type registration, package
+   registration, and client artifacts.
+7. In Graft, replace raw Wesley build calls for Echo contracts with
    `echo-wesley compile`.
-7. In Graft, remove handwritten structural-history protocol boilerplate that is
+8. In Graft, remove handwritten structural-history protocol boilerplate that is
    covered by generated artifacts.
 
 ## Risks
@@ -527,3 +664,6 @@ Relapse checks:
 - Do not make Graft or jedit orchestrate raw Wesley emitters for Echo apps.
 - Do not claim compile-time footprint honesty if app handlers still receive raw
   mutation authority.
+- Do not let generated TypeScript become an abstract helper collection; it must
+  register Echo types, codecs, operation bindings, observer descriptors, and
+  package metadata.

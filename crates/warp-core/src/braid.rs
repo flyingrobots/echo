@@ -2,6 +2,7 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Evolving coordination log ("Braid") representation.
 
+use std::collections::BTreeSet;
 use thiserror::Error;
 
 use crate::braid_shell::BraidMemberRef;
@@ -104,6 +105,8 @@ pub struct Braid {
     events: Vec<BraidEvent>,
     /// Ordered list of woven member references.
     members: Vec<BraidMemberRef>,
+    /// Deterministic membership index for duplicate checks.
+    member_index: BTreeSet<BraidMemberRef>,
     /// Expected sequence number of the next member to be woven.
     next_sequence_num: u64,
     /// Digest of the latest finalized settlement, if any.
@@ -124,6 +127,7 @@ impl Braid {
             id: braid_id,
             events: vec![initial_event],
             members: Vec::new(),
+            member_index: BTreeSet::new(),
             next_sequence_num: 0,
             latest_settlement: None,
             status: BraidStatus::Active,
@@ -161,7 +165,7 @@ impl Braid {
                         actual: *sequence_num,
                     });
                 }
-                if self.members.contains(member_ref) {
+                if self.member_index.contains(member_ref) {
                     return Err(BraidError::DuplicateMember {
                         member_ref: *member_ref,
                     });
@@ -173,6 +177,7 @@ impl Braid {
                             sequence_num: *sequence_num,
                         })?;
                 self.members.push(*member_ref);
+                self.member_index.insert(*member_ref);
                 self.next_sequence_num = next_sequence_num;
             }
             BraidEvent::SettlementFinalized { settlement_digest } => {
@@ -518,6 +523,34 @@ mod tests {
     }
 
     #[test]
+    fn test_braid_tracks_members_in_deterministic_index() {
+        let braid_id = [0xAA; 32];
+        let auth = authority_ref();
+        let m1 = BraidMemberRef::Revealed(make_strand_id("strand-1"));
+        let m2 = BraidMemberRef::Revealed(make_strand_id("strand-2"));
+        let mut braid = Braid::new(braid_id, auth);
+
+        assert!(braid.member_index.is_empty());
+        braid
+            .apply(BraidEvent::MemberWoven {
+                member_ref: m2,
+                sequence_num: 0,
+            })
+            .unwrap();
+        braid
+            .apply(BraidEvent::MemberWoven {
+                member_ref: m1,
+                sequence_num: 1,
+            })
+            .unwrap();
+
+        assert_eq!(braid.frontier(), &[m2, m1]);
+        assert!(braid.member_index.contains(&m1));
+        assert!(braid.member_index.contains(&m2));
+        assert_eq!(braid.member_index.len(), 2);
+    }
+
+    #[test]
     fn test_braid_fold_rejects_duplicate_member_and_empty_collapse_witness() {
         let braid_id = [0xAA; 32];
         let auth = authority_ref();
@@ -572,6 +605,7 @@ mod tests {
                 creator_domain: auth,
             }],
             members: Vec::new(),
+            member_index: BTreeSet::new(),
             next_sequence_num: u64::MAX,
             latest_settlement: None,
             status: BraidStatus::Active,

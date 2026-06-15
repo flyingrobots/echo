@@ -245,10 +245,11 @@ pub struct Braid {
     id: Hash,
     events: Vec<BraidEvent>,
     members: Vec<BraidMemberRef>,
+    member_index: BTreeSet<BraidMemberRef>,
     next_sequence_num: u64,
     latest_settlement: Option<Hash>,
     status: BraidStatus,
 }
 ```
 
-Checked `apply` and `fold` preserve these invariants: duplicate creation is rejected, member sequence numbers must match the expected cursor, duplicate members are refused, sequence overflow is explicit, settlement/collapse lifecycle order is enforced, and collapse witnesses must clear the `WitnessDigest` quality bar.
+Checked `apply` and `fold` preserve these invariants: duplicate creation is rejected, member sequence numbers must match the expected cursor, duplicate members are refused through a deterministic membership index, sequence overflow is explicit, settlement/collapse lifecycle order is enforced, and collapse witnesses must clear the `WitnessDigest` quality bar.

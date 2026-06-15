@@ -638,7 +638,8 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
   `Braid::apply` returns typed lifecycle errors, rejects duplicate member
   weaving, detects member sequence overflow with checked arithmetic, rejects
   empty collapse witnesses, and exposes folded state through read-only
-  accessors instead of public mutable fields.
+  accessors instead of public mutable fields. Duplicate checks now use a
+  deterministic member index instead of scanning the append-ordered frontier.
 - `warp-core` braid-shell digests now bind optional proof-shaped envelopes:
   proof-bearing shells have distinct content identity from proof-less shells,
   and mutating proof bytes after assembly is caught by shell validation.

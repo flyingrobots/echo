@@ -18,14 +18,14 @@ The causal status of Start, Stop, cadence, and drain commands is defined in
 Application code can submit canonical intent material and observe outcomes or
 readings through an app-facing handle, while the trusted host owns:
 
-- generated package installation;
+- generated package registration;
 - ticketed runtime ingress staging;
 - scheduler-owned tick passes;
 - until-idle policy;
 - query service access;
 - future trusted fault recovery.
 
-The app-facing handle exposes no package installation, no ticketed ingress
+The app-facing handle exposes no package registration, no ticketed ingress
 staging, no `super_tick`, no scheduler pass, and no fault recovery authority.
 
 ## Implemented Surface
@@ -35,7 +35,7 @@ staging, no `super_tick`, no scheduler pass, and no fault recovery authority.
 - `TrustedRuntimeHost`, gated behind the trusted runtime and native bootstrap
   features;
 - `TrustedRuntimeApp`, the app-facing submit/observe/query handle;
-- `TrustedRuntimeHost::install_contract_package(...)`;
+- `TrustedRuntimeHost::register_contract_package(...)`;
 - `TrustedRuntimeHost::stage_installed_contract_submission(...)`;
 - `TrustedRuntimeHost::tick_once(...)`;
 - `TrustedRuntimeHost::run_until_idle(...)`;
@@ -54,7 +54,7 @@ application
 -> witnessed submission handle
 
 trusted runtime host
--> installs package
+-> registers package
 -> stages ticketed ingress
 -> runs scheduler-owned ticks
 -> app observes outcome or bounded query reading
@@ -77,7 +77,7 @@ scheduler-owned tick execution decide it.
 
 - `cargo test -p warp-core --features "native_rule_bootstrap trusted_runtime" --test trusted_runtime_host_loop_tests`
 
-The witness installs a generated-style package, submits through the app handle,
+The witness registers a generated-style package, submits through the app handle,
 stages ticketed ingress through the host, runs until idle, observes an applied
 intent outcome, and queries through the read-only observer service with package
 evidence.

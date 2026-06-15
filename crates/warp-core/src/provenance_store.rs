@@ -3630,7 +3630,9 @@ mod tests {
         use crate::braid_shell::{BraidShellMember, BraidShellOutcome, MemberVerdict};
         use crate::revelation::CausalPosture;
         let member = BraidShellMember {
-            strand_ref: crate::strand::make_strand_id("m"),
+            member_ref: crate::braid_shell::BraidMemberRef::Revealed(
+                crate::strand::make_strand_id("m"),
+            ),
             support_pin_digest: [1; 32],
             basis_digest: [2; 32],
             frontier_digest: [3; 32],

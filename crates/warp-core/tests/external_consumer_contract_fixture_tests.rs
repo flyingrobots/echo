@@ -308,7 +308,7 @@ fn serious_external_consumer_fixture_proves_hosted_contract_path() {
     let (runtime, worldline_id) = runtime();
     let mut host =
         TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
-    host.install_contract_package(package())
+    host.register_contract_package(package())
         .expect("external package should install");
 
     let (submission_a, submission_b) = {

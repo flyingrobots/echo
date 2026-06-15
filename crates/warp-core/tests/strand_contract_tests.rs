@@ -12,11 +12,13 @@ use warp_core::strand::{
     StrandRevalidationState, SupportPin,
 };
 use warp_core::{
-    make_head_id, make_node_id, make_type_id, make_warp_id, GlobalTick, GraphStore, HashTriplet,
-    HeadEligibility, LocalProvenanceStore, NodeRecord, PlaybackHeadRegistry, PlaybackMode,
-    ProvenanceEntry, ProvenanceRef, ProvenanceService, ProvenanceStore, RunnableWriterSet, SlotId,
-    WarpId, WorldlineId, WorldlineState, WorldlineTick, WorldlineTickHeaderV1,
-    WorldlineTickPatchV1, WriterHead, WriterHeadKey,
+    make_head_id, make_node_id, make_type_id, make_warp_id, ActorId, AuthorityBinding,
+    AuthorityDomainId, AuthorityDomainRef, CausalAuthority, CausalPosture, DynamicPosture,
+    GlobalTick, GraphStore, HashTriplet, HeadEligibility, LocalProvenanceStore, NodeRecord,
+    OriginId, PlaybackHeadRegistry, PlaybackMode, PostureDerivation, PostureObstruction,
+    ProvenanceEntry, ProvenanceRef, ProvenanceService, ProvenanceStore, RetentionContractId,
+    RetentionPosture, RunnableWriterSet, SealStrength, SlotId, WarpId, WorldlineId, WorldlineState,
+    WorldlineTick, WorldlineTickHeaderV1, WorldlineTickPatchV1, WriterHead, WriterHeadKey,
 };
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -27,6 +29,26 @@ fn wl(n: u8) -> WorldlineId {
 
 fn wt(n: u64) -> WorldlineTick {
     WorldlineTick::from_raw(n)
+}
+
+fn test_retention_posture() -> RetentionPosture {
+    let origin_id = OriginId::from_bytes([0x21; 32]);
+    let authority = AuthorityDomainRef::new(origin_id, AuthorityDomainId::from_bytes([0x22; 32]));
+    RetentionPosture::new(
+        CausalPosture::AuthorOnly,
+        PostureDerivation::ExplicitIntent,
+        CausalAuthority::new(
+            origin_id,
+            ActorId::from_bytes([0x23; 32]),
+            authority,
+            AuthorityBinding::LocalUnbound { origin: origin_id },
+            SealStrength::Advisory,
+        )
+        .expect("test authority"),
+        RetentionContractId::from_bytes([0x24; 32]),
+        None,
+    )
+    .expect("test retention posture")
 }
 
 fn test_initial_state() -> WorldlineState {
@@ -93,6 +115,8 @@ fn make_test_strand(
         child_worldline_id: child_worldline,
         writer_heads: vec![head_key],
         support_pins: Vec::new(),
+        retention_posture: test_retention_posture(),
+        _marker: std::marker::PhantomData,
     }
 }
 
@@ -405,6 +429,8 @@ fn live_basis_report_allows_parent_advance_outside_owned_footprint() {
             head_id: make_head_id("live-basis-disjoint-head"),
         }],
         support_pins: Vec::new(),
+        retention_posture: test_retention_posture(),
+        _marker: std::marker::PhantomData::<DynamicPosture>,
     };
 
     let report = strand
@@ -476,6 +502,8 @@ fn live_basis_report_requires_revalidation_when_parent_invades_owned_footprint()
             head_id: make_head_id("live-basis-overlap-head"),
         }],
         support_pins: Vec::new(),
+        retention_posture: test_retention_posture(),
+        _marker: std::marker::PhantomData::<DynamicPosture>,
     };
 
     let report = strand
@@ -582,11 +610,30 @@ fn registry_insert_rejects_inv_s8_wrong_head_worldline() {
             head_id: make_head_id("wrong-wl-head"),
         }],
         support_pins: Vec::new(),
+        retention_posture: test_retention_posture(),
+        _marker: std::marker::PhantomData,
     };
     let err = registry.insert(strand).expect_err("INV-S8 should reject");
     assert!(
         matches!(err, StrandError::InvariantViolation(_)),
         "expected InvariantViolation, got {err:?}"
+    );
+}
+
+#[test]
+fn registry_insert_rejects_shared_posture_without_admission_scope() {
+    let mut registry = StrandRegistry::new();
+    let mut strand = make_test_strand("shared-without-scope", wl(1), wl(2), wt(5));
+    strand.retention_posture.causal_posture = CausalPosture::Shared;
+    strand.retention_posture.admission_scope = None;
+    let err = registry
+        .insert(strand)
+        .expect_err("Shared strand without admission scope should reject");
+    assert_eq!(
+        err,
+        StrandError::Posture(PostureObstruction::MissingAdmissionScope {
+            posture: CausalPosture::Shared,
+        })
     );
 }
 
@@ -695,6 +742,8 @@ fn registry_insert_rejects_duplicate_support_target() {
                 state_hash: [2; 32],
             },
         ],
+        retention_posture: test_retention_posture(),
+        _marker: std::marker::PhantomData,
     };
     let err = registry
         .insert(owner)
@@ -1007,4 +1056,21 @@ fn drop_receipt_carries_correct_fields() {
     assert_eq!(receipt.strand_id, strand.strand_id);
     assert_eq!(receipt.child_worldline_id, wl(2));
     assert_eq!(receipt.final_tick, wt(10));
+}
+
+#[test]
+fn test_try_into_shared_posture_mismatch() {
+    let strand = make_test_strand("mismatch-test", wl(1), wl(2), wt(5));
+    assert_eq!(
+        strand.retention_posture.causal_posture,
+        CausalPosture::AuthorOnly
+    );
+    let result = strand.try_into_shared();
+    assert!(matches!(
+        result,
+        Err(StrandError::Posture(PostureObstruction::PostureMismatch {
+            actual: CausalPosture::AuthorOnly,
+            expected: CausalPosture::Shared,
+        }))
+    ));
 }

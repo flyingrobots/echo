@@ -323,7 +323,7 @@ fn reference_host_loop_keeps_tick_authority_out_of_app_surface() {
     let (runtime, worldline_id) = runtime();
     let mut host =
         TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
-    host.install_contract_package(package())
+    host.register_contract_package(package())
         .expect("host should install package");
 
     let envelope = eint_envelope(worldline_id);
@@ -603,7 +603,7 @@ fn runtime_wal_ack_tick_commits_receipt_transaction_before_outcome_is_observed()
         TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
     host.enable_in_memory_runtime_wal()
         .expect("runtime WAL should initialize");
-    host.install_contract_package(package())
+    host.register_contract_package(package())
         .expect("host should install package");
 
     let envelope = eint_envelope(worldline_id);
@@ -676,7 +676,7 @@ fn runtime_wal_ack_tick_failure_rolls_back_visible_outcome() {
         TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
     host.enable_in_memory_runtime_wal()
         .expect("runtime WAL should initialize");
-    host.install_contract_package(package())
+    host.register_contract_package(package())
         .expect("host should install package");
 
     let submission = {
@@ -726,7 +726,7 @@ fn runtime_wal_ack_multi_head_tick_failure_rolls_back_all_tick_records() {
         TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
     host.enable_in_memory_runtime_wal()
         .expect("runtime WAL should initialize");
-    host.install_contract_package(package())
+    host.register_contract_package(package())
         .expect("host should install package");
 
     let submission_a = {
@@ -792,7 +792,7 @@ fn runtime_wal_ack_recover_read_only_rebuilds_submission_and_receipt_indexes() {
         TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
     host.enable_in_memory_runtime_wal()
         .expect("runtime WAL should initialize");
-    host.install_contract_package(package())
+    host.register_contract_package(package())
         .expect("host should install package");
 
     let submission = {
@@ -840,7 +840,7 @@ fn runtime_wal_ack_recover_read_only_exposes_recovery_certificate() {
         TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
     host.enable_in_memory_runtime_wal()
         .expect("runtime WAL should initialize");
-    host.install_contract_package(package())
+    host.register_contract_package(package())
         .expect("host should install package");
 
     let submission = {

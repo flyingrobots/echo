@@ -25,6 +25,10 @@ use crate::provenance_store::{
     ProvenanceService, ProvenanceStore, ReplayError,
 };
 use crate::receipt::{TickReceiptDisposition, TickReceiptRejection};
+use crate::revelation::{
+    AuthorityDomainRef, CausalPosture, OriginId, PostureDerivation, PostureObstruction,
+    RetentionPosture, SessionContext, SourceDisclosurePolicy,
+};
 use crate::strand::{ForkBasisRef, Strand, StrandError, StrandId, StrandRegistry, SupportPin};
 use crate::worldline::{ApplyError, WorldlineId};
 use crate::worldline_registry::WorldlineRegistry;
@@ -866,6 +870,61 @@ pub struct ForkStrandRequest {
     pub child_worldline_id: WorldlineId,
     /// Writer heads to register for the child worldline.
     pub writer_heads: Vec<WriterHead>,
+    /// Explicit posture, authority, admission scope, and retention contract.
+    pub retention_posture: RetentionPosture,
+}
+
+impl ForkStrandRequest {
+    /// Builds a fork request that inherits the session's default posture.
+    ///
+    /// # Errors
+    ///
+    /// Returns a posture obstruction if the session default cannot produce a
+    /// valid retained-work posture.
+    pub fn from_session_default(
+        strand_id: StrandId,
+        source_lane_id: WorldlineId,
+        fork_tick: WorldlineTick,
+        child_worldline_id: WorldlineId,
+        writer_heads: Vec<WriterHead>,
+        session: &SessionContext,
+    ) -> Result<Self, PostureObstruction> {
+        Ok(Self {
+            strand_id,
+            source_lane_id,
+            fork_tick,
+            child_worldline_id,
+            writer_heads,
+            retention_posture: session.retention_posture()?,
+        })
+    }
+
+    /// Builds a debugger fork request under the session authority.
+    ///
+    /// Debugger-created strands are never silently admitted into shared
+    /// history, even when the session default posture is `Shared`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a posture obstruction if the session authority context cannot
+    /// produce a valid debugger posture.
+    pub fn debugger_default(
+        strand_id: StrandId,
+        source_lane_id: WorldlineId,
+        fork_tick: WorldlineTick,
+        child_worldline_id: WorldlineId,
+        writer_heads: Vec<WriterHead>,
+        session: &SessionContext,
+    ) -> Result<Self, PostureObstruction> {
+        Ok(Self {
+            strand_id,
+            source_lane_id,
+            fork_tick,
+            child_worldline_id,
+            writer_heads,
+            retention_posture: session.debugger_retention_posture()?,
+        })
+    }
 }
 
 /// Receipt returned after a strand fork succeeds.
@@ -879,6 +938,8 @@ pub struct ForkStrandReceipt {
     pub child_worldline_id: WorldlineId,
     /// Writer heads authorized for the child worldline.
     pub writer_heads: Vec<WriterHeadKey>,
+    /// Retention posture registered on the created strand.
+    pub retention_posture: RetentionPosture,
 }
 
 // =============================================================================
@@ -1540,6 +1601,7 @@ impl WorldlineRuntime {
                     .iter()
                     .map(|head| *head.key())
                     .collect::<Vec<_>>();
+                let retention_posture = request.retention_posture;
 
                 self.register_worldline(request.child_worldline_id, child_state)?;
                 for head in request.writer_heads {
@@ -1551,6 +1613,8 @@ impl WorldlineRuntime {
                     child_worldline_id: request.child_worldline_id,
                     writer_heads: writer_heads.clone(),
                     support_pins: Vec::new(),
+                    retention_posture,
+                    _marker: std::marker::PhantomData,
                 })?;
 
                 Ok(ForkStrandReceipt {
@@ -1558,6 +1622,7 @@ impl WorldlineRuntime {
                     fork_basis_ref,
                     child_worldline_id: request.child_worldline_id,
                     writer_heads,
+                    retention_posture,
                 })
             })();
 
@@ -2760,6 +2825,10 @@ fn hash_strand_error(hasher: &mut blake3::Hasher, err: &StrandError) {
             hasher.update(b"self-support-pin");
             hasher.update(strand_id.as_bytes());
         }
+        StrandError::Posture(obstruction) => {
+            hasher.update(b"posture");
+            hash_posture_obstruction(hasher, obstruction);
+        }
         StrandError::DuplicateSupportTarget { owner, target } => {
             hasher.update(b"duplicate-support-target");
             hasher.update(owner.as_bytes());
@@ -2778,6 +2847,142 @@ fn hash_strand_error(hasher: &mut blake3::Hasher, err: &StrandError) {
         StrandError::InvariantViolation(message) => {
             hasher.update(b"invariant-violation");
             hasher.update(message.as_bytes());
+        }
+    }
+}
+
+fn hash_causal_posture(hasher: &mut blake3::Hasher, posture: CausalPosture) {
+    hasher.update(&[posture.canonical_tag()]);
+}
+
+fn hash_posture_derivation(hasher: &mut blake3::Hasher, derivation: PostureDerivation) {
+    let tag = match derivation {
+        PostureDerivation::ExplicitIntent => b"explicit-intent".as_slice(),
+        PostureDerivation::SessionDefault => b"session-default",
+        PostureDerivation::DebuggerDefault => b"debugger-default",
+        PostureDerivation::CounterfactualDefault => b"counterfactual-default",
+        PostureDerivation::LegacyDurableAssumedShared => b"legacy-durable-assumed-shared",
+        PostureDerivation::LegacyEphemeralAssumedScratch => b"legacy-ephemeral-assumed-scratch",
+        PostureDerivation::ImportedManifest => b"imported-manifest",
+    };
+    hasher.update(tag);
+}
+
+fn hash_source_disclosure_policy(
+    hasher: &mut blake3::Hasher,
+    source_disclosure: SourceDisclosurePolicy,
+) {
+    let tag = match source_disclosure {
+        SourceDisclosurePolicy::RevealNone => b"reveal-none".as_slice(),
+        SourceDisclosurePolicy::RevealStub => b"reveal-stub",
+        SourceDisclosurePolicy::RevealRedacted => b"reveal-redacted",
+        SourceDisclosurePolicy::RevealFull => b"reveal-full",
+        SourceDisclosurePolicy::RevealByAuthorityOnly => b"reveal-by-authority-only",
+    };
+    hasher.update(tag);
+}
+
+fn hash_origin_id(hasher: &mut blake3::Hasher, origin_id: &OriginId) {
+    hasher.update(origin_id.as_bytes());
+}
+
+fn hash_authority_domain_ref(hasher: &mut blake3::Hasher, authority: &AuthorityDomainRef) {
+    hash_origin_id(hasher, &authority.origin_id);
+    hasher.update(authority.domain_id.as_bytes());
+}
+
+fn hash_posture_obstruction(hasher: &mut blake3::Hasher, obstruction: &PostureObstruction) {
+    match obstruction {
+        PostureObstruction::NarrowingRefused { from, requested } => {
+            hasher.update(b"narrowing-refused");
+            hash_causal_posture(hasher, *from);
+            hash_causal_posture(hasher, *requested);
+        }
+        PostureObstruction::AlreadyAtPosture { posture } => {
+            hasher.update(b"already-at-posture");
+            hash_causal_posture(hasher, *posture);
+        }
+        PostureObstruction::ExceedsLeastRevealedMember {
+            shell,
+            least_revealed_member,
+        } => {
+            hasher.update(b"exceeds-least-revealed-member");
+            hash_causal_posture(hasher, *shell);
+            hash_causal_posture(hasher, *least_revealed_member);
+        }
+        PostureObstruction::EmptyWitness => {
+            hasher.update(b"empty-witness");
+        }
+        PostureObstruction::MissingAdmissionScope { posture } => {
+            hasher.update(b"missing-admission-scope");
+            hash_causal_posture(hasher, *posture);
+        }
+        PostureObstruction::UnexpectedAdmissionScope { posture } => {
+            hasher.update(b"unexpected-admission-scope");
+            hash_causal_posture(hasher, *posture);
+        }
+        PostureObstruction::UnexpectedSourceDisclosure {
+            posture,
+            source_disclosure,
+        } => {
+            hasher.update(b"unexpected-source-disclosure");
+            hash_causal_posture(hasher, *posture);
+            hash_source_disclosure_policy(hasher, *source_disclosure);
+        }
+        PostureObstruction::InvalidMaterializationTransition { from, to } => {
+            hasher.update(b"invalid-materialization-transition");
+            hash_causal_posture(hasher, *from);
+            hash_causal_posture(hasher, *to);
+        }
+        PostureObstruction::PromotionRequiresSharedTarget { to } => {
+            hasher.update(b"promotion-requires-shared-target");
+            hash_causal_posture(hasher, *to);
+        }
+        PostureObstruction::SharedAdmissionRequiresIntent => {
+            hasher.update(b"shared-admission-requires-intent");
+        }
+        PostureObstruction::AuthorityProofMismatch { authorized_by } => {
+            hasher.update(b"authority-proof-mismatch");
+            hash_authority_domain_ref(hasher, authorized_by);
+        }
+        PostureObstruction::AuthorityOriginMismatch {
+            origin_id,
+            authority_origin,
+        } => {
+            hasher.update(b"authority-origin-mismatch");
+            hash_origin_id(hasher, origin_id);
+            hash_origin_id(hasher, authority_origin);
+        }
+        PostureObstruction::AuthorityBindingOriginMismatch {
+            origin_id,
+            binding_origin,
+        } => {
+            hasher.update(b"authority-binding-origin-mismatch");
+            hash_origin_id(hasher, origin_id);
+            hash_origin_id(hasher, binding_origin);
+        }
+        PostureObstruction::AuthorityBindingDomainMismatch { author_domain } => {
+            hasher.update(b"authority-binding-domain-mismatch");
+            hash_authority_domain_ref(hasher, author_domain);
+        }
+        PostureObstruction::PostureDerivationMismatch {
+            posture,
+            derivation,
+        } => {
+            hasher.update(b"posture-derivation-mismatch");
+            hash_causal_posture(hasher, *posture);
+            hash_posture_derivation(hasher, *derivation);
+        }
+        PostureObstruction::LegacyAuthorityCannotAuthorizeNewAdmission => {
+            hasher.update(b"legacy-authority-cannot-authorize-new-admission");
+        }
+        PostureObstruction::WitnessIsNotAuthorityCapability => {
+            hasher.update(b"witness-is-not-authority-capability");
+        }
+        PostureObstruction::PostureMismatch { actual, expected } => {
+            hasher.update(b"posture-mismatch");
+            hash_causal_posture(hasher, *actual);
+            hash_causal_posture(hasher, *expected);
         }
     }
 }
@@ -3216,12 +3421,17 @@ impl SchedulerCoordinator {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
     use crate::head::{make_head_id, WriterHead};
     use crate::head_inbox::{make_intent_kind, InboxPolicy};
-    use crate::playback::PlaybackMode;
+    use crate::playback::{PlaybackMode, SessionId};
+    use crate::revelation::{
+        ActorId, AdmissionScopeId, AuthorityBinding, AuthorityDomainId, AuthorityDomainRef,
+        CausalPosture, OriginId, PostureDerivation, RetentionContractId, RetentionPosture,
+        SealStrength, SessionContext,
+    };
     use crate::rule::{ConflictPolicy, PatternGraph, RewriteRule};
     use crate::strand::make_strand_id;
     use crate::worldline::WorldlineId;
@@ -3243,6 +3453,36 @@ mod tests {
 
     fn hash(n: u8) -> Hash {
         [n; 32]
+    }
+
+    fn test_session_context(
+        n: u8,
+        default_posture: CausalPosture,
+        default_admission_scope: Option<AdmissionScopeId>,
+    ) -> SessionContext {
+        let origin_id = OriginId::from_bytes([0x40u8.wrapping_add(n); 32]);
+        let author_domain = AuthorityDomainRef::new(
+            origin_id,
+            AuthorityDomainId::from_bytes([0x50u8.wrapping_add(n); 32]),
+        );
+        SessionContext::new(
+            SessionId([0x60u8.wrapping_add(n); 32]),
+            origin_id,
+            ActorId::from_bytes([0x70u8.wrapping_add(n); 32]),
+            author_domain,
+            AuthorityBinding::LocalUnbound { origin: origin_id },
+            SealStrength::Advisory,
+            default_posture,
+            default_admission_scope,
+            RetentionContractId::from_bytes([0x80u8.wrapping_add(n); 32]),
+        )
+        .unwrap()
+    }
+
+    fn test_retention_posture(n: u8) -> RetentionPosture {
+        test_session_context(n, CausalPosture::AuthorOnly, None)
+            .retention_posture()
+            .unwrap()
     }
 
     fn empty_engine() -> Engine {
@@ -3570,6 +3810,7 @@ mod tests {
                         None,
                         true,
                     )],
+                    retention_posture: test_retention_posture(10),
                 },
             )
             .unwrap();
@@ -3595,6 +3836,159 @@ mod tests {
         assert_eq!(receipt.writer_heads, vec![child_head_key]);
         assert!(runtime.heads().get(&child_head_key).is_some());
         assert_eq!(provenance.len(child_worldline_id).unwrap(), 1);
+    }
+
+    #[test]
+    fn session_default_posture_inherits_into_created_work() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        let source_lane_id = wl(1);
+        let child_worldline_id = wl(2);
+        let strand_id = make_strand_id("fork-session-posture");
+        let admission_scope = AdmissionScopeId::from_bytes([0x91; 32]);
+        let session = test_session_context(1, CausalPosture::Shared, Some(admission_scope));
+
+        runtime
+            .register_worldline(source_lane_id, WorldlineState::empty())
+            .unwrap();
+        register_head(
+            &mut runtime,
+            source_lane_id,
+            "source-default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+
+        let mut provenance = mirrored_provenance(&runtime);
+        commit_one_tick(
+            &mut runtime,
+            &mut provenance,
+            &mut engine,
+            source_lane_id,
+            "fork-source-commit",
+        );
+
+        let child_head_key = WriterHeadKey {
+            worldline_id: child_worldline_id,
+            head_id: make_head_id("child-default"),
+        };
+        let request = ForkStrandRequest::from_session_default(
+            strand_id,
+            source_lane_id,
+            wt(0),
+            child_worldline_id,
+            vec![WriterHead::with_routing(
+                child_head_key,
+                PlaybackMode::Play,
+                InboxPolicy::AcceptAll,
+                None,
+                true,
+            )],
+            &session,
+        )
+        .unwrap();
+        assert_eq!(
+            request.retention_posture.causal_posture,
+            CausalPosture::Shared
+        );
+        assert_eq!(
+            request.retention_posture.posture_derivation,
+            PostureDerivation::SessionDefault
+        );
+        assert_eq!(
+            request.retention_posture.admission_scope,
+            Some(admission_scope)
+        );
+
+        let receipt = runtime.fork_strand(&mut provenance, request).unwrap();
+        let strand = runtime.strands().get(&strand_id).unwrap();
+        assert_eq!(receipt.retention_posture, strand.retention_posture);
+        assert_eq!(
+            strand.retention_posture.posture_derivation,
+            PostureDerivation::SessionDefault
+        );
+        assert_eq!(
+            strand.retention_posture.admission_scope,
+            Some(admission_scope)
+        );
+    }
+
+    #[test]
+    fn debugger_fork_defaults_to_non_shared_posture() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        let source_lane_id = wl(1);
+        let child_worldline_id = wl(2);
+        let strand_id = make_strand_id("fork-debugger-posture");
+        let session = test_session_context(
+            2,
+            CausalPosture::Shared,
+            Some(AdmissionScopeId::from_bytes([0x92; 32])),
+        );
+
+        runtime
+            .register_worldline(source_lane_id, WorldlineState::empty())
+            .unwrap();
+        register_head(
+            &mut runtime,
+            source_lane_id,
+            "source-default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+
+        let mut provenance = mirrored_provenance(&runtime);
+        commit_one_tick(
+            &mut runtime,
+            &mut provenance,
+            &mut engine,
+            source_lane_id,
+            "fork-source-commit",
+        );
+
+        let child_head_key = WriterHeadKey {
+            worldline_id: child_worldline_id,
+            head_id: make_head_id("child-default"),
+        };
+        let request = ForkStrandRequest::debugger_default(
+            strand_id,
+            source_lane_id,
+            wt(0),
+            child_worldline_id,
+            vec![WriterHead::with_routing(
+                child_head_key,
+                PlaybackMode::Play,
+                InboxPolicy::AcceptAll,
+                None,
+                true,
+            )],
+            &session,
+        )
+        .unwrap();
+        assert_ne!(
+            request.retention_posture.causal_posture,
+            CausalPosture::Shared
+        );
+        assert_eq!(
+            request.retention_posture.causal_posture,
+            CausalPosture::AuthorOnly
+        );
+        assert_eq!(
+            request.retention_posture.posture_derivation,
+            PostureDerivation::DebuggerDefault
+        );
+        assert_eq!(request.retention_posture.admission_scope, None);
+
+        let receipt = runtime.fork_strand(&mut provenance, request).unwrap();
+        let strand = runtime.strands().get(&strand_id).unwrap();
+        assert_eq!(receipt.retention_posture, strand.retention_posture);
+        assert_eq!(
+            strand.retention_posture.posture_derivation,
+            PostureDerivation::DebuggerDefault
+        );
+        assert_eq!(strand.retention_posture.admission_scope, None);
     }
 
     #[test]
@@ -3659,6 +4053,7 @@ mod tests {
                         None,
                         true,
                     )],
+                    retention_posture: test_retention_posture(11),
                 },
             )
             .unwrap();
@@ -3721,6 +4116,7 @@ mod tests {
                         Some(InboxAddress("wrong-worldline".to_owned())),
                         false,
                     )],
+                    retention_posture: test_retention_posture(12),
                 },
             )
             .unwrap_err();
@@ -4676,7 +5072,7 @@ mod tests {
         };
         let contract_correlation = ReceiptCorrelationRecord {
             contract: Some(contract.clone()),
-            ..correlation.clone()
+            ..correlation
         };
         let applied_with_contract =
             IntentOutcome::from_observation(IntentOutcomeObservation::Decided {

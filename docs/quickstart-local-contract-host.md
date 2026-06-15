@@ -36,7 +36,7 @@ The dry run prints the exact Cargo targets. The real run executes:
 
 The witness covers the current v0.1.0 local contract path:
 
-1. Install a generated-style package through the package boundary.
+1. Register a generated-style package through the package boundary.
 2. Submit canonical EINT bytes through an app-facing handle.
 3. Keep the submission pending until trusted runtime-owned staging.
 4. Stage ticketed runtime ingress through the trusted host.
@@ -59,7 +59,7 @@ let reading = app.observe(query_request)?;
 
 The app surface does not expose:
 
-- package installation;
+- package registration;
 - ticketed runtime ingress staging;
 - `super_tick`;
 - scheduler pass or run-until-idle control;
@@ -70,7 +70,7 @@ The app surface does not expose:
 The trusted runtime owner uses the host surface:
 
 ```rust
-host.install_contract_package(package)?;
+host.register_contract_package(package)?;
 host.stage_installed_contract_submission(submission.submission_id, &ticket)?;
 host.run_until_idle(4)?;
 ```
@@ -80,7 +80,7 @@ logical ticks are Echo semantic history.
 
 ## Compatibility Boundary
 
-Generated packages must fit the runtime before they install. The package
+Generated packages must fit the runtime before they register. The package
 boundary verifies:
 
 - Echo contract ABI version;
@@ -91,8 +91,8 @@ boundary verifies:
 - schema hash;
 - footprint certificate identity.
 
-Unsupported compatibility fails closed at package install. It does not become
-runtime-visible work or an accepted read.
+Unsupported compatibility fails closed at package registration. It does not
+become runtime-visible work or an accepted read.
 
 ## Retention Boundary
 

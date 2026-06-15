@@ -1188,7 +1188,7 @@ impl Engine {
             .map(|record| record.evidence_identity(query_id, crate::ContractOperationKind::Query))
     }
 
-    /// Installs a generated contract package through the package registry
+    /// Registers a generated contract package through the package registry
     /// boundary.
     ///
     /// This runtime-owner bootstrap surface verifies the generated registry,
@@ -1201,10 +1201,10 @@ impl Engine {
     ///
     /// Returns [`InstalledContractPackageError`] if registry verification fails,
     /// any handler/observer names an unsupported operation, or the package would
-    /// conflict with an already-installed package, rule, mutation op, or query op.
+    /// conflict with an already-registered package, rule, mutation op, or query op.
     #[cfg(feature = "native_rule_bootstrap")]
     #[doc(hidden)]
-    pub fn install_contract_package<'a>(
+    pub fn register_contract_package<'a>(
         &mut self,
         package: InstalledContractPackage<'a>,
     ) -> Result<InstalledContractPackageRecord, InstalledContractPackageError<'a>> {

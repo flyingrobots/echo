@@ -23,7 +23,7 @@ use crate::admission::AdmissionOutcomeKind;
 use crate::ident::Hash;
 use crate::provenance_store::ProvenanceRef;
 use crate::revelation::{
-    shell_posture_obstruction, CausalPosture, PostureObstruction, WitnessDigest,
+    shell_posture_obstruction, AuthorityDomainRef, CausalPosture, PostureObstruction, WitnessDigest,
 };
 use crate::strand::StrandId;
 use crate::worldline::WorldlineId;
@@ -32,9 +32,13 @@ const SHELL_DOMAIN: &[u8] = b"echo.shell.braid.v1\0";
 const MEMBER_DOMAIN: &[u8] = b"echo.braid.member.v1\0";
 const WITNESS_DOMAIN: &[u8] = b"echo.braid.witness.v1\0";
 const COORDINATE_DOMAIN: &[u8] = b"echo.braid.coordinate.v1\0";
+const SEALED_MEMBER_DOMAIN: &[u8] = b"echo.braid.member.sealed.v1\0";
 
 /// Current braid shell body version.
-pub const BRAID_SHELL_VERSION: u32 = 1;
+///
+/// Version 2 binds the optional proof-envelope digest marker into shell
+/// identity. Version 1 proofless shells used the pre-proof digest body.
+pub const BRAID_SHELL_VERSION: u32 = 2;
 
 /// Compact settlement verdict for one braid member.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -61,11 +65,96 @@ impl MemberVerdict {
     }
 }
 
+/// Reference to a braid member, supporting both revealed and sealed references.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BraidMemberRef {
+    /// Publicly revealed strand identity.
+    Revealed(StrandId),
+    /// Sealed member reference.
+    Sealed {
+        /// Domain-separated commitment digest of the member's identity.
+        blinded_commitment: Hash,
+        /// Causal authority domain controlling the private history.
+        authority: AuthorityDomainRef,
+    },
+}
+
+impl BraidMemberRef {
+    /// Computes the commitment for a sealed reference using caller-supplied
+    /// non-public blinding material.
+    #[must_use]
+    pub fn seal(
+        strand_id: StrandId,
+        child_worldline_id: WorldlineId,
+        blinding_secret: Hash,
+    ) -> Hash {
+        let mut hasher = Hasher::new();
+        hasher.update(SEALED_MEMBER_DOMAIN);
+        hasher.update(&blinding_secret);
+        hasher.update(child_worldline_id.as_bytes());
+        hasher.update(strand_id.as_bytes());
+        hasher.finalize().into()
+    }
+
+    /// Returns whether this sealed member reference matches the given strand
+    /// ID, child worldline ID, authority, and blinding material.
+    #[must_use]
+    pub fn matches_strand(
+        &self,
+        strand_id: &StrandId,
+        child_worldline_id: &WorldlineId,
+        authority: &AuthorityDomainRef,
+        blinding_secret: &Hash,
+    ) -> bool {
+        match self {
+            Self::Revealed(_) => false,
+            Self::Sealed {
+                blinded_commitment,
+                authority: member_authority,
+            } => {
+                let expected = Self::seal(*strand_id, *child_worldline_id, *blinding_secret);
+                member_authority == authority && *blinded_commitment == expected
+            }
+        }
+    }
+
+    const fn is_sealed(self) -> bool {
+        matches!(self, Self::Sealed { .. })
+    }
+
+    /// Stable wire tag for canonical serialization.
+    #[must_use]
+    pub fn canonical_tag(self) -> u8 {
+        match self {
+            Self::Revealed(_) => 0x01,
+            Self::Sealed { .. } => 0x02,
+        }
+    }
+
+    /// Hash this member reference into the given hasher.
+    pub fn hash_into(self, hasher: &mut Hasher) {
+        hasher.update(&[self.canonical_tag()]);
+        match self {
+            Self::Revealed(strand_id) => {
+                hasher.update(strand_id.as_bytes());
+            }
+            Self::Sealed {
+                blinded_commitment,
+                authority,
+            } => {
+                hasher.update(&blinded_commitment);
+                hasher.update(authority.origin_id.as_bytes());
+                hasher.update(authority.domain_id.as_bytes());
+            }
+        }
+    }
+}
+
 /// One member entry in a braid shell: compact replay facts, never history.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BraidShellMember {
-    /// Strand whose claims this member summarizes.
-    pub strand_ref: StrandId,
+    /// Reference to the member strand, which may be revealed or sealed.
+    pub member_ref: BraidMemberRef,
     /// Digest over the member's support-pin set.
     pub support_pin_digest: Hash,
     /// Digest over the member's fork basis facts.
@@ -90,7 +179,7 @@ impl BraidShellMember {
     pub fn member_digest(&self) -> Hash {
         let mut hasher = Hasher::new();
         hasher.update(MEMBER_DOMAIN);
-        hasher.update(self.strand_ref.as_bytes());
+        self.member_ref.hash_into(&mut hasher);
         hasher.update(&self.support_pin_digest);
         hasher.update(&self.basis_digest);
         hasher.update(&self.frontier_digest);
@@ -245,6 +334,12 @@ pub enum BraidShellError {
         /// Witness digest recomputed from the body.
         recomputed: Hash,
     },
+    /// The proof shape validation failed.
+    #[error("proof shape validation failed: {reason}")]
+    ProofShapeValidationFailed {
+        /// Reason for shape validation failure.
+        reason: String,
+    },
     /// Member entries are not in canonical order.
     #[error("braid shell members are not in canonical order")]
     NonCanonicalMemberOrder,
@@ -293,11 +388,14 @@ pub enum BraidShellError {
         alternative_id: Hash,
     },
     /// One strand may appear at most once among shell members.
-    #[error("duplicate member strand {strand_id:?}")]
+    #[error("duplicate member strand {member_ref:?}")]
     DuplicateMemberStrand {
-        /// Strand that appeared more than once.
-        strand_id: StrandId,
+        /// Member reference that appeared more than once.
+        member_ref: BraidMemberRef,
     },
+    /// Revealed and sealed member references may not be mixed in one shell.
+    #[error("braid shell mixes revealed and sealed member references")]
+    MixedMemberReferencePosture,
     /// A retained plural artifact id may never migrate to a different shell.
     #[error("plural artifact {plural_id:?} already bound to shell {existing_shell:?}")]
     PluralArtifactAlreadyBound {
@@ -358,6 +456,8 @@ pub struct BraidShell {
     pub witness_digest: Hash,
     /// Revelation posture of the shell itself.
     pub posture: CausalPosture,
+    /// Optional proof-shaped evidence envelope bound into shell identity.
+    pub proof: Option<crate::proof::ProofEnvelope>,
     /// Canonical content digest of the full shell body.
     pub digest: Hash,
 }
@@ -382,10 +482,40 @@ impl BraidShell {
     pub fn assemble(
         worldline_id: WorldlineId,
         basis: ProvenanceRef,
+        members: Vec<BraidShellMember>,
+        policy_id: Hash,
+        outcome: BraidShellOutcome,
+        posture: CausalPosture,
+    ) -> Result<Self, BraidShellError> {
+        Self::assemble_with_proof(
+            worldline_id,
+            basis,
+            members,
+            policy_id,
+            outcome,
+            posture,
+            None,
+        )
+    }
+
+    /// Assembles a shell with a proof-shaped envelope: validates member order,
+    /// checks posture floor and coherence, validates the proof envelope shape
+    /// (if present) against the derived witness, and seals the shell digest.
+    /// Proof cryptographic validity is not verified; only envelope shape and
+    /// public-input binding are validated.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BraidShellError`] if any structure constraints are violated or if
+    /// the proof envelope validation fails.
+    pub fn assemble_with_proof(
+        worldline_id: WorldlineId,
+        basis: ProvenanceRef,
         mut members: Vec<BraidShellMember>,
         policy_id: Hash,
         mut outcome: BraidShellOutcome,
         posture: CausalPosture,
+        proof: Option<crate::proof::ProofEnvelope>,
     ) -> Result<Self, BraidShellError> {
         if members.is_empty() {
             return Err(BraidShellError::EmptyMembers);
@@ -430,6 +560,14 @@ impl BraidShell {
             &outcome,
             posture,
         );
+
+        if let Some(ref p) = proof {
+            if let Err(err) = p.validate_shape(witness_digest) {
+                return Err(BraidShellError::ProofShapeValidationFailed { reason: err });
+            }
+        }
+        let proof_digest = proof.as_ref().map(crate::proof::ProofEnvelope::digest);
+
         let digest = compute_shell_digest(
             BRAID_SHELL_VERSION,
             worldline_id,
@@ -439,6 +577,7 @@ impl BraidShell {
             &outcome,
             witness_digest,
             posture,
+            proof_digest,
         );
         Ok(Self {
             version: BRAID_SHELL_VERSION,
@@ -451,6 +590,7 @@ impl BraidShell {
             witness_digest,
             posture,
             digest,
+            proof,
         })
     }
 
@@ -527,6 +667,13 @@ impl BraidShell {
                 recomputed: witness,
             });
         }
+        if let Some(ref p) = self.proof {
+            if let Err(err) = p.validate_shape(self.witness_digest) {
+                return Err(BraidShellError::ProofShapeValidationFailed { reason: err });
+            }
+        }
+        let proof_digest = self.proof.as_ref().map(crate::proof::ProofEnvelope::digest);
+
         let digest = compute_shell_digest(
             self.version,
             self.worldline_id,
@@ -536,6 +683,7 @@ impl BraidShell {
             &self.outcome,
             self.witness_digest,
             self.posture,
+            proof_digest,
         );
         if digest != self.digest {
             return Err(BraidShellError::DigestMismatch {
@@ -552,12 +700,33 @@ impl BraidShell {
         self.outcome.kind()
     }
 
-    /// Returns whether the shell summarizes the given member strand.
+    /// Returns whether the shell summarizes the given revealed member strand.
     #[must_use]
-    pub fn has_member_strand(&self, strand_id: &StrandId) -> bool {
-        self.members
-            .iter()
-            .any(|member| member.strand_ref == *strand_id)
+    pub fn has_revealed_member_strand(&self, strand_id: &StrandId) -> bool {
+        self.members.iter().any(|member| match member.member_ref {
+            BraidMemberRef::Revealed(id) => id == *strand_id,
+            BraidMemberRef::Sealed { .. } => false,
+        })
+    }
+
+    /// Returns whether the shell summarizes the given member strand, using
+    /// non-public blinding material for sealed references.
+    #[must_use]
+    pub fn has_member_strand_secure(
+        &self,
+        strand_id: &StrandId,
+        child_worldline_id: &WorldlineId,
+        authority: &AuthorityDomainRef,
+        blinding_secret: &Hash,
+    ) -> bool {
+        self.members.iter().any(|member| {
+            member.member_ref.matches_strand(
+                strand_id,
+                child_worldline_id,
+                authority,
+                blinding_secret,
+            )
+        })
     }
 }
 
@@ -579,13 +748,20 @@ fn check_outcome_law(outcome: &BraidShellOutcome) -> Result<(), BraidShellError>
 
 /// One strand may appear at most once among shell members.
 fn check_unique_member_strands(members: &[BraidShellMember]) -> Result<(), BraidShellError> {
-    for (index, member) in members.iter().enumerate() {
-        if members[..index]
+    if let Some(first) = members.first() {
+        let first_is_sealed = first.member_ref.is_sealed();
+        if members
             .iter()
-            .any(|earlier| earlier.strand_ref == member.strand_ref)
+            .any(|member| member.member_ref.is_sealed() != first_is_sealed)
         {
+            return Err(BraidShellError::MixedMemberReferencePosture);
+        }
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for member in members {
+        if !seen.insert(member.member_ref) {
             return Err(BraidShellError::DuplicateMemberStrand {
-                strand_id: member.strand_ref,
+                member_ref: member.member_ref,
             });
         }
     }
@@ -694,6 +870,7 @@ fn compute_shell_digest(
     outcome: &BraidShellOutcome,
     witness_digest: Hash,
     posture: CausalPosture,
+    proof_digest: Option<Hash>,
 ) -> Hash {
     let mut hasher = Hasher::new();
     hasher.update(SHELL_DOMAIN);
@@ -708,6 +885,15 @@ fn compute_shell_digest(
         posture,
     );
     hasher.update(&witness_digest);
+    match proof_digest {
+        Some(digest) => {
+            hasher.update(&[0x01]);
+            hasher.update(&digest);
+        }
+        None => {
+            hasher.update(&[0x00]);
+        }
+    }
     hasher.finalize().into()
 }
 
@@ -733,7 +919,7 @@ pub struct BraidShellReplay {
     /// Outcome arm reproduced from the shell.
     pub outcome_kind: AdmissionOutcomeKind,
     /// Member verdicts in canonical member order.
-    pub member_verdicts: Vec<(StrandId, MemberVerdict)>,
+    pub member_verdicts: Vec<(BraidMemberRef, MemberVerdict)>,
     /// Settlement policy identity the act ran under.
     pub policy_id: Hash,
     /// Witness digest binding the act.
@@ -798,7 +984,7 @@ pub fn replay_braid_shell(
         member_verdicts: shell
             .members
             .iter()
-            .map(|member| (member.strand_ref, member.verdict))
+            .map(|member| (member.member_ref, member.verdict))
             .collect(),
         policy_id: shell.policy_id,
         witness_digest: shell.witness_digest,
@@ -1027,6 +1213,30 @@ impl RetainedBoundaryRecord for crate::provenance_store::BoundaryTransitionRecor
     }
 }
 
+/// Secure member lookup material for sealed braid member references.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct BraidShellMemberQuery {
+    /// Strand identity being matched.
+    pub strand_id: StrandId,
+    /// Child worldline identity bound into sealed member commitments.
+    pub child_worldline_id: WorldlineId,
+    /// Causal authority domain bound into the sealed member reference.
+    pub authority: AuthorityDomainRef,
+    /// Non-public blinding material used to derive sealed member commitments.
+    pub blinding_secret: Hash,
+}
+
+impl core::fmt::Debug for BraidShellMemberQuery {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("BraidShellMemberQuery")
+            .field("strand_id", &self.strand_id)
+            .field("child_worldline_id", &self.child_worldline_id)
+            .field("authority", &self.authority)
+            .field("blinding_secret", &"<redacted>")
+            .finish()
+    }
+}
+
 /// Scan-backed query over retained braid shells.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct BraidShellQuery {
@@ -1034,8 +1244,10 @@ pub struct BraidShellQuery {
     pub coordinate: Option<BraidCoordinate>,
     /// Match shells judged against this comparison basis.
     pub basis: Option<ProvenanceRef>,
-    /// Match shells summarizing this member strand.
-    pub member_strand: Option<StrandId>,
+    /// Match shells summarizing this revealed member strand.
+    pub revealed_member_strand: Option<StrandId>,
+    /// Match shells summarizing this member using sealed-reference material.
+    pub secure_member: Option<BraidShellMemberQuery>,
     /// Match shells with this outcome arm.
     pub outcome: Option<AdmissionOutcomeKind>,
     /// Match shells with this revelation posture.
@@ -1051,9 +1263,17 @@ impl BraidShell {
             .is_none_or(|coordinate| self.coordinate == coordinate)
             && query.basis.is_none_or(|basis| self.basis == basis)
             && query
-                .member_strand
+                .revealed_member_strand
                 .as_ref()
-                .is_none_or(|strand| self.has_member_strand(strand))
+                .is_none_or(|strand| self.has_revealed_member_strand(strand))
+            && query.secure_member.is_none_or(|member| {
+                self.has_member_strand_secure(
+                    &member.strand_id,
+                    &member.child_worldline_id,
+                    &member.authority,
+                    &member.blinding_secret,
+                )
+            })
             && query
                 .outcome
                 .is_none_or(|outcome| self.outcome_kind() == outcome)
@@ -1083,12 +1303,41 @@ mod tests {
 
     fn member(label: &str, verdict: MemberVerdict) -> BraidShellMember {
         BraidShellMember {
-            strand_ref: make_strand_id(label),
+            member_ref: BraidMemberRef::Revealed(make_strand_id(label)),
             support_pin_digest: [0x21; 32],
             basis_digest: [0x22; 32],
             frontier_digest: [0x23; 32],
             footprint_digest: [0x24; 32],
             claim_digest: [0x25; 32],
+            verdict,
+            verdict_digest: [0x26; 32],
+            posture: CausalPosture::AuthorOnly,
+        }
+    }
+
+    fn authority(origin: u8, domain: u8) -> AuthorityDomainRef {
+        AuthorityDomainRef::new(
+            crate::revelation::OriginId::from_bytes([origin; 32]),
+            crate::revelation::AuthorityDomainId::from_bytes([domain; 32]),
+        )
+    }
+
+    fn sealed_member(
+        commitment: Hash,
+        authority: AuthorityDomainRef,
+        verdict: MemberVerdict,
+        claim_byte: u8,
+    ) -> BraidShellMember {
+        BraidShellMember {
+            member_ref: BraidMemberRef::Sealed {
+                blinded_commitment: commitment,
+                authority,
+            },
+            support_pin_digest: [0x21; 32],
+            basis_digest: [0x22; 32],
+            frontier_digest: [0x23; 32],
+            footprint_digest: [0x24; 32],
+            claim_digest: [claim_byte; 32],
             verdict,
             verdict_digest: [0x26; 32],
             posture: CausalPosture::AuthorOnly,
@@ -1146,10 +1395,10 @@ mod tests {
             member("member-b", MemberVerdict::Derived),
         ]);
         let digest = shell.digest;
-        let expected_verdicts: Vec<(StrandId, MemberVerdict)> = shell
+        let expected_verdicts: Vec<(BraidMemberRef, MemberVerdict)> = shell
             .members
             .iter()
-            .map(|member| (member.strand_ref, member.verdict))
+            .map(|member| (member.member_ref, member.verdict))
             .collect();
         let records = Records::with([shell]);
 
@@ -1274,9 +1523,63 @@ mod tests {
         assert_eq!(
             result,
             Err(BraidShellError::DuplicateMemberStrand {
-                strand_id: make_strand_id("member-a"),
+                member_ref: BraidMemberRef::Revealed(make_strand_id("member-a")),
             })
         );
+    }
+
+    #[test]
+    fn sealed_members_with_same_commitment_under_different_authorities_are_distinct() {
+        let commitment = [0x44; 32];
+        let result = BraidShell::assemble(
+            wl(1),
+            basis_ref(),
+            vec![
+                sealed_member(
+                    commitment,
+                    authority(0x10, 0x20),
+                    MemberVerdict::Plural,
+                    0x25,
+                ),
+                sealed_member(
+                    commitment,
+                    authority(0x11, 0x20),
+                    MemberVerdict::Plural,
+                    0x26,
+                ),
+            ],
+            [0x5E; 32],
+            BraidShellOutcome::Plural {
+                alternative_ids: vec![[0x31; 32]],
+            },
+            CausalPosture::AuthorOnly,
+        );
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn mixed_revealed_and_sealed_members_are_refused() {
+        let result = BraidShell::assemble(
+            wl(1),
+            basis_ref(),
+            vec![
+                member("member-a", MemberVerdict::Plural),
+                sealed_member(
+                    [0x44; 32],
+                    authority(0x10, 0x20),
+                    MemberVerdict::Plural,
+                    0x26,
+                ),
+            ],
+            [0x5E; 32],
+            BraidShellOutcome::Plural {
+                alternative_ids: vec![[0x31; 32]],
+            },
+            CausalPosture::AuthorOnly,
+        );
+
+        assert_eq!(result, Err(BraidShellError::MixedMemberReferencePosture));
     }
 
     #[test]
@@ -1518,7 +1821,8 @@ mod tests {
         assert!(shell.matches(&BraidShellQuery {
             coordinate: Some(shell.coordinate),
             basis: Some(basis_ref()),
-            member_strand: Some(make_strand_id("member-a")),
+            revealed_member_strand: Some(make_strand_id("member-a")),
+            secure_member: None,
             outcome: Some(AdmissionOutcomeKind::Plural),
             posture: Some(CausalPosture::AuthorOnly),
         }));
@@ -1527,8 +1831,268 @@ mod tests {
             ..BraidShellQuery::default()
         }));
         assert!(!shell.matches(&BraidShellQuery {
-            member_strand: Some(make_strand_id("nobody")),
+            revealed_member_strand: Some(make_strand_id("nobody")),
             ..BraidShellQuery::default()
         }));
+    }
+
+    #[test]
+    fn sealed_member_query_requires_secure_material() {
+        let strand_id = make_strand_id("sealed-member");
+        let child_worldline_id = wl(9);
+        let member_authority = authority(0xA1, 0xB1);
+        let blinding_secret = [0xA5; 32];
+        let member_ref = BraidMemberRef::seal(strand_id, child_worldline_id, blinding_secret);
+        let shell = plural_shell(vec![sealed_member(
+            member_ref,
+            member_authority,
+            MemberVerdict::Plural,
+            0x27,
+        )]);
+
+        assert!(!shell.has_revealed_member_strand(&strand_id));
+        assert!(shell.has_member_strand_secure(
+            &strand_id,
+            &child_worldline_id,
+            &member_authority,
+            &blinding_secret
+        ));
+        assert!(!shell.has_member_strand_secure(
+            &strand_id,
+            &child_worldline_id,
+            &authority(0xA1, 0xB2),
+            &blinding_secret
+        ));
+        assert!(!shell.matches(&BraidShellQuery {
+            revealed_member_strand: Some(strand_id),
+            ..BraidShellQuery::default()
+        }));
+        assert!(shell.matches(&BraidShellQuery {
+            secure_member: Some(BraidShellMemberQuery {
+                strand_id,
+                child_worldline_id,
+                authority: member_authority,
+                blinding_secret,
+            }),
+            ..BraidShellQuery::default()
+        }));
+        let debug = format!(
+            "{:?}",
+            BraidShellMemberQuery {
+                strand_id,
+                child_worldline_id,
+                authority: member_authority,
+                blinding_secret,
+            }
+        );
+        assert!(debug.contains("blinding_secret: \"<redacted>\""));
+        assert!(!debug.contains("blinding_secret: ["));
+    }
+
+    #[test]
+    fn assemble_with_proof_validates_envelope() {
+        use crate::proof::{ProofEnvelope, ProofKind};
+
+        let members = vec![member("member-a", MemberVerdict::Plural)];
+
+        // Build it without proof first to retrieve the expected witness digest.
+        let temp_shell = BraidShell::assemble(
+            wl(1),
+            basis_ref(),
+            members.clone(),
+            [0x5E; 32],
+            BraidShellOutcome::Plural {
+                alternative_ids: vec![[0x31; 32]],
+            },
+            CausalPosture::AuthorOnly,
+        )
+        .unwrap();
+        assert_eq!(temp_shell.version, BRAID_SHELL_VERSION);
+        assert_eq!(BRAID_SHELL_VERSION, 2);
+        let expected_witness = temp_shell.witness_digest;
+
+        // Valid replay-trace evidence: matches the witness_digest and has non-empty bytes.
+        let valid_proof = ProofEnvelope {
+            kind: ProofKind::ReplayTrace,
+            proof_bytes: vec![1, 2, 3],
+            public_inputs_hash: expected_witness,
+        };
+
+        let shell_with_valid_proof = BraidShell::assemble_with_proof(
+            wl(1),
+            basis_ref(),
+            members.clone(),
+            [0x5E; 32],
+            BraidShellOutcome::Plural {
+                alternative_ids: vec![[0x31; 32]],
+            },
+            CausalPosture::AuthorOnly,
+            Some(valid_proof),
+        )
+        .unwrap();
+        assert_eq!(shell_with_valid_proof.version, BRAID_SHELL_VERSION);
+        shell_with_valid_proof.validate().unwrap();
+        assert_ne!(
+            temp_shell.digest, shell_with_valid_proof.digest,
+            "proof-bearing shells must have a distinct content identity"
+        );
+
+        let mut proof_tampered = shell_with_valid_proof;
+        assert!(proof_tampered.proof.is_some());
+        if let Some(proof) = proof_tampered.proof.as_mut() {
+            proof.proof_bytes.push(4);
+        }
+        assert!(matches!(
+            proof_tampered.validate(),
+            Err(BraidShellError::DigestMismatch { .. })
+        ));
+
+        // Invalid proof: mismatched public inputs hash
+        let invalid_proof_mismatch = ProofEnvelope {
+            kind: ProofKind::ReplayTrace,
+            proof_bytes: vec![1, 2, 3],
+            public_inputs_hash: [0x99; 32],
+        };
+        let result_mismatch = BraidShell::assemble_with_proof(
+            wl(1),
+            basis_ref(),
+            members.clone(),
+            [0x5E; 32],
+            BraidShellOutcome::Plural {
+                alternative_ids: vec![[0x31; 32]],
+            },
+            CausalPosture::AuthorOnly,
+            Some(invalid_proof_mismatch),
+        );
+        assert!(matches!(
+            result_mismatch,
+            Err(BraidShellError::ProofShapeValidationFailed { .. })
+        ));
+
+        // Invalid proof: empty proof bytes
+        let invalid_proof_empty = ProofEnvelope {
+            kind: ProofKind::ReplayTrace,
+            proof_bytes: Vec::new(),
+            public_inputs_hash: expected_witness,
+        };
+        let result_empty = BraidShell::assemble_with_proof(
+            wl(1),
+            basis_ref(),
+            members,
+            [0x5E; 32],
+            BraidShellOutcome::Plural {
+                alternative_ids: vec![[0x31; 32]],
+            },
+            CausalPosture::AuthorOnly,
+            Some(invalid_proof_empty),
+        );
+        assert!(matches!(
+            result_empty,
+            Err(BraidShellError::ProofShapeValidationFailed { .. })
+        ));
+    }
+
+    #[test]
+    fn cryptographic_proof_kinds_require_verifier_backend() {
+        use crate::proof::{ProofEnvelope, ProofKind};
+
+        let members = vec![member("member-a", MemberVerdict::Plural)];
+        let temp_shell = BraidShell::assemble(
+            wl(1),
+            basis_ref(),
+            members.clone(),
+            [0x5E; 32],
+            BraidShellOutcome::Plural {
+                alternative_ids: vec![[0x31; 32]],
+            },
+            CausalPosture::AuthorOnly,
+        )
+        .unwrap();
+
+        for kind in [ProofKind::ZkSnark, ProofKind::VectorOpening] {
+            let result = BraidShell::assemble_with_proof(
+                wl(1),
+                basis_ref(),
+                members.clone(),
+                [0x5E; 32],
+                BraidShellOutcome::Plural {
+                    alternative_ids: vec![[0x31; 32]],
+                },
+                CausalPosture::AuthorOnly,
+                Some(ProofEnvelope {
+                    kind,
+                    proof_bytes: vec![1, 2, 3],
+                    public_inputs_hash: temp_shell.witness_digest,
+                }),
+            );
+            assert!(matches!(
+                result,
+                Err(BraidShellError::ProofShapeValidationFailed { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn test_secure_sealed_member_matching() {
+        let strand_id = make_strand_id("secure-member");
+        let child_worldline = WorldlineId::from_bytes([0x88; 32]);
+        let member_authority = authority(0x10, 0x20);
+        let blinding_secret = [0x44; 32];
+
+        let blinded_commitment = BraidMemberRef::seal(strand_id, child_worldline, blinding_secret);
+        let sealed_ref = BraidMemberRef::Sealed {
+            blinded_commitment,
+            authority: member_authority,
+        };
+
+        // Verification matches correctly.
+        assert!(sealed_ref.matches_strand(
+            &strand_id,
+            &child_worldline,
+            &member_authority,
+            &blinding_secret
+        ));
+
+        // Revealed references are not accepted by the sealed secure path.
+        assert!(!BraidMemberRef::Revealed(strand_id).matches_strand(
+            &strand_id,
+            &child_worldline,
+            &member_authority,
+            &blinding_secret
+        ));
+
+        // Mismatched strand_id fails.
+        let wrong_strand_id = make_strand_id("wrong-member");
+        assert!(!sealed_ref.matches_strand(
+            &wrong_strand_id,
+            &child_worldline,
+            &member_authority,
+            &blinding_secret
+        ));
+
+        // Mismatched child_worldline fails.
+        let wrong_child_worldline = WorldlineId::from_bytes([0x99; 32]);
+        assert!(!sealed_ref.matches_strand(
+            &strand_id,
+            &wrong_child_worldline,
+            &member_authority,
+            &blinding_secret
+        ));
+
+        // Mismatched authority fails.
+        assert!(!sealed_ref.matches_strand(
+            &strand_id,
+            &child_worldline,
+            &authority(0x10, 0x21),
+            &blinding_secret
+        ));
+
+        // Mismatched blinding secret fails.
+        assert!(!sealed_ref.matches_strand(
+            &strand_id,
+            &child_worldline,
+            &member_authority,
+            &[0x45; 32]
+        ));
     }
 }

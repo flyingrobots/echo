@@ -41,6 +41,7 @@ pub mod wsc;
 
 mod admission;
 mod attachment;
+mod braid;
 mod braid_shell;
 mod causal_facts;
 pub mod causal_wal;
@@ -138,6 +139,7 @@ mod optic_artifact;
 pub mod parallel;
 mod payload;
 mod playback;
+pub mod proof;
 mod provenance_store;
 mod receipt;
 mod record;
@@ -253,12 +255,17 @@ pub use retained_evidence::{
 };
 // --- Session types ---
 pub use playback::{SessionId, ViewSession};
+// --- Proof types ---
+pub use proof::{ObserverHonestyClaim, ProofEnvelope, ProofKind};
+// --- Braid Log types ---
+pub use braid::{Braid, BraidError, BraidEvent, BraidStatus};
 // --- Retained boundary shell family (θ_tick, θ_braid) ---
 pub use braid_shell::{
-    collapse_braid_shell, replay_braid_shell, BraidCoordinate, BraidShell, BraidShellError,
-    BraidShellMember, BraidShellOutcome, BraidShellQuery, BraidShellRecords, BraidShellReplay,
-    CollapsePolicy, CollapseResult, MemberVerdict, RetainedBoundaryKind, RetainedBoundaryRecord,
-    BRAID_SHELL_VERSION, COLLAPSE_WITHOUT_POLICY_REASON,
+    collapse_braid_shell, replay_braid_shell, BraidCoordinate, BraidMemberRef, BraidShell,
+    BraidShellError, BraidShellMember, BraidShellMemberQuery, BraidShellOutcome, BraidShellQuery,
+    BraidShellRecords, BraidShellReplay, CollapsePolicy, CollapseResult, MemberVerdict,
+    RetainedBoundaryKind, RetainedBoundaryRecord, BRAID_SHELL_VERSION,
+    COLLAPSE_WITHOUT_POLICY_REASON,
 };
 pub use neighborhood::{
     NeighborhoodCore, NeighborhoodError, NeighborhoodParticipant, NeighborhoodParticipantRole,
@@ -317,14 +324,14 @@ pub use revelation::RevelationPosture;
 pub use revelation::{
     import_posture_disposition, least_revealed, revelation_operation_effect,
     shell_posture_obstruction, ActorId, AdmissionId, AdmissionScopeId, AdmissionSourceDisclosure,
-    AuthorityBinding, AuthorityCapabilityDigest, AuthorityDomainId, AuthorityDomainRef,
-    AuthorityResolutionProof, CapabilityProof, CausalAuthority, CausalPosture,
-    ImportAdmissionReceipt, ImportPostureDisposition, ImportQuarantineNamespace,
+    AuthorOnly, AuthorityBinding, AuthorityCapabilityDigest, AuthorityDomainId, AuthorityDomainRef,
+    AuthorityResolutionProof, CapabilityProof, CausalAuthority, CausalPosture, CausalPostureState,
+    DynamicPosture, ImportAdmissionReceipt, ImportPostureDisposition, ImportQuarantineNamespace,
     ImportedArtifactId, IntentId, KeyId, KeyProofId, MaterializationBasis, MaterializationReceipt,
     OperationPostureEffect, OriginId, PostureDerivation, PostureObstruction, ProjectionPolicy,
     ProjectionSpecId, PromotionBasis, PromotionIntent, RetentionContractId, RetentionPosture,
-    RevelationOperation, SealStrength, SessionContext, SharedAdmission, SourceDisclosurePolicy,
-    WitnessDigest,
+    RevelationOperation, Scratch, SealStrength, SessionContext, Shared, SharedAdmission,
+    SourceDisclosurePolicy, WitnessDigest,
 };
 #[cfg(feature = "native_rule_bootstrap")]
 pub use rule::{ConflictPolicy, ExecuteFn, MatchFn, PatternGraph, RewriteRule};
@@ -333,9 +340,9 @@ pub use sandbox::DeterminismError;
 pub use sandbox::{build_engine, run_pair_determinism, EchoConfig};
 pub use scheduler::SchedulerKind;
 pub use settlement::{
-    ConflictArtifactDraft, ConflictReason, ImportCandidate, PluralAlternativeDraft,
-    PluralSettlementPolicy, SettlementDecision, SettlementDelta, SettlementError, SettlementPlan,
-    SettlementPolicy, SettlementResult, SettlementService,
+    ConflictArtifactDraft, ConflictReason, ImportCandidate, MemberBlindingSalt,
+    PluralAlternativeDraft, PluralSettlementPolicy, SettlementDecision, SettlementDelta,
+    SettlementError, SettlementPlan, SettlementPolicy, SettlementResult, SettlementService,
 };
 pub use snapshot::{
     compute_commit_hash_v2, compute_emissions_digest, compute_op_emission_index_digest,

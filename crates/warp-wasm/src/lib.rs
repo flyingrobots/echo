@@ -1263,6 +1263,8 @@ mod init_tests {
                     worldline_tick: WorldlineTick(1),
                     commit_hash: vec![5; 32],
                 }],
+                appended_plurals: Vec::new(),
+                braid_shell_digest: None,
             })
         }
 

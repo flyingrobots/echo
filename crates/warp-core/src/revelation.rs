@@ -73,6 +73,61 @@ pub enum CausalPosture {
 #[deprecated(note = "Use CausalPosture")]
 pub type RevelationPosture = CausalPosture;
 
+mod posture_state_seal {
+    pub trait Sealed {}
+}
+
+/// Trait representing compile-time typestate for causal posture.
+///
+/// This trait is sealed to Echo's marker types. Runtime posture validation
+/// remains the authority for settlement admission.
+pub trait CausalPostureState:
+    Clone + std::fmt::Debug + PartialEq + Eq + posture_state_seal::Sealed
+{
+    /// Returns the runtime CausalPosture value for this typestate, or None if dynamic.
+    fn causal_posture() -> Option<CausalPosture>;
+}
+
+/// Marker struct representing the Shared causal posture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Shared;
+impl posture_state_seal::Sealed for Shared {}
+impl CausalPostureState for Shared {
+    fn causal_posture() -> Option<CausalPosture> {
+        Some(CausalPosture::Shared)
+    }
+}
+
+/// Marker struct representing the AuthorOnly causal posture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AuthorOnly;
+impl posture_state_seal::Sealed for AuthorOnly {}
+impl CausalPostureState for AuthorOnly {
+    fn causal_posture() -> Option<CausalPosture> {
+        Some(CausalPosture::AuthorOnly)
+    }
+}
+
+/// Marker struct representing the Scratch causal posture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Scratch;
+impl posture_state_seal::Sealed for Scratch {}
+impl CausalPostureState for Scratch {
+    fn causal_posture() -> Option<CausalPosture> {
+        Some(CausalPosture::Scratch)
+    }
+}
+
+/// Representation of causal posture whose type is dynamic/erased at compile-time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DynamicPosture;
+impl posture_state_seal::Sealed for DynamicPosture {}
+impl CausalPostureState for DynamicPosture {
+    fn causal_posture() -> Option<CausalPosture> {
+        None
+    }
+}
+
 impl CausalPosture {
     /// Stable wire tag for canonical serialization and digest domains.
     #[must_use]
@@ -276,6 +331,8 @@ pub struct RetentionPosture {
     pub retention_contract: RetentionContractId,
     /// Shared-admission scope, present only for `Shared`.
     pub admission_scope: Option<AdmissionScopeId>,
+    /// Source identity disclosure policy for retained shared projections.
+    pub source_disclosure: SourceDisclosurePolicy,
 }
 
 impl RetentionPosture {
@@ -301,7 +358,36 @@ impl RetentionPosture {
             authority,
             retention_contract,
             admission_scope,
+            source_disclosure: default_source_disclosure(causal_posture),
         })
+    }
+
+    /// Returns this posture with an explicit source-disclosure policy.
+    ///
+    /// # Errors
+    ///
+    /// Returns an obstruction when a non-shared posture tries to carry a shared
+    /// source-disclosure policy.
+    pub fn with_source_disclosure(
+        mut self,
+        source_disclosure: SourceDisclosurePolicy,
+    ) -> Result<Self, PostureObstruction> {
+        validate_source_disclosure(self.causal_posture, source_disclosure)?;
+        self.source_disclosure = source_disclosure;
+        Ok(self)
+    }
+
+    /// Re-validates a retained posture bundle after direct field mutation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an obstruction when the posture/scope pair, derivation, or
+    /// authority context is incoherent.
+    pub fn validate(&self) -> Result<(), PostureObstruction> {
+        validate_admission_scope(self.causal_posture, self.admission_scope)?;
+        validate_posture_derivation(self.causal_posture, self.posture_derivation)?;
+        validate_source_disclosure(self.causal_posture, self.source_disclosure)?;
+        self.authority.validate()
     }
 }
 
@@ -361,6 +447,55 @@ impl SessionContext {
             retention_contract,
         })
     }
+
+    /// Builds retained work posture from this session's explicit default.
+    ///
+    /// # Errors
+    ///
+    /// Returns a posture obstruction if this session's authority/default
+    /// posture no longer validates.
+    pub fn retention_posture(&self) -> Result<RetentionPosture, PostureObstruction> {
+        RetentionPosture::new(
+            self.default_posture,
+            PostureDerivation::SessionDefault,
+            CausalAuthority::new(
+                self.origin_id,
+                self.actor_id,
+                self.author_domain,
+                self.authority_binding,
+                self.seal_strength,
+            )?,
+            self.retention_contract,
+            self.default_admission_scope,
+        )
+    }
+
+    /// Builds debugger-created strand posture for this session.
+    ///
+    /// Debugger work is real causal work, but it is never silently admitted
+    /// into shared history. The named constructor is the policy boundary that
+    /// chooses `AuthorOnly` even when the surrounding session default is
+    /// `Shared`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a posture obstruction if this session's authority context does
+    /// not validate.
+    pub fn debugger_retention_posture(&self) -> Result<RetentionPosture, PostureObstruction> {
+        RetentionPosture::new(
+            CausalPosture::AuthorOnly,
+            PostureDerivation::DebuggerDefault,
+            CausalAuthority::new(
+                self.origin_id,
+                self.actor_id,
+                self.author_domain,
+                self.authority_binding,
+                self.seal_strength,
+            )?,
+            self.retention_contract,
+            None,
+        )
+    }
 }
 
 /// Obstruction raised when a posture act is unlawful.
@@ -396,6 +531,13 @@ pub enum PostureObstruction {
     UnexpectedAdmissionScope {
         /// Posture that unlawfully carried a scope.
         posture: CausalPosture,
+    },
+    /// Non-shared posture must not carry a shared source-disclosure policy.
+    UnexpectedSourceDisclosure {
+        /// Posture that unlawfully carried a source-disclosure policy.
+        posture: CausalPosture,
+        /// Source-disclosure policy that only belongs to shared projections.
+        source_disclosure: SourceDisclosurePolicy,
     },
     /// Durable materialization has exactly one posture pair:
     /// `Scratch -> AuthorOnly`.
@@ -447,6 +589,13 @@ pub enum PostureObstruction {
     LegacyAuthorityCannotAuthorizeNewAdmission,
     /// Generic causal witness digests are not authority-capability proofs.
     WitnessIsNotAuthorityCapability,
+    /// Expected a specific posture (e.g. Shared), but found a different one.
+    PostureMismatch {
+        /// The actual posture of the artifact.
+        actual: CausalPosture,
+        /// The expected posture.
+        expected: CausalPosture,
+    },
 }
 
 /// Witness digest with a quality bar: zero and empty-input digests refused.
@@ -1145,6 +1294,32 @@ fn validate_admission_scope(
     }
 }
 
+const fn default_source_disclosure(posture: CausalPosture) -> SourceDisclosurePolicy {
+    match posture {
+        CausalPosture::Shared => SourceDisclosurePolicy::RevealFull,
+        CausalPosture::Scratch | CausalPosture::AuthorOnly => SourceDisclosurePolicy::RevealNone,
+    }
+}
+
+fn validate_source_disclosure(
+    posture: CausalPosture,
+    source_disclosure: SourceDisclosurePolicy,
+) -> Result<(), PostureObstruction> {
+    match (posture, source_disclosure) {
+        (CausalPosture::Shared, _)
+        | (
+            CausalPosture::Scratch | CausalPosture::AuthorOnly,
+            SourceDisclosurePolicy::RevealNone,
+        ) => Ok(()),
+        (CausalPosture::Scratch | CausalPosture::AuthorOnly, _) => {
+            Err(PostureObstruction::UnexpectedSourceDisclosure {
+                posture,
+                source_disclosure,
+            })
+        }
+    }
+}
+
 fn validate_posture_derivation(
     posture: CausalPosture,
     derivation: PostureDerivation,
@@ -1753,6 +1928,30 @@ mod tests {
             Err(PostureObstruction::MissingAdmissionScope {
                 posture: CausalPosture::Shared,
             })
+        );
+    }
+
+    #[test]
+    fn session_default_posture_derivation_is_not_caller_selectable() {
+        let session = SessionContext::new(
+            SessionId([0x51; 32]),
+            OriginId::from_bytes([0xA1; 32]),
+            ActorId::from_bytes([0xA2; 32]),
+            fixture_authority_ref(),
+            AuthorityBinding::LocalUnbound {
+                origin: OriginId::from_bytes([0xA1; 32]),
+            },
+            SealStrength::Advisory,
+            CausalPosture::Shared,
+            Some(AdmissionScopeId::from_bytes([0x55; 32])),
+            RetentionContractId::from_bytes([0xC0; 32]),
+        )
+        .unwrap();
+
+        let posture = session.retention_posture().unwrap();
+        assert_eq!(
+            posture.posture_derivation,
+            PostureDerivation::SessionDefault
         );
     }
 

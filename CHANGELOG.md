@@ -7,6 +7,14 @@
 
 ### Added
 
+- `warp-core` casting a dynamically postured strand to statically shared now returns a semantically precise `PostureObstruction::PostureMismatch` instead of `PostureObstruction::NarrowingRefused`.
+- `warp-core` renamed `ProofEnvelope::verify` to `validate_shape` and updated error variants to `ProofShapeValidationFailed` to accurately reflect shape/input checks rather than full cryptographic proof verification.
+- `warp-core` strand creation now carries explicit `RetentionPosture` through
+  `ForkStrandRequest`, `ForkStrandReceipt`, and `Strand`. Session-default and
+  debugger fork constructors choose posture policy explicitly, session-default
+  work always records `PostureDerivation::SessionDefault`, debugger forks never
+  silently become `Shared`, and `StrandRegistry` rejects incoherent retained
+  posture such as `Shared` without an admission scope.
 - `warp-core` import admission receipts now bind local source-shared import
   admission to an explicit imported artifact identity. A receipt minted for one
   imported artifact cannot admit another import into a local shared admission
@@ -545,6 +553,22 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Changed
 
+- `warp-core` renamed the generated contract package host API from
+  `install_contract_package(...)` to `register_contract_package(...)` so the
+  trusted-runtime boundary reads as explicit runtime-owned registration instead
+  of process-global installation.
+- `warp-core` sealed braid member lookup now requires authority-bound sealed
+  query material, redacts non-public blinding material from debug output, and
+  keeps hidden-member commitments stable across parent frontier movement.
+- `warp-core` settlement planning now rejects non-`Shared` strands before
+  producing import candidates. Author-only/debugger strand suffixes can remain
+  real causal work, but they cannot enter base shared history without an
+  explicit shared admission posture. Settlement compare remains local
+  revelation/inspection only: it can inspect a locally held strand suffix
+  without promoting, planning, admitting, or settling it.
+- `warp-core` settlement plural artifacts and retained braid shells now carry
+  the source strand posture instead of hard-coding author-only posture for
+  shared settlement records.
 - Local determinism tooling now fails closed around
   `scripts/check-warp-core-serialization-boundaries.sh`. The serialization
   boundary guard is mandatory, runs through `bash` rather than executable mode,
@@ -617,6 +641,38 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- `warp-core` evolving braid logs now reject unchecked incremental mutations:
+  `Braid::apply` returns typed lifecycle errors, rejects duplicate member
+  weaving and mixed revealed/sealed membership, refuses empty-frontier
+  settlement finalization, detects member sequence overflow with checked
+  arithmetic, rejects empty collapse witnesses, and exposes folded state through
+  read-only accessors instead of public mutable fields. Duplicate checks now use
+  a deterministic member index instead of scanning the append-ordered frontier.
+- `warp-core` braid-shell digests now bind optional proof-shaped envelopes:
+  proof-bearing shells have distinct content identity from proof-less shells,
+  mutating proof bytes after assembly is caught by shell validation, and
+  `BRAID_SHELL_VERSION` is now `2` for the proof-digest marker shape.
+  Shape-only proof envelope admission is limited to replay-trace evidence;
+  cryptographic proof kinds require a verifier backend before admission.
+- `warp-core` sealed braid members now require caller-supplied blinding material,
+  preserve hidden shared source disclosure in settlement shells, mix a
+  settlement-local `MemberBlindingSalt` into hidden settlement member
+  commitments, reject mixed revealed/sealed shell member sets, and treat sealed
+  member authority as part of duplicate-member identity.
+- `warp-core` retained braid shell queries now distinguish revealed member
+  lookup from sealed member lookup: `has_revealed_member_strand` and
+  `BraidShellQuery::revealed_member_strand` only match revealed references,
+  while `BraidShellMemberQuery` carries blinding material for sealed matches.
+- `warp-core` crate-root braid exports now include `BraidError`, `BraidStatus`,
+  and `BraidMemberRef` so external consumers can handle public braid results.
+- `warp-core` shared-strand settlement handles now re-enter the live registry
+  path before planning or settling, and crate-internal settlement helpers reject
+  stale handles that no longer match registered strand state. `CausalPostureState`
+  is sealed to Echo's marker types so external crates cannot add typestate
+  implementations outside the runtime posture gate.
+- `warp-wasm` settlement publication now maps non-`Shared` strand admission
+  rejection to the stable `INVALID_STRAND` ABI error code instead of
+  collapsing the lawful posture denial into `ENGINE_ERROR`.
 - `echo-file-aperture` now normalizes `HostFileSnapshot` material at the
   aperture boundary so caller-forged snapshot metadata or fingerprints cannot
   bind a basis, observation receipt, or materialization verification to bytes

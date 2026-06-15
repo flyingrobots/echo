@@ -275,7 +275,7 @@ fn query_request(worldline_id: WorldlineId, query_id: u32) -> Result<Observation
 fn installed_contract_package_binds_supported_mutation_and_query() -> Result<(), String> {
     let mut engine = engine();
     let record = engine
-        .install_contract_package(package_with_ops(MUTATION_OP_ID, QUERY_OP_ID))
+        .register_contract_package(package_with_ops(MUTATION_OP_ID, QUERY_OP_ID))
         .map_err(|err| format!("supported package should install: {err:?}"))?;
 
     assert_eq!(record.package_name, "toy-counter");
@@ -332,7 +332,7 @@ fn installed_contract_package_binds_supported_mutation_and_query() -> Result<(),
 fn installed_contract_package_rejects_unknown_mutation_before_registration() -> Result<(), String> {
     let mut engine = engine();
 
-    let Err(err) = engine.install_contract_package(package_with_ops(UNKNOWN_OP_ID, QUERY_OP_ID))
+    let Err(err) = engine.register_contract_package(package_with_ops(UNKNOWN_OP_ID, QUERY_OP_ID))
     else {
         return Err("unknown mutation op id must be rejected before install".to_owned());
     };
@@ -360,7 +360,7 @@ fn installed_contract_package_rejects_query_kind_mismatch_before_observer_instal
     let mut engine = engine();
 
     let Err(err) =
-        engine.install_contract_package(package_with_ops(MUTATION_OP_ID, MUTATION_OP_ID))
+        engine.register_contract_package(package_with_ops(MUTATION_OP_ID, MUTATION_OP_ID))
     else {
         return Err("query observer for mutation op id must be rejected".to_owned());
     };
@@ -410,7 +410,7 @@ fn installed_contract_package_rejects_duplicate_mutation_op_id_before_registrati
         vec![query_observer(QUERY_OP_ID)],
     );
 
-    let Err(err) = engine.install_contract_package(package) else {
+    let Err(err) = engine.register_contract_package(package) else {
         return Err("duplicate mutation op id must be rejected".to_owned());
     };
 
@@ -442,7 +442,7 @@ fn installed_contract_package_rejects_duplicate_query_op_id_before_registration(
         vec![query_observer(QUERY_OP_ID), query_observer(QUERY_OP_ID)],
     );
 
-    let Err(err) = engine.install_contract_package(package) else {
+    let Err(err) = engine.register_contract_package(package) else {
         return Err("duplicate query op id must be rejected".to_owned());
     };
 
@@ -478,7 +478,7 @@ fn installed_contract_package_rejects_duplicate_rule_id_without_partial_install(
         vec![query_observer(QUERY_OP_ID)],
     );
 
-    let Err(err) = engine.install_contract_package(package) else {
+    let Err(err) = engine.register_contract_package(package) else {
         return Err("duplicate rule id must be rejected".to_owned());
     };
 
@@ -500,7 +500,7 @@ fn installed_contract_package_rejects_duplicate_rule_id_without_partial_install(
     );
 
     engine
-        .install_contract_package(package_with_ops(MUTATION_OP_ID, QUERY_OP_ID))
+        .register_contract_package(package_with_ops(MUTATION_OP_ID, QUERY_OP_ID))
         .map_err(|err| format!("failed install must not leave registered rule behind: {err:?}"))?;
     Ok(())
 }
@@ -519,7 +519,7 @@ fn installed_contract_package_rejects_rule_operation_mismatch_before_registratio
         vec![query_observer(QUERY_OP_ID)],
     );
 
-    let Err(err) = engine.install_contract_package(package) else {
+    let Err(err) = engine.register_contract_package(package) else {
         return Err("mismatched mutation rule op id must be rejected".to_owned());
     };
 
@@ -553,7 +553,7 @@ fn installed_contract_package_rejects_artifact_verification_without_registration
         vec![query_observer(QUERY_OP_ID)],
     );
 
-    let Err(err) = engine.install_contract_package(package) else {
+    let Err(err) = engine.register_contract_package(package) else {
         return Err("artifact verification mismatch must be rejected".to_owned());
     };
 
@@ -585,7 +585,7 @@ fn installed_contract_package_rejects_helper_api_mismatch_without_registration(
         vec![query_observer(QUERY_OP_ID)],
     );
 
-    let Err(err) = engine.install_contract_package(package) else {
+    let Err(err) = engine.register_contract_package(package) else {
         return Err("helper API mismatch must be rejected".to_owned());
     };
 
@@ -621,7 +621,7 @@ fn installed_contract_package_rejects_missing_join_fn_without_registration() -> 
         vec![query_observer(QUERY_OP_ID)],
     );
 
-    let Err(err) = engine.install_contract_package(package) else {
+    let Err(err) = engine.register_contract_package(package) else {
         return Err("join policy without join fn must be rejected".to_owned());
     };
 
@@ -641,10 +641,10 @@ fn installed_contract_package_rejects_missing_join_fn_without_registration() -> 
 fn installed_contract_package_rejects_duplicate_package() -> Result<(), String> {
     let mut engine = engine();
     let record = engine
-        .install_contract_package(package_with_ops(MUTATION_OP_ID, QUERY_OP_ID))
+        .register_contract_package(package_with_ops(MUTATION_OP_ID, QUERY_OP_ID))
         .map_err(|err| format!("initial package install failed: {err:?}"))?;
 
-    let Err(err) = engine.install_contract_package(package_with_ops(MUTATION_OP_ID, QUERY_OP_ID))
+    let Err(err) = engine.register_contract_package(package_with_ops(MUTATION_OP_ID, QUERY_OP_ID))
     else {
         return Err("duplicate package id must be rejected".to_owned());
     };
@@ -661,12 +661,12 @@ fn installed_contract_package_rejects_duplicate_package() -> Result<(), String> 
 fn installed_contract_package_rejects_duplicate_installed_operation_ids() -> Result<(), String> {
     let mut engine = engine();
     engine
-        .install_contract_package(package_with_ops(MUTATION_OP_ID, QUERY_OP_ID))
+        .register_contract_package(package_with_ops(MUTATION_OP_ID, QUERY_OP_ID))
         .map_err(|err| format!("initial package install failed: {err:?}"))?;
 
     let mut identity = package_identity();
     identity.package_version = "0.2.0";
-    let Err(err) = engine.install_contract_package(package_with_identity_ops(
+    let Err(err) = engine.register_contract_package(package_with_identity_ops(
         identity,
         MUTATION_OP_ID,
         QUERY_OP_ID,
@@ -687,12 +687,12 @@ fn installed_contract_package_rejects_duplicate_installed_operation_ids() -> Res
 fn installed_contract_package_rejects_duplicate_installed_query_id() -> Result<(), String> {
     let mut engine = engine();
     engine
-        .install_contract_package(package_with_ops(MUTATION_OP_ID, QUERY_OP_ID))
+        .register_contract_package(package_with_ops(MUTATION_OP_ID, QUERY_OP_ID))
         .map_err(|err| format!("initial package install failed: {err:?}"))?;
 
     let mut identity = package_identity();
     identity.package_version = "0.2.0";
-    let Err(err) = engine.install_contract_package(package_with_identity_ops(
+    let Err(err) = engine.register_contract_package(package_with_identity_ops(
         identity,
         SECOND_MUTATION_OP_ID,
         QUERY_OP_ID,

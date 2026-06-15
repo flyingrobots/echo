@@ -49,6 +49,81 @@ Replay can show exactly what law admitted, retained, concealed, or rejected.
 - Settlement member blinding has explicit salt input and deterministic default
   derivation for reproducible local flows.
 
+## Progress Tracker
+
+Check off a slice only in the PR that implements or lands that slice. Design
+approval alone does not complete implementation slices unless the slice is
+explicitly design-only. The roadmap stays as the live progress register for
+this campaign.
+
+### Goalpost 1: Lawful Construction And Typed Failures
+
+Design:
+[`goalpost-01-lawful-construction-and-typed-failures.md`](braids-and-strands-hardening/goalpost-01-lawful-construction-and-typed-failures.md)
+
+- [ ] GP1-S1: Make `Strand<P>` construction posture-aware and non-forgeable
+      through public API.
+- [ ] GP1-S2: Replace public test construction with fixture builders.
+- [ ] GP1-S3: Replace proof validation strings with structured `ProofError`.
+- [ ] GP1-S4: Replace braid transition action strings with
+      `BraidTransitionKind`.
+- [ ] GP1-S5: Add negative capability tests for forged strands and display
+      string parsing.
+
+### Goalpost 2: Stable Identity And Privacy Posture
+
+Design:
+[`goalpost-02-stable-identity-and-privacy-posture.md`](braids-and-strands-hardening/goalpost-02-stable-identity-and-privacy-posture.md)
+
+- [ ] GP2-S1: Add golden vectors for replay-trace `ProofEnvelope` identity.
+- [ ] GP2-S2: Add proofless and proof-bearing `BraidShell` identity vectors.
+- [ ] GP2-S3: Add revealed and sealed `BraidMemberRef` vectors, including salt
+      effect.
+- [ ] GP2-S4: Mark vector compatibility classes and migration/versioning rules.
+- [ ] GP2-S5: Document deterministic blinding salt risk in API docs and
+      privacy-sensitive examples.
+
+### Goalpost 3: Historical Membership And Replay
+
+Design:
+[`goalpost-03-historical-membership-and-replay.md`](braids-and-strands-hardening/goalpost-03-historical-membership-and-replay.md)
+
+- [ ] GP3-S1: Promote append-only braid membership into an implementation
+      design.
+- [ ] GP3-S2: Add historical membership views by coordinate or event sequence.
+- [ ] GP3-S3: Add membership diff facts for added, ended, revealed, and
+      concealed changes.
+- [ ] GP3-S4: Add replay/audit facts for member verdicts, posture floors,
+      proof binding, retained support, frontier, and witness posture.
+- [ ] GP3-S5: Define the Braid Flight Recorder and Causal X-Ray lower-mode
+      output.
+
+### Goalpost 4: Witness Receipts And Sealed Capabilities
+
+Design:
+[`goalpost-04-witness-receipts-and-sealed-capabilities.md`](braids-and-strands-hardening/goalpost-04-witness-receipts-and-sealed-capabilities.md)
+
+- [ ] GP4-S1: Define `WitnessReceipt`, `WitnessKind`, and `WitnessBackend`.
+- [ ] GP4-S2: Add deterministic witness simulator fixtures for supported,
+      rejected, and unsupported outcomes.
+- [ ] GP4-S3: Bind witness identity only through explicit compatibility rules.
+- [ ] GP4-S4: Design purpose-bound sealed membership presentations.
+- [ ] GP4-S5: Add disclosure budget labels and replay wording for sealed
+      membership.
+
+### Goalpost 5: Named Plurality Laws
+
+Design:
+[`goalpost-05-named-plurality-laws.md`](braids-and-strands-hardening/goalpost-05-named-plurality-laws.md)
+
+- [ ] GP5-S1: Define the core plurality law registry shape.
+- [ ] GP5-S2: Add machine-readable Law Cards.
+- [ ] GP5-S3: Bind law name and version into witnessed readings.
+- [ ] GP5-S4: Route adapter-provided law families without application nouns in
+      Echo core.
+- [ ] GP5-S5: Add obstruction evidence for unsupported or unauthorized law
+      execution.
+
 ## North Star
 
 Echo must feel less like a crate full of important structs and more like a

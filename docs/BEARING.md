@@ -15,6 +15,9 @@ The WARP paper-to-Echo noun map is maintained in
 The post-PR #545 strands and braids hardening roadmap is maintained in
 `docs/design/braids-and-strands-roadmap.md`.
 
+Its goalpost design packet is maintained under
+`docs/design/braids-and-strands-hardening/`.
+
 The feature bar for the eventual `v0.1.0` release is maintained in
 `docs/design/v0.1.0-release-plan.md`.
 
@@ -50,12 +53,22 @@ but production Echo code must remain generic.
 
 ## Current Bearing
 
+The active architecture hardening focus is the post-PR #545 braids and strands
+campaign. Track progress through the goalpost and slice checklist in
+`docs/design/braids-and-strands-roadmap.md`. Each goalpost has a focused design
+document under `docs/design/braids-and-strands-hardening/`; implementation PRs
+must check off slices in the roadmap only when the slice actually lands.
+
+This hardening campaign does not replace the `v0.1.0` external-app release
+gate. It protects the newly landed strand, braid, proof, sealed-member,
+identity, witness, and plurality surfaces before more callers depend on them.
+
 Echo has a local witnessed intent pipeline into deterministic execution:
 application ingress can become witnessed submission history, lawful admission
 evidence, ticketed runtime ingress, scheduler-owned handler dispatch, receipt
 correlation, and observable intent outcome.
 
-The current priority is to prove that pipeline with `jedit` as a real external
+The release priority remains proving that pipeline with `jedit` as a real external
 consumer. The in-repo external fixture remains valuable, but it is no longer
 the `v0.1.0` release gate. Echo is not ready to release until jedit can submit
 an application-owned contract intent, let a trusted Echo host authorize

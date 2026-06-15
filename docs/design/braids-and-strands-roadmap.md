@@ -375,7 +375,7 @@ Acceptance:
   merged.
 - Negative tests prove a current-only membership projection cannot satisfy a
   historical coordinate request.
-- Historical membership diff can report added, removed, revealed, and
+- Historical membership diff can report added, ended, revealed, and
   concealed member changes.
 
 ### 6. Add Replay And Audit Optics
@@ -520,7 +520,8 @@ Work:
     }
     ```
 
-6. Preserve the target token shape:
+6. Preserve the target token shape. `PresentationPurpose` is a generic
+   capability purpose, not an application-domain purpose enum:
 
     ```rust
     pub struct SealedMembershipPresentation {

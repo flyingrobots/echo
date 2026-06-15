@@ -1,4 +1,19 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+
+## <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
+audit-date: 2026-06-15
+audit-status: keep
+topics:
+
+- strand
+- support
+- intent
+  accuracy: 90%
+
+---
+
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 # Strand and support Intent paths

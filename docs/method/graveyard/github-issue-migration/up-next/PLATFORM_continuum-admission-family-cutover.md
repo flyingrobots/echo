@@ -1,4 +1,19 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+
+## <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
+audit-date: 2026-06-15
+audit-status: archive
+topics:
+
+- continuum
+- admission
+- schema
+  accuracy: 80%
+
+---
+
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 # PLATFORM - Continuum admission family cutover

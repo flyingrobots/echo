@@ -60,6 +60,9 @@ pub enum BraidError {
         /// Member reference that appeared more than once.
         member_ref: BraidMemberRef,
     },
+    /// Braid membership cannot mix revealed and sealed references.
+    #[error("braid members must use a single revealed/sealed reference posture")]
+    MixedMemberReferencePosture,
     /// Collapse events must carry a non-empty witness digest.
     #[error("braid collapse witness must be non-empty")]
     EmptyCollapseWitness,
@@ -170,6 +173,12 @@ impl Braid {
                         member_ref: *member_ref,
                     });
                 }
+                if let Some(first) = self.members.first() {
+                    let first_is_sealed = member_ref_is_sealed(first);
+                    if first_is_sealed != member_ref_is_sealed(member_ref) {
+                        return Err(BraidError::MixedMemberReferencePosture);
+                    }
+                }
                 let next_sequence_num =
                     sequence_num
                         .checked_add(1)
@@ -269,6 +278,10 @@ impl Braid {
     pub fn frontier(&self) -> &[BraidMemberRef] {
         &self.members
     }
+}
+
+const fn member_ref_is_sealed(member_ref: &BraidMemberRef) -> bool {
+    matches!(member_ref, BraidMemberRef::Sealed { .. })
 }
 
 #[cfg(test)]
@@ -548,6 +561,34 @@ mod tests {
         assert!(braid.member_index.contains(&m1));
         assert!(braid.member_index.contains(&m2));
         assert_eq!(braid.member_index.len(), 2);
+    }
+
+    #[test]
+    fn test_braid_rejects_mixed_member_reference_posture() {
+        let braid_id = [0xAA; 32];
+        let auth = authority_ref();
+        let revealed = BraidMemberRef::Revealed(make_strand_id("strand-1"));
+        let sealed = BraidMemberRef::Sealed {
+            blinded_commitment: [0x44; 32],
+            authority: auth,
+        };
+        let mut braid = Braid::new(braid_id, auth);
+
+        braid
+            .apply(BraidEvent::MemberWoven {
+                member_ref: revealed,
+                sequence_num: 0,
+            })
+            .unwrap();
+
+        assert_eq!(
+            braid.apply(BraidEvent::MemberWoven {
+                member_ref: sealed,
+                sequence_num: 1,
+            }),
+            Err(BraidError::MixedMemberReferencePosture)
+        );
+        assert_eq!(braid.frontier(), &[revealed]);
     }
 
     #[test]

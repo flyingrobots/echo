@@ -433,7 +433,7 @@ pub struct BraidShell {
     pub witness_digest: Hash,
     /// Revelation posture of the shell itself.
     pub posture: CausalPosture,
-    /// Optional proof envelope verifying the correctness of this settlement.
+    /// Optional proof-shaped evidence envelope bound into shell identity.
     pub proof: Option<crate::proof::ProofEnvelope>,
     /// Canonical content digest of the full shell body.
     pub digest: Hash,
@@ -475,9 +475,9 @@ impl BraidShell {
         )
     }
 
-    /// Assembles a shell with a cryptographic proof envelope: validates member
-    /// order, checks posture floor and coherence, verifies the proof envelope
-    /// (if present) against the derived witness, and seals the shell.
+    /// Assembles a shell with a proof-shaped envelope: validates member order,
+    /// checks posture floor and coherence, validates the proof envelope shape
+    /// (if present) against the derived witness, and seals the shell digest.
     ///
     /// # Errors
     ///
@@ -541,6 +541,7 @@ impl BraidShell {
                 return Err(BraidShellError::ProofShapeValidationFailed { reason: err });
             }
         }
+        let proof_digest = proof.as_ref().map(crate::proof::ProofEnvelope::digest);
 
         let digest = compute_shell_digest(
             BRAID_SHELL_VERSION,
@@ -551,6 +552,7 @@ impl BraidShell {
             &outcome,
             witness_digest,
             posture,
+            proof_digest,
         );
         Ok(Self {
             version: BRAID_SHELL_VERSION,
@@ -645,6 +647,7 @@ impl BraidShell {
                 return Err(BraidShellError::ProofShapeValidationFailed { reason: err });
             }
         }
+        let proof_digest = self.proof.as_ref().map(crate::proof::ProofEnvelope::digest);
 
         let digest = compute_shell_digest(
             self.version,
@@ -655,6 +658,7 @@ impl BraidShell {
             &self.outcome,
             self.witness_digest,
             self.posture,
+            proof_digest,
         );
         if digest != self.digest {
             return Err(BraidShellError::DigestMismatch {
@@ -841,6 +845,7 @@ fn compute_shell_digest(
     outcome: &BraidShellOutcome,
     witness_digest: Hash,
     posture: CausalPosture,
+    proof_digest: Option<Hash>,
 ) -> Hash {
     let mut hasher = Hasher::new();
     hasher.update(SHELL_DOMAIN);
@@ -855,6 +860,15 @@ fn compute_shell_digest(
         posture,
     );
     hasher.update(&witness_digest);
+    match proof_digest {
+        Some(digest) => {
+            hasher.update(&[0x01]);
+            hasher.update(&digest);
+        }
+        None => {
+            hasher.update(&[0x00]);
+        }
+    }
     hasher.finalize().into()
 }
 
@@ -1719,6 +1733,22 @@ mod tests {
         )
         .unwrap();
         shell_with_valid_proof.validate().unwrap();
+        assert_ne!(
+            temp_shell.digest, shell_with_valid_proof.digest,
+            "proof-bearing shells must have a distinct content identity"
+        );
+
+        let mut proof_tampered = shell_with_valid_proof.clone();
+        proof_tampered
+            .proof
+            .as_mut()
+            .expect("proof-bearing shell")
+            .proof_bytes
+            .push(4);
+        assert!(matches!(
+            proof_tampered.validate(),
+            Err(BraidShellError::DigestMismatch { .. })
+        ));
 
         // Invalid proof: mismatched public inputs hash
         let invalid_proof_mismatch = ProofEnvelope {

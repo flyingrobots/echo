@@ -2,11 +2,15 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Proof envelopes and honesty assertions.
 
+use blake3::Hasher;
+
 use crate::braid_shell::BraidCoordinate;
 use crate::ident::Hash;
 use crate::revelation::AuthorityDomainRef;
 
-/// The type of cryptographic proof enclosed.
+const PROOF_ENVELOPE_DOMAIN: &[u8] = b"echo.proof.envelope.v1\0";
+
+/// The kind of proof-shaped evidence enclosed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ProofKind {
     /// Zero-Knowledge Succinct Non-Interactive Argument of Knowledge.
@@ -17,12 +21,25 @@ pub enum ProofKind {
     VectorOpening,
 }
 
-/// A cryptographic envelope encapsulating validation proof details.
+impl ProofKind {
+    /// Stable wire tag for canonical hashing.
+    #[must_use]
+    pub fn canonical_tag(self) -> u8 {
+        match self {
+            Self::ZkSnark => 0x01,
+            Self::ReplayTrace => 0x02,
+            Self::VectorOpening => 0x03,
+        }
+    }
+}
+
+/// A proof-shaped envelope whose current validation checks structure and public-input binding.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProofEnvelope {
-    /// The style/kind of proof.
+    /// The style/kind of proof-shaped evidence.
     pub kind: ProofKind,
-    /// Raw serialized proof bytes.
+    /// Raw serialized proof/evidence bytes. These bytes are not cryptographically
+    /// verified by [`Self::validate_shape`].
     pub proof_bytes: Vec<u8>,
     /// Salted commitment digest binding public inputs.
     pub public_inputs_hash: Hash,
@@ -45,6 +62,18 @@ impl ProofEnvelope {
             ));
         }
         Ok(())
+    }
+
+    /// Returns the canonical digest of the envelope material.
+    #[must_use]
+    pub fn digest(&self) -> Hash {
+        let mut hasher = Hasher::new();
+        hasher.update(PROOF_ENVELOPE_DOMAIN);
+        hasher.update(&[self.kind.canonical_tag()]);
+        hasher.update(&(self.proof_bytes.len() as u64).to_le_bytes());
+        hasher.update(&self.proof_bytes);
+        hasher.update(&self.public_inputs_hash);
+        hasher.finalize().into()
     }
 }
 

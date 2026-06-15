@@ -639,6 +639,9 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
   weaving, detects member sequence overflow with checked arithmetic, rejects
   empty collapse witnesses, and exposes folded state through read-only
   accessors instead of public mutable fields.
+- `warp-core` braid-shell digests now bind optional proof-shaped envelopes:
+  proof-bearing shells have distinct content identity from proof-less shells,
+  and mutating proof bytes after assembly is caught by shell validation.
 - `warp-wasm` settlement publication now maps non-`Shared` strand admission
   rejection to the stable `INVALID_STRAND` ABI error code instead of
   collapsing the lawful posture denial into `ENGINE_ERROR`.

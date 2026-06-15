@@ -142,7 +142,12 @@ impl BraidMemberRef {
 
 ### 3. Proof-Shaped Envelopes
 
-A `ProofEnvelope` contains proof-shaped evidence bytes and the public-input hash they claim to bind. `ObserverHonestyClaim` is a separate assertion type; `validate_shape` admits replay-trace evidence only and rejects `ZkSnark`/`VectorOpening` envelopes until real verifier backends exist.
+A `ProofEnvelope` contains proof-shaped evidence bytes and the public-input
+hash they claim to bind. `ObserverHonestyClaim` is a separate assertion type;
+`validate_shape` admits replay-trace evidence only and rejects
+`ZkSnark`/`VectorOpening` envelopes until real verifier backends exist. It does
+not perform cryptographic proof verification; only envelope structure and
+public-input hash binding are validated.
 
 ```rust
 pub enum ProofKind {
@@ -164,7 +169,9 @@ pub struct ObserverHonestyClaim {
 }
 ```
 
-Replay-trace shape validation and proof-envelope digest binding occur during shell assembly:
+Replay-trace shape validation and proof-envelope digest binding occur during
+shell assembly. Proof cryptographic validity is not verified; only envelope
+shape and public-input binding are validated:
 
 ```rust
 impl BraidShell {

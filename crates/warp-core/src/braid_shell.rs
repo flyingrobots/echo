@@ -496,6 +496,8 @@ impl BraidShell {
     /// Assembles a shell with a proof-shaped envelope: validates member order,
     /// checks posture floor and coherence, validates the proof envelope shape
     /// (if present) against the derived witness, and seals the shell digest.
+    /// Proof cryptographic validity is not verified; only envelope shape and
+    /// public-input binding are validated.
     ///
     /// # Errors
     ///

@@ -57,6 +57,9 @@ pub struct ProofEnvelope {
 impl ProofEnvelope {
     /// Validates the envelope shape and public inputs hash.
     ///
+    /// Does not perform cryptographic proof verification; only validates
+    /// envelope structure and public-input hash binding.
+    ///
     /// # Errors
     ///
     /// Returns a validation error string if proof bytes are empty or public inputs mismatch.

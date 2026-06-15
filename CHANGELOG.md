@@ -648,6 +648,9 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
   of duplicate-member identity.
 - `warp-core` crate-root braid exports now include `BraidError`, `BraidStatus`,
   and `BraidMemberRef` so external consumers can handle public braid results.
+- `warp-core` shared-strand settlement handles now re-enter the live registry
+  path before planning or settling, and crate-internal settlement helpers reject
+  stale handles that no longer match registered strand state.
 - `warp-wasm` settlement publication now maps non-`Shared` strand admission
   rejection to the stable `INVALID_STRAND` ABI error code instead of
   collapsing the lawful posture denial into `ENGINE_ERROR`.

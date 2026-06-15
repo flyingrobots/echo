@@ -283,6 +283,9 @@ impl Strand<DynamicPosture> {
 impl Strand<Shared> {
     /// Produces a deterministic import/conflict plan for the strand suffix.
     ///
+    /// The live registry entry is authoritative; this handle supplies only the
+    /// strand identity.
+    ///
     /// # Errors
     ///
     /// Returns a [`crate::settlement::SettlementError`] if the plan cannot be generated.
@@ -291,15 +294,13 @@ impl Strand<Shared> {
         runtime: &crate::coordinator::WorldlineRuntime,
         provenance: &ProvenanceService,
     ) -> Result<crate::settlement::SettlementPlan, crate::settlement::SettlementError> {
-        crate::settlement::SettlementService::plan_with_policy_internal(
-            runtime,
-            provenance,
-            self,
-            &crate::settlement::SettlementPolicy::default(),
-        )
+        crate::settlement::SettlementService::plan(runtime, provenance, self.strand_id)
     }
 
     /// Executes the deterministic settlement plan.
+    ///
+    /// The live registry entry is authoritative; this handle supplies only the
+    /// strand identity.
     ///
     /// # Errors
     ///
@@ -309,12 +310,7 @@ impl Strand<Shared> {
         runtime: &mut crate::coordinator::WorldlineRuntime,
         provenance: &mut ProvenanceService,
     ) -> Result<crate::settlement::SettlementResult, crate::settlement::SettlementError> {
-        crate::settlement::SettlementService::settle_with_policy_internal(
-            runtime,
-            provenance,
-            self,
-            &crate::settlement::SettlementPolicy::default(),
-        )
+        crate::settlement::SettlementService::settle(runtime, provenance, self.strand_id)
     }
 }
 

@@ -429,6 +429,10 @@ impl WarpKernel {
                     "strand {strand_id:?} with posture {posture:?} is not shared-admitted for settlement"
                 ),
             },
+            SettlementError::StaleStrandHandle { strand_id } => AbiError {
+                code: error_codes::INVALID_STRAND,
+                message: format!("stale strand handle: {strand_id:?}"),
+            },
             _ => AbiError {
                 code: error_codes::ENGINE_ERROR,
                 message: err.to_string(),

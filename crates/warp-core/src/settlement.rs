@@ -561,6 +561,12 @@ pub enum SettlementError {
         /// Effective posture carried by the strand.
         posture: CausalPosture,
     },
+    /// A statically shared strand handle did not match the live registry entry.
+    #[error("stale strand handle does not match live registry entry: {strand_id:?}")]
+    StaleStrandHandle {
+        /// Strand whose handle no longer matches the registry.
+        strand_id: StrandId,
+    },
     /// Runtime frontier state and provenance history disagree for a worldline.
     #[error("runtime/provenance drift for worldline {worldline_id:?}: frontier {frontier_tick}, provenance {provenance_len}")]
     RuntimeProvenanceDrift {
@@ -718,7 +724,7 @@ impl SettlementService {
     }
 
     /// Produces a deterministic settlement plan under an explicit named policy, statically gated on Shared posture.
-    pub fn plan_with_policy_internal(
+    pub(crate) fn plan_with_policy_internal(
         runtime: &WorldlineRuntime,
         provenance: &ProvenanceService,
         strand: &crate::strand::Strand<crate::revelation::Shared>,
@@ -726,6 +732,7 @@ impl SettlementService {
     ) -> Result<SettlementPlan, SettlementError> {
         let strand_id = strand.strand_id;
         ensure_shared_runtime_posture(strand)?;
+        ensure_live_registered_shared_strand(runtime, strand)?;
         let strand_posture = strand.retention_posture.causal_posture;
         let delta = Self::compare_internal(runtime, provenance, strand)?;
         let target_worldline = strand.fork_basis_ref.source_lane_id;
@@ -915,7 +922,7 @@ impl SettlementService {
     }
 
     /// Executes the deterministic settlement plan under an explicit named policy, statically gated on Shared posture.
-    pub fn settle_with_policy_internal(
+    pub(crate) fn settle_with_policy_internal(
         runtime: &mut WorldlineRuntime,
         provenance: &mut ProvenanceService,
         strand: &crate::strand::Strand<crate::revelation::Shared>,
@@ -1040,6 +1047,20 @@ fn ensure_shared_runtime_posture(
         Err(SettlementError::NonSharedStrand {
             strand_id: strand.strand_id,
             posture: strand.retention_posture.causal_posture,
+        })
+    }
+}
+
+fn ensure_live_registered_shared_strand(
+    runtime: &WorldlineRuntime,
+    strand: &crate::strand::Strand<crate::revelation::Shared>,
+) -> Result<(), SettlementError> {
+    let live = shared_strand(runtime.strands(), strand.strand_id)?;
+    if live == *strand {
+        Ok(())
+    } else {
+        Err(SettlementError::StaleStrandHandle {
+            strand_id: strand.strand_id,
         })
     }
 }
@@ -2365,6 +2386,48 @@ mod tests {
                 strand_id: rejected,
                 posture: CausalPosture::AuthorOnly,
             } if rejected == strand_id
+        ));
+    }
+
+    #[test]
+    fn shared_strand_handles_require_live_registry_membership() {
+        let (mut runtime, mut provenance, strand_id, _, _) =
+            setup_runtime_with_strand(ParentDrift::None);
+        let stale_shared = shared_strand(runtime.strands(), strand_id).unwrap();
+        let mut mismatched_shared = stale_shared.clone();
+        mismatched_shared.child_worldline_id = wl(9);
+
+        let stale_err = SettlementService::plan_with_policy_internal(
+            &runtime,
+            &provenance,
+            &mismatched_shared,
+            &SettlementPolicy::default(),
+        )
+        .expect_err("mismatched Shared strand handle must not bypass live registry state");
+        assert!(matches!(
+            stale_err,
+            SettlementError::StaleStrandHandle { strand_id: rejected } if rejected == strand_id
+        ));
+
+        runtime
+            .strands_mut_for_tests()
+            .remove(&strand_id)
+            .expect("strand removed from registry");
+
+        let plan_err = stale_shared
+            .plan(&runtime, &provenance)
+            .expect_err("stale Shared strand handle must not bypass registry lookup");
+        assert!(matches!(
+            plan_err,
+            SettlementError::StrandNotFound(rejected) if rejected == strand_id
+        ));
+
+        let settle_err = stale_shared
+            .settle(&mut runtime, &mut provenance)
+            .expect_err("stale Shared strand handle must not settle outside registry");
+        assert!(matches!(
+            settle_err,
+            SettlementError::StrandNotFound(rejected) if rejected == strand_id
         ));
     }
 

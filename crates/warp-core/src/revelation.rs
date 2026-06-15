@@ -73,8 +73,17 @@ pub enum CausalPosture {
 #[deprecated(note = "Use CausalPosture")]
 pub type RevelationPosture = CausalPosture;
 
+mod posture_state_seal {
+    pub trait Sealed {}
+}
+
 /// Trait representing compile-time typestate for causal posture.
-pub trait CausalPostureState: Clone + std::fmt::Debug + PartialEq + Eq {
+///
+/// This trait is sealed to Echo's marker types. Runtime posture validation
+/// remains the authority for settlement admission.
+pub trait CausalPostureState:
+    Clone + std::fmt::Debug + PartialEq + Eq + posture_state_seal::Sealed
+{
     /// Returns the runtime CausalPosture value for this typestate, or None if dynamic.
     fn causal_posture() -> Option<CausalPosture>;
 }
@@ -82,6 +91,7 @@ pub trait CausalPostureState: Clone + std::fmt::Debug + PartialEq + Eq {
 /// Marker struct representing the Shared causal posture.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Shared;
+impl posture_state_seal::Sealed for Shared {}
 impl CausalPostureState for Shared {
     fn causal_posture() -> Option<CausalPosture> {
         Some(CausalPosture::Shared)
@@ -91,6 +101,7 @@ impl CausalPostureState for Shared {
 /// Marker struct representing the AuthorOnly causal posture.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AuthorOnly;
+impl posture_state_seal::Sealed for AuthorOnly {}
 impl CausalPostureState for AuthorOnly {
     fn causal_posture() -> Option<CausalPosture> {
         Some(CausalPosture::AuthorOnly)
@@ -100,6 +111,7 @@ impl CausalPostureState for AuthorOnly {
 /// Marker struct representing the Scratch causal posture.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Scratch;
+impl posture_state_seal::Sealed for Scratch {}
 impl CausalPostureState for Scratch {
     fn causal_posture() -> Option<CausalPosture> {
         Some(CausalPosture::Scratch)
@@ -109,6 +121,7 @@ impl CausalPostureState for Scratch {
 /// Representation of causal posture whose type is dynamic/erased at compile-time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DynamicPosture;
+impl posture_state_seal::Sealed for DynamicPosture {}
 impl CausalPostureState for DynamicPosture {
     fn causal_posture() -> Option<CausalPosture> {
         None

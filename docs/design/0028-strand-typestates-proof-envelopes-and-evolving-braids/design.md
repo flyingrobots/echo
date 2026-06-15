@@ -47,7 +47,13 @@ All four key gaps from the Echo codebase gap analysis now have current E1 surfac
 We define the typestate traits and marker structs to represent the four causal posture states:
 
 ```rust
-pub trait CausalPostureState: Clone + std::fmt::Debug + PartialEq + Eq {
+mod posture_state_seal {
+    pub trait Sealed {}
+}
+
+pub trait CausalPostureState:
+    Clone + std::fmt::Debug + PartialEq + Eq + posture_state_seal::Sealed
+{
     fn causal_posture() -> Option<CausalPosture>;
 }
 
@@ -56,24 +62,28 @@ pub struct AuthorOnly;
 pub struct Scratch;
 pub struct DynamicPosture;
 
+impl posture_state_seal::Sealed for Shared {}
 impl CausalPostureState for Shared {
     fn causal_posture() -> Option<CausalPosture> {
         Some(CausalPosture::Shared)
     }
 }
 
+impl posture_state_seal::Sealed for AuthorOnly {}
 impl CausalPostureState for AuthorOnly {
     fn causal_posture() -> Option<CausalPosture> {
         Some(CausalPosture::AuthorOnly)
     }
 }
 
+impl posture_state_seal::Sealed for Scratch {}
 impl CausalPostureState for Scratch {
     fn causal_posture() -> Option<CausalPosture> {
         Some(CausalPosture::Scratch)
     }
 }
 
+impl posture_state_seal::Sealed for DynamicPosture {}
 impl CausalPostureState for DynamicPosture {
     fn causal_posture() -> Option<CausalPosture> {
         None

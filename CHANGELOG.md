@@ -667,7 +667,9 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
   and `BraidMemberRef` so external consumers can handle public braid results.
 - `warp-core` shared-strand settlement handles now re-enter the live registry
   path before planning or settling, and crate-internal settlement helpers reject
-  stale handles that no longer match registered strand state.
+  stale handles that no longer match registered strand state. `CausalPostureState`
+  is sealed to Echo's marker types so external crates cannot add typestate
+  implementations outside the runtime posture gate.
 - `warp-wasm` settlement publication now maps non-`Shared` strand admission
   rejection to the stable `INVALID_STRAND` ABI error code instead of
   collapsing the lawful posture denial into `ENGINE_ERROR`.

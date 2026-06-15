@@ -318,6 +318,8 @@ pub struct RetentionPosture {
     pub retention_contract: RetentionContractId,
     /// Shared-admission scope, present only for `Shared`.
     pub admission_scope: Option<AdmissionScopeId>,
+    /// Source identity disclosure policy for retained shared projections.
+    pub source_disclosure: SourceDisclosurePolicy,
 }
 
 impl RetentionPosture {
@@ -343,7 +345,23 @@ impl RetentionPosture {
             authority,
             retention_contract,
             admission_scope,
+            source_disclosure: default_source_disclosure(causal_posture),
         })
+    }
+
+    /// Returns this posture with an explicit source-disclosure policy.
+    ///
+    /// # Errors
+    ///
+    /// Returns an obstruction when a non-shared posture tries to carry a shared
+    /// source-disclosure policy.
+    pub fn with_source_disclosure(
+        mut self,
+        source_disclosure: SourceDisclosurePolicy,
+    ) -> Result<Self, PostureObstruction> {
+        validate_source_disclosure(self.causal_posture, source_disclosure)?;
+        self.source_disclosure = source_disclosure;
+        Ok(self)
     }
 
     /// Re-validates a retained posture bundle after direct field mutation.
@@ -355,6 +373,7 @@ impl RetentionPosture {
     pub fn validate(&self) -> Result<(), PostureObstruction> {
         validate_admission_scope(self.causal_posture, self.admission_scope)?;
         validate_posture_derivation(self.causal_posture, self.posture_derivation)?;
+        validate_source_disclosure(self.causal_posture, self.source_disclosure)?;
         self.authority.validate()
     }
 }
@@ -499,6 +518,13 @@ pub enum PostureObstruction {
     UnexpectedAdmissionScope {
         /// Posture that unlawfully carried a scope.
         posture: CausalPosture,
+    },
+    /// Non-shared posture must not carry a shared source-disclosure policy.
+    UnexpectedSourceDisclosure {
+        /// Posture that unlawfully carried a source-disclosure policy.
+        posture: CausalPosture,
+        /// Source-disclosure policy that only belongs to shared projections.
+        source_disclosure: SourceDisclosurePolicy,
     },
     /// Durable materialization has exactly one posture pair:
     /// `Scratch -> AuthorOnly`.
@@ -1252,6 +1278,32 @@ fn validate_admission_scope(
         }
         (CausalPosture::Scratch | CausalPosture::AuthorOnly, None)
         | (CausalPosture::Shared, Some(_)) => Ok(()),
+    }
+}
+
+const fn default_source_disclosure(posture: CausalPosture) -> SourceDisclosurePolicy {
+    match posture {
+        CausalPosture::Shared => SourceDisclosurePolicy::RevealFull,
+        CausalPosture::Scratch | CausalPosture::AuthorOnly => SourceDisclosurePolicy::RevealNone,
+    }
+}
+
+fn validate_source_disclosure(
+    posture: CausalPosture,
+    source_disclosure: SourceDisclosurePolicy,
+) -> Result<(), PostureObstruction> {
+    match (posture, source_disclosure) {
+        (CausalPosture::Shared, _)
+        | (
+            CausalPosture::Scratch | CausalPosture::AuthorOnly,
+            SourceDisclosurePolicy::RevealNone,
+        ) => Ok(()),
+        (CausalPosture::Scratch | CausalPosture::AuthorOnly, _) => {
+            Err(PostureObstruction::UnexpectedSourceDisclosure {
+                posture,
+                source_disclosure,
+            })
+        }
     }
 }
 

@@ -18,7 +18,7 @@ use crate::provenance_store::{
     ProvenanceEventKind, ProvenanceRef, ProvenanceService, ProvenanceStore,
 };
 use crate::record::{EdgeRecord, NodeRecord};
-use crate::revelation::{CausalPosture, RetentionPosture};
+use crate::revelation::{CausalPosture, RetentionPosture, SourceDisclosurePolicy};
 use crate::snapshot::{compute_commit_hash_v2, compute_state_root_for_warp_state};
 use crate::strand::{
     StrandBasisReport, StrandError, StrandId, StrandOverlapRevalidation, StrandRegistry,
@@ -33,6 +33,7 @@ use crate::WorldlineState;
 const CONFLICT_ARTIFACT_DOMAIN: &[u8] = b"echo:settlement-conflict-artifact:v1\0";
 const PLURAL_ARTIFACT_DOMAIN: &[u8] = b"echo:settlement-plural-artifact:v1\0";
 const REFUSE_PLURAL_POLICY_DOMAIN: &[u8] = b"echo:settlement-policy:refuse-plural:v1\0";
+const SETTLEMENT_MEMBER_BLINDING_DOMAIN: &[u8] = b"echo.settlement.member.blinding.v1\0";
 
 /// Deterministic reasons a source settlement step could not be imported.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1437,11 +1438,17 @@ fn build_braid_shell(
     };
 
     let strand_posture = retention_posture.causal_posture;
-    let member_ref = if strand_posture == CausalPosture::Shared {
+    let source_identity_public = strand_posture == CausalPosture::Shared
+        && retention_posture.source_disclosure == SourceDisclosurePolicy::RevealFull;
+    let member_ref = if source_identity_public {
         BraidMemberRef::Revealed(plan.strand_id)
     } else {
-        let blinded_commitment =
-            BraidMemberRef::seal(plan.strand_id, plan.basis_report.child_worldline_id);
+        let blinding_secret = settlement_member_blinding(plan, retention_posture);
+        let blinded_commitment = BraidMemberRef::seal(
+            plan.strand_id,
+            plan.basis_report.child_worldline_id,
+            blinding_secret,
+        );
         BraidMemberRef::Sealed {
             blinded_commitment,
             authority: retention_posture.authority.author_domain,
@@ -1469,6 +1476,68 @@ fn build_braid_shell(
         outcome,
         strand_posture,
     )
+}
+
+fn settlement_member_blinding(plan: &SettlementPlan, retention_posture: &RetentionPosture) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(SETTLEMENT_MEMBER_BLINDING_DOMAIN);
+    hasher.update(plan.strand_id.as_bytes());
+    hasher.update(plan.basis_report.child_worldline_id.as_bytes());
+    hasher.update(plan.target_worldline.as_bytes());
+    hasher.update(plan.target_base_ref.worldline_id.as_bytes());
+    hasher.update(&plan.target_base_ref.worldline_tick.as_u64().to_le_bytes());
+    hasher.update(&plan.target_base_ref.commit_hash);
+    hasher.update(
+        plan.basis_report
+            .realized_parent_ref
+            .worldline_id
+            .as_bytes(),
+    );
+    hasher.update(
+        &plan
+            .basis_report
+            .realized_parent_ref
+            .worldline_tick
+            .as_u64()
+            .to_le_bytes(),
+    );
+    hasher.update(&plan.basis_report.realized_parent_ref.commit_hash);
+    hasher.update(retention_posture.retention_contract.as_bytes());
+    hasher.update(
+        retention_posture
+            .authority
+            .author_domain
+            .origin_id
+            .as_bytes(),
+    );
+    hasher.update(
+        retention_posture
+            .authority
+            .author_domain
+            .domain_id
+            .as_bytes(),
+    );
+    match retention_posture.admission_scope {
+        Some(scope) => {
+            hasher.update(&[1]);
+            hasher.update(scope.as_bytes());
+        }
+        None => {
+            hasher.update(&[0]);
+        }
+    }
+    hasher.update(&[source_disclosure_tag(retention_posture.source_disclosure)]);
+    hasher.finalize().into()
+}
+
+const fn source_disclosure_tag(source_disclosure: SourceDisclosurePolicy) -> u8 {
+    match source_disclosure {
+        SourceDisclosurePolicy::RevealNone => 0,
+        SourceDisclosurePolicy::RevealStub => 1,
+        SourceDisclosurePolicy::RevealRedacted => 2,
+        SourceDisclosurePolicy::RevealFull => 3,
+        SourceDisclosurePolicy::RevealByAuthorityOnly => 4,
+    }
 }
 
 fn hash_claim_source_ref(hasher: &mut Hasher, source_ref: ProvenanceRef) {
@@ -1651,7 +1720,7 @@ mod tests {
     use crate::revelation::{
         ActorId, AdmissionScopeId, AuthorityBinding, AuthorityDomainId, AuthorityDomainRef,
         CausalAuthority, OriginId, PostureDerivation, RetentionContractId, RetentionPosture,
-        SealStrength,
+        SealStrength, SourceDisclosurePolicy,
     };
     use crate::strand::{ForkBasisRef, Strand};
     use crate::tick_patch::{SlotId, WarpOp};
@@ -2686,6 +2755,35 @@ mod tests {
                 alternative_ids: expected_plural_ids,
             }
         );
+    }
+
+    #[test]
+    fn hidden_shared_source_disclosure_seals_settlement_shell_member() {
+        let retention_posture = shared_retention_posture()
+            .with_source_disclosure(SourceDisclosurePolicy::RevealNone)
+            .unwrap();
+        let (mut runtime, mut provenance, strand_id, _, child_worldline) =
+            setup_runtime_with_strand_posture(ParentDrift::OverlapDifferent, retention_posture);
+
+        let result = SettlementService::settle_with_policy(
+            &mut runtime,
+            &mut provenance,
+            strand_id,
+            &plural_policy(),
+        )
+        .unwrap();
+
+        let shell_digest = result.braid_shell.unwrap();
+        let shell = provenance.braid_shell(&shell_digest).unwrap();
+
+        assert!(!shell.has_member_strand(&strand_id));
+        assert!(matches!(
+            shell.members[0].member_ref,
+            crate::braid_shell::BraidMemberRef::Sealed { .. }
+        ));
+
+        let blinding_secret = settlement_member_blinding(&result.plan, &retention_posture);
+        assert!(shell.has_member_strand_secure(&strand_id, &child_worldline, &blinding_secret));
     }
 
     #[test]

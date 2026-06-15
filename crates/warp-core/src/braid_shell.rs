@@ -62,14 +62,14 @@ impl MemberVerdict {
     }
 }
 
-/// Reference to a braid member, supporting both revealed and cryptographically sealed references.
+/// Reference to a braid member, supporting both revealed and sealed references.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BraidMemberRef {
     /// Publicly revealed strand identity.
     Revealed(StrandId),
-    /// Cryptographically sealed/blinded member reference.
+    /// Sealed member reference.
     Sealed {
-        /// Salted or randomized commitment digest of the member's identity.
+        /// Domain-separated commitment digest of the member's identity.
         blinded_commitment: Hash,
         /// Causal authority domain controlling the private history.
         authority: AuthorityDomainRef,
@@ -77,29 +77,44 @@ pub enum BraidMemberRef {
 }
 
 impl BraidMemberRef {
-    /// Computes the cryptographically secure blinded commitment for a sealed reference
-    /// using the private child worldline ID as a high-entropy salt.
+    /// Computes the commitment for a sealed reference using caller-supplied
+    /// non-public blinding material.
     #[must_use]
-    pub fn seal(strand_id: StrandId, child_worldline_id: WorldlineId) -> Hash {
+    pub fn seal(
+        strand_id: StrandId,
+        child_worldline_id: WorldlineId,
+        blinding_secret: Hash,
+    ) -> Hash {
         let mut hasher = Hasher::new();
         hasher.update(SEALED_MEMBER_DOMAIN);
+        hasher.update(&blinding_secret);
         hasher.update(child_worldline_id.as_bytes());
         hasher.update(strand_id.as_bytes());
         hasher.finalize().into()
     }
 
-    /// Returns whether this member reference matches the given strand ID and private child worldline ID.
+    /// Returns whether this member reference matches the given strand ID,
+    /// child worldline ID, and blinding material.
     #[must_use]
-    pub fn matches_strand(&self, strand_id: &StrandId, child_worldline_id: &WorldlineId) -> bool {
+    pub fn matches_strand(
+        &self,
+        strand_id: &StrandId,
+        child_worldline_id: &WorldlineId,
+        blinding_secret: &Hash,
+    ) -> bool {
         match self {
             Self::Revealed(id) => *id == *strand_id,
             Self::Sealed {
                 blinded_commitment, ..
             } => {
-                let expected = Self::seal(*strand_id, *child_worldline_id);
+                let expected = Self::seal(*strand_id, *child_worldline_id, *blinding_secret);
                 *blinded_commitment == expected
             }
         }
+    }
+
+    const fn is_sealed(self) -> bool {
+        matches!(self, Self::Sealed { .. })
     }
 
     /// Stable wire tag for canonical serialization.
@@ -373,6 +388,9 @@ pub enum BraidShellError {
         /// Member reference that appeared more than once.
         member_ref: BraidMemberRef,
     },
+    /// Revealed and sealed member references may not be mixed in one shell.
+    #[error("braid shell mixes revealed and sealed member references")]
+    MixedMemberReferencePosture,
     /// A retained plural artifact id may never migrate to a different shell.
     #[error("plural artifact {plural_id:?} already bound to shell {existing_shell:?}")]
     PluralArtifactAlreadyBound {
@@ -684,17 +702,19 @@ impl BraidShell {
         })
     }
 
-    /// Returns whether the shell summarizes the given member strand, using its private child worldline ID for sealed references.
+    /// Returns whether the shell summarizes the given member strand, using
+    /// non-public blinding material for sealed references.
     #[must_use]
     pub fn has_member_strand_secure(
         &self,
         strand_id: &StrandId,
         child_worldline_id: &WorldlineId,
+        blinding_secret: &Hash,
     ) -> bool {
         self.members.iter().any(|member| {
             member
                 .member_ref
-                .matches_strand(strand_id, child_worldline_id)
+                .matches_strand(strand_id, child_worldline_id, blinding_secret)
         })
     }
 }
@@ -717,23 +737,19 @@ fn check_outcome_law(outcome: &BraidShellOutcome) -> Result<(), BraidShellError>
 
 /// One strand may appear at most once among shell members.
 fn check_unique_member_strands(members: &[BraidShellMember]) -> Result<(), BraidShellError> {
+    if let Some(first) = members.first() {
+        let first_is_sealed = first.member_ref.is_sealed();
+        if members
+            .iter()
+            .any(|member| member.member_ref.is_sealed() != first_is_sealed)
+        {
+            return Err(BraidShellError::MixedMemberReferencePosture);
+        }
+    }
     for (index, member) in members.iter().enumerate() {
         if members[..index]
             .iter()
-            .any(|earlier| match (earlier.member_ref, member.member_ref) {
-                (BraidMemberRef::Revealed(e_id), BraidMemberRef::Revealed(m_id)) => e_id == m_id,
-                (
-                    BraidMemberRef::Sealed {
-                        blinded_commitment: e_c,
-                        ..
-                    },
-                    BraidMemberRef::Sealed {
-                        blinded_commitment: m_c,
-                        ..
-                    },
-                ) => e_c == m_c,
-                _ => false,
-            })
+            .any(|earlier| earlier.member_ref == member.member_ref)
         {
             return Err(BraidShellError::DuplicateMemberStrand {
                 member_ref: member.member_ref,
@@ -1256,6 +1272,35 @@ mod tests {
         }
     }
 
+    fn authority(origin: u8, domain: u8) -> AuthorityDomainRef {
+        AuthorityDomainRef::new(
+            crate::revelation::OriginId::from_bytes([origin; 32]),
+            crate::revelation::AuthorityDomainId::from_bytes([domain; 32]),
+        )
+    }
+
+    fn sealed_member(
+        commitment: Hash,
+        authority: AuthorityDomainRef,
+        verdict: MemberVerdict,
+        claim_byte: u8,
+    ) -> BraidShellMember {
+        BraidShellMember {
+            member_ref: BraidMemberRef::Sealed {
+                blinded_commitment: commitment,
+                authority,
+            },
+            support_pin_digest: [0x21; 32],
+            basis_digest: [0x22; 32],
+            frontier_digest: [0x23; 32],
+            footprint_digest: [0x24; 32],
+            claim_digest: [claim_byte; 32],
+            verdict,
+            verdict_digest: [0x26; 32],
+            posture: CausalPosture::AuthorOnly,
+        }
+    }
+
     fn plural_shell(members: Vec<BraidShellMember>) -> BraidShell {
         BraidShell::assemble(
             wl(1),
@@ -1438,6 +1483,60 @@ mod tests {
                 member_ref: BraidMemberRef::Revealed(make_strand_id("member-a")),
             })
         );
+    }
+
+    #[test]
+    fn sealed_members_with_same_commitment_under_different_authorities_are_distinct() {
+        let commitment = [0x44; 32];
+        let result = BraidShell::assemble(
+            wl(1),
+            basis_ref(),
+            vec![
+                sealed_member(
+                    commitment,
+                    authority(0x10, 0x20),
+                    MemberVerdict::Plural,
+                    0x25,
+                ),
+                sealed_member(
+                    commitment,
+                    authority(0x11, 0x20),
+                    MemberVerdict::Plural,
+                    0x26,
+                ),
+            ],
+            [0x5E; 32],
+            BraidShellOutcome::Plural {
+                alternative_ids: vec![[0x31; 32]],
+            },
+            CausalPosture::AuthorOnly,
+        );
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn mixed_revealed_and_sealed_members_are_refused() {
+        let result = BraidShell::assemble(
+            wl(1),
+            basis_ref(),
+            vec![
+                member("member-a", MemberVerdict::Plural),
+                sealed_member(
+                    [0x44; 32],
+                    authority(0x10, 0x20),
+                    MemberVerdict::Plural,
+                    0x26,
+                ),
+            ],
+            [0x5E; 32],
+            BraidShellOutcome::Plural {
+                alternative_ids: vec![[0x31; 32]],
+            },
+            CausalPosture::AuthorOnly,
+        );
+
+        assert_eq!(result, Err(BraidShellError::MixedMemberReferencePosture));
     }
 
     #[test]
@@ -1799,26 +1898,27 @@ mod tests {
     fn test_secure_sealed_member_matching() {
         let strand_id = make_strand_id("secure-member");
         let child_worldline = WorldlineId::from_bytes([0x88; 32]);
-        let authority = AuthorityDomainRef::new(
-            crate::revelation::OriginId::from_bytes([0x10; 32]),
-            crate::revelation::AuthorityDomainId::from_bytes([0x20; 32]),
-        );
+        let authority = authority(0x10, 0x20);
+        let blinding_secret = [0x44; 32];
 
-        let blinded_commitment = BraidMemberRef::seal(strand_id, child_worldline);
+        let blinded_commitment = BraidMemberRef::seal(strand_id, child_worldline, blinding_secret);
         let sealed_ref = BraidMemberRef::Sealed {
             blinded_commitment,
             authority,
         };
 
         // Verification matches correctly
-        assert!(sealed_ref.matches_strand(&strand_id, &child_worldline));
+        assert!(sealed_ref.matches_strand(&strand_id, &child_worldline, &blinding_secret));
 
         // Mismatched strand_id fails
         let wrong_strand_id = make_strand_id("wrong-member");
-        assert!(!sealed_ref.matches_strand(&wrong_strand_id, &child_worldline));
+        assert!(!sealed_ref.matches_strand(&wrong_strand_id, &child_worldline, &blinding_secret));
 
         // Mismatched child_worldline fails
         let wrong_child_worldline = WorldlineId::from_bytes([0x99; 32]);
-        assert!(!sealed_ref.matches_strand(&strand_id, &wrong_child_worldline));
+        assert!(!sealed_ref.matches_strand(&strand_id, &wrong_child_worldline, &blinding_secret));
+
+        // Mismatched blinding secret fails.
+        assert!(!sealed_ref.matches_strand(&strand_id, &child_worldline, &[0x45; 32]));
     }
 }

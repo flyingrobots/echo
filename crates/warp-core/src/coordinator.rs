@@ -27,7 +27,7 @@ use crate::provenance_store::{
 use crate::receipt::{TickReceiptDisposition, TickReceiptRejection};
 use crate::revelation::{
     AuthorityDomainRef, CausalPosture, OriginId, PostureDerivation, PostureObstruction,
-    RetentionPosture, SessionContext,
+    RetentionPosture, SessionContext, SourceDisclosurePolicy,
 };
 use crate::strand::{ForkBasisRef, Strand, StrandError, StrandId, StrandRegistry, SupportPin};
 use crate::worldline::{ApplyError, WorldlineId};
@@ -2868,6 +2868,20 @@ fn hash_posture_derivation(hasher: &mut blake3::Hasher, derivation: PostureDeriv
     hasher.update(tag);
 }
 
+fn hash_source_disclosure_policy(
+    hasher: &mut blake3::Hasher,
+    source_disclosure: SourceDisclosurePolicy,
+) {
+    let tag = match source_disclosure {
+        SourceDisclosurePolicy::RevealNone => b"reveal-none".as_slice(),
+        SourceDisclosurePolicy::RevealStub => b"reveal-stub",
+        SourceDisclosurePolicy::RevealRedacted => b"reveal-redacted",
+        SourceDisclosurePolicy::RevealFull => b"reveal-full",
+        SourceDisclosurePolicy::RevealByAuthorityOnly => b"reveal-by-authority-only",
+    };
+    hasher.update(tag);
+}
+
 fn hash_origin_id(hasher: &mut blake3::Hasher, origin_id: &OriginId) {
     hasher.update(origin_id.as_bytes());
 }
@@ -2906,6 +2920,14 @@ fn hash_posture_obstruction(hasher: &mut blake3::Hasher, obstruction: &PostureOb
         PostureObstruction::UnexpectedAdmissionScope { posture } => {
             hasher.update(b"unexpected-admission-scope");
             hash_causal_posture(hasher, *posture);
+        }
+        PostureObstruction::UnexpectedSourceDisclosure {
+            posture,
+            source_disclosure,
+        } => {
+            hasher.update(b"unexpected-source-disclosure");
+            hash_causal_posture(hasher, *posture);
+            hash_source_disclosure_policy(hasher, *source_disclosure);
         }
         PostureObstruction::InvalidMaterializationTransition { from, to } => {
             hasher.update(b"invalid-materialization-transition");

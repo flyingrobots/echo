@@ -642,6 +642,10 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 - `warp-core` braid-shell digests now bind optional proof-shaped envelopes:
   proof-bearing shells have distinct content identity from proof-less shells,
   and mutating proof bytes after assembly is caught by shell validation.
+- `warp-core` sealed braid members now require caller-supplied blinding material,
+  preserve hidden shared source disclosure in settlement shells, reject mixed
+  revealed/sealed shell member sets, and treat sealed member authority as part
+  of duplicate-member identity.
 - `warp-wasm` settlement publication now maps non-`Shared` strand admission
   rejection to the stable `INVALID_STRAND` ABI error code instead of
   collapsing the lawful posture denial into `ENGINE_ERROR`.

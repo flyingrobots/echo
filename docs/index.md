@@ -15,6 +15,7 @@ Echo's live documentation centers on the runtime carrier, the retained witnesses
 - Braids and strands hardening roadmap: [/design/braids-and-strands-roadmap](/design/braids-and-strands-roadmap)
 - Echo v0.1.0 release plan: [/design/v0.1.0-release-plan](/design/v0.1.0-release-plan)
 - Echo v0.1.0 jedit release gate: [/design/v0.1.0-jedit-release-gate](/design/v0.1.0-jedit-release-gate)
+- Echo-Wesley contract compiler: [/design/echo-wesley-contract-compiler](/design/echo-wesley-contract-compiler)
 - Trusted runtime control history: [/design/trusted-runtime-control-history](/design/trusted-runtime-control-history)
 - jedit next ten release-gate slices: [/design/v0.1.0-jedit-next-ten-slices](/design/v0.1.0-jedit-next-ten-slices)
 - Theory map: [/theory/THEORY](/theory/THEORY)
@@ -47,6 +48,7 @@ Echo's live documentation centers on the runtime carrier, the retained witnesses
 ## Observation And Platform Boundaries
 
 - Application contract hosting: [/architecture/application-contract-hosting](/architecture/application-contract-hosting)
+- Echo-Wesley contract compiler: [/design/echo-wesley-contract-compiler](/design/echo-wesley-contract-compiler)
 - Worldlines, playback, and observation: [/spec/SPEC-0004-worldlines-playback-truthbus](/spec/SPEC-0004-worldlines-playback-truthbus)
 - Provenance payload and boundary records: [/spec/SPEC-0005-provenance-payload](/spec/SPEC-0005-provenance-payload)
 - WASM ABI contract: [/spec/SPEC-0009-wasm-abi](/spec/SPEC-0009-wasm-abi)

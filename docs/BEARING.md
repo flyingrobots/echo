@@ -24,6 +24,9 @@ The feature bar for the eventual `v0.1.0` release is maintained in
 The current external release gate is maintained in
 `docs/design/v0.1.0-jedit-release-gate.md`.
 
+The Echo-Wesley contract compiler ownership boundary is maintained in
+`docs/design/echo-wesley-contract-compiler.md`.
+
 Trusted runtime-control history is defined in
 `docs/design/trusted-runtime-control-history.md`.
 
@@ -199,18 +202,24 @@ Continuum is the protocol-shaped causal medium. Echo is a concrete
 deterministic WARP runtime implementation for that medium, not the primary
 runtime of Continuum and not an application framework.
 
-## Cross-Repo Optic Admission Role
+## Echo-Wesley Contract Compiler Role
 
-Echo owns runtime-local optic admission behavior. Wesley compiles artifacts and
-registration descriptors; Echo registers them, returns runtime-local handles,
-admits or obstructs invocations, instruments access, and emits witnesses or
-readings. Authority layers issue grants and capability presentations.
-Applications such as jedit hide artifact handles, basis references, and runtime
-coordinates behind product-facing adapters.
+Wesley parses GraphQL into neutral IR and preserves directives as opaque data.
+Echo-Wesley is the app-facing compiler for Echo contracts: it interprets
+Echo-owned directives or sidecar metadata, emits Rust and TypeScript artifacts,
+generates registration/client glue, hashes generated artifacts, and prepares
+contract packages for Echo registration.
 
-Echo should not wait on a new Wesley product lane for the installed registry
-boundary. Coordinate with Wesley only when artifact identity, generated helper
-shape, or footprint compatibility changes.
+Applications such as Graft and jedit should use Echo-Wesley for Echo contracts,
+not raw Wesley commands stitched together with handwritten EINT, observe,
+registration, or receipt boilerplate. Generated app helpers may submit intents,
+request observations, and register packages through app-safe ports. They must
+not expose trusted scheduler control or ticking.
+
+Echo still owns runtime-local admission behavior: it registers contract
+packages, returns runtime-local evidence, admits or obstructs invocations,
+instruments access, and emits witnesses or readings. Authority layers issue
+grants and capability presentations.
 
 ## Pipeline
 
@@ -254,7 +263,7 @@ AdmissionTicket + witnessed submission -> ticketed runtime ingress
 | IntentOutcomeObservation       | Complete | Core exposes read-only product outcome states with applied/rejected receipt evidence and typed obstructions.              |
 | InstalledContractHostDispatch  | Complete | Installed packages can dispatch mutation handlers through witnessed, ticketed, scheduler-owned ticks.                     |
 | ConflictPolicy / ExplicitRetry | Partial  | Tick-scale conflict rejection is final and blocker-attributed; user-facing retry helpers remain future.                   |
-| QueryViewObserverBridge        | Complete | Core routes QueryView/Query to installed observers, and Wesley emits host helper constructors.                            |
+| QueryViewObserverBridge        | Complete | Core routes QueryView/Query to installed observers, and Echo-Wesley emits host helper constructors.                       |
 | Replay/DIND proof              | Partial  | Local installed intent pipeline replay converges; broader DIND/replay closure remains future work.                        |
 
 ## Future Scope Boundaries
@@ -1111,7 +1120,7 @@ The required shape is:
 
 ```text
 sibling application-owned contract and adapters
--> Wesley generated Echo runtime artifacts
+-> Echo-Wesley generated Echo runtime artifacts
 -> Echo installs a generic generated package
 -> application submits canonical intent
 -> trusted Echo host stages work and authorizes scheduler opportunities

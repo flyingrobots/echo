@@ -3,14 +3,15 @@
 
 # echo-wesley-gen
 
-CLI tool that emits Echo Rust structs, operation registries, and optic helper
-functions from Wesley contract data.
+CLI tool that emits Echo Rust structs, operation registries, contract-host
+helpers, and generated application glue from Wesley IR plus Echo contract data.
 
-Wesley is the compiler seam between authored application contracts and Echo's
-generic runtime. Generated application helpers build canonical intent/query
-requests. Generated contract-host helpers install mutation handlers and
-read-only query observers. Neither surface gives application code tick
-authority.
+Wesley parses GraphQL into neutral IR. Echo-Wesley is the Echo compiler
+extension: it interprets Echo-owned contract metadata, emits registration and
+client helpers, and prepares generated packages for Echo's generic runtime.
+Generated application helpers build canonical intent/query requests. Generated
+contract-host helpers install mutation handlers and read-only query observers.
+Neither surface gives application code tick authority.
 
 The preferred input is GraphQL SDL lowered directly through the published
 `wesley-core` crate. The older `echo-ir/v1` JSON stdin path is retained for
@@ -40,17 +41,19 @@ cat ir.json | cargo run -p echo-wesley-gen -- --contract-host --out generated.rs
 ## Notes
 
 - Supports ENUM and OBJECT kinds from Wesley IR.
-- Preserves per-operation directive metadata as `OpDef::directives_json`; Echo
-  admission tooling owns any interpretation of `wes_footprint`.
-- Emits footprint certificate constants for operations with `@wes_footprint`;
-  those certificates include the generated Rust artifact manifest hash and the
+- Preserves per-operation directive metadata as `OpDef::directives_json`.
+  Existing compatibility code still recognizes legacy `wes_footprint` metadata;
+  new Echo contracts should migrate to Echo-owned directives or sidecar
+  metadata.
+- Emits footprint certificate constants for recognized footprint metadata.
+  Those certificates include the generated Rust artifact manifest hash and the
   operation argument shape, and hosts can verify them through
   `echo_registry_api::verify_contract_artifact` before treating the generated
   artifact as compile-time-certified.
 - GraphQL SDL operation ids are derived deterministically and fail closed on
   collision. The generator never increments a collided id because operation ids
   are persisted ABI.
-- Generated query optic helpers use Echo ABI's domain-separated BLAKE3
+- Generated query observer helpers use Echo ABI's domain-separated BLAKE3
   `query_vars_digest_v1(...)`; ad hoc variable digests are not accepted for
   retained reading identity.
 - `--contract-host` emits opt-in, std-only mutation helpers for installing
@@ -70,7 +73,5 @@ cat ir.json | cargo run -p echo-wesley-gen -- --contract-host --out generated.rs
   scheduler control, or `TickDelta`.
 - Optional fields become `Option<T>`; lists become `Vec<T>` (wrapped in Option when not required).
 - Unknown scalar names are emitted as identifiers as-is (so ensure upstream IR types are valid Rust idents).
-- Runtime optic artifact imports preserve Wesley-owned canonical admission
-  requirement bytes, codec id, and digest directly from
-  `OpticAdmissionRequirementsArtifact`; Echo stores them as opaque registry
-  payload and does not reserialize Wesley requirement structs.
+- Echo-Wesley owns Echo contract interpretation. Wesley should remain a neutral
+  GraphQL-to-IR dependency that preserves directives as opaque data.

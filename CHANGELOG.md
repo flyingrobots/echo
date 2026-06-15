@@ -7,6 +7,12 @@
 
 ### Added
 
+- `warp-core` now hardens the first braids/strands roadmap goalpost: `Strand<P>`
+  fields are no longer publicly constructible, `Strand::new(...)` validates
+  typestate/runtime-posture coherence before construction, public strand tests
+  use fixture builders and accessors, `ProofEnvelope::validate_shape(...)`
+  returns structured `ProofError`, and invalid braid lifecycle transitions
+  report typed `BraidTransitionKind` instead of action strings.
 - `warp-core` casting a dynamically postured strand to statically shared now returns a semantically precise `PostureObstruction::PostureMismatch` instead of `PostureObstruction::NarrowingRefused`.
 - `warp-core` renamed `ProofEnvelope::verify` to `validate_shape` and updated error variants to `ProofShapeValidationFailed` to accurately reflect shape/input checks rather than full cryptographic proof verification.
 - `warp-core` strand creation now carries explicit `RetentionPosture` through

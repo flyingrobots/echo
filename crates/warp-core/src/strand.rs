@@ -134,25 +134,150 @@ pub struct DropReceipt {
 /// A strand either exists in the `StrandRegistry` (live) or does not
 /// (dropped). There is no lifecycle field — operational state is derived
 /// from the writer heads.
+///
+/// External callers must use named constructors. Struct-literal construction
+/// would let callers forge a static posture marker that disagrees with the
+/// runtime retention posture:
+///
+/// ```compile_fail
+/// use warp_core::{Shared, Strand};
+///
+/// let _forged: Strand<Shared> = Strand {
+///     strand_id: todo!(),
+///     fork_basis_ref: todo!(),
+///     child_worldline_id: todo!(),
+///     writer_heads: todo!(),
+///     support_pins: todo!(),
+///     retention_posture: todo!(),
+///     _marker: std::marker::PhantomData,
+/// };
+/// ```
+#[expect(
+    clippy::struct_field_names,
+    reason = "strand_id is the canonical domain field name"
+)]
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Strand<P: CausalPostureState = DynamicPosture> {
     /// Unique strand identity.
-    pub strand_id: StrandId,
+    pub(crate) strand_id: StrandId,
     /// Immutable fork coordinate.
-    pub fork_basis_ref: ForkBasisRef,
+    pub(crate) fork_basis_ref: ForkBasisRef,
     /// Child worldline created by fork.
-    pub child_worldline_id: WorldlineId,
+    pub(crate) child_worldline_id: WorldlineId,
     /// Writer heads for the child worldline (cardinality 1 in v1).
-    pub writer_heads: Vec<WriterHeadKey>,
+    pub(crate) writer_heads: Vec<WriterHeadKey>,
     /// Read-only support pins for braid geometry.
-    pub support_pins: Vec<SupportPin>,
+    pub(crate) support_pins: Vec<SupportPin>,
     /// Explicit retention, authority, and admission posture for the strand.
-    pub retention_posture: RetentionPosture,
+    pub(crate) retention_posture: RetentionPosture,
     /// Phantom marker for the static causal posture typestate.
-    pub _marker: std::marker::PhantomData<P>,
+    pub(crate) _marker: std::marker::PhantomData<P>,
 }
 
 impl<P: CausalPostureState> Strand<P> {
+    /// Creates a strand through a posture-aware constructor boundary.
+    ///
+    /// This validates the retained posture bundle, checks the static posture
+    /// marker against runtime posture when the marker is concrete, and enforces
+    /// the local strand invariants that do not require live registry context.
+    /// [`StrandRegistry`] remains responsible for registry-relative admission
+    /// checks such as support target liveness.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StrandError`] when the retained posture is incoherent, the
+    /// static posture marker disagrees with runtime posture, the child and
+    /// source worldlines are the same, writer heads target the wrong child
+    /// worldline, or support pins are self-targeted or duplicate one another.
+    pub fn new(
+        strand_id: StrandId,
+        fork_basis_ref: ForkBasisRef,
+        child_worldline_id: WorldlineId,
+        writer_heads: Vec<WriterHeadKey>,
+        support_pins: Vec<SupportPin>,
+        retention_posture: RetentionPosture,
+    ) -> Result<Self, StrandError> {
+        retention_posture.validate().map_err(StrandError::Posture)?;
+        if let Some(expected) = P::causal_posture() {
+            if retention_posture.causal_posture != expected {
+                return Err(StrandError::Posture(PostureObstruction::PostureMismatch {
+                    actual: retention_posture.causal_posture,
+                    expected,
+                }));
+            }
+        }
+        if child_worldline_id == fork_basis_ref.source_lane_id {
+            return Err(StrandError::InvariantViolation(
+                "INV-S7: child_worldline_id must differ from fork_basis_ref.source_lane_id",
+            ));
+        }
+        for head_key in &writer_heads {
+            if head_key.worldline_id != child_worldline_id {
+                return Err(StrandError::InvariantViolation(
+                    "INV-S8: every writer head must belong to child_worldline_id",
+                ));
+            }
+        }
+        let mut seen_support_targets = BTreeSet::new();
+        for support_pin in &support_pins {
+            if support_pin.strand_id == strand_id {
+                return Err(StrandError::SelfSupportPin(strand_id));
+            }
+            if !seen_support_targets.insert(support_pin.strand_id) {
+                return Err(StrandError::DuplicateSupportTarget {
+                    owner: strand_id,
+                    target: support_pin.strand_id,
+                });
+            }
+        }
+
+        Ok(Self {
+            strand_id,
+            fork_basis_ref,
+            child_worldline_id,
+            writer_heads,
+            support_pins,
+            retention_posture,
+            _marker: std::marker::PhantomData,
+        })
+    }
+
+    /// Returns this strand's stable identity.
+    #[must_use]
+    pub fn strand_id(&self) -> StrandId {
+        self.strand_id
+    }
+
+    /// Returns the immutable fork coordinate.
+    #[must_use]
+    pub fn fork_basis_ref(&self) -> ForkBasisRef {
+        self.fork_basis_ref
+    }
+
+    /// Returns the child worldline created by this strand.
+    #[must_use]
+    pub fn child_worldline_id(&self) -> WorldlineId {
+        self.child_worldline_id
+    }
+
+    /// Returns the writer heads owned by this strand's child worldline.
+    #[must_use]
+    pub fn writer_heads(&self) -> &[WriterHeadKey] {
+        &self.writer_heads
+    }
+
+    /// Returns the read-only support pins held by this strand.
+    #[must_use]
+    pub fn support_pins(&self) -> &[SupportPin] {
+        &self.support_pins
+    }
+
+    /// Returns the explicit retention, authority, and admission posture.
+    #[must_use]
+    pub fn retention_posture(&self) -> RetentionPosture {
+        self.retention_posture
+    }
+
     /// Builds a basis-relative report for this strand against current parent history.
     ///
     /// The report is the first live-strand seam: the strand still records an

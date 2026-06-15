@@ -3,7 +3,7 @@
 
 # Goalpost 1: Lawful Construction And Typed Failures
 
-Status: planned.
+Status: implemented.
 
 Roadmap:
 [`../braids-and-strands-roadmap.md`](../braids-and-strands-roadmap.md)

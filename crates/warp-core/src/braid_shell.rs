@@ -338,7 +338,7 @@ pub enum BraidShellError {
     #[error("proof shape validation failed: {reason}")]
     ProofShapeValidationFailed {
         /// Reason for shape validation failure.
-        reason: String,
+        reason: crate::proof::ProofError,
     },
     /// Member entries are not in canonical order.
     #[error("braid shell members are not in canonical order")]
@@ -1891,7 +1891,7 @@ mod tests {
 
     #[test]
     fn assemble_with_proof_validates_envelope() {
-        use crate::proof::{ProofEnvelope, ProofKind};
+        use crate::proof::{ProofEnvelope, ProofError, ProofKind};
 
         let members = vec![member("member-a", MemberVerdict::Plural)];
 
@@ -1966,7 +1966,12 @@ mod tests {
         );
         assert!(matches!(
             result_mismatch,
-            Err(BraidShellError::ProofShapeValidationFailed { .. })
+            Err(BraidShellError::ProofShapeValidationFailed {
+                reason: ProofError::PublicInputsMismatch {
+                    expected,
+                    actual,
+                },
+            }) if expected == expected_witness && actual == [0x99; 32]
         ));
 
         // Invalid proof: empty proof bytes
@@ -1988,13 +1993,15 @@ mod tests {
         );
         assert!(matches!(
             result_empty,
-            Err(BraidShellError::ProofShapeValidationFailed { .. })
+            Err(BraidShellError::ProofShapeValidationFailed {
+                reason: ProofError::EmptyPayload,
+            })
         ));
     }
 
     #[test]
     fn cryptographic_proof_kinds_require_verifier_backend() {
-        use crate::proof::{ProofEnvelope, ProofKind};
+        use crate::proof::{ProofEnvelope, ProofError, ProofKind};
 
         let members = vec![member("member-a", MemberVerdict::Plural)];
         let temp_shell = BraidShell::assemble(
@@ -2027,7 +2034,9 @@ mod tests {
             );
             assert!(matches!(
                 result,
-                Err(BraidShellError::ProofShapeValidationFailed { .. })
+                Err(BraidShellError::ProofShapeValidationFailed {
+                    reason: ProofError::UnsupportedKind { kind: rejected },
+                }) if rejected == kind
             ));
         }
     }

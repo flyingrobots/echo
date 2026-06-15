@@ -1018,11 +1018,7 @@ impl StrandRegistry {
     }
 
     fn validate_support_pins(&self, strand: &Strand) -> Result<(), StrandError> {
-        let mut seen = BTreeSet::new();
         for support_pin in &strand.support_pins {
-            if support_pin.strand_id == strand.strand_id {
-                return Err(StrandError::SelfSupportPin(strand.strand_id));
-            }
             let target = self
                 .strands
                 .get(&support_pin.strand_id)
@@ -1032,12 +1028,6 @@ impl StrandRegistry {
                     target: support_pin.strand_id,
                     expected: target.child_worldline_id,
                     got: support_pin.worldline_id,
-                });
-            }
-            if !seen.insert(support_pin.strand_id) {
-                return Err(StrandError::DuplicateSupportTarget {
-                    owner: strand.strand_id,
-                    target: support_pin.strand_id,
                 });
             }
         }

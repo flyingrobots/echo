@@ -3,19 +3,19 @@
 
 # 0028 — Strand Typestates, Blinded References, Proof Envelopes, and Evolving Braids
 
-_Close the remaining gaps in the warp-core specs for AION Paper VIII / Continuum: enforce causal posture guarantees at the type level with Strand typestates, blind member identities in braid shells for unlinkable verification, wrap ZK/Verkle proofs in explicit verification envelopes, and implement the event log folder for evolving braids._
+_Close the remaining gaps in the warp-core specs for AION Paper VIII / Continuum: carry causal posture through Strand typestates while keeping runtime posture validation authoritative, blind member identities in braid shells for unlinkable verification, wrap ZK/Verkle proofs in explicit verification envelopes, and implement the event log folder for evolving braids._
 
 Legend: `PLATFORM`
 
 Status: **draft / in-review**
 
-> Statically preventing a non-Shared strand from entering settlement is not a runtime validation; it is a compilation invariance. Combined with ZK-honest claims and blinded references, we make the braid a zero-knowledge boundary. — review verdict
+> Typestates narrow the public settlement path, but the live registry and runtime posture checks remain the final admission law. Combined with proof-shaped claims and blinded references, the braid shell becomes an auditable privacy boundary. — review verdict
 
 ## Doctrine
 
 AIΩN Paper VIII (Continuum):
 
-- **Prop 5.1 (Typestate Partitioning)** — Causal posture transitions (e.g. `Scratch` → `AuthorOnly` → `Shared`) form a one-way lattice. Executions or operations requesting global settlement must statically prove they act on a `Shared` posture, guaranteeing no un-revalidated local context leaks.
+- **Prop 5.1 (Typestate Partitioning)** — Causal posture transitions (e.g. `Scratch` → `AuthorOnly` → `Shared`) form a one-way lattice. Executions or operations requesting global settlement must carry `Shared` posture evidence and revalidate runtime state so no stale local context leaks.
 - **§3.4 (Zero-Knowledge Braid Boundaries)** — To maintain participant privacy and prevent linkability across independent braids, membership reference identities in public braid shells must be sealable. Verifiers should check the validity of a braid's members using blinded domain-separated commitments.
 - **§6.2 (Verkle/ZK Envelopes)** — Any braid shell carrying zero-knowledge or Verkle-style evidence must bind that evidence through an explicit `ProofEnvelope`. The current implementation validates replay-trace envelope shape and public-input binding; zero-knowledge and vector-opening proof kinds are reserved until verifier backends exist.
 
@@ -24,9 +24,9 @@ AIΩN Paper VIII (Continuum):
 All four key gaps from the Echo codebase gap analysis now have current E1 surfaces, tests, and explicit limits:
 
 1. **Strand Typestates (`revelation.rs`, `strand.rs`):**
-    - Parameterized `Strand<P: CausalPostureState = DynamicPosture>` to statically guarantee posture constraints at compile time.
+    - Parameterized `Strand<P: CausalPostureState = DynamicPosture>` so ordinary APIs carry posture intent at the type level while preserving runtime posture as the authoritative admission fact.
     - Built infallible `into_dynamic(self)` and fallible `try_into_shared(self)` conversions.
-    - Gated `plan` and `settle` methods statically on `Strand<Shared>`, while the methods re-enter the live registry path so stale or hand-built handles cannot bypass runtime posture and support validation.
+    - Exposed `Shared`-only `plan` and `settle` conveniences that re-enter the live registry path so stale, forged, or hand-built handles cannot bypass runtime posture and support validation.
 2. **Blinded Member References (`braid_shell.rs`):**
     - Refactored `BraidShellMember` to store a `BraidMemberRef` instead of a plain `StrandId`.
     - `BraidMemberRef` supports `Revealed(StrandId)` and `Sealed { blinded_commitment, authority }` variants.
@@ -56,10 +56,29 @@ pub struct AuthorOnly;
 pub struct Scratch;
 pub struct DynamicPosture;
 
-impl CausalPostureState for Shared {}
-impl CausalPostureState for AuthorOnly {}
-impl CausalPostureState for Scratch {}
-impl CausalPostureState for DynamicPosture {}
+impl CausalPostureState for Shared {
+    fn causal_posture() -> Option<CausalPosture> {
+        Some(CausalPosture::Shared)
+    }
+}
+
+impl CausalPostureState for AuthorOnly {
+    fn causal_posture() -> Option<CausalPosture> {
+        Some(CausalPosture::AuthorOnly)
+    }
+}
+
+impl CausalPostureState for Scratch {
+    fn causal_posture() -> Option<CausalPosture> {
+        Some(CausalPosture::Scratch)
+    }
+}
+
+impl CausalPostureState for DynamicPosture {
+    fn causal_posture() -> Option<CausalPosture> {
+        None
+    }
+}
 ```
 
 The `Strand` struct is parameterized with `P: CausalPostureState`, defaulting to `DynamicPosture` to maintain backwards compatibility inside the `StrandRegistry` (which uses `BTreeMap<StrandId, Strand<DynamicPosture>>`):
@@ -76,7 +95,7 @@ pub struct Strand<P: CausalPostureState = DynamicPosture> {
 }
 ```
 
-Static gating on `SettlementService` guarantees that only `Shared` strands can enter planning or settlement:
+The `Shared`-only convenience methods narrow normal callers into the checked settlement path; they are not the sole authority. The live registry and runtime posture checks remain the final admission gate:
 
 ```rust
 impl Strand<Shared> {

@@ -754,11 +754,9 @@ fn check_unique_member_strands(members: &[BraidShellMember]) -> Result<(), Braid
             return Err(BraidShellError::MixedMemberReferencePosture);
         }
     }
-    for (index, member) in members.iter().enumerate() {
-        if members[..index]
-            .iter()
-            .any(|earlier| earlier.member_ref == member.member_ref)
-        {
+    let mut seen = std::collections::BTreeSet::new();
+    for member in members {
+        if !seen.insert(member.member_ref) {
             return Err(BraidShellError::DuplicateMemberStrand {
                 member_ref: member.member_ref,
             });

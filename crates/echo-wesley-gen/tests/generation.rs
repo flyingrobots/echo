@@ -4,7 +4,7 @@
 //! Integration test for the echo-wesley-gen CLI (Wesley IR -> Rust code).
 
 use std::fs;
-use std::io::Write;
+use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::OnceLock;
@@ -131,9 +131,11 @@ fn run_wesley_gen_with_args(ir: &str, args: &[&str]) -> Output {
         .expect("failed to spawn echo-wesley-gen");
 
     let mut stdin = child.stdin.take().expect("failed to get stdin");
-    stdin
-        .write_all(ir.as_bytes())
-        .expect("failed to write to stdin");
+    match stdin.write_all(ir.as_bytes()) {
+        Ok(()) => {}
+        Err(err) if err.kind() == ErrorKind::BrokenPipe => {}
+        Err(err) => panic!("failed to write to stdin: {err}"),
+    }
     drop(stdin);
 
     child.wait_with_output().expect("failed to wait on child")

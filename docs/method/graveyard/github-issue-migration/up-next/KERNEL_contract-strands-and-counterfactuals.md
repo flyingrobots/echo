@@ -8,7 +8,7 @@ topics:
 accuracy: 100%
 issue: 473
 findings:
-    - claim: "Generic contract-aware strands, speculative execution, and the full settlement decisions algebra are implemented"
+    - claim: "Speculative execution and the full settlement decisions algebra are implemented and tested"
       ruling: true
       evidence:
           filepath: "crates/warp-core/src/settlement.rs"

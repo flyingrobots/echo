@@ -8,11 +8,17 @@ topics:
 accuracy: 90%
 issue: 497
 findings:
-    - claim: "Comparing local method scaffolding against upstream and integrating the doctor utility remains an active diagnostic item"
+    - claim: "Method crate status and check subcommands are implemented"
       ruling: true
       evidence:
           filepath: "crates/method/Cargo.toml"
           line: 1
+          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
+    - claim: "Upstream method doctor utility is integrated for local workspace triage"
+      ruling: false
+      evidence:
+          filepath: "xtask/src/main.rs"
+          line: 66
           git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
 ---
 

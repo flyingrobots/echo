@@ -8,8 +8,8 @@ topics:
 accuracy: 90%
 issue: 491
 findings:
-    - claim: "Structural analysis readings over live Echo frontiers for Graft remain planned"
-      ruling: true
+    - claim: "Structural analysis readings over live Echo frontiers for Graft are implemented"
+      ruling: false
       evidence:
           filepath: "crates/warp-core/src/frontier.rs"
           line: 1

@@ -8,8 +8,14 @@ topics:
 accuracy: 90%
 issue: 499
 findings:
-    - claim: "Speculative strand operations exist but narrow external Intent-level paths for creating strands are missing from the public WASM/EINT ABI"
+    - claim: "Speculative strand operations are implemented programmatically in the kernel"
       ruling: true
+      evidence:
+          filepath: "crates/warp-core/src/strand.rs"
+          line: 1
+          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
+    - claim: "Intent-level paths for creating strands and pinning support are present in the WASM/EINT ABI"
+      ruling: false
       evidence:
           filepath: "crates/echo-wasm-abi/src/lib.rs"
           line: 1

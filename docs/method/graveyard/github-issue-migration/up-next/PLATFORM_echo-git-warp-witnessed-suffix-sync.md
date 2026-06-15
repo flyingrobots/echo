@@ -8,8 +8,32 @@ topics:
 accuracy: 90%
 issue: 489
 findings:
-    - claim: "Suffix export and admission evaluation are implemented, but sync with the sibling git-warp runtime remains open"
+    - claim: "one narrow bundle request shape exists over graph/lane/frontier identity"
       ruling: true
+      evidence:
+          filepath: "crates/warp-core/src/witnessed_suffix.rs"
+          line: 1
+          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
+    - claim: "one bundle export path gathers witnessed transitions plus payload references"
+      ruling: true
+      evidence:
+          filepath: "crates/warp-core/src/witnessed_suffix.rs"
+          line: 1
+          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
+    - claim: "one import path normalizes against local frontier truth and returns outcome kinds"
+      ruling: true
+      evidence:
+          filepath: "crates/warp-core/src/witnessed_suffix.rs"
+          line: 1
+          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
+    - claim: "one duplicate-import case proves idempotence"
+      ruling: true
+      evidence:
+          filepath: "crates/warp-core/src/witnessed_suffix.rs"
+          line: 1
+          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
+    - claim: "git-warp import of Echo-exported suffixes is verified"
+      ruling: false
       evidence:
           filepath: "crates/warp-core/src/witnessed_suffix.rs"
           line: 1

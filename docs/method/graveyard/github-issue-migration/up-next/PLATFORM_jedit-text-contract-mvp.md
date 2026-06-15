@@ -8,7 +8,7 @@ topics:
 accuracy: 100%
 issue: 496
 findings:
-    - claim: "jedit Text Contract Hosting MVP is implemented and tested as a generic host with rope checkpoints in CAS"
+    - claim: "jedit Text Contract Hosting MVP is implemented as a generic host"
       ruling: true
       evidence:
           filepath: "crates/warp-core/tests/external_consumer_contract_fixture_tests.rs"

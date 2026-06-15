@@ -8,7 +8,7 @@ topics:
 accuracy: 100%
 issue: 505
 findings:
-    - claim: "TS types and Zod schemas are generated via Wesley under packages/ttd-protocol-ts"
+    - claim: "TypeScript types and Zod schemas are generated via Wesley under packages/ttd-protocol-ts"
       ruling: true
       evidence:
           filepath: "packages/ttd-protocol-ts/package.json"

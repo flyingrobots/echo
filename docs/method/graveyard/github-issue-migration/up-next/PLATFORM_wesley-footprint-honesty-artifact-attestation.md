@@ -8,8 +8,14 @@ topics:
 accuracy: 90%
 issue: 501
 findings:
-    - claim: "Enforcing the compile-time capability boundary across Rust/TypeScript remains open"
+    - claim: "Load-time contract artifact verification and attestation exist"
       ruling: true
+      evidence:
+          filepath: "crates/echo-wesley-gen/src/lib.rs"
+          line: 1
+          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
+    - claim: "Attestation enforces the compile-time capability boundary across Rust/TypeScript"
+      ruling: false
       evidence:
           filepath: "crates/echo-wesley-gen/src/lib.rs"
           line: 1

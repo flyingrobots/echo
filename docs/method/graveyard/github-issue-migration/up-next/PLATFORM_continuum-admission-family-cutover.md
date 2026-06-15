@@ -8,11 +8,23 @@ topics:
 accuracy: 80%
 issue: 485
 findings:
-    - claim: "TickReceiptDisposition::Applied lowers to Derived and TickReceiptDisposition::Rejected lowers to Obstruction"
+    - claim: "TickReceiptDisposition::Applied/Rejected maps to Derived/Obstruction outcome kinds"
       ruling: true
       evidence:
           filepath: "crates/warp-core/src/receipt.rs"
-          line: 145
+          line: 143
+          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
+    - claim: "NeighborhoodSite::Singleton/Braided maps to Derived/Plural outcome kinds"
+      ruling: true
+      evidence:
+          filepath: "crates/warp-core/src/neighborhood.rs"
+          line: 69
+          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
+    - claim: "SettlementDecision::ImportCandidate/ConflictArtifact/PluralAlternative maps to Derived/Conflict/Plural outcome kinds"
+      ruling: true
+      evidence:
+          filepath: "crates/warp-core/src/settlement.rs"
+          line: 253
           git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
 ---
 

@@ -8,7 +8,7 @@ topics:
 accuracy: 90%
 issue: 503
 findings:
-    - claim: "Evolution/backfill script generation in Wesley is in scope for Echo"
+    - claim: "Evolution/backfill script generation in Wesley is in scope for Echo repo"
       ruling: false
       evidence:
           filepath: "xtask/src/main.rs"

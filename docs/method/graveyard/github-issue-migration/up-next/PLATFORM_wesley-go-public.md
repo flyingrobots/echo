@@ -8,7 +8,7 @@ topics:
 accuracy: 90%
 issue: 502
 findings:
-    - claim: "Wesley is public and integrated into echo build system"
+    - claim: "Wesley compiler is public and open-source"
       ruling: true
       evidence:
           filepath: "crates/echo-wesley-gen/README.md"

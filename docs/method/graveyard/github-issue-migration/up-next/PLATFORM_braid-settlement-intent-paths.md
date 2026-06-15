@@ -8,7 +8,7 @@ topics:
 accuracy: 95%
 issue: 483
 findings:
-    - claim: "Execute settlement is triggered as a direct host ABI service call instead of a causal Intent path"
+    - claim: "Braid settlement executes as a direct host ABI service call instead of an Intent path"
       ruling: true
       evidence:
           filepath: "crates/echo-wasm-abi/src/lib.rs"

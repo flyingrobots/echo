@@ -8,7 +8,7 @@ topics:
 accuracy: 100%
 issue: 471
 findings:
-    - claim: "ComplianceUpdate/ViolationDetected events and compliance status protocol extensions are implemented"
+    - claim: "ComplianceUpdate/ViolationDetected events are implemented"
       ruling: true
       evidence:
           filepath: "crates/echo-ttd/src/compliance.rs"

@@ -8,8 +8,14 @@ topics:
 accuracy: 95%
 issue: 477
 findings:
-    - claim: "External mutations (like settling a strand, pinning support) enter through the host ABI instead of dispatch_intent pipeline"
+    - claim: "External mutations (like settling a strand, pinning support) enter through host ABI"
       ruling: true
+      evidence:
+          filepath: "crates/echo-wasm-abi/src/lib.rs"
+          line: 1
+          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
+    - claim: "External mutations are refactored to enter through the dispatch_intent pipeline"
+      ruling: false
       evidence:
           filepath: "crates/echo-wasm-abi/src/lib.rs"
           line: 1

@@ -8,7 +8,13 @@ topics:
 accuracy: 95%
 issue: 480
 findings:
-    - claim: "Timeline seeks and fork capability checks and revocation are implemented"
+    - claim: "Timeline seeks and fork capabilities are implemented"
+      ruling: true
+      evidence:
+          filepath: "crates/warp-core/src/revelation.rs"
+          line: 1
+          git-sha: "5f85dae5727d36acf4a82aad8d7cdb0488cb67be"
+    - claim: "Revocation logic for timeline capabilities is implemented"
       ruling: false
       evidence:
           filepath: "crates/warp-core/src/revelation.rs"

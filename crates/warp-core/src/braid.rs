@@ -63,6 +63,9 @@ pub enum BraidError {
     /// Braid membership cannot mix revealed and sealed references.
     #[error("braid members must use a single revealed/sealed reference posture")]
     MixedMemberReferencePosture,
+    /// Settlement cannot finalize an empty member frontier.
+    #[error("cannot finalize settlement without woven braid members")]
+    EmptySettlementFrontier,
     /// Collapse events must carry a non-empty witness digest.
     #[error("braid collapse witness must be non-empty")]
     EmptyCollapseWitness,
@@ -195,6 +198,9 @@ impl Braid {
                         action: "finalize settlement".to_string(),
                         status: self.status,
                     });
+                }
+                if self.members.is_empty() {
+                    return Err(BraidError::EmptySettlementFrontier);
                 }
                 self.latest_settlement = Some(*settlement_digest);
                 self.status = BraidStatus::Finalized;
@@ -438,12 +444,16 @@ mod tests {
                 braid_id,
                 creator_domain: auth,
             },
+            BraidEvent::MemberWoven {
+                member_ref: m1,
+                sequence_num: 0,
+            },
             BraidEvent::SettlementFinalized {
                 settlement_digest: settlement,
             },
             BraidEvent::MemberWoven {
-                member_ref: m1,
-                sequence_num: 0,
+                member_ref: m2,
+                sequence_num: 1,
             },
         ];
         assert_eq!(
@@ -592,6 +602,22 @@ mod tests {
     }
 
     #[test]
+    fn test_braid_rejects_empty_settlement_finalization() {
+        let braid_id = [0xAA; 32];
+        let auth = authority_ref();
+        let mut braid = Braid::new(braid_id, auth);
+
+        assert_eq!(
+            braid.apply(BraidEvent::SettlementFinalized {
+                settlement_digest: [0x5E; 32],
+            }),
+            Err(BraidError::EmptySettlementFrontier)
+        );
+        assert_eq!(braid.status(), BraidStatus::Active);
+        assert_eq!(braid.latest_settlement(), None);
+    }
+
+    #[test]
     fn test_braid_fold_rejects_duplicate_member_and_empty_collapse_witness() {
         let braid_id = [0xAA; 32];
         let auth = authority_ref();
@@ -620,6 +646,10 @@ mod tests {
             BraidEvent::BraidCreated {
                 braid_id,
                 creator_domain: auth,
+            },
+            BraidEvent::MemberWoven {
+                member_ref: member,
+                sequence_num: 0,
             },
             BraidEvent::SettlementFinalized {
                 settlement_digest: [0x5E; 32],

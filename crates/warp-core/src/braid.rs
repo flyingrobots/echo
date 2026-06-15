@@ -33,6 +33,18 @@ pub enum BraidTransitionKind {
     Collapse,
 }
 
+impl std::fmt::Display for BraidTransitionKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let label = match self {
+            Self::Create => "create braid",
+            Self::WeaveMember => "weave member",
+            Self::FinalizeSettlement => "finalize settlement",
+            Self::Collapse => "collapse braid",
+        };
+        f.write_str(label)
+    }
+}
+
 /// Error kinds returned during coordination braid lifecycle updates or folds.
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum BraidError {
@@ -54,7 +66,7 @@ pub enum BraidError {
         actual: u64,
     },
     /// An invalid transition was attempted for the current braid status.
-    #[error("cannot transition braid state: cannot {transition:?} in status {status:?}")]
+    #[error("cannot transition braid state: cannot {transition} in status {status:?}")]
     InvalidTransition {
         /// Attempted lifecycle transition.
         transition: BraidTransitionKind,

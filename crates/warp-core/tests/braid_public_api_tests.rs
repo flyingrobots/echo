@@ -68,6 +68,19 @@ fn public_braid_transition_failures_are_typed() {
 }
 
 #[test]
+fn public_braid_transition_display_is_human_facing() {
+    let err = BraidError::InvalidTransition {
+        transition: BraidTransitionKind::WeaveMember,
+        status: BraidStatus::Finalized,
+    };
+
+    assert_eq!(
+        err.to_string(),
+        "cannot transition braid state: cannot weave member in status Finalized"
+    );
+}
+
+#[test]
 fn public_proof_validation_failures_are_typed() {
     let expected = [0x42; 32];
     let actual = [0x24; 32];

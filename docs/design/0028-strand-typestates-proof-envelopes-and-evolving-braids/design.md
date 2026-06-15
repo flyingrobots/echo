@@ -17,26 +17,26 @@ AIΩN Paper VIII (Continuum):
 
 - **Prop 5.1 (Typestate Partitioning)** — Causal posture transitions (e.g. `Scratch` → `AuthorOnly` → `Shared`) form a one-way lattice. Executions or operations requesting global settlement must statically prove they act on a `Shared` posture, guaranteeing no un-revalidated local context leaks.
 - **§3.4 (Zero-Knowledge Braid Boundaries)** — To maintain participant privacy and prevent linkability across independent braids, membership reference identities in public braid shells must be sealable. Verifiers should check the validity of a braid's members using blinded domain-separated commitments.
-- **§6.2 (Verkle/ZK Envelopes)** — Any braid shell claiming validity under zero-knowledge or Verkle space constraints must encapsulate its validation claims within an explicit `ProofEnvelope` validating an `ObserverHonestyClaim`.
+- **§6.2 (Verkle/ZK Envelopes)** — Any braid shell carrying zero-knowledge or Verkle-style evidence must bind that evidence through an explicit `ProofEnvelope`. The current implementation validates envelope shape and public-input binding; cryptographic verifier backends remain a later cutover.
 
-## Current state (verified @14c89ef6)
+## Current state
 
-All four key gaps from the Echo codebase gap analysis have been fully implemented, tested, and integrated:
+All four key gaps from the Echo codebase gap analysis now have current E1 surfaces, tests, and explicit limits:
 
 1. **Strand Typestates (`revelation.rs`, `strand.rs`):**
     - Parameterized `Strand<P: CausalPostureState = DynamicPosture>` to statically guarantee posture constraints at compile time.
     - Built infallible `into_dynamic(self)` and fallible `try_into_shared(self)` conversions.
-    - Gated `plan` and `settle` methods statically on `Strand<Shared>`, ensuring non-Shared strands cannot be planned or settled.
+    - Gated `plan` and `settle` methods statically on `Strand<Shared>`, while the methods re-enter the live registry path so stale or hand-built handles cannot bypass runtime posture and support validation.
 2. **Blinded Member References (`braid_shell.rs`):**
     - Refactored `BraidShellMember` to store a `BraidMemberRef` instead of a plain `StrandId`.
-    - `BraidMemberRef` supports `Revealed(StrandId)` and `Sealed(Hash)` variants.
-    - Sealed variants commit to the `StrandId` using a domain-separated `blake3` commitment: `BLAKE3("braid-member-seal:" || strand_id)`.
+    - `BraidMemberRef` supports `Revealed(StrandId)` and `Sealed { blinded_commitment, authority }` variants.
+    - Sealed variants commit to the `StrandId`, child worldline, and caller-supplied non-public blinding material using a domain-separated `blake3` commitment.
 3. **ZK/Verkle Proof Envelopes (`proof.rs`, `braid_shell.rs`):**
-    - Defined `ProofKind` (ZK, Verkle, Merkle, Custom), `ProofEnvelope`, and `ObserverHonestyClaim`.
-    - Added `BraidShell::assemble_with_proof` to attach envelopes and enforce validation checks.
+    - Defined `ProofKind` (`ZkSnark`, `ReplayTrace`, `VectorOpening`), `ProofEnvelope`, and `ObserverHonestyClaim`.
+    - Added `BraidShell::assemble_with_proof` to attach proof-shaped evidence envelopes, validate shape/public-input binding, and bind the proof envelope digest into shell identity.
 4. **Evolving Braid Logs (`braid.rs`):**
-    - Created `BraidEvent` representing state transition logs (`Created`, `MemberWoven`, `SettlementFinalized`).
-    - Implemented event folding logic in the `Braid` state struct with strict duplicate and out-of-order event checks.
+    - Created `BraidEvent` representing state transition logs (`BraidCreated`, `MemberWoven`, `SettlementFinalized`, `BraidCollapsed`).
+    - Implemented checked incremental application and event folding with lifecycle, duplicate-member, sequence overflow, and collapse-witness checks.
 
 ---
 
@@ -47,7 +47,9 @@ All four key gaps from the Echo codebase gap analysis have been fully implemente
 We define the typestate traits and marker structs to represent the four causal posture states:
 
 ```rust
-pub trait CausalPostureState: private::Sealed {}
+pub trait CausalPostureState: Clone + std::fmt::Debug + PartialEq + Eq {
+    fn causal_posture() -> Option<CausalPosture>;
+}
 
 pub struct Shared;
 pub struct AuthorOnly;
@@ -79,11 +81,11 @@ Static gating on `SettlementService` guarantees that only `Shared` strands can e
 ```rust
 impl Strand<Shared> {
     pub fn plan(&self, ...) -> Result<SettlementPlan, SettlementError> {
-        SettlementService::plan_with_policy_internal(..., self, ...)
+        SettlementService::plan(runtime, provenance, self.strand_id)
     }
 
     pub fn settle(&self, ...) -> Result<SettlementResult, SettlementError> {
-        SettlementService::settle_with_policy_internal(..., self, ...)
+        SettlementService::settle(runtime, provenance, self.strand_id)
     }
 }
 ```
@@ -104,21 +106,31 @@ pub enum BraidMemberRef {
 }
 
 impl BraidMemberRef {
-    pub fn seal(strand_id: StrandId, child_worldline_id: WorldlineId) -> Hash {
+    pub fn seal(
+        strand_id: StrandId,
+        child_worldline_id: WorldlineId,
+        blinding_secret: Hash,
+    ) -> Hash {
         let mut hasher = Hasher::new();
         hasher.update(SEALED_MEMBER_DOMAIN);
+        hasher.update(&blinding_secret);
         hasher.update(child_worldline_id.as_bytes());
         hasher.update(strand_id.as_bytes());
         hasher.finalize().into()
     }
 
-    pub fn matches_strand(&self, strand_id: &StrandId, child_worldline_id: &WorldlineId) -> bool {
+    pub fn matches_strand(
+        &self,
+        strand_id: &StrandId,
+        child_worldline_id: &WorldlineId,
+        blinding_secret: &Hash,
+    ) -> bool {
         match self {
             Self::Revealed(id) => *id == *strand_id,
             Self::Sealed {
                 blinded_commitment, ..
             } => {
-                let expected = Self::seal(*strand_id, *child_worldline_id);
+                let expected = Self::seal(*strand_id, *child_worldline_id, *blinding_secret);
                 *blinded_commitment == expected
             }
         }
@@ -128,9 +140,9 @@ impl BraidMemberRef {
 
 ---
 
-### 3. ZK/Verkle Proof Envelopes
+### 3. Proof-Shaped Envelopes
 
-A `ProofEnvelope` contains the observer honesty claim and the cryptographic proof:
+A `ProofEnvelope` contains proof-shaped evidence bytes and the public-input hash they claim to bind. `ObserverHonestyClaim` is a separate assertion type; `validate_shape` does not cryptographically verify proof transcripts.
 
 ```rust
 pub enum ProofKind {
@@ -152,7 +164,7 @@ pub struct ObserverHonestyClaim {
 }
 ```
 
-Validation occurs during shell assembly:
+Shape validation and proof-envelope digest binding occur during shell assembly:
 
 ```rust
 impl BraidShell {
@@ -171,7 +183,8 @@ impl BraidShell {
                 return Err(BraidShellError::ProofShapeValidationFailed { reason: err });
             }
         }
-        // ... computes shell digest and returns Self ...
+        let proof_digest = proof.as_ref().map(crate::proof::ProofEnvelope::digest);
+        // ... computes shell digest with proof_digest and returns Self ...
     }
 }
 ```
@@ -201,6 +214,13 @@ pub enum BraidError {
         action: String,
         status: BraidStatus,
     },
+    SequenceOverflow {
+        sequence_num: u64,
+    },
+    DuplicateMember {
+        member_ref: BraidMemberRef,
+    },
+    EmptyCollapseWitness,
 }
 
 pub enum BraidEvent {
@@ -222,13 +242,13 @@ pub enum BraidEvent {
 }
 
 pub struct Braid {
-    pub braid_id: Hash,
-    pub events: Vec<BraidEvent>,
-    pub members: Vec<BraidMemberRef>,
-    pub next_sequence_num: u64,
-    pub latest_settlement: Option<Hash>,
-    pub status: BraidStatus,
+    id: Hash,
+    events: Vec<BraidEvent>,
+    members: Vec<BraidMemberRef>,
+    next_sequence_num: u64,
+    latest_settlement: Option<Hash>,
+    status: BraidStatus,
 }
 ```
 
-Folding a log checks for invariants such as duplicate membership, out-of-order events, and correct starting events.
+Checked `apply` and `fold` preserve these invariants: duplicate creation is rejected, member sequence numbers must match the expected cursor, duplicate members are refused, sequence overflow is explicit, settlement/collapse lifecycle order is enforced, and collapse witnesses must clear the `WitnessDigest` quality bar.

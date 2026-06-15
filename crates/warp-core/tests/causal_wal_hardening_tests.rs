@@ -2,6 +2,12 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Adversarial causal WAL hardening tests.
 
+#![allow(
+    clippy::needless_continue,
+    clippy::panic,
+    clippy::unnecessary_debug_formatting
+)]
+
 use warp_core::causal_wal::{
     apply_committed_transaction, audit_wal_release_readiness,
     build_materialization_outbox_transaction, build_retained_reading_transaction,

@@ -17,17 +17,15 @@ fn authority_ref() -> AuthorityDomainRef {
 }
 
 #[test]
-fn crate_root_exports_braid_lifecycle_error_and_member_types() {
+fn crate_root_exports_braid_lifecycle_error_and_member_types() -> Result<(), BraidError> {
     let member_ref = BraidMemberRef::Revealed(make_strand_id("public-member"));
     let mut braid = Braid::new([0xAB; 32], authority_ref());
 
     assert_eq!(braid.status(), BraidStatus::Active);
-    braid
-        .apply(BraidEvent::MemberWoven {
-            member_ref,
-            sequence_num: 0,
-        })
-        .unwrap();
+    braid.apply(BraidEvent::MemberWoven {
+        member_ref,
+        sequence_num: 0,
+    })?;
     assert_eq!(braid.frontier(), &[member_ref]);
 
     assert_eq!(
@@ -37,4 +35,5 @@ fn crate_root_exports_braid_lifecycle_error_and_member_types() {
         }),
         Err(BraidError::DuplicateMember { member_ref })
     );
+    Ok(())
 }

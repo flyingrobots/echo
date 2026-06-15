@@ -6525,10 +6525,12 @@ mod tests {
     }
 
     #[test]
-    fn runtime_wal_ack_stale_claims_stay_current() {
+    fn runtime_wal_ack_stale_claims_stay_current() -> Result<(), Box<dyn std::error::Error>> {
         let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
-            .expect("xtask crate should live under repository root");
+            .ok_or_else(|| {
+                std::io::Error::other("xtask crate should live under repository root")
+            })?;
         let checked_docs = [
             "docs/BEARING.md",
             "docs/design/v0.1.0-jedit-release-gate.md",
@@ -6545,26 +6547,27 @@ mod tests {
 
         for relative_path in checked_docs {
             let path = repo_root.join(relative_path);
-            let content = fs::read_to_string(&path)
-                .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
+            let content = fs::read_to_string(&path).map_err(|err| {
+                std::io::Error::new(
+                    err.kind(),
+                    format!("failed to read {}: {err}", path.display()),
+                )
+            })?;
             for stale_claim in stale_claims {
                 assert!(
                     !content.contains(stale_claim),
-                    "{} contains stale runtime WAL ACK claim `{}`",
-                    relative_path,
-                    stale_claim
+                    "{relative_path} contains stale runtime WAL ACK claim `{stale_claim}`",
                 );
             }
         }
 
-        let bearing = fs::read_to_string(repo_root.join("docs/BEARING.md"))
-            .expect("BEARING should be readable");
+        let bearing = fs::read_to_string(repo_root.join("docs/BEARING.md"))?;
         assert!(bearing.contains("Runtime ACK drift gate"));
         assert!(bearing.contains("cargo xtask test-slice runtime-wal-ack"));
 
-        let workflows = fs::read_to_string(repo_root.join("docs/workflows.md"))
-            .expect("workflow docs should be readable");
+        let workflows = fs::read_to_string(repo_root.join("docs/workflows.md"))?;
         assert!(workflows.contains("cargo xtask test-slice runtime-wal-ack"));
+        Ok(())
     }
 
     #[test]

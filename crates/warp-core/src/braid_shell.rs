@@ -1887,13 +1887,11 @@ mod tests {
             "proof-bearing shells must have a distinct content identity"
         );
 
-        let mut proof_tampered = shell_with_valid_proof.clone();
-        proof_tampered
-            .proof
-            .as_mut()
-            .expect("proof-bearing shell")
-            .proof_bytes
-            .push(4);
+        let mut proof_tampered = shell_with_valid_proof;
+        assert!(proof_tampered.proof.is_some());
+        if let Some(proof) = proof_tampered.proof.as_mut() {
+            proof.proof_bytes.push(4);
+        }
         assert!(matches!(
             proof_tampered.validate(),
             Err(BraidShellError::DigestMismatch { .. })

@@ -3,7 +3,7 @@
 
 # BEARING
 
-Last updated: 2026-06-03.
+Last updated: 2026-06-15.
 
 This signpost summarizes current direction. It does not create commitments or
 replace backlog items, design docs, retros, or CLI status. If it disagrees with
@@ -11,6 +11,9 @@ code, the code wins and this file should be corrected.
 
 The WARP paper-to-Echo noun map is maintained in
 `docs/design/warp-optic-implementation-map.md`.
+
+The post-PR #545 strands and braids hardening roadmap is maintained in
+`docs/design/braids-and-strands-roadmap.md`.
 
 The feature bar for the eventual `v0.1.0` release is maintained in
 `docs/design/v0.1.0-release-plan.md`.

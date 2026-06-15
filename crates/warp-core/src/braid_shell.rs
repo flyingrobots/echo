@@ -35,7 +35,10 @@ const COORDINATE_DOMAIN: &[u8] = b"echo.braid.coordinate.v1\0";
 const SEALED_MEMBER_DOMAIN: &[u8] = b"echo.braid.member.sealed.v1\0";
 
 /// Current braid shell body version.
-pub const BRAID_SHELL_VERSION: u32 = 1;
+///
+/// Version 2 binds the optional proof-envelope digest marker into shell
+/// identity. Version 1 proofless shells used the pre-proof digest body.
+pub const BRAID_SHELL_VERSION: u32 = 2;
 
 /// Compact settlement verdict for one braid member.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1904,6 +1907,8 @@ mod tests {
             CausalPosture::AuthorOnly,
         )
         .unwrap();
+        assert_eq!(temp_shell.version, BRAID_SHELL_VERSION);
+        assert_eq!(BRAID_SHELL_VERSION, 2);
         let expected_witness = temp_shell.witness_digest;
 
         // Valid replay-trace evidence: matches the witness_digest and has non-empty bytes.
@@ -1925,6 +1930,7 @@ mod tests {
             Some(valid_proof),
         )
         .unwrap();
+        assert_eq!(shell_with_valid_proof.version, BRAID_SHELL_VERSION);
         shell_with_valid_proof.validate().unwrap();
         assert_ne!(
             temp_shell.digest, shell_with_valid_proof.digest,

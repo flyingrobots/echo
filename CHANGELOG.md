@@ -650,7 +650,8 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
   a deterministic member index instead of scanning the append-ordered frontier.
 - `warp-core` braid-shell digests now bind optional proof-shaped envelopes:
   proof-bearing shells have distinct content identity from proof-less shells,
-  and mutating proof bytes after assembly is caught by shell validation.
+  mutating proof bytes after assembly is caught by shell validation, and
+  `BRAID_SHELL_VERSION` is now `2` for the proof-digest marker shape.
   Shape-only proof envelope admission is limited to replay-trace evidence;
   cryptographic proof kinds require a verifier backend before admission.
 - `warp-core` sealed braid members now require caller-supplied blinding material,

@@ -256,9 +256,11 @@ pub use retained_evidence::{
 // --- Session types ---
 pub use playback::{SessionId, ViewSession};
 // --- Proof types ---
-pub use proof::{ObserverHonestyClaim, ProofEnvelope, ProofKind};
+pub use proof::{
+    ObserverHonestyClaim, ProofEnvelope, ProofError, ProofKind, VerificationFailureCode,
+};
 // --- Braid Log types ---
-pub use braid::{Braid, BraidError, BraidEvent, BraidStatus};
+pub use braid::{Braid, BraidError, BraidEvent, BraidStatus, BraidTransitionKind};
 // --- Retained boundary shell family (θ_tick, θ_braid) ---
 pub use braid_shell::{
     collapse_braid_shell, replay_braid_shell, BraidCoordinate, BraidMemberRef, BraidShell,

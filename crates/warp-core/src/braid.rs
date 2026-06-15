@@ -20,6 +20,31 @@ pub enum BraidStatus {
     Collapsed,
 }
 
+/// Typed lifecycle transition attempted against a braid.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BraidTransitionKind {
+    /// Create the braid event log.
+    Create,
+    /// Weave a member into the active frontier.
+    WeaveMember,
+    /// Finalize settlement for the current frontier.
+    FinalizeSettlement,
+    /// Collapse a finalized plural braid.
+    Collapse,
+}
+
+impl std::fmt::Display for BraidTransitionKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let label = match self {
+            Self::Create => "create braid",
+            Self::WeaveMember => "weave member",
+            Self::FinalizeSettlement => "finalize settlement",
+            Self::Collapse => "collapse braid",
+        };
+        f.write_str(label)
+    }
+}
+
 /// Error kinds returned during coordination braid lifecycle updates or folds.
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum BraidError {
@@ -41,10 +66,10 @@ pub enum BraidError {
         actual: u64,
     },
     /// An invalid transition was attempted for the current braid status.
-    #[error("cannot transition braid state: cannot {action} in status {status:?}")]
+    #[error("cannot transition braid state: cannot {transition} in status {status:?}")]
     InvalidTransition {
-        /// Attempted action or event kind.
-        action: String,
+        /// Attempted lifecycle transition.
+        transition: BraidTransitionKind,
         /// Current braid status.
         status: BraidStatus,
     },
@@ -161,7 +186,7 @@ impl Braid {
             } => {
                 if self.status != BraidStatus::Active {
                     return Err(BraidError::InvalidTransition {
-                        action: "weave member".to_string(),
+                        transition: BraidTransitionKind::WeaveMember,
                         status: self.status,
                     });
                 }
@@ -195,7 +220,7 @@ impl Braid {
             BraidEvent::SettlementFinalized { settlement_digest } => {
                 if self.status != BraidStatus::Active {
                     return Err(BraidError::InvalidTransition {
-                        action: "finalize settlement".to_string(),
+                        transition: BraidTransitionKind::FinalizeSettlement,
                         status: self.status,
                     });
                 }
@@ -211,7 +236,7 @@ impl Braid {
             } => {
                 if self.status != BraidStatus::Finalized {
                     return Err(BraidError::InvalidTransition {
-                        action: "collapse braid".to_string(),
+                        transition: BraidTransitionKind::Collapse,
                         status: self.status,
                     });
                 }
@@ -459,7 +484,7 @@ mod tests {
         assert_eq!(
             Braid::fold(bad_events_weave_after_finalized),
             Err(BraidError::InvalidTransition {
-                action: "weave member".to_string(),
+                transition: BraidTransitionKind::WeaveMember,
                 status: BraidStatus::Finalized
             })
         );
@@ -478,7 +503,7 @@ mod tests {
         assert_eq!(
             Braid::fold(bad_events_collapse_before_finalized),
             Err(BraidError::InvalidTransition {
-                action: "collapse braid".to_string(),
+                transition: BraidTransitionKind::Collapse,
                 status: BraidStatus::Active
             })
         );
@@ -539,7 +564,7 @@ mod tests {
                 sequence_num: 2,
             }),
             Err(BraidError::InvalidTransition {
-                action: "weave member".to_string(),
+                transition: BraidTransitionKind::WeaveMember,
                 status: BraidStatus::Finalized,
             })
         );

@@ -3,6 +3,7 @@
 //! Proof envelopes and honesty assertions.
 
 use blake3::Hasher;
+use thiserror::Error;
 
 use crate::braid_shell::BraidCoordinate;
 use crate::ident::Hash;
@@ -41,6 +42,46 @@ impl ProofKind {
     }
 }
 
+/// Future verifier backend rejection code.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum VerificationFailureCode {
+    /// A verifier backend rejected the proof without a narrower public reason.
+    Rejected,
+}
+
+/// Structured proof envelope validation failure.
+#[derive(Error, Clone, Debug, PartialEq, Eq)]
+pub enum ProofError {
+    /// This proof kind is reserved until a verifier backend is wired.
+    #[error("{kind:?} proof envelopes require a verifier backend before admission")]
+    UnsupportedKind {
+        /// Unsupported proof kind.
+        kind: ProofKind,
+    },
+    /// The envelope carried no proof/evidence bytes.
+    #[error("proof payload is empty")]
+    EmptyPayload,
+    /// The envelope public inputs did not bind to the expected digest.
+    #[error("public inputs mismatch: expected {expected:?}, got {actual:?}")]
+    PublicInputsMismatch {
+        /// Expected public-input hash.
+        expected: Hash,
+        /// Actual public-input hash carried by the envelope.
+        actual: Hash,
+    },
+    /// The envelope shape was malformed before backend verification.
+    #[error("malformed proof envelope")]
+    MalformedEnvelope,
+    /// A verifier backend rejected the proof.
+    #[error("{kind:?} verifier backend rejected proof: {reason:?}")]
+    BackendRejected {
+        /// Proof kind rejected by the backend.
+        kind: ProofKind,
+        /// Backend rejection code.
+        reason: VerificationFailureCode,
+    },
+}
+
 /// A proof-shaped envelope whose current validation admits replay-trace
 /// evidence by checking structure and public-input binding.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -62,22 +103,20 @@ impl ProofEnvelope {
     ///
     /// # Errors
     ///
-    /// Returns a validation error string if proof bytes are empty or public inputs mismatch.
-    pub fn validate_shape(&self, expected_public_inputs_hash: Hash) -> Result<(), String> {
+    /// Returns [`ProofError`] if proof bytes are empty, the proof kind is not
+    /// admitted by shape-only validation, or public inputs mismatch.
+    pub fn validate_shape(&self, expected_public_inputs_hash: Hash) -> Result<(), ProofError> {
         if !self.kind.accepts_shape_only() {
-            return Err(format!(
-                "{:?} proof envelopes require a verifier backend before admission",
-                self.kind
-            ));
+            return Err(ProofError::UnsupportedKind { kind: self.kind });
         }
         if self.proof_bytes.is_empty() {
-            return Err("Proof payload is empty".to_string());
+            return Err(ProofError::EmptyPayload);
         }
         if self.public_inputs_hash != expected_public_inputs_hash {
-            return Err(format!(
-                "Public inputs mismatch: expected {:?}, got {:?}",
-                expected_public_inputs_hash, self.public_inputs_hash
-            ));
+            return Err(ProofError::PublicInputsMismatch {
+                expected: expected_public_inputs_hash,
+                actual: self.public_inputs_hash,
+            });
         }
         Ok(())
     }

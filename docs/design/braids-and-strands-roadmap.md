@@ -61,13 +61,13 @@ this campaign.
 Design:
 [`goalpost-01-lawful-construction-and-typed-failures.md`](braids-and-strands-hardening/goalpost-01-lawful-construction-and-typed-failures.md)
 
-- [ ] GP1-S1: Make `Strand<P>` construction posture-aware and non-forgeable
+- [x] GP1-S1: Make `Strand<P>` construction posture-aware and non-forgeable
       through public API.
-- [ ] GP1-S2: Replace public test construction with fixture builders.
-- [ ] GP1-S3: Replace proof validation strings with structured `ProofError`.
-- [ ] GP1-S4: Replace braid transition action strings with
+- [x] GP1-S2: Replace public test construction with fixture builders.
+- [x] GP1-S3: Replace proof validation strings with structured `ProofError`.
+- [x] GP1-S4: Replace braid transition action strings with
       `BraidTransitionKind`.
-- [ ] GP1-S5: Add negative capability tests for forged strands and display
+- [x] GP1-S5: Add negative capability tests for forged strands and display
       string parsing.
 
 ### Goalpost 2: Stable Identity And Privacy Posture

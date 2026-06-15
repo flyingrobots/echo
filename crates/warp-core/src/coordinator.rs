@@ -1602,20 +1602,20 @@ impl WorldlineRuntime {
                     .map(|head| *head.key())
                     .collect::<Vec<_>>();
                 let retention_posture = request.retention_posture;
+                let strand = Strand::new(
+                    request.strand_id,
+                    fork_basis_ref,
+                    request.child_worldline_id,
+                    writer_heads.clone(),
+                    Vec::new(),
+                    retention_posture,
+                )?;
 
                 self.register_worldline(request.child_worldline_id, child_state)?;
                 for head in request.writer_heads {
                     self.register_writer_head(head)?;
                 }
-                self.register_strand(Strand {
-                    strand_id: request.strand_id,
-                    fork_basis_ref,
-                    child_worldline_id: request.child_worldline_id,
-                    writer_heads: writer_heads.clone(),
-                    support_pins: Vec::new(),
-                    retention_posture,
-                    _marker: std::marker::PhantomData,
-                })?;
+                self.register_strand(strand)?;
 
                 Ok(ForkStrandReceipt {
                     strand_id: request.strand_id,
@@ -4066,6 +4066,61 @@ mod tests {
             historical_state.state_root()
         );
         assert_eq!(provenance.len(child_worldline_id).unwrap(), 1);
+    }
+
+    #[test]
+    fn fork_strand_rejects_empty_writer_heads_and_rolls_back() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        let source_lane_id = wl(1);
+        let child_worldline_id = wl(2);
+        let strand_id = make_strand_id("fork-empty-heads");
+
+        runtime
+            .register_worldline(source_lane_id, WorldlineState::empty())
+            .unwrap();
+        register_head(
+            &mut runtime,
+            source_lane_id,
+            "source-default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+
+        let mut provenance = mirrored_provenance(&runtime);
+        commit_one_tick(
+            &mut runtime,
+            &mut provenance,
+            &mut engine,
+            source_lane_id,
+            "fork-empty-heads-source",
+        );
+
+        let err = runtime
+            .fork_strand(
+                &mut provenance,
+                ForkStrandRequest {
+                    strand_id,
+                    source_lane_id,
+                    fork_tick: wt(0),
+                    child_worldline_id,
+                    writer_heads: Vec::new(),
+                    retention_posture: test_retention_posture(12),
+                },
+            )
+            .unwrap_err();
+
+        assert!(matches!(
+            err,
+            RuntimeError::Strand(StrandError::InvariantViolation(
+                "INV-S2: v1 strands must carry exactly one writer head"
+            ))
+        ));
+        assert!(runtime.worldlines().get(&child_worldline_id).is_none());
+        assert!(runtime.strands().get(&strand_id).is_none());
+        assert!(provenance.len(child_worldline_id).is_err());
+        assert_eq!(provenance.len(source_lane_id).unwrap(), 1);
     }
 
     #[test]

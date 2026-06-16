@@ -36,6 +36,9 @@
   `audit_braid_shell(...)` and `BraidShellAudit`, including member verdicts,
   support/frontier digests, posture floor, proof binding, and explicit
   self-witness integrity-only posture.
+- The braids/strands hardening docs now define the Braid Flight Recorder and
+  Causal X-Ray lower-mode output target over historical membership, diff, shell
+  audit, proof-binding, and witness-posture facts.
 - `warp-core` now enforces the v1 single-writer-head strand invariant through
   both `Strand::new(...)` and `StrandRegistry::insert(...)`, and runtime strand
   forking constructs the registered relation through the same constructor

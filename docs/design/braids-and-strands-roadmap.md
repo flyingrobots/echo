@@ -95,7 +95,7 @@ Design:
       concealed changes.
 - [x] GP3-S4: Add replay/audit facts for member verdicts, posture floors,
       proof binding, retained support, frontier, and witness posture.
-- [ ] GP3-S5: Define the Braid Flight Recorder and Causal X-Ray lower-mode
+- [x] GP3-S5: Define the Braid Flight Recorder and Causal X-Ray lower-mode
       output.
 
 ### Goalpost 4: Witness Receipts And Sealed Capabilities

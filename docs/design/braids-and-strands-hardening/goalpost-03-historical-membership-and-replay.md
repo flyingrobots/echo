@@ -3,7 +3,7 @@
 
 # Goalpost 3: Historical Membership And Replay
 
-Status: active. GP3-S1, GP3-S2, GP3-S3, and GP3-S4 implemented.
+Status: implemented.
 
 Roadmap:
 [`../braids-and-strands-roadmap.md`](../braids-and-strands-roadmap.md)
@@ -79,8 +79,9 @@ constraints as replay, then emits stable replay/audit facts for member
 verdicts, member support and frontier digests, posture floor, proof binding,
 and the current self-witness integrity-only posture.
 
-Later slices will define the Braid Flight Recorder and Causal X-Ray lower-mode
-output over these fact surfaces.
+The Braid Flight Recorder and Causal X-Ray lower-mode target are defined below
+as stable design/output surfaces over these fact APIs. This goalpost does not
+ship a CLI command.
 
 This preserves six boundaries:
 
@@ -91,6 +92,109 @@ This preserves six boundaries:
 5. Reveal/conceal facts require explicit evidence, not reference-shape guesses.
 6. Audit facts do not reopen member strand histories.
 
+## Flight Recorder And Causal X-Ray Output
+
+The Braid Flight Recorder is a durable audit artifact shape, not a separate
+admission path. It records the interpreted path:
+
+```text
+event log
+-> membership projection
+-> membership diff
+-> shell assembly
+-> proof binding
+-> witness reading
+-> replay verdict
+```
+
+The recorder consumes existing fact surfaces:
+
+| Stage                 | Source API                                           |
+| --------------------- | ---------------------------------------------------- |
+| event log             | `Braid::events()`                                    |
+| membership projection | `Braid::membership_at(...)`                          |
+| membership diff       | `Braid::diff_membership(...)`                        |
+| shell assembly        | retained `BraidShell`                                |
+| proof binding         | `BraidShellAudit::proof_binding`                     |
+| witness reading       | `BraidShellAudit::witness_posture`                   |
+| replay verdict        | `replay_braid_shell(...)` / `audit_braid_shell(...)` |
+
+The lower-mode Causal X-Ray target is a stable, assertion-friendly object that
+can later back a command such as:
+
+```text
+echo braid inspect <shell-digest>
+```
+
+No command ships in this slice. The current target output is:
+
+```json
+{
+    "artifact": "braid-flight-recorder",
+    "version": 1,
+    "braid": {
+        "id": "hex:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "status": "active",
+        "membership_cursor": {
+            "next_sequence_num": 3
+        }
+    },
+    "membership": {
+        "projection": [
+            {
+                "reference": "revealed",
+                "sequence_num": 0
+            },
+            {
+                "reference": "revealed",
+                "sequence_num": 1
+            },
+            {
+                "reference": "revealed",
+                "sequence_num": 2
+            }
+        ],
+        "diff": {
+            "from_next_sequence_num": 1,
+            "to_next_sequence_num": 3,
+            "added": [1, 2],
+            "ended": [],
+            "revealed": [],
+            "concealed": []
+        }
+    },
+    "shell": {
+        "digest": "hex:bsh",
+        "coordinate": "hex:bc",
+        "outcome": "plural",
+        "posture_floor": "author_only",
+        "shell_posture": "author_only",
+        "settlement_frontier": ["revealed:0", "revealed:1", "revealed:2"]
+    },
+    "members": [
+        {
+            "reference": "revealed",
+            "verdict": "plural",
+            "support_pin_digest": "hex:21",
+            "frontier_digest": "hex:23"
+        }
+    ],
+    "proof": {
+        "binding": "matched",
+        "kind": "replay_trace"
+    },
+    "witness": {
+        "kind": "self_witness",
+        "attestation": "integrity_only"
+    },
+    "warnings": ["self_witness_is_not_independent_attestation"]
+}
+```
+
+Fixture fields use symbolic digest strings because this is lower-mode output,
+not a golden identity vector. Golden identity changes remain governed by
+Goalpost 2 vector rules.
+
 ## Non-Goals
 
 This goalpost does not include:
@@ -99,6 +203,7 @@ This goalpost does not include:
 - exposing sealed source chains beyond the requested aperture;
 - external witness backend implementation;
 - plurality law registry execution.
+- shipping a Causal X-Ray CLI command.
 
 ## Slices
 

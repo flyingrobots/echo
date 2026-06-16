@@ -3,7 +3,7 @@
 
 # Goalpost 3: Historical Membership And Replay
 
-Status: active. GP3-S1, GP3-S2, and GP3-S3 implemented.
+Status: active. GP3-S1, GP3-S2, GP3-S3, and GP3-S4 implemented.
 
 Roadmap:
 [`../braids-and-strands-roadmap.md`](../braids-and-strands-roadmap.md)
@@ -74,17 +74,22 @@ deterministic added and ended membership facts. The diff shape reserves
 revealed and concealed fact slots, but the current append-only event model
 does not infer sealed/revealed equivalence without explicit disclosure
 evidence.
+`audit_braid_shell(...)` validates the same retained shell and lineage
+constraints as replay, then emits stable replay/audit facts for member
+verdicts, member support and frontier digests, posture floor, proof binding,
+and the current self-witness integrity-only posture.
 
-Later slices will add replay facts over the same event-log facts instead of
-treating current membership as the substrate.
+Later slices will define the Braid Flight Recorder and Causal X-Ray lower-mode
+output over these fact surfaces.
 
-This preserves five boundaries:
+This preserves six boundaries:
 
 1. Admission happens through `Braid::apply(...)`.
 2. Membership history is derived from accepted events.
 3. Current frontier is one projection, not the historical model.
 4. Event-log membership cursors are distinct from braid shell coordinates.
 5. Reveal/conceal facts require explicit evidence, not reference-shape guesses.
+6. Audit facts do not reopen member strand histories.
 
 ## Non-Goals
 

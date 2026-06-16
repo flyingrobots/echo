@@ -93,7 +93,7 @@ Design:
 - [x] GP3-S2: Add historical membership views by coordinate or event sequence.
 - [x] GP3-S3: Add membership diff facts for added, ended, revealed, and
       concealed changes.
-- [ ] GP3-S4: Add replay/audit facts for member verdicts, posture floors,
+- [x] GP3-S4: Add replay/audit facts for member verdicts, posture floors,
       proof binding, retained support, frontier, and witness posture.
 - [ ] GP3-S5: Define the Braid Flight Recorder and Causal X-Ray lower-mode
       output.

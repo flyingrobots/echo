@@ -32,6 +32,10 @@
   `Braid::diff_membership(...)`, reporting deterministic added and ended
   membership projection facts between historical cursors while reserving
   revealed/concealed fact slots for future lawful disclosure evidence.
+- `warp-core` now exposes retained braid shell replay/audit facts through
+  `audit_braid_shell(...)` and `BraidShellAudit`, including member verdicts,
+  support/frontier digests, posture floor, proof binding, and explicit
+  self-witness integrity-only posture.
 - `warp-core` now enforces the v1 single-writer-head strand invariant through
   both `Strand::new(...)` and `StrandRegistry::insert(...)`, and runtime strand
   forking constructs the registered relation through the same constructor

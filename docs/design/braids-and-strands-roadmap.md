@@ -88,7 +88,7 @@ Design:
 Design:
 [`goalpost-03-historical-membership-and-replay.md`](braids-and-strands-hardening/goalpost-03-historical-membership-and-replay.md)
 
-- [ ] GP3-S1: Promote append-only braid membership into an implementation
+- [x] GP3-S1: Promote append-only braid membership into an implementation
       design.
 - [ ] GP3-S2: Add historical membership views by coordinate or event sequence.
 - [ ] GP3-S3: Add membership diff facts for added, ended, revealed, and

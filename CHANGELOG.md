@@ -19,6 +19,11 @@
   sealed-member salt effects. The vector metadata marks these identities as
   E1 scaffolding identity, and API docs now state that deterministic member
   blinding defaults are reproducibility tools, not unlinkability boundaries.
+- `warp-core` now begins the third braids/strands roadmap goalpost with
+  append-only braid membership history. `BraidMembershipEntry` and
+  `Braid::membership_history()` expose accepted `MemberWoven` facts as a
+  read-only projection over the braid event log, while `frontier()` remains the
+  current membership projection.
 - `warp-core` now enforces the v1 single-writer-head strand invariant through
   both `Strand::new(...)` and `StrandRegistry::insert(...)`, and runtime strand
   forking constructs the registered relation through the same constructor

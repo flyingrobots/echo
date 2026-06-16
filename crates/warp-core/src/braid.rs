@@ -127,6 +127,19 @@ pub enum BraidEvent {
     },
 }
 
+/// One accepted braid membership fact, projected from append-only event history.
+///
+/// This is a read model, not an admission token. Constructing this value does
+/// not weave a member into a braid; only [`Braid::apply`] can admit
+/// [`BraidEvent::MemberWoven`] into braid history.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BraidMembershipEntry {
+    /// Reference to the strand, which may be revealed or sealed.
+    pub member_ref: BraidMemberRef,
+    /// Monotonically increasing sequence number from the accepted weave event.
+    pub sequence_num: u64,
+}
+
 /// Evolving state of a coordination braid reconstructed from its event log.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Braid {
@@ -304,7 +317,34 @@ impl Braid {
         self.status
     }
 
+    /// Returns the accepted append-only membership history.
+    ///
+    /// The event log is the source of truth. This projection includes only
+    /// accepted [`BraidEvent::MemberWoven`] facts, so rejected duplicate,
+    /// incoherent, or late member events are never visible here.
+    #[must_use]
+    pub fn membership_history(&self) -> Vec<BraidMembershipEntry> {
+        self.events
+            .iter()
+            .filter_map(|event| match event {
+                BraidEvent::MemberWoven {
+                    member_ref,
+                    sequence_num,
+                } => Some(BraidMembershipEntry {
+                    member_ref: *member_ref,
+                    sequence_num: *sequence_num,
+                }),
+                BraidEvent::BraidCreated { .. }
+                | BraidEvent::SettlementFinalized { .. }
+                | BraidEvent::BraidCollapsed { .. } => None,
+            })
+            .collect()
+    }
+
     /// Returns the current coordination frontier (active woven members).
+    ///
+    /// This is the current projection over [`Self::membership_history`], not a
+    /// replacement for historical membership views.
     #[must_use]
     pub fn frontier(&self) -> &[BraidMemberRef] {
         &self.members

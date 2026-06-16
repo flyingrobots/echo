@@ -3,7 +3,7 @@
 
 # Goalpost 3: Historical Membership And Replay
 
-Status: planned.
+Status: active. GP3-S1 implemented.
 
 Roadmap:
 [`../braids-and-strands-roadmap.md`](../braids-and-strands-roadmap.md)
@@ -40,6 +40,38 @@ This goalpost includes:
 - replay facts for member verdicts and proof/witness posture;
 - Braid Flight Recorder artifact shape;
 - Causal X-Ray lower-mode output target.
+
+## Implementation Design
+
+GP3-S1 establishes the membership-history source of truth without implementing
+the later coordinate, diff, replay, or recorder surfaces.
+
+The implementation boundary is:
+
+```text
+BraidEvent::MemberWoven
+-> BraidMembershipEntry
+-> Braid::membership_history()
+-> Braid::frontier()
+```
+
+`BraidEvent` remains the authoritative append-only log. A
+`BraidMembershipEntry` is a read projection over one accepted `MemberWoven`
+event; it is not an admission token and constructing it does not weave a
+member. `Braid::membership_history()` projects accepted weave events from the
+log in event order. Rejected duplicate, incoherent, mixed-posture, or late
+member events never enter the log and therefore never appear in membership
+history.
+
+`Braid::frontier()` remains the current membership projection. Later slices
+will add coordinate-based views and diffs over the same event-log facts instead
+of treating current membership as the substrate.
+
+This preserves three boundaries:
+
+1. Admission happens through `Braid::apply(...)`.
+2. Membership history is derived from accepted events.
+3. Current frontier is one projection, not the historical model.
 
 ## Non-Goals
 

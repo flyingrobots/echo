@@ -140,6 +140,31 @@ pub struct BraidMembershipEntry {
     pub sequence_num: u64,
 }
 
+/// Half-open cursor over accepted braid membership events.
+///
+/// A cursor names the membership interval `[0, next_sequence_num)`.
+/// `BraidMembershipCursor::new(0)` is the post-creation interval before any
+/// member weave. `BraidMembershipCursor::new(2)` includes accepted member
+/// weave sequence numbers `0` and `1`, but excludes sequence `2`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct BraidMembershipCursor {
+    next_sequence_num: u64,
+}
+
+impl BraidMembershipCursor {
+    /// Creates a membership cursor from the next weave sequence number.
+    #[must_use]
+    pub const fn new(next_sequence_num: u64) -> Self {
+        Self { next_sequence_num }
+    }
+
+    /// Returns the first member weave sequence number excluded by this cursor.
+    #[must_use]
+    pub const fn next_sequence_num(self) -> u64 {
+        self.next_sequence_num
+    }
+}
+
 /// Evolving state of a coordination braid reconstructed from its event log.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Braid {
@@ -335,6 +360,40 @@ impl Braid {
                     sequence_num: *sequence_num,
                 }),
                 BraidEvent::BraidCreated { .. }
+                | BraidEvent::SettlementFinalized { .. }
+                | BraidEvent::BraidCollapsed { .. } => None,
+            })
+            .collect()
+    }
+
+    /// Returns the cursor for the current membership projection.
+    ///
+    /// Saving this value before later member weaving lets callers request the
+    /// historical membership view that was current at that event-log interval.
+    #[must_use]
+    pub fn current_membership_cursor(&self) -> BraidMembershipCursor {
+        BraidMembershipCursor::new(self.next_sequence_num)
+    }
+
+    /// Returns accepted membership facts visible at the requested cursor.
+    ///
+    /// This projection is derived from accepted [`BraidEvent::MemberWoven`]
+    /// facts. It does not read the current frontier, so later members do not
+    /// appear in earlier historical views.
+    #[must_use]
+    pub fn membership_at(&self, cursor: BraidMembershipCursor) -> Vec<BraidMembershipEntry> {
+        self.events
+            .iter()
+            .filter_map(|event| match event {
+                BraidEvent::MemberWoven {
+                    member_ref,
+                    sequence_num,
+                } if *sequence_num < cursor.next_sequence_num() => Some(BraidMembershipEntry {
+                    member_ref: *member_ref,
+                    sequence_num: *sequence_num,
+                }),
+                BraidEvent::BraidCreated { .. }
+                | BraidEvent::MemberWoven { .. }
                 | BraidEvent::SettlementFinalized { .. }
                 | BraidEvent::BraidCollapsed { .. } => None,
             })

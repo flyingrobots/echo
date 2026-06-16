@@ -3,7 +3,7 @@
 
 # Goalpost 3: Historical Membership And Replay
 
-Status: active. GP3-S1 implemented.
+Status: active. GP3-S1 and GP3-S2 implemented.
 
 Roadmap:
 [`../braids-and-strands-roadmap.md`](../braids-and-strands-roadmap.md)
@@ -63,15 +63,21 @@ log in event order. Rejected duplicate, incoherent, mixed-posture, or late
 member events never enter the log and therefore never appear in membership
 history.
 
-`Braid::frontier()` remains the current membership projection. Later slices
-will add coordinate-based views and diffs over the same event-log facts instead
-of treating current membership as the substrate.
+`Braid::frontier()` remains the current membership projection.
+`BraidMembershipCursor` names a half-open membership interval by event sequence:
+`[0, next_sequence_num)`. `Braid::current_membership_cursor()` captures the
+current cursor, and `Braid::membership_at(...)` projects accepted
+`MemberWoven` facts visible at that historical cursor. This intentionally does
+not reuse `BraidCoordinate`, which is already the shell-identity coordinate.
+Later slices will add diffs and replay facts over the same event-log facts
+instead of treating current membership as the substrate.
 
-This preserves three boundaries:
+This preserves four boundaries:
 
 1. Admission happens through `Braid::apply(...)`.
 2. Membership history is derived from accepted events.
 3. Current frontier is one projection, not the historical model.
+4. Event-log membership cursors are distinct from braid shell coordinates.
 
 ## Non-Goals
 

@@ -24,6 +24,10 @@
   `Braid::membership_history()` expose accepted `MemberWoven` facts as a
   read-only projection over the braid event log, while `frontier()` remains the
   current membership projection.
+- `warp-core` now exposes historical braid membership views through
+  `BraidMembershipCursor`, `Braid::current_membership_cursor()`, and
+  `Braid::membership_at(...)`. The cursor is a half-open event-log interval, so
+  later woven members do not appear in earlier membership views.
 - `warp-core` now enforces the v1 single-writer-head strand invariant through
   both `Strand::new(...)` and `StrandRegistry::insert(...)`, and runtime strand
   forking constructs the registered relation through the same constructor

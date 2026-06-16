@@ -5,8 +5,8 @@
 
 use warp_core::{
     make_strand_id, AuthorityDomainId, AuthorityDomainRef, Braid, BraidError, BraidEvent,
-    BraidMemberRef, BraidMembershipEntry, BraidStatus, BraidTransitionKind, OriginId,
-    ProofEnvelope, ProofError, ProofKind,
+    BraidMemberRef, BraidMembershipCursor, BraidMembershipEntry, BraidStatus, BraidTransitionKind,
+    OriginId, ProofEnvelope, ProofError, ProofKind,
 };
 
 fn authority_ref() -> AuthorityDomainRef {
@@ -127,6 +127,63 @@ fn public_braid_membership_history_is_append_only_event_history() -> Result<(), 
         ]
     );
     assert_eq!(braid.frontier(), &[first, second]);
+    Ok(())
+}
+
+#[test]
+fn public_braid_membership_views_are_historical_by_event_cursor() -> Result<(), BraidError> {
+    let first = BraidMemberRef::Revealed(make_strand_id("cursor-member-a"));
+    let second = BraidMemberRef::Revealed(make_strand_id("cursor-member-b"));
+    let third = BraidMemberRef::Revealed(make_strand_id("cursor-member-c"));
+    let mut braid = Braid::new([0xAE; 32], authority_ref());
+
+    assert_eq!(
+        braid.membership_at(BraidMembershipCursor::new(0)),
+        Vec::<BraidMembershipEntry>::new()
+    );
+
+    braid.apply(BraidEvent::MemberWoven {
+        member_ref: first,
+        sequence_num: 0,
+    })?;
+    let after_first = braid.current_membership_cursor();
+
+    braid.apply(BraidEvent::MemberWoven {
+        member_ref: second,
+        sequence_num: 1,
+    })?;
+    let before_third = braid.current_membership_cursor();
+
+    braid.apply(BraidEvent::MemberWoven {
+        member_ref: third,
+        sequence_num: 2,
+    })?;
+
+    assert_eq!(
+        braid.membership_at(after_first),
+        vec![BraidMembershipEntry {
+            member_ref: first,
+            sequence_num: 0,
+        }]
+    );
+    assert_eq!(
+        braid.membership_at(before_third),
+        vec![
+            BraidMembershipEntry {
+                member_ref: first,
+                sequence_num: 0,
+            },
+            BraidMembershipEntry {
+                member_ref: second,
+                sequence_num: 1,
+            },
+        ]
+    );
+    assert_eq!(braid.frontier(), &[first, second, third]);
+    assert_eq!(
+        braid.membership_at(braid.current_membership_cursor()),
+        braid.membership_history()
+    );
     Ok(())
 }
 

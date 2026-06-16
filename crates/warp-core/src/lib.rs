@@ -261,7 +261,8 @@ pub use proof::{
 };
 // --- Braid Log types ---
 pub use braid::{
-    Braid, BraidError, BraidEvent, BraidMembershipEntry, BraidStatus, BraidTransitionKind,
+    Braid, BraidError, BraidEvent, BraidMembershipCursor, BraidMembershipEntry, BraidStatus,
+    BraidTransitionKind,
 };
 // --- Retained boundary shell family (θ_tick, θ_braid) ---
 pub use braid_shell::{

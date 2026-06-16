@@ -28,6 +28,10 @@
   `BraidMembershipCursor`, `Braid::current_membership_cursor()`, and
   `Braid::membership_at(...)`. The cursor is a half-open event-log interval, so
   later woven members do not appear in earlier membership views.
+- `warp-core` now exposes `BraidMembershipDiff` through
+  `Braid::diff_membership(...)`, reporting deterministic added and ended
+  membership projection facts between historical cursors while reserving
+  revealed/concealed fact slots for future lawful disclosure evidence.
 - `warp-core` now enforces the v1 single-writer-head strand invariant through
   both `Strand::new(...)` and `StrandRegistry::insert(...)`, and runtime strand
   forking constructs the registered relation through the same constructor

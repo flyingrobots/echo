@@ -3,7 +3,7 @@
 
 # Goalpost 3: Historical Membership And Replay
 
-Status: active. GP3-S1 and GP3-S2 implemented.
+Status: active. GP3-S1, GP3-S2, and GP3-S3 implemented.
 
 Roadmap:
 [`../braids-and-strands-roadmap.md`](../braids-and-strands-roadmap.md)
@@ -69,15 +69,22 @@ history.
 current cursor, and `Braid::membership_at(...)` projects accepted
 `MemberWoven` facts visible at that historical cursor. This intentionally does
 not reuse `BraidCoordinate`, which is already the shell-identity coordinate.
-Later slices will add diffs and replay facts over the same event-log facts
-instead of treating current membership as the substrate.
+`Braid::diff_membership(...)` compares two cursor projections and returns
+deterministic added and ended membership facts. The diff shape reserves
+revealed and concealed fact slots, but the current append-only event model
+does not infer sealed/revealed equivalence without explicit disclosure
+evidence.
 
-This preserves four boundaries:
+Later slices will add replay facts over the same event-log facts instead of
+treating current membership as the substrate.
+
+This preserves five boundaries:
 
 1. Admission happens through `Braid::apply(...)`.
 2. Membership history is derived from accepted events.
 3. Current frontier is one projection, not the historical model.
 4. Event-log membership cursors are distinct from braid shell coordinates.
+5. Reveal/conceal facts require explicit evidence, not reference-shape guesses.
 
 ## Non-Goals
 

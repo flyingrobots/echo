@@ -2,7 +2,7 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Evolving coordination log ("Braid") representation.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 
 use crate::braid_shell::BraidMemberRef;
@@ -162,6 +162,53 @@ impl BraidMembershipCursor {
     #[must_use]
     pub const fn next_sequence_num(self) -> u64 {
         self.next_sequence_num
+    }
+}
+
+/// One disclosure-posture change detected between membership projections.
+///
+/// The current append-only braid event model cannot infer that one sealed
+/// reference and one revealed reference identify the same member without
+/// external unsealing material. This type reserves the fact vocabulary for
+/// future lawful reveal/conceal events; current diffs leave these vectors
+/// empty rather than guessing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BraidMembershipDisclosureChange {
+    /// Membership fact before the disclosure posture changed.
+    pub from: BraidMembershipEntry,
+    /// Membership fact after the disclosure posture changed.
+    pub to: BraidMembershipEntry,
+}
+
+/// Difference between two historical braid membership projections.
+///
+/// This is a read model over accepted braid events, not an admission token and
+/// not a mutation. `ended` means present at `from` and absent at `to`; it does
+/// not imply that append-only history was rewritten.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BraidMembershipDiff {
+    /// Source cursor for the diff.
+    pub from: BraidMembershipCursor,
+    /// Target cursor for the diff.
+    pub to: BraidMembershipCursor,
+    /// Members present at `to` and absent at `from`.
+    pub added: Vec<BraidMembershipEntry>,
+    /// Members present at `from` and absent at `to`.
+    pub ended: Vec<BraidMembershipEntry>,
+    /// Members whose reference posture became revealed, when lawfully known.
+    pub revealed: Vec<BraidMembershipDisclosureChange>,
+    /// Members whose reference posture became concealed, when lawfully known.
+    pub concealed: Vec<BraidMembershipDisclosureChange>,
+}
+
+impl BraidMembershipDiff {
+    /// Returns whether the diff carries no membership or disclosure changes.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.added.is_empty()
+            && self.ended.is_empty()
+            && self.revealed.is_empty()
+            && self.concealed.is_empty()
     }
 }
 
@@ -400,6 +447,43 @@ impl Braid {
             .collect()
     }
 
+    /// Returns membership change facts between two historical cursors.
+    ///
+    /// The diff compares projections derived from accepted event-log facts.
+    /// It does not mutate braid state and does not infer sealed/revealed
+    /// equivalence without explicit disclosure evidence.
+    #[must_use]
+    pub fn diff_membership(
+        &self,
+        from: BraidMembershipCursor,
+        to: BraidMembershipCursor,
+    ) -> BraidMembershipDiff {
+        let from_membership = self.membership_at(from);
+        let to_membership = self.membership_at(to);
+        let from_index = membership_index(&from_membership);
+        let to_index = membership_index(&to_membership);
+
+        let added = to_membership
+            .iter()
+            .copied()
+            .filter(|entry| !from_index.contains_key(&entry.member_ref))
+            .collect();
+        let ended = from_membership
+            .iter()
+            .copied()
+            .filter(|entry| !to_index.contains_key(&entry.member_ref))
+            .collect();
+
+        BraidMembershipDiff {
+            from,
+            to,
+            added,
+            ended,
+            revealed: Vec::new(),
+            concealed: Vec::new(),
+        }
+    }
+
     /// Returns the current coordination frontier (active woven members).
     ///
     /// This is the current projection over [`Self::membership_history`], not a
@@ -408,6 +492,16 @@ impl Braid {
     pub fn frontier(&self) -> &[BraidMemberRef] {
         &self.members
     }
+}
+
+fn membership_index(
+    entries: &[BraidMembershipEntry],
+) -> BTreeMap<BraidMemberRef, BraidMembershipEntry> {
+    entries
+        .iter()
+        .copied()
+        .map(|entry| (entry.member_ref, entry))
+        .collect()
 }
 
 const fn member_ref_is_sealed(member_ref: &BraidMemberRef) -> bool {

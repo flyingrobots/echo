@@ -91,7 +91,7 @@ Design:
 - [x] GP3-S1: Promote append-only braid membership into an implementation
       design.
 - [x] GP3-S2: Add historical membership views by coordinate or event sequence.
-- [ ] GP3-S3: Add membership diff facts for added, ended, revealed, and
+- [x] GP3-S3: Add membership diff facts for added, ended, revealed, and
       concealed changes.
 - [ ] GP3-S4: Add replay/audit facts for member verdicts, posture floors,
       proof binding, retained support, frontier, and witness posture.
@@ -437,8 +437,8 @@ Work:
 3. Add historical membership views by braid coordinate or event sequence.
 4. Preserve current membership as a projection.
 5. Keep sealed member references lawful at historical coordinates.
-6. Add `braid.diff_membership(from_coordinate, to_coordinate)` as a design
-   target for replay, UI, and audit.
+6. Add `braid.diff_membership(from_cursor, to_cursor)` as a design target for
+   replay, UI, and audit.
 
 Acceptance:
 

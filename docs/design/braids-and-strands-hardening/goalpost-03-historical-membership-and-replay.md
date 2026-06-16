@@ -43,8 +43,9 @@ This goalpost includes:
 
 ## Implementation Design
 
-GP3-S1 establishes the membership-history source of truth without implementing
-the later coordinate, diff, replay, or recorder surfaces.
+GP3-S1 established the membership-history source of truth. GP3-S2 through
+GP3-S5 now layer historical cursors, diffs, replay facts, and recorder output
+over that source without changing the admission path.
 
 The implementation boundary is:
 
@@ -202,7 +203,7 @@ This goalpost does not include:
 - settlement-as-merge semantics;
 - exposing sealed source chains beyond the requested aperture;
 - external witness backend implementation;
-- plurality law registry execution.
+- plurality law registry execution;
 - shipping a Causal X-Ray CLI command.
 
 ## Slices

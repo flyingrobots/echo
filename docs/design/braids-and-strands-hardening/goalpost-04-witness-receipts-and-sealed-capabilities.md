@@ -89,7 +89,9 @@ cannot accidentally claim stable public receipt identity.
 `SealedMembershipPresentation` is purpose-bound and generic. It carries a
 `PresentationPurpose` digest rather than application-domain purpose nouns, a
 braid coordinate, authority domain, blinded member commitment, witness receipt,
-and `DisclosureBudget`.
+and `DisclosureBudget`. Its constructor validates that the witness receipt
+subject and evidence digests are the canonical presentation digests over those
+fields, and the fields are read-only after construction.
 
 `BraidShellAudit` now carries a typed `WitnessReceipt` and labels each member
 fact with a disclosure budget. Revealed member references report `Public`;

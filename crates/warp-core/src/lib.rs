@@ -264,7 +264,10 @@ pub use retained_evidence::{
     RetainedEvidenceCoordinate, RetainedEvidencePosture, RetainedEvidenceRef, RetainedEvidenceRole,
 };
 // --- Sealed membership capability types ---
-pub use sealed_membership::{DisclosureBudget, PresentationPurpose, SealedMembershipPresentation};
+pub use sealed_membership::{
+    DisclosureBudget, PresentationPurpose, SealedMembershipPresentation,
+    SealedMembershipPresentationError,
+};
 // --- Session types ---
 pub use playback::{SessionId, ViewSession};
 // --- Proof types ---

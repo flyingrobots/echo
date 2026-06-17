@@ -5,9 +5,10 @@
 
 use warp_core::{
     AuthorityDomainId, AuthorityDomainRef, BraidCoordinate, DisclosureBudget, OriginId,
-    PresentationPurpose, SealedMembershipPresentation, WitnessAttestation, WitnessBackend,
-    WitnessBackendSimulator, WitnessCompatibilityRule, WitnessError, WitnessKind, WitnessReceipt,
-    WitnessRejectionCode, WitnessRequest, WitnessSimulatorFixture,
+    PresentationPurpose, SealedMembershipPresentation, SealedMembershipPresentationError,
+    WitnessAttestation, WitnessBackend, WitnessBackendSimulator, WitnessCompatibilityRule,
+    WitnessError, WitnessKind, WitnessReceipt, WitnessRejectionCode, WitnessRequest,
+    WitnessSimulatorFixture,
 };
 
 fn subject_digest() -> [u8; 32] {
@@ -157,23 +158,75 @@ fn public_witness_receipt_identity_binds_compatibility_rule() -> Result<(), Witn
 }
 
 #[test]
-fn public_sealed_membership_presentation_uses_generic_purpose_and_budget() {
+fn public_sealed_membership_presentation_rejects_unbound_receipts() {
     let purpose = PresentationPurpose::new([0x44; 32]);
-    let receipt = WitnessReceipt::self_witness(subject_digest(), evidence_digest());
-    let presentation = SealedMembershipPresentation::new(
-        BraidCoordinate([0xBC; 32]),
+    let coordinate = BraidCoordinate([0xBC; 32]);
+    let authority = authority_ref();
+    let member_commitment = [0xA5; 32];
+    let disclosure_budget = DisclosureBudget::CapabilityScoped;
+    let expected = SealedMembershipPresentation::witness_subject_digest(
+        coordinate,
         purpose,
-        authority_ref(),
-        [0xA5; 32],
-        receipt,
-        DisclosureBudget::CapabilityScoped,
+        authority,
+        member_commitment,
+        disclosure_budget,
     );
+    let receipt = WitnessReceipt::self_witness([0xDE; 32], evidence_digest());
 
-    assert_eq!(presentation.purpose, purpose);
-    assert_eq!(presentation.purpose.purpose_id(), [0x44; 32]);
     assert_eq!(
-        presentation.disclosure_budget,
-        DisclosureBudget::CapabilityScoped
+        SealedMembershipPresentation::new(
+            coordinate,
+            purpose,
+            authority,
+            member_commitment,
+            receipt,
+            disclosure_budget,
+        ),
+        Err(SealedMembershipPresentationError::WitnessSubjectMismatch {
+            expected,
+            actual: [0xDE; 32],
+        })
     );
-    assert_eq!(presentation.witness_receipt, receipt);
+}
+
+#[test]
+fn public_sealed_membership_presentation_uses_generic_purpose_and_budget(
+) -> Result<(), SealedMembershipPresentationError> {
+    let purpose = PresentationPurpose::new([0x44; 32]);
+    let coordinate = BraidCoordinate([0xBC; 32]);
+    let authority = authority_ref();
+    let member_commitment = [0xA5; 32];
+    let disclosure_budget = DisclosureBudget::CapabilityScoped;
+    let subject = SealedMembershipPresentation::witness_subject_digest(
+        coordinate,
+        purpose,
+        authority,
+        member_commitment,
+        disclosure_budget,
+    );
+    let evidence = SealedMembershipPresentation::witness_evidence_digest(
+        coordinate,
+        purpose,
+        authority,
+        member_commitment,
+        disclosure_budget,
+    );
+    let receipt = WitnessReceipt::self_witness(subject, evidence);
+    let presentation = SealedMembershipPresentation::new(
+        coordinate,
+        purpose,
+        authority,
+        member_commitment,
+        receipt,
+        disclosure_budget,
+    )?;
+
+    assert_eq!(presentation.braid_coordinate(), coordinate);
+    assert_eq!(presentation.purpose(), purpose);
+    assert_eq!(presentation.purpose().purpose_id(), [0x44; 32]);
+    assert_eq!(presentation.authority_domain(), authority);
+    assert_eq!(presentation.member_commitment(), member_commitment);
+    assert_eq!(presentation.disclosure_budget(), disclosure_budget);
+    assert_eq!(presentation.witness_receipt(), receipt);
+    Ok(())
 }

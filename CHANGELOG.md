@@ -46,7 +46,10 @@
   braid shell audit receipts that keep E1 self-witnessing marked as
   integrity-only local evidence. The self-witness simulator rejects non-E1
   compatibility requests with a typed `UnsupportedCompatibility` error instead
-  of minting stable public identity for scaffolding evidence.
+  of minting stable public identity for scaffolding evidence. Sealed membership
+  presentations validate that their witness receipt subject and evidence
+  digests bind the braid coordinate, purpose, authority domain, member
+  commitment, and disclosure budget.
 - `warp-core` now completes the fifth braids/strands roadmap goalpost with a
   named plurality law registry, machine-readable Law Cards, typed law
   references and versions in braid shell replay/audit readings,

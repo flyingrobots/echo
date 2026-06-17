@@ -936,9 +936,9 @@ pub struct BraidShellReplay {
     pub outcome_kind: AdmissionOutcomeKind,
     /// Member verdicts in canonical member order.
     pub member_verdicts: Vec<(BraidMemberRef, MemberVerdict)>,
-    /// Settlement policy identity the act ran under.
+    /// Policy identity the act ran under.
     pub policy_id: Hash,
-    /// Named settlement law that interpreted retained plurality.
+    /// Named law that interpreted retained plurality or collapse.
     pub law_ref: PluralityLawRef,
     /// Witness digest binding the act.
     pub witness_digest: Hash,
@@ -1008,7 +1008,7 @@ pub struct BraidShellAudit {
     pub coordinate: BraidCoordinate,
     /// Outcome arm reproduced from the shell.
     pub outcome_kind: AdmissionOutcomeKind,
-    /// Settlement policy identity the act ran under.
+    /// Policy identity the act ran under.
     pub policy_id: Hash,
     /// Witnessed law reading for this shell audit.
     pub law_reading: PluralityLawReading,
@@ -1045,7 +1045,7 @@ pub fn replay_braid_shell(
     records: &dyn BraidShellRecords,
 ) -> Result<BraidShellReplay, BraidShellError> {
     let shell = validated_shell_for_replay(digest, records)?;
-    let law_ref = settlement_law_ref(shell.policy_id)?;
+    let law_ref = shell_law_ref(shell)?;
     Ok(BraidShellReplay {
         outcome_kind: shell.outcome_kind(),
         member_verdicts: shell
@@ -1093,7 +1093,7 @@ pub fn audit_braid_shell(
             }
         });
     let witness_receipt = WitnessReceipt::self_witness(shell.digest, shell.witness_digest);
-    let law_ref = settlement_law_ref(shell.policy_id)?;
+    let law_ref = shell_law_ref(shell)?;
     let law_reading = PluralityLawReading::new(
         law_ref,
         shell.digest,
@@ -1157,8 +1157,15 @@ fn shell_disclosure_budget(shell: &BraidShell) -> DisclosureBudget {
     }
 }
 
-fn settlement_law_ref(policy_id: Hash) -> Result<PluralityLawRef, BraidShellError> {
-    PluralityLawRef::settlement_policy(policy_id).map_err(|_| BraidShellError::EmptyPolicyId)
+fn shell_law_ref(shell: &BraidShell) -> Result<PluralityLawRef, BraidShellError> {
+    match &shell.outcome {
+        BraidShellOutcome::Derived {
+            collapse_policy: Some(policy_id),
+            ..
+        } => PluralityLawRef::collapse_policy(*policy_id),
+        _ => PluralityLawRef::settlement_policy(shell.policy_id),
+    }
+    .map_err(|_| BraidShellError::EmptyPolicyId)
 }
 
 fn validated_shell_for_replay<'a>(
@@ -2117,6 +2124,8 @@ mod tests {
 
     #[test]
     fn collapse_with_named_policy_derives_without_mutating_the_plural_parent() {
+        use crate::plurality_law::PluralityLawFamily;
+
         let plural = plural_shell(vec![member("member-a", MemberVerdict::Plural)]);
         let plural_digest = plural.digest;
         let snapshot = plural.clone();
@@ -2147,6 +2156,12 @@ mod tests {
         store.0.insert(derived.digest, derived.clone());
         let replay = replay_braid_shell(&derived.digest, &store).unwrap();
         assert_eq!(replay.outcome_kind, AdmissionOutcomeKind::Derived);
+        assert_eq!(replay.law_ref.family(), PluralityLawFamily::Collapse);
+        let audit = audit_braid_shell(&derived.digest, &store).unwrap();
+        assert_eq!(
+            audit.law_reading.law_ref().family(),
+            PluralityLawFamily::Collapse
+        );
     }
 
     #[test]

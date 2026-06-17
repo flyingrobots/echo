@@ -74,6 +74,14 @@ fn public_plurality_law_ref_requires_name_and_version() {
         Err(PluralityLawRefError::EmptyName)
     );
     assert_eq!(
+        PluralityLawRef::collapse_policy([0; 32]),
+        Err(PluralityLawRefError::EmptyName)
+    );
+    assert_eq!(
+        PluralityLawRef::collapse_policy([0x57; 32]).map(PluralityLawRef::family),
+        Ok(PluralityLawFamily::Collapse)
+    );
+    assert_eq!(
         PluralityLawRef::new(PluralityLawFamily::Settlement, law_name(0x55), 0),
         Err(PluralityLawRefError::ZeroVersion)
     );

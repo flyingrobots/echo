@@ -66,7 +66,10 @@ braid settlement policy ids map through the fallible
 `PluralityLawRef::settlement_policy(...)` constructor, preserving the current
 retained policy identity while making the law family and version explicit in
 replay. Braid shell assembly and validation reject all-zero policy ids before a
-retained shell can claim a named law reading.
+retained shell can claim a named law reading. Collapse-derived shells map their
+`collapse_policy` id through `PluralityLawRef::collapse_policy(...)`, so replay
+and audit report collapse readings as `PluralityLawFamily::Collapse` instead of
+settlement-law readings.
 
 `PluralityLawFamily` is core-generic: settlement, collapse,
 conflict-preserving, quorum, authority, and adapter-provided. Adapter-provided

@@ -157,6 +157,20 @@ impl PluralityLawRef {
         )
     }
 
+    /// Constructs the v1 collapse-law reference for an existing policy id.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PluralityLawRefError::EmptyName`] when `policy_id` is the
+    /// all-zero digest.
+    pub fn collapse_policy(policy_id: Hash) -> Result<Self, PluralityLawRefError> {
+        Self::new(
+            PluralityLawFamily::Collapse,
+            PluralityLawName::from_bytes(policy_id),
+            1,
+        )
+    }
+
     /// Returns the law family.
     #[must_use]
     pub const fn family(self) -> PluralityLawFamily {

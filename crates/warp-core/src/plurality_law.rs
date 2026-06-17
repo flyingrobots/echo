@@ -103,6 +103,9 @@ impl PluralityLawFamily {
 /// Error raised when constructing an invalid plurality law reference.
 #[derive(Error, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PluralityLawRefError {
+    /// Law names must not be the all-zero digest.
+    #[error("plurality law name must be non-empty")]
+    EmptyName,
     /// Law versions start at 1.
     #[error("plurality law version must be non-zero")]
     ZeroVersion,
@@ -122,11 +125,14 @@ impl PluralityLawRef {
     /// # Errors
     ///
     /// Returns [`PluralityLawRefError::ZeroVersion`] when `version` is zero.
-    pub const fn new(
+    pub fn new(
         family: PluralityLawFamily,
         name: PluralityLawName,
         version: u32,
     ) -> Result<Self, PluralityLawRefError> {
+        if name.as_bytes().iter().all(|byte| *byte == 0) {
+            return Err(PluralityLawRefError::EmptyName);
+        }
         if version == 0 {
             return Err(PluralityLawRefError::ZeroVersion);
         }

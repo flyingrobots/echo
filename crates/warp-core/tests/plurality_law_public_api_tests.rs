@@ -63,6 +63,18 @@ fn public_plurality_law_registry_registers_machine_readable_cards(
 }
 
 #[test]
+fn public_plurality_law_ref_requires_name_and_version() {
+    assert_eq!(
+        PluralityLawRef::new(PluralityLawFamily::Settlement, law_name(0x00), 1),
+        Err(PluralityLawRefError::EmptyName)
+    );
+    assert_eq!(
+        PluralityLawRef::new(PluralityLawFamily::Settlement, law_name(0x55), 0),
+        Err(PluralityLawRefError::ZeroVersion)
+    );
+}
+
+#[test]
 fn public_plurality_law_reading_identity_binds_law_name_and_version(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let witness = WitnessReceipt::self_witness([0xAA; 32], [0xBB; 32]);

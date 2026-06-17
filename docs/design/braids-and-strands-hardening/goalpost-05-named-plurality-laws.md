@@ -61,9 +61,10 @@ PluralityLawFamily
 + version
 ```
 
-Law versions start at 1. Existing braid settlement policy ids map into
-`PluralityLawRef::settlement_policy(...)`, preserving the current retained
-policy identity while making the law family and version explicit in replay.
+Law names cannot be the all-zero digest, and law versions start at 1. Existing
+braid settlement policy ids map into `PluralityLawRef::settlement_policy(...)`,
+preserving the current retained policy identity while making the law family and
+version explicit in replay.
 
 `PluralityLawFamily` is core-generic: settlement, collapse,
 conflict-preserving, quorum, authority, and adapter-provided. Adapter-provided

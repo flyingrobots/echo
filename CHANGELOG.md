@@ -51,7 +51,8 @@
   named plurality law registry, machine-readable Law Cards, typed law
   references and versions in braid shell replay/audit readings,
   adapter-provided law-family routing through authority domains, and typed law
-  obstruction evidence for unsupported or unauthorized law execution.
+  obstruction evidence for unsupported or unauthorized law execution. Law
+  references reject all-zero names and zero versions before registration.
 - `warp-core` now enforces the v1 single-writer-head strand invariant through
   both `Strand::new(...)` and `StrandRegistry::insert(...)`, and runtime strand
   forking constructs the registered relation through the same constructor

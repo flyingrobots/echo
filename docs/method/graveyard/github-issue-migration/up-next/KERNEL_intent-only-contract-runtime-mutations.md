@@ -33,8 +33,8 @@ Depends on:
 
 ## Why now
 
-Some Echo services mutate directly today. Those services can remain internal, [🟢, 95%, [crates/echo-wasm-abi/src/lib.rs:1](file:///Users/james/git/echo/crates/echo-wasm-abi/src/lib.rs#L1)]
-but external application flows for contract families, strands, braids, [🔴, 90%, (no supporting evidence was found - may be false 🤥)]
+Some Echo services mutate directly today. Those services can remain internal, [🟢, 95%, [crates/echo-wasm-abi/src/lib.rs#1@5f85dae5727d36acf4a82aad8d7cdb0488cb67be](file:///Users/james/git/echo/crates/echo-wasm-abi/src/lib.rs#L1)]
+but external application flows for contract families, strands, braids, [🔴, 90%,] [🔴, 90%, no evidence found]
 settlement, support pins, and inverse operations must have intent paths.
 
 ## What it should look like

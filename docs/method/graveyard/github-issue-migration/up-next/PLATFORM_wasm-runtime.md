@@ -25,7 +25,7 @@ findings:
 > planning archaeology, not as the current WASM API contract. The live public
 > boundary is documented in [SPEC-0009 WASM ABI](../../../spec/SPEC-0009-wasm-abi.md).
 >
-> Historical First Light plan for wiring warp-wasm exports to real engine [🔴, 90%, (no supporting evidence was found - may be false 🤥)]
+> Historical First Light plan for wiring warp-wasm exports to real engine [🔴, 90%,] [🔴, 90%, no evidence found]
 > logic. It reflects an earlier `step(...)`-driven browser boundary that has
 > since been replaced.
 

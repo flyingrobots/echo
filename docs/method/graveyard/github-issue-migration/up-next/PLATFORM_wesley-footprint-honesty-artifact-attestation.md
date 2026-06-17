@@ -83,7 +83,7 @@ At runtime, Echo or the host should compare the loaded artifact's certificate
 hash and generated artifact hash with the trusted registry metadata on first
 load. After that:
 
-- trusted compile-time-certified artifacts may use the optimized release path [🟢, 95%, [crates/echo-wesley-gen/src/lib.rs:1](file:///Users/james/git/echo/crates/echo-wesley-gen/src/lib.rs#L1)]
+- trusted compile-time-certified artifacts may use the optimized release path [🟢, 95%, [crates/echo-wesley-gen/src/lib.rs#1@5f85dae5727d36acf4a82aad8d7cdb0488cb67be](file:///Users/james/git/echo/crates/echo-wesley-gen/src/lib.rs#L1)]
   without per-access footprint guards;
 - debug builds and `footprint_enforce_release` may still run guards as a safety
   net;
@@ -136,7 +136,7 @@ Initial Echo-side runway landed:
   generated artifact hashes, and a policy requiring mutation operations to be
   backed by expected certificates.
 
-This is not the full closeout. The remaining hardening is the real [🔴, 90%, (no supporting evidence was found - may be false 🤥)]
+This is not the full closeout. The remaining hardening is the real [🔴, 90%,] [🔴, 90%, no evidence found]
 compile-time capability boundary and cross-artifact Rust/TypeScript compiled
 artifact identity.
 

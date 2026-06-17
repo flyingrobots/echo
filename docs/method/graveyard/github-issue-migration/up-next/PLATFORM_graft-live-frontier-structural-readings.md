@@ -27,7 +27,7 @@ Depends on:
 
 ## Why now
 
-Once `jedit` edits through Echo-hosted contract intents, Graft should observe [🔴, 90%, (no supporting evidence was found - may be false 🤥)]
+Once `jedit` edits through Echo-hosted contract intents, Graft should observe [🔴, 90%,] [🔴, 90%, no evidence found]
 the live contract frontier instead of only saved files or ad hoc editor state.
 
 Graft must consume readings and frontiers. It must not mutate Echo state

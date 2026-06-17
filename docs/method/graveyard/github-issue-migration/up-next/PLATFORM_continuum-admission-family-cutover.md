@@ -47,11 +47,11 @@ trying to move the whole runtime across the boundary at once.
 
 The current runtime now has enough truthful mapping to drive that platform cut:
 
-- `TickReceiptDisposition::Applied` => `Derived` [🟢, 95%, [crates/warp-core/src/receipt.rs:143](file:///Users/james/git/echo/crates/warp-core/src/receipt.rs#L143)]
+- `TickReceiptDisposition::Applied` => `Derived` [🟢, 95%, [crates/warp-core/src/receipt.rs#143@5f85dae5727d36acf4a82aad8d7cdb0488cb67be](file:///Users/james/git/echo/crates/warp-core/src/receipt.rs#L143)]
 - `TickReceiptDisposition::Rejected(FootprintConflict)` => `Obstruction`
-- `NeighborhoodSite::Singleton` => `Derived` [🟢, 95%, [crates/warp-core/src/neighborhood.rs:69](file:///Users/james/git/echo/crates/warp-core/src/neighborhood.rs#L69)]
+- `NeighborhoodSite::Singleton` => `Derived` [🟢, 95%, [crates/warp-core/src/neighborhood.rs#69@5f85dae5727d36acf4a82aad8d7cdb0488cb67be](file:///Users/james/git/echo/crates/warp-core/src/neighborhood.rs#L69)]
 - `NeighborhoodSite::Braided` => `Plural`
-- `SettlementDecision::ImportCandidate` => `Derived` [🟢, 95%, [crates/warp-core/src/settlement.rs:253](file:///Users/james/git/echo/crates/warp-core/src/settlement.rs#L253)]
+- `SettlementDecision::ImportCandidate` => `Derived` [🟢, 95%, [crates/warp-core/src/settlement.rs#253@5f85dae5727d36acf4a82aad8d7cdb0488cb67be](file:///Users/james/git/echo/crates/warp-core/src/settlement.rs#L253)]
 - `SettlementDecision::ConflictArtifact` => `Conflict`
 
 The next step is not inventing more local nouns. It is selecting one generated

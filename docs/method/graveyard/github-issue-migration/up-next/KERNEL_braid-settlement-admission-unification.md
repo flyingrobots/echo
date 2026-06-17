@@ -29,7 +29,7 @@ This cycle should push Echo toward one honest story:
 
 - braid comparison is a plural object over a common basis
 - collapse or settlement is an admission act over that plural object
-- lawful outcomes remain `Derived`, `Plural`, `Conflict`, or `Obstruction` [🟢, 95%, [crates/warp-core/src/settlement.rs:253](file:///Users/james/git/echo/crates/warp-core/src/settlement.rs#L253)]
+- lawful outcomes remain `Derived`, `Plural`, `Conflict`, or `Obstruction` [🟢, 95%, [crates/warp-core/src/settlement.rs#253@5f85dae5727d36acf4a82aad8d7cdb0488cb67be](file:///Users/james/git/echo/crates/warp-core/src/settlement.rs#L253)]
 - publication artefacts stay distinct from witness cores
 
 The first cut should narrow the semantic gap, not solve the entire final braid

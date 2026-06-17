@@ -23,7 +23,7 @@ findings:
 
 > **Milestone:** First Light | **Priority:** P1 | **Repo:** Wesley
 
-Wesley-repo work. Prepare the Wesley repository for open-source release: README polish, contributor documentation, CI hardening, and legal review. [🟢, 95%, [crates/echo-wesley-gen/README.md:1](file:///Users/james/git/echo/crates/echo-wesley-gen/README.md#L1)]
+Wesley-repo work. Prepare the Wesley repository for open-source release: README polish, contributor documentation, CI hardening, and legal review. [🟢, 95%, [crates/echo-wesley-gen/README.md#1@5f85dae5727d36acf4a82aad8d7cdb0488cb67be](file:///Users/james/git/echo/crates/echo-wesley-gen/README.md#L1)]
 
 ## T-2-3-1: README, contributor guide, and CI hardening
 

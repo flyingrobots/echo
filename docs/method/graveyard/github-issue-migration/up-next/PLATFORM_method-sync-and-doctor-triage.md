@@ -28,8 +28,8 @@ should not become an open-ended "refresh everything" cleanup pass.
 
 The right bounded follow-up is:
 
-1. compare Echo's local METHOD surface against `~/git/method` [🟢, 95%, [crates/method/Cargo.toml:1](file:///Users/james/git/echo/crates/method/Cargo.toml#L1)]
-2. run the doctor once as a diagnostic, not a gate [🔴, 90%, (no supporting evidence was found - may be false 🤥)]
+1. compare Echo's local METHOD surface against `~/git/method` [🟢, 95%, [crates/method/Cargo.toml#1@5f85dae5727d36acf4a82aad8d7cdb0488cb67be](file:///Users/james/git/echo/crates/method/Cargo.toml#L1)]
+2. run the doctor once as a diagnostic, not a gate [🔴, 90%,] [🔴, 90%, no evidence found]
 3. sort findings into:
     - blocking now
     - worth batching soon

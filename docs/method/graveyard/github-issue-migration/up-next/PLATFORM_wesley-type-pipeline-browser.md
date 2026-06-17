@@ -23,7 +23,7 @@ findings:
 
 > **Milestone:** First Light | **Priority:** P1 | **Repo:** Shared
 
-Ensure Wesley-generated types are usable across the JS/WASM boundary. TypeScript types + Zod validators generated from Wesley IR, with a serialization bridge to the WASM Rust side. [🟢, 95%, [packages/ttd-protocol-ts/package.json:1](file:///Users/james/git/echo/packages/ttd-protocol-ts/package.json#L1)]
+Ensure Wesley-generated types are usable across the JS/WASM boundary. TypeScript types + Zod validators generated from Wesley IR, with a serialization bridge to the WASM Rust side. [🟢, 95%, [packages/ttd-protocol-ts/package.json#1@5f85dae5727d36acf4a82aad8d7cdb0488cb67be](file:///Users/james/git/echo/packages/ttd-protocol-ts/package.json#L1)]
 
 ## T-4-4-1: TypeScript type generation from Wesley IR
 

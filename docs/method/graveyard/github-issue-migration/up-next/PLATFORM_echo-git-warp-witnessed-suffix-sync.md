@@ -65,17 +65,17 @@ without last-write-wins, silent branch mutation, or looped re-import.
 
 ## Done looks like
 
-- one narrow bundle request shape exists over graph/lane/frontier identity [🟢, 95%, [crates/warp-core/src/witnessed_suffix.rs:1](file:///Users/james/git/echo/crates/warp-core/src/witnessed_suffix.rs#L1)]
-- one bundle export path gathers witnessed transitions plus payload references [🟢, 95%, [crates/warp-core/src/witnessed_suffix.rs:1](file:///Users/james/git/echo/crates/warp-core/src/witnessed_suffix.rs#L1)]
-- one import path normalizes against local frontier truth and returns: [🟢, 95%, [crates/warp-core/src/witnessed_suffix.rs:1](file:///Users/james/git/echo/crates/warp-core/src/witnessed_suffix.rs#L1)]
+- one narrow bundle request shape exists over graph/lane/frontier identity [🟢, 95%, [crates/warp-core/src/witnessed_suffix.rs#1@5f85dae5727d36acf4a82aad8d7cdb0488cb67be](file:///Users/james/git/echo/crates/warp-core/src/witnessed_suffix.rs#L1)]
+- one bundle export path gathers witnessed transitions plus payload references [🟢, 95%, [crates/warp-core/src/witnessed_suffix.rs#1@5f85dae5727d36acf4a82aad8d7cdb0488cb67be](file:///Users/james/git/echo/crates/warp-core/src/witnessed_suffix.rs#L1)]
+- one import path normalizes against local frontier truth and returns: [🟢, 95%, [crates/warp-core/src/witnessed_suffix.rs#1@5f85dae5727d36acf4a82aad8d7cdb0488cb67be](file:///Users/james/git/echo/crates/warp-core/src/witnessed_suffix.rs#L1)]
     - admitted
     - staged
     - braided
     - conflict
     - obstructed
-- one duplicate-import case proves idempotence [🟢, 95%, [crates/warp-core/src/witnessed_suffix.rs:1](file:///Users/james/git/echo/crates/warp-core/src/witnessed_suffix.rs#L1)]
+- one duplicate-import case proves idempotence [🟢, 95%, [crates/warp-core/src/witnessed_suffix.rs#1@5f85dae5727d36acf4a82aad8d7cdb0488cb67be](file:///Users/james/git/echo/crates/warp-core/src/witnessed_suffix.rs#L1)]
 - one first peer proving target is named:
-    - `git-warp` import of Echo-exported suffixes [🔴, 90%, (no supporting evidence was found - may be false 🤥)]
+    - `git-warp` import of Echo-exported suffixes [🔴, 90%,] [🔴, 90%, no evidence found]
 
 ## Repo Evidence
 

@@ -35,8 +35,8 @@ Today the repo has:
 
 What it does **not** have is one explicit, inspectable agent boundary such as:
 
-- a narrow CLI for observation, playback, neighborhood, and receipt inspection [🟢, 95%, [crates/warp-cli/README.md:1](file:///Users/james/git/echo/crates/warp-cli/README.md#L1)]
-- an MCP surface exposing the same nouns and controls to tools/agents [🔴, 90%, (no supporting evidence was found - may be false 🤥)]
+- a narrow CLI for observation, playback, neighborhood, and receipt inspection [🟢, 95%, [crates/warp-cli/README.md#1@5f85dae5727d36acf4a82aad8d7cdb0488cb67be](file:///Users/james/git/echo/crates/warp-cli/README.md#L1)]
+- an MCP surface exposing the same nouns and controls to tools/agents [🔴, 90%,] [🔴, 90%, no evidence found]
 
 That gap matters for at least three reasons:
 

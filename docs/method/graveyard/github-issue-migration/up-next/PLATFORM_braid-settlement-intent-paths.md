@@ -54,7 +54,7 @@ side-effect free.
 ## Acceptance criteria
 
 - Compare/plan settlement remain read-only publication surfaces.
-- Executing settlement has an Intent equivalent and records causal receipt [🟢, 95%, [crates/echo-wasm-abi/src/lib.rs:1](file:///Users/james/git/echo/crates/echo-wasm-abi/src/lib.rs#L1)]
+- Executing settlement has an Intent equivalent and records causal receipt [🟢, 95%, [crates/echo-wasm-abi/src/lib.rs#1@5f85dae5727d36acf4a82aad8d7cdb0488cb67be](file:///Users/james/git/echo/crates/echo-wasm-abi/src/lib.rs#L1)]
   evidence.
 - Appending a braid member, settling/collapsing a braid, or admitting a braid
   projection is represented as an Intent when exposed externally.

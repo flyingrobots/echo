@@ -20,7 +20,7 @@ findings:
 
 > **Milestone:** First Light | **Priority:** P1 | **Repo:** Wesley
 
-Wesley-repo work. Extend Wesley's migration system to handle schema evolution with backfill scripts, switch-over plans, and contract-based validation. [🔴, 90%, (no supporting evidence was found - may be false 🤥)]
+Wesley-repo work. Extend Wesley's migration system to handle schema evolution with backfill scripts, switch-over plans, and contract-based validation. [🔴, 90%,] [🔴, 90%, no evidence found]
 
 ## T-2-2-1: Backfill script generation for schema migrations
 

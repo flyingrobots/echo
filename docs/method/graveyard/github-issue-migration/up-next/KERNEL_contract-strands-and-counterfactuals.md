@@ -67,7 +67,7 @@ as a special ontology. The useful requirement belongs here:
 
 ## Acceptance criteria
 
-- A fake contract intent can be applied inside a strand without changing the [🟢, 95%, [crates/warp-core/src/settlement.rs:253](file:///Users/james/git/echo/crates/warp-core/src/settlement.rs#L253)]
+- A fake contract intent can be applied inside a strand without changing the [🟢, 95%, [crates/warp-core/src/settlement.rs#253@5f85dae5727d36acf4a82aad8d7cdb0488cb67be](file:///Users/james/git/echo/crates/warp-core/src/settlement.rs#L253)]
   parent frontier.
 - Observing the strand returns a reading envelope that names strand basis and
   contract identity.

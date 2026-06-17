@@ -86,8 +86,8 @@ This card is now the import-idempotence umbrella. The executable slices are:
 - `docs/method/backlog/asap/PLATFORM_import-transport-intent-admission-path.md`
 - `docs/method/backlog/up-next/PLATFORM_import-outcome-retention-novelty-index.md`
 
-The first slice makes inbound transport causal by routing it through an import [🟢, 95%, [crates/warp-core/src/witnessed_suffix.rs:1](file:///Users/james/git/echo/crates/warp-core/src/witnessed_suffix.rs#L1)]
-Intent. The second slice adds retained novelty/idempotence posture after the [🔴, 90%, (no supporting evidence was found - may be false 🤥)]
+The first slice makes inbound transport causal by routing it through an import [🟢, 95%, [crates/warp-core/src/witnessed_suffix.rs#1@5f85dae5727d36acf4a82aad8d7cdb0488cb67be](file:///Users/james/git/echo/crates/warp-core/src/witnessed_suffix.rs#L1)]
+Intent. The second slice adds retained novelty/idempotence posture after the [🔴, 90%,] [🔴, 90%, no evidence found]
 Intent path exists.
 
 ## Repo evidence

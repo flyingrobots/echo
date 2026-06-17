@@ -21,7 +21,7 @@ findings:
 
 # KERNEL - Admission Outcome Family
 
-Echo now has an explicit `AdmissionOutcomeKind` family, but outcome-shaped truth [🟢, 95%, [crates/warp-core/src/admission.rs:178](file:///Users/james/git/echo/crates/warp-core/src/admission.rs#L178)]
+Echo now has an explicit `AdmissionOutcomeKind` family, but outcome-shaped truth [🟢, 95%, [crates/warp-core/src/admission.rs#178@5f85dae5727d36acf4a82aad8d7cdb0488cb67be](file:///Users/james/git/echo/crates/warp-core/src/admission.rs#L178)]
 still needs to be threaded consistently across tick receipts, settlement reason
 classes, and braid/collapse language so the runtime, docs, and future shared
 publication surface all point to the same causal vocabulary.

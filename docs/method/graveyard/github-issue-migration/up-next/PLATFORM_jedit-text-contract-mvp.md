@@ -19,7 +19,7 @@ findings:
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# jedit Text Contract Hosting MVP [🟢, 95%, [crates/warp-core/tests/external_consumer_contract_fixture_tests.rs:1](file:///Users/james/git/echo/crates/warp-core/tests/external_consumer_contract_fixture_tests.rs#L1)]
+# jedit Text Contract Hosting MVP [🟢, 95%, [crates/warp-core/tests/external_consumer_contract_fixture_tests.rs#1@5f85dae5727d36acf4a82aad8d7cdb0488cb67be](file:///Users/james/git/echo/crates/warp-core/tests/external_consumer_contract_fixture_tests.rs#L1)]
 
 Status: planned Echo host integration proof.
 

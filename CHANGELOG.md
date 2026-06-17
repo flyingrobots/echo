@@ -44,7 +44,9 @@
   boundary, deterministic simulator fixtures, explicit witness compatibility
   rules, generic sealed membership presentations, disclosure budget labels, and
   braid shell audit receipts that keep E1 self-witnessing marked as
-  integrity-only local evidence.
+  integrity-only local evidence. The self-witness simulator rejects non-E1
+  compatibility requests with a typed `UnsupportedCompatibility` error instead
+  of minting stable public identity for scaffolding evidence.
 - `warp-core` now enforces the v1 single-writer-head strand invariant through
   both `Strand::new(...)` and `StrandRegistry::insert(...)`, and runtime strand
   forking constructs the registered relation through the same constructor

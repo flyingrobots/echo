@@ -81,7 +81,10 @@ kinds return `WitnessError::UnsupportedBackend`; rejected requests return
 
 `WitnessCompatibilityRule` is explicit in the receipt digest. E1 self-witness
 receipts use `E1Scaffold`; stable external receipts can use `StableV1`; future
-identity changes must name `RequiresMigration`.
+identity changes must name `RequiresMigration`. The self-witness simulator
+rejects non-`E1Scaffold` compatibility requests with
+`WitnessError::UnsupportedCompatibility` so deterministic local scaffolding
+cannot accidentally claim stable public receipt identity.
 
 `SealedMembershipPresentation` is purpose-bound and generic. It carries a
 `PresentationPurpose` digest rather than application-domain purpose nouns, a
@@ -108,6 +111,7 @@ self-witness as independent attestation.
 
 - Unsupported witness kinds fail as typed unsupported-backend outcomes.
 - Simulator fixtures harden witness behavior before real backends exist.
+- Self-witness fixtures cannot mint `StableV1` receipts.
 - `PresentationPurpose` remains a generic capability purpose, not an
   application-domain enum.
 - Replay records what was proven, what remained sealed, and which disclosure

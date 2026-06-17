@@ -222,6 +222,14 @@ pub enum WitnessError {
         /// Unsupported witness kind.
         kind: WitnessKind,
     },
+    /// The requested compatibility rule is not valid for this witness kind.
+    #[error("{kind:?} witness receipts do not support compatibility {compatibility:?}")]
+    UnsupportedCompatibility {
+        /// Witness kind that rejected the compatibility rule.
+        kind: WitnessKind,
+        /// Unsupported compatibility rule.
+        compatibility: WitnessCompatibilityRule,
+    },
     /// A witness backend rejected the request.
     #[error("{kind:?} witness backend rejected request: {reason:?}")]
     BackendRejected {
@@ -282,12 +290,15 @@ impl WitnessBackend for WitnessBackendSimulator {
     fn verify(&self, request: &WitnessRequest) -> Result<WitnessReceipt, WitnessError> {
         match self.fixture {
             WitnessSimulatorFixture::SelfWitness if request.kind == WitnessKind::SelfWitness => {
-                Ok(WitnessReceipt::new(
-                    request.kind,
+                if request.compatibility != WitnessCompatibilityRule::E1Scaffold {
+                    return Err(WitnessError::UnsupportedCompatibility {
+                        kind: request.kind,
+                        compatibility: request.compatibility,
+                    });
+                }
+                Ok(WitnessReceipt::self_witness(
                     request.subject_digest,
                     request.evidence_digest,
-                    request.compatibility,
-                    WitnessAttestation::IntegrityOnly,
                 ))
             }
             WitnessSimulatorFixture::SignedWitnessFixture

@@ -87,6 +87,25 @@ fn public_rejected_witness_fixture_is_typed() {
 }
 
 #[test]
+fn public_self_witness_fixture_rejects_stable_identity_requests() {
+    let backend = WitnessBackendSimulator::new(WitnessSimulatorFixture::SelfWitness);
+    let request = WitnessRequest::new(
+        WitnessKind::SelfWitness,
+        subject_digest(),
+        evidence_digest(),
+        WitnessCompatibilityRule::StableV1,
+    );
+
+    assert_eq!(
+        backend.verify(&request),
+        Err(WitnessError::UnsupportedCompatibility {
+            kind: WitnessKind::SelfWitness,
+            compatibility: WitnessCompatibilityRule::StableV1,
+        })
+    );
+}
+
+#[test]
 fn public_witness_receipt_identity_binds_compatibility_rule() {
     let scaffold = WitnessReceipt::new(
         WitnessKind::SelfWitness,

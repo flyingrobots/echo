@@ -21,6 +21,7 @@ use blake3::Hasher;
 
 use crate::admission::AdmissionOutcomeKind;
 use crate::ident::Hash;
+use crate::plurality_law::{PluralityLawReading, PluralityLawRef};
 use crate::provenance_store::ProvenanceRef;
 use crate::revelation::{
     shell_posture_obstruction, AuthorityDomainRef, CausalPosture, PostureObstruction, WitnessDigest,
@@ -924,6 +925,8 @@ pub struct BraidShellReplay {
     pub member_verdicts: Vec<(BraidMemberRef, MemberVerdict)>,
     /// Settlement policy identity the act ran under.
     pub policy_id: Hash,
+    /// Named settlement law that interpreted retained plurality.
+    pub law_ref: PluralityLawRef,
     /// Witness digest binding the act.
     pub witness_digest: Hash,
     /// Revelation posture of the shell.
@@ -994,6 +997,8 @@ pub struct BraidShellAudit {
     pub outcome_kind: AdmissionOutcomeKind,
     /// Settlement policy identity the act ran under.
     pub policy_id: Hash,
+    /// Witnessed law reading for this shell audit.
+    pub law_reading: PluralityLawReading,
     /// Least-revealed member posture across the audited shell.
     pub posture_floor: CausalPosture,
     /// Revelation posture claimed by the shell itself.
@@ -1027,6 +1032,7 @@ pub fn replay_braid_shell(
     records: &dyn BraidShellRecords,
 ) -> Result<BraidShellReplay, BraidShellError> {
     let shell = validated_shell_for_replay(digest, records)?;
+    let law_ref = PluralityLawRef::settlement_policy(shell.policy_id);
     Ok(BraidShellReplay {
         outcome_kind: shell.outcome_kind(),
         member_verdicts: shell
@@ -1035,6 +1041,7 @@ pub fn replay_braid_shell(
             .map(|member| (member.member_ref, member.verdict))
             .collect(),
         policy_id: shell.policy_id,
+        law_ref,
         witness_digest: shell.witness_digest,
         posture: shell.posture,
     })
@@ -1072,12 +1079,21 @@ pub fn audit_braid_shell(
                 public_inputs_hash: proof.public_inputs_hash,
             }
         });
+    let witness_receipt = WitnessReceipt::self_witness(shell.digest, shell.witness_digest);
+    let law_ref = PluralityLawRef::settlement_policy(shell.policy_id);
+    let law_reading = PluralityLawReading::new(
+        law_ref,
+        shell.digest,
+        witness_receipt,
+        shell_disclosure_budget(shell),
+    );
 
     Ok(BraidShellAudit {
         shell_digest: shell.digest,
         coordinate: shell.coordinate,
         outcome_kind: shell.outcome_kind(),
         policy_id: shell.policy_id,
+        law_reading,
         posture_floor,
         shell_posture: shell.posture,
         settlement_frontier: shell
@@ -1105,7 +1121,7 @@ pub fn audit_braid_shell(
         witness_posture: BraidWitnessPosture::SelfWitnessIntegrityOnly {
             digest: shell.witness_digest,
         },
-        witness_receipt: WitnessReceipt::self_witness(shell.digest, shell.witness_digest),
+        witness_receipt,
     })
 }
 
@@ -1113,6 +1129,18 @@ const fn member_disclosure_budget(member_ref: BraidMemberRef) -> DisclosureBudge
     match member_ref {
         BraidMemberRef::Revealed(_) => DisclosureBudget::Public,
         BraidMemberRef::Sealed { .. } => DisclosureBudget::AuthorityScoped,
+    }
+}
+
+fn shell_disclosure_budget(shell: &BraidShell) -> DisclosureBudget {
+    if shell
+        .members
+        .iter()
+        .any(|member| matches!(member.member_ref, BraidMemberRef::Sealed { .. }))
+    {
+        DisclosureBudget::AuthorityScoped
+    } else {
+        DisclosureBudget::Public
     }
 }
 
@@ -1556,6 +1584,8 @@ mod tests {
 
     #[test]
     fn replay_reproduces_outcome_and_member_verdicts_from_records_alone() {
+        use crate::plurality_law::PluralityLawRef;
+
         let shell = plural_shell(vec![
             member("member-a", MemberVerdict::Plural),
             member("member-b", MemberVerdict::Derived),
@@ -1572,11 +1602,16 @@ mod tests {
         assert_eq!(replay.outcome_kind, AdmissionOutcomeKind::Plural);
         assert_eq!(replay.member_verdicts, expected_verdicts);
         assert_eq!(replay.policy_id, [0x5E; 32]);
+        assert_eq!(
+            replay.law_ref,
+            PluralityLawRef::settlement_policy([0x5E; 32])
+        );
         assert_eq!(replay.posture, CausalPosture::AuthorOnly);
     }
 
     #[test]
     fn replay_audit_reports_member_proof_support_frontier_and_witness_facts() {
+        use crate::plurality_law::{PluralityLawEvidencePosture, PluralityLawRef};
         use crate::proof::{ProofEnvelope, ProofKind};
         use crate::sealed_membership::DisclosureBudget;
         use crate::witness::{WitnessAttestation, WitnessCompatibilityRule, WitnessKind};
@@ -1620,6 +1655,19 @@ mod tests {
 
         assert_eq!(audit.shell_digest, digest);
         assert_eq!(audit.outcome_kind, AdmissionOutcomeKind::Plural);
+        assert_eq!(
+            audit.law_reading.law_ref(),
+            PluralityLawRef::settlement_policy([0x5E; 32])
+        );
+        assert_eq!(audit.law_reading.support_digest(), digest);
+        assert_eq!(
+            audit.law_reading.evidence_posture(),
+            PluralityLawEvidencePosture::SelfWitnessIntegrityOnly
+        );
+        assert_eq!(
+            audit.law_reading.disclosure_budget(),
+            DisclosureBudget::Public
+        );
         assert_eq!(audit.posture_floor, CausalPosture::AuthorOnly);
         assert_eq!(audit.shell_posture, CausalPosture::AuthorOnly);
         assert_eq!(audit.settlement_frontier, vec![expected_member.member_ref]);

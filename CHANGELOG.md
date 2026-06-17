@@ -47,6 +47,11 @@
   integrity-only local evidence. The self-witness simulator rejects non-E1
   compatibility requests with a typed `UnsupportedCompatibility` error instead
   of minting stable public identity for scaffolding evidence.
+- `warp-core` now completes the fifth braids/strands roadmap goalpost with a
+  named plurality law registry, machine-readable Law Cards, typed law
+  references and versions in braid shell replay/audit readings,
+  adapter-provided law-family routing through authority domains, and typed law
+  obstruction evidence for unsupported or unauthorized law execution.
 - `warp-core` now enforces the v1 single-writer-head strand invariant through
   both `Strand::new(...)` and `StrandRegistry::insert(...)`, and runtime strand
   forking constructs the registered relation through the same constructor

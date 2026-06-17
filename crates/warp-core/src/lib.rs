@@ -139,6 +139,7 @@ mod optic_artifact;
 pub mod parallel;
 mod payload;
 mod playback;
+mod plurality_law;
 pub mod proof;
 mod provenance_store;
 mod receipt;
@@ -244,6 +245,13 @@ pub use payload::{
     encode_motion_atom_payload, encode_motion_atom_payload_v0, encode_motion_payload,
     encode_motion_payload_q32_32, encode_motion_payload_v0, motion_payload_type_id,
     motion_payload_type_id_v0,
+};
+// --- Plurality law types ---
+pub use plurality_law::{
+    PluralityLawAuthorization, PluralityLawCard, PluralityLawCardError, PluralityLawConcealment,
+    PluralityLawEmission, PluralityLawEvidencePosture, PluralityLawFamily, PluralityLawName,
+    PluralityLawObstruction, PluralityLawObstructionKind, PluralityLawReading, PluralityLawRef,
+    PluralityLawRefError, PluralityLawRegistry, PluralityLawRegistryError, PluralityLawRequirement,
 };
 // --- Cursor types ---
 pub use contract_obstruction::{

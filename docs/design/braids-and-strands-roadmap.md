@@ -116,12 +116,12 @@ Design:
 Design:
 [`goalpost-05-named-plurality-laws.md`](braids-and-strands-hardening/goalpost-05-named-plurality-laws.md)
 
-- [ ] GP5-S1: Define the core plurality law registry shape.
-- [ ] GP5-S2: Add machine-readable Law Cards.
-- [ ] GP5-S3: Bind law name and version into witnessed readings.
-- [ ] GP5-S4: Route adapter-provided law families without application nouns in
+- [x] GP5-S1: Define the core plurality law registry shape.
+- [x] GP5-S2: Add machine-readable Law Cards.
+- [x] GP5-S3: Bind law name and version into witnessed readings.
+- [x] GP5-S4: Route adapter-provided law families without application nouns in
       Echo core.
-- [ ] GP5-S5: Add obstruction evidence for unsupported or unauthorized law
+- [x] GP5-S5: Add obstruction evidence for unsupported or unauthorized law
       execution.
 
 ## North Star

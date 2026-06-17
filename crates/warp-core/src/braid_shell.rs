@@ -928,6 +928,82 @@ pub struct BraidShellReplay {
     pub posture: CausalPosture,
 }
 
+/// Stable proof-binding fact for braid shell audit output.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BraidProofBinding {
+    /// The audited shell carries no proof envelope.
+    Absent,
+    /// The audited shell carries a proof envelope that validated against the
+    /// shell witness digest.
+    Matched {
+        /// Proof envelope kind.
+        kind: crate::proof::ProofKind,
+        /// Canonical proof-envelope digest.
+        envelope_digest: Hash,
+        /// Public inputs hash carried by the proof envelope.
+        public_inputs_hash: Hash,
+    },
+}
+
+/// Witness posture surfaced by braid shell audit output.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BraidWitnessPosture {
+    /// Current E1 self-witness: integrity-only local evidence, not independent
+    /// attestation.
+    SelfWitnessIntegrityOnly {
+        /// Witness digest bound into the shell.
+        digest: Hash,
+    },
+}
+
+/// One replay/audit fact for a braid shell member.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BraidShellMemberAuditFact {
+    /// Reference to the member strand, revealed or sealed.
+    pub member_ref: BraidMemberRef,
+    /// Settlement verdict reproduced for this member.
+    pub verdict: MemberVerdict,
+    /// Member-level causal posture.
+    pub posture: CausalPosture,
+    /// Digest over the member's support-pin set.
+    pub support_pin_digest: Hash,
+    /// Digest over the member's fork basis facts.
+    pub basis_digest: Hash,
+    /// Digest over the realized parent frontier judged for this member.
+    pub frontier_digest: Hash,
+    /// Digest over contended footprint slots.
+    pub footprint_digest: Hash,
+    /// Digest over ordered claim identities.
+    pub claim_digest: Hash,
+    /// Digest over ordered per-claim decisions.
+    pub verdict_digest: Hash,
+}
+
+/// Replay/audit facts reproduced from a retained braid shell.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BraidShellAudit {
+    /// Canonical shell digest audited.
+    pub shell_digest: Hash,
+    /// Canonical braid coordinate this shell lives at.
+    pub coordinate: BraidCoordinate,
+    /// Outcome arm reproduced from the shell.
+    pub outcome_kind: AdmissionOutcomeKind,
+    /// Settlement policy identity the act ran under.
+    pub policy_id: Hash,
+    /// Least-revealed member posture across the audited shell.
+    pub posture_floor: CausalPosture,
+    /// Revelation posture claimed by the shell itself.
+    pub shell_posture: CausalPosture,
+    /// Member refs in canonical settlement frontier order.
+    pub settlement_frontier: Vec<BraidMemberRef>,
+    /// Per-member replay/audit facts in canonical member order.
+    pub member_facts: Vec<BraidShellMemberAuditFact>,
+    /// Proof binding status for the shell.
+    pub proof_binding: BraidProofBinding,
+    /// Witness posture for the shell.
+    pub witness_posture: BraidWitnessPosture,
+}
+
 /// Replays a braid-scope settlement outcome from retained shell records.
 ///
 /// Verifies digest integrity (member digests, witness digest, shell digest)
@@ -944,6 +1020,91 @@ pub fn replay_braid_shell(
     digest: &Hash,
     records: &dyn BraidShellRecords,
 ) -> Result<BraidShellReplay, BraidShellError> {
+    let shell = validated_shell_for_replay(digest, records)?;
+    Ok(BraidShellReplay {
+        outcome_kind: shell.outcome_kind(),
+        member_verdicts: shell
+            .members
+            .iter()
+            .map(|member| (member.member_ref, member.verdict))
+            .collect(),
+        policy_id: shell.policy_id,
+        witness_digest: shell.witness_digest,
+        posture: shell.posture,
+    })
+}
+
+/// Returns stable replay/audit facts from a retained braid shell.
+///
+/// The audit view validates the same retained shell and collapse-lineage
+/// constraints as [`replay_braid_shell`]. It exposes support, frontier, proof,
+/// posture, member-verdict, and witness facts without reopening member strand
+/// histories.
+///
+/// # Errors
+///
+/// Returns [`BraidShellError`] when the shell is missing, fails
+/// self-validation, or names a collapse parent that is absent or not plural.
+pub fn audit_braid_shell(
+    digest: &Hash,
+    records: &dyn BraidShellRecords,
+) -> Result<BraidShellAudit, BraidShellError> {
+    let shell = validated_shell_for_replay(digest, records)?;
+    let posture_floor = shell
+        .members
+        .iter()
+        .map(|member| member.posture)
+        .min()
+        .unwrap_or(shell.posture);
+    let proof_binding = shell
+        .proof
+        .as_ref()
+        .map_or(BraidProofBinding::Absent, |proof| {
+            BraidProofBinding::Matched {
+                kind: proof.kind,
+                envelope_digest: proof.digest(),
+                public_inputs_hash: proof.public_inputs_hash,
+            }
+        });
+
+    Ok(BraidShellAudit {
+        shell_digest: shell.digest,
+        coordinate: shell.coordinate,
+        outcome_kind: shell.outcome_kind(),
+        policy_id: shell.policy_id,
+        posture_floor,
+        shell_posture: shell.posture,
+        settlement_frontier: shell
+            .members
+            .iter()
+            .map(|member| member.member_ref)
+            .collect(),
+        member_facts: shell
+            .members
+            .iter()
+            .map(|member| BraidShellMemberAuditFact {
+                member_ref: member.member_ref,
+                verdict: member.verdict,
+                posture: member.posture,
+                support_pin_digest: member.support_pin_digest,
+                basis_digest: member.basis_digest,
+                frontier_digest: member.frontier_digest,
+                footprint_digest: member.footprint_digest,
+                claim_digest: member.claim_digest,
+                verdict_digest: member.verdict_digest,
+            })
+            .collect(),
+        proof_binding,
+        witness_posture: BraidWitnessPosture::SelfWitnessIntegrityOnly {
+            digest: shell.witness_digest,
+        },
+    })
+}
+
+fn validated_shell_for_replay<'a>(
+    digest: &Hash,
+    records: &'a dyn BraidShellRecords,
+) -> Result<&'a BraidShell, BraidShellError> {
     let shell = records
         .shell(digest)
         .ok_or(BraidShellError::ShellNotFound { digest: *digest })?;
@@ -979,17 +1140,7 @@ pub fn replay_braid_shell(
             });
         }
     }
-    Ok(BraidShellReplay {
-        outcome_kind: shell.outcome_kind(),
-        member_verdicts: shell
-            .members
-            .iter()
-            .map(|member| (member.member_ref, member.verdict))
-            .collect(),
-        policy_id: shell.policy_id,
-        witness_digest: shell.witness_digest,
-        posture: shell.posture,
-    })
+    Ok(shell)
 }
 
 /// Deterministic reason code: collapse attempted without a named policy.
@@ -1407,6 +1558,82 @@ mod tests {
         assert_eq!(replay.member_verdicts, expected_verdicts);
         assert_eq!(replay.policy_id, [0x5E; 32]);
         assert_eq!(replay.posture, CausalPosture::AuthorOnly);
+    }
+
+    #[test]
+    fn replay_audit_reports_member_proof_support_frontier_and_witness_facts() {
+        use crate::proof::{ProofEnvelope, ProofKind};
+
+        let members = vec![member("audit-member", MemberVerdict::Plural)];
+        let temp_shell = BraidShell::assemble(
+            wl(1),
+            basis_ref(),
+            members.clone(),
+            [0x5E; 32],
+            BraidShellOutcome::Plural {
+                alternative_ids: vec![[0x31; 32]],
+            },
+            CausalPosture::AuthorOnly,
+        )
+        .unwrap();
+        let proof = ProofEnvelope {
+            kind: ProofKind::ReplayTrace,
+            proof_bytes: vec![1, 2, 3],
+            public_inputs_hash: temp_shell.witness_digest,
+        };
+        let shell = BraidShell::assemble_with_proof(
+            wl(1),
+            basis_ref(),
+            members,
+            [0x5E; 32],
+            BraidShellOutcome::Plural {
+                alternative_ids: vec![[0x31; 32]],
+            },
+            CausalPosture::AuthorOnly,
+            Some(proof),
+        )
+        .unwrap();
+        let digest = shell.digest;
+        let expected_member = shell.members[0].clone();
+        let expected_proof_digest = shell.proof.as_ref().unwrap().digest();
+        let expected_witness = shell.witness_digest;
+        let records = Records::with([shell]);
+
+        let audit = audit_braid_shell(&digest, &records).unwrap();
+
+        assert_eq!(audit.shell_digest, digest);
+        assert_eq!(audit.outcome_kind, AdmissionOutcomeKind::Plural);
+        assert_eq!(audit.posture_floor, CausalPosture::AuthorOnly);
+        assert_eq!(audit.shell_posture, CausalPosture::AuthorOnly);
+        assert_eq!(audit.settlement_frontier, vec![expected_member.member_ref]);
+        assert_eq!(
+            audit.member_facts,
+            vec![BraidShellMemberAuditFact {
+                member_ref: expected_member.member_ref,
+                verdict: expected_member.verdict,
+                posture: expected_member.posture,
+                support_pin_digest: expected_member.support_pin_digest,
+                basis_digest: expected_member.basis_digest,
+                frontier_digest: expected_member.frontier_digest,
+                footprint_digest: expected_member.footprint_digest,
+                claim_digest: expected_member.claim_digest,
+                verdict_digest: expected_member.verdict_digest,
+            }]
+        );
+        assert_eq!(
+            audit.proof_binding,
+            BraidProofBinding::Matched {
+                kind: ProofKind::ReplayTrace,
+                envelope_digest: expected_proof_digest,
+                public_inputs_hash: expected_witness,
+            }
+        );
+        assert_eq!(
+            audit.witness_posture,
+            BraidWitnessPosture::SelfWitnessIntegrityOnly {
+                digest: expected_witness,
+            }
+        );
     }
 
     #[test]

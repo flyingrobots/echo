@@ -261,14 +261,16 @@ pub use proof::{
 };
 // --- Braid Log types ---
 pub use braid::{
-    Braid, BraidError, BraidEvent, BraidMembershipEntry, BraidStatus, BraidTransitionKind,
+    Braid, BraidError, BraidEvent, BraidMembershipCursor, BraidMembershipDiff,
+    BraidMembershipDisclosureChange, BraidMembershipEntry, BraidStatus, BraidTransitionKind,
 };
 // --- Retained boundary shell family (θ_tick, θ_braid) ---
 pub use braid_shell::{
-    collapse_braid_shell, replay_braid_shell, BraidCoordinate, BraidMemberRef, BraidShell,
-    BraidShellError, BraidShellMember, BraidShellMemberQuery, BraidShellOutcome, BraidShellQuery,
-    BraidShellRecords, BraidShellReplay, CollapsePolicy, CollapseResult, MemberVerdict,
-    RetainedBoundaryKind, RetainedBoundaryRecord, BRAID_SHELL_VERSION,
+    audit_braid_shell, collapse_braid_shell, replay_braid_shell, BraidCoordinate, BraidMemberRef,
+    BraidProofBinding, BraidShell, BraidShellAudit, BraidShellError, BraidShellMember,
+    BraidShellMemberAuditFact, BraidShellMemberQuery, BraidShellOutcome, BraidShellQuery,
+    BraidShellRecords, BraidShellReplay, BraidWitnessPosture, CollapsePolicy, CollapseResult,
+    MemberVerdict, RetainedBoundaryKind, RetainedBoundaryRecord, BRAID_SHELL_VERSION,
     COLLAPSE_WITHOUT_POLICY_REASON,
 };
 pub use neighborhood::{

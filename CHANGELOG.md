@@ -24,6 +24,21 @@
   `Braid::membership_history()` expose accepted `MemberWoven` facts as a
   read-only projection over the braid event log, while `frontier()` remains the
   current membership projection.
+- `warp-core` now exposes historical braid membership views through
+  `BraidMembershipCursor`, `Braid::current_membership_cursor()`, and
+  `Braid::membership_at(...)`. The cursor is a half-open event-log interval, so
+  later woven members do not appear in earlier membership views.
+- `warp-core` now exposes `BraidMembershipDiff` through
+  `Braid::diff_membership(...)`, reporting deterministic added and ended
+  membership projection facts between historical cursors while reserving
+  revealed/concealed fact slots for future lawful disclosure evidence.
+- `warp-core` now exposes retained braid shell replay/audit facts through
+  `audit_braid_shell(...)` and `BraidShellAudit`, including member verdicts,
+  support/frontier digests, posture floor, proof binding, and explicit
+  self-witness integrity-only posture.
+- The braids/strands hardening docs now define the Braid Flight Recorder and
+  Causal X-Ray lower-mode output target over historical membership, diff, shell
+  audit, proof-binding, and witness-posture facts.
 - `warp-core` now enforces the v1 single-writer-head strand invariant through
   both `Strand::new(...)` and `StrandRegistry::insert(...)`, and runtime strand
   forking constructs the registered relation through the same constructor

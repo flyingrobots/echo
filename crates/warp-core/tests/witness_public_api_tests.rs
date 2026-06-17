@@ -57,12 +57,12 @@ fn public_witness_simulator_returns_deterministic_fixture_receipts() -> Result<(
     let second = backend.verify(&request)?;
 
     assert_eq!(first, second);
-    assert_eq!(first.kind, WitnessKind::SignedWitness);
+    assert_eq!(first.kind(), WitnessKind::SignedWitness);
     assert_eq!(
-        first.attestation,
+        first.attestation(),
         WitnessAttestation::IndependentAttestation
     );
-    assert_eq!(first.compatibility, WitnessCompatibilityRule::StableV1);
+    assert_eq!(first.compatibility(), WitnessCompatibilityRule::StableV1);
     assert_eq!(first.digest(), second.digest());
     Ok(())
 }
@@ -106,23 +106,54 @@ fn public_self_witness_fixture_rejects_stable_identity_requests() {
 }
 
 #[test]
-fn public_witness_receipt_identity_binds_compatibility_rule() {
+fn public_witness_receipt_rejects_self_witness_overclaims() {
+    assert_eq!(
+        WitnessReceipt::new(
+            WitnessKind::SelfWitness,
+            subject_digest(),
+            evidence_digest(),
+            WitnessCompatibilityRule::StableV1,
+            WitnessAttestation::IntegrityOnly,
+        ),
+        Err(WitnessError::UnsupportedCompatibility {
+            kind: WitnessKind::SelfWitness,
+            compatibility: WitnessCompatibilityRule::StableV1,
+        })
+    );
+    assert_eq!(
+        WitnessReceipt::new(
+            WitnessKind::SelfWitness,
+            subject_digest(),
+            evidence_digest(),
+            WitnessCompatibilityRule::E1Scaffold,
+            WitnessAttestation::IndependentAttestation,
+        ),
+        Err(WitnessError::UnsupportedAttestation {
+            kind: WitnessKind::SelfWitness,
+            attestation: WitnessAttestation::IndependentAttestation,
+        })
+    );
+}
+
+#[test]
+fn public_witness_receipt_identity_binds_compatibility_rule() -> Result<(), WitnessError> {
     let scaffold = WitnessReceipt::new(
-        WitnessKind::SelfWitness,
+        WitnessKind::SignedWitness,
         subject_digest(),
         evidence_digest(),
         WitnessCompatibilityRule::E1Scaffold,
-        WitnessAttestation::IntegrityOnly,
-    );
+        WitnessAttestation::IndependentAttestation,
+    )?;
     let stable = WitnessReceipt::new(
-        WitnessKind::SelfWitness,
+        WitnessKind::SignedWitness,
         subject_digest(),
         evidence_digest(),
         WitnessCompatibilityRule::StableV1,
-        WitnessAttestation::IntegrityOnly,
-    );
+        WitnessAttestation::IndependentAttestation,
+    )?;
 
     assert_ne!(scaffold.digest(), stable.digest());
+    Ok(())
 }
 
 #[test]

@@ -1700,15 +1700,15 @@ mod tests {
                 digest: expected_witness,
             }
         );
-        assert_eq!(audit.witness_receipt.kind, WitnessKind::SelfWitness);
-        assert_eq!(audit.witness_receipt.subject_digest, digest);
-        assert_eq!(audit.witness_receipt.evidence_digest, expected_witness);
+        assert_eq!(audit.witness_receipt.kind(), WitnessKind::SelfWitness);
+        assert_eq!(audit.witness_receipt.subject_digest(), digest);
+        assert_eq!(audit.witness_receipt.evidence_digest(), expected_witness);
         assert_eq!(
-            audit.witness_receipt.compatibility,
+            audit.witness_receipt.compatibility(),
             WitnessCompatibilityRule::E1Scaffold
         );
         assert_eq!(
-            audit.witness_receipt.attestation,
+            audit.witness_receipt.attestation(),
             WitnessAttestation::IntegrityOnly
         );
     }

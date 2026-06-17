@@ -639,7 +639,7 @@ impl PluralityLawReading {
 }
 
 fn evidence_posture_for(receipt: WitnessReceipt) -> PluralityLawEvidencePosture {
-    match (receipt.kind, receipt.attestation) {
+    match (receipt.kind(), receipt.attestation()) {
         (WitnessKind::SelfWitness, WitnessAttestation::IntegrityOnly) => {
             PluralityLawEvidencePosture::SelfWitnessIntegrityOnly
         }

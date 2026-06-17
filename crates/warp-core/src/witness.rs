@@ -105,34 +105,50 @@ impl WitnessCompatibilityRule {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WitnessReceipt {
     /// Witness family.
-    pub kind: WitnessKind,
+    kind: WitnessKind,
     /// Digest of the subject being witnessed.
-    pub subject_digest: Hash,
+    subject_digest: Hash,
     /// Digest of the witness evidence material.
-    pub evidence_digest: Hash,
+    evidence_digest: Hash,
     /// Compatibility rule governing receipt identity.
-    pub compatibility: WitnessCompatibilityRule,
+    compatibility: WitnessCompatibilityRule,
     /// Attestation strength claimed by this receipt.
-    pub attestation: WitnessAttestation,
+    attestation: WitnessAttestation,
 }
 
 impl WitnessReceipt {
     /// Creates a witness receipt with an explicit compatibility rule.
-    #[must_use]
-    pub const fn new(
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WitnessError::UnsupportedCompatibility`] or
+    /// [`WitnessError::UnsupportedAttestation`] when a self-witness receipt tries
+    /// to claim more than E1 integrity-only scaffolding.
+    pub fn new(
         kind: WitnessKind,
         subject_digest: Hash,
         evidence_digest: Hash,
         compatibility: WitnessCompatibilityRule,
         attestation: WitnessAttestation,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, WitnessError> {
+        if kind == WitnessKind::SelfWitness {
+            if compatibility != WitnessCompatibilityRule::E1Scaffold {
+                return Err(WitnessError::UnsupportedCompatibility {
+                    kind,
+                    compatibility,
+                });
+            }
+            if attestation != WitnessAttestation::IntegrityOnly {
+                return Err(WitnessError::UnsupportedAttestation { kind, attestation });
+            }
+        }
+        Ok(Self {
             kind,
             subject_digest,
             evidence_digest,
             compatibility,
             attestation,
-        }
+        })
     }
 
     /// Creates an E1 self-witness receipt.
@@ -141,13 +157,43 @@ impl WitnessReceipt {
     /// independent attestation.
     #[must_use]
     pub const fn self_witness(subject_digest: Hash, evidence_digest: Hash) -> Self {
-        Self::new(
-            WitnessKind::SelfWitness,
+        Self {
+            kind: WitnessKind::SelfWitness,
             subject_digest,
             evidence_digest,
-            WitnessCompatibilityRule::E1Scaffold,
-            WitnessAttestation::IntegrityOnly,
-        )
+            compatibility: WitnessCompatibilityRule::E1Scaffold,
+            attestation: WitnessAttestation::IntegrityOnly,
+        }
+    }
+
+    /// Returns the witness family.
+    #[must_use]
+    pub const fn kind(self) -> WitnessKind {
+        self.kind
+    }
+
+    /// Returns the digest of the subject being witnessed.
+    #[must_use]
+    pub const fn subject_digest(self) -> Hash {
+        self.subject_digest
+    }
+
+    /// Returns the digest of the witness evidence material.
+    #[must_use]
+    pub const fn evidence_digest(self) -> Hash {
+        self.evidence_digest
+    }
+
+    /// Returns the compatibility rule governing receipt identity.
+    #[must_use]
+    pub const fn compatibility(self) -> WitnessCompatibilityRule {
+        self.compatibility
+    }
+
+    /// Returns the attestation strength claimed by this receipt.
+    #[must_use]
+    pub const fn attestation(self) -> WitnessAttestation {
+        self.attestation
     }
 
     /// Returns the canonical receipt digest.
@@ -230,6 +276,14 @@ pub enum WitnessError {
         /// Unsupported compatibility rule.
         compatibility: WitnessCompatibilityRule,
     },
+    /// The requested attestation strength is not valid for this witness kind.
+    #[error("{kind:?} witness receipts do not support attestation {attestation:?}")]
+    UnsupportedAttestation {
+        /// Witness kind that rejected the attestation strength.
+        kind: WitnessKind,
+        /// Unsupported attestation strength.
+        attestation: WitnessAttestation,
+    },
     /// A witness backend rejected the request.
     #[error("{kind:?} witness backend rejected request: {reason:?}")]
     BackendRejected {
@@ -310,7 +364,7 @@ impl WitnessBackend for WitnessBackendSimulator {
                     request.evidence_digest,
                     request.compatibility,
                     WitnessAttestation::IndependentAttestation,
-                ))
+                )?)
             }
             WitnessSimulatorFixture::ThresholdWitnessFixture
                 if request.kind == WitnessKind::ThresholdWitness =>
@@ -321,7 +375,7 @@ impl WitnessBackend for WitnessBackendSimulator {
                     request.evidence_digest,
                     request.compatibility,
                     WitnessAttestation::IndependentAttestation,
-                ))
+                )?)
             }
             WitnessSimulatorFixture::RejectedWitnessFixture => Err(WitnessError::BackendRejected {
                 kind: request.kind,

@@ -673,10 +673,11 @@ fn hash_len(hasher: &mut Hasher, len: usize) {
     hasher.update(&(len as u64).to_le_bytes());
 }
 
-fn hash_tag_vec(hasher: &mut Hasher, tags: impl Iterator<Item = u8>) {
-    let tags: Vec<u8> = tags.collect();
+fn hash_tag_vec(hasher: &mut Hasher, tags: impl ExactSizeIterator<Item = u8>) {
     hash_len(hasher, tags.len());
-    hasher.update(&tags);
+    for tag in tags {
+        hasher.update(&[tag]);
+    }
 }
 
 fn authority_digest(authority: AuthorityDomainRef) -> Hash {

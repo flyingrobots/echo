@@ -190,6 +190,47 @@ fn public_sealed_membership_presentation_rejects_unbound_receipts() {
 }
 
 #[test]
+fn public_sealed_membership_presentation_rejects_wrong_evidence_digest() {
+    let purpose = PresentationPurpose::new([0x44; 32]);
+    let coordinate = BraidCoordinate([0xBC; 32]);
+    let authority = authority_ref();
+    let member_commitment = [0xA5; 32];
+    let disclosure_budget = DisclosureBudget::CapabilityScoped;
+    let subject = SealedMembershipPresentation::witness_subject_digest(
+        coordinate,
+        purpose,
+        authority,
+        member_commitment,
+        disclosure_budget,
+    );
+    let expected = SealedMembershipPresentation::witness_evidence_digest(
+        coordinate,
+        purpose,
+        authority,
+        member_commitment,
+        disclosure_budget,
+    );
+    let wrong_evidence = [0xEF; 32];
+    assert_ne!(expected, wrong_evidence);
+    let receipt = WitnessReceipt::self_witness(subject, wrong_evidence);
+
+    assert_eq!(
+        SealedMembershipPresentation::new(
+            coordinate,
+            purpose,
+            authority,
+            member_commitment,
+            receipt,
+            disclosure_budget,
+        ),
+        Err(SealedMembershipPresentationError::WitnessEvidenceMismatch {
+            expected,
+            actual: wrong_evidence,
+        })
+    );
+}
+
+#[test]
 fn public_sealed_membership_presentation_uses_generic_purpose_and_budget(
 ) -> Result<(), SealedMembershipPresentationError> {
     let purpose = PresentationPurpose::new([0x44; 32]);

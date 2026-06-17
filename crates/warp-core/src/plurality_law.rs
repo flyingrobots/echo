@@ -593,23 +593,49 @@ pub struct PluralityLawReading {
     disclosure_budget: DisclosureBudget,
 }
 
+/// Error raised when constructing an invalid plurality law reading.
+#[derive(Error, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PluralityLawReadingError {
+    /// The witness receipt names different support than the reading.
+    #[error(
+        "plurality law reading witness subject mismatch: expected {expected:?}, actual {actual:?}"
+    )]
+    WitnessSubjectMismatch {
+        /// Support digest claimed by the reading.
+        expected: Hash,
+        /// Subject digest named by the witness receipt.
+        actual: Hash,
+    },
+}
+
 impl PluralityLawReading {
     /// Constructs a witnessed plurality law reading.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PluralityLawReadingError::WitnessSubjectMismatch`] when the
+    /// witness receipt subject does not match the retained support digest.
     pub fn new(
         law_ref: PluralityLawRef,
         support_digest: Hash,
         witness_receipt: WitnessReceipt,
         disclosure_budget: DisclosureBudget,
-    ) -> Self {
+    ) -> Result<Self, PluralityLawReadingError> {
+        let actual = witness_receipt.subject_digest();
+        if actual != support_digest {
+            return Err(PluralityLawReadingError::WitnessSubjectMismatch {
+                expected: support_digest,
+                actual,
+            });
+        }
         let evidence_posture = evidence_posture_for(witness_receipt);
-        Self {
+        Ok(Self {
             law_ref,
             support_digest,
             witness_receipt,
             evidence_posture,
             disclosure_budget,
-        }
+        })
     }
 
     /// Returns the law reference used for this reading.

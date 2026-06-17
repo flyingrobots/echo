@@ -7,9 +7,9 @@ use warp_core::{
     AuthorityDomainId, AuthorityDomainRef, DisclosureBudget, OriginId, PluralityLawCard,
     PluralityLawCardError, PluralityLawConcealment, PluralityLawEmission,
     PluralityLawEvidencePosture, PluralityLawFamily, PluralityLawName, PluralityLawObstruction,
-    PluralityLawObstructionKind, PluralityLawReading, PluralityLawRef, PluralityLawRefError,
-    PluralityLawRegistry, PluralityLawRegistryError, PluralityLawRequirement, WitnessAttestation,
-    WitnessCompatibilityRule, WitnessKind, WitnessReceipt,
+    PluralityLawObstructionKind, PluralityLawReading, PluralityLawReadingError, PluralityLawRef,
+    PluralityLawRefError, PluralityLawRegistry, PluralityLawRegistryError, PluralityLawRequirement,
+    WitnessAttestation, WitnessCompatibilityRule, WitnessKind, WitnessReceipt,
 };
 
 fn law_name(byte: u8) -> PluralityLawName {
@@ -93,16 +93,16 @@ fn public_plurality_law_reading_identity_binds_law_name_and_version(
     let witness = WitnessReceipt::self_witness([0xAA; 32], [0xBB; 32]);
     let v1 = PluralityLawReading::new(
         law_ref(0x52, 1)?,
-        [0xCC; 32],
+        witness.subject_digest(),
         witness,
         DisclosureBudget::AuthorityScoped,
-    );
+    )?;
     let v2 = PluralityLawReading::new(
         law_ref(0x52, 2)?,
-        [0xCC; 32],
+        witness.subject_digest(),
         witness,
         DisclosureBudget::AuthorityScoped,
-    );
+    )?;
 
     assert_eq!(v1.law_ref().version(), 1);
     assert_eq!(v2.law_ref().version(), 2);
@@ -113,23 +113,45 @@ fn public_plurality_law_reading_identity_binds_law_name_and_version(
 #[test]
 fn public_plurality_law_reading_does_not_promote_integrity_only_receipts(
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let support_digest = [0xAA; 32];
     let witness = WitnessReceipt::new(
         WitnessKind::SignedWitness,
-        [0xAA; 32],
+        support_digest,
         [0xBB; 32],
         WitnessCompatibilityRule::StableV1,
         WitnessAttestation::IntegrityOnly,
     )?;
     let reading = PluralityLawReading::new(
         law_ref(0x56, 1)?,
-        [0xCC; 32],
+        support_digest,
         witness,
         DisclosureBudget::AuthorityScoped,
-    );
+    )?;
 
     assert_eq!(
         reading.evidence_posture(),
         PluralityLawEvidencePosture::SelfWitnessIntegrityOnly
+    );
+    Ok(())
+}
+
+#[test]
+fn public_plurality_law_reading_rejects_unbound_witness_receipt(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let witness = WitnessReceipt::self_witness([0xAA; 32], [0xBB; 32]);
+    let support_digest = [0xCC; 32];
+
+    assert_eq!(
+        PluralityLawReading::new(
+            law_ref(0x58, 1)?,
+            support_digest,
+            witness,
+            DisclosureBudget::AuthorityScoped,
+        ),
+        Err(PluralityLawReadingError::WitnessSubjectMismatch {
+            expected: support_digest,
+            actual: witness.subject_digest(),
+        })
     );
     Ok(())
 }

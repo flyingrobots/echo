@@ -59,7 +59,8 @@
   collapse-derived shells report collapse policy ids as collapse laws, and law
   versions reject zero before registration. Law readings derive integrity-only
   posture from witness attestation strength, so non-self integrity-only receipts
-  are not promoted to external witness evidence.
+  are not promoted to external witness evidence, and they reject witness
+  receipts whose subject digest does not match the retained support digest.
 - `warp-core` now enforces the v1 single-writer-head strand invariant through
   both `Strand::new(...)` and `StrandRegistry::insert(...)`, and runtime strand
   forking constructs the registered relation through the same constructor

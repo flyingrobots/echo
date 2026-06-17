@@ -21,7 +21,7 @@ use blake3::Hasher;
 
 use crate::admission::AdmissionOutcomeKind;
 use crate::ident::Hash;
-use crate::plurality_law::{PluralityLawReading, PluralityLawRef};
+use crate::plurality_law::{PluralityLawReading, PluralityLawReadingError, PluralityLawRef};
 use crate::provenance_store::ProvenanceRef;
 use crate::revelation::{
     shell_posture_obstruction, AuthorityDomainRef, CausalPosture, PostureObstruction, WitnessDigest,
@@ -378,6 +378,9 @@ pub enum BraidShellError {
     /// A policy id must name a non-empty law.
     #[error("empty policy id refused")]
     EmptyPolicyId,
+    /// A law reading failed validation.
+    #[error("plurality law reading refused: {0}")]
+    LawReading(#[from] PluralityLawReadingError),
     /// A lineage parent shell is missing or not plural.
     #[error("lineage parent {parent:?} is missing or not plural")]
     InvalidLineageParent {
@@ -1099,7 +1102,7 @@ pub fn audit_braid_shell(
         shell.digest,
         witness_receipt,
         shell_disclosure_budget(shell),
-    );
+    )?;
 
     Ok(BraidShellAudit {
         shell_digest: shell.digest,

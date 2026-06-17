@@ -375,6 +375,9 @@ pub enum BraidShellError {
     /// A witness digest must never be a 32-byte shrug.
     #[error("empty or null witness digest refused")]
     EmptyWitness,
+    /// A policy id must name a non-empty law.
+    #[error("empty policy id refused")]
+    EmptyPolicyId,
     /// A lineage parent shell is missing or not plural.
     #[error("lineage parent {parent:?} is missing or not plural")]
     InvalidLineageParent {
@@ -474,7 +477,8 @@ impl BraidShell {
     /// Returns [`BraidShellError`] for an empty member set
     /// ([`BraidShellError::EmptyMembers`]), a duplicate member strand or
     /// plural alternative ([`BraidShellError::DuplicateMemberStrand`],
-    /// [`BraidShellError::DuplicateAlternativeId`]), an empty witness on a
+    /// [`BraidShellError::DuplicateAlternativeId`]), an empty policy id
+    /// ([`BraidShellError::EmptyPolicyId`]), an empty witness on a
     /// collapse/obstruction outcome ([`BraidShellError::EmptyWitness`]),
     /// incoherent collapse fields
     /// ([`BraidShellError::IncoherentCollapseFields`]), a posture exceeding
@@ -523,6 +527,7 @@ impl BraidShell {
         if members.is_empty() {
             return Err(BraidShellError::EmptyMembers);
         }
+        check_policy_id(policy_id)?;
         members.sort_by_cached_key(BraidShellMember::member_digest);
         check_unique_member_strands(&members)?;
         if let BraidShellOutcome::Plural { alternative_ids } = &mut outcome {
@@ -603,8 +608,8 @@ impl BraidShell {
     ///
     /// Returns [`BraidShellError`] for an unsupported version, empty or
     /// non-canonically-ordered members, a duplicate member strand,
-    /// non-canonical or duplicate plural alternatives, an empty
-    /// collapse/obstruction witness, a posture floor violation, an
+    /// non-canonical or duplicate plural alternatives, an empty policy id, an
+    /// empty collapse/obstruction witness, a posture floor violation, an
     /// outcome/member disagreement, a coordinate mismatch, or a stored
     /// witness/shell digest that does not match the recomputed body.
     pub fn validate(&self) -> Result<(), BraidShellError> {
@@ -617,6 +622,7 @@ impl BraidShell {
         if self.members.is_empty() {
             return Err(BraidShellError::EmptyMembers);
         }
+        check_policy_id(self.policy_id)?;
         // Compute each member digest once; the order check, coordinate,
         // witness, and shell digests all consume it.
         let member_digests: Vec<Hash> = self
@@ -745,6 +751,13 @@ fn check_outcome_law(outcome: &BraidShellOutcome) -> Result<(), BraidShellError>
             WitnessDigest::new(*witness).map_err(|_| BraidShellError::EmptyWitness)?;
         }
         _ => {}
+    }
+    Ok(())
+}
+
+fn check_policy_id(policy_id: Hash) -> Result<(), BraidShellError> {
+    if policy_id.iter().all(|byte| *byte == 0) {
+        return Err(BraidShellError::EmptyPolicyId);
     }
     Ok(())
 }
@@ -1032,7 +1045,7 @@ pub fn replay_braid_shell(
     records: &dyn BraidShellRecords,
 ) -> Result<BraidShellReplay, BraidShellError> {
     let shell = validated_shell_for_replay(digest, records)?;
-    let law_ref = PluralityLawRef::settlement_policy(shell.policy_id);
+    let law_ref = settlement_law_ref(shell.policy_id)?;
     Ok(BraidShellReplay {
         outcome_kind: shell.outcome_kind(),
         member_verdicts: shell
@@ -1080,7 +1093,7 @@ pub fn audit_braid_shell(
             }
         });
     let witness_receipt = WitnessReceipt::self_witness(shell.digest, shell.witness_digest);
-    let law_ref = PluralityLawRef::settlement_policy(shell.policy_id);
+    let law_ref = settlement_law_ref(shell.policy_id)?;
     let law_reading = PluralityLawReading::new(
         law_ref,
         shell.digest,
@@ -1142,6 +1155,10 @@ fn shell_disclosure_budget(shell: &BraidShell) -> DisclosureBudget {
     } else {
         DisclosureBudget::Public
     }
+}
+
+fn settlement_law_ref(policy_id: Hash) -> Result<PluralityLawRef, BraidShellError> {
+    PluralityLawRef::settlement_policy(policy_id).map_err(|_| BraidShellError::EmptyPolicyId)
 }
 
 fn validated_shell_for_replay<'a>(
@@ -1603,7 +1620,7 @@ mod tests {
         assert_eq!(replay.member_verdicts, expected_verdicts);
         assert_eq!(replay.policy_id, [0x5E; 32]);
         assert_eq!(
-            replay.law_ref,
+            Ok(replay.law_ref),
             PluralityLawRef::settlement_policy([0x5E; 32])
         );
         assert_eq!(replay.posture, CausalPosture::AuthorOnly);
@@ -1656,7 +1673,7 @@ mod tests {
         assert_eq!(audit.shell_digest, digest);
         assert_eq!(audit.outcome_kind, AdmissionOutcomeKind::Plural);
         assert_eq!(
-            audit.law_reading.law_ref(),
+            Ok(audit.law_reading.law_ref()),
             PluralityLawRef::settlement_policy([0x5E; 32])
         );
         assert_eq!(audit.law_reading.support_digest(), digest);
@@ -1814,6 +1831,22 @@ mod tests {
             CausalPosture::AuthorOnly,
         );
         assert_eq!(result, Err(BraidShellError::EmptyWitness));
+    }
+
+    #[test]
+    fn shell_rejects_empty_policy_id() {
+        let result = BraidShell::assemble(
+            wl(1),
+            basis_ref(),
+            vec![member("member-a", MemberVerdict::Plural)],
+            [0; 32],
+            BraidShellOutcome::Plural {
+                alternative_ids: vec![[0x31; 32]],
+            },
+            CausalPosture::AuthorOnly,
+        );
+
+        assert_eq!(result, Err(BraidShellError::EmptyPolicyId));
     }
 
     #[test]

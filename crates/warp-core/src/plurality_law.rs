@@ -144,13 +144,17 @@ impl PluralityLawRef {
     }
 
     /// Constructs the v1 settlement-law reference for an existing policy id.
-    #[must_use]
-    pub const fn settlement_policy(policy_id: Hash) -> Self {
-        Self {
-            family: PluralityLawFamily::Settlement,
-            name: PluralityLawName::from_bytes(policy_id),
-            version: 1,
-        }
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PluralityLawRefError::EmptyName`] when `policy_id` is the
+    /// all-zero digest.
+    pub fn settlement_policy(policy_id: Hash) -> Result<Self, PluralityLawRefError> {
+        Self::new(
+            PluralityLawFamily::Settlement,
+            PluralityLawName::from_bytes(policy_id),
+            1,
+        )
     }
 
     /// Returns the law family.

@@ -62,9 +62,11 @@ PluralityLawFamily
 ```
 
 Law names cannot be the all-zero digest, and law versions start at 1. Existing
-braid settlement policy ids map into `PluralityLawRef::settlement_policy(...)`,
-preserving the current retained policy identity while making the law family and
-version explicit in replay.
+braid settlement policy ids map through the fallible
+`PluralityLawRef::settlement_policy(...)` constructor, preserving the current
+retained policy identity while making the law family and version explicit in
+replay. Braid shell assembly and validation reject all-zero policy ids before a
+retained shell can claim a named law reading.
 
 `PluralityLawFamily` is core-generic: settlement, collapse,
 conflict-preserving, quorum, authority, and adapter-provided. Adapter-provided

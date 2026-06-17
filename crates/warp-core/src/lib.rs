@@ -139,6 +139,7 @@ mod optic_artifact;
 pub mod parallel;
 mod payload;
 mod playback;
+mod plurality_law;
 pub mod proof;
 mod provenance_store;
 mod receipt;
@@ -149,6 +150,7 @@ mod revelation;
 mod rule;
 mod sandbox;
 mod scheduler;
+mod sealed_membership;
 mod settlement;
 mod snapshot;
 mod snapshot_accum;
@@ -159,6 +161,7 @@ mod tick_patch;
 mod trusted_runtime_host;
 mod tx;
 mod warp_state;
+mod witness;
 mod witnessed_suffix;
 #[cfg(test)]
 mod witnessed_suffix_tests;
@@ -243,6 +246,14 @@ pub use payload::{
     encode_motion_payload_q32_32, encode_motion_payload_v0, motion_payload_type_id,
     motion_payload_type_id_v0,
 };
+// --- Plurality law types ---
+pub use plurality_law::{
+    PluralityLawAuthorization, PluralityLawCard, PluralityLawCardError, PluralityLawConcealment,
+    PluralityLawEmission, PluralityLawEvidencePosture, PluralityLawFamily, PluralityLawName,
+    PluralityLawObstruction, PluralityLawObstructionKind, PluralityLawReading,
+    PluralityLawReadingError, PluralityLawRef, PluralityLawRefError, PluralityLawRegistry,
+    PluralityLawRegistryError, PluralityLawRequirement,
+};
 // --- Cursor types ---
 pub use contract_obstruction::{
     ContractObstruction, ContractObstructionKind, ContractObstructionSubject,
@@ -253,11 +264,22 @@ pub use playback::{
 pub use retained_evidence::{
     RetainedEvidenceCoordinate, RetainedEvidencePosture, RetainedEvidenceRef, RetainedEvidenceRole,
 };
+// --- Sealed membership capability types ---
+pub use sealed_membership::{
+    DisclosureBudget, PresentationPurpose, SealedMembershipPresentation,
+    SealedMembershipPresentationError,
+};
 // --- Session types ---
 pub use playback::{SessionId, ViewSession};
 // --- Proof types ---
 pub use proof::{
     ObserverHonestyClaim, ProofEnvelope, ProofError, ProofKind, VerificationFailureCode,
+};
+// --- Witness receipt types ---
+pub use witness::{
+    WitnessAttestation, WitnessBackend, WitnessBackendSimulator, WitnessCompatibilityRule,
+    WitnessError, WitnessKind, WitnessReceipt, WitnessRejectionCode, WitnessRequest,
+    WitnessSimulatorFixture,
 };
 // --- Braid Log types ---
 pub use braid::{

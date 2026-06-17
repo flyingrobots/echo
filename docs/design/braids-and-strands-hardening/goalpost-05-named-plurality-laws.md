@@ -3,7 +3,7 @@
 
 # Goalpost 5: Named Plurality Laws
 
-Status: planned.
+Status: implemented.
 
 Roadmap:
 [`../braids-and-strands-roadmap.md`](../braids-and-strands-roadmap.md)
@@ -50,6 +50,49 @@ This goalpost does not include:
 - hiding plurality interpretation inside callers;
 - executing laws before replay and witness boundaries exist;
 - collapsing braided strands into merge semantics.
+
+## Implementation Design
+
+`PluralityLawRef` is the named law reference:
+
+```text
+PluralityLawFamily
++ PluralityLawName
++ version
+```
+
+Law names cannot be the all-zero digest, and law versions start at 1. Existing
+braid settlement policy ids map through the fallible
+`PluralityLawRef::settlement_policy(...)` constructor, preserving the current
+retained policy identity while making the law family and version explicit in
+replay. Braid shell assembly and validation reject all-zero policy ids before a
+retained shell can claim a named law reading. Collapse-derived shells map their
+`collapse_policy` id through `PluralityLawRef::collapse_policy(...)`, so replay
+and audit report collapse readings as `PluralityLawFamily::Collapse` instead of
+settlement-law readings.
+
+`PluralityLawFamily` is core-generic: settlement, collapse,
+conflict-preserving, quorum, authority, and adapter-provided. Adapter-provided
+families are scoped by `AuthorityDomainRef`, so Echo core can route
+domain-specific laws without importing application-domain law nouns.
+
+`PluralityLawCard` is the machine-readable Law Card. It binds a law reference,
+required support/evidence facts, emitted artifact or reading classes, concealed
+material classes, and `PluralityLawEvidencePosture`. Requirements, emissions,
+and concealments are sorted and deduplicated before card identity is computed,
+so caller vector order is not part of law identity.
+
+`PluralityLawRegistry` registers Law Cards deterministically by
+`PluralityLawRef`. Duplicate registration returns
+`PluralityLawRegistryError::DuplicateLaw`. Execution authorization returns
+`PluralityLawAuthorization` for registered laws and typed
+`PluralityLawObstruction` for unsupported or unauthorized execution.
+
+`PluralityLawReading` binds the law reference, retained support digest,
+witness receipt, evidence posture, and disclosure budget into a witnessed
+reading digest. `BraidShellReplay` now carries the settlement `law_ref`, and
+`BraidShellAudit` carries the full `law_reading` so retained braid readings
+state which named law interpreted plurality.
 
 ## Slices
 

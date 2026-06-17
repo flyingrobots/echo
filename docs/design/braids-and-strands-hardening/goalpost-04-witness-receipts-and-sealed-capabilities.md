@@ -3,7 +3,7 @@
 
 # Goalpost 4: Witness Receipts And Sealed Capabilities
 
-Status: planned.
+Status: implemented.
 
 Roadmap:
 [`../braids-and-strands-roadmap.md`](../braids-and-strands-roadmap.md)
@@ -53,6 +53,52 @@ This goalpost does not include:
 - sealed membership before historical membership and salt vectors exist;
 - treating self-witness as independent attestation.
 
+## Implementation Design
+
+`WitnessReceipt` names the witness boundary without requiring a real external
+backend. Receipt identity binds:
+
+```text
+WitnessKind
++ subject digest
++ evidence digest
++ WitnessCompatibilityRule
++ WitnessAttestation
+```
+
+`WitnessKind` reserves the families Echo needs before they are implemented:
+self-witness, signed witness, threshold witness, runtime attestation,
+replay-trace receipt, ZK verifier receipt, and vector-opening receipt.
+`WitnessBackend` is a verifier-shaped boundary: callers submit a
+`WitnessRequest` and receive either a typed `WitnessReceipt` or a typed
+`WitnessError`.
+
+The deterministic `WitnessBackendSimulator` hardens the boundary before real
+backends exist. Its fixtures cover self-witness, signed-witness,
+threshold-witness, rejected, and unsupported outcomes. Unsupported witness
+kinds return `WitnessError::UnsupportedBackend`; rejected requests return
+`WitnessError::BackendRejected`.
+
+`WitnessCompatibilityRule` is explicit in the receipt digest. E1 self-witness
+receipts use `E1Scaffold`; stable external receipts can use `StableV1`; future
+identity changes must name `RequiresMigration`. The self-witness simulator
+rejects non-`E1Scaffold` compatibility requests with
+`WitnessError::UnsupportedCompatibility` so deterministic local scaffolding
+cannot accidentally claim stable public receipt identity.
+
+`SealedMembershipPresentation` is purpose-bound and generic. It carries a
+`PresentationPurpose` digest rather than application-domain purpose nouns, a
+braid coordinate, authority domain, blinded member commitment, witness receipt,
+and `DisclosureBudget`. Its constructor validates that the witness receipt
+subject and evidence digests are the canonical presentation digests over those
+fields, and the fields are read-only after construction.
+
+`BraidShellAudit` now carries a typed `WitnessReceipt` and labels each member
+fact with a disclosure budget. Revealed member references report `Public`;
+sealed member references report `AuthorityScoped`. This reports what was
+lawfully visible without reopening member strand histories or treating
+self-witness as independent attestation.
+
 ## Slices
 
 | Slice  | Work                                    | Witness                                      |
@@ -67,6 +113,7 @@ This goalpost does not include:
 
 - Unsupported witness kinds fail as typed unsupported-backend outcomes.
 - Simulator fixtures harden witness behavior before real backends exist.
+- Self-witness fixtures cannot mint `StableV1` receipts.
 - `PresentationPurpose` remains a generic capability purpose, not an
   application-domain enum.
 - Replay records what was proven, what remained sealed, and which disclosure

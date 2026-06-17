@@ -39,6 +39,30 @@
 - The braids/strands hardening docs now define the Braid Flight Recorder and
   Causal X-Ray lower-mode output target over historical membership, diff, shell
   audit, proof-binding, and witness-posture facts.
+- `warp-core` now completes the fourth braids/strands roadmap goalpost with
+  typed witness receipts, witness kinds, a verifier-shaped witness backend
+  boundary, deterministic simulator fixtures, explicit witness compatibility
+  rules, generic sealed membership presentations, disclosure budget labels, and
+  braid shell audit receipts that keep E1 self-witnessing marked as
+  integrity-only local evidence. The self-witness simulator rejects non-E1
+  compatibility requests with a typed `UnsupportedCompatibility` error instead
+  of minting stable public identity for scaffolding evidence. Sealed membership
+  presentations validate that their witness receipt subject and evidence
+  digests bind the braid coordinate, purpose, authority domain, member
+  commitment, and disclosure budget.
+- `warp-core` now completes the fifth braids/strands roadmap goalpost with a
+  named plurality law registry, machine-readable Law Cards, typed law
+  references and versions in braid shell replay/audit readings,
+  adapter-provided law-family routing through authority domains, and typed law
+  obstruction evidence for unsupported or unauthorized law execution. Law
+  references and braid shell policy ids reject all-zero names before replay,
+  collapse-derived shells report collapse policy ids as collapse laws, and law
+  versions reject zero before registration. Law readings derive integrity-only
+  posture from witness attestation strength, so non-self integrity-only receipts
+  are not promoted to external witness evidence, and they reject witness
+  receipts whose subject digest does not match the retained support digest.
+  Collapse-derived shells also reject records whose shell policy id diverges
+  from the nested collapse policy id.
 - `warp-core` now enforces the v1 single-writer-head strand invariant through
   both `Strand::new(...)` and `StrandRegistry::insert(...)`, and runtime strand
   forking constructs the registered relation through the same constructor

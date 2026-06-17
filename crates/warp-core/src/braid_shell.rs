@@ -25,7 +25,9 @@ use crate::provenance_store::ProvenanceRef;
 use crate::revelation::{
     shell_posture_obstruction, AuthorityDomainRef, CausalPosture, PostureObstruction, WitnessDigest,
 };
+use crate::sealed_membership::DisclosureBudget;
 use crate::strand::StrandId;
+use crate::witness::WitnessReceipt;
 use crate::worldline::WorldlineId;
 
 const SHELL_DOMAIN: &[u8] = b"echo.shell.braid.v1\0";
@@ -977,6 +979,8 @@ pub struct BraidShellMemberAuditFact {
     pub claim_digest: Hash,
     /// Digest over ordered per-claim decisions.
     pub verdict_digest: Hash,
+    /// Disclosure budget needed to interpret the member reference.
+    pub disclosure_budget: DisclosureBudget,
 }
 
 /// Replay/audit facts reproduced from a retained braid shell.
@@ -1002,6 +1006,8 @@ pub struct BraidShellAudit {
     pub proof_binding: BraidProofBinding,
     /// Witness posture for the shell.
     pub witness_posture: BraidWitnessPosture,
+    /// Typed witness receipt for the shell audit.
+    pub witness_receipt: WitnessReceipt,
 }
 
 /// Replays a braid-scope settlement outcome from retained shell records.
@@ -1092,13 +1098,22 @@ pub fn audit_braid_shell(
                 footprint_digest: member.footprint_digest,
                 claim_digest: member.claim_digest,
                 verdict_digest: member.verdict_digest,
+                disclosure_budget: member_disclosure_budget(member.member_ref),
             })
             .collect(),
         proof_binding,
         witness_posture: BraidWitnessPosture::SelfWitnessIntegrityOnly {
             digest: shell.witness_digest,
         },
+        witness_receipt: WitnessReceipt::self_witness(shell.digest, shell.witness_digest),
     })
+}
+
+const fn member_disclosure_budget(member_ref: BraidMemberRef) -> DisclosureBudget {
+    match member_ref {
+        BraidMemberRef::Revealed(_) => DisclosureBudget::Public,
+        BraidMemberRef::Sealed { .. } => DisclosureBudget::AuthorityScoped,
+    }
 }
 
 fn validated_shell_for_replay<'a>(
@@ -1563,6 +1578,8 @@ mod tests {
     #[test]
     fn replay_audit_reports_member_proof_support_frontier_and_witness_facts() {
         use crate::proof::{ProofEnvelope, ProofKind};
+        use crate::sealed_membership::DisclosureBudget;
+        use crate::witness::{WitnessAttestation, WitnessCompatibilityRule, WitnessKind};
 
         let members = vec![member("audit-member", MemberVerdict::Plural)];
         let temp_shell = BraidShell::assemble(
@@ -1618,6 +1635,7 @@ mod tests {
                 footprint_digest: expected_member.footprint_digest,
                 claim_digest: expected_member.claim_digest,
                 verdict_digest: expected_member.verdict_digest,
+                disclosure_budget: DisclosureBudget::Public,
             }]
         );
         assert_eq!(
@@ -1633,6 +1651,43 @@ mod tests {
             BraidWitnessPosture::SelfWitnessIntegrityOnly {
                 digest: expected_witness,
             }
+        );
+        assert_eq!(audit.witness_receipt.kind, WitnessKind::SelfWitness);
+        assert_eq!(audit.witness_receipt.subject_digest, digest);
+        assert_eq!(audit.witness_receipt.evidence_digest, expected_witness);
+        assert_eq!(
+            audit.witness_receipt.compatibility,
+            WitnessCompatibilityRule::E1Scaffold
+        );
+        assert_eq!(
+            audit.witness_receipt.attestation,
+            WitnessAttestation::IntegrityOnly
+        );
+    }
+
+    #[test]
+    fn replay_audit_labels_sealed_member_disclosure_budget() {
+        use crate::sealed_membership::DisclosureBudget;
+
+        let shell = plural_shell(vec![sealed_member(
+            [0xAA; 32],
+            authority(0x01, 0x02),
+            MemberVerdict::Plural,
+            0x25,
+        )]);
+        let digest = shell.digest;
+        let records = Records::with([shell]);
+
+        let audit = audit_braid_shell(&digest, &records).unwrap();
+
+        assert_eq!(audit.member_facts.len(), 1);
+        assert!(matches!(
+            audit.member_facts[0].member_ref,
+            BraidMemberRef::Sealed { .. }
+        ));
+        assert_eq!(
+            audit.member_facts[0].disclosure_budget,
+            DisclosureBudget::AuthorityScoped
         );
     }
 

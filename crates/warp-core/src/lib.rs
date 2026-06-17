@@ -149,6 +149,7 @@ mod revelation;
 mod rule;
 mod sandbox;
 mod scheduler;
+mod sealed_membership;
 mod settlement;
 mod snapshot;
 mod snapshot_accum;
@@ -159,6 +160,7 @@ mod tick_patch;
 mod trusted_runtime_host;
 mod tx;
 mod warp_state;
+mod witness;
 mod witnessed_suffix;
 #[cfg(test)]
 mod witnessed_suffix_tests;
@@ -253,11 +255,19 @@ pub use playback::{
 pub use retained_evidence::{
     RetainedEvidenceCoordinate, RetainedEvidencePosture, RetainedEvidenceRef, RetainedEvidenceRole,
 };
+// --- Sealed membership capability types ---
+pub use sealed_membership::{DisclosureBudget, PresentationPurpose, SealedMembershipPresentation};
 // --- Session types ---
 pub use playback::{SessionId, ViewSession};
 // --- Proof types ---
 pub use proof::{
     ObserverHonestyClaim, ProofEnvelope, ProofError, ProofKind, VerificationFailureCode,
+};
+// --- Witness receipt types ---
+pub use witness::{
+    WitnessAttestation, WitnessBackend, WitnessBackendSimulator, WitnessCompatibilityRule,
+    WitnessError, WitnessKind, WitnessReceipt, WitnessRejectionCode, WitnessRequest,
+    WitnessSimulatorFixture,
 };
 // --- Braid Log types ---
 pub use braid::{

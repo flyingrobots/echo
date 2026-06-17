@@ -103,12 +103,12 @@ Design:
 Design:
 [`goalpost-04-witness-receipts-and-sealed-capabilities.md`](braids-and-strands-hardening/goalpost-04-witness-receipts-and-sealed-capabilities.md)
 
-- [ ] GP4-S1: Define `WitnessReceipt`, `WitnessKind`, and `WitnessBackend`.
-- [ ] GP4-S2: Add deterministic witness simulator fixtures for supported,
+- [x] GP4-S1: Define `WitnessReceipt`, `WitnessKind`, and `WitnessBackend`.
+- [x] GP4-S2: Add deterministic witness simulator fixtures for supported,
       rejected, and unsupported outcomes.
-- [ ] GP4-S3: Bind witness identity only through explicit compatibility rules.
-- [ ] GP4-S4: Design purpose-bound sealed membership presentations.
-- [ ] GP4-S5: Add disclosure budget labels and replay wording for sealed
+- [x] GP4-S3: Bind witness identity only through explicit compatibility rules.
+- [x] GP4-S4: Design purpose-bound sealed membership presentations.
+- [x] GP4-S5: Add disclosure budget labels and replay wording for sealed
       membership.
 
 ### Goalpost 5: Named Plurality Laws
@@ -548,7 +548,7 @@ Work:
 6. Reserve a migration hook shape:
 
     ```rust
-    pub enum CompatibilityRule {
+    pub enum WitnessCompatibilityRule {
         StableV1,
         E1Scaffold,
         RequiresMigration { from: u32, to: u32 },

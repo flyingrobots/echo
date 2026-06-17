@@ -3,7 +3,7 @@
 
 # Goalpost 4: Witness Receipts And Sealed Capabilities
 
-Status: planned.
+Status: implemented.
 
 Roadmap:
 [`../braids-and-strands-roadmap.md`](../braids-and-strands-roadmap.md)
@@ -52,6 +52,47 @@ This goalpost does not include:
 - domain-specific purpose enums in Echo core;
 - sealed membership before historical membership and salt vectors exist;
 - treating self-witness as independent attestation.
+
+## Implementation Design
+
+`WitnessReceipt` names the witness boundary without requiring a real external
+backend. Receipt identity binds:
+
+```text
+WitnessKind
++ subject digest
++ evidence digest
++ WitnessCompatibilityRule
++ WitnessAttestation
+```
+
+`WitnessKind` reserves the families Echo needs before they are implemented:
+self-witness, signed witness, threshold witness, runtime attestation,
+replay-trace receipt, ZK verifier receipt, and vector-opening receipt.
+`WitnessBackend` is a verifier-shaped boundary: callers submit a
+`WitnessRequest` and receive either a typed `WitnessReceipt` or a typed
+`WitnessError`.
+
+The deterministic `WitnessBackendSimulator` hardens the boundary before real
+backends exist. Its fixtures cover self-witness, signed-witness,
+threshold-witness, rejected, and unsupported outcomes. Unsupported witness
+kinds return `WitnessError::UnsupportedBackend`; rejected requests return
+`WitnessError::BackendRejected`.
+
+`WitnessCompatibilityRule` is explicit in the receipt digest. E1 self-witness
+receipts use `E1Scaffold`; stable external receipts can use `StableV1`; future
+identity changes must name `RequiresMigration`.
+
+`SealedMembershipPresentation` is purpose-bound and generic. It carries a
+`PresentationPurpose` digest rather than application-domain purpose nouns, a
+braid coordinate, authority domain, blinded member commitment, witness receipt,
+and `DisclosureBudget`.
+
+`BraidShellAudit` now carries a typed `WitnessReceipt` and labels each member
+fact with a disclosure budget. Revealed member references report `Public`;
+sealed member references report `AuthorityScoped`. This reports what was
+lawfully visible without reopening member strand histories or treating
+self-witness as independent attestation.
 
 ## Slices
 

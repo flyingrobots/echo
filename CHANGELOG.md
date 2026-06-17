@@ -39,6 +39,12 @@
 - The braids/strands hardening docs now define the Braid Flight Recorder and
   Causal X-Ray lower-mode output target over historical membership, diff, shell
   audit, proof-binding, and witness-posture facts.
+- `warp-core` now completes the fourth braids/strands roadmap goalpost with
+  typed witness receipts, witness kinds, a verifier-shaped witness backend
+  boundary, deterministic simulator fixtures, explicit witness compatibility
+  rules, generic sealed membership presentations, disclosure budget labels, and
+  braid shell audit receipts that keep E1 self-witnessing marked as
+  integrity-only local evidence.
 - `warp-core` now enforces the v1 single-writer-head strand invariant through
   both `Strand::new(...)` and `StrandRegistry::insert(...)`, and runtime strand
   forking constructs the registered relation through the same constructor

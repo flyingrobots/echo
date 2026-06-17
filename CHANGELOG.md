@@ -61,6 +61,8 @@
   posture from witness attestation strength, so non-self integrity-only receipts
   are not promoted to external witness evidence, and they reject witness
   receipts whose subject digest does not match the retained support digest.
+  Collapse-derived shells also reject records whose shell policy id diverges
+  from the nested collapse policy id.
 - `warp-core` now enforces the v1 single-writer-head strand invariant through
   both `Strand::new(...)` and `StrandRegistry::insert(...)`, and runtime strand
   forking constructs the registered relation through the same constructor

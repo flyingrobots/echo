@@ -124,6 +124,9 @@ impl PluralityLawRef {
     ///
     /// # Errors
     ///
+    /// Returns [`PluralityLawRefError::EmptyName`] when `name` is the all-zero
+    /// digest.
+    ///
     /// Returns [`PluralityLawRefError::ZeroVersion`] when `version` is zero.
     pub fn new(
         family: PluralityLawFamily,

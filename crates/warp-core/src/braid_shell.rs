@@ -372,6 +372,14 @@ pub enum BraidShellError {
     /// Collapse lineage fields must be all present or all absent.
     #[error("derived shell carries incoherent collapse fields")]
     IncoherentCollapseFields,
+    /// Collapse-derived shells must carry one policy identity.
+    #[error("derived shell collapse policy {collapse_policy:?} does not match shell policy {policy_id:?}")]
+    IncoherentCollapsePolicy {
+        /// Shell-level policy identity.
+        policy_id: Hash,
+        /// Collapse policy identity carried by the outcome.
+        collapse_policy: Hash,
+    },
     /// A witness digest must never be a 32-byte shrug.
     #[error("empty or null witness digest refused")]
     EmptyWitness,
@@ -484,8 +492,9 @@ impl BraidShell {
     /// ([`BraidShellError::EmptyPolicyId`]), an empty witness on a
     /// collapse/obstruction outcome ([`BraidShellError::EmptyWitness`]),
     /// incoherent collapse fields
-    /// ([`BraidShellError::IncoherentCollapseFields`]), a posture exceeding
-    /// the least-revealed member
+    /// ([`BraidShellError::IncoherentCollapseFields`]), incoherent collapse
+    /// policy identity ([`BraidShellError::IncoherentCollapsePolicy`]), a
+    /// posture exceeding the least-revealed member
     /// ([`BraidShellError::PostureExceedsMembers`]), or an outcome arm that
     /// disagrees with member verdicts
     /// ([`BraidShellError::OutcomeMemberMismatch`]).
@@ -531,6 +540,7 @@ impl BraidShell {
             return Err(BraidShellError::EmptyMembers);
         }
         check_policy_id(policy_id)?;
+        check_collapse_policy_identity(policy_id, &outcome)?;
         members.sort_by_cached_key(BraidShellMember::member_digest);
         check_unique_member_strands(&members)?;
         if let BraidShellOutcome::Plural { alternative_ids } = &mut outcome {
@@ -612,9 +622,10 @@ impl BraidShell {
     /// Returns [`BraidShellError`] for an unsupported version, empty or
     /// non-canonically-ordered members, a duplicate member strand,
     /// non-canonical or duplicate plural alternatives, an empty policy id, an
-    /// empty collapse/obstruction witness, a posture floor violation, an
-    /// outcome/member disagreement, a coordinate mismatch, or a stored
-    /// witness/shell digest that does not match the recomputed body.
+    /// empty collapse/obstruction witness, incoherent collapse policy identity,
+    /// a posture floor violation, an outcome/member disagreement, a coordinate
+    /// mismatch, or a stored witness/shell digest that does not match the
+    /// recomputed body.
     pub fn validate(&self) -> Result<(), BraidShellError> {
         if self.version != BRAID_SHELL_VERSION {
             return Err(BraidShellError::UnsupportedVersion {
@@ -626,6 +637,7 @@ impl BraidShell {
             return Err(BraidShellError::EmptyMembers);
         }
         check_policy_id(self.policy_id)?;
+        check_collapse_policy_identity(self.policy_id, &self.outcome)?;
         // Compute each member digest once; the order check, coordinate,
         // witness, and shell digests all consume it.
         let member_digests: Vec<Hash> = self
@@ -761,6 +773,25 @@ fn check_outcome_law(outcome: &BraidShellOutcome) -> Result<(), BraidShellError>
 fn check_policy_id(policy_id: Hash) -> Result<(), BraidShellError> {
     if policy_id.iter().all(|byte| *byte == 0) {
         return Err(BraidShellError::EmptyPolicyId);
+    }
+    Ok(())
+}
+
+fn check_collapse_policy_identity(
+    policy_id: Hash,
+    outcome: &BraidShellOutcome,
+) -> Result<(), BraidShellError> {
+    if let BraidShellOutcome::Derived {
+        collapse_policy: Some(collapse_policy),
+        ..
+    } = outcome
+    {
+        if *collapse_policy != policy_id {
+            return Err(BraidShellError::IncoherentCollapsePolicy {
+                policy_id,
+                collapse_policy: *collapse_policy,
+            });
+        }
     }
     Ok(())
 }
@@ -1818,7 +1849,7 @@ mod tests {
             wl(1),
             basis_ref(),
             vec![member("member-a", MemberVerdict::Derived)],
-            [0x5E; 32],
+            [0x77; 32],
             BraidShellOutcome::Derived {
                 result_refs: vec![basis_ref()],
                 collapse_policy: Some([0x77; 32]),
@@ -2049,7 +2080,7 @@ mod tests {
             wl(1),
             basis_ref(),
             vec![member("member-a", MemberVerdict::Derived)],
-            [0x5E; 32],
+            [0x77; 32],
             BraidShellOutcome::Derived {
                 result_refs: vec![basis_ref()],
                 collapse_policy: Some([0x77; 32]),
@@ -2070,6 +2101,32 @@ mod tests {
             replay_braid_shell(&derived_digest, &missing_parent),
             Err(BraidShellError::InvalidLineageParent {
                 parent: plural_digest,
+            })
+        );
+    }
+
+    #[test]
+    fn collapse_policy_must_match_shell_policy_id() {
+        let plural = plural_shell(vec![member("member-a", MemberVerdict::Plural)]);
+        let plural_digest = plural.digest;
+
+        assert_eq!(
+            BraidShell::assemble(
+                wl(1),
+                basis_ref(),
+                vec![member("member-a", MemberVerdict::Derived)],
+                [0x5E; 32],
+                BraidShellOutcome::Derived {
+                    result_refs: vec![basis_ref()],
+                    collapse_policy: Some([0x77; 32]),
+                    collapse_witness: Some([0x78; 32]),
+                    collapsed_from: Some(plural_digest),
+                },
+                CausalPosture::AuthorOnly,
+            ),
+            Err(BraidShellError::IncoherentCollapsePolicy {
+                policy_id: [0x5E; 32],
+                collapse_policy: [0x77; 32],
             })
         );
     }

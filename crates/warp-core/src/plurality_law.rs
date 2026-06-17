@@ -10,7 +10,7 @@ use thiserror::Error;
 use crate::ident::Hash;
 use crate::revelation::AuthorityDomainRef;
 use crate::sealed_membership::DisclosureBudget;
-use crate::witness::{WitnessAttestation, WitnessKind, WitnessReceipt};
+use crate::witness::{WitnessAttestation, WitnessReceipt};
 
 const LAW_NAME_DOMAIN: &[u8] = b"echo.plurality-law.name.v1\0";
 const LAW_REF_DOMAIN: &[u8] = b"echo.plurality-law.ref.v1\0";
@@ -271,7 +271,7 @@ impl PluralityLawConcealment {
 /// Evidence posture attached to plurality law execution.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum PluralityLawEvidencePosture {
-    /// E1 local self-witness integrity evidence only.
+    /// Integrity-only evidence, including E1 self-witness scaffolding.
     SelfWitnessIntegrityOnly,
     /// Independent external witness evidence.
     ExternalWitness,
@@ -639,11 +639,9 @@ impl PluralityLawReading {
 }
 
 fn evidence_posture_for(receipt: WitnessReceipt) -> PluralityLawEvidencePosture {
-    match (receipt.kind(), receipt.attestation()) {
-        (WitnessKind::SelfWitness, WitnessAttestation::IntegrityOnly) => {
-            PluralityLawEvidencePosture::SelfWitnessIntegrityOnly
-        }
-        _ => PluralityLawEvidencePosture::ExternalWitness,
+    match receipt.attestation() {
+        WitnessAttestation::IntegrityOnly => PluralityLawEvidencePosture::SelfWitnessIntegrityOnly,
+        WitnessAttestation::IndependentAttestation => PluralityLawEvidencePosture::ExternalWitness,
     }
 }
 

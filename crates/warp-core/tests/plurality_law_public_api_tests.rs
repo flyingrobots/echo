@@ -8,7 +8,8 @@ use warp_core::{
     PluralityLawCardError, PluralityLawConcealment, PluralityLawEmission,
     PluralityLawEvidencePosture, PluralityLawFamily, PluralityLawName, PluralityLawObstruction,
     PluralityLawObstructionKind, PluralityLawReading, PluralityLawRef, PluralityLawRefError,
-    PluralityLawRegistry, PluralityLawRegistryError, PluralityLawRequirement, WitnessReceipt,
+    PluralityLawRegistry, PluralityLawRegistryError, PluralityLawRequirement, WitnessAttestation,
+    WitnessCompatibilityRule, WitnessKind, WitnessReceipt,
 };
 
 fn law_name(byte: u8) -> PluralityLawName {
@@ -94,6 +95,30 @@ fn public_plurality_law_reading_identity_binds_law_name_and_version(
     assert_eq!(v1.law_ref().version(), 1);
     assert_eq!(v2.law_ref().version(), 2);
     assert_ne!(v1.digest(), v2.digest());
+    Ok(())
+}
+
+#[test]
+fn public_plurality_law_reading_does_not_promote_integrity_only_receipts(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let witness = WitnessReceipt::new(
+        WitnessKind::SignedWitness,
+        [0xAA; 32],
+        [0xBB; 32],
+        WitnessCompatibilityRule::StableV1,
+        WitnessAttestation::IntegrityOnly,
+    )?;
+    let reading = PluralityLawReading::new(
+        law_ref(0x56, 1)?,
+        [0xCC; 32],
+        witness,
+        DisclosureBudget::AuthorityScoped,
+    );
+
+    assert_eq!(
+        reading.evidence_posture(),
+        PluralityLawEvidencePosture::SelfWitnessIntegrityOnly
+    );
     Ok(())
 }
 

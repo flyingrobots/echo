@@ -52,7 +52,9 @@
   references and versions in braid shell replay/audit readings,
   adapter-provided law-family routing through authority domains, and typed law
   obstruction evidence for unsupported or unauthorized law execution. Law
-  references reject all-zero names and zero versions before registration.
+  references reject all-zero names and zero versions before registration. Law
+  readings derive integrity-only posture from witness attestation strength, so
+  non-self integrity-only receipts are not promoted to external witness evidence.
 - `warp-core` now enforces the v1 single-writer-head strand invariant through
   both `Strand::new(...)` and `StrandRegistry::insert(...)`, and runtime strand
   forking constructs the registered relation through the same constructor

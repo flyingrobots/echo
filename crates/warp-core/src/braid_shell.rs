@@ -1761,6 +1761,10 @@ mod tests {
             audit.member_facts[0].disclosure_budget,
             DisclosureBudget::AuthorityScoped
         );
+        assert_eq!(
+            audit.law_reading.disclosure_budget(),
+            DisclosureBudget::AuthorityScoped
+        );
     }
 
     #[test]

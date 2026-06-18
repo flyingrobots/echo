@@ -5821,7 +5821,7 @@ fn run_lint_dead_refs(args: LintDeadRefsArgs) -> Result<()> {
             bail!("{} is not a directory", root.display());
         }
 
-        // Derive the VitePress docs root for root-relative link resolution.
+        // Derive the docs root for root-relative link resolution.
         // When --root is a subdirectory (e.g. docs/meta), root-relative links
         // like `/guide/...` must still resolve against the top-level docs dir.
         let docs_root = find_docs_root(root);
@@ -5941,15 +5941,15 @@ fn find_repo_root() -> Result<PathBuf> {
     Ok(PathBuf::from(std::str::from_utf8(&output.stdout)?.trim()))
 }
 
-/// Find the VitePress docs root directory.
+/// Find the repository docs root directory.
 ///
-/// Walks up from `start` looking for `.vitepress/config.ts`. Falls back
-/// to `start` itself if no config is found (single-level scan).
+/// Walks up from `start` looking for an ancestor named `docs`. Falls back
+/// to `start` itself if no docs root is found.
 fn find_docs_root(start: &Path) -> PathBuf {
     let abs = std::fs::canonicalize(start).unwrap_or_else(|_| start.to_path_buf());
     let mut dir = abs.as_path();
     loop {
-        if dir.join(".vitepress/config.ts").exists() || dir.join(".vitepress/config.mts").exists() {
+        if dir.file_name().and_then(|name| name.to_str()) == Some("docs") {
             return dir.to_path_buf();
         }
         match dir.parent() {
@@ -5985,9 +5985,9 @@ fn build_candidates(source_file: &Path, target: &str, docs_root: &Path) -> Vec<P
 
     let primary = if target.starts_with('/') {
         let stripped = target.trim_start_matches('/');
-        // VitePress root-relative: try docs root first
+        // Root-relative docs link: try docs root first.
         candidates.push(docs_root.join(stripped));
-        // VitePress serves docs/public/ at root, so /foo.html may be docs/public/foo.html
+        // Keep docs/public/ as a conventional static-asset root.
         candidates.push(docs_root.join("public").join(stripped));
         // Also try repo root (for links like /crates/foo/README.md)
         if let Some(repo_root) = docs_root.parent() {
@@ -6018,8 +6018,8 @@ fn build_candidates(source_file: &Path, target: &str, docs_root: &Path) -> Vec<P
 /// ignored) paths.
 ///
 /// Uses `git ls-files --cached --others --exclude-standard` so that
-/// gitignored files (e.g. build artifacts in `.vitepress/dist/`) are
-/// excluded, while new files not yet staged are still picked up.
+/// gitignored files are excluded, while new files not yet staged are still
+/// picked up.
 fn collect_md_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
     let output = Command::new("git")
         .args([

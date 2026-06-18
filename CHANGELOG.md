@@ -590,6 +590,9 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Removed
 
+- Removed the VitePress docs-site toolchain from active repo tooling: npm
+  scripts, Make targets, tracked docs-site config, generated site residue, the
+  dead browser-open helper, and VitePress/Mermaid dependencies are gone.
 - Removed the broken `warp-core/serde` feature and the gated `Serializable*`
   wrapper exports. `warp-core` no longer declares direct `serde`, `serde-value`,
   or `ciborium` dependencies; authoritative core serialization must stay in
@@ -1565,9 +1568,9 @@ warp-core` and `warp-core` shards, preserving the required `Tests` status
   `streams-inspector.md`, `docs/spec/SPEC-0004...` prefix, archived file
   image paths, nonexistent README link).
 - **New:** `cargo xtask lint-dead-refs` — scans `docs/` for broken markdown
-  cross-references. Handles relative paths, VitePress root-relative links,
-  and `docs/public/` asset resolution. Use `--all` to also check non-markdown
-  file references (images, HTML).
+  cross-references. Handles relative paths, root-relative docs links, and
+  `docs/public/` asset resolution. Use `--all` to also check non-markdown file
+  references (images, HTML).
 - **New:** `cargo xtask markdown-fix` — auto-fixes common markdown lint
   violations: SPDX header repair, prettier formatting, and markdownlint
   `--fix`. Supports `--no-prettier` and `--no-lint` flags.
@@ -1580,11 +1583,11 @@ warp-core` and `warp-core` shards, preserving the required `Tests` status
   covering all 19 features across 11 crates.
 - **Fix:** `cargo xtask lint-dead-refs` now uses `pulldown-cmark` for link
   extraction (handles title text, balanced parens, angle-bracket URLs) and
-  separates scan scope from VitePress docs root. Includes 10 unit tests.
+  separates scan scope from the docs root. Includes 10 unit tests.
 - **Fix:** `det_fixed` correctly documented as a behavioral switch in
   `cargo-features.md`; `worker_count` default now shows `NUM_SHARDS` cap.
 - **Fix:** All file collection in xtask now uses `git ls-files` instead of
-  filesystem walks (skips build artifacts like `.vitepress/dist/`).
+  filesystem walks so ignored build artifacts stay out of docs scans.
 - **Update:** Archival stubs enriched with date, reason, and PR metadata.
   Draft spec (`spec-scheduler.md`) marked with `[!CAUTION]` disclaimer and
   TODO markers for unspecified sections.

@@ -457,7 +457,6 @@ Design-only gate for this document:
 ```sh
 pnpm exec prettier --check docs/design/witnessed-suffix-admission-evaluator.md
 pnpm exec markdownlint-cli2 docs/design/witnessed-suffix-admission-evaluator.md
-pnpm docs:build
 ```
 
 Expected implementation gates for the future RED/GREEN cycle:
@@ -467,5 +466,6 @@ cargo fmt --all -- --check
 cargo test -p echo-wasm-abi --lib witnessed_suffix
 cargo test -p warp-core --lib witnessed_suffix
 cargo clippy -p warp-core --lib -- -D warnings -D missing_docs
-pnpm docs:build
+pnpm exec prettier --check docs/design/witnessed-suffix-admission-evaluator.md
+pnpm exec markdownlint-cli2 docs/design/witnessed-suffix-admission-evaluator.md
 ```

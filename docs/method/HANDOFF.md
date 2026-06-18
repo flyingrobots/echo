@@ -3,7 +3,7 @@
 
 # Echo Handoff
 
-Status: historical handoff retained for context. This predates the 2026-06-01 GitHub Issues migration; filesystem-backlog paths below are historical, not the live tracker. Git history is the archive.
+Status: historical handoff retained for context. This predates the 2026-06-01 GitHub Issues migration; filesystem-backlog paths below are historical, not the live tracker. Git history is the archive. References to the old docs-site build gate below are historical too; the active repo no longer carries that site tooling.
 
 ## Historical Anchor
 
@@ -19,7 +19,8 @@ Status: historical handoff retained for context. This predates the 2026-06-01 Gi
 - Never amend commits.
 - Never rebase unless the user explicitly approves after explanation.
 - Never force-push.
-- Preserve `pnpm docs:build` as a real gate.
+- Do not reintroduce the old docs-site build gate without a dedicated docs
+  tooling cycle.
 - Do not resume broad docs inventory unless a doc blocks active work, a stale
   doc breaks a gate, or a dedicated docs-cleanup cycle is explicitly scheduled.
 - For Rust tests, do not run `cargo test -p <crate> <filter>`. Use `--lib`,
@@ -30,7 +31,7 @@ Status: historical handoff retained for context. This predates the 2026-06-01 Gi
 - Top-level docs cleanup was completed.
 - Strict live-docs doctrine was established: docs are current truth; git
   history is the archive.
-- Dead-link cleanup restored `pnpm docs:build`.
+- Dead-link cleanup restored the then-current docs build gate.
 - `docs/method/backlog/cool-ideas/` was fully audited.
 - Full docs inventory was paused intentionally with remaining unaudited docs as
   known debt.
@@ -63,7 +64,7 @@ Verification already run:
 - `git diff --check`
 - `pnpm exec prettier --check docs/method/README.md docs/method/legends/PLATFORM.md`
 - `npx markdownlint-cli2 docs/method/README.md docs/method/legends/PLATFORM.md`
-- `pnpm docs:build`
+- Historical: the then-current docs build gate.
 
 ## Self-Review Findings To Fix Next
 
@@ -87,18 +88,6 @@ evidence to WASM consumers.
 Fix direction: add ABI DTO summaries for basis posture and overlap
 revalidation, wire settlement `to_abi()` through, update ABI docs, and add
 `warp-wasm` tests.
-
-### Medium: VitePress navigation still has missing routes
-
-`docs/.vitepress/config.ts` still links missing pages:
-
-- `/guide/wvp-demo`
-- `/guide/collision-tour`
-- `/spec-serialization-protocol`
-- `/spec-branch-tree`
-
-Fix direction: remove, redirect, or replace those links with current owned
-docs, then add a route check that covers VitePress config links.
 
 ### Medium: `docs/BEARING.md` contradicts the pause checkpoint
 
@@ -131,5 +120,5 @@ Do not restart docs inventory. Fix the two high-severity runtime/ABI review
 findings first. They affect the WARP optics path more directly than additional
 docs cleanup.
 
-If choosing a smaller follow-up before runtime work, fix `BEARING.md` and the
-VitePress nav links together as one docs-gate hardening commit.
+If choosing a smaller follow-up before runtime work, fix `BEARING.md` as one
+focused docs-doctrine commit.

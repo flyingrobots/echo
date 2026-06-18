@@ -364,7 +364,6 @@ Design-only gate for this document:
 ```sh
 pnpm exec prettier --check docs/design/wip-branch-policy.md
 pnpm exec markdownlint-cli2 docs/design/wip-branch-policy.md
-pnpm docs:build
 ```
 
 Expected implementation gates for a later hook cycle:
@@ -373,5 +372,6 @@ Expected implementation gates for a later hook cycle:
 cargo fmt --all -- --check
 cargo test -p xtask --lib hook
 bash -n .githooks/pre-commit .githooks/pre-push scripts/verify-local.sh
-pnpm docs:build
+pnpm exec prettier --check docs/design/wip-branch-policy.md
+pnpm exec markdownlint-cli2 docs/design/wip-branch-policy.md
 ```

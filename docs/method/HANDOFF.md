@@ -3,7 +3,11 @@
 
 # Echo Handoff
 
-Status: historical handoff retained for context. This predates the 2026-06-01 GitHub Issues migration; filesystem-backlog paths below are historical, not the live tracker. Git history is the archive. References to the old docs-site build gate below are historical too; the active repo no longer carries that site tooling.
+Status: historical handoff retained for context. This predates the 2026-06-01
+GitHub Issues migration; filesystem-backlog paths below are historical, not the
+live tracker. Git history is the archive. References to the old docs-site build
+gate below are historical too; the active repo no longer carries that site
+tooling.
 
 ## Historical Anchor
 

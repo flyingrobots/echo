@@ -591,8 +591,8 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 ### Removed
 
 - Removed the VitePress docs-site toolchain from active repo tooling: npm
-  scripts, Make targets, tracked docs-site config, generated site residue, the
-  dead browser-open helper, and VitePress/Mermaid dependencies are gone.
+  scripts, Make targets, tracked docs-site config, the dead browser-open helper,
+  and VitePress/Mermaid dependencies are gone.
 - Removed the broken `warp-core/serde` feature and the gated `Serializable*`
   wrapper exports. `warp-core` no longer declares direct `serde`, `serde-value`,
   or `ciborium` dependencies; authoritative core serialization must stay in

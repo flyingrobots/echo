@@ -6724,6 +6724,59 @@ mod tests {
         assert_eq!(links[1].1, 4);
     }
 
+    // ── find_docs_root ─────────────────────────────────────────────────
+
+    #[test]
+    fn find_docs_root_returns_docs_directory() {
+        let root = unique_temp_path("xtask-docs-root");
+        let docs = root.join("docs");
+        assert_ok(
+            fs::create_dir_all(&docs),
+            "test docs directory should be created",
+        );
+
+        let canonical_docs = assert_ok(
+            fs::canonicalize(&docs),
+            "test docs directory should canonicalize",
+        );
+        assert_eq!(find_docs_root(&docs), canonical_docs);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn find_docs_root_walks_up_from_nested_docs_path() {
+        let root = unique_temp_path("xtask-docs-nested-root");
+        let docs = root.join("docs");
+        let nested = docs.join("design").join("deep");
+        assert_ok(
+            fs::create_dir_all(&nested),
+            "test nested docs directory should be created",
+        );
+
+        let canonical_docs = assert_ok(
+            fs::canonicalize(&docs),
+            "test docs directory should canonicalize",
+        );
+        assert_eq!(find_docs_root(&nested), canonical_docs);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn find_docs_root_falls_back_to_start_without_docs_ancestor() {
+        let root = unique_temp_path("xtask-docs-fallback-root");
+        let notes = root.join("notes");
+        assert_ok(
+            fs::create_dir_all(&notes),
+            "test non-docs directory should be created",
+        );
+
+        assert_eq!(find_docs_root(&notes), notes);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
     // ── build_candidates ──────────────────────────────────────────────
 
     #[test]

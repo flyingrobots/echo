@@ -18,6 +18,9 @@ The post-PR #545 strands and braids hardening roadmap is maintained in
 Its goalpost design packet is maintained under
 `docs/design/braids-and-strands-hardening/`.
 
+The current Graft-to-Echo readiness boundary is maintained in
+`docs/design/graft-echo-native-readiness-boundary.md`.
+
 The feature bar for the eventual `v0.1.0` release is maintained in
 `docs/design/v0.1.0-release-plan.md`.
 
@@ -62,6 +65,12 @@ must check off slices in the roadmap only when the slice actually lands.
 This hardening campaign does not replace the `v0.1.0` external-app release
 gate. It protects the newly landed strand, braid, proof, sealed-member,
 identity, witness, and plurality surfaces before more callers depend on them.
+
+The current Graft posture is deliberately bounded: Graft can proceed with
+schema, model, adapter, and local Echo witness design work, but it must not yet
+claim production-grade Echo-native structural history through a stable
+TypeScript dependency or durable retained evidence path. The boundary is
+recorded in `docs/design/graft-echo-native-readiness-boundary.md`.
 
 Echo has a local witnessed intent pipeline into deterministic execution:
 application ingress can become witnessed submission history, lawful admission

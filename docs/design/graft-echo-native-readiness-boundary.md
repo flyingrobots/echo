@@ -109,8 +109,10 @@ all witness paths are production-grade durable recovery paths yet.
 
 Current caveats:
 
-- retained evidence posture can honestly report available, missing, degraded,
-  or obstructed material;
+- retained evidence posture can honestly report available material or missing
+  retained evidence; core distinguishes missing coordinates from missing
+  content, and app-safe ABI callers see missing retained material as
+  `MissingRetention`;
 - semantic retained coordinates exist above CAS byte identity;
 - current trusted host witness paths may still use in-memory WAL or local
   fixture storage;
@@ -146,8 +148,8 @@ Graft may proceed with:
 - schema and model cleanup;
 - adapter boundaries over current Echo primitives;
 - local Echo witness prototypes;
-- app-safe posture reporting that distinguishes available, missing, degraded,
-  and obstructed retained material;
+- app-safe posture reporting that stays within Echo's current available and
+  missing-retention states;
 - experiments that exercise Echo through a sibling checkout or local WASM
   artifact while labeling the path as prototype-only.
 

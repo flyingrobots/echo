@@ -13,7 +13,6 @@ Echo's live documentation centers on the runtime carrier, the retained witnesses
 - Local contract host quickstart: [/quickstart-local-contract-host](/quickstart-local-contract-host)
 - WARP optic implementation map: [/design/warp-optic-implementation-map](/design/warp-optic-implementation-map)
 - Braids and strands hardening roadmap: [/design/braids-and-strands-roadmap](/design/braids-and-strands-roadmap)
-- Graft Echo-native readiness boundary: [/design/graft-echo-native-readiness-boundary](/design/graft-echo-native-readiness-boundary)
 - Echo v0.1.0 release plan: [/design/v0.1.0-release-plan](/design/v0.1.0-release-plan)
 - Echo v0.1.0 jedit release gate: [/design/v0.1.0-jedit-release-gate](/design/v0.1.0-jedit-release-gate)
 - Trusted runtime control history: [/design/trusted-runtime-control-history](/design/trusted-runtime-control-history)
@@ -48,7 +47,6 @@ Echo's live documentation centers on the runtime carrier, the retained witnesses
 ## Observation And Platform Boundaries
 
 - Application contract hosting: [/architecture/application-contract-hosting](/architecture/application-contract-hosting)
-- Graft Echo-native readiness boundary: [/design/graft-echo-native-readiness-boundary](/design/graft-echo-native-readiness-boundary)
 - Worldlines, playback, and observation: [/spec/SPEC-0004-worldlines-playback-truthbus](/spec/SPEC-0004-worldlines-playback-truthbus)
 - Provenance payload and boundary records: [/spec/SPEC-0005-provenance-payload](/spec/SPEC-0005-provenance-payload)
 - WASM ABI contract: [/spec/SPEC-0009-wasm-abi](/spec/SPEC-0009-wasm-abi)

@@ -3,11 +3,9 @@
 
 SHELL := /bin/bash
 
-# Default docs port; override with: make docs PORT=5180
-PORT ?= 5173
 BENCH_PORT ?= 8000
 
-.PHONY: hooks verify-ultra-fast verify-fast verify-pr verify-full verify-full-sequential test-slice pr-status pr-snapshot pr-threads pr-preflight docs docs-build docs-ci
+.PHONY: hooks verify-ultra-fast verify-fast verify-pr verify-full verify-full-sequential test-slice pr-status pr-snapshot pr-threads pr-preflight
 hooks:
 	@git config core.hooksPath .githooks
 	@chmod +x .githooks/* 2>/dev/null || true
@@ -50,35 +48,6 @@ dags:
 dags-fetch:
 	@cargo xtask dags --fetch
 
-# Start VitePress dev server and open the browser automatically.
-docs:
-	@echo "[docs] Ensuring deps..."
-	@npm install --silent
-	@echo "[docs] Starting VitePress on http://localhost:$(PORT) ..."
-	# Start server in background and record PID
-	@ (npm run --silent docs:dev -- --port $(PORT) &) ; \
-	  server_pid=$$! ; \
-	  echo "[docs] Waiting for server to become ready..." ; \
-	  for i in {1..80}; do \
-	    if curl -sSf "http://localhost:$(PORT)/" >/dev/null ; then \
-	      echo "[docs] Server is up at http://localhost:$(PORT)/" ; \
-	      scripts/docs-open.sh "http://localhost:$(PORT)/" ; \
-	      wait $$server_pid ; \
-	      exit 0 ; \
-	    fi ; \
-	    sleep 1 ; \
-	  done ; \
-	  echo "[docs] Timed out waiting for VitePress." ; \
-	  exit 1
-
-# Build static site
-docs-build:
-	@npm run --silent docs:build
-
-# Build docs without installing dependencies (for CI caches)
-docs-ci:
-	@echo "[docs] CI build (no npm install)"
-	@npm run --silent docs:build
 # Benchmarks and reports
 .PHONY: bench-report bench-vendor vendor-d3 bench-serve bench-open
 

@@ -117,7 +117,6 @@ Echo uses a few “blessed” command entry points.
 ### `make`
 
 - `make hooks` installs repo git hooks.
-- `make docs` runs the VitePress docs site.
 - `make dags` regenerates dependency DAGs from cached snapshots.
 - `make dags-fetch` regenerates dependency DAGs from GitHub data (requires `gh` auth + network).
 

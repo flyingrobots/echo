@@ -885,7 +885,7 @@ Non-goals:
 Test expectations:
 
 - `markdownlint-cli2` and Prettier pass.
-- `pnpm docs:build` passes.
+- Touched Markdown docs pass their focused lint and format checks.
 
 ### TASK-002: Define core optic nouns and IDs
 

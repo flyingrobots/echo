@@ -7,6 +7,9 @@
 
 ### Added
 
+- Added a WAL/WSC/durability roadmap packet that maps the implemented WAL,
+  WSC, retained-evidence, and CAS primitives to release goalposts and
+  issue-sized durability slices.
 - Added a WAL/WSC release-doctrine guard that checks the active signposts keep
   WAL authority, graph projection, WSC export modes, storage locators, and
   bootstrap recovery language linked to issue `#521`.

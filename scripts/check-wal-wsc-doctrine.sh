@@ -35,23 +35,55 @@ require_literal() {
   fi
 }
 
+reject_literal() {
+  local label="$1"
+  local file="$2"
+  local literal="$3"
+  if [[ ! -f "$file" ]]; then
+    fail "${label}: missing file ${file}"
+    return
+  fi
+  if grep -Fq -- "$literal" "$file"; then
+    fail "${label}: rejected stale literal still present: ${literal}"
+  fi
+}
+
 bearing="${repo_root}/docs/BEARING.md"
 workitems="${repo_root}/docs/WorkItems.md"
 sequencing="${repo_root}/docs/design/work-item-sequencing-and-prioritization.md"
 wal_design="${repo_root}/docs/design/causal-wal-end-to-end.md"
+roadmap="${repo_root}/docs/design/wal-wsc-durability-roadmap.md"
 
 require_file "BEARING signpost" "$bearing"
 require_file "WorkItems inventory" "$workitems"
 require_file "sequencing guide" "$sequencing"
 require_file "causal WAL design" "$wal_design"
+require_file "WAL/WSC durability roadmap" "$roadmap"
 
 issue_url="https://github.com/flyingrobots/echo/issues/521"
 wal_design_path="docs/design/causal-wal-end-to-end.md"
+roadmap_path="docs/design/wal-wsc-durability-roadmap.md"
 
 require_literal "BEARING links WAL/WSC issue" "$bearing" "$issue_url"
 require_literal "BEARING links causal WAL design" "$bearing" "$wal_design_path"
+require_literal "BEARING links durability roadmap" "$bearing" "$roadmap_path"
 require_literal "WorkItems links WAL/WSC issue" "$workitems" "$issue_url"
+require_literal "WorkItems links durability roadmap" "$workitems" "$roadmap_path"
 require_literal "sequencing links WAL/WSC issue" "$sequencing" "$issue_url"
+require_literal "sequencing links durability roadmap" "$sequencing" "$roadmap_path"
+
+reject_literal \
+  "WorkItems removes stale WAL/WSC backlog link" \
+  "$workitems" \
+  "method/backlog/v0.1.0/PLATFORM_wal-wsc-storage-relationship.md"
+reject_literal \
+  "WorkItems removes stale WSC backlog link" \
+  "$workitems" \
+  "method/backlog/v0.1.0/PLATFORM_wsc-causal-history-storage.md"
+reject_literal \
+  "WorkItems removes stale retained evidence backlog link" \
+  "$workitems" \
+  "method/backlog/v0.1.0/PLATFORM_retained-evidence-durability-boundary.md"
 
 require_literal \
   "sequencing names WAL as durable commit authority" \
@@ -111,6 +143,23 @@ require_literal \
   "WAL design says commit boundary remains authority" \
   "$wal_design" \
   "The WAL commit boundary remains the authority."
+
+require_literal \
+  "roadmap names runtime WAL durable join" \
+  "$roadmap" \
+  "## Goalpost 1: Durable Runtime WAL Join"
+require_literal \
+  "roadmap names WAL evidence projection" \
+  "$roadmap" \
+  "## Goalpost 2: WAL Evidence Projection"
+require_literal \
+  "roadmap names WSC export and import" \
+  "$roadmap" \
+  "## Goalpost 3: WSC Causal-History Export And Import"
+require_literal \
+  "roadmap names retained evidence durability" \
+  "$roadmap" \
+  "## Goalpost 4: Retained Evidence Durability"
 
 if [[ "$failures" -ne 0 ]]; then
   exit 1

@@ -27,6 +27,8 @@ The immediate release-proof plan is
 The broader release feature bar is
 [`docs/design/v0.1.0-release-plan.md`](v0.1.0-release-plan.md).
 The active inventory snapshot is [`docs/WorkItems.md`](../WorkItems.md).
+The WAL/WSC/durability roadmap is
+[`docs/design/wal-wsc-durability-roadmap.md`](wal-wsc-durability-roadmap.md).
 
 ## Strategy
 
@@ -81,6 +83,9 @@ The doctrine is tracked by:
 - [#522 WSC Causal-History Storage](https://github.com/flyingrobots/echo/issues/522)
 - [#519 Retained Evidence Durability Boundary](https://github.com/flyingrobots/echo/issues/519)
 
+The goalpost and slice breakdown is maintained in
+[`docs/design/wal-wsc-durability-roadmap.md`](wal-wsc-durability-roadmap.md).
+
 `#521` is the active release-doctrine checkpoint before the next implementation
 batch. Its narrow purpose is to keep durable claims honest:
 
@@ -98,7 +103,7 @@ lands:
 
 ```text
 [##########] Echo/jedit retained-evidence release-gate batch [10/10 slices]
-[#---------] WAL/WSC release-doctrine checkpoint [1/3 slices]
+[##--------] WAL/WSC durability roadmap checkpoint [2/3 slices]
 ```
 
 Finish the checkpoint in this order:
@@ -106,7 +111,7 @@ Finish the checkpoint in this order:
 | Seq | Band | Package                                 | Source                                                  | Outcome                                                                                                                                       |
 | --: | ---- | --------------------------------------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 |   1 | 0    | WAL/WSC doctrine links and lint witness | [#521](https://github.com/flyingrobots/echo/issues/521) | BEARING, WorkItems, sequencing, and WAL design agree on WAL authority, graph projection, WSC modes, storage locators, and bootstrap recovery. |
-|   2 | 0    | WSC causal-history export evidence plan | [#522](https://github.com/flyingrobots/echo/issues/522) | Export posture distinguishes ref-only, self-contained, and CAS-addressed WSC without making raw paths causal identity.                        |
+|   2 | 0    | WAL/WSC/durability roadmap packet       | [#521](https://github.com/flyingrobots/echo/issues/521) | Implemented primitives and remaining release joins are organized into goalposts and issue-sized slices with concrete witnesses.               |
 |   3 | 0    | Retained evidence durability boundary   | [#519](https://github.com/flyingrobots/echo/issues/519) | Durable retention claims are tied to WAL/checkpoint/CAS evidence; missing material stays typed obstruction.                                   |
 
 The first checkpoint is docs and witness only. It should not modify runtime WAL

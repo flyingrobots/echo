@@ -24,6 +24,9 @@ copy_fixture() {
   cp \
     "${repo_root}/docs/design/causal-wal-end-to-end.md" \
     "${tmp}/docs/design/causal-wal-end-to-end.md"
+  cp \
+    "${repo_root}/docs/design/wal-wsc-durability-roadmap.md" \
+    "${tmp}/docs/design/wal-wsc-durability-roadmap.md"
 }
 
 test_current_repo_passes() {
@@ -60,12 +63,32 @@ test_missing_bootstrap_phrase_fails() {
   rm -rf "$tmp"
 }
 
+test_stale_workitems_backlog_link_fails() {
+  local tmp out
+  tmp="$(mktemp -d)"
+  copy_fixture "$tmp"
+
+  cat >>"${tmp}/docs/WorkItems.md" <<'EOF'
+
+- [WAL/WSC Storage Relationship](method/backlog/v0.1.0/PLATFORM_wal-wsc-storage-relationship.md)
+EOF
+
+  out="$({ ECHO_REPO_ROOT="$tmp" "$checker"; } 2>&1 || true)"
+  echo "$out" | grep -q "WorkItems removes stale WAL/WSC backlog link" || {
+    echo "$out" >&2
+    rm -rf "$tmp"
+    fail "checker did not report the stale WorkItems WAL/WSC backlog link"
+  }
+  rm -rf "$tmp"
+}
+
 main() {
   [[ -x "$checker" ]] || fail "checker script missing or not executable: $checker"
 
   test_current_repo_passes
   test_isolated_fixture_passes
   test_missing_bootstrap_phrase_fails
+  test_stale_workitems_backlog_link_fails
 }
 
 main "$@"

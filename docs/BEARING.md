@@ -40,6 +40,9 @@ The WAL/WSC storage relationship is tracked by
 [#521 WAL/WSC Storage Relationship](https://github.com/flyingrobots/echo/issues/521)
 and grounded in `docs/design/causal-wal-end-to-end.md`.
 
+The WAL/WSC/durability goalpost roadmap is maintained in
+`docs/design/wal-wsc-durability-roadmap.md`.
+
 The next ten jedit release-gate slices are planned in
 `docs/design/v0.1.0-jedit-next-ten-slices.md`.
 

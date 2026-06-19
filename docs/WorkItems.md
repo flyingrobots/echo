@@ -87,6 +87,9 @@ The Echo-owned follow-up cards are now GitHub Issues in the release lane:
 - [#516 JS/WASM/Browser Client Release Surface](https://github.com/flyingrobots/echo/issues/516)
 - [#523 Package Publish And Versioning](https://github.com/flyingrobots/echo/issues/523)
 
+The WAL/WSC/durability goalpost roadmap is
+[`docs/design/wal-wsc-durability-roadmap.md`](design/wal-wsc-durability-roadmap.md).
+
 ## ASAP Backlog
 
 - [Docs cleanup](method/backlog/asap/DOCS_docs-cleanup.md)
@@ -105,27 +108,30 @@ The Echo-owned follow-up cards are now GitHub Issues in the release lane:
 
 ## v0.1.0 Lane
 
-- [Release-Grade Quickstart](method/backlog/v0.1.0/DOCS_release-grade-quickstart.md)
-- [Contract-Aware Receipts And Readings](method/backlog/v0.1.0/KERNEL_contract-aware-receipts-and-readings.md)
-- [Contract Obstruction Taxonomy](method/backlog/v0.1.0/KERNEL_contract-obstruction-taxonomy.md)
-- [Contract Reading Identity And Bounded Payloads](method/backlog/v0.1.0/KERNEL_contract-reading-identity-and-bounded-payloads.md)
-- [Witnessed Intent Submission Persistence](method/backlog/v0.1.0/KERNEL_witnessed-intent-submission-persistence.md)
-- [App-Safe Client Surface](method/backlog/v0.1.0/PLATFORM_app-safe-client-surface.md)
-- [Contract Artifact Retention In echo-cas](method/backlog/v0.1.0/PLATFORM_contract-artifact-retention-in-echo-cas.md)
-- [Contract Retention And Semantic Lookup Seams](method/backlog/v0.1.0/PLATFORM_contract-retention-and-semantic-lookup-seams.md)
-- [External Contract Proof Fixture](method/backlog/v0.1.0/PLATFORM_external-contract-proof-fixture.md)
-- [JS/WASM/Browser Client Release Surface](method/backlog/v0.1.0/PLATFORM_js-wasm-browser-client-release-surface.md)
-- [jedit Real Echo Release Gate](method/backlog/v0.1.0/PLATFORM_jedit-real-echo-release-gate.md)
-- [Package Publish And Versioning](method/backlog/v0.1.0/RELEASE_package-publish-and-versioning.md)
-- [Product-Facing Intent Outcome API](method/backlog/v0.1.0/PLATFORM_product-facing-intent-outcome-api.md)
-- [Reference Trusted Runtime Host Loop](method/backlog/v0.1.0/PLATFORM_reference-trusted-runtime-host-loop.md)
-- [Retained Evidence Durability Boundary](method/backlog/v0.1.0/PLATFORM_retained-evidence-durability-boundary.md)
-- [Versioned Contract And API Compatibility](method/backlog/v0.1.0/PLATFORM_versioned-contract-api-compatibility.md)
-- [WAL/WSC Storage Relationship](method/backlog/v0.1.0/PLATFORM_wal-wsc-storage-relationship.md)
-- [WSC Causal-History Storage](method/backlog/v0.1.0/PLATFORM_wsc-causal-history-storage.md)
-- [v0.1.0 Release Candidate](method/backlog/v0.1.0/RELEASE_v0.1.0-release-candidate.md)
-- [Authority Boundary Audit](method/backlog/v0.1.0/SECURITY_authority-boundary-audit.md)
-- [v0.1.0 Replay And DIND Proof](method/backlog/v0.1.0/TEST_v0.1.0-replay-dind-proof.md)
+The `v0.1.0` lane has moved to GitHub Issues. Active release-lane issues
+include:
+
+- [#506 Release-Grade Quickstart](https://github.com/flyingrobots/echo/issues/506)
+- [#507 Contract-Aware Receipts And Readings](https://github.com/flyingrobots/echo/issues/507)
+- [#508 Contract Obstruction Taxonomy](https://github.com/flyingrobots/echo/issues/508)
+- [#509 Contract Reading Identity And Bounded Payloads](https://github.com/flyingrobots/echo/issues/509)
+- [#510 Witnessed Intent Submission Persistence](https://github.com/flyingrobots/echo/issues/510)
+- [#511 App-Safe Client Surface](https://github.com/flyingrobots/echo/issues/511)
+- [#512 Contract Artifact Retention In echo-cas](https://github.com/flyingrobots/echo/issues/512)
+- [#513 Contract Retention And Semantic Lookup Seams](https://github.com/flyingrobots/echo/issues/513)
+- [#514 External Contract Proof Fixture](https://github.com/flyingrobots/echo/issues/514)
+- [#515 jedit Real Echo Release Gate](https://github.com/flyingrobots/echo/issues/515)
+- [#516 JS/WASM/Browser Client Release Surface](https://github.com/flyingrobots/echo/issues/516)
+- [#517 Product-Facing Intent Outcome API](https://github.com/flyingrobots/echo/issues/517)
+- [#518 Reference Trusted Runtime Host Loop](https://github.com/flyingrobots/echo/issues/518)
+- [#519 Retained Evidence Durability Boundary](https://github.com/flyingrobots/echo/issues/519)
+- [#520 Versioned Contract And API Compatibility](https://github.com/flyingrobots/echo/issues/520)
+- [#521 WAL/WSC Storage Relationship](https://github.com/flyingrobots/echo/issues/521)
+- [#522 WSC Causal-History Storage](https://github.com/flyingrobots/echo/issues/522)
+- [#523 Package Publish And Versioning](https://github.com/flyingrobots/echo/issues/523)
+- [#524 v0.1.0 Release Candidate](https://github.com/flyingrobots/echo/issues/524)
+- [#525 Authority Boundary Audit](https://github.com/flyingrobots/echo/issues/525)
+- [#526 v0.1.0 Replay And DIND Proof](https://github.com/flyingrobots/echo/issues/526)
 
 ## Up Next
 

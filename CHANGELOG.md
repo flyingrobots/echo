@@ -7,6 +7,9 @@
 
 ### Added
 
+- Added a WAL/WSC release-doctrine guard that checks the active signposts keep
+  WAL authority, graph projection, WSC export modes, storage locators, and
+  bootstrap recovery language linked to issue `#521`.
 - `warp-core` now hardens the first braids/strands roadmap goalpost: `Strand<P>`
   fields are no longer publicly constructible, `Strand::new(...)` validates
   typestate/runtime-posture coherence before construction, public strand tests

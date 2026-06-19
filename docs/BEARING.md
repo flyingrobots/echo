@@ -36,8 +36,9 @@ The causal WAL doctrine and recovery design is defined in
 The Echo-owned file aperture design is defined in
 `docs/design/echo-owned-file-aperture.md`.
 
-The WAL/WSC storage relationship is tracked in
-`docs/method/backlog/v0.1.0/PLATFORM_wal-wsc-storage-relationship.md`.
+The WAL/WSC storage relationship is tracked by
+[#521 WAL/WSC Storage Relationship](https://github.com/flyingrobots/echo/issues/521)
+and grounded in `docs/design/causal-wal-end-to-end.md`.
 
 The next ten jedit release-gate slices are planned in
 `docs/design/v0.1.0-jedit-next-ten-slices.md`.
@@ -45,8 +46,8 @@ The next ten jedit release-gate slices are planned in
 The current sequencing filter for audited work items is maintained in
 `docs/design/work-item-sequencing-and-prioritization.md`.
 
-The filesystem lane for release-bar backlog cards is
-`docs/method/backlog/v0.1.0/`.
+GitHub Issues are the live backlog. `docs/method/backlog/` remains only as a
+legacy workspace-discovery marker.
 
 The production-core app-noun guard is `scripts/check-no-app-nouns-in-core.sh`.
 It checks that hardcoded jedit/Stack Witness fixture shortcuts stay out of

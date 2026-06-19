@@ -79,13 +79,13 @@ backlog lanes when this audit started:
 - `[Echo][Graft][Think]` post-jedit application portability checklist.
 - `[Echo]` retained evidence posture versus durable recovery evidence.
 
-The Echo-owned follow-up cards are now in the `v0.1.0` lane:
+The Echo-owned follow-up cards are now GitHub Issues in the release lane:
 
-- [WAL/WSC Storage Relationship](method/backlog/v0.1.0/PLATFORM_wal-wsc-storage-relationship.md)
-- [WSC Causal-History Storage](method/backlog/v0.1.0/PLATFORM_wsc-causal-history-storage.md)
-- [Retained Evidence Durability Boundary](method/backlog/v0.1.0/PLATFORM_retained-evidence-durability-boundary.md)
-- [JS/WASM/Browser Client Release Surface](method/backlog/v0.1.0/PLATFORM_js-wasm-browser-client-release-surface.md)
-- [Package Publish And Versioning](method/backlog/v0.1.0/RELEASE_package-publish-and-versioning.md)
+- [#521 WAL/WSC Storage Relationship](https://github.com/flyingrobots/echo/issues/521)
+- [#522 WSC Causal-History Storage](https://github.com/flyingrobots/echo/issues/522)
+- [#519 Retained Evidence Durability Boundary](https://github.com/flyingrobots/echo/issues/519)
+- [#516 JS/WASM/Browser Client Release Surface](https://github.com/flyingrobots/echo/issues/516)
+- [#523 Package Publish And Versioning](https://github.com/flyingrobots/echo/issues/523)
 
 ## ASAP Backlog
 

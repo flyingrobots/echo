@@ -81,27 +81,37 @@ The doctrine is tracked by:
 - [#522 WSC Causal-History Storage](https://github.com/flyingrobots/echo/issues/522)
 - [#519 Retained Evidence Durability Boundary](https://github.com/flyingrobots/echo/issues/519)
 
-## First Chunk
+`#521` is the active release-doctrine checkpoint before the next implementation
+batch. Its narrow purpose is to keep durable claims honest:
 
-The first chunk is the active release-proof package:
+- WAL bytes are the durable commit authority;
+- WARP graph WAL nodes are projected evidence facts;
+- WSC carries or references that evidence;
+- recovery bootstraps from WAL root or storage manifest material, not from
+  pre-existing graph facts.
+
+## Current Chunk
+
+The first ten-slice jedit/Echo release-gate batch is complete. The current
+chunk is a release-doctrine reconciliation before more release-surface work
+lands:
 
 ```text
-[#####-----] Echo/jedit retained-evidence release-gate batch [5/10 slices]
-[#####-----] PR checkpoint batch [5/5 slices before recommended PR]
+[##########] Echo/jedit retained-evidence release-gate batch [10/10 slices]
+[#---------] WAL/WSC release-doctrine checkpoint [1/3 slices]
 ```
 
-Finish the package in this order:
+Finish the checkpoint in this order:
 
-| Seq | Band | Package                                               | Source                        | Outcome                                                                                                                          |
-| --: | ---- | ----------------------------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-|   1 | 0    | Slice 4: `jedit` adapter consumes Echo retained refs  | Next-ten plan                 | `jedit` reads retained evidence from the adapter-projected Echo envelope instead of inventing reading refs in the witness layer. |
-|   2 | 0    | Slice 5: `jedit` replay witness shell                 | Next-ten plan                 | Minimal replay witness shell proves the external-app evidence path can be rerun and inspected.                                   |
-|   3 | 0    | Slice 6 plus product-facing outcome API               | Next-ten plan and v0.1.0 lane | Echo exposes a stable app-facing intent outcome shape without exposing scheduler or tick authority.                              |
-|   4 | 0    | Slice 7: generated structural-history request path    | Next-ten plan                 | `jedit` moves from retained-ref plumbing toward generated, product-owned request construction.                                   |
-|   5 | 0    | Retention, WAL/WSC, and semantic lookup proof package | v0.1.0 lane                   | Release-grade retained-evidence posture and lookup seams exist, with durable claims only where WAL/WSC-backed evidence exists.   |
+| Seq | Band | Package                                 | Source                                                  | Outcome                                                                                                                                       |
+| --: | ---- | --------------------------------------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+|   1 | 0    | WAL/WSC doctrine links and lint witness | [#521](https://github.com/flyingrobots/echo/issues/521) | BEARING, WorkItems, sequencing, and WAL design agree on WAL authority, graph projection, WSC modes, storage locators, and bootstrap recovery. |
+|   2 | 0    | WSC causal-history export evidence plan | [#522](https://github.com/flyingrobots/echo/issues/522) | Export posture distinguishes ref-only, self-contained, and CAS-addressed WSC without making raw paths causal identity.                        |
+|   3 | 0    | Retained evidence durability boundary   | [#519](https://github.com/flyingrobots/echo/issues/519) | Durable retention claims are tied to WAL/checkpoint/CAS evidence; missing material stays typed obstruction.                                   |
 
-Slice 5 is now closed. This is the recommended PR checkpoint before taking
-Slice 6, unless a reviewer asks for a follow-up in the same branch.
+The first checkpoint is docs and witness only. It should not modify runtime WAL
+behavior; it makes the already-landed doctrine mechanically visible before the
+next durability implementation slice.
 
 ## Release-Proof Sequence
 

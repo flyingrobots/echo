@@ -696,6 +696,11 @@ secretly state and should fail review.
 
 ## WAL Projection Into The WARP Graph And WSC
 
+Tracked by
+[#521 WAL/WSC Storage Relationship](https://github.com/flyingrobots/echo/issues/521).
+The doctrine in this section is guarded by
+`scripts/check-wal-wsc-doctrine.sh`.
+
 Echo may project WAL-backed storage evidence into the WARP graph, but those
 graph facts are not the WAL's recovery authority.
 

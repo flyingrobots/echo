@@ -145,6 +145,24 @@ require_literal \
   "The WAL commit boundary remains the authority."
 
 require_literal \
+  "roadmap names durable issue map" \
+  "$roadmap" \
+  "## Roadmap Issue Map"
+require_literal \
+  "roadmap names 30-slice tracker" \
+  "$roadmap" \
+  "durable 30-slice tracker"
+require_literal \
+  "roadmap links current PR" \
+  "$roadmap" \
+  "https://github.com/flyingrobots/echo/pull/582"
+for issue_number in {554..581}; do
+  require_literal \
+    "roadmap links child issue #${issue_number}" \
+    "$roadmap" \
+    "https://github.com/flyingrobots/echo/issues/${issue_number}"
+done
+require_literal \
   "roadmap names runtime WAL durable join" \
   "$roadmap" \
   "## Goalpost 1: Durable Runtime WAL Join"

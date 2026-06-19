@@ -3,7 +3,7 @@
 
 # Work Items
 
-Last audited: 2026-05-25.
+Last audited: 2026-06-19.
 
 This is an inventory, not a replacement for the repo's planning system. When
 there is disagreement, prefer the specific backlog card, design packet, issue,
@@ -18,17 +18,17 @@ Sources checked during this audit:
 
 ## Summary
 
-| Source                            | Open count | Notes                                      |
-| --------------------------------- | ---------: | ------------------------------------------ |
-| `docs/method/backlog/asap/`       |         13 | Immediate filesystem backlog.              |
-| `docs/method/backlog/v0.1.0/`     |         21 | Release-bar lane.                          |
-| `docs/method/backlog/up-next/`    |         39 | Planned follow-on work.                    |
-| `docs/method/backlog/inbox/`      |         16 | Triage queue and older issue mirrors.      |
-| `docs/method/backlog/bad-code/`   |          3 | Known local structural debt.               |
-| `docs/method/backlog/cool-ideas/` |         29 | Deliberately not current release work.     |
-| `backlog/bad-code/`               |          5 | Older RE-series debt cards still present.  |
-| `backlog/cool-ideas/`             |          2 | Older CI-series idea cards still present.  |
-| GitHub open issues                |         46 | After closing completed `#281` and `#285`. |
+| Source                            | Open count/status | Notes                                                                   |
+| --------------------------------- | ----------------- | ----------------------------------------------------------------------- |
+| `docs/method/backlog/asap/`       | 13                | Immediate filesystem backlog.                                           |
+| `docs/method/backlog/v0.1.0/`     | 21                | Legacy release-bar lane, now mirrored in issues.                        |
+| `docs/method/backlog/up-next/`    | 39                | Planned follow-on work.                                                 |
+| `docs/method/backlog/inbox/`      | 16                | Triage queue and older issue mirrors.                                   |
+| `docs/method/backlog/bad-code/`   | 3                 | Known local structural debt.                                            |
+| `docs/method/backlog/cool-ideas/` | 29                | Deliberately not current release work.                                  |
+| `backlog/bad-code/`               | 5                 | Older RE-series debt cards still present.                               |
+| `backlog/cool-ideas/`             | 2                 | Older CI-series idea cards still present.                               |
+| GitHub open issues                | live              | Run `gh issue list --repo flyingrobots/echo --state open --limit 1000`. |
 
 ## Current Execution Gravity
 

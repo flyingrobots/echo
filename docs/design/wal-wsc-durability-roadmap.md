@@ -41,6 +41,45 @@ configured WAL root or storage manifest
 This roadmap is the bridge between the implemented primitives and the release
 claim. Goalposts are milestones. Slices are PR-sized GitHub issue bodies.
 
+## Roadmap Issue Map
+
+This is the durable 30-slice tracker for the roadmap. GP0 is the current
+roadmap/guard PR under the WAL/WSC umbrella. GP1-GP6 are the child issues opened
+from this packet.
+
+| Slice  | Tracker                                                                                                           |
+| ------ | ----------------------------------------------------------------------------------------------------------------- |
+| GP0-S1 | [#521](https://github.com/flyingrobots/echo/issues/521), [PR #582](https://github.com/flyingrobots/echo/pull/582) |
+| GP0-S2 | [#521](https://github.com/flyingrobots/echo/issues/521), [PR #582](https://github.com/flyingrobots/echo/pull/582) |
+| GP1-S1 | [#554](https://github.com/flyingrobots/echo/issues/554)                                                           |
+| GP1-S2 | [#555](https://github.com/flyingrobots/echo/issues/555)                                                           |
+| GP1-S3 | [#556](https://github.com/flyingrobots/echo/issues/556)                                                           |
+| GP1-S4 | [#557](https://github.com/flyingrobots/echo/issues/557)                                                           |
+| GP1-S5 | [#558](https://github.com/flyingrobots/echo/issues/558)                                                           |
+| GP2-S1 | [#559](https://github.com/flyingrobots/echo/issues/559)                                                           |
+| GP2-S2 | [#560](https://github.com/flyingrobots/echo/issues/560)                                                           |
+| GP2-S3 | [#561](https://github.com/flyingrobots/echo/issues/561)                                                           |
+| GP2-S4 | [#562](https://github.com/flyingrobots/echo/issues/562)                                                           |
+| GP3-S1 | [#563](https://github.com/flyingrobots/echo/issues/563)                                                           |
+| GP3-S2 | [#564](https://github.com/flyingrobots/echo/issues/564)                                                           |
+| GP3-S3 | [#565](https://github.com/flyingrobots/echo/issues/565)                                                           |
+| GP3-S4 | [#566](https://github.com/flyingrobots/echo/issues/566)                                                           |
+| GP3-S5 | [#567](https://github.com/flyingrobots/echo/issues/567)                                                           |
+| GP3-S6 | [#568](https://github.com/flyingrobots/echo/issues/568)                                                           |
+| GP4-S1 | [#569](https://github.com/flyingrobots/echo/issues/569)                                                           |
+| GP4-S2 | [#570](https://github.com/flyingrobots/echo/issues/570)                                                           |
+| GP4-S3 | [#571](https://github.com/flyingrobots/echo/issues/571)                                                           |
+| GP4-S4 | [#572](https://github.com/flyingrobots/echo/issues/572)                                                           |
+| GP4-S5 | [#573](https://github.com/flyingrobots/echo/issues/573)                                                           |
+| GP5-S1 | [#574](https://github.com/flyingrobots/echo/issues/574)                                                           |
+| GP5-S2 | [#575](https://github.com/flyingrobots/echo/issues/575)                                                           |
+| GP5-S3 | [#576](https://github.com/flyingrobots/echo/issues/576)                                                           |
+| GP5-S4 | [#577](https://github.com/flyingrobots/echo/issues/577)                                                           |
+| GP5-S5 | [#578](https://github.com/flyingrobots/echo/issues/578)                                                           |
+| GP6-S1 | [#579](https://github.com/flyingrobots/echo/issues/579)                                                           |
+| GP6-S2 | [#580](https://github.com/flyingrobots/echo/issues/580)                                                           |
+| GP6-S3 | [#581](https://github.com/flyingrobots/echo/issues/581)                                                           |
+
 ## Current Evidence
 
 This packet was written after reading the current implementation. Code remains
@@ -84,7 +123,9 @@ The next release work should address these gaps in order:
 Purpose: make the next work visible, non-circular, and issue-sized before
 runtime changes resume.
 
-Status: in progress on the `cycle/521-wal-wsc-storage-relationship` branch.
+Status: covered by [PR #582](https://github.com/flyingrobots/echo/pull/582)
+under [#521](https://github.com/flyingrobots/echo/issues/521); complete when
+the roadmap/guard PR merges.
 
 ### GP0-S1 - WAL/WSC Doctrine Guard
 

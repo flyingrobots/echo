@@ -69,9 +69,14 @@ require_literal "BEARING links causal WAL design" "$bearing" "$wal_design_path"
 require_literal "BEARING links durability roadmap" "$bearing" "$roadmap_path"
 require_literal "WorkItems links WAL/WSC issue" "$workitems" "$issue_url"
 require_literal "WorkItems links durability roadmap" "$workitems" "$roadmap_path"
+require_literal \
+  "WorkItems names legacy method backlog marker" \
+  "$workitems" \
+  "Contains only \`.gitkeep\`; live backlog moved to GitHub Issues."
 require_literal "sequencing links WAL/WSC issue" "$sequencing" "$issue_url"
 require_literal "sequencing links durability roadmap" "$sequencing" "$roadmap_path"
 
+reject_literal "WorkItems removes stale ASAP backlog links" "$workitems" "](method/backlog/asap/"
 reject_literal \
   "WorkItems removes stale WAL/WSC backlog link" \
   "$workitems" \
@@ -84,6 +89,10 @@ reject_literal \
   "WorkItems removes stale retained evidence backlog link" \
   "$workitems" \
   "method/backlog/v0.1.0/PLATFORM_retained-evidence-durability-boundary.md"
+reject_literal "WorkItems removes stale up-next backlog links" "$workitems" "](method/backlog/up-next/"
+reject_literal "WorkItems removes stale inbox backlog links" "$workitems" "](method/backlog/inbox/"
+reject_literal "WorkItems removes stale bad-code backlog links" "$workitems" "](method/backlog/bad-code/"
+reject_literal "WorkItems removes stale cool-ideas backlog links" "$workitems" "](method/backlog/cool-ideas/"
 
 require_literal \
   "sequencing names WAL as durable commit authority" \

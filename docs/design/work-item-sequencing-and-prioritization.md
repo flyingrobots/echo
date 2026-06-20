@@ -5,7 +5,7 @@
 
 Status: active sequencing guide.
 
-Last updated: 2026-05-25.
+Last updated: 2026-06-20.
 
 This guide adopts the work-item audit in [`docs/WorkItems.md`](../WorkItems.md)
 as an inventory snapshot and turns it into an execution filter. It is not a

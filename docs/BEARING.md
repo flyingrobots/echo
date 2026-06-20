@@ -3,11 +3,19 @@
 
 # BEARING
 
-Last updated: 2026-06-20.
-
 This signpost summarizes current direction. It does not create commitments or
 replace backlog items, design docs, retros, or CLI status. If it disagrees with
 code, the code wins and this file should be corrected.
+
+Live work state belongs in GitHub. The Echo 1.0 Convergence Project is the
+release control surface:
+
+<https://github.com/users/flyingrobots/projects/14>
+
+The Echo 1.0 release constitution is
+`docs/releases/echo-1.0-contract.md`. Repository docs record stable doctrine;
+GitHub Issues, native dependencies, milestones, pull requests, and evidence
+artifacts record motion.
 
 The WARP paper-to-Echo noun map is maintained in
 `docs/design/warp-optic-implementation-map.md`.
@@ -40,13 +48,13 @@ The WAL/WSC storage relationship is tracked by
 [#521 WAL/WSC Storage Relationship](https://github.com/flyingrobots/echo/issues/521)
 and grounded in `docs/design/causal-wal-end-to-end.md`.
 
-The WAL/WSC/durability goalpost roadmap is maintained in
+The stable WAL/WSC/durability doctrine is maintained in
 `docs/design/wal-wsc-durability-roadmap.md`.
 
 The next ten jedit release-gate slices are planned in
 `docs/design/v0.1.0-jedit-next-ten-slices.md`.
 
-The current sequencing filter for audited work items is maintained in
+The GitHub-native sequencing doctrine is maintained in
 `docs/design/work-item-sequencing-and-prioritization.md`.
 
 GitHub Issues are the live backlog. `docs/method/backlog/` remains only as a
@@ -60,11 +68,9 @@ but production Echo code must remain generic.
 
 ## Current Bearing
 
-The active architecture hardening focus is the post-PR #545 braids and strands
-campaign. Track progress through the goalpost and slice checklist in
-`docs/design/braids-and-strands-roadmap.md`. Each goalpost has a focused design
-document under `docs/design/braids-and-strands-hardening/`; implementation PRs
-must check off slices in the roadmap only when the slice actually lands.
+The live architecture hardening focus is selected in the GitHub Project and
+issues. Repo docs may explain why a boundary exists, but they must not become
+the current execution tracker.
 
 This hardening campaign does not replace the `v0.1.0` external-app release
 gate. It protects the newly landed strand, braid, proof, sealed-member,

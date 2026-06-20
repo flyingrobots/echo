@@ -52,48 +52,83 @@ bearing="${repo_root}/docs/BEARING.md"
 workitems="${repo_root}/docs/WorkItems.md"
 sequencing="${repo_root}/docs/design/work-item-sequencing-and-prioritization.md"
 wal_design="${repo_root}/docs/design/causal-wal-end-to-end.md"
-roadmap="${repo_root}/docs/design/wal-wsc-durability-roadmap.md"
+wal_doctrine="${repo_root}/docs/design/wal-wsc-durability-roadmap.md"
+release_contract="${repo_root}/docs/releases/echo-1.0-contract.md"
 
 require_file "BEARING signpost" "$bearing"
-require_file "WorkItems inventory" "$workitems"
-require_file "sequencing guide" "$sequencing"
+require_file "Work tracking boundary" "$workitems"
+require_file "GitHub-native sequencing doctrine" "$sequencing"
 require_file "causal WAL design" "$wal_design"
-require_file "WAL/WSC durability roadmap" "$roadmap"
+require_file "WAL/WSC durability doctrine" "$wal_doctrine"
+require_file "Echo 1.0 release contract" "$release_contract"
 
-issue_url="https://github.com/flyingrobots/echo/issues/521"
+project_url="https://github.com/users/flyingrobots/projects/14"
+issue_521_url="https://github.com/flyingrobots/echo/issues/521"
+issue_584_url="https://github.com/flyingrobots/echo/issues/584"
+issue_585_url="https://github.com/flyingrobots/echo/issues/585"
+issue_588_url="https://github.com/flyingrobots/echo/issues/588"
+issue_589_url="https://github.com/flyingrobots/echo/issues/589"
+issue_591_url="https://github.com/flyingrobots/echo/issues/591"
+release_contract_path="docs/releases/echo-1.0-contract.md"
 wal_design_path="docs/design/causal-wal-end-to-end.md"
-roadmap_path="docs/design/wal-wsc-durability-roadmap.md"
+wal_doctrine_path="docs/design/wal-wsc-durability-roadmap.md"
 
-require_literal "BEARING links WAL/WSC issue" "$bearing" "$issue_url"
+require_literal "BEARING links Echo 1.0 Project" "$bearing" "$project_url"
+require_literal "BEARING links release contract" "$bearing" "$release_contract_path"
+require_literal "BEARING links WAL/WSC issue" "$bearing" "$issue_521_url"
 require_literal "BEARING links causal WAL design" "$bearing" "$wal_design_path"
-require_literal "BEARING links durability roadmap" "$bearing" "$roadmap_path"
-require_literal "WorkItems links WAL/WSC issue" "$workitems" "$issue_url"
-require_literal "WorkItems links durability roadmap" "$workitems" "$roadmap_path"
-require_literal \
-  "WorkItems names legacy method backlog marker" \
-  "$workitems" \
-  "Contains only \`.gitkeep\`; live backlog moved to GitHub Issues."
-require_literal "sequencing links WAL/WSC issue" "$sequencing" "$issue_url"
-require_literal "sequencing links durability roadmap" "$sequencing" "$roadmap_path"
+require_literal "BEARING links WAL/WSC doctrine" "$bearing" "$wal_doctrine_path"
 
-reject_literal "WorkItems removes stale ASAP backlog links" "$workitems" "](method/backlog/asap/"
+require_literal "Work boundary links Echo 1.0 Project" "$workitems" "$project_url"
+require_literal "Work boundary links Release Bar" "$workitems" "$issue_584_url"
+require_literal "Work boundary links WAL/WSC issue" "$workitems" "$issue_521_url"
+require_literal "Work boundary links release contract" "$workitems" "$release_contract_path"
+require_literal "Work boundary links WAL/WSC doctrine" "$workitems" "$wal_doctrine_path"
+require_literal \
+  "Work boundary names legacy method backlog marker" \
+  "$workitems" \
+  "contains only \`.gitkeep\`; live backlog moved to GitHub"
+require_literal \
+  "Work boundary says close on evidence" \
+  "$workitems" \
+  "Close issues only when their executable exit criteria have passed"
+
+reject_literal "Work boundary removes audit date" "$workitems" "Last audited:"
+reject_literal "Work boundary removes source audit table" "$workitems" "| Open count/status |"
+reject_literal "Work boundary removes progress bars" "$workitems" "Progress bars from the current work stream"
+reject_literal "Work boundary removes current batch" "$workitems" "Current batch status"
+reject_literal "Work boundary removes issue inventory section" "$workitems" "## v0.1.0 Lane"
+reject_literal "Work boundary removes stale ASAP backlog links" "$workitems" "](method/backlog/asap/"
 reject_literal \
-  "WorkItems removes stale WAL/WSC backlog link" \
+  "Work boundary removes stale WAL/WSC backlog link" \
   "$workitems" \
   "method/backlog/v0.1.0/PLATFORM_wal-wsc-storage-relationship.md"
-reject_literal \
-  "WorkItems removes stale WSC backlog link" \
-  "$workitems" \
-  "method/backlog/v0.1.0/PLATFORM_wsc-causal-history-storage.md"
-reject_literal \
-  "WorkItems removes stale retained evidence backlog link" \
-  "$workitems" \
-  "method/backlog/v0.1.0/PLATFORM_retained-evidence-durability-boundary.md"
-reject_literal "WorkItems removes stale up-next backlog links" "$workitems" "](method/backlog/up-next/"
-reject_literal "WorkItems removes stale inbox backlog links" "$workitems" "](method/backlog/inbox/"
-reject_literal "WorkItems removes stale bad-code backlog links" "$workitems" "](method/backlog/bad-code/"
-reject_literal "WorkItems removes stale cool-ideas backlog links" "$workitems" "](method/backlog/cool-ideas/"
+reject_literal "Work boundary removes stale up-next backlog links" "$workitems" "](method/backlog/up-next/"
+reject_literal "Work boundary removes stale inbox backlog links" "$workitems" "](method/backlog/inbox/"
+reject_literal "Work boundary removes stale bad-code backlog links" "$workitems" "](method/backlog/bad-code/"
+reject_literal "Work boundary removes stale cool-ideas backlog links" "$workitems" "](method/backlog/cool-ideas/"
 
+require_literal "sequencing links Echo 1.0 Project" "$sequencing" "$project_url"
+require_literal "sequencing links release contract" "$sequencing" "../releases/echo-1.0-contract.md"
+require_literal "sequencing links WorkItems boundary" "$sequencing" "../WorkItems.md"
+require_literal "sequencing links WAL/WSC issue" "$sequencing" "$issue_521_url"
+require_literal "sequencing links WAL/WSC doctrine" "$sequencing" "$wal_doctrine_path"
+require_literal \
+  "sequencing uses single milestone doctrine" \
+  "$sequencing" \
+  "Use one \`Echo 1.0\` milestone per participating repository."
+require_literal \
+  "sequencing uses native dependency doctrine" \
+  "$sequencing" \
+  "Use native \`blocked by\` and \`blocking\` relationships for sequencing."
+require_literal \
+  "sequencing rejects custom repository field" \
+  "$sequencing" \
+  "Repository is native metadata. Do not create a custom Repository field."
+require_literal \
+  "sequencing rejects large ready slices" \
+  "$sequencing" \
+  "An item with Slice \`Needs decomposition\` is not ready implementation work."
 require_literal \
   "sequencing names WAL as durable commit authority" \
   "$sequencing" \
@@ -109,7 +144,12 @@ require_literal \
 require_literal \
   "sequencing names recovery bootstrap source" \
   "$sequencing" \
-  "recovery bootstraps from WAL root or storage manifest material"
+  "Recovery bootstraps from WAL root or storage manifest material"
+
+reject_literal "sequencing removes update date" "$sequencing" "Last updated:"
+reject_literal "sequencing removes current chunk" "$sequencing" "## Current Chunk"
+reject_literal "sequencing removes sprint schedule" "$sequencing" "Sprint A:"
+reject_literal "sequencing removes release-proof issue table" "$sequencing" "## Release-Proof Sequence"
 
 require_literal \
   "WAL design has WAL/WSC projection section" \
@@ -153,40 +193,85 @@ require_literal \
   "$wal_design" \
   "The WAL commit boundary remains the authority."
 
+require_literal "release contract has title" "$release_contract" "# Echo 1.0 Release Contract"
+require_literal "release contract rejects live roadmap role" "$release_contract" "not a live roadmap"
+require_literal "release contract links Echo 1.0 Project" "$release_contract" "$project_url"
+require_literal "release contract links Release Bar" "$release_contract" "$issue_584_url"
+require_literal "release contract links Gate A" "$release_contract" "$issue_585_url"
+require_literal "release contract links Gate B" "$release_contract" "$issue_591_url"
+require_literal "release contract links Gate C" "$release_contract" "$issue_589_url"
+require_literal "release contract links Gate D" "$release_contract" "$issue_588_url"
+require_literal "release contract names release manifest" "$release_contract" "echo-convergence.lock"
 require_literal \
-  "roadmap names durable issue map" \
-  "$roadmap" \
-  "## Roadmap Issue Map"
+  "release contract requires proof packets" \
+  "$release_contract" \
+  "A proof packet is a downloadable or inspectable evidence bundle"
 require_literal \
-  "roadmap names 30-slice tracker" \
-  "$roadmap" \
-  "durable 30-slice tracker"
+  "release contract pins compatibility set" \
+  "$release_contract" \
+  "A compatibility set is the pinned multi-repository state"
 require_literal \
-  "roadmap links current PR" \
-  "$roadmap" \
-  "https://github.com/flyingrobots/echo/pull/582"
-for issue_number in {554..581}; do
-  require_literal \
-    "roadmap links child issue #${issue_number}" \
-    "$roadmap" \
-    "https://github.com/flyingrobots/echo/issues/${issue_number}"
-done
+  "release contract forbids independent green repos" \
+  "$release_contract" \
+  "Independently green repositories are not sufficient for Gate D."
 require_literal \
-  "roadmap names runtime WAL durable join" \
-  "$roadmap" \
-  "## Goalpost 1: Durable Runtime WAL Join"
+  "release contract has binary pass rule" \
+  "$release_contract" \
+  "There is no partial pass for Echo 1.0."
+
+reject_literal "release contract removes update date" "$release_contract" "Last updated:"
+reject_literal "release contract removes progress percentages" "$release_contract" "Progress:"
+reject_literal "release contract removes current status" "$release_contract" "Current status"
+
+require_literal "WAL doctrine has title" "$wal_doctrine" "# WAL/WSC Durability Doctrine"
+require_literal "WAL doctrine rejects live roadmap role" "$wal_doctrine" "This document is not the live roadmap."
+require_literal "WAL doctrine links Echo 1.0 Project" "$wal_doctrine" "$project_url"
+require_literal "WAL doctrine links WAL/WSC issue" "$wal_doctrine" "$issue_521_url"
+require_literal "WAL doctrine links suffix exchange gate" "$wal_doctrine" "$issue_591_url"
 require_literal \
-  "roadmap names WAL evidence projection" \
-  "$roadmap" \
-  "## Goalpost 2: WAL Evidence Projection"
+  "WAL doctrine names durable commit authority" \
+  "$wal_doctrine" \
+  "WAL bytes are the durable commit authority."
 require_literal \
-  "roadmap names WSC export and import" \
-  "$roadmap" \
-  "## Goalpost 3: WSC Causal-History Export And Import"
+  "WAL doctrine names graph facts as projected evidence" \
+  "$wal_doctrine" \
+  "WARP graph WAL nodes are projected evidence facts."
+require_literal "WAL doctrine names WSC evidence posture" "$wal_doctrine" "WSC carries or references that evidence."
 require_literal \
-  "roadmap names retained evidence durability" \
-  "$roadmap" \
-  "## Goalpost 4: Retained Evidence Durability"
+  "WAL doctrine names recovery bootstrap source" \
+  "$wal_doctrine" \
+  "Recovery bootstraps from WAL root or storage manifest material"
+require_literal \
+  "WAL doctrine requires crash-point matrix" \
+  "$wal_doctrine" \
+  "Defined crash-point matrix passes."
+require_literal \
+  "WAL doctrine requires deterministic recovery" \
+  "$wal_doctrine" \
+  "Recovery is deterministic."
+require_literal \
+  "WAL doctrine requires retained restart evidence" \
+  "$wal_doctrine" \
+  "Retained evidence survives restart."
+require_literal \
+  "WAL doctrine requires idempotent duplicate replay" \
+  "$wal_doctrine" \
+  "Duplicate replay is idempotent."
+require_literal \
+  "WAL doctrine requires corrupt evidence rejection" \
+  "$wal_doctrine" \
+  "Corrupt or incomplete evidence is deterministically rejected."
+require_literal \
+  "WAL doctrine requires CI recovery artifacts" \
+  "$wal_doctrine" \
+  "Required recovery artifacts are emitted by CI."
+
+reject_literal "WAL doctrine removes roadmap issue map" "$wal_doctrine" "## Roadmap Issue Map"
+reject_literal "WAL doctrine removes 30-slice tracker" "$wal_doctrine" "durable 30-slice tracker"
+reject_literal "WAL doctrine removes active packet status" "$wal_doctrine" "Status: active roadmap packet."
+reject_literal "WAL doctrine removes update date" "$wal_doctrine" "Last updated:"
+reject_literal "WAL doctrine removes goalpost sections" "$wal_doctrine" "## Goalpost "
+reject_literal "WAL doctrine removes current PR tracking" "$wal_doctrine" "https://github.com/flyingrobots/echo/pull/582"
 
 if [[ "$failures" -ne 0 ]]; then
   exit 1

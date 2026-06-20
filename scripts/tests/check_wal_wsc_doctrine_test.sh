@@ -25,7 +25,7 @@ fail() {
 
 copy_fixture() {
   local tmp="$1"
-  mkdir -p "${tmp}/docs/design"
+  mkdir -p "${tmp}/docs/design" "${tmp}/docs/releases"
   cp "${repo_root}/docs/BEARING.md" "${tmp}/docs/BEARING.md"
   cp "${repo_root}/docs/WorkItems.md" "${tmp}/docs/WorkItems.md"
   cp \
@@ -37,6 +37,9 @@ copy_fixture() {
   cp \
     "${repo_root}/docs/design/wal-wsc-durability-roadmap.md" \
     "${tmp}/docs/design/wal-wsc-durability-roadmap.md"
+  cp \
+    "${repo_root}/docs/releases/echo-1.0-contract.md" \
+    "${tmp}/docs/releases/echo-1.0-contract.md"
 }
 
 make_fixture() {
@@ -87,28 +90,60 @@ test_stale_workitems_backlog_link_fails() {
 EOF
 
   out="$({ ECHO_REPO_ROOT="$tmp" "$checker"; } 2>&1 || true)"
-  echo "$out" | grep -q "WorkItems removes stale WAL/WSC backlog link" || {
+  echo "$out" | grep -q "Work boundary removes stale WAL/WSC backlog link" || {
     echo "$out" >&2
     fail "checker did not report the stale WorkItems WAL/WSC backlog link"
   }
 }
 
-test_missing_roadmap_child_issue_link_fails() {
+test_missing_release_project_link_fails() {
   local tmp out
   make_fixture tmp
 
   awk '
-    { gsub(/https:\/\/github.com\/flyingrobots\/echo\/issues\/554/, "https://github.com/flyingrobots/echo/issues/000"); print }
-  ' "${tmp}/docs/design/wal-wsc-durability-roadmap.md" \
-    >"${tmp}/docs/design/wal-wsc-durability-roadmap.md.tmp"
+    { gsub(/https:\/\/github.com\/users\/flyingrobots\/projects\/14/, "https://example.invalid/project"); print }
+  ' "${tmp}/docs/releases/echo-1.0-contract.md" \
+    >"${tmp}/docs/releases/echo-1.0-contract.md.tmp"
   mv \
-    "${tmp}/docs/design/wal-wsc-durability-roadmap.md.tmp" \
-    "${tmp}/docs/design/wal-wsc-durability-roadmap.md"
+    "${tmp}/docs/releases/echo-1.0-contract.md.tmp" \
+    "${tmp}/docs/releases/echo-1.0-contract.md"
 
   out="$({ ECHO_REPO_ROOT="$tmp" "$checker"; } 2>&1 || true)"
-  echo "$out" | grep -q "roadmap links child issue #554" || {
+  echo "$out" | grep -q "release contract links Echo 1.0 Project" || {
     echo "$out" >&2
-    fail "checker did not report the missing roadmap child issue link"
+    fail "checker did not report the missing release contract Project link"
+  }
+}
+
+test_live_roadmap_issue_map_fails() {
+  local tmp out
+  make_fixture tmp
+
+  cat >>"${tmp}/docs/design/wal-wsc-durability-roadmap.md" <<'EOF'
+
+## Roadmap Issue Map
+EOF
+
+  out="$({ ECHO_REPO_ROOT="$tmp" "$checker"; } 2>&1 || true)"
+  echo "$out" | grep -q "WAL doctrine removes roadmap issue map" || {
+    echo "$out" >&2
+    fail "checker did not report the live roadmap issue map"
+  }
+}
+
+test_live_workitems_audit_fails() {
+  local tmp out
+  make_fixture tmp
+
+  cat >>"${tmp}/docs/WorkItems.md" <<'EOF'
+
+Last audited: whenever.
+EOF
+
+  out="$({ ECHO_REPO_ROOT="$tmp" "$checker"; } 2>&1 || true)"
+  echo "$out" | grep -q "Work boundary removes audit date" || {
+    echo "$out" >&2
+    fail "checker did not report the live WorkItems audit marker"
   }
 }
 
@@ -119,7 +154,9 @@ main() {
   test_isolated_fixture_passes
   test_missing_bootstrap_phrase_fails
   test_stale_workitems_backlog_link_fails
-  test_missing_roadmap_child_issue_link_fails
+  test_missing_release_project_link_fails
+  test_live_roadmap_issue_map_fails
+  test_live_workitems_audit_fails
 }
 
 main "$@"

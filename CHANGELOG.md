@@ -7,12 +7,13 @@
 
 ### Added
 
-- Added a WAL/WSC/durability roadmap packet that maps the implemented WAL,
-  WSC, retained-evidence, and CAS primitives to release goalposts and
-  issue-sized durability slices.
-- Added a WAL/WSC release-doctrine guard that checks the active signposts keep
-  WAL authority, graph projection, WSC export modes, storage locators, and
-  bootstrap recovery language linked to issue `#521`.
+- Added an Echo 1.0 release contract that records the four binary release gates,
+  compatibility policy, evidence requirements, and GitHub Project boundary
+  without carrying live roadmap state in the repository.
+- Recast the WAL/WSC packet as stable durability doctrine and added guards that
+  reject live roadmap issue inventories while preserving WAL authority, graph
+  projection, WSC export modes, storage locators, and bootstrap recovery
+  language linked to issue `#521`.
 - `warp-core` now hardens the first braids/strands roadmap goalpost: `Strand<P>`
   fields are no longer publicly constructible, `Strand::new(...)` validates
   typestate/runtime-posture coherence before construction, public strand tests

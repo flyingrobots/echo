@@ -12,6 +12,7 @@ Echo's live documentation centers on the runtime carrier, the retained witnesses
 - Application contract hosting: [/architecture/application-contract-hosting](/architecture/application-contract-hosting)
 - Local contract host quickstart: [/quickstart-local-contract-host](/quickstart-local-contract-host)
 - WARP optic implementation map: [/design/warp-optic-implementation-map](/design/warp-optic-implementation-map)
+- Echo 1.0 release contract: [/releases/echo-1.0-contract](/releases/echo-1.0-contract)
 - Braids and strands hardening roadmap: [/design/braids-and-strands-roadmap](/design/braids-and-strands-roadmap)
 - Echo v0.1.0 release plan: [/design/v0.1.0-release-plan](/design/v0.1.0-release-plan)
 - Echo v0.1.0 jedit release gate: [/design/v0.1.0-jedit-release-gate](/design/v0.1.0-jedit-release-gate)

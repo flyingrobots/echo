@@ -101,7 +101,7 @@ test_missing_release_project_link_fails() {
   make_fixture tmp
 
   awk '
-    { gsub(/https:\/\/github.com\/users\/flyingrobots\/projects\/14/, "https://example.invalid/project"); print }
+    { gsub(/https:\/\/github.com\/users\/flyingrobots\/projects\/15/, "https://example.invalid/project"); print }
   ' "${tmp}/docs/releases/echo-1.0-contract.md" \
     >"${tmp}/docs/releases/echo-1.0-contract.md.tmp"
   mv \
@@ -109,7 +109,7 @@ test_missing_release_project_link_fails() {
     "${tmp}/docs/releases/echo-1.0-contract.md"
 
   out="$({ ECHO_REPO_ROOT="$tmp" "$checker"; } 2>&1 || true)"
-  echo "$out" | grep -q "release contract links Echo 1.0 Project" || {
+  echo "$out" | grep -q "release contract links Continuum Stack Convergence Project" || {
     echo "$out" >&2
     fail "checker did not report the missing release contract Project link"
   }

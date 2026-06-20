@@ -3,10 +3,10 @@
 
 # Work Tracking Boundary
 
-GitHub Issues are the live work tracker. The Echo 1.0 Convergence Project is
-the live release control surface:
+GitHub Issues are the live work tracker. The Continuum Stack Convergence
+Project is the live release control surface for Echo 1.0 stack work:
 
-<https://github.com/users/flyingrobots/projects/14>
+<https://github.com/users/flyingrobots/projects/15>
 
 This file is not an inventory, roadmap, sprint plan, status report, or issue
 ledger. It exists to keep repository readers from treating historical local
@@ -49,7 +49,7 @@ Use GitHub for current state:
 gh issue list --repo flyingrobots/echo --state open --limit 1000
 gh issue list --repo flyingrobots/echo --state open --label release:echo-1.0 --limit 1000
 gh issue list --repo flyingrobots/echo --state open --milestone "Echo 1.0" --limit 1000
-gh project item-list 14 --owner flyingrobots --limit 1000
+gh project item-list 15 --owner flyingrobots --limit 1000
 ```
 
 Close issues only when their executable exit criteria have passed and the

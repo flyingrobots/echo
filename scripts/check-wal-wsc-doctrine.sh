@@ -62,7 +62,7 @@ require_file "causal WAL design" "$wal_design"
 require_file "WAL/WSC durability doctrine" "$wal_doctrine"
 require_file "Echo 1.0 release contract" "$release_contract"
 
-project_url="https://github.com/users/flyingrobots/projects/14"
+project_url="https://github.com/users/flyingrobots/projects/15"
 issue_521_url="https://github.com/flyingrobots/echo/issues/521"
 issue_584_url="https://github.com/flyingrobots/echo/issues/584"
 issue_585_url="https://github.com/flyingrobots/echo/issues/585"
@@ -73,13 +73,13 @@ release_contract_path="docs/releases/echo-1.0-contract.md"
 wal_design_path="docs/design/causal-wal-end-to-end.md"
 wal_doctrine_path="docs/design/wal-wsc-durability-roadmap.md"
 
-require_literal "BEARING links Echo 1.0 Project" "$bearing" "$project_url"
+require_literal "BEARING links Continuum Stack Convergence Project" "$bearing" "$project_url"
 require_literal "BEARING links release contract" "$bearing" "$release_contract_path"
 require_literal "BEARING links WAL/WSC issue" "$bearing" "$issue_521_url"
 require_literal "BEARING links causal WAL design" "$bearing" "$wal_design_path"
 require_literal "BEARING links WAL/WSC doctrine" "$bearing" "$wal_doctrine_path"
 
-require_literal "Work boundary links Echo 1.0 Project" "$workitems" "$project_url"
+require_literal "Work boundary links Continuum Stack Convergence Project" "$workitems" "$project_url"
 require_literal "Work boundary links Release Bar" "$workitems" "$issue_584_url"
 require_literal "Work boundary links WAL/WSC issue" "$workitems" "$issue_521_url"
 require_literal "Work boundary links release contract" "$workitems" "$release_contract_path"
@@ -108,7 +108,7 @@ reject_literal "Work boundary removes stale inbox backlog links" "$workitems" "]
 reject_literal "Work boundary removes stale bad-code backlog links" "$workitems" "](method/backlog/bad-code/"
 reject_literal "Work boundary removes stale cool-ideas backlog links" "$workitems" "](method/backlog/cool-ideas/"
 
-require_literal "sequencing links Echo 1.0 Project" "$sequencing" "$project_url"
+require_literal "sequencing links Continuum Stack Convergence Project" "$sequencing" "$project_url"
 require_literal "sequencing links release contract" "$sequencing" "../releases/echo-1.0-contract.md"
 require_literal "sequencing links WorkItems boundary" "$sequencing" "../WorkItems.md"
 require_literal "sequencing links WAL/WSC issue" "$sequencing" "$issue_521_url"
@@ -195,7 +195,7 @@ require_literal \
 
 require_literal "release contract has title" "$release_contract" "# Echo 1.0 Release Contract"
 require_literal "release contract rejects live roadmap role" "$release_contract" "not a live roadmap"
-require_literal "release contract links Echo 1.0 Project" "$release_contract" "$project_url"
+require_literal "release contract links Continuum Stack Convergence Project" "$release_contract" "$project_url"
 require_literal "release contract links Release Bar" "$release_contract" "$issue_584_url"
 require_literal "release contract links Gate A" "$release_contract" "$issue_585_url"
 require_literal "release contract links Gate B" "$release_contract" "$issue_591_url"
@@ -225,7 +225,7 @@ reject_literal "release contract removes current status" "$release_contract" "Cu
 
 require_literal "WAL doctrine has title" "$wal_doctrine" "# WAL/WSC Durability Doctrine"
 require_literal "WAL doctrine rejects live roadmap role" "$wal_doctrine" "This document is not the live roadmap."
-require_literal "WAL doctrine links Echo 1.0 Project" "$wal_doctrine" "$project_url"
+require_literal "WAL doctrine links Continuum Stack Convergence Project" "$wal_doctrine" "$project_url"
 require_literal "WAL doctrine links WAL/WSC issue" "$wal_doctrine" "$issue_521_url"
 require_literal "WAL doctrine links suffix exchange gate" "$wal_doctrine" "$issue_591_url"
 require_literal \

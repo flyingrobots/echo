@@ -8,9 +8,9 @@ Status: stable operating doctrine.
 Live sequencing belongs in GitHub, not in repository roadmaps. This document
 records how Echo work is ordered without duplicating current Project state.
 
-The live control surface is the Echo 1.0 Convergence Project:
+The live control surface is the Continuum Stack Convergence Project:
 
-<https://github.com/users/flyingrobots/projects/14>
+<https://github.com/users/flyingrobots/projects/15>
 
 The release constitution is
 [`docs/releases/echo-1.0-contract.md`](../releases/echo-1.0-contract.md).
@@ -51,16 +51,18 @@ Keep native fields visible:
 - Linked pull request
 - Reviewers
 
-Use only these custom fields for Echo 1.0 planning:
+Use only these custom fields for Echo 1.0 planning. The Track field is shared
+across the full Continuum stack; Echo-owned work should use the closest
+configured track rather than adding repo-local Project fields.
 
-| Field    | Values                                                              |
-| -------- | ------------------------------------------------------------------- |
-| Track    | Durability, Continuum, Suffix Exchange, Edict, Jedit, Docs, Release |
-| Goalpost | GP0, GP1, GP2, GP3, GP4, GP5, GP6                                   |
-| Target   | 1.0, Deferred, Research                                             |
-| Risk     | Low, Medium, High, Critical                                         |
-| Proof    | Missing, Unit, Integration, Conformance, Network, Release           |
-| Slice    | S, M, Needs decomposition                                           |
+| Field    | Values                                                                                             |
+| -------- | -------------------------------------------------------------------------------------------------- |
+| Track    | Continuum, Echo, Suffix Exchange, Edict, Jedit, Graft, WARP TTD, WARP DRIVE, Wesley, Docs, Release |
+| Goalpost | GP0, GP1, GP2, GP3, GP4, GP5, GP6                                                                  |
+| Target   | 1.0, Deferred, Research                                                                            |
+| Risk     | Low, Medium, High, Critical                                                                        |
+| Proof    | Missing, Unit, Integration, Conformance, Network, Release                                          |
+| Slice    | S, M, Needs decomposition                                                                          |
 
 Repository is native metadata. Do not create a custom Repository field.
 

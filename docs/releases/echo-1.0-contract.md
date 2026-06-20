@@ -10,15 +10,16 @@ work-in-progress status.
 
 Live release state belongs in GitHub:
 
-- Echo 1.0 Convergence Project:
-  <https://github.com/users/flyingrobots/projects/14>
+- Continuum Stack Convergence Project:
+  <https://github.com/users/flyingrobots/projects/15>
 - Echo 1.0 Release Bar:
   [#584](https://github.com/flyingrobots/echo/issues/584)
 - Echo 1.0 milestone:
   <https://github.com/flyingrobots/echo/milestone/31>
 
-The Project is the control surface. Issues and pull requests are the work.
-Executable evidence is the proof. This file records the binary release bar.
+The Project is the cross-repository control surface. Issues and pull requests
+are the work. Executable evidence is the proof. This file records Echo's binary
+release bar inside the larger Continuum stack convergence.
 
 ## Release Gates
 

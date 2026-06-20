@@ -623,6 +623,8 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Changed
 
+- Echo 1.0 planning references now point at the cross-repository Continuum
+  Stack Convergence Project instead of the retired Echo-only Project.
 - `warp-core` renamed the generated contract package host API from
   `install_contract_package(...)` to `register_contract_package(...)` so the
   trusted-runtime boundary reads as explicit runtime-owned registration instead

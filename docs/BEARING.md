@@ -7,10 +7,10 @@ This signpost summarizes current direction. It does not create commitments or
 replace backlog items, design docs, retros, or CLI status. If it disagrees with
 code, the code wins and this file should be corrected.
 
-Live work state belongs in GitHub. The Echo 1.0 Convergence Project is the
-release control surface:
+Live work state belongs in GitHub. The Continuum Stack Convergence Project is
+the release control surface for Echo 1.0 stack work:
 
-<https://github.com/users/flyingrobots/projects/14>
+<https://github.com/users/flyingrobots/projects/15>
 
 The Echo 1.0 release constitution is
 `docs/releases/echo-1.0-contract.md`. Repository docs record stable doctrine;

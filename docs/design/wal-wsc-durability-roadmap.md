@@ -5,10 +5,10 @@
 
 This document is not the live roadmap. It records the stable WAL/WSC durability
 relationship that Echo 1.0 work must preserve. Live planning, issue hierarchy,
-dependencies, slice status, and proof state belong in the Echo 1.0 Convergence
-Project:
+dependencies, slice status, and proof state belong in the Continuum Stack
+Convergence Project:
 
-<https://github.com/users/flyingrobots/projects/14>
+<https://github.com/users/flyingrobots/projects/15>
 
 The owning release issue is
 [#521 WAL/WSC Storage Relationship](https://github.com/flyingrobots/echo/issues/521),

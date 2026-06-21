@@ -910,11 +910,13 @@ boundary without giving the application append authority.
 Acceptance criteria:
 
 - `TrustedRuntimeHost` owns the runtime WAL adapter.
+- `TrustedRuntimeHost` configures the adapter through `TrustedRuntimeWalConfig`.
 - `TrustedRuntimeApp` exposes no WAL append or tick authority.
 - The adapter can be inspected by host tests as read-only evidence.
 
 Test plan:
 
+- `runtime_wal_ack_adapter_is_configured_by_trusted_host_boundary`
 - `runtime_wal_ack_submit_commits_acceptance_before_returning_handle`
 
 ## Slice 87: Submission Acceptance Transaction Wiring

@@ -39,6 +39,10 @@ staging, no `super_tick`, no scheduler pass, and no fault recovery authority.
 - `TrustedRuntimeHost::stage_installed_contract_submission(...)`;
 - `TrustedRuntimeHost::tick_once(...)`;
 - `TrustedRuntimeHost::run_until_idle(...)`;
+- `TrustedRuntimeWalConfig`, which the trusted host uses to configure the
+  runtime WAL adapter before app-facing ACK submission;
+- `TrustedRuntimeWalStoreKind`, which exposes the configured store kind as
+  host-owned read-only evidence;
 - `TrustedRuntimeHostRunReport`, which records scheduler passes and committed
   step count.
 
@@ -54,6 +58,7 @@ application
 -> witnessed submission handle
 
 trusted runtime host
+-> configures runtime WAL adapter
 -> registers package
 -> stages ticketed ingress
 -> runs scheduler-owned ticks
@@ -63,6 +68,11 @@ trusted runtime host
 The host loop does not make application dispatch synchronous. A submitted
 intent remains pending until trusted runtime-owned ingress staging and
 scheduler-owned tick execution decide it.
+
+The runtime WAL adapter is configured through the trusted host, not through
+`TrustedRuntimeApp`. The app-facing handle can request the WAL-backed ACK path,
+but it never receives WAL append, flush, truncate, manifest, tick, or recovery
+authority.
 
 ## Non-Goals
 
@@ -76,6 +86,7 @@ scheduler-owned tick execution decide it.
 ## Evidence
 
 - `cargo test -p warp-core --features "native_rule_bootstrap trusted_runtime" --test trusted_runtime_host_loop_tests`
+- `cargo test -p warp-core --features "native_rule_bootstrap trusted_runtime host_test" --test trusted_runtime_host_loop_tests runtime_wal_ack`
 
 The witness registers a generated-style package, submits through the app handle,
 stages ticketed ingress through the host, runs until idle, observes an applied

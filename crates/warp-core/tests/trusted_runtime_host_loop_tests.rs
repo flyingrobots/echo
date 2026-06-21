@@ -21,9 +21,9 @@ use warp_core::{
     ObservationCoordinate, ObservationFrame, ObservationPayload, ObservationProjection,
     ObservationReadBudget, ObservationRequest, ObserverPlanId, OpticAdmissionTicket,
     OpticArtifactHandle, PatternGraph, PlaybackMode, SchedulerKind, TickDelta, TrustedRuntimeHost,
-    TrustedRuntimeHostError, TrustedRuntimeWal, TrustedRuntimeWalError, WarpOp, WorldlineId,
-    WorldlineRuntime, WorldlineState, WriterHead, WriterHeadKey, OPTIC_ADMISSION_TICKET_KIND,
-    OPTIC_ARTIFACT_HANDLE_KIND,
+    TrustedRuntimeHostError, TrustedRuntimeWal, TrustedRuntimeWalConfig, TrustedRuntimeWalError,
+    TrustedRuntimeWalStoreKind, WarpOp, WorldlineId, WorldlineRuntime, WorldlineState, WriterHead,
+    WriterHeadKey, OPTIC_ADMISSION_TICKET_KIND, OPTIC_ARTIFACT_HANDLE_KIND,
 };
 
 const SCHEMA_SHA256_HEX: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -425,6 +425,40 @@ fn runtime_wal_ack_submit_commits_acceptance_before_returning_handle() {
     assert_eq!(entry.acceptance.submission_id, submission.submission_id);
     assert_eq!(entry.acceptance.canonical_envelope_digest, envelope_digest);
     assert_eq!(entry.posture, RecoveredSubmissionPosture::AcceptedPending);
+}
+
+#[test]
+fn runtime_wal_ack_adapter_is_configured_by_trusted_host_boundary() {
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::in_memory())
+        .expect("host should own runtime WAL adapter configuration");
+    assert_eq!(
+        host.runtime_wal()
+            .expect("runtime WAL should be configured")
+            .store_kind(),
+        TrustedRuntimeWalStoreKind::InMemory
+    );
+
+    let submission = {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(eint_envelope(worldline_id))
+            .expect("app should only see ACK submission surface")
+    };
+
+    assert_eq!(
+        host.runtime_wal()
+            .expect("runtime WAL should remain host-owned")
+            .recover_read_only()
+            .expect("runtime WAL should recover through adapter boundary")
+            .submissions
+            .get(&submission.submission_id)
+            .expect("submission should recover")
+            .posture,
+        RecoveredSubmissionPosture::AcceptedPending
+    );
 }
 
 #[test]

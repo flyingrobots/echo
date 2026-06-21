@@ -7,6 +7,10 @@
 
 ### Added
 
+- `warp-core` trusted runtime hosts now configure runtime WAL through
+  `TrustedRuntimeWalConfig`, with `TrustedRuntimeWalStoreKind` exposing the
+  configured adapter kind as host-owned read-only evidence while
+  `TrustedRuntimeApp` remains limited to submit and observe surfaces.
 - Added an Echo 1.0 release contract that records the four binary release gates,
   compatibility policy, evidence requirements, and GitHub Project boundary
   without carrying live roadmap state in the repository.

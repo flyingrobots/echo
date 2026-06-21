@@ -14,7 +14,7 @@ use thiserror::Error;
 use crate::{
     causal_wal::{
         build_recovery_certificate, build_submission_acceptance_transaction,
-        build_tick_transaction, recover_in_memory_store, recover_receipt_index,
+        build_tick_transaction, recover_from_frames_and_commits, recover_receipt_index,
         recover_submission_index, recovered_submission_receipt_index_root, AffectedFrontier,
         AffectedFrontierKind, InMemoryWalStore, Lsn, PayloadCodecId, PayloadSchemaId,
         RecoveredReceiptIndex, RecoveredSubmissionIndex, RecoveryAccessMode, RecoveryCertificate,
@@ -118,6 +118,45 @@ pub struct TrustedRuntimeWalRecovery {
     pub receipts: RecoveredReceiptIndex,
 }
 
+/// Store kind configured for the trusted runtime WAL adapter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum TrustedRuntimeWalStoreKind {
+    /// Deterministic process-local store used by fast tests.
+    InMemory,
+}
+
+/// Host-owned runtime WAL adapter configuration.
+#[derive(Clone, Debug)]
+pub struct TrustedRuntimeWalConfig {
+    store: TrustedRuntimeWalStore,
+    next_lsn: Lsn,
+}
+
+impl TrustedRuntimeWalConfig {
+    /// Builds the deterministic in-memory runtime WAL configuration.
+    #[must_use]
+    pub fn in_memory() -> Self {
+        Self {
+            store: TrustedRuntimeWalStore::in_memory(),
+            next_lsn: Lsn::from_raw(0),
+        }
+    }
+
+    /// Returns the configured store kind as read-only evidence.
+    #[must_use]
+    pub fn store_kind(&self) -> TrustedRuntimeWalStoreKind {
+        self.store.kind()
+    }
+
+    /// Returns this configuration with a caller-supplied next LSN.
+    #[must_use]
+    pub fn with_next_lsn(mut self, next_lsn: Lsn) -> Self {
+        self.next_lsn = next_lsn;
+        self
+    }
+}
+
 /// Local trusted runtime host for the app-safe contract-host path.
 ///
 /// Application code should receive [`TrustedRuntimeApp`], not this type. This
@@ -195,7 +234,20 @@ impl TrustedRuntimeHost {
     ///
     /// Returns a WAL error when the writer epoch cannot be acquired.
     pub fn enable_in_memory_runtime_wal(&mut self) -> Result<(), TrustedRuntimeHostError> {
-        self.runtime_wal = Some(TrustedRuntimeWal::new_in_memory()?);
+        self.enable_runtime_wal(TrustedRuntimeWalConfig::in_memory())
+    }
+
+    /// Enables a host-owned runtime WAL adapter configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns a WAL error when the configured store cannot acquire the runtime
+    /// writer epoch.
+    pub fn enable_runtime_wal(
+        &mut self,
+        config: TrustedRuntimeWalConfig,
+    ) -> Result<(), TrustedRuntimeHostError> {
+        self.runtime_wal = Some(TrustedRuntimeWal::from_config(config)?);
         Ok(())
     }
 
@@ -357,7 +409,7 @@ impl TrustedRuntimeHost {
 /// Minimal trusted-runtime WAL adapter for ACK-boundary integration tests.
 #[derive(Clone, Debug)]
 pub struct TrustedRuntimeWal {
-    store: InMemoryWalStore,
+    store: TrustedRuntimeWalStore,
     writer_epoch: WriterEpochId,
     segment_id: WalSegmentId,
     next_lsn: Lsn,
@@ -375,11 +427,19 @@ pub struct TrustedRuntimeWal {
 impl TrustedRuntimeWal {
     /// Builds a WAL adapter backed by an in-memory store.
     pub fn new_in_memory() -> Result<Self, TrustedRuntimeWalError> {
-        Self::new_in_memory_at_lsn(Lsn::from_raw(0))
+        Self::from_config(TrustedRuntimeWalConfig::in_memory())
     }
 
     fn new_in_memory_at_lsn(next_lsn: Lsn) -> Result<Self, TrustedRuntimeWalError> {
-        let mut store = InMemoryWalStore::new();
+        Self::from_config(TrustedRuntimeWalConfig::in_memory().with_next_lsn(next_lsn))
+    }
+
+    /// Builds a WAL adapter from host-owned configuration.
+    pub fn from_config(config: TrustedRuntimeWalConfig) -> Result<Self, TrustedRuntimeWalError> {
+        let TrustedRuntimeWalConfig {
+            mut store,
+            next_lsn,
+        } = config;
         let writer_epoch = WriterEpochId::from_hash(trusted_runtime_wal_digest("writer-epoch"));
         store.acquire_writer_epoch(WriterEpochRequest {
             epoch_id: writer_epoch,
@@ -414,6 +474,12 @@ impl TrustedRuntimeWal {
         })
     }
 
+    /// Returns the configured store kind as read-only evidence.
+    #[must_use]
+    pub fn store_kind(&self) -> TrustedRuntimeWalStoreKind {
+        self.store.kind()
+    }
+
     /// Returns committed WAL markers recorded by the adapter.
     #[must_use]
     pub fn commits(&self) -> Vec<WalTransactionCommit> {
@@ -429,14 +495,13 @@ impl TrustedRuntimeWal {
     /// Returns a clone of the underlying in-memory store for recovery tests.
     #[must_use]
     pub fn cloned_store(&self) -> InMemoryWalStore {
-        self.store.clone()
+        self.store.cloned_in_memory_store()
     }
 
     /// Recovers submission and receipt indexes from committed WAL transactions
     /// without scheduler callbacks.
     pub fn recover_read_only(&self) -> Result<TrustedRuntimeWalRecovery, TrustedRuntimeWalError> {
-        let mut store = self.cloned_store();
-        let report = recover_in_memory_store(&mut store, RecoveryAccessMode::ReadOnly)?;
+        let report = recover_runtime_wal_store_read_only(&self.store)?;
         let submissions = recover_submission_index(&report).map_err(WalRecoveryError::from)?;
         let receipts = recover_receipt_index(&report).map_err(WalRecoveryError::from)?;
         Ok(TrustedRuntimeWalRecovery {
@@ -614,6 +679,131 @@ impl TrustedRuntimeWal {
             self.digest_domain,
         )
     }
+}
+
+#[derive(Clone, Debug)]
+enum TrustedRuntimeWalStore {
+    InMemory(InMemoryWalStore),
+}
+
+impl TrustedRuntimeWalStore {
+    fn in_memory() -> Self {
+        Self::InMemory(InMemoryWalStore::new())
+    }
+
+    fn kind(&self) -> TrustedRuntimeWalStoreKind {
+        match self {
+            Self::InMemory(_) => TrustedRuntimeWalStoreKind::InMemory,
+        }
+    }
+
+    fn append_transaction(
+        &mut self,
+        transaction: WalCommittedTransaction,
+    ) -> Result<(), WalStoreError> {
+        match self {
+            Self::InMemory(store) => store.append_transaction(transaction),
+        }
+    }
+
+    fn append_uncommitted_frame(
+        &mut self,
+        epoch_id: WriterEpochId,
+        frame: crate::causal_wal::WalFrame,
+    ) -> Result<(), WalStoreError> {
+        match self {
+            Self::InMemory(store) => store.append_uncommitted_frame(epoch_id, frame),
+        }
+    }
+
+    fn cloned_in_memory_store(&self) -> InMemoryWalStore {
+        match self {
+            Self::InMemory(store) => store.clone(),
+        }
+    }
+}
+
+impl WalStorePort for TrustedRuntimeWalStore {
+    fn acquire_writer_epoch(
+        &mut self,
+        request: WriterEpochRequest,
+    ) -> Result<crate::causal_wal::WriterEpoch, WalStoreError> {
+        match self {
+            Self::InMemory(store) => store.acquire_writer_epoch(request),
+        }
+    }
+
+    fn append_frame(
+        &mut self,
+        epoch_id: WriterEpochId,
+        frame: crate::causal_wal::WalFrame,
+    ) -> Result<(), WalStoreError> {
+        match self {
+            Self::InMemory(store) => store.append_frame(epoch_id, frame),
+        }
+    }
+
+    fn flush_commit(
+        &mut self,
+        epoch_id: WriterEpochId,
+        commit: WalTransactionCommit,
+    ) -> Result<(), WalStoreError> {
+        match self {
+            Self::InMemory(store) => store.flush_commit(epoch_id, commit),
+        }
+    }
+
+    fn read_frames(&self) -> Vec<crate::causal_wal::WalFrame> {
+        match self {
+            Self::InMemory(store) => store.read_frames(),
+        }
+    }
+
+    fn read_commits(&self) -> Vec<WalTransactionCommit> {
+        match self {
+            Self::InMemory(store) => store.read_commits(),
+        }
+    }
+
+    fn seal_segment(
+        &mut self,
+        epoch_id: WriterEpochId,
+        segment_id: WalSegmentId,
+    ) -> Result<crate::causal_wal::WalSegmentSeal, WalStoreError> {
+        match self {
+            Self::InMemory(store) => store.seal_segment(epoch_id, segment_id),
+        }
+    }
+
+    fn truncate_tail_after(&mut self, after_lsn: Lsn) -> Result<(), WalStoreError> {
+        match self {
+            Self::InMemory(store) => store.truncate_tail_after(after_lsn),
+        }
+    }
+
+    fn publish_manifest(
+        &mut self,
+        epoch_id: WriterEpochId,
+        manifest: crate::causal_wal::WalManifest,
+    ) -> Result<(), WalStoreError> {
+        match self {
+            Self::InMemory(store) => store.publish_manifest(epoch_id, manifest),
+        }
+    }
+
+    fn close_epoch(&mut self, epoch_id: WriterEpochId) -> Result<(), WalStoreError> {
+        match self {
+            Self::InMemory(store) => store.close_epoch(epoch_id),
+        }
+    }
+}
+
+fn recover_runtime_wal_store_read_only(
+    store: &impl WalStorePort,
+) -> Result<RecoveryScanReport, WalRecoveryError> {
+    let frames = store.read_frames();
+    let commits = store.read_commits();
+    recover_from_frames_and_commits(&frames, &commits, RecoveryAccessMode::ReadOnly)
 }
 
 #[cfg(any(test, feature = "host_test"))]

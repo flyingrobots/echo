@@ -7,22 +7,26 @@
 //! daemon, does not make wall-clock cadence semantic, and does not give
 //! application code tick authority.
 
-use std::collections::BTreeSet;
+use std::{
+    collections::BTreeSet,
+    path::{Path, PathBuf},
+};
 
 use thiserror::Error;
 
 use crate::{
     causal_wal::{
         build_recovery_certificate, build_submission_acceptance_transaction,
-        build_tick_transaction, recover_from_frames_and_commits, recover_receipt_index,
-        recover_submission_index, recovered_submission_receipt_index_root, AffectedFrontier,
-        AffectedFrontierKind, InMemoryWalStore, Lsn, PayloadCodecId, PayloadSchemaId,
-        RecoveredReceiptIndex, RecoveredSubmissionIndex, RecoveryAccessMode, RecoveryCertificate,
-        RecoveryScanReport, SubmissionAcceptanceRecord, SubmissionRetryPosture, TickReceiptRecord,
-        WalAppendAuthority, WalBuildError, WalCommittedTransaction, WalDurabilityMode,
-        WalReceiptCorrelationRecord, WalRecoveryError, WalSegmentId, WalStoreError, WalStorePort,
-        WalTickDecision, WalTransactionBuilder, WalTransactionCommit, WalTransactionId,
-        WalTransactionKind, WriterEpochId, WriterEpochRequest,
+        build_tick_transaction, recover_filesystem_store, recover_from_frames_and_commits,
+        recover_receipt_index, recover_submission_index, recovered_submission_receipt_index_root,
+        AffectedFrontier, AffectedFrontierKind, FilesystemWalStore, InMemoryWalStore, Lsn,
+        PayloadCodecId, PayloadSchemaId, RecoveredReceiptIndex, RecoveredSubmissionIndex,
+        RecoveryAccessMode, RecoveryCertificate, RecoveryScanReport, SubmissionAcceptanceRecord,
+        SubmissionRetryPosture, TickReceiptRecord, WalAppendAuthority, WalBuildError,
+        WalCommittedTransaction, WalDecodeError, WalDurabilityMode, WalReceiptCorrelationRecord,
+        WalRecordKind, WalRecoveryError, WalRecoveryIndexError, WalSegmentId, WalStoreError,
+        WalStorePort, WalTickDecision, WalTransactionBuilder, WalTransactionCommit,
+        WalTransactionId, WalTransactionKind, WriterEpochId, WriterEpochRequest,
     },
     Engine, IngressEnvelope, InstalledContractPackage, InstalledContractPackageError,
     InstalledContractPackageRecord, IntentOutcome, IntentOutcomeDecision, IntentOutcomeObservation,
@@ -96,6 +100,17 @@ pub enum TrustedRuntimeWalError {
         /// Receipt digest observed through the outcome surface.
         observed_receipt_digest: Hash,
     },
+    /// Filesystem WAL cannot safely roll back multiple durable tick commits as
+    /// separate transactions.
+    #[error(
+        "trusted runtime WAL filesystem adapter cannot atomically commit {transaction_count} {transaction_kind:?} transactions"
+    )]
+    FilesystemAtomicBatchUnsupported {
+        /// Transaction kind that would require atomic multi-transaction append.
+        transaction_kind: WalTransactionKind,
+        /// Number of transactions in the attempted durable batch.
+        transaction_count: usize,
+    },
 }
 
 /// Summary returned after a trusted host runs the scheduler until idle.
@@ -124,12 +139,14 @@ pub struct TrustedRuntimeWalRecovery {
 pub enum TrustedRuntimeWalStoreKind {
     /// Deterministic process-local store used by fast tests.
     InMemory,
+    /// Strict filesystem store rooted in host-owned storage.
+    Filesystem,
 }
 
 /// Host-owned runtime WAL adapter configuration.
 #[derive(Clone, Debug)]
 pub struct TrustedRuntimeWalConfig {
-    store: TrustedRuntimeWalStore,
+    store: TrustedRuntimeWalStoreConfig,
     next_lsn: Lsn,
 }
 
@@ -138,7 +155,22 @@ impl TrustedRuntimeWalConfig {
     #[must_use]
     pub fn in_memory() -> Self {
         Self {
-            store: TrustedRuntimeWalStore::in_memory(),
+            store: TrustedRuntimeWalStoreConfig::InMemory,
+            next_lsn: Lsn::from_raw(0),
+        }
+    }
+
+    /// Builds a filesystem-backed runtime WAL configuration rooted at `root`.
+    ///
+    /// The configured root is host-owned authority. Application code receives
+    /// only submission handles and observations through [`TrustedRuntimeApp`].
+    #[must_use]
+    pub fn filesystem(root: impl AsRef<Path>) -> Self {
+        Self {
+            store: TrustedRuntimeWalStoreConfig::Filesystem {
+                root: root.as_ref().to_path_buf(),
+                segment_id: WalSegmentId::from_raw(1),
+            },
             next_lsn: Lsn::from_raw(0),
         }
     }
@@ -154,6 +186,24 @@ impl TrustedRuntimeWalConfig {
     pub fn with_next_lsn(mut self, next_lsn: Lsn) -> Self {
         self.next_lsn = next_lsn;
         self
+    }
+}
+
+#[derive(Clone, Debug)]
+enum TrustedRuntimeWalStoreConfig {
+    InMemory,
+    Filesystem {
+        root: PathBuf,
+        segment_id: WalSegmentId,
+    },
+}
+
+impl TrustedRuntimeWalStoreConfig {
+    fn kind(&self) -> TrustedRuntimeWalStoreKind {
+        match self {
+            Self::InMemory => TrustedRuntimeWalStoreKind::InMemory,
+            Self::Filesystem { .. } => TrustedRuntimeWalStoreKind::Filesystem,
+        }
     }
 }
 
@@ -358,12 +408,26 @@ impl TrustedRuntimeHost {
             }
         }
         if let Some(runtime_wal) = self.runtime_wal.as_mut() {
+            if runtime_wal.uses_filesystem_store() && tick_wal_records.len() > 1 {
+                self.runtime = runtime_before;
+                self.provenance = provenance_before;
+                return Err(TrustedRuntimeWalError::FilesystemAtomicBatchUnsupported {
+                    transaction_kind: WalTransactionKind::SchedulerTick,
+                    transaction_count: tick_wal_records.len(),
+                }
+                .into());
+            }
             let runtime_wal_before = runtime_wal.clone();
             for (correlation, decision, state_delta_digest) in &tick_wal_records {
                 if let Err(error) =
                     runtime_wal.record_tick_receipt(correlation, *decision, *state_delta_digest)
                 {
-                    *runtime_wal = runtime_wal_before;
+                    if runtime_wal.recover_filesystem_tick_commit_after_error(correlation) {
+                        continue;
+                    }
+                    if !runtime_wal.uses_filesystem_store() {
+                        *runtime_wal = runtime_wal_before;
+                    }
                     self.runtime = runtime_before;
                     self.provenance = provenance_before;
                     return Err(error.into());
@@ -436,10 +500,15 @@ impl TrustedRuntimeWal {
 
     /// Builds a WAL adapter from host-owned configuration.
     pub fn from_config(config: TrustedRuntimeWalConfig) -> Result<Self, TrustedRuntimeWalError> {
-        let TrustedRuntimeWalConfig {
-            mut store,
-            next_lsn,
-        } = config;
+        let TrustedRuntimeWalConfig { store, next_lsn } = config;
+        let mut store = TrustedRuntimeWalStore::open(store)?;
+        let recovered_cursor =
+            TrustedRuntimeWalCursor::from_recovery(&store.recover_for_writer()?)?;
+        let next_lsn = if recovered_cursor.has_committed_history {
+            recovered_cursor.next_lsn
+        } else {
+            next_lsn
+        };
         let writer_epoch = WriterEpochId::from_hash(trusted_runtime_wal_digest("writer-epoch"));
         store.acquire_writer_epoch(WriterEpochRequest {
             epoch_id: writer_epoch,
@@ -451,16 +520,16 @@ impl TrustedRuntimeWal {
             previous_epoch_final_commit_digest: None,
             lease_or_lock_evidence: trusted_runtime_wal_digest("lease"),
         })?;
+        let durability_mode = store.durability_mode();
         Ok(Self {
             store,
             writer_epoch,
             segment_id: WalSegmentId::from_raw(1),
             next_lsn,
-            previous_frame_digest: trusted_runtime_wal_digest("previous-frame:genesis"),
-            previous_committed_transaction_digest: trusted_runtime_wal_digest(
-                "previous-commit:genesis",
-            ),
-            durability_mode: WalDurabilityMode::Buffered,
+            previous_frame_digest: recovered_cursor.previous_frame_digest,
+            previous_committed_transaction_digest: recovered_cursor
+                .previous_committed_transaction_digest,
+            durability_mode,
             payload_codec_id: PayloadCodecId::from_hash(trusted_runtime_wal_digest(
                 "payload-codec",
             )),
@@ -468,9 +537,9 @@ impl TrustedRuntimeWal {
                 "payload-schema",
             )),
             digest_domain: trusted_runtime_wal_digest("digest-domain"),
-            submission_frontier_digest: trusted_runtime_wal_digest("submission-frontier:genesis"),
-            receipt_frontier_digest: trusted_runtime_wal_digest("receipt-frontier:genesis"),
-            runtime_state_frontier_digest: trusted_runtime_wal_digest("runtime-frontier:genesis"),
+            submission_frontier_digest: recovered_cursor.submission_frontier_digest,
+            receipt_frontier_digest: recovered_cursor.receipt_frontier_digest,
+            runtime_state_frontier_digest: recovered_cursor.runtime_state_frontier_digest,
         })
     }
 
@@ -492,16 +561,17 @@ impl TrustedRuntimeWal {
         self.store.read_frames()
     }
 
-    /// Returns a clone of the underlying in-memory store for recovery tests.
+    /// Returns a clone of the underlying in-memory store for recovery tests,
+    /// if this adapter is backed by the in-memory store kind.
     #[must_use]
-    pub fn cloned_store(&self) -> InMemoryWalStore {
+    pub fn cloned_store(&self) -> Option<InMemoryWalStore> {
         self.store.cloned_in_memory_store()
     }
 
     /// Recovers submission and receipt indexes from committed WAL transactions
     /// without scheduler callbacks.
     pub fn recover_read_only(&self) -> Result<TrustedRuntimeWalRecovery, TrustedRuntimeWalError> {
-        let report = recover_runtime_wal_store_read_only(&self.store)?;
+        let report = self.store.recover_read_only()?;
         let submissions = recover_submission_index(&report).map_err(WalRecoveryError::from)?;
         let receipts = recover_receipt_index(&report).map_err(WalRecoveryError::from)?;
         Ok(TrustedRuntimeWalRecovery {
@@ -546,6 +616,57 @@ impl TrustedRuntimeWal {
                 | SubmissionRetryPosture::AlreadyDecidedRejected
                 | SubmissionRetryPosture::AlreadyObstructed
         ))
+    }
+
+    fn uses_filesystem_store(&self) -> bool {
+        self.store.is_filesystem()
+    }
+
+    fn refresh_cursor_from_store_for_writer(&mut self) -> Result<(), TrustedRuntimeWalError> {
+        let report = self.store.recover_for_writer()?;
+        let cursor = TrustedRuntimeWalCursor::from_recovery(&report)?;
+        self.next_lsn = cursor.next_lsn;
+        self.previous_frame_digest = cursor.previous_frame_digest;
+        self.previous_committed_transaction_digest = cursor.previous_committed_transaction_digest;
+        self.submission_frontier_digest = cursor.submission_frontier_digest;
+        self.receipt_frontier_digest = cursor.receipt_frontier_digest;
+        self.runtime_state_frontier_digest = cursor.runtime_state_frontier_digest;
+        Ok(())
+    }
+
+    fn recover_filesystem_submission_acceptance_after_error(
+        &mut self,
+        submission_id: Hash,
+        canonical_envelope_digest: Hash,
+    ) -> bool {
+        if !self.uses_filesystem_store() {
+            return false;
+        }
+        if self.refresh_cursor_from_store_for_writer().is_err() {
+            return false;
+        }
+        self.has_submission_acceptance(submission_id, canonical_envelope_digest)
+            .unwrap_or(false)
+    }
+
+    fn recover_filesystem_tick_commit_after_error(
+        &mut self,
+        correlation: &ReceiptCorrelationRecord,
+    ) -> bool {
+        if !self.uses_filesystem_store() {
+            return false;
+        }
+        if self.refresh_cursor_from_store_for_writer().is_err() {
+            return false;
+        }
+        let Ok(recovery) = self.recover_read_only() else {
+            return false;
+        };
+        recovery
+            .receipts
+            .receipt_by_submission
+            .get(&correlation.submission_id)
+            == Some(&correlation.tick_receipt_digest)
     }
 
     fn record_submission_acceptance(
@@ -684,16 +805,52 @@ impl TrustedRuntimeWal {
 #[derive(Clone, Debug)]
 enum TrustedRuntimeWalStore {
     InMemory(InMemoryWalStore),
+    Filesystem(FilesystemWalStore),
 }
 
 impl TrustedRuntimeWalStore {
-    fn in_memory() -> Self {
-        Self::InMemory(InMemoryWalStore::new())
+    fn open(config: TrustedRuntimeWalStoreConfig) -> Result<Self, TrustedRuntimeWalError> {
+        match config {
+            TrustedRuntimeWalStoreConfig::InMemory => Ok(Self::InMemory(InMemoryWalStore::new())),
+            TrustedRuntimeWalStoreConfig::Filesystem { root, segment_id } => Ok(Self::Filesystem(
+                FilesystemWalStore::open(root, segment_id)?,
+            )),
+        }
     }
 
     fn kind(&self) -> TrustedRuntimeWalStoreKind {
         match self {
             Self::InMemory(_) => TrustedRuntimeWalStoreKind::InMemory,
+            Self::Filesystem(_) => TrustedRuntimeWalStoreKind::Filesystem,
+        }
+    }
+
+    fn is_filesystem(&self) -> bool {
+        matches!(self, Self::Filesystem(_))
+    }
+
+    fn durability_mode(&self) -> WalDurabilityMode {
+        match self {
+            Self::InMemory(_) => WalDurabilityMode::Buffered,
+            Self::Filesystem(_) => WalDurabilityMode::StrictFilesystem,
+        }
+    }
+
+    fn recover_for_writer(&self) -> Result<RecoveryScanReport, WalRecoveryError> {
+        match self {
+            Self::InMemory(store) => recover_runtime_wal_store_read_only(store),
+            Self::Filesystem(store) => {
+                recover_filesystem_store(store.root(), RecoveryAccessMode::Writable)
+            }
+        }
+    }
+
+    fn recover_read_only(&self) -> Result<RecoveryScanReport, WalRecoveryError> {
+        match self {
+            Self::InMemory(store) => recover_runtime_wal_store_read_only(store),
+            Self::Filesystem(store) => {
+                recover_filesystem_store(store.root(), RecoveryAccessMode::ReadOnly)
+            }
         }
     }
 
@@ -703,6 +860,7 @@ impl TrustedRuntimeWalStore {
     ) -> Result<(), WalStoreError> {
         match self {
             Self::InMemory(store) => store.append_transaction(transaction),
+            Self::Filesystem(store) => store.append_transaction(transaction),
         }
     }
 
@@ -713,12 +871,14 @@ impl TrustedRuntimeWalStore {
     ) -> Result<(), WalStoreError> {
         match self {
             Self::InMemory(store) => store.append_uncommitted_frame(epoch_id, frame),
+            Self::Filesystem(store) => store.append_uncommitted_frame(epoch_id, frame),
         }
     }
 
-    fn cloned_in_memory_store(&self) -> InMemoryWalStore {
+    fn cloned_in_memory_store(&self) -> Option<InMemoryWalStore> {
         match self {
-            Self::InMemory(store) => store.clone(),
+            Self::InMemory(store) => Some(store.clone()),
+            Self::Filesystem(_) => None,
         }
     }
 }
@@ -730,6 +890,7 @@ impl WalStorePort for TrustedRuntimeWalStore {
     ) -> Result<crate::causal_wal::WriterEpoch, WalStoreError> {
         match self {
             Self::InMemory(store) => store.acquire_writer_epoch(request),
+            Self::Filesystem(store) => store.acquire_writer_epoch(request),
         }
     }
 
@@ -740,6 +901,7 @@ impl WalStorePort for TrustedRuntimeWalStore {
     ) -> Result<(), WalStoreError> {
         match self {
             Self::InMemory(store) => store.append_frame(epoch_id, frame),
+            Self::Filesystem(store) => store.append_frame(epoch_id, frame),
         }
     }
 
@@ -750,18 +912,21 @@ impl WalStorePort for TrustedRuntimeWalStore {
     ) -> Result<(), WalStoreError> {
         match self {
             Self::InMemory(store) => store.flush_commit(epoch_id, commit),
+            Self::Filesystem(store) => store.flush_commit(epoch_id, commit),
         }
     }
 
     fn read_frames(&self) -> Vec<crate::causal_wal::WalFrame> {
         match self {
             Self::InMemory(store) => store.read_frames(),
+            Self::Filesystem(store) => store.read_frames(),
         }
     }
 
     fn read_commits(&self) -> Vec<WalTransactionCommit> {
         match self {
             Self::InMemory(store) => store.read_commits(),
+            Self::Filesystem(store) => store.read_commits(),
         }
     }
 
@@ -772,12 +937,14 @@ impl WalStorePort for TrustedRuntimeWalStore {
     ) -> Result<crate::causal_wal::WalSegmentSeal, WalStoreError> {
         match self {
             Self::InMemory(store) => store.seal_segment(epoch_id, segment_id),
+            Self::Filesystem(store) => store.seal_segment(epoch_id, segment_id),
         }
     }
 
     fn truncate_tail_after(&mut self, after_lsn: Lsn) -> Result<(), WalStoreError> {
         match self {
             Self::InMemory(store) => store.truncate_tail_after(after_lsn),
+            Self::Filesystem(store) => store.truncate_tail_after(after_lsn),
         }
     }
 
@@ -788,14 +955,136 @@ impl WalStorePort for TrustedRuntimeWalStore {
     ) -> Result<(), WalStoreError> {
         match self {
             Self::InMemory(store) => store.publish_manifest(epoch_id, manifest),
+            Self::Filesystem(store) => store.publish_manifest(epoch_id, manifest),
         }
     }
 
     fn close_epoch(&mut self, epoch_id: WriterEpochId) -> Result<(), WalStoreError> {
         match self {
             Self::InMemory(store) => store.close_epoch(epoch_id),
+            Self::Filesystem(store) => store.close_epoch(epoch_id),
         }
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct TrustedRuntimeWalCursor {
+    has_committed_history: bool,
+    next_lsn: Lsn,
+    previous_frame_digest: Hash,
+    previous_committed_transaction_digest: Hash,
+    submission_frontier_digest: Hash,
+    receipt_frontier_digest: Hash,
+    runtime_state_frontier_digest: Hash,
+}
+
+impl TrustedRuntimeWalCursor {
+    fn genesis() -> Self {
+        Self {
+            has_committed_history: false,
+            next_lsn: Lsn::from_raw(0),
+            previous_frame_digest: trusted_runtime_wal_digest("previous-frame:genesis"),
+            previous_committed_transaction_digest: trusted_runtime_wal_digest(
+                "previous-commit:genesis",
+            ),
+            submission_frontier_digest: trusted_runtime_wal_digest("submission-frontier:genesis"),
+            receipt_frontier_digest: trusted_runtime_wal_digest("receipt-frontier:genesis"),
+            runtime_state_frontier_digest: trusted_runtime_wal_digest("runtime-frontier:genesis"),
+        }
+    }
+
+    fn from_recovery(report: &RecoveryScanReport) -> Result<Self, TrustedRuntimeWalError> {
+        let mut cursor = Self::genesis();
+        for transaction in &report.transactions {
+            cursor.has_committed_history = true;
+            cursor.next_lsn = transaction
+                .commit
+                .last_lsn
+                .checked_next()
+                .ok_or(WalBuildError::LsnOverflow)?;
+            cursor.previous_committed_transaction_digest = transaction.commit.commit_digest;
+            if let Some(frame) = transaction.frames.last() {
+                cursor.previous_frame_digest = frame.digest();
+            }
+            match transaction.commit.transaction_kind {
+                WalTransactionKind::SubmissionIntake => {
+                    let record = submission_acceptance_record_from_transaction(transaction)?;
+                    cursor.submission_frontier_digest =
+                        submission_frontier_digest(cursor.submission_frontier_digest, record);
+                }
+                WalTransactionKind::SchedulerTick => {
+                    let (receipt, correlation, state_delta_digest) =
+                        tick_records_from_transaction(transaction)?;
+                    cursor.receipt_frontier_digest = receipt_frontier_digest(
+                        cursor.receipt_frontier_digest,
+                        receipt,
+                        correlation,
+                    );
+                    cursor.runtime_state_frontier_digest = recovered_runtime_state_frontier_digest(
+                        cursor.runtime_state_frontier_digest,
+                        correlation,
+                        state_delta_digest,
+                    );
+                }
+                _ => {}
+            }
+        }
+        Ok(cursor)
+    }
+}
+
+fn submission_acceptance_record_from_transaction(
+    transaction: &crate::causal_wal::WalRecoveredTransaction,
+) -> Result<SubmissionAcceptanceRecord, TrustedRuntimeWalError> {
+    let frame = transaction
+        .frames
+        .iter()
+        .find(|frame| frame.header.record_kind == WalRecordKind::SubmissionAcceptedRecorded)
+        .ok_or_else(missing_trusted_runtime_record)?;
+    SubmissionAcceptanceRecord::from_payload_bytes(&frame.payload.canonical_bytes)
+        .map_err(decode_trusted_runtime_wal_payload)
+}
+
+fn tick_records_from_transaction(
+    transaction: &crate::causal_wal::WalRecoveredTransaction,
+) -> Result<(TickReceiptRecord, WalReceiptCorrelationRecord, Hash), TrustedRuntimeWalError> {
+    let receipt_frame = transaction
+        .frames
+        .iter()
+        .find(|frame| frame.header.record_kind == WalRecordKind::TickReceiptRecorded)
+        .ok_or_else(missing_trusted_runtime_record)?;
+    let receipt = TickReceiptRecord::from_payload_bytes(&receipt_frame.payload.canonical_bytes)
+        .map_err(decode_trusted_runtime_wal_payload)?;
+    let correlation_frame = transaction
+        .frames
+        .iter()
+        .find(|frame| frame.header.record_kind == WalRecordKind::ReceiptCorrelationRecorded)
+        .ok_or_else(missing_trusted_runtime_record)?;
+    let correlation =
+        WalReceiptCorrelationRecord::from_payload_bytes(&correlation_frame.payload.canonical_bytes)
+            .map_err(decode_trusted_runtime_wal_payload)?;
+    let state_delta_frame = transaction
+        .frames
+        .iter()
+        .find(|frame| frame.header.record_kind == WalRecordKind::RuntimeStateDeltaRecorded)
+        .ok_or_else(missing_trusted_runtime_record)?;
+    let state_delta_digest = state_delta_frame
+        .payload
+        .canonical_bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| decode_trusted_runtime_wal_payload(WalDecodeError::UnexpectedEof))?;
+    Ok((receipt, correlation, state_delta_digest))
+}
+
+fn missing_trusted_runtime_record() -> TrustedRuntimeWalError {
+    decode_trusted_runtime_wal_payload(WalDecodeError::UnexpectedEof)
+}
+
+fn decode_trusted_runtime_wal_payload(error: WalDecodeError) -> TrustedRuntimeWalError {
+    TrustedRuntimeWalError::Recovery(WalRecoveryError::Index(WalRecoveryIndexError::Decode(
+        error,
+    )))
 }
 
 fn recover_runtime_wal_store_read_only(
@@ -919,6 +1208,12 @@ impl TrustedRuntimeApp<'_> {
             }
         }
         if let Err(error) = runtime_wal.record_submission_acceptance(&envelope, handle) {
+            if runtime_wal.recover_filesystem_submission_acceptance_after_error(
+                handle.submission_id,
+                envelope.ingress_id(),
+            ) {
+                return Ok(handle);
+            }
             self.host.runtime = before_runtime;
             return Err(error.into());
         }
@@ -1230,6 +1525,22 @@ fn runtime_state_frontier_digest(
     hasher.update(&state_delta_digest);
     hasher.update(&correlation.commit_global_tick.as_u64().to_le_bytes());
     hasher.update(&correlation.worldline_tick_after.as_u64().to_le_bytes());
+    hasher.finalize().into()
+}
+
+fn recovered_runtime_state_frontier_digest(
+    previous: Hash,
+    correlation: WalReceiptCorrelationRecord,
+    state_delta_digest: Hash,
+) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
+    hasher.update(b"runtime-state-frontier:recovered");
+    hasher.update(&previous);
+    hasher.update(&correlation.submission_id);
+    hasher.update(&correlation.ticket_digest);
+    hasher.update(&correlation.receipt_digest);
+    hasher.update(&state_delta_digest);
     hasher.finalize().into()
 }
 

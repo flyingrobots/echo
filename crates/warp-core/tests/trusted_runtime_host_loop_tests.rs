@@ -4,15 +4,21 @@
 #![cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 #![allow(clippy::expect_used, clippy::panic)]
 
+use std::fs;
+use std::io::ErrorKind;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use echo_registry_api::{
     ArgDef, ContractArtifactVerificationPolicy, ObjectDef, OpDef, OpKind, RegistryInfo,
     RegistryProvider,
 };
 use warp_core::{
     causal_wal::{
-        recover_in_memory_store, recover_receipt_index, recover_submission_index,
-        recovered_submission_receipt_index_root, Lsn, RecoveredSubmissionPosture,
-        RecoveryAccessMode, WalBuildError, WalTransactionKind,
+        canonical_segment_path, recover_in_memory_store, recover_receipt_index,
+        recover_submission_index, recovered_submission_receipt_index_root, Lsn,
+        RecoveredSubmissionPosture, RecoveryAccessMode, RecoveryTailPosture, WalBuildError,
+        WalDurabilityMode, WalRecoveryError, WalSegmentId, WalTransactionKind,
     },
     make_head_id, make_intent_kind, make_node_id, make_type_id, AuthoredObserverPlan,
     ContractMutationHandler, ContractOperationKind, ContractPackageIdentity, ContractQueryObserver,
@@ -26,6 +32,8 @@ use warp_core::{
     WriterHeadKey, OPTIC_ADMISSION_TICKET_KIND, OPTIC_ARTIFACT_HANDLE_KIND,
 };
 
+static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+
 const SCHEMA_SHA256_HEX: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const MUTATION_OP_ID: u32 = 6001;
 const QUERY_OP_ID: u32 = 6002;
@@ -38,6 +46,38 @@ const MUTATION_RULE_NAME: &str =
     "cmd/contract/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/6001/increment";
 const MUTATION_RULE_ID_LABEL: &str =
     "rule:cmd/contract/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/6001/increment";
+
+fn deterministic_test_dir(prefix: &str, label: &str) -> PathBuf {
+    let root = PathBuf::from("target").join("warp-core-test-tmp");
+    fs::create_dir_all(&root).expect("test temp root should be created");
+    for _ in 0..1024 {
+        let unique = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir = root.join(format!("{prefix}-{label}-{unique}"));
+        match fs::create_dir(&dir) {
+            Ok(()) => return dir,
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => {
+                fs::remove_dir_all(&dir).expect("stale test dir should be removable");
+                match fs::create_dir(&dir) {
+                    Ok(()) => return dir,
+                    Err(retry_error) if retry_error.kind() == ErrorKind::AlreadyExists => {}
+                    Err(retry_error) => panic!(
+                        "failed to recreate deterministic test directory {}: {retry_error}",
+                        dir.display()
+                    ),
+                }
+            }
+            Err(error) => panic!(
+                "failed to create deterministic test directory {}: {error}",
+                dir.display()
+            ),
+        }
+    }
+    panic!("exhausted deterministic test directory attempts for {prefix}-{label}");
+}
+
+fn temp_runtime_wal_dir(label: &str) -> PathBuf {
+    deterministic_test_dir("echo-trusted-runtime-wal", label)
+}
 
 static INCREMENT_ARGS: &[ArgDef] = &[ArgDef {
     name: "input",
@@ -414,7 +454,9 @@ fn runtime_wal_ack_submit_commits_acceptance_before_returning_handle() {
     assert_eq!(runtime_wal.submission_acceptance_count(), 1);
     assert_eq!(runtime_wal.commits().len(), 1);
 
-    let mut store = runtime_wal.cloned_store();
+    let mut store = runtime_wal
+        .cloned_store()
+        .expect("in-memory runtime WAL should expose test store clone");
     let report = recover_in_memory_store(&mut store, RecoveryAccessMode::ReadOnly)
         .expect("committed acceptance should recover");
     let recovered = recover_submission_index(&report)
@@ -458,6 +500,320 @@ fn runtime_wal_ack_adapter_is_configured_by_trusted_host_boundary() {
             .expect("submission should recover")
             .posture,
         RecoveredSubmissionPosture::AcceptedPending
+    );
+}
+
+#[test]
+fn filesystem_runtime_wal_ack_reconstructs_submission_and_tick_from_root() {
+    let wal_root = temp_runtime_wal_dir("ack-recovery");
+    let (initial_runtime, worldline_id) = runtime();
+    let mut host = TrustedRuntimeHost::new(initial_runtime, empty_engine())
+        .expect("trusted host should initialize");
+
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("host should configure filesystem runtime WAL adapter");
+    assert_eq!(
+        host.runtime_wal()
+            .expect("runtime WAL should be configured")
+            .store_kind(),
+        TrustedRuntimeWalStoreKind::Filesystem
+    );
+    host.register_contract_package(package())
+        .expect("host should install package");
+
+    let envelope = eint_envelope(worldline_id);
+    let envelope_digest = envelope.ingress_id();
+    let submission = {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(envelope)
+            .expect("filesystem WAL ACK submit should return after durable acceptance")
+    };
+    let ticket = admission_ticket(55);
+    host.stage_installed_contract_submission(submission.submission_id, &ticket)
+        .expect("trusted host should stage package-supported ticketed ingress");
+    host.run_until_idle(4)
+        .expect("trusted host should tick until idle");
+
+    let outcome = {
+        let app = host.app();
+        app.observe_intent_outcome(&submission.submission_id)
+    };
+    let IntentOutcome::Applied { receipt, .. } = outcome else {
+        panic!("expected applied outcome");
+    };
+    let tick_receipt_digest = receipt.tick_receipt_digest;
+    drop(host);
+
+    let (reconstructed_runtime, _) = runtime();
+    let mut reconstructed_host = TrustedRuntimeHost::new(reconstructed_runtime, empty_engine())
+        .expect("reconstructed trusted host should initialize");
+    reconstructed_host
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("reconstructed host should reopen filesystem runtime WAL adapter");
+
+    let recovery = reconstructed_host
+        .runtime_wal()
+        .expect("runtime WAL should be configured on reconstructed host")
+        .recover_read_only()
+        .expect("filesystem runtime WAL should recover read-only");
+    let recovered_submission = recovery
+        .submissions
+        .get(&submission.submission_id)
+        .expect("submission should recover from filesystem runtime WAL");
+
+    assert_eq!(
+        recovered_submission.acceptance.submission_id,
+        submission.submission_id
+    );
+    assert_eq!(
+        recovered_submission.acceptance.canonical_envelope_digest,
+        envelope_digest
+    );
+    assert_eq!(
+        recovered_submission.posture,
+        RecoveredSubmissionPosture::DecidedApplied
+    );
+    assert_eq!(
+        recovery
+            .receipts
+            .receipt_by_submission
+            .get(&submission.submission_id),
+        Some(&tick_receipt_digest)
+    );
+    assert_eq!(
+        recovery
+            .receipts
+            .ticket_by_submission
+            .get(&submission.submission_id),
+        Some(&ticket.ticket_digest)
+    );
+    assert_eq!(recovery.certificate.committed_transactions_replayed, 2);
+    assert_eq!(recovery.certificate.obstruction_count, 0);
+    assert_eq!(
+        recovery.certificate.recovered_indexes_root,
+        recovered_submission_receipt_index_root(&recovery.submissions, &recovery.receipts)
+    );
+}
+
+#[test]
+fn filesystem_runtime_wal_ack_reconstructed_host_appends_after_recovery() {
+    let wal_root = temp_runtime_wal_dir("append-after-recovery");
+    let (initial_runtime, first_worldline, _) = runtime_pair();
+    let mut host = TrustedRuntimeHost::new(initial_runtime, empty_engine())
+        .expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("host should configure filesystem runtime WAL adapter");
+
+    let first_submission = {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(eint_envelope(first_worldline))
+            .expect("first filesystem WAL ACK submit should commit")
+    };
+    drop(host);
+
+    let (reconstructed_runtime, _, second_worldline) = runtime_pair();
+    let mut reconstructed_host = TrustedRuntimeHost::new(reconstructed_runtime, empty_engine())
+        .expect("reconstructed trusted host should initialize");
+    reconstructed_host
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("reconstructed host should reopen filesystem runtime WAL adapter");
+    let second_envelope = eint_envelope(second_worldline);
+    let second_digest = second_envelope.ingress_id();
+    let second_submission = {
+        let mut app = reconstructed_host.app();
+        app.submit_intent_with_runtime_wal_ack(second_envelope)
+            .expect("reconstructed host should append after recovered WAL cursor")
+    };
+
+    let runtime_wal = reconstructed_host
+        .runtime_wal()
+        .expect("runtime WAL should remain configured");
+    let commits = runtime_wal.commits();
+    assert_eq!(commits.len(), 2);
+    assert_eq!(commits[0].first_lsn, Lsn::from_raw(0));
+    assert_eq!(commits[0].last_lsn, Lsn::from_raw(1));
+    assert_eq!(commits[1].first_lsn, Lsn::from_raw(2));
+    assert_eq!(commits[1].last_lsn, Lsn::from_raw(3));
+    assert_eq!(
+        commits[1].previous_committed_transaction_digest,
+        commits[0].commit_digest
+    );
+
+    let recovery = runtime_wal
+        .recover_read_only()
+        .expect("filesystem runtime WAL should recover after restart append");
+    assert_eq!(recovery.certificate.committed_transactions_replayed, 2);
+    assert_eq!(
+        recovery
+            .submissions
+            .get(&first_submission.submission_id)
+            .expect("first submission should recover")
+            .posture,
+        RecoveredSubmissionPosture::AcceptedPending
+    );
+    let recovered_second = recovery
+        .submissions
+        .get(&second_submission.submission_id)
+        .expect("second submission should recover");
+    assert_eq!(
+        recovered_second.acceptance.canonical_envelope_digest,
+        second_digest
+    );
+    assert_eq!(
+        recovered_second.posture,
+        RecoveredSubmissionPosture::AcceptedPending
+    );
+}
+
+#[test]
+fn filesystem_runtime_wal_ack_commits_strict_filesystem_durability() {
+    let wal_root = temp_runtime_wal_dir("strict-durability");
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("host should configure filesystem runtime WAL adapter");
+
+    {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(eint_envelope(worldline_id))
+            .expect("filesystem WAL ACK submit should commit");
+    }
+
+    let commits = host
+        .runtime_wal()
+        .expect("runtime WAL should stay configured")
+        .commits();
+    assert_eq!(commits.len(), 1);
+    assert_eq!(
+        commits[0].durability_mode,
+        WalDurabilityMode::StrictFilesystem
+    );
+}
+
+#[test]
+fn filesystem_runtime_wal_ack_recovery_reports_uncommitted_tail_from_root() {
+    let wal_root = temp_runtime_wal_dir("tail-report");
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("host should configure filesystem runtime WAL adapter");
+    let envelope = eint_envelope(worldline_id);
+    let submission = {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(envelope.clone())
+            .expect("filesystem WAL ACK submit should commit")
+    };
+    drop(host);
+
+    let mut raw_wal =
+        TrustedRuntimeWal::from_config(TrustedRuntimeWalConfig::filesystem(&wal_root))
+            .expect("filesystem WAL should reopen for test tail append");
+    raw_wal
+        .append_uncommitted_submission_acceptance_for_test(&envelope, submission)
+        .expect("test fixture should append uncommitted filesystem tail");
+
+    let recovery = raw_wal
+        .recover_read_only()
+        .expect("read-only recovery should report uncommitted tail");
+    assert_eq!(
+        recovery.certificate.tail_posture,
+        RecoveryTailPosture::WouldTruncateAfter(Lsn::from_raw(1))
+    );
+}
+
+#[test]
+fn filesystem_runtime_wal_ack_recovery_rejects_corrupt_root() {
+    let wal_root = temp_runtime_wal_dir("corrupt-root");
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("host should configure filesystem runtime WAL adapter");
+    {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(eint_envelope(worldline_id))
+            .expect("filesystem WAL ACK submit should commit");
+    }
+    let runtime_wal = host
+        .runtime_wal()
+        .expect("runtime WAL should stay configured");
+    fs::write(
+        canonical_segment_path(&wal_root, WalSegmentId::from_raw(1)),
+        b"not-a-valid-runtime-wal-segment",
+    )
+    .expect("test should corrupt filesystem WAL segment");
+
+    let err = runtime_wal
+        .recover_read_only()
+        .expect_err("corrupt filesystem WAL should not recover as empty clean history");
+    assert!(matches!(
+        err,
+        TrustedRuntimeWalError::Recovery(
+            WalRecoveryError::Store(_) | WalRecoveryError::Validation(_)
+        )
+    ));
+}
+
+#[test]
+fn filesystem_runtime_wal_ack_multi_head_tick_rejects_before_partial_filesystem_append() {
+    let wal_root = temp_runtime_wal_dir("multi-head-atomic");
+    let (runtime, worldline_a, worldline_b) = runtime_pair();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("host should configure filesystem runtime WAL adapter");
+    host.register_contract_package(package())
+        .expect("host should install package");
+
+    let submission_a = {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(eint_envelope(worldline_a))
+            .expect("first submission acceptance should commit before ACK")
+    };
+    let submission_b = {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(eint_envelope(worldline_b))
+            .expect("second submission acceptance should commit before ACK")
+    };
+    host.stage_installed_contract_submission(submission_a.submission_id, &admission_ticket(56))
+        .expect("trusted host should stage first ticketed ingress");
+    host.stage_installed_contract_submission(submission_b.submission_id, &admission_ticket(57))
+        .expect("trusted host should stage second ticketed ingress");
+
+    let err = host
+        .run_until_idle(4)
+        .expect_err("filesystem WAL should reject multi-transaction tick batches for now");
+    assert!(matches!(
+        err,
+        TrustedRuntimeHostError::Wal(TrustedRuntimeWalError::FilesystemAtomicBatchUnsupported {
+            transaction_kind: WalTransactionKind::SchedulerTick,
+            transaction_count: 2
+        })
+    ));
+
+    let recovery = host
+        .runtime_wal()
+        .expect("runtime WAL should stay configured")
+        .recover_read_only()
+        .expect("filesystem WAL should recover accepted submissions");
+    assert_eq!(recovery.certificate.committed_transactions_replayed, 2);
+    for submission_id in [submission_a.submission_id, submission_b.submission_id] {
+        assert_eq!(
+            recovery
+                .submissions
+                .get(&submission_id)
+                .expect("submission should remain accepted pending")
+                .posture,
+            RecoveredSubmissionPosture::AcceptedPending
+        );
+    }
+    assert_eq!(
+        host.runtime_wal()
+            .expect("runtime WAL should stay configured")
+            .scheduler_tick_count(),
+        0
     );
 }
 
@@ -526,7 +882,9 @@ fn runtime_wal_ack_duplicate_without_prior_wal_backfills_acceptance() {
         .runtime_wal()
         .expect("runtime WAL should stay configured");
     assert_eq!(runtime_wal.submission_acceptance_count(), 1);
-    let mut store = runtime_wal.cloned_store();
+    let mut store = runtime_wal
+        .cloned_store()
+        .expect("in-memory runtime WAL should expose test store clone");
     let report = recover_in_memory_store(&mut store, RecoveryAccessMode::ReadOnly)
         .expect("backfilled acceptance should recover");
     let recovered = recover_submission_index(&report)
@@ -676,7 +1034,9 @@ fn runtime_wal_ack_tick_commits_receipt_transaction_before_outcome_is_observed()
         1
     );
 
-    let mut store = runtime_wal.cloned_store();
+    let mut store = runtime_wal
+        .cloned_store()
+        .expect("in-memory runtime WAL should expose test store clone");
     let recovery = recover_in_memory_store(&mut store, RecoveryAccessMode::ReadOnly)
         .expect("committed tick receipt should recover");
     let submissions = recover_submission_index(&recovery)

@@ -1056,6 +1056,16 @@ completed slice.
     - Test plan: runtime ACK readiness gate fixture plus stale-claim grep:
       `cargo xtask test-slice runtime-wal-ack`.
 
+- [x] **Slice 96: Durable runtime WAL gate**
+    - User story: As a maintainer, the release bar needs one command that joins
+      the filesystem runtime WAL ACK, filesystem failure, CLI posture,
+      stale-claim, and man-page witnesses without slowing the fast ACK gate.
+    - Acceptance criteria: release readiness names the joined filesystem
+      durability gate through `cargo xtask test-slice durable-runtime-wal`
+      while `runtime-wal-ack` remains the fast semantic gate.
+    - Test plan: joined runtime WAL durability witness:
+      `cargo xtask test-slice durable-runtime-wal`.
+
 ## Recently Completed Slice Batch
 
 1. **Contract-Aware Receipts And Readings**

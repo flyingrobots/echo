@@ -110,6 +110,8 @@ enum TestSlice {
     ContractPathRelease,
     /// Runtime WAL-backed ACK and recovery posture witness.
     RuntimeWalAck,
+    /// Release-grade filesystem runtime WAL durability witness.
+    DurableRuntimeWal,
 }
 
 #[derive(Args)]
@@ -676,6 +678,38 @@ fn build_test_slice_commands(slice: TestSlice) -> Vec<Command> {
                 "--test",
                 "trusted_runtime_host_loop_tests",
                 "runtime_wal_ack",
+            ]),
+            cargo_command([
+                "test",
+                "-p",
+                "warp-cli",
+                "--test",
+                "cli_integration",
+                "wal_submission_posture",
+            ]),
+            cargo_command(["test", "-p", "xtask", "runtime_wal_ack_stale_claims"]),
+            cargo_command(["xtask", "man-pages", "--check"]),
+        ],
+        TestSlice::DurableRuntimeWal => vec![
+            cargo_command([
+                "test",
+                "-p",
+                "warp-core",
+                "--features",
+                "native_rule_bootstrap trusted_runtime host_test",
+                "--test",
+                "trusted_runtime_host_loop_tests",
+                "filesystem_runtime_wal_ack",
+            ]),
+            cargo_command([
+                "test",
+                "-p",
+                "warp-core",
+                "--features",
+                "native_rule_bootstrap trusted_runtime host_test",
+                "--test",
+                "trusted_runtime_host_loop_tests",
+                "filesystem_runtime_wal_failure",
             ]),
             cargo_command([
                 "test",
@@ -6525,6 +6559,69 @@ mod tests {
     }
 
     #[test]
+    fn test_slice_durable_runtime_wal_stays_explicit() {
+        let commands = build_test_slice_commands(TestSlice::DurableRuntimeWal);
+        assert_eq!(commands.len(), 5);
+
+        let (program, args) = command_program_and_args(&commands[0]);
+        assert_eq!(program, "cargo");
+        assert_eq!(
+            args,
+            vec![
+                "test",
+                "-p",
+                "warp-core",
+                "--features",
+                "native_rule_bootstrap trusted_runtime host_test",
+                "--test",
+                "trusted_runtime_host_loop_tests",
+                "filesystem_runtime_wal_ack",
+            ]
+        );
+
+        let (program, args) = command_program_and_args(&commands[1]);
+        assert_eq!(program, "cargo");
+        assert_eq!(
+            args,
+            vec![
+                "test",
+                "-p",
+                "warp-core",
+                "--features",
+                "native_rule_bootstrap trusted_runtime host_test",
+                "--test",
+                "trusted_runtime_host_loop_tests",
+                "filesystem_runtime_wal_failure",
+            ]
+        );
+
+        let (program, args) = command_program_and_args(&commands[2]);
+        assert_eq!(program, "cargo");
+        assert_eq!(
+            args,
+            vec![
+                "test",
+                "-p",
+                "warp-cli",
+                "--test",
+                "cli_integration",
+                "wal_submission_posture",
+            ]
+        );
+
+        let (program, args) = command_program_and_args(&commands[3]);
+        assert_eq!(program, "cargo");
+        assert_eq!(
+            args,
+            vec!["test", "-p", "xtask", "runtime_wal_ack_stale_claims"]
+        );
+
+        let (program, args) = command_program_and_args(&commands[4]);
+        assert_eq!(program, "cargo");
+        assert_eq!(args, vec!["xtask", "man-pages", "--check"]);
+    }
+
+    #[test]
     fn runtime_wal_ack_stale_claims_stay_current() -> Result<(), Box<dyn std::error::Error>> {
         let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
@@ -6564,9 +6661,11 @@ mod tests {
         let bearing = fs::read_to_string(repo_root.join("docs/BEARING.md"))?;
         assert!(bearing.contains("Runtime ACK drift gate"));
         assert!(bearing.contains("cargo xtask test-slice runtime-wal-ack"));
+        assert!(bearing.contains("cargo xtask test-slice durable-runtime-wal"));
 
         let workflows = fs::read_to_string(repo_root.join("docs/workflows.md"))?;
         assert!(workflows.contains("cargo xtask test-slice runtime-wal-ack"));
+        assert!(workflows.contains("cargo xtask test-slice durable-runtime-wal"));
         Ok(())
     }
 

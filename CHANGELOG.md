@@ -7,6 +7,11 @@
 
 ### Added
 
+- `cargo xtask test-slice durable-runtime-wal` now runs the release-grade
+  filesystem runtime WAL durability gate, joining filesystem ACK recovery,
+  filesystem failure atomicity, CLI submission posture JSON, stale-claim, and
+  generated man-page checks while leaving `runtime-wal-ack` as the fast
+  semantic gate.
 - `warp-core` trusted runtime hosts now configure runtime WAL through
   `TrustedRuntimeWalConfig`, including in-memory and filesystem-backed
   adapters. `TrustedRuntimeWalStoreKind` exposes the configured adapter kind as

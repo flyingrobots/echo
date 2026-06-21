@@ -162,7 +162,7 @@ fn result_node_id() -> NodeId {
 }
 
 fn contract_matches(view: GraphView<'_>, scope: &NodeId) -> bool {
-    warp_core::eint_vars_for_op(view, scope, MUTATION_OP_ID).is_some()
+    warp_core::eint_vars_for_op(view, scope, MUTATION_OP_ID) == Some(MUTATION_VARS)
 }
 
 fn contract_execute(view: GraphView<'_>, _scope: &NodeId, delta: &mut TickDelta) {

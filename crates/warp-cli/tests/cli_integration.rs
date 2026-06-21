@@ -477,6 +477,9 @@ fn wal_submission_posture_runtime_ack_root_reports_decided_applied_json() -> Tes
     Ok(())
 }
 
+// Runtime-produced filesystem roots cover accepted/applied today. Rejected and
+// obstructed stay as direct WAL taxonomy fixtures until the trusted host can
+// emit those decisions without expanding this CLI contract slice.
 #[test]
 fn wal_submission_posture_json_reports_obstructed_recovered_status() -> TestResult {
     let temp =

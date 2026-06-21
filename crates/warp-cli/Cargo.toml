@@ -29,8 +29,15 @@ warp-core = { workspace = true }
 
 [dev-dependencies]
 assert_cmd = "2"
+echo-registry-api = { workspace = true }
+echo-wasm-abi = { workspace = true }
 predicates = "3"
 tempfile = "3"
+warp-core = { workspace = true, features = [
+    "native_rule_bootstrap",
+    "trusted_runtime",
+    "host_test",
+] }
 
 
 [lints]

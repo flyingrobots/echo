@@ -2027,6 +2027,8 @@ dependencies = [
  "bytes",
  "clap",
  "comfy-table",
+ "echo-registry-api",
+ "echo-wasm-abi",
  "hex",
  "predicates",
  "regex",

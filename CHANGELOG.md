@@ -161,8 +161,8 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 - `xtask test-slice` now includes `runtime-wal-ack`, a narrow runtime WAL
   ACK witness. The slice runs WAL-backed app-facing submission acceptance,
   scheduler tick receipt commit-before-publish, recovered runtime indexes,
-  CLI submission-posture JSON, stale-claim guard, and generated man-page
-  checks.
+  CLI submission-posture JSON for filesystem runtime WAL roots, stale-claim
+  guard, and generated man-page checks.
 - The docs now include an executable local contract-host quickstart and a
   v0.1.0 authority-boundary audit. The quickstart points developers at
   `cargo xtask test-slice contract-path-release`, names the app-facing and

@@ -912,6 +912,11 @@ Acceptance criteria:
 - `TrustedRuntimeHost` owns the runtime WAL adapter.
 - `TrustedRuntimeHost` configures the adapter through `TrustedRuntimeWalConfig`.
 - The adapter can be backed by a host-owned filesystem WAL root.
+- Reopened filesystem adapters continue the committed LSN and commit-digest
+  chain.
+- Filesystem read-only recovery preserves torn/corrupt segment posture.
+- Filesystem-backed scheduler batches reject unsafe multi-transaction rollback
+  until an atomic filesystem batch transaction exists.
 - `TrustedRuntimeApp` exposes no WAL append or tick authority.
 - The adapter can be inspected by host tests as read-only evidence.
 
@@ -920,6 +925,10 @@ Test plan:
 - `runtime_wal_ack_adapter_is_configured_by_trusted_host_boundary`
 - `runtime_wal_ack_submit_commits_acceptance_before_returning_handle`
 - `filesystem_runtime_wal_ack_reconstructs_submission_and_tick_from_root`
+- `filesystem_runtime_wal_ack_reconstructed_host_appends_after_recovery`
+- `filesystem_runtime_wal_ack_recovery_reports_uncommitted_tail_from_root`
+- `filesystem_runtime_wal_ack_recovery_rejects_corrupt_root`
+- `filesystem_runtime_wal_ack_multi_head_tick_rejects_before_partial_filesystem_append`
 
 ## Slice 87: Submission Acceptance Transaction Wiring
 

@@ -75,6 +75,10 @@ The runtime WAL adapter is configured through the trusted host, not through
 but it never receives WAL append, flush, truncate, manifest, tick, or recovery
 authority. Filesystem WAL roots are likewise host-owned configuration: app code
 receives submission handles and observations, not store handles or paths.
+Reconstructed filesystem adapters derive their next writer cursor from
+committed WAL history before accepting new appends, and read-only recovery uses
+filesystem recovery so torn or corrupt segment state remains visible in the
+recovery posture.
 
 ## Non-Goals
 

@@ -14,8 +14,9 @@
   submissions after host reconstruction, reopened filesystem adapters continue
   the committed LSN/digest chain, filesystem commits are marked
   `StrictFilesystem`, read-only filesystem recovery preserves torn/corrupt tail
-  posture, and `TrustedRuntimeApp` remains limited to submit and observe
-  surfaces.
+  posture, host-test-only filesystem fault plans inject append, flush, and
+  manifest failures to prove submission/tick rollback, and `TrustedRuntimeApp`
+  remains limited to submit and observe surfaces.
 - Added an Echo 1.0 release contract that records the four binary release gates,
   compatibility policy, evidence requirements, and GitHub Project boundary
   without carrying live roadmap state in the repository.

@@ -2635,6 +2635,65 @@ impl WalDoctorReport {
     }
 }
 
+/// Filesystem WAL operation that may be faulted by host-test fixtures.
+#[cfg(any(test, feature = "host_test"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FilesystemWalFaultTarget {
+    /// Fail the next frame append before writing segment bytes.
+    AppendFrame,
+    /// Fail the next commit flush before writing the commit marker.
+    FlushCommit,
+    /// Fail the next manifest publish before writing manifest material.
+    PublishManifest,
+}
+
+/// Host-test-only filesystem WAL fault plan.
+#[cfg(any(test, feature = "host_test"))]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FilesystemWalFaultPlan {
+    append_frame: u32,
+    flush_commit: u32,
+    publish_manifest: u32,
+}
+
+#[cfg(any(test, feature = "host_test"))]
+impl FilesystemWalFaultPlan {
+    /// Builds a plan that fails the next operation for `target`.
+    #[must_use]
+    pub const fn fail_next(target: FilesystemWalFaultTarget) -> Self {
+        match target {
+            FilesystemWalFaultTarget::AppendFrame => Self {
+                append_frame: 1,
+                flush_commit: 0,
+                publish_manifest: 0,
+            },
+            FilesystemWalFaultTarget::FlushCommit => Self {
+                append_frame: 0,
+                flush_commit: 1,
+                publish_manifest: 0,
+            },
+            FilesystemWalFaultTarget::PublishManifest => Self {
+                append_frame: 0,
+                flush_commit: 0,
+                publish_manifest: 1,
+            },
+        }
+    }
+
+    fn should_fail(&mut self, target: FilesystemWalFaultTarget) -> bool {
+        let remaining = match target {
+            FilesystemWalFaultTarget::AppendFrame => &mut self.append_frame,
+            FilesystemWalFaultTarget::FlushCommit => &mut self.flush_commit,
+            FilesystemWalFaultTarget::PublishManifest => &mut self.publish_manifest,
+        };
+        if *remaining == 0 {
+            return false;
+        }
+        *remaining -= 1;
+        true
+    }
+}
+
 /// Local filesystem WAL store backed by segment files.
 #[derive(Clone, Debug)]
 pub struct FilesystemWalStore {
@@ -2645,6 +2704,8 @@ pub struct FilesystemWalStore {
     epoch_closures: BTreeMap<WriterEpochId, WriterEpochClosure>,
     manifests: Vec<WalManifest>,
     sync_evidence: Vec<FilesystemSyncEvidence>,
+    #[cfg(any(test, feature = "host_test"))]
+    fault_plan: FilesystemWalFaultPlan,
 }
 
 impl FilesystemWalStore {
@@ -2687,7 +2748,27 @@ impl FilesystemWalStore {
             epoch_closures: BTreeMap::new(),
             manifests: Vec::new(),
             sync_evidence,
+            #[cfg(any(test, feature = "host_test"))]
+            fault_plan: FilesystemWalFaultPlan::default(),
         })
+    }
+
+    /// Opens a filesystem WAL store with an injected host-test fault plan.
+    #[cfg(any(test, feature = "host_test"))]
+    pub fn open_with_fault_plan_for_test(
+        root: impl AsRef<Path>,
+        segment_id: WalSegmentId,
+        fault_plan: FilesystemWalFaultPlan,
+    ) -> Result<Self, WalStoreError> {
+        let mut store = Self::open(root, segment_id)?;
+        store.fault_plan = fault_plan;
+        Ok(store)
+    }
+
+    /// Replaces the host-test fault plan for this filesystem WAL store.
+    #[cfg(any(test, feature = "host_test"))]
+    pub fn replace_fault_plan_for_test(&mut self, fault_plan: FilesystemWalFaultPlan) {
+        self.fault_plan = fault_plan;
     }
 
     /// Returns the active segment path.
@@ -2806,6 +2887,15 @@ impl WalStorePort for FilesystemWalStore {
             });
         }
         frame.validate_integrity()?;
+        #[cfg(any(test, feature = "host_test"))]
+        if self
+            .fault_plan
+            .should_fail(FilesystemWalFaultTarget::AppendFrame)
+        {
+            return Err(WalStoreError::Io(
+                "injected filesystem WAL append_frame failure".to_owned(),
+            ));
+        }
         append_segment_record(&self.segment_path(), DiskWalRecord::Frame(&frame), false)
     }
 
@@ -2821,6 +2911,17 @@ impl WalStorePort for FilesystemWalStore {
         if active_epoch.epoch_id != epoch_id || commit.writer_epoch != epoch_id {
             return Err(WalStoreError::WriterEpochMismatch);
         }
+        #[cfg(any(test, feature = "host_test"))]
+        if self
+            .fault_plan
+            .should_fail(FilesystemWalFaultTarget::FlushCommit)
+        {
+            return Err(WalStoreError::Io(
+                "injected filesystem WAL flush_commit failure".to_owned(),
+            ));
+        }
+        let transaction_id = commit.transaction_id;
+        append_segment_record(&self.segment_path(), DiskWalRecord::Commit(&commit), true)?;
         self.epoch_closures.insert(
             epoch_id,
             WriterEpochClosure {
@@ -2828,8 +2929,6 @@ impl WalStorePort for FilesystemWalStore {
                 final_commit_digest: Some(commit.commit_digest),
             },
         );
-        let transaction_id = commit.transaction_id;
-        append_segment_record(&self.segment_path(), DiskWalRecord::Commit(&commit), true)?;
         self.sync_evidence.push(FilesystemSyncEvidence::transaction(
             FilesystemSyncBoundary::CommitFileSynced,
             transaction_id,
@@ -2888,6 +2987,15 @@ impl WalStorePort for FilesystemWalStore {
             .ok_or(WalStoreError::NoActiveWriterEpoch)?;
         if active_epoch.epoch_id != epoch_id {
             return Err(WalStoreError::WriterEpochMismatch);
+        }
+        #[cfg(any(test, feature = "host_test"))]
+        if self
+            .fault_plan
+            .should_fail(FilesystemWalFaultTarget::PublishManifest)
+        {
+            return Err(WalStoreError::Io(
+                "injected filesystem WAL publish_manifest failure".to_owned(),
+            ));
         }
         write_manifest_atomic(&self.root, &manifest)?;
         self.sync_evidence.push(FilesystemSyncEvidence::unscoped(

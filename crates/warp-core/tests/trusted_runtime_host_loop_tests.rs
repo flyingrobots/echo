@@ -16,13 +16,15 @@ use echo_registry_api::{
 use warp_core::{
     causal_wal::{
         canonical_segment_path, recover_in_memory_store, recover_receipt_index,
-        recover_submission_index, recovered_submission_receipt_index_root, Lsn,
-        RecoveredSubmissionPosture, RecoveryAccessMode, RecoveryTailPosture, WalBuildError,
-        WalDurabilityMode, WalRecoveryError, WalSegmentId, WalTransactionKind,
+        recover_submission_index, recovered_submission_receipt_index_root, FilesystemWalFaultPlan,
+        FilesystemWalFaultTarget, FilesystemWalStore, Lsn, RecoveredSubmissionPosture,
+        RecoveryAccessMode, RecoveryTailPosture, WalBuildError, WalDurabilityMode, WalManifest,
+        WalRecoveryError, WalSegmentId, WalStoreError, WalStorePort, WalTransactionKind,
+        WriterEpochId, WriterEpochRequest,
     },
     make_head_id, make_intent_kind, make_node_id, make_type_id, AuthoredObserverPlan,
     ContractMutationHandler, ContractOperationKind, ContractPackageIdentity, ContractQueryObserver,
-    ContractQueryObserverResult, EngineBuilder, GraphStore, GraphView, InboxPolicy,
+    ContractQueryObserverResult, EngineBuilder, GraphStore, GraphView, Hash, InboxPolicy,
     IngressEnvelope, IngressTarget, IntentOutcome, NodeId, NodeRecord, ObservationAt,
     ObservationCoordinate, ObservationFrame, ObservationPayload, ObservationProjection,
     ObservationReadBudget, ObservationRequest, ObserverPlanId, OpticAdmissionTicket,
@@ -77,6 +79,27 @@ fn deterministic_test_dir(prefix: &str, label: &str) -> PathBuf {
 
 fn temp_runtime_wal_dir(label: &str) -> PathBuf {
     deterministic_test_dir("echo-trusted-runtime-wal", label)
+}
+
+fn filesystem_wal_failure_digest(label: &str) -> Hash {
+    blake3::hash(format!("trusted-runtime-wal-failure:{label}").as_bytes()).into()
+}
+
+fn filesystem_wal_failure_epoch_id() -> WriterEpochId {
+    WriterEpochId::from_hash(filesystem_wal_failure_digest("epoch"))
+}
+
+fn filesystem_wal_failure_epoch_request() -> WriterEpochRequest {
+    WriterEpochRequest {
+        epoch_id: filesystem_wal_failure_epoch_id(),
+        storage_fencing_token: filesystem_wal_failure_digest("fence"),
+        process_identity: filesystem_wal_failure_digest("process"),
+        host_identity: filesystem_wal_failure_digest("host"),
+        started_at_lsn: Lsn::from_raw(0),
+        previous_epoch_id: None,
+        previous_epoch_final_commit_digest: None,
+        lease_or_lock_evidence: filesystem_wal_failure_digest("lease"),
+    }
 }
 
 static INCREMENT_ARGS: &[ArgDef] = &[ArgDef {
@@ -815,6 +838,245 @@ fn filesystem_runtime_wal_ack_multi_head_tick_rejects_before_partial_filesystem_
             .scheduler_tick_count(),
         0
     );
+}
+
+#[test]
+fn filesystem_runtime_wal_failure_submission_append_rolls_back_pre_ack_visibility() {
+    let wal_root = temp_runtime_wal_dir("failure-submission-append");
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_runtime_wal(
+        TrustedRuntimeWalConfig::filesystem_with_fault_plan_for_test(
+            &wal_root,
+            FilesystemWalFaultPlan::fail_next(FilesystemWalFaultTarget::AppendFrame),
+        ),
+    )
+    .expect("host should configure faulting filesystem runtime WAL adapter");
+
+    let err = {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(eint_envelope(worldline_id))
+            .expect_err("injected append failure should reject pre-ACK submission")
+    };
+    assert!(matches!(
+        err,
+        TrustedRuntimeHostError::Wal(TrustedRuntimeWalError::Store(WalStoreError::Io(
+            message
+        ))) if message.contains("injected filesystem WAL append_frame failure")
+    ));
+    assert_eq!(host.runtime().witnessed_submission_count(), 0);
+    let recovery = host
+        .runtime_wal()
+        .expect("runtime WAL should stay configured")
+        .recover_read_only()
+        .expect("failed append should leave a clean empty filesystem WAL");
+    assert_eq!(recovery.certificate.committed_transactions_replayed, 0);
+    assert!(recovery.submissions.is_empty());
+}
+
+#[test]
+fn filesystem_runtime_wal_failure_submission_flush_rolls_back_pre_ack_visibility() {
+    let wal_root = temp_runtime_wal_dir("failure-submission-flush");
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_runtime_wal(
+        TrustedRuntimeWalConfig::filesystem_with_fault_plan_for_test(
+            &wal_root,
+            FilesystemWalFaultPlan::fail_next(FilesystemWalFaultTarget::FlushCommit),
+        ),
+    )
+    .expect("host should configure faulting filesystem runtime WAL adapter");
+
+    let err = {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(eint_envelope(worldline_id))
+            .expect_err("injected flush failure should reject pre-ACK submission")
+    };
+    assert!(matches!(
+        err,
+        TrustedRuntimeHostError::Wal(TrustedRuntimeWalError::Store(WalStoreError::Io(
+            message
+        ))) if message.contains("injected filesystem WAL flush_commit failure")
+    ));
+    assert_eq!(host.runtime().witnessed_submission_count(), 0);
+    let recovery = host
+        .runtime_wal()
+        .expect("runtime WAL should stay configured")
+        .recover_read_only()
+        .expect("failed flush should leave no committed submission after repair");
+    assert_eq!(recovery.certificate.committed_transactions_replayed, 0);
+    assert!(recovery.submissions.is_empty());
+}
+
+#[test]
+fn filesystem_runtime_wal_failure_tick_append_rolls_back_visible_outcome() {
+    let wal_root = temp_runtime_wal_dir("failure-tick-append");
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("host should configure filesystem runtime WAL adapter");
+    host.register_contract_package(package())
+        .expect("host should install package");
+
+    let submission = {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(eint_envelope(worldline_id))
+            .expect("submission acceptance should commit before ACK")
+    };
+    host.stage_installed_contract_submission(submission.submission_id, &admission_ticket(106))
+        .expect("trusted host should stage package-supported ticketed ingress");
+    host.inject_runtime_wal_filesystem_fault_for_test(FilesystemWalFaultPlan::fail_next(
+        FilesystemWalFaultTarget::AppendFrame,
+    ))
+    .expect("host should inject filesystem append failure");
+
+    let err = host
+        .run_until_idle(4)
+        .expect_err("injected append failure should reject tick publication");
+    assert!(matches!(
+        err,
+        TrustedRuntimeHostError::Wal(TrustedRuntimeWalError::Store(WalStoreError::Io(
+            message
+        ))) if message.contains("injected filesystem WAL append_frame failure")
+    ));
+    assert_eq!(host.runtime().receipt_correlation_count(), 0);
+    assert_eq!(
+        host.runtime_wal()
+            .expect("runtime WAL should stay configured")
+            .scheduler_tick_count(),
+        0
+    );
+    let outcome = {
+        let app = host.app();
+        app.observe_intent_outcome(&submission.submission_id)
+    };
+    assert!(matches!(
+        outcome,
+        IntentOutcome::Pending {
+            submission_id,
+            ticketed_ingress_id: Some(_),
+            ..
+        } if submission_id == submission.submission_id
+    ));
+    let recovery = host
+        .runtime_wal()
+        .expect("runtime WAL should stay configured")
+        .recover_read_only()
+        .expect("failed tick append should leave only accepted submission evidence");
+    assert_eq!(recovery.certificate.committed_transactions_replayed, 1);
+    assert_eq!(
+        recovery
+            .submissions
+            .get(&submission.submission_id)
+            .expect("submission should remain accepted pending")
+            .posture,
+        RecoveredSubmissionPosture::AcceptedPending
+    );
+    assert!(recovery.receipts.receipt_by_submission.is_empty());
+}
+
+#[test]
+fn filesystem_runtime_wal_failure_tick_flush_rolls_back_visible_outcome() {
+    let wal_root = temp_runtime_wal_dir("failure-tick-flush");
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("host should configure filesystem runtime WAL adapter");
+    host.register_contract_package(package())
+        .expect("host should install package");
+
+    let submission = {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(eint_envelope(worldline_id))
+            .expect("submission acceptance should commit before ACK")
+    };
+    host.stage_installed_contract_submission(submission.submission_id, &admission_ticket(107))
+        .expect("trusted host should stage package-supported ticketed ingress");
+    host.inject_runtime_wal_filesystem_fault_for_test(FilesystemWalFaultPlan::fail_next(
+        FilesystemWalFaultTarget::FlushCommit,
+    ))
+    .expect("host should inject filesystem flush failure");
+
+    let err = host
+        .run_until_idle(4)
+        .expect_err("injected flush failure should reject tick publication");
+    assert!(matches!(
+        err,
+        TrustedRuntimeHostError::Wal(TrustedRuntimeWalError::Store(WalStoreError::Io(
+            message
+        ))) if message.contains("injected filesystem WAL flush_commit failure")
+    ));
+    assert_eq!(host.runtime().receipt_correlation_count(), 0);
+    assert_eq!(
+        host.runtime_wal()
+            .expect("runtime WAL should stay configured")
+            .scheduler_tick_count(),
+        0
+    );
+
+    let outcome = {
+        let app = host.app();
+        app.observe_intent_outcome(&submission.submission_id)
+    };
+    assert!(matches!(
+        outcome,
+        IntentOutcome::Pending {
+            submission_id,
+            ticketed_ingress_id: Some(_),
+            ..
+        } if submission_id == submission.submission_id
+    ));
+    let recovery = host
+        .runtime_wal()
+        .expect("runtime WAL should stay configured")
+        .recover_read_only()
+        .expect("failed tick flush should leave only accepted submission evidence");
+    assert_eq!(recovery.certificate.committed_transactions_replayed, 1);
+    assert_eq!(
+        recovery
+            .submissions
+            .get(&submission.submission_id)
+            .expect("submission should remain accepted pending")
+            .posture,
+        RecoveredSubmissionPosture::AcceptedPending
+    );
+    assert!(recovery.receipts.receipt_by_submission.is_empty());
+}
+
+#[test]
+fn filesystem_runtime_wal_failure_manifest_publish_reports_store_error() {
+    let wal_root = temp_runtime_wal_dir("failure-manifest-publish");
+    let mut store = FilesystemWalStore::open_with_fault_plan_for_test(
+        &wal_root,
+        WalSegmentId::from_raw(1),
+        FilesystemWalFaultPlan::fail_next(FilesystemWalFaultTarget::PublishManifest),
+    )
+    .expect("faulting filesystem WAL store should open");
+    store
+        .acquire_writer_epoch(filesystem_wal_failure_epoch_request())
+        .expect("test writer epoch should acquire");
+    let err = store
+        .publish_manifest(
+            filesystem_wal_failure_epoch_id(),
+            WalManifest {
+                manifest_digest: filesystem_wal_failure_digest("manifest"),
+                last_committed_lsn: None,
+                last_commit_digest: None,
+                sealed_segment_count: 1,
+            },
+        )
+        .expect_err("injected manifest failure should be reported");
+
+    assert!(matches!(
+        err,
+        WalStoreError::Io(message)
+            if message.contains("injected filesystem WAL publish_manifest failure")
+    ));
+    assert!(!wal_root.join("manifest.ecwal").exists());
 }
 
 #[test]

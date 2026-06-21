@@ -37,6 +37,9 @@ use crate::{
 };
 use crate::{Hash, HistoryError};
 
+#[cfg(any(test, feature = "host_test"))]
+use crate::causal_wal::FilesystemWalFaultPlan;
+
 const TRUSTED_RUNTIME_WAL_DOMAIN: &[u8] = b"echo:trusted-runtime-wal:v1\0";
 
 /// Error returned by the reference trusted host loop.
@@ -170,6 +173,26 @@ impl TrustedRuntimeWalConfig {
             store: TrustedRuntimeWalStoreConfig::Filesystem {
                 root: root.as_ref().to_path_buf(),
                 segment_id: WalSegmentId::from_raw(1),
+                #[cfg(any(test, feature = "host_test"))]
+                fault_plan: None,
+            },
+            next_lsn: Lsn::from_raw(0),
+        }
+    }
+
+    /// Builds a filesystem-backed runtime WAL configuration with a host-test
+    /// fault plan.
+    #[cfg(any(test, feature = "host_test"))]
+    #[must_use]
+    pub fn filesystem_with_fault_plan_for_test(
+        root: impl AsRef<Path>,
+        fault_plan: FilesystemWalFaultPlan,
+    ) -> Self {
+        Self {
+            store: TrustedRuntimeWalStoreConfig::Filesystem {
+                root: root.as_ref().to_path_buf(),
+                segment_id: WalSegmentId::from_raw(1),
+                fault_plan: Some(fault_plan),
             },
             next_lsn: Lsn::from_raw(0),
         }
@@ -195,6 +218,8 @@ enum TrustedRuntimeWalStoreConfig {
     Filesystem {
         root: PathBuf,
         segment_id: WalSegmentId,
+        #[cfg(any(test, feature = "host_test"))]
+        fault_plan: Option<FilesystemWalFaultPlan>,
     },
 }
 
@@ -312,6 +337,20 @@ impl TrustedRuntimeHost {
     #[cfg(any(test, feature = "host_test"))]
     pub fn replace_runtime_wal_for_test(&mut self, runtime_wal: TrustedRuntimeWal) {
         self.runtime_wal = Some(runtime_wal);
+    }
+
+    /// Replaces the filesystem WAL fault plan for targeted host tests.
+    #[cfg(any(test, feature = "host_test"))]
+    pub fn inject_runtime_wal_filesystem_fault_for_test(
+        &mut self,
+        fault_plan: FilesystemWalFaultPlan,
+    ) -> Result<(), TrustedRuntimeHostError> {
+        let runtime_wal = self
+            .runtime_wal
+            .as_mut()
+            .ok_or(TrustedRuntimeHostError::RuntimeWalUnavailable)?;
+        runtime_wal.replace_filesystem_fault_plan_for_test(fault_plan)?;
+        Ok(())
     }
 
     /// Returns the app-facing surface. This surface can submit and observe, but
@@ -622,6 +661,16 @@ impl TrustedRuntimeWal {
         self.store.is_filesystem()
     }
 
+    #[cfg(any(test, feature = "host_test"))]
+    fn replace_filesystem_fault_plan_for_test(
+        &mut self,
+        fault_plan: FilesystemWalFaultPlan,
+    ) -> Result<(), TrustedRuntimeWalError> {
+        self.store
+            .replace_filesystem_fault_plan_for_test(fault_plan)?;
+        Ok(())
+    }
+
     fn refresh_cursor_from_store_for_writer(&mut self) -> Result<(), TrustedRuntimeWalError> {
         let report = self.store.recover_for_writer()?;
         let cursor = TrustedRuntimeWalCursor::from_recovery(&report)?;
@@ -812,9 +861,23 @@ impl TrustedRuntimeWalStore {
     fn open(config: TrustedRuntimeWalStoreConfig) -> Result<Self, TrustedRuntimeWalError> {
         match config {
             TrustedRuntimeWalStoreConfig::InMemory => Ok(Self::InMemory(InMemoryWalStore::new())),
-            TrustedRuntimeWalStoreConfig::Filesystem { root, segment_id } => Ok(Self::Filesystem(
-                FilesystemWalStore::open(root, segment_id)?,
-            )),
+            TrustedRuntimeWalStoreConfig::Filesystem {
+                root,
+                segment_id,
+                #[cfg(any(test, feature = "host_test"))]
+                fault_plan,
+            } => {
+                #[cfg(any(test, feature = "host_test"))]
+                let store = match fault_plan {
+                    Some(plan) => {
+                        FilesystemWalStore::open_with_fault_plan_for_test(root, segment_id, plan)?
+                    }
+                    None => FilesystemWalStore::open(root, segment_id)?,
+                };
+                #[cfg(not(any(test, feature = "host_test")))]
+                let store = FilesystemWalStore::open(root, segment_id)?;
+                Ok(Self::Filesystem(store))
+            }
         }
     }
 
@@ -850,6 +913,22 @@ impl TrustedRuntimeWalStore {
             Self::InMemory(store) => recover_runtime_wal_store_read_only(store),
             Self::Filesystem(store) => {
                 recover_filesystem_store(store.root(), RecoveryAccessMode::ReadOnly)
+            }
+        }
+    }
+
+    #[cfg(any(test, feature = "host_test"))]
+    fn replace_filesystem_fault_plan_for_test(
+        &mut self,
+        fault_plan: FilesystemWalFaultPlan,
+    ) -> Result<(), WalStoreError> {
+        match self {
+            Self::InMemory(_) => Err(WalStoreError::Io(
+                "cannot inject filesystem WAL fault plan into in-memory store".to_owned(),
+            )),
+            Self::Filesystem(store) => {
+                store.replace_fault_plan_for_test(fault_plan);
+                Ok(())
             }
         }
     }

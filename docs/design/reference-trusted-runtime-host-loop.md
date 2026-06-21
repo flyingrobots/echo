@@ -79,6 +79,8 @@ Reconstructed filesystem adapters derive their next writer cursor from
 committed WAL history before accepting new appends, and read-only recovery uses
 filesystem recovery so torn or corrupt segment state remains visible in the
 recovery posture.
+Filesystem append, flush, and manifest fault injection is host-test-only
+evidence for this boundary; it is not exposed through `TrustedRuntimeApp`.
 
 ## Non-Goals
 

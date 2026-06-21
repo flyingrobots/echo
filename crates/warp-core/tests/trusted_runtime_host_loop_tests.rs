@@ -4,6 +4,11 @@
 #![cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 #![allow(clippy::expect_used, clippy::panic)]
 
+use std::fs;
+use std::io::ErrorKind;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use echo_registry_api::{
     ArgDef, ContractArtifactVerificationPolicy, ObjectDef, OpDef, OpKind, RegistryInfo,
     RegistryProvider,
@@ -26,6 +31,8 @@ use warp_core::{
     WriterHeadKey, OPTIC_ADMISSION_TICKET_KIND, OPTIC_ARTIFACT_HANDLE_KIND,
 };
 
+static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+
 const SCHEMA_SHA256_HEX: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const MUTATION_OP_ID: u32 = 6001;
 const QUERY_OP_ID: u32 = 6002;
@@ -38,6 +45,38 @@ const MUTATION_RULE_NAME: &str =
     "cmd/contract/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/6001/increment";
 const MUTATION_RULE_ID_LABEL: &str =
     "rule:cmd/contract/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/6001/increment";
+
+fn deterministic_test_dir(prefix: &str, label: &str) -> PathBuf {
+    let root = PathBuf::from("target").join("warp-core-test-tmp");
+    fs::create_dir_all(&root).expect("test temp root should be created");
+    for _ in 0..1024 {
+        let unique = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir = root.join(format!("{prefix}-{label}-{unique}"));
+        match fs::create_dir(&dir) {
+            Ok(()) => return dir,
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => {
+                fs::remove_dir_all(&dir).expect("stale test dir should be removable");
+                match fs::create_dir(&dir) {
+                    Ok(()) => return dir,
+                    Err(retry_error) if retry_error.kind() == ErrorKind::AlreadyExists => {}
+                    Err(retry_error) => panic!(
+                        "failed to recreate deterministic test directory {}: {retry_error}",
+                        dir.display()
+                    ),
+                }
+            }
+            Err(error) => panic!(
+                "failed to create deterministic test directory {}: {error}",
+                dir.display()
+            ),
+        }
+    }
+    panic!("exhausted deterministic test directory attempts for {prefix}-{label}");
+}
+
+fn temp_runtime_wal_dir(label: &str) -> PathBuf {
+    deterministic_test_dir("echo-trusted-runtime-wal", label)
+}
 
 static INCREMENT_ARGS: &[ArgDef] = &[ArgDef {
     name: "input",
@@ -414,7 +453,9 @@ fn runtime_wal_ack_submit_commits_acceptance_before_returning_handle() {
     assert_eq!(runtime_wal.submission_acceptance_count(), 1);
     assert_eq!(runtime_wal.commits().len(), 1);
 
-    let mut store = runtime_wal.cloned_store();
+    let mut store = runtime_wal
+        .cloned_store()
+        .expect("in-memory runtime WAL should expose test store clone");
     let report = recover_in_memory_store(&mut store, RecoveryAccessMode::ReadOnly)
         .expect("committed acceptance should recover");
     let recovered = recover_submission_index(&report)
@@ -458,6 +499,98 @@ fn runtime_wal_ack_adapter_is_configured_by_trusted_host_boundary() {
             .expect("submission should recover")
             .posture,
         RecoveredSubmissionPosture::AcceptedPending
+    );
+}
+
+#[test]
+fn filesystem_runtime_wal_ack_reconstructs_submission_and_tick_from_root() {
+    let wal_root = temp_runtime_wal_dir("ack-recovery");
+    let (initial_runtime, worldline_id) = runtime();
+    let mut host = TrustedRuntimeHost::new(initial_runtime, empty_engine())
+        .expect("trusted host should initialize");
+
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("host should configure filesystem runtime WAL adapter");
+    assert_eq!(
+        host.runtime_wal()
+            .expect("runtime WAL should be configured")
+            .store_kind(),
+        TrustedRuntimeWalStoreKind::Filesystem
+    );
+    host.register_contract_package(package())
+        .expect("host should install package");
+
+    let envelope = eint_envelope(worldline_id);
+    let envelope_digest = envelope.ingress_id();
+    let submission = {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(envelope)
+            .expect("filesystem WAL ACK submit should return after durable acceptance")
+    };
+    let ticket = admission_ticket(55);
+    host.stage_installed_contract_submission(submission.submission_id, &ticket)
+        .expect("trusted host should stage package-supported ticketed ingress");
+    host.run_until_idle(4)
+        .expect("trusted host should tick until idle");
+
+    let outcome = {
+        let app = host.app();
+        app.observe_intent_outcome(&submission.submission_id)
+    };
+    let IntentOutcome::Applied { receipt, .. } = outcome else {
+        panic!("expected applied outcome");
+    };
+    let tick_receipt_digest = receipt.tick_receipt_digest;
+    drop(host);
+
+    let (reconstructed_runtime, _) = runtime();
+    let mut reconstructed_host = TrustedRuntimeHost::new(reconstructed_runtime, empty_engine())
+        .expect("reconstructed trusted host should initialize");
+    reconstructed_host
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("reconstructed host should reopen filesystem runtime WAL adapter");
+
+    let recovery = reconstructed_host
+        .runtime_wal()
+        .expect("runtime WAL should be configured on reconstructed host")
+        .recover_read_only()
+        .expect("filesystem runtime WAL should recover read-only");
+    let recovered_submission = recovery
+        .submissions
+        .get(&submission.submission_id)
+        .expect("submission should recover from filesystem runtime WAL");
+
+    assert_eq!(
+        recovered_submission.acceptance.submission_id,
+        submission.submission_id
+    );
+    assert_eq!(
+        recovered_submission.acceptance.canonical_envelope_digest,
+        envelope_digest
+    );
+    assert_eq!(
+        recovered_submission.posture,
+        RecoveredSubmissionPosture::DecidedApplied
+    );
+    assert_eq!(
+        recovery
+            .receipts
+            .receipt_by_submission
+            .get(&submission.submission_id),
+        Some(&tick_receipt_digest)
+    );
+    assert_eq!(
+        recovery
+            .receipts
+            .ticket_by_submission
+            .get(&submission.submission_id),
+        Some(&ticket.ticket_digest)
+    );
+    assert_eq!(recovery.certificate.committed_transactions_replayed, 2);
+    assert_eq!(recovery.certificate.obstruction_count, 0);
+    assert_eq!(
+        recovery.certificate.recovered_indexes_root,
+        recovered_submission_receipt_index_root(&recovery.submissions, &recovery.receipts)
     );
 }
 
@@ -526,7 +659,9 @@ fn runtime_wal_ack_duplicate_without_prior_wal_backfills_acceptance() {
         .runtime_wal()
         .expect("runtime WAL should stay configured");
     assert_eq!(runtime_wal.submission_acceptance_count(), 1);
-    let mut store = runtime_wal.cloned_store();
+    let mut store = runtime_wal
+        .cloned_store()
+        .expect("in-memory runtime WAL should expose test store clone");
     let report = recover_in_memory_store(&mut store, RecoveryAccessMode::ReadOnly)
         .expect("backfilled acceptance should recover");
     let recovered = recover_submission_index(&report)
@@ -676,7 +811,9 @@ fn runtime_wal_ack_tick_commits_receipt_transaction_before_outcome_is_observed()
         1
     );
 
-    let mut store = runtime_wal.cloned_store();
+    let mut store = runtime_wal
+        .cloned_store()
+        .expect("in-memory runtime WAL should expose test store clone");
     let recovery = recover_in_memory_store(&mut store, RecoveryAccessMode::ReadOnly)
         .expect("committed tick receipt should recover");
     let submissions = recover_submission_index(&recovery)

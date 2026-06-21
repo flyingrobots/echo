@@ -911,6 +911,7 @@ Acceptance criteria:
 
 - `TrustedRuntimeHost` owns the runtime WAL adapter.
 - `TrustedRuntimeHost` configures the adapter through `TrustedRuntimeWalConfig`.
+- The adapter can be backed by a host-owned filesystem WAL root.
 - `TrustedRuntimeApp` exposes no WAL append or tick authority.
 - The adapter can be inspected by host tests as read-only evidence.
 
@@ -918,6 +919,7 @@ Test plan:
 
 - `runtime_wal_ack_adapter_is_configured_by_trusted_host_boundary`
 - `runtime_wal_ack_submit_commits_acceptance_before_returning_handle`
+- `filesystem_runtime_wal_ack_reconstructs_submission_and_tick_from_root`
 
 ## Slice 87: Submission Acceptance Transaction Wiring
 

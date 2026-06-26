@@ -7,10 +7,12 @@
 use std::collections::BTreeSet;
 
 use warp_core::causal_wal::{
-    retained_material_obstructions, EvidenceMaterialPosture, MissingMaterialScope,
-    ReadingRefRecord, RecoveredReceiptIndex, RecoveredRetentionIndex, RecoveredRetentionIndexError,
-    RecoveredSubmissionIndex, RecoveredSubmissionPosture, RetainedMaterialKind,
-    RetainedMaterialRecord, SubmissionAcceptanceRecord, SubmissionRetryPosture, TickReceiptRecord,
+    retained_material_obstructions, BraidShellRetentionRecord, EvidenceMaterialPosture,
+    MissingMaterialScope, ReadingRefRecord, RecoveredReceiptIndex, RecoveredRetentionIndex,
+    RecoveredRetentionIndexError, RecoveredSubmissionIndex, RecoveredSubmissionPosture,
+    RecoveredTopologyIndex, RetainedMaterialKind, RetainedMaterialRecord, StrandDropRecord,
+    StrandForkRecord, SubmissionAcceptanceRecord, SubmissionRetryPosture, SuffixImportRecord,
+    TickReceiptRecord, TopologyBraidEventRecord, TopologyImportOutcomeKind, TopologyIntentRecord,
     WalReceiptCorrelationRecord, WalTickDecision,
 };
 use warp_core::wsc::{
@@ -18,9 +20,14 @@ use warp_core::wsc::{
     accepted_submission_records_to_wsc_envelope, receipt_correlation_records_from_wsc_envelope,
     receipt_correlation_records_from_wsc_store, receipt_correlation_records_to_wsc_envelope,
     retention_records_from_wsc_envelope, retention_records_from_wsc_store,
-    retention_records_to_wsc_envelope, validate_wsc_causal_history_store, write_wsc_one_warp,
-    InMemoryWscStore, OneWarpInput, WscStoreEnvelope, WscStoreObstructionKind, WscStorePort,
-    WscStoreRecordKind, WscStoreSubject,
+    retention_records_to_wsc_envelope, topology_records_from_wsc_envelope,
+    topology_records_from_wsc_store, topology_records_to_wsc_envelope,
+    validate_wsc_causal_history_store, write_wsc_one_warp, InMemoryWscStore, OneWarpInput,
+    WscStoreEnvelope, WscStoreObstructionKind, WscStorePort, WscStoreRecordKind, WscStoreSubject,
+};
+use warp_core::{
+    make_strand_id, AuthorityDomainId, AuthorityDomainRef, BraidEvent, BraidStatus, HeadId,
+    OriginId, WorldlineId, WorldlineTick, WriterHeadKey,
 };
 
 #[test]
@@ -566,6 +573,80 @@ fn retention_records_recover_from_committed_wsc_store() {
 }
 
 #[test]
+fn topology_records_round_trip_through_wsc_envelope() {
+    let records = topology_records();
+    let envelope = topology_records_to_wsc_envelope(&records).expect("topology WSC envelope");
+
+    let recovered =
+        topology_records_from_wsc_envelope(&envelope).expect("recovered topology records");
+    let index =
+        RecoveredTopologyIndex::from_topology_records(recovered.clone().into_topology_records())
+            .expect("recovered topology index");
+
+    assert_eq!(recovered.into_topology_records(), records);
+    assert_eq!(index.len(), 5);
+    assert!(index
+        .child_worldlines
+        .get(&worldline(2))
+        .is_some_and(|strand_id| *strand_id == make_strand_id("wsc-topology-strand")));
+    assert!(index.braid_shells.contains_key(&[26; 32]));
+    assert_eq!(
+        index.suffix_imports_by_idempotency_key.get(&[41; 32]),
+        Some(&[32; 32])
+    );
+}
+
+#[test]
+fn topology_records_recover_from_committed_wsc_store() {
+    let mut store = InMemoryWscStore::default();
+    store
+        .write_envelope(
+            topology_records_to_wsc_envelope(&topology_records()).expect("topology WSC envelope"),
+        )
+        .expect("committed topology WSC envelope");
+
+    let recovered = topology_records_from_wsc_store(&store).expect("recovered topology");
+    let index = RecoveredTopologyIndex::from_topology_records(recovered.into_topology_records())
+        .expect("recovered topology index");
+
+    assert_eq!(index.len(), 5);
+    assert!(index.braid_events.contains_key(&[10; 32]));
+}
+
+#[test]
+fn topology_records_ignore_uncommitted_staged_wsc_envelope() {
+    let envelope =
+        topology_records_to_wsc_envelope(&topology_records()).expect("topology WSC envelope");
+    let mut store = InMemoryWscStore::default();
+    store
+        .stage_envelope_without_commit_marker(envelope)
+        .expect("staged topology WSC envelope");
+
+    let recovered = topology_records_from_wsc_store(&store).expect("recovered topology");
+
+    assert!(recovered.into_topology_records().is_empty());
+}
+
+#[test]
+fn topology_records_reject_conflicting_duplicate_strand_fork() {
+    let mut records = topology_records();
+    let mut conflicting = match &records[0] {
+        TopologyIntentRecord::StrandFork(record) => record.clone(),
+        _ => panic!("expected strand fork fixture"),
+    };
+    conflicting.child_worldline_id = worldline(99);
+    records.push(TopologyIntentRecord::StrandFork(conflicting));
+
+    let obstruction = topology_records_to_wsc_envelope(&records)
+        .expect_err("conflicting topology duplicate obstructs");
+
+    assert_eq!(
+        obstruction.kind,
+        WscStoreObstructionKind::DuplicateEnvelopeMismatch
+    );
+}
+
+#[test]
 fn retention_records_from_committed_wsc_store_rejects_conflicting_material_digest() {
     let material = retained_material(
         34,
@@ -796,4 +877,90 @@ fn reading_ref(
         envelope_digest: [envelope_byte; 32],
         posture,
     }
+}
+
+fn worldline(seed: u8) -> WorldlineId {
+    WorldlineId::from_bytes([seed; 32])
+}
+
+fn head(seed: u8, worldline_id: WorldlineId) -> WriterHeadKey {
+    WriterHeadKey {
+        worldline_id,
+        head_id: HeadId::from_bytes([seed; 32]),
+    }
+}
+
+fn authority(seed: u8) -> AuthorityDomainRef {
+    AuthorityDomainRef::new(
+        OriginId::from_bytes([seed; 32]),
+        AuthorityDomainId::from_bytes([seed.wrapping_add(1); 32]),
+    )
+}
+
+fn topology_records() -> Vec<TopologyIntentRecord> {
+    let source_worldline = worldline(1);
+    let child_worldline = worldline(2);
+    let strand_id = make_strand_id("wsc-topology-strand");
+    let braid_id = [10; 32];
+    vec![
+        TopologyIntentRecord::StrandFork(StrandForkRecord {
+            topology_intent_id: [11; 32],
+            strand_id,
+            source_worldline_id: source_worldline,
+            fork_tick: WorldlineTick::from_raw(7),
+            source_commit_hash: [12; 32],
+            source_boundary_hash: [13; 32],
+            child_worldline_id: child_worldline,
+            writer_heads: vec![head(3, child_worldline)],
+            retention_posture_digest: [14; 32],
+            issuer_evidence_digest: [15; 32],
+            idempotency_key_digest: Some([16; 32]),
+        }),
+        TopologyIntentRecord::StrandDrop(StrandDropRecord {
+            topology_intent_id: [17; 32],
+            strand_id,
+            child_worldline_id: child_worldline,
+            final_tick: WorldlineTick::from_raw(11),
+            drop_receipt_digest: [18; 32],
+            issuer_evidence_digest: [19; 32],
+            idempotency_key_digest: Some([20; 32]),
+        }),
+        TopologyIntentRecord::BraidEvent(TopologyBraidEventRecord {
+            topology_intent_id: [21; 32],
+            braid_id,
+            event_index: 0,
+            event: BraidEvent::BraidCreated {
+                braid_id,
+                creator_domain: authority(9),
+            },
+            status_after: BraidStatus::Active,
+            event_digest: [22; 32],
+            issuer_evidence_digest: [23; 32],
+            idempotency_key_digest: Some([24; 32]),
+        }),
+        TopologyIntentRecord::BraidShell(BraidShellRetentionRecord {
+            topology_intent_id: [25; 32],
+            braid_id,
+            shell_digest: [26; 32],
+            material_digest: [27; 32],
+            basis_digest: [28; 32],
+            outcome_kind: TopologyImportOutcomeKind::Plural,
+            retention_posture_digest: [29; 32],
+            witness_digest: [30; 32],
+            idempotency_key_digest: Some([31; 32]),
+        }),
+        TopologyIntentRecord::SuffixImport(SuffixImportRecord {
+            import_id: [32; 32],
+            remote_suffix_family_digest: [33; 32],
+            authorship_evidence_digest: [34; 32],
+            basis_anchor_digest: [35; 32],
+            bundle_digest: [36; 32],
+            source_shell_digest: [37; 32],
+            target_basis_digest: [38; 32],
+            outcome_kind: TopologyImportOutcomeKind::Derived,
+            import_shell_digest: [39; 32],
+            retention_posture_digest: [40; 32],
+            idempotency_key_digest: [41; 32],
+        }),
+    ]
 }

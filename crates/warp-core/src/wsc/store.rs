@@ -9,8 +9,9 @@ use bytes::Bytes;
 
 use crate::attachment::{AtomPayload, AttachmentValue};
 use crate::causal_wal::{
-    ReadingRefRecord, RetainedMaterialRecord, SubmissionAcceptanceRecord, TickReceiptRecord,
-    WalReceiptCorrelationRecord,
+    BraidShellRetentionRecord, ReadingRefRecord, RetainedMaterialRecord, StrandDropRecord,
+    StrandForkRecord, SubmissionAcceptanceRecord, SuffixImportRecord, TickReceiptRecord,
+    TopologyBraidEventRecord, TopologyIntentRecord, WalReceiptCorrelationRecord,
 };
 use crate::graph::GraphStore;
 use crate::ident::{make_node_id, make_type_id, make_warp_id, EdgeId, Hash, NodeId};
@@ -60,6 +61,19 @@ const WSC_RETENTION_NODE_TYPE: &str = "echo/wsc-store/retention/node/v1";
 const WSC_RETENTION_EDGE_TYPE: &str = "echo/wsc-store/retention/member/v1";
 const WSC_RETAINED_MATERIAL_ATTACHMENT_TYPE: &str = "echo/wsc-store/retention/material/v1";
 const WSC_READING_REF_ATTACHMENT_TYPE: &str = "echo/wsc-store/retention/reading/v1";
+const WSC_TOPOLOGY_BASIS_DOMAIN: &[u8] = b"echo:wsc_store:topology_basis:v1\0";
+const WSC_TOPOLOGY_NODE_DOMAIN: &[u8] = b"echo:wsc_store:topology_node:v1\0";
+const WSC_TOPOLOGY_EDGE_DOMAIN: &[u8] = b"echo:wsc_store:topology_edge:v1\0";
+const WSC_TOPOLOGY_SCHEMA: &str = "echo/wsc-store/topology/v1";
+const WSC_TOPOLOGY_WARP: &str = "echo/wsc-store/topology";
+const WSC_TOPOLOGY_ROOT: &str = "echo/wsc-store/topology/root";
+const WSC_TOPOLOGY_NODE_TYPE: &str = "echo/wsc-store/topology/node/v1";
+const WSC_TOPOLOGY_EDGE_TYPE: &str = "echo/wsc-store/topology/member/v1";
+const WSC_TOPOLOGY_STRAND_FORK_ATTACHMENT_TYPE: &str = "echo/wsc-store/topology/strand-fork/v1";
+const WSC_TOPOLOGY_STRAND_DROP_ATTACHMENT_TYPE: &str = "echo/wsc-store/topology/strand-drop/v1";
+const WSC_TOPOLOGY_BRAID_EVENT_ATTACHMENT_TYPE: &str = "echo/wsc-store/topology/braid-event/v1";
+const WSC_TOPOLOGY_BRAID_SHELL_ATTACHMENT_TYPE: &str = "echo/wsc-store/topology/braid-shell/v1";
+const WSC_TOPOLOGY_SUFFIX_IMPORT_ATTACHMENT_TYPE: &str = "echo/wsc-store/topology/suffix-import/v1";
 const HEADER_LEN: usize = 124;
 
 /// Stable identifier for a WSC store envelope.
@@ -496,6 +510,55 @@ pub struct WscRetentionRecords {
     pub materials: Vec<RetainedMaterialRecord>,
     /// Retained reading references with semantic coordinates.
     pub readings: Vec<ReadingRefRecord>,
+}
+
+/// Topology records recovered from WSC material.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WscTopologyRecords {
+    /// Strand fork evidence records.
+    pub strand_forks: Vec<StrandForkRecord>,
+    /// Strand drop evidence records.
+    pub strand_drops: Vec<StrandDropRecord>,
+    /// Braid lifecycle event records.
+    pub braid_events: Vec<TopologyBraidEventRecord>,
+    /// Retained braid shell records.
+    pub braid_shells: Vec<BraidShellRetentionRecord>,
+    /// Witnessed suffix import records.
+    pub suffix_imports: Vec<SuffixImportRecord>,
+}
+
+impl WscTopologyRecords {
+    /// Returns all topology records in deterministic typed order.
+    #[must_use]
+    pub fn into_topology_records(self) -> Vec<TopologyIntentRecord> {
+        let mut records = Vec::new();
+        records.extend(
+            self.strand_forks
+                .into_iter()
+                .map(TopologyIntentRecord::StrandFork),
+        );
+        records.extend(
+            self.strand_drops
+                .into_iter()
+                .map(TopologyIntentRecord::StrandDrop),
+        );
+        records.extend(
+            self.braid_events
+                .into_iter()
+                .map(TopologyIntentRecord::BraidEvent),
+        );
+        records.extend(
+            self.braid_shells
+                .into_iter()
+                .map(TopologyIntentRecord::BraidShell),
+        );
+        records.extend(
+            self.suffix_imports
+                .into_iter()
+                .map(TopologyIntentRecord::SuffixImport),
+        );
+        records
+    }
 }
 
 /// Generic WSC store port.
@@ -1044,6 +1107,341 @@ where
         materials: canonical_retained_material_records(&materials)?,
         readings: canonical_reading_ref_records(&readings)?,
     })
+}
+
+/// Builds a generic WSC envelope for topology evidence records.
+///
+/// Duplicate identical records are represented once. Divergent duplicate
+/// topology identities return a typed obstruction.
+pub fn topology_records_to_wsc_envelope(
+    records: &[TopologyIntentRecord],
+) -> Result<WscStoreEnvelope, WscStoreObstruction> {
+    let records = canonical_topology_records(records)?;
+    let mut store = GraphStore::new(make_warp_id(WSC_TOPOLOGY_WARP));
+    let root = make_node_id(WSC_TOPOLOGY_ROOT);
+    store.insert_node(
+        root,
+        NodeRecord {
+            ty: make_type_id(WSC_TOPOLOGY_NODE_TYPE),
+        },
+    );
+    for record in &records {
+        let (role, attachment_type, payload_bytes) = topology_record_payload(record);
+        insert_topology_record_node(
+            &mut store,
+            root,
+            topology_node_id(role, &payload_bytes),
+            attachment_type,
+            payload_bytes,
+        );
+    }
+    let basis_digest = topology_basis_digest(&records);
+    let input = build_one_warp_input(&store, root);
+    let wsc_bytes = write_wsc_one_warp(&input, make_type_id(WSC_TOPOLOGY_SCHEMA).0, 0)
+        .map_err(|_| WscStoreObstruction::invalid_wsc(basis_digest))?;
+    WscStoreEnvelope::validated(WscStoreRecordKind::CausalHistory, basis_digest, wsc_bytes)
+}
+
+/// Recovers topology records from a generic WSC envelope.
+pub fn topology_records_from_wsc_envelope(
+    envelope: &WscStoreEnvelope,
+) -> Result<WscTopologyRecords, WscStoreObstruction> {
+    if envelope.record_kind() != WscStoreRecordKind::CausalHistory {
+        return Err(WscStoreObstruction::invalid_envelope(0));
+    }
+    let wsc_digest = *envelope.wsc_digest();
+    let file = WscFile::from_bytes(envelope.wsc_bytes().to_vec())
+        .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+    validate_wsc(&file).map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+    if file.schema_hash() != &make_type_id(WSC_TOPOLOGY_SCHEMA).0 {
+        return Err(WscStoreObstruction::invalid_wsc(wsc_digest));
+    }
+    let view = file
+        .warp_view(0)
+        .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+    let mut records = Vec::new();
+    for node_index in 0..view.nodes().len() {
+        for attachment in view.node_attachments(node_index) {
+            let payload = atom_payload_bytes(&view, attachment, wsc_digest)?;
+            if attachment.type_or_warp == make_type_id(WSC_TOPOLOGY_STRAND_FORK_ATTACHMENT_TYPE).0 {
+                records.push(TopologyIntentRecord::StrandFork(
+                    StrandForkRecord::from_payload_bytes(payload)
+                        .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?,
+                ));
+            } else if attachment.type_or_warp
+                == make_type_id(WSC_TOPOLOGY_STRAND_DROP_ATTACHMENT_TYPE).0
+            {
+                records.push(TopologyIntentRecord::StrandDrop(
+                    StrandDropRecord::from_payload_bytes(payload)
+                        .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?,
+                ));
+            } else if attachment.type_or_warp
+                == make_type_id(WSC_TOPOLOGY_BRAID_EVENT_ATTACHMENT_TYPE).0
+            {
+                records.push(TopologyIntentRecord::BraidEvent(
+                    TopologyBraidEventRecord::from_payload_bytes(payload)
+                        .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?,
+                ));
+            } else if attachment.type_or_warp
+                == make_type_id(WSC_TOPOLOGY_BRAID_SHELL_ATTACHMENT_TYPE).0
+            {
+                records.push(TopologyIntentRecord::BraidShell(
+                    BraidShellRetentionRecord::from_payload_bytes(payload)
+                        .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?,
+                ));
+            } else if attachment.type_or_warp
+                == make_type_id(WSC_TOPOLOGY_SUFFIX_IMPORT_ATTACHMENT_TYPE).0
+            {
+                records.push(TopologyIntentRecord::SuffixImport(
+                    SuffixImportRecord::from_payload_bytes(payload)
+                        .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?,
+                ));
+            } else {
+                return Err(WscStoreObstruction::invalid_wsc(wsc_digest));
+            }
+        }
+    }
+    let records = canonical_topology_records(&records)?;
+    let basis_digest = topology_basis_digest(&records);
+    if envelope.basis_digest() != &basis_digest {
+        return Err(WscStoreObstruction::basis_digest_mismatch(
+            *envelope.basis_digest(),
+            basis_digest,
+        ));
+    }
+    Ok(split_topology_records(records))
+}
+
+/// Recovers topology records from committed WSC store envelopes.
+pub fn topology_records_from_wsc_store<P>(
+    store: &P,
+) -> Result<WscTopologyRecords, WscStoreObstruction>
+where
+    P: WscStorePort + ?Sized,
+{
+    let mut records = Vec::new();
+    for envelope_id in store.list_envelopes() {
+        let envelope = store.read_envelope(envelope_id)?;
+        if envelope.record_kind() != WscStoreRecordKind::CausalHistory
+            || !envelope_has_schema(&envelope, WSC_TOPOLOGY_SCHEMA)?
+        {
+            continue;
+        }
+        records.extend(topology_records_from_wsc_envelope(&envelope)?.into_topology_records());
+    }
+    Ok(split_topology_records(canonical_topology_records(
+        &records,
+    )?))
+}
+
+fn canonical_topology_records(
+    records: &[TopologyIntentRecord],
+) -> Result<Vec<TopologyIntentRecord>, WscStoreObstruction> {
+    let mut by_payload = BTreeMap::new();
+    let mut strand_forks = BTreeMap::new();
+    let mut strand_drops = BTreeMap::new();
+    let mut braid_events = BTreeMap::new();
+    let mut braid_shells = BTreeMap::new();
+    let mut suffix_imports = BTreeMap::new();
+    let mut suffix_imports_by_idempotency = BTreeMap::new();
+    let mut suffix_imports_by_bundle = BTreeMap::new();
+
+    for record in records {
+        match record {
+            TopologyIntentRecord::StrandFork(record) => {
+                insert_wsc_unique(
+                    &mut strand_forks,
+                    *record.strand_id.as_bytes(),
+                    record,
+                    record.strand_id.as_bytes(),
+                )?;
+            }
+            TopologyIntentRecord::StrandDrop(record) => {
+                insert_wsc_unique(
+                    &mut strand_drops,
+                    *record.strand_id.as_bytes(),
+                    record,
+                    record.strand_id.as_bytes(),
+                )?;
+            }
+            TopologyIntentRecord::BraidEvent(record) => {
+                insert_wsc_unique(
+                    &mut braid_events,
+                    (record.braid_id, record.event_index),
+                    record,
+                    &record.braid_id,
+                )?;
+            }
+            TopologyIntentRecord::BraidShell(record) => {
+                insert_wsc_unique(
+                    &mut braid_shells,
+                    record.shell_digest,
+                    record,
+                    &record.shell_digest,
+                )?;
+            }
+            TopologyIntentRecord::SuffixImport(record) => {
+                insert_wsc_unique(
+                    &mut suffix_imports,
+                    record.import_id,
+                    record,
+                    &record.import_id,
+                )?;
+                insert_wsc_unique(
+                    &mut suffix_imports_by_idempotency,
+                    record.idempotency_key_digest,
+                    &record.import_id,
+                    &record.idempotency_key_digest,
+                )?;
+                insert_wsc_unique(
+                    &mut suffix_imports_by_bundle,
+                    record.bundle_digest,
+                    &record.import_id,
+                    &record.bundle_digest,
+                )?;
+            }
+        }
+        by_payload.insert(topology_record_sort_key(record), record.clone());
+    }
+    Ok(by_payload.into_values().collect())
+}
+
+fn insert_wsc_unique<K, V>(
+    map: &mut BTreeMap<K, V>,
+    key: K,
+    value: V,
+    envelope_hash: &Hash,
+) -> Result<(), WscStoreObstruction>
+where
+    K: Ord,
+    V: PartialEq,
+{
+    if let Some(existing) = map.get(&key) {
+        if existing != &value {
+            return Err(WscStoreObstruction::duplicate_mismatch(
+                WscStoreEnvelopeId::from_hash(*envelope_hash),
+            ));
+        }
+        return Ok(());
+    }
+    map.insert(key, value);
+    Ok(())
+}
+
+fn split_topology_records(records: Vec<TopologyIntentRecord>) -> WscTopologyRecords {
+    let mut topology = WscTopologyRecords {
+        strand_forks: Vec::new(),
+        strand_drops: Vec::new(),
+        braid_events: Vec::new(),
+        braid_shells: Vec::new(),
+        suffix_imports: Vec::new(),
+    };
+    for record in records {
+        match record {
+            TopologyIntentRecord::StrandFork(record) => topology.strand_forks.push(record),
+            TopologyIntentRecord::StrandDrop(record) => topology.strand_drops.push(record),
+            TopologyIntentRecord::BraidEvent(record) => topology.braid_events.push(record),
+            TopologyIntentRecord::BraidShell(record) => topology.braid_shells.push(record),
+            TopologyIntentRecord::SuffixImport(record) => topology.suffix_imports.push(record),
+        }
+    }
+    topology
+}
+
+fn topology_record_payload(
+    record: &TopologyIntentRecord,
+) -> (&'static [u8], &'static str, Vec<u8>) {
+    match record {
+        TopologyIntentRecord::StrandFork(record) => (
+            b"strand-fork",
+            WSC_TOPOLOGY_STRAND_FORK_ATTACHMENT_TYPE,
+            record.to_payload_bytes(),
+        ),
+        TopologyIntentRecord::StrandDrop(record) => (
+            b"strand-drop",
+            WSC_TOPOLOGY_STRAND_DROP_ATTACHMENT_TYPE,
+            record.to_payload_bytes(),
+        ),
+        TopologyIntentRecord::BraidEvent(record) => (
+            b"braid-event",
+            WSC_TOPOLOGY_BRAID_EVENT_ATTACHMENT_TYPE,
+            record.to_payload_bytes(),
+        ),
+        TopologyIntentRecord::BraidShell(record) => (
+            b"braid-shell",
+            WSC_TOPOLOGY_BRAID_SHELL_ATTACHMENT_TYPE,
+            record.to_payload_bytes(),
+        ),
+        TopologyIntentRecord::SuffixImport(record) => (
+            b"suffix-import",
+            WSC_TOPOLOGY_SUFFIX_IMPORT_ATTACHMENT_TYPE,
+            record.to_payload_bytes(),
+        ),
+    }
+}
+
+fn topology_record_sort_key(record: &TopologyIntentRecord) -> Vec<u8> {
+    let mut key = Vec::new();
+    key.extend_from_slice(record.record_kind().label().as_bytes());
+    key.push(0);
+    key.extend_from_slice(&record.to_payload_bytes());
+    key
+}
+
+fn topology_basis_digest(records: &[TopologyIntentRecord]) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(WSC_TOPOLOGY_BASIS_DOMAIN);
+    for record in records {
+        hasher.update(record.record_kind().label().as_bytes());
+        hasher.update(&record.to_payload_bytes());
+    }
+    hasher.finalize().into()
+}
+
+fn insert_topology_record_node(
+    store: &mut GraphStore,
+    root: NodeId,
+    node: NodeId,
+    attachment_type: &str,
+    payload_bytes: Vec<u8>,
+) {
+    store.insert_node(
+        node,
+        NodeRecord {
+            ty: make_type_id(WSC_TOPOLOGY_NODE_TYPE),
+        },
+    );
+    store.insert_edge(
+        root,
+        EdgeRecord {
+            id: topology_edge_id(&node.0),
+            from: root,
+            to: node,
+            ty: make_type_id(WSC_TOPOLOGY_EDGE_TYPE),
+        },
+    );
+    store.set_node_attachment(
+        node,
+        Some(AttachmentValue::Atom(AtomPayload::new(
+            make_type_id(attachment_type),
+            Bytes::from(payload_bytes),
+        ))),
+    );
+}
+
+fn topology_node_id(role: &[u8], payload_bytes: &[u8]) -> NodeId {
+    let mut hasher = Hasher::new();
+    hasher.update(WSC_TOPOLOGY_NODE_DOMAIN);
+    hasher.update(role);
+    hasher.update(payload_bytes);
+    NodeId(hasher.finalize().into())
+}
+
+fn topology_edge_id(node_id: &Hash) -> EdgeId {
+    let mut hasher = Hasher::new();
+    hasher.update(WSC_TOPOLOGY_EDGE_DOMAIN);
+    hasher.update(node_id);
+    EdgeId(hasher.finalize().into())
 }
 
 fn read_array<const N: usize>(bytes: &[u8], offset: usize) -> Result<[u8; N], WscStoreObstruction> {

@@ -20,7 +20,14 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
+use crate::braid::{BraidEvent, BraidStatus};
+use crate::braid_shell::BraidMemberRef;
+use crate::clock::WorldlineTick;
+use crate::head::{HeadId, WriterHeadKey};
 use crate::ident::Hash;
+use crate::revelation::{AuthorityDomainId, AuthorityDomainRef, OriginId};
+use crate::strand::StrandId;
+use crate::worldline::WorldlineId;
 
 const WAL_FRAME_DOMAIN: &[u8] = b"echo:causal_wal:frame:v1\0";
 const WAL_PAYLOAD_DOMAIN: &[u8] = b"echo:causal_wal:payload:v1\0";
@@ -200,6 +207,8 @@ pub enum WalTransactionKind {
     Checkpoint,
     /// Side-effect outbox transaction.
     MaterializationOutbox,
+    /// Topology-changing strand, braid, or suffix-import intent evidence.
+    TopologyIntent,
 }
 
 impl WalTransactionKind {
@@ -210,13 +219,14 @@ impl WalTransactionKind {
             Self::RuntimePosture => 3,
             Self::Checkpoint => 4,
             Self::MaterializationOutbox => 5,
+            Self::TopologyIntent => 6,
         }
     }
 
     fn required_authority(self) -> WalAppendAuthority {
         match self {
             Self::SubmissionIntake => WalAppendAuthority::SubmissionIntake,
-            Self::SchedulerTick | Self::MaterializationOutbox => {
+            Self::SchedulerTick | Self::MaterializationOutbox | Self::TopologyIntent => {
                 WalAppendAuthority::TrustedScheduler
             }
             Self::RuntimePosture => WalAppendAuthority::RuntimeControl,
@@ -231,6 +241,7 @@ impl WalTransactionKind {
             3 => Ok(Self::RuntimePosture),
             4 => Ok(Self::Checkpoint),
             5 => Ok(Self::MaterializationOutbox),
+            6 => Ok(Self::TopologyIntent),
             _ => Err(WalDecodeError::UnknownEnumCode {
                 enum_name: "WalTransactionKind",
                 code,
@@ -274,6 +285,16 @@ pub enum WalRecordKind {
     MaterializationEffectObserved,
     /// Runtime recorded recovery posture.
     RecoveryPostureRecorded,
+    /// Runtime recorded accepted strand fork topology evidence.
+    TopologyStrandForkRecorded,
+    /// Runtime recorded accepted strand drop topology evidence.
+    TopologyStrandDropRecorded,
+    /// Runtime recorded accepted braid lifecycle event evidence.
+    TopologyBraidEventRecorded,
+    /// Runtime recorded retained braid-shell topology evidence.
+    TopologyBraidShellRetained,
+    /// Runtime recorded witnessed suffix import topology evidence.
+    TopologySuffixImportRecorded,
 }
 
 impl WalRecordKind {
@@ -296,6 +317,11 @@ impl WalRecordKind {
             Self::MaterializationIntentRecorded => "MaterializationIntentRecorded",
             Self::MaterializationEffectObserved => "MaterializationEffectObserved",
             Self::RecoveryPostureRecorded => "RecoveryPostureRecorded",
+            Self::TopologyStrandForkRecorded => "TopologyStrandForkRecorded",
+            Self::TopologyStrandDropRecorded => "TopologyStrandDropRecorded",
+            Self::TopologyBraidEventRecorded => "TopologyBraidEventRecorded",
+            Self::TopologyBraidShellRetained => "TopologyBraidShellRetained",
+            Self::TopologySuffixImportRecorded => "TopologySuffixImportRecorded",
         }
     }
 
@@ -314,7 +340,12 @@ impl WalRecordKind {
             | Self::ReadingEnvelopeRetained
             | Self::RetainedMaterialRefRecorded
             | Self::MaterializationIntentRecorded
-            | Self::MaterializationEffectObserved => WalAppendAuthority::TrustedScheduler,
+            | Self::MaterializationEffectObserved
+            | Self::TopologyStrandForkRecorded
+            | Self::TopologyStrandDropRecorded
+            | Self::TopologyBraidEventRecorded
+            | Self::TopologyBraidShellRetained
+            | Self::TopologySuffixImportRecorded => WalAppendAuthority::TrustedScheduler,
             Self::SchedulerFaultQuarantined | Self::TrustedRuntimeControlRecorded => {
                 WalAppendAuthority::RuntimeControl
             }
@@ -347,6 +378,11 @@ impl WalRecordKind {
             Self::MaterializationIntentRecorded => 14,
             Self::MaterializationEffectObserved => 15,
             Self::RecoveryPostureRecorded => 16,
+            Self::TopologyStrandForkRecorded => 17,
+            Self::TopologyStrandDropRecorded => 18,
+            Self::TopologyBraidEventRecorded => 19,
+            Self::TopologyBraidShellRetained => 20,
+            Self::TopologySuffixImportRecorded => 21,
         }
     }
 
@@ -368,6 +404,11 @@ impl WalRecordKind {
             14 => Ok(Self::MaterializationIntentRecorded),
             15 => Ok(Self::MaterializationEffectObserved),
             16 => Ok(Self::RecoveryPostureRecorded),
+            17 => Ok(Self::TopologyStrandForkRecorded),
+            18 => Ok(Self::TopologyStrandDropRecorded),
+            19 => Ok(Self::TopologyBraidEventRecorded),
+            20 => Ok(Self::TopologyBraidShellRetained),
+            21 => Ok(Self::TopologySuffixImportRecorded),
             _ => Err(WalDecodeError::UnknownEnumCode {
                 enum_name: "WalRecordKind",
                 code,
@@ -491,6 +532,8 @@ pub enum AffectedFrontierKind {
     RuntimeControl,
     /// Checkpoint/index frontier.
     CheckpointIndex,
+    /// Topology recovery index frontier.
+    TopologyIndex,
 }
 
 impl AffectedFrontierKind {
@@ -502,6 +545,7 @@ impl AffectedFrontierKind {
             Self::ReadingIndex => 4,
             Self::RuntimeControl => 5,
             Self::CheckpointIndex => 6,
+            Self::TopologyIndex => 7,
         }
     }
 }
@@ -3414,6 +3458,616 @@ pub fn recover_materialization_outbox(
     Ok(outbox)
 }
 
+/// Imported suffix admission outcome stored in topology recovery evidence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum TopologyImportOutcomeKind {
+    /// The import lowered to one derived result.
+    Derived,
+    /// The import retained lawful plurality.
+    Plural,
+    /// The import produced conflict residue.
+    Conflict,
+    /// The import was obstructed before admission completed.
+    Obstruction,
+}
+
+impl TopologyImportOutcomeKind {
+    fn code(self) -> u8 {
+        match self {
+            Self::Derived => 1,
+            Self::Plural => 2,
+            Self::Conflict => 3,
+            Self::Obstruction => 4,
+        }
+    }
+
+    fn from_code(code: u8) -> Result<Self, WalDecodeError> {
+        match code {
+            1 => Ok(Self::Derived),
+            2 => Ok(Self::Plural),
+            3 => Ok(Self::Conflict),
+            4 => Ok(Self::Obstruction),
+            _ => Err(WalDecodeError::UnknownEnumCode {
+                enum_name: "TopologyImportOutcomeKind",
+                code,
+            }),
+        }
+    }
+}
+
+/// WAL evidence that one strand fork intent was accepted.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StrandForkRecord {
+    /// Stable topology intent id.
+    pub topology_intent_id: Hash,
+    /// Forked strand identity.
+    pub strand_id: StrandId,
+    /// Source worldline the strand was forked from.
+    pub source_worldline_id: WorldlineId,
+    /// Last included source tick in the copied prefix.
+    pub fork_tick: WorldlineTick,
+    /// Source commit hash at `fork_tick`.
+    pub source_commit_hash: Hash,
+    /// Source boundary hash at `fork_tick`.
+    pub source_boundary_hash: Hash,
+    /// Child worldline created for the strand.
+    pub child_worldline_id: WorldlineId,
+    /// Writer heads created for the child worldline.
+    pub writer_heads: Vec<WriterHeadKey>,
+    /// Digest of the accepted retention-posture bundle.
+    pub retention_posture_digest: Hash,
+    /// Issuer or session evidence digest.
+    pub issuer_evidence_digest: Hash,
+    /// Optional idempotency key supplied with the fork intent.
+    pub idempotency_key_digest: Option<Hash>,
+}
+
+impl StrandForkRecord {
+    /// Encodes the record as deterministic WAL payload bytes.
+    #[must_use]
+    pub fn to_payload_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        push_hash(&mut out, &self.topology_intent_id);
+        push_strand_id(&mut out, self.strand_id);
+        push_worldline_id(&mut out, self.source_worldline_id);
+        push_worldline_tick(&mut out, self.fork_tick);
+        push_hash(&mut out, &self.source_commit_hash);
+        push_hash(&mut out, &self.source_boundary_hash);
+        push_worldline_id(&mut out, self.child_worldline_id);
+        out.extend_from_slice(&len_u64(self.writer_heads.len()).to_le_bytes());
+        for head in &self.writer_heads {
+            push_writer_head_key(&mut out, *head);
+        }
+        push_hash(&mut out, &self.retention_posture_digest);
+        push_hash(&mut out, &self.issuer_evidence_digest);
+        push_optional_hash(&mut out, self.idempotency_key_digest);
+        out
+    }
+
+    /// Decodes a deterministic strand fork payload.
+    pub fn from_payload_bytes(bytes: &[u8]) -> Result<Self, WalDecodeError> {
+        let mut cursor = WalPayloadCursor::new(bytes);
+        let topology_intent_id = cursor.read_hash()?;
+        let strand_id = cursor.read_strand_id()?;
+        let source_worldline_id = cursor.read_worldline_id()?;
+        let fork_tick = cursor.read_worldline_tick()?;
+        let source_commit_hash = cursor.read_hash()?;
+        let source_boundary_hash = cursor.read_hash()?;
+        let child_worldline_id = cursor.read_worldline_id()?;
+        let writer_count =
+            usize::try_from(cursor.read_u64()?).map_err(|_| WalDecodeError::UnexpectedEof)?;
+        let mut writer_heads = Vec::with_capacity(writer_count);
+        for _ in 0..writer_count {
+            writer_heads.push(cursor.read_writer_head_key()?);
+        }
+        let retention_posture_digest = cursor.read_hash()?;
+        let issuer_evidence_digest = cursor.read_hash()?;
+        let idempotency_key_digest = cursor.read_optional_hash()?;
+        cursor.finish()?;
+        Ok(Self {
+            topology_intent_id,
+            strand_id,
+            source_worldline_id,
+            fork_tick,
+            source_commit_hash,
+            source_boundary_hash,
+            child_worldline_id,
+            writer_heads,
+            retention_posture_digest,
+            issuer_evidence_digest,
+            idempotency_key_digest,
+        })
+    }
+}
+
+/// WAL evidence that one strand drop intent was accepted.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StrandDropRecord {
+    /// Stable topology intent id.
+    pub topology_intent_id: Hash,
+    /// Dropped strand identity.
+    pub strand_id: StrandId,
+    /// Child worldline removed from the live strand registry.
+    pub child_worldline_id: WorldlineId,
+    /// Final child-worldline tick at drop time.
+    pub final_tick: WorldlineTick,
+    /// Digest of the drop receipt returned after durable acceptance.
+    pub drop_receipt_digest: Hash,
+    /// Issuer or session evidence digest.
+    pub issuer_evidence_digest: Hash,
+    /// Optional idempotency key supplied with the drop intent.
+    pub idempotency_key_digest: Option<Hash>,
+}
+
+impl StrandDropRecord {
+    /// Encodes the record as deterministic WAL payload bytes.
+    #[must_use]
+    pub fn to_payload_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        push_hash(&mut out, &self.topology_intent_id);
+        push_strand_id(&mut out, self.strand_id);
+        push_worldline_id(&mut out, self.child_worldline_id);
+        push_worldline_tick(&mut out, self.final_tick);
+        push_hash(&mut out, &self.drop_receipt_digest);
+        push_hash(&mut out, &self.issuer_evidence_digest);
+        push_optional_hash(&mut out, self.idempotency_key_digest);
+        out
+    }
+
+    /// Decodes a deterministic strand drop payload.
+    pub fn from_payload_bytes(bytes: &[u8]) -> Result<Self, WalDecodeError> {
+        let mut cursor = WalPayloadCursor::new(bytes);
+        let topology_intent_id = cursor.read_hash()?;
+        let strand_id = cursor.read_strand_id()?;
+        let child_worldline_id = cursor.read_worldline_id()?;
+        let final_tick = cursor.read_worldline_tick()?;
+        let drop_receipt_digest = cursor.read_hash()?;
+        let issuer_evidence_digest = cursor.read_hash()?;
+        let idempotency_key_digest = cursor.read_optional_hash()?;
+        cursor.finish()?;
+        Ok(Self {
+            topology_intent_id,
+            strand_id,
+            child_worldline_id,
+            final_tick,
+            drop_receipt_digest,
+            issuer_evidence_digest,
+            idempotency_key_digest,
+        })
+    }
+}
+
+/// WAL evidence that one braid lifecycle event was accepted.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TopologyBraidEventRecord {
+    /// Stable topology intent id.
+    pub topology_intent_id: Hash,
+    /// Braid whose event log accepted the event.
+    pub braid_id: Hash,
+    /// Sequence number in the durable braid event log.
+    pub event_index: u64,
+    /// Accepted braid event.
+    pub event: BraidEvent,
+    /// Folded braid status after accepting the event.
+    pub status_after: BraidStatus,
+    /// Digest of the accepted event payload.
+    pub event_digest: Hash,
+    /// Issuer or session evidence digest.
+    pub issuer_evidence_digest: Hash,
+    /// Optional idempotency key supplied with the braid event intent.
+    pub idempotency_key_digest: Option<Hash>,
+}
+
+impl TopologyBraidEventRecord {
+    /// Encodes the record as deterministic WAL payload bytes.
+    #[must_use]
+    pub fn to_payload_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        push_hash(&mut out, &self.topology_intent_id);
+        push_hash(&mut out, &self.braid_id);
+        out.extend_from_slice(&self.event_index.to_le_bytes());
+        push_braid_event(&mut out, &self.event);
+        out.push(braid_status_code(self.status_after));
+        push_hash(&mut out, &self.event_digest);
+        push_hash(&mut out, &self.issuer_evidence_digest);
+        push_optional_hash(&mut out, self.idempotency_key_digest);
+        out
+    }
+
+    /// Decodes a deterministic braid event payload.
+    pub fn from_payload_bytes(bytes: &[u8]) -> Result<Self, WalDecodeError> {
+        let mut cursor = WalPayloadCursor::new(bytes);
+        let topology_intent_id = cursor.read_hash()?;
+        let braid_id = cursor.read_hash()?;
+        let event_index = cursor.read_u64()?;
+        let event = cursor.read_braid_event()?;
+        let status_after = braid_status_from_code(cursor.read_u8()?)?;
+        let event_digest = cursor.read_hash()?;
+        let issuer_evidence_digest = cursor.read_hash()?;
+        let idempotency_key_digest = cursor.read_optional_hash()?;
+        cursor.finish()?;
+        Ok(Self {
+            topology_intent_id,
+            braid_id,
+            event_index,
+            event,
+            status_after,
+            event_digest,
+            issuer_evidence_digest,
+            idempotency_key_digest,
+        })
+    }
+}
+
+/// WAL evidence that a braid shell was retained.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BraidShellRetentionRecord {
+    /// Stable topology intent id.
+    pub topology_intent_id: Hash,
+    /// Braid associated with the shell.
+    pub braid_id: Hash,
+    /// Retained shell digest.
+    pub shell_digest: Hash,
+    /// Digest of retained shell material.
+    pub material_digest: Hash,
+    /// Digest of the shell coordinate or basis.
+    pub basis_digest: Hash,
+    /// Admission outcome family carried by the shell.
+    pub outcome_kind: TopologyImportOutcomeKind,
+    /// Retention posture digest for the shell material.
+    pub retention_posture_digest: Hash,
+    /// Witness digest binding the retained hologram.
+    pub witness_digest: Hash,
+    /// Optional idempotency key supplied with the retention intent.
+    pub idempotency_key_digest: Option<Hash>,
+}
+
+impl BraidShellRetentionRecord {
+    /// Encodes the record as deterministic WAL payload bytes.
+    #[must_use]
+    pub fn to_payload_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        push_hash(&mut out, &self.topology_intent_id);
+        push_hash(&mut out, &self.braid_id);
+        push_hash(&mut out, &self.shell_digest);
+        push_hash(&mut out, &self.material_digest);
+        push_hash(&mut out, &self.basis_digest);
+        out.push(self.outcome_kind.code());
+        push_hash(&mut out, &self.retention_posture_digest);
+        push_hash(&mut out, &self.witness_digest);
+        push_optional_hash(&mut out, self.idempotency_key_digest);
+        out
+    }
+
+    /// Decodes a deterministic retained braid-shell payload.
+    pub fn from_payload_bytes(bytes: &[u8]) -> Result<Self, WalDecodeError> {
+        let mut cursor = WalPayloadCursor::new(bytes);
+        let topology_intent_id = cursor.read_hash()?;
+        let braid_id = cursor.read_hash()?;
+        let shell_digest = cursor.read_hash()?;
+        let material_digest = cursor.read_hash()?;
+        let basis_digest = cursor.read_hash()?;
+        let outcome_kind = TopologyImportOutcomeKind::from_code(cursor.read_u8()?)?;
+        let retention_posture_digest = cursor.read_hash()?;
+        let witness_digest = cursor.read_hash()?;
+        let idempotency_key_digest = cursor.read_optional_hash()?;
+        cursor.finish()?;
+        Ok(Self {
+            topology_intent_id,
+            braid_id,
+            shell_digest,
+            material_digest,
+            basis_digest,
+            outcome_kind,
+            retention_posture_digest,
+            witness_digest,
+            idempotency_key_digest,
+        })
+    }
+}
+
+/// WAL evidence that one remote suffix import intent was accepted.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SuffixImportRecord {
+    /// Stable import intent id.
+    pub import_id: Hash,
+    /// Digest naming the remote suffix family.
+    pub remote_suffix_family_digest: Hash,
+    /// Digest of remote authorship evidence.
+    pub authorship_evidence_digest: Hash,
+    /// Digest of comparable local/remote basis anchors.
+    pub basis_anchor_digest: Hash,
+    /// Digest of the transported causal suffix bundle.
+    pub bundle_digest: Hash,
+    /// Digest of the source suffix shell.
+    pub source_shell_digest: Hash,
+    /// Digest of the target basis used for judgment.
+    pub target_basis_digest: Hash,
+    /// Top-level import admission outcome.
+    pub outcome_kind: TopologyImportOutcomeKind,
+    /// Digest of the retained import shell or obstruction shell.
+    pub import_shell_digest: Hash,
+    /// Retention posture digest for import evidence.
+    pub retention_posture_digest: Hash,
+    /// Idempotency key for duplicate transport delivery.
+    pub idempotency_key_digest: Hash,
+}
+
+impl SuffixImportRecord {
+    /// Encodes the record as deterministic WAL payload bytes.
+    #[must_use]
+    pub fn to_payload_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        push_hash(&mut out, &self.import_id);
+        push_hash(&mut out, &self.remote_suffix_family_digest);
+        push_hash(&mut out, &self.authorship_evidence_digest);
+        push_hash(&mut out, &self.basis_anchor_digest);
+        push_hash(&mut out, &self.bundle_digest);
+        push_hash(&mut out, &self.source_shell_digest);
+        push_hash(&mut out, &self.target_basis_digest);
+        out.push(self.outcome_kind.code());
+        push_hash(&mut out, &self.import_shell_digest);
+        push_hash(&mut out, &self.retention_posture_digest);
+        push_hash(&mut out, &self.idempotency_key_digest);
+        out
+    }
+
+    /// Decodes a deterministic suffix import payload.
+    pub fn from_payload_bytes(bytes: &[u8]) -> Result<Self, WalDecodeError> {
+        let mut cursor = WalPayloadCursor::new(bytes);
+        let import_id = cursor.read_hash()?;
+        let remote_suffix_family_digest = cursor.read_hash()?;
+        let authorship_evidence_digest = cursor.read_hash()?;
+        let basis_anchor_digest = cursor.read_hash()?;
+        let bundle_digest = cursor.read_hash()?;
+        let source_shell_digest = cursor.read_hash()?;
+        let target_basis_digest = cursor.read_hash()?;
+        let outcome_kind = TopologyImportOutcomeKind::from_code(cursor.read_u8()?)?;
+        let import_shell_digest = cursor.read_hash()?;
+        let retention_posture_digest = cursor.read_hash()?;
+        let idempotency_key_digest = cursor.read_hash()?;
+        cursor.finish()?;
+        Ok(Self {
+            import_id,
+            remote_suffix_family_digest,
+            authorship_evidence_digest,
+            basis_anchor_digest,
+            bundle_digest,
+            source_shell_digest,
+            target_basis_digest,
+            outcome_kind,
+            import_shell_digest,
+            retention_posture_digest,
+            idempotency_key_digest,
+        })
+    }
+}
+
+/// One topology evidence record carried by a topology-intent transaction.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TopologyIntentRecord {
+    /// Strand fork evidence.
+    StrandFork(StrandForkRecord),
+    /// Strand drop evidence.
+    StrandDrop(StrandDropRecord),
+    /// Braid event evidence.
+    BraidEvent(TopologyBraidEventRecord),
+    /// Braid shell retention evidence.
+    BraidShell(BraidShellRetentionRecord),
+    /// Replica suffix import evidence.
+    SuffixImport(SuffixImportRecord),
+}
+
+impl TopologyIntentRecord {
+    /// Returns the WAL record kind used by this topology evidence.
+    #[must_use]
+    pub const fn record_kind(&self) -> WalRecordKind {
+        match self {
+            Self::StrandFork(_) => WalRecordKind::TopologyStrandForkRecorded,
+            Self::StrandDrop(_) => WalRecordKind::TopologyStrandDropRecorded,
+            Self::BraidEvent(_) => WalRecordKind::TopologyBraidEventRecorded,
+            Self::BraidShell(_) => WalRecordKind::TopologyBraidShellRetained,
+            Self::SuffixImport(_) => WalRecordKind::TopologySuffixImportRecorded,
+        }
+    }
+
+    /// Encodes this topology record to deterministic payload bytes.
+    #[must_use]
+    pub fn to_payload_bytes(&self) -> Vec<u8> {
+        match self {
+            Self::StrandFork(record) => record.to_payload_bytes(),
+            Self::StrandDrop(record) => record.to_payload_bytes(),
+            Self::BraidEvent(record) => record.to_payload_bytes(),
+            Self::BraidShell(record) => record.to_payload_bytes(),
+            Self::SuffixImport(record) => record.to_payload_bytes(),
+        }
+    }
+}
+
+/// Recovered topology indexes rebuilt from committed WAL/WSC evidence.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RecoveredTopologyIndex {
+    /// Accepted strand forks by strand id.
+    pub strand_forks: BTreeMap<StrandId, StrandForkRecord>,
+    /// Accepted strand drops by strand id.
+    pub strand_drops: BTreeMap<StrandId, StrandDropRecord>,
+    /// Child-worldline ancestry index.
+    pub child_worldlines: BTreeMap<WorldlineId, StrandId>,
+    /// Accepted braid event logs by braid id.
+    pub braid_events: BTreeMap<Hash, Vec<TopologyBraidEventRecord>>,
+    /// Retained braid-shell records by shell digest.
+    pub braid_shells: BTreeMap<Hash, BraidShellRetentionRecord>,
+    /// Suffix imports by explicit import id.
+    pub suffix_imports: BTreeMap<Hash, SuffixImportRecord>,
+    /// Suffix imports by transport idempotency key.
+    pub suffix_imports_by_idempotency_key: BTreeMap<Hash, Hash>,
+    /// Suffix imports by bundle digest.
+    pub suffix_imports_by_bundle_digest: BTreeMap<Hash, Hash>,
+}
+
+impl RecoveredTopologyIndex {
+    /// Builds topology indexes from recovered topology evidence.
+    ///
+    /// Duplicate identical evidence is idempotent. Duplicate identities with
+    /// divergent material are recovery obstructions.
+    pub fn from_topology_records<I>(records: I) -> Result<Self, WalRecoveryIndexError>
+    where
+        I: IntoIterator<Item = TopologyIntentRecord>,
+    {
+        let mut index = Self::default();
+        let mut braid_event_maps: BTreeMap<Hash, BTreeMap<u64, TopologyBraidEventRecord>> =
+            BTreeMap::new();
+
+        for record in records {
+            match record {
+                TopologyIntentRecord::StrandFork(record) => {
+                    insert_unique(
+                        &mut index.strand_forks,
+                        record.strand_id,
+                        record.clone(),
+                        WalRecoveryIndexError::ConflictingStrandFork {
+                            strand_id: record.strand_id,
+                        },
+                    )?;
+                    insert_unique(
+                        &mut index.child_worldlines,
+                        record.child_worldline_id,
+                        record.strand_id,
+                        WalRecoveryIndexError::ConflictingChildWorldline {
+                            child_worldline_id: record.child_worldline_id,
+                        },
+                    )?;
+                }
+                TopologyIntentRecord::StrandDrop(record) => {
+                    insert_unique(
+                        &mut index.strand_drops,
+                        record.strand_id,
+                        record.clone(),
+                        WalRecoveryIndexError::ConflictingStrandDrop {
+                            strand_id: record.strand_id,
+                        },
+                    )?;
+                }
+                TopologyIntentRecord::BraidEvent(record) => {
+                    let per_braid = braid_event_maps.entry(record.braid_id).or_default();
+                    insert_unique(
+                        per_braid,
+                        record.event_index,
+                        record.clone(),
+                        WalRecoveryIndexError::ConflictingBraidEvent {
+                            braid_id: record.braid_id,
+                            event_index: record.event_index,
+                        },
+                    )?;
+                }
+                TopologyIntentRecord::BraidShell(record) => {
+                    insert_unique(
+                        &mut index.braid_shells,
+                        record.shell_digest,
+                        record.clone(),
+                        WalRecoveryIndexError::ConflictingBraidShell {
+                            shell_digest: record.shell_digest,
+                        },
+                    )?;
+                }
+                TopologyIntentRecord::SuffixImport(record) => {
+                    insert_unique(
+                        &mut index.suffix_imports,
+                        record.import_id,
+                        record.clone(),
+                        WalRecoveryIndexError::ConflictingSuffixImport {
+                            import_id: record.import_id,
+                        },
+                    )?;
+                    insert_unique(
+                        &mut index.suffix_imports_by_idempotency_key,
+                        record.idempotency_key_digest,
+                        record.import_id,
+                        WalRecoveryIndexError::ConflictingSuffixImportIdempotency {
+                            idempotency_key_digest: record.idempotency_key_digest,
+                        },
+                    )?;
+                    insert_unique(
+                        &mut index.suffix_imports_by_bundle_digest,
+                        record.bundle_digest,
+                        record.import_id,
+                        WalRecoveryIndexError::ConflictingSuffixImportBundle {
+                            bundle_digest: record.bundle_digest,
+                        },
+                    )?;
+                }
+            }
+        }
+
+        index.braid_events = braid_event_maps
+            .into_iter()
+            .map(|(braid_id, events)| (braid_id, events.into_values().collect()))
+            .collect();
+        Ok(index)
+    }
+
+    /// Returns the number of accepted topology evidence records in the index.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.strand_forks.len()
+            + self.strand_drops.len()
+            + self
+                .braid_events
+                .values()
+                .map(std::vec::Vec::len)
+                .sum::<usize>()
+            + self.braid_shells.len()
+            + self.suffix_imports.len()
+    }
+
+    /// Returns `true` when the topology index contains no recovered evidence.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+/// Builds a stable root over recovered topology indexes.
+#[must_use]
+pub fn recovered_topology_index_root(index: &RecoveredTopologyIndex) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(WAL_RECOVERED_INDEX_ROOT_DOMAIN);
+    hasher.update(b"topology");
+    for (strand_id, record) in &index.strand_forks {
+        hasher.update(b"strand-fork");
+        hasher.update(strand_id.as_bytes());
+        hasher.update(&record.to_payload_bytes());
+    }
+    for (strand_id, record) in &index.strand_drops {
+        hasher.update(b"strand-drop");
+        hasher.update(strand_id.as_bytes());
+        hasher.update(&record.to_payload_bytes());
+    }
+    for (child_worldline_id, strand_id) in &index.child_worldlines {
+        hasher.update(b"child-worldline");
+        hasher.update(child_worldline_id.as_bytes());
+        hasher.update(strand_id.as_bytes());
+    }
+    for (braid_id, events) in &index.braid_events {
+        hasher.update(b"braid-events");
+        hasher.update(braid_id);
+        for event in events {
+            hasher.update(&event.to_payload_bytes());
+        }
+    }
+    for (shell_digest, record) in &index.braid_shells {
+        hasher.update(b"braid-shell");
+        hasher.update(shell_digest);
+        hasher.update(&record.to_payload_bytes());
+    }
+    for (import_id, record) in &index.suffix_imports {
+        hasher.update(b"suffix-import");
+        hasher.update(import_id);
+        hasher.update(&record.to_payload_bytes());
+    }
+    hasher.finalize().into()
+}
+
 /// Causal commit evidence source.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CausalCommitEvidenceSource {
@@ -3747,6 +4401,12 @@ pub fn audit_wal_release_readiness(gates: WalReleaseReadinessGates) -> WalReleas
     push_gate(
         &mut passed_gates,
         &mut blocked_gates,
+        "topology_recovery",
+        gates.topology_recovery,
+    );
+    push_gate(
+        &mut passed_gates,
+        &mut blocked_gates,
         "filesystem_sync_evidence",
         gates.filesystem_sync_evidence,
     );
@@ -3809,6 +4469,8 @@ pub struct WalReleaseReadinessGates {
     pub wal_doctor: bool,
     /// Semantic validator gate.
     pub semantic_validator: bool,
+    /// Topology recovery index gate.
+    pub topology_recovery: bool,
     /// Strict filesystem sync evidence gate.
     pub filesystem_sync_evidence: bool,
     /// Object-store manifest negative matrix gate.
@@ -4291,6 +4953,18 @@ pub fn build_retained_reading_transaction(
     builder.commit(affected_frontiers)
 }
 
+/// Builds a topology-intent transaction from typed topology evidence records.
+pub fn build_topology_intent_transaction(
+    mut builder: WalTransactionBuilder,
+    records: &[TopologyIntentRecord],
+    affected_frontiers: Vec<AffectedFrontier>,
+) -> Result<WalCommittedTransaction, WalBuildError> {
+    for record in records {
+        builder.push_record(record.record_kind(), record.to_payload_bytes())?;
+    }
+    builder.commit(affected_frontiers)
+}
+
 /// Builds a checkpoint publication transaction.
 pub fn build_checkpoint_publication_transaction(
     mut builder: WalTransactionBuilder,
@@ -4456,6 +5130,50 @@ pub fn recover_retention_index(
         }
     }
     Ok(index)
+}
+
+/// Recovers topology indexes from committed WAL transactions.
+pub fn recover_topology_index(
+    report: &RecoveryScanReport,
+) -> Result<RecoveredTopologyIndex, WalRecoveryIndexError> {
+    let mut records = Vec::new();
+    for transaction in &report.transactions {
+        for frame in &transaction.frames {
+            match frame.header.record_kind {
+                WalRecordKind::TopologyStrandForkRecorded => {
+                    records.push(TopologyIntentRecord::StrandFork(
+                        StrandForkRecord::from_payload_bytes(&frame.payload.canonical_bytes)?,
+                    ));
+                }
+                WalRecordKind::TopologyStrandDropRecorded => {
+                    records.push(TopologyIntentRecord::StrandDrop(
+                        StrandDropRecord::from_payload_bytes(&frame.payload.canonical_bytes)?,
+                    ));
+                }
+                WalRecordKind::TopologyBraidEventRecorded => {
+                    records.push(TopologyIntentRecord::BraidEvent(
+                        TopologyBraidEventRecord::from_payload_bytes(
+                            &frame.payload.canonical_bytes,
+                        )?,
+                    ));
+                }
+                WalRecordKind::TopologyBraidShellRetained => {
+                    records.push(TopologyIntentRecord::BraidShell(
+                        BraidShellRetentionRecord::from_payload_bytes(
+                            &frame.payload.canonical_bytes,
+                        )?,
+                    ));
+                }
+                WalRecordKind::TopologySuffixImportRecorded => {
+                    records.push(TopologyIntentRecord::SuffixImport(
+                        SuffixImportRecord::from_payload_bytes(&frame.payload.canonical_bytes)?,
+                    ));
+                }
+                _ => {}
+            }
+        }
+    }
+    RecoveredTopologyIndex::from_topology_records(records)
 }
 
 /// Validates retained material references against an available material set.
@@ -4989,6 +5707,56 @@ pub enum WalRecoveryIndexError {
         /// Conflicting submission id.
         submission_id: Hash,
     },
+    /// Strand fork evidence conflicted for one strand id.
+    #[error("strand fork evidence conflicted for strand {strand_id:?}")]
+    ConflictingStrandFork {
+        /// Conflicting strand id.
+        strand_id: StrandId,
+    },
+    /// Strand drop evidence conflicted for one strand id.
+    #[error("strand drop evidence conflicted for strand {strand_id:?}")]
+    ConflictingStrandDrop {
+        /// Conflicting strand id.
+        strand_id: StrandId,
+    },
+    /// Child-worldline ancestry conflicted.
+    #[error("child worldline evidence conflicted for {child_worldline_id:?}")]
+    ConflictingChildWorldline {
+        /// Conflicting child worldline id.
+        child_worldline_id: WorldlineId,
+    },
+    /// Braid event evidence conflicted at one event index.
+    #[error("braid event evidence conflicted for braid {braid_id:?} at event {event_index}")]
+    ConflictingBraidEvent {
+        /// Conflicting braid id.
+        braid_id: Hash,
+        /// Conflicting event index.
+        event_index: u64,
+    },
+    /// Braid shell retention evidence conflicted for one digest.
+    #[error("braid shell retention evidence conflicted for shell {shell_digest:?}")]
+    ConflictingBraidShell {
+        /// Conflicting shell digest.
+        shell_digest: Hash,
+    },
+    /// Suffix import evidence conflicted for one import id.
+    #[error("suffix import evidence conflicted for import {import_id:?}")]
+    ConflictingSuffixImport {
+        /// Conflicting import id.
+        import_id: Hash,
+    },
+    /// Suffix import idempotency key mapped to conflicting imports.
+    #[error("suffix import idempotency key conflicted for {idempotency_key_digest:?}")]
+    ConflictingSuffixImportIdempotency {
+        /// Conflicting idempotency key digest.
+        idempotency_key_digest: Hash,
+    },
+    /// Suffix import bundle digest mapped to conflicting imports.
+    #[error("suffix import bundle digest conflicted for {bundle_digest:?}")]
+    ConflictingSuffixImportBundle {
+        /// Conflicting bundle digest.
+        bundle_digest: Hash,
+    },
 }
 
 /// Checkpoint file I/O errors.
@@ -5134,6 +5902,9 @@ fn frontier_kind_allowed_for_transaction(
         WalTransactionKind::MaterializationOutbox => {
             matches!(frontier_kind, AffectedFrontierKind::ReceiptIndex)
         }
+        WalTransactionKind::TopologyIntent => {
+            matches!(frontier_kind, AffectedFrontierKind::TopologyIndex)
+        }
     }
 }
 
@@ -5217,6 +5988,118 @@ fn push_optional_lsn(out: &mut Vec<u8>, lsn: Option<Lsn>) {
         }
         None => out.push(0),
     }
+}
+
+fn push_worldline_id(out: &mut Vec<u8>, worldline_id: WorldlineId) {
+    out.extend_from_slice(worldline_id.as_bytes());
+}
+
+fn push_worldline_tick(out: &mut Vec<u8>, tick: WorldlineTick) {
+    out.extend_from_slice(&tick.as_u64().to_le_bytes());
+}
+
+fn push_strand_id(out: &mut Vec<u8>, strand_id: StrandId) {
+    out.extend_from_slice(strand_id.as_bytes());
+}
+
+fn push_writer_head_key(out: &mut Vec<u8>, head: WriterHeadKey) {
+    out.extend_from_slice(head.worldline_id.as_bytes());
+    out.extend_from_slice(head.head_id.as_bytes());
+}
+
+fn push_authority_domain_ref(out: &mut Vec<u8>, authority: AuthorityDomainRef) {
+    out.extend_from_slice(authority.origin_id.as_bytes());
+    out.extend_from_slice(authority.domain_id.as_bytes());
+}
+
+fn push_braid_member_ref(out: &mut Vec<u8>, member_ref: BraidMemberRef) {
+    match member_ref {
+        BraidMemberRef::Revealed(strand_id) => {
+            out.push(1);
+            push_strand_id(out, strand_id);
+        }
+        BraidMemberRef::Sealed {
+            blinded_commitment,
+            authority,
+        } => {
+            out.push(2);
+            push_hash(out, &blinded_commitment);
+            push_authority_domain_ref(out, authority);
+        }
+    }
+}
+
+fn push_braid_event(out: &mut Vec<u8>, event: &BraidEvent) {
+    match event {
+        BraidEvent::BraidCreated {
+            braid_id,
+            creator_domain,
+        } => {
+            out.push(1);
+            push_hash(out, braid_id);
+            push_authority_domain_ref(out, *creator_domain);
+        }
+        BraidEvent::MemberWoven {
+            member_ref,
+            sequence_num,
+        } => {
+            out.push(2);
+            push_braid_member_ref(out, *member_ref);
+            out.extend_from_slice(&sequence_num.to_le_bytes());
+        }
+        BraidEvent::SettlementFinalized { settlement_digest } => {
+            out.push(3);
+            push_hash(out, settlement_digest);
+        }
+        BraidEvent::BraidCollapsed {
+            collapse_witness,
+            outcome_digest,
+        } => {
+            out.push(4);
+            push_hash(out, collapse_witness);
+            push_hash(out, outcome_digest);
+        }
+    }
+}
+
+fn braid_status_code(status: BraidStatus) -> u8 {
+    match status {
+        BraidStatus::Active => 1,
+        BraidStatus::Finalized => 2,
+        BraidStatus::Collapsed => 3,
+    }
+}
+
+fn braid_status_from_code(code: u8) -> Result<BraidStatus, WalDecodeError> {
+    match code {
+        1 => Ok(BraidStatus::Active),
+        2 => Ok(BraidStatus::Finalized),
+        3 => Ok(BraidStatus::Collapsed),
+        _ => Err(WalDecodeError::UnknownEnumCode {
+            enum_name: "BraidStatus",
+            code,
+        }),
+    }
+}
+
+fn insert_unique<K, V>(
+    map: &mut BTreeMap<K, V>,
+    key: K,
+    value: V,
+    error: WalRecoveryIndexError,
+) -> Result<(), WalRecoveryIndexError>
+where
+    K: Ord,
+    V: PartialEq,
+{
+    if let Some(existing) = map.get(&key) {
+        if existing != &value {
+            return Err(error);
+        }
+        return Ok(());
+    }
+    map.insert(key, value);
+    Ok(())
 }
 
 fn encode_frame(frame: &WalFrame) -> Vec<u8> {
@@ -5473,6 +6356,88 @@ impl<'a> WalPayloadCursor<'a> {
             1 => self.read_u64().map(|raw| Some(Lsn::from_raw(raw))),
             code => Err(WalDecodeError::UnknownEnumCode {
                 enum_name: "Option<Lsn>",
+                code,
+            }),
+        }
+    }
+
+    fn read_worldline_id(&mut self) -> Result<WorldlineId, WalDecodeError> {
+        self.read_hash().map(WorldlineId::from_bytes)
+    }
+
+    fn read_worldline_tick(&mut self) -> Result<WorldlineTick, WalDecodeError> {
+        self.read_u64().map(WorldlineTick::from_raw)
+    }
+
+    fn read_strand_id(&mut self) -> Result<StrandId, WalDecodeError> {
+        self.read_hash().map(StrandId::from_bytes)
+    }
+
+    fn read_writer_head_key(&mut self) -> Result<WriterHeadKey, WalDecodeError> {
+        let worldline_id = self.read_worldline_id()?;
+        let head_id = HeadId::from_bytes(self.read_hash()?);
+        Ok(WriterHeadKey {
+            worldline_id,
+            head_id,
+        })
+    }
+
+    fn read_authority_domain_ref(&mut self) -> Result<AuthorityDomainRef, WalDecodeError> {
+        let origin_id = OriginId::from_bytes(self.read_hash()?);
+        let domain_id = AuthorityDomainId::from_bytes(self.read_hash()?);
+        Ok(AuthorityDomainRef::new(origin_id, domain_id))
+    }
+
+    fn read_braid_member_ref(&mut self) -> Result<BraidMemberRef, WalDecodeError> {
+        match self.read_u8()? {
+            1 => self.read_strand_id().map(BraidMemberRef::Revealed),
+            2 => {
+                let blinded_commitment = self.read_hash()?;
+                let authority = self.read_authority_domain_ref()?;
+                Ok(BraidMemberRef::Sealed {
+                    blinded_commitment,
+                    authority,
+                })
+            }
+            code => Err(WalDecodeError::UnknownEnumCode {
+                enum_name: "BraidMemberRef",
+                code,
+            }),
+        }
+    }
+
+    fn read_braid_event(&mut self) -> Result<BraidEvent, WalDecodeError> {
+        match self.read_u8()? {
+            1 => {
+                let braid_id = self.read_hash()?;
+                let creator_domain = self.read_authority_domain_ref()?;
+                Ok(BraidEvent::BraidCreated {
+                    braid_id,
+                    creator_domain,
+                })
+            }
+            2 => {
+                let member_ref = self.read_braid_member_ref()?;
+                let sequence_num = self.read_u64()?;
+                Ok(BraidEvent::MemberWoven {
+                    member_ref,
+                    sequence_num,
+                })
+            }
+            3 => {
+                let settlement_digest = self.read_hash()?;
+                Ok(BraidEvent::SettlementFinalized { settlement_digest })
+            }
+            4 => {
+                let collapse_witness = self.read_hash()?;
+                let outcome_digest = self.read_hash()?;
+                Ok(BraidEvent::BraidCollapsed {
+                    collapse_witness,
+                    outcome_digest,
+                })
+            }
+            code => Err(WalDecodeError::UnknownEnumCode {
+                enum_name: "BraidEvent",
                 code,
             }),
         }

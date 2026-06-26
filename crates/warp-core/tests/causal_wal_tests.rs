@@ -13,28 +13,34 @@ use warp_core::causal_wal::{
     apply_committed_transaction, audit_wal_release_readiness,
     build_checkpoint_publication_transaction, build_materialization_outbox_transaction,
     build_recovery_certificate, build_retained_reading_transaction,
-    build_submission_acceptance_transaction, build_tick_transaction, doctor_in_memory_store,
-    evaluate_checkpoint_publication, lint_wal_schema_terms, missing_material_scope,
-    project_causal_commit_evidence, read_checkpoint_record, recover_checkpoint_publications,
-    recover_filesystem_store, recover_in_memory_store, recover_materialization_outbox,
-    recover_receipt_index, recover_retention_index, recover_submission_index,
-    retained_material_obstructions, shadow_replay_matches, validate_checkpoint_record,
-    validate_strict_object_store_capabilities, write_checkpoint_record_atomic, AffectedFrontier,
-    AffectedFrontierKind, CheckpointPublicationRecord, CheckpointRecord,
+    build_submission_acceptance_transaction, build_tick_transaction,
+    build_topology_intent_transaction, doctor_in_memory_store, evaluate_checkpoint_publication,
+    lint_wal_schema_terms, missing_material_scope, project_causal_commit_evidence,
+    read_checkpoint_record, recover_checkpoint_publications, recover_filesystem_store,
+    recover_in_memory_store, recover_materialization_outbox, recover_receipt_index,
+    recover_retention_index, recover_submission_index, recover_topology_index,
+    recovered_topology_index_root, retained_material_obstructions, shadow_replay_matches,
+    validate_checkpoint_record, validate_strict_object_store_capabilities,
+    write_checkpoint_record_atomic, AffectedFrontier, AffectedFrontierKind,
+    BraidShellRetentionRecord, CheckpointPublicationRecord, CheckpointRecord,
     CheckpointValidationPosture, EvidenceMaterialPosture, ExistingMaterializedArtifact,
     FilesystemWalStore, InMemoryWalStore, Lsn, MaterializationIntentRecord,
     MaterializationObservationRecord, MaterializationReplayPosture, MissingMaterialScope,
     ObjectStoreCapabilityError, ObjectStoreReadAfterWritePosture, ObjectStoreWalCapabilities,
     PayloadCodecId, PayloadSchemaId, ReadingRefRecord, RecoveredState, RecoveredSubmissionPosture,
-    RecoveryAccessMode, RecoveryTailPosture, RetainedMaterialKind, RetainedMaterialRecord,
-    SubmissionAcceptanceRecord, SubmissionRetryPosture, TickReceiptRecord, TransactionLocalIndex,
-    WalAppendAuthority, WalBuildError, WalCommittedTransaction, WalDoctorPosture,
-    WalDurabilityMode, WalManifest, WalReceiptCorrelationRecord, WalRecordKind,
-    WalReleaseReadinessGates, WalSchemaLintError, WalSegmentId, WalStoreError, WalStorePort,
-    WalTickDecision, WalTransactionBuilder, WalTransactionId, WalTransactionKind, WriterEpochId,
-    WriterEpochRequest,
+    RecoveredTopologyIndex, RecoveryAccessMode, RecoveryTailPosture, RetainedMaterialKind,
+    RetainedMaterialRecord, StrandDropRecord, StrandForkRecord, SubmissionAcceptanceRecord,
+    SubmissionRetryPosture, SuffixImportRecord, TickReceiptRecord, TopologyBraidEventRecord,
+    TopologyImportOutcomeKind, TopologyIntentRecord, TransactionLocalIndex, WalAppendAuthority,
+    WalBuildError, WalCommittedTransaction, WalDoctorPosture, WalDurabilityMode, WalManifest,
+    WalReceiptCorrelationRecord, WalRecordKind, WalRecoveryIndexError, WalReleaseReadinessGates,
+    WalSchemaLintError, WalSegmentId, WalStoreError, WalStorePort, WalTickDecision,
+    WalTransactionBuilder, WalTransactionId, WalTransactionKind, WriterEpochId, WriterEpochRequest,
 };
-use warp_core::Hash;
+use warp_core::{
+    make_strand_id, AuthorityDomainId, AuthorityDomainRef, BraidEvent, BraidStatus, Hash, HeadId,
+    OriginId, WorldlineId, WorldlineTick, WriterHeadKey,
+};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
@@ -198,6 +204,92 @@ fn reading_ref(label: &str, posture: EvidenceMaterialPosture) -> ReadingRefRecor
     }
 }
 
+fn worldline(seed: u8) -> WorldlineId {
+    WorldlineId::from_bytes([seed; 32])
+}
+
+fn head(seed: u8, worldline_id: WorldlineId) -> WriterHeadKey {
+    WriterHeadKey {
+        worldline_id,
+        head_id: HeadId::from_bytes([seed; 32]),
+    }
+}
+
+fn authority(seed: u8) -> AuthorityDomainRef {
+    AuthorityDomainRef::new(
+        OriginId::from_bytes([seed; 32]),
+        AuthorityDomainId::from_bytes([seed.wrapping_add(1); 32]),
+    )
+}
+
+fn topology_records() -> Vec<TopologyIntentRecord> {
+    let source_worldline = worldline(1);
+    let child_worldline = worldline(2);
+    let strand_id = make_strand_id("wal-topology-strand");
+    let braid_id = digest("topology:braid");
+    vec![
+        TopologyIntentRecord::StrandFork(StrandForkRecord {
+            topology_intent_id: digest("topology:intent:fork"),
+            strand_id,
+            source_worldline_id: source_worldline,
+            fork_tick: WorldlineTick::from_raw(7),
+            source_commit_hash: digest("topology:source-commit"),
+            source_boundary_hash: digest("topology:source-boundary"),
+            child_worldline_id: child_worldline,
+            writer_heads: vec![head(3, child_worldline)],
+            retention_posture_digest: digest("topology:retention:fork"),
+            issuer_evidence_digest: digest("topology:issuer:fork"),
+            idempotency_key_digest: Some(digest("topology:idempotency:fork")),
+        }),
+        TopologyIntentRecord::StrandDrop(StrandDropRecord {
+            topology_intent_id: digest("topology:intent:drop"),
+            strand_id,
+            child_worldline_id: child_worldline,
+            final_tick: WorldlineTick::from_raw(11),
+            drop_receipt_digest: digest("topology:drop-receipt"),
+            issuer_evidence_digest: digest("topology:issuer:drop"),
+            idempotency_key_digest: Some(digest("topology:idempotency:drop")),
+        }),
+        TopologyIntentRecord::BraidEvent(TopologyBraidEventRecord {
+            topology_intent_id: digest("topology:intent:braid-event"),
+            braid_id,
+            event_index: 0,
+            event: BraidEvent::BraidCreated {
+                braid_id,
+                creator_domain: authority(9),
+            },
+            status_after: BraidStatus::Active,
+            event_digest: digest("topology:braid-event"),
+            issuer_evidence_digest: digest("topology:issuer:braid"),
+            idempotency_key_digest: Some(digest("topology:idempotency:braid-event")),
+        }),
+        TopologyIntentRecord::BraidShell(BraidShellRetentionRecord {
+            topology_intent_id: digest("topology:intent:braid-shell"),
+            braid_id,
+            shell_digest: digest("topology:braid-shell"),
+            material_digest: digest("topology:braid-shell-material"),
+            basis_digest: digest("topology:braid-shell-basis"),
+            outcome_kind: TopologyImportOutcomeKind::Plural,
+            retention_posture_digest: digest("topology:retention:braid-shell"),
+            witness_digest: digest("topology:witness:braid-shell"),
+            idempotency_key_digest: Some(digest("topology:idempotency:braid-shell")),
+        }),
+        TopologyIntentRecord::SuffixImport(SuffixImportRecord {
+            import_id: digest("topology:import"),
+            remote_suffix_family_digest: digest("topology:remote-suffix-family"),
+            authorship_evidence_digest: digest("topology:authorship"),
+            basis_anchor_digest: digest("topology:basis-anchor"),
+            bundle_digest: digest("topology:bundle"),
+            source_shell_digest: digest("topology:source-shell"),
+            target_basis_digest: digest("topology:target-basis"),
+            outcome_kind: TopologyImportOutcomeKind::Derived,
+            import_shell_digest: digest("topology:import-shell"),
+            retention_posture_digest: digest("topology:retention:import"),
+            idempotency_key_digest: digest("topology:idempotency:import"),
+        }),
+    ]
+}
+
 fn submission_transaction(first_lsn: Lsn) -> WalCommittedTransaction {
     let mut builder = builder(
         transaction_id("tx:submission"),
@@ -214,6 +306,24 @@ fn submission_transaction(first_lsn: Lsn) -> WalCommittedTransaction {
         "queue:before",
         "queue:after",
     )]))
+}
+
+fn topology_transaction(first_lsn: Lsn) -> WalCommittedTransaction {
+    let builder = builder(
+        transaction_id("tx:topology"),
+        first_lsn,
+        WalAppendAuthority::TrustedScheduler,
+        WalTransactionKind::TopologyIntent,
+    );
+    must_ok(build_topology_intent_transaction(
+        builder,
+        &topology_records(),
+        vec![frontier(
+            AffectedFrontierKind::TopologyIndex,
+            "topology:before",
+            "topology:after",
+        )],
+    ))
 }
 
 fn durable_submission_transaction(label: &str, first_lsn: Lsn) -> WalCommittedTransaction {
@@ -866,6 +976,102 @@ fn same_payload_with_different_query_coordinate_remains_distinct() {
 }
 
 #[test]
+fn topology_intent_transaction_recovers_strands_braids_shells_and_imports() {
+    let mut store = InMemoryWalStore::new();
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    let tx = topology_transaction(Lsn::from_raw(0));
+    must_ok(store.append_transaction(tx));
+
+    let report = must_ok(recover_in_memory_store(
+        &mut store,
+        RecoveryAccessMode::ReadOnly,
+    ));
+    let topology = must_ok(recover_topology_index(&report));
+    let records = topology_records();
+    let strand_id = make_strand_id("wal-topology-strand");
+    let child_worldline = worldline(2);
+    let braid_id = digest("topology:braid");
+    let shell_digest = digest("topology:braid-shell");
+    let import_id = digest("topology:import");
+    let topology_root = recovered_topology_index_root(&topology);
+    let certificate = build_recovery_certificate(&report, None, 0, [0; 32], topology_root);
+
+    assert_eq!(topology.len(), 5);
+    assert_eq!(
+        topology.strand_forks.get(&strand_id),
+        match &records[0] {
+            TopologyIntentRecord::StrandFork(record) => Some(record),
+            _ => None,
+        }
+    );
+    assert_eq!(
+        topology.child_worldlines.get(&child_worldline),
+        Some(&strand_id)
+    );
+    assert!(topology.strand_drops.contains_key(&strand_id));
+    assert_eq!(must_some(topology.braid_events.get(&braid_id)).len(), 1);
+    assert!(topology.braid_shells.contains_key(&shell_digest));
+    assert!(topology.suffix_imports.contains_key(&import_id));
+    assert_eq!(
+        topology
+            .suffix_imports_by_idempotency_key
+            .get(&digest("topology:idempotency:import")),
+        Some(&import_id)
+    );
+    assert_eq!(certificate.recovered_indexes_root, topology_root);
+}
+
+#[test]
+fn topology_uncommitted_tail_does_not_materialize_half_fork() {
+    let mut store = InMemoryWalStore::new();
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    let tx = topology_transaction(Lsn::from_raw(0));
+    let epoch = tx.commit.writer_epoch;
+    for frame in tx.frames {
+        must_ok(store.append_uncommitted_frame(epoch, frame));
+    }
+
+    let report = must_ok(recover_in_memory_store(
+        &mut store,
+        RecoveryAccessMode::ReadOnly,
+    ));
+    let topology = must_ok(recover_topology_index(&report));
+
+    assert_eq!(report.tail_posture, RecoveryTailPosture::WouldTruncateAll);
+    assert!(topology.is_empty());
+}
+
+#[test]
+fn topology_duplicate_idempotent_records_replay_once_and_divergent_records_obstruct() {
+    let records = topology_records();
+    let fork = match &records[0] {
+        TopologyIntentRecord::StrandFork(record) => record.clone(),
+        _ => panic!("expected strand fork fixture"),
+    };
+    let idempotent = must_ok(RecoveredTopologyIndex::from_topology_records([
+        TopologyIntentRecord::StrandFork(fork.clone()),
+        TopologyIntentRecord::StrandFork(fork.clone()),
+    ]));
+    assert_eq!(idempotent.strand_forks.len(), 1);
+
+    let mut divergent = fork;
+    divergent.child_worldline_id = worldline(99);
+    let obstruction = RecoveredTopologyIndex::from_topology_records([
+        TopologyIntentRecord::StrandFork(match &records[0] {
+            TopologyIntentRecord::StrandFork(record) => record.clone(),
+            _ => panic!("expected strand fork fixture"),
+        }),
+        TopologyIntentRecord::StrandFork(divergent),
+    ])
+    .expect_err("divergent duplicate strand fork obstructs");
+
+    assert!(matches!(
+        obstruction,
+        WalRecoveryIndexError::ConflictingStrandFork { .. }
+    ));
+}
+
+#[test]
 fn security_and_redaction_postures_decode_without_becoming_missing() {
     for posture in [
         EvidenceMaterialPosture::Present,
@@ -1356,6 +1562,7 @@ fn wal_release_readiness_audit_reports_blocked_and_ready_gates() {
     assert!(!blocked.ready);
     assert!(blocked.passed_gates.contains(&"filesystem_adapter"));
     assert!(blocked.blocked_gates.contains(&"shadow_replay"));
+    assert!(blocked.blocked_gates.contains(&"topology_recovery"));
 
     let ready = audit_wal_release_readiness(WalReleaseReadinessGates {
         filesystem_adapter: true,
@@ -1370,6 +1577,7 @@ fn wal_release_readiness_audit_reports_blocked_and_ready_gates() {
         commit_evidence: true,
         wal_doctor: true,
         semantic_validator: true,
+        topology_recovery: true,
         filesystem_sync_evidence: true,
         object_store_manifest_negatives: true,
         security_redaction: true,

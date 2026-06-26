@@ -54,7 +54,7 @@ Echo is a tiered engine. You choose your depth based on the task:
 
 ## Rule of Thumb
 
-If you need a comprehensive spec, use the [docs/index.md](./docs/index.md) map.
+If you need a comprehensive spec, use the [docs/README.md](./docs/README.md) map.
 
 If you need to know "what's true right now," use [docs/BEARING.md](./docs/BEARING.md).
 

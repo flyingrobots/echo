@@ -2155,6 +2155,7 @@ fn wal_hardening_gate_passes_when_all_categories_are_green() {
         commit_evidence: true,
         wal_doctor: true,
         semantic_validator: true,
+        topology_recovery: true,
         filesystem_sync_evidence: true,
         object_store_manifest_negatives: true,
         security_redaction: true,

@@ -85,6 +85,10 @@
   receipts whose subject digest does not match the retained support digest.
   Collapse-derived shells also reject records whose shell policy id diverges
   from the nested collapse policy id.
+- The braids/strands hardening docs now define Goalpost 6 for topology intents
+  and WAL recovery, making strand forks, braid event logs, retained braid
+  shells, and replica suffix import explicit WAL/WSC hardening work rather than
+  process-local topology state.
 - `warp-core` now enforces the v1 single-writer-head strand invariant through
   both `Strand::new(...)` and `StrandRegistry::insert(...)`, and runtime strand
   forking constructs the registered relation through the same constructor

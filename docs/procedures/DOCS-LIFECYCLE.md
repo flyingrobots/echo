@@ -146,13 +146,13 @@ Archive moves must preserve findability:
 
 - leave a short tombstone or status header when the old path has live inbound
   links;
-- update `docs/index.md` if the old doc was listed there;
+- update `docs/README.md` if the old doc was listed there;
 - run dead-reference checks for touched docs;
 - prefer one archive move per domain slice instead of broad unrelated sweeps.
 
 ## Public Docs Map Rules
 
-`docs/index.md` is not an inventory. It is the reader path.
+`docs/README.md` is not an inventory. It is the reader path.
 
 Only list a design doc in the public docs map when it is active, currently
 load-bearing, and there is no canonical domain doc yet. Once absorbed, remove
@@ -181,7 +181,7 @@ For any PR that creates, materially edits, or relies on a design doc:
 - [ ] If implementation landed, current behavior was absorbed into a canonical
       domain doc or a follow-up issue was opened.
 - [ ] Superseded docs point to their replacement.
-- [ ] `docs/index.md` links only to current reader-path docs.
+- [ ] `docs/README.md` links only to current reader-path docs.
 - [ ] Dead-reference checks pass for touched markdown.
 
 ## Anti-Patterns
@@ -201,5 +201,5 @@ When in doubt, do the smallest lawful docs lifecycle slice:
 2. Name the current canonical doc.
 3. Absorb the current invariant into that doc.
 4. Mark one or more design docs `absorbed` or `superseded`.
-5. Update `docs/index.md` only if the reader path changed.
+5. Update `docs/README.md` only if the reader path changed.
 6. Run markdownlint and dead-reference checks.

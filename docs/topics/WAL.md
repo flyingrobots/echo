@@ -84,6 +84,25 @@ WAL-backed ACK boundary and whether recovery can later classify it as pending,
 decided, rejected, or obstructed. If that boundary is unavailable, the editor
 must say so honestly instead of pretending a local buffer is causal history.
 
+## Topology Intents
+
+The same rule applies to topology. A strand fork, braid creation, member weave,
+braid settlement, braid collapse, or replica suffix import should not be a
+side-channel runtime call. Each one is a topology intent that changes causal
+history or the geometry through which causal history is interpreted.
+
+The current braid and strand implementation already has typed strand
+construction, braid event logs, settlement provenance entries, retained braid
+shells, and replay/audit optics. The remaining durability gate is to promote
+those topology operations to WAL-backed accepted evidence and recoverable
+WSC-retained material. That work is tracked by the braids and strands Goalpost 6
+roadmap.
+
+Until that lands, Echo should not overclaim that braid shells and topology
+indexes have the same explicit crash-recovery posture as tick receipts. It can
+claim that they are causal/provenance entities with retained replay shapes, and
+it can name WAL/WSC topology recovery as the required next hardening step.
+
 ## WAL, Graph Facts, And WSC
 
 WAL bytes are the durable commit authority. WARP graph facts can track WAL

@@ -39,6 +39,7 @@ Echo's live documentation centers on the runtime carrier, the retained witnesses
 - Goalpost 3, historical membership and replay: [/design/braids-and-strands-hardening/goalpost-03-historical-membership-and-replay](/design/braids-and-strands-hardening/goalpost-03-historical-membership-and-replay)
 - Goalpost 4, witness receipts and sealed capabilities: [/design/braids-and-strands-hardening/goalpost-04-witness-receipts-and-sealed-capabilities](/design/braids-and-strands-hardening/goalpost-04-witness-receipts-and-sealed-capabilities)
 - Goalpost 5, named plurality laws: [/design/braids-and-strands-hardening/goalpost-05-named-plurality-laws](/design/braids-and-strands-hardening/goalpost-05-named-plurality-laws)
+- Goalpost 6, topology intents and WAL recovery: [/design/braids-and-strands-hardening/goalpost-06-topology-intents-and-wal-recovery](/design/braids-and-strands-hardening/goalpost-06-topology-intents-and-wal-recovery)
 - DPO concurrency litmus: [/spec/SPEC-0003-dpo-concurrency-litmus-v0](/spec/SPEC-0003-dpo-concurrency-litmus-v0)
 - Rewrite scheduler: [/spec/scheduler-warp-core](/spec/scheduler-warp-core)
 - Canonical inbox sequencing: [/spec/canonical-inbox-sequencing](/spec/canonical-inbox-sequencing)

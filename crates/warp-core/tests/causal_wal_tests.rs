@@ -1072,6 +1072,101 @@ fn topology_duplicate_idempotent_records_replay_once_and_divergent_records_obstr
 }
 
 #[test]
+fn topology_strand_fork_writer_heads_are_canonical_for_payload_and_recovery() {
+    let mut fork = match &topology_records()[0] {
+        TopologyIntentRecord::StrandFork(record) => record.clone(),
+        _ => panic!("expected strand fork fixture"),
+    };
+    fork.writer_heads = vec![head(9, worldline(9)), head(1, worldline(1))];
+    let mut reversed = fork.clone();
+    reversed.writer_heads.reverse();
+
+    assert_eq!(fork.to_payload_bytes(), reversed.to_payload_bytes());
+    let decoded = must_ok(StrandForkRecord::from_payload_bytes(
+        &fork.to_payload_bytes(),
+    ));
+    assert_eq!(decoded.writer_heads, reversed.writer_heads);
+
+    let index = must_ok(RecoveredTopologyIndex::from_topology_records([
+        TopologyIntentRecord::StrandFork(fork),
+        TopologyIntentRecord::StrandFork(reversed),
+    ]));
+    let recovered = must_some(index.strand_forks.values().next());
+    assert_eq!(recovered.writer_heads, decoded.writer_heads);
+}
+
+#[test]
+fn topology_strand_fork_decode_bounds_writer_head_count_before_allocating() {
+    let fork = match &topology_records()[0] {
+        TopologyIntentRecord::StrandFork(record) => record.clone(),
+        _ => panic!("expected strand fork fixture"),
+    };
+    let mut payload = fork.to_payload_bytes();
+    let writer_count_offset = 200;
+    payload[writer_count_offset..writer_count_offset + 8].copy_from_slice(&u64::MAX.to_le_bytes());
+
+    assert!(StrandForkRecord::from_payload_bytes(&payload).is_err());
+}
+
+#[test]
+fn topology_strand_fork_and_drop_must_name_same_child_worldline() {
+    let records = topology_records();
+    let fork = match &records[0] {
+        TopologyIntentRecord::StrandFork(record) => record.clone(),
+        _ => panic!("expected strand fork fixture"),
+    };
+    let mut drop = match &records[1] {
+        TopologyIntentRecord::StrandDrop(record) => record.clone(),
+        _ => panic!("expected strand drop fixture"),
+    };
+    drop.child_worldline_id = worldline(99);
+
+    let obstruction = RecoveredTopologyIndex::from_topology_records([
+        TopologyIntentRecord::StrandFork(fork),
+        TopologyIntentRecord::StrandDrop(drop),
+    ])
+    .expect_err("fork/drop child mismatch obstructs");
+
+    assert!(matches!(
+        obstruction,
+        WalRecoveryIndexError::ConflictingStrandDrop { .. }
+    ));
+}
+
+#[test]
+fn topology_braid_event_records_must_be_self_consistent() {
+    let braid_event = match &topology_records()[2] {
+        TopologyIntentRecord::BraidEvent(record) => record.clone(),
+        _ => panic!("expected braid event fixture"),
+    };
+    let mut mismatched_braid = braid_event.clone();
+    mismatched_braid.event = BraidEvent::BraidCreated {
+        braid_id: digest("topology:other-braid"),
+        creator_domain: authority(9),
+    };
+    let mismatch =
+        RecoveredTopologyIndex::from_topology_records([TopologyIntentRecord::BraidEvent(
+            mismatched_braid,
+        )])
+        .expect_err("mismatched embedded braid id obstructs");
+    assert!(matches!(
+        mismatch,
+        WalRecoveryIndexError::ConflictingBraidEvent { .. }
+    ));
+
+    let mut impossible_status = braid_event;
+    impossible_status.status_after = BraidStatus::Collapsed;
+    let status = RecoveredTopologyIndex::from_topology_records([TopologyIntentRecord::BraidEvent(
+        impossible_status,
+    )])
+    .expect_err("impossible braid status obstructs");
+    assert!(matches!(
+        status,
+        WalRecoveryIndexError::ConflictingBraidEvent { .. }
+    ));
+}
+
+#[test]
 fn security_and_redaction_postures_decode_without_becoming_missing() {
     for posture in [
         EvidenceMaterialPosture::Present,

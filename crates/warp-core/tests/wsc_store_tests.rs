@@ -15,6 +15,7 @@ use warp_core::causal_wal::{
     TickReceiptRecord, TopologyBraidEventRecord, TopologyImportOutcomeKind, TopologyIntentRecord,
     WalReceiptCorrelationRecord, WalTickDecision,
 };
+use warp_core::wsc::types::{AttRow, NodeRow, Range};
 use warp_core::wsc::{
     accepted_submission_records_from_wsc_envelope, accepted_submission_records_from_wsc_store,
     accepted_submission_records_to_wsc_envelope, receipt_correlation_records_from_wsc_envelope,
@@ -26,8 +27,9 @@ use warp_core::wsc::{
     WscStoreEnvelope, WscStoreObstructionKind, WscStorePort, WscStoreRecordKind, WscStoreSubject,
 };
 use warp_core::{
-    make_strand_id, AuthorityDomainId, AuthorityDomainRef, BraidEvent, BraidStatus, HeadId,
-    OriginId, WorldlineId, WorldlineTick, WriterHeadKey,
+    make_node_id, make_strand_id, make_type_id, make_warp_id, AuthorityDomainId,
+    AuthorityDomainRef, BraidEvent, BraidStatus, HeadId, OriginId, WorldlineId, WorldlineTick,
+    WriterHeadKey,
 };
 
 #[test]
@@ -640,10 +642,98 @@ fn topology_records_reject_conflicting_duplicate_strand_fork() {
     let obstruction = topology_records_to_wsc_envelope(&records)
         .expect_err("conflicting topology duplicate obstructs");
 
+    // This kind covers canonical topology payload conflicts as well as
+    // committed-store duplicate-envelope collisions.
     assert_eq!(
         obstruction.kind,
         WscStoreObstructionKind::DuplicateEnvelopeMismatch
     );
+}
+
+#[test]
+fn topology_records_reject_idempotency_conflicts_for_each_record_family() {
+    let records = topology_records();
+
+    let fork = match &records[0] {
+        TopologyIntentRecord::StrandFork(record) => record.clone(),
+        _ => panic!("expected strand fork fixture"),
+    };
+    let mut conflicting_fork = fork.clone();
+    conflicting_fork.strand_id = make_strand_id("wsc-topology-other-strand");
+    conflicting_fork.child_worldline_id = worldline(52);
+    let obstruction = topology_records_to_wsc_envelope(&[
+        TopologyIntentRecord::StrandFork(fork),
+        TopologyIntentRecord::StrandFork(conflicting_fork),
+    ])
+    .expect_err("conflicting fork idempotency key obstructs");
+    assert_eq!(
+        obstruction.kind,
+        WscStoreObstructionKind::DuplicateEnvelopeMismatch
+    );
+
+    let drop = match &records[1] {
+        TopologyIntentRecord::StrandDrop(record) => record.clone(),
+        _ => panic!("expected strand drop fixture"),
+    };
+    let mut conflicting_drop = drop.clone();
+    conflicting_drop.strand_id = make_strand_id("wsc-topology-other-drop");
+    conflicting_drop.child_worldline_id = worldline(53);
+    let obstruction = topology_records_to_wsc_envelope(&[
+        TopologyIntentRecord::StrandDrop(drop),
+        TopologyIntentRecord::StrandDrop(conflicting_drop),
+    ])
+    .expect_err("conflicting drop idempotency key obstructs");
+    assert_eq!(
+        obstruction.kind,
+        WscStoreObstructionKind::DuplicateEnvelopeMismatch
+    );
+
+    let braid_event = match &records[2] {
+        TopologyIntentRecord::BraidEvent(record) => record.clone(),
+        _ => panic!("expected braid event fixture"),
+    };
+    let mut conflicting_braid_event = braid_event.clone();
+    conflicting_braid_event.event_index = 1;
+    let obstruction = topology_records_to_wsc_envelope(&[
+        TopologyIntentRecord::BraidEvent(braid_event),
+        TopologyIntentRecord::BraidEvent(conflicting_braid_event),
+    ])
+    .expect_err("conflicting braid-event idempotency key obstructs");
+    assert_eq!(
+        obstruction.kind,
+        WscStoreObstructionKind::DuplicateEnvelopeMismatch
+    );
+
+    let braid_shell = match &records[3] {
+        TopologyIntentRecord::BraidShell(record) => record.clone(),
+        _ => panic!("expected braid shell fixture"),
+    };
+    let mut conflicting_braid_shell = braid_shell.clone();
+    conflicting_braid_shell.shell_digest = [126; 32];
+    conflicting_braid_shell.material_digest = [127; 32];
+    let obstruction = topology_records_to_wsc_envelope(&[
+        TopologyIntentRecord::BraidShell(braid_shell),
+        TopologyIntentRecord::BraidShell(conflicting_braid_shell),
+    ])
+    .expect_err("conflicting braid-shell idempotency key obstructs");
+    assert_eq!(
+        obstruction.kind,
+        WscStoreObstructionKind::DuplicateEnvelopeMismatch
+    );
+}
+
+#[test]
+fn topology_records_reject_root_level_topology_attachment() {
+    let fork = match &topology_records()[0] {
+        TopologyIntentRecord::StrandFork(record) => record.clone(),
+        _ => panic!("expected strand fork fixture"),
+    };
+    let envelope = topology_envelope_with_root_attachment(TopologyIntentRecord::StrandFork(fork));
+
+    let obstruction = topology_records_from_wsc_envelope(&envelope)
+        .expect_err("root-level topology attachment obstructs");
+
+    assert_eq!(obstruction.kind, WscStoreObstructionKind::InvalidWsc);
 }
 
 #[test]
@@ -798,20 +888,70 @@ fn fixture_wsc_bytes(tick: u64) -> Vec<u8> {
     let input = OneWarpInput {
         warp_id: [1; 32],
         root_node_id: [2; 32],
-        nodes: vec![warp_core::wsc::types::NodeRow {
+        nodes: vec![NodeRow {
             node_id: [2; 32],
             node_type: [3; 32],
         }],
         edges: vec![],
-        out_index: vec![warp_core::wsc::types::Range::default()],
+        out_index: vec![Range::default()],
         out_edges: vec![],
-        node_atts_index: vec![warp_core::wsc::types::Range::default()],
+        node_atts_index: vec![Range::default()],
         node_atts: vec![],
         edge_atts_index: vec![],
         edge_atts: vec![],
         blobs: vec![],
     };
     write_wsc_one_warp(&input, [8; 32], tick).expect("fixture WSC bytes")
+}
+
+fn topology_envelope_with_root_attachment(record: TopologyIntentRecord) -> WscStoreEnvelope {
+    let canonical = topology_records_to_wsc_envelope(&[record.clone()])
+        .expect("canonical topology WSC envelope");
+    let payload = record.to_payload_bytes();
+    let root = make_node_id("echo/wsc-store/topology/root");
+    let input = OneWarpInput {
+        warp_id: make_warp_id("echo/wsc-store/topology").0,
+        root_node_id: root.0,
+        nodes: vec![NodeRow {
+            node_id: root.0,
+            node_type: make_type_id("echo/wsc-store/topology/node/v1").0,
+        }],
+        edges: vec![],
+        out_index: vec![Range::default()],
+        out_edges: vec![],
+        node_atts_index: vec![Range {
+            start_le: 0u64.to_le(),
+            len_le: 1u64.to_le(),
+        }],
+        node_atts: vec![AttRow {
+            tag: AttRow::TAG_ATOM,
+            reserved0: [0; 7],
+            type_or_warp: make_type_id(topology_attachment_type(&record)).0,
+            blob_off_le: 0u64.to_le(),
+            blob_len_le: (payload.len() as u64).to_le(),
+        }],
+        edge_atts_index: vec![],
+        edge_atts: vec![],
+        blobs: payload,
+    };
+    let wsc_bytes = write_wsc_one_warp(&input, make_type_id("echo/wsc-store/topology/v1").0, 0)
+        .expect("root-attachment topology WSC bytes");
+    WscStoreEnvelope::validated(
+        WscStoreRecordKind::CausalHistory,
+        *canonical.basis_digest(),
+        wsc_bytes,
+    )
+    .expect("root-attachment topology WSC envelope")
+}
+
+fn topology_attachment_type(record: &TopologyIntentRecord) -> &'static str {
+    match record {
+        TopologyIntentRecord::StrandFork(_) => "echo/wsc-store/topology/strand-fork/v1",
+        TopologyIntentRecord::StrandDrop(_) => "echo/wsc-store/topology/strand-drop/v1",
+        TopologyIntentRecord::BraidEvent(_) => "echo/wsc-store/topology/braid-event/v1",
+        TopologyIntentRecord::BraidShell(_) => "echo/wsc-store/topology/braid-shell/v1",
+        TopologyIntentRecord::SuffixImport(_) => "echo/wsc-store/topology/suffix-import/v1",
+    }
 }
 
 fn submission_acceptance(submission_byte: u8, envelope_byte: u8) -> SubmissionAcceptanceRecord {

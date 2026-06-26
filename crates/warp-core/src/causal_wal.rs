@@ -38,6 +38,7 @@ const WAL_RECOVERED_INDEX_ROOT_DOMAIN: &[u8] = b"echo:causal_wal:recovered_index
 const WAL_HEADER_CHECKSUM_DOMAIN: &[u8] = b"echo:causal_wal:header_checksum:v1\0";
 const WAL_FRAME_CHECKSUM_DOMAIN: &[u8] = b"echo:causal_wal:frame_checksum:v1\0";
 const WAL_DISK_RECORD_DOMAIN: &[u8] = b"echo:causal_wal:disk_record:v1\0";
+const WRITER_HEAD_KEY_PAYLOAD_LEN: usize = 64;
 const CHECKPOINT_FILE_MAGIC: &[u8; 8] = b"ECWALCP1";
 const WAL_SEGMENT_RECORD_MAGIC: &[u8; 8] = b"ECWALR1!";
 const WAL_SEGMENTS_DIR: &str = "segments";
@@ -3523,9 +3524,18 @@ pub struct StrandForkRecord {
 }
 
 impl StrandForkRecord {
+    /// Returns a copy with writer heads in canonical `(worldline_id, head_id)` order.
+    #[must_use]
+    pub fn canonicalized(&self) -> Self {
+        let mut record = self.clone();
+        record.writer_heads = canonical_writer_heads(&record.writer_heads);
+        record
+    }
+
     /// Encodes the record as deterministic WAL payload bytes.
     #[must_use]
     pub fn to_payload_bytes(&self) -> Vec<u8> {
+        let writer_heads = canonical_writer_heads(&self.writer_heads);
         let mut out = Vec::new();
         push_hash(&mut out, &self.topology_intent_id);
         push_strand_id(&mut out, self.strand_id);
@@ -3534,8 +3544,8 @@ impl StrandForkRecord {
         push_hash(&mut out, &self.source_commit_hash);
         push_hash(&mut out, &self.source_boundary_hash);
         push_worldline_id(&mut out, self.child_worldline_id);
-        out.extend_from_slice(&len_u64(self.writer_heads.len()).to_le_bytes());
-        for head in &self.writer_heads {
+        out.extend_from_slice(&len_u64(writer_heads.len()).to_le_bytes());
+        for head in &writer_heads {
             push_writer_head_key(&mut out, *head);
         }
         push_hash(&mut out, &self.retention_posture_digest);
@@ -3556,10 +3566,17 @@ impl StrandForkRecord {
         let child_worldline_id = cursor.read_worldline_id()?;
         let writer_count =
             usize::try_from(cursor.read_u64()?).map_err(|_| WalDecodeError::UnexpectedEof)?;
+        let writer_bytes = writer_count
+            .checked_mul(WRITER_HEAD_KEY_PAYLOAD_LEN)
+            .ok_or(WalDecodeError::UnexpectedEof)?;
+        if writer_bytes > cursor.remaining_len() {
+            return Err(WalDecodeError::UnexpectedEof);
+        }
         let mut writer_heads = Vec::with_capacity(writer_count);
         for _ in 0..writer_count {
             writer_heads.push(cursor.read_writer_head_key()?);
         }
+        let writer_heads = canonical_writer_heads(&writer_heads);
         let retention_posture_digest = cursor.read_hash()?;
         let issuer_evidence_digest = cursor.read_hash()?;
         let idempotency_key_digest = cursor.read_optional_hash()?;
@@ -3921,6 +3938,14 @@ impl RecoveredTopologyIndex {
         for record in records {
             match record {
                 TopologyIntentRecord::StrandFork(record) => {
+                    let record = record.canonicalized();
+                    if let Some(drop) = index.strand_drops.get(&record.strand_id) {
+                        if drop.child_worldline_id != record.child_worldline_id {
+                            return Err(WalRecoveryIndexError::ConflictingStrandFork {
+                                strand_id: record.strand_id,
+                            });
+                        }
+                    }
                     insert_unique(
                         &mut index.strand_forks,
                         record.strand_id,
@@ -3939,6 +3964,13 @@ impl RecoveredTopologyIndex {
                     )?;
                 }
                 TopologyIntentRecord::StrandDrop(record) => {
+                    if let Some(fork) = index.strand_forks.get(&record.strand_id) {
+                        if fork.child_worldline_id != record.child_worldline_id {
+                            return Err(WalRecoveryIndexError::ConflictingStrandDrop {
+                                strand_id: record.strand_id,
+                            });
+                        }
+                    }
                     insert_unique(
                         &mut index.strand_drops,
                         record.strand_id,
@@ -3949,6 +3981,7 @@ impl RecoveredTopologyIndex {
                     )?;
                 }
                 TopologyIntentRecord::BraidEvent(record) => {
+                    validate_topology_braid_event(&record)?;
                     let per_braid = braid_event_maps.entry(record.braid_id).or_default();
                     insert_unique(
                         per_braid,
@@ -6082,6 +6115,42 @@ fn braid_status_from_code(code: u8) -> Result<BraidStatus, WalDecodeError> {
     }
 }
 
+fn canonical_writer_heads(heads: &[WriterHeadKey]) -> Vec<WriterHeadKey> {
+    let mut sorted = heads.to_vec();
+    sorted.sort_by(|left, right| {
+        left.worldline_id
+            .as_bytes()
+            .cmp(right.worldline_id.as_bytes())
+            .then_with(|| left.head_id.as_bytes().cmp(right.head_id.as_bytes()))
+    });
+    sorted
+}
+
+fn validate_topology_braid_event(
+    record: &TopologyBraidEventRecord,
+) -> Result<(), WalRecoveryIndexError> {
+    if let BraidEvent::BraidCreated { braid_id, .. } = &record.event {
+        if braid_id != &record.braid_id {
+            return Err(WalRecoveryIndexError::ConflictingBraidEvent {
+                braid_id: record.braid_id,
+                event_index: record.event_index,
+            });
+        }
+    }
+    let expected_status = match &record.event {
+        BraidEvent::BraidCreated { .. } | BraidEvent::MemberWoven { .. } => BraidStatus::Active,
+        BraidEvent::SettlementFinalized { .. } => BraidStatus::Finalized,
+        BraidEvent::BraidCollapsed { .. } => BraidStatus::Collapsed,
+    };
+    if record.status_after != expected_status {
+        return Err(WalRecoveryIndexError::ConflictingBraidEvent {
+            braid_id: record.braid_id,
+            event_index: record.event_index,
+        });
+    }
+    Ok(())
+}
+
 fn insert_unique<K, V>(
     map: &mut BTreeMap<K, V>,
     key: K,
@@ -6273,6 +6342,10 @@ struct WalPayloadCursor<'a> {
 impl<'a> WalPayloadCursor<'a> {
     fn new(bytes: &'a [u8]) -> Self {
         Self { bytes, offset: 0 }
+    }
+
+    fn remaining_len(&self) -> usize {
+        self.bytes.len().saturating_sub(self.offset)
     }
 
     fn read_u8(&mut self) -> Result<u8, WalDecodeError> {

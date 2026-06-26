@@ -1159,48 +1159,7 @@ pub fn topology_records_from_wsc_envelope(
     let view = file
         .warp_view(0)
         .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
-    let mut records = Vec::new();
-    for node_index in 0..view.nodes().len() {
-        for attachment in view.node_attachments(node_index) {
-            let payload = atom_payload_bytes(&view, attachment, wsc_digest)?;
-            if attachment.type_or_warp == make_type_id(WSC_TOPOLOGY_STRAND_FORK_ATTACHMENT_TYPE).0 {
-                records.push(TopologyIntentRecord::StrandFork(
-                    StrandForkRecord::from_payload_bytes(payload)
-                        .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?,
-                ));
-            } else if attachment.type_or_warp
-                == make_type_id(WSC_TOPOLOGY_STRAND_DROP_ATTACHMENT_TYPE).0
-            {
-                records.push(TopologyIntentRecord::StrandDrop(
-                    StrandDropRecord::from_payload_bytes(payload)
-                        .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?,
-                ));
-            } else if attachment.type_or_warp
-                == make_type_id(WSC_TOPOLOGY_BRAID_EVENT_ATTACHMENT_TYPE).0
-            {
-                records.push(TopologyIntentRecord::BraidEvent(
-                    TopologyBraidEventRecord::from_payload_bytes(payload)
-                        .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?,
-                ));
-            } else if attachment.type_or_warp
-                == make_type_id(WSC_TOPOLOGY_BRAID_SHELL_ATTACHMENT_TYPE).0
-            {
-                records.push(TopologyIntentRecord::BraidShell(
-                    BraidShellRetentionRecord::from_payload_bytes(payload)
-                        .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?,
-                ));
-            } else if attachment.type_or_warp
-                == make_type_id(WSC_TOPOLOGY_SUFFIX_IMPORT_ATTACHMENT_TYPE).0
-            {
-                records.push(TopologyIntentRecord::SuffixImport(
-                    SuffixImportRecord::from_payload_bytes(payload)
-                        .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?,
-                ));
-            } else {
-                return Err(WscStoreObstruction::invalid_wsc(wsc_digest));
-            }
-        }
-    }
+    let records = topology_records_from_wsc_view(&view, wsc_digest)?;
     let records = canonical_topology_records(&records)?;
     let basis_digest = topology_basis_digest(&records);
     if envelope.basis_digest() != &basis_digest {
@@ -1210,6 +1169,119 @@ pub fn topology_records_from_wsc_envelope(
         ));
     }
     Ok(split_topology_records(records))
+}
+
+fn topology_records_from_wsc_view(
+    view: &super::view::WarpView<'_>,
+    wsc_digest: Hash,
+) -> Result<Vec<TopologyIntentRecord>, WscStoreObstruction> {
+    let expected_warp = make_warp_id(WSC_TOPOLOGY_WARP).0;
+    let root = make_node_id(WSC_TOPOLOGY_ROOT);
+    let node_type = make_type_id(WSC_TOPOLOGY_NODE_TYPE).0;
+    let edge_type = make_type_id(WSC_TOPOLOGY_EDGE_TYPE).0;
+
+    if view.warp_id() != &expected_warp || view.root_node_id() != &root.0 {
+        return Err(WscStoreObstruction::invalid_wsc(wsc_digest));
+    }
+    let Some(root_ix) = view.node_ix(&root.0) else {
+        return Err(WscStoreObstruction::invalid_wsc(wsc_digest));
+    };
+    if view.nodes()[root_ix].node_type != node_type || !view.node_attachments(root_ix).is_empty() {
+        return Err(WscStoreObstruction::invalid_wsc(wsc_digest));
+    }
+
+    let mut records = Vec::new();
+    let mut record_node_ids = BTreeSet::new();
+    for (node_ix, node) in view.nodes().iter().enumerate() {
+        if node.node_type != node_type {
+            return Err(WscStoreObstruction::invalid_wsc(wsc_digest));
+        }
+        if node.node_id == root.0 {
+            continue;
+        }
+        let attachments = view.node_attachments(node_ix);
+        if attachments.len() != 1 {
+            return Err(WscStoreObstruction::invalid_wsc(wsc_digest));
+        }
+        let attachment = &attachments[0];
+        let payload = atom_payload_bytes(view, attachment, wsc_digest)?;
+        let (role, record) =
+            topology_record_from_attachment(attachment.type_or_warp, payload, wsc_digest)?;
+        if node.node_id != topology_node_id(role, payload).0
+            || !record_node_ids.insert(node.node_id)
+        {
+            return Err(WscStoreObstruction::invalid_wsc(wsc_digest));
+        }
+        records.push(record);
+    }
+
+    let mut edge_targets = BTreeSet::new();
+    for (edge_ix, edge) in view.edges().iter().enumerate() {
+        if !view.edge_attachments(edge_ix).is_empty()
+            || edge.edge_type != edge_type
+            || edge.from_node_id != root.0
+            || edge.edge_id != topology_edge_id(&edge.to_node_id).0
+            || !record_node_ids.contains(&edge.to_node_id)
+            || !edge_targets.insert(edge.to_node_id)
+        {
+            return Err(WscStoreObstruction::invalid_wsc(wsc_digest));
+        }
+    }
+    if edge_targets != record_node_ids {
+        return Err(WscStoreObstruction::invalid_wsc(wsc_digest));
+    }
+
+    Ok(records)
+}
+
+fn topology_record_from_attachment(
+    attachment_type: Hash,
+    payload: &[u8],
+    wsc_digest: Hash,
+) -> Result<(&'static [u8], TopologyIntentRecord), WscStoreObstruction> {
+    if attachment_type == make_type_id(WSC_TOPOLOGY_STRAND_FORK_ATTACHMENT_TYPE).0 {
+        Ok((
+            b"strand-fork",
+            TopologyIntentRecord::StrandFork(
+                StrandForkRecord::from_payload_bytes(payload)
+                    .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?,
+            ),
+        ))
+    } else if attachment_type == make_type_id(WSC_TOPOLOGY_STRAND_DROP_ATTACHMENT_TYPE).0 {
+        Ok((
+            b"strand-drop",
+            TopologyIntentRecord::StrandDrop(
+                StrandDropRecord::from_payload_bytes(payload)
+                    .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?,
+            ),
+        ))
+    } else if attachment_type == make_type_id(WSC_TOPOLOGY_BRAID_EVENT_ATTACHMENT_TYPE).0 {
+        Ok((
+            b"braid-event",
+            TopologyIntentRecord::BraidEvent(
+                TopologyBraidEventRecord::from_payload_bytes(payload)
+                    .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?,
+            ),
+        ))
+    } else if attachment_type == make_type_id(WSC_TOPOLOGY_BRAID_SHELL_ATTACHMENT_TYPE).0 {
+        Ok((
+            b"braid-shell",
+            TopologyIntentRecord::BraidShell(
+                BraidShellRetentionRecord::from_payload_bytes(payload)
+                    .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?,
+            ),
+        ))
+    } else if attachment_type == make_type_id(WSC_TOPOLOGY_SUFFIX_IMPORT_ATTACHMENT_TYPE).0 {
+        Ok((
+            b"suffix-import",
+            TopologyIntentRecord::SuffixImport(
+                SuffixImportRecord::from_payload_bytes(payload)
+                    .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?,
+            ),
+        ))
+    } else {
+        Err(WscStoreObstruction::invalid_wsc(wsc_digest))
+    }
 }
 
 /// Recovers topology records from committed WSC store envelopes.
@@ -1239,73 +1311,121 @@ fn canonical_topology_records(
 ) -> Result<Vec<TopologyIntentRecord>, WscStoreObstruction> {
     let mut by_payload = BTreeMap::new();
     let mut strand_forks = BTreeMap::new();
+    let mut strand_forks_by_idempotency = BTreeMap::new();
     let mut strand_drops = BTreeMap::new();
+    let mut strand_drops_by_idempotency = BTreeMap::new();
     let mut braid_events = BTreeMap::new();
+    let mut braid_events_by_idempotency = BTreeMap::new();
     let mut braid_shells = BTreeMap::new();
+    let mut braid_shells_by_idempotency = BTreeMap::new();
     let mut suffix_imports = BTreeMap::new();
     let mut suffix_imports_by_idempotency = BTreeMap::new();
     let mut suffix_imports_by_bundle = BTreeMap::new();
 
     for record in records {
-        match record {
+        let record = canonical_topology_record(record);
+        match &record {
             TopologyIntentRecord::StrandFork(record) => {
                 insert_wsc_unique(
                     &mut strand_forks,
                     *record.strand_id.as_bytes(),
-                    record,
+                    record.clone(),
                     record.strand_id.as_bytes(),
                 )?;
+                if let Some(idempotency_key_digest) = record.idempotency_key_digest {
+                    insert_wsc_unique(
+                        &mut strand_forks_by_idempotency,
+                        idempotency_key_digest,
+                        record.clone(),
+                        &idempotency_key_digest,
+                    )?;
+                }
             }
             TopologyIntentRecord::StrandDrop(record) => {
                 insert_wsc_unique(
                     &mut strand_drops,
                     *record.strand_id.as_bytes(),
-                    record,
+                    record.clone(),
                     record.strand_id.as_bytes(),
                 )?;
+                if let Some(idempotency_key_digest) = record.idempotency_key_digest {
+                    insert_wsc_unique(
+                        &mut strand_drops_by_idempotency,
+                        idempotency_key_digest,
+                        record.clone(),
+                        &idempotency_key_digest,
+                    )?;
+                }
             }
             TopologyIntentRecord::BraidEvent(record) => {
                 insert_wsc_unique(
                     &mut braid_events,
                     (record.braid_id, record.event_index),
-                    record,
+                    record.clone(),
                     &record.braid_id,
                 )?;
+                if let Some(idempotency_key_digest) = record.idempotency_key_digest {
+                    insert_wsc_unique(
+                        &mut braid_events_by_idempotency,
+                        idempotency_key_digest,
+                        record.clone(),
+                        &idempotency_key_digest,
+                    )?;
+                }
             }
             TopologyIntentRecord::BraidShell(record) => {
                 insert_wsc_unique(
                     &mut braid_shells,
                     record.shell_digest,
-                    record,
+                    record.clone(),
                     &record.shell_digest,
                 )?;
+                if let Some(idempotency_key_digest) = record.idempotency_key_digest {
+                    insert_wsc_unique(
+                        &mut braid_shells_by_idempotency,
+                        idempotency_key_digest,
+                        record.clone(),
+                        &idempotency_key_digest,
+                    )?;
+                }
             }
             TopologyIntentRecord::SuffixImport(record) => {
                 insert_wsc_unique(
                     &mut suffix_imports,
                     record.import_id,
-                    record,
+                    record.clone(),
                     &record.import_id,
                 )?;
                 insert_wsc_unique(
                     &mut suffix_imports_by_idempotency,
                     record.idempotency_key_digest,
-                    &record.import_id,
+                    record.import_id,
                     &record.idempotency_key_digest,
                 )?;
                 insert_wsc_unique(
                     &mut suffix_imports_by_bundle,
                     record.bundle_digest,
-                    &record.import_id,
+                    record.import_id,
                     &record.bundle_digest,
                 )?;
             }
         }
-        by_payload.insert(topology_record_sort_key(record), record.clone());
+        by_payload.insert(topology_record_sort_key(&record), record);
     }
     Ok(by_payload.into_values().collect())
 }
 
+fn canonical_topology_record(record: &TopologyIntentRecord) -> TopologyIntentRecord {
+    match record {
+        TopologyIntentRecord::StrandFork(record) => {
+            TopologyIntentRecord::StrandFork(record.canonicalized())
+        }
+        _ => record.clone(),
+    }
+}
+
+/// Returns [`WscStoreObstructionKind::DuplicateEnvelopeMismatch`] for both
+/// committed-store duplicate mismatches and canonical topology payload conflicts.
 fn insert_wsc_unique<K, V>(
     map: &mut BTreeMap<K, V>,
     key: K,

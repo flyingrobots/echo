@@ -60,9 +60,10 @@ The useful postures are:
 | Posture | Meaning |
 | --- | --- |
 | `not_accepted` | The intent never reached WAL-backed accepted submission posture. |
-| `accepted_pending` | The intent was accepted and can be recovered, but no decided receipt was recovered. |
+| `accepted_pending` | Accepted-submission evidence was recovered, but no decided receipt was recovered. |
 | `decided_applied` | A recovered receipt says the work applied under named law. |
-| `decided_rejected` | A recovered receipt says the work was rejected, conflicted, or obstructed. |
+| `decided_rejected` | A recovered receipt says the work was rejected or conflicted. |
+| `obstructed` | Recovery found accepted or decided evidence, but required material or consistency checks obstruct restoring the work. |
 | `recovery_faulted` | Required committed WAL evidence or retained material is missing or corrupt. |
 
 An app such as `jedit` maps these generic postures into product language
@@ -73,10 +74,13 @@ order to explain them.
 
 For Jim/jedit, "dirty" should not mean "at risk of being lost." It should mean
 "not currently materialized to the host file projection." If an edit intent has
-received WAL-backed accepted-submission evidence, the edit belongs to
-recoverable causal history even before the host file is written. If that edit is
-later decided, the receipt and recovered reading are the source of truth for
-restoring the editor view.
+received WAL-backed accepted-submission evidence, the edit's identity and
+posture belong to recoverable causal history even before the host file is
+written. Restoring the editor text still requires retained material, a decided
+receipt, or a recovered reading that carries the content needed for the view. If
+that content is unavailable, the editor must keep the materialization warning and
+surface the recovered obstruction instead of claiming the buffer can be rebuilt
+from an ACK alone.
 
 The correct safety gate is therefore not a classic dirty-buffer warning on quit
 or file switch. The correct gate is whether the edit crossed the Echo

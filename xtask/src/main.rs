@@ -6736,7 +6736,7 @@ mod tests {
 
     #[test]
     fn root_relative_link_resolves_against_docs_root() {
-        let source = Path::new("docs/index.md");
+        let source = Path::new("docs/README.md");
         let docs_root = Path::new("docs");
         let candidates = build_candidates(source, "/guide/start-here.md", docs_root);
         assert!(candidates
@@ -6746,7 +6746,7 @@ mod tests {
 
     #[test]
     fn extensionless_link_tries_md_and_html() {
-        let source = Path::new("docs/index.md");
+        let source = Path::new("docs/README.md");
         let docs_root = Path::new("docs");
         let candidates = build_candidates(source, "guide/start-here", docs_root);
         assert!(candidates
@@ -6759,7 +6759,7 @@ mod tests {
 
     #[test]
     fn public_asset_resolution() {
-        let source = Path::new("docs/index.md");
+        let source = Path::new("docs/README.md");
         let docs_root = Path::new("docs");
         let candidates = build_candidates(source, "/example-public-asset.html", docs_root);
         assert!(candidates

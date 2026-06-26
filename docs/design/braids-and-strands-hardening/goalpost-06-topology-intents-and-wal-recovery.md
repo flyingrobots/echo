@@ -3,7 +3,7 @@
 
 # Goalpost 6: Topology Intents And WAL Recovery
 
-Status: planned.
+Status: implemented.
 
 Tracking issue: [#604](https://github.com/flyingrobots/echo/issues/604)
 
@@ -43,6 +43,22 @@ Echo already has typed strand construction, braid event logs, settlement
 provenance entries, retained braid shells, and braid replay/audit optics. This
 goalpost promotes the remaining topology operations to WAL-backed causal
 history so recovery can rebuild them after restart.
+
+## Implementation Anchors
+
+- `crates/warp-core/src/causal_wal.rs` defines the topology WAL transaction and
+  record family, topology intent records, deterministic payload codecs,
+  recovered topology indexes, recovered topology roots, and readiness posture.
+- `crates/warp-core/src/wsc/store.rs` serializes topology records into WSC
+  envelopes and recovers them from committed WSC store entries.
+- `crates/warp-core/tests/causal_wal_tests.rs` proves topology WAL recovery,
+  uncommitted half-fork exclusion, duplicate idempotence, divergent duplicate
+  obstruction, and recovery-certificate index rooting.
+- `crates/warp-core/tests/wsc_store_tests.rs` proves topology WSC round-trip,
+  committed-store recovery, uncommitted staged-envelope exclusion, and
+  conflicting duplicate obstruction.
+- `crates/warp-core/tests/causal_wal_hardening_tests.rs` keeps topology
+  recovery in the WAL readiness gate.
 
 ## Required Boundaries
 

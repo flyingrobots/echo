@@ -48,11 +48,29 @@ reject_literal() {
   fi
 }
 
+reject_literal_anywhere() {
+  local label="$1"
+  local literal="$2"
+  shift 2
+
+  local file
+  for file in "$@"; do
+    if [[ ! -f "$file" ]]; then
+      fail "${label}: missing file ${file}"
+      continue
+    fi
+    if grep -Fq -- "$literal" "$file"; then
+      fail "${label}: rejected stale literal still present in ${file}: ${literal}"
+    fi
+  done
+}
+
 bearing="${repo_root}/docs/BEARING.md"
 workitems="${repo_root}/docs/WorkItems.md"
 sequencing="${repo_root}/docs/design/work-item-sequencing-and-prioritization.md"
 wal_design="${repo_root}/docs/design/causal-wal-end-to-end.md"
 wal_doctrine="${repo_root}/docs/design/wal-wsc-durability-roadmap.md"
+wal_topic="${repo_root}/docs/topics/WAL.md"
 release_contract="${repo_root}/docs/releases/echo-1.0-contract.md"
 
 require_file "BEARING signpost" "$bearing"
@@ -60,6 +78,7 @@ require_file "Work tracking boundary" "$workitems"
 require_file "GitHub-native sequencing doctrine" "$sequencing"
 require_file "causal WAL design" "$wal_design"
 require_file "WAL/WSC durability doctrine" "$wal_doctrine"
+require_file "WAL topic" "$wal_topic"
 require_file "Echo 1.0 release contract" "$release_contract"
 
 project_url="https://github.com/users/flyingrobots/projects/15"
@@ -272,6 +291,29 @@ reject_literal "WAL doctrine removes active packet status" "$wal_doctrine" "Stat
 reject_literal "WAL doctrine removes update date" "$wal_doctrine" "Last updated:"
 reject_literal "WAL doctrine removes goalpost sections" "$wal_doctrine" "## Goalpost "
 reject_literal "WAL doctrine removes current PR tracking" "$wal_doctrine" "https://github.com/flyingrobots/echo/pull/582"
+
+durability_claim_docs=(
+  "$bearing"
+  "$workitems"
+  "$sequencing"
+  "$wal_design"
+  "$wal_doctrine"
+  "$wal_topic"
+  "$release_contract"
+)
+
+reject_literal_anywhere \
+  "durability docs reject missing filesystem runtime WAL witness claim" \
+  "filesystem runtime WAL witness is missing" \
+  "${durability_claim_docs[@]}"
+reject_literal_anywhere \
+  "durability docs reject premature WSC import authority" \
+  "WSC import recovery is authoritative without WAL-backed validation" \
+  "${durability_claim_docs[@]}"
+reject_literal_anywhere \
+  "durability docs reject posture-only retained payload recovery" \
+  "retained payload recovery can rely on posture-only refs" \
+  "${durability_claim_docs[@]}"
 
 if [[ "$failures" -ne 0 ]]; then
   exit 1

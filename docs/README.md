@@ -18,6 +18,7 @@ Echo's live documentation centers on the runtime carrier, the retained witnesses
 - Echo v0.1.0 jedit release gate: [/design/v0.1.0-jedit-release-gate](/design/v0.1.0-jedit-release-gate)
 - Trusted runtime control history: [/design/trusted-runtime-control-history](/design/trusted-runtime-control-history)
 - WAL truth boundary: [/topics/WAL](/topics/WAL)
+- WAL/WSC release closure audit: [/design/wal-wsc-release-closure-audit](/design/wal-wsc-release-closure-audit)
 - jedit next ten release-gate slices: [/design/v0.1.0-jedit-next-ten-slices](/design/v0.1.0-jedit-next-ten-slices)
 - Theory map: [/theory/THEORY](/theory/THEORY)
 - Current bearing: [/BEARING](/BEARING)

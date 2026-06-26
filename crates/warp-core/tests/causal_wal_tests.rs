@@ -2,6 +2,13 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Causal WAL foundation tests.
 
+#![allow(
+    clippy::match_wild_err_arm,
+    clippy::needless_continue,
+    clippy::panic,
+    clippy::unnecessary_debug_formatting
+)]
+
 use warp_core::causal_wal::{
     apply_committed_transaction, audit_wal_release_readiness,
     build_checkpoint_publication_transaction, build_materialization_outbox_transaction,

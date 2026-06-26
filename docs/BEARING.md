@@ -3,14 +3,31 @@
 
 # BEARING
 
-Last updated: 2026-06-03.
-
 This signpost summarizes current direction. It does not create commitments or
 replace backlog items, design docs, retros, or CLI status. If it disagrees with
 code, the code wins and this file should be corrected.
 
+Live work state belongs in GitHub. The Continuum Stack Convergence Project is
+the release control surface for Echo 1.0 stack work:
+
+<https://github.com/users/flyingrobots/projects/15>
+
+The Echo 1.0 release constitution is
+`docs/releases/echo-1.0-contract.md`. Repository docs record stable doctrine;
+GitHub Issues, native dependencies, milestones, pull requests, and evidence
+artifacts record motion.
+
 The WARP paper-to-Echo noun map is maintained in
 `docs/design/warp-optic-implementation-map.md`.
+
+The post-PR #545 strands and braids hardening roadmap is maintained in
+`docs/design/braids-and-strands-roadmap.md`.
+
+Its goalpost design packet is maintained under
+`docs/design/braids-and-strands-hardening/`.
+
+The current Graft-to-Echo readiness boundary is maintained in
+`docs/design/graft-echo-native-readiness-boundary.md`.
 
 The feature bar for the eventual `v0.1.0` release is maintained in
 `docs/design/v0.1.0-release-plan.md`.
@@ -27,17 +44,21 @@ The causal WAL doctrine and recovery design is defined in
 The Echo-owned file aperture design is defined in
 `docs/design/echo-owned-file-aperture.md`.
 
-The WAL/WSC storage relationship is tracked in
-`docs/method/backlog/v0.1.0/PLATFORM_wal-wsc-storage-relationship.md`.
+The WAL/WSC storage relationship is tracked by
+[#521 WAL/WSC Storage Relationship](https://github.com/flyingrobots/echo/issues/521)
+and grounded in `docs/design/causal-wal-end-to-end.md`.
+
+The stable WAL/WSC/durability doctrine is maintained in
+`docs/design/wal-wsc-durability-roadmap.md`.
 
 The next ten jedit release-gate slices are planned in
 `docs/design/v0.1.0-jedit-next-ten-slices.md`.
 
-The current sequencing filter for audited work items is maintained in
+The GitHub-native sequencing doctrine is maintained in
 `docs/design/work-item-sequencing-and-prioritization.md`.
 
-The filesystem lane for release-bar backlog cards is
-`docs/method/backlog/v0.1.0/`.
+GitHub Issues are the live backlog. `docs/method/backlog/` remains only as a
+legacy workspace-discovery marker.
 
 The production-core app-noun guard is `scripts/check-no-app-nouns-in-core.sh`.
 It checks that hardcoded jedit/Stack Witness fixture shortcuts stay out of
@@ -47,12 +68,26 @@ but production Echo code must remain generic.
 
 ## Current Bearing
 
+The live architecture hardening focus is selected in the GitHub Project and
+issues. Repo docs may explain why a boundary exists, but they must not become
+the current execution tracker.
+
+This hardening campaign does not replace the `v0.1.0` external-app release
+gate. It protects the newly landed strand, braid, proof, sealed-member,
+identity, witness, and plurality surfaces before more callers depend on them.
+
+The current Graft posture is deliberately bounded: Graft can proceed with
+schema, model, adapter, and local Echo witness design work, but it must not yet
+claim production-grade Echo-native structural history through a stable
+TypeScript dependency or durable retained evidence path. The boundary is
+recorded in `docs/design/graft-echo-native-readiness-boundary.md`.
+
 Echo has a local witnessed intent pipeline into deterministic execution:
 application ingress can become witnessed submission history, lawful admission
 evidence, ticketed runtime ingress, scheduler-owned handler dispatch, receipt
 correlation, and observable intent outcome.
 
-The current priority is to prove that pipeline with `jedit` as a real external
+The release priority remains proving that pipeline with `jedit` as a real external
 consumer. The in-repo external fixture remains valuable, but it is no longer
 the `v0.1.0` release gate. Echo is not ready to release until jedit can submit
 an application-owned contract intent, let a trusted Echo host authorize
@@ -1020,6 +1055,16 @@ completed slice.
       distinct gate through `cargo xtask test-slice runtime-wal-ack`.
     - Test plan: runtime ACK readiness gate fixture plus stale-claim grep:
       `cargo xtask test-slice runtime-wal-ack`.
+
+- [x] **Slice 96: Durable runtime WAL gate**
+    - User story: As a maintainer, the release bar needs one command that joins
+      the filesystem runtime WAL ACK, filesystem failure, CLI posture,
+      stale-claim, and man-page witnesses without slowing the fast ACK gate.
+    - Acceptance criteria: release readiness names the joined filesystem
+      durability gate through `cargo xtask test-slice durable-runtime-wal`
+      while `runtime-wal-ack` remains the fast semantic gate.
+    - Test plan: joined runtime WAL durability witness:
+      `cargo xtask test-slice durable-runtime-wal`.
 
 ## Recently Completed Slice Batch
 

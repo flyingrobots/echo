@@ -110,6 +110,8 @@ enum TestSlice {
     ContractPathRelease,
     /// Runtime WAL-backed ACK and recovery posture witness.
     RuntimeWalAck,
+    /// Release-grade filesystem runtime WAL durability witness.
+    DurableRuntimeWal,
 }
 
 #[derive(Args)]
@@ -676,6 +678,38 @@ fn build_test_slice_commands(slice: TestSlice) -> Vec<Command> {
                 "--test",
                 "trusted_runtime_host_loop_tests",
                 "runtime_wal_ack",
+            ]),
+            cargo_command([
+                "test",
+                "-p",
+                "warp-cli",
+                "--test",
+                "cli_integration",
+                "wal_submission_posture",
+            ]),
+            cargo_command(["test", "-p", "xtask", "runtime_wal_ack_stale_claims"]),
+            cargo_command(["xtask", "man-pages", "--check"]),
+        ],
+        TestSlice::DurableRuntimeWal => vec![
+            cargo_command([
+                "test",
+                "-p",
+                "warp-core",
+                "--features",
+                "native_rule_bootstrap trusted_runtime host_test",
+                "--test",
+                "trusted_runtime_host_loop_tests",
+                "filesystem_runtime_wal_ack",
+            ]),
+            cargo_command([
+                "test",
+                "-p",
+                "warp-core",
+                "--features",
+                "native_rule_bootstrap trusted_runtime host_test",
+                "--test",
+                "trusted_runtime_host_loop_tests",
+                "filesystem_runtime_wal_failure",
             ]),
             cargo_command([
                 "test",
@@ -5821,7 +5855,7 @@ fn run_lint_dead_refs(args: LintDeadRefsArgs) -> Result<()> {
             bail!("{} is not a directory", root.display());
         }
 
-        // Derive the VitePress docs root for root-relative link resolution.
+        // Derive the docs root for root-relative link resolution.
         // When --root is a subdirectory (e.g. docs/meta), root-relative links
         // like `/guide/...` must still resolve against the top-level docs dir.
         let docs_root = find_docs_root(root);
@@ -5941,15 +5975,15 @@ fn find_repo_root() -> Result<PathBuf> {
     Ok(PathBuf::from(std::str::from_utf8(&output.stdout)?.trim()))
 }
 
-/// Find the VitePress docs root directory.
+/// Find the repository docs root directory.
 ///
-/// Walks up from `start` looking for `.vitepress/config.ts`. Falls back
-/// to `start` itself if no config is found (single-level scan).
+/// Walks up from `start` looking for an ancestor named `docs`. Falls back
+/// to `start` itself if no docs root is found.
 fn find_docs_root(start: &Path) -> PathBuf {
     let abs = std::fs::canonicalize(start).unwrap_or_else(|_| start.to_path_buf());
     let mut dir = abs.as_path();
     loop {
-        if dir.join(".vitepress/config.ts").exists() || dir.join(".vitepress/config.mts").exists() {
+        if dir.file_name().and_then(|name| name.to_str()) == Some("docs") {
             return dir.to_path_buf();
         }
         match dir.parent() {
@@ -5985,9 +6019,9 @@ fn build_candidates(source_file: &Path, target: &str, docs_root: &Path) -> Vec<P
 
     let primary = if target.starts_with('/') {
         let stripped = target.trim_start_matches('/');
-        // VitePress root-relative: try docs root first
+        // Root-relative docs link: try docs root first.
         candidates.push(docs_root.join(stripped));
-        // VitePress serves docs/public/ at root, so /foo.html may be docs/public/foo.html
+        // Keep docs/public/ as a conventional static-asset root.
         candidates.push(docs_root.join("public").join(stripped));
         // Also try repo root (for links like /crates/foo/README.md)
         if let Some(repo_root) = docs_root.parent() {
@@ -6018,8 +6052,8 @@ fn build_candidates(source_file: &Path, target: &str, docs_root: &Path) -> Vec<P
 /// ignored) paths.
 ///
 /// Uses `git ls-files --cached --others --exclude-standard` so that
-/// gitignored files (e.g. build artifacts in `.vitepress/dist/`) are
-/// excluded, while new files not yet staged are still picked up.
+/// gitignored files are excluded, while new files not yet staged are still
+/// picked up.
 fn collect_md_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
     let output = Command::new("git")
         .args([
@@ -6525,10 +6559,75 @@ mod tests {
     }
 
     #[test]
-    fn runtime_wal_ack_stale_claims_stay_current() {
+    fn test_slice_durable_runtime_wal_stays_explicit() {
+        let commands = build_test_slice_commands(TestSlice::DurableRuntimeWal);
+        assert_eq!(commands.len(), 5);
+
+        let (program, args) = command_program_and_args(&commands[0]);
+        assert_eq!(program, "cargo");
+        assert_eq!(
+            args,
+            vec![
+                "test",
+                "-p",
+                "warp-core",
+                "--features",
+                "native_rule_bootstrap trusted_runtime host_test",
+                "--test",
+                "trusted_runtime_host_loop_tests",
+                "filesystem_runtime_wal_ack",
+            ]
+        );
+
+        let (program, args) = command_program_and_args(&commands[1]);
+        assert_eq!(program, "cargo");
+        assert_eq!(
+            args,
+            vec![
+                "test",
+                "-p",
+                "warp-core",
+                "--features",
+                "native_rule_bootstrap trusted_runtime host_test",
+                "--test",
+                "trusted_runtime_host_loop_tests",
+                "filesystem_runtime_wal_failure",
+            ]
+        );
+
+        let (program, args) = command_program_and_args(&commands[2]);
+        assert_eq!(program, "cargo");
+        assert_eq!(
+            args,
+            vec![
+                "test",
+                "-p",
+                "warp-cli",
+                "--test",
+                "cli_integration",
+                "wal_submission_posture",
+            ]
+        );
+
+        let (program, args) = command_program_and_args(&commands[3]);
+        assert_eq!(program, "cargo");
+        assert_eq!(
+            args,
+            vec!["test", "-p", "xtask", "runtime_wal_ack_stale_claims"]
+        );
+
+        let (program, args) = command_program_and_args(&commands[4]);
+        assert_eq!(program, "cargo");
+        assert_eq!(args, vec!["xtask", "man-pages", "--check"]);
+    }
+
+    #[test]
+    fn runtime_wal_ack_stale_claims_stay_current() -> Result<(), Box<dyn std::error::Error>> {
         let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
-            .expect("xtask crate should live under repository root");
+            .ok_or_else(|| {
+                std::io::Error::other("xtask crate should live under repository root")
+            })?;
         let checked_docs = [
             "docs/BEARING.md",
             "docs/design/v0.1.0-jedit-release-gate.md",
@@ -6545,26 +6644,29 @@ mod tests {
 
         for relative_path in checked_docs {
             let path = repo_root.join(relative_path);
-            let content = fs::read_to_string(&path)
-                .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
+            let content = fs::read_to_string(&path).map_err(|err| {
+                std::io::Error::new(
+                    err.kind(),
+                    format!("failed to read {}: {err}", path.display()),
+                )
+            })?;
             for stale_claim in stale_claims {
                 assert!(
                     !content.contains(stale_claim),
-                    "{} contains stale runtime WAL ACK claim `{}`",
-                    relative_path,
-                    stale_claim
+                    "{relative_path} contains stale runtime WAL ACK claim `{stale_claim}`",
                 );
             }
         }
 
-        let bearing = fs::read_to_string(repo_root.join("docs/BEARING.md"))
-            .expect("BEARING should be readable");
+        let bearing = fs::read_to_string(repo_root.join("docs/BEARING.md"))?;
         assert!(bearing.contains("Runtime ACK drift gate"));
         assert!(bearing.contains("cargo xtask test-slice runtime-wal-ack"));
+        assert!(bearing.contains("cargo xtask test-slice durable-runtime-wal"));
 
-        let workflows = fs::read_to_string(repo_root.join("docs/workflows.md"))
-            .expect("workflow docs should be readable");
+        let workflows = fs::read_to_string(repo_root.join("docs/workflows.md"))?;
         assert!(workflows.contains("cargo xtask test-slice runtime-wal-ack"));
+        assert!(workflows.contains("cargo xtask test-slice durable-runtime-wal"));
+        Ok(())
     }
 
     #[test]
@@ -6719,6 +6821,59 @@ mod tests {
         assert_eq!(links.len(), 2);
         assert_eq!(links[0].1, 2); // 1-indexed
         assert_eq!(links[1].1, 4);
+    }
+
+    // ── find_docs_root ─────────────────────────────────────────────────
+
+    #[test]
+    fn find_docs_root_returns_docs_directory() {
+        let root = unique_temp_path("xtask-docs-root");
+        let docs = root.join("docs");
+        assert_ok(
+            fs::create_dir_all(&docs),
+            "test docs directory should be created",
+        );
+
+        let canonical_docs = assert_ok(
+            fs::canonicalize(&docs),
+            "test docs directory should canonicalize",
+        );
+        assert_eq!(find_docs_root(&docs), canonical_docs);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn find_docs_root_walks_up_from_nested_docs_path() {
+        let root = unique_temp_path("xtask-docs-nested-root");
+        let docs = root.join("docs");
+        let nested = docs.join("design").join("deep");
+        assert_ok(
+            fs::create_dir_all(&nested),
+            "test nested docs directory should be created",
+        );
+
+        let canonical_docs = assert_ok(
+            fs::canonicalize(&docs),
+            "test docs directory should canonicalize",
+        );
+        assert_eq!(find_docs_root(&nested), canonical_docs);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn find_docs_root_falls_back_to_start_without_docs_ancestor() {
+        let root = unique_temp_path("xtask-docs-fallback-root");
+        let notes = root.join("notes");
+        assert_ok(
+            fs::create_dir_all(&notes),
+            "test non-docs directory should be created",
+        );
+
+        assert_eq!(find_docs_root(&notes), notes);
+
+        let _ = fs::remove_dir_all(root);
     }
 
     // ── build_candidates ──────────────────────────────────────────────

@@ -910,12 +910,25 @@ boundary without giving the application append authority.
 Acceptance criteria:
 
 - `TrustedRuntimeHost` owns the runtime WAL adapter.
+- `TrustedRuntimeHost` configures the adapter through `TrustedRuntimeWalConfig`.
+- The adapter can be backed by a host-owned filesystem WAL root.
+- Reopened filesystem adapters continue the committed LSN and commit-digest
+  chain.
+- Filesystem read-only recovery preserves torn/corrupt segment posture.
+- Filesystem-backed scheduler batches reject unsafe multi-transaction rollback
+  until an atomic filesystem batch transaction exists.
 - `TrustedRuntimeApp` exposes no WAL append or tick authority.
 - The adapter can be inspected by host tests as read-only evidence.
 
 Test plan:
 
+- `runtime_wal_ack_adapter_is_configured_by_trusted_host_boundary`
 - `runtime_wal_ack_submit_commits_acceptance_before_returning_handle`
+- `filesystem_runtime_wal_ack_reconstructs_submission_and_tick_from_root`
+- `filesystem_runtime_wal_ack_reconstructed_host_appends_after_recovery`
+- `filesystem_runtime_wal_ack_recovery_reports_uncommitted_tail_from_root`
+- `filesystem_runtime_wal_ack_recovery_rejects_corrupt_root`
+- `filesystem_runtime_wal_ack_multi_head_tick_rejects_before_partial_filesystem_append`
 
 ## Slice 87: Submission Acceptance Transaction Wiring
 
@@ -968,12 +981,16 @@ Acceptance criteria:
 - Missing WAL returns an explicit unavailable posture before mutating runtime
   intake state.
 - WAL build failure restores pre-submit runtime state.
+- Filesystem append or flush failure restores pre-submit runtime state and
+  leaves no committed submission evidence after recovery repair.
 - Failed WAL ACK does not create witnessed submission history.
 
 Test plan:
 
 - `runtime_wal_ack_path_requires_configured_runtime_wal`
 - `runtime_wal_ack_failure_rolls_back_intake_mutation`
+- `filesystem_runtime_wal_failure_submission_append_rolls_back_pre_ack_visibility`
+- `filesystem_runtime_wal_failure_submission_flush_rolls_back_pre_ack_visibility`
 
 ## Slice 90: Tick Receipt Transaction Wiring
 
@@ -1004,11 +1021,18 @@ Acceptance criteria:
 - Tick WAL failure either restores runtime/provenance state or blocks receipt
   publication under typed runtime fault posture.
 - The app-facing outcome cannot observe a receipt whose WAL transaction failed.
+- Filesystem append or flush failure during a scheduler tick leaves recovered
+  evidence at accepted-pending submission posture with no receipt index entry.
+- Filesystem manifest publish failure surfaces a typed store error without
+  publishing manifest material.
 
 Test plan:
 
 - Injected tick-WAL failure fixture.
 - App-facing outcome remains pending or runtime-faulted, never half-decided.
+- `filesystem_runtime_wal_failure_tick_append_rolls_back_visible_outcome`
+- `filesystem_runtime_wal_failure_tick_flush_rolls_back_visible_outcome`
+- `filesystem_runtime_wal_failure_manifest_publish_reports_store_error`
 
 ## Slice 92: Runtime Index Rebuild Contract
 

@@ -280,10 +280,10 @@ fn query_observer_plan() -> AuthoredObserverPlan {
     }
 }
 
-fn install_contract(engine: &mut Engine) {
+fn register_contract(engine: &mut Engine) {
     static REGISTRY: StaticRegistry = StaticRegistry;
     engine
-        .install_contract_package(warp_core::InstalledContractPackage {
+        .register_contract_package(warp_core::InstalledContractPackage {
             identity: package_identity(),
             registry: &REGISTRY,
             verification_policy: verification_policy(),
@@ -367,7 +367,7 @@ fn ticketed_authority() -> TicketedRuntimeIngressAuthority {
 fn pipeline_runtime() -> (WorldlineRuntime, Engine, WorldlineId, WriterHeadKey) {
     let mut runtime = WorldlineRuntime::new();
     let mut engine = empty_engine();
-    install_contract(&mut engine);
+    register_contract(&mut engine);
     let worldline_id = WorldlineId::from_bytes([1; 32]);
     runtime
         .register_worldline(worldline_id, WorldlineState::empty())

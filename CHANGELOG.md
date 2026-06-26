@@ -7,6 +7,103 @@
 
 ### Added
 
+- `cargo xtask test-slice durable-runtime-wal` now runs the release-grade
+  filesystem runtime WAL durability gate, joining filesystem ACK recovery,
+  filesystem failure atomicity, CLI submission posture JSON, stale-claim, and
+  generated man-page checks while leaving `runtime-wal-ack` as the fast
+  semantic gate.
+- `warp-core` trusted runtime hosts now configure runtime WAL through
+  `TrustedRuntimeWalConfig`, including in-memory and filesystem-backed
+  adapters. `TrustedRuntimeWalStoreKind` exposes the configured adapter kind as
+  host-owned read-only evidence, filesystem roots recover pending and decided
+  submissions after host reconstruction, reopened filesystem adapters continue
+  the committed LSN/digest chain, filesystem commits are marked
+  `StrictFilesystem`, read-only filesystem recovery preserves torn/corrupt tail
+  posture, host-test-only filesystem fault plans inject append, flush, and
+  manifest failures to prove submission/tick rollback, and `TrustedRuntimeApp`
+  remains limited to submit and observe surfaces.
+- Added an Echo 1.0 release contract that records the four binary release gates,
+  compatibility policy, evidence requirements, and GitHub Project boundary
+  without carrying live roadmap state in the repository.
+- Recast the WAL/WSC packet as stable durability doctrine and added guards that
+  reject live roadmap issue inventories while preserving WAL authority, graph
+  projection, WSC export modes, storage locators, and bootstrap recovery
+  language linked to issue `#521`.
+- `warp-core` now hardens the first braids/strands roadmap goalpost: `Strand<P>`
+  fields are no longer publicly constructible, `Strand::new(...)` validates
+  typestate/runtime-posture coherence before construction, public strand tests
+  use fixture builders and accessors, `ProofEnvelope::validate_shape(...)`
+  returns structured `ProofError`, and invalid braid lifecycle transitions
+  report typed `BraidTransitionKind` instead of action strings.
+- `warp-core` now locks the second braids/strands roadmap goalpost with golden
+  vectors for replay-trace proof-envelope identity, proofless and
+  proof-bearing braid shell identity, revealed and sealed member identity, and
+  sealed-member salt effects. The vector metadata marks these identities as
+  E1 scaffolding identity, and API docs now state that deterministic member
+  blinding defaults are reproducibility tools, not unlinkability boundaries.
+- `warp-core` now begins the third braids/strands roadmap goalpost with
+  append-only braid membership history. `BraidMembershipEntry` and
+  `Braid::membership_history()` expose accepted `MemberWoven` facts as a
+  read-only projection over the braid event log, while `frontier()` remains the
+  current membership projection.
+- `warp-core` now exposes historical braid membership views through
+  `BraidMembershipCursor`, `Braid::current_membership_cursor()`, and
+  `Braid::membership_at(...)`. The cursor is a half-open event-log interval, so
+  later woven members do not appear in earlier membership views.
+- `warp-core` now exposes `BraidMembershipDiff` through
+  `Braid::diff_membership(...)`, reporting deterministic added and ended
+  membership projection facts between historical cursors while reserving
+  revealed/concealed fact slots for future lawful disclosure evidence.
+- `warp-core` now exposes retained braid shell replay/audit facts through
+  `audit_braid_shell(...)` and `BraidShellAudit`, including member verdicts,
+  support/frontier digests, posture floor, proof binding, and explicit
+  self-witness integrity-only posture.
+- The braids/strands hardening docs now define the Braid Flight Recorder and
+  Causal X-Ray lower-mode output target over historical membership, diff, shell
+  audit, proof-binding, and witness-posture facts.
+- `warp-core` now completes the fourth braids/strands roadmap goalpost with
+  typed witness receipts, witness kinds, a verifier-shaped witness backend
+  boundary, deterministic simulator fixtures, explicit witness compatibility
+  rules, generic sealed membership presentations, disclosure budget labels, and
+  braid shell audit receipts that keep E1 self-witnessing marked as
+  integrity-only local evidence. The self-witness simulator rejects non-E1
+  compatibility requests with a typed `UnsupportedCompatibility` error instead
+  of minting stable public identity for scaffolding evidence. Sealed membership
+  presentations validate that their witness receipt subject and evidence
+  digests bind the braid coordinate, purpose, authority domain, member
+  commitment, and disclosure budget.
+- `warp-core` now completes the fifth braids/strands roadmap goalpost with a
+  named plurality law registry, machine-readable Law Cards, typed law
+  references and versions in braid shell replay/audit readings,
+  adapter-provided law-family routing through authority domains, and typed law
+  obstruction evidence for unsupported or unauthorized law execution. Law
+  references and braid shell policy ids reject all-zero names before replay,
+  collapse-derived shells report collapse policy ids as collapse laws, and law
+  versions reject zero before registration. Law readings derive integrity-only
+  posture from witness attestation strength, so non-self integrity-only receipts
+  are not promoted to external witness evidence, and they reject witness
+  receipts whose subject digest does not match the retained support digest.
+  Collapse-derived shells also reject records whose shell policy id diverges
+  from the nested collapse policy id.
+- `warp-core` now enforces the v1 single-writer-head strand invariant through
+  both `Strand::new(...)` and `StrandRegistry::insert(...)`, and runtime strand
+  forking constructs the registered relation through the same constructor
+  boundary used by external callers.
+- `warp-core` casting a dynamically postured strand to statically shared now returns a semantically precise `PostureObstruction::PostureMismatch` instead of `PostureObstruction::NarrowingRefused`.
+- `warp-core` renamed `ProofEnvelope::verify` to `validate_shape` and updated error variants to `ProofShapeValidationFailed` to accurately reflect shape/input checks rather than full cryptographic proof verification.
+- `warp-core` strand creation now carries explicit `RetentionPosture` through
+  `ForkStrandRequest`, `ForkStrandReceipt`, and `Strand`. Session-default and
+  debugger fork constructors choose posture policy explicitly, session-default
+  work always records `PostureDerivation::SessionDefault`, debugger forks never
+  silently become `Shared`, and `StrandRegistry` rejects incoherent retained
+  posture such as `Shared` without an admission scope.
+- `warp-core` import admission receipts now bind local source-shared import
+  admission to an explicit imported artifact identity. A receipt minted for one
+  imported artifact cannot admit another import into a local shared admission
+  scope.
+- `warp-core` retained plural settlement artifacts now persist their causal
+  posture in `ProvenanceEventKind::PluralArtifact` and include the posture tag
+  in canonical provenance-event hashing.
 - `warp-core` now exposes a generic contract obstruction taxonomy for
   product-facing contract-host surfaces. `ContractObstructionKind`,
   `ContractObstructionSubject`, and `ContractObstruction` classify unsupported
@@ -69,8 +166,8 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 - `xtask test-slice` now includes `runtime-wal-ack`, a narrow runtime WAL
   ACK witness. The slice runs WAL-backed app-facing submission acceptance,
   scheduler tick receipt commit-before-publish, recovered runtime indexes,
-  CLI submission-posture JSON, stale-claim guard, and generated man-page
-  checks.
+  CLI submission-posture JSON for filesystem runtime WAL roots, stale-claim
+  guard, and generated man-page checks.
 - The docs now include an executable local contract-host quickstart and a
   v0.1.0 authority-boundary audit. The quickstart points developers at
   `cargo xtask test-slice contract-path-release`, names the app-facing and
@@ -515,6 +612,9 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Removed
 
+- Removed the VitePress docs-site toolchain from active repo tooling: npm
+  scripts, Make targets, tracked docs-site config, the dead browser-open helper,
+  and VitePress/Mermaid dependencies are gone.
 - Removed the broken `warp-core/serde` feature and the gated `Serializable*`
   wrapper exports. `warp-core` no longer declares direct `serde`, `serde-value`,
   or `ciborium` dependencies; authoritative core serialization must stay in
@@ -538,6 +638,24 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Changed
 
+- Echo 1.0 planning references now point at the cross-repository Continuum
+  Stack Convergence Project instead of the retired Echo-only Project.
+- `warp-core` renamed the generated contract package host API from
+  `install_contract_package(...)` to `register_contract_package(...)` so the
+  trusted-runtime boundary reads as explicit runtime-owned registration instead
+  of process-global installation.
+- `warp-core` sealed braid member lookup now requires authority-bound sealed
+  query material, redacts non-public blinding material from debug output, and
+  keeps hidden-member commitments stable across parent frontier movement.
+- `warp-core` settlement planning now rejects non-`Shared` strands before
+  producing import candidates. Author-only/debugger strand suffixes can remain
+  real causal work, but they cannot enter base shared history without an
+  explicit shared admission posture. Settlement compare remains local
+  revelation/inspection only: it can inspect a locally held strand suffix
+  without promoting, planning, admitting, or settling it.
+- `warp-core` settlement plural artifacts and retained braid shells now carry
+  the source strand posture instead of hard-coding author-only posture for
+  shared settlement records.
 - Local determinism tooling now fails closed around
   `scripts/check-warp-core-serialization-boundaries.sh`. The serialization
   boundary guard is mandatory, runs through `bash` rather than executable mode,
@@ -610,6 +728,38 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- `warp-core` evolving braid logs now reject unchecked incremental mutations:
+  `Braid::apply` returns typed lifecycle errors, rejects duplicate member
+  weaving and mixed revealed/sealed membership, refuses empty-frontier
+  settlement finalization, detects member sequence overflow with checked
+  arithmetic, rejects empty collapse witnesses, and exposes folded state through
+  read-only accessors instead of public mutable fields. Duplicate checks now use
+  a deterministic member index instead of scanning the append-ordered frontier.
+- `warp-core` braid-shell digests now bind optional proof-shaped envelopes:
+  proof-bearing shells have distinct content identity from proof-less shells,
+  mutating proof bytes after assembly is caught by shell validation, and
+  `BRAID_SHELL_VERSION` is now `2` for the proof-digest marker shape.
+  Shape-only proof envelope admission is limited to replay-trace evidence;
+  cryptographic proof kinds require a verifier backend before admission.
+- `warp-core` sealed braid members now require caller-supplied blinding material,
+  preserve hidden shared source disclosure in settlement shells, mix a
+  settlement-local `MemberBlindingSalt` into hidden settlement member
+  commitments, reject mixed revealed/sealed shell member sets, and treat sealed
+  member authority as part of duplicate-member identity.
+- `warp-core` retained braid shell queries now distinguish revealed member
+  lookup from sealed member lookup: `has_revealed_member_strand` and
+  `BraidShellQuery::revealed_member_strand` only match revealed references,
+  while `BraidShellMemberQuery` carries blinding material for sealed matches.
+- `warp-core` crate-root braid exports now include `BraidError`, `BraidStatus`,
+  and `BraidMemberRef` so external consumers can handle public braid results.
+- `warp-core` shared-strand settlement handles now re-enter the live registry
+  path before planning or settling, and crate-internal settlement helpers reject
+  stale handles that no longer match registered strand state. `CausalPostureState`
+  is sealed to Echo's marker types so external crates cannot add typestate
+  implementations outside the runtime posture gate.
+- `warp-wasm` settlement publication now maps non-`Shared` strand admission
+  rejection to the stable `INVALID_STRAND` ABI error code instead of
+  collapsing the lawful posture denial into `ENGINE_ERROR`.
 - `echo-file-aperture` now normalizes `HostFileSnapshot` material at the
   aperture boundary so caller-forged snapshot metadata or fingerprints cannot
   bind a basis, observation receipt, or materialization verification to bytes
@@ -1442,9 +1592,9 @@ warp-core` and `warp-core` shards, preserving the required `Tests` status
   `streams-inspector.md`, `docs/spec/SPEC-0004...` prefix, archived file
   image paths, nonexistent README link).
 - **New:** `cargo xtask lint-dead-refs` — scans `docs/` for broken markdown
-  cross-references. Handles relative paths, VitePress root-relative links,
-  and `docs/public/` asset resolution. Use `--all` to also check non-markdown
-  file references (images, HTML).
+  cross-references. Handles relative paths, root-relative docs links, and
+  `docs/public/` asset resolution. Use `--all` to also check non-markdown file
+  references (images, HTML).
 - **New:** `cargo xtask markdown-fix` — auto-fixes common markdown lint
   violations: SPDX header repair, prettier formatting, and markdownlint
   `--fix`. Supports `--no-prettier` and `--no-lint` flags.
@@ -1457,11 +1607,11 @@ warp-core` and `warp-core` shards, preserving the required `Tests` status
   covering all 19 features across 11 crates.
 - **Fix:** `cargo xtask lint-dead-refs` now uses `pulldown-cmark` for link
   extraction (handles title text, balanced parens, angle-bracket URLs) and
-  separates scan scope from VitePress docs root. Includes 10 unit tests.
+  separates scan scope from the docs root. Includes 10 unit tests.
 - **Fix:** `det_fixed` correctly documented as a behavioral switch in
   `cargo-features.md`; `worker_count` default now shows `NUM_SHARDS` cap.
 - **Fix:** All file collection in xtask now uses `git ls-files` instead of
-  filesystem walks (skips build artifacts like `.vitepress/dist/`).
+  filesystem walks so ignored build artifacts stay out of docs scans.
 - **Update:** Archival stubs enriched with date, reason, and PR metadata.
   Draft spec (`spec-scheduler.md`) marked with `[!CAUTION]` disclaimer and
   TODO markers for unspecified sections.

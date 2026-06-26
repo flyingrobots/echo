@@ -12,6 +12,8 @@ Echo's live documentation centers on the runtime carrier, the retained witnesses
 - Application contract hosting: [/architecture/application-contract-hosting](/architecture/application-contract-hosting)
 - Local contract host quickstart: [/quickstart-local-contract-host](/quickstart-local-contract-host)
 - WARP optic implementation map: [/design/warp-optic-implementation-map](/design/warp-optic-implementation-map)
+- Echo 1.0 release contract: [/releases/echo-1.0-contract](/releases/echo-1.0-contract)
+- Braids and strands hardening roadmap: [/design/braids-and-strands-roadmap](/design/braids-and-strands-roadmap)
 - Echo v0.1.0 release plan: [/design/v0.1.0-release-plan](/design/v0.1.0-release-plan)
 - Echo v0.1.0 jedit release gate: [/design/v0.1.0-jedit-release-gate](/design/v0.1.0-jedit-release-gate)
 - Trusted runtime control history: [/design/trusted-runtime-control-history](/design/trusted-runtime-control-history)
@@ -31,6 +33,12 @@ Echo's live documentation centers on the runtime carrier, the retained witnesses
 
 ## Settlement And Replay
 
+- Braids and strands hardening roadmap: [/design/braids-and-strands-roadmap](/design/braids-and-strands-roadmap)
+- Goalpost 1, lawful construction and typed failures: [/design/braids-and-strands-hardening/goalpost-01-lawful-construction-and-typed-failures](/design/braids-and-strands-hardening/goalpost-01-lawful-construction-and-typed-failures)
+- Goalpost 2, stable identity and privacy posture: [/design/braids-and-strands-hardening/goalpost-02-stable-identity-and-privacy-posture](/design/braids-and-strands-hardening/goalpost-02-stable-identity-and-privacy-posture)
+- Goalpost 3, historical membership and replay: [/design/braids-and-strands-hardening/goalpost-03-historical-membership-and-replay](/design/braids-and-strands-hardening/goalpost-03-historical-membership-and-replay)
+- Goalpost 4, witness receipts and sealed capabilities: [/design/braids-and-strands-hardening/goalpost-04-witness-receipts-and-sealed-capabilities](/design/braids-and-strands-hardening/goalpost-04-witness-receipts-and-sealed-capabilities)
+- Goalpost 5, named plurality laws: [/design/braids-and-strands-hardening/goalpost-05-named-plurality-laws](/design/braids-and-strands-hardening/goalpost-05-named-plurality-laws)
 - DPO concurrency litmus: [/spec/SPEC-0003-dpo-concurrency-litmus-v0](/spec/SPEC-0003-dpo-concurrency-litmus-v0)
 - Rewrite scheduler: [/spec/scheduler-warp-core](/spec/scheduler-warp-core)
 - Canonical inbox sequencing: [/spec/canonical-inbox-sequencing](/spec/canonical-inbox-sequencing)

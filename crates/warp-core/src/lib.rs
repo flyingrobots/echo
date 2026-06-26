@@ -41,6 +41,7 @@ pub mod wsc;
 
 mod admission;
 mod attachment;
+mod braid;
 mod braid_shell;
 mod causal_facts;
 pub mod causal_wal;
@@ -138,6 +139,8 @@ mod optic_artifact;
 pub mod parallel;
 mod payload;
 mod playback;
+mod plurality_law;
+pub mod proof;
 mod provenance_store;
 mod receipt;
 mod record;
@@ -147,6 +150,7 @@ mod revelation;
 mod rule;
 mod sandbox;
 mod scheduler;
+mod sealed_membership;
 mod settlement;
 mod snapshot;
 mod snapshot_accum;
@@ -157,6 +161,7 @@ mod tick_patch;
 mod trusted_runtime_host;
 mod tx;
 mod warp_state;
+mod witness;
 mod witnessed_suffix;
 #[cfg(test)]
 mod witnessed_suffix_tests;
@@ -241,6 +246,14 @@ pub use payload::{
     encode_motion_payload_q32_32, encode_motion_payload_v0, motion_payload_type_id,
     motion_payload_type_id_v0,
 };
+// --- Plurality law types ---
+pub use plurality_law::{
+    PluralityLawAuthorization, PluralityLawCard, PluralityLawCardError, PluralityLawConcealment,
+    PluralityLawEmission, PluralityLawEvidencePosture, PluralityLawFamily, PluralityLawName,
+    PluralityLawObstruction, PluralityLawObstructionKind, PluralityLawReading,
+    PluralityLawReadingError, PluralityLawRef, PluralityLawRefError, PluralityLawRegistry,
+    PluralityLawRegistryError, PluralityLawRequirement,
+};
 // --- Cursor types ---
 pub use contract_obstruction::{
     ContractObstruction, ContractObstructionKind, ContractObstructionSubject,
@@ -251,14 +264,36 @@ pub use playback::{
 pub use retained_evidence::{
     RetainedEvidenceCoordinate, RetainedEvidencePosture, RetainedEvidenceRef, RetainedEvidenceRole,
 };
+// --- Sealed membership capability types ---
+pub use sealed_membership::{
+    DisclosureBudget, PresentationPurpose, SealedMembershipPresentation,
+    SealedMembershipPresentationError,
+};
 // --- Session types ---
 pub use playback::{SessionId, ViewSession};
+// --- Proof types ---
+pub use proof::{
+    ObserverHonestyClaim, ProofEnvelope, ProofError, ProofKind, VerificationFailureCode,
+};
+// --- Witness receipt types ---
+pub use witness::{
+    WitnessAttestation, WitnessBackend, WitnessBackendSimulator, WitnessCompatibilityRule,
+    WitnessError, WitnessKind, WitnessReceipt, WitnessRejectionCode, WitnessRequest,
+    WitnessSimulatorFixture,
+};
+// --- Braid Log types ---
+pub use braid::{
+    Braid, BraidError, BraidEvent, BraidMembershipCursor, BraidMembershipDiff,
+    BraidMembershipDisclosureChange, BraidMembershipEntry, BraidStatus, BraidTransitionKind,
+};
 // --- Retained boundary shell family (θ_tick, θ_braid) ---
 pub use braid_shell::{
-    collapse_braid_shell, replay_braid_shell, BraidCoordinate, BraidShell, BraidShellError,
-    BraidShellMember, BraidShellOutcome, BraidShellQuery, BraidShellRecords, BraidShellReplay,
-    CollapsePolicy, CollapseResult, MemberVerdict, RetainedBoundaryKind, RetainedBoundaryRecord,
-    BRAID_SHELL_VERSION, COLLAPSE_WITHOUT_POLICY_REASON,
+    audit_braid_shell, collapse_braid_shell, replay_braid_shell, BraidCoordinate, BraidMemberRef,
+    BraidProofBinding, BraidShell, BraidShellAudit, BraidShellError, BraidShellMember,
+    BraidShellMemberAuditFact, BraidShellMemberQuery, BraidShellOutcome, BraidShellQuery,
+    BraidShellRecords, BraidShellReplay, BraidWitnessPosture, CollapsePolicy, CollapseResult,
+    MemberVerdict, RetainedBoundaryKind, RetainedBoundaryRecord, BRAID_SHELL_VERSION,
+    COLLAPSE_WITHOUT_POLICY_REASON,
 };
 pub use neighborhood::{
     NeighborhoodCore, NeighborhoodError, NeighborhoodParticipant, NeighborhoodParticipantRole,
@@ -312,9 +347,19 @@ pub use provenance_store::{
 };
 pub use receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection};
 pub use record::{EdgeRecord, NodeRecord};
+#[allow(deprecated)]
+pub use revelation::RevelationPosture;
 pub use revelation::{
-    least_revealed, promote_posture, shell_posture_obstruction, PostureObstruction,
-    PosturePromotion, RevelationPosture, WitnessDigest,
+    import_posture_disposition, least_revealed, revelation_operation_effect,
+    shell_posture_obstruction, ActorId, AdmissionId, AdmissionScopeId, AdmissionSourceDisclosure,
+    AuthorOnly, AuthorityBinding, AuthorityCapabilityDigest, AuthorityDomainId, AuthorityDomainRef,
+    AuthorityResolutionProof, CapabilityProof, CausalAuthority, CausalPosture, CausalPostureState,
+    DynamicPosture, ImportAdmissionReceipt, ImportPostureDisposition, ImportQuarantineNamespace,
+    ImportedArtifactId, IntentId, KeyId, KeyProofId, MaterializationBasis, MaterializationReceipt,
+    OperationPostureEffect, OriginId, PostureDerivation, PostureObstruction, ProjectionPolicy,
+    ProjectionSpecId, PromotionBasis, PromotionIntent, RetentionContractId, RetentionPosture,
+    RevelationOperation, Scratch, SealStrength, SessionContext, Shared, SharedAdmission,
+    SourceDisclosurePolicy, WitnessDigest,
 };
 #[cfg(feature = "native_rule_bootstrap")]
 pub use rule::{ConflictPolicy, ExecuteFn, MatchFn, PatternGraph, RewriteRule};
@@ -323,9 +368,9 @@ pub use sandbox::DeterminismError;
 pub use sandbox::{build_engine, run_pair_determinism, EchoConfig};
 pub use scheduler::SchedulerKind;
 pub use settlement::{
-    ConflictArtifactDraft, ConflictReason, ImportCandidate, PluralAlternativeDraft,
-    PluralSettlementPolicy, SettlementDecision, SettlementDelta, SettlementError, SettlementPlan,
-    SettlementPolicy, SettlementResult, SettlementService,
+    ConflictArtifactDraft, ConflictReason, ImportCandidate, MemberBlindingSalt,
+    PluralAlternativeDraft, PluralSettlementPolicy, SettlementDecision, SettlementDelta,
+    SettlementError, SettlementPlan, SettlementPolicy, SettlementResult, SettlementService,
 };
 pub use snapshot::{
     compute_commit_hash_v2, compute_emissions_digest, compute_op_emission_index_digest,
@@ -345,7 +390,7 @@ pub use tick_patch::{
 #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 pub use trusted_runtime_host::{
     TrustedRuntimeApp, TrustedRuntimeHost, TrustedRuntimeHostError, TrustedRuntimeHostRunReport,
-    TrustedRuntimeWal, TrustedRuntimeWalError,
+    TrustedRuntimeWal, TrustedRuntimeWalConfig, TrustedRuntimeWalError, TrustedRuntimeWalStoreKind,
 };
 pub use tx::TxId;
 pub use warp_state::{WarpInstance, WarpState};

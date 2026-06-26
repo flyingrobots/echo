@@ -612,6 +612,11 @@ mod tests {
     use crate::provenance_store::{ProvenanceEntry, ProvenanceRef};
     use crate::receipt::TickReceipt;
     use crate::record::NodeRecord;
+    use crate::revelation::{
+        ActorId, AuthorityBinding, AuthorityDomainId, AuthorityDomainRef, CausalAuthority,
+        CausalPosture, OriginId, PostureDerivation, RetentionContractId, RetentionPosture,
+        SealStrength,
+    };
     use crate::snapshot::Snapshot;
     use crate::strand::{make_strand_id, ForkBasisRef, Strand};
     use crate::tick_patch::{TickCommitStatus, WarpTickPatchV1};
@@ -630,6 +635,27 @@ mod tests {
 
     fn gt(raw: u64) -> GlobalTick {
         GlobalTick::from_raw(raw)
+    }
+
+    fn test_retention_posture() -> RetentionPosture {
+        let origin_id = OriginId::from_bytes([0x31; 32]);
+        let authority =
+            AuthorityDomainRef::new(origin_id, AuthorityDomainId::from_bytes([0x32; 32]));
+        RetentionPosture::new(
+            CausalPosture::AuthorOnly,
+            PostureDerivation::ExplicitIntent,
+            CausalAuthority::new(
+                origin_id,
+                ActorId::from_bytes([0x33; 32]),
+                authority,
+                AuthorityBinding::LocalUnbound { origin: origin_id },
+                SealStrength::Advisory,
+            )
+            .unwrap(),
+            RetentionContractId::from_bytes([0x34; 32]),
+            None,
+        )
+        .unwrap()
     }
 
     fn committed_state(
@@ -860,6 +886,8 @@ mod tests {
                 child_worldline_id: support_worldline,
                 writer_heads: vec![support_head],
                 support_pins: Vec::new(),
+                retention_posture: test_retention_posture(),
+                _marker: std::marker::PhantomData,
             })
             .unwrap();
 
@@ -881,6 +909,8 @@ mod tests {
                 child_worldline_id: primary_worldline,
                 writer_heads: vec![primary_head],
                 support_pins: Vec::new(),
+                retention_posture: test_retention_posture(),
+                _marker: std::marker::PhantomData,
             })
             .unwrap();
         runtime
@@ -1047,6 +1077,8 @@ mod tests {
                 child_worldline_id: support_worldline,
                 writer_heads: vec![support_head],
                 support_pins: Vec::new(),
+                retention_posture: test_retention_posture(),
+                _marker: std::marker::PhantomData,
             })
             .unwrap();
         let primary_strand_id = make_strand_id("primary");
@@ -1067,6 +1099,8 @@ mod tests {
                 child_worldline_id: primary_worldline,
                 writer_heads: vec![primary_head],
                 support_pins: Vec::new(),
+                retention_posture: test_retention_posture(),
+                _marker: std::marker::PhantomData,
             })
             .unwrap();
         runtime

@@ -12,11 +12,13 @@ use warp_core::strand::{
     StrandRevalidationState, SupportPin,
 };
 use warp_core::{
-    make_head_id, make_node_id, make_type_id, make_warp_id, GlobalTick, GraphStore, HashTriplet,
-    HeadEligibility, LocalProvenanceStore, NodeRecord, PlaybackHeadRegistry, PlaybackMode,
-    ProvenanceEntry, ProvenanceRef, ProvenanceService, ProvenanceStore, RunnableWriterSet, SlotId,
-    WarpId, WorldlineId, WorldlineState, WorldlineTick, WorldlineTickHeaderV1,
-    WorldlineTickPatchV1, WriterHead, WriterHeadKey,
+    make_head_id, make_node_id, make_type_id, make_warp_id, ActorId, AuthorityBinding,
+    AuthorityDomainId, AuthorityDomainRef, CausalAuthority, CausalPosture, GlobalTick, GraphStore,
+    HashTriplet, HeadEligibility, LocalProvenanceStore, NodeRecord, OriginId, PlaybackHeadRegistry,
+    PlaybackMode, PostureDerivation, PostureObstruction, ProvenanceEntry, ProvenanceRef,
+    ProvenanceService, ProvenanceStore, RetentionContractId, RetentionPosture, RunnableWriterSet,
+    SealStrength, Shared, SlotId, WarpId, WorldlineId, WorldlineState, WorldlineTick,
+    WorldlineTickHeaderV1, WorldlineTickPatchV1, WriterHead, WriterHeadKey,
 };
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -27,6 +29,26 @@ fn wl(n: u8) -> WorldlineId {
 
 fn wt(n: u64) -> WorldlineTick {
     WorldlineTick::from_raw(n)
+}
+
+fn test_retention_posture() -> RetentionPosture {
+    let origin_id = OriginId::from_bytes([0x21; 32]);
+    let authority = AuthorityDomainRef::new(origin_id, AuthorityDomainId::from_bytes([0x22; 32]));
+    RetentionPosture::new(
+        CausalPosture::AuthorOnly,
+        PostureDerivation::ExplicitIntent,
+        CausalAuthority::new(
+            origin_id,
+            ActorId::from_bytes([0x23; 32]),
+            authority,
+            AuthorityBinding::LocalUnbound { origin: origin_id },
+            SealStrength::Advisory,
+        )
+        .expect("test authority"),
+        RetentionContractId::from_bytes([0x24; 32]),
+        None,
+    )
+    .expect("test retention posture")
 }
 
 fn test_initial_state() -> WorldlineState {
@@ -56,11 +78,6 @@ fn setup_base_worldline() -> (ProvenanceService, WorldlineId, WorldlineState) {
     (provenance, base_id, initial_state)
 }
 
-/// Build a strand with explicit base/child worldlines for invariant violation tests.
-fn make_test_strand_raw(base_worldline: WorldlineId, child_worldline: WorldlineId) -> Strand {
-    make_test_strand("raw", base_worldline, child_worldline, wt(5))
-}
-
 /// Build a strand by hand (without full engine integration) to test the
 /// registry and type invariants.
 fn make_test_strand(
@@ -69,17 +86,35 @@ fn make_test_strand(
     child_worldline: WorldlineId,
     fork_tick: WorldlineTick,
 ) -> Strand {
+    make_test_strand_with_parts(
+        strand_label,
+        base_worldline,
+        child_worldline,
+        fork_tick,
+        vec![WriterHeadKey {
+            worldline_id: child_worldline,
+            head_id: make_head_id(&format!("strand-head-{strand_label}")),
+        }],
+        Vec::new(),
+    )
+    .expect("test strand")
+}
+
+fn make_test_strand_with_parts(
+    strand_label: &str,
+    base_worldline: WorldlineId,
+    child_worldline: WorldlineId,
+    fork_tick: WorldlineTick,
+    writer_heads: Vec<WriterHeadKey>,
+    support_pins: Vec<SupportPin>,
+) -> Result<Strand, StrandError> {
     let strand_id = make_strand_id(strand_label);
-    let head_key = WriterHeadKey {
-        worldline_id: child_worldline,
-        head_id: make_head_id(&format!("strand-head-{strand_label}")),
-    };
     let commit_hash = [0xAA; 32];
     let boundary_hash = [0xBB; 32];
 
-    Strand {
+    Strand::new(
         strand_id,
-        fork_basis_ref: ForkBasisRef {
+        ForkBasisRef {
             source_lane_id: base_worldline,
             fork_tick,
             commit_hash,
@@ -90,10 +125,88 @@ fn make_test_strand(
                 commit_hash,
             },
         },
-        child_worldline_id: child_worldline,
-        writer_heads: vec![head_key],
-        support_pins: Vec::new(),
-    }
+        child_worldline,
+        writer_heads,
+        support_pins,
+        test_retention_posture(),
+    )
+}
+
+#[test]
+fn strand_constructor_rejects_static_runtime_posture_mismatch() {
+    let base_worldline = wl(1);
+    let child_worldline = wl(2);
+    let fork_tick = wt(5);
+    let err = Strand::<Shared>::new(
+        make_strand_id("forged-shared"),
+        ForkBasisRef {
+            source_lane_id: base_worldline,
+            fork_tick,
+            commit_hash: [0xAA; 32],
+            boundary_hash: [0xBB; 32],
+            provenance_ref: ProvenanceRef {
+                worldline_id: base_worldline,
+                worldline_tick: fork_tick,
+                commit_hash: [0xAA; 32],
+            },
+        },
+        child_worldline,
+        vec![WriterHeadKey {
+            worldline_id: child_worldline,
+            head_id: make_head_id("forged-shared-head"),
+        }],
+        Vec::new(),
+        test_retention_posture(),
+    )
+    .expect_err("Shared typestate must reject AuthorOnly retention posture");
+
+    assert_eq!(
+        err,
+        StrandError::Posture(PostureObstruction::PostureMismatch {
+            actual: CausalPosture::AuthorOnly,
+            expected: CausalPosture::Shared,
+        })
+    );
+}
+
+#[test]
+fn strand_constructor_rejects_missing_v1_writer_head() {
+    let err =
+        make_test_strand_with_parts("missing-head", wl(1), wl(2), wt(5), Vec::new(), Vec::new())
+            .expect_err("v1 strand construction must reject missing writer head");
+
+    assert_eq!(
+        err,
+        StrandError::InvariantViolation("INV-S2: v1 strands must carry exactly one writer head")
+    );
+}
+
+#[test]
+fn strand_constructor_rejects_multiple_v1_writer_heads() {
+    let child_worldline = wl(2);
+    let err = make_test_strand_with_parts(
+        "multiple-heads",
+        wl(1),
+        child_worldline,
+        wt(5),
+        vec![
+            WriterHeadKey {
+                worldline_id: child_worldline,
+                head_id: make_head_id("multiple-heads-a"),
+            },
+            WriterHeadKey {
+                worldline_id: child_worldline,
+                head_id: make_head_id("multiple-heads-b"),
+            },
+        ],
+        Vec::new(),
+    )
+    .expect_err("v1 strand construction must reject multiple writer heads");
+
+    assert_eq!(
+        err,
+        StrandError::InvariantViolation("INV-S2: v1 strands must carry exactly one writer head")
+    );
 }
 
 fn append_committed_tick(
@@ -229,7 +342,8 @@ fn register_worldline_with_tick(provenance: &mut ProvenanceService, worldline_id
 fn inv_s7_child_and_base_worldlines_are_distinct() {
     let strand = make_test_strand("s7-test", wl(1), wl(2), wt(5));
     assert_ne!(
-        strand.child_worldline_id, strand.fork_basis_ref.source_lane_id,
+        strand.child_worldline_id(),
+        strand.fork_basis_ref().source_lane_id,
         "INV-S7: child worldline must differ from base"
     );
 }
@@ -242,7 +356,7 @@ fn inv_s2_s8_strand_heads_belong_to_child_worldline() {
     let child = wl(2);
     let strand = make_test_strand("s2-test", base, child, wt(5));
 
-    for head_key in &strand.writer_heads {
+    for head_key in strand.writer_heads() {
         assert_eq!(
             head_key.worldline_id, child,
             "INV-S8: every writer head must belong to child_worldline_id"
@@ -345,7 +459,7 @@ fn inv_s4_s10_strand_heads_follow_ordinary_runnable_set_rules() {
 fn inv_s9_support_pins_default_empty_until_pinned() {
     let strand = make_test_strand("s9-test", wl(1), wl(2), wt(5));
     assert!(
-        strand.support_pins.is_empty(),
+        strand.support_pins().is_empty(),
         "new strands start without support pins until runtime validation adds them"
     );
 }
@@ -386,9 +500,9 @@ fn live_basis_report_allows_parent_advance_outside_owned_footprint() {
         vec![parent_other],
     );
 
-    let strand = Strand {
-        strand_id: make_strand_id("live-basis-disjoint"),
-        fork_basis_ref: ForkBasisRef {
+    let strand: Strand = Strand::new(
+        make_strand_id("live-basis-disjoint"),
+        ForkBasisRef {
             source_lane_id: base_worldline,
             fork_tick: wt(0),
             commit_hash: base_ref.commit_hash,
@@ -399,13 +513,15 @@ fn live_basis_report_allows_parent_advance_outside_owned_footprint() {
                 .state_root,
             provenance_ref: base_ref,
         },
-        child_worldline_id: child_worldline,
-        writer_heads: vec![WriterHeadKey {
+        child_worldline,
+        vec![WriterHeadKey {
             worldline_id: child_worldline,
             head_id: make_head_id("live-basis-disjoint-head"),
         }],
-        support_pins: Vec::new(),
-    };
+        Vec::new(),
+        test_retention_posture(),
+    )
+    .expect("test strand");
 
     let report = strand
         .live_basis_report(&provenance)
@@ -457,9 +573,9 @@ fn live_basis_report_requires_revalidation_when_parent_invades_owned_footprint()
         vec![owned_slot],
     );
 
-    let strand = Strand {
-        strand_id: make_strand_id("live-basis-overlap"),
-        fork_basis_ref: ForkBasisRef {
+    let strand: Strand = Strand::new(
+        make_strand_id("live-basis-overlap"),
+        ForkBasisRef {
             source_lane_id: base_worldline,
             fork_tick: wt(0),
             commit_hash: base_ref.commit_hash,
@@ -470,13 +586,15 @@ fn live_basis_report_requires_revalidation_when_parent_invades_owned_footprint()
                 .state_root,
             provenance_ref: base_ref,
         },
-        child_worldline_id: child_worldline,
-        writer_heads: vec![WriterHeadKey {
+        child_worldline,
+        vec![WriterHeadKey {
             worldline_id: child_worldline,
             head_id: make_head_id("live-basis-overlap-head"),
         }],
-        support_pins: Vec::new(),
-    };
+        Vec::new(),
+        test_retention_posture(),
+    )
+    .expect("test strand");
 
     let report = strand
         .live_basis_report(&provenance)
@@ -496,7 +614,7 @@ fn live_basis_report_requires_revalidation_when_parent_invades_owned_footprint()
 #[test]
 fn inv_s5_base_ref_fields_consistent() {
     let strand = make_test_strand("s5-test", wl(1), wl(2), wt(5));
-    let br = &strand.fork_basis_ref;
+    let br = strand.fork_basis_ref();
 
     // provenance_ref must agree with fork_basis_ref scalars
     assert_eq!(br.provenance_ref.worldline_id, br.source_lane_id);
@@ -510,7 +628,7 @@ fn inv_s5_base_ref_fields_consistent() {
 fn registry_insert_and_get() {
     let mut registry = StrandRegistry::new();
     let strand = make_test_strand("reg-1", wl(1), wl(2), wt(5));
-    let sid = strand.strand_id;
+    let sid = strand.strand_id();
 
     registry.insert(strand).expect("insert");
     assert!(registry.contains(&sid));
@@ -522,7 +640,7 @@ fn registry_insert_and_get() {
 fn registry_duplicate_insert_fails() {
     let mut registry = StrandRegistry::new();
     let strand = make_test_strand("dup", wl(1), wl(2), wt(5));
-    let sid = strand.strand_id;
+    let sid = strand.strand_id();
 
     registry.insert(strand.clone()).expect("first insert");
     let err = registry.insert(strand).expect_err("duplicate insert");
@@ -533,11 +651,11 @@ fn registry_duplicate_insert_fails() {
 fn registry_remove_returns_strand_and_clears() {
     let mut registry = StrandRegistry::new();
     let strand = make_test_strand("rm-1", wl(1), wl(2), wt(5));
-    let sid = strand.strand_id;
+    let sid = strand.strand_id();
 
     registry.insert(strand).expect("insert");
     let removed = registry.remove(&sid).expect("remove should succeed");
-    assert_eq!(removed.strand_id, sid);
+    assert_eq!(removed.strand_id(), sid);
     assert!(
         !registry.contains(&sid),
         "strand should be gone after remove"
@@ -547,46 +665,73 @@ fn registry_remove_returns_strand_and_clears() {
 }
 
 #[test]
-fn registry_insert_rejects_inv_s7_same_worldline() {
-    let mut registry = StrandRegistry::new();
-    // child == base violates INV-S7
-    let strand = make_test_strand_raw(wl(1), wl(1));
-    let err = registry.insert(strand).expect_err("INV-S7 should reject");
-    assert!(
-        matches!(err, StrandError::InvariantViolation(_)),
-        "expected InvariantViolation, got {err:?}"
+fn strand_constructor_rejects_inv_s7_same_worldline() {
+    let err = make_test_strand_with_parts(
+        "s7-bad",
+        wl(1),
+        wl(1),
+        wt(5),
+        vec![WriterHeadKey {
+            worldline_id: wl(1),
+            head_id: make_head_id("s7-bad-head"),
+        }],
+        Vec::new(),
+    )
+    .expect_err("INV-S7 should reject");
+    assert_eq!(
+        err,
+        StrandError::InvariantViolation(
+            "INV-S7: child_worldline_id must differ from fork_basis_ref.source_lane_id"
+        )
     );
 }
 
 #[test]
-fn registry_insert_rejects_inv_s8_wrong_head_worldline() {
-    let mut registry = StrandRegistry::new();
-    let strand_id = make_strand_id("s8-bad");
-    let strand = Strand {
-        strand_id,
-        fork_basis_ref: ForkBasisRef {
-            source_lane_id: wl(1),
-            fork_tick: wt(5),
-            commit_hash: [0xAA; 32],
-            boundary_hash: [0xBB; 32],
-            provenance_ref: ProvenanceRef {
-                worldline_id: wl(1),
-                worldline_tick: wt(5),
-                commit_hash: [0xAA; 32],
-            },
-        },
-        child_worldline_id: wl(2),
-        // Head belongs to wl(3), not wl(2) — violates INV-S8
-        writer_heads: vec![WriterHeadKey {
+fn strand_constructor_rejects_inv_s8_wrong_head_worldline() {
+    let err = make_test_strand_with_parts(
+        "s8-bad",
+        wl(1),
+        wl(2),
+        wt(5),
+        vec![WriterHeadKey {
             worldline_id: wl(3),
             head_id: make_head_id("wrong-wl-head"),
         }],
-        support_pins: Vec::new(),
-    };
-    let err = registry.insert(strand).expect_err("INV-S8 should reject");
-    assert!(
-        matches!(err, StrandError::InvariantViolation(_)),
-        "expected InvariantViolation, got {err:?}"
+        Vec::new(),
+    )
+    .expect_err("INV-S8 should reject");
+    assert_eq!(
+        err,
+        StrandError::InvariantViolation(
+            "INV-S8: every writer head must belong to child_worldline_id"
+        )
+    );
+}
+
+#[test]
+fn retention_posture_rejects_shared_without_admission_scope() {
+    let origin_id = OriginId::from_bytes([0x31; 32]);
+    let authority = AuthorityDomainRef::new(origin_id, AuthorityDomainId::from_bytes([0x32; 32]));
+    let err = RetentionPosture::new(
+        CausalPosture::Shared,
+        PostureDerivation::ExplicitIntent,
+        CausalAuthority::new(
+            origin_id,
+            ActorId::from_bytes([0x33; 32]),
+            authority,
+            AuthorityBinding::LocalUnbound { origin: origin_id },
+            SealStrength::Advisory,
+        )
+        .expect("test authority"),
+        RetentionContractId::from_bytes([0x34; 32]),
+        None,
+    )
+    .expect_err("Shared retention posture without admission scope should reject");
+    assert_eq!(
+        err,
+        PostureObstruction::MissingAdmissionScope {
+            posture: CausalPosture::Shared,
+        }
     );
 }
 
@@ -594,17 +739,27 @@ fn registry_insert_rejects_inv_s8_wrong_head_worldline() {
 fn registry_insert_accepts_valid_nonempty_support_pins() {
     let mut registry = StrandRegistry::new();
     let target = make_test_strand("support-target", wl(1), wl(10), wt(5));
-    let target_id = target.strand_id;
-    let target_worldline = target.child_worldline_id;
+    let target_id = target.strand_id();
+    let target_worldline = target.child_worldline_id();
     registry.insert(target).expect("insert support target");
 
-    let mut owner = make_test_strand("support-owner", wl(1), wl(2), wt(5));
-    owner.support_pins.push(SupportPin {
-        strand_id: target_id,
-        worldline_id: target_worldline,
-        pinned_tick: wt(0),
-        state_hash: [0xCC; 32],
-    });
+    let owner = make_test_strand_with_parts(
+        "support-owner",
+        wl(1),
+        wl(2),
+        wt(5),
+        vec![WriterHeadKey {
+            worldline_id: wl(2),
+            head_id: make_head_id("support-owner-head"),
+        }],
+        vec![SupportPin {
+            strand_id: target_id,
+            worldline_id: target_worldline,
+            pinned_tick: wt(0),
+            state_hash: [0xCC; 32],
+        }],
+    )
+    .expect("owner with support pin");
     registry
         .insert(owner)
         .expect("valid support pin should insert");
@@ -613,14 +768,24 @@ fn registry_insert_accepts_valid_nonempty_support_pins() {
 #[test]
 fn registry_insert_rejects_support_pin_missing_target() {
     let mut registry = StrandRegistry::new();
-    let mut owner = make_test_strand("missing-target", wl(1), wl(2), wt(5));
     let missing = make_strand_id("missing-support");
-    owner.support_pins.push(SupportPin {
-        strand_id: missing,
-        worldline_id: wl(10),
-        pinned_tick: wt(0),
-        state_hash: [0; 32],
-    });
+    let owner = make_test_strand_with_parts(
+        "missing-target",
+        wl(1),
+        wl(2),
+        wt(5),
+        vec![WriterHeadKey {
+            worldline_id: wl(2),
+            head_id: make_head_id("missing-target-head"),
+        }],
+        vec![SupportPin {
+            strand_id: missing,
+            worldline_id: wl(10),
+            pinned_tick: wt(0),
+            state_hash: [0; 32],
+        }],
+    )
+    .expect("owner with missing support pin");
     let err = registry
         .insert(owner)
         .expect_err("missing support target should reject");
@@ -631,16 +796,26 @@ fn registry_insert_rejects_support_pin_missing_target() {
 fn registry_insert_rejects_support_pin_worldline_mismatch() {
     let mut registry = StrandRegistry::new();
     let target = make_test_strand("mismatch-target", wl(1), wl(10), wt(5));
-    let target_id = target.strand_id;
+    let target_id = target.strand_id();
     registry.insert(target).expect("insert support target");
 
-    let mut owner = make_test_strand("mismatch-owner", wl(1), wl(2), wt(5));
-    owner.support_pins.push(SupportPin {
-        strand_id: target_id,
-        worldline_id: wl(11),
-        pinned_tick: wt(0),
-        state_hash: [0; 32],
-    });
+    let owner = make_test_strand_with_parts(
+        "mismatch-owner",
+        wl(1),
+        wl(2),
+        wt(5),
+        vec![WriterHeadKey {
+            worldline_id: wl(2),
+            head_id: make_head_id("mismatch-owner-head"),
+        }],
+        vec![SupportPin {
+            strand_id: target_id,
+            worldline_id: wl(11),
+            pinned_tick: wt(0),
+            state_hash: [0; 32],
+        }],
+    )
+    .expect("owner with mismatched support pin");
     let err = registry
         .insert(owner)
         .expect_err("worldline mismatch should reject");
@@ -655,33 +830,22 @@ fn registry_insert_rejects_support_pin_worldline_mismatch() {
 }
 
 #[test]
-fn registry_insert_rejects_duplicate_support_target() {
-    let mut registry = StrandRegistry::new();
+fn strand_constructor_rejects_duplicate_support_target() {
     let target = make_test_strand("duplicate-target", wl(1), wl(10), wt(5));
-    let target_id = target.strand_id;
-    let target_worldline = target.child_worldline_id;
-    registry.insert(target).expect("insert support target");
+    let target_id = target.strand_id();
+    let target_worldline = target.child_worldline_id();
 
     let owner_id = make_strand_id("duplicate-owner");
-    let owner = Strand {
-        strand_id: owner_id,
-        fork_basis_ref: ForkBasisRef {
-            source_lane_id: wl(1),
-            fork_tick: wt(5),
-            commit_hash: [0xAA; 32],
-            boundary_hash: [0xBB; 32],
-            provenance_ref: ProvenanceRef {
-                worldline_id: wl(1),
-                worldline_tick: wt(5),
-                commit_hash: [0xAA; 32],
-            },
-        },
-        child_worldline_id: wl(2),
-        writer_heads: vec![WriterHeadKey {
+    let err = make_test_strand_with_parts(
+        "duplicate-owner",
+        wl(1),
+        wl(2),
+        wt(5),
+        vec![WriterHeadKey {
             worldline_id: wl(2),
             head_id: make_head_id("duplicate-owner-head"),
         }],
-        support_pins: vec![
+        vec![
             SupportPin {
                 strand_id: target_id,
                 worldline_id: target_worldline,
@@ -695,10 +859,8 @@ fn registry_insert_rejects_duplicate_support_target() {
                 state_hash: [2; 32],
             },
         ],
-    };
-    let err = registry
-        .insert(owner)
-        .expect_err("duplicate support target should reject");
+    )
+    .expect_err("duplicate support target should reject");
     assert_eq!(
         err,
         StrandError::DuplicateSupportTarget {
@@ -715,10 +877,10 @@ fn registry_pin_support_records_state_hash_from_provenance() {
 
     let mut registry = StrandRegistry::new();
     let owner = make_test_strand("pin-owner", wl(1), wl(2), wt(5));
-    let owner_id = owner.strand_id;
+    let owner_id = owner.strand_id();
     let target = make_test_strand("pin-target", wl(1), wl(10), wt(5));
-    let target_id = target.strand_id;
-    let target_worldline = target.child_worldline_id;
+    let target_id = target.strand_id();
+    let target_worldline = target.child_worldline_id();
     registry.insert(owner).expect("insert owner");
     registry.insert(target).expect("insert target");
 
@@ -750,9 +912,9 @@ fn registry_pin_support_rejects_duplicate_and_self_target() {
 
     let mut registry = StrandRegistry::new();
     let owner = make_test_strand("pin-owner-dup", wl(1), wl(2), wt(5));
-    let owner_id = owner.strand_id;
+    let owner_id = owner.strand_id();
     let target = make_test_strand("pin-target-dup", wl(1), wl(10), wt(5));
-    let target_id = target.strand_id;
+    let target_id = target.strand_id();
     registry.insert(owner).expect("insert owner");
     registry.insert(target).expect("insert target");
 
@@ -783,9 +945,9 @@ fn registry_remove_rejects_live_pinned_target_until_unpinned() {
 
     let mut registry = StrandRegistry::new();
     let owner = make_test_strand("pin-owner-rm", wl(1), wl(2), wt(5));
-    let owner_id = owner.strand_id;
+    let owner_id = owner.strand_id();
     let target = make_test_strand("pin-target-rm", wl(1), wl(10), wt(5));
-    let target_id = target.strand_id;
+    let target_id = target.strand_id();
     registry.insert(owner).expect("insert owner");
     registry.insert(target).expect("insert target");
     registry
@@ -809,7 +971,7 @@ fn registry_remove_rejects_live_pinned_target_until_unpinned() {
     assert_eq!(removed_pin.strand_id, target_id);
     assert!(registry.list_support_pins(&owner_id).unwrap().is_empty());
     let removed = registry.remove(&target_id).expect("remove unpinned target");
-    assert_eq!(removed.strand_id, target_id);
+    assert_eq!(removed.strand_id(), target_id);
 }
 
 #[test]
@@ -839,7 +1001,7 @@ fn registry_list_by_source_lane_filters_correctly() {
     let from_a = registry.list_by_source_lane(&base_a);
     assert_eq!(from_a.len(), 2, "should find 2 strands from source lane a");
     for s in &from_a {
-        assert_eq!(s.fork_basis_ref.source_lane_id, base_a);
+        assert_eq!(s.fork_basis_ref().source_lane_id, base_a);
     }
 
     let from_b = registry.list_by_source_lane(&base_b);
@@ -859,7 +1021,7 @@ fn registry_list_by_source_lane_filters_correctly() {
 fn v1_strand_has_exactly_one_writer_head() {
     let strand = make_test_strand("card-1", wl(1), wl(2), wt(5));
     assert_eq!(
-        strand.writer_heads.len(),
+        strand.writer_heads().len(),
         1,
         "v1 strands must have exactly one writer head"
     );
@@ -999,12 +1161,29 @@ fn provenance_fork_happy_path_child_has_correct_prefix() {
 fn drop_receipt_carries_correct_fields() {
     let strand = make_test_strand("drop-test", wl(1), wl(2), wt(5));
     let receipt = DropReceipt {
-        strand_id: strand.strand_id,
-        child_worldline_id: strand.child_worldline_id,
+        strand_id: strand.strand_id(),
+        child_worldline_id: strand.child_worldline_id(),
         final_tick: wt(10),
     };
 
-    assert_eq!(receipt.strand_id, strand.strand_id);
+    assert_eq!(receipt.strand_id, strand.strand_id());
     assert_eq!(receipt.child_worldline_id, wl(2));
     assert_eq!(receipt.final_tick, wt(10));
+}
+
+#[test]
+fn test_try_into_shared_posture_mismatch() {
+    let strand = make_test_strand("mismatch-test", wl(1), wl(2), wt(5));
+    assert_eq!(
+        strand.retention_posture().causal_posture,
+        CausalPosture::AuthorOnly
+    );
+    let result = strand.try_into_shared();
+    assert!(matches!(
+        result,
+        Err(StrandError::Posture(PostureObstruction::PostureMismatch {
+            actual: CausalPosture::AuthorOnly,
+            expected: CausalPosture::Shared,
+        }))
+    ));
 }

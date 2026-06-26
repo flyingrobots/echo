@@ -18,7 +18,7 @@ use crate::provenance_store::{
     ProvenanceEventKind, ProvenanceRef, ProvenanceService, ProvenanceStore,
 };
 use crate::record::{EdgeRecord, NodeRecord};
-use crate::revelation::RevelationPosture;
+use crate::revelation::{CausalPosture, RetentionPosture, SourceDisclosurePolicy};
 use crate::snapshot::{compute_commit_hash_v2, compute_state_root_for_warp_state};
 use crate::strand::{
     StrandBasisReport, StrandError, StrandId, StrandOverlapRevalidation, StrandRegistry,
@@ -33,6 +33,9 @@ use crate::WorldlineState;
 const CONFLICT_ARTIFACT_DOMAIN: &[u8] = b"echo:settlement-conflict-artifact:v1\0";
 const PLURAL_ARTIFACT_DOMAIN: &[u8] = b"echo:settlement-plural-artifact:v1\0";
 const REFUSE_PLURAL_POLICY_DOMAIN: &[u8] = b"echo:settlement-policy:refuse-plural:v1\0";
+const DEFAULT_MEMBER_BLINDING_SALT_DOMAIN: &[u8] =
+    b"echo:settlement-member-blinding-salt:default:v1\0";
+const SETTLEMENT_MEMBER_BLINDING_DOMAIN: &[u8] = b"echo.settlement.member.blinding.v1\0";
 
 /// Deterministic reasons a source settlement step could not be imported.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -88,6 +91,31 @@ pub enum PluralSettlementPolicy {
     AllowOverFootprintOverlap,
 }
 
+/// Non-public settlement-local salt for sealed braid member commitments.
+///
+/// The deterministic default salt is for reproducibility, not unlinkability.
+/// Privacy-preserving flows MUST provide authority-local, capability-local, or
+/// session-local blinding material.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct MemberBlindingSalt(Hash);
+
+impl MemberBlindingSalt {
+    /// Builds a member blinding salt from caller-supplied entropy.
+    ///
+    /// Caller-supplied salts are the privacy boundary for sealed member
+    /// commitments; deterministic defaults are not.
+    #[must_use]
+    pub const fn from_bytes(bytes: Hash) -> Self {
+        Self(bytes)
+    }
+}
+
+impl core::fmt::Debug for MemberBlindingSalt {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("MemberBlindingSalt(<redacted>)")
+    }
+}
+
 /// Named law governing one settlement act.
 ///
 /// The plural-settlement policy decides whether plurality may *exist*; it is
@@ -99,16 +127,38 @@ pub struct SettlementPolicy {
     pub policy_id: Hash,
     /// Plural-settlement law selected for this act.
     pub plural: PluralSettlementPolicy,
+    /// Non-public salt mixed into sealed braid member commitments.
+    ///
+    /// The default is derived deterministically from the policy id for local
+    /// reproducibility. It is not an unlinkability boundary across independent
+    /// settlements.
+    pub member_blinding_salt: MemberBlindingSalt,
 }
 
 impl SettlementPolicy {
     /// Policy that permits lawful plurality over contended footprint overlap.
+    ///
+    /// The deterministic default salt is for reproducibility, not unlinkability.
+    /// Privacy-preserving flows MUST provide authority-local,
+    /// capability-local, or session-local blinding material through
+    /// [`Self::with_member_blinding_salt`].
     #[must_use]
     pub fn allow_plural_over_footprint_overlap(policy_id: Hash) -> Self {
         Self {
             policy_id,
             plural: PluralSettlementPolicy::AllowOverFootprintOverlap,
+            member_blinding_salt: default_member_blinding_salt(policy_id),
         }
+    }
+
+    /// Sets the non-public salt used for sealed braid member commitments.
+    ///
+    /// Use this for privacy-sensitive settlement flows. Reusing one salt across
+    /// unlinkability domains can correlate sealed member commitments.
+    #[must_use]
+    pub const fn with_member_blinding_salt(mut self, salt: MemberBlindingSalt) -> Self {
+        self.member_blinding_salt = salt;
+        self
     }
 }
 
@@ -116,11 +166,20 @@ impl Default for SettlementPolicy {
     fn default() -> Self {
         let mut hasher = Hasher::new();
         hasher.update(REFUSE_PLURAL_POLICY_DOMAIN);
+        let policy_id = hasher.finalize().into();
         Self {
-            policy_id: hasher.finalize().into(),
+            policy_id,
             plural: PluralSettlementPolicy::Refused,
+            member_blinding_salt: default_member_blinding_salt(policy_id),
         }
     }
+}
+
+fn default_member_blinding_salt(policy_id: Hash) -> MemberBlindingSalt {
+    let mut hasher = Hasher::new();
+    hasher.update(DEFAULT_MEMBER_BLINDING_SALT_DOMAIN);
+    hasher.update(&policy_id);
+    MemberBlindingSalt(hasher.finalize().into())
 }
 
 /// Compare surface for one strand suffix relative to its recorded base.
@@ -282,7 +341,7 @@ pub struct PluralAlternativeDraft {
     /// Plural-settlement policy that made this plurality lawful.
     pub policy_id: Hash,
     /// Revelation posture carried by the retained alternative.
-    pub posture: RevelationPosture,
+    pub posture: CausalPosture,
 }
 
 impl PluralAlternativeDraft {
@@ -300,9 +359,9 @@ impl PluralAlternativeDraft {
                 .to_vec(),
             policy_id: self.policy_id.to_vec(),
             posture: match self.posture {
-                RevelationPosture::Scratch => abi::RevelationPosture::Scratch,
-                RevelationPosture::AuthorOnly => abi::RevelationPosture::AuthorOnly,
-                RevelationPosture::Shared => abi::RevelationPosture::Shared,
+                CausalPosture::Scratch => abi::RevelationPosture::Scratch,
+                CausalPosture::AuthorOnly => abi::RevelationPosture::AuthorOnly,
+                CausalPosture::Shared => abi::RevelationPosture::Shared,
             },
         }
     }
@@ -552,6 +611,20 @@ pub enum SettlementError {
     /// The strand fork coordinate cannot advance to a suffix start tick.
     #[error("fork tick overflow for strand {0:?}")]
     ForkTickOverflow(StrandId),
+    /// Settlement may only admit shared strands into base history.
+    #[error("strand {strand_id:?} with posture {posture:?} is not shared-admitted for settlement")]
+    NonSharedStrand {
+        /// Strand that attempted settlement.
+        strand_id: StrandId,
+        /// Effective posture carried by the strand.
+        posture: CausalPosture,
+    },
+    /// A statically shared strand handle did not match the live registry entry.
+    #[error("stale strand handle does not match live registry entry: {strand_id:?}")]
+    StaleStrandHandle {
+        /// Strand whose handle no longer matches the registry.
+        strand_id: StrandId,
+    },
     /// Runtime frontier state and provenance history disagree for a worldline.
     #[error("runtime/provenance drift for worldline {worldline_id:?}: frontier {frontier_tick}, provenance {provenance_len}")]
     RuntimeProvenanceDrift {
@@ -626,12 +699,27 @@ struct RecordedEntryDraft {
 
 impl SettlementService {
     /// Compares the strand suffix against its recorded base coordinate.
+    ///
+    /// Compare is local inspection/revelation only: it identifies the suffix
+    /// window and basis evidence without promoting, planning, admitting, or
+    /// settling the strand. Shared-admission gates live on planning and
+    /// settlement execution.
     pub fn compare(
         runtime: &WorldlineRuntime,
         provenance: &ProvenanceService,
         strand_id: StrandId,
     ) -> Result<SettlementDelta, SettlementError> {
-        let strand = strand(runtime.strands(), strand_id)?;
+        let d_strand = strand(runtime.strands(), strand_id)?;
+        Self::compare_internal(runtime, provenance, d_strand)
+    }
+
+    /// Compares the strand suffix against its recorded base coordinate, generic over posture.
+    pub fn compare_internal<P: crate::revelation::CausalPostureState>(
+        runtime: &WorldlineRuntime,
+        provenance: &ProvenanceService,
+        strand: &crate::strand::Strand<P>,
+    ) -> Result<SettlementDelta, SettlementError> {
+        let strand_id = strand.strand_id;
         ensure_frontier_matches_provenance(
             runtime,
             provenance,
@@ -679,14 +767,32 @@ impl SettlementService {
     }
 
     /// Produces a deterministic settlement plan under an explicit named policy.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`SettlementError`] if the plan cannot be generated.
     pub fn plan_with_policy(
         runtime: &WorldlineRuntime,
         provenance: &ProvenanceService,
         strand_id: StrandId,
         policy: &SettlementPolicy,
     ) -> Result<SettlementPlan, SettlementError> {
-        let strand = strand(runtime.strands(), strand_id)?;
-        let delta = Self::compare(runtime, provenance, strand_id)?;
+        let strand = shared_strand(runtime.strands(), strand_id)?;
+        Self::plan_with_policy_internal(runtime, provenance, &strand, policy)
+    }
+
+    /// Produces a deterministic settlement plan under an explicit named policy, statically gated on Shared posture.
+    pub(crate) fn plan_with_policy_internal(
+        runtime: &WorldlineRuntime,
+        provenance: &ProvenanceService,
+        strand: &crate::strand::Strand<crate::revelation::Shared>,
+        policy: &SettlementPolicy,
+    ) -> Result<SettlementPlan, SettlementError> {
+        let strand_id = strand.strand_id;
+        ensure_shared_runtime_posture(strand)?;
+        ensure_live_registered_shared_strand(runtime, strand)?;
+        let strand_posture = strand.retention_posture.causal_posture;
+        let delta = Self::compare_internal(runtime, provenance, strand)?;
         let target_worldline = strand.fork_basis_ref.source_lane_id;
         let target_frontier_tick =
             ensure_frontier_matches_provenance(runtime, provenance, target_worldline)?;
@@ -812,6 +918,7 @@ impl SettlementService {
                     &source_entry,
                     entry_overlap_slots,
                     policy,
+                    strand_posture,
                 )));
                 continue;
             } else {
@@ -858,13 +965,29 @@ impl SettlementService {
     }
 
     /// Executes the deterministic settlement plan under an explicit named policy.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`SettlementError`] if settlement fails.
     pub fn settle_with_policy(
         runtime: &mut WorldlineRuntime,
         provenance: &mut ProvenanceService,
         strand_id: StrandId,
         policy: &SettlementPolicy,
     ) -> Result<SettlementResult, SettlementError> {
-        let plan = Self::plan_with_policy(runtime, provenance, strand_id, policy)?;
+        let strand = shared_strand(runtime.strands(), strand_id)?;
+        Self::settle_with_policy_internal(runtime, provenance, &strand, policy)
+    }
+
+    /// Executes the deterministic settlement plan under an explicit named policy, statically gated on Shared posture.
+    pub(crate) fn settle_with_policy_internal(
+        runtime: &mut WorldlineRuntime,
+        provenance: &mut ProvenanceService,
+        strand: &crate::strand::Strand<crate::revelation::Shared>,
+        policy: &SettlementPolicy,
+    ) -> Result<SettlementResult, SettlementError> {
+        ensure_shared_runtime_posture(strand)?;
+        let plan = Self::plan_with_policy_internal(runtime, provenance, strand, policy)?;
         if plan.decisions.is_empty() {
             return Ok(SettlementResult {
                 plan,
@@ -874,10 +997,9 @@ impl SettlementService {
                 braid_shell: None,
             });
         }
-        let (fork_basis_ref, support_pins) = {
-            let settled = strand(runtime.strands(), strand_id)?;
-            (settled.fork_basis_ref, settled.support_pins.clone())
-        };
+        let fork_basis_ref = strand.fork_basis_ref;
+        let support_pins = strand.support_pins.clone();
+        let retention_posture = strand.retention_posture;
 
         let runtime_before = runtime.clone();
         let provenance_before = provenance.checkpoint_for([plan.target_worldline])?;
@@ -928,6 +1050,7 @@ impl SettlementService {
                 &plan,
                 fork_basis_ref,
                 &support_pins,
+                &retention_posture,
                 policy,
                 &appended_imports,
             )?;
@@ -953,10 +1076,51 @@ impl SettlementService {
 fn strand(
     registry: &StrandRegistry,
     strand_id: StrandId,
-) -> Result<&crate::strand::Strand, SettlementError> {
+) -> Result<&crate::strand::Strand<crate::revelation::DynamicPosture>, SettlementError> {
     registry
         .get(&strand_id)
         .ok_or(SettlementError::StrandNotFound(strand_id))
+}
+
+fn shared_strand(
+    registry: &StrandRegistry,
+    strand_id: StrandId,
+) -> Result<crate::strand::Strand<crate::revelation::Shared>, SettlementError> {
+    let d_strand = strand(registry, strand_id)?;
+    d_strand
+        .clone()
+        .try_into_shared()
+        .map_err(|_| SettlementError::NonSharedStrand {
+            strand_id,
+            posture: d_strand.retention_posture.causal_posture,
+        })
+}
+
+fn ensure_shared_runtime_posture(
+    strand: &crate::strand::Strand<crate::revelation::Shared>,
+) -> Result<(), SettlementError> {
+    if strand.retention_posture.causal_posture == CausalPosture::Shared {
+        Ok(())
+    } else {
+        Err(SettlementError::NonSharedStrand {
+            strand_id: strand.strand_id,
+            posture: strand.retention_posture.causal_posture,
+        })
+    }
+}
+
+fn ensure_live_registered_shared_strand(
+    runtime: &WorldlineRuntime,
+    strand: &crate::strand::Strand<crate::revelation::Shared>,
+) -> Result<(), SettlementError> {
+    let live = shared_strand(runtime.strands(), strand.strand_id)?;
+    if live == *strand {
+        Ok(())
+    } else {
+        Err(SettlementError::StaleStrandHandle {
+            strand_id: strand.strand_id,
+        })
+    }
 }
 
 fn ensure_frontier_matches_provenance(
@@ -1156,6 +1320,7 @@ fn append_plural_artifact(
         RecordedEntryDraft {
             event_kind: ProvenanceEventKind::PluralArtifact {
                 plural_id: draft.plural_id,
+                posture: draft.posture,
             },
             patch: no_op_patch,
             expected_state_root,
@@ -1286,10 +1451,13 @@ fn build_braid_shell(
     plan: &SettlementPlan,
     fork_basis_ref: crate::strand::ForkBasisRef,
     support_pins: &[crate::strand::SupportPin],
+    retention_posture: &RetentionPosture,
     policy: &SettlementPolicy,
     appended_imports: &[ProvenanceRef],
 ) -> Result<crate::braid_shell::BraidShell, crate::braid_shell::BraidShellError> {
-    use crate::braid_shell::{BraidShell, BraidShellMember, BraidShellOutcome, MemberVerdict};
+    use crate::braid_shell::{
+        BraidMemberRef, BraidShell, BraidShellMember, BraidShellOutcome, MemberVerdict,
+    };
 
     let mut plural_ids = Vec::new();
     let mut conflict_codes = Vec::new();
@@ -1348,9 +1516,28 @@ fn build_braid_shell(
         }
     };
 
+    let strand_posture = retention_posture.causal_posture;
+    let source_identity_public = strand_posture == CausalPosture::Shared
+        && retention_posture.source_disclosure == SourceDisclosurePolicy::RevealFull;
+    let member_ref = if source_identity_public {
+        BraidMemberRef::Revealed(plan.strand_id)
+    } else {
+        let blinding_secret =
+            settlement_member_blinding(plan, retention_posture, policy.member_blinding_salt);
+        let blinded_commitment = BraidMemberRef::seal(
+            plan.strand_id,
+            plan.basis_report.child_worldline_id,
+            blinding_secret,
+        );
+        BraidMemberRef::Sealed {
+            blinded_commitment,
+            authority: retention_posture.authority.author_domain,
+        }
+    };
+
     let overlap_slots = settlement_basis_overlap_slots(&plan.basis_report).unwrap_or_default();
     let member = BraidShellMember {
-        strand_ref: plan.strand_id,
+        member_ref,
         support_pin_digest: support_pins_digest(support_pins),
         basis_digest: fork_basis_digest(fork_basis_ref),
         frontier_digest: frontier_digest(plan.basis_report.realized_parent_ref),
@@ -1358,7 +1545,7 @@ fn build_braid_shell(
         claim_digest: claim_hasher.finalize().into(),
         verdict,
         verdict_digest: verdict_hasher.finalize().into(),
-        posture: RevelationPosture::default(),
+        posture: strand_posture,
     };
 
     BraidShell::assemble(
@@ -1367,8 +1554,57 @@ fn build_braid_shell(
         vec![member],
         policy.policy_id,
         outcome,
-        RevelationPosture::default(),
+        strand_posture,
     )
+}
+
+fn settlement_member_blinding(
+    plan: &SettlementPlan,
+    retention_posture: &RetentionPosture,
+    member_blinding_salt: MemberBlindingSalt,
+) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(SETTLEMENT_MEMBER_BLINDING_DOMAIN);
+    hasher.update(&member_blinding_salt.0);
+    hasher.update(plan.strand_id.as_bytes());
+    hasher.update(plan.basis_report.child_worldline_id.as_bytes());
+    hasher.update(&[retention_posture.causal_posture.canonical_tag()]);
+    hasher.update(retention_posture.retention_contract.as_bytes());
+    hasher.update(
+        retention_posture
+            .authority
+            .author_domain
+            .origin_id
+            .as_bytes(),
+    );
+    hasher.update(
+        retention_posture
+            .authority
+            .author_domain
+            .domain_id
+            .as_bytes(),
+    );
+    match retention_posture.admission_scope {
+        Some(scope) => {
+            hasher.update(&[1]);
+            hasher.update(scope.as_bytes());
+        }
+        None => {
+            hasher.update(&[0]);
+        }
+    }
+    hasher.update(&[source_disclosure_tag(retention_posture.source_disclosure)]);
+    hasher.finalize().into()
+}
+
+const fn source_disclosure_tag(source_disclosure: SourceDisclosurePolicy) -> u8 {
+    match source_disclosure {
+        SourceDisclosurePolicy::RevealNone => 0,
+        SourceDisclosurePolicy::RevealStub => 1,
+        SourceDisclosurePolicy::RevealRedacted => 2,
+        SourceDisclosurePolicy::RevealFull => 3,
+        SourceDisclosurePolicy::RevealByAuthorityOnly => 4,
+    }
 }
 
 fn hash_claim_source_ref(hasher: &mut Hasher, source_ref: ProvenanceRef) {
@@ -1428,6 +1664,7 @@ fn plural_draft(
     source_entry: &ProvenanceEntry,
     mut overlapping_slots: Vec<SlotId>,
     policy: &SettlementPolicy,
+    posture: CausalPosture,
 ) -> PluralAlternativeDraft {
     canonicalize_slots(&mut overlapping_slots);
     PluralAlternativeDraft {
@@ -1445,7 +1682,7 @@ fn plural_draft(
             .collect(),
         overlapping_slots,
         policy_id: policy.policy_id,
-        posture: RevelationPosture::default(),
+        posture,
     }
 }
 
@@ -1532,7 +1769,13 @@ fn empty_worldline_patch(
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::large_types_passed_by_value,
+    clippy::redundant_clone
+)]
 mod tests {
     use super::*;
 
@@ -1541,7 +1784,12 @@ mod tests {
     use crate::ident::{make_edge_id, make_node_id, make_type_id};
     use crate::playback::PlaybackMode;
     use crate::record::{EdgeRecord, NodeRecord};
-    use crate::strand::{ForkBasisRef, Strand};
+    use crate::revelation::{
+        ActorId, AdmissionScopeId, AuthorityBinding, AuthorityDomainId, AuthorityDomainRef,
+        CausalAuthority, OriginId, PostureDerivation, RetentionContractId, RetentionPosture,
+        SealStrength, SourceDisclosurePolicy,
+    };
+    use crate::strand::{make_strand_id, ForkBasisRef, Strand};
     use crate::tick_patch::{SlotId, WarpOp};
     use crate::{GraphStore, WorldlineState};
 
@@ -1555,6 +1803,164 @@ mod tests {
 
     fn gt(raw: u64) -> GlobalTick {
         GlobalTick::from_raw(raw)
+    }
+
+    fn test_retention_posture(posture: CausalPosture) -> RetentionPosture {
+        let origin_id = OriginId::from_bytes([0x51; 32]);
+        let authority =
+            AuthorityDomainRef::new(origin_id, AuthorityDomainId::from_bytes([0x52; 32]));
+        let admission_scope =
+            (posture == CausalPosture::Shared).then_some(AdmissionScopeId::from_bytes([0x55; 32]));
+        RetentionPosture::new(
+            posture,
+            PostureDerivation::ExplicitIntent,
+            CausalAuthority::new(
+                origin_id,
+                ActorId::from_bytes([0x53; 32]),
+                authority,
+                AuthorityBinding::LocalUnbound { origin: origin_id },
+                SealStrength::Advisory,
+            )
+            .unwrap(),
+            RetentionContractId::from_bytes([0x54; 32]),
+            admission_scope,
+        )
+        .unwrap()
+    }
+
+    fn shared_retention_posture() -> RetentionPosture {
+        test_retention_posture(CausalPosture::Shared)
+    }
+
+    fn author_only_retention_posture() -> RetentionPosture {
+        test_retention_posture(CausalPosture::AuthorOnly)
+    }
+
+    fn test_provenance_ref(worldline: u8, tick: u64, hash: u8) -> ProvenanceRef {
+        ProvenanceRef {
+            worldline_id: wl(worldline),
+            worldline_tick: wt(tick),
+            commit_hash: [hash; 32],
+        }
+    }
+
+    #[test]
+    fn sealed_member_blinding_is_stable_across_parent_frontier_movement() {
+        let strand_id = make_strand_id("stable-hidden-member");
+        let parent = wl(1);
+        let child = wl(9);
+        let anchor_ref = test_provenance_ref(1, 0, 0x11);
+        let parent_to_before = test_provenance_ref(1, 2, 0x22);
+        let parent_to_after = test_provenance_ref(1, 5, 0x55);
+        let fork_basis_ref = ForkBasisRef {
+            source_lane_id: parent,
+            fork_tick: wt(0),
+            commit_hash: [0x11; 32],
+            boundary_hash: [0x12; 32],
+            provenance_ref: anchor_ref,
+        };
+        let base_report = StrandBasisReport {
+            strand_id,
+            parent_anchor: fork_basis_ref,
+            child_worldline_id: child,
+            source_suffix_start_tick: wt(1),
+            source_suffix_end_tick: Some(wt(3)),
+            realized_parent_ref: parent_to_before,
+            owned_divergence: crate::strand::StrandDivergenceFootprint::default(),
+            parent_movement: crate::strand::ParentMovementFootprint::default(),
+            parent_revalidation: StrandRevalidationState::ParentAdvancedDisjoint {
+                parent_from: anchor_ref,
+                parent_to: parent_to_before,
+            },
+        };
+        let moved_report = StrandBasisReport {
+            realized_parent_ref: parent_to_after,
+            parent_revalidation: StrandRevalidationState::ParentAdvancedDisjoint {
+                parent_from: anchor_ref,
+                parent_to: parent_to_after,
+            },
+            ..base_report.clone()
+        };
+        let base_plan = SettlementPlan {
+            strand_id,
+            target_worldline: parent,
+            target_base_ref: parent_to_before,
+            basis_report: base_report,
+            decisions: Vec::new(),
+        };
+        let moved_plan = SettlementPlan {
+            target_base_ref: parent_to_after,
+            basis_report: moved_report,
+            ..base_plan.clone()
+        };
+        let retention_posture = author_only_retention_posture();
+        let policy = plural_policy();
+
+        assert_eq!(
+            settlement_member_blinding(&base_plan, &retention_posture, policy.member_blinding_salt),
+            settlement_member_blinding(
+                &moved_plan,
+                &retention_posture,
+                policy.member_blinding_salt
+            )
+        );
+    }
+
+    #[test]
+    fn sealed_member_blinding_changes_with_settlement_salt() {
+        let strand_id = make_strand_id("independent-hidden-member");
+        let parent = wl(1);
+        let child = wl(9);
+        let parent_ref = test_provenance_ref(1, 2, 0x22);
+        let fork_basis_ref = ForkBasisRef {
+            source_lane_id: parent,
+            fork_tick: wt(0),
+            commit_hash: [0x11; 32],
+            boundary_hash: [0x12; 32],
+            provenance_ref: test_provenance_ref(1, 0, 0x11),
+        };
+        let plan = SettlementPlan {
+            strand_id,
+            target_worldline: parent,
+            target_base_ref: parent_ref,
+            basis_report: StrandBasisReport {
+                strand_id,
+                parent_anchor: fork_basis_ref,
+                child_worldline_id: child,
+                source_suffix_start_tick: wt(1),
+                source_suffix_end_tick: Some(wt(3)),
+                realized_parent_ref: parent_ref,
+                owned_divergence: crate::strand::StrandDivergenceFootprint::default(),
+                parent_movement: crate::strand::ParentMovementFootprint::default(),
+                parent_revalidation: StrandRevalidationState::ParentAdvancedDisjoint {
+                    parent_from: test_provenance_ref(1, 0, 0x11),
+                    parent_to: parent_ref,
+                },
+            },
+            decisions: Vec::new(),
+        };
+        let retention_posture = author_only_retention_posture();
+        let first_policy =
+            plural_policy().with_member_blinding_salt(MemberBlindingSalt::from_bytes([0xA1; 32]));
+        let second_policy =
+            plural_policy().with_member_blinding_salt(MemberBlindingSalt::from_bytes([0xB2; 32]));
+
+        let first_blinding = settlement_member_blinding(
+            &plan,
+            &retention_posture,
+            first_policy.member_blinding_salt,
+        );
+        let second_blinding = settlement_member_blinding(
+            &plan,
+            &retention_posture,
+            second_policy.member_blinding_salt,
+        );
+
+        assert_ne!(first_blinding, second_blinding);
+        assert_ne!(
+            crate::braid_shell::BraidMemberRef::seal(strand_id, child, first_blinding),
+            crate::braid_shell::BraidMemberRef::seal(strand_id, child, second_blinding)
+        );
     }
 
     fn register_head(
@@ -1792,6 +2198,19 @@ mod tests {
         WorldlineId,
         WorldlineId,
     ) {
+        setup_runtime_with_strand_posture(parent_drift, shared_retention_posture())
+    }
+
+    fn setup_runtime_with_strand_posture(
+        parent_drift: ParentDrift,
+        retention_posture: RetentionPosture,
+    ) -> (
+        WorldlineRuntime,
+        ProvenanceService,
+        StrandId,
+        WorldlineId,
+        WorldlineId,
+    ) {
         let base_worldline = wl(1);
         let child_worldline = wl(2);
         let mut base_store = GraphStore::new(crate::ident::make_warp_id("settlement-root"));
@@ -1851,6 +2270,8 @@ mod tests {
             child_worldline_id: child_worldline,
             writer_heads: vec![child_head],
             support_pins: Vec::new(),
+            retention_posture,
+            _marker: std::marker::PhantomData,
         };
         runtime.register_strand(strand).unwrap();
 
@@ -1908,6 +2329,8 @@ mod tests {
                     child_worldline_id: child_worldline,
                     writer_heads: vec![child_head],
                     support_pins: Vec::new(),
+                    retention_posture,
+                    _marker: std::marker::PhantomData,
                 })
                 .unwrap();
         }
@@ -1959,6 +2382,8 @@ mod tests {
                 child_worldline_id: child_worldline,
                 writer_heads: vec![child_head],
                 support_pins: Vec::new(),
+                retention_posture,
+                _marker: std::marker::PhantomData,
             })
             .unwrap();
         (
@@ -2020,6 +2445,163 @@ mod tests {
             .unwrap()
             .node(&node_id)
             .is_some());
+    }
+
+    #[test]
+    fn settlement_compare_inspects_author_only_while_plan_settle_reject() {
+        let (runtime, provenance, strand_id, _, _) =
+            setup_runtime_with_strand_posture(ParentDrift::None, author_only_retention_posture());
+
+        let delta = SettlementService::compare(&runtime, &provenance, strand_id)
+            .expect("compare is revelation-only local strand inspection");
+        assert_eq!(delta.strand_id, strand_id);
+        assert_eq!(delta.source_entries.len(), 1);
+
+        let err = SettlementService::plan(&runtime, &provenance, strand_id)
+            .expect_err("AuthorOnly strand suffixes must not settle into shared base history");
+        assert!(matches!(
+            err,
+            SettlementError::NonSharedStrand {
+                strand_id: rejected,
+                posture: CausalPosture::AuthorOnly,
+            } if rejected == strand_id
+        ));
+        let mut runtime_for_settle = runtime.clone();
+        let mut provenance_for_settle = provenance.clone();
+        let settle_err = SettlementService::settle(
+            &mut runtime_for_settle,
+            &mut provenance_for_settle,
+            strand_id,
+        )
+        .expect_err("settle must not bypass the planning gate");
+        assert!(matches!(
+            settle_err,
+            SettlementError::NonSharedStrand {
+                strand_id: rejected,
+                posture: CausalPosture::AuthorOnly,
+            } if rejected == strand_id
+        ));
+    }
+
+    #[test]
+    fn settlement_internals_reject_forged_shared_typestate() {
+        let (runtime, provenance, strand_id, _, _) =
+            setup_runtime_with_strand_posture(ParentDrift::None, author_only_retention_posture());
+        let dynamic = runtime
+            .strands()
+            .get(&strand_id)
+            .expect("registered strand")
+            .clone();
+        let forged_shared = Strand::<crate::revelation::Shared> {
+            strand_id: dynamic.strand_id,
+            fork_basis_ref: dynamic.fork_basis_ref,
+            child_worldline_id: dynamic.child_worldline_id,
+            writer_heads: dynamic.writer_heads,
+            support_pins: dynamic.support_pins,
+            retention_posture: dynamic.retention_posture,
+            _marker: std::marker::PhantomData,
+        };
+
+        let plan_err = SettlementService::plan_with_policy_internal(
+            &runtime,
+            &provenance,
+            &forged_shared,
+            &SettlementPolicy::default(),
+        )
+        .expect_err("forged Shared typestate must not bypass planning posture check");
+        assert!(matches!(
+            plan_err,
+            SettlementError::NonSharedStrand {
+                strand_id: rejected,
+                posture: CausalPosture::AuthorOnly,
+            } if rejected == strand_id
+        ));
+
+        let method_err = forged_shared
+            .plan(&runtime, &provenance)
+            .expect_err("Strand<Shared>::plan must revalidate runtime posture");
+        assert!(matches!(
+            method_err,
+            SettlementError::NonSharedStrand {
+                strand_id: rejected,
+                posture: CausalPosture::AuthorOnly,
+            } if rejected == strand_id
+        ));
+
+        let mut runtime_for_settle = runtime.clone();
+        let mut provenance_for_settle = provenance.clone();
+        let settle_err = SettlementService::settle_with_policy_internal(
+            &mut runtime_for_settle,
+            &mut provenance_for_settle,
+            &forged_shared,
+            &SettlementPolicy::default(),
+        )
+        .expect_err("forged Shared typestate must not bypass settlement posture check");
+        assert!(matches!(
+            settle_err,
+            SettlementError::NonSharedStrand {
+                strand_id: rejected,
+                posture: CausalPosture::AuthorOnly,
+            } if rejected == strand_id
+        ));
+
+        let mut runtime_for_method_settle = runtime;
+        let mut provenance_for_method_settle = provenance;
+        let method_settle_err = forged_shared
+            .settle(
+                &mut runtime_for_method_settle,
+                &mut provenance_for_method_settle,
+            )
+            .expect_err("Strand<Shared>::settle must revalidate runtime posture");
+        assert!(matches!(
+            method_settle_err,
+            SettlementError::NonSharedStrand {
+                strand_id: rejected,
+                posture: CausalPosture::AuthorOnly,
+            } if rejected == strand_id
+        ));
+    }
+
+    #[test]
+    fn shared_strand_handles_require_live_registry_membership() {
+        let (mut runtime, mut provenance, strand_id, _, _) =
+            setup_runtime_with_strand(ParentDrift::None);
+        let stale_shared = shared_strand(runtime.strands(), strand_id).unwrap();
+        let mut mismatched_shared = stale_shared.clone();
+        mismatched_shared.child_worldline_id = wl(9);
+
+        let stale_err = SettlementService::plan_with_policy_internal(
+            &runtime,
+            &provenance,
+            &mismatched_shared,
+            &SettlementPolicy::default(),
+        )
+        .expect_err("mismatched Shared strand handle must not bypass live registry state");
+        assert!(matches!(
+            stale_err,
+            SettlementError::StaleStrandHandle { strand_id: rejected } if rejected == strand_id
+        ));
+
+        runtime
+            .strands_mut_for_tests()
+            .remove(&strand_id)
+            .expect("strand removed from registry");
+
+        let plan_err = stale_shared
+            .plan(&runtime, &provenance)
+            .expect_err("stale Shared strand handle must not bypass registry lookup");
+        assert!(matches!(
+            plan_err,
+            SettlementError::StrandNotFound(rejected) if rejected == strand_id
+        ));
+
+        let settle_err = stale_shared
+            .settle(&mut runtime, &mut provenance)
+            .expect_err("stale Shared strand handle must not settle outside registry");
+        assert!(matches!(
+            settle_err,
+            SettlementError::StrandNotFound(rejected) if rejected == strand_id
+        ));
     }
 
     #[test]
@@ -2293,7 +2875,7 @@ mod tests {
             return;
         };
         assert_eq!(draft.policy_id, plural_policy().policy_id);
-        assert_eq!(draft.posture, RevelationPosture::AuthorOnly);
+        assert_eq!(draft.posture, CausalPosture::Shared);
         assert!(!draft.overlapping_slots.is_empty());
         assert_eq!(draft.source_ref.worldline_id, child_worldline);
 
@@ -2322,7 +2904,10 @@ mod tests {
         let retained = provenance.entry(base_worldline, wt(2)).unwrap();
         assert!(matches!(
             retained.event_kind,
-            ProvenanceEventKind::PluralArtifact { .. }
+            ProvenanceEventKind::PluralArtifact {
+                posture: CausalPosture::Shared,
+                ..
+            }
         ));
 
         // No silent collapse: the base worldline keeps its own claim.
@@ -2385,12 +2970,9 @@ mod tests {
         let shell = provenance.braid_shell(&shell_digest).unwrap();
 
         assert_eq!(shell.policy_id, plural_policy().policy_id);
-        assert_eq!(
-            shell.posture,
-            crate::revelation::RevelationPosture::AuthorOnly
-        );
+        assert_eq!(shell.posture, crate::revelation::CausalPosture::Shared);
         assert_eq!(shell.worldline_id, base_worldline);
-        assert!(shell.has_member_strand(&strand_id));
+        assert!(shell.has_revealed_member_strand(&strand_id));
         assert_eq!(shell.members.len(), 1);
         assert_eq!(
             shell.members[0].verdict,
@@ -2409,6 +2991,44 @@ mod tests {
                 alternative_ids: expected_plural_ids,
             }
         );
+    }
+
+    #[test]
+    fn hidden_shared_source_disclosure_seals_settlement_shell_member() {
+        let retention_posture = shared_retention_posture()
+            .with_source_disclosure(SourceDisclosurePolicy::RevealNone)
+            .unwrap();
+        let (mut runtime, mut provenance, strand_id, _, child_worldline) =
+            setup_runtime_with_strand_posture(ParentDrift::OverlapDifferent, retention_posture);
+
+        let result = SettlementService::settle_with_policy(
+            &mut runtime,
+            &mut provenance,
+            strand_id,
+            &plural_policy(),
+        )
+        .unwrap();
+
+        let shell_digest = result.braid_shell.unwrap();
+        let shell = provenance.braid_shell(&shell_digest).unwrap();
+
+        assert!(!shell.has_revealed_member_strand(&strand_id));
+        assert!(matches!(
+            shell.members[0].member_ref,
+            crate::braid_shell::BraidMemberRef::Sealed { .. }
+        ));
+
+        let blinding_secret = settlement_member_blinding(
+            &result.plan,
+            &retention_posture,
+            plural_policy().member_blinding_salt,
+        );
+        assert!(shell.has_member_strand_secure(
+            &strand_id,
+            &child_worldline,
+            &retention_posture.authority.author_domain,
+            &blinding_secret
+        ));
     }
 
     #[test]
@@ -2441,7 +3061,10 @@ mod tests {
         assert_eq!(replay.outcome_kind, AdmissionOutcomeKind::Plural);
         assert_eq!(
             replay.member_verdicts,
-            vec![(strand_id, crate::braid_shell::MemberVerdict::Plural)]
+            vec![(
+                crate::braid_shell::BraidMemberRef::Revealed(strand_id),
+                crate::braid_shell::MemberVerdict::Plural
+            )]
         );
         assert_eq!(replay.policy_id, plural_policy().policy_id);
     }
@@ -2605,7 +3228,9 @@ mod tests {
             base_worldline,
             plan.target_base_ref,
             vec![crate::braid_shell::BraidShellMember {
-                strand_ref: crate::strand::make_strand_id("dummy-binder"),
+                member_ref: crate::braid_shell::BraidMemberRef::Revealed(
+                    crate::strand::make_strand_id("dummy-binder"),
+                ),
                 support_pin_digest: [1; 32],
                 basis_digest: [2; 32],
                 frontier_digest: [3; 32],
@@ -2613,13 +3238,13 @@ mod tests {
                 claim_digest: [5; 32],
                 verdict: crate::braid_shell::MemberVerdict::Plural,
                 verdict_digest: [6; 32],
-                posture: crate::revelation::RevelationPosture::AuthorOnly,
+                posture: crate::revelation::CausalPosture::AuthorOnly,
             }],
             [0xAB; 32],
             crate::braid_shell::BraidShellOutcome::Plural {
                 alternative_ids: vec![plural_id],
             },
-            crate::revelation::RevelationPosture::AuthorOnly,
+            crate::revelation::CausalPosture::AuthorOnly,
         )
         .unwrap();
         let dummy_digest = provenance.append_braid_shell(dummy).unwrap();
@@ -2702,9 +3327,9 @@ mod tests {
         .unwrap();
 
         let query = crate::braid_shell::BraidShellQuery {
-            member_strand: Some(strand_id),
+            revealed_member_strand: Some(strand_id),
             outcome: Some(AdmissionOutcomeKind::Plural),
-            posture: Some(crate::revelation::RevelationPosture::AuthorOnly),
+            posture: Some(crate::revelation::CausalPosture::Shared),
             ..crate::braid_shell::BraidShellQuery::default()
         };
         assert_eq!(provenance.query_braid_shells(query).count(), 1);

@@ -18,14 +18,14 @@ The causal status of Start, Stop, cadence, and drain commands is defined in
 Application code can submit canonical intent material and observe outcomes or
 readings through an app-facing handle, while the trusted host owns:
 
-- generated package installation;
+- generated package registration;
 - ticketed runtime ingress staging;
 - scheduler-owned tick passes;
 - until-idle policy;
 - query service access;
 - future trusted fault recovery.
 
-The app-facing handle exposes no package installation, no ticketed ingress
+The app-facing handle exposes no package registration, no ticketed ingress
 staging, no `super_tick`, no scheduler pass, and no fault recovery authority.
 
 ## Implemented Surface
@@ -35,10 +35,15 @@ staging, no `super_tick`, no scheduler pass, and no fault recovery authority.
 - `TrustedRuntimeHost`, gated behind the trusted runtime and native bootstrap
   features;
 - `TrustedRuntimeApp`, the app-facing submit/observe/query handle;
-- `TrustedRuntimeHost::install_contract_package(...)`;
+- `TrustedRuntimeHost::register_contract_package(...)`;
 - `TrustedRuntimeHost::stage_installed_contract_submission(...)`;
 - `TrustedRuntimeHost::tick_once(...)`;
 - `TrustedRuntimeHost::run_until_idle(...)`;
+- `TrustedRuntimeWalConfig`, which the trusted host uses to configure the
+  runtime WAL adapter before app-facing ACK submission, including
+  deterministic in-memory tests and filesystem-backed runtime WAL roots;
+- `TrustedRuntimeWalStoreKind`, which exposes the configured store kind as
+  host-owned read-only evidence;
 - `TrustedRuntimeHostRunReport`, which records scheduler passes and committed
   step count.
 
@@ -54,7 +59,8 @@ application
 -> witnessed submission handle
 
 trusted runtime host
--> installs package
+-> configures runtime WAL adapter or filesystem WAL root
+-> registers package
 -> stages ticketed ingress
 -> runs scheduler-owned ticks
 -> app observes outcome or bounded query reading
@@ -63,6 +69,18 @@ trusted runtime host
 The host loop does not make application dispatch synchronous. A submitted
 intent remains pending until trusted runtime-owned ingress staging and
 scheduler-owned tick execution decide it.
+
+The runtime WAL adapter is configured through the trusted host, not through
+`TrustedRuntimeApp`. The app-facing handle can request the WAL-backed ACK path,
+but it never receives WAL append, flush, truncate, manifest, tick, or recovery
+authority. Filesystem WAL roots are likewise host-owned configuration: app code
+receives submission handles and observations, not store handles or paths.
+Reconstructed filesystem adapters derive their next writer cursor from
+committed WAL history before accepting new appends, and read-only recovery uses
+filesystem recovery so torn or corrupt segment state remains visible in the
+recovery posture.
+Filesystem append, flush, and manifest fault injection is host-test-only
+evidence for this boundary; it is not exposed through `TrustedRuntimeApp`.
 
 ## Non-Goals
 
@@ -76,8 +94,12 @@ scheduler-owned tick execution decide it.
 ## Evidence
 
 - `cargo test -p warp-core --features "native_rule_bootstrap trusted_runtime" --test trusted_runtime_host_loop_tests`
+- `cargo test -p warp-core --features "native_rule_bootstrap trusted_runtime host_test" --test trusted_runtime_host_loop_tests runtime_wal_ack`
+- `cargo test -p warp-core --features "native_rule_bootstrap trusted_runtime host_test" --test trusted_runtime_host_loop_tests filesystem_runtime_wal_ack`
 
-The witness installs a generated-style package, submits through the app handle,
+The witness registers a generated-style package, submits through the app handle,
 stages ticketed ingress through the host, runs until idle, observes an applied
 intent outcome, and queries through the read-only observer service with package
-evidence.
+evidence. The filesystem runtime WAL witness reopens a fresh trusted host over
+the same WAL root and rebuilds submission, receipt, and recovery-certificate
+indexes from committed filesystem WAL history.

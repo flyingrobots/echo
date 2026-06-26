@@ -9,6 +9,7 @@
 
 use std::error::Error;
 use std::fs;
+use std::path::Path;
 
 use assert_cmd::cargo::cargo_bin;
 use predicates::prelude::*;
@@ -22,7 +23,15 @@ use warp_core::causal_wal::{
 };
 use warp_core::wsc::{build_one_warp_input, write_wsc_one_warp};
 use warp_core::{
-    make_edge_id, make_node_id, make_type_id, make_warp_id, EdgeRecord, GraphStore, NodeRecord,
+    make_edge_id, make_node_id, make_type_id, make_warp_id, EdgeRecord, GraphStore, Hash,
+    NodeRecord,
+};
+
+#[path = "support/runtime_wal_fixture.rs"]
+mod runtime_wal_fixture;
+use runtime_wal_fixture::{
+    accepted_pending_fixture as runtime_wal_accepted_pending_fixture,
+    decided_applied_fixture as runtime_wal_decided_applied_fixture,
 };
 
 type TestResult<T = ()> = Result<T, Box<dyn Error>>;
@@ -71,6 +80,38 @@ fn write_demo_snapshot() -> TestResult<TempDir> {
     let temp = TempDir::new()?;
     fs::write(temp.path().join("state.wsc"), make_demo_wsc()?)?;
     Ok(temp)
+}
+
+fn wal_doctor_json(root: &Path) -> TestResult<serde_json::Value> {
+    let root = root.to_str().ok_or("WAL root path is not UTF-8")?;
+    let assert = echo_cli()
+        .args(["--format", "json", "wal", "doctor", root])
+        .assert()
+        .success();
+    Ok(serde_json::from_slice(&assert.get_output().stdout)?)
+}
+
+fn wal_submission_posture_json(
+    root: &Path,
+    submission_id: Hash,
+    canonical_envelope_digest: Hash,
+) -> TestResult<serde_json::Value> {
+    let root = root.to_str().ok_or("WAL root path is not UTF-8")?;
+    let assert = echo_cli()
+        .args([
+            "--format",
+            "json",
+            "wal",
+            "submission-posture",
+            root,
+            "--submission-id",
+            &hex::encode(submission_id),
+            "--canonical-envelope-digest",
+            &hex::encode(canonical_envelope_digest),
+        ])
+        .assert()
+        .success();
+    Ok(serde_json::from_slice(&assert.get_output().stdout)?)
 }
 
 fn digest(label: &str) -> warp_core::Hash {
@@ -144,6 +185,13 @@ fn filesystem_wal_with_committed_submission() -> TestResult<TempDir> {
 }
 
 fn filesystem_wal_with_decided_submission() -> TestResult<TempDir> {
+    filesystem_wal_with_decided_submission_decision("decided", WalTickDecision::Applied)
+}
+
+fn filesystem_wal_with_decided_submission_decision(
+    label: &str,
+    decision: WalTickDecision,
+) -> TestResult<TempDir> {
     let temp = TempDir::new()?;
     let epoch = writer_epoch_request();
     let mut store = FilesystemWalStore::open(temp.path(), WalSegmentId::from_raw(1))?;
@@ -152,7 +200,7 @@ fn filesystem_wal_with_decided_submission() -> TestResult<TempDir> {
         WalTransactionBuilder::new(
             epoch.epoch_id,
             WalSegmentId::from_raw(1),
-            WalTransactionId::from_hash(digest("transaction:accepted")),
+            WalTransactionId::from_hash(digest(&format!("transaction:{label}:accepted"))),
             WalTransactionKind::SubmissionIntake,
             WalAppendAuthority::SubmissionIntake,
             Lsn::from_raw(0),
@@ -166,10 +214,10 @@ fn filesystem_wal_with_decided_submission() -> TestResult<TempDir> {
             digest("domain"),
         ),
         SubmissionAcceptanceRecord {
-            submission_id: digest("submission:decided"),
-            canonical_envelope_digest: digest("envelope:decided"),
+            submission_id: digest(&format!("submission:{label}")),
+            canonical_envelope_digest: digest(&format!("envelope:{label}")),
             idempotency_key_digest: None,
-            acceptance_evidence_digest: digest("evidence:decided"),
+            acceptance_evidence_digest: digest(&format!("evidence:{label}")),
         },
         vec![AffectedFrontier {
             kind: AffectedFrontierKind::SubmissionQueue,
@@ -179,10 +227,10 @@ fn filesystem_wal_with_decided_submission() -> TestResult<TempDir> {
     )?;
     store.append_transaction(acceptance)?;
     let receipt = TickReceiptRecord {
-        submission_id: digest("submission:decided"),
-        ticket_digest: digest("ticket:decided"),
-        receipt_digest: digest("receipt:decided"),
-        decision: WalTickDecision::Applied,
+        submission_id: digest(&format!("submission:{label}")),
+        ticket_digest: digest(&format!("ticket:{label}")),
+        receipt_digest: digest(&format!("receipt:{label}")),
+        decision,
     };
     let correlation = WalReceiptCorrelationRecord {
         submission_id: receipt.submission_id,
@@ -193,7 +241,7 @@ fn filesystem_wal_with_decided_submission() -> TestResult<TempDir> {
         WalTransactionBuilder::new(
             epoch.epoch_id,
             WalSegmentId::from_raw(1),
-            WalTransactionId::from_hash(digest("transaction:ticked")),
+            WalTransactionId::from_hash(digest(&format!("transaction:{label}:ticked"))),
             WalTransactionKind::SchedulerTick,
             WalAppendAuthority::TrustedScheduler,
             Lsn::from_raw(2),
@@ -208,7 +256,7 @@ fn filesystem_wal_with_decided_submission() -> TestResult<TempDir> {
         ),
         receipt,
         correlation,
-        digest("state-delta:decided"),
+        digest(&format!("state-delta:{label}")),
         vec![
             AffectedFrontier {
                 kind: AffectedFrontierKind::ReceiptIndex,
@@ -383,6 +431,100 @@ fn wal_submission_posture_json_reports_generic_recovered_status() -> TestResult 
         hex::encode(digest("receipt:decided"))
     );
     assert_eq!(json["ticket_digest"], hex::encode(digest("ticket:decided")));
+    Ok(())
+}
+
+#[test]
+fn wal_submission_posture_runtime_ack_root_reports_accepted_pending_json() -> TestResult {
+    let fixture = runtime_wal_accepted_pending_fixture()?;
+    let doctor = wal_doctor_json(fixture.root.path())?;
+    assert_eq!(doctor["posture"], "Recoverable");
+    assert_eq!(doctor["tail_posture"], "Clean");
+    assert_eq!(doctor["committed_transactions_replayed"], 1);
+    assert_eq!(doctor["obstruction_count"], 0);
+
+    let json = wal_submission_posture_json(
+        fixture.root.path(),
+        fixture.submission_id,
+        fixture.canonical_envelope_digest,
+    )?;
+    assert_eq!(json["retry_posture"], "AlreadyAcceptedPending");
+    assert_eq!(json["recovered_posture"], "AcceptedPending");
+    assert!(json["receipt_digest"].is_null());
+    assert!(json["ticket_digest"].is_null());
+    Ok(())
+}
+
+#[test]
+fn wal_submission_posture_runtime_ack_root_reports_decided_applied_json() -> TestResult {
+    let fixture = runtime_wal_decided_applied_fixture()?;
+    let json = wal_submission_posture_json(
+        fixture.root.path(),
+        fixture.submission_id,
+        fixture.canonical_envelope_digest,
+    )?;
+
+    assert_eq!(json["retry_posture"], "AlreadyDecidedApplied");
+    assert_eq!(json["recovered_posture"], "DecidedApplied");
+    assert_eq!(
+        json["receipt_digest"],
+        hex::encode(fixture.receipt_digest.ok_or("missing applied receipt")?)
+    );
+    assert_eq!(
+        json["ticket_digest"],
+        hex::encode(fixture.ticket_digest.ok_or("missing applied ticket")?)
+    );
+    Ok(())
+}
+
+// Runtime-produced filesystem roots cover accepted/applied today. Rejected and
+// obstructed stay as direct WAL taxonomy fixtures until the trusted host can
+// emit those decisions without expanding this CLI contract slice.
+#[test]
+fn wal_submission_posture_json_reports_obstructed_recovered_status() -> TestResult {
+    let temp =
+        filesystem_wal_with_decided_submission_decision("obstructed", WalTickDecision::Obstructed)?;
+    let json = wal_submission_posture_json(
+        temp.path(),
+        digest("submission:obstructed"),
+        digest("envelope:obstructed"),
+    )?;
+
+    assert_eq!(json["retry_posture"], "AlreadyObstructed");
+    assert_eq!(json["recovered_posture"], "Obstructed");
+    assert_eq!(
+        json["receipt_digest"],
+        hex::encode(digest("receipt:obstructed"))
+    );
+    assert_eq!(
+        json["ticket_digest"],
+        hex::encode(digest("ticket:obstructed"))
+    );
+    Ok(())
+}
+
+#[test]
+fn wal_submission_posture_json_reports_decided_rejected_status() -> TestResult {
+    let temp = filesystem_wal_with_decided_submission_decision(
+        "rejected",
+        WalTickDecision::RejectedFootprintConflict,
+    )?;
+    let json = wal_submission_posture_json(
+        temp.path(),
+        digest("submission:rejected"),
+        digest("envelope:rejected"),
+    )?;
+
+    assert_eq!(json["retry_posture"], "AlreadyDecidedRejected");
+    assert_eq!(json["recovered_posture"], "DecidedRejected");
+    assert_eq!(
+        json["receipt_digest"],
+        hex::encode(digest("receipt:rejected"))
+    );
+    assert_eq!(
+        json["ticket_digest"],
+        hex::encode(digest("ticket:rejected"))
+    );
     Ok(())
 }
 

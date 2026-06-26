@@ -423,6 +423,16 @@ impl WarpKernel {
                 code: error_codes::INVALID_STRAND,
                 message: format!("invalid strand: {strand_id:?}"),
             },
+            SettlementError::NonSharedStrand { strand_id, posture } => AbiError {
+                code: error_codes::INVALID_STRAND,
+                message: format!(
+                    "strand {strand_id:?} with posture {posture:?} is not shared-admitted for settlement"
+                ),
+            },
+            SettlementError::StaleStrandHandle { strand_id } => AbiError {
+                code: error_codes::INVALID_STRAND,
+                message: format!("stale strand handle: {strand_id:?}"),
+            },
             _ => AbiError {
                 code: error_codes::ENGINE_ERROR,
                 message: err.to_string(),
@@ -1187,13 +1197,16 @@ mod tests {
     };
     use warp_core::{
         compute_commit_hash_v2, make_edge_id, make_head_id, make_node_id, make_strand_id,
-        make_type_id, make_warp_id, materialization::make_channel_id, AdmissionLawId, CoordinateAt,
-        EchoCoordinate, EdgeRecord, ForkBasisRef, GlobalTick, GraphStore, HashTriplet, InboxPolicy,
-        IntentFamilyId, NodeId, NodeKey, NodeRecord, OpticActorId, OpticCapabilityId, OpticCause,
-        OpticReadBudget, PlaybackMode, ProvenanceEntry, ProvenanceService, ProvenanceStore, SlotId,
-        Strand, StrandId, TickCommitStatus, WarpOp, WarpTickPatchV1, WorldlineHeadOptic,
-        WorldlineRuntime, WorldlineState, WorldlineTick, WorldlineTickHeaderV1,
-        WorldlineTickPatchV1, WriterHead, WriterHeadKey,
+        make_type_id, make_warp_id, materialization::make_channel_id, ActorId, AdmissionLawId,
+        AdmissionScopeId, AuthorityBinding, AuthorityDomainId, AuthorityDomainRef, CausalAuthority,
+        CausalPosture, CoordinateAt, EchoCoordinate, EdgeRecord, ForkBasisRef, GlobalTick,
+        GraphStore, HashTriplet, InboxPolicy, IntentFamilyId, NodeId, NodeKey, NodeRecord,
+        OpticActorId, OpticCapabilityId, OpticCause, OpticReadBudget, OriginId, PlaybackMode,
+        PostureDerivation, ProvenanceEntry, ProvenanceService, ProvenanceStore,
+        RetentionContractId, RetentionPosture, SealStrength, SlotId, Strand, StrandId,
+        TickCommitStatus, WarpOp, WarpTickPatchV1, WorldlineHeadOptic, WorldlineRuntime,
+        WorldlineState, WorldlineTick, WorldlineTickHeaderV1, WorldlineTickPatchV1, WriterHead,
+        WriterHeadKey,
     };
 
     fn start_until_idle(kernel: &mut WarpKernel, cycle_limit: Option<u32>) -> DispatchResponse {
@@ -1206,6 +1219,48 @@ mod tests {
         projection: AbiObservationProjection,
     ) -> AbiObservationRequest {
         AbiObservationRequest::builtin_one_shot(coordinate, frame, projection).unwrap()
+    }
+
+    fn shared_retention_posture() -> RetentionPosture {
+        let origin_id = OriginId::from_bytes([0x51; 32]);
+        let authority =
+            AuthorityDomainRef::new(origin_id, AuthorityDomainId::from_bytes([0x52; 32]));
+        RetentionPosture::new(
+            CausalPosture::Shared,
+            PostureDerivation::ExplicitIntent,
+            CausalAuthority::new(
+                origin_id,
+                ActorId::from_bytes([0x53; 32]),
+                authority,
+                AuthorityBinding::LocalUnbound { origin: origin_id },
+                SealStrength::Advisory,
+            )
+            .unwrap(),
+            RetentionContractId::from_bytes([0x54; 32]),
+            Some(AdmissionScopeId::from_bytes([0x55; 32])),
+        )
+        .unwrap()
+    }
+
+    fn author_only_retention_posture() -> RetentionPosture {
+        let origin_id = OriginId::from_bytes([0x61; 32]);
+        let authority =
+            AuthorityDomainRef::new(origin_id, AuthorityDomainId::from_bytes([0x62; 32]));
+        RetentionPosture::new(
+            CausalPosture::AuthorOnly,
+            PostureDerivation::ExplicitIntent,
+            CausalAuthority::new(
+                origin_id,
+                ActorId::from_bytes([0x63; 32]),
+                authority,
+                AuthorityBinding::LocalUnbound { origin: origin_id },
+                SealStrength::Advisory,
+            )
+            .unwrap(),
+            RetentionContractId::from_bytes([0x64; 32]),
+            None,
+        )
+        .unwrap()
     }
 
     fn start_until_idle_result(
@@ -1410,6 +1465,19 @@ mod tests {
         WorldlineId,
         WorldlineId,
     ) {
+        setup_runtime_with_strand_posture(parent_drift, shared_retention_posture())
+    }
+
+    fn setup_runtime_with_strand_posture(
+        parent_drift: ParentDrift,
+        retention_posture: RetentionPosture,
+    ) -> (
+        WorldlineRuntime,
+        ProvenanceService,
+        StrandId,
+        WorldlineId,
+        WorldlineId,
+    ) {
         let base_worldline = wl(1);
         let child_worldline = wl(2);
         let warp_id = make_warp_id("settlement-root");
@@ -1477,6 +1545,8 @@ mod tests {
                 child_worldline_id: child_worldline,
                 writer_heads: vec![child_head],
                 support_pins: Vec::new(),
+                retention_posture: retention_posture.clone(),
+                _marker: std::marker::PhantomData,
             })
             .unwrap();
 
@@ -1538,6 +1608,8 @@ mod tests {
                 child_worldline_id: child_worldline,
                 writer_heads: vec![child_head],
                 support_pins: Vec::new(),
+                retention_posture,
+                _marker: std::marker::PhantomData,
             })
             .unwrap();
         (
@@ -2291,6 +2363,33 @@ mod tests {
         let result = kernel.settle_strand(request).unwrap();
         assert_eq!(result.appended_imports.len(), 1);
         assert!(result.appended_conflicts.is_empty());
+    }
+
+    #[test]
+    fn settlement_compare_inspects_author_only_while_plan_settle_reject() {
+        let mut kernel = WarpKernel::new().unwrap();
+        let (runtime, provenance, strand_id, base_worldline, child_worldline) =
+            setup_runtime_with_strand_posture(ParentDrift::None, author_only_retention_posture());
+        kernel.runtime = runtime;
+        kernel.provenance = provenance;
+        kernel.default_worldline = base_worldline;
+
+        let request = AbiSettlementRequest {
+            strand_id: echo_wasm_abi::kernel_port::StrandId::from_bytes(*strand_id.as_bytes()),
+        };
+        let delta = kernel.compare_settlement(request.clone()).unwrap();
+        assert_eq!(delta.source_worldline_id, abi_worldline_id(child_worldline));
+        assert_eq!(delta.source_entries.len(), 1);
+
+        let plan_err = kernel.plan_settlement(request.clone()).unwrap_err();
+        assert_eq!(plan_err.code, error_codes::INVALID_STRAND);
+        assert!(plan_err.message.contains("AuthorOnly"));
+        assert!(plan_err.message.contains("not shared-admitted"));
+
+        let settle_err = kernel.settle_strand(request).unwrap_err();
+        assert_eq!(settle_err.code, error_codes::INVALID_STRAND);
+        assert!(settle_err.message.contains("AuthorOnly"));
+        assert!(settle_err.message.contains("not shared-admitted"));
     }
 
     #[test]

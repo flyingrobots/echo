@@ -59,6 +59,7 @@ Do not audit the repository by recursively walking the filesystem. Follow the au
 - **`README.md`**: Public front door, core value prop, and quick tour.
 - **`GUIDE.md`**: Orientation and productive-fast path.
 - **`docs/README.md`**: VitePress documentation map.
+- **`docs/index.md`**: Documentation map.
 
 ### 2. The Bedrock
 

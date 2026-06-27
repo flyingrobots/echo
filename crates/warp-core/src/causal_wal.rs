@@ -44,6 +44,7 @@ const WAL_PROJECTION_SEGMENT_DOMAIN: &[u8] = b"echo:causal_wal:projection:segmen
 const WAL_PROJECTION_COMMIT_ANCHOR_DOMAIN: &[u8] = b"echo:causal_wal:projection:commit_anchor:v1\0";
 const WAL_PROJECTION_RECOVERY_CERTIFICATE_DOMAIN: &[u8] =
     b"echo:causal_wal:projection:recovery_certificate:v1\0";
+const WAL_RECOVERY_CERTIFICATE_DOMAIN: &[u8] = b"echo:causal_wal:recovery_certificate:v1\0";
 const WRITER_HEAD_KEY_PAYLOAD_LEN: usize = 64;
 const CHECKPOINT_FILE_MAGIC: &[u8; 8] = b"ECWALCP1";
 const WAL_SEGMENT_RECORD_MAGIC: &[u8; 8] = b"ECWALR1!";
@@ -2924,6 +2925,20 @@ pub struct RecoveryCertificateRef {
 }
 
 impl RecoveryCertificateRef {
+    /// Builds a projection reference from a recovery certificate.
+    #[must_use]
+    pub fn from_certificate(certificate: &RecoveryCertificate) -> Self {
+        Self {
+            certificate_digest: recovery_certificate_digest(certificate),
+            checkpoint_used: certificate.checkpoint_used,
+            first_lsn: certificate.first_lsn,
+            last_lsn: certificate.last_lsn,
+            tail_posture: certificate.tail_posture,
+            recovered_frontier_root: certificate.recovered_frontier_root,
+            recovered_indexes_root: certificate.recovered_indexes_root,
+        }
+    }
+
     /// Computes a stable identity digest for this recovery-certificate reference.
     #[must_use]
     pub fn identity_digest(&self) -> Hash {
@@ -2938,6 +2953,510 @@ impl RecoveryCertificateRef {
         h.update(&self.recovered_indexes_root);
         h.finalize().into()
     }
+}
+
+/// Segment evidence available when projecting a recovered WAL into graph facts.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WalRecoverySegmentEvidence {
+    /// Logical WAL segment id.
+    pub segment_id: WalSegmentId,
+    /// Digest of the segment contents.
+    pub segment_digest: Hash,
+    /// Segment sealing posture.
+    pub seal_posture: WalSegmentSealPosture,
+    /// Segment locator metadata. Projection from recovery treats missing locators
+    /// as an obstruction rather than fabricating storage evidence.
+    pub storage_locator: Option<WalSegmentStorageLocator>,
+}
+
+/// WAL recovery projection posture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WalRecoveryProjectionPosture {
+    /// No WAL evidence was present to project.
+    Absent,
+    /// A projection root was built from explicit recovery evidence.
+    Present,
+    /// Recovery evidence existed, but was insufficient or obstructed.
+    Obstructed,
+}
+
+/// Typed reason a recovered WAL could not be projected into graph facts.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WalRecoveryProjectionObstruction {
+    /// Recovery saw a non-clean tail posture, so the projection cannot claim a
+    /// sealed history root.
+    TailPostureObstructed {
+        /// Observed tail posture.
+        posture: RecoveryTailPosture,
+    },
+    /// A published manifest was required but absent.
+    MissingManifest,
+    /// The manifest could not be validated from filesystem evidence.
+    ManifestValidationUnavailable,
+    /// Segment evidence could not be read from filesystem storage.
+    SegmentEvidenceUnavailable,
+    /// The manifest's last committed LSN did not match recovered commits.
+    ManifestLastCommittedLsnMismatch {
+        /// Last committed LSN from recovery.
+        expected: Option<Lsn>,
+        /// Last committed LSN from the manifest.
+        actual: Option<Lsn>,
+    },
+    /// The manifest's last commit digest did not match recovered commits.
+    ManifestLastCommitDigestMismatch {
+        /// Last commit digest from recovery.
+        expected: Option<Hash>,
+        /// Last commit digest from the manifest.
+        actual: Option<Hash>,
+    },
+    /// The manifest's sealed segment count did not match segment evidence.
+    ManifestSegmentCountMismatch {
+        /// Sealed segment count from the manifest.
+        expected: u64,
+        /// Segment evidence count supplied for projection.
+        actual: u64,
+    },
+    /// Duplicate segment evidence was supplied for the same logical segment.
+    DuplicateSegmentEvidence {
+        /// Duplicated segment id.
+        segment_id: WalSegmentId,
+    },
+    /// Writer epoch projection evidence was missing for a recovered commit.
+    MissingWriterEpochEvidence {
+        /// Missing writer epoch id.
+        writer_epoch: WriterEpochId,
+    },
+    /// Segment evidence was missing for recovered committed frames.
+    MissingSegmentEvidence {
+        /// Missing segment id.
+        segment_id: WalSegmentId,
+    },
+    /// Segment locator metadata was unavailable.
+    SegmentLocatorUnavailable {
+        /// Segment id with no locator.
+        segment_id: WalSegmentId,
+    },
+    /// Segment evidence did not prove the segment sealed.
+    SegmentNotSealed {
+        /// Unsealed segment id.
+        segment_id: WalSegmentId,
+    },
+    /// Segment seal evidence did not cover the recovered committed range.
+    SegmentSealDoesNotCoverRecoveredCommit {
+        /// Segment id.
+        segment_id: WalSegmentId,
+        /// Sealed LSN from segment evidence.
+        sealed_lsn: Option<Lsn>,
+        /// Last recovered committed LSN for this segment.
+        recovered_last_lsn: Lsn,
+    },
+    /// Segment digest evidence did not match recovered frames.
+    SegmentDigestMismatch {
+        /// Segment id.
+        segment_id: WalSegmentId,
+        /// Digest recomputed from recovered segment frames.
+        expected: Hash,
+        /// Digest supplied as projection evidence.
+        actual: Hash,
+    },
+    /// Recovery certificate scan fields did not match the recovery report.
+    RecoveryCertificateScanMismatch {
+        /// Expected first committed LSN from the recovery report.
+        expected_first_lsn: Option<Lsn>,
+        /// Certificate first committed LSN.
+        actual_first_lsn: Option<Lsn>,
+        /// Expected last committed LSN from the recovery report.
+        expected_last_lsn: Option<Lsn>,
+        /// Certificate last committed LSN.
+        actual_last_lsn: Option<Lsn>,
+        /// Expected committed transaction replay count.
+        expected_committed_transactions_replayed: u64,
+        /// Certificate committed transaction replay count.
+        actual_committed_transactions_replayed: u64,
+        /// Expected recovery tail posture.
+        expected_tail_posture: RecoveryTailPosture,
+        /// Certificate recovery tail posture.
+        actual_tail_posture: RecoveryTailPosture,
+    },
+    /// Recovered frame evidence did not identify a transaction segment.
+    TransactionSegmentEvidenceUnavailable {
+        /// Transaction id.
+        transaction_id: WalTransactionId,
+    },
+    /// A recovered transaction spans multiple segment ids and cannot be projected
+    /// as a single segment anchor.
+    TransactionSpansSegments {
+        /// Transaction id.
+        transaction_id: WalTransactionId,
+    },
+    /// A projected segment contains commits from multiple writer epochs.
+    MixedWriterEpochSegment {
+        /// Segment id.
+        segment_id: WalSegmentId,
+    },
+}
+
+/// Projection result for recovered WAL evidence.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WalRecoveryProjection {
+    /// Projection posture.
+    pub posture: WalRecoveryProjectionPosture,
+    /// Projected WAL root, if evidence was complete.
+    pub root: Option<WalRoot>,
+    /// Typed obstructions that prevented projection.
+    pub obstructions: Vec<WalRecoveryProjectionObstruction>,
+}
+
+impl WalRecoveryProjection {
+    fn absent() -> Self {
+        Self {
+            posture: WalRecoveryProjectionPosture::Absent,
+            root: None,
+            obstructions: Vec::new(),
+        }
+    }
+
+    fn present(root: WalRoot) -> Self {
+        Self {
+            posture: WalRecoveryProjectionPosture::Present,
+            root: Some(root),
+            obstructions: Vec::new(),
+        }
+    }
+
+    fn obstructed(obstructions: Vec<WalRecoveryProjectionObstruction>) -> Self {
+        Self {
+            posture: WalRecoveryProjectionPosture::Obstructed,
+            root: None,
+            obstructions,
+        }
+    }
+}
+
+/// Projects recovered WAL evidence into a graph-ready root record.
+///
+/// This function does not read or write storage. It only combines explicit
+/// recovery, manifest, writer-epoch, segment, locator, seal, and certificate
+/// evidence. Missing evidence produces typed obstructions instead of an empty
+/// successful projection.
+#[must_use]
+pub fn project_wal_recovery(
+    report: &RecoveryScanReport,
+    manifest: Option<&WalManifest>,
+    writer_epochs: &[WalWriterEpoch],
+    segments: &[WalRecoverySegmentEvidence],
+    recovery_certificate: Option<&RecoveryCertificate>,
+) -> WalRecoveryProjection {
+    let mut obstructions = Vec::new();
+    if report.transactions.is_empty()
+        && manifest.is_none()
+        && writer_epochs.is_empty()
+        && segments.is_empty()
+        && recovery_certificate.is_none()
+        && report.tail_posture == RecoveryTailPosture::Clean
+    {
+        return WalRecoveryProjection::absent();
+    }
+    if report.tail_posture != RecoveryTailPosture::Clean {
+        obstructions.push(WalRecoveryProjectionObstruction::TailPostureObstructed {
+            posture: report.tail_posture,
+        });
+    }
+
+    let Some(manifest) = manifest else {
+        obstructions.push(WalRecoveryProjectionObstruction::MissingManifest);
+        return WalRecoveryProjection::obstructed(obstructions);
+    };
+
+    if manifest.last_committed_lsn != report.last_committed_lsn() {
+        obstructions.push(
+            WalRecoveryProjectionObstruction::ManifestLastCommittedLsnMismatch {
+                expected: report.last_committed_lsn(),
+                actual: manifest.last_committed_lsn,
+            },
+        );
+    }
+    if manifest.last_commit_digest != report.last_commit_digest() {
+        obstructions.push(
+            WalRecoveryProjectionObstruction::ManifestLastCommitDigestMismatch {
+                expected: report.last_commit_digest(),
+                actual: manifest.last_commit_digest,
+            },
+        );
+    }
+    if manifest.sealed_segment_count != len_u64(segments.len()) {
+        obstructions.push(
+            WalRecoveryProjectionObstruction::ManifestSegmentCountMismatch {
+                expected: manifest.sealed_segment_count,
+                actual: len_u64(segments.len()),
+            },
+        );
+    }
+
+    let mut seen_segments = BTreeSet::new();
+    for segment in segments {
+        if !seen_segments.insert(segment.segment_id) {
+            obstructions.push(WalRecoveryProjectionObstruction::DuplicateSegmentEvidence {
+                segment_id: segment.segment_id,
+            });
+        }
+    }
+
+    let writer_epoch_by_id = writer_epochs
+        .iter()
+        .map(|epoch| (epoch.epoch_id, epoch))
+        .collect::<BTreeMap<_, _>>();
+    let segment_by_id = segments
+        .iter()
+        .map(|segment| (segment.segment_id, segment))
+        .collect::<BTreeMap<_, _>>();
+    let mut transactions_by_segment: BTreeMap<WalSegmentId, Vec<&WalRecoveredTransaction>> =
+        BTreeMap::new();
+    let mut required_writer_epochs = BTreeSet::new();
+
+    for transaction in &report.transactions {
+        required_writer_epochs.insert(transaction.commit.writer_epoch);
+        let frame_segments = transaction
+            .frames
+            .iter()
+            .map(|frame| frame.header.segment_id)
+            .collect::<BTreeSet<_>>();
+        match frame_segments.len() {
+            0 => obstructions.push(
+                WalRecoveryProjectionObstruction::TransactionSegmentEvidenceUnavailable {
+                    transaction_id: transaction.commit.transaction_id,
+                },
+            ),
+            1 => {
+                if let Some(segment_id) = frame_segments.iter().next().copied() {
+                    transactions_by_segment
+                        .entry(segment_id)
+                        .or_default()
+                        .push(transaction);
+                } else {
+                    obstructions.push(
+                        WalRecoveryProjectionObstruction::TransactionSegmentEvidenceUnavailable {
+                            transaction_id: transaction.commit.transaction_id,
+                        },
+                    );
+                }
+            }
+            _ => obstructions.push(WalRecoveryProjectionObstruction::TransactionSpansSegments {
+                transaction_id: transaction.commit.transaction_id,
+            }),
+        }
+    }
+
+    for writer_epoch in &required_writer_epochs {
+        if !writer_epoch_by_id.contains_key(writer_epoch) {
+            obstructions.push(
+                WalRecoveryProjectionObstruction::MissingWriterEpochEvidence {
+                    writer_epoch: *writer_epoch,
+                },
+            );
+        }
+    }
+
+    for (segment_id, transactions) in &transactions_by_segment {
+        let Some(segment) = segment_by_id.get(segment_id) else {
+            obstructions.push(WalRecoveryProjectionObstruction::MissingSegmentEvidence {
+                segment_id: *segment_id,
+            });
+            continue;
+        };
+        if segment.storage_locator.is_none() {
+            obstructions.push(
+                WalRecoveryProjectionObstruction::SegmentLocatorUnavailable {
+                    segment_id: *segment_id,
+                },
+            );
+        }
+        if segment.seal_posture == WalSegmentSealPosture::Open {
+            obstructions.push(WalRecoveryProjectionObstruction::SegmentNotSealed {
+                segment_id: *segment_id,
+            });
+        }
+        if let Some(recovered_last_lsn) = transactions
+            .iter()
+            .map(|transaction| transaction.commit.last_lsn)
+            .max()
+        {
+            if let WalSegmentSealPosture::Sealed { sealed_lsn } = segment.seal_posture {
+                if sealed_lsn.is_none_or(|lsn| lsn < recovered_last_lsn) {
+                    obstructions.push(
+                        WalRecoveryProjectionObstruction::SegmentSealDoesNotCoverRecoveredCommit {
+                            segment_id: *segment_id,
+                            sealed_lsn,
+                            recovered_last_lsn,
+                        },
+                    );
+                }
+            }
+        }
+        let segment_frames = transactions
+            .iter()
+            .flat_map(|transaction| {
+                transaction
+                    .frames
+                    .iter()
+                    .filter(move |frame| frame.header.segment_id == *segment_id)
+            })
+            .collect::<Vec<_>>();
+        let recovered_segment_digest = segment_digest(*segment_id, &segment_frames);
+        if segment.segment_digest != recovered_segment_digest {
+            obstructions.push(WalRecoveryProjectionObstruction::SegmentDigestMismatch {
+                segment_id: *segment_id,
+                expected: recovered_segment_digest,
+                actual: segment.segment_digest,
+            });
+        }
+        let segment_writer_epochs = transactions
+            .iter()
+            .map(|transaction| transaction.commit.writer_epoch)
+            .collect::<BTreeSet<_>>();
+        if segment_writer_epochs.len() > 1 {
+            obstructions.push(WalRecoveryProjectionObstruction::MixedWriterEpochSegment {
+                segment_id: *segment_id,
+            });
+        }
+    }
+
+    if let Some(certificate) = recovery_certificate {
+        let committed_transactions_replayed = len_u64(report.transactions.len());
+        if certificate.first_lsn != report.first_committed_lsn()
+            || certificate.last_lsn != report.last_committed_lsn()
+            || certificate.committed_transactions_replayed != committed_transactions_replayed
+            || certificate.tail_posture != report.tail_posture
+        {
+            obstructions.push(
+                WalRecoveryProjectionObstruction::RecoveryCertificateScanMismatch {
+                    expected_first_lsn: report.first_committed_lsn(),
+                    actual_first_lsn: certificate.first_lsn,
+                    expected_last_lsn: report.last_committed_lsn(),
+                    actual_last_lsn: certificate.last_lsn,
+                    expected_committed_transactions_replayed: committed_transactions_replayed,
+                    actual_committed_transactions_replayed: certificate
+                        .committed_transactions_replayed,
+                    expected_tail_posture: report.tail_posture,
+                    actual_tail_posture: certificate.tail_posture,
+                },
+            );
+        }
+    }
+
+    if !obstructions.is_empty() {
+        return WalRecoveryProjection::obstructed(obstructions);
+    }
+
+    let projected_writer_epochs = required_writer_epochs
+        .iter()
+        .filter_map(|epoch_id| writer_epoch_by_id.get(epoch_id).copied())
+        .cloned()
+        .collect::<Vec<_>>();
+    let projected_segments = transactions_by_segment
+        .iter()
+        .filter_map(|(segment_id, transactions)| {
+            let segment = *segment_by_id.get(segment_id)?;
+            let mut transactions = transactions.clone();
+            transactions.sort_by_key(|transaction| transaction.commit.first_lsn);
+            let first = transactions.first()?;
+            let last = transactions.last()?;
+            Some(WalSegmentRef {
+                writer_epoch: first.commit.writer_epoch,
+                segment_id: *segment_id,
+                first_lsn: first.commit.first_lsn,
+                last_lsn: last.commit.last_lsn,
+                previous_commit_digest: first.commit.previous_committed_transaction_digest,
+                final_commit_digest: last.commit.commit_digest,
+                segment_digest: segment.segment_digest,
+                commit_anchors: transactions
+                    .iter()
+                    .map(|transaction| WalCommitAnchor::from_commit(&transaction.commit))
+                    .collect(),
+                seal_posture: segment.seal_posture.clone(),
+                storage_locator: segment.storage_locator.clone(),
+            })
+        })
+        .collect::<Vec<_>>();
+    let recovery_certificate = recovery_certificate.map(RecoveryCertificateRef::from_certificate);
+
+    WalRecoveryProjection::present(WalRoot {
+        root_digest: manifest.manifest_digest,
+        writer_epochs: projected_writer_epochs,
+        segments: projected_segments,
+        recovery_certificate,
+    })
+}
+
+/// Projects a filesystem WAL recovery scan using read-only filesystem evidence.
+///
+/// The adapter validates the published manifest and scans segment files, but does
+/// not mutate WAL storage or graph storage.
+#[must_use]
+pub fn project_filesystem_wal_recovery(
+    root: impl AsRef<Path>,
+    report: &RecoveryScanReport,
+    writer_epochs: &[WalWriterEpoch],
+    recovery_certificate: Option<&RecoveryCertificate>,
+) -> WalRecoveryProjection {
+    let root = root.as_ref();
+    let manifest = match validate_filesystem_manifest(root) {
+        Ok(report) => report.manifest,
+        Err(WalStoreError::MissingManifest) => {
+            return project_wal_recovery(report, None, writer_epochs, &[], recovery_certificate);
+        }
+        Err(WalStoreError::ManifestLastCommittedLsnMismatch { expected, actual }) => {
+            return WalRecoveryProjection::obstructed(vec![
+                WalRecoveryProjectionObstruction::ManifestLastCommittedLsnMismatch {
+                    expected,
+                    actual,
+                },
+            ]);
+        }
+        Err(WalStoreError::ManifestLastCommitDigestMismatch { expected, actual }) => {
+            return WalRecoveryProjection::obstructed(vec![
+                WalRecoveryProjectionObstruction::ManifestLastCommitDigestMismatch {
+                    expected,
+                    actual,
+                },
+            ]);
+        }
+        Err(WalStoreError::ManifestSegmentCountMismatch { expected, actual }) => {
+            return WalRecoveryProjection::obstructed(vec![
+                WalRecoveryProjectionObstruction::ManifestSegmentCountMismatch {
+                    expected: actual,
+                    actual: expected,
+                },
+            ]);
+        }
+        Err(WalStoreError::ManifestCannotValidateUncommittedTail) => {
+            return WalRecoveryProjection::obstructed(vec![
+                WalRecoveryProjectionObstruction::TailPostureObstructed {
+                    posture: report.tail_posture,
+                },
+            ]);
+        }
+        Err(_) => {
+            return WalRecoveryProjection::obstructed(vec![
+                WalRecoveryProjectionObstruction::ManifestValidationUnavailable,
+            ]);
+        }
+    };
+    let segments = match filesystem_wal_recovery_segment_evidence(root) {
+        Ok(segments) => segments,
+        Err(_) => {
+            return WalRecoveryProjection::obstructed(vec![
+                WalRecoveryProjectionObstruction::SegmentEvidenceUnavailable,
+            ]);
+        }
+    };
+    project_wal_recovery(
+        report,
+        Some(&manifest),
+        writer_epochs,
+        &segments,
+        recovery_certificate,
+    )
 }
 
 /// Read-only WAL doctor posture.
@@ -3469,6 +3988,33 @@ pub fn validate_filesystem_manifest(
         last_committed_lsn,
         last_commit_digest,
     })
+}
+
+fn filesystem_wal_recovery_segment_evidence(
+    root: &Path,
+) -> Result<Vec<WalRecoverySegmentEvidence>, WalStoreError> {
+    let mut evidence = Vec::new();
+    for path in segment_paths(root)? {
+        let segment_id = parse_segment_id(&path)?;
+        let (frames, _, torn_tail) = read_segment_file(&path)?;
+        if torn_tail {
+            return Err(WalStoreError::ManifestCannotValidateUncommittedTail);
+        }
+        let frame_refs = frames.iter().collect::<Vec<_>>();
+        let storage_locator = match path.strip_prefix(root) {
+            Ok(relative) => WalSegmentStorageLocator::RelativePath(relative.to_path_buf()),
+            Err(_) => WalSegmentStorageLocator::AbsolutePath(path.clone()),
+        };
+        evidence.push(WalRecoverySegmentEvidence {
+            segment_id,
+            segment_digest: segment_digest(segment_id, &frame_refs),
+            seal_posture: WalSegmentSealPosture::Sealed {
+                sealed_lsn: frames.iter().map(|frame| frame.header.lsn).max(),
+            },
+            storage_locator: Some(storage_locator),
+        });
+    }
+    Ok(evidence)
 }
 
 /// Object-store read-after-write posture required by strict object storage.
@@ -5612,6 +6158,22 @@ pub fn build_recovery_certificate(
         recovered_frontier_root,
         recovered_indexes_root,
     }
+}
+
+/// Computes the stable digest for a recovery certificate.
+#[must_use]
+pub fn recovery_certificate_digest(certificate: &RecoveryCertificate) -> Hash {
+    let mut h = blake3::Hasher::new();
+    h.update(WAL_RECOVERY_CERTIFICATE_DOMAIN);
+    update_optional_projection_digest(&mut h, certificate.checkpoint_used);
+    update_optional_lsn(&mut h, certificate.first_lsn);
+    update_optional_lsn(&mut h, certificate.last_lsn);
+    h.update(&certificate.committed_transactions_replayed.to_le_bytes());
+    update_recovery_tail_posture(&mut h, certificate.tail_posture);
+    h.update(&certificate.obstruction_count.to_le_bytes());
+    h.update(&certificate.recovered_frontier_root);
+    h.update(&certificate.recovered_indexes_root);
+    h.finalize().into()
 }
 
 /// Runs a read-only WAL doctor over an in-memory store.

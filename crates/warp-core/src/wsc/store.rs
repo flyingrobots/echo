@@ -6,12 +6,16 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use blake3::Hasher;
 use bytes::Bytes;
+use thiserror::Error;
 
 use crate::attachment::{AtomPayload, AttachmentValue};
 use crate::causal_wal::{
-    BraidShellRetentionRecord, ReadingRefRecord, RetainedMaterialRecord, StrandDropRecord,
-    StrandForkRecord, SubmissionAcceptanceRecord, SuffixImportRecord, TickReceiptRecord,
-    TopologyBraidEventRecord, TopologyIntentRecord, WalReceiptCorrelationRecord,
+    materialize_wal_projection_graph, observe_wal_projection_graph_wsc,
+    wal_projection_graph_schema_hash, BraidShellRetentionRecord, Lsn, ReadingRefRecord,
+    RetainedMaterialRecord, StrandDropRecord, StrandForkRecord, SubmissionAcceptanceRecord,
+    SuffixImportRecord, TickReceiptRecord, TopologyBraidEventRecord, TopologyIntentRecord,
+    WalProjectionGraphObservation, WalProjectionGraphObservationError, WalReceiptCorrelationRecord,
+    WalRoot, WalSegmentId, WalSegmentRef, WalSegmentStorageLocator,
 };
 use crate::graph::GraphStore;
 use crate::ident::{make_node_id, make_type_id, make_warp_id, EdgeId, Hash, NodeId};
@@ -270,6 +274,138 @@ pub const fn wsc_causal_history_export_profiles() -> [WscCausalHistoryExportProf
         wsc_causal_history_export_profile(WscCausalHistoryExportProfileKind::SelfContained),
         wsc_causal_history_export_profile(WscCausalHistoryExportProfileKind::CasAddressed),
     ]
+}
+
+/// Ref-only segment material dependency represented by a WSC export.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WscRefOnlyWalMaterialDependency {
+    /// Segment bytes must be supplied from external WAL storage.
+    ExternalSegmentBytes,
+}
+
+/// Segment locator posture carried by a ref-only WSC import report.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WscRefOnlyWalLocatorPosture {
+    /// A relative locator was present, but remains non-authoritative metadata.
+    RelativePath,
+    /// An absolute host locator was present and normalized out of causal identity.
+    AbsolutePathNormalized,
+    /// No locator metadata was present.
+    Missing,
+}
+
+/// Segment dependency recovered for a ref-only WAL WSC export.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WscRefOnlyWalSegmentDependency {
+    /// Logical WAL segment id.
+    pub segment_id: WalSegmentId,
+    /// Segment projection identity digest, excluding locator metadata.
+    pub segment_identity_digest: Hash,
+    /// Segment byte digest from WAL recovery evidence.
+    pub segment_digest: Hash,
+    /// First LSN covered by the segment projection.
+    pub first_lsn: Lsn,
+    /// Last LSN covered by the segment projection.
+    pub last_lsn: Lsn,
+    /// Commit anchor identity digests covered by the segment.
+    pub commit_anchor_digests: Vec<Hash>,
+    /// External material required to validate the ref-only segment.
+    pub material_dependency: WscRefOnlyWalMaterialDependency,
+    /// Locator posture, with host path strings normalized out.
+    pub locator_posture: WscRefOnlyWalLocatorPosture,
+}
+
+/// Ref-only WAL causal-history WSC export.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WscRefOnlyWalExport {
+    /// Export profile.
+    pub profile: WscCausalHistoryExportProfileKind,
+    /// WAL projection graph WSC envelope.
+    pub projection_envelope: WscStoreEnvelope,
+    /// Accepted submission evidence WSC envelope.
+    pub accepted_submission_envelope: WscStoreEnvelope,
+    /// Tick receipt and receipt-correlation WSC envelope.
+    pub receipt_correlation_envelope: WscStoreEnvelope,
+    /// External segment byte dependencies for ref-only validation.
+    pub segment_dependencies: Vec<WscRefOnlyWalSegmentDependency>,
+}
+
+/// Imported and validated ref-only WAL causal-history WSC evidence.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WscRefOnlyWalImport {
+    /// Export profile.
+    pub profile: WscCausalHistoryExportProfileKind,
+    /// Observed projection graph WSC shape.
+    pub projection: WalProjectionGraphObservation,
+    /// Expected WAL root identity digest validated against the projection WSC.
+    pub root_identity_digest: Hash,
+    /// Accepted submission records recovered from WSC.
+    pub accepted_submissions: Vec<SubmissionAcceptanceRecord>,
+    /// Tick receipt records recovered from WSC.
+    pub receipts: Vec<TickReceiptRecord>,
+    /// Receipt-correlation records recovered from WSC.
+    pub correlations: Vec<WalReceiptCorrelationRecord>,
+    /// External segment byte dependencies for ref-only validation.
+    pub segment_dependencies: Vec<WscRefOnlyWalSegmentDependency>,
+}
+
+/// Error returned when building a ref-only WAL WSC export.
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum WscRefOnlyWalExportError {
+    /// Projection graph WSC serialization failed.
+    #[error("failed to write WAL projection graph WSC payload")]
+    ProjectionWriteFailed,
+    /// A generated WSC store envelope was invalid.
+    #[error("invalid ref-only WAL WSC envelope")]
+    Envelope(WscStoreObstruction),
+}
+
+/// Error returned when importing a ref-only WAL WSC export.
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum WscRefOnlyWalImportError {
+    /// The export profile was not ref-only.
+    #[error("WAL WSC export profile is not ref-only")]
+    ProfileMismatch {
+        /// Actual profile kind.
+        actual: WscCausalHistoryExportProfileKind,
+    },
+    /// The projection envelope was not causal-history WSC material.
+    #[error("WAL projection envelope is not causal-history material")]
+    InvalidProjectionEnvelopeKind,
+    /// The projection WSC payload could not be observed as WAL projection graph material.
+    #[error("invalid WAL projection graph WSC payload")]
+    ProjectionObservation(WalProjectionGraphObservationError),
+    /// Expected projection WSC material could not be rebuilt from the recovered root.
+    #[error("failed to rebuild expected WAL projection WSC material")]
+    ExpectedProjection(WscRefOnlyWalExportError),
+    /// The projection envelope basis digest did not match the recovered WAL root.
+    #[error("WAL projection basis digest mismatch")]
+    ProjectionBasisMismatch {
+        /// Expected root identity digest.
+        expected: Hash,
+        /// Actual envelope basis digest.
+        actual: Hash,
+    },
+    /// The projection WSC bytes did not match the recovered WAL root projection.
+    #[error("WAL projection payload digest mismatch")]
+    ProjectionPayloadMismatch {
+        /// Expected WSC payload digest.
+        expected: Hash,
+        /// Actual WSC payload digest.
+        actual: Hash,
+    },
+    /// Segment dependency sidecar did not match recovered WAL root evidence.
+    #[error("WAL ref-only segment dependency mismatch")]
+    SegmentDependencyMismatch,
+    /// Accepted submission WSC material was invalid.
+    #[error("invalid accepted submission WSC material")]
+    AcceptedSubmissions(WscStoreObstruction),
+    /// Receipt correlation WSC material was invalid.
+    #[error("invalid receipt correlation WSC material")]
+    ReceiptCorrelations(WscStoreObstruction),
+    /// Causal-history WSC evidence was incomplete.
+    #[error("incomplete causal-history WSC material")]
+    IncompleteCausalHistory(WscStoreObstruction),
 }
 
 /// Subject named by a WSC store obstruction.
@@ -706,6 +842,109 @@ impl WscTopologyRecords {
         );
         records
     }
+}
+
+/// Builds a ref-only WAL causal-history WSC export.
+///
+/// The projection envelope carries read-only WAL graph facts. Segment bytes are
+/// not embedded; each segment is reported as an explicit external dependency.
+/// Locator strings remain outside the projection identity.
+///
+/// # Errors
+///
+/// Returns a typed export error when generated WSC material cannot be written or
+/// one of the generated envelopes fails validation.
+pub fn wsc_ref_only_wal_export(
+    root: &WalRoot,
+    accepted_submissions: &[SubmissionAcceptanceRecord],
+    receipts: &[TickReceiptRecord],
+    correlations: &[WalReceiptCorrelationRecord],
+) -> Result<WscRefOnlyWalExport, WscRefOnlyWalExportError> {
+    Ok(WscRefOnlyWalExport {
+        profile: WscCausalHistoryExportProfileKind::RefOnly,
+        projection_envelope: wsc_ref_only_wal_projection_envelope(root)?,
+        accepted_submission_envelope: accepted_submission_records_to_wsc_envelope(
+            accepted_submissions,
+        )
+        .map_err(WscRefOnlyWalExportError::Envelope)?,
+        receipt_correlation_envelope: receipt_correlation_records_to_wsc_envelope(
+            receipts,
+            correlations,
+        )
+        .map_err(WscRefOnlyWalExportError::Envelope)?,
+        segment_dependencies: wsc_ref_only_wal_segment_dependencies(root),
+    })
+}
+
+/// Validates and imports a ref-only WAL causal-history WSC export.
+///
+/// Projection validation compares the imported WSC graph with the graph
+/// deterministically rebuilt from `expected_root`. This validates projected
+/// identities, segment digest, LSN range, and commit-anchor facts without
+/// promoting locators or external segment bytes to causal authority.
+///
+/// # Errors
+///
+/// Returns a typed import error when WSC material is malformed, does not match
+/// the recovered root, or lacks required accepted-submission/receipt partners.
+pub fn validate_wsc_ref_only_wal_export(
+    export: &WscRefOnlyWalExport,
+    expected_root: &WalRoot,
+) -> Result<WscRefOnlyWalImport, WscRefOnlyWalImportError> {
+    if export.profile != WscCausalHistoryExportProfileKind::RefOnly {
+        return Err(WscRefOnlyWalImportError::ProfileMismatch {
+            actual: export.profile,
+        });
+    }
+    if export.projection_envelope.record_kind() != WscStoreRecordKind::CausalHistory {
+        return Err(WscRefOnlyWalImportError::InvalidProjectionEnvelopeKind);
+    }
+
+    let projection = observe_wal_projection_graph_wsc(export.projection_envelope.wsc_bytes())
+        .map_err(WscRefOnlyWalImportError::ProjectionObservation)?;
+    let expected_projection = wsc_ref_only_wal_projection_envelope(expected_root)
+        .map_err(WscRefOnlyWalImportError::ExpectedProjection)?;
+    let expected_root_identity = expected_root.identity_digest();
+    if export.projection_envelope.basis_digest() != &expected_root_identity {
+        return Err(WscRefOnlyWalImportError::ProjectionBasisMismatch {
+            expected: expected_root_identity,
+            actual: *export.projection_envelope.basis_digest(),
+        });
+    }
+    if export.projection_envelope.wsc_bytes() != expected_projection.wsc_bytes() {
+        return Err(WscRefOnlyWalImportError::ProjectionPayloadMismatch {
+            expected: *expected_projection.wsc_digest(),
+            actual: *export.projection_envelope.wsc_digest(),
+        });
+    }
+
+    let expected_dependencies = wsc_ref_only_wal_segment_dependencies(expected_root);
+    if export.segment_dependencies != expected_dependencies {
+        return Err(WscRefOnlyWalImportError::SegmentDependencyMismatch);
+    }
+
+    let accepted_submissions =
+        accepted_submission_records_from_wsc_envelope(&export.accepted_submission_envelope)
+            .map_err(WscRefOnlyWalImportError::AcceptedSubmissions)?;
+    let receipt_records =
+        receipt_correlation_records_from_wsc_envelope(&export.receipt_correlation_envelope)
+            .map_err(WscRefOnlyWalImportError::ReceiptCorrelations)?;
+    validate_wsc_causal_history_records(
+        &accepted_submissions,
+        &receipt_records.receipts,
+        &receipt_records.correlations,
+    )
+    .map_err(WscRefOnlyWalImportError::IncompleteCausalHistory)?;
+
+    Ok(WscRefOnlyWalImport {
+        profile: export.profile,
+        projection,
+        root_identity_digest: expected_root_identity,
+        accepted_submissions,
+        receipts: receipt_records.receipts,
+        correlations: receipt_records.correlations,
+        segment_dependencies: expected_dependencies,
+    })
 }
 
 /// Generic WSC store port.
@@ -1709,6 +1948,72 @@ fn topology_edge_id(node_id: &Hash) -> EdgeId {
     hasher.update(WSC_TOPOLOGY_EDGE_DOMAIN);
     hasher.update(node_id);
     EdgeId(hasher.finalize().into())
+}
+
+fn wsc_ref_only_wal_projection_envelope(
+    root: &WalRoot,
+) -> Result<WscStoreEnvelope, WscRefOnlyWalExportError> {
+    let graph = materialize_wal_projection_graph(root);
+    let input = build_one_warp_input(&graph.store, graph.root_node_id);
+    let wsc_bytes = write_wsc_one_warp(&input, wal_projection_graph_schema_hash(), 0)
+        .map_err(|_| WscRefOnlyWalExportError::ProjectionWriteFailed)?;
+    WscStoreEnvelope::validated(
+        WscStoreRecordKind::CausalHistory,
+        root.identity_digest(),
+        wsc_bytes,
+    )
+    .map_err(WscRefOnlyWalExportError::Envelope)
+}
+
+fn wsc_ref_only_wal_segment_dependencies(root: &WalRoot) -> Vec<WscRefOnlyWalSegmentDependency> {
+    let mut dependencies = root
+        .segments
+        .iter()
+        .map(wsc_ref_only_wal_segment_dependency)
+        .collect::<Vec<_>>();
+    dependencies.sort_by_key(|dependency| {
+        (
+            dependency.segment_id,
+            dependency.segment_identity_digest,
+            dependency.segment_digest,
+            dependency.first_lsn,
+            dependency.last_lsn,
+        )
+    });
+    dependencies
+}
+
+fn wsc_ref_only_wal_segment_dependency(segment: &WalSegmentRef) -> WscRefOnlyWalSegmentDependency {
+    let mut commit_anchor_digests = segment
+        .commit_anchors
+        .iter()
+        .map(crate::causal_wal::WalCommitAnchor::identity_digest)
+        .collect::<Vec<_>>();
+    commit_anchor_digests.sort_unstable();
+    WscRefOnlyWalSegmentDependency {
+        segment_id: segment.segment_id,
+        segment_identity_digest: segment.identity_digest(),
+        segment_digest: segment.segment_digest,
+        first_lsn: segment.first_lsn,
+        last_lsn: segment.last_lsn,
+        commit_anchor_digests,
+        material_dependency: WscRefOnlyWalMaterialDependency::ExternalSegmentBytes,
+        locator_posture: wsc_ref_only_wal_locator_posture(segment.storage_locator.as_ref()),
+    }
+}
+
+fn wsc_ref_only_wal_locator_posture(
+    locator: Option<&WalSegmentStorageLocator>,
+) -> WscRefOnlyWalLocatorPosture {
+    match locator {
+        Some(WalSegmentStorageLocator::RelativePath(_)) => {
+            WscRefOnlyWalLocatorPosture::RelativePath
+        }
+        Some(WalSegmentStorageLocator::AbsolutePath(_)) => {
+            WscRefOnlyWalLocatorPosture::AbsolutePathNormalized
+        }
+        None => WscRefOnlyWalLocatorPosture::Missing,
+    }
 }
 
 fn read_array<const N: usize>(bytes: &[u8], offset: usize) -> Result<[u8; N], WscStoreObstruction> {

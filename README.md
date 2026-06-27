@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="docs/index.md">Docs</a>
+  <a href="docs/README.md">Docs</a>
   &middot;
   <a href="docs/architecture/outline.md">Architecture</a>
   &middot;
@@ -432,7 +432,7 @@ cargo bench -p warp-benches
   [There Is No Graph](docs/architecture/there-is-no-graph.md)
 - Core runtime details: [warp-core spec](docs/spec/warp-core.md)
 - Causal transport: [Continuum Transport](docs/architecture/continuum-transport.md)
-- Documentation map: [Docs](docs/index.md)
+- Documentation map: [Docs](docs/README.md)
 
 ## Current Reality
 

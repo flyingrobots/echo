@@ -25,7 +25,7 @@ fail() {
 
 copy_fixture() {
   local tmp="$1"
-  mkdir -p "${tmp}/docs/design" "${tmp}/docs/releases"
+  mkdir -p "${tmp}/docs/design" "${tmp}/docs/releases" "${tmp}/docs/topics"
   cp "${repo_root}/docs/BEARING.md" "${tmp}/docs/BEARING.md"
   cp "${repo_root}/docs/WorkItems.md" "${tmp}/docs/WorkItems.md"
   cp \
@@ -37,6 +37,7 @@ copy_fixture() {
   cp \
     "${repo_root}/docs/design/wal-wsc-durability-roadmap.md" \
     "${tmp}/docs/design/wal-wsc-durability-roadmap.md"
+  cp "${repo_root}/docs/topics/WAL.md" "${tmp}/docs/topics/WAL.md"
   cp \
     "${repo_root}/docs/releases/echo-1.0-contract.md" \
     "${tmp}/docs/releases/echo-1.0-contract.md"
@@ -147,6 +148,32 @@ EOF
   }
 }
 
+test_stale_durability_claims_fail() {
+  local tmp out
+  make_fixture tmp
+
+  cat >>"${tmp}/docs/topics/WAL.md" <<'EOF'
+
+filesystem runtime WAL witness is missing
+WSC import recovery is authoritative without WAL-backed validation
+retained payload recovery can rely on posture-only refs
+EOF
+
+  out="$({ ECHO_REPO_ROOT="$tmp" "$checker"; } 2>&1 || true)"
+  echo "$out" | grep -q "durability docs reject missing filesystem runtime WAL witness claim" || {
+    echo "$out" >&2
+    fail "checker did not report stale filesystem runtime WAL witness claim"
+  }
+  echo "$out" | grep -q "durability docs reject premature WSC import authority" || {
+    echo "$out" >&2
+    fail "checker did not report stale WSC import authority claim"
+  }
+  echo "$out" | grep -q "durability docs reject posture-only retained payload recovery" || {
+    echo "$out" >&2
+    fail "checker did not report stale retained payload recovery claim"
+  }
+}
+
 main() {
   [[ -x "$checker" ]] || fail "checker script missing or not executable: $checker"
 
@@ -157,6 +184,7 @@ main() {
   test_missing_release_project_link_fails
   test_live_roadmap_issue_map_fails
   test_live_workitems_audit_fails
+  test_stale_durability_claims_fail
 }
 
 main "$@"

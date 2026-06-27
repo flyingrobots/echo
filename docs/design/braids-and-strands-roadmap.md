@@ -5,7 +5,7 @@
 
 Status: active hardening roadmap slice.
 
-Last updated: 2026-06-15.
+Last updated: 2026-06-26.
 
 ## Purpose
 
@@ -21,6 +21,13 @@ NOT bypass them except for design-only exploration that creates no public
 runtime, API, digest, privacy, or witness dependency.
 
 No law-bearing object is born by accident.
+
+Goalposts 1-5 hardened construction, identity, membership history, witness
+receipts, sealed capabilities, and named plurality laws. Goalpost 6 promotes
+topology operations themselves to WAL-backed causal history: forking a strand,
+weaving or settling a braid, retaining a braid shell, and importing a remote
+suffix are accepted intents with recoverable evidence, not side-channel runtime
+state.
 
 The destination is:
 
@@ -124,6 +131,17 @@ Design:
 - [x] GP5-S5: Add obstruction evidence for unsupported or unauthorized law
       execution.
 
+### Goalpost 6: Topology Intents And WAL Recovery
+
+Design:
+[`goalpost-06-topology-intents-and-wal-recovery.md`](braids-and-strands-hardening/goalpost-06-topology-intents-and-wal-recovery.md)
+
+- [ ] GP6-S1: Add WAL-backed strand fork and drop intent receipts.
+- [ ] GP6-S2: Persist braid event logs and retained braid shells through
+      WAL/WSC.
+- [ ] GP6-S3: Model replica suffix import as a witnessed WARP optic intent.
+- [ ] GP6-S4: Rebuild topology indexes from WAL/WSC recovery evidence.
+
 ## North Star
 
 Echo must feel less like a crate full of important structs and more like a
@@ -150,22 +168,23 @@ Every important causal claim must answer:
 
 The vocabulary stays sharp:
 
-| Term               | Meaning                                                  |
-| ------------------ | -------------------------------------------------------- |
-| Struct             | Represents a fact.                                       |
-| Constructor        | Admits a fact through a named door.                      |
-| Witness            | Supports a fact with evidence.                           |
-| Replay             | Explains a fact from recorded causes.                    |
-| Law                | Interprets a fact under named authority and posture.     |
-| Digest             | Preserves the identity of a fact.                        |
-| Admission          | Decides whether a claim enters Echo history.             |
-| Settlement         | Admits history; it is not merge semantics.               |
-| Projection         | Materializes one bounded reading from admitted history.  |
-| Sealed member      | Hides member identity behind authorized proof material.  |
-| Revealed member    | Exposes member identity directly.                        |
-| Posture floor      | Lowest causal posture the reading can honestly claim.    |
-| Retained plurality | Preserved multiple claims not collapsed to one fact.     |
-| Collapse law       | Named law that interprets or reduces retained plurality. |
+| Term               | Meaning                                                                |
+| ------------------ | ---------------------------------------------------------------------- |
+| Struct             | Represents a fact.                                                     |
+| Constructor        | Admits a fact through a named door.                                    |
+| Witness            | Supports a fact with evidence.                                         |
+| Replay             | Explains a fact from recorded causes.                                  |
+| Law                | Interprets a fact under named authority and posture.                   |
+| Digest             | Preserves the identity of a fact.                                      |
+| Admission          | Decides whether a claim enters Echo history.                           |
+| Settlement         | Admits history; it is not merge semantics.                             |
+| Projection         | Materializes one bounded reading from admitted history.                |
+| Sealed member      | Hides member identity behind authorized proof material.                |
+| Revealed member    | Exposes member identity directly.                                      |
+| Posture floor      | Lowest causal posture the reading can honestly claim.                  |
+| Retained plurality | Preserved multiple claims not collapsed to one fact.                   |
+| Collapse law       | Named law that interprets or reduces retained plurality.               |
+| Topology intent    | Admitted causal-history operation that changes lane or braid geometry. |
 
 Claim lifecycle:
 

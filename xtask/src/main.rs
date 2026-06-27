@@ -112,6 +112,8 @@ enum TestSlice {
     RuntimeWalAck,
     /// Release-grade filesystem runtime WAL durability witness.
     DurableRuntimeWal,
+    /// Joined WAL/WSC durability release witness.
+    DurabilityRelease,
 }
 
 #[derive(Args)]
@@ -722,6 +724,71 @@ fn build_test_slice_commands(slice: TestSlice) -> Vec<Command> {
             cargo_command(["test", "-p", "xtask", "runtime_wal_ack_stale_claims"]),
             cargo_command(["xtask", "man-pages", "--check"]),
         ],
+        TestSlice::DurabilityRelease => vec![
+            cargo_command([
+                "test",
+                "-p",
+                "warp-core",
+                "--features",
+                "native_rule_bootstrap trusted_runtime host_test",
+                "--test",
+                "trusted_runtime_host_loop_tests",
+                "filesystem_runtime_wal_ack",
+            ]),
+            cargo_command([
+                "test",
+                "-p",
+                "warp-core",
+                "--features",
+                "native_rule_bootstrap trusted_runtime host_test",
+                "--test",
+                "trusted_runtime_host_loop_tests",
+                "filesystem_runtime_wal_failure",
+            ]),
+            cargo_command([
+                "test",
+                "-p",
+                "warp-cli",
+                "--test",
+                "cli_integration",
+                "wal_submission_posture",
+            ]),
+            cargo_command([
+                "test",
+                "-p",
+                "warp-core",
+                "--test",
+                "wsc_store_tests",
+                "retention_records",
+            ]),
+            cargo_command([
+                "test",
+                "-p",
+                "warp-core",
+                "--test",
+                "wsc_store_tests",
+                "topology_records",
+            ]),
+            cargo_command([
+                "test",
+                "-p",
+                "warp-core",
+                "--test",
+                "causal_wal_tests",
+                "topology_",
+            ]),
+            cargo_command([
+                "test",
+                "-p",
+                "warp-core",
+                "--test",
+                "causal_wal_tests",
+                "missing_retained_material_returns_typed_obstruction",
+            ]),
+            cargo_command(["test", "-p", "xtask", "durability_stale_claims"]),
+            script_command("scripts/check-wal-wsc-doctrine.sh"),
+            cargo_command(["xtask", "man-pages", "--check"]),
+        ],
     }
 }
 
@@ -729,6 +796,10 @@ fn cargo_command<const N: usize>(args: [&str; N]) -> Command {
     let mut command = Command::new("cargo");
     command.args(args);
     command
+}
+
+fn script_command(path: &str) -> Command {
+    Command::new(path)
 }
 
 fn display_command(command: &Command) -> String {
@@ -6622,7 +6693,110 @@ mod tests {
     }
 
     #[test]
-    fn runtime_wal_ack_stale_claims_stay_current() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_slice_durability_release_stays_explicit() {
+        let commands = build_test_slice_commands(TestSlice::DurabilityRelease);
+        assert_eq!(commands.len(), 10);
+
+        let expected = [
+            (
+                "cargo",
+                vec![
+                    "test",
+                    "-p",
+                    "warp-core",
+                    "--features",
+                    "native_rule_bootstrap trusted_runtime host_test",
+                    "--test",
+                    "trusted_runtime_host_loop_tests",
+                    "filesystem_runtime_wal_ack",
+                ],
+            ),
+            (
+                "cargo",
+                vec![
+                    "test",
+                    "-p",
+                    "warp-core",
+                    "--features",
+                    "native_rule_bootstrap trusted_runtime host_test",
+                    "--test",
+                    "trusted_runtime_host_loop_tests",
+                    "filesystem_runtime_wal_failure",
+                ],
+            ),
+            (
+                "cargo",
+                vec![
+                    "test",
+                    "-p",
+                    "warp-cli",
+                    "--test",
+                    "cli_integration",
+                    "wal_submission_posture",
+                ],
+            ),
+            (
+                "cargo",
+                vec![
+                    "test",
+                    "-p",
+                    "warp-core",
+                    "--test",
+                    "wsc_store_tests",
+                    "retention_records",
+                ],
+            ),
+            (
+                "cargo",
+                vec![
+                    "test",
+                    "-p",
+                    "warp-core",
+                    "--test",
+                    "wsc_store_tests",
+                    "topology_records",
+                ],
+            ),
+            (
+                "cargo",
+                vec![
+                    "test",
+                    "-p",
+                    "warp-core",
+                    "--test",
+                    "causal_wal_tests",
+                    "topology_",
+                ],
+            ),
+            (
+                "cargo",
+                vec![
+                    "test",
+                    "-p",
+                    "warp-core",
+                    "--test",
+                    "causal_wal_tests",
+                    "missing_retained_material_returns_typed_obstruction",
+                ],
+            ),
+            (
+                "cargo",
+                vec!["test", "-p", "xtask", "durability_stale_claims"],
+            ),
+            ("scripts/check-wal-wsc-doctrine.sh", Vec::<&str>::new()),
+            ("cargo", vec!["xtask", "man-pages", "--check"]),
+        ];
+
+        for (command, (expected_program, expected_args)) in commands.iter().zip(expected) {
+            let (program, args) = command_program_and_args(command);
+            assert_eq!(program, expected_program);
+            assert_eq!(args, expected_args);
+        }
+    }
+
+    #[test]
+    fn runtime_wal_ack_stale_claims_and_durability_stale_claims_stay_current(
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .ok_or_else(|| {
@@ -6632,6 +6806,8 @@ mod tests {
             "docs/BEARING.md",
             "docs/design/v0.1.0-jedit-release-gate.md",
             "docs/design/causal-wal-hardening-matrix.md",
+            "docs/design/wal-wsc-durability-roadmap.md",
+            "docs/topics/WAL.md",
             "docs/workflows.md",
         ];
         let stale_claims = [
@@ -6640,6 +6816,9 @@ mod tests {
             "tick receipts are visible before WAL commit",
             "accepted submission evidence can be returned before WAL commit",
             "jedit recovery fixture contract is still missing",
+            "filesystem runtime WAL witness is missing",
+            "WSC import recovery is authoritative without WAL-backed validation",
+            "retained payload recovery can rely on posture-only refs",
         ];
 
         for relative_path in checked_docs {
@@ -6666,6 +6845,7 @@ mod tests {
         let workflows = fs::read_to_string(repo_root.join("docs/workflows.md"))?;
         assert!(workflows.contains("cargo xtask test-slice runtime-wal-ack"));
         assert!(workflows.contains("cargo xtask test-slice durable-runtime-wal"));
+        assert!(workflows.contains("cargo xtask test-slice durability-release"));
         Ok(())
     }
 
@@ -6891,7 +7071,7 @@ mod tests {
 
     #[test]
     fn root_relative_link_resolves_against_docs_root() {
-        let source = Path::new("docs/index.md");
+        let source = Path::new("docs/README.md");
         let docs_root = Path::new("docs");
         let candidates = build_candidates(source, "/guide/start-here.md", docs_root);
         assert!(candidates
@@ -6901,7 +7081,7 @@ mod tests {
 
     #[test]
     fn extensionless_link_tries_md_and_html() {
-        let source = Path::new("docs/index.md");
+        let source = Path::new("docs/README.md");
         let docs_root = Path::new("docs");
         let candidates = build_candidates(source, "guide/start-here", docs_root);
         assert!(candidates
@@ -6914,7 +7094,7 @@ mod tests {
 
     #[test]
     fn public_asset_resolution() {
-        let source = Path::new("docs/index.md");
+        let source = Path::new("docs/README.md");
         let docs_root = Path::new("docs");
         let candidates = build_candidates(source, "/example-public-asset.html", docs_root);
         assert!(candidates

@@ -374,6 +374,20 @@ fn wal_projection_from_recovery() {
         .obstructions
         .contains(&WalRecoveryProjectionObstruction::MissingManifest));
 
+    let absent = project_wal_recovery(
+        &RecoveryScanReport {
+            transactions: Vec::new(),
+            tail_posture: RecoveryTailPosture::Clean,
+        },
+        None,
+        &[],
+        &[],
+        None,
+    );
+    assert_eq!(absent.posture, WalRecoveryProjectionPosture::Absent);
+    assert_eq!(absent.root, None);
+    assert!(absent.obstructions.is_empty());
+
     let empty_report_with_segment_evidence = project_wal_recovery(
         &RecoveryScanReport {
             transactions: Vec::new(),
@@ -528,6 +542,30 @@ fn wal_projection_from_recovery() {
         &WalRecoveryProjectionObstruction::ManifestLastCommittedLsnMismatch {
             expected: Some(Lsn::from_raw(4)),
             actual: Some(Lsn::from_raw(3))
+        }
+    ));
+
+    must_ok(store.publish_manifest(
+        epoch_id(),
+        WalManifest {
+            sealed_segment_count: 2,
+            ..manifest
+        },
+    ));
+    let filesystem_segment_count_mismatch = project_filesystem_wal_recovery(
+        &dir,
+        &report,
+        std::slice::from_ref(&writer_epoch),
+        Some(&certificate),
+    );
+    assert_eq!(
+        filesystem_segment_count_mismatch.posture,
+        WalRecoveryProjectionPosture::Obstructed
+    );
+    assert!(filesystem_segment_count_mismatch.obstructions.contains(
+        &WalRecoveryProjectionObstruction::ManifestSegmentCountMismatch {
+            expected: 2,
+            actual: 1,
         }
     ));
 

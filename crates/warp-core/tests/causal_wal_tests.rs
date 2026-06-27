@@ -16,14 +16,15 @@ use warp_core::causal_wal::{
     build_submission_acceptance_transaction, build_tick_transaction,
     build_topology_intent_transaction, canonical_segment_relative_path, doctor_in_memory_store,
     evaluate_checkpoint_publication, lint_wal_schema_terms, materialize_wal_projection_graph,
-    missing_material_scope, project_causal_commit_evidence, project_filesystem_wal_recovery,
-    project_wal_recovery, read_checkpoint_record, recover_checkpoint_publications,
-    recover_filesystem_store, recover_in_memory_store, recover_materialization_outbox,
-    recover_receipt_index, recover_retention_index, recover_submission_index,
-    recover_topology_index, recovered_topology_index_root, retained_material_obstructions,
-    shadow_replay_matches, validate_checkpoint_record, validate_strict_object_store_capabilities,
-    wal_projection_graph_schema_hash, write_checkpoint_record_atomic, AffectedFrontier,
-    AffectedFrontierKind, BraidShellRetentionRecord, CheckpointPublicationRecord, CheckpointRecord,
+    missing_material_scope, observe_wal_projection_graph_wsc, project_causal_commit_evidence,
+    project_filesystem_wal_recovery, project_wal_recovery, read_checkpoint_record,
+    recover_checkpoint_publications, recover_filesystem_store, recover_in_memory_store,
+    recover_materialization_outbox, recover_receipt_index, recover_retention_index,
+    recover_submission_index, recover_topology_index, recovered_topology_index_root,
+    retained_material_obstructions, shadow_replay_matches, validate_checkpoint_record,
+    validate_strict_object_store_capabilities, wal_projection_graph_schema_hash,
+    write_checkpoint_record_atomic, AffectedFrontier, AffectedFrontierKind,
+    BraidShellRetentionRecord, CheckpointPublicationRecord, CheckpointRecord,
     CheckpointValidationPosture, EvidenceMaterialPosture, ExistingMaterializedArtifact,
     FilesystemWalStore, InMemoryWalStore, Lsn, MaterializationIntentRecord,
     MaterializationObservationRecord, MaterializationReplayPosture, MissingMaterialScope,
@@ -35,17 +36,23 @@ use warp_core::causal_wal::{
     TickReceiptRecord, TopologyBraidEventRecord, TopologyImportOutcomeKind, TopologyIntentRecord,
     TransactionLocalIndex, WalAppendAuthority, WalBuildError, WalCommitAnchor,
     WalCommittedTransaction, WalDoctorPosture, WalDurabilityMode, WalManifest,
-    WalReceiptCorrelationRecord, WalRecordKind, WalRecoveryIndexError,
-    WalRecoveryProjectionObstruction, WalRecoveryProjectionPosture, WalRecoverySegmentEvidence,
-    WalReleaseReadinessGates, WalRoot, WalSchemaLintError, WalSegmentId, WalSegmentRef,
-    WalSegmentSealPosture, WalSegmentStorageLocator, WalStoreError, WalStorePort, WalTickDecision,
-    WalTransactionBuilder, WalTransactionId, WalTransactionKind, WalWriterEpoch, WriterEpoch,
-    WriterEpochId, WriterEpochRequest, WAL_PROJECTION_GRAPH_RECOVERY_CERTIFICATE_EDGE_TYPE,
+    WalProjectionGraphObservationPosture, WalReceiptCorrelationRecord, WalRecordKind,
+    WalRecoveryIndexError, WalRecoveryProjectionObstruction, WalRecoveryProjectionPosture,
+    WalRecoverySegmentEvidence, WalReleaseReadinessGates, WalRoot, WalSchemaLintError,
+    WalSegmentId, WalSegmentRef, WalSegmentSealPosture, WalSegmentStorageLocator, WalStoreError,
+    WalStorePort, WalTickDecision, WalTransactionBuilder, WalTransactionId, WalTransactionKind,
+    WalWriterEpoch, WriterEpoch, WriterEpochId, WriterEpochRequest,
+    WAL_PROJECTION_GRAPH_RECOVERY_CERTIFICATE_EDGE_TYPE,
     WAL_PROJECTION_GRAPH_ROOT_COMMIT_ANCHOR_EDGE_TYPE,
     WAL_PROJECTION_GRAPH_SEGMENT_COMMIT_ANCHOR_EDGE_TYPE, WAL_PROJECTION_GRAPH_SEGMENT_EDGE_TYPE,
     WAL_PROJECTION_GRAPH_WRITER_EPOCH_EDGE_TYPE,
 };
-use warp_core::wsc::{build_one_warp_input, validate_wsc, write_wsc_one_warp, WscFile};
+use warp_core::wsc::{
+    accepted_submission_records_from_wsc_envelope, build_one_warp_input,
+    receipt_correlation_records_from_wsc_envelope, topology_records_from_wsc_envelope,
+    validate_wsc, write_wsc_one_warp, WscFile, WscStoreEnvelope, WscStoreObstructionKind,
+    WscStoreRecordKind,
+};
 use warp_core::{
     make_strand_id, make_type_id, AuthorityDomainId, AuthorityDomainRef, BraidEvent, BraidStatus,
     Hash, HeadId, OriginId, WorldlineId, WorldlineTick, WriterHeadKey,
@@ -425,6 +432,126 @@ fn wal_projection_graph_materializes_deterministically() {
         0,
     ));
     assert_eq!(wsc_bytes, reordered_wsc_bytes);
+}
+
+#[test]
+fn wal_projection_cannot_bootstrap_recovery() {
+    let writer_epoch = WalWriterEpoch::from_writer_epoch(&WriterEpoch {
+        epoch_id: epoch_id(),
+        storage_fencing_token: digest("projection-negative:fencing"),
+        process_identity: digest("projection-negative:process"),
+        host_identity: digest("projection-negative:host"),
+        started_at_lsn: Lsn::from_raw(1),
+        previous_epoch_id: None,
+        previous_epoch_final_commit_digest: None,
+        lease_or_lock_evidence: digest("projection-negative:lease"),
+    });
+    let anchor = WalCommitAnchor {
+        transaction_id: transaction_id("projection-negative:tx"),
+        commit_digest: digest("projection-negative:commit"),
+        first_lsn: Lsn::from_raw(1),
+        last_lsn: Lsn::from_raw(2),
+        record_count: 2,
+    };
+    let segment = WalSegmentRef {
+        writer_epoch: writer_epoch.epoch_id,
+        segment_id: WalSegmentId::from_raw(7),
+        first_lsn: Lsn::from_raw(1),
+        last_lsn: Lsn::from_raw(2),
+        previous_commit_digest: blake3::hash(b"").into(),
+        final_commit_digest: anchor.commit_digest,
+        segment_digest: digest("projection-negative:segment"),
+        commit_anchors: vec![anchor],
+        seal_posture: WalSegmentSealPosture::Sealed {
+            sealed_lsn: Some(Lsn::from_raw(2)),
+        },
+        storage_locator: Some(WalSegmentStorageLocator::AbsolutePath(PathBuf::from(
+            "/tmp/echo/projection-negative/segment.ecwal",
+        ))),
+    };
+    let root = WalRoot {
+        root_digest: digest("projection-negative:root"),
+        writer_epochs: vec![writer_epoch],
+        segments: vec![segment],
+        recovery_certificate: Some(RecoveryCertificateRef {
+            certificate_digest: digest("projection-negative:certificate"),
+            checkpoint_used: None,
+            first_lsn: Some(Lsn::from_raw(1)),
+            last_lsn: Some(Lsn::from_raw(2)),
+            tail_posture: RecoveryTailPosture::Clean,
+            recovered_frontier_root: digest("projection-negative:frontier"),
+            recovered_indexes_root: digest("projection-negative:indexes"),
+        }),
+    };
+
+    let graph = materialize_wal_projection_graph(&root);
+    let input = build_one_warp_input(&graph.store, graph.root_node_id);
+    let wsc_bytes = must_ok(write_wsc_one_warp(
+        &input,
+        wal_projection_graph_schema_hash(),
+        0,
+    ));
+    let observation = must_ok(observe_wal_projection_graph_wsc(&wsc_bytes));
+    assert_eq!(
+        observation.posture,
+        WalProjectionGraphObservationPosture::ObservationOnly
+    );
+    assert_eq!(observation.schema_hash, wal_projection_graph_schema_hash());
+    assert_eq!(observation.root_node_id, graph.root_node_id);
+    assert_eq!(observation.node_count, 5);
+    assert_eq!(observation.edge_count, 5);
+    assert_eq!(observation.node_attachment_count, 5);
+    assert_eq!(observation.edge_attachment_count, 0);
+    assert!(observation.blob_len > 0);
+
+    let envelope = must_ok(WscStoreEnvelope::validated(
+        WscStoreRecordKind::CausalHistory,
+        root.identity_digest(),
+        wsc_bytes,
+    ));
+    assert_eq!(
+        must_err(
+            accepted_submission_records_from_wsc_envelope(&envelope),
+            "projection graph is not accepted-submission causal history",
+        )
+        .kind,
+        WscStoreObstructionKind::InvalidWsc
+    );
+    assert_eq!(
+        must_err(
+            receipt_correlation_records_from_wsc_envelope(&envelope),
+            "projection graph is not receipt-correlation causal history",
+        )
+        .kind,
+        WscStoreObstructionKind::InvalidWsc
+    );
+    assert_eq!(
+        must_err(
+            topology_records_from_wsc_envelope(&envelope),
+            "projection graph is not topology causal history",
+        )
+        .kind,
+        WscStoreObstructionKind::InvalidWsc
+    );
+
+    let projection_only_recovery = project_wal_recovery(
+        &RecoveryScanReport {
+            transactions: Vec::new(),
+            tail_posture: RecoveryTailPosture::Clean,
+        },
+        None,
+        &root.writer_epochs,
+        &[],
+        None,
+    );
+    assert_eq!(
+        projection_only_recovery.posture,
+        WalRecoveryProjectionPosture::Obstructed
+    );
+    assert_eq!(projection_only_recovery.root, None);
+    assert!(projection_only_recovery
+        .obstructions
+        .contains(&WalRecoveryProjectionObstruction::MissingManifest));
 }
 
 #[test]

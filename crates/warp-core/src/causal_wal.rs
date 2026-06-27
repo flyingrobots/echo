@@ -3105,7 +3105,12 @@ pub fn project_wal_recovery(
     segments: &[WalRecoverySegmentEvidence],
     recovery_certificate: Option<&RecoveryCertificate>,
 ) -> WalRecoveryProjection {
-    if report.transactions.is_empty() && manifest.is_none() {
+    if report.transactions.is_empty()
+        && manifest.is_none()
+        && writer_epochs.is_empty()
+        && segments.is_empty()
+        && recovery_certificate.is_none()
+    {
         return WalRecoveryProjection::absent();
     }
 

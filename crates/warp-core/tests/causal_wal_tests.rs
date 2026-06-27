@@ -29,10 +29,10 @@ use warp_core::causal_wal::{
     MaterializationObservationRecord, MaterializationReplayPosture, MissingMaterialScope,
     ObjectStoreCapabilityError, ObjectStoreReadAfterWritePosture, ObjectStoreWalCapabilities,
     PayloadCodecId, PayloadSchemaId, ReadingRefRecord, RecoveredState, RecoveredSubmissionPosture,
-    RecoveredTopologyIndex, RecoveryAccessMode, RecoveryCertificateRef, RecoveryTailPosture,
-    RetainedMaterialKind, RetainedMaterialRecord, StrandDropRecord, StrandForkRecord,
-    SubmissionAcceptanceRecord, SubmissionRetryPosture, SuffixImportRecord, TickReceiptRecord,
-    TopologyBraidEventRecord, TopologyImportOutcomeKind, TopologyIntentRecord,
+    RecoveredTopologyIndex, RecoveryAccessMode, RecoveryCertificateRef, RecoveryScanReport,
+    RecoveryTailPosture, RetainedMaterialKind, RetainedMaterialRecord, StrandDropRecord,
+    StrandForkRecord, SubmissionAcceptanceRecord, SubmissionRetryPosture, SuffixImportRecord,
+    TickReceiptRecord, TopologyBraidEventRecord, TopologyImportOutcomeKind, TopologyIntentRecord,
     TransactionLocalIndex, WalAppendAuthority, WalBuildError, WalCommitAnchor,
     WalCommittedTransaction, WalDoctorPosture, WalDurabilityMode, WalManifest,
     WalReceiptCorrelationRecord, WalRecordKind, WalRecoveryIndexError,
@@ -371,6 +371,25 @@ fn wal_projection_from_recovery() {
     );
     assert_eq!(missing_manifest.root, None);
     assert!(missing_manifest
+        .obstructions
+        .contains(&WalRecoveryProjectionObstruction::MissingManifest));
+
+    let empty_report_with_segment_evidence = project_wal_recovery(
+        &RecoveryScanReport {
+            transactions: Vec::new(),
+            tail_posture: RecoveryTailPosture::Clean,
+        },
+        None,
+        &[],
+        std::slice::from_ref(&segment_evidence),
+        None,
+    );
+    assert_eq!(
+        empty_report_with_segment_evidence.posture,
+        WalRecoveryProjectionPosture::Obstructed
+    );
+    assert_eq!(empty_report_with_segment_evidence.root, None);
+    assert!(empty_report_with_segment_evidence
         .obstructions
         .contains(&WalRecoveryProjectionObstruction::MissingManifest));
 

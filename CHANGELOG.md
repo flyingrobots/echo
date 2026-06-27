@@ -17,6 +17,11 @@
   locator, writer epoch, and recovery certificate evidence; missing manifests or
   unavailable locators produce typed projection obstructions instead of empty
   success.
+- `warp-core` can now materialize WAL projection records into deterministic
+  WARP graph facts with root, writer epoch, segment, commit-anchor, and recovery
+  certificate nodes plus typed graph edges suitable for WSC serialization. The
+  materialized graph omits raw WAL storage locator authority and rebuilds to
+  identical WSC bytes from the same recovery evidence.
 - `cargo xtask test-slice durable-runtime-wal` now runs the release-grade
   filesystem runtime WAL durability gate, joining filesystem ACK recovery,
   filesystem failure atomicity, CLI submission posture JSON, stale-claim, and

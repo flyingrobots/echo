@@ -18,13 +18,17 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
+use bytes::Bytes;
 use thiserror::Error;
 
+use crate::attachment::{AtomPayload, AttachmentValue};
 use crate::braid::{BraidEvent, BraidStatus};
 use crate::braid_shell::BraidMemberRef;
 use crate::clock::WorldlineTick;
+use crate::graph::GraphStore;
 use crate::head::{HeadId, WriterHeadKey};
-use crate::ident::Hash;
+use crate::ident::{EdgeId, Hash, NodeId};
+use crate::record::{EdgeRecord, NodeRecord};
 use crate::revelation::{AuthorityDomainId, AuthorityDomainRef, OriginId};
 use crate::strand::StrandId;
 use crate::worldline::WorldlineId;
@@ -44,11 +48,62 @@ const WAL_PROJECTION_SEGMENT_DOMAIN: &[u8] = b"echo:causal_wal:projection:segmen
 const WAL_PROJECTION_COMMIT_ANCHOR_DOMAIN: &[u8] = b"echo:causal_wal:projection:commit_anchor:v1\0";
 const WAL_PROJECTION_RECOVERY_CERTIFICATE_DOMAIN: &[u8] =
     b"echo:causal_wal:projection:recovery_certificate:v1\0";
+const WAL_PROJECTION_GRAPH_NODE_DOMAIN: &[u8] = b"echo:causal_wal:projection_graph:node:v1\0";
+const WAL_PROJECTION_GRAPH_EDGE_DOMAIN: &[u8] = b"echo:causal_wal:projection_graph:edge:v1\0";
 const WAL_RECOVERY_CERTIFICATE_DOMAIN: &[u8] = b"echo:causal_wal:recovery_certificate:v1\0";
 const WRITER_HEAD_KEY_PAYLOAD_LEN: usize = 64;
 const CHECKPOINT_FILE_MAGIC: &[u8; 8] = b"ECWALCP1";
 const WAL_SEGMENT_RECORD_MAGIC: &[u8; 8] = b"ECWALR1!";
 const WAL_SEGMENTS_DIR: &str = "segments";
+
+/// WSC schema label for materialized WAL projection graph facts.
+pub const WAL_PROJECTION_GRAPH_SCHEMA: &str = "echo/wal-projection-graph/schema/v1";
+/// WARP id label for materialized WAL projection graph facts.
+pub const WAL_PROJECTION_GRAPH_WARP: &str = "echo/wal-projection-graph/warp/v1";
+/// Node type for the materialized WAL projection root fact.
+pub const WAL_PROJECTION_GRAPH_ROOT_NODE_TYPE: &str = "echo/wal-projection-graph/root-node/v1";
+/// Node type for materialized WAL writer epoch facts.
+pub const WAL_PROJECTION_GRAPH_WRITER_EPOCH_NODE_TYPE: &str =
+    "echo/wal-projection-graph/writer-epoch-node/v1";
+/// Node type for materialized WAL segment facts.
+pub const WAL_PROJECTION_GRAPH_SEGMENT_NODE_TYPE: &str =
+    "echo/wal-projection-graph/segment-node/v1";
+/// Node type for materialized WAL commit-anchor facts.
+pub const WAL_PROJECTION_GRAPH_COMMIT_ANCHOR_NODE_TYPE: &str =
+    "echo/wal-projection-graph/commit-anchor-node/v1";
+/// Node type for materialized recovery-certificate reference facts.
+pub const WAL_PROJECTION_GRAPH_RECOVERY_CERTIFICATE_NODE_TYPE: &str =
+    "echo/wal-projection-graph/recovery-certificate-node/v1";
+/// Edge type from the WAL projection root to writer epoch facts.
+pub const WAL_PROJECTION_GRAPH_WRITER_EPOCH_EDGE_TYPE: &str =
+    "echo/wal-projection-graph/root-writer-epoch-edge/v1";
+/// Edge type from the WAL projection root to segment facts.
+pub const WAL_PROJECTION_GRAPH_SEGMENT_EDGE_TYPE: &str =
+    "echo/wal-projection-graph/root-segment-edge/v1";
+/// Edge type from the WAL projection root to commit-anchor facts.
+pub const WAL_PROJECTION_GRAPH_ROOT_COMMIT_ANCHOR_EDGE_TYPE: &str =
+    "echo/wal-projection-graph/root-commit-anchor-edge/v1";
+/// Edge type from the WAL projection root to recovery-certificate facts.
+pub const WAL_PROJECTION_GRAPH_RECOVERY_CERTIFICATE_EDGE_TYPE: &str =
+    "echo/wal-projection-graph/root-recovery-certificate-edge/v1";
+/// Edge type from a WAL segment fact to its commit-anchor facts.
+pub const WAL_PROJECTION_GRAPH_SEGMENT_COMMIT_ANCHOR_EDGE_TYPE: &str =
+    "echo/wal-projection-graph/segment-commit-anchor-edge/v1";
+/// Attachment type for WAL projection root fact payloads.
+pub const WAL_PROJECTION_GRAPH_ROOT_ATTACHMENT_TYPE: &str =
+    "echo/wal-projection-graph/root-attachment/v1";
+/// Attachment type for WAL writer epoch fact payloads.
+pub const WAL_PROJECTION_GRAPH_WRITER_EPOCH_ATTACHMENT_TYPE: &str =
+    "echo/wal-projection-graph/writer-epoch-attachment/v1";
+/// Attachment type for WAL segment fact payloads.
+pub const WAL_PROJECTION_GRAPH_SEGMENT_ATTACHMENT_TYPE: &str =
+    "echo/wal-projection-graph/segment-attachment/v1";
+/// Attachment type for WAL commit-anchor fact payloads.
+pub const WAL_PROJECTION_GRAPH_COMMIT_ANCHOR_ATTACHMENT_TYPE: &str =
+    "echo/wal-projection-graph/commit-anchor-attachment/v1";
+/// Attachment type for recovery-certificate reference fact payloads.
+pub const WAL_PROJECTION_GRAPH_RECOVERY_CERTIFICATE_ATTACHMENT_TYPE: &str =
+    "echo/wal-projection-graph/recovery-certificate-attachment/v1";
 
 /// Current in-memory causal WAL version.
 pub const CAUSAL_WAL_VERSION: u16 = 1;
@@ -3133,6 +3188,138 @@ impl WalRecoveryProjection {
     }
 }
 
+/// Materialized WARP graph facts for a projected WAL root.
+///
+/// The graph is a read-only fact projection. It carries typed nodes, edges, and
+/// atom attachments suitable for WSC serialization, but it is not a
+/// [`WalStorePort`] and cannot append, truncate, recover, or publish WAL
+/// storage material.
+#[derive(Clone, Debug)]
+pub struct WalProjectionGraph {
+    /// Graph store containing materialized projection facts.
+    pub store: GraphStore,
+    /// Root node for the materialized WAL projection graph.
+    pub root_node_id: NodeId,
+}
+
+/// Returns the WSC schema hash for materialized WAL projection graph facts.
+#[must_use]
+pub fn wal_projection_graph_schema_hash() -> Hash {
+    crate::ident::make_type_id(WAL_PROJECTION_GRAPH_SCHEMA).0
+}
+
+/// Materializes a projected WAL root into a deterministic WARP graph.
+///
+/// The materialized graph uses one fact node for the WAL root, every writer
+/// epoch, every segment, every commit anchor, and the optional recovery
+/// certificate reference. Fact bytes are stored as typed atom attachments.
+/// Segment storage locator metadata is deliberately omitted from the atom
+/// payload because it is locator evidence, not graph identity or append
+/// authority.
+#[must_use]
+pub fn materialize_wal_projection_graph(root: &WalRoot) -> WalProjectionGraph {
+    let mut store = GraphStore::new(crate::ident::make_warp_id(WAL_PROJECTION_GRAPH_WARP));
+    let root_node_id = wal_projection_node_id(b"root", root.identity_digest());
+    insert_wal_projection_fact_node(
+        &mut store,
+        root_node_id,
+        WAL_PROJECTION_GRAPH_ROOT_NODE_TYPE,
+        WAL_PROJECTION_GRAPH_ROOT_ATTACHMENT_TYPE,
+        wal_projection_root_payload(root),
+    );
+
+    let mut writer_epochs = root.writer_epochs.clone();
+    writer_epochs.sort_by_key(WalWriterEpoch::identity_digest);
+    for writer_epoch in &writer_epochs {
+        let node_id = wal_projection_node_id(b"writer_epoch", writer_epoch.identity_digest());
+        insert_wal_projection_fact_node(
+            &mut store,
+            node_id,
+            WAL_PROJECTION_GRAPH_WRITER_EPOCH_NODE_TYPE,
+            WAL_PROJECTION_GRAPH_WRITER_EPOCH_ATTACHMENT_TYPE,
+            wal_projection_writer_epoch_payload(writer_epoch),
+        );
+        insert_wal_projection_edge(
+            &mut store,
+            root_node_id,
+            node_id,
+            b"root_writer_epoch",
+            WAL_PROJECTION_GRAPH_WRITER_EPOCH_EDGE_TYPE,
+        );
+    }
+
+    let mut segments = root.segments.clone();
+    segments.sort_by_key(WalSegmentRef::identity_digest);
+    for segment in &segments {
+        let segment_node_id = wal_projection_node_id(b"segment", segment.identity_digest());
+        insert_wal_projection_fact_node(
+            &mut store,
+            segment_node_id,
+            WAL_PROJECTION_GRAPH_SEGMENT_NODE_TYPE,
+            WAL_PROJECTION_GRAPH_SEGMENT_ATTACHMENT_TYPE,
+            wal_projection_segment_payload(segment),
+        );
+        insert_wal_projection_edge(
+            &mut store,
+            root_node_id,
+            segment_node_id,
+            b"root_segment",
+            WAL_PROJECTION_GRAPH_SEGMENT_EDGE_TYPE,
+        );
+
+        let mut commit_anchors = segment.commit_anchors.clone();
+        commit_anchors.sort_by_key(WalCommitAnchor::identity_digest);
+        for anchor in &commit_anchors {
+            let anchor_node_id = wal_projection_node_id(b"commit_anchor", anchor.identity_digest());
+            insert_wal_projection_fact_node(
+                &mut store,
+                anchor_node_id,
+                WAL_PROJECTION_GRAPH_COMMIT_ANCHOR_NODE_TYPE,
+                WAL_PROJECTION_GRAPH_COMMIT_ANCHOR_ATTACHMENT_TYPE,
+                wal_projection_commit_anchor_payload(anchor),
+            );
+            insert_wal_projection_edge(
+                &mut store,
+                root_node_id,
+                anchor_node_id,
+                b"root_commit_anchor",
+                WAL_PROJECTION_GRAPH_ROOT_COMMIT_ANCHOR_EDGE_TYPE,
+            );
+            insert_wal_projection_edge(
+                &mut store,
+                segment_node_id,
+                anchor_node_id,
+                b"segment_commit_anchor",
+                WAL_PROJECTION_GRAPH_SEGMENT_COMMIT_ANCHOR_EDGE_TYPE,
+            );
+        }
+    }
+
+    if let Some(certificate) = &root.recovery_certificate {
+        let node_id =
+            wal_projection_node_id(b"recovery_certificate", certificate.identity_digest());
+        insert_wal_projection_fact_node(
+            &mut store,
+            node_id,
+            WAL_PROJECTION_GRAPH_RECOVERY_CERTIFICATE_NODE_TYPE,
+            WAL_PROJECTION_GRAPH_RECOVERY_CERTIFICATE_ATTACHMENT_TYPE,
+            wal_projection_recovery_certificate_payload(certificate),
+        );
+        insert_wal_projection_edge(
+            &mut store,
+            root_node_id,
+            node_id,
+            b"root_recovery_certificate",
+            WAL_PROJECTION_GRAPH_RECOVERY_CERTIFICATE_EDGE_TYPE,
+        );
+    }
+
+    WalProjectionGraph {
+        store,
+        root_node_id,
+    }
+}
+
 /// Projects recovered WAL evidence into a graph-ready root record.
 ///
 /// This function does not read or write storage. It only combines explicit
@@ -3457,6 +3644,191 @@ pub fn project_filesystem_wal_recovery(
         &segments,
         recovery_certificate,
     )
+}
+
+fn insert_wal_projection_fact_node(
+    store: &mut GraphStore,
+    node_id: NodeId,
+    node_type: &str,
+    attachment_type: &str,
+    payload_bytes: Vec<u8>,
+) {
+    store.insert_node(
+        node_id,
+        NodeRecord {
+            ty: crate::ident::make_type_id(node_type),
+        },
+    );
+    store.set_node_attachment(
+        node_id,
+        Some(AttachmentValue::Atom(AtomPayload::new(
+            crate::ident::make_type_id(attachment_type),
+            Bytes::from(payload_bytes),
+        ))),
+    );
+}
+
+fn insert_wal_projection_edge(
+    store: &mut GraphStore,
+    from: NodeId,
+    to: NodeId,
+    role: &[u8],
+    edge_type: &str,
+) {
+    store.insert_edge(
+        from,
+        EdgeRecord {
+            id: wal_projection_edge_id(role, from, to),
+            from,
+            to,
+            ty: crate::ident::make_type_id(edge_type),
+        },
+    );
+}
+
+fn wal_projection_node_id(role: &[u8], identity_digest: Hash) -> NodeId {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(WAL_PROJECTION_GRAPH_NODE_DOMAIN);
+    update_len_prefixed(&mut hasher, role);
+    hasher.update(&identity_digest);
+    NodeId(hasher.finalize().into())
+}
+
+fn wal_projection_edge_id(role: &[u8], from: NodeId, to: NodeId) -> EdgeId {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(WAL_PROJECTION_GRAPH_EDGE_DOMAIN);
+    update_len_prefixed(&mut hasher, role);
+    hasher.update(&from.0);
+    hasher.update(&to.0);
+    EdgeId(hasher.finalize().into())
+}
+
+fn wal_projection_root_payload(root: &WalRoot) -> Vec<u8> {
+    let mut out = Vec::new();
+    push_hash(&mut out, &root.root_digest);
+
+    let mut writer_epoch_digests = root
+        .writer_epochs
+        .iter()
+        .map(WalWriterEpoch::identity_digest)
+        .collect::<Vec<_>>();
+    writer_epoch_digests.sort_unstable();
+    out.extend_from_slice(&len_u64(writer_epoch_digests.len()).to_le_bytes());
+    for digest in &writer_epoch_digests {
+        push_hash(&mut out, digest);
+    }
+
+    let mut segment_digests = root
+        .segments
+        .iter()
+        .map(WalSegmentRef::identity_digest)
+        .collect::<Vec<_>>();
+    segment_digests.sort_unstable();
+    out.extend_from_slice(&len_u64(segment_digests.len()).to_le_bytes());
+    for digest in &segment_digests {
+        push_hash(&mut out, digest);
+    }
+
+    match &root.recovery_certificate {
+        Some(certificate) => {
+            out.push(1);
+            push_hash(&mut out, &certificate.identity_digest());
+        }
+        None => out.push(0),
+    }
+    out
+}
+
+fn wal_projection_writer_epoch_payload(epoch: &WalWriterEpoch) -> Vec<u8> {
+    let mut out = Vec::new();
+    push_hash(&mut out, &epoch.epoch_id.as_hash());
+    push_hash(&mut out, &epoch.storage_fencing_token);
+    push_hash(&mut out, &epoch.process_identity);
+    push_hash(&mut out, &epoch.host_identity);
+    out.extend_from_slice(&epoch.started_at_lsn.as_u64().to_le_bytes());
+    match epoch.previous_epoch_id {
+        Some(previous_epoch_id) => {
+            out.push(1);
+            push_hash(&mut out, &previous_epoch_id.as_hash());
+        }
+        None => out.push(0),
+    }
+    push_optional_hash(&mut out, epoch.previous_epoch_final_commit_digest);
+    push_hash(&mut out, &epoch.lease_or_lock_evidence);
+    out
+}
+
+fn wal_projection_segment_payload(segment: &WalSegmentRef) -> Vec<u8> {
+    let mut out = Vec::new();
+    push_hash(&mut out, &segment.writer_epoch.as_hash());
+    out.extend_from_slice(&segment.segment_id.as_u64().to_le_bytes());
+    out.extend_from_slice(&segment.first_lsn.as_u64().to_le_bytes());
+    out.extend_from_slice(&segment.last_lsn.as_u64().to_le_bytes());
+    push_hash(&mut out, &segment.previous_commit_digest);
+    push_hash(&mut out, &segment.final_commit_digest);
+    push_hash(&mut out, &segment.segment_digest);
+
+    let mut commit_anchor_digests = segment
+        .commit_anchors
+        .iter()
+        .map(WalCommitAnchor::identity_digest)
+        .collect::<Vec<_>>();
+    commit_anchor_digests.sort_unstable();
+    out.extend_from_slice(&len_u64(commit_anchor_digests.len()).to_le_bytes());
+    for digest in &commit_anchor_digests {
+        push_hash(&mut out, digest);
+    }
+
+    push_wal_segment_seal_posture(&mut out, &segment.seal_posture);
+    out
+}
+
+fn wal_projection_commit_anchor_payload(anchor: &WalCommitAnchor) -> Vec<u8> {
+    let mut out = Vec::new();
+    push_hash(&mut out, &anchor.transaction_id.as_hash());
+    push_hash(&mut out, &anchor.commit_digest);
+    out.extend_from_slice(&anchor.first_lsn.as_u64().to_le_bytes());
+    out.extend_from_slice(&anchor.last_lsn.as_u64().to_le_bytes());
+    out.extend_from_slice(&anchor.record_count.to_le_bytes());
+    out
+}
+
+fn wal_projection_recovery_certificate_payload(certificate: &RecoveryCertificateRef) -> Vec<u8> {
+    let mut out = Vec::new();
+    push_hash(&mut out, &certificate.certificate_digest);
+    push_optional_hash(&mut out, certificate.checkpoint_used);
+    push_optional_lsn(&mut out, certificate.first_lsn);
+    push_optional_lsn(&mut out, certificate.last_lsn);
+    push_recovery_tail_posture(&mut out, &certificate.tail_posture);
+    push_hash(&mut out, &certificate.recovered_frontier_root);
+    push_hash(&mut out, &certificate.recovered_indexes_root);
+    out
+}
+
+fn push_wal_segment_seal_posture(out: &mut Vec<u8>, posture: &WalSegmentSealPosture) {
+    match posture {
+        WalSegmentSealPosture::Open => out.push(0),
+        WalSegmentSealPosture::Sealed { sealed_lsn } => {
+            out.push(1);
+            push_optional_lsn(out, *sealed_lsn);
+        }
+    }
+}
+
+fn push_recovery_tail_posture(out: &mut Vec<u8>, posture: &RecoveryTailPosture) {
+    match posture {
+        RecoveryTailPosture::Clean => out.push(0),
+        RecoveryTailPosture::TruncatedAll => out.push(1),
+        RecoveryTailPosture::TruncatedAfter(lsn) => {
+            out.push(2);
+            out.extend_from_slice(&lsn.as_u64().to_le_bytes());
+        }
+        RecoveryTailPosture::WouldTruncateAll => out.push(3),
+        RecoveryTailPosture::WouldTruncateAfter(lsn) => {
+            out.push(4);
+            out.extend_from_slice(&lsn.as_u64().to_le_bytes());
+        }
+    }
 }
 
 /// Read-only WAL doctor posture.

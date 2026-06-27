@@ -12,6 +12,11 @@
   `RecoveryCertificateRef`; `WalSegmentRef::identity_digest()` binds writer
   epoch, LSN range, commit chain, segment digest, commit anchors, and seal
   posture while excluding storage locators from causal projection identity.
+- `warp-core` can now project recovered WAL history into graph-ready
+  `WalRecoveryProjection` records from explicit manifest, segment seal, segment
+  locator, writer epoch, and recovery certificate evidence; missing manifests or
+  unavailable locators produce typed projection obstructions instead of empty
+  success.
 - `cargo xtask test-slice durable-runtime-wal` now runs the release-grade
   filesystem runtime WAL durability gate, joining filesystem ACK recovery,
   filesystem failure atomicity, CLI submission posture JSON, stale-claim, and

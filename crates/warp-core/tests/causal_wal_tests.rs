@@ -14,8 +14,9 @@ use warp_core::causal_wal::{
     build_checkpoint_publication_transaction, build_materialization_outbox_transaction,
     build_recovery_certificate, build_retained_reading_transaction,
     build_submission_acceptance_transaction, build_tick_transaction,
-    build_topology_intent_transaction, doctor_in_memory_store, evaluate_checkpoint_publication,
-    lint_wal_schema_terms, missing_material_scope, project_causal_commit_evidence,
+    build_topology_intent_transaction, canonical_segment_relative_path, doctor_in_memory_store,
+    evaluate_checkpoint_publication, lint_wal_schema_terms, missing_material_scope,
+    project_causal_commit_evidence, project_filesystem_wal_recovery, project_wal_recovery,
     read_checkpoint_record, recover_checkpoint_publications, recover_filesystem_store,
     recover_in_memory_store, recover_materialization_outbox, recover_receipt_index,
     recover_retention_index, recover_submission_index, recover_topology_index,
@@ -34,11 +35,12 @@ use warp_core::causal_wal::{
     TopologyBraidEventRecord, TopologyImportOutcomeKind, TopologyIntentRecord,
     TransactionLocalIndex, WalAppendAuthority, WalBuildError, WalCommitAnchor,
     WalCommittedTransaction, WalDoctorPosture, WalDurabilityMode, WalManifest,
-    WalReceiptCorrelationRecord, WalRecordKind, WalRecoveryIndexError, WalReleaseReadinessGates,
-    WalRoot, WalSchemaLintError, WalSegmentId, WalSegmentRef, WalSegmentSealPosture,
-    WalSegmentStorageLocator, WalStoreError, WalStorePort, WalTickDecision, WalTransactionBuilder,
-    WalTransactionId, WalTransactionKind, WalWriterEpoch, WriterEpoch, WriterEpochId,
-    WriterEpochRequest,
+    WalReceiptCorrelationRecord, WalRecordKind, WalRecoveryIndexError,
+    WalRecoveryProjectionObstruction, WalRecoveryProjectionPosture, WalRecoverySegmentEvidence,
+    WalReleaseReadinessGates, WalRoot, WalSchemaLintError, WalSegmentId, WalSegmentRef,
+    WalSegmentSealPosture, WalSegmentStorageLocator, WalStoreError, WalStorePort, WalTickDecision,
+    WalTransactionBuilder, WalTransactionId, WalTransactionKind, WalWriterEpoch, WriterEpoch,
+    WriterEpochId, WriterEpochRequest,
 };
 use warp_core::{
     make_strand_id, AuthorityDomainId, AuthorityDomainRef, BraidEvent, BraidStatus, Hash, HeadId,
@@ -259,6 +261,139 @@ fn wal_projection_fact_identity_excludes_absolute_storage_locators() {
         segment.identity_digest()
     );
     assert_eq!(root.identity_digest(), reordered_root.identity_digest());
+}
+
+#[test]
+fn wal_projection_from_recovery() {
+    let dir = temp_wal_dir("projection-recovery");
+    let mut store = must_ok(FilesystemWalStore::open(&dir, WalSegmentId::from_raw(1)));
+    let writer_epoch = must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    must_ok(store.append_transaction(durable_submission_transaction(
+        "projection-recovery",
+        Lsn::from_raw(0),
+    )));
+    must_ok(store.append_transaction(durable_tick_transaction(
+        "projection-recovery",
+        Lsn::from_raw(2),
+        WalTickDecision::Applied,
+    )));
+    let seal = must_ok(store.seal_segment(epoch_id(), WalSegmentId::from_raw(1)));
+    let last_commit_digest = must_some(
+        store
+            .read_commits()
+            .last()
+            .map(|commit| commit.commit_digest),
+    );
+    let manifest = WalManifest {
+        manifest_digest: digest("projection-recovery:manifest"),
+        last_committed_lsn: Some(Lsn::from_raw(4)),
+        last_commit_digest: Some(last_commit_digest),
+        sealed_segment_count: 1,
+    };
+    must_ok(store.publish_manifest(epoch_id(), manifest.clone()));
+    let segment_before = must_ok(fs::read(store.segment_path()));
+    let manifest_before = must_ok(fs::read(dir.join("manifest.ecwal")));
+
+    let report = must_ok(recover_filesystem_store(&dir, RecoveryAccessMode::ReadOnly));
+    let certificate = build_recovery_certificate(
+        &report,
+        None,
+        0,
+        digest("projection-recovery:frontier"),
+        digest("projection-recovery:indexes"),
+    );
+    let writer_epoch = WalWriterEpoch::from_writer_epoch(&writer_epoch);
+    let projection = project_filesystem_wal_recovery(
+        &dir,
+        &report,
+        std::slice::from_ref(&writer_epoch),
+        Some(&certificate),
+    );
+    let repeated = project_filesystem_wal_recovery(
+        &dir,
+        &report,
+        std::slice::from_ref(&writer_epoch),
+        Some(&certificate),
+    );
+
+    assert_eq!(projection, repeated);
+    assert_eq!(projection.posture, WalRecoveryProjectionPosture::Present);
+    assert!(projection.obstructions.is_empty());
+    let root = must_some(projection.root);
+    assert_eq!(root.root_digest, manifest.manifest_digest);
+    assert_eq!(root.writer_epochs, vec![writer_epoch.clone()]);
+    assert_eq!(root.segments.len(), 1);
+    assert_eq!(root.segments[0].writer_epoch, epoch_id());
+    assert_eq!(root.segments[0].segment_id, WalSegmentId::from_raw(1));
+    assert_eq!(root.segments[0].first_lsn, Lsn::from_raw(0));
+    assert_eq!(root.segments[0].last_lsn, Lsn::from_raw(4));
+    assert_eq!(root.segments[0].segment_digest, seal.segment_digest);
+    assert_eq!(root.segments[0].commit_anchors.len(), 2);
+    assert_eq!(
+        root.segments[0].seal_posture,
+        WalSegmentSealPosture::Sealed {
+            sealed_lsn: Some(Lsn::from_raw(4))
+        }
+    );
+    assert_eq!(
+        root.segments[0].storage_locator,
+        Some(WalSegmentStorageLocator::RelativePath(
+            canonical_segment_relative_path(WalSegmentId::from_raw(1))
+        ))
+    );
+    assert!(root.recovery_certificate.is_some());
+    assert_eq!(must_ok(fs::read(store.segment_path())), segment_before);
+    assert_eq!(
+        must_ok(fs::read(dir.join("manifest.ecwal"))),
+        manifest_before
+    );
+
+    let segment_evidence = WalRecoverySegmentEvidence {
+        segment_id: seal.segment_id,
+        segment_digest: seal.segment_digest,
+        seal_posture: WalSegmentSealPosture::Sealed {
+            sealed_lsn: seal.sealed_lsn,
+        },
+        storage_locator: Some(WalSegmentStorageLocator::RelativePath(
+            canonical_segment_relative_path(WalSegmentId::from_raw(1)),
+        )),
+    };
+    let missing_manifest = project_wal_recovery(
+        &report,
+        None,
+        std::slice::from_ref(&writer_epoch),
+        std::slice::from_ref(&segment_evidence),
+        Some(&certificate),
+    );
+    assert_eq!(
+        missing_manifest.posture,
+        WalRecoveryProjectionPosture::Obstructed
+    );
+    assert_eq!(missing_manifest.root, None);
+    assert!(missing_manifest
+        .obstructions
+        .contains(&WalRecoveryProjectionObstruction::MissingManifest));
+
+    let unavailable_locator = project_wal_recovery(
+        &report,
+        Some(&manifest),
+        &[writer_epoch],
+        &[WalRecoverySegmentEvidence {
+            storage_locator: None,
+            ..segment_evidence
+        }],
+        Some(&certificate),
+    );
+    assert_eq!(
+        unavailable_locator.posture,
+        WalRecoveryProjectionPosture::Obstructed
+    );
+    assert_eq!(unavailable_locator.root, None);
+    assert!(unavailable_locator.obstructions.contains(
+        &WalRecoveryProjectionObstruction::SegmentLocatorUnavailable {
+            segment_id: WalSegmentId::from_raw(1)
+        }
+    ));
 }
 
 fn builder(

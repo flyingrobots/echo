@@ -168,22 +168,22 @@ Every important causal claim must answer:
 
 The vocabulary stays sharp:
 
-| Term               | Meaning                                                  |
-| ------------------ | -------------------------------------------------------- |
-| Struct             | Represents a fact.                                       |
-| Constructor        | Admits a fact through a named door.                      |
-| Witness            | Supports a fact with evidence.                           |
-| Replay             | Explains a fact from recorded causes.                    |
-| Law                | Interprets a fact under named authority and posture.     |
-| Digest             | Preserves the identity of a fact.                        |
-| Admission          | Decides whether a claim enters Echo history.             |
-| Settlement         | Admits history; it is not merge semantics.               |
-| Projection         | Materializes one bounded reading from admitted history.  |
-| Sealed member      | Hides member identity behind authorized proof material.  |
-| Revealed member    | Exposes member identity directly.                        |
-| Posture floor      | Lowest causal posture the reading can honestly claim.    |
-| Retained plurality | Preserved multiple claims not collapsed to one fact.     |
-| Collapse law       | Named law that interprets or reduces retained plurality. |
+| Term               | Meaning                                                                |
+| ------------------ | ---------------------------------------------------------------------- |
+| Struct             | Represents a fact.                                                     |
+| Constructor        | Admits a fact through a named door.                                    |
+| Witness            | Supports a fact with evidence.                                         |
+| Replay             | Explains a fact from recorded causes.                                  |
+| Law                | Interprets a fact under named authority and posture.                   |
+| Digest             | Preserves the identity of a fact.                                      |
+| Admission          | Decides whether a claim enters Echo history.                           |
+| Settlement         | Admits history; it is not merge semantics.                             |
+| Projection         | Materializes one bounded reading from admitted history.                |
+| Sealed member      | Hides member identity behind authorized proof material.                |
+| Revealed member    | Exposes member identity directly.                                      |
+| Posture floor      | Lowest causal posture the reading can honestly claim.                  |
+| Retained plurality | Preserved multiple claims not collapsed to one fact.                   |
+| Collapse law       | Named law that interprets or reduces retained plurality.               |
 | Topology intent    | Admitted causal-history operation that changes lane or braid geometry. |
 
 Claim lifecycle:

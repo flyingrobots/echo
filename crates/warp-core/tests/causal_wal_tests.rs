@@ -28,14 +28,17 @@ use warp_core::causal_wal::{
     MaterializationObservationRecord, MaterializationReplayPosture, MissingMaterialScope,
     ObjectStoreCapabilityError, ObjectStoreReadAfterWritePosture, ObjectStoreWalCapabilities,
     PayloadCodecId, PayloadSchemaId, ReadingRefRecord, RecoveredState, RecoveredSubmissionPosture,
-    RecoveredTopologyIndex, RecoveryAccessMode, RecoveryTailPosture, RetainedMaterialKind,
-    RetainedMaterialRecord, StrandDropRecord, StrandForkRecord, SubmissionAcceptanceRecord,
-    SubmissionRetryPosture, SuffixImportRecord, TickReceiptRecord, TopologyBraidEventRecord,
-    TopologyImportOutcomeKind, TopologyIntentRecord, TransactionLocalIndex, WalAppendAuthority,
-    WalBuildError, WalCommittedTransaction, WalDoctorPosture, WalDurabilityMode, WalManifest,
+    RecoveredTopologyIndex, RecoveryAccessMode, RecoveryCertificateRef, RecoveryTailPosture,
+    RetainedMaterialKind, RetainedMaterialRecord, StrandDropRecord, StrandForkRecord,
+    SubmissionAcceptanceRecord, SubmissionRetryPosture, SuffixImportRecord, TickReceiptRecord,
+    TopologyBraidEventRecord, TopologyImportOutcomeKind, TopologyIntentRecord,
+    TransactionLocalIndex, WalAppendAuthority, WalBuildError, WalCommitAnchor,
+    WalCommittedTransaction, WalDoctorPosture, WalDurabilityMode, WalManifest,
     WalReceiptCorrelationRecord, WalRecordKind, WalRecoveryIndexError, WalReleaseReadinessGates,
-    WalSchemaLintError, WalSegmentId, WalStoreError, WalStorePort, WalTickDecision,
-    WalTransactionBuilder, WalTransactionId, WalTransactionKind, WriterEpochId, WriterEpochRequest,
+    WalRoot, WalSchemaLintError, WalSegmentId, WalSegmentRef, WalSegmentSealPosture,
+    WalSegmentStorageLocator, WalStoreError, WalStorePort, WalTickDecision, WalTransactionBuilder,
+    WalTransactionId, WalTransactionKind, WalWriterEpoch, WriterEpoch, WriterEpochId,
+    WriterEpochRequest,
 };
 use warp_core::{
     make_strand_id, AuthorityDomainId, AuthorityDomainRef, BraidEvent, BraidStatus, Hash, HeadId,
@@ -65,6 +68,13 @@ fn must_some<T>(option: Option<T>) -> T {
     match option {
         Some(value) => value,
         None => panic!("expected Some(..), got None"),
+    }
+}
+
+fn must_err<T, E>(result: Result<T, E>, context: &str) -> E {
+    match result {
+        Ok(_) => panic!("expected Err(..): {context}"),
+        Err(error) => error,
     }
 }
 
@@ -121,6 +131,134 @@ fn writer_epoch_request() -> WriterEpochRequest {
         previous_epoch_final_commit_digest: None,
         lease_or_lock_evidence: digest("lease"),
     }
+}
+
+#[test]
+fn wal_projection_fact_identity_excludes_absolute_storage_locators() {
+    let writer_epoch = WalWriterEpoch::from_writer_epoch(&WriterEpoch {
+        epoch_id: epoch_id(),
+        storage_fencing_token: digest("projection:fencing"),
+        process_identity: digest("projection:process"),
+        host_identity: digest("projection:host"),
+        started_at_lsn: Lsn::from_raw(7),
+        previous_epoch_id: Some(WriterEpochId::from_hash(digest(
+            "projection:previous-epoch",
+        ))),
+        previous_epoch_final_commit_digest: Some(digest("projection:previous-final-commit")),
+        lease_or_lock_evidence: digest("projection:lease"),
+    });
+    let commit_anchor = WalCommitAnchor {
+        transaction_id: transaction_id("projection:tx"),
+        commit_digest: digest("projection:commit"),
+        first_lsn: Lsn::from_raw(7),
+        last_lsn: Lsn::from_raw(9),
+        record_count: 3,
+    };
+    let relative_locator = WalSegmentStorageLocator::RelativePath(PathBuf::from("segments/0001"));
+    let absolute_locator =
+        WalSegmentStorageLocator::AbsolutePath(PathBuf::from("/var/tmp/echo/wal/segments/0001"));
+    let segment = WalSegmentRef {
+        writer_epoch: writer_epoch.epoch_id,
+        segment_id: WalSegmentId::from_raw(1),
+        first_lsn: Lsn::from_raw(7),
+        last_lsn: Lsn::from_raw(9),
+        previous_commit_digest: digest("projection:previous-commit"),
+        final_commit_digest: digest("projection:commit"),
+        segment_digest: digest("projection:segment"),
+        commit_anchors: vec![commit_anchor.clone()],
+        seal_posture: WalSegmentSealPosture::Sealed {
+            sealed_lsn: Some(Lsn::from_raw(9)),
+        },
+        storage_locator: Some(relative_locator),
+    };
+    let relocated_segment = WalSegmentRef {
+        storage_locator: Some(absolute_locator),
+        ..segment.clone()
+    };
+
+    assert_eq!(
+        segment.identity_digest(),
+        relocated_segment.identity_digest()
+    );
+    assert_ne!(segment.storage_locator, relocated_segment.storage_locator);
+
+    let changed_segment_digest = WalSegmentRef {
+        segment_digest: digest("projection:other-segment"),
+        ..segment.clone()
+    };
+    assert_ne!(
+        segment.identity_digest(),
+        changed_segment_digest.identity_digest()
+    );
+
+    let changed_anchor = WalSegmentRef {
+        commit_anchors: vec![WalCommitAnchor {
+            commit_digest: digest("projection:other-commit"),
+            ..commit_anchor
+        }],
+        ..segment.clone()
+    };
+    assert_ne!(segment.identity_digest(), changed_anchor.identity_digest());
+
+    let changed_seal_posture = WalSegmentRef {
+        seal_posture: WalSegmentSealPosture::Open,
+        ..segment.clone()
+    };
+    assert_ne!(
+        segment.identity_digest(),
+        changed_seal_posture.identity_digest()
+    );
+
+    let recovery = RecoveryCertificateRef {
+        certificate_digest: digest("projection:certificate"),
+        checkpoint_used: Some(digest("projection:checkpoint")),
+        first_lsn: Some(Lsn::from_raw(7)),
+        last_lsn: Some(Lsn::from_raw(9)),
+        tail_posture: RecoveryTailPosture::Clean,
+        recovered_frontier_root: digest("projection:frontier"),
+        recovered_indexes_root: digest("projection:indexes"),
+    };
+    let second_anchor = WalCommitAnchor {
+        transaction_id: transaction_id("projection:tx:second"),
+        commit_digest: digest("projection:second-commit"),
+        first_lsn: Lsn::from_raw(10),
+        last_lsn: Lsn::from_raw(12),
+        record_count: 3,
+    };
+    let second_segment = WalSegmentRef {
+        writer_epoch: writer_epoch.epoch_id,
+        segment_id: WalSegmentId::from_raw(2),
+        first_lsn: Lsn::from_raw(10),
+        last_lsn: Lsn::from_raw(12),
+        previous_commit_digest: digest("projection:commit"),
+        final_commit_digest: digest("projection:second-commit"),
+        segment_digest: digest("projection:second-segment"),
+        commit_anchors: vec![second_anchor],
+        seal_posture: WalSegmentSealPosture::Sealed {
+            sealed_lsn: Some(Lsn::from_raw(12)),
+        },
+        storage_locator: Some(WalSegmentStorageLocator::RelativePath(PathBuf::from(
+            "segments/0002",
+        ))),
+    };
+    let root = WalRoot {
+        root_digest: digest("projection:root"),
+        writer_epochs: vec![writer_epoch.clone()],
+        segments: vec![relocated_segment, second_segment.clone()],
+        recovery_certificate: Some(recovery.clone()),
+    };
+    let reordered_root = WalRoot {
+        root_digest: digest("projection:root"),
+        writer_epochs: vec![writer_epoch],
+        segments: vec![second_segment, segment.clone()],
+        recovery_certificate: Some(recovery),
+    };
+
+    assert_eq!(
+        root.segments[0].identity_digest(),
+        segment.identity_digest()
+    );
+    assert_eq!(root.identity_digest(), reordered_root.identity_digest());
 }
 
 fn builder(
@@ -1056,14 +1194,16 @@ fn topology_duplicate_idempotent_records_replay_once_and_divergent_records_obstr
 
     let mut divergent = fork;
     divergent.child_worldline_id = worldline(99);
-    let obstruction = RecoveredTopologyIndex::from_topology_records([
-        TopologyIntentRecord::StrandFork(match &records[0] {
-            TopologyIntentRecord::StrandFork(record) => record.clone(),
-            _ => panic!("expected strand fork fixture"),
-        }),
-        TopologyIntentRecord::StrandFork(divergent),
-    ])
-    .expect_err("divergent duplicate strand fork obstructs");
+    let obstruction = must_err(
+        RecoveredTopologyIndex::from_topology_records([
+            TopologyIntentRecord::StrandFork(match &records[0] {
+                TopologyIntentRecord::StrandFork(record) => record.clone(),
+                _ => panic!("expected strand fork fixture"),
+            }),
+            TopologyIntentRecord::StrandFork(divergent),
+        ]),
+        "divergent duplicate strand fork obstructs",
+    );
 
     assert!(matches!(
         obstruction,
@@ -1121,11 +1261,13 @@ fn topology_strand_fork_and_drop_must_name_same_child_worldline() {
     };
     drop.child_worldline_id = worldline(99);
 
-    let obstruction = RecoveredTopologyIndex::from_topology_records([
-        TopologyIntentRecord::StrandFork(fork),
-        TopologyIntentRecord::StrandDrop(drop),
-    ])
-    .expect_err("fork/drop child mismatch obstructs");
+    let obstruction = must_err(
+        RecoveredTopologyIndex::from_topology_records([
+            TopologyIntentRecord::StrandFork(fork),
+            TopologyIntentRecord::StrandDrop(drop),
+        ]),
+        "fork/drop child mismatch obstructs",
+    );
 
     assert!(matches!(
         obstruction,
@@ -1144,11 +1286,12 @@ fn topology_braid_event_records_must_be_self_consistent() {
         braid_id: digest("topology:other-braid"),
         creator_domain: authority(9),
     };
-    let mismatch =
+    let mismatch = must_err(
         RecoveredTopologyIndex::from_topology_records([TopologyIntentRecord::BraidEvent(
             mismatched_braid,
-        )])
-        .expect_err("mismatched embedded braid id obstructs");
+        )]),
+        "mismatched embedded braid id obstructs",
+    );
     assert!(matches!(
         mismatch,
         WalRecoveryIndexError::ConflictingBraidEvent { .. }
@@ -1156,10 +1299,12 @@ fn topology_braid_event_records_must_be_self_consistent() {
 
     let mut impossible_status = braid_event;
     impossible_status.status_after = BraidStatus::Collapsed;
-    let status = RecoveredTopologyIndex::from_topology_records([TopologyIntentRecord::BraidEvent(
-        impossible_status,
-    )])
-    .expect_err("impossible braid status obstructs");
+    let status = must_err(
+        RecoveredTopologyIndex::from_topology_records([TopologyIntentRecord::BraidEvent(
+            impossible_status,
+        )]),
+        "impossible braid status obstructs",
+    );
     assert!(matches!(
         status,
         WalRecoveryIndexError::ConflictingBraidEvent { .. }

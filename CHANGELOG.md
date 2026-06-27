@@ -7,6 +7,11 @@
 
 ### Added
 
+- `warp-core` now exposes WAL projection fact records for `WalRoot`,
+  `WalWriterEpoch`, `WalSegmentRef`, `WalCommitAnchor`, and
+  `RecoveryCertificateRef`; `WalSegmentRef::identity_digest()` binds writer
+  epoch, LSN range, commit chain, segment digest, commit anchors, and seal
+  posture while excluding storage locators from causal projection identity.
 - `cargo xtask test-slice durable-runtime-wal` now runs the release-grade
   filesystem runtime WAL durability gate, joining filesystem ACK recovery,
   filesystem failure atomicity, CLI submission posture JSON, stale-claim, and

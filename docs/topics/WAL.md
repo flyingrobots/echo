@@ -57,14 +57,14 @@ later recorded any decided receipt under host-owned WAL authority.
 
 The useful postures are:
 
-| Posture | Meaning |
-| --- | --- |
-| `not_accepted` | The intent never reached WAL-backed accepted submission posture. |
-| `accepted_pending` | Accepted-submission evidence was recovered, but no decided receipt was recovered. |
-| `decided_applied` | A recovered receipt says the work applied under named law. |
-| `decided_rejected` | A recovered receipt says the work was rejected or conflicted. |
-| `obstructed` | Recovery found accepted or decided evidence, but required material or consistency checks obstruct restoring the work. |
-| `recovery_faulted` | Required committed WAL evidence or retained material is missing or corrupt. |
+| Posture            | Meaning                                                                                                               |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `not_accepted`     | The intent never reached WAL-backed accepted submission posture.                                                      |
+| `accepted_pending` | Accepted-submission evidence was recovered, but no decided receipt was recovered.                                     |
+| `decided_applied`  | A recovered receipt says the work applied under named law.                                                            |
+| `decided_rejected` | A recovered receipt says the work was rejected or conflicted.                                                         |
+| `obstructed`       | Recovery found accepted or decided evidence, but required material or consistency checks obstruct restoring the work. |
+| `recovery_faulted` | Required committed WAL evidence or retained material is missing or corrupt.                                           |
 
 An app such as `jedit` maps these generic postures into product language
 outside Echo. Echo should not grow editor, file, buffer, or dirty-state nouns in

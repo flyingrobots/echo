@@ -106,11 +106,11 @@ transport object, not a new authored intent.
 
 ## Slices
 
-| Slice  | Issue | Work |
-| ------ | ----- | ---- |
-| GP6-S1 | [#605](https://github.com/flyingrobots/echo/issues/605) | WAL-backed strand fork and drop intent receipts |
-| GP6-S2 | [#606](https://github.com/flyingrobots/echo/issues/606) | WAL/WSC-backed braid event logs and retained shells |
-| GP6-S3 | [#607](https://github.com/flyingrobots/echo/issues/607) | Replica suffix import as a witnessed WARP optic intent |
+| Slice  | Issue                                                   | Work                                                    |
+| ------ | ------------------------------------------------------- | ------------------------------------------------------- |
+| GP6-S1 | [#605](https://github.com/flyingrobots/echo/issues/605) | WAL-backed strand fork and drop intent receipts         |
+| GP6-S2 | [#606](https://github.com/flyingrobots/echo/issues/606) | WAL/WSC-backed braid event logs and retained shells     |
+| GP6-S3 | [#607](https://github.com/flyingrobots/echo/issues/607) | Replica suffix import as a witnessed WARP optic intent  |
 | GP6-S4 | [#608](https://github.com/flyingrobots/echo/issues/608) | Recovery indexes for topology state and retained shells |
 
 ## Acceptance Criteria

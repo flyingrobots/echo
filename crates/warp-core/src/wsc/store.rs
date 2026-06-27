@@ -125,6 +125,153 @@ impl WscStoreRecordKind {
     }
 }
 
+/// Current version of the causal-history WSC export profile model.
+pub const WSC_CAUSAL_HISTORY_EXPORT_PROFILE_VERSION: u16 = 1;
+
+/// Versioned causal-history WSC export profile kind.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum WscCausalHistoryExportProfileKind {
+    /// Reference-only export carrying graph facts and storage references.
+    RefOnly,
+    /// Self-contained export carrying embedded validation material.
+    SelfContained,
+    /// CAS-addressed export carrying byte hashes plus semantic references.
+    CasAddressed,
+}
+
+impl WscCausalHistoryExportProfileKind {
+    /// Returns the stable profile label used in manifests and tests.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::RefOnly => "ref-only",
+            Self::SelfContained => "self-contained",
+            Self::CasAddressed => "CAS-addressed",
+        }
+    }
+}
+
+/// Evidence requirement for a causal-history WSC export profile.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WscCausalHistoryExportEvidence {
+    /// The profile must carry this evidence.
+    Required,
+    /// The profile may carry this evidence, but consumers must not rely on it.
+    Optional,
+    /// The profile must not carry this evidence.
+    Forbidden,
+}
+
+/// Validation material mode for a causal-history WSC export profile.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WscCausalHistoryExportValidationMaterial {
+    /// Validation depends on external WAL storage named by locators.
+    ExternalWalStorageRefs,
+    /// Validation can use embedded segment bytes or retained material.
+    EmbeddedSegmentBytesOrRetainedMaterial,
+    /// Validation names CAS bytes through content hashes and semantic refs.
+    CasHashesWithSemanticRefs,
+}
+
+/// CAS authority posture for a causal-history WSC export profile.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WscCausalHistoryCasAuthority {
+    /// CAS names retained bytes only and is not causal authority.
+    ByteRetentionOnly,
+}
+
+/// Versioned causal-history WSC export profile evidence requirements.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WscCausalHistoryExportProfile {
+    /// Profile model version.
+    pub version: u16,
+    /// Export profile kind.
+    pub kind: WscCausalHistoryExportProfileKind,
+    /// Required validation material mode.
+    pub validation_material: WscCausalHistoryExportValidationMaterial,
+    /// Projected graph facts requirement.
+    pub projected_graph_facts: WscCausalHistoryExportEvidence,
+    /// Segment locator requirement.
+    pub segment_locators: WscCausalHistoryExportEvidence,
+    /// Segment digest requirement.
+    pub segment_digests: WscCausalHistoryExportEvidence,
+    /// LSN range requirement.
+    pub lsn_ranges: WscCausalHistoryExportEvidence,
+    /// Commit anchor requirement.
+    pub commit_anchors: WscCausalHistoryExportEvidence,
+    /// Embedded segment bytes or retained material requirement.
+    pub embedded_segment_bytes_or_retained_material: WscCausalHistoryExportEvidence,
+    /// CAS content hash requirement.
+    pub cas_content_hashes: WscCausalHistoryExportEvidence,
+    /// Semantic reference requirement for CAS-addressed material.
+    pub semantic_refs: WscCausalHistoryExportEvidence,
+    /// CAS authority posture, when the profile uses CAS-addressed material.
+    pub cas_authority: Option<WscCausalHistoryCasAuthority>,
+}
+
+/// Returns the evidence requirements for one causal-history WSC export profile.
+#[must_use]
+pub const fn wsc_causal_history_export_profile(
+    kind: WscCausalHistoryExportProfileKind,
+) -> WscCausalHistoryExportProfile {
+    match kind {
+        WscCausalHistoryExportProfileKind::RefOnly => WscCausalHistoryExportProfile {
+            version: WSC_CAUSAL_HISTORY_EXPORT_PROFILE_VERSION,
+            kind,
+            validation_material: WscCausalHistoryExportValidationMaterial::ExternalWalStorageRefs,
+            projected_graph_facts: WscCausalHistoryExportEvidence::Required,
+            segment_locators: WscCausalHistoryExportEvidence::Required,
+            segment_digests: WscCausalHistoryExportEvidence::Required,
+            lsn_ranges: WscCausalHistoryExportEvidence::Required,
+            commit_anchors: WscCausalHistoryExportEvidence::Required,
+            embedded_segment_bytes_or_retained_material: WscCausalHistoryExportEvidence::Forbidden,
+            cas_content_hashes: WscCausalHistoryExportEvidence::Forbidden,
+            semantic_refs: WscCausalHistoryExportEvidence::Forbidden,
+            cas_authority: None,
+        },
+        WscCausalHistoryExportProfileKind::SelfContained => WscCausalHistoryExportProfile {
+            version: WSC_CAUSAL_HISTORY_EXPORT_PROFILE_VERSION,
+            kind,
+            validation_material:
+                WscCausalHistoryExportValidationMaterial::EmbeddedSegmentBytesOrRetainedMaterial,
+            projected_graph_facts: WscCausalHistoryExportEvidence::Required,
+            segment_locators: WscCausalHistoryExportEvidence::Optional,
+            segment_digests: WscCausalHistoryExportEvidence::Required,
+            lsn_ranges: WscCausalHistoryExportEvidence::Required,
+            commit_anchors: WscCausalHistoryExportEvidence::Required,
+            embedded_segment_bytes_or_retained_material: WscCausalHistoryExportEvidence::Required,
+            cas_content_hashes: WscCausalHistoryExportEvidence::Forbidden,
+            semantic_refs: WscCausalHistoryExportEvidence::Forbidden,
+            cas_authority: None,
+        },
+        WscCausalHistoryExportProfileKind::CasAddressed => WscCausalHistoryExportProfile {
+            version: WSC_CAUSAL_HISTORY_EXPORT_PROFILE_VERSION,
+            kind,
+            validation_material:
+                WscCausalHistoryExportValidationMaterial::CasHashesWithSemanticRefs,
+            projected_graph_facts: WscCausalHistoryExportEvidence::Required,
+            segment_locators: WscCausalHistoryExportEvidence::Forbidden,
+            segment_digests: WscCausalHistoryExportEvidence::Required,
+            lsn_ranges: WscCausalHistoryExportEvidence::Required,
+            commit_anchors: WscCausalHistoryExportEvidence::Required,
+            embedded_segment_bytes_or_retained_material: WscCausalHistoryExportEvidence::Forbidden,
+            cas_content_hashes: WscCausalHistoryExportEvidence::Required,
+            semantic_refs: WscCausalHistoryExportEvidence::Required,
+            cas_authority: Some(WscCausalHistoryCasAuthority::ByteRetentionOnly),
+        },
+    }
+}
+
+/// Returns all supported causal-history WSC export profiles.
+#[must_use]
+pub const fn wsc_causal_history_export_profiles() -> [WscCausalHistoryExportProfile; 3] {
+    [
+        wsc_causal_history_export_profile(WscCausalHistoryExportProfileKind::RefOnly),
+        wsc_causal_history_export_profile(WscCausalHistoryExportProfileKind::SelfContained),
+        wsc_causal_history_export_profile(WscCausalHistoryExportProfileKind::CasAddressed),
+    ]
+}
+
 /// Subject named by a WSC store obstruction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WscStoreSubject {

@@ -393,6 +393,144 @@ fn wal_projection_from_recovery() {
         .obstructions
         .contains(&WalRecoveryProjectionObstruction::MissingManifest));
 
+    let empty_uncommitted_tail = project_wal_recovery(
+        &RecoveryScanReport {
+            transactions: Vec::new(),
+            tail_posture: RecoveryTailPosture::WouldTruncateAll,
+        },
+        None,
+        &[],
+        &[],
+        None,
+    );
+    assert_eq!(
+        empty_uncommitted_tail.posture,
+        WalRecoveryProjectionPosture::Obstructed
+    );
+    assert!(empty_uncommitted_tail.obstructions.contains(
+        &WalRecoveryProjectionObstruction::TailPostureObstructed {
+            posture: RecoveryTailPosture::WouldTruncateAll
+        }
+    ));
+    assert!(empty_uncommitted_tail
+        .obstructions
+        .contains(&WalRecoveryProjectionObstruction::MissingManifest));
+
+    let duplicate_segments = [segment_evidence.clone(), segment_evidence.clone()];
+    let duplicate_segment_evidence = project_wal_recovery(
+        &report,
+        Some(&manifest),
+        std::slice::from_ref(&writer_epoch),
+        &duplicate_segments,
+        Some(&certificate),
+    );
+    assert_eq!(
+        duplicate_segment_evidence.posture,
+        WalRecoveryProjectionPosture::Obstructed
+    );
+    assert!(duplicate_segment_evidence.obstructions.contains(
+        &WalRecoveryProjectionObstruction::DuplicateSegmentEvidence {
+            segment_id: WalSegmentId::from_raw(1)
+        }
+    ));
+
+    let short_seal_evidence = WalRecoverySegmentEvidence {
+        seal_posture: WalSegmentSealPosture::Sealed {
+            sealed_lsn: Some(Lsn::from_raw(3)),
+        },
+        ..segment_evidence.clone()
+    };
+    let short_seal = project_wal_recovery(
+        &report,
+        Some(&manifest),
+        std::slice::from_ref(&writer_epoch),
+        std::slice::from_ref(&short_seal_evidence),
+        Some(&certificate),
+    );
+    assert_eq!(short_seal.posture, WalRecoveryProjectionPosture::Obstructed);
+    assert!(short_seal.obstructions.contains(
+        &WalRecoveryProjectionObstruction::SegmentSealDoesNotCoverRecoveredCommit {
+            segment_id: WalSegmentId::from_raw(1),
+            sealed_lsn: Some(Lsn::from_raw(3)),
+            recovered_last_lsn: Lsn::from_raw(4)
+        }
+    ));
+
+    let bad_digest_evidence = WalRecoverySegmentEvidence {
+        segment_digest: digest("projection-recovery:wrong-segment"),
+        ..segment_evidence.clone()
+    };
+    let bad_segment_digest = project_wal_recovery(
+        &report,
+        Some(&manifest),
+        std::slice::from_ref(&writer_epoch),
+        std::slice::from_ref(&bad_digest_evidence),
+        Some(&certificate),
+    );
+    assert_eq!(
+        bad_segment_digest.posture,
+        WalRecoveryProjectionPosture::Obstructed
+    );
+    assert!(bad_segment_digest.obstructions.contains(
+        &WalRecoveryProjectionObstruction::SegmentDigestMismatch {
+            segment_id: WalSegmentId::from_raw(1),
+            expected: seal.segment_digest,
+            actual: digest("projection-recovery:wrong-segment")
+        }
+    ));
+
+    let mismatched_certificate = warp_core::causal_wal::RecoveryCertificate {
+        committed_transactions_replayed: 99,
+        ..certificate
+    };
+    let certificate_mismatch = project_wal_recovery(
+        &report,
+        Some(&manifest),
+        std::slice::from_ref(&writer_epoch),
+        std::slice::from_ref(&segment_evidence),
+        Some(&mismatched_certificate),
+    );
+    assert_eq!(
+        certificate_mismatch.posture,
+        WalRecoveryProjectionPosture::Obstructed
+    );
+    assert!(certificate_mismatch.obstructions.contains(
+        &WalRecoveryProjectionObstruction::RecoveryCertificateScanMismatch {
+            expected_first_lsn: Some(Lsn::from_raw(0)),
+            actual_first_lsn: Some(Lsn::from_raw(0)),
+            expected_last_lsn: Some(Lsn::from_raw(4)),
+            actual_last_lsn: Some(Lsn::from_raw(4)),
+            expected_committed_transactions_replayed: 2,
+            actual_committed_transactions_replayed: 99,
+            expected_tail_posture: RecoveryTailPosture::Clean,
+            actual_tail_posture: RecoveryTailPosture::Clean
+        }
+    ));
+
+    must_ok(store.publish_manifest(
+        epoch_id(),
+        WalManifest {
+            last_committed_lsn: Some(Lsn::from_raw(3)),
+            ..manifest
+        },
+    ));
+    let filesystem_manifest_mismatch = project_filesystem_wal_recovery(
+        &dir,
+        &report,
+        std::slice::from_ref(&writer_epoch),
+        Some(&certificate),
+    );
+    assert_eq!(
+        filesystem_manifest_mismatch.posture,
+        WalRecoveryProjectionPosture::Obstructed
+    );
+    assert!(filesystem_manifest_mismatch.obstructions.contains(
+        &WalRecoveryProjectionObstruction::ManifestLastCommittedLsnMismatch {
+            expected: Some(Lsn::from_raw(4)),
+            actual: Some(Lsn::from_raw(3))
+        }
+    ));
+
     let unavailable_locator = project_wal_recovery(
         &report,
         Some(&manifest),

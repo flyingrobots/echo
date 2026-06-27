@@ -3016,6 +3016,11 @@ pub enum WalRecoveryProjectionObstruction {
         /// Segment evidence count supplied for projection.
         actual: u64,
     },
+    /// Duplicate segment evidence was supplied for the same logical segment.
+    DuplicateSegmentEvidence {
+        /// Duplicated segment id.
+        segment_id: WalSegmentId,
+    },
     /// Writer epoch projection evidence was missing for a recovered commit.
     MissingWriterEpochEvidence {
         /// Missing writer epoch id.
@@ -3035,6 +3040,43 @@ pub enum WalRecoveryProjectionObstruction {
     SegmentNotSealed {
         /// Unsealed segment id.
         segment_id: WalSegmentId,
+    },
+    /// Segment seal evidence did not cover the recovered committed range.
+    SegmentSealDoesNotCoverRecoveredCommit {
+        /// Segment id.
+        segment_id: WalSegmentId,
+        /// Sealed LSN from segment evidence.
+        sealed_lsn: Option<Lsn>,
+        /// Last recovered committed LSN for this segment.
+        recovered_last_lsn: Lsn,
+    },
+    /// Segment digest evidence did not match recovered frames.
+    SegmentDigestMismatch {
+        /// Segment id.
+        segment_id: WalSegmentId,
+        /// Digest recomputed from recovered segment frames.
+        expected: Hash,
+        /// Digest supplied as projection evidence.
+        actual: Hash,
+    },
+    /// Recovery certificate scan fields did not match the recovery report.
+    RecoveryCertificateScanMismatch {
+        /// Expected first committed LSN from the recovery report.
+        expected_first_lsn: Option<Lsn>,
+        /// Certificate first committed LSN.
+        actual_first_lsn: Option<Lsn>,
+        /// Expected last committed LSN from the recovery report.
+        expected_last_lsn: Option<Lsn>,
+        /// Certificate last committed LSN.
+        actual_last_lsn: Option<Lsn>,
+        /// Expected committed transaction replay count.
+        expected_committed_transactions_replayed: u64,
+        /// Certificate committed transaction replay count.
+        actual_committed_transactions_replayed: u64,
+        /// Expected recovery tail posture.
+        expected_tail_posture: RecoveryTailPosture,
+        /// Certificate recovery tail posture.
+        actual_tail_posture: RecoveryTailPosture,
     },
     /// Recovered frame evidence did not identify a transaction segment.
     TransactionSegmentEvidenceUnavailable {
@@ -3105,16 +3147,16 @@ pub fn project_wal_recovery(
     segments: &[WalRecoverySegmentEvidence],
     recovery_certificate: Option<&RecoveryCertificate>,
 ) -> WalRecoveryProjection {
+    let mut obstructions = Vec::new();
     if report.transactions.is_empty()
         && manifest.is_none()
         && writer_epochs.is_empty()
         && segments.is_empty()
         && recovery_certificate.is_none()
+        && report.tail_posture == RecoveryTailPosture::Clean
     {
         return WalRecoveryProjection::absent();
     }
-
-    let mut obstructions = Vec::new();
     if report.tail_posture != RecoveryTailPosture::Clean {
         obstructions.push(WalRecoveryProjectionObstruction::TailPostureObstructed {
             posture: report.tail_posture,
@@ -3149,6 +3191,15 @@ pub fn project_wal_recovery(
                 actual: len_u64(segments.len()),
             },
         );
+    }
+
+    let mut seen_segments = BTreeSet::new();
+    for segment in segments {
+        if !seen_segments.insert(segment.segment_id) {
+            obstructions.push(WalRecoveryProjectionObstruction::DuplicateSegmentEvidence {
+                segment_id: segment.segment_id,
+            });
+        }
     }
 
     let writer_epoch_by_id = writer_epochs
@@ -3225,6 +3276,40 @@ pub fn project_wal_recovery(
                 segment_id: *segment_id,
             });
         }
+        if let Some(recovered_last_lsn) = transactions
+            .iter()
+            .map(|transaction| transaction.commit.last_lsn)
+            .max()
+        {
+            if let WalSegmentSealPosture::Sealed { sealed_lsn } = segment.seal_posture {
+                if sealed_lsn.is_none_or(|lsn| lsn < recovered_last_lsn) {
+                    obstructions.push(
+                        WalRecoveryProjectionObstruction::SegmentSealDoesNotCoverRecoveredCommit {
+                            segment_id: *segment_id,
+                            sealed_lsn,
+                            recovered_last_lsn,
+                        },
+                    );
+                }
+            }
+        }
+        let segment_frames = transactions
+            .iter()
+            .flat_map(|transaction| {
+                transaction
+                    .frames
+                    .iter()
+                    .filter(move |frame| frame.header.segment_id == *segment_id)
+            })
+            .collect::<Vec<_>>();
+        let recovered_segment_digest = segment_digest(*segment_id, &segment_frames);
+        if segment.segment_digest != recovered_segment_digest {
+            obstructions.push(WalRecoveryProjectionObstruction::SegmentDigestMismatch {
+                segment_id: *segment_id,
+                expected: recovered_segment_digest,
+                actual: segment.segment_digest,
+            });
+        }
         let segment_writer_epochs = transactions
             .iter()
             .map(|transaction| transaction.commit.writer_epoch)
@@ -3233,6 +3318,29 @@ pub fn project_wal_recovery(
             obstructions.push(WalRecoveryProjectionObstruction::MixedWriterEpochSegment {
                 segment_id: *segment_id,
             });
+        }
+    }
+
+    if let Some(certificate) = recovery_certificate {
+        let committed_transactions_replayed = len_u64(report.transactions.len());
+        if certificate.first_lsn != report.first_committed_lsn()
+            || certificate.last_lsn != report.last_committed_lsn()
+            || certificate.committed_transactions_replayed != committed_transactions_replayed
+            || certificate.tail_posture != report.tail_posture
+        {
+            obstructions.push(
+                WalRecoveryProjectionObstruction::RecoveryCertificateScanMismatch {
+                    expected_first_lsn: report.first_committed_lsn(),
+                    actual_first_lsn: certificate.first_lsn,
+                    expected_last_lsn: report.last_committed_lsn(),
+                    actual_last_lsn: certificate.last_lsn,
+                    expected_committed_transactions_replayed: committed_transactions_replayed,
+                    actual_committed_transactions_replayed: certificate
+                        .committed_transactions_replayed,
+                    expected_tail_posture: report.tail_posture,
+                    actual_tail_posture: certificate.tail_posture,
+                },
+            );
         }
     }
 
@@ -3296,6 +3404,37 @@ pub fn project_filesystem_wal_recovery(
         Ok(report) => report.manifest,
         Err(WalStoreError::MissingManifest) => {
             return project_wal_recovery(report, None, writer_epochs, &[], recovery_certificate);
+        }
+        Err(WalStoreError::ManifestLastCommittedLsnMismatch { expected, actual }) => {
+            return WalRecoveryProjection::obstructed(vec![
+                WalRecoveryProjectionObstruction::ManifestLastCommittedLsnMismatch {
+                    expected,
+                    actual,
+                },
+            ]);
+        }
+        Err(WalStoreError::ManifestLastCommitDigestMismatch { expected, actual }) => {
+            return WalRecoveryProjection::obstructed(vec![
+                WalRecoveryProjectionObstruction::ManifestLastCommitDigestMismatch {
+                    expected,
+                    actual,
+                },
+            ]);
+        }
+        Err(WalStoreError::ManifestSegmentCountMismatch { expected, actual }) => {
+            return WalRecoveryProjection::obstructed(vec![
+                WalRecoveryProjectionObstruction::ManifestSegmentCountMismatch {
+                    expected: actual,
+                    actual: expected,
+                },
+            ]);
+        }
+        Err(WalStoreError::ManifestCannotValidateUncommittedTail) => {
+            return WalRecoveryProjection::obstructed(vec![
+                WalRecoveryProjectionObstruction::TailPostureObstructed {
+                    posture: report.tail_posture,
+                },
+            ]);
         }
         Err(_) => {
             return WalRecoveryProjection::obstructed(vec![

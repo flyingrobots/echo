@@ -32,6 +32,7 @@ use crate::record::{EdgeRecord, NodeRecord};
 use crate::revelation::{AuthorityDomainId, AuthorityDomainRef, OriginId};
 use crate::strand::StrandId;
 use crate::worldline::WorldlineId;
+use crate::wsc::{validate_wsc, WscFile};
 
 const WAL_FRAME_DOMAIN: &[u8] = b"echo:causal_wal:frame:v1\0";
 const WAL_PAYLOAD_DOMAIN: &[u8] = b"echo:causal_wal:payload:v1\0";
@@ -3202,10 +3203,102 @@ pub struct WalProjectionGraph {
     pub root_node_id: NodeId,
 }
 
+/// Import posture for materialized WAL projection graph WSC bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WalProjectionGraphObservationPosture {
+    /// The import is observation evidence only and carries no WAL storage authority.
+    ObservationOnly,
+}
+
+/// Observation evidence recovered from a materialized WAL projection graph WSC payload.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WalProjectionGraphObservation {
+    /// Import posture for this projection graph.
+    pub posture: WalProjectionGraphObservationPosture,
+    /// Observed WSC schema hash.
+    pub schema_hash: Hash,
+    /// Observed WARP id.
+    pub warp_id: Hash,
+    /// Observed projection root node id.
+    pub root_node_id: NodeId,
+    /// Number of observed graph fact nodes.
+    pub node_count: u64,
+    /// Number of observed graph fact edges.
+    pub edge_count: u64,
+    /// Number of observed node atom attachments.
+    pub node_attachment_count: u64,
+    /// Number of observed edge attachments.
+    pub edge_attachment_count: u64,
+    /// Observed WSC blob section byte length.
+    pub blob_len: u64,
+}
+
+/// Error returned when observing materialized WAL projection graph WSC bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
+pub enum WalProjectionGraphObservationError {
+    /// The bytes are not valid WSC material.
+    #[error("invalid WAL projection graph WSC payload")]
+    InvalidWsc,
+    /// The WSC payload uses a schema other than the WAL projection graph schema.
+    #[error("WAL projection graph schema mismatch")]
+    SchemaMismatch {
+        /// Expected WAL projection graph schema hash.
+        expected: Hash,
+        /// Actual WSC schema hash.
+        actual: Hash,
+    },
+}
+
 /// Returns the WSC schema hash for materialized WAL projection graph facts.
 #[must_use]
 pub fn wal_projection_graph_schema_hash() -> Hash {
     crate::ident::make_type_id(WAL_PROJECTION_GRAPH_SCHEMA).0
+}
+
+/// Observes a materialized WAL projection graph WSC payload without recovering WAL authority.
+///
+/// This validates the generic WSC container and the WAL projection graph schema,
+/// then returns graph-shape evidence only. It does not decode payloads into a
+/// [`WalRoot`], does not validate WAL recovery, and does not expose a
+/// [`WalStorePort`].
+///
+/// # Errors
+///
+/// Returns [`WalProjectionGraphObservationError::InvalidWsc`] for malformed WSC
+/// bytes and [`WalProjectionGraphObservationError::SchemaMismatch`] when the
+/// payload is valid WSC but not WAL projection graph material.
+pub fn observe_wal_projection_graph_wsc(
+    wsc_bytes: &[u8],
+) -> Result<WalProjectionGraphObservation, WalProjectionGraphObservationError> {
+    let file = WscFile::from_bytes(wsc_bytes.to_vec())
+        .map_err(|_| WalProjectionGraphObservationError::InvalidWsc)?;
+    validate_wsc(&file).map_err(|_| WalProjectionGraphObservationError::InvalidWsc)?;
+    let expected = wal_projection_graph_schema_hash();
+    let actual = *file.schema_hash();
+    if actual != expected {
+        return Err(WalProjectionGraphObservationError::SchemaMismatch { expected, actual });
+    }
+    let view = file
+        .warp_view(0)
+        .map_err(|_| WalProjectionGraphObservationError::InvalidWsc)?;
+    let node_attachment_count = (0..view.nodes().len())
+        .map(|index| view.node_attachments(index).len())
+        .sum::<usize>();
+    let edge_attachment_count = (0..view.edges().len())
+        .map(|index| view.edge_attachments(index).len())
+        .sum::<usize>();
+
+    Ok(WalProjectionGraphObservation {
+        posture: WalProjectionGraphObservationPosture::ObservationOnly,
+        schema_hash: actual,
+        warp_id: *view.warp_id(),
+        root_node_id: NodeId(*view.root_node_id()),
+        node_count: len_u64(view.nodes().len()),
+        edge_count: len_u64(view.edges().len()),
+        node_attachment_count: len_u64(node_attachment_count),
+        edge_attachment_count: len_u64(edge_attachment_count),
+        blob_len: len_u64(view.blobs().len()),
+    })
 }
 
 /// Materializes a projected WAL root into a deterministic WARP graph.

@@ -22,6 +22,10 @@
   certificate nodes plus typed graph edges suitable for WSC serialization. The
   materialized graph omits raw WAL storage locator authority and rebuilds to
   identical WSC bytes from the same recovery evidence.
+- `warp-core` now exposes observation-only WAL projection graph WSC import
+  evidence, keeping materialized projection bytes readable as schema/count
+  facts while rejecting them as causal-history import material or WAL recovery
+  authority without manifests and segment evidence.
 - `cargo xtask test-slice durable-runtime-wal` now runs the release-grade
   filesystem runtime WAL durability gate, joining filesystem ACK recovery,
   filesystem failure atomicity, CLI submission posture JSON, stale-claim, and

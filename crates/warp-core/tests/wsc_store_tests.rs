@@ -23,8 +23,12 @@ use warp_core::wsc::{
     retention_records_from_wsc_envelope, retention_records_from_wsc_store,
     retention_records_to_wsc_envelope, topology_records_from_wsc_envelope,
     topology_records_from_wsc_store, topology_records_to_wsc_envelope,
-    validate_wsc_causal_history_store, write_wsc_one_warp, InMemoryWscStore, OneWarpInput,
-    WscStoreEnvelope, WscStoreObstructionKind, WscStorePort, WscStoreRecordKind, WscStoreSubject,
+    validate_wsc_causal_history_store, write_wsc_one_warp, wsc_causal_history_export_profile,
+    wsc_causal_history_export_profiles, InMemoryWscStore, OneWarpInput,
+    WscCausalHistoryCasAuthority, WscCausalHistoryExportEvidence,
+    WscCausalHistoryExportProfileKind, WscCausalHistoryExportValidationMaterial, WscStoreEnvelope,
+    WscStoreObstructionKind, WscStorePort, WscStoreRecordKind, WscStoreSubject,
+    WSC_CAUSAL_HISTORY_EXPORT_PROFILE_VERSION,
 };
 use warp_core::{
     make_node_id, make_strand_id, make_type_id, make_warp_id, AuthorityDomainId,
@@ -155,6 +159,157 @@ fn wsc_store_decode_rejects_digest_mismatch() {
 fn wsc_store_module_has_no_jedit_nouns() {
     let source = include_str!("../src/wsc/store.rs");
     assert!(!source.to_lowercase().contains("jedit"));
+}
+
+#[test]
+fn wsc_causal_history_export_profiles_cover_required_evidence() {
+    let profiles = wsc_causal_history_export_profiles();
+    assert_eq!(profiles.len(), 3);
+    assert_eq!(
+        profiles.map(|profile| profile.kind),
+        [
+            WscCausalHistoryExportProfileKind::RefOnly,
+            WscCausalHistoryExportProfileKind::SelfContained,
+            WscCausalHistoryExportProfileKind::CasAddressed,
+        ]
+    );
+    assert!(profiles
+        .iter()
+        .all(|profile| profile.version == WSC_CAUSAL_HISTORY_EXPORT_PROFILE_VERSION));
+    assert_eq!(
+        WscCausalHistoryExportProfileKind::RefOnly.label(),
+        "ref-only"
+    );
+    assert_eq!(
+        WscCausalHistoryExportProfileKind::SelfContained.label(),
+        "self-contained"
+    );
+    assert_eq!(
+        WscCausalHistoryExportProfileKind::CasAddressed.label(),
+        "CAS-addressed"
+    );
+
+    let ref_only = wsc_causal_history_export_profile(WscCausalHistoryExportProfileKind::RefOnly);
+    assert_eq!(
+        ref_only.validation_material,
+        WscCausalHistoryExportValidationMaterial::ExternalWalStorageRefs
+    );
+    assert_eq!(
+        ref_only.projected_graph_facts,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
+        ref_only.segment_locators,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
+        ref_only.segment_digests,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
+        ref_only.lsn_ranges,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
+        ref_only.commit_anchors,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
+        ref_only.embedded_segment_bytes_or_retained_material,
+        WscCausalHistoryExportEvidence::Forbidden
+    );
+    assert_eq!(
+        ref_only.cas_content_hashes,
+        WscCausalHistoryExportEvidence::Forbidden
+    );
+    assert_eq!(
+        ref_only.semantic_refs,
+        WscCausalHistoryExportEvidence::Forbidden
+    );
+    assert_eq!(ref_only.cas_authority, None);
+
+    let self_contained =
+        wsc_causal_history_export_profile(WscCausalHistoryExportProfileKind::SelfContained);
+    assert_eq!(
+        self_contained.validation_material,
+        WscCausalHistoryExportValidationMaterial::EmbeddedSegmentBytesOrRetainedMaterial
+    );
+    assert_eq!(
+        self_contained.projected_graph_facts,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
+        self_contained.segment_locators,
+        WscCausalHistoryExportEvidence::Optional
+    );
+    assert_eq!(
+        self_contained.segment_digests,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
+        self_contained.lsn_ranges,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
+        self_contained.commit_anchors,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
+        self_contained.embedded_segment_bytes_or_retained_material,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
+        self_contained.cas_content_hashes,
+        WscCausalHistoryExportEvidence::Forbidden
+    );
+    assert_eq!(
+        self_contained.semantic_refs,
+        WscCausalHistoryExportEvidence::Forbidden
+    );
+    assert_eq!(self_contained.cas_authority, None);
+
+    let cas_addressed =
+        wsc_causal_history_export_profile(WscCausalHistoryExportProfileKind::CasAddressed);
+    assert_eq!(
+        cas_addressed.validation_material,
+        WscCausalHistoryExportValidationMaterial::CasHashesWithSemanticRefs
+    );
+    assert_eq!(
+        cas_addressed.projected_graph_facts,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
+        cas_addressed.segment_locators,
+        WscCausalHistoryExportEvidence::Forbidden
+    );
+    assert_eq!(
+        cas_addressed.segment_digests,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
+        cas_addressed.lsn_ranges,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
+        cas_addressed.commit_anchors,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
+        cas_addressed.embedded_segment_bytes_or_retained_material,
+        WscCausalHistoryExportEvidence::Forbidden
+    );
+    assert_eq!(
+        cas_addressed.cas_content_hashes,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
+        cas_addressed.semantic_refs,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
+        cas_addressed.cas_authority,
+        Some(WscCausalHistoryCasAuthority::ByteRetentionOnly)
+    );
 }
 
 #[test]
@@ -632,10 +787,12 @@ fn topology_records_ignore_uncommitted_staged_wsc_envelope() {
 #[test]
 fn topology_records_reject_conflicting_duplicate_strand_fork() {
     let mut records = topology_records();
-    let mut conflicting = match &records[0] {
-        TopologyIntentRecord::StrandFork(record) => record.clone(),
-        _ => panic!("expected strand fork fixture"),
-    };
+    let mut conflicting = if let TopologyIntentRecord::StrandFork(record) = &records[0] {
+        Some(record.clone())
+    } else {
+        None
+    }
+    .expect("expected strand fork fixture");
     conflicting.child_worldline_id = worldline(99);
     records.push(TopologyIntentRecord::StrandFork(conflicting));
 
@@ -654,10 +811,12 @@ fn topology_records_reject_conflicting_duplicate_strand_fork() {
 fn topology_records_reject_idempotency_conflicts_for_each_record_family() {
     let records = topology_records();
 
-    let fork = match &records[0] {
-        TopologyIntentRecord::StrandFork(record) => record.clone(),
-        _ => panic!("expected strand fork fixture"),
-    };
+    let fork = if let TopologyIntentRecord::StrandFork(record) = &records[0] {
+        Some(record.clone())
+    } else {
+        None
+    }
+    .expect("expected strand fork fixture");
     let mut conflicting_fork = fork.clone();
     conflicting_fork.strand_id = make_strand_id("wsc-topology-other-strand");
     conflicting_fork.child_worldline_id = worldline(52);
@@ -671,10 +830,12 @@ fn topology_records_reject_idempotency_conflicts_for_each_record_family() {
         WscStoreObstructionKind::DuplicateEnvelopeMismatch
     );
 
-    let drop = match &records[1] {
-        TopologyIntentRecord::StrandDrop(record) => record.clone(),
-        _ => panic!("expected strand drop fixture"),
-    };
+    let drop = if let TopologyIntentRecord::StrandDrop(record) = &records[1] {
+        Some(record.clone())
+    } else {
+        None
+    }
+    .expect("expected strand drop fixture");
     let mut conflicting_drop = drop.clone();
     conflicting_drop.strand_id = make_strand_id("wsc-topology-other-drop");
     conflicting_drop.child_worldline_id = worldline(53);
@@ -688,10 +849,12 @@ fn topology_records_reject_idempotency_conflicts_for_each_record_family() {
         WscStoreObstructionKind::DuplicateEnvelopeMismatch
     );
 
-    let braid_event = match &records[2] {
-        TopologyIntentRecord::BraidEvent(record) => record.clone(),
-        _ => panic!("expected braid event fixture"),
-    };
+    let braid_event = if let TopologyIntentRecord::BraidEvent(record) = &records[2] {
+        Some(record.clone())
+    } else {
+        None
+    }
+    .expect("expected braid event fixture");
     let mut conflicting_braid_event = braid_event.clone();
     conflicting_braid_event.event_index = 1;
     let obstruction = topology_records_to_wsc_envelope(&[
@@ -704,10 +867,12 @@ fn topology_records_reject_idempotency_conflicts_for_each_record_family() {
         WscStoreObstructionKind::DuplicateEnvelopeMismatch
     );
 
-    let braid_shell = match &records[3] {
-        TopologyIntentRecord::BraidShell(record) => record.clone(),
-        _ => panic!("expected braid shell fixture"),
-    };
+    let braid_shell = if let TopologyIntentRecord::BraidShell(record) = &records[3] {
+        Some(record.clone())
+    } else {
+        None
+    }
+    .expect("expected braid shell fixture");
     let mut conflicting_braid_shell = braid_shell.clone();
     conflicting_braid_shell.shell_digest = [126; 32];
     conflicting_braid_shell.material_digest = [127; 32];
@@ -724,10 +889,12 @@ fn topology_records_reject_idempotency_conflicts_for_each_record_family() {
 
 #[test]
 fn topology_records_reject_root_level_topology_attachment() {
-    let fork = match &topology_records()[0] {
-        TopologyIntentRecord::StrandFork(record) => record.clone(),
-        _ => panic!("expected strand fork fixture"),
-    };
+    let fork = if let TopologyIntentRecord::StrandFork(record) = &topology_records()[0] {
+        Some(record.clone())
+    } else {
+        None
+    }
+    .expect("expected strand fork fixture");
     let envelope = topology_envelope_with_root_attachment(TopologyIntentRecord::StrandFork(fork));
 
     let obstruction = topology_records_from_wsc_envelope(&envelope)
@@ -905,7 +1072,7 @@ fn fixture_wsc_bytes(tick: u64) -> Vec<u8> {
 }
 
 fn topology_envelope_with_root_attachment(record: TopologyIntentRecord) -> WscStoreEnvelope {
-    let canonical = topology_records_to_wsc_envelope(&[record.clone()])
+    let canonical = topology_records_to_wsc_envelope(std::slice::from_ref(&record))
         .expect("canonical topology WSC envelope");
     let payload = record.to_payload_bytes();
     let root = make_node_id("echo/wsc-store/topology/root");

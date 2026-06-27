@@ -76,10 +76,14 @@ pub use store::{
     retention_records_from_wsc_envelope, retention_records_from_wsc_store,
     retention_records_to_wsc_envelope, topology_records_from_wsc_envelope,
     topology_records_from_wsc_store, topology_records_to_wsc_envelope,
-    validate_wsc_causal_history_store, InMemoryWscStore, WscReceiptCorrelationRecords,
-    WscRetentionRecords, WscStoreEnvelope, WscStoreEnvelopeId, WscStoreObstruction,
-    WscStoreObstructionKind, WscStorePort, WscStoreRecordKind, WscStoreSubject,
-    WscStoreWriteReceipt, WscTopologyRecords,
+    validate_wsc_causal_history_store, wsc_causal_history_export_profile,
+    wsc_causal_history_export_profiles, InMemoryWscStore, WscCausalHistoryCasAuthority,
+    WscCausalHistoryExportEvidence, WscCausalHistoryExportProfile,
+    WscCausalHistoryExportProfileKind, WscCausalHistoryExportValidationMaterial,
+    WscReceiptCorrelationRecords, WscRetentionRecords, WscStoreEnvelope, WscStoreEnvelopeId,
+    WscStoreObstruction, WscStoreObstructionKind, WscStorePort, WscStoreRecordKind,
+    WscStoreSubject, WscStoreWriteReceipt, WscTopologyRecords,
+    WSC_CAUSAL_HISTORY_EXPORT_PROFILE_VERSION,
 };
 pub use validate::validate_wsc;
 pub use view::{AttachmentRef, WarpView, WscFile};

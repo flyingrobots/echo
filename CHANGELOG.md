@@ -26,6 +26,10 @@
   evidence, keeping materialized projection bytes readable as schema/count
   facts while rejecting them as causal-history import material or WAL recovery
   authority without manifests and segment evidence.
+- `warp-core` now exposes a versioned WSC causal-history export profile model
+  for `ref-only`, `self-contained`, and `CAS-addressed` profiles, including the
+  evidence each profile must carry and an explicit CAS byte-retention posture
+  that does not promote CAS hashes into causal authority.
 - `cargo xtask test-slice durable-runtime-wal` now runs the release-grade
   filesystem runtime WAL durability gate, joining filesystem ACK recovery,
   filesystem failure atomicity, CLI submission posture JSON, stale-claim, and

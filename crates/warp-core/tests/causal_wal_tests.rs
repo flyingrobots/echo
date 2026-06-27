@@ -15,15 +15,15 @@ use warp_core::causal_wal::{
     build_recovery_certificate, build_retained_reading_transaction,
     build_submission_acceptance_transaction, build_tick_transaction,
     build_topology_intent_transaction, canonical_segment_relative_path, doctor_in_memory_store,
-    evaluate_checkpoint_publication, lint_wal_schema_terms, missing_material_scope,
-    project_causal_commit_evidence, project_filesystem_wal_recovery, project_wal_recovery,
-    read_checkpoint_record, recover_checkpoint_publications, recover_filesystem_store,
-    recover_in_memory_store, recover_materialization_outbox, recover_receipt_index,
-    recover_retention_index, recover_submission_index, recover_topology_index,
-    recovered_topology_index_root, retained_material_obstructions, shadow_replay_matches,
-    validate_checkpoint_record, validate_strict_object_store_capabilities,
-    write_checkpoint_record_atomic, AffectedFrontier, AffectedFrontierKind,
-    BraidShellRetentionRecord, CheckpointPublicationRecord, CheckpointRecord,
+    evaluate_checkpoint_publication, lint_wal_schema_terms, materialize_wal_projection_graph,
+    missing_material_scope, project_causal_commit_evidence, project_filesystem_wal_recovery,
+    project_wal_recovery, read_checkpoint_record, recover_checkpoint_publications,
+    recover_filesystem_store, recover_in_memory_store, recover_materialization_outbox,
+    recover_receipt_index, recover_retention_index, recover_submission_index,
+    recover_topology_index, recovered_topology_index_root, retained_material_obstructions,
+    shadow_replay_matches, validate_checkpoint_record, validate_strict_object_store_capabilities,
+    wal_projection_graph_schema_hash, write_checkpoint_record_atomic, AffectedFrontier,
+    AffectedFrontierKind, BraidShellRetentionRecord, CheckpointPublicationRecord, CheckpointRecord,
     CheckpointValidationPosture, EvidenceMaterialPosture, ExistingMaterializedArtifact,
     FilesystemWalStore, InMemoryWalStore, Lsn, MaterializationIntentRecord,
     MaterializationObservationRecord, MaterializationReplayPosture, MissingMaterialScope,
@@ -40,11 +40,15 @@ use warp_core::causal_wal::{
     WalReleaseReadinessGates, WalRoot, WalSchemaLintError, WalSegmentId, WalSegmentRef,
     WalSegmentSealPosture, WalSegmentStorageLocator, WalStoreError, WalStorePort, WalTickDecision,
     WalTransactionBuilder, WalTransactionId, WalTransactionKind, WalWriterEpoch, WriterEpoch,
-    WriterEpochId, WriterEpochRequest,
+    WriterEpochId, WriterEpochRequest, WAL_PROJECTION_GRAPH_RECOVERY_CERTIFICATE_EDGE_TYPE,
+    WAL_PROJECTION_GRAPH_ROOT_COMMIT_ANCHOR_EDGE_TYPE,
+    WAL_PROJECTION_GRAPH_SEGMENT_COMMIT_ANCHOR_EDGE_TYPE, WAL_PROJECTION_GRAPH_SEGMENT_EDGE_TYPE,
+    WAL_PROJECTION_GRAPH_WRITER_EPOCH_EDGE_TYPE,
 };
+use warp_core::wsc::{build_one_warp_input, validate_wsc, write_wsc_one_warp, WscFile};
 use warp_core::{
-    make_strand_id, AuthorityDomainId, AuthorityDomainRef, BraidEvent, BraidStatus, Hash, HeadId,
-    OriginId, WorldlineId, WorldlineTick, WriterHeadKey,
+    make_strand_id, make_type_id, AuthorityDomainId, AuthorityDomainRef, BraidEvent, BraidStatus,
+    Hash, HeadId, OriginId, WorldlineId, WorldlineTick, WriterHeadKey,
 };
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -261,6 +265,166 @@ fn wal_projection_fact_identity_excludes_absolute_storage_locators() {
         segment.identity_digest()
     );
     assert_eq!(root.identity_digest(), reordered_root.identity_digest());
+}
+
+#[test]
+fn wal_projection_graph_materializes_deterministically() {
+    let writer_epoch = WalWriterEpoch::from_writer_epoch(&WriterEpoch {
+        epoch_id: epoch_id(),
+        storage_fencing_token: digest("projection-graph:fencing"),
+        process_identity: digest("projection-graph:process"),
+        host_identity: digest("projection-graph:host"),
+        started_at_lsn: Lsn::from_raw(1),
+        previous_epoch_id: Some(WriterEpochId::from_hash(digest(
+            "projection-graph:previous-epoch",
+        ))),
+        previous_epoch_final_commit_digest: Some(digest("projection-graph:previous-final")),
+        lease_or_lock_evidence: digest("projection-graph:lease"),
+    });
+    let first_anchor = WalCommitAnchor {
+        transaction_id: transaction_id("projection-graph:tx:first"),
+        commit_digest: digest("projection-graph:commit:first"),
+        first_lsn: Lsn::from_raw(1),
+        last_lsn: Lsn::from_raw(3),
+        record_count: 3,
+    };
+    let second_anchor = WalCommitAnchor {
+        transaction_id: transaction_id("projection-graph:tx:second"),
+        commit_digest: digest("projection-graph:commit:second"),
+        first_lsn: Lsn::from_raw(4),
+        last_lsn: Lsn::from_raw(6),
+        record_count: 3,
+    };
+    let first_segment = WalSegmentRef {
+        writer_epoch: writer_epoch.epoch_id,
+        segment_id: WalSegmentId::from_raw(1),
+        first_lsn: Lsn::from_raw(1),
+        last_lsn: Lsn::from_raw(3),
+        previous_commit_digest: blake3::hash(b"").into(),
+        final_commit_digest: first_anchor.commit_digest,
+        segment_digest: digest("projection-graph:segment:first"),
+        commit_anchors: vec![first_anchor.clone()],
+        seal_posture: WalSegmentSealPosture::Sealed {
+            sealed_lsn: Some(Lsn::from_raw(3)),
+        },
+        storage_locator: Some(WalSegmentStorageLocator::RelativePath(PathBuf::from(
+            "segments/first.ecwal",
+        ))),
+    };
+    let second_segment = WalSegmentRef {
+        writer_epoch: writer_epoch.epoch_id,
+        segment_id: WalSegmentId::from_raw(2),
+        first_lsn: Lsn::from_raw(4),
+        last_lsn: Lsn::from_raw(6),
+        previous_commit_digest: first_anchor.commit_digest,
+        final_commit_digest: second_anchor.commit_digest,
+        segment_digest: digest("projection-graph:segment:second"),
+        commit_anchors: vec![second_anchor],
+        seal_posture: WalSegmentSealPosture::Sealed {
+            sealed_lsn: Some(Lsn::from_raw(6)),
+        },
+        storage_locator: Some(WalSegmentStorageLocator::AbsolutePath(PathBuf::from(
+            "/tmp/echo/segments/second.ecwal",
+        ))),
+    };
+    let recovery = RecoveryCertificateRef {
+        certificate_digest: digest("projection-graph:certificate"),
+        checkpoint_used: Some(digest("projection-graph:checkpoint")),
+        first_lsn: Some(Lsn::from_raw(1)),
+        last_lsn: Some(Lsn::from_raw(6)),
+        tail_posture: RecoveryTailPosture::Clean,
+        recovered_frontier_root: digest("projection-graph:frontier"),
+        recovered_indexes_root: digest("projection-graph:indexes"),
+    };
+    let root = WalRoot {
+        root_digest: digest("projection-graph:root"),
+        writer_epochs: vec![writer_epoch.clone()],
+        segments: vec![second_segment.clone(), first_segment.clone()],
+        recovery_certificate: Some(recovery.clone()),
+    };
+    let reordered_root = WalRoot {
+        root_digest: digest("projection-graph:root"),
+        writer_epochs: vec![writer_epoch],
+        segments: vec![first_segment, second_segment],
+        recovery_certificate: Some(recovery),
+    };
+
+    let graph = materialize_wal_projection_graph(&root);
+    let edges = graph
+        .store
+        .iter_edges()
+        .flat_map(|(_, edges)| edges.iter())
+        .collect::<Vec<_>>();
+    assert_eq!(graph.store.iter_nodes().count(), 7);
+    assert_eq!(edges.len(), 8);
+    assert_eq!(
+        edges
+            .iter()
+            .filter(|edge| edge.ty == make_type_id(WAL_PROJECTION_GRAPH_WRITER_EPOCH_EDGE_TYPE))
+            .count(),
+        1
+    );
+    assert_eq!(
+        edges
+            .iter()
+            .filter(|edge| edge.ty == make_type_id(WAL_PROJECTION_GRAPH_SEGMENT_EDGE_TYPE))
+            .count(),
+        2
+    );
+    assert_eq!(
+        edges
+            .iter()
+            .filter(|edge| {
+                edge.ty == make_type_id(WAL_PROJECTION_GRAPH_ROOT_COMMIT_ANCHOR_EDGE_TYPE)
+            })
+            .count(),
+        2
+    );
+    assert_eq!(
+        edges
+            .iter()
+            .filter(|edge| {
+                edge.ty == make_type_id(WAL_PROJECTION_GRAPH_SEGMENT_COMMIT_ANCHOR_EDGE_TYPE)
+            })
+            .count(),
+        2
+    );
+    assert_eq!(
+        edges
+            .iter()
+            .filter(|edge| {
+                edge.ty == make_type_id(WAL_PROJECTION_GRAPH_RECOVERY_CERTIFICATE_EDGE_TYPE)
+            })
+            .count(),
+        1
+    );
+
+    let input = build_one_warp_input(&graph.store, graph.root_node_id);
+    let wsc_bytes = must_ok(write_wsc_one_warp(
+        &input,
+        wal_projection_graph_schema_hash(),
+        0,
+    ));
+    let file = must_ok(WscFile::from_bytes(wsc_bytes.clone()));
+    must_ok(validate_wsc(&file));
+    assert_eq!(file.schema_hash(), &wal_projection_graph_schema_hash());
+    let view = must_ok(file.warp_view(0));
+    assert_eq!(view.nodes().len(), 7);
+    assert_eq!(view.edges().len(), 8);
+    let node_attachment_count = (0..view.nodes().len())
+        .map(|index| view.node_attachments(index).len())
+        .sum::<usize>();
+    assert_eq!(node_attachment_count, 7);
+
+    let reordered_graph = materialize_wal_projection_graph(&reordered_root);
+    let reordered_input =
+        build_one_warp_input(&reordered_graph.store, reordered_graph.root_node_id);
+    let reordered_wsc_bytes = must_ok(write_wsc_one_warp(
+        &reordered_input,
+        wal_projection_graph_schema_hash(),
+        0,
+    ));
+    assert_eq!(wsc_bytes, reordered_wsc_bytes);
 }
 
 #[test]

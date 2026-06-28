@@ -23,24 +23,25 @@ use warp_core::causal_wal::{
     project_filesystem_wal_recovery, project_wal_recovery, read_checkpoint_record,
     rebuild_durability_indexes_after_recovery, recover_checkpoint_publications,
     recover_filesystem_store, recover_in_memory_store, recover_materialization_outbox,
-    recover_receipt_index, recover_retention_index, recover_submission_index,
-    recover_topology_index, recovered_submission_receipt_index_root, recovered_topology_index_root,
+    recover_materialization_outbox_with_retained_material, recover_receipt_index,
+    recover_retention_index, recover_submission_index, recover_topology_index,
+    recovered_submission_receipt_index_root, recovered_topology_index_root,
     retained_material_obstructions, shadow_replay_matches, validate_checkpoint_record,
     validate_strict_object_store_capabilities, wal_projection_graph_schema_hash,
     write_checkpoint_record_atomic, AffectedFrontier, AffectedFrontierKind,
     BraidShellRetentionRecord, CheckpointPublicationRecord, CheckpointRecord,
     CheckpointValidationPosture, EvidenceMaterialPosture, ExistingMaterializedArtifact,
     FilesystemWalStore, InMemoryWalStore, Lsn, MaterializationIntentRecord,
-    MaterializationObservationRecord, MaterializationReplayPosture, MissingMaterialScope,
-    ObjectStoreCapabilityError, ObjectStoreReadAfterWritePosture, ObjectStoreWalCapabilities,
-    PayloadCodecId, PayloadSchemaId, ReadingRefRecord, RecoveredReceiptIndex,
-    RecoveredRetentionIndex, RecoveredState, RecoveredSubmissionIndex, RecoveredSubmissionPosture,
-    RecoveredTopologyIndex, RecoveryAccessMode, RecoveryCertificateRef, RecoveryScanReport,
-    RecoveryTailPosture, RetainedMaterialKind, RetainedMaterialRecord, StrandDropRecord,
-    StrandForkRecord, SubmissionAcceptanceRecord, SubmissionRetryPosture, SuffixImportRecord,
-    TickReceiptRecord, TopologyBraidEventRecord, TopologyImportOutcomeKind, TopologyIntentRecord,
-    TransactionLocalIndex, WalAppendAuthority, WalBuildError, WalCommitAnchor,
-    WalCommittedTransaction, WalDoctorPosture, WalDurabilityMode, WalManifest,
+    MaterializationObservationRecord, MaterializationRecoveryPosture, MaterializationReplayPosture,
+    MissingMaterialScope, ObjectStoreCapabilityError, ObjectStoreReadAfterWritePosture,
+    ObjectStoreWalCapabilities, PayloadCodecId, PayloadSchemaId, ReadingRefRecord,
+    RecoveredReceiptIndex, RecoveredRetentionIndex, RecoveredState, RecoveredSubmissionIndex,
+    RecoveredSubmissionPosture, RecoveredTopologyIndex, RecoveryAccessMode, RecoveryCertificateRef,
+    RecoveryScanReport, RecoveryTailPosture, RetainedMaterialKind, RetainedMaterialRecord,
+    StrandDropRecord, StrandForkRecord, SubmissionAcceptanceRecord, SubmissionRetryPosture,
+    SuffixImportRecord, TickReceiptRecord, TopologyBraidEventRecord, TopologyImportOutcomeKind,
+    TopologyIntentRecord, TransactionLocalIndex, WalAppendAuthority, WalBuildError,
+    WalCommitAnchor, WalCommittedTransaction, WalDoctorPosture, WalDurabilityMode, WalManifest,
     WalProjectionGraphObservationPosture, WalReceiptCorrelationRecord, WalRecordKind,
     WalRecoveryBootstrapSource, WalRecoveryCheckpointPosture, WalRecoveryError,
     WalRecoveryIndexError, WalRecoveryPlan, WalRecoveryProjectionObstruction,
@@ -3644,6 +3645,160 @@ fn materialization_observation_marks_effect_already_observed() {
     assert_eq!(
         must_some(outbox.get(&intent.effect_id)).posture,
         MaterializationReplayPosture::AlreadyObserved
+    );
+}
+
+#[test]
+fn materialization_outbox_recovery_returns_typed_posture() {
+    let mut store = InMemoryWalStore::new();
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    let intent = |label: &str| MaterializationIntentRecord {
+        effect_id: digest(&format!("effect:{label}")),
+        expected_artifact_digest: digest(&format!("artifact:{label}")),
+        materialization_intent_digest: digest(&format!("materialization:{label}")),
+        idempotency_token: digest(&format!("idempotency:{label}")),
+        target_metadata_digest: digest(&format!("metadata:{label}")),
+    };
+    let missing = intent("missing");
+    let mismatch = intent("mismatch");
+    let observed_mismatch = intent("observed-mismatch");
+    let retained_unavailable = MaterializationIntentRecord {
+        expected_artifact_digest: digest("material:retained-unavailable"),
+        ..intent("retained-unavailable")
+    };
+
+    for (first_lsn, label, intent, observation) in [
+        (0, "missing", missing, None),
+        (1, "mismatch", mismatch, None),
+        (
+            2,
+            "observed-mismatch",
+            observed_mismatch,
+            Some(MaterializationObservationRecord {
+                effect_id: observed_mismatch.effect_id,
+                observed_artifact_digest: digest("artifact:observed-mismatch:wrong"),
+                observed_metadata_digest: observed_mismatch.target_metadata_digest,
+            }),
+        ),
+        (4, "retained-unavailable", retained_unavailable, None),
+    ] {
+        must_ok(
+            store.append_transaction(must_ok(build_materialization_outbox_transaction(
+                builder(
+                    transaction_id(&format!("tx:outbox:{label}")),
+                    Lsn::from_raw(first_lsn),
+                    WalAppendAuthority::TrustedScheduler,
+                    WalTransactionKind::MaterializationOutbox,
+                ),
+                intent,
+                observation,
+                vec![frontier(
+                    AffectedFrontierKind::ReceiptIndex,
+                    &format!("{label}:outbox:before"),
+                    &format!("{label}:outbox:after"),
+                )],
+            ))),
+        );
+    }
+    let retained_material = RetainedMaterialRecord {
+        material_digest: retained_unavailable.expected_artifact_digest,
+        semantic_coordinate_digest: digest("coordinate:retained-unavailable"),
+        kind: RetainedMaterialKind::ReadingPayload,
+        posture: EvidenceMaterialPosture::Missing,
+    };
+    must_ok(
+        store.append_transaction(must_ok(build_retained_reading_transaction(
+            builder(
+                transaction_id("tx:outbox:retained-unavailable"),
+                Lsn::from_raw(5),
+                WalAppendAuthority::TrustedScheduler,
+                WalTransactionKind::SchedulerTick,
+            ),
+            std::slice::from_ref(&retained_material),
+            reading_ref("retained-unavailable", EvidenceMaterialPosture::Missing),
+            vec![frontier(
+                AffectedFrontierKind::ReadingIndex,
+                "retained-unavailable:before",
+                "retained-unavailable:after",
+            )],
+        ))),
+    );
+
+    let report = must_ok(recover_in_memory_store(
+        &mut store,
+        RecoveryAccessMode::ReadOnly,
+    ));
+    let retention = must_ok(recover_retention_index(&report));
+    let mut existing = BTreeMap::new();
+    existing.insert(
+        mismatch.effect_id,
+        ExistingMaterializedArtifact {
+            effect_id: mismatch.effect_id,
+            artifact_digest: digest("artifact:mismatch:wrong"),
+            metadata_digest: digest("metadata:mismatch:wrong"),
+        },
+    );
+    let outbox = must_ok(recover_materialization_outbox_with_retained_material(
+        &report,
+        &existing,
+        &retention,
+        &BTreeSet::new(),
+    ));
+
+    let missing_entry = must_some(outbox.get(&missing.effect_id));
+    assert_eq!(missing_entry.posture, MaterializationReplayPosture::Pending);
+    assert_eq!(
+        missing_entry.recovery_posture,
+        MaterializationRecoveryPosture::MissingArtifact {
+            effect_id: missing.effect_id,
+            expected_artifact_digest: missing.expected_artifact_digest,
+            expected_metadata_digest: missing.target_metadata_digest,
+        }
+    );
+
+    let mismatch_entry = must_some(outbox.get(&mismatch.effect_id));
+    assert_eq!(
+        mismatch_entry.posture,
+        MaterializationReplayPosture::Obstructed
+    );
+    assert_eq!(
+        mismatch_entry.recovery_posture,
+        MaterializationRecoveryPosture::ArtifactAndMetadataDigestMismatch {
+            expected_artifact_digest: mismatch.expected_artifact_digest,
+            actual_artifact_digest: digest("artifact:mismatch:wrong"),
+            expected_metadata_digest: mismatch.target_metadata_digest,
+            actual_metadata_digest: digest("metadata:mismatch:wrong"),
+        }
+    );
+
+    let observed_mismatch_entry = must_some(outbox.get(&observed_mismatch.effect_id));
+    assert_eq!(
+        observed_mismatch_entry.posture,
+        MaterializationReplayPosture::Obstructed
+    );
+    assert_eq!(
+        observed_mismatch_entry.recovery_posture,
+        MaterializationRecoveryPosture::ObservationDigestMismatch {
+            expected_artifact_digest: observed_mismatch.expected_artifact_digest,
+            observed_artifact_digest: digest("artifact:observed-mismatch:wrong"),
+            expected_metadata_digest: observed_mismatch.target_metadata_digest,
+            observed_metadata_digest: observed_mismatch.target_metadata_digest,
+        }
+    );
+
+    let retained_unavailable_entry = must_some(outbox.get(&retained_unavailable.effect_id));
+    assert_eq!(
+        retained_unavailable_entry.posture,
+        MaterializationReplayPosture::Obstructed
+    );
+    assert_eq!(
+        retained_unavailable_entry.recovery_posture,
+        MaterializationRecoveryPosture::RetainedMaterialUnavailable {
+            material_digest: retained_material.material_digest,
+            kind: retained_material.kind,
+            scope: MissingMaterialScope::Reading,
+            posture: EvidenceMaterialPosture::Missing,
+        }
     );
 }
 

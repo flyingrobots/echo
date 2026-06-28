@@ -3200,6 +3200,229 @@ impl WalRecoveryProjection {
     }
 }
 
+/// Bootstrap evidence used to start a recovery plan.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WalRecoveryBootstrapSource {
+    /// Recovery started from an already projected WAL root.
+    WalRoot {
+        /// Projection root digest.
+        root_digest: Hash,
+        /// Stable identity digest of the projected root.
+        root_identity_digest: Hash,
+    },
+    /// Recovery started from storage manifest evidence.
+    StorageManifest {
+        /// Published manifest digest.
+        manifest_digest: Hash,
+    },
+}
+
+impl WalRecoveryBootstrapSource {
+    /// Builds bootstrap evidence from a projected WAL root.
+    #[must_use]
+    pub fn from_wal_root(root: &WalRoot) -> Self {
+        Self::WalRoot {
+            root_digest: root.root_digest,
+            root_identity_digest: root.identity_digest(),
+        }
+    }
+
+    /// Builds bootstrap evidence from a storage manifest.
+    #[must_use]
+    pub fn from_manifest(manifest: &WalManifest) -> Self {
+        Self::StorageManifest {
+            manifest_digest: manifest.manifest_digest,
+        }
+    }
+}
+
+/// Checkpoint selection posture for a recovery plan.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WalRecoveryCheckpointPosture {
+    /// Recovery did not use a checkpoint base.
+    NotSelected,
+    /// Recovery selected a checkpoint and records its validation posture.
+    Selected {
+        /// Selected checkpoint digest.
+        checkpoint_digest: Hash,
+        /// Validation posture for the selected checkpoint.
+        validation: CheckpointValidationPosture,
+    },
+}
+
+/// Committed WAL suffix replayed by a recovery plan.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WalRecoveryReplaySuffix {
+    /// First committed LSN replayed.
+    pub first_lsn: Option<Lsn>,
+    /// Last committed LSN replayed.
+    pub last_lsn: Option<Lsn>,
+    /// Number of committed transactions replayed.
+    pub committed_transactions: u64,
+    /// Final committed transaction digest.
+    pub final_commit_digest: Option<Hash>,
+}
+
+impl WalRecoveryReplaySuffix {
+    /// Builds replay suffix evidence from a recovery scan report.
+    #[must_use]
+    pub fn from_report(report: &RecoveryScanReport) -> Self {
+        Self {
+            first_lsn: report.first_committed_lsn(),
+            last_lsn: report.last_committed_lsn(),
+            committed_transactions: len_u64(report.transactions.len()),
+            final_commit_digest: report.last_commit_digest(),
+        }
+    }
+}
+
+/// Index roots produced by recovery.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WalRecoveryIndexRoots {
+    /// Recovered frontier root.
+    pub recovered_frontier_root: Hash,
+    /// Recovered index root.
+    pub recovered_indexes_root: Hash,
+}
+
+impl WalRecoveryIndexRoots {
+    /// Builds index-root evidence from a recovery certificate.
+    #[must_use]
+    pub fn from_certificate(certificate: &RecoveryCertificate) -> Self {
+        Self {
+            recovered_frontier_root: certificate.recovered_frontier_root,
+            recovered_indexes_root: certificate.recovered_indexes_root,
+        }
+    }
+}
+
+/// Retained-material availability posture for recovery.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WalRecoveryRetainedMaterialAvailability {
+    /// All retained material required by the recovered index is available.
+    Available,
+    /// At least one retained material reference is missing, corrupt, or obstructed.
+    Obstructed,
+}
+
+/// Retained-material posture recorded by a recovery plan.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WalRecoveryRetainedMaterialPosture {
+    /// Overall retained-material availability.
+    pub availability: WalRecoveryRetainedMaterialAvailability,
+    /// Number of recovered retained material references.
+    pub material_count: u64,
+    /// Number of recovered reading references.
+    pub reading_count: u64,
+    /// Number of retained-material obstructions.
+    pub obstruction_count: u64,
+}
+
+impl WalRecoveryRetainedMaterialPosture {
+    /// Builds retained-material posture from recovered retained evidence.
+    #[must_use]
+    pub fn from_retention_index(
+        index: &RecoveredRetentionIndex,
+        available_material: &BTreeSet<Hash>,
+    ) -> Self {
+        let obstruction_count =
+            len_u64(retained_material_obstructions(index, available_material).len());
+        Self {
+            availability: if obstruction_count == 0 {
+                WalRecoveryRetainedMaterialAvailability::Available
+            } else {
+                WalRecoveryRetainedMaterialAvailability::Obstructed
+            },
+            material_count: len_u64(index.material_by_digest.len()),
+            reading_count: len_u64(index.reading_by_id.len()),
+            obstruction_count,
+        }
+    }
+}
+
+/// Recovery plan/report shape tying bootstrap, replay, retention, and projection evidence.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WalRecoveryPlan {
+    /// Evidence used to bootstrap the recovery plan.
+    pub bootstrap_source: WalRecoveryBootstrapSource,
+    /// Checkpoint selection and validation posture.
+    pub checkpoint_posture: WalRecoveryCheckpointPosture,
+    /// Committed suffix replayed after the bootstrap source.
+    pub replay_suffix: WalRecoveryReplaySuffix,
+    /// Tail posture observed during recovery.
+    pub tail_posture: RecoveryTailPosture,
+    /// Recovered frontier and index roots.
+    pub index_roots: WalRecoveryIndexRoots,
+    /// Retained-material availability posture.
+    pub retained_material_posture: WalRecoveryRetainedMaterialPosture,
+    /// Projection posture for graph-ready WAL evidence.
+    pub projected_evidence_posture: WalRecoveryProjectionPosture,
+    /// Number of typed projection obstructions.
+    pub projected_evidence_obstruction_count: u64,
+}
+
+impl WalRecoveryPlan {
+    /// Builds a recovery plan that bootstraps from a projected WAL root.
+    #[must_use]
+    pub fn from_wal_root(
+        root: &WalRoot,
+        report: &RecoveryScanReport,
+        checkpoint_posture: WalRecoveryCheckpointPosture,
+        certificate: &RecoveryCertificate,
+        retained_material_posture: WalRecoveryRetainedMaterialPosture,
+        projection: &WalRecoveryProjection,
+    ) -> Self {
+        Self::from_bootstrap_source(
+            WalRecoveryBootstrapSource::from_wal_root(root),
+            report,
+            checkpoint_posture,
+            certificate,
+            retained_material_posture,
+            projection,
+        )
+    }
+
+    /// Builds a recovery plan that bootstraps from storage manifest evidence.
+    #[must_use]
+    pub fn from_manifest(
+        manifest: &WalManifest,
+        report: &RecoveryScanReport,
+        checkpoint_posture: WalRecoveryCheckpointPosture,
+        certificate: &RecoveryCertificate,
+        retained_material_posture: WalRecoveryRetainedMaterialPosture,
+        projection: &WalRecoveryProjection,
+    ) -> Self {
+        Self::from_bootstrap_source(
+            WalRecoveryBootstrapSource::from_manifest(manifest),
+            report,
+            checkpoint_posture,
+            certificate,
+            retained_material_posture,
+            projection,
+        )
+    }
+
+    fn from_bootstrap_source(
+        bootstrap_source: WalRecoveryBootstrapSource,
+        report: &RecoveryScanReport,
+        checkpoint_posture: WalRecoveryCheckpointPosture,
+        certificate: &RecoveryCertificate,
+        retained_material_posture: WalRecoveryRetainedMaterialPosture,
+        projection: &WalRecoveryProjection,
+    ) -> Self {
+        Self {
+            bootstrap_source,
+            checkpoint_posture,
+            replay_suffix: WalRecoveryReplaySuffix::from_report(report),
+            tail_posture: report.tail_posture,
+            index_roots: WalRecoveryIndexRoots::from_certificate(certificate),
+            retained_material_posture,
+            projected_evidence_posture: projection.posture,
+            projected_evidence_obstruction_count: len_u64(projection.obstructions.len()),
+        }
+    }
+}
+
 /// Materialized WARP graph facts for a projected WAL root.
 ///
 /// The graph is a read-only fact projection. It carries typed nodes, edges, and

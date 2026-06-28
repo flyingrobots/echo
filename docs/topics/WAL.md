@@ -118,6 +118,12 @@ A WAL path is a storage locator, not causal identity. Causal identity comes from
 the writer epoch, LSN range, segment digest, commit digest chain, and validated
 commit anchors.
 
+Recovery planning records the bootstrap source, optional checkpoint posture,
+committed replay suffix, tail posture, recovered index roots, retained-material
+posture, and projected evidence posture. A recovery plan may start from a
+projected WAL root or storage manifest, but it does not require graph WAL nodes
+as recovery input.
+
 ## Evidence
 
 The runtime ACK and recovery witnesses live in

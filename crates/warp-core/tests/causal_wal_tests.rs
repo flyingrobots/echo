@@ -40,9 +40,11 @@ use warp_core::causal_wal::{
     TransactionLocalIndex, WalAppendAuthority, WalBuildError, WalCommitAnchor,
     WalCommittedTransaction, WalDoctorPosture, WalDurabilityMode, WalManifest,
     WalProjectionGraphObservationPosture, WalReceiptCorrelationRecord, WalRecordKind,
-    WalRecoveryError, WalRecoveryIndexError, WalRecoveryProjectionObstruction,
-    WalRecoveryProjectionPosture, WalRecoverySegmentEvidence, WalReleaseReadinessGates, WalRoot,
-    WalSchemaLintError, WalSegmentId, WalSegmentRef, WalSegmentSealPosture,
+    WalRecoveryBootstrapSource, WalRecoveryCheckpointPosture, WalRecoveryError,
+    WalRecoveryIndexError, WalRecoveryPlan, WalRecoveryProjectionObstruction,
+    WalRecoveryProjectionPosture, WalRecoveryRetainedMaterialAvailability,
+    WalRecoveryRetainedMaterialPosture, WalRecoverySegmentEvidence, WalReleaseReadinessGates,
+    WalRoot, WalSchemaLintError, WalSegmentId, WalSegmentRef, WalSegmentSealPosture,
     WalSegmentStorageLocator, WalStoreError, WalStorePort, WalTickDecision, WalTransactionBuilder,
     WalTransactionId, WalTransactionKind, WalWriterEpoch, WriterEpoch, WriterEpochId,
     WriterEpochRequest, WAL_PROJECTION_GRAPH_RECOVERY_CERTIFICATE_EDGE_TYPE,
@@ -913,6 +915,157 @@ fn wal_projection_from_recovery() {
             segment_id: WalSegmentId::from_raw(1)
         }
     ));
+}
+
+#[test]
+fn recovery_plan_bootstraps_from_wal_root() {
+    let label = "recovery-plan";
+    let dir = temp_wal_dir(label);
+    let mut store = must_ok(FilesystemWalStore::open(&dir, WalSegmentId::from_raw(1)));
+    let writer_epoch = must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    let material = retained_material(
+        label,
+        RetainedMaterialKind::ReadingPayload,
+        EvidenceMaterialPosture::Present,
+    );
+    let reading = reading_ref(label, EvidenceMaterialPosture::Present);
+
+    must_ok(store.append_transaction(durable_submission_transaction(label, Lsn::from_raw(0))));
+    must_ok(store.append_transaction(durable_tick_transaction(
+        label,
+        Lsn::from_raw(2),
+        WalTickDecision::Applied,
+    )));
+    let builder = builder(
+        transaction_id("tx:recovery-plan:retained-reading"),
+        Lsn::from_raw(5),
+        WalAppendAuthority::TrustedScheduler,
+        WalTransactionKind::SchedulerTick,
+    );
+    must_ok(
+        store.append_transaction(must_ok(build_retained_reading_transaction(
+            builder,
+            std::slice::from_ref(&material),
+            reading,
+            vec![frontier(
+                AffectedFrontierKind::ReadingIndex,
+                "recovery-plan:reading:before",
+                "recovery-plan:reading:after",
+            )],
+        ))),
+    );
+    must_ok(store.seal_segment(epoch_id(), WalSegmentId::from_raw(1)));
+    let last_commit_digest = must_some(
+        store
+            .read_commits()
+            .last()
+            .map(|commit| commit.commit_digest),
+    );
+    let manifest = WalManifest {
+        manifest_digest: digest("recovery-plan:manifest"),
+        last_committed_lsn: Some(Lsn::from_raw(6)),
+        last_commit_digest: Some(last_commit_digest),
+        sealed_segment_count: 1,
+    };
+    must_ok(store.publish_manifest(epoch_id(), manifest.clone()));
+
+    let report = must_ok(recover_filesystem_store(&dir, RecoveryAccessMode::ReadOnly));
+    let checkpoint_digest = digest("recovery-plan:checkpoint");
+    let certificate = build_recovery_certificate(
+        &report,
+        Some(checkpoint_digest),
+        0,
+        digest("recovery-plan:frontier"),
+        digest("recovery-plan:indexes"),
+    );
+    let writer_epoch = WalWriterEpoch::from_writer_epoch(&writer_epoch);
+    let projection = project_filesystem_wal_recovery(
+        &dir,
+        &report,
+        std::slice::from_ref(&writer_epoch),
+        Some(&certificate),
+    );
+    assert_eq!(projection.posture, WalRecoveryProjectionPosture::Present);
+    let root = must_some(projection.root.clone());
+    let retention = must_ok(recover_retention_index(&report));
+    let available_material = BTreeSet::from([material.material_digest]);
+    let retained_material_posture =
+        WalRecoveryRetainedMaterialPosture::from_retention_index(&retention, &available_material);
+
+    let plan = WalRecoveryPlan::from_wal_root(
+        &root,
+        &report,
+        WalRecoveryCheckpointPosture::Selected {
+            checkpoint_digest,
+            validation: CheckpointValidationPosture::PublishedAndUsable,
+        },
+        &certificate,
+        retained_material_posture,
+        &projection,
+    );
+
+    assert_eq!(
+        plan.bootstrap_source,
+        WalRecoveryBootstrapSource::WalRoot {
+            root_digest: root.root_digest,
+            root_identity_digest: root.identity_digest()
+        }
+    );
+    assert_eq!(
+        plan.checkpoint_posture,
+        WalRecoveryCheckpointPosture::Selected {
+            checkpoint_digest,
+            validation: CheckpointValidationPosture::PublishedAndUsable
+        }
+    );
+    assert_eq!(plan.replay_suffix.first_lsn, Some(Lsn::from_raw(0)));
+    assert_eq!(plan.replay_suffix.last_lsn, Some(Lsn::from_raw(6)));
+    assert_eq!(plan.replay_suffix.committed_transactions, 3);
+    assert_eq!(
+        plan.replay_suffix.final_commit_digest,
+        Some(last_commit_digest)
+    );
+    assert_eq!(plan.tail_posture, RecoveryTailPosture::Clean);
+    assert_eq!(
+        plan.index_roots.recovered_frontier_root,
+        certificate.recovered_frontier_root
+    );
+    assert_eq!(
+        plan.index_roots.recovered_indexes_root,
+        certificate.recovered_indexes_root
+    );
+    assert_eq!(
+        plan.retained_material_posture.availability,
+        WalRecoveryRetainedMaterialAvailability::Available
+    );
+    assert_eq!(plan.retained_material_posture.material_count, 1);
+    assert_eq!(plan.retained_material_posture.reading_count, 1);
+    assert_eq!(plan.retained_material_posture.obstruction_count, 0);
+    assert_eq!(
+        plan.projected_evidence_posture,
+        WalRecoveryProjectionPosture::Present
+    );
+    assert_eq!(plan.projected_evidence_obstruction_count, 0);
+
+    let manifest_plan = WalRecoveryPlan::from_manifest(
+        &manifest,
+        &report,
+        WalRecoveryCheckpointPosture::NotSelected,
+        &certificate,
+        retained_material_posture,
+        &projection,
+    );
+    assert_eq!(
+        manifest_plan.bootstrap_source,
+        WalRecoveryBootstrapSource::StorageManifest {
+            manifest_digest: manifest.manifest_digest
+        }
+    );
+    assert_eq!(
+        manifest_plan.checkpoint_posture,
+        WalRecoveryCheckpointPosture::NotSelected
+    );
+    assert_eq!(manifest_plan.replay_suffix, plan.replay_suffix);
 }
 
 #[test]

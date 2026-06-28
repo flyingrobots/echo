@@ -2223,6 +2223,37 @@ fn dind_durability_convergence_gate() {
             && semantic_coordinate_digest == retained_coordinate
     ));
 
+    let mut corrupted_retained_bytes = retained_payload.to_vec();
+    corrupted_retained_bytes[0] ^= 0x7f;
+    let corrupt_retained = must_err(
+        wsc_self_contained_wal_export(
+            &root,
+            &[WscSelfContainedWalSegmentMaterial {
+                segment_id: segment.segment_id,
+                segment_bytes: segment_bytes.clone(),
+            }],
+            &[WscSelfContainedRetainedMaterial {
+                material: retained_material,
+                material_bytes: corrupted_retained_bytes,
+            }],
+            wsc_records(
+                &[retained_material],
+                &[reading],
+                &[acceptance],
+                &[receipt],
+                &[correlation],
+            ),
+        ),
+        "corrupt embedded retained material must obstruct rather than diverge",
+    );
+    assert!(matches!(
+        corrupt_retained,
+        WscSelfContainedWalExportError::RetainedMaterialDigestMismatch {
+            expected,
+            actual
+        } if expected == retained_digest && actual != expected
+    ));
+
     let mut corrupted_segment_bytes = segment_bytes;
     let Some(last_byte) = corrupted_segment_bytes.last_mut() else {
         panic!("DIND convergence WAL fixture unexpectedly produced empty segment bytes");

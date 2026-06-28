@@ -3,8 +3,9 @@
 //! Content-addressed blob store for Echo.
 //!
 //! `echo-cas` provides a [`BlobStore`] trait for content-addressed storage keyed by
-//! BLAKE3 hash. Phase 1 ships [`MemoryTier`] — sufficient for the in-browser website
-//! demo. Disk/cold tiers, wire protocol, and GC come in Phase 3.
+//! BLAKE3 hash. [`MemoryTier`] is the infallible in-process implementation.
+//! [`DiskTier`] is the fallible filesystem-backed retained blob tier. Cold tiers,
+//! wire protocol, and GC come in later phases.
 //!
 //! # Hash Domain Policy
 //!
@@ -21,8 +22,10 @@
 //! return results sorted by [`BlobHash`].
 #![forbid(unsafe_code)]
 
+mod disk;
 mod memory;
 mod retention;
+pub use disk::{DiskTier, DiskTierError};
 pub use memory::MemoryTier;
 pub use retention::{
     RetainedBlob, RetainedBlobDescriptor, RetainedBlobIndex, RetainedBlobRange, RetainedBlobRole,

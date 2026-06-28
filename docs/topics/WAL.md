@@ -128,6 +128,10 @@ Read-only recovery can rebuild durability indexes from committed transactions:
 submission posture, receipt/correlation, retained material, materialization
 outbox, topology, and graph/WSC projection posture. Uncommitted tail frames are
 reported through tail posture and do not appear in rebuilt indexes.
+Materialization outbox recovery reports typed posture for missing artifacts,
+artifact or metadata mismatches, committed observation mismatches, and retained
+material unavailability so restart logic can retry, repair, or obstruct without
+blindly replaying effects.
 
 ## Evidence
 

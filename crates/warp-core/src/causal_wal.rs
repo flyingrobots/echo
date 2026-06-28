@@ -5053,6 +5053,100 @@ pub enum MaterializationReplayPosture {
     Obstructed,
 }
 
+/// Typed materialization recovery posture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MaterializationRecoveryPosture {
+    /// Effect has a committed observation that matches authorization.
+    AlreadyObserved {
+        /// Observed artifact digest.
+        observed_artifact_digest: Hash,
+        /// Observed metadata digest.
+        observed_metadata_digest: Hash,
+    },
+    /// External artifact already matches the authorized effect.
+    ExistingArtifactMatches {
+        /// Existing artifact digest.
+        artifact_digest: Hash,
+        /// Existing metadata digest.
+        metadata_digest: Hash,
+    },
+    /// No committed observation or existing artifact evidence was available.
+    MissingArtifact {
+        /// Stable effect id.
+        effect_id: Hash,
+        /// Expected external artifact digest.
+        expected_artifact_digest: Hash,
+        /// Expected external metadata digest.
+        expected_metadata_digest: Hash,
+    },
+    /// External artifact digest mismatched the authorized effect.
+    ArtifactDigestMismatch {
+        /// Expected external artifact digest.
+        expected_artifact_digest: Hash,
+        /// Actual external artifact digest.
+        actual_artifact_digest: Hash,
+    },
+    /// External metadata digest mismatched the authorized effect.
+    MetadataDigestMismatch {
+        /// Expected external metadata digest.
+        expected_metadata_digest: Hash,
+        /// Actual external metadata digest.
+        actual_metadata_digest: Hash,
+    },
+    /// External artifact and metadata digests both mismatched authorization.
+    ArtifactAndMetadataDigestMismatch {
+        /// Expected external artifact digest.
+        expected_artifact_digest: Hash,
+        /// Actual external artifact digest.
+        actual_artifact_digest: Hash,
+        /// Expected external metadata digest.
+        expected_metadata_digest: Hash,
+        /// Actual external metadata digest.
+        actual_metadata_digest: Hash,
+    },
+    /// A committed observation conflicted with the authorized intent.
+    ObservationDigestMismatch {
+        /// Expected external artifact digest.
+        expected_artifact_digest: Hash,
+        /// Observed external artifact digest.
+        observed_artifact_digest: Hash,
+        /// Expected external metadata digest.
+        expected_metadata_digest: Hash,
+        /// Observed external metadata digest.
+        observed_metadata_digest: Hash,
+    },
+    /// Retained material required to verify recovery was unavailable.
+    RetainedMaterialUnavailable {
+        /// Unavailable material digest.
+        material_digest: Hash,
+        /// Material kind.
+        kind: RetainedMaterialKind,
+        /// Recovery scope.
+        scope: MissingMaterialScope,
+        /// Evidence posture.
+        posture: EvidenceMaterialPosture,
+    },
+}
+
+impl MaterializationRecoveryPosture {
+    /// Returns the coarse replay posture for compatibility with existing callers.
+    #[must_use]
+    pub const fn replay_posture(self) -> MaterializationReplayPosture {
+        match self {
+            Self::AlreadyObserved { .. } => MaterializationReplayPosture::AlreadyObserved,
+            Self::ExistingArtifactMatches { .. } => {
+                MaterializationReplayPosture::ExistingArtifactMatches
+            }
+            Self::MissingArtifact { .. } => MaterializationReplayPosture::Pending,
+            Self::ArtifactDigestMismatch { .. }
+            | Self::MetadataDigestMismatch { .. }
+            | Self::ArtifactAndMetadataDigestMismatch { .. }
+            | Self::ObservationDigestMismatch { .. }
+            | Self::RetainedMaterialUnavailable { .. } => MaterializationReplayPosture::Obstructed,
+        }
+    }
+}
+
 /// Recovered materialization outbox entry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MaterializationOutboxEntry {
@@ -5062,6 +5156,8 @@ pub struct MaterializationOutboxEntry {
     pub observation: Option<MaterializationObservationRecord>,
     /// Replay posture.
     pub posture: MaterializationReplayPosture,
+    /// Typed recovery posture.
+    pub recovery_posture: MaterializationRecoveryPosture,
 }
 
 /// Builds a side-effect outbox transaction.
@@ -5089,6 +5185,21 @@ pub fn recover_materialization_outbox(
     report: &RecoveryScanReport,
     existing_artifacts: &BTreeMap<Hash, ExistingMaterializedArtifact>,
 ) -> Result<BTreeMap<Hash, MaterializationOutboxEntry>, WalRecoveryIndexError> {
+    recover_materialization_outbox_with_retained_material(
+        report,
+        existing_artifacts,
+        &RecoveredRetentionIndex::default(),
+        &BTreeSet::new(),
+    )
+}
+
+/// Recovers materialization outbox posture with retained-material availability.
+pub fn recover_materialization_outbox_with_retained_material(
+    report: &RecoveryScanReport,
+    existing_artifacts: &BTreeMap<Hash, ExistingMaterializedArtifact>,
+    retention_index: &RecoveredRetentionIndex,
+    available_material: &BTreeSet<Hash>,
+) -> Result<BTreeMap<Hash, MaterializationOutboxEntry>, WalRecoveryIndexError> {
     let mut intents = BTreeMap::new();
     let mut observations = BTreeMap::new();
     for transaction in &report.transactions {
@@ -5110,32 +5221,96 @@ pub fn recover_materialization_outbox(
             }
         }
     }
+    let retained_obstructions: BTreeMap<_, _> =
+        retained_material_obstructions(retention_index, available_material)
+            .into_iter()
+            .map(|obstruction| (obstruction.material_digest, obstruction))
+            .collect();
     let mut outbox = BTreeMap::new();
     for (effect_id, intent) in intents {
         let observation = observations.get(&effect_id).copied();
-        let posture = if observation.is_some() {
-            MaterializationReplayPosture::AlreadyObserved
-        } else if let Some(existing) = existing_artifacts.get(&effect_id) {
-            if existing.artifact_digest == intent.expected_artifact_digest
-                && existing.metadata_digest == intent.target_metadata_digest
-            {
-                MaterializationReplayPosture::ExistingArtifactMatches
-            } else {
-                MaterializationReplayPosture::Obstructed
-            }
-        } else {
-            MaterializationReplayPosture::Pending
-        };
+        let recovery_posture = materialization_recovery_posture(
+            intent,
+            observation,
+            existing_artifacts.get(&effect_id).copied(),
+            retained_obstructions
+                .get(&intent.expected_artifact_digest)
+                .copied(),
+        );
+        let posture = recovery_posture.replay_posture();
         outbox.insert(
             effect_id,
             MaterializationOutboxEntry {
                 intent,
                 observation,
                 posture,
+                recovery_posture,
             },
         );
     }
     Ok(outbox)
+}
+
+fn materialization_recovery_posture(
+    intent: MaterializationIntentRecord,
+    observation: Option<MaterializationObservationRecord>,
+    existing: Option<ExistingMaterializedArtifact>,
+    retained_obstruction: Option<RetainedMaterialObstruction>,
+) -> MaterializationRecoveryPosture {
+    if let Some(observation) = observation {
+        return if observation.observed_artifact_digest == intent.expected_artifact_digest
+            && observation.observed_metadata_digest == intent.target_metadata_digest
+        {
+            MaterializationRecoveryPosture::AlreadyObserved {
+                observed_artifact_digest: observation.observed_artifact_digest,
+                observed_metadata_digest: observation.observed_metadata_digest,
+            }
+        } else {
+            MaterializationRecoveryPosture::ObservationDigestMismatch {
+                expected_artifact_digest: intent.expected_artifact_digest,
+                observed_artifact_digest: observation.observed_artifact_digest,
+                expected_metadata_digest: intent.target_metadata_digest,
+                observed_metadata_digest: observation.observed_metadata_digest,
+            }
+        };
+    }
+    if let Some(obstruction) = retained_obstruction {
+        return MaterializationRecoveryPosture::RetainedMaterialUnavailable {
+            material_digest: obstruction.material_digest,
+            kind: obstruction.kind,
+            scope: obstruction.scope,
+            posture: obstruction.posture,
+        };
+    }
+    if let Some(existing) = existing {
+        let artifact_matches = existing.artifact_digest == intent.expected_artifact_digest;
+        let metadata_matches = existing.metadata_digest == intent.target_metadata_digest;
+        return match (artifact_matches, metadata_matches) {
+            (true, true) => MaterializationRecoveryPosture::ExistingArtifactMatches {
+                artifact_digest: existing.artifact_digest,
+                metadata_digest: existing.metadata_digest,
+            },
+            (false, true) => MaterializationRecoveryPosture::ArtifactDigestMismatch {
+                expected_artifact_digest: intent.expected_artifact_digest,
+                actual_artifact_digest: existing.artifact_digest,
+            },
+            (true, false) => MaterializationRecoveryPosture::MetadataDigestMismatch {
+                expected_metadata_digest: intent.target_metadata_digest,
+                actual_metadata_digest: existing.metadata_digest,
+            },
+            (false, false) => MaterializationRecoveryPosture::ArtifactAndMetadataDigestMismatch {
+                expected_artifact_digest: intent.expected_artifact_digest,
+                actual_artifact_digest: existing.artifact_digest,
+                expected_metadata_digest: intent.target_metadata_digest,
+                actual_metadata_digest: existing.metadata_digest,
+            },
+        };
+    }
+    MaterializationRecoveryPosture::MissingArtifact {
+        effect_id: intent.effect_id,
+        expected_artifact_digest: intent.expected_artifact_digest,
+        expected_metadata_digest: intent.target_metadata_digest,
+    }
 }
 
 /// Imported suffix admission outcome stored in topology recovery evidence.

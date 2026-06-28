@@ -1,0 +1,22 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH echo-cli-wsc-causal-history-export-ref-only 1  "echo-cli-wsc-causal-history-export-ref-only "
+.SH NAME
+echo\-cli\-wsc\-causal\-history\-export\-ref\-only \- Export a ref\-only WSC causal\-history bundle from a filesystem WAL root
+.SH SYNOPSIS
+\fBecho\-cli\-wsc\-causal\-history\-export\-ref\-only\fR <\fB\-\-writer\-epochs\fR> <\fB\-\-out\fR> [\fB\-h\fR|\fB\-\-help\fR] <\fIWAL_ROOT\fR>
+.SH DESCRIPTION
+Export a ref\-only WSC causal\-history bundle from a filesystem WAL root
+.SH OPTIONS
+.TP
+\fB\-\-writer\-epochs\fR \fI<WRITER_EPOCHS>\fR
+JSON file containing writer\-epoch projection evidence
+.TP
+\fB\-\-out\fR \fI<OUT>\fR
+Output bundle directory
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help
+.TP
+<\fIWAL_ROOT\fR>
+Filesystem WAL root to inspect

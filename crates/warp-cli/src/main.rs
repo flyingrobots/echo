@@ -24,9 +24,10 @@ mod inspect;
 mod output;
 mod verify;
 mod wal;
+mod wsc;
 mod wsc_loader;
 
-use cli::{Cli, Commands, WalCommands};
+use cli::{Cli, Commands, WalCommands, WscCausalHistoryCommands, WscCommands};
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -56,5 +57,39 @@ fn main() -> Result<()> {
                     ref canonical_envelope_digest,
                 },
         } => wal::submission_posture(root, submission_id, canonical_envelope_digest, &cli.format),
+        Commands::Wsc {
+            command:
+                WscCommands::CausalHistory {
+                    command:
+                        WscCausalHistoryCommands::ExportRefOnly {
+                            ref wal_root,
+                            ref writer_epochs,
+                            ref out,
+                        },
+                },
+        } => wsc::export_ref_only(wal_root, writer_epochs, out, &cli.format),
+        Commands::Wsc {
+            command:
+                WscCommands::CausalHistory {
+                    command:
+                        WscCausalHistoryCommands::ExportSelfContained {
+                            ref wal_root,
+                            ref writer_epochs,
+                            ref out,
+                        },
+                },
+        } => wsc::export_self_contained(wal_root, writer_epochs, out, &cli.format),
+        Commands::Wsc {
+            command:
+                WscCommands::CausalHistory {
+                    command: WscCausalHistoryCommands::Inspect { ref bundle },
+                },
+        } => wsc::inspect(bundle, &cli.format),
+        Commands::Wsc {
+            command:
+                WscCommands::CausalHistory {
+                    command: WscCausalHistoryCommands::Verify { ref bundle },
+                },
+        } => wsc::verify(bundle, &cli.format),
     }
 }

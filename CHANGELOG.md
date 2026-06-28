@@ -50,6 +50,11 @@
   envelope material separately from commit markers, hides staged material until
   marker publication, reopens committed envelopes in deterministic order, and
   reports torn envelope or marker files as typed WSC store obstructions.
+- `echo-cli` now exposes read-only `wsc causal-history` commands that export
+  ref-only and self-contained WAL WSC bundles from filesystem WAL roots, inspect
+  bundle envelope metadata, verify self-contained bundles without the original
+  WAL root, and report unavailable ref-only segment bytes as typed material
+  obstructions in JSON output.
 - `cargo xtask test-slice durable-runtime-wal` now runs the release-grade
   filesystem runtime WAL durability gate, joining filesystem ACK recovery,
   filesystem failure atomicity, CLI submission posture JSON, stale-claim, and

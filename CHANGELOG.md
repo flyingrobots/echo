@@ -107,6 +107,14 @@
 - `cargo xtask test-slice durability-release` now includes the exact
   `wal_process_crashpoints` witness, promoting the process-kill WAL crashpoint
   runner from future descriptor to release-gate evidence.
+- `cargo xtask dind` now defaults to run mode and includes the exact
+  `dind_durability_convergence_gate` witness, proving live WAL execution,
+  read-only WAL recovery, WSC import, and retained-material reveal agree on the
+  same app-facing receipt and bounded reading while missing or corrupt support
+  material returns typed obstruction.
+- `cargo xtask test-slice durability-release` now includes the exact
+  `dind_durability_convergence_gate` witness so the release slice also carries
+  the DIND durability convergence proof.
 - `warp-core` trusted runtime hosts now configure runtime WAL through
   `TrustedRuntimeWalConfig`, including in-memory and filesystem-backed
   adapters. `TrustedRuntimeWalStoreKind` exposes the configured adapter kind as

@@ -299,7 +299,7 @@ struct BenchCheckArtifactsArgs {
 struct DindArgs {
     /// DIND subcommand to execute.
     #[command(subcommand)]
-    command: DindCommands,
+    command: Option<DindCommands>,
 }
 
 #[derive(Args)]
@@ -826,6 +826,14 @@ fn build_test_slice_commands(slice: TestSlice) -> Vec<Command> {
                 "materialization_outbox_recovery_returns_typed_posture",
             ]),
             cargo_command(["test", "-p", "echo-dind-tests", "wal_process_crashpoints"]),
+            cargo_command([
+                "test",
+                "-p",
+                "warp-core",
+                "--test",
+                "causal_wal_tests",
+                "dind_durability_convergence_gate",
+            ]),
             cargo_command([
                 "test",
                 "-p",
@@ -5678,13 +5686,19 @@ fn run_dind(args: DindArgs) -> Result<()> {
     // Delegate to the Node.js script which handles manifest parsing and orchestration.
     // This mirrors what CI does and ensures consistent behavior.
     let mut node_args = vec!["scripts/dind-run-suite.mjs".to_owned()];
+    let command = args.command.unwrap_or(DindCommands::Run {
+        tags: None,
+        exclude_tags: None,
+        emit_repro: false,
+    });
 
-    match args.command {
+    match command {
         DindCommands::Run {
             tags,
             exclude_tags,
             emit_repro,
         } => {
+            run_dind_durability_convergence_gate()?;
             node_args.push("--mode".to_owned());
             node_args.push("run".to_owned());
             if let Some(t) = tags {
@@ -5742,6 +5756,27 @@ fn run_dind(args: DindArgs) -> Result<()> {
 
     if !status.success() {
         bail!("DIND suite failed (exit status: {status})");
+    }
+
+    Ok(())
+}
+
+fn run_dind_durability_convergence_gate() -> Result<()> {
+    println!("DIND DURABILITY: checking WAL/WSC/retention convergence");
+    let status = Command::new("cargo")
+        .args([
+            "test",
+            "-p",
+            "warp-core",
+            "--test",
+            "causal_wal_tests",
+            "dind_durability_convergence_gate",
+        ])
+        .status()
+        .context("failed to spawn cargo for DIND durability convergence gate")?;
+
+    if !status.success() {
+        bail!("DIND durability convergence gate failed (exit status: {status})");
     }
 
     Ok(())
@@ -6744,7 +6779,7 @@ mod tests {
     #[test]
     fn test_slice_durability_release_stays_explicit() {
         let commands = build_test_slice_commands(TestSlice::DurabilityRelease);
-        assert_eq!(commands.len(), 17);
+        assert_eq!(commands.len(), 18);
 
         let expected = [
             (
@@ -6886,6 +6921,17 @@ mod tests {
             (
                 "cargo",
                 vec!["test", "-p", "echo-dind-tests", "wal_process_crashpoints"],
+            ),
+            (
+                "cargo",
+                vec![
+                    "test",
+                    "-p",
+                    "warp-core",
+                    "--test",
+                    "causal_wal_tests",
+                    "dind_durability_convergence_gate",
+                ],
             ),
             (
                 "cargo",

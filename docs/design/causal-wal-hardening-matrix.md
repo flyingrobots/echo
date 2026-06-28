@@ -429,23 +429,23 @@ Test plan:
 
 User story:
 
-As Echo, I need a future CLI/BATS crash runner contract that mirrors the Rust
-fixture semantics before it shells out to real processes.
+As Echo, I need a process-kill crash runner contract that mirrors the Rust
+fixture semantics while exercising real parent/child process boundaries.
 
 Acceptance criteria:
 
 - Rust crash fixtures define canonical crashpoint names.
 - A test-visible crashpoint manifest lists supported boundaries.
-- The manifest distinguishes simulated in-process cuts from future process-kill
-  cuts.
-- No CLI runner claims more than the Rust fixture proves.
+- The manifest distinguishes simulated in-process cuts from process-kill cuts.
+- No process runner claims more than the Rust fixture proves.
 
 Test plan:
 
 - `crashpoint_manifest_lists_submission_boundaries`
 - `crashpoint_manifest_lists_tick_boundaries`
 - `crashpoint_manifest_lists_checkpoint_boundaries`
-- `crashpoint_manifest_marks_process_kill_as_future_until_runner_exists`
+- `crashpoint_manifest_marks_process_kill_as_available_runner`
+- `wal_process_crashpoints`
 
 ## Slice 62: Filesystem Strict Sync Evidence
 

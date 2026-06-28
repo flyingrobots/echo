@@ -825,6 +825,7 @@ fn build_test_slice_commands(slice: TestSlice) -> Vec<Command> {
                 "causal_wal_tests",
                 "materialization_outbox_recovery_returns_typed_posture",
             ]),
+            cargo_command(["test", "-p", "echo-dind-tests", "wal_process_crashpoints"]),
             cargo_command([
                 "test",
                 "-p",
@@ -6743,7 +6744,7 @@ mod tests {
     #[test]
     fn test_slice_durability_release_stays_explicit() {
         let commands = build_test_slice_commands(TestSlice::DurabilityRelease);
-        assert_eq!(commands.len(), 16);
+        assert_eq!(commands.len(), 17);
 
         let expected = [
             (
@@ -6881,6 +6882,10 @@ mod tests {
                     "causal_wal_tests",
                     "materialization_outbox_recovery_returns_typed_posture",
                 ],
+            ),
+            (
+                "cargo",
+                vec!["test", "-p", "echo-dind-tests", "wal_process_crashpoints"],
             ),
             (
                 "cargo",

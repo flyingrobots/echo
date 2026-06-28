@@ -1305,6 +1305,8 @@ pub struct WalManifest {
 pub enum WalCrashpointExecution {
     /// Crashpoint is simulated in-process by Rust fixtures.
     SimulatedInProcess,
+    /// Crashpoint is exercised by killing a child process.
+    ProcessKill,
     /// Crashpoint is reserved for a future process-kill runner.
     ProcessKillFuture,
 }
@@ -1386,7 +1388,7 @@ const WAL_CRASHPOINT_MANIFEST: &[WalCrashpointDescriptor] = &[
     WalCrashpointDescriptor {
         name: "process.kill.after_wal_commit",
         boundary: WalCrashpointBoundary::Process,
-        execution: WalCrashpointExecution::ProcessKillFuture,
+        execution: WalCrashpointExecution::ProcessKill,
     },
 ];
 

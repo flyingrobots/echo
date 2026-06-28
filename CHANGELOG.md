@@ -31,6 +31,10 @@
   metadata digest mismatches, committed observation mismatches, and retained
   material unavailability while preserving the coarse replay posture for
   existing callers.
+- `echo-dind-tests` now includes a process-kill WAL crashpoint witness that
+  kills child processes after committed WAL material and before transaction
+  commit, proving recovery preserves committed history and excludes uncommitted
+  tails.
 - `warp-core` can now materialize WAL projection records into deterministic
   WARP graph facts with root, writer epoch, segment, commit-anchor, and recovery
   certificate nodes plus typed graph edges suitable for WSC serialization. The
@@ -100,6 +104,9 @@
 - `cargo xtask test-slice durability-release` now includes the exact
   `materialization_outbox_recovery_returns_typed_posture` witness, locking
   typed materialization outbox recovery posture into the release gate.
+- `cargo xtask test-slice durability-release` now includes the exact
+  `wal_process_crashpoints` witness, promoting the process-kill WAL crashpoint
+  runner from future descriptor to release-gate evidence.
 - `warp-core` trusted runtime hosts now configure runtime WAL through
   `TrustedRuntimeWalConfig`, including in-memory and filesystem-backed
   adapters. `TrustedRuntimeWalStoreKind` exposes the configured adapter kind as

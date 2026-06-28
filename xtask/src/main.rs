@@ -798,6 +798,14 @@ fn build_test_slice_commands(slice: TestSlice) -> Vec<Command> {
                 "-p",
                 "warp-core",
                 "--test",
+                "retained_evidence_ref_tests",
+                "retained_reading_missing_payload_is_not_empty_success",
+            ]),
+            cargo_command([
+                "test",
+                "-p",
+                "warp-core",
+                "--test",
                 "causal_wal_tests",
                 "missing_retained_material_returns_typed_obstruction",
             ]),
@@ -6711,7 +6719,7 @@ mod tests {
     #[test]
     fn test_slice_durability_release_stays_explicit() {
         let commands = build_test_slice_commands(TestSlice::DurabilityRelease);
-        assert_eq!(commands.len(), 12);
+        assert_eq!(commands.len(), 13);
 
         let expected = [
             (
@@ -6804,6 +6812,17 @@ mod tests {
                     "--test",
                     "causal_wal_tests",
                     "wsc_retained_evidence_export_modes",
+                ],
+            ),
+            (
+                "cargo",
+                vec![
+                    "test",
+                    "-p",
+                    "warp-core",
+                    "--test",
+                    "retained_evidence_ref_tests",
+                    "retained_reading_missing_payload_is_not_empty_success",
                 ],
             ),
             (

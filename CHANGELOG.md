@@ -72,6 +72,10 @@
   `wsc_retained_evidence_export_modes` witness, keeping retained-evidence WSC
   export coverage in the release gate without using Cargo's slow package-level
   name filter.
+- `cargo xtask test-slice durability-release` now includes the exact
+  `retained_reading_missing_payload_is_not_empty_success` witness, locking the
+  app-safe missing-retention posture for reading payloads, reading envelopes,
+  and retained receipt support.
 - `warp-core` trusted runtime hosts now configure runtime WAL through
   `TrustedRuntimeWalConfig`, including in-memory and filesystem-backed
   adapters. `TrustedRuntimeWalStoreKind` exposes the configured adapter kind as

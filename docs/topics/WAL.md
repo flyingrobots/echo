@@ -124,6 +124,11 @@ posture, and projected evidence posture. A recovery plan may start from a
 projected WAL root or storage manifest, but it does not require graph WAL nodes
 as recovery input.
 
+Read-only recovery can rebuild durability indexes from committed transactions:
+submission posture, receipt/correlation, retained material, materialization
+outbox, topology, and graph/WSC projection posture. Uncommitted tail frames are
+reported through tail posture and do not appear in rebuilt indexes.
+
 ## Evidence
 
 The runtime ACK and recovery witnesses live in

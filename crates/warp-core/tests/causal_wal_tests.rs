@@ -21,9 +21,10 @@ use warp_core::causal_wal::{
     evaluate_checkpoint_publication, lint_wal_schema_terms, materialize_wal_projection_graph,
     missing_material_scope, observe_wal_projection_graph_wsc, project_causal_commit_evidence,
     project_filesystem_wal_recovery, project_wal_recovery, read_checkpoint_record,
-    recover_checkpoint_publications, recover_filesystem_store, recover_in_memory_store,
-    recover_materialization_outbox, recover_receipt_index, recover_retention_index,
-    recover_submission_index, recover_topology_index, recovered_topology_index_root,
+    rebuild_durability_indexes_after_recovery, recover_checkpoint_publications,
+    recover_filesystem_store, recover_in_memory_store, recover_materialization_outbox,
+    recover_receipt_index, recover_retention_index, recover_submission_index,
+    recover_topology_index, recovered_submission_receipt_index_root, recovered_topology_index_root,
     retained_material_obstructions, shadow_replay_matches, validate_checkpoint_record,
     validate_strict_object_store_capabilities, wal_projection_graph_schema_hash,
     write_checkpoint_record_atomic, AffectedFrontier, AffectedFrontierKind,
@@ -32,7 +33,8 @@ use warp_core::causal_wal::{
     FilesystemWalStore, InMemoryWalStore, Lsn, MaterializationIntentRecord,
     MaterializationObservationRecord, MaterializationReplayPosture, MissingMaterialScope,
     ObjectStoreCapabilityError, ObjectStoreReadAfterWritePosture, ObjectStoreWalCapabilities,
-    PayloadCodecId, PayloadSchemaId, ReadingRefRecord, RecoveredState, RecoveredSubmissionPosture,
+    PayloadCodecId, PayloadSchemaId, ReadingRefRecord, RecoveredReceiptIndex,
+    RecoveredRetentionIndex, RecoveredState, RecoveredSubmissionIndex, RecoveredSubmissionPosture,
     RecoveredTopologyIndex, RecoveryAccessMode, RecoveryCertificateRef, RecoveryScanReport,
     RecoveryTailPosture, RetainedMaterialKind, RetainedMaterialRecord, StrandDropRecord,
     StrandForkRecord, SubmissionAcceptanceRecord, SubmissionRetryPosture, SuffixImportRecord,
@@ -1066,6 +1068,198 @@ fn recovery_plan_bootstraps_from_wal_root() {
         WalRecoveryCheckpointPosture::NotSelected
     );
     assert_eq!(manifest_plan.replay_suffix, plan.replay_suffix);
+}
+
+#[test]
+fn wal_recovery_rebuilds_all_durability_indexes() {
+    let label = "durability-index-rebuild";
+    let dir = temp_wal_dir(label);
+    let mut store = must_ok(FilesystemWalStore::open(&dir, WalSegmentId::from_raw(1)));
+    let writer_epoch = must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    let acceptance = submission_acceptance(label);
+    let receipt = receipt_record(label, WalTickDecision::Applied);
+    let correlation = correlation_record(label);
+    let material = retained_material(
+        label,
+        RetainedMaterialKind::ReadingPayload,
+        EvidenceMaterialPosture::Present,
+    );
+    let reading = reading_ref(label, EvidenceMaterialPosture::Present);
+    let materialization_intent = MaterializationIntentRecord {
+        effect_id: digest("effect:durability-index-rebuild"),
+        expected_artifact_digest: digest("artifact:durability-index-rebuild"),
+        materialization_intent_digest: digest("materialization:durability-index-rebuild"),
+        idempotency_token: digest("idempotency:durability-index-rebuild"),
+        target_metadata_digest: digest("metadata:durability-index-rebuild"),
+    };
+    let materialization_observation = MaterializationObservationRecord {
+        effect_id: materialization_intent.effect_id,
+        observed_artifact_digest: materialization_intent.expected_artifact_digest,
+        observed_metadata_digest: materialization_intent.target_metadata_digest,
+    };
+
+    must_ok(store.append_transaction(durable_submission_transaction(label, Lsn::from_raw(0))));
+    must_ok(store.append_transaction(durable_tick_transaction(
+        label,
+        Lsn::from_raw(2),
+        WalTickDecision::Applied,
+    )));
+    let reading_builder = builder(
+        transaction_id("tx:durability-index-rebuild:reading"),
+        Lsn::from_raw(5),
+        WalAppendAuthority::TrustedScheduler,
+        WalTransactionKind::SchedulerTick,
+    );
+    must_ok(
+        store.append_transaction(must_ok(build_retained_reading_transaction(
+            reading_builder,
+            std::slice::from_ref(&material),
+            reading,
+            vec![frontier(
+                AffectedFrontierKind::ReadingIndex,
+                "durability-index:reading:before",
+                "durability-index:reading:after",
+            )],
+        ))),
+    );
+    let materialization_builder = builder(
+        transaction_id("tx:durability-index-rebuild:materialization"),
+        Lsn::from_raw(7),
+        WalAppendAuthority::TrustedScheduler,
+        WalTransactionKind::MaterializationOutbox,
+    );
+    must_ok(
+        store.append_transaction(must_ok(build_materialization_outbox_transaction(
+            materialization_builder,
+            materialization_intent,
+            Some(materialization_observation),
+            vec![frontier(
+                AffectedFrontierKind::ReceiptIndex,
+                "durability-index:outbox:before",
+                "durability-index:outbox:after",
+            )],
+        ))),
+    );
+    must_ok(store.append_transaction(topology_transaction(Lsn::from_raw(9))));
+    must_ok(store.seal_segment(epoch_id(), WalSegmentId::from_raw(1)));
+    let last_commit_digest = must_some(
+        store
+            .read_commits()
+            .last()
+            .map(|commit| commit.commit_digest),
+    );
+    let manifest = WalManifest {
+        manifest_digest: digest("durability-index:manifest"),
+        last_committed_lsn: Some(Lsn::from_raw(13)),
+        last_commit_digest: Some(last_commit_digest),
+        sealed_segment_count: 1,
+    };
+    must_ok(store.publish_manifest(epoch_id(), manifest));
+
+    let clean_report = must_ok(recover_filesystem_store(&dir, RecoveryAccessMode::ReadOnly));
+    let writer_epoch = WalWriterEpoch::from_writer_epoch(&writer_epoch);
+    let clean_projection = project_filesystem_wal_recovery(
+        &dir,
+        &clean_report,
+        std::slice::from_ref(&writer_epoch),
+        None,
+    );
+    let clean_indexes = must_ok(rebuild_durability_indexes_after_recovery(
+        &clean_report,
+        &BTreeMap::new(),
+        &clean_projection,
+    ));
+    let expected_submissions = must_ok(
+        RecoveredSubmissionIndex::from_acceptance_and_receipt_records([acceptance], [receipt]),
+    );
+    let expected_receipts =
+        RecoveredReceiptIndex::from_receipt_correlation_records([receipt], [correlation]);
+    let expected_retention = must_ok(RecoveredRetentionIndex::from_retention_records(
+        [material],
+        [reading],
+    ));
+    let expected_topology = must_ok(RecoveredTopologyIndex::from_topology_records(
+        topology_records(),
+    ));
+    let clean_root = must_some(clean_projection.root.as_ref());
+
+    assert_eq!(clean_report.tail_posture, RecoveryTailPosture::Clean);
+    assert_eq!(clean_indexes.submissions, expected_submissions);
+    assert_eq!(clean_indexes.receipts, expected_receipts);
+    assert_eq!(clean_indexes.retention, expected_retention);
+    assert_eq!(clean_indexes.topology, expected_topology);
+    assert_eq!(
+        clean_indexes
+            .materialization_outbox
+            .get(&materialization_intent.effect_id)
+            .map(|entry| entry.posture),
+        Some(MaterializationReplayPosture::AlreadyObserved)
+    );
+    assert_eq!(
+        clean_indexes.projection.posture,
+        WalRecoveryProjectionPosture::Present
+    );
+    assert_eq!(
+        clean_indexes.projection.root_identity_digest,
+        Some(clean_root.identity_digest())
+    );
+    assert_eq!(clean_indexes.projection.writer_epoch_count, 1);
+    assert_eq!(clean_indexes.projection.segment_count, 1);
+    assert_eq!(clean_indexes.projection.obstruction_count, 0);
+    assert_eq!(
+        clean_indexes.submission_receipt_index_root,
+        recovered_submission_receipt_index_root(
+            &clean_indexes.submissions,
+            &clean_indexes.receipts
+        )
+    );
+    assert_eq!(
+        clean_indexes.topology_index_root,
+        recovered_topology_index_root(&clean_indexes.topology)
+    );
+
+    let tail_tx = durable_submission_transaction("uncommitted-tail", Lsn::from_raw(14));
+    must_ok(store.append_uncommitted_frame(epoch_id(), tail_tx.frames[0].clone()));
+    let tail_report = must_ok(recover_filesystem_store(&dir, RecoveryAccessMode::ReadOnly));
+    let tail_projection = project_filesystem_wal_recovery(
+        &dir,
+        &tail_report,
+        std::slice::from_ref(&writer_epoch),
+        None,
+    );
+    let tail_indexes = must_ok(rebuild_durability_indexes_after_recovery(
+        &tail_report,
+        &BTreeMap::new(),
+        &tail_projection,
+    ));
+
+    assert_eq!(
+        tail_report.tail_posture,
+        RecoveryTailPosture::WouldTruncateAfter(Lsn::from_raw(13))
+    );
+    assert!(tail_indexes
+        .submissions
+        .get(&submission_acceptance("uncommitted-tail").submission_id)
+        .is_none());
+    assert_eq!(tail_indexes.submissions, clean_indexes.submissions);
+    assert_eq!(tail_indexes.receipts, clean_indexes.receipts);
+    assert_eq!(tail_indexes.retention, clean_indexes.retention);
+    assert_eq!(
+        tail_indexes.materialization_outbox,
+        clean_indexes.materialization_outbox
+    );
+    assert_eq!(tail_indexes.topology, clean_indexes.topology);
+    assert_eq!(
+        tail_indexes.projection.posture,
+        WalRecoveryProjectionPosture::Obstructed
+    );
+    assert_eq!(tail_indexes.projection.root_identity_digest, None);
+    assert!(tail_indexes.projection.obstruction_count > 0);
+    assert!(tail_projection.obstructions.contains(
+        &WalRecoveryProjectionObstruction::TailPostureObstructed {
+            posture: RecoveryTailPosture::WouldTruncateAfter(Lsn::from_raw(13))
+        }
+    ));
 }
 
 #[test]

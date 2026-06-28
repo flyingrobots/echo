@@ -3423,6 +3423,100 @@ impl WalRecoveryPlan {
     }
 }
 
+/// Graph/WSC projection index rebuilt after WAL recovery.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RecoveredWalProjectionIndex {
+    /// Projection posture rebuilt from recovered evidence.
+    pub posture: WalRecoveryProjectionPosture,
+    /// Identity digest for the projected WAL root when projection succeeded.
+    pub root_identity_digest: Option<Hash>,
+    /// Number of projected writer epochs.
+    pub writer_epoch_count: u64,
+    /// Number of projected WAL segments.
+    pub segment_count: u64,
+    /// Number of typed projection obstructions.
+    pub obstruction_count: u64,
+}
+
+impl RecoveredWalProjectionIndex {
+    /// Builds projection index posture from a WAL recovery projection.
+    #[must_use]
+    pub fn from_projection(projection: &WalRecoveryProjection) -> Self {
+        let (root_identity_digest, writer_epoch_count, segment_count) =
+            projection.root.as_ref().map_or((None, 0, 0), |root| {
+                (
+                    Some(root.identity_digest()),
+                    len_u64(root.writer_epochs.len()),
+                    len_u64(root.segments.len()),
+                )
+            });
+        Self {
+            posture: projection.posture,
+            root_identity_digest,
+            writer_epoch_count,
+            segment_count,
+            obstruction_count: len_u64(projection.obstructions.len()),
+        }
+    }
+}
+
+/// Durability indexes rebuilt from committed WAL recovery evidence.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecoveredDurabilityIndexes {
+    /// Rebuilt submission posture index.
+    pub submissions: RecoveredSubmissionIndex,
+    /// Rebuilt receipt/correlation index.
+    pub receipts: RecoveredReceiptIndex,
+    /// Rebuilt retained-material and reading index.
+    pub retention: RecoveredRetentionIndex,
+    /// Rebuilt materialization outbox.
+    pub materialization_outbox: BTreeMap<Hash, MaterializationOutboxEntry>,
+    /// Rebuilt topology/graph index.
+    pub topology: RecoveredTopologyIndex,
+    /// Rebuilt graph/WSC projection posture.
+    pub projection: RecoveredWalProjectionIndex,
+    /// Stable root for submission and receipt indexes.
+    pub submission_receipt_index_root: Hash,
+    /// Stable root for topology indexes.
+    pub topology_index_root: Hash,
+}
+
+/// Rebuilds all durability indexes from a recovered committed WAL scan.
+///
+/// This function only consumes [`RecoveryScanReport`] transactions and explicit
+/// projection/materialization evidence supplied by the caller. It does not invoke
+/// scheduler handlers, contract observers, wall-clock APIs, network APIs, or app
+/// code.
+///
+/// # Errors
+///
+/// Returns [`WalRecoveryIndexError`] when any committed WAL payload cannot decode
+/// or contains conflicting recovered index evidence.
+pub fn rebuild_durability_indexes_after_recovery(
+    report: &RecoveryScanReport,
+    existing_artifacts: &BTreeMap<Hash, ExistingMaterializedArtifact>,
+    projection: &WalRecoveryProjection,
+) -> Result<RecoveredDurabilityIndexes, WalRecoveryIndexError> {
+    let submissions = recover_submission_index(report)?;
+    let receipts = recover_receipt_index(report)?;
+    let retention = recover_retention_index(report)?;
+    let materialization_outbox = recover_materialization_outbox(report, existing_artifacts)?;
+    let topology = recover_topology_index(report)?;
+    let submission_receipt_index_root =
+        recovered_submission_receipt_index_root(&submissions, &receipts);
+    let topology_index_root = recovered_topology_index_root(&topology);
+    Ok(RecoveredDurabilityIndexes {
+        submissions,
+        receipts,
+        retention,
+        materialization_outbox,
+        topology,
+        projection: RecoveredWalProjectionIndex::from_projection(projection),
+        submission_receipt_index_root,
+        topology_index_root,
+    })
+}
+
 /// Materialized WARP graph facts for a projected WAL root.
 ///
 /// The graph is a read-only fact projection. It carries typed nodes, edges, and

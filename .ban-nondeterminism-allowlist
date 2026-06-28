@@ -8,8 +8,12 @@
 std-env crates/warp-core/build.rs build script reads OUT_DIR; follow-up should move generated constants out of build.rs.
 std-fs crates/warp-core/build.rs build script writes generated constants; follow-up should move generated constants out of build.rs.
 std-fs crates/warp-core/src/causal_wal.rs native WAL filesystem adapter pending extraction to a boundary crate.
+std-fs crates/warp-core/src/wsc/store.rs native WSC filesystem store adapter pending extraction to a boundary crate.
 std-fs crates/warp-core/src/wsc/view.rs native WSC file-open helper pending extraction to a boundary adapter.
 std-fs crates/warp-core/tests/causal_wal_tests.rs WAL filesystem fixture I/O only.
 std-fs crates/warp-core/tests/causal_wal_hardening_tests.rs WAL filesystem fixture I/O only.
 std-fs crates/warp-core/tests/trusted_runtime_host_loop_tests.rs trusted runtime filesystem WAL fixture I/O only.
+std-env crates/warp-core/tests/wsc_store_tests.rs WSC filesystem fixture temp directory selection only.
+std-fs crates/warp-core/tests/wsc_store_tests.rs WSC filesystem fixture I/O only.
+std-process crates/warp-core/tests/wsc_store_tests.rs WSC filesystem fixture temp directory disambiguation only.
 std-fs crates/warp-math/tests/trig_golden_vectors.rs golden-vector fixture read/write only.

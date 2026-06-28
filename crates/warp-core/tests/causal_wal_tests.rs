@@ -59,9 +59,10 @@ use warp_core::wsc::{
     InMemoryWscStore, WscCasAddressedRetainedMaterialReference, WscCasAddressedWalImportError,
     WscCasAddressedWalSegmentMaterial, WscCasBlobStorePort, WscCausalHistoryExportProfileKind,
     WscFile, WscRefOnlyWalExportError, WscRefOnlyWalLocatorPosture,
-    WscRefOnlyWalMaterialDependency, WscSelfContainedWalExportError,
-    WscSelfContainedWalImportError, WscSelfContainedWalSegmentMaterial, WscStoreEnvelope,
-    WscStoreObstructionKind, WscStorePort, WscStoreRecordKind,
+    WscRefOnlyWalMaterialDependency, WscSelfContainedRetainedMaterial,
+    WscSelfContainedWalExportError, WscSelfContainedWalImportError,
+    WscSelfContainedWalSegmentMaterial, WscStoreEnvelope, WscStoreObstructionKind, WscStorePort,
+    WscStoreRecordKind, WscWalCausalHistoryRecords,
 };
 use warp_core::{
     make_strand_id, make_type_id, AuthorityDomainId, AuthorityDomainRef, BraidEvent, BraidStatus,
@@ -967,9 +968,7 @@ fn wsc_ref_only_export_preserves_wal_identity() {
 
     let export = must_ok(wsc_ref_only_wal_export(
         &root,
-        &[acceptance],
-        &[receipt],
-        &[correlation],
+        wsc_records(&[], &[], &[acceptance], &[receipt], &[correlation]),
     ));
     let imported = must_ok(validate_wsc_ref_only_wal_export(&export, &root));
 
@@ -1022,15 +1021,11 @@ fn wsc_ref_only_export_preserves_wal_identity() {
 
     let absolute_export_a = must_ok(wsc_ref_only_wal_export(
         &absolute_a,
-        &[acceptance],
-        &[receipt],
-        &[correlation],
+        wsc_records(&[], &[], &[acceptance], &[receipt], &[correlation]),
     ));
     let absolute_export_b = must_ok(wsc_ref_only_wal_export(
         &absolute_b,
-        &[acceptance],
-        &[receipt],
-        &[correlation],
+        wsc_records(&[], &[], &[acceptance], &[receipt], &[correlation]),
     ));
     assert_eq!(
         absolute_export_a.projection_envelope.basis_digest(),
@@ -1066,7 +1061,10 @@ fn wsc_ref_only_export_preserves_wal_identity() {
     missing_locator.segments[0].storage_locator = None;
     assert_eq!(
         must_err(
-            wsc_ref_only_wal_export(&missing_locator, &[acceptance], &[receipt], &[correlation]),
+            wsc_ref_only_wal_export(
+                &missing_locator,
+                wsc_records(&[], &[], &[acceptance], &[receipt], &[correlation]),
+            ),
             "ref-only WSC exports require segment locators",
         ),
         WscRefOnlyWalExportError::MissingSegmentLocator {
@@ -1130,7 +1128,12 @@ fn wsc_self_contained_export_replays_segment_bytes() {
 
     assert_eq!(
         must_err(
-            wsc_self_contained_wal_export(&root, &[], &[acceptance], &[receipt], &[correlation]),
+            wsc_self_contained_wal_export(
+                &root,
+                &[],
+                &[],
+                wsc_records(&[], &[], &[acceptance], &[receipt], &[correlation]),
+            ),
             "self-contained WSC exports require embedded segment material",
         ),
         WscSelfContainedWalExportError::MissingSegmentMaterial {
@@ -1144,9 +1147,8 @@ fn wsc_self_contained_export_replays_segment_bytes() {
             segment_id: segment.segment_id,
             segment_bytes: segment_bytes.clone(),
         }],
-        &[acceptance],
-        &[receipt],
-        &[correlation],
+        &[],
+        wsc_records(&[], &[], &[acceptance], &[receipt], &[correlation]),
     ));
     drop(store);
     must_ok(fs::remove_dir_all(&dir));
@@ -1227,9 +1229,8 @@ fn wsc_self_contained_export_replays_segment_bytes() {
             segment_id: segment.segment_id,
             segment_bytes: tampered_segment_bytes,
         }],
-        &[acceptance],
-        &[receipt],
-        &[correlation],
+        &[],
+        wsc_records(&[], &[], &[acceptance], &[receipt], &[correlation]),
     ));
     let error = must_err(
         validate_wsc_self_contained_wal_export(&tampered_export, &root),
@@ -1335,9 +1336,7 @@ fn wsc_cas_addressed_export_requires_present_blobs() {
                 byte_len: retained_b.byte_len,
             },
         ],
-        &[acceptance],
-        &[receipt],
-        &[correlation],
+        wsc_records(&[], &[], &[acceptance], &[receipt], &[correlation]),
     ));
 
     let imported = must_ok(validate_wsc_cas_addressed_wal_export(
@@ -1393,6 +1392,186 @@ fn wsc_cas_addressed_export_requires_present_blobs() {
             semantic_coordinate_digest,
         } if content_hash == segment_content_hash
             && semantic_coordinate_digest == digest("wsc-cas:segment")
+    ));
+}
+
+#[test]
+fn wsc_retained_evidence_export_modes() {
+    let label = "wsc-retained-evidence";
+    let dir = temp_wal_dir(label);
+    let mut store = must_ok(FilesystemWalStore::open(&dir, WalSegmentId::from_raw(1)));
+    let writer_epoch = must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    let acceptance = submission_acceptance(label);
+    let receipt = receipt_record(label, WalTickDecision::Applied);
+    let correlation = correlation_record(label);
+    let retained_payload = b"retained WSC payload bytes";
+    let retained_digest = blake3::hash(retained_payload).into();
+    let retained_coordinate = digest("coordinate:wsc-retained-evidence");
+    let retained_material = RetainedMaterialRecord {
+        material_digest: retained_digest,
+        semantic_coordinate_digest: retained_coordinate,
+        kind: RetainedMaterialKind::ReadingPayload,
+        posture: EvidenceMaterialPosture::Present,
+    };
+    let reading_ref = ReadingRefRecord {
+        reading_id: digest("reading:wsc-retained-evidence"),
+        semantic_coordinate_digest: retained_coordinate,
+        payload_digest: retained_digest,
+        envelope_digest: digest("envelope:wsc-retained-evidence"),
+        posture: EvidenceMaterialPosture::Present,
+    };
+
+    must_ok(store.append_transaction(durable_submission_transaction(label, Lsn::from_raw(0))));
+    must_ok(store.append_transaction(durable_tick_transaction(
+        label,
+        Lsn::from_raw(2),
+        WalTickDecision::Applied,
+    )));
+    must_ok(store.seal_segment(epoch_id(), WalSegmentId::from_raw(1)));
+    let segment_path = store.segment_path();
+    let segment_bytes = must_ok(fs::read(&segment_path));
+    let last_commit_digest = must_some(
+        store
+            .read_commits()
+            .last()
+            .map(|commit| commit.commit_digest),
+    );
+    let manifest = WalManifest {
+        manifest_digest: digest("wsc-retained-evidence:manifest"),
+        last_committed_lsn: Some(Lsn::from_raw(4)),
+        last_commit_digest: Some(last_commit_digest),
+        sealed_segment_count: 1,
+    };
+    must_ok(store.publish_manifest(epoch_id(), manifest));
+
+    let report = must_ok(recover_filesystem_store(&dir, RecoveryAccessMode::ReadOnly));
+    let certificate = build_recovery_certificate(
+        &report,
+        None,
+        0,
+        digest("wsc-retained-evidence:frontier"),
+        digest("wsc-retained-evidence:indexes"),
+    );
+    let writer_epoch = WalWriterEpoch::from_writer_epoch(&writer_epoch);
+    let projection = project_filesystem_wal_recovery(
+        &dir,
+        &report,
+        std::slice::from_ref(&writer_epoch),
+        Some(&certificate),
+    );
+    assert_eq!(projection.posture, WalRecoveryProjectionPosture::Present);
+    let root = must_some(projection.root);
+    let segment = root.segments[0].clone();
+
+    let ref_only = must_ok(wsc_ref_only_wal_export(
+        &root,
+        wsc_records(
+            &[retained_material],
+            &[reading_ref],
+            &[acceptance],
+            &[receipt],
+            &[correlation],
+        ),
+    ));
+    let ref_only_import = must_ok(validate_wsc_ref_only_wal_export(&ref_only, &root));
+    assert_eq!(ref_only_import.retention.materials, vec![retained_material]);
+    assert_eq!(ref_only_import.retention.readings, vec![reading_ref]);
+    assert_eq!(
+        ref_only_import.retention.materials[0].semantic_coordinate_digest,
+        retained_coordinate
+    );
+    assert_eq!(
+        ref_only_import.retention.materials[0].material_digest,
+        retained_digest
+    );
+
+    let self_contained = must_ok(wsc_self_contained_wal_export(
+        &root,
+        &[WscSelfContainedWalSegmentMaterial {
+            segment_id: segment.segment_id,
+            segment_bytes: segment_bytes.clone(),
+        }],
+        &[WscSelfContainedRetainedMaterial {
+            material: retained_material,
+            material_bytes: retained_payload.to_vec(),
+        }],
+        wsc_records(
+            &[retained_material],
+            &[reading_ref],
+            &[acceptance],
+            &[receipt],
+            &[correlation],
+        ),
+    ));
+    let self_contained_import = must_ok(validate_wsc_self_contained_wal_export(
+        &self_contained,
+        &root,
+    ));
+    assert_eq!(
+        self_contained_import.retained_payloads[0].material,
+        retained_material
+    );
+    assert_eq!(
+        self_contained_import.retained_payloads[0].material_bytes,
+        retained_payload
+    );
+    assert_eq!(self_contained_import.retention.readings, vec![reading_ref]);
+
+    let mut cas_store = MemoryTier::new();
+    let segment_content_hash = *cas_store.put(&segment_bytes).as_bytes();
+    let retained_content_hash = *cas_store.put(retained_payload).as_bytes();
+    let cas_addressed = must_ok(wsc_cas_addressed_wal_export(
+        &root,
+        &[WscCasAddressedWalSegmentMaterial {
+            segment_id: segment.segment_id,
+            content_hash: segment_content_hash,
+            semantic_coordinate_digest: digest("wsc-retained-evidence:segment"),
+            byte_len: u64::try_from(segment_bytes.len()).unwrap_or(u64::MAX),
+        }],
+        &[WscCasAddressedRetainedMaterialReference {
+            material_kind: RetainedMaterialKind::ReadingPayload,
+            content_hash: retained_content_hash,
+            semantic_coordinate_digest: retained_coordinate,
+            byte_len: u64::try_from(retained_payload.len()).unwrap_or(u64::MAX),
+        }],
+        wsc_records(
+            &[retained_material],
+            &[reading_ref],
+            &[acceptance],
+            &[receipt],
+            &[correlation],
+        ),
+    ));
+    let cas_import = must_ok(validate_wsc_cas_addressed_wal_export(
+        &cas_addressed,
+        &root,
+        &EchoCasAvailability(&cas_store),
+    ));
+    assert_eq!(cas_import.retention.materials, vec![retained_material]);
+    assert_eq!(cas_import.retention.readings, vec![reading_ref]);
+    assert_eq!(cas_import.cas_references.retained_materials.len(), 1);
+    assert_eq!(
+        cas_import.cas_references.retained_materials[0].content_hash,
+        retained_content_hash
+    );
+
+    let mut segment_only_cas = MemoryTier::new();
+    assert_eq!(
+        *segment_only_cas.put(&segment_bytes).as_bytes(),
+        segment_content_hash
+    );
+    let missing = must_err(
+        validate_wsc_cas_addressed_wal_export(
+            &cas_addressed,
+            &root,
+            &EchoCasAvailability(&segment_only_cas),
+        ),
+        "CAS-addressed retained evidence import requires present blobs",
+    );
+    assert!(matches!(
+        missing,
+        WscCasAddressedWalImportError::MissingCasBlob { content_hash, .. }
+            if content_hash == retained_content_hash
     ));
 }
 
@@ -1458,6 +1637,22 @@ fn correlation_record(label: &str) -> WalReceiptCorrelationRecord {
         submission_id: digest(&format!("submission:{label}")),
         ticket_digest: digest(&format!("ticket:{label}")),
         receipt_digest: digest(&format!("receipt:{label}")),
+    }
+}
+
+fn wsc_records<'a>(
+    retained_materials: &'a [RetainedMaterialRecord],
+    reading_refs: &'a [ReadingRefRecord],
+    accepted_submissions: &'a [SubmissionAcceptanceRecord],
+    receipts: &'a [TickReceiptRecord],
+    correlations: &'a [WalReceiptCorrelationRecord],
+) -> WscWalCausalHistoryRecords<'a> {
+    WscWalCausalHistoryRecords {
+        retained_materials,
+        reading_refs,
+        accepted_submissions,
+        receipts,
+        correlations,
     }
 }
 

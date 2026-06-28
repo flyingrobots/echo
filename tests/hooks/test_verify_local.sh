@@ -444,6 +444,9 @@ EOF
   if [[ -n "${VERIFY_LOCAL_HOOK_TESTS+x}" ]]; then
     verify_env+=("VERIFY_LOCAL_HOOK_TESTS=$VERIFY_LOCAL_HOOK_TESTS")
   fi
+  if [[ -n "${VERIFY_LOCAL_FULL_TESTS+x}" ]]; then
+    verify_env+=("VERIFY_LOCAL_FULL_TESTS=$VERIFY_LOCAL_FULL_TESTS")
+  fi
   output="$(
     cd "$tmp" && \
     env "${verify_env[@]}" \
@@ -1319,11 +1322,26 @@ else
   fail "full verification should route clippy through an isolated target dir"
   printf '%s\n' "$fake_full_output"
 fi
-if printf '%s\n' "$fake_full_output" | grep -q 'target/verify-lanes/full-tests-warp-core'; then
-  pass "full verification isolates warp-core tests into their own target dir"
+if grep -Eq '\[verify-local\] full: lanes=.*tests-ci-owned' <<< "$fake_full_output"; then
+  pass "full local verification leaves broad Cargo test lanes to CI by default"
 else
-  fail "full verification should route warp-core tests through an isolated target dir"
+  fail "full local verification should show the CI-owned Cargo test lane"
   printf '%s\n' "$fake_full_output"
+fi
+if printf '%s\n' "$fake_full_output" | grep -q 'target/verify-lanes/full-tests-warp-core'; then
+  fail "full local verification should not launch broad Cargo test lanes by default"
+  printf '%s\n' "$fake_full_output"
+else
+  pass "full local verification avoids broad Cargo test lanes by default"
+fi
+VERIFY_LOCAL_FULL_TESTS=1
+fake_full_with_tests_output="$(run_fake_verify full crates/warp-core/src/lib.rs)"
+unset VERIFY_LOCAL_FULL_TESTS
+if printf '%s\n' "$fake_full_with_tests_output" | grep -q 'target/verify-lanes/full-tests-warp-core'; then
+  pass "full local verification keeps an explicit Cargo test lane opt-in"
+else
+  fail "full local verification should keep an explicit Cargo test lane opt-in"
+  printf '%s\n' "$fake_full_with_tests_output"
 fi
 if printf '%s\n' "$fake_full_output" | grep -q 'doc -p warp-core'; then
   fail "full local verification should leave rustdoc to CI by default"
@@ -1644,7 +1662,9 @@ else
   printf '%s\n' "$fake_pre_push_warp_math_bin_src_output"
 fi
 
+VERIFY_LOCAL_FULL_TESTS=1
 fake_warp_core_default_output="$(run_fake_verify full crates/warp-core/src/provenance_store.rs)"
+unset VERIFY_LOCAL_FULL_TESTS
 if printf '%s\n' "$fake_warp_core_default_output" | grep -q 'test -p warp-core --lib'; then
   pass "warp-core default smoke keeps the lib test lane"
 else
@@ -1658,7 +1678,9 @@ else
   pass "warp-core default smoke avoids inbox when the file family does not need it"
 fi
 
+VERIFY_LOCAL_FULL_TESTS=1
 fake_warp_core_optic_artifact_output="$(run_fake_verify full crates/warp-core/src/optic_artifact.rs)"
+unset VERIFY_LOCAL_FULL_TESTS
 if printf '%s\n' "$fake_warp_core_optic_artifact_output" | grep -q -- '--test optic_artifact_registry_tests'; then
   pass "optic artifact changes pull the registry smoke test"
 else
@@ -1684,7 +1706,9 @@ else
   printf '%s\n' "$fake_warp_core_optic_artifact_output"
 fi
 
+VERIFY_LOCAL_FULL_TESTS=1
 fake_warp_core_causal_facts_output="$(run_fake_verify full crates/warp-core/src/causal_facts.rs)"
+unset VERIFY_LOCAL_FULL_TESTS
 if printf '%s\n' "$fake_warp_core_causal_facts_output" | grep -q -- '--test causal_fact_publication_tests'; then
   pass "causal fact source changes pull the causal fact publication smoke test"
 else
@@ -1704,7 +1728,9 @@ else
   printf '%s\n' "$fake_warp_core_causal_facts_output"
 fi
 
+VERIFY_LOCAL_FULL_TESTS=1
 fake_warp_core_runtime_output="$(run_fake_verify full crates/warp-core/src/coordinator.rs)"
+unset VERIFY_LOCAL_FULL_TESTS
 if printf '%s\n' "$fake_warp_core_runtime_output" | grep -q -- '--test inbox'; then
   pass "runtime-facing warp-core changes pull the inbox smoke test"
 else
@@ -1712,7 +1738,9 @@ else
   printf '%s\n' "$fake_warp_core_runtime_output"
 fi
 
+VERIFY_LOCAL_FULL_TESTS=1
 fake_warp_core_playback_output="$(run_fake_verify full crates/warp-core/src/playback.rs)"
+unset VERIFY_LOCAL_FULL_TESTS
 if printf '%s\n' "$fake_warp_core_playback_output" | grep -q -- '--test playback_cursor_tests'; then
   pass "playback changes pull the playback cursor smoke test"
 else
@@ -1726,7 +1754,9 @@ else
   printf '%s\n' "$fake_warp_core_playback_output"
 fi
 
+VERIFY_LOCAL_FULL_TESTS=1
 fake_warp_math_prng_output="$(run_fake_verify full crates/warp-math/src/prng.rs)"
+unset VERIFY_LOCAL_FULL_TESTS
 if printf '%s\n' "$fake_warp_math_prng_output" | grep -q -- 'test -p warp-math --features golden_prng --test prng_golden_regression'; then
   pass "PRNG changes pull the golden regression smoke test"
 else
@@ -1734,7 +1764,9 @@ else
   printf '%s\n' "$fake_warp_math_prng_output"
 fi
 
+VERIFY_LOCAL_FULL_TESTS=1
 fake_warp_wasm_lib_output="$(run_fake_verify full crates/warp-wasm/src/lib.rs)"
+unset VERIFY_LOCAL_FULL_TESTS
 if printf '%s\n' "$fake_warp_wasm_lib_output" | grep -q 'test -p warp-wasm --lib'; then
   pass "warp-wasm lib changes use the plain lib smoke lane"
 else
@@ -1748,7 +1780,9 @@ else
   pass "warp-wasm lib changes avoid the engine smoke lane"
 fi
 
+VERIFY_LOCAL_FULL_TESTS=1
 fake_warp_wasm_kernel_output="$(run_fake_verify full crates/warp-wasm/src/warp_kernel.rs)"
+unset VERIFY_LOCAL_FULL_TESTS
 if printf '%s\n' "$fake_warp_wasm_kernel_output" | grep -q -- 'test -p warp-wasm --features engine --lib'; then
   pass "warp-kernel changes use the engine-enabled lib smoke lane"
 else
@@ -1756,7 +1790,9 @@ else
   printf '%s\n' "$fake_warp_wasm_kernel_output"
 fi
 
+VERIFY_LOCAL_FULL_TESTS=1
 fake_echo_wasm_abi_kernel_port_output="$(run_fake_verify full crates/echo-wasm-abi/src/kernel_port.rs)"
+unset VERIFY_LOCAL_FULL_TESTS
 if printf '%s\n' "$fake_echo_wasm_abi_kernel_port_output" | grep -q -- 'test -p echo-wasm-abi --lib'; then
   pass "echo-wasm-abi kernel-port changes keep the lib smoke lane"
 else
@@ -1764,7 +1800,9 @@ else
   printf '%s\n' "$fake_echo_wasm_abi_kernel_port_output"
 fi
 
+VERIFY_LOCAL_FULL_TESTS=1
 fake_echo_wasm_abi_canonical_output="$(run_fake_verify full crates/echo-wasm-abi/src/canonical.rs)"
+unset VERIFY_LOCAL_FULL_TESTS
 if printf '%s\n' "$fake_echo_wasm_abi_canonical_output" | grep -q -- '--test canonical_vectors'; then
   pass "canonical ABI changes pull canonical vector coverage"
 else

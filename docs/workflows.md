@@ -100,6 +100,20 @@ Use `make verify-pr` or CI for broader package, clippy, rustdoc, and workspace
 coverage. Pre-push is intentionally the narrowest local proof that the changed
 slice still compiles and runs.
 
+Local `full` verification keeps broad Cargo test suites CI-owned by default.
+It still runs formatting, selected clippy/check lanes, docs/schema lint, and
+guards locally, but skips the broad Cargo test lanes unless you explicitly opt
+in:
+
+```sh
+VERIFY_LOCAL_FULL_TESTS=1 scripts/verify-local.sh full
+```
+
+That opt-in is for maintainers who want to pay the local cost. The default
+path leaves workspace, `warp-core`, feature-matrix, musl, DIND, rustdoc, and
+hook-regression breadth to GitHub Actions while local iteration uses exact
+test targets or repo-owned slices.
+
 Checkpoint checks:
 
 ```sh

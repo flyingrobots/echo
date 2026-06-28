@@ -89,11 +89,11 @@ pub use store::{
     WscReceiptCorrelationRecords, WscRefOnlyWalExport, WscRefOnlyWalExportError,
     WscRefOnlyWalImport, WscRefOnlyWalImportError, WscRefOnlyWalLocatorPosture,
     WscRefOnlyWalMaterialDependency, WscRefOnlyWalSegmentDependency, WscRetentionRecords,
-    WscSelfContainedWalExport, WscSelfContainedWalExportError, WscSelfContainedWalImport,
-    WscSelfContainedWalImportError, WscSelfContainedWalSegmentMaterial, WscStoreEnvelope,
-    WscStoreEnvelopeId, WscStoreObstruction, WscStoreObstructionKind, WscStorePort,
-    WscStoreRecordKind, WscStoreSubject, WscStoreWriteReceipt, WscTopologyRecords,
-    WSC_CAUSAL_HISTORY_EXPORT_PROFILE_VERSION,
+    WscSelfContainedRetainedMaterial, WscSelfContainedWalExport, WscSelfContainedWalExportError,
+    WscSelfContainedWalImport, WscSelfContainedWalImportError, WscSelfContainedWalSegmentMaterial,
+    WscStoreEnvelope, WscStoreEnvelopeId, WscStoreObstruction, WscStoreObstructionKind,
+    WscStorePort, WscStoreRecordKind, WscStoreSubject, WscStoreWriteReceipt, WscTopologyRecords,
+    WscWalCausalHistoryRecords, WSC_CAUSAL_HISTORY_EXPORT_PROFILE_VERSION,
 };
 pub use validate::validate_wsc;
 pub use view::{AttachmentRef, WarpView, WscFile};

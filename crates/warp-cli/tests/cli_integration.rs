@@ -759,7 +759,15 @@ fn wsc_causal_history_exports_and_verifies_profiles() -> TestResult {
         .success();
     let inspect_json: serde_json::Value = serde_json::from_slice(&inspect.get_output().stdout)?;
     assert_eq!(inspect_json["profile"], "self-contained");
-    assert_eq!(inspect_json["envelope_count"], 4);
+    assert_eq!(inspect_json["envelope_count"], 6);
+    let envelope_roles = inspect_json["envelopes"]
+        .as_array()
+        .ok_or("expected envelope summaries")?
+        .iter()
+        .map(|envelope| envelope["role"].as_str().ok_or("expected envelope role"))
+        .collect::<Result<Vec<_>, _>>()?;
+    assert!(envelope_roles.contains(&"retained_evidence"));
+    assert!(envelope_roles.contains(&"retained_payloads"));
 
     drop(fixture);
 

@@ -25,6 +25,7 @@ VERIFY_USE_NEXTEST="${VERIFY_USE_NEXTEST:-0}"
 VERIFY_LANE_MODE="${VERIFY_LANE_MODE:-parallel}"
 VERIFY_LANE_ROOT="${VERIFY_LANE_ROOT:-target/verify-lanes}"
 VERIFY_TIMING_FILE="${VERIFY_TIMING_FILE:-$STAMP_DIR/timing.jsonl}"
+VERIFY_LOCAL_FULL_TESTS="${VERIFY_LOCAL_FULL_TESTS:-0}"
 VERIFY_LOCAL_RUSTDOC="${VERIFY_LOCAL_RUSTDOC:-0}"
 VERIFY_LOCAL_HOOK_TESTS="${VERIFY_LOCAL_HOOK_TESTS:-0}"
 VERIFY_RUN_CACHE_STATE="${VERIFY_RUN_CACHE_STATE:-fresh}"
@@ -412,6 +413,10 @@ local_rustdoc_enabled() {
 
 local_hook_tests_enabled() {
   [[ "$VERIFY_LOCAL_HOOK_TESTS" == "1" ]]
+}
+
+local_full_tests_enabled() {
+  [[ "$VERIFY_LOCAL_FULL_TESTS" == "1" ]]
 }
 
 list_changed_branch_files() {
@@ -1671,6 +1676,10 @@ run_full_lane_tests_warp_core() {
   done
 }
 
+run_full_tests_ci_owned_notice() {
+  echo "[verify-local][tests] CI-owned by default; set VERIFY_LOCAL_FULL_TESTS=1 to opt in"
+}
+
 run_full_lane_rustdoc() {
   if ! local_rustdoc_enabled; then
     echo "[verify-local][rustdoc] CI-owned by default; set VERIFY_LOCAL_RUSTDOC=1 to opt in"
@@ -1811,9 +1820,13 @@ run_full_checks_sequential() {
   run_timed_step "clippy-core" run_full_lane_clippy_core
   run_timed_step "clippy-support" run_full_lane_clippy_support
   run_timed_step "clippy-bins" run_full_lane_clippy_bins
-  run_timed_step "tests-support" run_full_lane_tests_support
-  run_timed_step "tests-runtime" run_full_lane_tests_runtime
-  run_timed_step "tests-warp-core" run_full_lane_tests_warp_core
+  if local_full_tests_enabled; then
+    run_timed_step "tests-support" run_full_lane_tests_support
+    run_timed_step "tests-runtime" run_full_lane_tests_runtime
+    run_timed_step "tests-warp-core" run_full_lane_tests_warp_core
+  else
+    run_timed_step "tests-ci-owned" run_full_tests_ci_owned_notice
+  fi
   if local_rustdoc_enabled; then
     run_timed_step "rustdoc" run_full_lane_rustdoc
   fi
@@ -1837,14 +1850,18 @@ run_full_checks_parallel() {
   if [[ ${#FULL_SCOPE_CLIPPY_BIN_ONLY_PACKAGES[@]} -gt 0 ]]; then
     lanes+=("clippy-bins" run_full_lane_clippy_bins)
   fi
-  if [[ ${#FULL_SCOPE_TEST_SUPPORT_PACKAGES[@]} -gt 0 ]]; then
-    lanes+=("tests-support" run_full_lane_tests_support)
-  fi
-  if [[ "$FULL_SCOPE_WARP_WASM_TEST_MODE" != "none" || "$FULL_SCOPE_ECHO_WASM_ABI_RUN_LIB" == "1" || ${#FULL_SCOPE_ECHO_WASM_ABI_EXTRA_TESTS[@]} -gt 0 ]]; then
-    lanes+=("tests-runtime" run_full_lane_tests_runtime)
-  fi
-  if [[ "$FULL_SCOPE_RUN_WARP_CORE_SMOKE" == "1" ]]; then
-    lanes+=("tests-warp-core" run_full_lane_tests_warp_core)
+  if local_full_tests_enabled; then
+    if [[ ${#FULL_SCOPE_TEST_SUPPORT_PACKAGES[@]} -gt 0 ]]; then
+      lanes+=("tests-support" run_full_lane_tests_support)
+    fi
+    if [[ "$FULL_SCOPE_WARP_WASM_TEST_MODE" != "none" || "$FULL_SCOPE_ECHO_WASM_ABI_RUN_LIB" == "1" || ${#FULL_SCOPE_ECHO_WASM_ABI_EXTRA_TESTS[@]} -gt 0 ]]; then
+      lanes+=("tests-runtime" run_full_lane_tests_runtime)
+    fi
+    if [[ "$FULL_SCOPE_RUN_WARP_CORE_SMOKE" == "1" ]]; then
+      lanes+=("tests-warp-core" run_full_lane_tests_warp_core)
+    fi
+  else
+    lanes+=("tests-ci-owned" run_full_tests_ci_owned_notice)
   fi
   if local_rustdoc_enabled && [[ ${#FULL_SCOPE_RUSTDOC_PACKAGES[@]} -gt 0 ]]; then
     lanes+=("rustdoc" run_full_lane_rustdoc)

@@ -46,15 +46,20 @@
   without making CAS semantic authority, reports missing blobs as typed import
   obstructions, and keeps equal bytes under different semantic coordinates as
   distinct retained material references.
+- `warp-core` WAL WSC exports now carry retained material and reading-reference
+  envelopes through ref-only, self-contained, and CAS-addressed profiles.
+  Self-contained exports can embed retained payload bytes and validate them
+  against the WAL-retained material digest, while CAS-addressed imports require
+  the referenced retained blobs to be present before reporting success.
 - `warp-core` now includes a filesystem-backed WSC store adapter that persists
   envelope material separately from commit markers, hides staged material until
   marker publication, reopens committed envelopes in deterministic order, and
   reports torn envelope or marker files as typed WSC store obstructions.
 - `echo-cli` now exposes read-only `wsc causal-history` commands that export
   ref-only and self-contained WAL WSC bundles from filesystem WAL roots, inspect
-  bundle envelope metadata, verify self-contained bundles without the original
-  WAL root, and report unavailable ref-only segment bytes as typed material
-  obstructions in JSON output.
+  bundle envelope metadata including retained evidence envelopes, verify
+  self-contained bundles without the original WAL root, and report unavailable
+  ref-only segment bytes as typed material obstructions in JSON output.
 - `echo-cas` now exposes a fallible filesystem-backed `DiskTier` for durable
   retained blobs, preserving content-only BLAKE3 hash semantics across process
   reconstruction while keeping missing blobs as explicit absence.
@@ -63,6 +68,10 @@
   filesystem failure atomicity, CLI submission posture JSON, stale-claim, and
   generated man-page checks while leaving `runtime-wal-ack` as the fast
   semantic gate.
+- `cargo xtask test-slice durability-release` now includes the exact
+  `wsc_retained_evidence_export_modes` witness, keeping retained-evidence WSC
+  export coverage in the release gate without using Cargo's slow package-level
+  name filter.
 - `warp-core` trusted runtime hosts now configure runtime WAL through
   `TrustedRuntimeWalConfig`, including in-memory and filesystem-backed
   adapters. `TrustedRuntimeWalStoreKind` exposes the configured adapter kind as
@@ -695,6 +704,9 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 - Echo 1.0 planning references now point at the cross-repository Continuum
   Stack Convergence Project instead of the retired Echo-only Project.
+- Local `scripts/verify-local.sh full` now treats broad Cargo test lanes as
+  GitHub Actions-owned by default, while keeping a maintainer opt-in through
+  `VERIFY_LOCAL_FULL_TESTS=1` for intentional local full-suite runs.
 - `warp-core` renamed the generated contract package host API from
   `install_contract_package(...)` to `register_contract_package(...)` so the
   trusted-runtime boundary reads as explicit runtime-owned registration instead

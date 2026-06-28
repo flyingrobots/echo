@@ -1870,10 +1870,18 @@ impl FilesystemWscStore {
         let root = root.as_ref().to_path_buf();
         let envelopes_dir = root.join("envelopes");
         let commit_markers_dir = root.join("commit-markers");
+        fs::create_dir_all(&root).map_err(|_| WscStoreObstruction::filesystem_io(&root))?;
+        if let Some(parent) = root
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+        {
+            sync_directory(parent)?;
+        }
         fs::create_dir_all(&envelopes_dir)
             .map_err(|_| WscStoreObstruction::filesystem_io(&envelopes_dir))?;
         fs::create_dir_all(&commit_markers_dir)
             .map_err(|_| WscStoreObstruction::filesystem_io(&commit_markers_dir))?;
+        sync_directory(&root)?;
         Ok(Self {
             root,
             envelopes_dir,
@@ -1913,12 +1921,20 @@ impl FilesystemWscStore {
         envelope: WscStoreEnvelope,
     ) -> Result<WscStoreEnvelopeId, WscStoreObstruction> {
         let envelope_id = envelope.id();
-        if let Some(existing) = self.read_envelope_material(envelope_id)? {
-            if existing != envelope {
+        let existing = self.read_envelope_material(envelope_id)?;
+        let marker = self.read_commit_marker_material(envelope_id)?;
+        if let Some(existing) = existing.as_ref() {
+            if existing != &envelope {
                 return Err(WscStoreObstruction::duplicate_mismatch(envelope_id));
             }
+            if let Some(marker) = marker {
+                if !marker.matches_envelope(existing) {
+                    return Err(WscStoreObstruction::commit_marker_mismatch(envelope_id));
+                }
+            }
+            return Ok(envelope_id);
         }
-        if let Some(marker) = self.read_commit_marker_material(envelope_id)? {
+        if let Some(marker) = marker {
             if !marker.matches_envelope(&envelope) {
                 return Err(WscStoreObstruction::commit_marker_mismatch(envelope_id));
             }
@@ -1957,7 +1973,13 @@ impl FilesystemWscStore {
     ) -> Result<Option<WscStoreEnvelope>, WscStoreObstruction> {
         let path = self.envelope_path(envelope_id);
         match fs::read(&path) {
-            Ok(bytes) => WscStoreEnvelope::decode(&bytes).map(Some),
+            Ok(bytes) => {
+                let envelope = WscStoreEnvelope::decode(&bytes)?;
+                if envelope.id() != envelope_id {
+                    return Err(WscStoreObstruction::duplicate_mismatch(envelope_id));
+                }
+                Ok(Some(envelope))
+            }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(_) => Err(WscStoreObstruction::filesystem_io(&path)),
         }
@@ -2013,15 +2035,7 @@ impl WscStorePort for FilesystemWscStore {
             let Some(envelope_id) = envelope_id_from_commit_marker_path(&path) else {
                 continue;
             };
-            let Ok(Some(envelope)) = self.read_envelope_material(envelope_id) else {
-                continue;
-            };
-            let Ok(Some(marker)) = self.read_commit_marker_material(envelope_id) else {
-                continue;
-            };
-            if marker.matches_envelope(&envelope) {
-                envelope_ids.insert(envelope_id);
-            }
+            envelope_ids.insert(envelope_id);
         }
         envelope_ids.into_iter().collect()
     }
@@ -3930,7 +3944,22 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), WscStoreObstruction> {
         file.sync_all()
             .map_err(|_| WscStoreObstruction::filesystem_io(&temp_path))?;
     }
-    fs::rename(&temp_path, path).map_err(|_| WscStoreObstruction::filesystem_io(path))
+    fs::rename(&temp_path, path).map_err(|_| WscStoreObstruction::filesystem_io(path))?;
+    sync_directory(parent)
+}
+
+fn sync_directory(path: &Path) -> Result<(), WscStoreObstruction> {
+    #[cfg(unix)]
+    {
+        let dir = File::open(path).map_err(|_| WscStoreObstruction::filesystem_io(path))?;
+        dir.sync_all()
+            .map_err(|_| WscStoreObstruction::filesystem_io(path))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Ok(())
+    }
 }
 
 fn envelope_id_from_commit_marker_path(path: &Path) -> Option<WscStoreEnvelopeId> {

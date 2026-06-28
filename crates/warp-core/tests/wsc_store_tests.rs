@@ -232,8 +232,16 @@ fn filesystem_wsc_store_restarts_with_deterministic_order() {
     let mut expected = vec![first.id(), second.id()];
     expected.sort_unstable();
     assert_eq!(reopened.list_envelopes(), expected);
-    assert_eq!(reopened.read_envelope(first.id()), Ok(first));
+    assert_eq!(reopened.read_envelope(first.id()), Ok(first.clone()));
     assert_eq!(reopened.read_envelope(second.id()), Ok(second));
+
+    let mut reopened_for_write =
+        FilesystemWscStore::open(&dir).expect("filesystem WSC store reopens for write");
+    let receipt = reopened_for_write
+        .write_envelope(first.clone())
+        .expect("matching envelope write is idempotent after restart");
+    assert_eq!(receipt.envelope_id, first.id());
+    assert_eq!(reopened_for_write.read_envelope(first.id()), Ok(first));
 }
 
 #[test]
@@ -258,6 +266,7 @@ fn filesystem_wsc_store_reports_torn_envelope_or_marker_material() {
         .expect("torn-envelope fixture writes");
     fs::write(store.envelope_path(torn_envelope.id()), b"torn-envelope")
         .expect("torn envelope material written");
+    assert!(store.list_envelopes().contains(&torn_envelope.id()));
     assert_eq!(
         store
             .read_envelope(torn_envelope.id())
@@ -271,12 +280,51 @@ fn filesystem_wsc_store_reports_torn_envelope_or_marker_material() {
         .expect("torn-marker fixture writes");
     fs::write(store.commit_marker_path(torn_marker.id()), b"torn-marker")
         .expect("torn marker material written");
+    assert!(store.list_envelopes().contains(&torn_marker.id()));
     assert_eq!(
         store
             .read_envelope(torn_marker.id())
             .expect_err("torn marker material obstructs")
             .kind,
         WscStoreObstructionKind::InvalidCommitMarker
+    );
+}
+
+#[test]
+fn filesystem_wsc_store_rejects_envelope_material_under_wrong_id() {
+    let stored = WscStoreEnvelope::validated(
+        WscStoreRecordKind::Snapshot,
+        [14; 32],
+        fixture_wsc_bytes(47),
+    )
+    .expect("valid stored fixture");
+    let wrong = WscStoreEnvelope::validated(
+        WscStoreRecordKind::Snapshot,
+        [15; 32],
+        fixture_wsc_bytes(53),
+    )
+    .expect("valid wrong-id fixture");
+    let dir = temp_wsc_store_dir("wrong-id");
+    let mut store = FilesystemWscStore::open(&dir).expect("filesystem WSC store opens");
+
+    store
+        .write_envelope(stored.clone())
+        .expect("stored fixture writes");
+    fs::write(store.envelope_path(wrong.id()), stored.encode())
+        .expect("mismatched envelope material written under wrong id path");
+
+    let obstruction = store
+        .commit_staged_envelope(wrong.id())
+        .expect_err("wrong-id envelope material obstructs");
+    assert_eq!(
+        obstruction.kind,
+        WscStoreObstructionKind::DuplicateEnvelopeMismatch
+    );
+    assert_eq!(
+        obstruction.subject,
+        WscStoreSubject::Envelope {
+            envelope_id: wrong.id()
+        }
     );
 }
 

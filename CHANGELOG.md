@@ -46,6 +46,10 @@
   without making CAS semantic authority, reports missing blobs as typed import
   obstructions, and keeps equal bytes under different semantic coordinates as
   distinct retained material references.
+- `warp-core` now includes a filesystem-backed WSC store adapter that persists
+  envelope material separately from commit markers, hides staged material until
+  marker publication, reopens committed envelopes in deterministic order, and
+  reports torn envelope or marker files as typed WSC store obstructions.
 - `cargo xtask test-slice durable-runtime-wal` now runs the release-grade
   filesystem runtime WAL durability gate, joining filesystem ACK recovery,
   filesystem failure atomicity, CLI submission posture JSON, stale-claim, and

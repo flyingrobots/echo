@@ -4,7 +4,13 @@
 
 #![allow(clippy::expect_used)]
 
-use std::collections::BTreeSet;
+use std::{
+    collections::BTreeSet,
+    fs,
+    path::PathBuf,
+    process,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 use warp_core::causal_wal::{
     retained_material_obstructions, BraidShellRetentionRecord, EvidenceMaterialPosture,
@@ -24,7 +30,7 @@ use warp_core::wsc::{
     retention_records_to_wsc_envelope, topology_records_from_wsc_envelope,
     topology_records_from_wsc_store, topology_records_to_wsc_envelope,
     validate_wsc_causal_history_store, write_wsc_one_warp, wsc_causal_history_export_profile,
-    wsc_causal_history_export_profiles, InMemoryWscStore, OneWarpInput,
+    wsc_causal_history_export_profiles, FilesystemWscStore, InMemoryWscStore, OneWarpInput,
     WscCausalHistoryCasAuthority, WscCausalHistoryExportEvidence,
     WscCausalHistoryExportProfileKind, WscCausalHistoryExportValidationMaterial, WscStoreEnvelope,
     WscStoreObstructionKind, WscStorePort, WscStoreRecordKind, WscStoreSubject,
@@ -35,6 +41,19 @@ use warp_core::{
     AuthorityDomainRef, BraidEvent, BraidStatus, HeadId, OriginId, WorldlineId, WorldlineTick,
     WriterHeadKey,
 };
+
+static NEXT_WSC_STORE_TEMP_DIR: AtomicU64 = AtomicU64::new(0);
+
+fn temp_wsc_store_dir(label: &str) -> PathBuf {
+    let root = std::env::temp_dir().join("echo-wsc-store-tests");
+    fs::create_dir_all(&root).expect("test temp root should be created");
+    let next = NEXT_WSC_STORE_TEMP_DIR.fetch_add(1, Ordering::Relaxed);
+    let dir = root.join(format!("{}-{}-{}", label, process::id(), next));
+    if dir.exists() {
+        fs::remove_dir_all(&dir).expect("stale WSC store temp dir should be removable");
+    }
+    dir
+}
 
 #[test]
 fn wsc_store_envelope_round_trips_deterministically() {
@@ -139,6 +158,125 @@ fn in_memory_wsc_store_missing_envelope_returns_typed_obstruction() {
         WscStoreSubject::Envelope {
             envelope_id: missing_id
         }
+    );
+}
+
+#[test]
+fn filesystem_wsc_store_hides_staged_material_until_commit_marker() {
+    let envelope =
+        WscStoreEnvelope::validated(WscStoreRecordKind::Snapshot, [8; 32], fixture_wsc_bytes(29))
+            .expect("valid WSC envelope");
+    let id = envelope.id();
+    let dir = temp_wsc_store_dir("visibility");
+    let mut store = FilesystemWscStore::open(&dir).expect("filesystem WSC store opens");
+
+    let staged_id = store
+        .stage_envelope_without_commit_marker(envelope.clone())
+        .expect("staged filesystem WSC envelope");
+
+    assert_eq!(staged_id, id);
+    assert!(store.list_envelopes().is_empty());
+    assert_eq!(
+        store
+            .read_envelope(id)
+            .expect_err("staged envelope is not committed")
+            .kind,
+        WscStoreObstructionKind::IncompleteEnvelopeWrite
+    );
+
+    let reopened = FilesystemWscStore::open(&dir).expect("filesystem WSC store reopens");
+    assert!(reopened.list_envelopes().is_empty());
+    assert_eq!(
+        reopened
+            .read_envelope(id)
+            .expect_err("reopened staged envelope is not committed")
+            .kind,
+        WscStoreObstructionKind::IncompleteEnvelopeWrite
+    );
+
+    let receipt = store
+        .commit_staged_envelope(id)
+        .expect("staged filesystem WSC envelope commits");
+    assert_eq!(receipt.envelope_id, id);
+
+    let reopened = FilesystemWscStore::open(&dir).expect("filesystem WSC store reopens");
+    assert_eq!(reopened.list_envelopes(), vec![id]);
+    assert_eq!(reopened.read_envelope(id), Ok(envelope));
+}
+
+#[test]
+fn filesystem_wsc_store_restarts_with_deterministic_order() {
+    let first = WscStoreEnvelope::validated(
+        WscStoreRecordKind::Snapshot,
+        [10; 32],
+        fixture_wsc_bytes(31),
+    )
+    .expect("valid first WSC envelope");
+    let second = WscStoreEnvelope::validated(
+        WscStoreRecordKind::RetainedEvidence,
+        [11; 32],
+        fixture_wsc_bytes(37),
+    )
+    .expect("valid second WSC envelope");
+    let dir = temp_wsc_store_dir("restart-order");
+    let mut store = FilesystemWscStore::open(&dir).expect("filesystem WSC store opens");
+
+    store
+        .write_envelope(second.clone())
+        .expect("second envelope writes");
+    store
+        .write_envelope(first.clone())
+        .expect("first envelope writes");
+
+    let reopened = FilesystemWscStore::open(&dir).expect("filesystem WSC store reopens");
+    let mut expected = vec![first.id(), second.id()];
+    expected.sort_unstable();
+    assert_eq!(reopened.list_envelopes(), expected);
+    assert_eq!(reopened.read_envelope(first.id()), Ok(first));
+    assert_eq!(reopened.read_envelope(second.id()), Ok(second));
+}
+
+#[test]
+fn filesystem_wsc_store_reports_torn_envelope_or_marker_material() {
+    let torn_envelope = WscStoreEnvelope::validated(
+        WscStoreRecordKind::Snapshot,
+        [12; 32],
+        fixture_wsc_bytes(41),
+    )
+    .expect("valid torn-envelope fixture");
+    let torn_marker = WscStoreEnvelope::validated(
+        WscStoreRecordKind::Snapshot,
+        [13; 32],
+        fixture_wsc_bytes(43),
+    )
+    .expect("valid torn-marker fixture");
+    let dir = temp_wsc_store_dir("torn-material");
+    let mut store = FilesystemWscStore::open(&dir).expect("filesystem WSC store opens");
+
+    store
+        .write_envelope(torn_envelope.clone())
+        .expect("torn-envelope fixture writes");
+    fs::write(store.envelope_path(torn_envelope.id()), b"torn-envelope")
+        .expect("torn envelope material written");
+    assert_eq!(
+        store
+            .read_envelope(torn_envelope.id())
+            .expect_err("torn envelope material obstructs")
+            .kind,
+        WscStoreObstructionKind::InvalidEnvelope
+    );
+
+    store
+        .write_envelope(torn_marker.clone())
+        .expect("torn-marker fixture writes");
+    fs::write(store.commit_marker_path(torn_marker.id()), b"torn-marker")
+        .expect("torn marker material written");
+    assert_eq!(
+        store
+            .read_envelope(torn_marker.id())
+            .expect_err("torn marker material obstructs")
+            .kind,
+        WscStoreObstructionKind::InvalidCommitMarker
     );
 }
 

@@ -2,7 +2,12 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Generic WSC storage port and deterministic envelope format.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs::{self, File},
+    io::Write,
+    path::{Path, PathBuf},
+};
 
 use blake3::Hasher;
 use bytes::Bytes;
@@ -35,6 +40,10 @@ const WSC_STORE_ENVELOPE_VERSION: u16 = 1;
 const WSC_STORE_ENVELOPE_ID_DOMAIN: &[u8] = b"echo:wsc_store:envelope_id:v1\0";
 const WSC_STORE_BYTES_DOMAIN: &[u8] = b"echo:wsc_store:wsc_bytes:v1\0";
 const WSC_STORE_COMMIT_MARKER_DOMAIN: &[u8] = b"echo:wsc_store:commit_marker:v1\0";
+const WSC_STORE_FILESYSTEM_PATH_DOMAIN: &[u8] = b"echo:wsc_store:filesystem_path:v1\0";
+const WSC_STORE_COMMIT_MARKER_MAGIC: &[u8; 8] = b"ECWSCMK1";
+const WSC_STORE_COMMIT_MARKER_VERSION: u16 = 1;
+const COMMIT_MARKER_LEN: usize = 188;
 const WSC_ACCEPTED_SUBMISSION_BASIS_DOMAIN: &[u8] =
     b"echo:wsc_store:accepted_submission_basis:v1\0";
 const WSC_ACCEPTED_SUBMISSION_NODE_DOMAIN: &[u8] = b"echo:wsc_store:accepted_submission_node:v1\0";
@@ -879,6 +888,12 @@ pub enum WscStoreSubject {
         /// Digest naming the inconsistent causal-history subject.
         subject_digest: Hash,
     },
+    /// Filesystem path was implicated.
+    FilesystemPath {
+        /// Digest of the filesystem path, without making the host path a
+        /// portable semantic identifier.
+        path_digest: Hash,
+    },
 }
 
 /// Generic WSC store obstruction kind.
@@ -898,8 +913,12 @@ pub enum WscStoreObstructionKind {
     DuplicateEnvelopeMismatch,
     /// Envelope material exists without a matching commit marker, or vice versa.
     IncompleteEnvelopeWrite,
+    /// Commit marker bytes were malformed.
+    InvalidCommitMarker,
     /// Commit marker does not match the envelope material.
     CommitMarkerMismatch,
+    /// Filesystem I/O obstructed store access.
+    FilesystemIo,
     /// Committed causal-history records are missing required partner material.
     IncompleteCausalHistory,
 }
@@ -963,10 +982,26 @@ impl WscStoreObstruction {
         }
     }
 
+    fn invalid_commit_marker(envelope_id: WscStoreEnvelopeId) -> Self {
+        Self {
+            kind: WscStoreObstructionKind::InvalidCommitMarker,
+            subject: WscStoreSubject::Envelope { envelope_id },
+        }
+    }
+
     fn commit_marker_mismatch(envelope_id: WscStoreEnvelopeId) -> Self {
         Self {
             kind: WscStoreObstructionKind::CommitMarkerMismatch,
             subject: WscStoreSubject::Envelope { envelope_id },
+        }
+    }
+
+    fn filesystem_io(path: &Path) -> Self {
+        Self {
+            kind: WscStoreObstructionKind::FilesystemIo,
+            subject: WscStoreSubject::FilesystemPath {
+                path_digest: digest_filesystem_path(path),
+            },
         }
     }
 
@@ -1183,6 +1218,71 @@ impl WscStoreCommitMarker {
             encoded_len,
             marker_digest,
         })
+    }
+
+    fn decode(envelope_id: WscStoreEnvelopeId, bytes: &[u8]) -> Result<Self, WscStoreObstruction> {
+        if bytes.len() != COMMIT_MARKER_LEN {
+            return Err(WscStoreObstruction::invalid_commit_marker(envelope_id));
+        }
+        let magic = read_marker_array::<8>(bytes, 0, envelope_id)?;
+        if &magic != WSC_STORE_COMMIT_MARKER_MAGIC {
+            return Err(WscStoreObstruction::invalid_commit_marker(envelope_id));
+        }
+        let version = u16::from_le_bytes(read_marker_array::<2>(bytes, 8, envelope_id)?);
+        if version != WSC_STORE_COMMIT_MARKER_VERSION {
+            return Err(WscStoreObstruction::invalid_commit_marker(envelope_id));
+        }
+        let record_kind_code = u16::from_le_bytes(read_marker_array::<2>(bytes, 10, envelope_id)?);
+        let record_kind = WscStoreRecordKind::from_code(record_kind_code)
+            .ok_or_else(|| WscStoreObstruction::invalid_commit_marker(envelope_id))?;
+        let decoded_envelope_id =
+            WscStoreEnvelopeId::from_hash(read_marker_array::<32>(bytes, 12, envelope_id)?);
+        if decoded_envelope_id != envelope_id {
+            return Err(WscStoreObstruction::commit_marker_mismatch(envelope_id));
+        }
+        let schema_hash = read_marker_array::<32>(bytes, 44, envelope_id)?;
+        let basis_digest = read_marker_array::<32>(bytes, 76, envelope_id)?;
+        let wsc_digest = read_marker_array::<32>(bytes, 108, envelope_id)?;
+        let tick = u64::from_le_bytes(read_marker_array::<8>(bytes, 140, envelope_id)?);
+        let encoded_len = u64::from_le_bytes(read_marker_array::<8>(bytes, 148, envelope_id)?);
+        let marker_digest = read_marker_array::<32>(bytes, 156, envelope_id)?;
+        let expected_marker_digest = derive_commit_marker_digest_from_parts(
+            envelope_id,
+            record_kind,
+            &basis_digest,
+            &schema_hash,
+            tick,
+            &wsc_digest,
+            encoded_len,
+        );
+        if marker_digest != expected_marker_digest {
+            return Err(WscStoreObstruction::commit_marker_mismatch(envelope_id));
+        }
+        Ok(Self {
+            envelope_id,
+            record_kind,
+            basis_digest,
+            schema_hash,
+            tick,
+            wsc_digest,
+            encoded_len,
+            marker_digest,
+        })
+    }
+
+    fn encode(self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(COMMIT_MARKER_LEN);
+        bytes.extend_from_slice(WSC_STORE_COMMIT_MARKER_MAGIC);
+        bytes.extend_from_slice(&WSC_STORE_COMMIT_MARKER_VERSION.to_le_bytes());
+        bytes.extend_from_slice(&self.record_kind.code().to_le_bytes());
+        bytes.extend_from_slice(&self.envelope_id.as_hash());
+        bytes.extend_from_slice(&self.schema_hash);
+        bytes.extend_from_slice(&self.basis_digest);
+        bytes.extend_from_slice(&self.wsc_digest);
+        bytes.extend_from_slice(&self.tick.to_le_bytes());
+        bytes.extend_from_slice(&self.encoded_len.to_le_bytes());
+        bytes.extend_from_slice(&self.marker_digest);
+        bytes
     }
 
     /// Returns the envelope id committed by this marker.
@@ -1748,6 +1848,182 @@ impl WscStorePort for InMemoryWscStore {
                     .map(|_| *envelope_id)
             })
             .collect()
+    }
+}
+
+/// Filesystem-backed WSC store implementation.
+#[derive(Debug, Clone)]
+pub struct FilesystemWscStore {
+    root: PathBuf,
+    envelopes_dir: PathBuf,
+    commit_markers_dir: PathBuf,
+}
+
+impl FilesystemWscStore {
+    /// Opens or creates a filesystem-backed WSC store rooted at `root`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed filesystem obstruction when the store directories cannot
+    /// be created.
+    pub fn open(root: impl AsRef<Path>) -> Result<Self, WscStoreObstruction> {
+        let root = root.as_ref().to_path_buf();
+        let envelopes_dir = root.join("envelopes");
+        let commit_markers_dir = root.join("commit-markers");
+        fs::create_dir_all(&envelopes_dir)
+            .map_err(|_| WscStoreObstruction::filesystem_io(&envelopes_dir))?;
+        fs::create_dir_all(&commit_markers_dir)
+            .map_err(|_| WscStoreObstruction::filesystem_io(&commit_markers_dir))?;
+        Ok(Self {
+            root,
+            envelopes_dir,
+            commit_markers_dir,
+        })
+    }
+
+    /// Returns the store root directory.
+    #[must_use]
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Returns the deterministic envelope file path for `envelope_id`.
+    #[must_use]
+    pub fn envelope_path(&self, envelope_id: WscStoreEnvelopeId) -> PathBuf {
+        self.envelopes_dir
+            .join(format!("{}.ecwsc", hash_hex(&envelope_id.as_hash())))
+    }
+
+    /// Returns the deterministic commit-marker file path for `envelope_id`.
+    #[must_use]
+    pub fn commit_marker_path(&self, envelope_id: WscStoreEnvelopeId) -> PathBuf {
+        self.commit_markers_dir
+            .join(format!("{}.ecwsc.commit", hash_hex(&envelope_id.as_hash())))
+    }
+
+    /// Stages an envelope without publishing its commit marker.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed obstruction when existing staged material or marker
+    /// material conflicts with the supplied envelope, or when filesystem I/O
+    /// fails.
+    pub fn stage_envelope_without_commit_marker(
+        &mut self,
+        envelope: WscStoreEnvelope,
+    ) -> Result<WscStoreEnvelopeId, WscStoreObstruction> {
+        let envelope_id = envelope.id();
+        if let Some(existing) = self.read_envelope_material(envelope_id)? {
+            if existing != envelope {
+                return Err(WscStoreObstruction::duplicate_mismatch(envelope_id));
+            }
+        }
+        if let Some(marker) = self.read_commit_marker_material(envelope_id)? {
+            if !marker.matches_envelope(&envelope) {
+                return Err(WscStoreObstruction::commit_marker_mismatch(envelope_id));
+            }
+        }
+        write_atomic(&self.envelope_path(envelope_id), &envelope.encode())?;
+        Ok(envelope_id)
+    }
+
+    /// Publishes the commit marker for a staged envelope.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed obstruction when the staged envelope is absent, malformed,
+    /// or mismatched with an existing commit marker.
+    pub fn commit_staged_envelope(
+        &mut self,
+        envelope_id: WscStoreEnvelopeId,
+    ) -> Result<WscStoreWriteReceipt, WscStoreObstruction> {
+        let Some(envelope) = self.read_envelope_material(envelope_id)? else {
+            return Err(WscStoreObstruction::incomplete_write(envelope_id));
+        };
+        let marker = WscStoreCommitMarker::from_envelope(&envelope)?;
+        if let Some(existing) = self.read_commit_marker_material(envelope_id)? {
+            if existing != marker {
+                return Err(WscStoreObstruction::commit_marker_mismatch(envelope_id));
+            }
+            return Ok(existing.write_receipt());
+        }
+        write_atomic(&self.commit_marker_path(envelope_id), &marker.encode())?;
+        Ok(marker.write_receipt())
+    }
+
+    fn read_envelope_material(
+        &self,
+        envelope_id: WscStoreEnvelopeId,
+    ) -> Result<Option<WscStoreEnvelope>, WscStoreObstruction> {
+        let path = self.envelope_path(envelope_id);
+        match fs::read(&path) {
+            Ok(bytes) => WscStoreEnvelope::decode(&bytes).map(Some),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(_) => Err(WscStoreObstruction::filesystem_io(&path)),
+        }
+    }
+
+    fn read_commit_marker_material(
+        &self,
+        envelope_id: WscStoreEnvelopeId,
+    ) -> Result<Option<WscStoreCommitMarker>, WscStoreObstruction> {
+        let path = self.commit_marker_path(envelope_id);
+        match fs::read(&path) {
+            Ok(bytes) => WscStoreCommitMarker::decode(envelope_id, &bytes).map(Some),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(_) => Err(WscStoreObstruction::filesystem_io(&path)),
+        }
+    }
+}
+
+impl WscStorePort for FilesystemWscStore {
+    fn write_envelope(
+        &mut self,
+        envelope: WscStoreEnvelope,
+    ) -> Result<WscStoreWriteReceipt, WscStoreObstruction> {
+        let envelope_id = envelope.id();
+        self.stage_envelope_without_commit_marker(envelope)?;
+        self.commit_staged_envelope(envelope_id)
+    }
+
+    fn read_envelope(
+        &self,
+        envelope_id: WscStoreEnvelopeId,
+    ) -> Result<WscStoreEnvelope, WscStoreObstruction> {
+        match (
+            self.read_envelope_material(envelope_id)?,
+            self.read_commit_marker_material(envelope_id)?,
+        ) {
+            (Some(envelope), Some(marker)) if marker.matches_envelope(&envelope) => Ok(envelope),
+            (Some(_), Some(_)) => Err(WscStoreObstruction::commit_marker_mismatch(envelope_id)),
+            (Some(_), None) | (None, Some(_)) => {
+                Err(WscStoreObstruction::incomplete_write(envelope_id))
+            }
+            (None, None) => Err(WscStoreObstruction::missing_envelope(envelope_id)),
+        }
+    }
+
+    fn list_envelopes(&self) -> Vec<WscStoreEnvelopeId> {
+        let Ok(entries) = fs::read_dir(&self.commit_markers_dir) else {
+            return Vec::new();
+        };
+        let mut envelope_ids = BTreeSet::new();
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Some(envelope_id) = envelope_id_from_commit_marker_path(&path) else {
+                continue;
+            };
+            let Ok(Some(envelope)) = self.read_envelope_material(envelope_id) else {
+                continue;
+            };
+            let Ok(Some(marker)) = self.read_commit_marker_material(envelope_id) else {
+                continue;
+            };
+            if marker.matches_envelope(&envelope) {
+                envelope_ids.insert(envelope_id);
+            }
+        }
+        envelope_ids.into_iter().collect()
     }
 }
 
@@ -3580,6 +3856,14 @@ fn read_array<const N: usize>(bytes: &[u8], offset: usize) -> Result<[u8; N], Ws
     Ok(out)
 }
 
+fn read_marker_array<const N: usize>(
+    bytes: &[u8],
+    offset: usize,
+    envelope_id: WscStoreEnvelopeId,
+) -> Result<[u8; N], WscStoreObstruction> {
+    read_array(bytes, offset).map_err(|_| WscStoreObstruction::invalid_commit_marker(envelope_id))
+}
+
 fn derive_envelope_id(
     record_kind: WscStoreRecordKind,
     basis_digest: &Hash,
@@ -3600,15 +3884,97 @@ fn derive_envelope_id(
 }
 
 fn derive_commit_marker_digest(envelope: &WscStoreEnvelope, encoded_len: u64) -> Hash {
+    derive_commit_marker_digest_from_parts(
+        envelope.id(),
+        envelope.record_kind(),
+        envelope.basis_digest(),
+        envelope.schema_hash(),
+        envelope.tick(),
+        envelope.wsc_digest(),
+        encoded_len,
+    )
+}
+
+fn derive_commit_marker_digest_from_parts(
+    envelope_id: WscStoreEnvelopeId,
+    record_kind: WscStoreRecordKind,
+    basis_digest: &Hash,
+    schema_hash: &Hash,
+    tick: u64,
+    wsc_digest: &Hash,
+    encoded_len: u64,
+) -> Hash {
     let mut hasher = Hasher::new();
     hasher.update(WSC_STORE_COMMIT_MARKER_DOMAIN);
-    hasher.update(&envelope.id().as_hash());
-    hasher.update(&envelope.record_kind().code().to_le_bytes());
-    hasher.update(envelope.basis_digest());
-    hasher.update(envelope.schema_hash());
-    hasher.update(&envelope.tick().to_le_bytes());
-    hasher.update(envelope.wsc_digest());
+    hasher.update(&envelope_id.as_hash());
+    hasher.update(&record_kind.code().to_le_bytes());
+    hasher.update(basis_digest);
+    hasher.update(schema_hash);
+    hasher.update(&tick.to_le_bytes());
+    hasher.update(wsc_digest);
     hasher.update(&encoded_len.to_le_bytes());
+    hasher.finalize().into()
+}
+
+fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), WscStoreObstruction> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| WscStoreObstruction::filesystem_io(path))?;
+    fs::create_dir_all(parent).map_err(|_| WscStoreObstruction::filesystem_io(parent))?;
+    let temp_path = path.with_extension("tmp");
+    {
+        let mut file =
+            File::create(&temp_path).map_err(|_| WscStoreObstruction::filesystem_io(&temp_path))?;
+        file.write_all(bytes)
+            .map_err(|_| WscStoreObstruction::filesystem_io(&temp_path))?;
+        file.sync_all()
+            .map_err(|_| WscStoreObstruction::filesystem_io(&temp_path))?;
+    }
+    fs::rename(&temp_path, path).map_err(|_| WscStoreObstruction::filesystem_io(path))
+}
+
+fn envelope_id_from_commit_marker_path(path: &Path) -> Option<WscStoreEnvelopeId> {
+    let name = path.file_name()?.to_str()?;
+    let hex = name.strip_suffix(".ecwsc.commit")?;
+    parse_hash_hex(hex).map(WscStoreEnvelopeId::from_hash)
+}
+
+fn hash_hex(hash: &Hash) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(hash.len() * 2);
+    for byte in hash {
+        out.push(char::from(HEX[usize::from(byte >> 4)]));
+        out.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    out
+}
+
+fn parse_hash_hex(hex: &str) -> Option<Hash> {
+    if hex.len() != 64 {
+        return None;
+    }
+    let mut out = [0; 32];
+    for (index, chunk) in hex.as_bytes().chunks_exact(2).enumerate() {
+        let high = hex_nibble(chunk[0])?;
+        let low = hex_nibble(chunk[1])?;
+        out[index] = (high << 4) | low;
+    }
+    Some(out)
+}
+
+const fn hex_nibble(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn digest_filesystem_path(path: &Path) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(WSC_STORE_FILESYSTEM_PATH_DOMAIN);
+    hasher.update(path.to_string_lossy().as_bytes());
     hasher.finalize().into()
 }
 

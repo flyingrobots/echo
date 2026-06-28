@@ -2,6 +2,11 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Retained evidence reference regression tests.
 
+use echo_cas::{blob_hash, RetainedBlobRole, SemanticBlobCoordinate};
+use warp_core::causal_wal::{
+    EvidenceMaterialPosture, ReadingRefRecord, RecoveredRetentionIndex,
+    RecoveredRetentionIndexError, RetainedMaterialKind, RetainedMaterialRecord,
+};
 use warp_core::{
     ContractEvidenceIdentity, ContractObstructionKind, ContractObstructionSubject,
     ContractOperationKind, InstalledContractPackageId, RetainedEvidenceCoordinate,
@@ -39,6 +44,18 @@ fn coordinate(role: RetainedEvidenceRole, semantic_seed: u8) -> RetainedEvidence
         role,
         hash(semantic_seed),
     )
+}
+
+fn semantic_blob_coordinate(role: RetainedBlobRole, semantic_seed: u8) -> SemanticBlobCoordinate {
+    SemanticBlobCoordinate {
+        namespace: "echo:test-retained-evidence-crosswalk".to_owned(),
+        schema_hash_hex: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+            .to_owned(),
+        artifact_hash_hex: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            .to_owned(),
+        role,
+        semantic_digest: hash(semantic_seed),
+    }
 }
 
 #[test]
@@ -168,4 +185,74 @@ fn query_identity_does_not_imply_payload_retention() {
         missing.obstruction().map(|obstruction| obstruction.kind),
         Some(ContractObstructionKind::MissingRetention)
     );
+}
+
+#[test]
+fn wal_retention_crosswalk_keeps_coordinate_reading_and_payload_axes_distinct(
+) -> Result<(), RecoveredRetentionIndexError> {
+    let bytes = b"same reading bytes";
+    let content_hash = blob_hash(bytes);
+    let content_digest = *content_hash.as_bytes();
+    let first_coordinate = semantic_blob_coordinate(RetainedBlobRole::ReadingPayload, 11);
+    let second_coordinate = semantic_blob_coordinate(RetainedBlobRole::ReadingPayload, 12);
+    let first_ref = RetainedEvidenceRef::new(
+        RetainedEvidenceCoordinate::new(
+            contract(11, 12, ContractOperationKind::Query),
+            RetainedEvidenceRole::ReadingPayload,
+            first_coordinate.semantic_digest,
+        ),
+        content_digest,
+        bytes.len() as u64,
+    );
+    let second_ref = RetainedEvidenceRef::new(
+        RetainedEvidenceCoordinate::new(
+            first_ref.coordinate.contract.clone(),
+            RetainedEvidenceRole::ReadingPayload,
+            second_coordinate.semantic_digest,
+        ),
+        content_digest,
+        bytes.len() as u64,
+    );
+
+    assert_eq!(first_ref.content_hash, content_digest);
+    assert_eq!(second_ref.content_hash, content_digest);
+    assert_ne!(
+        first_ref.coordinate.coordinate_id(),
+        second_ref.coordinate.coordinate_id()
+    );
+    assert_ne!(first_ref.evidence_ref_id(), second_ref.evidence_ref_id());
+
+    let reading_id = hash(13);
+    let material = RetainedMaterialRecord {
+        material_digest: content_digest,
+        semantic_coordinate_digest: first_coordinate.semantic_digest,
+        kind: RetainedMaterialKind::ReadingPayload,
+        posture: EvidenceMaterialPosture::Present,
+    };
+    let reading = ReadingRefRecord {
+        reading_id,
+        semantic_coordinate_digest: first_coordinate.semantic_digest,
+        payload_digest: content_digest,
+        envelope_digest: hash(14),
+        posture: EvidenceMaterialPosture::Present,
+    };
+    let retention = RecoveredRetentionIndex::from_retention_records([material], [reading])?;
+
+    assert_ne!(reading_id, content_digest);
+    assert_eq!(
+        retention.material_by_digest.get(&content_digest),
+        Some(&material)
+    );
+    assert_eq!(retention.reading_by_id.get(&reading_id), Some(&reading));
+    assert!(!retention.material_by_digest.contains_key(&reading_id));
+    assert!(!retention.reading_by_id.contains_key(&content_digest));
+    assert!(retention
+        .material_by_semantic_coordinate
+        .get(&first_coordinate.semantic_digest)
+        .is_some_and(|digests| digests.contains(&content_digest)));
+    assert!(retention
+        .readings_by_semantic_coordinate
+        .get(&first_coordinate.semantic_digest)
+        .is_some_and(|readings| readings.contains(&reading_id)));
+    Ok(())
 }

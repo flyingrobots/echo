@@ -21,6 +21,11 @@
   projected WAL root or storage manifest, record checkpoint posture, committed
   replay suffix, tail posture, recovered index roots, retained-material posture,
   and projected evidence posture without requiring graph WAL nodes as input.
+- `warp-core` now exposes `RecoveredDurabilityIndexes` and
+  `rebuild_durability_indexes_after_recovery(...)`, composing committed WAL
+  recovery into submission, receipt, retained-material, materialization outbox,
+  topology, and graph/WSC projection indexes without invoking scheduler,
+  observer, wall-clock, network, or app code.
 - `warp-core` can now materialize WAL projection records into deterministic
   WARP graph facts with root, writer epoch, segment, commit-anchor, and recovery
   certificate nodes plus typed graph edges suitable for WSC serialization. The
@@ -83,6 +88,10 @@
 - `cargo xtask test-slice durability-release` now includes the exact
   `recovery_plan_bootstraps_from_wal_root` witness, locking recovery plan
   bootstrap posture without using Cargo's slow package-level name filter.
+- `cargo xtask test-slice durability-release` now includes the exact
+  `wal_recovery_rebuilds_all_durability_indexes` witness, locking committed-only
+  rebuild coverage for durability indexes without using Cargo's slow
+  package-level name filter.
 - `warp-core` trusted runtime hosts now configure runtime WAL through
   `TrustedRuntimeWalConfig`, including in-memory and filesystem-backed
   adapters. `TrustedRuntimeWalStoreKind` exposes the configured adapter kind as

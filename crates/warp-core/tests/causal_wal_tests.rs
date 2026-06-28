@@ -50,8 +50,11 @@ use warp_core::causal_wal::{
 use warp_core::wsc::{
     accepted_submission_records_from_wsc_envelope, build_one_warp_input,
     receipt_correlation_records_from_wsc_envelope, topology_records_from_wsc_envelope,
-    validate_wsc, write_wsc_one_warp, WscFile, WscStoreEnvelope, WscStoreObstructionKind,
-    WscStoreRecordKind,
+    validate_wsc, validate_wsc_causal_history_store, validate_wsc_ref_only_wal_export,
+    write_wsc_one_warp, wsc_ref_only_wal_export, InMemoryWscStore,
+    WscCausalHistoryExportProfileKind, WscFile, WscRefOnlyWalExportError,
+    WscRefOnlyWalLocatorPosture, WscRefOnlyWalMaterialDependency, WscStoreEnvelope,
+    WscStoreObstructionKind, WscStorePort, WscStoreRecordKind,
 };
 use warp_core::{
     make_strand_id, make_type_id, AuthorityDomainId, AuthorityDomainRef, BraidEvent, BraidStatus,
@@ -880,6 +883,174 @@ fn wal_projection_from_recovery() {
             segment_id: WalSegmentId::from_raw(1)
         }
     ));
+}
+
+#[test]
+fn wsc_ref_only_export_preserves_wal_identity() {
+    let label = "wsc-ref-only";
+    let dir = temp_wal_dir(label);
+    let mut store = must_ok(FilesystemWalStore::open(&dir, WalSegmentId::from_raw(1)));
+    let writer_epoch = must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    let acceptance = submission_acceptance(label);
+    let receipt = receipt_record(label, WalTickDecision::Applied);
+    let correlation = correlation_record(label);
+
+    must_ok(store.append_transaction(durable_submission_transaction(label, Lsn::from_raw(0))));
+    must_ok(store.append_transaction(durable_tick_transaction(
+        label,
+        Lsn::from_raw(2),
+        WalTickDecision::Applied,
+    )));
+    let seal = must_ok(store.seal_segment(epoch_id(), WalSegmentId::from_raw(1)));
+    let last_commit_digest = must_some(
+        store
+            .read_commits()
+            .last()
+            .map(|commit| commit.commit_digest),
+    );
+    let manifest = WalManifest {
+        manifest_digest: digest("wsc-ref-only:manifest"),
+        last_committed_lsn: Some(Lsn::from_raw(4)),
+        last_commit_digest: Some(last_commit_digest),
+        sealed_segment_count: 1,
+    };
+    must_ok(store.publish_manifest(epoch_id(), manifest));
+
+    let report = must_ok(recover_filesystem_store(&dir, RecoveryAccessMode::ReadOnly));
+    let certificate = build_recovery_certificate(
+        &report,
+        None,
+        0,
+        digest("wsc-ref-only:frontier"),
+        digest("wsc-ref-only:indexes"),
+    );
+    let writer_epoch = WalWriterEpoch::from_writer_epoch(&writer_epoch);
+    let projection = project_filesystem_wal_recovery(
+        &dir,
+        &report,
+        std::slice::from_ref(&writer_epoch),
+        Some(&certificate),
+    );
+    assert_eq!(projection.posture, WalRecoveryProjectionPosture::Present);
+    let root = must_some(projection.root);
+    let segment = &root.segments[0];
+    assert_eq!(segment.segment_digest, seal.segment_digest);
+
+    let export = must_ok(wsc_ref_only_wal_export(
+        &root,
+        &[acceptance],
+        &[receipt],
+        &[correlation],
+    ));
+    let imported = must_ok(validate_wsc_ref_only_wal_export(&export, &root));
+
+    assert_eq!(imported.profile, WscCausalHistoryExportProfileKind::RefOnly);
+    assert_eq!(
+        imported.projection.schema_hash,
+        wal_projection_graph_schema_hash()
+    );
+    assert_eq!(imported.root_identity_digest, root.identity_digest());
+    assert_eq!(imported.accepted_submissions, vec![acceptance]);
+    assert_eq!(imported.receipts, vec![receipt]);
+    assert_eq!(imported.correlations, vec![correlation]);
+
+    assert_eq!(imported.segment_dependencies.len(), 1);
+    let dependency = &imported.segment_dependencies[0];
+    assert_eq!(
+        dependency.material_dependency,
+        WscRefOnlyWalMaterialDependency::ExternalSegmentBytes
+    );
+    assert_eq!(
+        dependency.locator_posture,
+        WscRefOnlyWalLocatorPosture::RelativePath
+    );
+    assert_eq!(dependency.segment_id, segment.segment_id);
+    assert_eq!(
+        dependency.segment_identity_digest,
+        segment.identity_digest()
+    );
+    assert_eq!(dependency.segment_digest, segment.segment_digest);
+    assert_eq!(dependency.first_lsn, segment.first_lsn);
+    assert_eq!(dependency.last_lsn, segment.last_lsn);
+    let mut expected_anchor_digests = segment
+        .commit_anchors
+        .iter()
+        .map(WalCommitAnchor::identity_digest)
+        .collect::<Vec<_>>();
+    expected_anchor_digests.sort_unstable();
+    assert_eq!(dependency.commit_anchor_digests, expected_anchor_digests);
+
+    let mut wsc_store = InMemoryWscStore::default();
+    must_ok(wsc_store.write_envelope(export.projection_envelope.clone()));
+    must_ok(wsc_store.write_envelope(export.accepted_submission_envelope.clone()));
+    must_ok(wsc_store.write_envelope(export.receipt_correlation_envelope.clone()));
+    must_ok(validate_wsc_causal_history_store(&wsc_store));
+
+    let absolute_a = root_with_absolute_locator(&root, "/tmp/echo-a/segments/00000001.ecwal");
+    let absolute_b = root_with_absolute_locator(&root, "/var/tmp/echo-b/segments/00000001.ecwal");
+    assert_eq!(root.identity_digest(), absolute_a.identity_digest());
+    assert_eq!(absolute_a.identity_digest(), absolute_b.identity_digest());
+
+    let absolute_export_a = must_ok(wsc_ref_only_wal_export(
+        &absolute_a,
+        &[acceptance],
+        &[receipt],
+        &[correlation],
+    ));
+    let absolute_export_b = must_ok(wsc_ref_only_wal_export(
+        &absolute_b,
+        &[acceptance],
+        &[receipt],
+        &[correlation],
+    ));
+    assert_eq!(
+        absolute_export_a.projection_envelope.basis_digest(),
+        export.projection_envelope.basis_digest()
+    );
+    assert_eq!(
+        absolute_export_a.projection_envelope.wsc_bytes(),
+        export.projection_envelope.wsc_bytes()
+    );
+    assert_eq!(
+        absolute_export_a.projection_envelope.wsc_bytes(),
+        absolute_export_b.projection_envelope.wsc_bytes()
+    );
+
+    let absolute_import_a = must_ok(validate_wsc_ref_only_wal_export(
+        &absolute_export_a,
+        &absolute_a,
+    ));
+    let absolute_import_b = must_ok(validate_wsc_ref_only_wal_export(
+        &absolute_export_b,
+        &absolute_b,
+    ));
+    assert_eq!(
+        absolute_import_a.segment_dependencies[0].locator_posture,
+        WscRefOnlyWalLocatorPosture::AbsolutePathNormalized
+    );
+    assert_eq!(
+        absolute_import_a.segment_dependencies,
+        absolute_import_b.segment_dependencies
+    );
+
+    let mut missing_locator = root.clone();
+    missing_locator.segments[0].storage_locator = None;
+    assert_eq!(
+        must_err(
+            wsc_ref_only_wal_export(&missing_locator, &[acceptance], &[receipt], &[correlation]),
+            "ref-only WSC exports require segment locators",
+        ),
+        WscRefOnlyWalExportError::MissingSegmentLocator {
+            segment_id: segment.segment_id,
+        }
+    );
+}
+
+fn root_with_absolute_locator(root: &WalRoot, path: &str) -> WalRoot {
+    let mut root = root.clone();
+    root.segments[0].storage_locator =
+        Some(WalSegmentStorageLocator::AbsolutePath(PathBuf::from(path)));
+    root
 }
 
 fn builder(

@@ -30,6 +30,10 @@
   for `ref-only`, `self-contained`, and `CAS-addressed` profiles, including the
   evidence each profile must carry and an explicit CAS byte-retention posture
   that does not promote CAS hashes into causal authority.
+- `warp-core` now exports and validates a ref-only WAL WSC fixture that joins
+  WAL projection graph material, accepted-submission evidence, and receipt
+  correlation evidence while reporting external segment bytes as explicit
+  dependencies and normalizing absolute locator paths out of causal identity.
 - `cargo xtask test-slice durable-runtime-wal` now runs the release-grade
   filesystem runtime WAL durability gate, joining filesystem ACK recovery,
   filesystem failure atomicity, CLI submission posture JSON, stale-claim, and

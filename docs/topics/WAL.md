@@ -172,3 +172,11 @@ shape. That is not the same claim as strict filesystem durability. Filesystem
 WAL hardening, WSC export/import shape, retained material availability, and
 release-grade recovery gates remain the place to prove crash and portability
 claims beyond the current ACK boundary witnesses.
+
+`cargo xtask dind` now carries the `dind_durability_convergence_gate` witness
+for the joined durability path. The gate commits one filesystem WAL history,
+projects it through read-only recovery, imports the same causal evidence through
+WSC, reveals retained reading material, and requires all paths to agree on the
+same app-facing receipt and bounded reading. Missing CAS support material and
+corrupt embedded retained bytes must surface as typed obstruction evidence
+rather than a divergent success.

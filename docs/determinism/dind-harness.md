@@ -16,7 +16,10 @@ Location:
 ## Quickstart
 
 ```sh
-# Via xtask (recommended)
+# Via xtask (recommended release witness)
+cargo xtask dind
+
+# Explicit run mode is equivalent for the scenario harness
 cargo xtask dind run
 
 # Valid subcommands: run, record, torture, converge
@@ -37,6 +40,16 @@ cargo run -p echo-dind-harness -- converge \
 ```
 
 Cross-platform DIND runs weekly in CI via `.github/workflows/dind-cross-platform.yml` (Windows, macOS, and Linux matrix).
+
+## Durability Convergence Gate
+
+The default `cargo xtask dind` run includes the exact
+`dind_durability_convergence_gate` witness before replaying scenario goldens.
+That gate joins live filesystem WAL execution, read-only WAL recovery,
+self-contained and CAS-addressed WSC import, and retained reading material
+reveal. All paths must agree on the same app-facing receipt and bounded reading.
+Missing CAS support material and corrupt embedded retained bytes must fail as
+typed obstruction evidence, not as divergent successful replay.
 
 ## Determinism Guardrails
 

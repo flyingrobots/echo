@@ -8,19 +8,19 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use warp_core::causal_wal::{
-    canonical_segment_path, project_filesystem_wal_recovery, recover_filesystem_store, Lsn,
-    RecoveryAccessMode, RecoveryCertificateRef, RecoveryTailPosture, SubmissionAcceptanceRecord,
-    TickReceiptRecord, WalCommitAnchor, WalProjectionGraphObservationPosture,
-    WalReceiptCorrelationRecord, WalRecordKind, WalRecoveryProjectionPosture, WalRoot,
-    WalSegmentId, WalSegmentSealPosture, WalSegmentStorageLocator, WalTransactionId,
-    WalWriterEpoch, WriterEpochId,
+    canonical_segment_path, project_filesystem_wal_recovery, recover_filesystem_store,
+    recover_retention_index, Lsn, ReadingRefRecord, RecoveryAccessMode, RecoveryCertificateRef,
+    RecoveryTailPosture, RetainedMaterialRecord, SubmissionAcceptanceRecord, TickReceiptRecord,
+    WalCommitAnchor, WalProjectionGraphObservationPosture, WalReceiptCorrelationRecord,
+    WalRecordKind, WalRecoveryProjectionPosture, WalRoot, WalSegmentId, WalSegmentSealPosture,
+    WalSegmentStorageLocator, WalTransactionId, WalWriterEpoch, WriterEpochId,
 };
 use warp_core::wsc::{
     validate_wsc_cas_addressed_wal_export, validate_wsc_ref_only_wal_export,
     validate_wsc_self_contained_wal_export, wsc_ref_only_wal_export, wsc_self_contained_wal_export,
     WscCasAddressedWalExport, WscCasBlobStorePort, WscCausalHistoryExportProfileKind,
     WscRefOnlyWalExport, WscSelfContainedWalExport, WscSelfContainedWalSegmentMaterial,
-    WscStoreEnvelope,
+    WscStoreEnvelope, WscWalCausalHistoryRecords,
 };
 use warp_core::Hash;
 
@@ -31,6 +31,8 @@ const BUNDLE_MANIFEST: &str = "bundle.json";
 const PROJECTION_ENVELOPE: &str = "projection.ecwsc";
 const ACCEPTED_SUBMISSIONS_ENVELOPE: &str = "accepted-submissions.ecwsc";
 const RECEIPT_CORRELATIONS_ENVELOPE: &str = "receipt-correlations.ecwsc";
+const RETAINED_EVIDENCE_ENVELOPE: &str = "retained-evidence.ecwsc";
+const RETAINED_PAYLOADS_ENVELOPE: &str = "retained-payloads.ecwsc";
 const SEGMENT_MATERIAL_ENVELOPE: &str = "segment-material.ecwsc";
 
 /// Exports a ref-only WAL causal-history WSC bundle.
@@ -41,12 +43,7 @@ pub(crate) fn export_ref_only(
     format: &OutputFormat,
 ) -> Result<()> {
     let projected = project_wal_root(wal_root, writer_epochs)?;
-    let export = wsc_ref_only_wal_export(
-        &projected.root,
-        &projected.accepted_submissions,
-        &projected.receipts,
-        &projected.correlations,
-    )?;
+    let export = wsc_ref_only_wal_export(&projected.root, projected.records())?;
 
     let manifest = write_ref_only_bundle(out, &projected.root, &export)?;
     emit_export_report("export-ref-only", out, &manifest, format)
@@ -64,9 +61,8 @@ pub(crate) fn export_self_contained(
     let export = wsc_self_contained_wal_export(
         &projected.root,
         &segment_materials,
-        &projected.accepted_submissions,
-        &projected.receipts,
-        &projected.correlations,
+        &[],
+        projected.records(),
     )?;
 
     let manifest = write_self_contained_bundle(out, &projected.root, &export)?;
@@ -122,6 +118,20 @@ struct ProjectedWal {
     accepted_submissions: Vec<SubmissionAcceptanceRecord>,
     receipts: Vec<TickReceiptRecord>,
     correlations: Vec<WalReceiptCorrelationRecord>,
+    retained_materials: Vec<RetainedMaterialRecord>,
+    reading_refs: Vec<ReadingRefRecord>,
+}
+
+impl ProjectedWal {
+    fn records(&self) -> WscWalCausalHistoryRecords<'_> {
+        WscWalCausalHistoryRecords {
+            retained_materials: &self.retained_materials,
+            reading_refs: &self.reading_refs,
+            accepted_submissions: &self.accepted_submissions,
+            receipts: &self.receipts,
+            correlations: &self.correlations,
+        }
+    }
 }
 
 fn project_wal_root(wal_root: &Path, writer_epochs: &Path) -> Result<ProjectedWal> {
@@ -145,11 +155,14 @@ fn project_wal_root(wal_root: &Path, writer_epochs: &Path) -> Result<ProjectedWa
         .ok_or_else(|| anyhow::anyhow!("WAL recovery projection did not produce a root"))?;
     let (accepted_submissions, receipts, correlations) =
         causal_history_records_from_report(&report)?;
+    let retention = recover_retention_index(&report)?;
     Ok(ProjectedWal {
         root,
         accepted_submissions,
         receipts,
         correlations,
+        retained_materials: retention.material_by_digest.into_values().collect(),
+        reading_refs: retention.reading_by_id.into_values().collect(),
     })
 }
 
@@ -231,6 +244,7 @@ fn write_ref_only_bundle(
         RECEIPT_CORRELATIONS_ENVELOPE,
         &export.receipt_correlation_envelope,
     )?;
+    write_envelope(out, RETAINED_EVIDENCE_ENVELOPE, &export.retention_envelope)?;
     let manifest = BundleManifest {
         schema_version: 1,
         profile: "ref-only".to_owned(),
@@ -239,7 +253,9 @@ fn write_ref_only_bundle(
             projection: PROJECTION_ENVELOPE.to_owned(),
             accepted_submissions: ACCEPTED_SUBMISSIONS_ENVELOPE.to_owned(),
             receipt_correlations: RECEIPT_CORRELATIONS_ENVELOPE.to_owned(),
+            retained_evidence: RETAINED_EVIDENCE_ENVELOPE.to_owned(),
             segment_material: None,
+            retained_payloads: None,
             cas_references: None,
         },
     };
@@ -262,6 +278,11 @@ fn write_self_contained_bundle(
     )?;
     write_envelope(
         out,
+        RETAINED_PAYLOADS_ENVELOPE,
+        &export.retained_material_envelope,
+    )?;
+    write_envelope(
+        out,
         ACCEPTED_SUBMISSIONS_ENVELOPE,
         &export.accepted_submission_envelope,
     )?;
@@ -270,6 +291,7 @@ fn write_self_contained_bundle(
         RECEIPT_CORRELATIONS_ENVELOPE,
         &export.receipt_correlation_envelope,
     )?;
+    write_envelope(out, RETAINED_EVIDENCE_ENVELOPE, &export.retention_envelope)?;
     let manifest = BundleManifest {
         schema_version: 1,
         profile: "self-contained".to_owned(),
@@ -278,7 +300,9 @@ fn write_self_contained_bundle(
             projection: PROJECTION_ENVELOPE.to_owned(),
             accepted_submissions: ACCEPTED_SUBMISSIONS_ENVELOPE.to_owned(),
             receipt_correlations: RECEIPT_CORRELATIONS_ENVELOPE.to_owned(),
+            retained_evidence: RETAINED_EVIDENCE_ENVELOPE.to_owned(),
             segment_material: Some(SEGMENT_MATERIAL_ENVELOPE.to_owned()),
+            retained_payloads: Some(RETAINED_PAYLOADS_ENVELOPE.to_owned()),
             cas_references: None,
         },
     };
@@ -291,7 +315,8 @@ fn verify_ref_only(
     manifest: &BundleManifest,
     root: &WalRoot,
 ) -> Result<BundleVerifyOutput> {
-    let expected_dependencies = wsc_ref_only_wal_export(root, &[], &[], &[])?.segment_dependencies;
+    let expected_dependencies =
+        wsc_ref_only_wal_export(root, WscWalCausalHistoryRecords::empty())?.segment_dependencies;
     let export = WscRefOnlyWalExport {
         profile: WscCausalHistoryExportProfileKind::RefOnly,
         projection_envelope: read_envelope(bundle, &manifest.envelopes.projection)?,
@@ -303,6 +328,7 @@ fn verify_ref_only(
             bundle,
             &manifest.envelopes.receipt_correlations,
         )?,
+        retention_envelope: read_envelope(bundle, &manifest.envelopes.retained_evidence)?,
         segment_dependencies: expected_dependencies,
     };
     let imported = validate_wsc_ref_only_wal_export(&export, root)?;
@@ -341,10 +367,16 @@ fn verify_self_contained(
         .segment_material
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("self-contained bundle is missing segment material"))?;
+    let retained_payloads = manifest
+        .envelopes
+        .retained_payloads
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("self-contained bundle is missing retained payloads"))?;
     let export = WscSelfContainedWalExport {
         profile: WscCausalHistoryExportProfileKind::SelfContained,
         projection_envelope: read_envelope(bundle, &manifest.envelopes.projection)?,
         segment_material_envelope: read_envelope(bundle, segment_material)?,
+        retained_material_envelope: read_envelope(bundle, retained_payloads)?,
         accepted_submission_envelope: read_envelope(
             bundle,
             &manifest.envelopes.accepted_submissions,
@@ -353,6 +385,7 @@ fn verify_self_contained(
             bundle,
             &manifest.envelopes.receipt_correlations,
         )?,
+        retention_envelope: read_envelope(bundle, &manifest.envelopes.retained_evidence)?,
     };
     let imported = validate_wsc_self_contained_wal_export(&export, root)?;
     Ok(verify_output(
@@ -392,6 +425,7 @@ fn verify_cas_addressed(
             bundle,
             &manifest.envelopes.receipt_correlations,
         )?,
+        retention_envelope: read_envelope(bundle, &manifest.envelopes.retained_evidence)?,
     };
     match validate_wsc_cas_addressed_wal_export(&export, root, &UnavailableCasStore) {
         Ok(imported) => Ok(verify_output(
@@ -586,8 +620,11 @@ struct BundleEnvelopePaths {
     projection: String,
     accepted_submissions: String,
     receipt_correlations: String,
+    retained_evidence: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     segment_material: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    retained_payloads: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     cas_references: Option<String>,
 }
@@ -598,9 +635,13 @@ impl BundleEnvelopePaths {
             ("projection", self.projection.as_str()),
             ("accepted_submissions", self.accepted_submissions.as_str()),
             ("receipt_correlations", self.receipt_correlations.as_str()),
+            ("retained_evidence", self.retained_evidence.as_str()),
         ];
         if let Some(path) = self.segment_material.as_deref() {
             paths.push(("segment_material", path));
+        }
+        if let Some(path) = self.retained_payloads.as_deref() {
+            paths.push(("retained_payloads", path));
         }
         if let Some(path) = self.cas_references.as_deref() {
             paths.push(("cas_references", path));

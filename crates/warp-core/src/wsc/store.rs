@@ -82,6 +82,21 @@ const WSC_SELF_CONTAINED_WAL_SEGMENT_EDGE_TYPE: &str =
     "echo/wsc-store/wal-self-contained-segments/member/v1";
 const WSC_SELF_CONTAINED_WAL_SEGMENT_ATTACHMENT_TYPE: &str =
     "echo/wsc-store/wal-self-contained-segments/segment-bytes/v1";
+const WSC_SELF_CONTAINED_RETAINED_BASIS_DOMAIN: &[u8] =
+    b"echo:wsc_store:self_contained_retained_basis:v1\0";
+const WSC_SELF_CONTAINED_RETAINED_NODE_DOMAIN: &[u8] =
+    b"echo:wsc_store:self_contained_retained_node:v1\0";
+const WSC_SELF_CONTAINED_RETAINED_EDGE_DOMAIN: &[u8] =
+    b"echo:wsc_store:self_contained_retained_edge:v1\0";
+const WSC_SELF_CONTAINED_RETAINED_SCHEMA: &str = "echo/wsc-store/self-contained-retained/v1";
+const WSC_SELF_CONTAINED_RETAINED_WARP: &str = "echo/wsc-store/self-contained-retained";
+const WSC_SELF_CONTAINED_RETAINED_ROOT: &str = "echo/wsc-store/self-contained-retained/root";
+const WSC_SELF_CONTAINED_RETAINED_NODE_TYPE: &str =
+    "echo/wsc-store/self-contained-retained/node/v1";
+const WSC_SELF_CONTAINED_RETAINED_EDGE_TYPE: &str =
+    "echo/wsc-store/self-contained-retained/member/v1";
+const WSC_SELF_CONTAINED_RETAINED_ATTACHMENT_TYPE: &str =
+    "echo/wsc-store/self-contained-retained/material-bytes/v1";
 const WSC_CAS_ADDRESSED_WAL_REF_BASIS_DOMAIN: &[u8] =
     b"echo:wsc_store:cas_addressed_wal_ref_basis:v1\0";
 const WSC_CAS_ADDRESSED_WAL_REF_NODE_DOMAIN: &[u8] =
@@ -355,6 +370,35 @@ pub struct WscRefOnlyWalSegmentDependency {
     pub locator_posture: WscRefOnlyWalLocatorPosture,
 }
 
+/// Record slices carried by WAL causal-history WSC exports.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WscWalCausalHistoryRecords<'a> {
+    /// Retained material records recovered from WAL.
+    pub retained_materials: &'a [RetainedMaterialRecord],
+    /// Retained reading references recovered from WAL.
+    pub reading_refs: &'a [ReadingRefRecord],
+    /// Accepted submission records recovered from WAL.
+    pub accepted_submissions: &'a [SubmissionAcceptanceRecord],
+    /// Tick receipt records recovered from WAL.
+    pub receipts: &'a [TickReceiptRecord],
+    /// Receipt-correlation records recovered from WAL.
+    pub correlations: &'a [WalReceiptCorrelationRecord],
+}
+
+impl WscWalCausalHistoryRecords<'_> {
+    /// Empty causal-history records for dependency-only export construction.
+    #[must_use]
+    pub const fn empty() -> Self {
+        Self {
+            retained_materials: &[],
+            reading_refs: &[],
+            accepted_submissions: &[],
+            receipts: &[],
+            correlations: &[],
+        }
+    }
+}
+
 /// Ref-only WAL causal-history WSC export.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WscRefOnlyWalExport {
@@ -366,6 +410,8 @@ pub struct WscRefOnlyWalExport {
     pub accepted_submission_envelope: WscStoreEnvelope,
     /// Tick receipt and receipt-correlation WSC envelope.
     pub receipt_correlation_envelope: WscStoreEnvelope,
+    /// Retained material and reading reference WSC envelope.
+    pub retention_envelope: WscStoreEnvelope,
     /// External segment byte dependencies for ref-only validation.
     pub segment_dependencies: Vec<WscRefOnlyWalSegmentDependency>,
 }
@@ -385,6 +431,8 @@ pub struct WscRefOnlyWalImport {
     pub receipts: Vec<TickReceiptRecord>,
     /// Receipt-correlation records recovered from WSC.
     pub correlations: Vec<WalReceiptCorrelationRecord>,
+    /// Retained material and reading references recovered from WSC.
+    pub retention: WscRetentionRecords,
     /// External segment byte dependencies for ref-only validation.
     pub segment_dependencies: Vec<WscRefOnlyWalSegmentDependency>,
 }
@@ -398,6 +446,15 @@ pub struct WscSelfContainedWalSegmentMaterial {
     pub segment_bytes: Vec<u8>,
 }
 
+/// Embedded retained payload material carried by a self-contained WSC export.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WscSelfContainedRetainedMaterial {
+    /// Retained material record recovered from WAL.
+    pub material: RetainedMaterialRecord,
+    /// Raw retained payload bytes.
+    pub material_bytes: Vec<u8>,
+}
+
 /// Self-contained WAL causal-history WSC export.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WscSelfContainedWalExport {
@@ -407,10 +464,14 @@ pub struct WscSelfContainedWalExport {
     pub projection_envelope: WscStoreEnvelope,
     /// Embedded WAL segment material WSC envelope.
     pub segment_material_envelope: WscStoreEnvelope,
+    /// Embedded retained payload material WSC envelope.
+    pub retained_material_envelope: WscStoreEnvelope,
     /// Accepted submission evidence WSC envelope.
     pub accepted_submission_envelope: WscStoreEnvelope,
     /// Tick receipt and receipt-correlation WSC envelope.
     pub receipt_correlation_envelope: WscStoreEnvelope,
+    /// Retained material and reading reference WSC envelope.
+    pub retention_envelope: WscStoreEnvelope,
 }
 
 /// Imported and validated self-contained WAL causal-history WSC evidence.
@@ -424,6 +485,8 @@ pub struct WscSelfContainedWalImport {
     pub root_identity_digest: Hash,
     /// Embedded segment recoveries validated against the projected WAL root.
     pub segment_recoveries: Vec<WalSegmentBytesRecovery>,
+    /// Retained payload bytes recovered from embedded WSC material.
+    pub retained_payloads: Vec<WscSelfContainedRetainedMaterial>,
     /// Accepted submission records recovered from WSC.
     pub accepted_submissions: Vec<SubmissionAcceptanceRecord>,
     /// Tick receipt records recovered from WSC.
@@ -434,6 +497,8 @@ pub struct WscSelfContainedWalImport {
     pub submission_index: RecoveredSubmissionIndex,
     /// Receipt correlation index rebuilt from imported WSC evidence.
     pub receipt_index: RecoveredReceiptIndex,
+    /// Retained material and reading references recovered from WSC.
+    pub retention: WscRetentionRecords,
 }
 
 /// CAS material for one WAL segment supplied by an exporter.
@@ -507,6 +572,8 @@ pub struct WscCasAddressedWalExport {
     pub accepted_submission_envelope: WscStoreEnvelope,
     /// Tick receipt and receipt-correlation WSC envelope.
     pub receipt_correlation_envelope: WscStoreEnvelope,
+    /// Retained material and reading reference WSC envelope.
+    pub retention_envelope: WscStoreEnvelope,
 }
 
 /// Imported and validated CAS-addressed WAL causal-history WSC evidence.
@@ -526,6 +593,8 @@ pub struct WscCasAddressedWalImport {
     pub receipts: Vec<TickReceiptRecord>,
     /// Receipt-correlation records recovered from WSC.
     pub correlations: Vec<WalReceiptCorrelationRecord>,
+    /// Retained material and reading references recovered from WSC.
+    pub retention: WscRetentionRecords,
 }
 
 /// Minimal CAS blob lookup port used by CAS-addressed WSC validation.
@@ -594,6 +663,9 @@ pub enum WscRefOnlyWalImportError {
     /// Receipt correlation WSC material was invalid.
     #[error("invalid receipt correlation WSC material")]
     ReceiptCorrelations(WscStoreObstruction),
+    /// Retained evidence WSC material was invalid.
+    #[error("invalid retained evidence WSC material")]
+    Retention(WscStoreObstruction),
     /// Causal-history WSC evidence was incomplete.
     #[error("incomplete causal-history WSC material")]
     IncompleteCausalHistory(WscStoreObstruction),
@@ -617,15 +689,41 @@ pub enum WscSelfContainedWalExportError {
         /// Extra segment id.
         segment_id: WalSegmentId,
     },
+    /// A present retained material record had no embedded payload bytes.
+    #[error("self-contained WAL WSC export is missing embedded retained material")]
+    MissingRetainedMaterial {
+        /// Missing retained material digest.
+        material_digest: Hash,
+    },
+    /// Embedded retained material carried a digest absent from retained records.
+    #[error("self-contained WAL WSC export has extra embedded retained material")]
+    ExtraRetainedMaterial {
+        /// Extra retained material digest.
+        material_digest: Hash,
+    },
+    /// Embedded retained material bytes did not hash to the retained digest.
+    #[error("self-contained WAL WSC retained material digest mismatch")]
+    RetainedMaterialDigestMismatch {
+        /// Expected retained material digest.
+        expected: Hash,
+        /// Actual retained material byte hash.
+        actual: Hash,
+    },
     /// Embedded segment material WSC envelope was invalid.
     #[error("invalid self-contained WAL segment material WSC")]
     SegmentMaterial(WscStoreObstruction),
+    /// Embedded retained material WSC envelope was invalid.
+    #[error("invalid self-contained retained material WSC")]
+    RetainedMaterial(WscStoreObstruction),
     /// Accepted submission WSC envelope was invalid.
     #[error("invalid accepted submission WSC material")]
     AcceptedSubmissions(WscStoreObstruction),
     /// Receipt correlation WSC envelope was invalid.
     #[error("invalid receipt correlation WSC material")]
     ReceiptCorrelations(WscStoreObstruction),
+    /// Retained evidence WSC envelope was invalid.
+    #[error("invalid retained evidence WSC material")]
+    Retention(WscStoreObstruction),
 }
 
 /// Error returned when importing a self-contained WAL WSC export.
@@ -737,12 +835,38 @@ pub enum WscSelfContainedWalImportError {
         /// Actual tail posture recovered from embedded bytes.
         actual: RecoveryTailPosture,
     },
+    /// Embedded retained material WSC material was invalid.
+    #[error("invalid self-contained retained material WSC")]
+    RetainedMaterial(WscStoreObstruction),
+    /// A present retained material record had no embedded payload bytes.
+    #[error("self-contained WAL WSC import is missing embedded retained material")]
+    MissingRetainedMaterial {
+        /// Missing retained material digest.
+        material_digest: Hash,
+    },
+    /// Embedded retained material carried a digest absent from retained records.
+    #[error("self-contained WAL WSC import has extra embedded retained material")]
+    ExtraRetainedMaterial {
+        /// Extra retained material digest.
+        material_digest: Hash,
+    },
+    /// Embedded retained material bytes did not hash to the retained digest.
+    #[error("self-contained WAL WSC retained material digest mismatch")]
+    RetainedMaterialDigestMismatch {
+        /// Expected retained material digest.
+        expected: Hash,
+        /// Actual retained material byte hash.
+        actual: Hash,
+    },
     /// Accepted submission WSC material was invalid.
     #[error("invalid accepted submission WSC material")]
     AcceptedSubmissions(WscStoreObstruction),
     /// Receipt correlation WSC material was invalid.
     #[error("invalid receipt correlation WSC material")]
     ReceiptCorrelations(WscStoreObstruction),
+    /// Retained evidence WSC material was invalid.
+    #[error("invalid retained evidence WSC material")]
+    Retention(WscStoreObstruction),
     /// Causal-history WSC evidence was incomplete.
     #[error("incomplete causal-history WSC material")]
     IncompleteCausalHistory(WscStoreObstruction),
@@ -778,6 +902,9 @@ pub enum WscCasAddressedWalExportError {
     /// Receipt correlation WSC envelope was invalid.
     #[error("invalid receipt correlation WSC material")]
     ReceiptCorrelations(WscStoreObstruction),
+    /// Retained evidence WSC envelope was invalid.
+    #[error("invalid retained evidence WSC material")]
+    Retention(WscStoreObstruction),
 }
 
 /// Error returned when importing a CAS-addressed WAL WSC export.
@@ -853,6 +980,9 @@ pub enum WscCasAddressedWalImportError {
     /// Receipt correlation WSC material was invalid.
     #[error("invalid receipt correlation WSC material")]
     ReceiptCorrelations(WscStoreObstruction),
+    /// Retained evidence WSC material was invalid.
+    #[error("invalid retained evidence WSC material")]
+    Retention(WscStoreObstruction),
     /// Causal-history WSC evidence was incomplete.
     #[error("incomplete causal-history WSC material")]
     IncompleteCausalHistory(WscStoreObstruction),
@@ -1397,20 +1527,23 @@ impl WscTopologyRecords {
 /// one of the generated envelopes fails validation.
 pub fn wsc_ref_only_wal_export(
     root: &WalRoot,
-    accepted_submissions: &[SubmissionAcceptanceRecord],
-    receipts: &[TickReceiptRecord],
-    correlations: &[WalReceiptCorrelationRecord],
+    records: WscWalCausalHistoryRecords<'_>,
 ) -> Result<WscRefOnlyWalExport, WscRefOnlyWalExportError> {
     Ok(WscRefOnlyWalExport {
         profile: WscCausalHistoryExportProfileKind::RefOnly,
         projection_envelope: wsc_ref_only_wal_projection_envelope(root)?,
         accepted_submission_envelope: accepted_submission_records_to_wsc_envelope(
-            accepted_submissions,
+            records.accepted_submissions,
         )
         .map_err(WscRefOnlyWalExportError::Envelope)?,
         receipt_correlation_envelope: receipt_correlation_records_to_wsc_envelope(
-            receipts,
-            correlations,
+            records.receipts,
+            records.correlations,
+        )
+        .map_err(WscRefOnlyWalExportError::Envelope)?,
+        retention_envelope: retention_records_to_wsc_envelope(
+            records.retained_materials,
+            records.reading_refs,
         )
         .map_err(WscRefOnlyWalExportError::Envelope)?,
         segment_dependencies: wsc_ref_only_wal_segment_dependencies(root)?,
@@ -1477,6 +1610,8 @@ pub fn validate_wsc_ref_only_wal_export(
         &receipt_records.correlations,
     )
     .map_err(WscRefOnlyWalImportError::IncompleteCausalHistory)?;
+    let retention = retention_records_from_wsc_envelope(&export.retention_envelope)
+        .map_err(WscRefOnlyWalImportError::Retention)?;
 
     Ok(WscRefOnlyWalImport {
         profile: export.profile,
@@ -1485,6 +1620,7 @@ pub fn validate_wsc_ref_only_wal_export(
         accepted_submissions,
         receipts: receipt_records.receipts,
         correlations: receipt_records.correlations,
+        retention,
         segment_dependencies: expected_dependencies,
     })
 }
@@ -1502,13 +1638,18 @@ pub fn validate_wsc_ref_only_wal_export(
 pub fn wsc_self_contained_wal_export(
     root: &WalRoot,
     segment_materials: &[WscSelfContainedWalSegmentMaterial],
-    accepted_submissions: &[SubmissionAcceptanceRecord],
-    receipts: &[TickReceiptRecord],
-    correlations: &[WalReceiptCorrelationRecord],
+    retained_payloads: &[WscSelfContainedRetainedMaterial],
+    records: WscWalCausalHistoryRecords<'_>,
 ) -> Result<WscSelfContainedWalExport, WscSelfContainedWalExportError> {
     let segment_materials = canonical_self_contained_segment_materials(segment_materials)
         .map_err(WscSelfContainedWalExportError::SegmentMaterial)?;
     validate_self_contained_export_segment_material_ids(root, &segment_materials)?;
+    let retained_payloads = canonical_self_contained_retained_materials(retained_payloads)
+        .map_err(WscSelfContainedWalExportError::RetainedMaterial)?;
+    validate_self_contained_export_retained_payloads(
+        records.retained_materials,
+        &retained_payloads,
+    )?;
     Ok(WscSelfContainedWalExport {
         profile: WscCausalHistoryExportProfileKind::SelfContained,
         projection_envelope: wsc_ref_only_wal_projection_envelope(root)
@@ -1517,15 +1658,24 @@ pub fn wsc_self_contained_wal_export(
             &segment_materials,
         )
         .map_err(WscSelfContainedWalExportError::SegmentMaterial)?,
+        retained_material_envelope: self_contained_retained_materials_to_wsc_envelope(
+            &retained_payloads,
+        )
+        .map_err(WscSelfContainedWalExportError::RetainedMaterial)?,
         accepted_submission_envelope: accepted_submission_records_to_wsc_envelope(
-            accepted_submissions,
+            records.accepted_submissions,
         )
         .map_err(WscSelfContainedWalExportError::AcceptedSubmissions)?,
         receipt_correlation_envelope: receipt_correlation_records_to_wsc_envelope(
-            receipts,
-            correlations,
+            records.receipts,
+            records.correlations,
         )
         .map_err(WscSelfContainedWalExportError::ReceiptCorrelations)?,
+        retention_envelope: retention_records_to_wsc_envelope(
+            records.retained_materials,
+            records.reading_refs,
+        )
+        .map_err(WscSelfContainedWalExportError::Retention)?,
     })
 }
 
@@ -1577,6 +1727,12 @@ pub fn validate_wsc_self_contained_wal_export(
             .map_err(WscSelfContainedWalImportError::SegmentMaterial)?;
     let segment_recoveries =
         validate_self_contained_segment_recoveries(&segment_materials, expected_root)?;
+    let retained_payloads =
+        self_contained_retained_materials_from_wsc_envelope(&export.retained_material_envelope)
+            .map_err(WscSelfContainedWalImportError::RetainedMaterial)?;
+    let retention = retention_records_from_wsc_envelope(&export.retention_envelope)
+        .map_err(WscSelfContainedWalImportError::Retention)?;
+    validate_self_contained_import_retained_payloads(&retention.materials, &retained_payloads)?;
 
     let accepted_submissions =
         accepted_submission_records_from_wsc_envelope(&export.accepted_submission_envelope)
@@ -1605,11 +1761,13 @@ pub fn validate_wsc_self_contained_wal_export(
         projection,
         root_identity_digest: expected_root_identity,
         segment_recoveries,
+        retained_payloads,
         accepted_submissions,
         receipts: receipt_records.receipts,
         correlations: receipt_records.correlations,
         submission_index,
         receipt_index,
+        retention,
     })
 }
 
@@ -1627,12 +1785,11 @@ pub fn validate_wsc_self_contained_wal_export(
 pub fn wsc_cas_addressed_wal_export(
     root: &WalRoot,
     segment_materials: &[WscCasAddressedWalSegmentMaterial],
-    retained_materials: &[WscCasAddressedRetainedMaterialReference],
-    accepted_submissions: &[SubmissionAcceptanceRecord],
-    receipts: &[TickReceiptRecord],
-    correlations: &[WalReceiptCorrelationRecord],
+    retained_material_references: &[WscCasAddressedRetainedMaterialReference],
+    records: WscWalCausalHistoryRecords<'_>,
 ) -> Result<WscCasAddressedWalExport, WscCasAddressedWalExportError> {
-    let references = wsc_cas_addressed_wal_references(root, segment_materials, retained_materials)?;
+    let references =
+        wsc_cas_addressed_wal_references(root, segment_materials, retained_material_references)?;
     Ok(WscCasAddressedWalExport {
         profile: WscCausalHistoryExportProfileKind::CasAddressed,
         projection_envelope: wsc_ref_only_wal_projection_envelope(root)
@@ -1640,14 +1797,19 @@ pub fn wsc_cas_addressed_wal_export(
         cas_reference_envelope: cas_addressed_wal_references_to_wsc_envelope(&references)
             .map_err(WscCasAddressedWalExportError::CasReferences)?,
         accepted_submission_envelope: accepted_submission_records_to_wsc_envelope(
-            accepted_submissions,
+            records.accepted_submissions,
         )
         .map_err(WscCasAddressedWalExportError::AcceptedSubmissions)?,
         receipt_correlation_envelope: receipt_correlation_records_to_wsc_envelope(
-            receipts,
-            correlations,
+            records.receipts,
+            records.correlations,
         )
         .map_err(WscCasAddressedWalExportError::ReceiptCorrelations)?,
+        retention_envelope: retention_records_to_wsc_envelope(
+            records.retained_materials,
+            records.reading_refs,
+        )
+        .map_err(WscCasAddressedWalExportError::Retention)?,
     })
 }
 
@@ -1716,6 +1878,8 @@ where
         &receipt_records.correlations,
     )
     .map_err(WscCasAddressedWalImportError::IncompleteCausalHistory)?;
+    let retention = retention_records_from_wsc_envelope(&export.retention_envelope)
+        .map_err(WscCasAddressedWalImportError::Retention)?;
 
     Ok(WscCasAddressedWalImport {
         profile: export.profile,
@@ -1725,6 +1889,7 @@ where
         accepted_submissions,
         receipts: receipt_records.receipts,
         correlations: receipt_records.correlations,
+        retention,
     })
 }
 
@@ -3113,6 +3278,170 @@ fn self_contained_segment_materials_from_wsc_envelope(
     Ok(materials)
 }
 
+fn self_contained_retained_materials_to_wsc_envelope(
+    materials: &[WscSelfContainedRetainedMaterial],
+) -> Result<WscStoreEnvelope, WscStoreObstruction> {
+    let materials = canonical_self_contained_retained_materials(materials)?;
+    let mut store = GraphStore::new(make_warp_id(WSC_SELF_CONTAINED_RETAINED_WARP));
+    let root = make_node_id(WSC_SELF_CONTAINED_RETAINED_ROOT);
+    store.insert_node(
+        root,
+        NodeRecord {
+            ty: make_type_id(WSC_SELF_CONTAINED_RETAINED_NODE_TYPE),
+        },
+    );
+    for material in &materials {
+        let payload = self_contained_retained_material_payload(material);
+        let node = self_contained_retained_material_node_id(&payload);
+        store.insert_node(
+            node,
+            NodeRecord {
+                ty: make_type_id(WSC_SELF_CONTAINED_RETAINED_NODE_TYPE),
+            },
+        );
+        store.insert_edge(
+            root,
+            EdgeRecord {
+                id: self_contained_retained_material_edge_id(material.material.material_digest),
+                from: root,
+                to: node,
+                ty: make_type_id(WSC_SELF_CONTAINED_RETAINED_EDGE_TYPE),
+            },
+        );
+        store.set_node_attachment(
+            node,
+            Some(AttachmentValue::Atom(AtomPayload::new(
+                make_type_id(WSC_SELF_CONTAINED_RETAINED_ATTACHMENT_TYPE),
+                Bytes::from(payload),
+            ))),
+        );
+    }
+    let basis_digest = self_contained_retained_material_basis_digest(&materials);
+    let input = build_one_warp_input(&store, root);
+    let wsc_bytes = write_wsc_one_warp(
+        &input,
+        make_type_id(WSC_SELF_CONTAINED_RETAINED_SCHEMA).0,
+        0,
+    )
+    .map_err(|_| WscStoreObstruction::invalid_wsc(basis_digest))?;
+    WscStoreEnvelope::validated(
+        WscStoreRecordKind::RetainedEvidence,
+        basis_digest,
+        wsc_bytes,
+    )
+}
+
+fn self_contained_retained_materials_from_wsc_envelope(
+    envelope: &WscStoreEnvelope,
+) -> Result<Vec<WscSelfContainedRetainedMaterial>, WscStoreObstruction> {
+    if envelope.record_kind() != WscStoreRecordKind::RetainedEvidence {
+        return Err(WscStoreObstruction::invalid_envelope(0));
+    }
+    let wsc_digest = *envelope.wsc_digest();
+    let file = WscFile::from_bytes(envelope.wsc_bytes().to_vec())
+        .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+    validate_wsc(&file).map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+    if file.schema_hash() != &make_type_id(WSC_SELF_CONTAINED_RETAINED_SCHEMA).0 {
+        return Err(WscStoreObstruction::invalid_wsc(wsc_digest));
+    }
+    let view = file
+        .warp_view(0)
+        .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+    let mut materials = Vec::new();
+    for node_index in 0..view.nodes().len() {
+        for attachment in view.node_attachments(node_index) {
+            if attachment.type_or_warp
+                != make_type_id(WSC_SELF_CONTAINED_RETAINED_ATTACHMENT_TYPE).0
+            {
+                return Err(WscStoreObstruction::invalid_wsc(wsc_digest));
+            }
+            let payload = atom_payload_bytes(&view, attachment, wsc_digest)?;
+            materials.push(self_contained_retained_material_from_payload(
+                payload, wsc_digest,
+            )?);
+        }
+    }
+    let materials = canonical_self_contained_retained_materials(&materials)?;
+    let basis_digest = self_contained_retained_material_basis_digest(&materials);
+    if envelope.basis_digest() != &basis_digest {
+        return Err(WscStoreObstruction::basis_digest_mismatch(
+            *envelope.basis_digest(),
+            basis_digest,
+        ));
+    }
+    Ok(materials)
+}
+
+fn validate_self_contained_export_retained_payloads(
+    retained_materials: &[RetainedMaterialRecord],
+    retained_payloads: &[WscSelfContainedRetainedMaterial],
+) -> Result<(), WscSelfContainedWalExportError> {
+    let material_by_digest = retained_materials
+        .iter()
+        .map(|material| (material.material_digest, *material))
+        .collect::<BTreeMap<_, _>>();
+    validate_self_contained_retained_hashes(retained_payloads).map_err(|(expected, actual)| {
+        WscSelfContainedWalExportError::RetainedMaterialDigestMismatch { expected, actual }
+    })?;
+    for material in retained_materials
+        .iter()
+        .filter(|material| material.posture == crate::causal_wal::EvidenceMaterialPosture::Present)
+    {
+        if !retained_payloads
+            .iter()
+            .any(|payload| payload.material.material_digest == material.material_digest)
+        {
+            return Err(WscSelfContainedWalExportError::MissingRetainedMaterial {
+                material_digest: material.material_digest,
+            });
+        }
+    }
+    if let Some(extra) = retained_payloads
+        .iter()
+        .find(|payload| !material_by_digest.contains_key(&payload.material.material_digest))
+    {
+        return Err(WscSelfContainedWalExportError::ExtraRetainedMaterial {
+            material_digest: extra.material.material_digest,
+        });
+    }
+    Ok(())
+}
+
+fn validate_self_contained_import_retained_payloads(
+    retained_materials: &[RetainedMaterialRecord],
+    retained_payloads: &[WscSelfContainedRetainedMaterial],
+) -> Result<(), WscSelfContainedWalImportError> {
+    let material_by_digest = retained_materials
+        .iter()
+        .map(|material| (material.material_digest, *material))
+        .collect::<BTreeMap<_, _>>();
+    validate_self_contained_retained_hashes(retained_payloads).map_err(|(expected, actual)| {
+        WscSelfContainedWalImportError::RetainedMaterialDigestMismatch { expected, actual }
+    })?;
+    for material in retained_materials
+        .iter()
+        .filter(|material| material.posture == crate::causal_wal::EvidenceMaterialPosture::Present)
+    {
+        if !retained_payloads
+            .iter()
+            .any(|payload| payload.material.material_digest == material.material_digest)
+        {
+            return Err(WscSelfContainedWalImportError::MissingRetainedMaterial {
+                material_digest: material.material_digest,
+            });
+        }
+    }
+    if let Some(extra) = retained_payloads
+        .iter()
+        .find(|payload| !material_by_digest.contains_key(&payload.material.material_digest))
+    {
+        return Err(WscSelfContainedWalImportError::ExtraRetainedMaterial {
+            material_digest: extra.material.material_digest,
+        });
+    }
+    Ok(())
+}
+
 fn validate_self_contained_segment_recoveries(
     materials: &[WscSelfContainedWalSegmentMaterial],
     expected_root: &WalRoot,
@@ -3232,6 +3561,25 @@ fn canonical_self_contained_segment_materials(
     Ok(by_segment.into_values().collect())
 }
 
+fn canonical_self_contained_retained_materials(
+    materials: &[WscSelfContainedRetainedMaterial],
+) -> Result<Vec<WscSelfContainedRetainedMaterial>, WscStoreObstruction> {
+    let mut by_digest = BTreeMap::new();
+    for material in materials {
+        if let Some(existing) = by_digest.get(&material.material.material_digest) {
+            if existing != material {
+                return Err(WscStoreObstruction::duplicate_mismatch(
+                    self_contained_retained_material_duplicate_id(
+                        material.material.material_digest,
+                    ),
+                ));
+            }
+        }
+        by_digest.insert(material.material.material_digest, material.clone());
+    }
+    Ok(by_digest.into_values().collect())
+}
+
 fn self_contained_segment_material_payload(
     material: &WscSelfContainedWalSegmentMaterial,
 ) -> Vec<u8> {
@@ -3276,6 +3624,36 @@ fn self_contained_segment_material_from_payload(
     })
 }
 
+fn self_contained_retained_material_payload(
+    material: &WscSelfContainedRetainedMaterial,
+) -> Vec<u8> {
+    let material_record = material.material.to_payload_bytes();
+    let mut out = Vec::new();
+    out.extend_from_slice(&len_u64(material_record.len()).to_le_bytes());
+    out.extend_from_slice(&material_record);
+    out.extend_from_slice(&len_u64(material.material_bytes.len()).to_le_bytes());
+    out.extend_from_slice(&material.material_bytes);
+    out
+}
+
+fn self_contained_retained_material_from_payload(
+    bytes: &[u8],
+    wsc_digest: Hash,
+) -> Result<WscSelfContainedRetainedMaterial, WscStoreObstruction> {
+    let mut cursor = WscPayloadCursor::new(bytes, wsc_digest);
+    let record_len = cursor.read_usize()?;
+    let record_bytes = cursor.read_bytes(record_len)?;
+    let material = RetainedMaterialRecord::from_payload_bytes(record_bytes)
+        .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+    let material_len = cursor.read_usize()?;
+    let material_bytes = cursor.read_bytes(material_len)?.to_vec();
+    cursor.finish()?;
+    Ok(WscSelfContainedRetainedMaterial {
+        material,
+        material_bytes,
+    })
+}
+
 fn self_contained_segment_material_basis_digest(
     materials: &[WscSelfContainedWalSegmentMaterial],
 ) -> Hash {
@@ -3287,9 +3665,27 @@ fn self_contained_segment_material_basis_digest(
     hasher.finalize().into()
 }
 
+fn self_contained_retained_material_basis_digest(
+    materials: &[WscSelfContainedRetainedMaterial],
+) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(WSC_SELF_CONTAINED_RETAINED_BASIS_DOMAIN);
+    for material in materials {
+        hasher.update(&self_contained_retained_material_payload(material));
+    }
+    hasher.finalize().into()
+}
+
 fn self_contained_segment_material_node_id(payload: &[u8]) -> NodeId {
     let mut hasher = Hasher::new();
     hasher.update(WSC_SELF_CONTAINED_WAL_SEGMENT_NODE_DOMAIN);
+    hasher.update(payload);
+    NodeId(hasher.finalize().into())
+}
+
+fn self_contained_retained_material_node_id(payload: &[u8]) -> NodeId {
+    let mut hasher = Hasher::new();
+    hasher.update(WSC_SELF_CONTAINED_RETAINED_NODE_DOMAIN);
     hasher.update(payload);
     NodeId(hasher.finalize().into())
 }
@@ -3301,12 +3697,39 @@ fn self_contained_segment_material_edge_id(segment_id: WalSegmentId) -> EdgeId {
     EdgeId(hasher.finalize().into())
 }
 
+fn self_contained_retained_material_edge_id(material_digest: Hash) -> EdgeId {
+    let mut hasher = Hasher::new();
+    hasher.update(WSC_SELF_CONTAINED_RETAINED_EDGE_DOMAIN);
+    hasher.update(&material_digest);
+    EdgeId(hasher.finalize().into())
+}
+
 fn self_contained_segment_material_duplicate_id(segment_id: WalSegmentId) -> WscStoreEnvelopeId {
     let mut hasher = Hasher::new();
     hasher.update(WSC_SELF_CONTAINED_WAL_SEGMENT_NODE_DOMAIN);
     hasher.update(b"duplicate");
     hasher.update(&segment_id.as_u64().to_le_bytes());
     WscStoreEnvelopeId::from_hash(hasher.finalize().into())
+}
+
+fn self_contained_retained_material_duplicate_id(material_digest: Hash) -> WscStoreEnvelopeId {
+    let mut hasher = Hasher::new();
+    hasher.update(WSC_SELF_CONTAINED_RETAINED_NODE_DOMAIN);
+    hasher.update(b"duplicate");
+    hasher.update(&material_digest);
+    WscStoreEnvelopeId::from_hash(hasher.finalize().into())
+}
+
+fn validate_self_contained_retained_hashes(
+    materials: &[WscSelfContainedRetainedMaterial],
+) -> Result<(), (Hash, Hash)> {
+    for material in materials {
+        let actual = cas_content_hash(&material.material_bytes);
+        if actual != material.material.material_digest {
+            return Err((material.material.material_digest, actual));
+        }
+    }
+    Ok(())
 }
 
 fn len_u64(len: usize) -> u64 {
@@ -3832,6 +4255,19 @@ impl<'a> WscPayloadCursor<'a> {
 
     fn read_hash(&mut self) -> Result<Hash, WscStoreObstruction> {
         self.read_array::<32>()
+    }
+
+    fn read_bytes(&mut self, len: usize) -> Result<&'a [u8], WscStoreObstruction> {
+        let end = self
+            .offset
+            .checked_add(len)
+            .ok_or_else(|| WscStoreObstruction::invalid_wsc(self.wsc_digest))?;
+        let slice = self
+            .bytes
+            .get(self.offset..end)
+            .ok_or_else(|| WscStoreObstruction::invalid_wsc(self.wsc_digest))?;
+        self.offset = end;
+        Ok(slice)
     }
 
     fn read_array<const N: usize>(&mut self) -> Result<[u8; N], WscStoreObstruction> {

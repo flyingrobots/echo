@@ -13,11 +13,12 @@ use crate::causal_wal::{
     materialize_wal_projection_graph, observe_wal_projection_graph_wsc, recover_wal_segment_bytes,
     wal_projection_graph_schema_hash, BraidShellRetentionRecord, Lsn, ReadingRefRecord,
     RecoveredReceiptIndex, RecoveredSubmissionIndex, RecoveryAccessMode, RecoveryTailPosture,
-    RetainedMaterialRecord, StrandDropRecord, StrandForkRecord, SubmissionAcceptanceRecord,
-    SuffixImportRecord, TickReceiptRecord, TopologyBraidEventRecord, TopologyIntentRecord,
-    WalCommitAnchor, WalProjectionGraphObservation, WalProjectionGraphObservationError,
-    WalReceiptCorrelationRecord, WalRecoveryError, WalRecoveryIndexError, WalRoot,
-    WalSegmentBytesRecovery, WalSegmentId, WalSegmentRef, WalSegmentStorageLocator,
+    RetainedMaterialKind, RetainedMaterialRecord, StrandDropRecord, StrandForkRecord,
+    SubmissionAcceptanceRecord, SuffixImportRecord, TickReceiptRecord, TopologyBraidEventRecord,
+    TopologyIntentRecord, WalCommitAnchor, WalProjectionGraphObservation,
+    WalProjectionGraphObservationError, WalReceiptCorrelationRecord, WalRecoveryError,
+    WalRecoveryIndexError, WalRoot, WalSegmentBytesRecovery, WalSegmentId, WalSegmentRef,
+    WalSegmentStorageLocator,
 };
 use crate::graph::GraphStore;
 use crate::ident::{make_node_id, make_type_id, make_warp_id, EdgeId, Hash, NodeId};
@@ -72,6 +73,21 @@ const WSC_SELF_CONTAINED_WAL_SEGMENT_EDGE_TYPE: &str =
     "echo/wsc-store/wal-self-contained-segments/member/v1";
 const WSC_SELF_CONTAINED_WAL_SEGMENT_ATTACHMENT_TYPE: &str =
     "echo/wsc-store/wal-self-contained-segments/segment-bytes/v1";
+const WSC_CAS_ADDRESSED_WAL_REF_BASIS_DOMAIN: &[u8] =
+    b"echo:wsc_store:cas_addressed_wal_ref_basis:v1\0";
+const WSC_CAS_ADDRESSED_WAL_REF_NODE_DOMAIN: &[u8] =
+    b"echo:wsc_store:cas_addressed_wal_ref_node:v1\0";
+const WSC_CAS_ADDRESSED_WAL_REF_EDGE_DOMAIN: &[u8] =
+    b"echo:wsc_store:cas_addressed_wal_ref_edge:v1\0";
+const WSC_CAS_ADDRESSED_WAL_REF_SCHEMA: &str = "echo/wsc-store/wal-cas-addressed-refs/v1";
+const WSC_CAS_ADDRESSED_WAL_REF_WARP: &str = "echo/wsc-store/wal-cas-addressed-refs";
+const WSC_CAS_ADDRESSED_WAL_REF_ROOT: &str = "echo/wsc-store/wal-cas-addressed-refs/root";
+const WSC_CAS_ADDRESSED_WAL_REF_NODE_TYPE: &str = "echo/wsc-store/wal-cas-addressed-refs/node/v1";
+const WSC_CAS_ADDRESSED_WAL_REF_EDGE_TYPE: &str = "echo/wsc-store/wal-cas-addressed-refs/member/v1";
+const WSC_CAS_ADDRESSED_WAL_SEGMENT_ATTACHMENT_TYPE: &str =
+    "echo/wsc-store/wal-cas-addressed-refs/segment/v1";
+const WSC_CAS_ADDRESSED_RETAINED_ATTACHMENT_TYPE: &str =
+    "echo/wsc-store/wal-cas-addressed-refs/retained-material/v1";
 const WSC_RETENTION_BASIS_DOMAIN: &[u8] = b"echo:wsc_store:retention_basis:v1\0";
 const WSC_RETENTION_NODE_DOMAIN: &[u8] = b"echo:wsc_store:retention_node:v1\0";
 const WSC_RETENTION_EDGE_DOMAIN: &[u8] = b"echo:wsc_store:retention_edge:v1\0";
@@ -411,6 +427,104 @@ pub struct WscSelfContainedWalImport {
     pub receipt_index: RecoveredReceiptIndex,
 }
 
+/// CAS material for one WAL segment supplied by an exporter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WscCasAddressedWalSegmentMaterial {
+    /// Logical WAL segment id.
+    pub segment_id: WalSegmentId,
+    /// Content-only CAS hash for the retained segment bytes.
+    pub content_hash: Hash,
+    /// Semantic coordinate digest naming why this blob matters.
+    pub semantic_coordinate_digest: Hash,
+    /// Retained byte length.
+    pub byte_len: u64,
+}
+
+/// CAS reference for one projected WAL segment.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WscCasAddressedWalSegmentReference {
+    /// Logical WAL segment id.
+    pub segment_id: WalSegmentId,
+    /// Segment projection identity digest, excluding locator metadata.
+    pub segment_identity_digest: Hash,
+    /// Segment byte digest from WAL recovery evidence.
+    pub segment_digest: Hash,
+    /// First LSN covered by the segment projection.
+    pub first_lsn: Lsn,
+    /// Last LSN covered by the segment projection.
+    pub last_lsn: Lsn,
+    /// Commit anchor identity digests covered by the segment.
+    pub commit_anchor_digests: Vec<Hash>,
+    /// Content-only CAS hash for the retained segment bytes.
+    pub content_hash: Hash,
+    /// Semantic coordinate digest naming why this blob matters.
+    pub semantic_coordinate_digest: Hash,
+    /// Retained byte length.
+    pub byte_len: u64,
+}
+
+/// CAS reference for retained material named by semantic coordinate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WscCasAddressedRetainedMaterialReference {
+    /// Retained material family.
+    pub material_kind: RetainedMaterialKind,
+    /// Content-only CAS hash for the retained bytes.
+    pub content_hash: Hash,
+    /// Semantic coordinate digest naming why this blob matters.
+    pub semantic_coordinate_digest: Hash,
+    /// Retained byte length.
+    pub byte_len: u64,
+}
+
+/// CAS-addressed material references recovered from a WSC export.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WscCasAddressedWalReferences {
+    /// WAL segment byte CAS references.
+    pub segments: Vec<WscCasAddressedWalSegmentReference>,
+    /// Retained material CAS references.
+    pub retained_materials: Vec<WscCasAddressedRetainedMaterialReference>,
+}
+
+/// CAS-addressed WAL causal-history WSC export.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WscCasAddressedWalExport {
+    /// Export profile.
+    pub profile: WscCausalHistoryExportProfileKind,
+    /// WAL projection graph WSC envelope.
+    pub projection_envelope: WscStoreEnvelope,
+    /// CAS material reference WSC envelope.
+    pub cas_reference_envelope: WscStoreEnvelope,
+    /// Accepted submission evidence WSC envelope.
+    pub accepted_submission_envelope: WscStoreEnvelope,
+    /// Tick receipt and receipt-correlation WSC envelope.
+    pub receipt_correlation_envelope: WscStoreEnvelope,
+}
+
+/// Imported and validated CAS-addressed WAL causal-history WSC evidence.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WscCasAddressedWalImport {
+    /// Export profile.
+    pub profile: WscCausalHistoryExportProfileKind,
+    /// Observed projection graph WSC shape.
+    pub projection: WalProjectionGraphObservation,
+    /// Expected WAL root identity digest validated against the projection WSC.
+    pub root_identity_digest: Hash,
+    /// CAS references validated for projection agreement and blob availability.
+    pub cas_references: WscCasAddressedWalReferences,
+    /// Accepted submission records recovered from WSC.
+    pub accepted_submissions: Vec<SubmissionAcceptanceRecord>,
+    /// Tick receipt records recovered from WSC.
+    pub receipts: Vec<TickReceiptRecord>,
+    /// Receipt-correlation records recovered from WSC.
+    pub correlations: Vec<WalReceiptCorrelationRecord>,
+}
+
+/// Minimal CAS blob lookup port used by CAS-addressed WSC validation.
+pub trait WscCasBlobStorePort {
+    /// Returns retained bytes for a content-only CAS hash, if present.
+    fn cas_blob_bytes(&self, content_hash: &Hash) -> Option<Vec<u8>>;
+}
+
 /// Error returned when building a ref-only WAL WSC export.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum WscRefOnlyWalExportError {
@@ -626,6 +740,113 @@ pub enum WscSelfContainedWalImportError {
     /// Recovered submission index construction failed.
     #[error("recovered submission index construction failed")]
     Index(WalRecoveryIndexError),
+}
+
+/// Error returned when building a CAS-addressed WAL WSC export.
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum WscCasAddressedWalExportError {
+    /// Projection graph WSC serialization failed.
+    #[error("invalid CAS-addressed WAL projection WSC material")]
+    Projection(WscRefOnlyWalExportError),
+    /// The expected WAL root named a segment absent from CAS references.
+    #[error("CAS-addressed WAL WSC export is missing a segment CAS reference")]
+    MissingSegmentCasReference {
+        /// Missing segment id.
+        segment_id: WalSegmentId,
+    },
+    /// CAS references carried a segment absent from the expected WAL root.
+    #[error("CAS-addressed WAL WSC export has an extra segment CAS reference")]
+    ExtraSegmentCasReference {
+        /// Extra segment id.
+        segment_id: WalSegmentId,
+    },
+    /// CAS reference WSC envelope was invalid.
+    #[error("invalid CAS-addressed WAL reference WSC")]
+    CasReferences(WscStoreObstruction),
+    /// Accepted submission WSC envelope was invalid.
+    #[error("invalid accepted submission WSC material")]
+    AcceptedSubmissions(WscStoreObstruction),
+    /// Receipt correlation WSC envelope was invalid.
+    #[error("invalid receipt correlation WSC material")]
+    ReceiptCorrelations(WscStoreObstruction),
+}
+
+/// Error returned when importing a CAS-addressed WAL WSC export.
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum WscCasAddressedWalImportError {
+    /// The export profile was not CAS-addressed.
+    #[error("WAL WSC export profile is not CAS-addressed")]
+    ProfileMismatch {
+        /// Actual profile kind.
+        actual: WscCausalHistoryExportProfileKind,
+    },
+    /// The projection envelope was not causal-history WSC material.
+    #[error("WAL projection envelope is not causal-history material")]
+    InvalidProjectionEnvelopeKind,
+    /// The projection WSC payload could not be observed as WAL projection graph material.
+    #[error("invalid WAL projection graph WSC payload")]
+    ProjectionObservation(WalProjectionGraphObservationError),
+    /// Expected projection WSC material could not be rebuilt from the recovered root.
+    #[error("failed to rebuild expected WAL projection WSC material")]
+    ExpectedProjection(WscRefOnlyWalExportError),
+    /// The projection envelope basis digest did not match the recovered WAL root.
+    #[error("WAL projection basis digest mismatch")]
+    ProjectionBasisMismatch {
+        /// Expected root identity digest.
+        expected: Hash,
+        /// Actual envelope basis digest.
+        actual: Hash,
+    },
+    /// The projection WSC bytes did not match the recovered WAL root projection.
+    #[error("WAL projection payload digest mismatch")]
+    ProjectionPayloadMismatch {
+        /// Expected WSC payload digest.
+        expected: Hash,
+        /// Actual WSC payload digest.
+        actual: Hash,
+    },
+    /// CAS reference WSC material was invalid.
+    #[error("invalid CAS-addressed WAL reference WSC")]
+    CasReferences(WscStoreObstruction),
+    /// Segment CAS references did not match the recovered WAL root.
+    #[error("CAS-addressed WAL segment references mismatch")]
+    SegmentCasReferenceMismatch {
+        /// Segment id being checked.
+        segment_id: WalSegmentId,
+    },
+    /// A required CAS blob was missing.
+    #[error("missing CAS blob for WAL WSC material")]
+    MissingCasBlob {
+        /// Missing content hash.
+        content_hash: Hash,
+        /// Semantic coordinate digest for the missing reference.
+        semantic_coordinate_digest: Hash,
+    },
+    /// CAS blob bytes did not hash to the referenced content hash.
+    #[error("CAS blob content hash mismatch")]
+    CasBlobHashMismatch {
+        /// Expected content hash.
+        expected: Hash,
+        /// Actual content hash computed from stored bytes.
+        actual: Hash,
+    },
+    /// CAS blob byte length did not match the reference.
+    #[error("CAS blob byte length mismatch")]
+    CasBlobLengthMismatch {
+        /// Expected byte length.
+        expected: u64,
+        /// Actual byte length.
+        actual: u64,
+    },
+    /// Accepted submission WSC material was invalid.
+    #[error("invalid accepted submission WSC material")]
+    AcceptedSubmissions(WscStoreObstruction),
+    /// Receipt correlation WSC material was invalid.
+    #[error("invalid receipt correlation WSC material")]
+    ReceiptCorrelations(WscStoreObstruction),
+    /// Causal-history WSC evidence was incomplete.
+    #[error("incomplete causal-history WSC material")]
+    IncompleteCausalHistory(WscStoreObstruction),
 }
 
 /// Subject named by a WSC store obstruction.
@@ -1289,6 +1510,121 @@ pub fn validate_wsc_self_contained_wal_export(
         correlations: receipt_records.correlations,
         submission_index,
         receipt_index,
+    })
+}
+
+/// Builds a CAS-addressed WAL causal-history WSC export.
+///
+/// The projection envelope remains the causal graph fact source. CAS references
+/// name retained bytes by content hash plus semantic coordinate digest, but
+/// those references are byte availability evidence, not causal authority.
+///
+/// # Errors
+///
+/// Returns a typed export error when generated WSC material cannot be written,
+/// segment CAS references do not cover the projected root, or generated
+/// envelopes fail validation.
+pub fn wsc_cas_addressed_wal_export(
+    root: &WalRoot,
+    segment_materials: &[WscCasAddressedWalSegmentMaterial],
+    retained_materials: &[WscCasAddressedRetainedMaterialReference],
+    accepted_submissions: &[SubmissionAcceptanceRecord],
+    receipts: &[TickReceiptRecord],
+    correlations: &[WalReceiptCorrelationRecord],
+) -> Result<WscCasAddressedWalExport, WscCasAddressedWalExportError> {
+    let references = wsc_cas_addressed_wal_references(root, segment_materials, retained_materials)?;
+    Ok(WscCasAddressedWalExport {
+        profile: WscCausalHistoryExportProfileKind::CasAddressed,
+        projection_envelope: wsc_ref_only_wal_projection_envelope(root)
+            .map_err(WscCasAddressedWalExportError::Projection)?,
+        cas_reference_envelope: cas_addressed_wal_references_to_wsc_envelope(&references)
+            .map_err(WscCasAddressedWalExportError::CasReferences)?,
+        accepted_submission_envelope: accepted_submission_records_to_wsc_envelope(
+            accepted_submissions,
+        )
+        .map_err(WscCasAddressedWalExportError::AcceptedSubmissions)?,
+        receipt_correlation_envelope: receipt_correlation_records_to_wsc_envelope(
+            receipts,
+            correlations,
+        )
+        .map_err(WscCasAddressedWalExportError::ReceiptCorrelations)?,
+    })
+}
+
+/// Validates and imports a CAS-addressed WAL causal-history WSC export.
+///
+/// This verifies projection WSC bytes against `expected_root`, checks that
+/// segment CAS references match projected segment facts, and verifies each
+/// referenced CAS blob is present and hashes to its content-only reference. It
+/// does not recover WAL authority from CAS bytes.
+///
+/// # Errors
+///
+/// Returns a typed import error when WSC material is malformed, CAS references
+/// do not match projected root facts, required blobs are missing, or stored bytes
+/// do not match their content hash references.
+pub fn validate_wsc_cas_addressed_wal_export<P>(
+    export: &WscCasAddressedWalExport,
+    expected_root: &WalRoot,
+    cas_store: &P,
+) -> Result<WscCasAddressedWalImport, WscCasAddressedWalImportError>
+where
+    P: WscCasBlobStorePort + ?Sized,
+{
+    if export.profile != WscCausalHistoryExportProfileKind::CasAddressed {
+        return Err(WscCasAddressedWalImportError::ProfileMismatch {
+            actual: export.profile,
+        });
+    }
+    if export.projection_envelope.record_kind() != WscStoreRecordKind::CausalHistory {
+        return Err(WscCasAddressedWalImportError::InvalidProjectionEnvelopeKind);
+    }
+
+    let projection = observe_wal_projection_graph_wsc(export.projection_envelope.wsc_bytes())
+        .map_err(WscCasAddressedWalImportError::ProjectionObservation)?;
+    let expected_projection = wsc_ref_only_wal_projection_envelope(expected_root)
+        .map_err(WscCasAddressedWalImportError::ExpectedProjection)?;
+    let expected_root_identity = expected_root.identity_digest();
+    if export.projection_envelope.basis_digest() != &expected_root_identity {
+        return Err(WscCasAddressedWalImportError::ProjectionBasisMismatch {
+            expected: expected_root_identity,
+            actual: *export.projection_envelope.basis_digest(),
+        });
+    }
+    if export.projection_envelope.wsc_bytes() != expected_projection.wsc_bytes() {
+        return Err(WscCasAddressedWalImportError::ProjectionPayloadMismatch {
+            expected: *expected_projection.wsc_digest(),
+            actual: *export.projection_envelope.wsc_digest(),
+        });
+    }
+
+    let cas_references =
+        cas_addressed_wal_references_from_wsc_envelope(&export.cas_reference_envelope)
+            .map_err(WscCasAddressedWalImportError::CasReferences)?;
+    validate_cas_addressed_segment_references(&cas_references.segments, expected_root)?;
+    validate_cas_addressed_blob_availability(&cas_references, cas_store)?;
+
+    let accepted_submissions =
+        accepted_submission_records_from_wsc_envelope(&export.accepted_submission_envelope)
+            .map_err(WscCasAddressedWalImportError::AcceptedSubmissions)?;
+    let receipt_records =
+        receipt_correlation_records_from_wsc_envelope(&export.receipt_correlation_envelope)
+            .map_err(WscCasAddressedWalImportError::ReceiptCorrelations)?;
+    validate_wsc_causal_history_records(
+        &accepted_submissions,
+        &receipt_records.receipts,
+        &receipt_records.correlations,
+    )
+    .map_err(WscCasAddressedWalImportError::IncompleteCausalHistory)?;
+
+    Ok(WscCasAddressedWalImport {
+        profile: export.profile,
+        projection,
+        root_identity_digest: expected_root_identity,
+        cas_references,
+        accepted_submissions,
+        receipts: receipt_records.receipts,
+        correlations: receipt_records.correlations,
     })
 }
 
@@ -2687,6 +3023,548 @@ fn len_u64(len: usize) -> u64 {
     match u64::try_from(len) {
         Ok(value) => value,
         Err(_) => u64::MAX,
+    }
+}
+
+fn wsc_cas_addressed_wal_references(
+    root: &WalRoot,
+    segment_materials: &[WscCasAddressedWalSegmentMaterial],
+    retained_materials: &[WscCasAddressedRetainedMaterialReference],
+) -> Result<WscCasAddressedWalReferences, WscCasAddressedWalExportError> {
+    let mut material_by_segment = BTreeMap::new();
+    for material in segment_materials {
+        if let Some(existing) = material_by_segment.get(&material.segment_id) {
+            if existing != material {
+                return Err(WscCasAddressedWalExportError::CasReferences(
+                    WscStoreObstruction::duplicate_mismatch(cas_addressed_segment_duplicate_id(
+                        material.segment_id,
+                    )),
+                ));
+            }
+        }
+        material_by_segment.insert(material.segment_id, *material);
+    }
+
+    let mut segment_references = Vec::new();
+    for segment in &root.segments {
+        let Some(material) = material_by_segment.remove(&segment.segment_id) else {
+            return Err(WscCasAddressedWalExportError::MissingSegmentCasReference {
+                segment_id: segment.segment_id,
+            });
+        };
+        segment_references.push(cas_addressed_segment_reference(segment, material));
+    }
+    if let Some(segment_id) = material_by_segment.keys().next().copied() {
+        return Err(WscCasAddressedWalExportError::ExtraSegmentCasReference { segment_id });
+    }
+
+    Ok(WscCasAddressedWalReferences {
+        segments: canonical_cas_addressed_segment_references(&segment_references)
+            .map_err(WscCasAddressedWalExportError::CasReferences)?,
+        retained_materials: canonical_cas_addressed_retained_references(retained_materials)
+            .map_err(WscCasAddressedWalExportError::CasReferences)?,
+    })
+}
+
+fn cas_addressed_segment_reference(
+    segment: &WalSegmentRef,
+    material: WscCasAddressedWalSegmentMaterial,
+) -> WscCasAddressedWalSegmentReference {
+    let mut commit_anchor_digests = segment
+        .commit_anchors
+        .iter()
+        .map(WalCommitAnchor::identity_digest)
+        .collect::<Vec<_>>();
+    commit_anchor_digests.sort_unstable();
+    WscCasAddressedWalSegmentReference {
+        segment_id: segment.segment_id,
+        segment_identity_digest: segment.identity_digest(),
+        segment_digest: segment.segment_digest,
+        first_lsn: segment.first_lsn,
+        last_lsn: segment.last_lsn,
+        commit_anchor_digests,
+        content_hash: material.content_hash,
+        semantic_coordinate_digest: material.semantic_coordinate_digest,
+        byte_len: material.byte_len,
+    }
+}
+
+fn cas_addressed_wal_references_to_wsc_envelope(
+    references: &WscCasAddressedWalReferences,
+) -> Result<WscStoreEnvelope, WscStoreObstruction> {
+    let segments = canonical_cas_addressed_segment_references(&references.segments)?;
+    let retained_materials =
+        canonical_cas_addressed_retained_references(&references.retained_materials)?;
+    let references = WscCasAddressedWalReferences {
+        segments,
+        retained_materials,
+    };
+    let mut store = GraphStore::new(make_warp_id(WSC_CAS_ADDRESSED_WAL_REF_WARP));
+    let root = make_node_id(WSC_CAS_ADDRESSED_WAL_REF_ROOT);
+    store.insert_node(
+        root,
+        NodeRecord {
+            ty: make_type_id(WSC_CAS_ADDRESSED_WAL_REF_NODE_TYPE),
+        },
+    );
+    for segment in &references.segments {
+        let payload = cas_addressed_segment_reference_payload(segment);
+        insert_cas_addressed_reference_node(
+            &mut store,
+            root,
+            cas_addressed_reference_node_id(b"segment", &payload),
+            WSC_CAS_ADDRESSED_WAL_SEGMENT_ATTACHMENT_TYPE,
+            payload,
+        );
+    }
+    for retained in &references.retained_materials {
+        let payload = cas_addressed_retained_reference_payload(retained);
+        insert_cas_addressed_reference_node(
+            &mut store,
+            root,
+            cas_addressed_reference_node_id(b"retained", &payload),
+            WSC_CAS_ADDRESSED_RETAINED_ATTACHMENT_TYPE,
+            payload,
+        );
+    }
+    let basis_digest = cas_addressed_reference_basis_digest(&references);
+    let input = build_one_warp_input(&store, root);
+    let wsc_bytes = write_wsc_one_warp(&input, make_type_id(WSC_CAS_ADDRESSED_WAL_REF_SCHEMA).0, 0)
+        .map_err(|_| WscStoreObstruction::invalid_wsc(basis_digest))?;
+    WscStoreEnvelope::validated(WscStoreRecordKind::CausalHistory, basis_digest, wsc_bytes)
+}
+
+fn cas_addressed_wal_references_from_wsc_envelope(
+    envelope: &WscStoreEnvelope,
+) -> Result<WscCasAddressedWalReferences, WscStoreObstruction> {
+    if envelope.record_kind() != WscStoreRecordKind::CausalHistory {
+        return Err(WscStoreObstruction::invalid_envelope(0));
+    }
+    let wsc_digest = *envelope.wsc_digest();
+    let file = WscFile::from_bytes(envelope.wsc_bytes().to_vec())
+        .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+    validate_wsc(&file).map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+    if file.schema_hash() != &make_type_id(WSC_CAS_ADDRESSED_WAL_REF_SCHEMA).0 {
+        return Err(WscStoreObstruction::invalid_wsc(wsc_digest));
+    }
+    let view = file
+        .warp_view(0)
+        .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+    let mut segments = Vec::new();
+    let mut retained_materials = Vec::new();
+    for node_index in 0..view.nodes().len() {
+        for attachment in view.node_attachments(node_index) {
+            let payload = atom_payload_bytes(&view, attachment, wsc_digest)?;
+            if attachment.type_or_warp
+                == make_type_id(WSC_CAS_ADDRESSED_WAL_SEGMENT_ATTACHMENT_TYPE).0
+            {
+                segments.push(cas_addressed_segment_reference_from_payload(
+                    payload, wsc_digest,
+                )?);
+            } else if attachment.type_or_warp
+                == make_type_id(WSC_CAS_ADDRESSED_RETAINED_ATTACHMENT_TYPE).0
+            {
+                retained_materials.push(cas_addressed_retained_reference_from_payload(
+                    payload, wsc_digest,
+                )?);
+            } else {
+                return Err(WscStoreObstruction::invalid_wsc(wsc_digest));
+            }
+        }
+    }
+    let references = WscCasAddressedWalReferences {
+        segments: canonical_cas_addressed_segment_references(&segments)?,
+        retained_materials: canonical_cas_addressed_retained_references(&retained_materials)?,
+    };
+    let basis_digest = cas_addressed_reference_basis_digest(&references);
+    if envelope.basis_digest() != &basis_digest {
+        return Err(WscStoreObstruction::basis_digest_mismatch(
+            *envelope.basis_digest(),
+            basis_digest,
+        ));
+    }
+    Ok(references)
+}
+
+fn validate_cas_addressed_segment_references(
+    references: &[WscCasAddressedWalSegmentReference],
+    expected_root: &WalRoot,
+) -> Result<(), WscCasAddressedWalImportError> {
+    let references = references
+        .iter()
+        .map(|reference| (reference.segment_id, reference))
+        .collect::<BTreeMap<_, _>>();
+    for segment in &expected_root.segments {
+        let Some(reference) = references.get(&segment.segment_id) else {
+            return Err(WscCasAddressedWalImportError::SegmentCasReferenceMismatch {
+                segment_id: segment.segment_id,
+            });
+        };
+        let expected = cas_addressed_segment_reference(
+            segment,
+            WscCasAddressedWalSegmentMaterial {
+                segment_id: reference.segment_id,
+                content_hash: reference.content_hash,
+                semantic_coordinate_digest: reference.semantic_coordinate_digest,
+                byte_len: reference.byte_len,
+            },
+        );
+        if *reference != &expected {
+            return Err(WscCasAddressedWalImportError::SegmentCasReferenceMismatch {
+                segment_id: segment.segment_id,
+            });
+        }
+    }
+    if let Some(segment_id) = references
+        .keys()
+        .find(|segment_id| {
+            !expected_root
+                .segments
+                .iter()
+                .any(|segment| &segment.segment_id == *segment_id)
+        })
+        .copied()
+    {
+        return Err(WscCasAddressedWalImportError::SegmentCasReferenceMismatch { segment_id });
+    }
+    Ok(())
+}
+
+fn validate_cas_addressed_blob_availability<P>(
+    references: &WscCasAddressedWalReferences,
+    cas_store: &P,
+) -> Result<(), WscCasAddressedWalImportError>
+where
+    P: WscCasBlobStorePort + ?Sized,
+{
+    for segment in &references.segments {
+        validate_cas_blob_reference(
+            cas_store,
+            segment.content_hash,
+            segment.semantic_coordinate_digest,
+            segment.byte_len,
+        )?;
+    }
+    for retained in &references.retained_materials {
+        validate_cas_blob_reference(
+            cas_store,
+            retained.content_hash,
+            retained.semantic_coordinate_digest,
+            retained.byte_len,
+        )?;
+    }
+    Ok(())
+}
+
+fn validate_cas_blob_reference<P>(
+    cas_store: &P,
+    content_hash: Hash,
+    semantic_coordinate_digest: Hash,
+    byte_len: u64,
+) -> Result<(), WscCasAddressedWalImportError>
+where
+    P: WscCasBlobStorePort + ?Sized,
+{
+    let Some(bytes) = cas_store.cas_blob_bytes(&content_hash) else {
+        return Err(WscCasAddressedWalImportError::MissingCasBlob {
+            content_hash,
+            semantic_coordinate_digest,
+        });
+    };
+    let actual_hash = cas_content_hash(&bytes);
+    if actual_hash != content_hash {
+        return Err(WscCasAddressedWalImportError::CasBlobHashMismatch {
+            expected: content_hash,
+            actual: actual_hash,
+        });
+    }
+    let actual_len = len_u64(bytes.len());
+    if actual_len != byte_len {
+        return Err(WscCasAddressedWalImportError::CasBlobLengthMismatch {
+            expected: byte_len,
+            actual: actual_len,
+        });
+    }
+    Ok(())
+}
+
+fn canonical_cas_addressed_segment_references(
+    references: &[WscCasAddressedWalSegmentReference],
+) -> Result<Vec<WscCasAddressedWalSegmentReference>, WscStoreObstruction> {
+    let mut by_segment = BTreeMap::new();
+    for reference in references {
+        if let Some(existing) = by_segment.get(&reference.segment_id) {
+            if existing != reference {
+                return Err(WscStoreObstruction::duplicate_mismatch(
+                    cas_addressed_segment_duplicate_id(reference.segment_id),
+                ));
+            }
+        }
+        by_segment.insert(reference.segment_id, reference.clone());
+    }
+    Ok(by_segment.into_values().collect())
+}
+
+fn canonical_cas_addressed_retained_references(
+    references: &[WscCasAddressedRetainedMaterialReference],
+) -> Result<Vec<WscCasAddressedRetainedMaterialReference>, WscStoreObstruction> {
+    let mut by_semantic = BTreeMap::new();
+    for reference in references {
+        let key = (
+            reference.material_kind,
+            reference.semantic_coordinate_digest,
+        );
+        if let Some(existing) = by_semantic.get(&key) {
+            if existing != reference {
+                return Err(WscStoreObstruction::duplicate_mismatch(
+                    WscStoreEnvelopeId::from_hash(reference.semantic_coordinate_digest),
+                ));
+            }
+        }
+        by_semantic.insert(key, *reference);
+    }
+    Ok(by_semantic.into_values().collect())
+}
+
+fn insert_cas_addressed_reference_node(
+    store: &mut GraphStore,
+    root: NodeId,
+    node: NodeId,
+    attachment_type: &str,
+    payload_bytes: Vec<u8>,
+) {
+    store.insert_node(
+        node,
+        NodeRecord {
+            ty: make_type_id(WSC_CAS_ADDRESSED_WAL_REF_NODE_TYPE),
+        },
+    );
+    store.insert_edge(
+        root,
+        EdgeRecord {
+            id: cas_addressed_reference_edge_id(&node.0),
+            from: root,
+            to: node,
+            ty: make_type_id(WSC_CAS_ADDRESSED_WAL_REF_EDGE_TYPE),
+        },
+    );
+    store.set_node_attachment(
+        node,
+        Some(AttachmentValue::Atom(AtomPayload::new(
+            make_type_id(attachment_type),
+            Bytes::from(payload_bytes),
+        ))),
+    );
+}
+
+fn cas_addressed_segment_reference_payload(
+    reference: &WscCasAddressedWalSegmentReference,
+) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(&reference.segment_id.as_u64().to_le_bytes());
+    out.extend_from_slice(&reference.segment_identity_digest);
+    out.extend_from_slice(&reference.segment_digest);
+    out.extend_from_slice(&reference.first_lsn.as_u64().to_le_bytes());
+    out.extend_from_slice(&reference.last_lsn.as_u64().to_le_bytes());
+    out.extend_from_slice(&len_u64(reference.commit_anchor_digests.len()).to_le_bytes());
+    for digest in &reference.commit_anchor_digests {
+        out.extend_from_slice(digest);
+    }
+    out.extend_from_slice(&reference.content_hash);
+    out.extend_from_slice(&reference.semantic_coordinate_digest);
+    out.extend_from_slice(&reference.byte_len.to_le_bytes());
+    out
+}
+
+fn cas_addressed_segment_reference_from_payload(
+    bytes: &[u8],
+    wsc_digest: Hash,
+) -> Result<WscCasAddressedWalSegmentReference, WscStoreObstruction> {
+    let mut cursor = WscPayloadCursor::new(bytes, wsc_digest);
+    let segment_id = WalSegmentId::from_raw(cursor.read_u64()?);
+    let segment_identity_digest = cursor.read_hash()?;
+    let segment_digest = cursor.read_hash()?;
+    let first_lsn = Lsn::from_raw(cursor.read_u64()?);
+    let last_lsn = Lsn::from_raw(cursor.read_u64()?);
+    let anchor_count = cursor.read_usize()?;
+    let mut commit_anchor_digests = Vec::with_capacity(anchor_count);
+    for _ in 0..anchor_count {
+        commit_anchor_digests.push(cursor.read_hash()?);
+    }
+    let content_hash = cursor.read_hash()?;
+    let semantic_coordinate_digest = cursor.read_hash()?;
+    let byte_len = cursor.read_u64()?;
+    cursor.finish()?;
+    commit_anchor_digests.sort_unstable();
+    Ok(WscCasAddressedWalSegmentReference {
+        segment_id,
+        segment_identity_digest,
+        segment_digest,
+        first_lsn,
+        last_lsn,
+        commit_anchor_digests,
+        content_hash,
+        semantic_coordinate_digest,
+        byte_len,
+    })
+}
+
+fn cas_addressed_retained_reference_payload(
+    reference: &WscCasAddressedRetainedMaterialReference,
+) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.push(retained_material_kind_code(reference.material_kind));
+    out.extend_from_slice(&reference.content_hash);
+    out.extend_from_slice(&reference.semantic_coordinate_digest);
+    out.extend_from_slice(&reference.byte_len.to_le_bytes());
+    out
+}
+
+fn cas_addressed_retained_reference_from_payload(
+    bytes: &[u8],
+    wsc_digest: Hash,
+) -> Result<WscCasAddressedRetainedMaterialReference, WscStoreObstruction> {
+    let mut cursor = WscPayloadCursor::new(bytes, wsc_digest);
+    let material_kind = retained_material_kind_from_code(cursor.read_u8()?, wsc_digest)?;
+    let content_hash = cursor.read_hash()?;
+    let semantic_coordinate_digest = cursor.read_hash()?;
+    let byte_len = cursor.read_u64()?;
+    cursor.finish()?;
+    Ok(WscCasAddressedRetainedMaterialReference {
+        material_kind,
+        content_hash,
+        semantic_coordinate_digest,
+        byte_len,
+    })
+}
+
+fn cas_addressed_reference_basis_digest(references: &WscCasAddressedWalReferences) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(WSC_CAS_ADDRESSED_WAL_REF_BASIS_DOMAIN);
+    for segment in &references.segments {
+        hasher.update(b"segment");
+        hasher.update(&cas_addressed_segment_reference_payload(segment));
+    }
+    for retained in &references.retained_materials {
+        hasher.update(b"retained");
+        hasher.update(&cas_addressed_retained_reference_payload(retained));
+    }
+    hasher.finalize().into()
+}
+
+fn cas_addressed_reference_node_id(role: &[u8], payload_bytes: &[u8]) -> NodeId {
+    let mut hasher = Hasher::new();
+    hasher.update(WSC_CAS_ADDRESSED_WAL_REF_NODE_DOMAIN);
+    hasher.update(role);
+    hasher.update(payload_bytes);
+    NodeId(hasher.finalize().into())
+}
+
+fn cas_addressed_reference_edge_id(node_id: &Hash) -> EdgeId {
+    let mut hasher = Hasher::new();
+    hasher.update(WSC_CAS_ADDRESSED_WAL_REF_EDGE_DOMAIN);
+    hasher.update(node_id);
+    EdgeId(hasher.finalize().into())
+}
+
+fn cas_addressed_segment_duplicate_id(segment_id: WalSegmentId) -> WscStoreEnvelopeId {
+    let mut hasher = Hasher::new();
+    hasher.update(WSC_CAS_ADDRESSED_WAL_REF_NODE_DOMAIN);
+    hasher.update(b"duplicate-segment");
+    hasher.update(&segment_id.as_u64().to_le_bytes());
+    WscStoreEnvelopeId::from_hash(hasher.finalize().into())
+}
+
+fn retained_material_kind_code(kind: RetainedMaterialKind) -> u8 {
+    match kind {
+        RetainedMaterialKind::SubmissionPayload => 1,
+        RetainedMaterialKind::TickReceipt => 2,
+        RetainedMaterialKind::RuntimeStateDelta => 3,
+        RetainedMaterialKind::RuntimeControl => 4,
+        RetainedMaterialKind::ReadingPayload => 5,
+        RetainedMaterialKind::ReadingEnvelope => 6,
+        RetainedMaterialKind::Diagnostic => 7,
+    }
+}
+
+fn retained_material_kind_from_code(
+    code: u8,
+    wsc_digest: Hash,
+) -> Result<RetainedMaterialKind, WscStoreObstruction> {
+    match code {
+        1 => Ok(RetainedMaterialKind::SubmissionPayload),
+        2 => Ok(RetainedMaterialKind::TickReceipt),
+        3 => Ok(RetainedMaterialKind::RuntimeStateDelta),
+        4 => Ok(RetainedMaterialKind::RuntimeControl),
+        5 => Ok(RetainedMaterialKind::ReadingPayload),
+        6 => Ok(RetainedMaterialKind::ReadingEnvelope),
+        7 => Ok(RetainedMaterialKind::Diagnostic),
+        _ => Err(WscStoreObstruction::invalid_wsc(wsc_digest)),
+    }
+}
+
+fn cas_content_hash(bytes: &[u8]) -> Hash {
+    blake3::hash(bytes).into()
+}
+
+struct WscPayloadCursor<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+    wsc_digest: Hash,
+}
+
+impl<'a> WscPayloadCursor<'a> {
+    const fn new(bytes: &'a [u8], wsc_digest: Hash) -> Self {
+        Self {
+            bytes,
+            offset: 0,
+            wsc_digest,
+        }
+    }
+
+    fn read_u8(&mut self) -> Result<u8, WscStoreObstruction> {
+        let Some(value) = self.bytes.get(self.offset).copied() else {
+            return Err(WscStoreObstruction::invalid_wsc(self.wsc_digest));
+        };
+        self.offset += 1;
+        Ok(value)
+    }
+
+    fn read_u64(&mut self) -> Result<u64, WscStoreObstruction> {
+        let bytes = self.read_array::<8>()?;
+        Ok(u64::from_le_bytes(bytes))
+    }
+
+    fn read_usize(&mut self) -> Result<usize, WscStoreObstruction> {
+        usize::try_from(self.read_u64()?)
+            .map_err(|_| WscStoreObstruction::invalid_wsc(self.wsc_digest))
+    }
+
+    fn read_hash(&mut self) -> Result<Hash, WscStoreObstruction> {
+        self.read_array::<32>()
+    }
+
+    fn read_array<const N: usize>(&mut self) -> Result<[u8; N], WscStoreObstruction> {
+        let end = self
+            .offset
+            .checked_add(N)
+            .ok_or_else(|| WscStoreObstruction::invalid_wsc(self.wsc_digest))?;
+        let slice = self
+            .bytes
+            .get(self.offset..end)
+            .ok_or_else(|| WscStoreObstruction::invalid_wsc(self.wsc_digest))?;
+        let mut out = [0; N];
+        out.copy_from_slice(slice);
+        self.offset = end;
+        Ok(out)
+    }
+
+    fn finish(self) -> Result<(), WscStoreObstruction> {
+        if self.offset == self.bytes.len() {
+            Ok(())
+        } else {
+            Err(WscStoreObstruction::invalid_wsc(self.wsc_digest))
+        }
     }
 }
 

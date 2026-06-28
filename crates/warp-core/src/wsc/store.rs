@@ -290,8 +290,6 @@ pub enum WscRefOnlyWalLocatorPosture {
     RelativePath,
     /// An absolute host locator was present and normalized out of causal identity.
     AbsolutePathNormalized,
-    /// No locator metadata was present.
-    Missing,
 }
 
 /// Segment dependency recovered for a ref-only WAL WSC export.
@@ -355,6 +353,12 @@ pub enum WscRefOnlyWalExportError {
     /// Projection graph WSC serialization failed.
     #[error("failed to write WAL projection graph WSC payload")]
     ProjectionWriteFailed,
+    /// Ref-only exports require segment locator metadata.
+    #[error("ref-only WAL WSC export is missing segment locator metadata")]
+    MissingSegmentLocator {
+        /// Segment id missing locator metadata.
+        segment_id: WalSegmentId,
+    },
     /// A generated WSC store envelope was invalid.
     #[error("invalid ref-only WAL WSC envelope")]
     Envelope(WscStoreObstruction),
@@ -872,7 +876,7 @@ pub fn wsc_ref_only_wal_export(
             correlations,
         )
         .map_err(WscRefOnlyWalExportError::Envelope)?,
-        segment_dependencies: wsc_ref_only_wal_segment_dependencies(root),
+        segment_dependencies: wsc_ref_only_wal_segment_dependencies(root)?,
     })
 }
 
@@ -918,7 +922,8 @@ pub fn validate_wsc_ref_only_wal_export(
         });
     }
 
-    let expected_dependencies = wsc_ref_only_wal_segment_dependencies(expected_root);
+    let expected_dependencies = wsc_ref_only_wal_segment_dependencies(expected_root)
+        .map_err(WscRefOnlyWalImportError::ExpectedProjection)?;
     if export.segment_dependencies != expected_dependencies {
         return Err(WscRefOnlyWalImportError::SegmentDependencyMismatch);
     }
@@ -1965,12 +1970,14 @@ fn wsc_ref_only_wal_projection_envelope(
     .map_err(WscRefOnlyWalExportError::Envelope)
 }
 
-fn wsc_ref_only_wal_segment_dependencies(root: &WalRoot) -> Vec<WscRefOnlyWalSegmentDependency> {
+fn wsc_ref_only_wal_segment_dependencies(
+    root: &WalRoot,
+) -> Result<Vec<WscRefOnlyWalSegmentDependency>, WscRefOnlyWalExportError> {
     let mut dependencies = root
         .segments
         .iter()
         .map(wsc_ref_only_wal_segment_dependency)
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, _>>()?;
     dependencies.sort_by_key(|dependency| {
         (
             dependency.segment_id,
@@ -1980,17 +1987,24 @@ fn wsc_ref_only_wal_segment_dependencies(root: &WalRoot) -> Vec<WscRefOnlyWalSeg
             dependency.last_lsn,
         )
     });
-    dependencies
+    Ok(dependencies)
 }
 
-fn wsc_ref_only_wal_segment_dependency(segment: &WalSegmentRef) -> WscRefOnlyWalSegmentDependency {
+fn wsc_ref_only_wal_segment_dependency(
+    segment: &WalSegmentRef,
+) -> Result<WscRefOnlyWalSegmentDependency, WscRefOnlyWalExportError> {
     let mut commit_anchor_digests = segment
         .commit_anchors
         .iter()
         .map(crate::causal_wal::WalCommitAnchor::identity_digest)
         .collect::<Vec<_>>();
     commit_anchor_digests.sort_unstable();
-    WscRefOnlyWalSegmentDependency {
+    let Some(locator) = segment.storage_locator.as_ref() else {
+        return Err(WscRefOnlyWalExportError::MissingSegmentLocator {
+            segment_id: segment.segment_id,
+        });
+    };
+    Ok(WscRefOnlyWalSegmentDependency {
         segment_id: segment.segment_id,
         segment_identity_digest: segment.identity_digest(),
         segment_digest: segment.segment_digest,
@@ -1998,21 +2012,18 @@ fn wsc_ref_only_wal_segment_dependency(segment: &WalSegmentRef) -> WscRefOnlyWal
         last_lsn: segment.last_lsn,
         commit_anchor_digests,
         material_dependency: WscRefOnlyWalMaterialDependency::ExternalSegmentBytes,
-        locator_posture: wsc_ref_only_wal_locator_posture(segment.storage_locator.as_ref()),
-    }
+        locator_posture: wsc_ref_only_wal_locator_posture(locator),
+    })
 }
 
 fn wsc_ref_only_wal_locator_posture(
-    locator: Option<&WalSegmentStorageLocator>,
+    locator: &WalSegmentStorageLocator,
 ) -> WscRefOnlyWalLocatorPosture {
     match locator {
-        Some(WalSegmentStorageLocator::RelativePath(_)) => {
-            WscRefOnlyWalLocatorPosture::RelativePath
-        }
-        Some(WalSegmentStorageLocator::AbsolutePath(_)) => {
+        WalSegmentStorageLocator::RelativePath(_) => WscRefOnlyWalLocatorPosture::RelativePath,
+        WalSegmentStorageLocator::AbsolutePath(_) => {
             WscRefOnlyWalLocatorPosture::AbsolutePathNormalized
         }
-        None => WscRefOnlyWalLocatorPosture::Missing,
     }
 }
 

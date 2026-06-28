@@ -52,9 +52,9 @@ use warp_core::wsc::{
     receipt_correlation_records_from_wsc_envelope, topology_records_from_wsc_envelope,
     validate_wsc, validate_wsc_causal_history_store, validate_wsc_ref_only_wal_export,
     write_wsc_one_warp, wsc_ref_only_wal_export, InMemoryWscStore,
-    WscCausalHistoryExportProfileKind, WscFile, WscRefOnlyWalLocatorPosture,
-    WscRefOnlyWalMaterialDependency, WscStoreEnvelope, WscStoreObstructionKind, WscStorePort,
-    WscStoreRecordKind,
+    WscCausalHistoryExportProfileKind, WscFile, WscRefOnlyWalExportError,
+    WscRefOnlyWalLocatorPosture, WscRefOnlyWalMaterialDependency, WscStoreEnvelope,
+    WscStoreObstructionKind, WscStorePort, WscStoreRecordKind,
 };
 use warp_core::{
     make_strand_id, make_type_id, AuthorityDomainId, AuthorityDomainRef, BraidEvent, BraidStatus,
@@ -1031,6 +1031,18 @@ fn wsc_ref_only_export_preserves_wal_identity() {
     assert_eq!(
         absolute_import_a.segment_dependencies,
         absolute_import_b.segment_dependencies
+    );
+
+    let mut missing_locator = root.clone();
+    missing_locator.segments[0].storage_locator = None;
+    assert_eq!(
+        must_err(
+            wsc_ref_only_wal_export(&missing_locator, &[acceptance], &[receipt], &[correlation]),
+            "ref-only WSC exports require segment locators",
+        ),
+        WscRefOnlyWalExportError::MissingSegmentLocator {
+            segment_id: segment.segment_id,
+        }
     );
 }
 

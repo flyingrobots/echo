@@ -7,6 +7,7 @@ Commands:
   bench    Run benchmarks and format results
   inspect  Inspect a WSC snapshot
   wal      Inspect Echo WAL recovery posture without mutating storage
+  wsc      Export and verify WSC causal-history bundles without importing history
 
 Options:
       --format <FORMAT>  Output format (text or json) [default: text]

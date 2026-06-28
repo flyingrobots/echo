@@ -756,6 +756,14 @@ fn build_test_slice_commands(slice: TestSlice) -> Vec<Command> {
             cargo_command([
                 "test",
                 "-p",
+                "warp-cli",
+                "--test",
+                "cli_integration",
+                "wsc_causal_history",
+            ]),
+            cargo_command([
+                "test",
+                "-p",
                 "warp-core",
                 "--test",
                 "wsc_store_tests",
@@ -6695,7 +6703,7 @@ mod tests {
     #[test]
     fn test_slice_durability_release_stays_explicit() {
         let commands = build_test_slice_commands(TestSlice::DurabilityRelease);
-        assert_eq!(commands.len(), 10);
+        assert_eq!(commands.len(), 11);
 
         let expected = [
             (
@@ -6733,6 +6741,17 @@ mod tests {
                     "--test",
                     "cli_integration",
                     "wal_submission_posture",
+                ],
+            ),
+            (
+                "cargo",
+                vec![
+                    "test",
+                    "-p",
+                    "warp-cli",
+                    "--test",
+                    "cli_integration",
+                    "wsc_causal_history",
                 ],
             ),
             (

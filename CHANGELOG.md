@@ -40,6 +40,12 @@
   accepted-submission and receipt indexes without access to the original
   filesystem WAL root, and reports tampered embedded bytes as typed recovery
   obstruction evidence.
+- `warp-core` now exports and validates a CAS-addressed WAL WSC fixture that
+  joins WAL projection graph facts with content-addressed segment and retained
+  material references, verifies referenced blobs through CAS content hashes
+  without making CAS semantic authority, reports missing blobs as typed import
+  obstructions, and keeps equal bytes under different semantic coordinates as
+  distinct retained material references.
 - `cargo xtask test-slice durable-runtime-wal` now runs the release-grade
   filesystem runtime WAL durability gate, joining filesystem ACK recovery,
   filesystem failure atomicity, CLI submission posture JSON, stale-claim, and

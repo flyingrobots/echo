@@ -9,6 +9,9 @@
     clippy::unnecessary_debug_formatting
 )]
 
+use echo_cas::{
+    BlobHash, BlobStore, MemoryTier, RetainedBlobIndex, RetainedBlobRole, SemanticBlobCoordinate,
+};
 use warp_core::causal_wal::{
     apply_committed_transaction, audit_wal_release_readiness,
     build_checkpoint_publication_transaction, build_materialization_outbox_transaction,
@@ -50,13 +53,15 @@ use warp_core::causal_wal::{
 use warp_core::wsc::{
     accepted_submission_records_from_wsc_envelope, build_one_warp_input,
     receipt_correlation_records_from_wsc_envelope, topology_records_from_wsc_envelope,
-    validate_wsc, validate_wsc_causal_history_store, validate_wsc_ref_only_wal_export,
-    validate_wsc_self_contained_wal_export, write_wsc_one_warp, wsc_ref_only_wal_export,
-    wsc_self_contained_wal_export, InMemoryWscStore, WscCausalHistoryExportProfileKind, WscFile,
-    WscRefOnlyWalExportError, WscRefOnlyWalLocatorPosture, WscRefOnlyWalMaterialDependency,
-    WscSelfContainedWalExportError, WscSelfContainedWalImportError,
-    WscSelfContainedWalSegmentMaterial, WscStoreEnvelope, WscStoreObstructionKind, WscStorePort,
-    WscStoreRecordKind,
+    validate_wsc, validate_wsc_cas_addressed_wal_export, validate_wsc_causal_history_store,
+    validate_wsc_ref_only_wal_export, validate_wsc_self_contained_wal_export, write_wsc_one_warp,
+    wsc_cas_addressed_wal_export, wsc_ref_only_wal_export, wsc_self_contained_wal_export,
+    InMemoryWscStore, WscCasAddressedRetainedMaterialReference, WscCasAddressedWalImportError,
+    WscCasAddressedWalSegmentMaterial, WscCasBlobStorePort, WscCausalHistoryExportProfileKind,
+    WscFile, WscRefOnlyWalExportError, WscRefOnlyWalLocatorPosture,
+    WscRefOnlyWalMaterialDependency, WscSelfContainedWalExportError,
+    WscSelfContainedWalImportError, WscSelfContainedWalSegmentMaterial, WscStoreEnvelope,
+    WscStoreObstructionKind, WscStorePort, WscStoreRecordKind,
 };
 use warp_core::{
     make_strand_id, make_type_id, AuthorityDomainId, AuthorityDomainRef, BraidEvent, BraidStatus,
@@ -73,6 +78,28 @@ static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 fn digest(label: &str) -> Hash {
     blake3::hash(label.as_bytes()).into()
+}
+
+struct EchoCasAvailability<'a>(&'a MemoryTier);
+
+impl WscCasBlobStorePort for EchoCasAvailability<'_> {
+    fn cas_blob_bytes(&self, content_hash: &Hash) -> Option<Vec<u8>> {
+        self.0
+            .get(&BlobHash::from_bytes(*content_hash))
+            .map(|bytes| bytes.as_ref().to_vec())
+    }
+}
+
+fn semantic_coordinate(label: &str) -> SemanticBlobCoordinate {
+    SemanticBlobCoordinate {
+        namespace: "echo:test-wsc-cas".to_owned(),
+        schema_hash_hex: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+            .to_owned(),
+        artifact_hash_hex: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            .to_owned(),
+        role: RetainedBlobRole::ReadingPayload,
+        semantic_digest: digest(label),
+    }
 }
 
 fn must_ok<T, E>(result: Result<T, E>) -> T {
@@ -1214,6 +1241,158 @@ fn wsc_self_contained_export_replays_segment_bytes() {
             segment_id,
             error: WalRecoveryError::Store(WalStoreError::SegmentRecordDigestMismatch),
         } if segment_id == segment.segment_id
+    ));
+}
+
+#[test]
+fn wsc_cas_addressed_export_requires_present_blobs() {
+    let label = "wsc-cas-addressed";
+    let dir = temp_wal_dir(label);
+    let mut store = must_ok(FilesystemWalStore::open(&dir, WalSegmentId::from_raw(1)));
+    let writer_epoch = must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    let acceptance = submission_acceptance(label);
+    let receipt = receipt_record(label, WalTickDecision::Applied);
+    let correlation = correlation_record(label);
+
+    must_ok(store.append_transaction(durable_submission_transaction(label, Lsn::from_raw(0))));
+    must_ok(store.append_transaction(durable_tick_transaction(
+        label,
+        Lsn::from_raw(2),
+        WalTickDecision::Applied,
+    )));
+    must_ok(store.seal_segment(epoch_id(), WalSegmentId::from_raw(1)));
+    let segment_path = store.segment_path();
+    let segment_bytes = must_ok(fs::read(&segment_path));
+    let last_commit_digest = must_some(
+        store
+            .read_commits()
+            .last()
+            .map(|commit| commit.commit_digest),
+    );
+    let manifest = WalManifest {
+        manifest_digest: digest("wsc-cas-addressed:manifest"),
+        last_committed_lsn: Some(Lsn::from_raw(4)),
+        last_commit_digest: Some(last_commit_digest),
+        sealed_segment_count: 1,
+    };
+    must_ok(store.publish_manifest(epoch_id(), manifest));
+
+    let report = must_ok(recover_filesystem_store(&dir, RecoveryAccessMode::ReadOnly));
+    let certificate = build_recovery_certificate(
+        &report,
+        None,
+        0,
+        digest("wsc-cas-addressed:frontier"),
+        digest("wsc-cas-addressed:indexes"),
+    );
+    let writer_epoch = WalWriterEpoch::from_writer_epoch(&writer_epoch);
+    let projection = project_filesystem_wal_recovery(
+        &dir,
+        &report,
+        std::slice::from_ref(&writer_epoch),
+        Some(&certificate),
+    );
+    assert_eq!(projection.posture, WalRecoveryProjectionPosture::Present);
+    let root = must_some(projection.root);
+    let segment = root.segments[0].clone();
+
+    let mut cas_store = MemoryTier::new();
+    let segment_content_hash = *cas_store.put(&segment_bytes).as_bytes();
+    let retained_bytes = b"shared retained WSC material";
+    let mut retained_index = RetainedBlobIndex::default();
+    let retained_a = must_ok(retained_index.retain(
+        &mut cas_store,
+        semantic_coordinate("wsc-cas:reading-a"),
+        retained_bytes,
+    ));
+    let retained_b = must_ok(retained_index.retain(
+        &mut cas_store,
+        semantic_coordinate("wsc-cas:reading-b"),
+        retained_bytes,
+    ));
+    assert_eq!(retained_a.content_hash, retained_b.content_hash);
+    assert_ne!(retained_a.coordinate, retained_b.coordinate);
+
+    let export = must_ok(wsc_cas_addressed_wal_export(
+        &root,
+        &[WscCasAddressedWalSegmentMaterial {
+            segment_id: segment.segment_id,
+            content_hash: segment_content_hash,
+            semantic_coordinate_digest: digest("wsc-cas:segment"),
+            byte_len: u64::try_from(segment_bytes.len()).unwrap_or(u64::MAX),
+        }],
+        &[
+            WscCasAddressedRetainedMaterialReference {
+                material_kind: RetainedMaterialKind::ReadingPayload,
+                content_hash: *retained_a.content_hash.as_bytes(),
+                semantic_coordinate_digest: retained_a.coordinate.semantic_digest,
+                byte_len: retained_a.byte_len,
+            },
+            WscCasAddressedRetainedMaterialReference {
+                material_kind: RetainedMaterialKind::ReadingPayload,
+                content_hash: *retained_b.content_hash.as_bytes(),
+                semantic_coordinate_digest: retained_b.coordinate.semantic_digest,
+                byte_len: retained_b.byte_len,
+            },
+        ],
+        &[acceptance],
+        &[receipt],
+        &[correlation],
+    ));
+
+    let imported = must_ok(validate_wsc_cas_addressed_wal_export(
+        &export,
+        &root,
+        &EchoCasAvailability(&cas_store),
+    ));
+    assert_eq!(
+        imported.profile,
+        WscCausalHistoryExportProfileKind::CasAddressed
+    );
+    assert_eq!(
+        imported.projection.schema_hash,
+        wal_projection_graph_schema_hash()
+    );
+    assert_eq!(imported.root_identity_digest, root.identity_digest());
+    assert_eq!(imported.accepted_submissions, vec![acceptance]);
+    assert_eq!(imported.receipts, vec![receipt]);
+    assert_eq!(imported.correlations, vec![correlation]);
+
+    assert_eq!(imported.cas_references.segments.len(), 1);
+    let segment_reference = &imported.cas_references.segments[0];
+    assert_eq!(segment_reference.segment_id, segment.segment_id);
+    assert_eq!(
+        segment_reference.segment_identity_digest,
+        segment.identity_digest()
+    );
+    assert_eq!(segment_reference.segment_digest, segment.segment_digest);
+    assert_eq!(segment_reference.content_hash, segment_content_hash);
+    assert_eq!(
+        imported.cas_references.retained_materials.len(),
+        2,
+        "equal content hashes under different semantic coordinates stay distinct"
+    );
+    assert_eq!(
+        imported.cas_references.retained_materials[0].content_hash,
+        imported.cas_references.retained_materials[1].content_hash
+    );
+    assert_ne!(
+        imported.cas_references.retained_materials[0].semantic_coordinate_digest,
+        imported.cas_references.retained_materials[1].semantic_coordinate_digest
+    );
+
+    let empty_cas = MemoryTier::new();
+    let missing = must_err(
+        validate_wsc_cas_addressed_wal_export(&export, &root, &EchoCasAvailability(&empty_cas)),
+        "CAS-addressed WSC import requires present blobs",
+    );
+    assert!(matches!(
+        missing,
+        WscCasAddressedWalImportError::MissingCasBlob {
+            content_hash,
+            semantic_coordinate_digest,
+        } if content_hash == segment_content_hash
+            && semantic_coordinate_digest == digest("wsc-cas:segment")
     ));
 }
 

@@ -1727,6 +1727,17 @@ pub struct WalRecoveredTransaction {
     pub frames: Vec<WalFrame>,
 }
 
+/// Recovery evidence decoded from embedded WAL segment bytes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WalSegmentBytesRecovery {
+    /// Logical segment id.
+    pub segment_id: WalSegmentId,
+    /// Digest computed from recovered segment frames.
+    pub segment_digest: Hash,
+    /// Recovery report built from segment frames and commit markers.
+    pub report: RecoveryScanReport,
+}
+
 /// WAL submission acceptance record payload.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SubmissionAcceptanceRecord {
@@ -4388,6 +4399,48 @@ pub fn recover_filesystem_store(
     Ok(report)
 }
 
+/// Recovers committed transactions from embedded bytes for one WAL segment.
+///
+/// This validates the same disk record checksums, frame integrity, transaction
+/// commit chain, and read-only tail posture used by filesystem WAL recovery,
+/// but it does not require access to the original filesystem root.
+pub fn recover_wal_segment_bytes(
+    segment_id: WalSegmentId,
+    bytes: &[u8],
+    mode: RecoveryAccessMode,
+) -> Result<WalSegmentBytesRecovery, WalRecoveryError> {
+    let (frames, commits, torn_tail) = read_segment_bytes(bytes)?;
+    for frame in &frames {
+        if frame.header.segment_id != segment_id {
+            return Err(WalStoreError::SegmentMismatch {
+                expected: segment_id,
+                actual: frame.header.segment_id,
+            }
+            .into());
+        }
+    }
+    let frame_refs = frames.iter().collect::<Vec<_>>();
+    let segment_digest = segment_digest(segment_id, &frame_refs);
+    let mut report = recover_from_frames_and_commits(&frames, &commits, mode)?;
+    if torn_tail && matches!(report.tail_posture, RecoveryTailPosture::Clean) {
+        report.tail_posture = match mode {
+            RecoveryAccessMode::Writable => report.last_committed_lsn().map_or(
+                RecoveryTailPosture::TruncatedAll,
+                RecoveryTailPosture::TruncatedAfter,
+            ),
+            RecoveryAccessMode::ReadOnly => report.last_committed_lsn().map_or(
+                RecoveryTailPosture::WouldTruncateAll,
+                RecoveryTailPosture::WouldTruncateAfter,
+            ),
+        };
+    }
+    Ok(WalSegmentBytesRecovery {
+        segment_id,
+        segment_digest,
+        report,
+    })
+}
+
 /// Runs a read-only WAL doctor over filesystem WAL segments.
 pub fn doctor_filesystem_store(
     root: impl AsRef<Path>,
@@ -5877,6 +5930,12 @@ fn read_segment_file(
 ) -> Result<(Vec<WalFrame>, Vec<WalTransactionCommit>, bool), WalStoreError> {
     let mut bytes = Vec::new();
     File::open(path)?.read_to_end(&mut bytes)?;
+    read_segment_bytes(&bytes)
+}
+
+fn read_segment_bytes(
+    bytes: &[u8],
+) -> Result<(Vec<WalFrame>, Vec<WalTransactionCommit>, bool), WalStoreError> {
     let mut offset = 0usize;
     let mut frames = Vec::new();
     let mut commits = Vec::new();

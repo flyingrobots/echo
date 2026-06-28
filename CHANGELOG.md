@@ -34,6 +34,12 @@
   WAL projection graph material, accepted-submission evidence, and receipt
   correlation evidence while reporting external segment bytes as explicit
   dependencies and normalizing absolute locator paths out of causal identity.
+- `warp-core` now exports and validates a self-contained WAL WSC fixture that
+  embeds WAL segment bytes as WSC material, replays those bytes through WAL
+  recovery to validate segment digest and commit-chain evidence, rebuilds
+  accepted-submission and receipt indexes without access to the original
+  filesystem WAL root, and reports tampered embedded bytes as typed recovery
+  obstruction evidence.
 - `cargo xtask test-slice durable-runtime-wal` now runs the release-grade
   filesystem runtime WAL durability gate, joining filesystem ACK recovery,
   filesystem failure atomicity, CLI submission posture JSON, stale-claim, and

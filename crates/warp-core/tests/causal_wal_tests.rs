@@ -2535,6 +2535,204 @@ fn missing_retained_material_returns_typed_obstruction() {
 }
 
 #[test]
+fn retained_material_wal_commit_order_crash_boundaries_are_explicit() {
+    let orphan_material = digest("material:orphan-before-wal");
+    let mut before_wal = InMemoryWalStore::new();
+    must_ok(before_wal.acquire_writer_epoch(writer_epoch_request()));
+    let before_report = must_ok(recover_in_memory_store(
+        &mut before_wal,
+        RecoveryAccessMode::ReadOnly,
+    ));
+    let before_retention = must_ok(recover_retention_index(&before_report));
+    let available_orphan = BTreeSet::from([orphan_material]);
+
+    assert!(before_retention.material_by_digest.is_empty());
+    assert!(before_retention.reading_by_id.is_empty());
+    assert!(retained_material_obstructions(&before_retention, &available_orphan).is_empty());
+
+    let mut after_wal = InMemoryWalStore::new();
+    must_ok(after_wal.acquire_writer_epoch(writer_epoch_request()));
+    let present = retained_material(
+        "order-present",
+        RetainedMaterialKind::ReadingPayload,
+        EvidenceMaterialPosture::Present,
+    );
+    let redacted = retained_material(
+        "order-redacted",
+        RetainedMaterialKind::TickReceipt,
+        EvidenceMaterialPosture::RedactedByPolicy,
+    );
+    let builder = builder(
+        transaction_id("tx:retained-material-order"),
+        Lsn::from_raw(0),
+        WalAppendAuthority::TrustedScheduler,
+        WalTransactionKind::SchedulerTick,
+    );
+    must_ok(
+        after_wal.append_transaction(must_ok(build_retained_reading_transaction(
+            builder,
+            &[present, redacted],
+            reading_ref("retained-material-order", EvidenceMaterialPosture::Present),
+            vec![frontier(
+                AffectedFrontierKind::ReadingIndex,
+                "retention-order:before",
+                "retention-order:after",
+            )],
+        ))),
+    );
+    let after_report = must_ok(recover_in_memory_store(
+        &mut after_wal,
+        RecoveryAccessMode::ReadOnly,
+    ));
+    let after_retention = must_ok(recover_retention_index(&after_report));
+    let present_available = BTreeSet::from([present.material_digest]);
+    let available_obstructions =
+        retained_material_obstructions(&after_retention, &present_available);
+    let missing_obstructions = retained_material_obstructions(&after_retention, &BTreeSet::new());
+
+    assert_eq!(
+        after_retention
+            .material_by_digest
+            .get(&present.material_digest),
+        Some(&present)
+    );
+    assert!(must_some(
+        after_retention
+            .readings_by_semantic_coordinate
+            .get(&digest("coordinate:retained-material-order"))
+    )
+    .contains(&digest("reading:retained-material-order")));
+    assert_eq!(available_obstructions.len(), 1);
+    assert_eq!(
+        available_obstructions[0].kind,
+        RetainedMaterialKind::TickReceipt
+    );
+    assert_eq!(
+        available_obstructions[0].scope,
+        MissingMaterialScope::ReceiptOrTicket
+    );
+    assert_eq!(
+        available_obstructions[0].posture,
+        EvidenceMaterialPosture::RedactedByPolicy
+    );
+    assert_eq!(missing_obstructions.len(), 2);
+    assert!(missing_obstructions.iter().any(|obstruction| {
+        obstruction.material_digest == present.material_digest
+            && obstruction.scope == MissingMaterialScope::Reading
+            && obstruction.posture == EvidenceMaterialPosture::Missing
+    }));
+    assert!(missing_obstructions.iter().any(|obstruction| {
+        obstruction.material_digest == redacted.material_digest
+            && obstruction.scope == MissingMaterialScope::ReceiptOrTicket
+            && obstruction.posture == EvidenceMaterialPosture::RedactedByPolicy
+    }));
+}
+
+#[test]
+fn retained_material_wal_commit_order_loss_scope_matrix_is_precise() {
+    let mut store = InMemoryWalStore::new();
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    let material = [
+        retained_material(
+            "order-submission",
+            RetainedMaterialKind::SubmissionPayload,
+            EvidenceMaterialPosture::Present,
+        ),
+        retained_material(
+            "order-receipt",
+            RetainedMaterialKind::TickReceipt,
+            EvidenceMaterialPosture::Present,
+        ),
+        retained_material(
+            "order-runtime-state",
+            RetainedMaterialKind::RuntimeStateDelta,
+            EvidenceMaterialPosture::Present,
+        ),
+        retained_material(
+            "order-runtime-control",
+            RetainedMaterialKind::RuntimeControl,
+            EvidenceMaterialPosture::Present,
+        ),
+        retained_material(
+            "order-reading-payload",
+            RetainedMaterialKind::ReadingPayload,
+            EvidenceMaterialPosture::Present,
+        ),
+        retained_material(
+            "order-reading-envelope",
+            RetainedMaterialKind::ReadingEnvelope,
+            EvidenceMaterialPosture::Present,
+        ),
+        retained_material(
+            "order-diagnostic",
+            RetainedMaterialKind::Diagnostic,
+            EvidenceMaterialPosture::Present,
+        ),
+    ];
+    let builder = builder(
+        transaction_id("tx:retained-material-scope-matrix"),
+        Lsn::from_raw(0),
+        WalAppendAuthority::TrustedScheduler,
+        WalTransactionKind::SchedulerTick,
+    );
+    must_ok(
+        store.append_transaction(must_ok(build_retained_reading_transaction(
+            builder,
+            &material,
+            reading_ref(
+                "retained-material-scope-matrix",
+                EvidenceMaterialPosture::Present,
+            ),
+            vec![frontier(
+                AffectedFrontierKind::ReadingIndex,
+                "retention-scope:before",
+                "retention-scope:after",
+            )],
+        ))),
+    );
+    let report = must_ok(recover_in_memory_store(
+        &mut store,
+        RecoveryAccessMode::ReadOnly,
+    ));
+    let retention = must_ok(recover_retention_index(&report));
+    let obstructions = retained_material_obstructions(&retention, &BTreeSet::new());
+    let scope_by_kind = obstructions
+        .iter()
+        .map(|obstruction| (obstruction.kind, obstruction.scope))
+        .collect::<BTreeMap<_, _>>();
+
+    assert_eq!(obstructions.len(), material.len());
+    assert_eq!(
+        scope_by_kind.get(&RetainedMaterialKind::SubmissionPayload),
+        Some(&MissingMaterialScope::Submission)
+    );
+    assert_eq!(
+        scope_by_kind.get(&RetainedMaterialKind::TickReceipt),
+        Some(&MissingMaterialScope::ReceiptOrTicket)
+    );
+    assert_eq!(
+        scope_by_kind.get(&RetainedMaterialKind::RuntimeStateDelta),
+        Some(&MissingMaterialScope::RuntimeGlobal)
+    );
+    assert_eq!(
+        scope_by_kind.get(&RetainedMaterialKind::RuntimeControl),
+        Some(&MissingMaterialScope::RuntimeGlobal)
+    );
+    assert_eq!(
+        scope_by_kind.get(&RetainedMaterialKind::ReadingPayload),
+        Some(&MissingMaterialScope::Reading)
+    );
+    assert_eq!(
+        scope_by_kind.get(&RetainedMaterialKind::ReadingEnvelope),
+        Some(&MissingMaterialScope::Reading)
+    );
+    assert_eq!(
+        scope_by_kind.get(&RetainedMaterialKind::Diagnostic),
+        Some(&MissingMaterialScope::DiagnosticLoss)
+    );
+}
+
+#[test]
 fn valid_checkpoint_without_checkpoint_published_record_can_be_used_after_validation() {
     let mut store = InMemoryWalStore::new();
     must_ok(store.acquire_writer_epoch(writer_epoch_request()));

@@ -1868,7 +1868,7 @@ fn crashpoint_manifest_lists_checkpoint_boundaries() {
 }
 
 #[test]
-fn crashpoint_manifest_marks_process_kill_as_future_until_runner_exists() {
+fn crashpoint_manifest_marks_process_kill_as_available_runner() {
     let process_entries = wal_crashpoint_manifest()
         .iter()
         .filter(|entry| entry.boundary == WalCrashpointBoundary::Process)
@@ -1877,7 +1877,7 @@ fn crashpoint_manifest_marks_process_kill_as_future_until_runner_exists() {
     assert!(!process_entries.is_empty());
     assert!(process_entries
         .iter()
-        .all(|entry| entry.execution == WalCrashpointExecution::ProcessKillFuture));
+        .all(|entry| entry.execution == WalCrashpointExecution::ProcessKill));
 }
 
 #[test]

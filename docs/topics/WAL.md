@@ -133,6 +133,11 @@ artifact or metadata mismatches, committed observation mismatches, and retained
 material unavailability so restart logic can retry, repair, or obstruct without
 blindly replaying effects.
 
+The process-kill crashpoint runner exercises the filesystem WAL across real
+parent/child process boundaries. A killed child that already committed WAL
+material recovers as committed history; a killed child with only uncommitted
+frames recovers as tail posture and does not enter accepted or decided history.
+
 ## Evidence
 
 The runtime ACK and recovery witnesses live in

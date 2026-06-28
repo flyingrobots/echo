@@ -10,12 +10,14 @@ use thiserror::Error;
 
 use crate::attachment::{AtomPayload, AttachmentValue};
 use crate::causal_wal::{
-    materialize_wal_projection_graph, observe_wal_projection_graph_wsc,
+    materialize_wal_projection_graph, observe_wal_projection_graph_wsc, recover_wal_segment_bytes,
     wal_projection_graph_schema_hash, BraidShellRetentionRecord, Lsn, ReadingRefRecord,
+    RecoveredReceiptIndex, RecoveredSubmissionIndex, RecoveryAccessMode, RecoveryTailPosture,
     RetainedMaterialRecord, StrandDropRecord, StrandForkRecord, SubmissionAcceptanceRecord,
     SuffixImportRecord, TickReceiptRecord, TopologyBraidEventRecord, TopologyIntentRecord,
-    WalProjectionGraphObservation, WalProjectionGraphObservationError, WalReceiptCorrelationRecord,
-    WalRoot, WalSegmentId, WalSegmentRef, WalSegmentStorageLocator,
+    WalCommitAnchor, WalProjectionGraphObservation, WalProjectionGraphObservationError,
+    WalReceiptCorrelationRecord, WalRecoveryError, WalRecoveryIndexError, WalRoot,
+    WalSegmentBytesRecovery, WalSegmentId, WalSegmentRef, WalSegmentStorageLocator,
 };
 use crate::graph::GraphStore;
 use crate::ident::{make_node_id, make_type_id, make_warp_id, EdgeId, Hash, NodeId};
@@ -55,6 +57,21 @@ const WSC_RECEIPT_CORRELATION_EDGE_TYPE: &str = "echo/wsc-store/receipt-correlat
 const WSC_TICK_RECEIPT_ATTACHMENT_TYPE: &str = "echo/wsc-store/receipt-correlations/receipt/v1";
 const WSC_RECEIPT_CORRELATION_ATTACHMENT_TYPE: &str =
     "echo/wsc-store/receipt-correlations/correlation/v1";
+const WSC_SELF_CONTAINED_WAL_SEGMENT_BASIS_DOMAIN: &[u8] =
+    b"echo:wsc_store:self_contained_wal_segment_basis:v1\0";
+const WSC_SELF_CONTAINED_WAL_SEGMENT_NODE_DOMAIN: &[u8] =
+    b"echo:wsc_store:self_contained_wal_segment_node:v1\0";
+const WSC_SELF_CONTAINED_WAL_SEGMENT_EDGE_DOMAIN: &[u8] =
+    b"echo:wsc_store:self_contained_wal_segment_edge:v1\0";
+const WSC_SELF_CONTAINED_WAL_SEGMENT_SCHEMA: &str = "echo/wsc-store/wal-self-contained-segments/v1";
+const WSC_SELF_CONTAINED_WAL_SEGMENT_WARP: &str = "echo/wsc-store/wal-self-contained-segments";
+const WSC_SELF_CONTAINED_WAL_SEGMENT_ROOT: &str = "echo/wsc-store/wal-self-contained-segments/root";
+const WSC_SELF_CONTAINED_WAL_SEGMENT_NODE_TYPE: &str =
+    "echo/wsc-store/wal-self-contained-segments/node/v1";
+const WSC_SELF_CONTAINED_WAL_SEGMENT_EDGE_TYPE: &str =
+    "echo/wsc-store/wal-self-contained-segments/member/v1";
+const WSC_SELF_CONTAINED_WAL_SEGMENT_ATTACHMENT_TYPE: &str =
+    "echo/wsc-store/wal-self-contained-segments/segment-bytes/v1";
 const WSC_RETENTION_BASIS_DOMAIN: &[u8] = b"echo:wsc_store:retention_basis:v1\0";
 const WSC_RETENTION_NODE_DOMAIN: &[u8] = b"echo:wsc_store:retention_node:v1\0";
 const WSC_RETENTION_EDGE_DOMAIN: &[u8] = b"echo:wsc_store:retention_edge:v1\0";
@@ -347,6 +364,53 @@ pub struct WscRefOnlyWalImport {
     pub segment_dependencies: Vec<WscRefOnlyWalSegmentDependency>,
 }
 
+/// Embedded WAL segment material carried by a self-contained WSC export.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WscSelfContainedWalSegmentMaterial {
+    /// Logical WAL segment id.
+    pub segment_id: WalSegmentId,
+    /// Raw encoded WAL segment bytes.
+    pub segment_bytes: Vec<u8>,
+}
+
+/// Self-contained WAL causal-history WSC export.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WscSelfContainedWalExport {
+    /// Export profile.
+    pub profile: WscCausalHistoryExportProfileKind,
+    /// WAL projection graph WSC envelope.
+    pub projection_envelope: WscStoreEnvelope,
+    /// Embedded WAL segment material WSC envelope.
+    pub segment_material_envelope: WscStoreEnvelope,
+    /// Accepted submission evidence WSC envelope.
+    pub accepted_submission_envelope: WscStoreEnvelope,
+    /// Tick receipt and receipt-correlation WSC envelope.
+    pub receipt_correlation_envelope: WscStoreEnvelope,
+}
+
+/// Imported and validated self-contained WAL causal-history WSC evidence.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WscSelfContainedWalImport {
+    /// Export profile.
+    pub profile: WscCausalHistoryExportProfileKind,
+    /// Observed projection graph WSC shape.
+    pub projection: WalProjectionGraphObservation,
+    /// Expected WAL root identity digest validated against the projection WSC.
+    pub root_identity_digest: Hash,
+    /// Embedded segment recoveries validated against the projected WAL root.
+    pub segment_recoveries: Vec<WalSegmentBytesRecovery>,
+    /// Accepted submission records recovered from WSC.
+    pub accepted_submissions: Vec<SubmissionAcceptanceRecord>,
+    /// Tick receipt records recovered from WSC.
+    pub receipts: Vec<TickReceiptRecord>,
+    /// Receipt-correlation records recovered from WSC.
+    pub correlations: Vec<WalReceiptCorrelationRecord>,
+    /// Submission retry index rebuilt from imported WSC evidence.
+    pub submission_index: RecoveredSubmissionIndex,
+    /// Receipt correlation index rebuilt from imported WSC evidence.
+    pub receipt_index: RecoveredReceiptIndex,
+}
+
 /// Error returned when building a ref-only WAL WSC export.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum WscRefOnlyWalExportError {
@@ -410,6 +474,158 @@ pub enum WscRefOnlyWalImportError {
     /// Causal-history WSC evidence was incomplete.
     #[error("incomplete causal-history WSC material")]
     IncompleteCausalHistory(WscStoreObstruction),
+}
+
+/// Error returned when building a self-contained WAL WSC export.
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum WscSelfContainedWalExportError {
+    /// Projection graph WSC serialization failed.
+    #[error("invalid self-contained WAL projection WSC material")]
+    Projection(WscRefOnlyWalExportError),
+    /// The expected WAL root named a segment absent from embedded material.
+    #[error("self-contained WAL WSC export is missing embedded segment material")]
+    MissingSegmentMaterial {
+        /// Missing segment id.
+        segment_id: WalSegmentId,
+    },
+    /// Embedded material carried a segment absent from the expected WAL root.
+    #[error("self-contained WAL WSC export has extra embedded segment material")]
+    ExtraSegmentMaterial {
+        /// Extra segment id.
+        segment_id: WalSegmentId,
+    },
+    /// Embedded segment material WSC envelope was invalid.
+    #[error("invalid self-contained WAL segment material WSC")]
+    SegmentMaterial(WscStoreObstruction),
+    /// Accepted submission WSC envelope was invalid.
+    #[error("invalid accepted submission WSC material")]
+    AcceptedSubmissions(WscStoreObstruction),
+    /// Receipt correlation WSC envelope was invalid.
+    #[error("invalid receipt correlation WSC material")]
+    ReceiptCorrelations(WscStoreObstruction),
+}
+
+/// Error returned when importing a self-contained WAL WSC export.
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum WscSelfContainedWalImportError {
+    /// The export profile was not self-contained.
+    #[error("WAL WSC export profile is not self-contained")]
+    ProfileMismatch {
+        /// Actual profile kind.
+        actual: WscCausalHistoryExportProfileKind,
+    },
+    /// The projection envelope was not causal-history WSC material.
+    #[error("WAL projection envelope is not causal-history material")]
+    InvalidProjectionEnvelopeKind,
+    /// The projection WSC payload could not be observed as WAL projection graph material.
+    #[error("invalid WAL projection graph WSC payload")]
+    ProjectionObservation(WalProjectionGraphObservationError),
+    /// Expected projection WSC material could not be rebuilt from the recovered root.
+    #[error("failed to rebuild expected WAL projection WSC material")]
+    ExpectedProjection(WscRefOnlyWalExportError),
+    /// The projection envelope basis digest did not match the recovered WAL root.
+    #[error("WAL projection basis digest mismatch")]
+    ProjectionBasisMismatch {
+        /// Expected root identity digest.
+        expected: Hash,
+        /// Actual envelope basis digest.
+        actual: Hash,
+    },
+    /// The projection WSC bytes did not match the recovered WAL root projection.
+    #[error("WAL projection payload digest mismatch")]
+    ProjectionPayloadMismatch {
+        /// Expected WSC payload digest.
+        expected: Hash,
+        /// Actual WSC payload digest.
+        actual: Hash,
+    },
+    /// Embedded segment material WSC material was invalid.
+    #[error("invalid self-contained WAL segment material WSC")]
+    SegmentMaterial(WscStoreObstruction),
+    /// The expected WAL root named a segment absent from embedded material.
+    #[error("self-contained WAL WSC export is missing embedded segment material")]
+    MissingSegmentMaterial {
+        /// Missing segment id.
+        segment_id: WalSegmentId,
+    },
+    /// Embedded material carried a segment absent from the expected WAL root.
+    #[error("self-contained WAL WSC export has extra embedded segment material")]
+    ExtraSegmentMaterial {
+        /// Extra segment id.
+        segment_id: WalSegmentId,
+    },
+    /// Embedded WAL segment recovery failed.
+    #[error("embedded WAL segment recovery failed")]
+    SegmentRecovery {
+        /// Segment id being recovered.
+        segment_id: WalSegmentId,
+        /// WAL recovery error.
+        error: WalRecoveryError,
+    },
+    /// Embedded WAL segment digest did not match projected root evidence.
+    #[error("embedded WAL segment digest mismatch")]
+    SegmentDigestMismatch {
+        /// Segment id being checked.
+        segment_id: WalSegmentId,
+        /// Expected segment digest from the projected root.
+        expected: Hash,
+        /// Actual digest recovered from embedded bytes.
+        actual: Hash,
+    },
+    /// Embedded WAL segment LSN range did not match projected root evidence.
+    #[error("embedded WAL segment LSN range mismatch")]
+    SegmentLsnRangeMismatch {
+        /// Segment id being checked.
+        segment_id: WalSegmentId,
+        /// Expected first LSN from the projected root.
+        expected_first_lsn: Option<Lsn>,
+        /// Actual first recovered LSN.
+        actual_first_lsn: Option<Lsn>,
+        /// Expected last LSN from the projected root.
+        expected_last_lsn: Option<Lsn>,
+        /// Actual last recovered LSN.
+        actual_last_lsn: Option<Lsn>,
+    },
+    /// Embedded WAL segment commit chain did not match projected root evidence.
+    #[error("embedded WAL segment commit chain mismatch")]
+    SegmentCommitChainMismatch {
+        /// Segment id being checked.
+        segment_id: WalSegmentId,
+        /// Expected final commit digest from the projected root.
+        expected_final_commit_digest: Hash,
+        /// Actual final commit digest recovered from embedded bytes.
+        actual_final_commit_digest: Option<Hash>,
+    },
+    /// Embedded WAL segment commit anchors did not match projected root evidence.
+    #[error("embedded WAL segment commit anchors mismatch")]
+    SegmentCommitAnchorMismatch {
+        /// Segment id being checked.
+        segment_id: WalSegmentId,
+        /// Expected commit anchor identity digests from the projected root.
+        expected: Vec<Hash>,
+        /// Actual commit anchor identity digests recovered from embedded bytes.
+        actual: Vec<Hash>,
+    },
+    /// Embedded WAL segment recovery found an unclean tail posture.
+    #[error("embedded WAL segment tail posture mismatch")]
+    SegmentTailPostureMismatch {
+        /// Segment id being checked.
+        segment_id: WalSegmentId,
+        /// Actual tail posture recovered from embedded bytes.
+        actual: RecoveryTailPosture,
+    },
+    /// Accepted submission WSC material was invalid.
+    #[error("invalid accepted submission WSC material")]
+    AcceptedSubmissions(WscStoreObstruction),
+    /// Receipt correlation WSC material was invalid.
+    #[error("invalid receipt correlation WSC material")]
+    ReceiptCorrelations(WscStoreObstruction),
+    /// Causal-history WSC evidence was incomplete.
+    #[error("incomplete causal-history WSC material")]
+    IncompleteCausalHistory(WscStoreObstruction),
+    /// Recovered submission index construction failed.
+    #[error("recovered submission index construction failed")]
+    Index(WalRecoveryIndexError),
 }
 
 /// Subject named by a WSC store obstruction.
@@ -949,6 +1165,130 @@ pub fn validate_wsc_ref_only_wal_export(
         receipts: receipt_records.receipts,
         correlations: receipt_records.correlations,
         segment_dependencies: expected_dependencies,
+    })
+}
+
+/// Builds a self-contained WAL causal-history WSC export.
+///
+/// The projection envelope carries read-only WAL graph facts. Segment bytes are
+/// embedded as WSC material so importers can validate segment digests, LSN
+/// ranges, and commit-chain facts without access to the original WAL root.
+///
+/// # Errors
+///
+/// Returns a typed export error when generated WSC material cannot be written or
+/// one of the generated envelopes fails validation.
+pub fn wsc_self_contained_wal_export(
+    root: &WalRoot,
+    segment_materials: &[WscSelfContainedWalSegmentMaterial],
+    accepted_submissions: &[SubmissionAcceptanceRecord],
+    receipts: &[TickReceiptRecord],
+    correlations: &[WalReceiptCorrelationRecord],
+) -> Result<WscSelfContainedWalExport, WscSelfContainedWalExportError> {
+    let segment_materials = canonical_self_contained_segment_materials(segment_materials)
+        .map_err(WscSelfContainedWalExportError::SegmentMaterial)?;
+    validate_self_contained_export_segment_material_ids(root, &segment_materials)?;
+    Ok(WscSelfContainedWalExport {
+        profile: WscCausalHistoryExportProfileKind::SelfContained,
+        projection_envelope: wsc_ref_only_wal_projection_envelope(root)
+            .map_err(WscSelfContainedWalExportError::Projection)?,
+        segment_material_envelope: self_contained_segment_materials_to_wsc_envelope(
+            &segment_materials,
+        )
+        .map_err(WscSelfContainedWalExportError::SegmentMaterial)?,
+        accepted_submission_envelope: accepted_submission_records_to_wsc_envelope(
+            accepted_submissions,
+        )
+        .map_err(WscSelfContainedWalExportError::AcceptedSubmissions)?,
+        receipt_correlation_envelope: receipt_correlation_records_to_wsc_envelope(
+            receipts,
+            correlations,
+        )
+        .map_err(WscSelfContainedWalExportError::ReceiptCorrelations)?,
+    })
+}
+
+/// Validates and imports a self-contained WAL causal-history WSC export.
+///
+/// This compares the imported projection graph with `expected_root`, recovers
+/// embedded segment bytes through WAL recovery, compares recovered segment
+/// evidence back to projected root facts, and rebuilds accepted-submission and
+/// receipt indexes from WSC material.
+///
+/// # Errors
+///
+/// Returns a typed import error when WSC material is malformed, embedded segment
+/// bytes fail WAL recovery, or recovered evidence does not match the projected
+/// WAL root.
+pub fn validate_wsc_self_contained_wal_export(
+    export: &WscSelfContainedWalExport,
+    expected_root: &WalRoot,
+) -> Result<WscSelfContainedWalImport, WscSelfContainedWalImportError> {
+    if export.profile != WscCausalHistoryExportProfileKind::SelfContained {
+        return Err(WscSelfContainedWalImportError::ProfileMismatch {
+            actual: export.profile,
+        });
+    }
+    if export.projection_envelope.record_kind() != WscStoreRecordKind::CausalHistory {
+        return Err(WscSelfContainedWalImportError::InvalidProjectionEnvelopeKind);
+    }
+
+    let projection = observe_wal_projection_graph_wsc(export.projection_envelope.wsc_bytes())
+        .map_err(WscSelfContainedWalImportError::ProjectionObservation)?;
+    let expected_projection = wsc_ref_only_wal_projection_envelope(expected_root)
+        .map_err(WscSelfContainedWalImportError::ExpectedProjection)?;
+    let expected_root_identity = expected_root.identity_digest();
+    if export.projection_envelope.basis_digest() != &expected_root_identity {
+        return Err(WscSelfContainedWalImportError::ProjectionBasisMismatch {
+            expected: expected_root_identity,
+            actual: *export.projection_envelope.basis_digest(),
+        });
+    }
+    if export.projection_envelope.wsc_bytes() != expected_projection.wsc_bytes() {
+        return Err(WscSelfContainedWalImportError::ProjectionPayloadMismatch {
+            expected: *expected_projection.wsc_digest(),
+            actual: *export.projection_envelope.wsc_digest(),
+        });
+    }
+
+    let segment_materials =
+        self_contained_segment_materials_from_wsc_envelope(&export.segment_material_envelope)
+            .map_err(WscSelfContainedWalImportError::SegmentMaterial)?;
+    let segment_recoveries =
+        validate_self_contained_segment_recoveries(&segment_materials, expected_root)?;
+
+    let accepted_submissions =
+        accepted_submission_records_from_wsc_envelope(&export.accepted_submission_envelope)
+            .map_err(WscSelfContainedWalImportError::AcceptedSubmissions)?;
+    let receipt_records =
+        receipt_correlation_records_from_wsc_envelope(&export.receipt_correlation_envelope)
+            .map_err(WscSelfContainedWalImportError::ReceiptCorrelations)?;
+    validate_wsc_causal_history_records(
+        &accepted_submissions,
+        &receipt_records.receipts,
+        &receipt_records.correlations,
+    )
+    .map_err(WscSelfContainedWalImportError::IncompleteCausalHistory)?;
+    let submission_index = RecoveredSubmissionIndex::from_acceptance_and_receipt_records(
+        accepted_submissions.iter().copied(),
+        receipt_records.receipts.iter().copied(),
+    )
+    .map_err(WscSelfContainedWalImportError::Index)?;
+    let receipt_index = RecoveredReceiptIndex::from_receipt_correlation_records(
+        receipt_records.receipts.iter().copied(),
+        receipt_records.correlations.iter().copied(),
+    );
+
+    Ok(WscSelfContainedWalImport {
+        profile: export.profile,
+        projection,
+        root_identity_digest: expected_root_identity,
+        segment_recoveries,
+        accepted_submissions,
+        receipts: receipt_records.receipts,
+        correlations: receipt_records.correlations,
+        submission_index,
+        receipt_index,
     })
 }
 
@@ -2024,6 +2364,329 @@ fn wsc_ref_only_wal_locator_posture(
         WalSegmentStorageLocator::AbsolutePath(_) => {
             WscRefOnlyWalLocatorPosture::AbsolutePathNormalized
         }
+    }
+}
+
+fn validate_self_contained_export_segment_material_ids(
+    root: &WalRoot,
+    materials: &[WscSelfContainedWalSegmentMaterial],
+) -> Result<(), WscSelfContainedWalExportError> {
+    let material_ids = materials
+        .iter()
+        .map(|material| material.segment_id)
+        .collect::<BTreeSet<_>>();
+    for segment in &root.segments {
+        if !material_ids.contains(&segment.segment_id) {
+            return Err(WscSelfContainedWalExportError::MissingSegmentMaterial {
+                segment_id: segment.segment_id,
+            });
+        }
+    }
+    let root_segment_ids = root
+        .segments
+        .iter()
+        .map(|segment| segment.segment_id)
+        .collect::<BTreeSet<_>>();
+    if let Some(segment_id) = material_ids
+        .iter()
+        .find(|segment_id| !root_segment_ids.contains(segment_id))
+        .copied()
+    {
+        return Err(WscSelfContainedWalExportError::ExtraSegmentMaterial { segment_id });
+    }
+    Ok(())
+}
+
+fn self_contained_segment_materials_to_wsc_envelope(
+    materials: &[WscSelfContainedWalSegmentMaterial],
+) -> Result<WscStoreEnvelope, WscStoreObstruction> {
+    let materials = canonical_self_contained_segment_materials(materials)?;
+    let mut store = GraphStore::new(make_warp_id(WSC_SELF_CONTAINED_WAL_SEGMENT_WARP));
+    let root = make_node_id(WSC_SELF_CONTAINED_WAL_SEGMENT_ROOT);
+    store.insert_node(
+        root,
+        NodeRecord {
+            ty: make_type_id(WSC_SELF_CONTAINED_WAL_SEGMENT_NODE_TYPE),
+        },
+    );
+    for material in &materials {
+        let payload = self_contained_segment_material_payload(material);
+        let node = self_contained_segment_material_node_id(&payload);
+        store.insert_node(
+            node,
+            NodeRecord {
+                ty: make_type_id(WSC_SELF_CONTAINED_WAL_SEGMENT_NODE_TYPE),
+            },
+        );
+        store.insert_edge(
+            root,
+            EdgeRecord {
+                id: self_contained_segment_material_edge_id(material.segment_id),
+                from: root,
+                to: node,
+                ty: make_type_id(WSC_SELF_CONTAINED_WAL_SEGMENT_EDGE_TYPE),
+            },
+        );
+        store.set_node_attachment(
+            node,
+            Some(AttachmentValue::Atom(AtomPayload::new(
+                make_type_id(WSC_SELF_CONTAINED_WAL_SEGMENT_ATTACHMENT_TYPE),
+                Bytes::from(payload),
+            ))),
+        );
+    }
+    let basis_digest = self_contained_segment_material_basis_digest(&materials);
+    let input = build_one_warp_input(&store, root);
+    let wsc_bytes = write_wsc_one_warp(
+        &input,
+        make_type_id(WSC_SELF_CONTAINED_WAL_SEGMENT_SCHEMA).0,
+        0,
+    )
+    .map_err(|_| WscStoreObstruction::invalid_wsc(basis_digest))?;
+    WscStoreEnvelope::validated(WscStoreRecordKind::CausalHistory, basis_digest, wsc_bytes)
+}
+
+fn self_contained_segment_materials_from_wsc_envelope(
+    envelope: &WscStoreEnvelope,
+) -> Result<Vec<WscSelfContainedWalSegmentMaterial>, WscStoreObstruction> {
+    if envelope.record_kind() != WscStoreRecordKind::CausalHistory {
+        return Err(WscStoreObstruction::invalid_envelope(0));
+    }
+    let wsc_digest = *envelope.wsc_digest();
+    let file = WscFile::from_bytes(envelope.wsc_bytes().to_vec())
+        .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+    validate_wsc(&file).map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+    if file.schema_hash() != &make_type_id(WSC_SELF_CONTAINED_WAL_SEGMENT_SCHEMA).0 {
+        return Err(WscStoreObstruction::invalid_wsc(wsc_digest));
+    }
+    let view = file
+        .warp_view(0)
+        .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+    let mut materials = Vec::new();
+    for node_index in 0..view.nodes().len() {
+        for attachment in view.node_attachments(node_index) {
+            if attachment.type_or_warp
+                != make_type_id(WSC_SELF_CONTAINED_WAL_SEGMENT_ATTACHMENT_TYPE).0
+            {
+                return Err(WscStoreObstruction::invalid_wsc(wsc_digest));
+            }
+            let payload = atom_payload_bytes(&view, attachment, wsc_digest)?;
+            materials.push(self_contained_segment_material_from_payload(
+                payload, wsc_digest,
+            )?);
+        }
+    }
+    let materials = canonical_self_contained_segment_materials(&materials)?;
+    let basis_digest = self_contained_segment_material_basis_digest(&materials);
+    if envelope.basis_digest() != &basis_digest {
+        return Err(WscStoreObstruction::basis_digest_mismatch(
+            *envelope.basis_digest(),
+            basis_digest,
+        ));
+    }
+    Ok(materials)
+}
+
+fn validate_self_contained_segment_recoveries(
+    materials: &[WscSelfContainedWalSegmentMaterial],
+    expected_root: &WalRoot,
+) -> Result<Vec<WalSegmentBytesRecovery>, WscSelfContainedWalImportError> {
+    let mut material_by_segment = materials
+        .iter()
+        .map(|material| (material.segment_id, material))
+        .collect::<BTreeMap<_, _>>();
+    let mut recoveries = Vec::new();
+    for segment in &expected_root.segments {
+        let Some(material) = material_by_segment.remove(&segment.segment_id) else {
+            return Err(WscSelfContainedWalImportError::MissingSegmentMaterial {
+                segment_id: segment.segment_id,
+            });
+        };
+        let recovery = recover_wal_segment_bytes(
+            segment.segment_id,
+            &material.segment_bytes,
+            RecoveryAccessMode::ReadOnly,
+        )
+        .map_err(|error| WscSelfContainedWalImportError::SegmentRecovery {
+            segment_id: segment.segment_id,
+            error,
+        })?;
+        validate_self_contained_segment_recovery(segment, &recovery)?;
+        recoveries.push(recovery);
+    }
+    if let Some(segment_id) = material_by_segment.keys().next().copied() {
+        return Err(WscSelfContainedWalImportError::ExtraSegmentMaterial { segment_id });
+    }
+    recoveries.sort_by_key(|recovery| recovery.segment_id);
+    Ok(recoveries)
+}
+
+fn validate_self_contained_segment_recovery(
+    segment: &WalSegmentRef,
+    recovery: &WalSegmentBytesRecovery,
+) -> Result<(), WscSelfContainedWalImportError> {
+    if recovery.report.tail_posture != RecoveryTailPosture::Clean {
+        return Err(WscSelfContainedWalImportError::SegmentTailPostureMismatch {
+            segment_id: segment.segment_id,
+            actual: recovery.report.tail_posture,
+        });
+    }
+    if recovery.segment_digest != segment.segment_digest {
+        return Err(WscSelfContainedWalImportError::SegmentDigestMismatch {
+            segment_id: segment.segment_id,
+            expected: segment.segment_digest,
+            actual: recovery.segment_digest,
+        });
+    }
+    let actual_first_lsn = recovery.report.first_committed_lsn();
+    let actual_last_lsn = recovery.report.last_committed_lsn();
+    if actual_first_lsn != Some(segment.first_lsn) || actual_last_lsn != Some(segment.last_lsn) {
+        return Err(WscSelfContainedWalImportError::SegmentLsnRangeMismatch {
+            segment_id: segment.segment_id,
+            expected_first_lsn: Some(segment.first_lsn),
+            actual_first_lsn,
+            expected_last_lsn: Some(segment.last_lsn),
+            actual_last_lsn,
+        });
+    }
+    let actual_previous_commit_digest = recovery
+        .report
+        .transactions
+        .first()
+        .map(|transaction| transaction.commit.previous_committed_transaction_digest);
+    let actual_final_commit_digest = recovery.report.last_commit_digest();
+    if actual_previous_commit_digest != Some(segment.previous_commit_digest)
+        || actual_final_commit_digest != Some(segment.final_commit_digest)
+    {
+        return Err(WscSelfContainedWalImportError::SegmentCommitChainMismatch {
+            segment_id: segment.segment_id,
+            expected_final_commit_digest: segment.final_commit_digest,
+            actual_final_commit_digest,
+        });
+    }
+    let mut expected_anchor_digests = segment
+        .commit_anchors
+        .iter()
+        .map(WalCommitAnchor::identity_digest)
+        .collect::<Vec<_>>();
+    expected_anchor_digests.sort_unstable();
+    let mut actual_anchor_digests = recovery
+        .report
+        .transactions
+        .iter()
+        .map(|transaction| WalCommitAnchor::from_commit(&transaction.commit).identity_digest())
+        .collect::<Vec<_>>();
+    actual_anchor_digests.sort_unstable();
+    if actual_anchor_digests != expected_anchor_digests {
+        return Err(
+            WscSelfContainedWalImportError::SegmentCommitAnchorMismatch {
+                segment_id: segment.segment_id,
+                expected: expected_anchor_digests,
+                actual: actual_anchor_digests,
+            },
+        );
+    }
+    Ok(())
+}
+
+fn canonical_self_contained_segment_materials(
+    materials: &[WscSelfContainedWalSegmentMaterial],
+) -> Result<Vec<WscSelfContainedWalSegmentMaterial>, WscStoreObstruction> {
+    let mut by_segment = BTreeMap::new();
+    for material in materials {
+        if let Some(existing) = by_segment.get(&material.segment_id) {
+            if existing != material {
+                return Err(WscStoreObstruction::duplicate_mismatch(
+                    self_contained_segment_material_duplicate_id(material.segment_id),
+                ));
+            }
+        }
+        by_segment.insert(material.segment_id, material.clone());
+    }
+    Ok(by_segment.into_values().collect())
+}
+
+fn self_contained_segment_material_payload(
+    material: &WscSelfContainedWalSegmentMaterial,
+) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(&material.segment_id.as_u64().to_le_bytes());
+    out.extend_from_slice(&len_u64(material.segment_bytes.len()).to_le_bytes());
+    out.extend_from_slice(&material.segment_bytes);
+    out
+}
+
+fn self_contained_segment_material_from_payload(
+    bytes: &[u8],
+    wsc_digest: Hash,
+) -> Result<WscSelfContainedWalSegmentMaterial, WscStoreObstruction> {
+    if bytes.len() < 16 {
+        return Err(WscStoreObstruction::invalid_wsc(wsc_digest));
+    }
+    let segment_id = WalSegmentId::from_raw(u64::from_le_bytes(
+        bytes[0..8]
+            .try_into()
+            .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?,
+    ));
+    let segment_len_u64 = u64::from_le_bytes(
+        bytes[8..16]
+            .try_into()
+            .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?,
+    );
+    let segment_len = usize::try_from(segment_len_u64)
+        .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+    let segment_end = 16usize
+        .checked_add(segment_len)
+        .ok_or_else(|| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+    let segment_bytes = bytes
+        .get(16..segment_end)
+        .ok_or_else(|| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+    if segment_end != bytes.len() {
+        return Err(WscStoreObstruction::invalid_wsc(wsc_digest));
+    }
+    Ok(WscSelfContainedWalSegmentMaterial {
+        segment_id,
+        segment_bytes: segment_bytes.to_vec(),
+    })
+}
+
+fn self_contained_segment_material_basis_digest(
+    materials: &[WscSelfContainedWalSegmentMaterial],
+) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(WSC_SELF_CONTAINED_WAL_SEGMENT_BASIS_DOMAIN);
+    for material in materials {
+        hasher.update(&self_contained_segment_material_payload(material));
+    }
+    hasher.finalize().into()
+}
+
+fn self_contained_segment_material_node_id(payload: &[u8]) -> NodeId {
+    let mut hasher = Hasher::new();
+    hasher.update(WSC_SELF_CONTAINED_WAL_SEGMENT_NODE_DOMAIN);
+    hasher.update(payload);
+    NodeId(hasher.finalize().into())
+}
+
+fn self_contained_segment_material_edge_id(segment_id: WalSegmentId) -> EdgeId {
+    let mut hasher = Hasher::new();
+    hasher.update(WSC_SELF_CONTAINED_WAL_SEGMENT_EDGE_DOMAIN);
+    hasher.update(&segment_id.as_u64().to_le_bytes());
+    EdgeId(hasher.finalize().into())
+}
+
+fn self_contained_segment_material_duplicate_id(segment_id: WalSegmentId) -> WscStoreEnvelopeId {
+    let mut hasher = Hasher::new();
+    hasher.update(WSC_SELF_CONTAINED_WAL_SEGMENT_NODE_DOMAIN);
+    hasher.update(b"duplicate");
+    hasher.update(&segment_id.as_u64().to_le_bytes());
+    WscStoreEnvelopeId::from_hash(hasher.finalize().into())
+}
+
+fn len_u64(len: usize) -> u64 {
+    match u64::try_from(len) {
+        Ok(value) => value,
+        Err(_) => u64::MAX,
     }
 }
 

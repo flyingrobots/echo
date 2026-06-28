@@ -77,15 +77,18 @@ pub use store::{
     retention_records_to_wsc_envelope, topology_records_from_wsc_envelope,
     topology_records_from_wsc_store, topology_records_to_wsc_envelope,
     validate_wsc_causal_history_store, validate_wsc_ref_only_wal_export,
-    wsc_causal_history_export_profile, wsc_causal_history_export_profiles, wsc_ref_only_wal_export,
+    validate_wsc_self_contained_wal_export, wsc_causal_history_export_profile,
+    wsc_causal_history_export_profiles, wsc_ref_only_wal_export, wsc_self_contained_wal_export,
     InMemoryWscStore, WscCausalHistoryCasAuthority, WscCausalHistoryExportEvidence,
     WscCausalHistoryExportProfile, WscCausalHistoryExportProfileKind,
     WscCausalHistoryExportValidationMaterial, WscReceiptCorrelationRecords, WscRefOnlyWalExport,
     WscRefOnlyWalExportError, WscRefOnlyWalImport, WscRefOnlyWalImportError,
     WscRefOnlyWalLocatorPosture, WscRefOnlyWalMaterialDependency, WscRefOnlyWalSegmentDependency,
-    WscRetentionRecords, WscStoreEnvelope, WscStoreEnvelopeId, WscStoreObstruction,
-    WscStoreObstructionKind, WscStorePort, WscStoreRecordKind, WscStoreSubject,
-    WscStoreWriteReceipt, WscTopologyRecords, WSC_CAUSAL_HISTORY_EXPORT_PROFILE_VERSION,
+    WscRetentionRecords, WscSelfContainedWalExport, WscSelfContainedWalExportError,
+    WscSelfContainedWalImport, WscSelfContainedWalImportError, WscSelfContainedWalSegmentMaterial,
+    WscStoreEnvelope, WscStoreEnvelopeId, WscStoreObstruction, WscStoreObstructionKind,
+    WscStorePort, WscStoreRecordKind, WscStoreSubject, WscStoreWriteReceipt, WscTopologyRecords,
+    WSC_CAUSAL_HISTORY_EXPORT_PROFILE_VERSION,
 };
 pub use validate::validate_wsc;
 pub use view::{AttachmentRef, WarpView, WscFile};

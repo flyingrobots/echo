@@ -37,12 +37,12 @@ use warp_core::causal_wal::{
     TransactionLocalIndex, WalAppendAuthority, WalBuildError, WalCommitAnchor,
     WalCommittedTransaction, WalDoctorPosture, WalDurabilityMode, WalManifest,
     WalProjectionGraphObservationPosture, WalReceiptCorrelationRecord, WalRecordKind,
-    WalRecoveryIndexError, WalRecoveryProjectionObstruction, WalRecoveryProjectionPosture,
-    WalRecoverySegmentEvidence, WalReleaseReadinessGates, WalRoot, WalSchemaLintError,
-    WalSegmentId, WalSegmentRef, WalSegmentSealPosture, WalSegmentStorageLocator, WalStoreError,
-    WalStorePort, WalTickDecision, WalTransactionBuilder, WalTransactionId, WalTransactionKind,
-    WalWriterEpoch, WriterEpoch, WriterEpochId, WriterEpochRequest,
-    WAL_PROJECTION_GRAPH_RECOVERY_CERTIFICATE_EDGE_TYPE,
+    WalRecoveryError, WalRecoveryIndexError, WalRecoveryProjectionObstruction,
+    WalRecoveryProjectionPosture, WalRecoverySegmentEvidence, WalReleaseReadinessGates, WalRoot,
+    WalSchemaLintError, WalSegmentId, WalSegmentRef, WalSegmentSealPosture,
+    WalSegmentStorageLocator, WalStoreError, WalStorePort, WalTickDecision, WalTransactionBuilder,
+    WalTransactionId, WalTransactionKind, WalWriterEpoch, WriterEpoch, WriterEpochId,
+    WriterEpochRequest, WAL_PROJECTION_GRAPH_RECOVERY_CERTIFICATE_EDGE_TYPE,
     WAL_PROJECTION_GRAPH_ROOT_COMMIT_ANCHOR_EDGE_TYPE,
     WAL_PROJECTION_GRAPH_SEGMENT_COMMIT_ANCHOR_EDGE_TYPE, WAL_PROJECTION_GRAPH_SEGMENT_EDGE_TYPE,
     WAL_PROJECTION_GRAPH_WRITER_EPOCH_EDGE_TYPE,
@@ -51,10 +51,12 @@ use warp_core::wsc::{
     accepted_submission_records_from_wsc_envelope, build_one_warp_input,
     receipt_correlation_records_from_wsc_envelope, topology_records_from_wsc_envelope,
     validate_wsc, validate_wsc_causal_history_store, validate_wsc_ref_only_wal_export,
-    write_wsc_one_warp, wsc_ref_only_wal_export, InMemoryWscStore,
-    WscCausalHistoryExportProfileKind, WscFile, WscRefOnlyWalExportError,
-    WscRefOnlyWalLocatorPosture, WscRefOnlyWalMaterialDependency, WscStoreEnvelope,
-    WscStoreObstructionKind, WscStorePort, WscStoreRecordKind,
+    validate_wsc_self_contained_wal_export, write_wsc_one_warp, wsc_ref_only_wal_export,
+    wsc_self_contained_wal_export, InMemoryWscStore, WscCausalHistoryExportProfileKind, WscFile,
+    WscRefOnlyWalExportError, WscRefOnlyWalLocatorPosture, WscRefOnlyWalMaterialDependency,
+    WscSelfContainedWalExportError, WscSelfContainedWalImportError,
+    WscSelfContainedWalSegmentMaterial, WscStoreEnvelope, WscStoreObstructionKind, WscStorePort,
+    WscStoreRecordKind,
 };
 use warp_core::{
     make_strand_id, make_type_id, AuthorityDomainId, AuthorityDomainRef, BraidEvent, BraidStatus,
@@ -1044,6 +1046,175 @@ fn wsc_ref_only_export_preserves_wal_identity() {
             segment_id: segment.segment_id,
         }
     );
+}
+
+#[test]
+fn wsc_self_contained_export_replays_segment_bytes() {
+    let label = "wsc-self-contained";
+    let dir = temp_wal_dir(label);
+    let mut store = must_ok(FilesystemWalStore::open(&dir, WalSegmentId::from_raw(1)));
+    let writer_epoch = must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    let acceptance = submission_acceptance(label);
+    let receipt = receipt_record(label, WalTickDecision::Applied);
+    let correlation = correlation_record(label);
+
+    must_ok(store.append_transaction(durable_submission_transaction(label, Lsn::from_raw(0))));
+    must_ok(store.append_transaction(durable_tick_transaction(
+        label,
+        Lsn::from_raw(2),
+        WalTickDecision::Applied,
+    )));
+    let seal = must_ok(store.seal_segment(epoch_id(), WalSegmentId::from_raw(1)));
+    let segment_path = store.segment_path();
+    let segment_bytes = must_ok(fs::read(&segment_path));
+    let last_commit_digest = must_some(
+        store
+            .read_commits()
+            .last()
+            .map(|commit| commit.commit_digest),
+    );
+    let manifest = WalManifest {
+        manifest_digest: digest("wsc-self-contained:manifest"),
+        last_committed_lsn: Some(Lsn::from_raw(4)),
+        last_commit_digest: Some(last_commit_digest),
+        sealed_segment_count: 1,
+    };
+    must_ok(store.publish_manifest(epoch_id(), manifest));
+
+    let report = must_ok(recover_filesystem_store(&dir, RecoveryAccessMode::ReadOnly));
+    let certificate = build_recovery_certificate(
+        &report,
+        None,
+        0,
+        digest("wsc-self-contained:frontier"),
+        digest("wsc-self-contained:indexes"),
+    );
+    let writer_epoch = WalWriterEpoch::from_writer_epoch(&writer_epoch);
+    let projection = project_filesystem_wal_recovery(
+        &dir,
+        &report,
+        std::slice::from_ref(&writer_epoch),
+        Some(&certificate),
+    );
+    assert_eq!(projection.posture, WalRecoveryProjectionPosture::Present);
+    let root = must_some(projection.root);
+    let segment = root.segments[0].clone();
+    assert_eq!(segment.segment_digest, seal.segment_digest);
+
+    assert_eq!(
+        must_err(
+            wsc_self_contained_wal_export(&root, &[], &[acceptance], &[receipt], &[correlation]),
+            "self-contained WSC exports require embedded segment material",
+        ),
+        WscSelfContainedWalExportError::MissingSegmentMaterial {
+            segment_id: segment.segment_id,
+        }
+    );
+
+    let export = must_ok(wsc_self_contained_wal_export(
+        &root,
+        &[WscSelfContainedWalSegmentMaterial {
+            segment_id: segment.segment_id,
+            segment_bytes: segment_bytes.clone(),
+        }],
+        &[acceptance],
+        &[receipt],
+        &[correlation],
+    ));
+    drop(store);
+    must_ok(fs::remove_dir_all(&dir));
+
+    let imported = must_ok(validate_wsc_self_contained_wal_export(&export, &root));
+
+    assert_eq!(
+        imported.profile,
+        WscCausalHistoryExportProfileKind::SelfContained
+    );
+    assert_eq!(
+        imported.projection.schema_hash,
+        wal_projection_graph_schema_hash()
+    );
+    assert_eq!(imported.root_identity_digest, root.identity_digest());
+    assert_eq!(imported.accepted_submissions, vec![acceptance]);
+    assert_eq!(imported.receipts, vec![receipt]);
+    assert_eq!(imported.correlations, vec![correlation]);
+
+    assert_eq!(imported.segment_recoveries.len(), 1);
+    let segment_recovery = &imported.segment_recoveries[0];
+    assert_eq!(segment_recovery.segment_id, segment.segment_id);
+    assert_eq!(segment_recovery.segment_digest, segment.segment_digest);
+    assert_eq!(
+        segment_recovery.report.tail_posture,
+        RecoveryTailPosture::Clean
+    );
+    assert_eq!(
+        segment_recovery.report.first_committed_lsn(),
+        Some(segment.first_lsn)
+    );
+    assert_eq!(
+        segment_recovery.report.last_committed_lsn(),
+        Some(segment.last_lsn)
+    );
+    assert_eq!(
+        segment_recovery.report.last_commit_digest(),
+        Some(segment.final_commit_digest)
+    );
+
+    assert_eq!(
+        imported.submission_index.retry_posture(
+            acceptance.submission_id,
+            acceptance.canonical_envelope_digest
+        ),
+        SubmissionRetryPosture::AlreadyDecidedApplied
+    );
+    assert_eq!(
+        imported
+            .receipt_index
+            .receipt_by_submission
+            .get(&acceptance.submission_id),
+        Some(&receipt.receipt_digest)
+    );
+    assert_eq!(
+        imported
+            .receipt_index
+            .receipt_by_ticket
+            .get(&receipt.ticket_digest),
+        Some(&receipt.receipt_digest)
+    );
+
+    let mut wsc_store = InMemoryWscStore::default();
+    must_ok(wsc_store.write_envelope(export.projection_envelope.clone()));
+    must_ok(wsc_store.write_envelope(export.segment_material_envelope.clone()));
+    must_ok(wsc_store.write_envelope(export.accepted_submission_envelope.clone()));
+    must_ok(wsc_store.write_envelope(export.receipt_correlation_envelope));
+    must_ok(validate_wsc_causal_history_store(&wsc_store));
+
+    let mut tampered_segment_bytes = segment_bytes;
+    let Some(last_byte) = tampered_segment_bytes.last_mut() else {
+        panic!("self-contained WAL fixture unexpectedly produced empty segment bytes");
+    };
+    *last_byte ^= 0x55;
+    let tampered_export = must_ok(wsc_self_contained_wal_export(
+        &root,
+        &[WscSelfContainedWalSegmentMaterial {
+            segment_id: segment.segment_id,
+            segment_bytes: tampered_segment_bytes,
+        }],
+        &[acceptance],
+        &[receipt],
+        &[correlation],
+    ));
+    let error = must_err(
+        validate_wsc_self_contained_wal_export(&tampered_export, &root),
+        "tampered embedded segment bytes",
+    );
+    assert!(matches!(
+        error,
+        WscSelfContainedWalImportError::SegmentRecovery {
+            segment_id,
+            error: WalRecoveryError::Store(WalStoreError::SegmentRecordDigestMismatch),
+        } if segment_id == segment.segment_id
+    ));
 }
 
 fn root_with_absolute_locator(root: &WalRoot, path: &str) -> WalRoot {

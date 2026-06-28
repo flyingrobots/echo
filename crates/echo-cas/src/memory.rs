@@ -2,9 +2,9 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! In-memory content-addressed blob store.
 //!
-//! [`MemoryTier`] is the Phase 1 `BlobStore` implementation — sufficient for the
-//! in-browser website demo (single tab, no persistence). Disk and cold tiers are
-//! deferred to Phase 3.
+//! [`MemoryTier`] is the infallible `BlobStore` implementation for in-process
+//! use. Use [`crate::DiskTier`] when retained bytes must survive process
+//! reconstruction.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;

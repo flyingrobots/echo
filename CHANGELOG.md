@@ -55,6 +55,9 @@
   bundle envelope metadata, verify self-contained bundles without the original
   WAL root, and report unavailable ref-only segment bytes as typed material
   obstructions in JSON output.
+- `echo-cas` now exposes a fallible filesystem-backed `DiskTier` for durable
+  retained blobs, preserving content-only BLAKE3 hash semantics across process
+  reconstruction while keeping missing blobs as explicit absence.
 - `cargo xtask test-slice durable-runtime-wal` now runs the release-grade
   filesystem runtime WAL durability gate, joining filesystem ACK recovery,
   filesystem failure atomicity, CLI submission posture JSON, stale-claim, and

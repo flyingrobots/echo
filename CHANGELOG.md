@@ -17,6 +17,10 @@
   locator, writer epoch, and recovery certificate evidence; missing manifests or
   unavailable locators produce typed projection obstructions instead of empty
   success.
+- `warp-core` now exposes `WalRecoveryPlan` records that bootstrap from a
+  projected WAL root or storage manifest, record checkpoint posture, committed
+  replay suffix, tail posture, recovered index roots, retained-material posture,
+  and projected evidence posture without requiring graph WAL nodes as input.
 - `warp-core` can now materialize WAL projection records into deterministic
   WARP graph facts with root, writer epoch, segment, commit-anchor, and recovery
   certificate nodes plus typed graph edges suitable for WSC serialization. The
@@ -76,6 +80,9 @@
   `retained_reading_missing_payload_is_not_empty_success` witness, locking the
   app-safe missing-retention posture for reading payloads, reading envelopes,
   and retained receipt support.
+- `cargo xtask test-slice durability-release` now includes the exact
+  `recovery_plan_bootstraps_from_wal_root` witness, locking recovery plan
+  bootstrap posture without using Cargo's slow package-level name filter.
 - `warp-core` trusted runtime hosts now configure runtime WAL through
   `TrustedRuntimeWalConfig`, including in-memory and filesystem-backed
   adapters. `TrustedRuntimeWalStoreKind` exposes the configured adapter kind as

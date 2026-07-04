@@ -35,6 +35,9 @@ The feature bar for the eventual `v0.1.0` release is maintained in
 The current external release gate is maintained in
 `docs/design/v0.1.0-jedit-release-gate.md`.
 
+The Supported Outcome Settlement doctrine for Echo's cross-repo role is
+maintained in `docs/design/supported-outcome-settlement.md`.
+
 Trusted runtime-control history is defined in
 `docs/design/trusted-runtime-control-history.md`.
 

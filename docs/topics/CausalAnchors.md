@@ -248,6 +248,27 @@ An anchor may pin CAS roots, graph facts, manifests, indexes, or materialized
 projection blobs. The anchor itself is the recoverable causal meaning of that pin,
 not the storage mechanism.
 
+## Implementation Evidence
+
+The first Echo-owned value contract lives in
+`crates/warp-core/src/causal_anchor.rs`. It defines the causal anchor subject,
+frontier reference, purpose, typed root roles, canonical root-set validation,
+anchor digest, and anchor id.
+
+The public witness tests live in
+`crates/warp-core/tests/causal_anchor_tests.rs`. They prove:
+
+- retained and materialization root sets are canonicalized before digesting;
+- duplicate roots are rejected after canonicalization;
+- materialization roots cannot declare authority;
+- anchor digests bind subject, basis frontier, purpose, and admission receipt;
+- a Jim rope checkpoint retains the rope head as authority while flat text remains
+  materialization;
+- anchor ids are domain-separated from anchor digests.
+
+This is a value contract, not the final WAL publication API. A later slice must
+record causal anchor admission under trusted runtime authority.
+
 ## Doctrine
 
 The core distinction is:

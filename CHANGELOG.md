@@ -7,6 +7,15 @@
 
 ### Added
 
+- `warp-core` now exposes a narrow Edict `echo.span-ir/v1` Target IR fixture
+  bridge that accepts strict lowercase digest-locked pre-step
+  `continueObstructed` requirements, evaluates deterministic basis freshness
+  facts, and emits versioned attempt receipt objects bound to the supplied
+  Target IR digest. The bridge distinguishes accepted artifacts from executed
+  receipts, obstructed attempts from invalid proposals, and obstruction from
+  legal unselected counterfactuals without claiming bundle admission, Jim
+  semantics, scheduler counterfactual exploration, canonical Echo receipt
+  bytes, or receipt digests.
 - `warp-core` now exposes WAL projection fact records for `WalRoot`,
   `WalWriterEpoch`, `WalSegmentRef`, `WalCommitAnchor`, and
   `RecoveryCertificateRef`; `WalSegmentRef::identity_digest()` binds writer

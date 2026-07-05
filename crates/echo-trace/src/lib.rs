@@ -2,25 +2,40 @@
 
 //! Echo Trace
 //! 
-//! Trace owns observation. It provides the bounded, append-only, canonical stream
-//! of WSC-derived trace events.
+//! Graph is truth. Delta log is transport. Roaring is index.
+//! Matrix is projection. Receipt is proof.
+//! 
+//! This crate defines the canonical causal delta stream boundary.
 
 /// Represents an execution tick identifier.
 pub type TickId = u64;
 
-/// Represents a sparse boolean control column identifier.
-pub type SelectorId = u32;
+/// A digest representing a causal frontier in the WARP graph.
+pub type FrontierDigest = [u8; 32];
 
-/// A placeholder for the canonical WSC delta event.
-pub struct CanonicalWscDelta {
-    // To be implemented.
+/// The core graph delta, encapsulating the exact WSC rows appended in a tick.
+/// Parameterized over the row types to avoid circular dependencies with `warp-core`.
+pub struct CanonicalGraphDelta<'a, N, E, A> {
+    /// The tick at which this delta occurred.
+    pub tick: TickId,
+    /// The causal frontier digest before this delta.
+    pub causal_frontier_before: FrontierDigest,
+    /// The canonical NodeRows appended.
+    pub node_rows: &'a [N],
+    /// The canonical EdgeRows appended.
+    pub edge_rows: &'a [E],
+    /// The canonical AttRows appended.
+    pub att_rows: &'a [A],
+    /// The causal frontier digest after this delta.
+    pub causal_frontier_after: FrontierDigest,
 }
 
 /// Metadata describing an execution trace run.
 pub struct TraceRunMeta {
     /// The starting tick of the execution trace run.
     pub start_tick: TickId,
-    // Add additional metadata (e.g. root hash) as needed.
+    /// The root causal frontier digest.
+    pub root_frontier: FrontierDigest,
 }
 
 /// A receipt for a sealed trace chunk.
@@ -50,30 +65,19 @@ pub enum TraceError {
     IoError,
     /// The trace chunk could not be sealed.
     SealError,
-    /// The tick recorded does not match the expected contiguous sequence.
-    TickMismatch,
+    /// A causal boundary violation occurred.
+    BoundaryMismatch,
 }
 
 /// The trace boundary trait.
 /// 
-/// Echo execution emits trace events into this sink. It does not care whether
-/// the sink is a human-readable JSON file, a canonical chunked stream, or a 
-/// sparse Roaring-encoded accelerator.
-pub trait TraceSink {
+/// Consumes canonical graph deltas, bounded in chunked streams.
+pub trait TraceSink<N, E, A> {
     /// Start a new trace run.
     fn begin_run(&mut self, meta: &TraceRunMeta) -> Result<(), TraceError>;
 
-    /// Begin a new execution tick.
-    fn begin_tick(&mut self, tick: TickId) -> Result<(), TraceError>;
-
-    /// Record a canonical WSC delta within the current tick.
-    fn record_wsc_delta(&mut self, delta: &CanonicalWscDelta) -> Result<(), TraceError>;
-
-    /// Record that a specific sparse selector was activated at this tick.
-    fn record_selector(&mut self, selector: SelectorId, tick: TickId) -> Result<(), TraceError>;
-
-    /// End the current execution tick.
-    fn end_tick(&mut self, tick: TickId) -> Result<(), TraceError>;
+    /// Append a canonical graph delta to the stream.
+    fn append_delta(&mut self, delta: &CanonicalGraphDelta<'_, N, E, A>) -> Result<(), TraceError>;
 
     /// Seal the current chunk and return its cryptographic receipt.
     fn seal_chunk(&mut self) -> Result<TraceChunkReceipt, TraceError>;
@@ -85,12 +89,9 @@ pub trait TraceSink {
 /// A baseline sink that incurs near-zero overhead and does nothing.
 pub struct NullTraceSink;
 
-impl TraceSink for NullTraceSink {
+impl<N, E, A> TraceSink<N, E, A> for NullTraceSink {
     fn begin_run(&mut self, _meta: &TraceRunMeta) -> Result<(), TraceError> { Ok(()) }
-    fn begin_tick(&mut self, _tick: TickId) -> Result<(), TraceError> { Ok(()) }
-    fn record_wsc_delta(&mut self, _delta: &CanonicalWscDelta) -> Result<(), TraceError> { Ok(()) }
-    fn record_selector(&mut self, _selector: SelectorId, _tick: TickId) -> Result<(), TraceError> { Ok(()) }
-    fn end_tick(&mut self, _tick: TickId) -> Result<(), TraceError> { Ok(()) }
+    fn append_delta(&mut self, _delta: &CanonicalGraphDelta<'_, N, E, A>) -> Result<(), TraceError> { Ok(()) }
     fn seal_chunk(&mut self) -> Result<TraceChunkReceipt, TraceError> {
         Ok(TraceChunkReceipt {
             start_tick: 0,

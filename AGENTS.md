@@ -45,7 +45,9 @@ Continuum is the protocol for lawful causal-history exchange.
 
 ## Trace Architecture Principle
 
-> Echo execution traces are emitted as a bounded, append-only, canonical stream of WSC-derived trace events. Trace storage is chunked. Sparse selector columns may be encoded as compressed bitsets. Dense witness data must remain in canonical dense columns or WSC segments. Prover-specific rectangular traces are projections, not the source of truth.
+> Graph is truth. Delta log is transport. Roaring is index. Matrix is projection. Receipt is proof.
+
+Echo execution traces are not a separate event-sourcing reality. They are a bounded, append-only, canonical streaming log of WSC `NodeRow`, `EdgeRow`, and `AttRow` deltas. Trace storage is chunked. Sparse selector columns may be encoded as compressed bitsets, but they are derived indexes, not the source of truth. Prover-specific rectangular traces are downstream projections of the delta log.
 
 ## Git Rules
 

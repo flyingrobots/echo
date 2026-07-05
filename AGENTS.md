@@ -43,6 +43,10 @@ Materialized graphs are optional readings.
 Continuum is the protocol for lawful causal-history exchange.
 ```
 
+## Trace Architecture Principle
+
+> Echo execution traces are emitted as a bounded, append-only, canonical stream of WSC-derived trace events. Trace storage is chunked. Sparse selector columns may be encoded as compressed bitsets. Dense witness data must remain in canonical dense columns or WSC segments. Prover-specific rectangular traces are projections, not the source of truth.
+
 ## Git Rules
 
 - **NEVER** amend commits.

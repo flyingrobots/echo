@@ -678,6 +678,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "echo-trace"
+version = "0.1.0"
+
+[[package]]
 name = "echo-ttd"
 version = "0.1.0"
 dependencies = [

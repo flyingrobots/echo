@@ -1,0 +1,144 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 700" width="1200" height="700" role="img" aria-labelledby="t">
+  <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+  <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+  <title id="t">Echo durability planes: application, trusted runtime host, causal WAL, WSC, and read-only recovery</title>
+  <style>
+    .bg{fill:#0D1526}
+    .plane{fill:#16223B;stroke:#2A3B5E;stroke-width:1.5;rx:12}
+    .item{fill:#1C2B4A;stroke:#334770;stroke-width:1;rx:8}
+    .title{font:700 20px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .ptitle{font:700 15px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif}
+    .txt{font:13px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .sub{font:11.5px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#93A5C4}
+    .lbl{font:11.5px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif}
+    .mono{font:12.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    .mantra{font:600 15px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#E8B84B}
+  </style>
+  <defs>
+    <marker id="aBlue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#6FA8F5"/></marker>
+    <marker id="aAmber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#E8B84B"/></marker>
+    <marker id="aGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#57C793"/></marker>
+    <marker id="aTeal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#4FC1D4"/></marker>
+    <marker id="aPurple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#A78BE0"/></marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1200" height="700"/>
+  <text class="title" x="40" y="36">Echo durability planes — who may claim what</text>
+
+  <!-- Host -> WSC route over the top -->
+  <path d="M475 88 L475 56 L1060 56 L1060 88" fill="none" stroke="#4FC1D4" stroke-width="1.6" marker-end="url(#aTeal)"/>
+  <text class="lbl" x="560" y="50" fill="#4FC1D4">serialize committed state — deterministic WSC bytes + state_root</text>
+
+  <!-- Application plane -->
+  <rect class="plane" x="40" y="88" width="240" height="302" rx="12"/>
+  <text class="ptitle" x="60" y="114" fill="#6FA8F5">Application plane</text>
+  <text class="sub" x="60" y="132">untrusted · submits and observes</text>
+  <rect class="item" x="58" y="146" width="204" height="52" rx="8"/>
+  <text class="txt" x="70" y="168">Canonical intent bytes</text>
+  <text class="sub" x="70" y="186">no WAL append authority</text>
+  <rect class="item" x="58" y="300" width="204" height="52" rx="8"/>
+  <text class="txt" x="70" y="322">Observe outcome / reading</text>
+  <text class="sub" x="70" y="340">only committed facts visible</text>
+
+  <!-- Trusted runtime host plane -->
+  <rect class="plane" x="330" y="88" width="290" height="302" rx="12"/>
+  <text class="ptitle" x="350" y="114" fill="#E8EEF9">Trusted runtime host</text>
+  <text class="sub" x="350" y="132">TrustedRuntimeHost · owns tick authority</text>
+  <rect class="item" x="348" y="146" width="254" height="44" rx="8"/>
+  <text class="txt" x="360" y="173">Submission intake</text>
+  <rect class="item" x="348" y="200" width="254" height="44" rx="8"/>
+  <text class="txt" x="360" y="227">Scheduler super-tick</text>
+  <rect class="item" x="348" y="254" width="254" height="44" rx="8"/>
+  <text class="txt" x="360" y="281">Engine commit → state_root</text>
+  <rect class="item" x="348" y="308" width="254" height="44" rx="8"/>
+  <text class="txt" x="360" y="335">Runtime control · recovery</text>
+
+  <!-- Causal WAL plane -->
+  <rect class="plane" x="670" y="88" width="250" height="302" rx="12" stroke="#7A6222"/>
+  <text class="ptitle" x="690" y="114" fill="#E8B84B">Causal WAL</text>
+  <text class="sub" x="690" y="132">durable commit authority</text>
+  <rect class="item" x="688" y="146" width="214" height="44" rx="8" stroke="#5C4E23"/>
+  <text class="txt" x="700" y="173">SubmissionIntake tx</text>
+  <rect class="item" x="688" y="200" width="214" height="44" rx="8" stroke="#5C4E23"/>
+  <text class="txt" x="700" y="227">SchedulerTick tx</text>
+  <rect class="item" x="688" y="254" width="214" height="44" rx="8" stroke="#5C4E23"/>
+  <text class="txt" x="700" y="273">Topology · Outbox ·</text>
+  <text class="txt" x="700" y="290">Checkpoint tx</text>
+  <text class="lbl" x="690" y="330" fill="#E8B84B" font-style="italic">History begins at</text>
+  <text class="mono" x="690" y="348" fill="#E8B84B">WalTransactionCommit</text>
+
+  <!-- WSC plane -->
+  <rect class="plane" x="960" y="88" width="200" height="302" rx="12" stroke="#245A64"/>
+  <text class="ptitle" x="978" y="114" fill="#4FC1D4">WSC</text>
+  <text class="sub" x="978" y="132">deterministic material</text>
+  <rect class="item" x="976" y="146" width="168" height="56" rx="8" stroke="#25505C"/>
+  <text class="txt" x="988" y="168">Snapshot bytes +</text>
+  <text class="txt" x="988" y="186">state_root per tick</text>
+  <rect class="item" x="976" y="212" width="168" height="44" rx="8" stroke="#25505C"/>
+  <text class="txt" x="988" y="239">Causal-history bundles</text>
+  <rect class="item" x="976" y="266" width="168" height="44" rx="8" stroke="#25505C"/>
+  <text class="txt" x="988" y="293">Retained material</text>
+  <text class="lbl" x="978" y="334" fill="#4FC1D4" font-style="italic">identical content ⇒</text>
+  <text class="lbl" x="978" y="350" fill="#4FC1D4" font-style="italic">identical bytes</text>
+
+  <!-- Arrows: App -> Host -->
+  <path d="M262 172 L348 172" fill="none" stroke="#6FA8F5" stroke-width="1.8" marker-end="url(#aBlue)"/>
+  <text class="lbl" x="286" y="163" fill="#6FA8F5">submit</text>
+  <!-- Host intake -> WAL -->
+  <path d="M602 162 L688 162" fill="none" stroke="#E8B84B" stroke-width="1.8" marker-end="url(#aAmber)"/>
+  <text class="lbl" x="608" y="153" fill="#E8B84B">append + flush</text>
+  <!-- WAL -> Host ACK -->
+  <path d="M688 182 L602 182" fill="none" stroke="#57C793" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#aGreen)"/>
+  <text class="lbl" x="612" y="197" fill="#57C793">durable ACK</text>
+  <!-- Host tick -> WAL tick tx -->
+  <path d="M602 222 L688 222" fill="none" stroke="#E8B84B" stroke-width="1.8" marker-end="url(#aAmber)"/>
+  <!-- Host -> App outcome -->
+  <path d="M348 328 L262 328" fill="none" stroke="#57C793" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#aGreen)"/>
+  <text class="lbl" x="252" y="366" fill="#57C793">handle / outcome returned</text>
+  <text class="lbl" x="252" y="381" fill="#57C793">only after WAL commit</text>
+  <!-- WAL -> WSC -->
+  <path d="M920 276 L976 288" fill="none" stroke="#4FC1D4" stroke-width="1.6" marker-end="url(#aTeal)"/>
+  <text class="lbl" x="886" y="316" fill="#4FC1D4">project +</text>
+  <text class="lbl" x="886" y="331" fill="#4FC1D4">export evidence</text>
+
+  <!-- Recovery band -->
+  <rect class="plane" x="40" y="440" width="1120" height="180" rx="12" stroke="#4A3B73"/>
+  <text class="ptitle" x="60" y="468" fill="#A78BE0">Read-only recovery (trusted)</text>
+  <text class="sub" x="320" y="468">no scheduler callbacks · no application callbacks · no wall clock · no external I/O</text>
+
+  <rect class="item" x="60" y="490" width="210" height="100" rx="8" stroke="#4A3B73"/>
+  <text class="txt" x="74" y="516">Committed WAL bytes</text>
+  <text class="sub" x="74" y="536">segments + manifest</text>
+  <text class="sub" x="74" y="552">(or embedded / CAS bytes</text>
+  <text class="sub" x="74" y="568">from a WSC bundle)</text>
+
+  <rect class="item" x="310" y="490" width="220" height="100" rx="8" stroke="#4A3B73"/>
+  <text class="txt" x="324" y="516">Replay committed</text>
+  <text class="txt" x="324" y="534">transactions</text>
+  <text class="sub" x="324" y="556">validate every frame,</text>
+  <text class="sub" x="324" y="572">every commit, every chain</text>
+
+  <rect class="item" x="570" y="490" width="300" height="100" rx="8" stroke="#4A3B73"/>
+  <text class="txt" x="584" y="516">Rebuilt durability indexes</text>
+  <text class="sub" x="584" y="538">submissions · receipts · retention ·</text>
+  <text class="sub" x="584" y="554">topology · materialization outbox ·</text>
+  <text class="sub" x="584" y="570">checkpoint publications</text>
+
+  <rect class="item" x="910" y="490" width="230" height="100" rx="8" stroke="#4A3B73"/>
+  <text class="txt" x="924" y="516">Recovery certificate</text>
+  <text class="sub" x="924" y="538">replayed LSN range · tail posture ·</text>
+  <text class="sub" x="924" y="554">obstruction count · frontier root ·</text>
+  <text class="sub" x="924" y="570">recovered indexes root</text>
+
+  <path d="M270 540 L310 540" fill="none" stroke="#A78BE0" stroke-width="1.8" marker-end="url(#aPurple)"/>
+  <path d="M530 540 L570 540" fill="none" stroke="#A78BE0" stroke-width="1.8" marker-end="url(#aPurple)"/>
+  <path d="M870 540 L910 540" fill="none" stroke="#A78BE0" stroke-width="1.8" marker-end="url(#aPurple)"/>
+
+  <!-- WSC retained material feeds recovery -->
+  <path d="M1060 390 L1060 425 L165 425 L165 490" fill="none" stroke="#4FC1D4" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#aTeal)"/>
+  <!-- recovery feeds host restart -->
+  <path d="M430 440 L430 390" fill="none" stroke="#A78BE0" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#aPurple)"/>
+  <text class="lbl" x="440" y="420" fill="#A78BE0">restart posture</text>
+
+  <text class="mantra" x="600" y="668" text-anchor="middle">Echo may only claim what its WAL can recover.</text>
+</svg>

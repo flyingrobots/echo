@@ -7,6 +7,12 @@
 
 ### Added
 
+- `docs/topics/wal-wsc/` now carries the end-to-end WAL/WSC deep dive: frame
+  and commit anatomy, on-disk segment framing and the fsync ACK boundary,
+  recovery pipeline and tail postures, the WSC v1 byte layout and determinism
+  contract, the WAL projection graph, and the three causal-history export
+  profiles, illustrated with six SVG figures and indexed from
+  `docs/README.md` and `docs/topics/WAL.md`.
 - `warp-core` now exposes WAL projection fact records for `WalRoot`,
   `WalWriterEpoch`, `WalSegmentRef`, `WalCommitAnchor`, and
   `RecoveryCertificateRef`; `WalSegmentRef::identity_digest()` binds writer

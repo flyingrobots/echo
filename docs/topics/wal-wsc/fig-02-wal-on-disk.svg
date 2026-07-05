@@ -1,0 +1,199 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" width="1200" height="760" role="img" aria-labelledby="t">
+  <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+  <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+  <title id="t">Filesystem WAL on disk: directory layout and segment record framing with the fsync ACK boundary</title>
+  <style>
+    .bg{fill:#0D1526}
+    .plane{fill:#16223B;stroke:#2A3B5E;stroke-width:1.5}
+    .title{font:700 20px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .ptitle{font:700 15px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .txt{font:13px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .sub{font:11.5px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#93A5C4}
+    .mono{font:12.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#E8EEF9}
+    .monosm{font:11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#93A5C4}
+    .cell{stroke-width:1}
+  </style>
+  <defs>
+    <marker id="aGreen2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#57C793"/></marker>
+    <pattern id="hatch" width="8" height="8" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+      <rect width="8" height="8" fill="#3A1E22"/><line x1="0" y1="0" x2="0" y2="8" stroke="#E5605A" stroke-width="2.5"/>
+    </pattern>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1200" height="760"/>
+  <text class="title" x="40" y="36">The filesystem WAL — layout and the ACK boundary</text>
+
+  <!-- Directory layout panel -->
+  <rect class="plane" x="40" y="70" width="420" height="420" rx="12"/>
+  <text class="ptitle" x="60" y="98">Directory layout</text>
+  <text class="mono" x="60" y="132" fill="#E8B84B">&lt;wal-root&gt;/</text>
+  <text class="mono" x="60" y="158">├─ manifest.ecwal</text>
+  <text class="monosm" x="88" y="176">published atomically:</text>
+  <text class="monosm" x="88" y="192">tmp write → fsync → rename → dir fsync</text>
+  <text class="mono" x="60" y="222">└─ segments/</text>
+  <text class="mono" x="60" y="250">   ├─ segment-…0001.ecwal</text>
+  <text class="monosm" x="88" y="268">sealed · digest recorded in manifest</text>
+  <text class="mono" x="60" y="296">   ├─ segment-…0002.ecwal</text>
+  <text class="monosm" x="88" y="314">sealed</text>
+  <text class="mono" x="60" y="342" fill="#E8B84B">   └─ segment-…0003.ecwal</text>
+  <text class="monosm" x="88" y="360" fill="#E8B84B">active — append-only</text>
+  <text class="sub" x="60" y="398">Segment names are canonical:</text>
+  <text class="monosm" x="60" y="416">segments/segment-{:020}.ecwal</text>
+  <text class="sub" x="60" y="444">Creating a segment fsyncs the file, then the</text>
+  <text class="sub" x="60" y="460">directory — existence itself is made durable.</text>
+
+  <!-- Checkpoint note -->
+  <rect class="plane" x="40" y="510" width="420" height="110" rx="12" stroke="#4A3B73"/>
+  <text class="ptitle" x="60" y="538" fill="#A78BE0">Checkpoint file (caller-chosen path)</text>
+  <text class="mono" x="60" y="566">magic ECWALCP1 + CheckpointRecord + digest</text>
+  <text class="sub" x="60" y="590">Written atomically. A checkpoint is only usable</text>
+  <text class="sub" x="60" y="606">when it validates against recovered WAL history.</text>
+
+  <!-- Segment zoom panel -->
+  <rect class="plane" x="500" y="70" width="660" height="620" rx="12"/>
+  <text class="ptitle" x="520" y="98">Inside a segment file — a stream of self-checking disk records</text>
+  <text class="monosm" x="520" y="120">record = magic "ECWALR1!" (8 B) · kind (1 B) · payload_len (8 B LE) · payload · BLAKE3 digest (32 B)</text>
+
+  <!-- column header -->
+  <g>
+    <text class="monosm" x="530" y="148" fill="#6FA8F5">magic</text>
+    <text class="monosm" x="612" y="148" fill="#6FA8F5">kind</text>
+    <text class="monosm" x="664" y="148" fill="#6FA8F5">len</text>
+    <text class="monosm" x="742" y="148" fill="#6FA8F5">payload</text>
+    <text class="monosm" x="1044" y="148" fill="#6FA8F5">digest</text>
+  </g>
+
+  <!-- rows: x=520; widths: magic 84, kind 44, len 70, payload 300, digest 100 => total 598 -->
+  <!-- Row template y values: 158, 208, 258, 322, 372, 422, 472, 546, 596 -->
+
+  <!-- frame row 1 -->
+  <g>
+    <rect x="520" y="158" width="84" height="40" fill="#1C2B4A" stroke="#334770" class="cell"/>
+    <rect x="604" y="158" width="44" height="40" fill="#2B2413" stroke="#5C4E23" class="cell"/>
+    <rect x="648" y="158" width="70" height="40" fill="#1C2B4A" stroke="#334770" class="cell"/>
+    <rect x="718" y="158" width="300" height="40" fill="#2B2413" stroke="#5C4E23" class="cell"/>
+    <rect x="1018" y="158" width="100" height="40" fill="#1C2B4A" stroke="#334770" class="cell"/>
+    <text class="monosm" x="530" y="182" fill="#E8EEF9">ECWALR1!</text>
+    <text class="monosm" x="618" y="182" fill="#E8B84B">1</text>
+    <text class="monosm" x="658" y="182" fill="#E8EEF9">u64</text>
+    <text class="monosm" x="728" y="176" fill="#E8B84B">WalFrame lsn=41</text>
+    <text class="monosm" x="728" y="191" fill="#93A5C4">SubmissionAcceptedRecorded</text>
+    <text class="monosm" x="1028" y="182" fill="#E8EEF9">blake3</text>
+  </g>
+  <!-- frame row 2 -->
+  <g>
+    <rect x="520" y="208" width="84" height="40" fill="#1C2B4A" stroke="#334770" class="cell"/>
+    <rect x="604" y="208" width="44" height="40" fill="#2B2413" stroke="#5C4E23" class="cell"/>
+    <rect x="648" y="208" width="70" height="40" fill="#1C2B4A" stroke="#334770" class="cell"/>
+    <rect x="718" y="208" width="300" height="40" fill="#2B2413" stroke="#5C4E23" class="cell"/>
+    <rect x="1018" y="208" width="100" height="40" fill="#1C2B4A" stroke="#334770" class="cell"/>
+    <text class="monosm" x="530" y="232" fill="#E8EEF9">ECWALR1!</text>
+    <text class="monosm" x="618" y="232" fill="#E8B84B">1</text>
+    <text class="monosm" x="658" y="232" fill="#E8EEF9">u64</text>
+    <text class="monosm" x="728" y="226" fill="#E8B84B">WalFrame lsn=42</text>
+    <text class="monosm" x="728" y="241" fill="#93A5C4">SubmissionAcceptanceEvidenceRecorded</text>
+    <text class="monosm" x="1028" y="232" fill="#E8EEF9">blake3</text>
+  </g>
+  <!-- commit row 1 -->
+  <g>
+    <rect x="520" y="258" width="84" height="40" fill="#122B22" stroke="#2C5C46" class="cell"/>
+    <rect x="604" y="258" width="44" height="40" fill="#122B22" stroke="#2C5C46" class="cell"/>
+    <rect x="648" y="258" width="70" height="40" fill="#122B22" stroke="#2C5C46" class="cell"/>
+    <rect x="718" y="258" width="300" height="40" fill="#122B22" stroke="#2C5C46" class="cell"/>
+    <rect x="1018" y="258" width="100" height="40" fill="#122B22" stroke="#2C5C46" class="cell"/>
+    <text class="monosm" x="530" y="282" fill="#E8EEF9">ECWALR1!</text>
+    <text class="monosm" x="618" y="282" fill="#57C793">2</text>
+    <text class="monosm" x="658" y="282" fill="#E8EEF9">u64</text>
+    <text class="monosm" x="728" y="276" fill="#57C793">WalTransactionCommit</text>
+    <text class="monosm" x="728" y="291" fill="#93A5C4">kind=SubmissionIntake lsn 41..42</text>
+    <text class="monosm" x="1028" y="282" fill="#E8EEF9">blake3</text>
+  </g>
+  <path d="M1130 278 L1152 278" fill="none" stroke="#57C793" stroke-width="1.6" marker-end="url(#aGreen2)"/>
+  <text class="monosm" x="738" y="314" fill="#57C793">↑ append + sync_all() — the durable ACK boundary; only now may Echo return the handle</text>
+
+  <!-- frame rows tick tx -->
+  <g>
+    <rect x="520" y="330" width="84" height="40" fill="#1C2B4A" stroke="#334770" class="cell"/>
+    <rect x="604" y="330" width="44" height="40" fill="#2B2413" stroke="#5C4E23" class="cell"/>
+    <rect x="648" y="330" width="70" height="40" fill="#1C2B4A" stroke="#334770" class="cell"/>
+    <rect x="718" y="330" width="300" height="40" fill="#2B2413" stroke="#5C4E23" class="cell"/>
+    <rect x="1018" y="330" width="100" height="40" fill="#1C2B4A" stroke="#334770" class="cell"/>
+    <text class="monosm" x="530" y="354" fill="#E8EEF9">ECWALR1!</text>
+    <text class="monosm" x="618" y="354" fill="#E8B84B">1</text>
+    <text class="monosm" x="658" y="354" fill="#E8EEF9">u64</text>
+    <text class="monosm" x="728" y="348" fill="#E8B84B">WalFrame lsn=43</text>
+    <text class="monosm" x="728" y="363" fill="#93A5C4">TickReceiptRecorded</text>
+    <text class="monosm" x="1028" y="354" fill="#E8EEF9">blake3</text>
+  </g>
+  <g>
+    <rect x="520" y="380" width="84" height="40" fill="#1C2B4A" stroke="#334770" class="cell"/>
+    <rect x="604" y="380" width="44" height="40" fill="#2B2413" stroke="#5C4E23" class="cell"/>
+    <rect x="648" y="380" width="70" height="40" fill="#1C2B4A" stroke="#334770" class="cell"/>
+    <rect x="718" y="380" width="300" height="40" fill="#2B2413" stroke="#5C4E23" class="cell"/>
+    <rect x="1018" y="380" width="100" height="40" fill="#1C2B4A" stroke="#334770" class="cell"/>
+    <text class="monosm" x="530" y="404" fill="#E8EEF9">ECWALR1!</text>
+    <text class="monosm" x="618" y="404" fill="#E8B84B">1</text>
+    <text class="monosm" x="658" y="404" fill="#E8EEF9">u64</text>
+    <text class="monosm" x="728" y="398" fill="#E8B84B">WalFrame lsn=44</text>
+    <text class="monosm" x="728" y="413" fill="#93A5C4">ReceiptCorrelationRecorded</text>
+    <text class="monosm" x="1028" y="404" fill="#E8EEF9">blake3</text>
+  </g>
+  <g>
+    <rect x="520" y="430" width="84" height="40" fill="#1C2B4A" stroke="#334770" class="cell"/>
+    <rect x="604" y="430" width="44" height="40" fill="#2B2413" stroke="#5C4E23" class="cell"/>
+    <rect x="648" y="430" width="70" height="40" fill="#1C2B4A" stroke="#334770" class="cell"/>
+    <rect x="718" y="430" width="300" height="40" fill="#2B2413" stroke="#5C4E23" class="cell"/>
+    <rect x="1018" y="430" width="100" height="40" fill="#1C2B4A" stroke="#334770" class="cell"/>
+    <text class="monosm" x="530" y="454" fill="#E8EEF9">ECWALR1!</text>
+    <text class="monosm" x="618" y="454" fill="#E8B84B">1</text>
+    <text class="monosm" x="658" y="454" fill="#E8EEF9">u64</text>
+    <text class="monosm" x="728" y="448" fill="#E8B84B">WalFrame lsn=45</text>
+    <text class="monosm" x="728" y="463" fill="#93A5C4">RuntimeStateDeltaRecorded</text>
+    <text class="monosm" x="1028" y="454" fill="#E8EEF9">blake3</text>
+  </g>
+  <!-- commit row 2 -->
+  <g>
+    <rect x="520" y="480" width="84" height="40" fill="#122B22" stroke="#2C5C46" class="cell"/>
+    <rect x="604" y="480" width="44" height="40" fill="#122B22" stroke="#2C5C46" class="cell"/>
+    <rect x="648" y="480" width="70" height="40" fill="#122B22" stroke="#2C5C46" class="cell"/>
+    <rect x="718" y="480" width="300" height="40" fill="#122B22" stroke="#2C5C46" class="cell"/>
+    <rect x="1018" y="480" width="100" height="40" fill="#122B22" stroke="#2C5C46" class="cell"/>
+    <text class="monosm" x="530" y="504" fill="#E8EEF9">ECWALR1!</text>
+    <text class="monosm" x="618" y="504" fill="#57C793">2</text>
+    <text class="monosm" x="658" y="504" fill="#E8EEF9">u64</text>
+    <text class="monosm" x="728" y="498" fill="#57C793">WalTransactionCommit</text>
+    <text class="monosm" x="728" y="513" fill="#93A5C4">kind=SchedulerTick lsn 43..45</text>
+    <text class="monosm" x="1028" y="504" fill="#E8EEF9">blake3</text>
+  </g>
+
+  <!-- uncommitted frame -->
+  <g opacity="0.9">
+    <rect x="520" y="552" width="84" height="40" fill="#1C2B4A" stroke="#334770" class="cell"/>
+    <rect x="604" y="552" width="44" height="40" fill="#2B2413" stroke="#5C4E23" class="cell"/>
+    <rect x="648" y="552" width="70" height="40" fill="#1C2B4A" stroke="#334770" class="cell"/>
+    <rect x="718" y="552" width="300" height="40" fill="#2B2413" stroke="#5C4E23" class="cell"/>
+    <rect x="1018" y="552" width="100" height="40" fill="#1C2B4A" stroke="#334770" class="cell"/>
+    <text class="monosm" x="530" y="576" fill="#E8EEF9">ECWALR1!</text>
+    <text class="monosm" x="618" y="576" fill="#E8B84B">1</text>
+    <text class="monosm" x="658" y="576" fill="#E8EEF9">u64</text>
+    <text class="monosm" x="728" y="570" fill="#E8B84B">WalFrame lsn=46</text>
+    <text class="monosm" x="728" y="585" fill="#93A5C4">no commit follows → not history</text>
+    <text class="monosm" x="1028" y="576" fill="#E8EEF9">blake3</text>
+  </g>
+  <!-- torn record -->
+  <g>
+    <rect x="520" y="602" width="380" height="40" fill="url(#hatch)" stroke="#E5605A" class="cell"/>
+    <text class="monosm" x="530" y="626" fill="#FF9B94">partial bytes — process died mid-write (torn tail)</text>
+  </g>
+
+  <!-- tail bracket -->
+  <path d="M1130 552 L1142 552 L1142 642 L1130 642" fill="none" stroke="#E5605A" stroke-width="1.5"/>
+  <text class="monosm" x="920" y="662" fill="#FF9B94">uncommitted tail — truncated (writable recovery)</text>
+  <text class="monosm" x="920" y="678" fill="#FF9B94">or reported as posture (read-only recovery)</text>
+
+  <text class="sub" x="520" y="672">Frames append without fsync. Durability is bought once per transaction,</text>
+  <text class="sub" x="520" y="688">at the commit record — not once per frame.</text>
+
+  <text class="sub" x="40" y="726">Every disk record carries its own BLAKE3 digest under a dedicated domain ("echo:causal_wal:disk_record:v1") — corruption is detected record-by-record, and a</text>
+  <text class="sub" x="40" y="742">clean EOF mid-record reads as a torn tail, not an error.</text>
+</svg>

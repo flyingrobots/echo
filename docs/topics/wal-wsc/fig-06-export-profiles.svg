@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 660" width="1200" height="660" role="img" aria-labelledby="t">
+  <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+  <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+  <title id="t">The three WSC causal-history export profiles: ref-only, self-contained, and CAS-addressed, with their evidence requirements</title>
+  <style>
+    .bg{fill:#0D1526}
+    .card{fill:#16223B;stroke:#2C6B78;stroke-width:1.5}
+    .title{font:700 20px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .ptitle{font:700 15px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#4FC1D4}
+    .txt{font:13px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .sub{font:11.5px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#93A5C4}
+    .mono{font:12px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#E8EEF9}
+    .monosm{font:11.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    .req{fill:#57C793}.opt{fill:#E8B84B}.forb{fill:#E5605A}
+  </style>
+
+  <rect class="bg" x="0" y="0" width="1200" height="660"/>
+  <text class="title" x="40" y="36">One causal history, three portable shapes — WSC export profiles (v1)</text>
+
+  <!-- legend -->
+  <text class="monosm req" x="820" y="36">✓ required</text>
+  <text class="monosm opt" x="930" y="36">○ optional</text>
+  <text class="monosm forb" x="1040" y="36">✕ forbidden</text>
+
+  <!-- Card 1: ref-only -->
+  <rect class="card" x="40" y="64" width="355" height="400" rx="12"/>
+  <text class="ptitle" x="60" y="94">Ref-only</text>
+  <text class="monosm" x="60" y="114" fill="#93A5C4">"ref-only" — evidence points elsewhere</text>
+  <g>
+    <text class="monosm req"  x="60" y="148">✓ projected graph facts</text>
+    <text class="monosm req"  x="60" y="172">✓ segment locators</text>
+    <text class="monosm req"  x="60" y="196">✓ segment digests</text>
+    <text class="monosm req"  x="60" y="220">✓ LSN ranges</text>
+    <text class="monosm req"  x="60" y="244">✓ commit anchors</text>
+    <text class="monosm forb" x="60" y="268">✕ embedded segment bytes / retained material</text>
+    <text class="monosm forb" x="60" y="292">✕ CAS content hashes</text>
+    <text class="monosm forb" x="60" y="316">✕ semantic CAS refs</text>
+  </g>
+  <line x1="60" y1="336" x2="375" y2="336" stroke="#2A3B5E"/>
+  <text class="sub" x="60" y="360">Validation needs the external WAL storage the</text>
+  <text class="sub" x="60" y="376">locators name. Import reports per-segment locator</text>
+  <text class="sub" x="60" y="392">posture instead of pretending bytes exist.</text>
+  <text class="sub" x="60" y="420">Smallest bundle. A map, not the territory.</text>
+
+  <!-- Card 2: self-contained -->
+  <rect class="card" x="422" y="64" width="355" height="400" rx="12"/>
+  <text class="ptitle" x="442" y="94">Self-contained</text>
+  <text class="monosm" x="442" y="114" fill="#93A5C4">"self-contained" — carries its own proof</text>
+  <g>
+    <text class="monosm req"  x="442" y="148">✓ projected graph facts</text>
+    <text class="monosm opt"  x="442" y="172">○ segment locators</text>
+    <text class="monosm req"  x="442" y="196">✓ segment digests</text>
+    <text class="monosm req"  x="442" y="220">✓ LSN ranges</text>
+    <text class="monosm req"  x="442" y="244">✓ commit anchors</text>
+    <text class="monosm req"  x="442" y="268">✓ embedded segment bytes + retained material</text>
+    <text class="monosm forb" x="442" y="292">✕ CAS content hashes</text>
+    <text class="monosm forb" x="442" y="316">✕ semantic CAS refs</text>
+  </g>
+  <line x1="442" y1="336" x2="757" y2="336" stroke="#2A3B5E"/>
+  <text class="sub" x="442" y="360">Validation runs entirely from the bundle: embedded</text>
+  <text class="sub" x="442" y="376">segment bytes are re-recovered with the same frame,</text>
+  <text class="sub" x="442" y="392">commit, and tail checks as filesystem recovery.</text>
+  <text class="sub" x="442" y="420">Biggest bundle. Survives alone across machines.</text>
+
+  <!-- Card 3: CAS-addressed -->
+  <rect class="card" x="804" y="64" width="355" height="400" rx="12"/>
+  <text class="ptitle" x="824" y="94">CAS-addressed</text>
+  <text class="monosm" x="824" y="114" fill="#93A5C4">"CAS-addressed" — bytes by content hash</text>
+  <g>
+    <text class="monosm req"  x="824" y="148">✓ projected graph facts</text>
+    <text class="monosm forb" x="824" y="172">✕ segment locators</text>
+    <text class="monosm req"  x="824" y="196">✓ segment digests</text>
+    <text class="monosm req"  x="824" y="220">✓ LSN ranges</text>
+    <text class="monosm req"  x="824" y="244">✓ commit anchors</text>
+    <text class="monosm forb" x="824" y="268">✕ embedded segment bytes / retained material</text>
+    <text class="monosm req"  x="824" y="292">✓ CAS content hashes</text>
+    <text class="monosm req"  x="824" y="316">✓ semantic refs (what the bytes mean)</text>
+  </g>
+  <line x1="824" y1="336" x2="1139" y2="336" stroke="#2A3B5E"/>
+  <text class="sub" x="824" y="360">Validation fetches bytes from a CAS port by hash,</text>
+  <text class="sub" x="824" y="376">verifies digests, then re-runs full segment recovery.</text>
+  <text class="sub" x="824" y="392">CAS authority: byte retention only — CAS names</text>
+  <text class="sub" x="824" y="408">bytes; it never names history.</text>
+  <text class="sub" x="824" y="436">Deduplicating. Made for echo-cas tiers.</text>
+
+  <!-- doctrine band -->
+  <rect x="40" y="496" width="1119" height="128" rx="12" fill="#16223B" stroke="#5C4E23" stroke-width="1.5"/>
+  <text class="txt" x="60" y="526" fill="#E8B84B" font-weight="700">Identity vs. locator</text>
+  <text class="mono" x="60" y="554" fill="#E8EEF9">causal identity  = writer epoch + LSN range + segment digest + commit-digest chain + commit anchors</text>
+  <text class="mono" x="60" y="576" fill="#93A5C4">storage locator  = "segments/…0042.ecwal" · "cas://…" — replaceable, portable, never identity</text>
+  <text class="mono" x="60" y="606" fill="#E8B84B">WSC carries or references evidence. The WAL commit boundary remains the authority.</text>
+</svg>

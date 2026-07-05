@@ -1,0 +1,130 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" width="1200" height="800" role="img" aria-labelledby="t">
+  <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+  <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+  <title id="t">Anatomy of a WAL frame and transaction commit, showing the frame digest chain and the committed-history chain</title>
+  <style>
+    .bg{fill:#0D1526}
+    .plane{fill:#16223B;stroke:#2A3B5E;stroke-width:1.5}
+    .title{font:700 20px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .ptitle{font:700 15px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .txt{font:13px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .sub{font:11.5px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#93A5C4}
+    .mono{font:12px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#E8EEF9}
+    .monosm{font:11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#93A5C4}
+  </style>
+  <defs>
+    <marker id="aAmber3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#E8B84B"/></marker>
+    <marker id="aGreen3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#57C793"/></marker>
+    <marker id="aTeal3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#4FC1D4"/></marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1200" height="800"/>
+  <text class="title" x="40" y="36">Anatomy of a WAL transaction — frames, roots, and two chains</text>
+
+  <!-- WalFrame anatomy -->
+  <rect class="plane" x="40" y="70" width="520" height="686" rx="12"/>
+  <text class="ptitle" x="60" y="98">WalFrame</text>
+
+  <!-- header -->
+  <rect x="60" y="112" width="480" height="380" fill="#1C2B4A" stroke="#334770" rx="8"/>
+  <text class="txt" x="76" y="136" fill="#6FA8F5" font-weight="700">WalFrameHeader</text>
+  <text class="mono" x="76" y="160">wal_version              u16</text>
+  <text class="mono" x="76" y="180">writer_epoch             32 B</text>
+  <text class="mono" x="76" y="200">segment_id               u64</text>
+  <text class="mono" x="76" y="220" fill="#E8B84B">lsn                      u64   ← global order</text>
+  <text class="mono" x="76" y="240">transaction_id           32 B</text>
+  <text class="mono" x="76" y="260">transaction_local_index  u32</text>
+  <text class="mono" x="76" y="280">record_kind              1 of 21 kinds</text>
+  <text class="mono" x="76" y="300">payload_len              u64</text>
+  <text class="mono" x="76" y="320" fill="#4FC1D4">payload_digest           32 B  ← binds payload</text>
+  <text class="mono" x="76" y="340">payload_codec_id         32 B</text>
+  <text class="mono" x="76" y="360">payload_schema_id        32 B</text>
+  <text class="mono" x="76" y="380">payload_schema_version   u16 · canonical_encoding_version u16</text>
+  <text class="mono" x="76" y="400">digest_domain            32 B</text>
+  <text class="mono" x="76" y="420">compression · redaction posture   u8 · u8</text>
+  <text class="mono" x="76" y="440" fill="#E8B84B">previous_frame_digest    32 B  ← frame chain</text>
+  <text class="mono" x="76" y="460" fill="#57C793">header_checksum          u32 (domain-keyed BLAKE3₃₂)</text>
+  <text class="sub" x="76" y="482">integrity: kind must match payload; digest must match; checksums must verify</text>
+
+  <!-- payload -->
+  <rect x="60" y="506" width="480" height="130" fill="#2B2413" stroke="#5C4E23" rx="8"/>
+  <text class="txt" x="76" y="530" fill="#E8B84B" font-weight="700">WalRecordPayload</text>
+  <text class="mono" x="76" y="554">kind · schema_version · canonical_bytes</text>
+  <text class="sub" x="76" y="578">payload_digest = BLAKE3("echo:causal_wal:payload:v1" ‖ label ‖</text>
+  <text class="sub" x="76" y="594">                        schema_version ‖ len ‖ bytes)</text>
+  <text class="sub" x="76" y="616">payloads are typed records with deterministic byte codecs — no serde, no JSON</text>
+
+  <!-- trailer -->
+  <rect x="60" y="650" width="480" height="88" fill="#122B22" stroke="#2C5C46" rx="8"/>
+  <text class="txt" x="76" y="674" fill="#57C793" font-weight="700">WalFrameTrailer</text>
+  <text class="mono" x="76" y="698">frame_checksum  u32  over header + payload digest</text>
+  <text class="sub" x="76" y="720">frame digest = BLAKE3("echo:causal_wal:frame:v1" ‖ header ‖ payload digest ‖ trailer)</text>
+
+  <!-- Right: chains -->
+  <rect class="plane" x="600" y="70" width="560" height="686" rx="12"/>
+  <text class="ptitle" x="620" y="98">The two chains</text>
+
+  <!-- frames -->
+  <g>
+    <rect x="640" y="120" width="200" height="56" fill="#2B2413" stroke="#5C4E23" rx="8"/>
+    <text class="mono" x="654" y="144">frame lsn=41</text>
+    <text class="monosm" x="654" y="162">SubmissionAcceptedRecorded</text>
+
+    <rect x="640" y="206" width="200" height="56" fill="#2B2413" stroke="#5C4E23" rx="8"/>
+    <text class="mono" x="654" y="230">frame lsn=42</text>
+    <text class="monosm" x="654" y="248">…AcceptanceEvidenceRecorded</text>
+
+    <path d="M740 206 L740 176" fill="none" stroke="#E8B84B" stroke-width="1.8" marker-end="url(#aAmber3)"/>
+    <text class="monosm" x="750" y="196" fill="#E8B84B">previous_frame_digest</text>
+  </g>
+
+  <!-- records root brace -->
+  <path d="M852 128 L868 128 L868 254 L852 254" fill="none" stroke="#4FC1D4" stroke-width="1.6"/>
+  <path d="M868 191 L916 191" fill="none" stroke="#4FC1D4" stroke-width="1.6" marker-end="url(#aTeal3)"/>
+  <text class="monosm" x="880" y="176" fill="#4FC1D4">records_root =</text>
+  <text class="monosm" x="880" y="162" fill="#4FC1D4">H(frame digests)</text>
+
+  <!-- commit box -->
+  <rect x="920" y="120" width="220" height="266" fill="#122B22" stroke="#2C5C46" rx="10"/>
+  <text class="txt" x="936" y="146" fill="#57C793" font-weight="700">WalTransactionCommit</text>
+  <text class="monosm" x="936" y="170" fill="#E8EEF9">writer_epoch · tx_id</text>
+  <text class="monosm" x="936" y="188" fill="#E8EEF9">kind = SubmissionIntake</text>
+  <text class="monosm" x="936" y="206" fill="#E8EEF9">first_lsn=41 · last_lsn=42</text>
+  <text class="monosm" x="936" y="224" fill="#E8EEF9">record_count=2</text>
+  <text class="monosm" x="936" y="242" fill="#4FC1D4">records_root</text>
+  <text class="monosm" x="936" y="260" fill="#4FC1D4">affected_frontiers_root</text>
+  <text class="monosm" x="936" y="278" fill="#57C793">previous_committed_tx_digest</text>
+  <text class="monosm" x="936" y="296" fill="#E8EEF9">durability_mode</text>
+  <text class="monosm" x="936" y="314" fill="#E8EEF9">schema_version</text>
+  <text class="monosm" x="936" y="336" fill="#57C793">commit_digest =</text>
+  <text class="monosm" x="936" y="352" fill="#57C793">H("…commit:v1" ‖ fields)</text>
+  <text class="monosm" x="936" y="374" fill="#93A5C4">validated on build AND on replay</text>
+
+  <!-- previous commit -->
+  <rect x="920" y="430" width="220" height="70" fill="#122B22" stroke="#2C5C46" rx="10" opacity="0.55"/>
+  <text class="monosm" x="936" y="456" fill="#57C793">previous commit</text>
+  <text class="monosm" x="936" y="474" fill="#93A5C4">(earlier transaction)</text>
+  <path d="M1030 430 L1030 386" fill="none" stroke="#57C793" stroke-width="1.8" marker-end="url(#aGreen3)"/>
+  <text class="monosm" x="890" y="414" fill="#57C793" text-anchor="end">committed-history chain</text>
+
+  <!-- affected frontiers -->
+  <rect x="640" y="300" width="200" height="130" fill="#1C2B4A" stroke="#334770" rx="8"/>
+  <text class="txt" x="654" y="324" fill="#6FA8F5" font-weight="700">AffectedFrontier[]</text>
+  <text class="monosm" x="654" y="346">kind: SubmissionQueue</text>
+  <text class="monosm" x="654" y="364">before_digest → after_digest</text>
+  <text class="sub" x="654" y="388">each committed tx names the</text>
+  <text class="sub" x="654" y="404">runtime frontiers it moved,</text>
+  <text class="sub" x="654" y="420">as digest transitions</text>
+  <path d="M840 358 L900 358 L900 256 L916 256" fill="none" stroke="#4FC1D4" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#aTeal3)"/>
+
+  <!-- doctrine footer -->
+  <rect x="620" y="540" width="520" height="196" fill="#1C2B4A" stroke="#334770" rx="10"/>
+  <text class="txt" x="640" y="570" fill="#E8B84B" font-weight="700">Why two chains?</text>
+  <text class="sub" x="640" y="596">The amber frame chain proves append order and detects any</text>
+  <text class="sub" x="640" y="612">reordered, dropped, or spliced frame within the log.</text>
+  <text class="sub" x="640" y="636">The green commit chain is history itself: recovery walks commits,</text>
+  <text class="sub" x="640" y="652">re-derives every digest, and rejects anything that fails.</text>
+  <text class="mono" x="640" y="686" fill="#E8B84B">Records are recorded.</text>
+  <text class="mono" x="640" y="704" fill="#57C793">Transactions are committed.</text>
+  <text class="mono" x="640" y="722" fill="#E8EEF9">History begins at WalTransactionCommit.</text>
+</svg>

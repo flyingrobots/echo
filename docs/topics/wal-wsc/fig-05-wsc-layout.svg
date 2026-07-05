@@ -1,0 +1,151 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 880" width="1240" height="880" role="img" aria-labelledby="t">
+  <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+  <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+  <title id="t">WSC file byte layout: header, warp directory, columnar sections, and blob heap, with row-type zooms and the range indirection scheme</title>
+  <style>
+    .bg{fill:#0D1526}
+    .plane{fill:#16223B;stroke:#2A3B5E;stroke-width:1.5}
+    .sec{stroke-width:1.2}
+    .title{font:700 20px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .ptitle{font:700 14px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .txt{font:13px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .sub{font:11.5px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#93A5C4}
+    .mono{font:12px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#E8EEF9}
+    .monosm{font:11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#93A5C4}
+  </style>
+  <defs>
+    <marker id="aT5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#4FC1D4"/></marker>
+    <marker id="aB5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#6FA8F5"/></marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1240" height="880"/>
+  <text class="title" x="40" y="36">WSC v1 — one deterministic, zero-copy, 8-byte-aligned file</text>
+
+  <!-- file column -->
+  <rect class="plane" x="40" y="64" width="420" height="784" rx="12"/>
+  <text class="ptitle" x="60" y="90">File layout (offsets grow downward)</text>
+
+  <!-- header -->
+  <rect x="60" y="104" width="380" height="120" fill="#173A42" stroke="#2C6B78" class="sec" rx="6"/>
+  <text class="txt" x="74" y="126" fill="#4FC1D4" font-weight="700">WscHeader — 128 B</text>
+  <text class="monosm" x="74" y="146" fill="#E8EEF9">magic: 57 53 43 00 01 00 00 00  ("WSC", v1)</text>
+  <text class="monosm" x="74" y="163" fill="#E8EEF9">schema_hash 32 B · tick u64</text>
+  <text class="monosm" x="74" y="180" fill="#E8EEF9">warp_count u64 · warp_dir_off u64</text>
+  <text class="monosm" x="74" y="197" fill="#93A5C4">reserved 64 B (zero)</text>
+
+  <!-- dir -->
+  <rect x="60" y="232" width="380" height="96" fill="#1C2B4A" stroke="#334770" class="sec" rx="6"/>
+  <text class="txt" x="74" y="254" fill="#6FA8F5" font-weight="700">WarpDirEntry × warp_count — 184 B each</text>
+  <text class="monosm" x="74" y="274" fill="#E8EEF9">warp_id 32 B · root_node_id 32 B</text>
+  <text class="monosm" x="74" y="291" fill="#E8EEF9">offsets + lengths for every section below</text>
+  <text class="monosm" x="74" y="308" fill="#93A5C4">the directory is the only pointer table in the file</text>
+
+  <!-- sections -->
+  <g>
+    <rect x="60" y="340" width="380" height="52" fill="#2B2413" stroke="#5C4E23" class="sec" rx="6"/>
+    <text class="mono" x="74" y="362">nodes        NodeRow × n      (64 B/row)</text>
+    <text class="monosm" x="74" y="380">sorted by node_id — binary-searchable</text>
+
+    <rect x="60" y="400" width="380" height="52" fill="#2B2413" stroke="#5C4E23" class="sec" rx="6"/>
+    <text class="mono" x="74" y="422">edges        EdgeRow × m      (128 B/row)</text>
+    <text class="monosm" x="74" y="440">sorted by edge_id — binary-searchable</text>
+
+    <rect x="60" y="460" width="380" height="40" fill="#1C2B4A" stroke="#334770" class="sec" rx="6"/>
+    <text class="mono" x="74" y="485">out_index    Range × n        (16 B/row)</text>
+
+    <rect x="60" y="508" width="380" height="40" fill="#1C2B4A" stroke="#334770" class="sec" rx="6"/>
+    <text class="mono" x="74" y="533">out_edges    OutEdgeRef × k   (40 B/row)</text>
+
+    <rect x="60" y="556" width="380" height="40" fill="#1C2B4A" stroke="#334770" class="sec" rx="6"/>
+    <text class="mono" x="74" y="581">node_atts_index  Range × n    (16 B/row)</text>
+
+    <rect x="60" y="604" width="380" height="40" fill="#1C2B4A" stroke="#334770" class="sec" rx="6"/>
+    <text class="mono" x="74" y="629">node_atts    AttRow × a       (56 B/row)</text>
+
+    <rect x="60" y="652" width="380" height="40" fill="#1C2B4A" stroke="#334770" class="sec" rx="6"/>
+    <text class="mono" x="74" y="677">edge_atts_index  Range × m    (16 B/row)</text>
+
+    <rect x="60" y="700" width="380" height="40" fill="#1C2B4A" stroke="#334770" class="sec" rx="6"/>
+    <text class="mono" x="74" y="725">edge_atts    AttRow × b       (56 B/row)</text>
+
+    <rect x="60" y="748" width="380" height="56" fill="#173A42" stroke="#2C6B78" class="sec" rx="6"/>
+    <text class="mono" x="74" y="772">blobs        raw bytes</text>
+    <text class="monosm" x="74" y="790">atom attachment payloads, addressed by (off, len)</text>
+  </g>
+  <text class="sub" x="60" y="832">every section boundary is padded to an 8-byte offset · all integers little-endian</text>
+
+  <!-- right side zooms -->
+  <!-- rows card -->
+  <rect class="plane" x="500" y="64" width="700" height="230" rx="12"/>
+  <text class="ptitle" x="520" y="90">Fixed-size rows — #[repr(C)] · bytemuck Pod · compile-time size asserts</text>
+  <g>
+    <text class="mono" x="520" y="120" fill="#E8B84B">NodeRow (64 B)</text>
+    <rect x="700" y="106" width="220" height="20" fill="#2B2413" stroke="#5C4E23"/><text class="monosm" x="708" y="120" fill="#E8EEF9">node_id 32</text>
+    <rect x="920" y="106" width="220" height="20" fill="#1C2B4A" stroke="#334770"/><text class="monosm" x="928" y="120" fill="#E8EEF9">node_type 32</text>
+
+    <text class="mono" x="520" y="152" fill="#E8B84B">EdgeRow (128 B)</text>
+    <rect x="700" y="138" width="110" height="20" fill="#2B2413" stroke="#5C4E23"/><text class="monosm" x="708" y="152" fill="#E8EEF9">edge_id 32</text>
+    <rect x="810" y="138" width="110" height="20" fill="#1C2B4A" stroke="#334770"/><text class="monosm" x="818" y="152" fill="#E8EEF9">from 32</text>
+    <rect x="920" y="138" width="110" height="20" fill="#1C2B4A" stroke="#334770"/><text class="monosm" x="928" y="152" fill="#E8EEF9">to 32</text>
+    <rect x="1030" y="138" width="110" height="20" fill="#1C2B4A" stroke="#334770"/><text class="monosm" x="1038" y="152" fill="#E8EEF9">type 32</text>
+
+    <text class="mono" x="520" y="184" fill="#E8B84B">Range (16 B)</text>
+    <rect x="700" y="170" width="220" height="20" fill="#1C2B4A" stroke="#334770"/><text class="monosm" x="708" y="184" fill="#E8EEF9">start u64</text>
+    <rect x="920" y="170" width="220" height="20" fill="#1C2B4A" stroke="#334770"/><text class="monosm" x="928" y="184" fill="#E8EEF9">len u64</text>
+
+    <text class="mono" x="520" y="216" fill="#E8B84B">OutEdgeRef (40 B)</text>
+    <rect x="700" y="202" width="140" height="20" fill="#1C2B4A" stroke="#334770"/><text class="monosm" x="708" y="216" fill="#E8EEF9">edge_ix u64</text>
+    <rect x="840" y="202" width="300" height="20" fill="#2B2413" stroke="#5C4E23"/><text class="monosm" x="848" y="216" fill="#E8EEF9">edge_id 32</text>
+
+    <text class="mono" x="520" y="248" fill="#E8B84B">AttRow (56 B)</text>
+    <rect x="700" y="234" width="70" height="20" fill="#173A42" stroke="#2C6B78"/><text class="monosm" x="706" y="248" fill="#E8EEF9">tag 1</text>
+    <rect x="770" y="234" width="70" height="20" fill="#1C2B4A" stroke="#334770"/><text class="monosm" x="776" y="248" fill="#93A5C4">rsv 7</text>
+    <rect x="840" y="234" width="160" height="20" fill="#2B2413" stroke="#5C4E23"/><text class="monosm" x="848" y="248" fill="#E8EEF9">type_or_warp 32</text>
+    <rect x="1000" y="234" width="70" height="20" fill="#1C2B4A" stroke="#334770"/><text class="monosm" x="1006" y="248" fill="#E8EEF9">off 8</text>
+    <rect x="1070" y="234" width="70" height="20" fill="#1C2B4A" stroke="#334770"/><text class="monosm" x="1076" y="248" fill="#E8EEF9">len 8</text>
+    <text class="monosm" x="520" y="276" fill="#93A5C4">tag 1 = Atom (type_or_warp = TypeId, payload in blobs) · tag 2 = Descend portal (type_or_warp = child WarpId)</text>
+  </g>
+
+  <!-- indirection card -->
+  <rect class="plane" x="500" y="318" width="700" height="240" rx="12"/>
+  <text class="ptitle" x="520" y="344">Adjacency without pointers — Range indirection</text>
+  <rect x="520" y="366" width="180" height="44" fill="#1C2B4A" stroke="#334770" rx="6"/>
+  <text class="monosm" x="532" y="386" fill="#E8EEF9">out_index[node_ix]</text>
+  <text class="monosm" x="532" y="402" fill="#4FC1D4">= (start, len)</text>
+  <rect x="760" y="366" width="200" height="44" fill="#1C2B4A" stroke="#334770" rx="6"/>
+  <text class="monosm" x="772" y="386" fill="#E8EEF9">out_edges[start‥start+len]</text>
+  <text class="monosm" x="772" y="402" fill="#4FC1D4">OutEdgeRef slice</text>
+  <rect x="1020" y="366" width="160" height="44" fill="#2B2413" stroke="#5C4E23" rx="6"/>
+  <text class="monosm" x="1032" y="386" fill="#E8EEF9">edges[edge_ix]</text>
+  <text class="monosm" x="1032" y="402" fill="#E8B84B">EdgeRow</text>
+  <path d="M700 388 L760 388" fill="none" stroke="#4FC1D4" stroke-width="1.8" marker-end="url(#aT5)"/>
+  <path d="M960 388 L1020 388" fill="none" stroke="#4FC1D4" stroke-width="1.8" marker-end="url(#aT5)"/>
+
+  <rect x="520" y="440" width="180" height="44" fill="#1C2B4A" stroke="#334770" rx="6"/>
+  <text class="monosm" x="532" y="460" fill="#E8EEF9">node_atts_index[i]</text>
+  <text class="monosm" x="532" y="476" fill="#4FC1D4">= (start, len)</text>
+  <rect x="760" y="440" width="200" height="44" fill="#1C2B4A" stroke="#334770" rx="6"/>
+  <text class="monosm" x="772" y="460" fill="#E8EEF9">node_atts[start‥]</text>
+  <text class="monosm" x="772" y="476" fill="#4FC1D4">AttRow slice</text>
+  <rect x="1020" y="440" width="160" height="44" fill="#173A42" stroke="#2C6B78" rx="6"/>
+  <text class="monosm" x="1032" y="460" fill="#E8EEF9">blobs[off‥off+len]</text>
+  <text class="monosm" x="1032" y="476" fill="#4FC1D4">payload bytes</text>
+  <path d="M700 462 L760 462" fill="none" stroke="#4FC1D4" stroke-width="1.8" marker-end="url(#aT5)"/>
+  <path d="M960 462 L1020 462" fill="none" stroke="#4FC1D4" stroke-width="1.8" marker-end="url(#aT5)"/>
+  <text class="sub" x="520" y="516">Index tables are parallel to their owner tables: row i of out_index describes node i. Reading is slicing —</text>
+  <text class="sub" x="520" y="532">no parsing, no allocation, no deserialization. A memory-mapped file is directly usable as &amp;[NodeRow].</text>
+
+  <!-- determinism card -->
+  <rect class="plane" x="500" y="582" width="700" height="266" rx="12" stroke="#2C6B78"/>
+  <text class="ptitle" x="520" y="608" fill="#4FC1D4">Determinism contract</text>
+  <text class="sub" x="520" y="634">The writer canonicalizes before emitting a single byte:</text>
+  <text class="monosm" x="536" y="658" fill="#E8EEF9">· nodes ordered by node_id (BTreeMap iteration)</text>
+  <text class="monosm" x="536" y="676" fill="#E8EEF9">· edges globally sorted by edge_id; per-node buckets re-sorted by edge_id</text>
+  <text class="monosm" x="536" y="694" fill="#E8EEF9">· attachments follow their owner's order; blob bytes appended in that order</text>
+  <text class="monosm" x="536" y="712" fill="#E8EEF9">· fixed row sizes, explicit padding, little-endian integers everywhere</text>
+  <text class="sub" x="520" y="740">Consequence: insertion order is erased. The same graph content yields the same</text>
+  <text class="sub" x="520" y="756">bytes on every platform, every run — so a WSC file's hash is a state fingerprint,</text>
+  <text class="sub" x="520" y="772">and state_root can be computed straight from these tables.</text>
+  <text class="mono" x="520" y="806" fill="#4FC1D4">identical graph content ⇒ identical bytes ⇒ comparable digests</text>
+  <text class="sub" x="520" y="832">validate_wsc() re-checks bounds, alignment, orderings, attachment tags, and blob ranges on read.</text>
+</svg>

@@ -15,6 +15,10 @@ The short rule is:
 Echo may only claim what its WAL can recover.
 ```
 
+For the full byte-level and architecture deep dive — frame and commit anatomy,
+on-disk layout, recovery machinery, the WSC format, and the WAL/WSC export
+profiles — see [The Causal WAL and WSC — Echo's Durability Spine](wal-wsc/README.md).
+
 ## What We Found
 
 The current runtime WAL evidence says four concrete things.

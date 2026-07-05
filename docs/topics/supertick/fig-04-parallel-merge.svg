@@ -1,0 +1,105 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" width="1200" height="760" role="img" aria-labelledby="t">
+  <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+  <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+  <title id="t">Parallel execution with canonical merge: warp-and-shard work units, racing workers emitting tick deltas, and the deterministic merge that erases the race</title>
+  <style>
+    .bg{fill:#0D1526}
+    .plane{fill:#16223B;stroke:#2A3B5E;stroke-width:1.5}
+    .item{fill:#1C2B4A;stroke:#334770;stroke-width:1}
+    .title{font:700 20px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .ptitle{font:700 14px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .txt{font:13px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .sub{font:11.5px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#93A5C4}
+    .mono{font:12px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#E8EEF9}
+    .monosm{font:11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#93A5C4}
+    .mantra{font:600 15px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#57C793}
+  </style>
+  <defs>
+    <marker id="aB4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#6FA8F5"/></marker>
+    <marker id="aG4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#57C793"/></marker>
+    <marker id="aT4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#4FC1D4"/></marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1200" height="760"/>
+  <text class="title" x="40" y="36">Parallel execution — race freely, merge canonically</text>
+
+  <!-- work units -->
+  <rect class="plane" x="40" y="70" width="330" height="280" rx="12"/>
+  <text class="ptitle" x="60" y="98">1 · Partition into (warp × shard) units</text>
+  <text class="mono" x="60" y="128" fill="#4FC1D4">shard = LE_u64(node_id[0..8])</text>
+  <text class="mono" x="132" y="146" fill="#4FC1D4">&amp; (256 − 1)</text>
+  <text class="sub" x="60" y="172">FROZEN protocol constant — changing the</text>
+  <text class="sub" x="60" y="188">routing or NUM_SHARDS is a version bump</text>
+  <g>
+    <rect class="item" x="60" y="206" width="130" height="34" rx="6"/><text class="monosm" x="70" y="227" fill="#E8EEF9">(W_sim, s17)</text>
+    <rect class="item" x="200" y="206" width="130" height="34" rx="6"/><text class="monosm" x="210" y="227" fill="#E8EEF9">(W_sim, s84)</text>
+    <rect class="item" x="60" y="248" width="130" height="34" rx="6"/><text class="monosm" x="70" y="269" fill="#E8EEF9">(W_ttd, s09)</text>
+    <rect class="item" x="200" y="248" width="130" height="34" rx="6"/><text class="monosm" x="210" y="269" fill="#E8EEF9">(W_ttd, s84)</text>
+  </g>
+  <text class="sub" x="60" y="310">shards group rewrites by scope locality —</text>
+  <text class="sub" x="60" y="326">cache-friendly, and warp-scoped by design</text>
+
+  <!-- workers -->
+  <rect class="plane" x="410" y="70" width="360" height="280" rx="12"/>
+  <text class="ptitle" x="430" y="98">2 · Workers race — on purpose</text>
+  <g>
+    <rect class="item" x="430" y="114" width="150" height="52" rx="8"/>
+    <text class="monosm" x="442" y="136" fill="#E8EEF9">worker A</text>
+    <text class="monosm" x="442" y="152" fill="#93A5C4">claims s17, s84…</text>
+    <rect class="item" x="600" y="114" width="150" height="52" rx="8"/>
+    <text class="monosm" x="612" y="136" fill="#E8EEF9">worker B</text>
+    <text class="monosm" x="612" y="152" fill="#93A5C4">claims s09…</text>
+  </g>
+  <text class="sub" x="430" y="192">dynamic steal via one atomic counter;</text>
+  <text class="sub" x="430" y="208">claim order is machine noise — and erased</text>
+  <text class="mono" x="430" y="238" fill="#6FA8F5">executor(GraphView, scope, &amp;mut TickDelta)</text>
+  <text class="sub" x="430" y="262">reads are a shared immutable view; writes are</text>
+  <text class="sub" x="430" y="278">emissions into a private delta — no shared</text>
+  <text class="sub" x="430" y="294">mutable state exists anywhere in the tick</text>
+  <text class="monosm" x="430" y="322" fill="#A78BE0">FootprintGuard (debug/enforce builds): touch</text>
+  <text class="monosm" x="430" y="338" fill="#A78BE0">outside your declared footprint ⇒ poisoned delta</text>
+
+  <path d="M370 210 L410 210" fill="none" stroke="#6FA8F5" stroke-width="1.8" marker-end="url(#aB4)"/>
+
+  <!-- merge -->
+  <rect class="plane" x="810" y="70" width="350" height="280" rx="12" stroke="#2C5C46"/>
+  <text class="ptitle" x="830" y="98" fill="#57C793">3 · Canonical merge</text>
+  <text class="monosm" x="830" y="126" fill="#E8EEF9">flatten all (op, origin) pairs</text>
+  <text class="monosm" x="830" y="146" fill="#57C793">sort by (WarpOpKey, OpOrigin)</text>
+  <text class="monosm" x="830" y="166" fill="#E8EEF9">dedupe identical ops</text>
+  <text class="monosm" x="830" y="186" fill="#E5605A">divergent ops, same key ⇒ MergeConflict</text>
+  <text class="sub" x="830" y="212">a merge conflict is NOT handled — it means</text>
+  <text class="sub" x="830" y="228">the footprint model lied, and the engine</text>
+  <text class="sub" x="830" y="244">explodes loudly instead of guessing</text>
+  <text class="monosm" x="830" y="272" fill="#E5605A">write into a warp created this tick ⇒ error</text>
+  <text class="monosm" x="830" y="292" fill="#E5605A">poisoned delta (panic/violation) ⇒ error</text>
+  <text class="sub" x="830" y="322">the sorted, deduped op list is the ONLY thing</text>
+  <text class="sub" x="830" y="338">downstream — worker identity is gone</text>
+
+  <path d="M770 210 L810 210" fill="none" stroke="#57C793" stroke-width="1.8" marker-end="url(#aG4)"/>
+
+  <!-- op phase ordering -->
+  <rect class="plane" x="40" y="390" width="1120" height="140" rx="12"/>
+  <text class="ptitle" x="60" y="418">WarpOpKey phase ordering — structure before content, deletes before upserts, attachments last</text>
+  <g>
+    <rect x="60"  y="436" width="170" height="40" rx="20" fill="#173A42" stroke="#2C6B78"/><text class="monosm" x="80"  y="460" fill="#4FC1D4">OpenPortal</text>
+    <rect x="246" y="436" width="200" height="40" rx="20" fill="#1C2B4A" stroke="#334770"/><text class="monosm" x="266" y="460" fill="#E8EEF9">Upsert/DeleteInstance</text>
+    <rect x="462" y="436" width="190" height="40" rx="20" fill="#2E1A1C" stroke="#7A3A38"/><text class="monosm" x="482" y="460" fill="#FF9B94">DeleteNode/Edge</text>
+    <rect x="668" y="436" width="190" height="40" rx="20" fill="#2B2413" stroke="#5C4E23"/><text class="monosm" x="688" y="460" fill="#E8B84B">UpsertNode/Edge</text>
+    <rect x="874" y="436" width="190" height="40" rx="20" fill="#1E1A33" stroke="#4A3B73"/><text class="monosm" x="894" y="460" fill="#A78BE0">SetAttachment</text>
+    <path d="M230 456 L246 456" fill="none" stroke="#4FC1D4" stroke-width="1.6" marker-end="url(#aT4)"/>
+    <path d="M446 456 L462 456" fill="none" stroke="#4FC1D4" stroke-width="1.6" marker-end="url(#aT4)"/>
+    <path d="M652 456 L668 456" fill="none" stroke="#4FC1D4" stroke-width="1.6" marker-end="url(#aT4)"/>
+    <path d="M858 456 L874 456" fill="none" stroke="#4FC1D4" stroke-width="1.6" marker-end="url(#aT4)"/>
+  </g>
+  <text class="sub" x="60" y="508">Instances exist before their nodes; a within-tick replace is delete-then-upsert; attachments can never reference a skeleton element that</text>
+  <text class="sub" x="60" y="524">is not there yet. Replay of the op list is therefore total and unambiguous.</text>
+
+  <!-- validation strip -->
+  <rect class="plane" x="40" y="560" width="1120" height="90" rx="12" stroke="#4A3B73"/>
+  <text class="ptitle" x="60" y="588" fill="#A78BE0">Belt and suspenders (test / delta_validate builds)</text>
+  <text class="sub" x="60" y="612">The merged op list is checked against a full diff_state(before, after) — the delta must equal the diff. The SnapshotAccumulator</text>
+  <text class="sub" x="60" y="628">independently rebuilds state_root from base + ops and must agree with the legacy full-state computation. Divergence is a panic, not a log line.</text>
+
+  <text class="mantra" x="600" y="710" text-anchor="middle">Determinism is enforced by canonical merge, not execution order.</text>
+</svg>

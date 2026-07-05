@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 700" width="1200" height="700" role="img" aria-labelledby="t">
+  <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+  <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+  <title id="t">The reserve gate: footprint anatomy, the conflict law, and the tick receipt with its blocked-by causality witness</title>
+  <style>
+    .bg{fill:#0D1526}
+    .plane{fill:#16223B;stroke:#2A3B5E;stroke-width:1.5}
+    .item{fill:#1C2B4A;stroke:#334770;stroke-width:1}
+    .title{font:700 20px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .ptitle{font:700 14px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .txt{font:13px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .sub{font:11.5px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#93A5C4}
+    .mono{font:12px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#E8EEF9}
+    .monosm{font:11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#93A5C4}
+    .mantra{font:600 14px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#E8B84B}
+  </style>
+  <defs>
+    <marker id="aG3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#57C793"/></marker>
+    <marker id="aR3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#E5605A"/></marker>
+    <marker id="aA3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#E8B84B"/></marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1200" height="700"/>
+  <text class="title" x="40" y="36">The reserve gate — first lawful claimant wins, and the loser gets a witness</text>
+
+  <!-- footprint anatomy -->
+  <rect class="plane" x="40" y="70" width="400" height="300" rx="12"/>
+  <text class="ptitle" x="60" y="98">Footprint — a rewrite's declared appetite</text>
+  <g>
+    <rect class="item" x="60" y="114" width="170" height="40" rx="6"/><text class="monosm" x="72" y="132" fill="#6FA8F5">n_read</text><text class="monosm" x="72" y="146" fill="#93A5C4">NodeKey set</text>
+    <rect class="item" x="250" y="114" width="170" height="40" rx="6" stroke="#5C4E23"/><text class="monosm" x="262" y="132" fill="#E8B84B">n_written</text><text class="monosm" x="262" y="146" fill="#93A5C4">NodeKey set</text>
+    <rect class="item" x="60" y="164" width="170" height="40" rx="6"/><text class="monosm" x="72" y="182" fill="#6FA8F5">e_read</text><text class="monosm" x="72" y="196" fill="#93A5C4">EdgeKey set</text>
+    <rect class="item" x="250" y="164" width="170" height="40" rx="6" stroke="#5C4E23"/><text class="monosm" x="262" y="182" fill="#E8B84B">e_written</text><text class="monosm" x="262" y="196" fill="#93A5C4">EdgeKey set</text>
+    <rect class="item" x="60" y="214" width="170" height="40" rx="6"/><text class="monosm" x="72" y="232" fill="#6FA8F5">a_read</text><text class="monosm" x="72" y="246" fill="#93A5C4">AttachmentKey set</text>
+    <rect class="item" x="250" y="214" width="170" height="40" rx="6" stroke="#5C4E23"/><text class="monosm" x="262" y="232" fill="#E8B84B">a_written</text><text class="monosm" x="262" y="246" fill="#93A5C4">AttachmentKey set</text>
+    <rect class="item" x="60" y="264" width="170" height="40" rx="6" stroke="#4A3B73"/><text class="monosm" x="72" y="282" fill="#A78BE0">ports</text><text class="monosm" x="72" y="296" fill="#93A5C4">(WarpId, PortKey)</text>
+    <rect class="item" x="250" y="264" width="170" height="40" rx="6"/><text class="monosm" x="262" y="282" fill="#E8EEF9">factor_mask u64</text><text class="monosm" x="262" y="296" fill="#93A5C4">O(1) prefilter</text>
+  </g>
+  <text class="sub" x="60" y="332">every key is warp-scoped: (WarpId, local id) —</text>
+  <text class="sub" x="60" y="348">same local id in different warps never collides</text>
+
+  <!-- conflict law -->
+  <rect class="plane" x="480" y="70" width="290" height="300" rx="12"/>
+  <text class="ptitle" x="500" y="98">The conflict law</text>
+  <text class="mono" x="500" y="130" fill="#E5605A">W ∩ W   conflict</text>
+  <text class="mono" x="500" y="156" fill="#E5605A">W ∩ R   conflict</text>
+  <text class="mono" x="500" y="182" fill="#E5605A">R ∩ W   conflict</text>
+  <text class="mono" x="500" y="208" fill="#57C793">R ∩ R   independent</text>
+  <text class="mono" x="500" y="240" fill="#E5605A">ports: any overlap conflicts</text>
+  <text class="sub" x="500" y="272">checked per plane — nodes, edges,</text>
+  <text class="sub" x="500" y="288">attachments — with O(1) lookups in</text>
+  <text class="sub" x="500" y="304">generation-stamped sets (GenSet);</text>
+  <text class="sub" x="500" y="320">a tick resets by bumping the</text>
+  <text class="sub" x="500" y="336">generation, not by clearing memory</text>
+
+  <!-- gate -->
+  <rect class="plane" x="810" y="70" width="350" height="300" rx="12" stroke="#5C4E23"/>
+  <text class="ptitle" x="830" y="98" fill="#E8B84B">Check-then-mark, in plan order</text>
+  <text class="monosm" x="830" y="126" fill="#E8EEF9">for candidate in plan order:</text>
+  <text class="monosm" x="846" y="146" fill="#E8EEF9">if independent of reserved set:</text>
+  <text class="monosm" x="862" y="166" fill="#57C793">mark resources → Applied</text>
+  <text class="monosm" x="846" y="186" fill="#E8EEF9">else:</text>
+  <text class="monosm" x="862" y="206" fill="#E5605A">Rejected(FootprintConflict)</text>
+  <text class="monosm" x="862" y="226" fill="#E5605A">blocked_by = [winners hit]</text>
+  <text class="sub" x="830" y="258">arbitration is pure order: the earlier</text>
+  <text class="sub" x="830" y="274">candidate in canonical plan order holds</text>
+  <text class="sub" x="830" y="290">the resources; nothing about threads,</text>
+  <text class="sub" x="830" y="306">arrival time, or luck decides a winner</text>
+  <text class="monosm" x="830" y="338" fill="#57C793">accepted footprints also emit the</text>
+  <text class="monosm" x="830" y="354" fill="#57C793">tick's boundary in/out slots</text>
+
+  <!-- receipt strip -->
+  <rect class="plane" x="40" y="410" width="1120" height="180" rx="12" stroke="#2C5C46"/>
+  <text class="ptitle" x="60" y="438" fill="#57C793">TickReceipt — the judgment, in canonical plan order (Paper II)</text>
+  <g>
+    <rect x="60" y="456" width="200" height="58" rx="8" fill="#122B22" stroke="#2C5C46"/>
+    <text class="monosm" x="74" y="478" fill="#57C793">#0 Applied</text>
+    <text class="monosm" x="74" y="496" fill="#93A5C4">rule r7 @ scope 0x03…</text>
+
+    <rect x="280" y="456" width="200" height="58" rx="8" fill="#122B22" stroke="#2C5C46"/>
+    <text class="monosm" x="294" y="478" fill="#57C793">#1 Applied</text>
+    <text class="monosm" x="294" y="496" fill="#93A5C4">rule r2 @ scope 0x41…</text>
+
+    <rect x="500" y="456" width="240" height="58" rx="8" fill="#2E1A1C" stroke="#7A3A38"/>
+    <text class="monosm" x="514" y="478" fill="#FF9B94">#2 Rejected: FootprintConflict</text>
+    <text class="monosm" x="514" y="496" fill="#FF9B94">blocked_by = [0, 1]</text>
+
+    <rect x="760" y="456" width="200" height="58" rx="8" fill="#122B22" stroke="#2C5C46"/>
+    <text class="monosm" x="774" y="478" fill="#57C793">#3 Applied</text>
+    <text class="monosm" x="774" y="496" fill="#93A5C4">rule r9 @ scope 0x9c…</text>
+  </g>
+  <path d="M600 514 C 480 532, 260 532, 170 518" fill="none" stroke="#E5605A" stroke-width="1.2" stroke-dasharray="4 4" marker-end="url(#aR3)"/>
+  <path d="M580 514 C 520 528, 430 528, 390 518" fill="none" stroke="#E5605A" stroke-width="1.2" stroke-dasharray="4 4" marker-end="url(#aR3)"/>
+  <text class="sub" x="60" y="546">blocked_by is a minimal causality witness — a poset edge list naming exactly which accepted rewrites stood in the way.</text>
+  <text class="sub" x="60" y="562">A rejection is not a failure: it is a lawful, replayable, auditable decision, and it flows into the WAL as history.</text>
+  <text class="monosm" x="920" y="554" fill="#57C793">receipt.digest() = decision_digest</text>
+
+  <text class="mantra" x="600" y="646" text-anchor="middle">Priority is order. Order is canonical. Nothing else gets a vote.</text>
+</svg>

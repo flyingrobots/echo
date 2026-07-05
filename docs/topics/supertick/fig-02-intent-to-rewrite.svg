@@ -1,0 +1,105 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 720" width="1200" height="720" role="img" aria-labelledby="t">
+  <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+  <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+  <title id="t">From ingress envelope to pending rewrite: content-addressed intent becomes a graph node, a command rule matches it, and the radix scheduler orders the candidates</title>
+  <style>
+    .bg{fill:#0D1526}
+    .plane{fill:#16223B;stroke:#2A3B5E;stroke-width:1.5}
+    .item{fill:#1C2B4A;stroke:#334770;stroke-width:1}
+    .title{font:700 20px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .ptitle{font:700 14px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .txt{font:13px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .sub{font:11.5px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#93A5C4}
+    .mono{font:12px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#E8EEF9}
+    .monosm{font:11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#93A5C4}
+    .mantra{font:600 14px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#4FC1D4}
+  </style>
+  <defs>
+    <marker id="aB2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#6FA8F5"/></marker>
+    <marker id="aT2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#4FC1D4"/></marker>
+    <marker id="aA2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#E8B84B"/></marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1200" height="720"/>
+  <text class="title" x="40" y="36">From intent to candidate — the inbox is not a queue, it is graph state</text>
+
+  <!-- envelope -->
+  <rect class="plane" x="40" y="70" width="300" height="210" rx="12"/>
+  <text class="ptitle" x="60" y="98" fill="#6FA8F5">IngressEnvelope</text>
+  <text class="mono" x="60" y="126" fill="#4FC1D4">ingress_id = BLAKE3(payload)</text>
+  <text class="mono" x="60" y="148">target: worldline / inbox / head</text>
+  <text class="mono" x="60" y="170">causal_parents: [Hash]</text>
+  <text class="mono" x="60" y="192">payload: LocalIntent {</text>
+  <text class="mono" x="76" y="212">intent_kind, intent_bytes</text>
+  <text class="mono" x="60" y="232">}</text>
+  <text class="sub" x="60" y="262">identity IS content — resubmission is a no-op</text>
+
+  <!-- graph materialization -->
+  <rect class="plane" x="392" y="70" width="360" height="210" rx="12" stroke="#25505C"/>
+  <text class="ptitle" x="412" y="98" fill="#4FC1D4">Materialized into the WARP graph</text>
+  <!-- event node -->
+  <circle cx="480" cy="170" r="34" fill="#173A42" stroke="#2C6B78" stroke-width="1.5"/>
+  <text class="monosm" x="480" y="166" text-anchor="middle" fill="#E8EEF9">event</text>
+  <text class="monosm" x="480" y="180" text-anchor="middle" fill="#4FC1D4">node</text>
+  <!-- kind node -->
+  <circle cx="660" cy="170" r="30" fill="#1C2B4A" stroke="#334770" stroke-width="1.5"/>
+  <text class="monosm" x="660" y="166" text-anchor="middle" fill="#E8EEF9">kind</text>
+  <text class="monosm" x="660" y="180" text-anchor="middle" fill="#93A5C4">node</text>
+  <path d="M514 170 L630 170" fill="none" stroke="#4FC1D4" stroke-width="1.6" marker-end="url(#aT2)"/>
+  <text class="monosm" x="524" y="160" fill="#4FC1D4">intent_kind edge</text>
+  <text class="monosm" x="412" y="230" fill="#E8EEF9">NodeId(event) = ingress_id</text>
+  <text class="monosm" x="412" y="248" fill="#93A5C4">intent bytes ride as an Atom attachment</text>
+  <text class="sub" x="412" y="268">the intent literally becomes addressable state</text>
+
+  <path d="M340 175 L392 175" fill="none" stroke="#6FA8F5" stroke-width="1.8" marker-end="url(#aB2)"/>
+
+  <!-- rule match -->
+  <rect class="plane" x="804" y="70" width="356" height="210" rx="12"/>
+  <text class="ptitle" x="824" y="98">Command match — first lawful claimant</text>
+  <text class="monosm" x="824" y="124" fill="#E8EEF9">for rule in canonical_cmd_rules:</text>
+  <text class="monosm" x="840" y="144" fill="#E8EEF9">if rule.matcher(GraphView, event):</text>
+  <text class="monosm" x="856" y="164" fill="#57C793">enqueue rewrite; break</text>
+  <text class="sub" x="824" y="196">matchers read an immutable GraphView —</text>
+  <text class="sub" x="824" y="212">matching can never mutate state</text>
+  <text class="sub" x="824" y="240">no match ⇒ the event stays in the graph as</text>
+  <text class="sub" x="824" y="256">inert history, not an error</text>
+
+  <path d="M752 175 L804 175" fill="none" stroke="#6FA8F5" stroke-width="1.8" marker-end="url(#aB2)"/>
+
+  <!-- pending rewrite -->
+  <rect class="plane" x="40" y="320" width="540" height="220" rx="12" stroke="#5C4E23"/>
+  <text class="ptitle" x="60" y="348" fill="#E8B84B">PendingRewrite — born fully declared</text>
+  <text class="mono" x="60" y="376">rule_id · compact_rule</text>
+  <text class="mono" x="60" y="398" fill="#E8B84B">scope_hash = H(rule_id ‖ scope_key)</text>
+  <text class="mono" x="60" y="420">scope: NodeKey (warp-scoped)</text>
+  <text class="mono" x="60" y="442" fill="#E8B84B">footprint — computed AT MATCH TIME</text>
+  <text class="mono" x="60" y="464">phase: Matched · origin: OpOrigin</text>
+  <text class="sub" x="60" y="494">the rule declares its reads and writes before anything runs;</text>
+  <text class="sub" x="60" y="510">in a descended instance, every descent slot is a declared READ</text>
+
+  <path d="M980 280 L980 300 L310 300 L310 320" fill="none" stroke="#E8B84B" stroke-width="1.8" marker-end="url(#aA2)"/>
+
+  <!-- radix drain -->
+  <rect class="plane" x="632" y="320" width="528" height="220" rx="12" stroke="#5C4E23"/>
+  <text class="ptitle" x="652" y="348" fill="#E8B84B">The drain — canonical plan order, zero comparisons</text>
+  <text class="mono" x="652" y="380" fill="#E8EEF9">ascending (scope_hash, rule_id, nonce)</text>
+  <g>
+    <rect x="652" y="400" width="118" height="36" rx="6" fill="#2B2413" stroke="#5C4E23"/><text class="monosm" x="664" y="422" fill="#E8B84B">0x03…a1 · r7</text>
+    <rect x="782" y="400" width="118" height="36" rx="6" fill="#2B2413" stroke="#5C4E23"/><text class="monosm" x="794" y="422" fill="#E8B84B">0x41…09 · r2</text>
+    <rect x="912" y="400" width="118" height="36" rx="6" fill="#2B2413" stroke="#5C4E23"/><text class="monosm" x="924" y="422" fill="#E8B84B">0x41…09 · r7</text>
+    <rect x="1042" y="400" width="98" height="36" rx="6" fill="#2B2413" stroke="#5C4E23"/><text class="monosm" x="1054" y="422" fill="#E8B84B">0x9c…ee…</text>
+    <path d="M770 418 L782 418" fill="none" stroke="#E8B84B" stroke-width="1.6" marker-end="url(#aA2)"/>
+    <path d="M900 418 L912 418" fill="none" stroke="#E8B84B" stroke-width="1.6" marker-end="url(#aA2)"/>
+    <path d="M1030 418 L1042 418" fill="none" stroke="#E8B84B" stroke-width="1.6" marker-end="url(#aA2)"/>
+  </g>
+  <text class="sub" x="652" y="466">stable LSD radix sort — 20 passes of 16-bit digits</text>
+  <text class="sub" x="652" y="482">(16 scope + 2 rule + 2 nonce) · O(n), no comparisons</text>
+  <text class="monosm" x="652" y="512" fill="#57C793">plan_digest commits to this exact order</text>
+  <text class="sub" x="920" y="512">— before anything is judged</text>
+
+  <text class="mantra" x="600" y="600" text-anchor="middle">An intent is a node whose name is its content.</text>
+  <text class="mantra" x="600" y="626" text-anchor="middle">A candidate is a rewrite whose appetite is declared before it runs.</text>
+
+  <text class="sub" x="40" y="680">Enqueue uses last-wins semantics on (scope_hash, rule) — re-matching the same rule at the same scope within a tick replaces the earlier candidate</text>
+  <text class="sub" x="40" y="698">instead of duplicating it. The nonce preserves stable ordering among the survivors.</text>
+</svg>

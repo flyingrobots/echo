@@ -7,6 +7,12 @@
 
 ### Added
 
+- `docs/topics/supertick/` now carries the end-to-end SuperTick deep dive: the
+  failure-atomic scheduler pass, content-addressed ingress and graph-native
+  dispatch, the radix plan order, the footprint reserve gate with `blocked_by`
+  causality witnesses, shard-partitioned parallel execution with canonical
+  merge, and the commit-hash-v2 digest tower, illustrated with five SVG
+  figures and cross-linked with the WAL/WSC deep dive.
 - `docs/topics/wal-wsc/` now carries the end-to-end WAL/WSC deep dive: frame
   and commit anatomy, on-disk segment framing and the fsync ACK boundary,
   recovery pipeline and tail postures, the WSC v1 byte layout and determinism

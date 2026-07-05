@@ -111,7 +111,8 @@ The failure branches are the interesting part:
 
 ### 2.2 Scheduler tick — receipts become visible only after commit
 
-`tick_once()` runs one deterministic scheduler pass (`super_tick`), then
+`tick_once()` runs one deterministic scheduler pass (`super_tick` — opened up
+in full in [The SuperTick — How Echo Decides](../supertick/README.md)), then
 records a `SchedulerTick` transaction for each newly decided intent before the
 outcome is allowed to remain visible:
 

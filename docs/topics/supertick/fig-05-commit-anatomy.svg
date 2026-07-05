@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 780" width="1200" height="780" role="img" aria-labelledby="t">
+  <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+  <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+  <title id="t">Sealing the tick: the digest tower, what commit hash v2 commits to versus what stays diagnostic, and the handoff to provenance and the WAL</title>
+  <style>
+    .bg{fill:#0D1526}
+    .plane{fill:#16223B;stroke:#2A3B5E;stroke-width:1.5}
+    .item{fill:#1C2B4A;stroke:#334770;stroke-width:1}
+    .title{font:700 20px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .ptitle{font:700 14px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .txt{font:13px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .sub{font:11.5px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#93A5C4}
+    .mono{font:12px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#E8EEF9}
+    .monosm{font:11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#93A5C4}
+    .mantra{font:600 15px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#57C793}
+  </style>
+  <defs>
+    <marker id="aG5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#57C793"/></marker>
+    <marker id="aA5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#E8B84B"/></marker>
+    <marker id="aT5b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#4FC1D4"/></marker>
+    <marker id="aP5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#A78BE0"/></marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1200" height="780"/>
+  <text class="title" x="40" y="36">Sealing the tick — commit to replay, retain the narration</text>
+
+  <!-- diagnostics column -->
+  <rect class="plane" x="40" y="70" width="340" height="330" rx="12"/>
+  <text class="ptitle" x="60" y="98">Diagnostics — retained, NOT committed</text>
+  <rect class="item" x="60" y="114" width="300" height="72" rx="8"/>
+  <text class="mono" x="74" y="138" fill="#6FA8F5">plan_digest</text>
+  <text class="sub" x="74" y="158">what was considered, in exactly</text>
+  <text class="sub" x="74" y="174">which canonical order</text>
+  <rect class="item" x="60" y="196" width="300" height="72" rx="8"/>
+  <text class="mono" x="74" y="220" fill="#6FA8F5">decision_digest = receipt.digest()</text>
+  <text class="sub" x="74" y="240">what was accepted, what was lawfully</text>
+  <text class="sub" x="74" y="256">rejected, and who blocked whom</text>
+  <rect class="item" x="60" y="278" width="300" height="72" rx="8"/>
+  <text class="mono" x="74" y="302" fill="#6FA8F5">rewrites_digest</text>
+  <text class="sub" x="74" y="322">the ordered subset that actually ran</text>
+  <text class="sub" x="60" y="382">answer “why”, audit the judgment — but replay does not need them</text>
+
+  <!-- committed column -->
+  <rect class="plane" x="420" y="70" width="360" height="330" rx="12" stroke="#2C5C46"/>
+  <text class="ptitle" x="440" y="98" fill="#57C793">Committed — the replay boundary</text>
+  <rect x="440" y="114" width="320" height="118" rx="8" fill="#122B22" stroke="#2C5C46"/>
+  <text class="mono" x="454" y="138" fill="#57C793">state_root</text>
+  <text class="sub" x="454" y="158">domain-separated BLAKE3 over the</text>
+  <text class="sub" x="454" y="174">deterministically reachable graph: BFS from</text>
+  <text class="sub" x="454" y="190">root, nodes ascending, edges sorted per</text>
+  <text class="sub" x="454" y="206">bucket, descend portals recursed —</text>
+  <text class="sub" x="454" y="222">the same canonical order WSC serializes</text>
+  <rect x="440" y="244" width="320" height="118" rx="8" fill="#122B22" stroke="#2C5C46"/>
+  <text class="mono" x="454" y="268" fill="#57C793">patch_digest</text>
+  <text class="sub" x="454" y="288">WarpTickPatchV1: policy_id · rule_pack_id ·</text>
+  <text class="sub" x="454" y="304">commit status · boundary in/out slots ·</text>
+  <text class="sub" x="454" y="320">the canonical op list (diff of the whole</text>
+  <text class="sub" x="454" y="336">commit, ingress materialization included)</text>
+  <text class="sub" x="440" y="382">“what the world became” + “what was done to it” — nothing else</text>
+
+  <!-- commit hash -->
+  <rect class="plane" x="820" y="70" width="340" height="330" rx="12" stroke="#5C4E23"/>
+  <text class="ptitle" x="840" y="98" fill="#E8B84B">commit_hash (commit id, v2)</text>
+  <text class="mono" x="840" y="130" fill="#E8B84B">H( COMMIT_ID_V2 ‖ v=2</text>
+  <text class="mono" x="856" y="152" fill="#E8B84B">‖ parents[]</text>
+  <text class="mono" x="856" y="174" fill="#E8B84B">‖ state_root</text>
+  <text class="mono" x="856" y="196" fill="#E8B84B">‖ patch_digest</text>
+  <text class="mono" x="856" y="218" fill="#E8B84B">‖ policy_id )</text>
+  <text class="sub" x="840" y="250">parents make history explicit: none for</text>
+  <text class="sub" x="840" y="266">genesis, one for linear ticks, two or more</text>
+  <text class="sub" x="840" y="282">for merges — supplied in canonical order</text>
+  <text class="sub" x="840" y="310">policy_id pins the deciding law; the same</text>
+  <text class="sub" x="840" y="326">delta under a different policy is a</text>
+  <text class="sub" x="840" y="342">different commit</text>
+  <text class="monosm" x="840" y="374" fill="#93A5C4">NUM_SHARDS lives in the digest domain —</text>
+  <text class="monosm" x="840" y="390" fill="#93A5C4">even the routing constant is committed</text>
+
+  <path d="M780 178 L820 178" fill="none" stroke="#57C793" stroke-width="1.8" marker-end="url(#aG5)"/>
+  <path d="M780 300 L820 300" fill="none" stroke="#57C793" stroke-width="1.8" marker-end="url(#aG5)"/>
+
+  <!-- snapshot -->
+  <rect class="plane" x="40" y="440" width="540" height="180" rx="12"/>
+  <text class="ptitle" x="60" y="468">Snapshot — one tick, ten facts</text>
+  <text class="mono" x="60" y="496">root · hash · state_root · parents[]</text>
+  <text class="mono" x="60" y="518">plan_digest · decision_digest · rewrites_digest</text>
+  <text class="mono" x="60" y="540">patch_digest · policy_id · tx</text>
+  <text class="sub" x="60" y="570">pushed into tick history beside its receipt and patch —</text>
+  <text class="sub" x="60" y="586">the debugger seeks over exactly these artifacts</text>
+  <path d="M990 400 L990 420 L310 420 L310 440" fill="none" stroke="#E8B84B" stroke-width="1.8" marker-end="url(#aA5)"/>
+
+  <!-- handoff -->
+  <rect class="plane" x="620" y="440" width="540" height="180" rx="12" stroke="#4A3B73"/>
+  <text class="ptitle" x="640" y="468" fill="#A78BE0">The handoff — engine truth becomes runtime history</text>
+  <text class="monosm" x="640" y="496" fill="#E8EEF9">provenance entry: HashTriplet { state_root, patch_digest, commit_hash }</text>
+  <text class="monosm" x="640" y="516" fill="#E8EEF9">receipt correlation: submission ↔ ticket ↔ receipt digest ↔ commit tick</text>
+  <text class="monosm" x="640" y="536" fill="#E8B84B">WAL SchedulerTick tx: TickReceiptRecorded · ReceiptCorrelationRecorded ·</text>
+  <text class="monosm" x="640" y="554" fill="#E8B84B">RuntimeStateDeltaRecorded — committed before any outcome is visible</text>
+  <text class="sub" x="640" y="584">the same digests appear at every layer: engine snapshot, provenance</text>
+  <text class="sub" x="640" y="600">entry, WAL payloads, WSC exports — one identity, four witnesses</text>
+  <path d="M580 530 L620 530" fill="none" stroke="#A78BE0" stroke-width="1.8" marker-end="url(#aP5)"/>
+
+  <!-- doctrine -->
+  <rect x="40" y="656" width="1120" height="70" rx="12" fill="#16223B" stroke="#2C5C46" stroke-width="1.5"/>
+  <text class="mantra" x="600" y="688" text-anchor="middle">Commit v2 commits to replay, not narration.</text>
+  <text class="sub" x="600" y="712" text-anchor="middle">If you can rebuild the state and the delta, you can rebuild everything else. If you cannot, no digest of the story would save you.</text>
+</svg>

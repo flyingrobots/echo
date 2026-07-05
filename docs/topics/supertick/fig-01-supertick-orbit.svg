@@ -1,0 +1,140 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" width="1200" height="760" role="img" aria-labelledby="t">
+  <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+  <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+  <title id="t">One SuperTick: gates, checkpoint, the per-head commit loop in canonical order, and the failure-atomic rollback path</title>
+  <style>
+    .bg{fill:#0D1526}
+    .plane{fill:#16223B;stroke:#2A3B5E;stroke-width:1.5}
+    .item{fill:#1C2B4A;stroke:#334770;stroke-width:1}
+    .title{font:700 20px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .ptitle{font:700 14px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .txt{font:13px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .sub{font:11.5px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#93A5C4}
+    .mono{font:12px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#E8EEF9}
+    .monosm{font:11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#93A5C4}
+    .mantra{font:600 15px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#6FA8F5}
+  </style>
+  <defs>
+    <marker id="aB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#6FA8F5"/></marker>
+    <marker id="aG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#57C793"/></marker>
+    <marker id="aR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#E5605A"/></marker>
+    <marker id="aP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#A78BE0"/></marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1200" height="760"/>
+  <text class="title" x="40" y="36">One SuperTick — a failure-atomic pass over the runnable frontier</text>
+
+  <!-- gates strip -->
+  <g>
+    <rect class="item" x="40" y="64" width="180" height="64" rx="8"/>
+    <text class="txt" x="54" y="90">Fault gate</text>
+    <text class="sub" x="54" y="110">runtime quarantined? stop.</text>
+
+    <rect class="item" x="256" y="64" width="200" height="64" rx="8"/>
+    <text class="txt" x="270" y="90">refresh_runnable()</text>
+    <text class="sub" x="270" y="110">admitted ∧ ¬paused heads</text>
+
+    <rect class="item" x="492" y="64" width="200" height="64" rx="8"/>
+    <text class="txt" x="506" y="90">GlobalTick + 1</text>
+    <text class="sub" x="506" y="110">overflow ⇒ typed runtime fault</text>
+
+    <rect class="item" x="728" y="64" width="200" height="64" rx="8"/>
+    <text class="txt" x="742" y="90">derive run_id</text>
+    <text class="sub" x="742" y="110">H(next tick ‖ head keys)</text>
+
+    <rect class="item" x="964" y="64" width="196" height="64" rx="8"/>
+    <text class="txt" x="978" y="90">Pre-flight heads</text>
+    <text class="sub" x="978" y="110">inbox can_admit · frontier ok</text>
+
+    <path d="M220 96 L256 96" fill="none" stroke="#6FA8F5" stroke-width="1.8" marker-end="url(#aB)"/>
+    <path d="M456 96 L492 96" fill="none" stroke="#6FA8F5" stroke-width="1.8" marker-end="url(#aB)"/>
+    <path d="M692 96 L728 96" fill="none" stroke="#6FA8F5" stroke-width="1.8" marker-end="url(#aB)"/>
+    <path d="M928 96 L964 96" fill="none" stroke="#6FA8F5" stroke-width="1.8" marker-end="url(#aB)"/>
+  </g>
+
+  <!-- checkpoint band -->
+  <rect x="40" y="156" width="1120" height="54" rx="10" fill="#1E1A33" stroke="#4A3B73" stroke-width="1.5"/>
+  <text class="txt" x="60" y="182" fill="#A78BE0" font-weight="700">Checkpoint</text>
+  <text class="sub" x="160" y="182">runtime state AND provenance are cloned before any head commits — the whole pass gets one atomic fate</text>
+  <text class="monosm" x="60" y="200" fill="#A78BE0">runtime.checkpoint_for(keys) · provenance.checkpoint_for(worldlines)</text>
+
+  <!-- per-head loop -->
+  <rect class="plane" x="40" y="238" width="740" height="360" rx="12"/>
+  <text class="ptitle" x="60" y="266">For each writer head — canonical (worldline_id, head_id) order</text>
+
+  <rect class="item" x="60" y="284" width="200" height="56" rx="8"/>
+  <text class="mono" x="74" y="308">inbox.admit()</text>
+  <text class="sub" x="74" y="326">policy-bounded, content order</text>
+
+  <rect class="item" x="300" y="284" width="220" height="56" rx="8"/>
+  <text class="mono" x="314" y="308">engine.commit_with_state</text>
+  <text class="sub" x="314" y="326">match → reserve → run → seal</text>
+
+  <rect class="item" x="560" y="284" width="200" height="56" rx="8"/>
+  <text class="mono" x="574" y="308">provenance entry</text>
+  <text class="sub" x="574" y="326">parents = worldline tip</text>
+
+  <rect class="item" x="60" y="372" width="200" height="56" rx="8"/>
+  <text class="mono" x="74" y="396">advance_tick()</text>
+  <text class="sub" x="74" y="414">WorldlineTick += 1</text>
+
+  <rect class="item" x="300" y="372" width="220" height="56" rx="8"/>
+  <text class="mono" x="314" y="396">receipt correlations</text>
+  <text class="sub" x="314" y="414">submission ↔ receipt digest</text>
+
+  <rect x="560" y="372" width="200" height="56" rx="8" fill="#122B22" stroke="#2C5C46"/>
+  <text class="mono" x="574" y="396" fill="#57C793">StepRecord</text>
+  <text class="sub" x="574" y="414">state_root · commit_hash</text>
+
+  <path d="M260 312 L300 312" fill="none" stroke="#6FA8F5" stroke-width="1.8" marker-end="url(#aB)"/>
+  <path d="M520 312 L560 312" fill="none" stroke="#6FA8F5" stroke-width="1.8" marker-end="url(#aB)"/>
+  <path d="M660 340 L660 356 L160 356 L160 372" fill="none" stroke="#6FA8F5" stroke-width="1.6" marker-end="url(#aB)"/>
+  <path d="M260 400 L300 400" fill="none" stroke="#6FA8F5" stroke-width="1.8" marker-end="url(#aB)"/>
+  <path d="M520 400 L560 400" fill="none" stroke="#57C793" stroke-width="1.8" marker-end="url(#aG)"/>
+
+  <!-- loop back arrow -->
+  <path d="M660 428 L660 452 L110 452 L110 340" fill="none" stroke="#334770" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#aB)"/>
+  <text class="sub" x="300" y="447">next head, same canonical order — an empty inbox is skipped, not an error</text>
+
+  <rect x="60" y="486" width="700" height="90" rx="10" fill="#1C2B4A" stroke="#334770"/>
+  <text class="txt" x="76" y="512" fill="#6FA8F5" font-weight="700">Why canonical order matters</text>
+  <text class="sub" x="76" y="534">Two hosts with the same worldlines, heads, and pending intents will admit and commit in exactly the</text>
+  <text class="sub" x="76" y="550">same sequence. There is no thread race, no arrival-time bias, no iteration-order luck anywhere in the</text>
+  <text class="sub" x="76" y="566">pass. The runnable set is rebuilt from a BTreeMap — the ordering is a property of the data, not the run.</text>
+
+  <!-- failure path -->
+  <rect class="plane" x="812" y="238" width="348" height="360" rx="12" stroke="#7A3A38"/>
+  <text class="ptitle" x="832" y="266" fill="#FF9B94">Any error — or any panic</text>
+
+  <rect x="832" y="284" width="308" height="52" rx="8" fill="#2E1A1C" stroke="#7A3A38"/>
+  <text class="mono" x="846" y="306" fill="#FF9B94">rollback receipt correlations</text>
+  <text class="sub" x="846" y="324">newly published pairs withdrawn</text>
+
+  <rect x="832" y="348" width="308" height="52" rx="8" fill="#2E1A1C" stroke="#7A3A38"/>
+  <text class="mono" x="846" y="370" fill="#FF9B94">restore runtime + provenance</text>
+  <text class="sub" x="846" y="388">both rewound to the checkpoint</text>
+
+  <rect x="832" y="412" width="308" height="70" rx="8" fill="#2E1A1C" stroke="#7A3A38"/>
+  <text class="mono" x="846" y="434" fill="#FF9B94">record scheduler fault</text>
+  <text class="sub" x="846" y="452">head-scoped: one head quarantined</text>
+  <text class="sub" x="846" y="468">runtime-scoped: whole runtime halts</text>
+
+  <rect x="832" y="494" width="308" height="52" rx="8" fill="#2E1A1C" stroke="#7A3A38"/>
+  <text class="mono" x="846" y="516" fill="#FF9B94">re-raise error / resume panic</text>
+  <text class="sub" x="846" y="534">nothing half-committed survives</text>
+
+  <path d="M898 336 L898 348" fill="none" stroke="#E5605A" stroke-width="1.8" marker-end="url(#aR)"/>
+  <path d="M898 400 L898 412" fill="none" stroke="#E5605A" stroke-width="1.8" marker-end="url(#aR)"/>
+  <path d="M898 482 L898 494" fill="none" stroke="#E5605A" stroke-width="1.8" marker-end="url(#aR)"/>
+  <path d="M780 312 L812 300" fill="none" stroke="#E5605A" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#aR)"/>
+  <text class="sub" x="836" y="570" fill="#FF9B94">catch_unwind wraps every head commit —</text>
+  <text class="sub" x="836" y="586" fill="#FF9B94">even a rule panic restores state first.</text>
+
+  <!-- success -->
+  <rect x="40" y="628" width="740" height="54" rx="10" fill="#122B22" stroke="#2C5C46" stroke-width="1.5"/>
+  <text class="txt" x="60" y="654" fill="#57C793" font-weight="700">All heads succeeded</text>
+  <text class="monosm" x="230" y="654" fill="#57C793">runtime.global_tick = next_global_tick — the SuperTick becomes real only at the very end</text>
+  <path d="M410 598 L410 628" fill="none" stroke="#57C793" stroke-width="1.8" marker-end="url(#aG)"/>
+
+  <text class="mantra" x="600" y="730" text-anchor="middle">Every head commits under one judgment, or the SuperTick never happened.</text>
+</svg>

@@ -2,10 +2,17 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Retained evidence reference regression tests.
 
+use echo_cas::{blob_hash, RetainedBlobRole, SemanticBlobCoordinate};
+use warp_core::causal_wal::{
+    EvidenceMaterialPosture, ReadingRefRecord, RecoveredRetentionIndex,
+    RecoveredRetentionIndexError, RetainedMaterialKind, RetainedMaterialRecord,
+};
 use warp_core::{
-    ContractEvidenceIdentity, ContractObstructionKind, ContractObstructionSubject,
-    ContractOperationKind, InstalledContractPackageId, RetainedEvidenceCoordinate,
-    RetainedEvidencePosture, RetainedEvidenceRef, RetainedEvidenceRole,
+    make_head_id, ContractEvidenceIdentity, ContractObstructionKind, ContractObstructionSubject,
+    ContractOperationKind, GlobalTick, InstalledContractPackageId, IntentOutcome,
+    IntentOutcomeDecision, IntentOutcomeObservation, ReceiptCorrelationRecord,
+    RetainedEvidenceCoordinate, RetainedEvidencePosture, RetainedEvidenceRef, RetainedEvidenceRole,
+    TickReceiptRejection, WorldlineId, WorldlineTick, WriterHeadKey,
 };
 
 fn hash(seed: u8) -> [u8; 32] {
@@ -39,6 +46,53 @@ fn coordinate(role: RetainedEvidenceRole, semantic_seed: u8) -> RetainedEvidence
         role,
         hash(semantic_seed),
     )
+}
+
+fn semantic_blob_coordinate(role: RetainedBlobRole, semantic_seed: u8) -> SemanticBlobCoordinate {
+    SemanticBlobCoordinate {
+        namespace: "echo:test-retained-evidence-crosswalk".to_owned(),
+        schema_hash_hex: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+            .to_owned(),
+        artifact_hash_hex: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            .to_owned(),
+        role,
+        semantic_digest: hash(semantic_seed),
+    }
+}
+
+fn writer_head(seed: u8) -> WriterHeadKey {
+    WriterHeadKey {
+        worldline_id: WorldlineId::from_bytes(hash(seed)),
+        head_id: make_head_id(&format!("retained-evidence-head-{seed}")),
+    }
+}
+
+fn receipt_correlation(contract: ContractEvidenceIdentity) -> ReceiptCorrelationRecord {
+    ReceiptCorrelationRecord {
+        ticketed_ingress_id: hash(21),
+        submission_id: hash(22),
+        ticket_digest: hash(23),
+        ingress_id: hash(24),
+        head_key: writer_head(25),
+        contract: Some(contract),
+        commit_global_tick: GlobalTick::from_raw(26),
+        worldline_tick_after: WorldlineTick::from_raw(27),
+        tick_receipt_digest: hash(28),
+        commit_hash: hash(29),
+    }
+}
+
+fn assert_missing_retention(posture: &RetainedEvidencePosture) {
+    assert_eq!(
+        posture.obstruction().map(|obstruction| obstruction.kind),
+        Some(ContractObstructionKind::MissingRetention)
+    );
+    assert!(matches!(
+        posture
+            .obstruction()
+            .map(|obstruction| &obstruction.subject),
+        Some(ContractObstructionSubject::Retention { .. })
+    ));
 }
 
 #[test]
@@ -142,6 +196,146 @@ fn missing_content_returns_missing_retention_obstruction_with_ref_id() {
 }
 
 #[test]
+fn retained_reading_missing_payload_is_not_empty_success() {
+    let query_contract = contract(14, 15, ContractOperationKind::Query);
+    let reading_id = hash(16);
+    let payload_bytes = b"retained query payload bytes";
+    let envelope_coordinate = RetainedEvidenceCoordinate::new(
+        query_contract.clone(),
+        RetainedEvidenceRole::ReadingEnvelope,
+        reading_id,
+    );
+    let payload_ref = RetainedEvidenceRef::new(
+        RetainedEvidenceCoordinate::new(
+            query_contract,
+            RetainedEvidenceRole::ReadingPayload,
+            reading_id,
+        ),
+        content_hash(payload_bytes),
+        payload_bytes.len() as u64,
+    );
+    let reading_postures = [
+        RetainedEvidencePosture::missing_coordinate(&envelope_coordinate),
+        RetainedEvidencePosture::missing_content(&payload_ref),
+    ];
+
+    assert_eq!(reading_postures.len(), 2);
+    assert!(matches!(
+        &reading_postures[0],
+        RetainedEvidencePosture::MissingCoordinate { .. }
+    ));
+    if let RetainedEvidencePosture::MissingCoordinate {
+        coordinate,
+        obstruction,
+    } = &reading_postures[0]
+    {
+        assert_eq!(coordinate.role, RetainedEvidenceRole::ReadingEnvelope);
+        assert_eq!(coordinate.semantic_digest, reading_id);
+        assert_eq!(obstruction.kind, ContractObstructionKind::MissingRetention);
+        assert_eq!(
+            obstruction.subject,
+            ContractObstructionSubject::Retention {
+                retention_id: coordinate.coordinate_id()
+            }
+        );
+    }
+    assert!(matches!(
+        &reading_postures[1],
+        RetainedEvidencePosture::MissingContent { .. }
+    ));
+    if let RetainedEvidencePosture::MissingContent {
+        reference,
+        obstruction,
+    } = &reading_postures[1]
+    {
+        assert_eq!(
+            reference.coordinate.role,
+            RetainedEvidenceRole::ReadingPayload
+        );
+        assert_eq!(reference.coordinate.semantic_digest, reading_id);
+        assert_eq!(reference.content_hash, content_hash(payload_bytes));
+        assert_eq!(reference.byte_len, payload_bytes.len() as u64);
+        assert_eq!(obstruction.kind, ContractObstructionKind::MissingRetention);
+        assert_eq!(
+            obstruction.subject,
+            ContractObstructionSubject::Retention {
+                retention_id: reference.evidence_ref_id()
+            }
+        );
+    }
+    for posture in &reading_postures {
+        assert_missing_retention(posture);
+    }
+
+    let receipt_contract = contract(17, 18, ContractOperationKind::Mutation);
+    let correlation = receipt_correlation(receipt_contract.clone());
+    let applied = IntentOutcome::from_observation(IntentOutcomeObservation::Decided {
+        correlation: Box::new(correlation.clone()),
+        decision: IntentOutcomeDecision::Applied {
+            receipt_entry_index: 3,
+            rule_id: hash(30),
+        },
+    });
+    let rejected = IntentOutcome::from_observation(IntentOutcomeObservation::Decided {
+        correlation: Box::new(correlation.clone()),
+        decision: IntentOutcomeDecision::Rejected {
+            receipt_entry_index: 4,
+            rule_id: hash(31),
+            reason: TickReceiptRejection::FootprintConflict,
+            blocked_by: vec![3],
+        },
+    });
+
+    for outcome in [&applied, &rejected] {
+        assert!(matches!(
+            outcome,
+            IntentOutcome::Applied { .. } | IntentOutcome::Rejected { .. }
+        ));
+        if let IntentOutcome::Applied { receipt, .. } | IntentOutcome::Rejected { receipt, .. } =
+            outcome
+        {
+            assert_eq!(receipt.contract, Some(receipt_contract.clone()));
+            assert!(matches!(
+                receipt.retained_evidence.as_slice(),
+                [RetainedEvidencePosture::MissingCoordinate { .. }]
+            ));
+            if let [RetainedEvidencePosture::MissingCoordinate {
+                coordinate,
+                obstruction,
+            }] = receipt.retained_evidence.as_slice()
+            {
+                assert_eq!(coordinate.contract, receipt_contract);
+                assert_eq!(coordinate.role, RetainedEvidenceRole::ContractReceipt);
+                assert_eq!(coordinate.semantic_digest, correlation.tick_receipt_digest);
+                assert_eq!(obstruction.kind, ContractObstructionKind::MissingRetention);
+            }
+        }
+    }
+    assert!(matches!(
+        rejected,
+        IntentOutcome::Rejected {
+            reason: TickReceiptRejection::FootprintConflict,
+            ref blocked_by,
+            ..
+        } if blocked_by == &[3]
+    ));
+
+    let no_matching_receipt = IntentOutcome::from_observation(IntentOutcomeObservation::Decided {
+        correlation: Box::new(correlation),
+        decision: IntentOutcomeDecision::NoMatchingReceiptEntry {
+            tick_receipt_digest: hash(28),
+        },
+    });
+    assert!(matches!(
+        no_matching_receipt,
+        IntentOutcome::Obstructed {
+            obstruction,
+            ..
+        } if obstruction.kind == ContractObstructionKind::MissingRetention
+    ));
+}
+
+#[test]
 fn available_retained_evidence_is_not_an_obstruction() {
     let reference = RetainedEvidenceRef::new(
         coordinate(RetainedEvidenceRole::ObserverArtifact, 9),
@@ -168,4 +362,74 @@ fn query_identity_does_not_imply_payload_retention() {
         missing.obstruction().map(|obstruction| obstruction.kind),
         Some(ContractObstructionKind::MissingRetention)
     );
+}
+
+#[test]
+fn wal_retention_crosswalk_keeps_coordinate_reading_and_payload_axes_distinct(
+) -> Result<(), RecoveredRetentionIndexError> {
+    let bytes = b"same reading bytes";
+    let content_hash = blob_hash(bytes);
+    let content_digest = *content_hash.as_bytes();
+    let first_coordinate = semantic_blob_coordinate(RetainedBlobRole::ReadingPayload, 11);
+    let second_coordinate = semantic_blob_coordinate(RetainedBlobRole::ReadingPayload, 12);
+    let first_ref = RetainedEvidenceRef::new(
+        RetainedEvidenceCoordinate::new(
+            contract(11, 12, ContractOperationKind::Query),
+            RetainedEvidenceRole::ReadingPayload,
+            first_coordinate.semantic_digest,
+        ),
+        content_digest,
+        bytes.len() as u64,
+    );
+    let second_ref = RetainedEvidenceRef::new(
+        RetainedEvidenceCoordinate::new(
+            first_ref.coordinate.contract.clone(),
+            RetainedEvidenceRole::ReadingPayload,
+            second_coordinate.semantic_digest,
+        ),
+        content_digest,
+        bytes.len() as u64,
+    );
+
+    assert_eq!(first_ref.content_hash, content_digest);
+    assert_eq!(second_ref.content_hash, content_digest);
+    assert_ne!(
+        first_ref.coordinate.coordinate_id(),
+        second_ref.coordinate.coordinate_id()
+    );
+    assert_ne!(first_ref.evidence_ref_id(), second_ref.evidence_ref_id());
+
+    let reading_id = hash(13);
+    let material = RetainedMaterialRecord {
+        material_digest: content_digest,
+        semantic_coordinate_digest: first_coordinate.semantic_digest,
+        kind: RetainedMaterialKind::ReadingPayload,
+        posture: EvidenceMaterialPosture::Present,
+    };
+    let reading = ReadingRefRecord {
+        reading_id,
+        semantic_coordinate_digest: first_coordinate.semantic_digest,
+        payload_digest: content_digest,
+        envelope_digest: hash(14),
+        posture: EvidenceMaterialPosture::Present,
+    };
+    let retention = RecoveredRetentionIndex::from_retention_records([material], [reading])?;
+
+    assert_ne!(reading_id, content_digest);
+    assert_eq!(
+        retention.material_by_digest.get(&content_digest),
+        Some(&material)
+    );
+    assert_eq!(retention.reading_by_id.get(&reading_id), Some(&reading));
+    assert!(!retention.material_by_digest.contains_key(&reading_id));
+    assert!(!retention.reading_by_id.contains_key(&content_digest));
+    assert!(retention
+        .material_by_semantic_coordinate
+        .get(&first_coordinate.semantic_digest)
+        .is_some_and(|digests| digests.contains(&content_digest)));
+    assert!(retention
+        .readings_by_semantic_coordinate
+        .get(&first_coordinate.semantic_digest)
+        .is_some_and(|readings| readings.contains(&reading_id)));
+    Ok(())
 }

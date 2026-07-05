@@ -55,6 +55,7 @@ mod contract_registry;
 /// Domain separation prefixes for hashing.
 pub mod domain;
 mod dynamic_binding;
+mod edict_target_ir;
 mod engine_impl;
 mod footprint;
 /// Footprint enforcement guard for parallel execution.
@@ -211,6 +212,15 @@ pub use dynamic_binding::{
     DynamicBindingRuntimeError, RangeClosureBindingRequest, RelationSlotBinding,
     ResolvedClosureBinding, ResolvedSlotBinding, StructuredBindingResolver,
     StructuredBindingRuntime, StructuredRuntimeBindings,
+};
+pub use edict_target_ir::{
+    accept_edict_echo_target_ir, execute_accepted_edict_echo_target_ir, AcceptedEdictEchoTargetIr,
+    EdictEchoAttemptInput, EdictEchoAttemptObstruction, EdictEchoAttemptOutcomeKind,
+    EdictEchoAttemptReceipt, EdictEchoObstructionReason, EdictEchoTargetIrAcceptanceError,
+    EdictEchoTargetIrAcceptanceErrorKind, EdictEchoTargetIrArtifact, EdictEchoTargetIrDigestField,
+    EdictEchoTargetIrIntent, EdictEchoTargetIrPredicate, EdictEchoTargetIrRequirement,
+    EdictEchoTargetIrRequirementFailure, EDICT_ECHO_ATTEMPT_RECEIPT_SCHEMA,
+    EDICT_ECHO_TARGET_IR_DOMAIN,
 };
 pub use engine_impl::{
     scope_hash, ApplyResult, CommitOutcome, DispatchDisposition, Engine, EngineBuilder,

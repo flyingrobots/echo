@@ -57,14 +57,14 @@ later recorded any decided receipt under host-owned WAL authority.
 
 The useful postures are:
 
-| Posture | Meaning |
-| --- | --- |
-| `not_accepted` | The intent never reached WAL-backed accepted submission posture. |
-| `accepted_pending` | Accepted-submission evidence was recovered, but no decided receipt was recovered. |
-| `decided_applied` | A recovered receipt says the work applied under named law. |
-| `decided_rejected` | A recovered receipt says the work was rejected or conflicted. |
-| `obstructed` | Recovery found accepted or decided evidence, but required material or consistency checks obstruct restoring the work. |
-| `recovery_faulted` | Required committed WAL evidence or retained material is missing or corrupt. |
+| Posture            | Meaning                                                                                                               |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `not_accepted`     | The intent never reached WAL-backed accepted submission posture.                                                      |
+| `accepted_pending` | Accepted-submission evidence was recovered, but no decided receipt was recovered.                                     |
+| `decided_applied`  | A recovered receipt says the work applied under named law.                                                            |
+| `decided_rejected` | A recovered receipt says the work was rejected or conflicted.                                                         |
+| `obstructed`       | Recovery found accepted or decided evidence, but required material or consistency checks obstruct restoring the work. |
+| `recovery_faulted` | Required committed WAL evidence or retained material is missing or corrupt.                                           |
 
 An app such as `jedit` maps these generic postures into product language
 outside Echo. Echo should not grow editor, file, buffer, or dirty-state nouns in
@@ -118,6 +118,26 @@ A WAL path is a storage locator, not causal identity. Causal identity comes from
 the writer epoch, LSN range, segment digest, commit digest chain, and validated
 commit anchors.
 
+Recovery planning records the bootstrap source, optional checkpoint posture,
+committed replay suffix, tail posture, recovered index roots, retained-material
+posture, and projected evidence posture. A recovery plan may start from a
+projected WAL root or storage manifest, but it does not require graph WAL nodes
+as recovery input.
+
+Read-only recovery can rebuild durability indexes from committed transactions:
+submission posture, receipt/correlation, retained material, materialization
+outbox, topology, and graph/WSC projection posture. Uncommitted tail frames are
+reported through tail posture and do not appear in rebuilt indexes.
+Materialization outbox recovery reports typed posture for missing artifacts,
+artifact or metadata mismatches, committed observation mismatches, and retained
+material unavailability so restart logic can retry, repair, or obstruct without
+blindly replaying effects.
+
+The process-kill crashpoint runner exercises the filesystem WAL across real
+parent/child process boundaries. A killed child that already committed WAL
+material recovers as committed history; a killed child with only uncommitted
+frames recovers as tail posture and does not enter accepted or decided history.
+
 ## Evidence
 
 The runtime ACK and recovery witnesses live in
@@ -152,3 +172,11 @@ shape. That is not the same claim as strict filesystem durability. Filesystem
 WAL hardening, WSC export/import shape, retained material availability, and
 release-grade recovery gates remain the place to prove crash and portability
 claims beyond the current ACK boundary witnesses.
+
+`cargo xtask dind` now carries the `dind_durability_convergence_gate` witness
+for the joined durability path. The gate commits one filesystem WAL history,
+projects it through read-only recovery, imports the same causal evidence through
+WSC, reveals retained reading material, and requires all paths to agree on the
+same app-facing receipt and bounded reading. Missing CAS support material and
+corrupt embedded retained bytes must surface as typed obstruction evidence
+rather than a divergent success.

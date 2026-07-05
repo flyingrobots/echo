@@ -18,16 +18,21 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
+use bytes::Bytes;
 use thiserror::Error;
 
+use crate::attachment::{AtomPayload, AttachmentValue};
 use crate::braid::{BraidEvent, BraidStatus};
 use crate::braid_shell::BraidMemberRef;
 use crate::clock::WorldlineTick;
+use crate::graph::GraphStore;
 use crate::head::{HeadId, WriterHeadKey};
-use crate::ident::Hash;
+use crate::ident::{EdgeId, Hash, NodeId};
+use crate::record::{EdgeRecord, NodeRecord};
 use crate::revelation::{AuthorityDomainId, AuthorityDomainRef, OriginId};
 use crate::strand::StrandId;
 use crate::worldline::WorldlineId;
+use crate::wsc::{validate_wsc, WscFile};
 
 const WAL_FRAME_DOMAIN: &[u8] = b"echo:causal_wal:frame:v1\0";
 const WAL_PAYLOAD_DOMAIN: &[u8] = b"echo:causal_wal:payload:v1\0";
@@ -38,10 +43,68 @@ const WAL_RECOVERED_INDEX_ROOT_DOMAIN: &[u8] = b"echo:causal_wal:recovered_index
 const WAL_HEADER_CHECKSUM_DOMAIN: &[u8] = b"echo:causal_wal:header_checksum:v1\0";
 const WAL_FRAME_CHECKSUM_DOMAIN: &[u8] = b"echo:causal_wal:frame_checksum:v1\0";
 const WAL_DISK_RECORD_DOMAIN: &[u8] = b"echo:causal_wal:disk_record:v1\0";
+const WAL_PROJECTION_ROOT_DOMAIN: &[u8] = b"echo:causal_wal:projection:root:v1\0";
+const WAL_PROJECTION_WRITER_EPOCH_DOMAIN: &[u8] = b"echo:causal_wal:projection:writer_epoch:v1\0";
+const WAL_PROJECTION_SEGMENT_DOMAIN: &[u8] = b"echo:causal_wal:projection:segment:v1\0";
+const WAL_PROJECTION_COMMIT_ANCHOR_DOMAIN: &[u8] = b"echo:causal_wal:projection:commit_anchor:v1\0";
+const WAL_PROJECTION_RECOVERY_CERTIFICATE_DOMAIN: &[u8] =
+    b"echo:causal_wal:projection:recovery_certificate:v1\0";
+const WAL_PROJECTION_GRAPH_NODE_DOMAIN: &[u8] = b"echo:causal_wal:projection_graph:node:v1\0";
+const WAL_PROJECTION_GRAPH_EDGE_DOMAIN: &[u8] = b"echo:causal_wal:projection_graph:edge:v1\0";
+const WAL_RECOVERY_CERTIFICATE_DOMAIN: &[u8] = b"echo:causal_wal:recovery_certificate:v1\0";
 const WRITER_HEAD_KEY_PAYLOAD_LEN: usize = 64;
 const CHECKPOINT_FILE_MAGIC: &[u8; 8] = b"ECWALCP1";
 const WAL_SEGMENT_RECORD_MAGIC: &[u8; 8] = b"ECWALR1!";
 const WAL_SEGMENTS_DIR: &str = "segments";
+
+/// WSC schema label for materialized WAL projection graph facts.
+pub const WAL_PROJECTION_GRAPH_SCHEMA: &str = "echo/wal-projection-graph/schema/v1";
+/// WARP id label for materialized WAL projection graph facts.
+pub const WAL_PROJECTION_GRAPH_WARP: &str = "echo/wal-projection-graph/warp/v1";
+/// Node type for the materialized WAL projection root fact.
+pub const WAL_PROJECTION_GRAPH_ROOT_NODE_TYPE: &str = "echo/wal-projection-graph/root-node/v1";
+/// Node type for materialized WAL writer epoch facts.
+pub const WAL_PROJECTION_GRAPH_WRITER_EPOCH_NODE_TYPE: &str =
+    "echo/wal-projection-graph/writer-epoch-node/v1";
+/// Node type for materialized WAL segment facts.
+pub const WAL_PROJECTION_GRAPH_SEGMENT_NODE_TYPE: &str =
+    "echo/wal-projection-graph/segment-node/v1";
+/// Node type for materialized WAL commit-anchor facts.
+pub const WAL_PROJECTION_GRAPH_COMMIT_ANCHOR_NODE_TYPE: &str =
+    "echo/wal-projection-graph/commit-anchor-node/v1";
+/// Node type for materialized recovery-certificate reference facts.
+pub const WAL_PROJECTION_GRAPH_RECOVERY_CERTIFICATE_NODE_TYPE: &str =
+    "echo/wal-projection-graph/recovery-certificate-node/v1";
+/// Edge type from the WAL projection root to writer epoch facts.
+pub const WAL_PROJECTION_GRAPH_WRITER_EPOCH_EDGE_TYPE: &str =
+    "echo/wal-projection-graph/root-writer-epoch-edge/v1";
+/// Edge type from the WAL projection root to segment facts.
+pub const WAL_PROJECTION_GRAPH_SEGMENT_EDGE_TYPE: &str =
+    "echo/wal-projection-graph/root-segment-edge/v1";
+/// Edge type from the WAL projection root to commit-anchor facts.
+pub const WAL_PROJECTION_GRAPH_ROOT_COMMIT_ANCHOR_EDGE_TYPE: &str =
+    "echo/wal-projection-graph/root-commit-anchor-edge/v1";
+/// Edge type from the WAL projection root to recovery-certificate facts.
+pub const WAL_PROJECTION_GRAPH_RECOVERY_CERTIFICATE_EDGE_TYPE: &str =
+    "echo/wal-projection-graph/root-recovery-certificate-edge/v1";
+/// Edge type from a WAL segment fact to its commit-anchor facts.
+pub const WAL_PROJECTION_GRAPH_SEGMENT_COMMIT_ANCHOR_EDGE_TYPE: &str =
+    "echo/wal-projection-graph/segment-commit-anchor-edge/v1";
+/// Attachment type for WAL projection root fact payloads.
+pub const WAL_PROJECTION_GRAPH_ROOT_ATTACHMENT_TYPE: &str =
+    "echo/wal-projection-graph/root-attachment/v1";
+/// Attachment type for WAL writer epoch fact payloads.
+pub const WAL_PROJECTION_GRAPH_WRITER_EPOCH_ATTACHMENT_TYPE: &str =
+    "echo/wal-projection-graph/writer-epoch-attachment/v1";
+/// Attachment type for WAL segment fact payloads.
+pub const WAL_PROJECTION_GRAPH_SEGMENT_ATTACHMENT_TYPE: &str =
+    "echo/wal-projection-graph/segment-attachment/v1";
+/// Attachment type for WAL commit-anchor fact payloads.
+pub const WAL_PROJECTION_GRAPH_COMMIT_ANCHOR_ATTACHMENT_TYPE: &str =
+    "echo/wal-projection-graph/commit-anchor-attachment/v1";
+/// Attachment type for recovery-certificate reference fact payloads.
+pub const WAL_PROJECTION_GRAPH_RECOVERY_CERTIFICATE_ATTACHMENT_TYPE: &str =
+    "echo/wal-projection-graph/recovery-certificate-attachment/v1";
 
 /// Current in-memory causal WAL version.
 pub const CAUSAL_WAL_VERSION: u16 = 1;
@@ -1242,6 +1305,8 @@ pub struct WalManifest {
 pub enum WalCrashpointExecution {
     /// Crashpoint is simulated in-process by Rust fixtures.
     SimulatedInProcess,
+    /// Crashpoint is exercised by killing a child process.
+    ProcessKill,
     /// Crashpoint is reserved for a future process-kill runner.
     ProcessKillFuture,
 }
@@ -1323,7 +1388,7 @@ const WAL_CRASHPOINT_MANIFEST: &[WalCrashpointDescriptor] = &[
     WalCrashpointDescriptor {
         name: "process.kill.after_wal_commit",
         boundary: WalCrashpointBoundary::Process,
-        execution: WalCrashpointExecution::ProcessKillFuture,
+        execution: WalCrashpointExecution::ProcessKill,
     },
 ];
 
@@ -1662,6 +1727,17 @@ pub struct WalRecoveredTransaction {
     pub commit: WalTransactionCommit,
     /// Transaction frames.
     pub frames: Vec<WalFrame>,
+}
+
+/// Recovery evidence decoded from embedded WAL segment bytes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WalSegmentBytesRecovery {
+    /// Logical segment id.
+    pub segment_id: WalSegmentId,
+    /// Digest computed from recovered segment frames.
+    pub segment_digest: Hash,
+    /// Recovery report built from segment frames and commit markers.
+    pub report: RecoveryScanReport,
 }
 
 /// WAL submission acceptance record payload.
@@ -2642,6 +2718,1542 @@ pub struct RecoveryCertificate {
     pub recovered_indexes_root: Hash,
 }
 
+/// Read-model projection of a WAL root.
+///
+/// This record is evidence about committed WAL history. It is not a
+/// [`WalStorePort`], does not grant storage authority, and intentionally carries
+/// only typed references suitable for graph projection.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WalRoot {
+    /// Projection root digest.
+    pub root_digest: Hash,
+    /// Writer epochs covered by this projection root.
+    pub writer_epochs: Vec<WalWriterEpoch>,
+    /// Segment references covered by this projection root.
+    pub segments: Vec<WalSegmentRef>,
+    /// Recovery certificate reference, if recovery produced one.
+    pub recovery_certificate: Option<RecoveryCertificateRef>,
+}
+
+impl WalRoot {
+    /// Computes a stable read-model identity digest for the projected WAL root.
+    ///
+    /// Segment storage locators are excluded from this digest by delegating to
+    /// [`WalSegmentRef::identity_digest`].
+    #[must_use]
+    pub fn identity_digest(&self) -> Hash {
+        let mut h = blake3::Hasher::new();
+        h.update(WAL_PROJECTION_ROOT_DOMAIN);
+        h.update(&self.root_digest);
+        let mut writer_epoch_digests = self
+            .writer_epochs
+            .iter()
+            .map(WalWriterEpoch::identity_digest)
+            .collect::<Vec<_>>();
+        writer_epoch_digests.sort_unstable();
+        h.update(&len_u64(writer_epoch_digests.len()).to_le_bytes());
+        for writer_epoch_digest in &writer_epoch_digests {
+            h.update(writer_epoch_digest);
+        }
+
+        let mut segment_digests = self
+            .segments
+            .iter()
+            .map(WalSegmentRef::identity_digest)
+            .collect::<Vec<_>>();
+        segment_digests.sort_unstable();
+        h.update(&len_u64(segment_digests.len()).to_le_bytes());
+        for segment_digest in &segment_digests {
+            h.update(segment_digest);
+        }
+        update_optional_projection_digest(
+            &mut h,
+            self.recovery_certificate
+                .as_ref()
+                .map(RecoveryCertificateRef::identity_digest),
+        );
+        h.finalize().into()
+    }
+}
+
+/// Read-model projection of WAL writer epoch metadata.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WalWriterEpoch {
+    /// Epoch id.
+    pub epoch_id: WriterEpochId,
+    /// Storage fencing token or lease token.
+    pub storage_fencing_token: Hash,
+    /// Process identity evidence.
+    pub process_identity: Hash,
+    /// Host identity evidence.
+    pub host_identity: Hash,
+    /// First LSN owned by the epoch.
+    pub started_at_lsn: Lsn,
+    /// Previous epoch id, if any.
+    pub previous_epoch_id: Option<WriterEpochId>,
+    /// Previous epoch final commit digest, if any.
+    pub previous_epoch_final_commit_digest: Option<Hash>,
+    /// Lease or lock evidence.
+    pub lease_or_lock_evidence: Hash,
+}
+
+impl WalWriterEpoch {
+    /// Builds a projection record from writer-epoch evidence.
+    #[must_use]
+    pub fn from_writer_epoch(epoch: &WriterEpoch) -> Self {
+        Self {
+            epoch_id: epoch.epoch_id,
+            storage_fencing_token: epoch.storage_fencing_token,
+            process_identity: epoch.process_identity,
+            host_identity: epoch.host_identity,
+            started_at_lsn: epoch.started_at_lsn,
+            previous_epoch_id: epoch.previous_epoch_id,
+            previous_epoch_final_commit_digest: epoch.previous_epoch_final_commit_digest,
+            lease_or_lock_evidence: epoch.lease_or_lock_evidence,
+        }
+    }
+
+    /// Computes a stable read-model identity digest for this writer epoch.
+    #[must_use]
+    pub fn identity_digest(&self) -> Hash {
+        let mut h = blake3::Hasher::new();
+        h.update(WAL_PROJECTION_WRITER_EPOCH_DOMAIN);
+        h.update(&self.epoch_id.as_hash());
+        h.update(&self.storage_fencing_token);
+        h.update(&self.process_identity);
+        h.update(&self.host_identity);
+        h.update(&self.started_at_lsn.as_u64().to_le_bytes());
+        update_optional_writer_epoch_id(&mut h, self.previous_epoch_id);
+        update_optional_projection_digest(&mut h, self.previous_epoch_final_commit_digest);
+        h.update(&self.lease_or_lock_evidence);
+        h.finalize().into()
+    }
+}
+
+/// Commit anchor retained by a WAL segment projection.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WalCommitAnchor {
+    /// Transaction id covered by the anchor.
+    pub transaction_id: WalTransactionId,
+    /// Commit digest covered by the anchor.
+    pub commit_digest: Hash,
+    /// First LSN covered by the committed transaction.
+    pub first_lsn: Lsn,
+    /// Last LSN covered by the committed transaction.
+    pub last_lsn: Lsn,
+    /// Number of records covered by the committed transaction.
+    pub record_count: u64,
+}
+
+impl WalCommitAnchor {
+    /// Builds a commit anchor from a committed transaction marker.
+    #[must_use]
+    pub fn from_commit(commit: &WalTransactionCommit) -> Self {
+        Self {
+            transaction_id: commit.transaction_id,
+            commit_digest: commit.commit_digest,
+            first_lsn: commit.first_lsn,
+            last_lsn: commit.last_lsn,
+            record_count: commit.record_count,
+        }
+    }
+
+    /// Computes a stable identity digest for this commit anchor.
+    #[must_use]
+    pub fn identity_digest(&self) -> Hash {
+        let mut h = blake3::Hasher::new();
+        h.update(WAL_PROJECTION_COMMIT_ANCHOR_DOMAIN);
+        h.update(&self.transaction_id.as_hash());
+        h.update(&self.commit_digest);
+        h.update(&self.first_lsn.as_u64().to_le_bytes());
+        h.update(&self.last_lsn.as_u64().to_le_bytes());
+        h.update(&self.record_count.to_le_bytes());
+        h.finalize().into()
+    }
+}
+
+/// WAL segment sealing posture projected into the read model.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WalSegmentSealPosture {
+    /// Segment remains open and must not be treated as sealed evidence.
+    Open,
+    /// Segment was sealed through WAL store evidence.
+    Sealed {
+        /// Last LSN included in the sealed segment, if any.
+        sealed_lsn: Option<Lsn>,
+    },
+}
+
+impl WalSegmentSealPosture {
+    fn code(&self) -> u8 {
+        match self {
+            Self::Open => 0,
+            Self::Sealed { .. } => 1,
+        }
+    }
+}
+
+/// Storage locator metadata for a projected WAL segment.
+///
+/// Locators are transport and operator metadata. They are intentionally excluded
+/// from [`WalSegmentRef::identity_digest`] so moving a segment between absolute
+/// filesystem roots cannot alter causal projection identity.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WalSegmentStorageLocator {
+    /// Repository- or root-relative locator.
+    RelativePath(PathBuf),
+    /// Absolute local filesystem locator.
+    AbsolutePath(PathBuf),
+}
+
+/// Read-model projection reference to one WAL segment.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WalSegmentRef {
+    /// Writer epoch that owns this segment.
+    pub writer_epoch: WriterEpochId,
+    /// Logical WAL segment id.
+    pub segment_id: WalSegmentId,
+    /// First LSN covered by the segment.
+    pub first_lsn: Lsn,
+    /// Last LSN covered by the segment.
+    pub last_lsn: Lsn,
+    /// Commit digest preceding the segment's committed chain.
+    pub previous_commit_digest: Hash,
+    /// Final commit digest observed for the segment.
+    pub final_commit_digest: Hash,
+    /// Digest of the segment contents.
+    pub segment_digest: Hash,
+    /// Commit anchors covered by the segment.
+    pub commit_anchors: Vec<WalCommitAnchor>,
+    /// Segment sealing posture.
+    pub seal_posture: WalSegmentSealPosture,
+    /// Optional storage locator metadata, excluded from identity.
+    pub storage_locator: Option<WalSegmentStorageLocator>,
+}
+
+impl WalSegmentRef {
+    /// Computes a stable read-model identity digest for the segment reference.
+    ///
+    /// The digest includes writer epoch, LSN range, commit-digest chain, segment
+    /// digest, commit anchors, and sealing posture. It deliberately excludes
+    /// [`Self::storage_locator`].
+    #[must_use]
+    pub fn identity_digest(&self) -> Hash {
+        let mut h = blake3::Hasher::new();
+        h.update(WAL_PROJECTION_SEGMENT_DOMAIN);
+        h.update(&self.writer_epoch.as_hash());
+        h.update(&self.segment_id.as_u64().to_le_bytes());
+        h.update(&self.first_lsn.as_u64().to_le_bytes());
+        h.update(&self.last_lsn.as_u64().to_le_bytes());
+        h.update(&self.previous_commit_digest);
+        h.update(&self.final_commit_digest);
+        h.update(&self.segment_digest);
+
+        let mut anchors = self.commit_anchors.clone();
+        anchors.sort_by_key(|anchor| {
+            (
+                anchor.first_lsn,
+                anchor.last_lsn,
+                anchor.transaction_id,
+                anchor.commit_digest,
+            )
+        });
+        h.update(&len_u64(anchors.len()).to_le_bytes());
+        for anchor in &anchors {
+            h.update(&anchor.identity_digest());
+        }
+
+        h.update(&[self.seal_posture.code()]);
+        match &self.seal_posture {
+            WalSegmentSealPosture::Open => {}
+            WalSegmentSealPosture::Sealed { sealed_lsn } => {
+                update_optional_lsn(&mut h, *sealed_lsn);
+            }
+        }
+        h.finalize().into()
+    }
+}
+
+/// Read-model projection reference to a recovery certificate.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecoveryCertificateRef {
+    /// Recovery certificate digest.
+    pub certificate_digest: Hash,
+    /// Checkpoint digest used as replay base, if any.
+    pub checkpoint_used: Option<Hash>,
+    /// First scanned committed LSN.
+    pub first_lsn: Option<Lsn>,
+    /// Last scanned committed LSN.
+    pub last_lsn: Option<Lsn>,
+    /// Tail posture observed during recovery.
+    pub tail_posture: RecoveryTailPosture,
+    /// Final frontier root.
+    pub recovered_frontier_root: Hash,
+    /// Final index root.
+    pub recovered_indexes_root: Hash,
+}
+
+impl RecoveryCertificateRef {
+    /// Builds a projection reference from a recovery certificate.
+    #[must_use]
+    pub fn from_certificate(certificate: &RecoveryCertificate) -> Self {
+        Self {
+            certificate_digest: recovery_certificate_digest(certificate),
+            checkpoint_used: certificate.checkpoint_used,
+            first_lsn: certificate.first_lsn,
+            last_lsn: certificate.last_lsn,
+            tail_posture: certificate.tail_posture,
+            recovered_frontier_root: certificate.recovered_frontier_root,
+            recovered_indexes_root: certificate.recovered_indexes_root,
+        }
+    }
+
+    /// Computes a stable identity digest for this recovery-certificate reference.
+    #[must_use]
+    pub fn identity_digest(&self) -> Hash {
+        let mut h = blake3::Hasher::new();
+        h.update(WAL_PROJECTION_RECOVERY_CERTIFICATE_DOMAIN);
+        h.update(&self.certificate_digest);
+        update_optional_projection_digest(&mut h, self.checkpoint_used);
+        update_optional_lsn(&mut h, self.first_lsn);
+        update_optional_lsn(&mut h, self.last_lsn);
+        update_recovery_tail_posture(&mut h, self.tail_posture);
+        h.update(&self.recovered_frontier_root);
+        h.update(&self.recovered_indexes_root);
+        h.finalize().into()
+    }
+}
+
+/// Segment evidence available when projecting a recovered WAL into graph facts.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WalRecoverySegmentEvidence {
+    /// Logical WAL segment id.
+    pub segment_id: WalSegmentId,
+    /// Digest of the segment contents.
+    pub segment_digest: Hash,
+    /// Segment sealing posture.
+    pub seal_posture: WalSegmentSealPosture,
+    /// Segment locator metadata. Projection from recovery treats missing locators
+    /// as an obstruction rather than fabricating storage evidence.
+    pub storage_locator: Option<WalSegmentStorageLocator>,
+}
+
+/// WAL recovery projection posture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WalRecoveryProjectionPosture {
+    /// No WAL evidence was present to project.
+    Absent,
+    /// A projection root was built from explicit recovery evidence.
+    Present,
+    /// Recovery evidence existed, but was insufficient or obstructed.
+    Obstructed,
+}
+
+/// Typed reason a recovered WAL could not be projected into graph facts.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WalRecoveryProjectionObstruction {
+    /// Recovery saw a non-clean tail posture, so the projection cannot claim a
+    /// sealed history root.
+    TailPostureObstructed {
+        /// Observed tail posture.
+        posture: RecoveryTailPosture,
+    },
+    /// A published manifest was required but absent.
+    MissingManifest,
+    /// The manifest could not be validated from filesystem evidence.
+    ManifestValidationUnavailable,
+    /// Segment evidence could not be read from filesystem storage.
+    SegmentEvidenceUnavailable,
+    /// The manifest's last committed LSN did not match recovered commits.
+    ManifestLastCommittedLsnMismatch {
+        /// Last committed LSN from recovery.
+        expected: Option<Lsn>,
+        /// Last committed LSN from the manifest.
+        actual: Option<Lsn>,
+    },
+    /// The manifest's last commit digest did not match recovered commits.
+    ManifestLastCommitDigestMismatch {
+        /// Last commit digest from recovery.
+        expected: Option<Hash>,
+        /// Last commit digest from the manifest.
+        actual: Option<Hash>,
+    },
+    /// The manifest's sealed segment count did not match segment evidence.
+    ManifestSegmentCountMismatch {
+        /// Sealed segment count from the manifest.
+        expected: u64,
+        /// Segment evidence count supplied for projection.
+        actual: u64,
+    },
+    /// Duplicate segment evidence was supplied for the same logical segment.
+    DuplicateSegmentEvidence {
+        /// Duplicated segment id.
+        segment_id: WalSegmentId,
+    },
+    /// Writer epoch projection evidence was missing for a recovered commit.
+    MissingWriterEpochEvidence {
+        /// Missing writer epoch id.
+        writer_epoch: WriterEpochId,
+    },
+    /// Segment evidence was missing for recovered committed frames.
+    MissingSegmentEvidence {
+        /// Missing segment id.
+        segment_id: WalSegmentId,
+    },
+    /// Segment locator metadata was unavailable.
+    SegmentLocatorUnavailable {
+        /// Segment id with no locator.
+        segment_id: WalSegmentId,
+    },
+    /// Segment evidence did not prove the segment sealed.
+    SegmentNotSealed {
+        /// Unsealed segment id.
+        segment_id: WalSegmentId,
+    },
+    /// Segment seal evidence did not cover the recovered committed range.
+    SegmentSealDoesNotCoverRecoveredCommit {
+        /// Segment id.
+        segment_id: WalSegmentId,
+        /// Sealed LSN from segment evidence.
+        sealed_lsn: Option<Lsn>,
+        /// Last recovered committed LSN for this segment.
+        recovered_last_lsn: Lsn,
+    },
+    /// Segment digest evidence did not match recovered frames.
+    SegmentDigestMismatch {
+        /// Segment id.
+        segment_id: WalSegmentId,
+        /// Digest recomputed from recovered segment frames.
+        expected: Hash,
+        /// Digest supplied as projection evidence.
+        actual: Hash,
+    },
+    /// Recovery certificate scan fields did not match the recovery report.
+    RecoveryCertificateScanMismatch {
+        /// Expected first committed LSN from the recovery report.
+        expected_first_lsn: Option<Lsn>,
+        /// Certificate first committed LSN.
+        actual_first_lsn: Option<Lsn>,
+        /// Expected last committed LSN from the recovery report.
+        expected_last_lsn: Option<Lsn>,
+        /// Certificate last committed LSN.
+        actual_last_lsn: Option<Lsn>,
+        /// Expected committed transaction replay count.
+        expected_committed_transactions_replayed: u64,
+        /// Certificate committed transaction replay count.
+        actual_committed_transactions_replayed: u64,
+        /// Expected recovery tail posture.
+        expected_tail_posture: RecoveryTailPosture,
+        /// Certificate recovery tail posture.
+        actual_tail_posture: RecoveryTailPosture,
+    },
+    /// Recovered frame evidence did not identify a transaction segment.
+    TransactionSegmentEvidenceUnavailable {
+        /// Transaction id.
+        transaction_id: WalTransactionId,
+    },
+    /// A recovered transaction spans multiple segment ids and cannot be projected
+    /// as a single segment anchor.
+    TransactionSpansSegments {
+        /// Transaction id.
+        transaction_id: WalTransactionId,
+    },
+    /// A projected segment contains commits from multiple writer epochs.
+    MixedWriterEpochSegment {
+        /// Segment id.
+        segment_id: WalSegmentId,
+    },
+}
+
+/// Projection result for recovered WAL evidence.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WalRecoveryProjection {
+    /// Projection posture.
+    pub posture: WalRecoveryProjectionPosture,
+    /// Projected WAL root, if evidence was complete.
+    pub root: Option<WalRoot>,
+    /// Typed obstructions that prevented projection.
+    pub obstructions: Vec<WalRecoveryProjectionObstruction>,
+}
+
+impl WalRecoveryProjection {
+    fn absent() -> Self {
+        Self {
+            posture: WalRecoveryProjectionPosture::Absent,
+            root: None,
+            obstructions: Vec::new(),
+        }
+    }
+
+    fn present(root: WalRoot) -> Self {
+        Self {
+            posture: WalRecoveryProjectionPosture::Present,
+            root: Some(root),
+            obstructions: Vec::new(),
+        }
+    }
+
+    fn obstructed(obstructions: Vec<WalRecoveryProjectionObstruction>) -> Self {
+        Self {
+            posture: WalRecoveryProjectionPosture::Obstructed,
+            root: None,
+            obstructions,
+        }
+    }
+}
+
+/// Bootstrap evidence used to start a recovery plan.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WalRecoveryBootstrapSource {
+    /// Recovery started from an already projected WAL root.
+    WalRoot {
+        /// Projection root digest.
+        root_digest: Hash,
+        /// Stable identity digest of the projected root.
+        root_identity_digest: Hash,
+    },
+    /// Recovery started from storage manifest evidence.
+    StorageManifest {
+        /// Published manifest digest.
+        manifest_digest: Hash,
+    },
+}
+
+impl WalRecoveryBootstrapSource {
+    /// Builds bootstrap evidence from a projected WAL root.
+    #[must_use]
+    pub fn from_wal_root(root: &WalRoot) -> Self {
+        Self::WalRoot {
+            root_digest: root.root_digest,
+            root_identity_digest: root.identity_digest(),
+        }
+    }
+
+    /// Builds bootstrap evidence from a storage manifest.
+    #[must_use]
+    pub fn from_manifest(manifest: &WalManifest) -> Self {
+        Self::StorageManifest {
+            manifest_digest: manifest.manifest_digest,
+        }
+    }
+}
+
+/// Checkpoint selection posture for a recovery plan.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WalRecoveryCheckpointPosture {
+    /// Recovery did not use a checkpoint base.
+    NotSelected,
+    /// Recovery selected a checkpoint and records its validation posture.
+    Selected {
+        /// Selected checkpoint digest.
+        checkpoint_digest: Hash,
+        /// Validation posture for the selected checkpoint.
+        validation: CheckpointValidationPosture,
+    },
+}
+
+/// Committed WAL suffix replayed by a recovery plan.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WalRecoveryReplaySuffix {
+    /// First committed LSN replayed.
+    pub first_lsn: Option<Lsn>,
+    /// Last committed LSN replayed.
+    pub last_lsn: Option<Lsn>,
+    /// Number of committed transactions replayed.
+    pub committed_transactions: u64,
+    /// Final committed transaction digest.
+    pub final_commit_digest: Option<Hash>,
+}
+
+impl WalRecoveryReplaySuffix {
+    /// Builds replay suffix evidence from a recovery scan report.
+    #[must_use]
+    pub fn from_report(report: &RecoveryScanReport) -> Self {
+        Self {
+            first_lsn: report.first_committed_lsn(),
+            last_lsn: report.last_committed_lsn(),
+            committed_transactions: len_u64(report.transactions.len()),
+            final_commit_digest: report.last_commit_digest(),
+        }
+    }
+}
+
+/// Index roots produced by recovery.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WalRecoveryIndexRoots {
+    /// Recovered frontier root.
+    pub recovered_frontier_root: Hash,
+    /// Recovered index root.
+    pub recovered_indexes_root: Hash,
+}
+
+impl WalRecoveryIndexRoots {
+    /// Builds index-root evidence from a recovery certificate.
+    #[must_use]
+    pub fn from_certificate(certificate: &RecoveryCertificate) -> Self {
+        Self {
+            recovered_frontier_root: certificate.recovered_frontier_root,
+            recovered_indexes_root: certificate.recovered_indexes_root,
+        }
+    }
+}
+
+/// Retained-material availability posture for recovery.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WalRecoveryRetainedMaterialAvailability {
+    /// All retained material required by the recovered index is available.
+    Available,
+    /// At least one retained material reference is missing, corrupt, or obstructed.
+    Obstructed,
+}
+
+/// Retained-material posture recorded by a recovery plan.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WalRecoveryRetainedMaterialPosture {
+    /// Overall retained-material availability.
+    pub availability: WalRecoveryRetainedMaterialAvailability,
+    /// Number of recovered retained material references.
+    pub material_count: u64,
+    /// Number of recovered reading references.
+    pub reading_count: u64,
+    /// Number of retained-material obstructions.
+    pub obstruction_count: u64,
+}
+
+impl WalRecoveryRetainedMaterialPosture {
+    /// Builds retained-material posture from recovered retained evidence.
+    #[must_use]
+    pub fn from_retention_index(
+        index: &RecoveredRetentionIndex,
+        available_material: &BTreeSet<Hash>,
+    ) -> Self {
+        let obstruction_count =
+            len_u64(retained_material_obstructions(index, available_material).len());
+        Self {
+            availability: if obstruction_count == 0 {
+                WalRecoveryRetainedMaterialAvailability::Available
+            } else {
+                WalRecoveryRetainedMaterialAvailability::Obstructed
+            },
+            material_count: len_u64(index.material_by_digest.len()),
+            reading_count: len_u64(index.reading_by_id.len()),
+            obstruction_count,
+        }
+    }
+}
+
+/// Recovery plan/report shape tying bootstrap, replay, retention, and projection evidence.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WalRecoveryPlan {
+    /// Evidence used to bootstrap the recovery plan.
+    pub bootstrap_source: WalRecoveryBootstrapSource,
+    /// Checkpoint selection and validation posture.
+    pub checkpoint_posture: WalRecoveryCheckpointPosture,
+    /// Committed suffix replayed after the bootstrap source.
+    pub replay_suffix: WalRecoveryReplaySuffix,
+    /// Tail posture observed during recovery.
+    pub tail_posture: RecoveryTailPosture,
+    /// Recovered frontier and index roots.
+    pub index_roots: WalRecoveryIndexRoots,
+    /// Retained-material availability posture.
+    pub retained_material_posture: WalRecoveryRetainedMaterialPosture,
+    /// Projection posture for graph-ready WAL evidence.
+    pub projected_evidence_posture: WalRecoveryProjectionPosture,
+    /// Number of typed projection obstructions.
+    pub projected_evidence_obstruction_count: u64,
+}
+
+impl WalRecoveryPlan {
+    /// Builds a recovery plan that bootstraps from a projected WAL root.
+    #[must_use]
+    pub fn from_wal_root(
+        root: &WalRoot,
+        report: &RecoveryScanReport,
+        checkpoint_posture: WalRecoveryCheckpointPosture,
+        certificate: &RecoveryCertificate,
+        retained_material_posture: WalRecoveryRetainedMaterialPosture,
+        projection: &WalRecoveryProjection,
+    ) -> Self {
+        Self::from_bootstrap_source(
+            WalRecoveryBootstrapSource::from_wal_root(root),
+            report,
+            checkpoint_posture,
+            certificate,
+            retained_material_posture,
+            projection,
+        )
+    }
+
+    /// Builds a recovery plan that bootstraps from storage manifest evidence.
+    #[must_use]
+    pub fn from_manifest(
+        manifest: &WalManifest,
+        report: &RecoveryScanReport,
+        checkpoint_posture: WalRecoveryCheckpointPosture,
+        certificate: &RecoveryCertificate,
+        retained_material_posture: WalRecoveryRetainedMaterialPosture,
+        projection: &WalRecoveryProjection,
+    ) -> Self {
+        Self::from_bootstrap_source(
+            WalRecoveryBootstrapSource::from_manifest(manifest),
+            report,
+            checkpoint_posture,
+            certificate,
+            retained_material_posture,
+            projection,
+        )
+    }
+
+    fn from_bootstrap_source(
+        bootstrap_source: WalRecoveryBootstrapSource,
+        report: &RecoveryScanReport,
+        checkpoint_posture: WalRecoveryCheckpointPosture,
+        certificate: &RecoveryCertificate,
+        retained_material_posture: WalRecoveryRetainedMaterialPosture,
+        projection: &WalRecoveryProjection,
+    ) -> Self {
+        Self {
+            bootstrap_source,
+            checkpoint_posture,
+            replay_suffix: WalRecoveryReplaySuffix::from_report(report),
+            tail_posture: report.tail_posture,
+            index_roots: WalRecoveryIndexRoots::from_certificate(certificate),
+            retained_material_posture,
+            projected_evidence_posture: projection.posture,
+            projected_evidence_obstruction_count: len_u64(projection.obstructions.len()),
+        }
+    }
+}
+
+/// Graph/WSC projection index rebuilt after WAL recovery.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RecoveredWalProjectionIndex {
+    /// Projection posture rebuilt from recovered evidence.
+    pub posture: WalRecoveryProjectionPosture,
+    /// Identity digest for the projected WAL root when projection succeeded.
+    pub root_identity_digest: Option<Hash>,
+    /// Number of projected writer epochs.
+    pub writer_epoch_count: u64,
+    /// Number of projected WAL segments.
+    pub segment_count: u64,
+    /// Number of typed projection obstructions.
+    pub obstruction_count: u64,
+}
+
+impl RecoveredWalProjectionIndex {
+    /// Builds projection index posture from a WAL recovery projection.
+    #[must_use]
+    pub fn from_projection(projection: &WalRecoveryProjection) -> Self {
+        let (root_identity_digest, writer_epoch_count, segment_count) =
+            projection.root.as_ref().map_or((None, 0, 0), |root| {
+                (
+                    Some(root.identity_digest()),
+                    len_u64(root.writer_epochs.len()),
+                    len_u64(root.segments.len()),
+                )
+            });
+        Self {
+            posture: projection.posture,
+            root_identity_digest,
+            writer_epoch_count,
+            segment_count,
+            obstruction_count: len_u64(projection.obstructions.len()),
+        }
+    }
+}
+
+/// Durability indexes rebuilt from committed WAL recovery evidence.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecoveredDurabilityIndexes {
+    /// Rebuilt submission posture index.
+    pub submissions: RecoveredSubmissionIndex,
+    /// Rebuilt receipt/correlation index.
+    pub receipts: RecoveredReceiptIndex,
+    /// Rebuilt retained-material and reading index.
+    pub retention: RecoveredRetentionIndex,
+    /// Rebuilt materialization outbox.
+    pub materialization_outbox: BTreeMap<Hash, MaterializationOutboxEntry>,
+    /// Rebuilt topology/graph index.
+    pub topology: RecoveredTopologyIndex,
+    /// Rebuilt graph/WSC projection posture.
+    pub projection: RecoveredWalProjectionIndex,
+    /// Stable root for submission and receipt indexes.
+    pub submission_receipt_index_root: Hash,
+    /// Stable root for topology indexes.
+    pub topology_index_root: Hash,
+}
+
+/// Rebuilds all durability indexes from a recovered committed WAL scan.
+///
+/// This function only consumes [`RecoveryScanReport`] transactions and explicit
+/// projection/materialization evidence supplied by the caller. It does not invoke
+/// scheduler handlers, contract observers, wall-clock APIs, network APIs, or app
+/// code.
+///
+/// # Errors
+///
+/// Returns [`WalRecoveryIndexError`] when any committed WAL payload cannot decode
+/// or contains conflicting recovered index evidence.
+pub fn rebuild_durability_indexes_after_recovery(
+    report: &RecoveryScanReport,
+    existing_artifacts: &BTreeMap<Hash, ExistingMaterializedArtifact>,
+    projection: &WalRecoveryProjection,
+) -> Result<RecoveredDurabilityIndexes, WalRecoveryIndexError> {
+    let submissions = recover_submission_index(report)?;
+    let receipts = recover_receipt_index(report)?;
+    let retention = recover_retention_index(report)?;
+    let materialization_outbox = recover_materialization_outbox(report, existing_artifacts)?;
+    let topology = recover_topology_index(report)?;
+    let submission_receipt_index_root =
+        recovered_submission_receipt_index_root(&submissions, &receipts);
+    let topology_index_root = recovered_topology_index_root(&topology);
+    Ok(RecoveredDurabilityIndexes {
+        submissions,
+        receipts,
+        retention,
+        materialization_outbox,
+        topology,
+        projection: RecoveredWalProjectionIndex::from_projection(projection),
+        submission_receipt_index_root,
+        topology_index_root,
+    })
+}
+
+/// Materialized WARP graph facts for a projected WAL root.
+///
+/// The graph is a read-only fact projection. It carries typed nodes, edges, and
+/// atom attachments suitable for WSC serialization, but it is not a
+/// [`WalStorePort`] and cannot append, truncate, recover, or publish WAL
+/// storage material.
+#[derive(Clone, Debug)]
+pub struct WalProjectionGraph {
+    /// Graph store containing materialized projection facts.
+    pub store: GraphStore,
+    /// Root node for the materialized WAL projection graph.
+    pub root_node_id: NodeId,
+}
+
+/// Import posture for materialized WAL projection graph WSC bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WalProjectionGraphObservationPosture {
+    /// The import is observation evidence only and carries no WAL storage authority.
+    ObservationOnly,
+}
+
+/// Observation evidence recovered from a materialized WAL projection graph WSC payload.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WalProjectionGraphObservation {
+    /// Import posture for this projection graph.
+    pub posture: WalProjectionGraphObservationPosture,
+    /// Observed WSC schema hash.
+    pub schema_hash: Hash,
+    /// Observed WARP id.
+    pub warp_id: Hash,
+    /// Observed projection root node id.
+    pub root_node_id: NodeId,
+    /// Number of observed graph fact nodes.
+    pub node_count: u64,
+    /// Number of observed graph fact edges.
+    pub edge_count: u64,
+    /// Number of observed node atom attachments.
+    pub node_attachment_count: u64,
+    /// Number of observed edge attachments.
+    pub edge_attachment_count: u64,
+    /// Observed WSC blob section byte length.
+    pub blob_len: u64,
+}
+
+/// Error returned when observing materialized WAL projection graph WSC bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
+pub enum WalProjectionGraphObservationError {
+    /// The bytes are not valid WSC material.
+    #[error("invalid WAL projection graph WSC payload")]
+    InvalidWsc,
+    /// The WSC payload uses a schema other than the WAL projection graph schema.
+    #[error("WAL projection graph schema mismatch")]
+    SchemaMismatch {
+        /// Expected WAL projection graph schema hash.
+        expected: Hash,
+        /// Actual WSC schema hash.
+        actual: Hash,
+    },
+}
+
+/// Returns the WSC schema hash for materialized WAL projection graph facts.
+#[must_use]
+pub fn wal_projection_graph_schema_hash() -> Hash {
+    crate::ident::make_type_id(WAL_PROJECTION_GRAPH_SCHEMA).0
+}
+
+/// Observes a materialized WAL projection graph WSC payload without recovering WAL authority.
+///
+/// This validates the generic WSC container and the WAL projection graph schema,
+/// then returns graph-shape evidence only. It does not decode payloads into a
+/// [`WalRoot`], does not validate WAL recovery, and does not expose a
+/// [`WalStorePort`].
+///
+/// # Errors
+///
+/// Returns [`WalProjectionGraphObservationError::InvalidWsc`] for malformed WSC
+/// bytes and [`WalProjectionGraphObservationError::SchemaMismatch`] when the
+/// payload is valid WSC but not WAL projection graph material.
+pub fn observe_wal_projection_graph_wsc(
+    wsc_bytes: &[u8],
+) -> Result<WalProjectionGraphObservation, WalProjectionGraphObservationError> {
+    let file = WscFile::from_bytes(wsc_bytes.to_vec())
+        .map_err(|_| WalProjectionGraphObservationError::InvalidWsc)?;
+    validate_wsc(&file).map_err(|_| WalProjectionGraphObservationError::InvalidWsc)?;
+    let expected = wal_projection_graph_schema_hash();
+    let actual = *file.schema_hash();
+    if actual != expected {
+        return Err(WalProjectionGraphObservationError::SchemaMismatch { expected, actual });
+    }
+    let view = file
+        .warp_view(0)
+        .map_err(|_| WalProjectionGraphObservationError::InvalidWsc)?;
+    let node_attachment_count = (0..view.nodes().len())
+        .map(|index| view.node_attachments(index).len())
+        .sum::<usize>();
+    let edge_attachment_count = (0..view.edges().len())
+        .map(|index| view.edge_attachments(index).len())
+        .sum::<usize>();
+
+    Ok(WalProjectionGraphObservation {
+        posture: WalProjectionGraphObservationPosture::ObservationOnly,
+        schema_hash: actual,
+        warp_id: *view.warp_id(),
+        root_node_id: NodeId(*view.root_node_id()),
+        node_count: len_u64(view.nodes().len()),
+        edge_count: len_u64(view.edges().len()),
+        node_attachment_count: len_u64(node_attachment_count),
+        edge_attachment_count: len_u64(edge_attachment_count),
+        blob_len: len_u64(view.blobs().len()),
+    })
+}
+
+/// Materializes a projected WAL root into a deterministic WARP graph.
+///
+/// The materialized graph uses one fact node for the WAL root, every writer
+/// epoch, every segment, every commit anchor, and the optional recovery
+/// certificate reference. Fact bytes are stored as typed atom attachments.
+/// Segment storage locator metadata is deliberately omitted from the atom
+/// payload because it is locator evidence, not graph identity or append
+/// authority.
+#[must_use]
+pub fn materialize_wal_projection_graph(root: &WalRoot) -> WalProjectionGraph {
+    let mut store = GraphStore::new(crate::ident::make_warp_id(WAL_PROJECTION_GRAPH_WARP));
+    let root_node_id = wal_projection_node_id(b"root", root.identity_digest());
+    insert_wal_projection_fact_node(
+        &mut store,
+        root_node_id,
+        WAL_PROJECTION_GRAPH_ROOT_NODE_TYPE,
+        WAL_PROJECTION_GRAPH_ROOT_ATTACHMENT_TYPE,
+        wal_projection_root_payload(root),
+    );
+
+    let mut writer_epochs = root.writer_epochs.clone();
+    writer_epochs.sort_by_key(WalWriterEpoch::identity_digest);
+    for writer_epoch in &writer_epochs {
+        let node_id = wal_projection_node_id(b"writer_epoch", writer_epoch.identity_digest());
+        insert_wal_projection_fact_node(
+            &mut store,
+            node_id,
+            WAL_PROJECTION_GRAPH_WRITER_EPOCH_NODE_TYPE,
+            WAL_PROJECTION_GRAPH_WRITER_EPOCH_ATTACHMENT_TYPE,
+            wal_projection_writer_epoch_payload(writer_epoch),
+        );
+        insert_wal_projection_edge(
+            &mut store,
+            root_node_id,
+            node_id,
+            b"root_writer_epoch",
+            WAL_PROJECTION_GRAPH_WRITER_EPOCH_EDGE_TYPE,
+        );
+    }
+
+    let mut segments = root.segments.clone();
+    segments.sort_by_key(WalSegmentRef::identity_digest);
+    for segment in &segments {
+        let segment_node_id = wal_projection_node_id(b"segment", segment.identity_digest());
+        insert_wal_projection_fact_node(
+            &mut store,
+            segment_node_id,
+            WAL_PROJECTION_GRAPH_SEGMENT_NODE_TYPE,
+            WAL_PROJECTION_GRAPH_SEGMENT_ATTACHMENT_TYPE,
+            wal_projection_segment_payload(segment),
+        );
+        insert_wal_projection_edge(
+            &mut store,
+            root_node_id,
+            segment_node_id,
+            b"root_segment",
+            WAL_PROJECTION_GRAPH_SEGMENT_EDGE_TYPE,
+        );
+
+        let mut commit_anchors = segment.commit_anchors.clone();
+        commit_anchors.sort_by_key(WalCommitAnchor::identity_digest);
+        for anchor in &commit_anchors {
+            let anchor_node_id = wal_projection_node_id(b"commit_anchor", anchor.identity_digest());
+            insert_wal_projection_fact_node(
+                &mut store,
+                anchor_node_id,
+                WAL_PROJECTION_GRAPH_COMMIT_ANCHOR_NODE_TYPE,
+                WAL_PROJECTION_GRAPH_COMMIT_ANCHOR_ATTACHMENT_TYPE,
+                wal_projection_commit_anchor_payload(anchor),
+            );
+            insert_wal_projection_edge(
+                &mut store,
+                root_node_id,
+                anchor_node_id,
+                b"root_commit_anchor",
+                WAL_PROJECTION_GRAPH_ROOT_COMMIT_ANCHOR_EDGE_TYPE,
+            );
+            insert_wal_projection_edge(
+                &mut store,
+                segment_node_id,
+                anchor_node_id,
+                b"segment_commit_anchor",
+                WAL_PROJECTION_GRAPH_SEGMENT_COMMIT_ANCHOR_EDGE_TYPE,
+            );
+        }
+    }
+
+    if let Some(certificate) = &root.recovery_certificate {
+        let node_id =
+            wal_projection_node_id(b"recovery_certificate", certificate.identity_digest());
+        insert_wal_projection_fact_node(
+            &mut store,
+            node_id,
+            WAL_PROJECTION_GRAPH_RECOVERY_CERTIFICATE_NODE_TYPE,
+            WAL_PROJECTION_GRAPH_RECOVERY_CERTIFICATE_ATTACHMENT_TYPE,
+            wal_projection_recovery_certificate_payload(certificate),
+        );
+        insert_wal_projection_edge(
+            &mut store,
+            root_node_id,
+            node_id,
+            b"root_recovery_certificate",
+            WAL_PROJECTION_GRAPH_RECOVERY_CERTIFICATE_EDGE_TYPE,
+        );
+    }
+
+    WalProjectionGraph {
+        store,
+        root_node_id,
+    }
+}
+
+/// Projects recovered WAL evidence into a graph-ready root record.
+///
+/// This function does not read or write storage. It only combines explicit
+/// recovery, manifest, writer-epoch, segment, locator, seal, and certificate
+/// evidence. Missing evidence produces typed obstructions instead of an empty
+/// successful projection.
+#[must_use]
+pub fn project_wal_recovery(
+    report: &RecoveryScanReport,
+    manifest: Option<&WalManifest>,
+    writer_epochs: &[WalWriterEpoch],
+    segments: &[WalRecoverySegmentEvidence],
+    recovery_certificate: Option<&RecoveryCertificate>,
+) -> WalRecoveryProjection {
+    let mut obstructions = Vec::new();
+    if report.transactions.is_empty()
+        && manifest.is_none()
+        && writer_epochs.is_empty()
+        && segments.is_empty()
+        && recovery_certificate.is_none()
+        && report.tail_posture == RecoveryTailPosture::Clean
+    {
+        return WalRecoveryProjection::absent();
+    }
+    if report.tail_posture != RecoveryTailPosture::Clean {
+        obstructions.push(WalRecoveryProjectionObstruction::TailPostureObstructed {
+            posture: report.tail_posture,
+        });
+    }
+
+    let Some(manifest) = manifest else {
+        obstructions.push(WalRecoveryProjectionObstruction::MissingManifest);
+        return WalRecoveryProjection::obstructed(obstructions);
+    };
+
+    if manifest.last_committed_lsn != report.last_committed_lsn() {
+        obstructions.push(
+            WalRecoveryProjectionObstruction::ManifestLastCommittedLsnMismatch {
+                expected: report.last_committed_lsn(),
+                actual: manifest.last_committed_lsn,
+            },
+        );
+    }
+    if manifest.last_commit_digest != report.last_commit_digest() {
+        obstructions.push(
+            WalRecoveryProjectionObstruction::ManifestLastCommitDigestMismatch {
+                expected: report.last_commit_digest(),
+                actual: manifest.last_commit_digest,
+            },
+        );
+    }
+    if manifest.sealed_segment_count != len_u64(segments.len()) {
+        obstructions.push(
+            WalRecoveryProjectionObstruction::ManifestSegmentCountMismatch {
+                expected: manifest.sealed_segment_count,
+                actual: len_u64(segments.len()),
+            },
+        );
+    }
+
+    let mut seen_segments = BTreeSet::new();
+    for segment in segments {
+        if !seen_segments.insert(segment.segment_id) {
+            obstructions.push(WalRecoveryProjectionObstruction::DuplicateSegmentEvidence {
+                segment_id: segment.segment_id,
+            });
+        }
+    }
+
+    let writer_epoch_by_id = writer_epochs
+        .iter()
+        .map(|epoch| (epoch.epoch_id, epoch))
+        .collect::<BTreeMap<_, _>>();
+    let segment_by_id = segments
+        .iter()
+        .map(|segment| (segment.segment_id, segment))
+        .collect::<BTreeMap<_, _>>();
+    let mut transactions_by_segment: BTreeMap<WalSegmentId, Vec<&WalRecoveredTransaction>> =
+        BTreeMap::new();
+    let mut required_writer_epochs = BTreeSet::new();
+
+    for transaction in &report.transactions {
+        required_writer_epochs.insert(transaction.commit.writer_epoch);
+        let frame_segments = transaction
+            .frames
+            .iter()
+            .map(|frame| frame.header.segment_id)
+            .collect::<BTreeSet<_>>();
+        match frame_segments.len() {
+            0 => obstructions.push(
+                WalRecoveryProjectionObstruction::TransactionSegmentEvidenceUnavailable {
+                    transaction_id: transaction.commit.transaction_id,
+                },
+            ),
+            1 => {
+                if let Some(segment_id) = frame_segments.iter().next().copied() {
+                    transactions_by_segment
+                        .entry(segment_id)
+                        .or_default()
+                        .push(transaction);
+                } else {
+                    obstructions.push(
+                        WalRecoveryProjectionObstruction::TransactionSegmentEvidenceUnavailable {
+                            transaction_id: transaction.commit.transaction_id,
+                        },
+                    );
+                }
+            }
+            _ => obstructions.push(WalRecoveryProjectionObstruction::TransactionSpansSegments {
+                transaction_id: transaction.commit.transaction_id,
+            }),
+        }
+    }
+
+    for writer_epoch in &required_writer_epochs {
+        if !writer_epoch_by_id.contains_key(writer_epoch) {
+            obstructions.push(
+                WalRecoveryProjectionObstruction::MissingWriterEpochEvidence {
+                    writer_epoch: *writer_epoch,
+                },
+            );
+        }
+    }
+
+    for (segment_id, transactions) in &transactions_by_segment {
+        let Some(segment) = segment_by_id.get(segment_id) else {
+            obstructions.push(WalRecoveryProjectionObstruction::MissingSegmentEvidence {
+                segment_id: *segment_id,
+            });
+            continue;
+        };
+        if segment.storage_locator.is_none() {
+            obstructions.push(
+                WalRecoveryProjectionObstruction::SegmentLocatorUnavailable {
+                    segment_id: *segment_id,
+                },
+            );
+        }
+        if segment.seal_posture == WalSegmentSealPosture::Open {
+            obstructions.push(WalRecoveryProjectionObstruction::SegmentNotSealed {
+                segment_id: *segment_id,
+            });
+        }
+        if let Some(recovered_last_lsn) = transactions
+            .iter()
+            .map(|transaction| transaction.commit.last_lsn)
+            .max()
+        {
+            if let WalSegmentSealPosture::Sealed { sealed_lsn } = segment.seal_posture {
+                if sealed_lsn.is_none_or(|lsn| lsn < recovered_last_lsn) {
+                    obstructions.push(
+                        WalRecoveryProjectionObstruction::SegmentSealDoesNotCoverRecoveredCommit {
+                            segment_id: *segment_id,
+                            sealed_lsn,
+                            recovered_last_lsn,
+                        },
+                    );
+                }
+            }
+        }
+        let segment_frames = transactions
+            .iter()
+            .flat_map(|transaction| {
+                transaction
+                    .frames
+                    .iter()
+                    .filter(move |frame| frame.header.segment_id == *segment_id)
+            })
+            .collect::<Vec<_>>();
+        let recovered_segment_digest = segment_digest(*segment_id, &segment_frames);
+        if segment.segment_digest != recovered_segment_digest {
+            obstructions.push(WalRecoveryProjectionObstruction::SegmentDigestMismatch {
+                segment_id: *segment_id,
+                expected: recovered_segment_digest,
+                actual: segment.segment_digest,
+            });
+        }
+        let segment_writer_epochs = transactions
+            .iter()
+            .map(|transaction| transaction.commit.writer_epoch)
+            .collect::<BTreeSet<_>>();
+        if segment_writer_epochs.len() > 1 {
+            obstructions.push(WalRecoveryProjectionObstruction::MixedWriterEpochSegment {
+                segment_id: *segment_id,
+            });
+        }
+    }
+
+    if let Some(certificate) = recovery_certificate {
+        let committed_transactions_replayed = len_u64(report.transactions.len());
+        if certificate.first_lsn != report.first_committed_lsn()
+            || certificate.last_lsn != report.last_committed_lsn()
+            || certificate.committed_transactions_replayed != committed_transactions_replayed
+            || certificate.tail_posture != report.tail_posture
+        {
+            obstructions.push(
+                WalRecoveryProjectionObstruction::RecoveryCertificateScanMismatch {
+                    expected_first_lsn: report.first_committed_lsn(),
+                    actual_first_lsn: certificate.first_lsn,
+                    expected_last_lsn: report.last_committed_lsn(),
+                    actual_last_lsn: certificate.last_lsn,
+                    expected_committed_transactions_replayed: committed_transactions_replayed,
+                    actual_committed_transactions_replayed: certificate
+                        .committed_transactions_replayed,
+                    expected_tail_posture: report.tail_posture,
+                    actual_tail_posture: certificate.tail_posture,
+                },
+            );
+        }
+    }
+
+    if !obstructions.is_empty() {
+        return WalRecoveryProjection::obstructed(obstructions);
+    }
+
+    let projected_writer_epochs = required_writer_epochs
+        .iter()
+        .filter_map(|epoch_id| writer_epoch_by_id.get(epoch_id).copied())
+        .cloned()
+        .collect::<Vec<_>>();
+    let projected_segments = transactions_by_segment
+        .iter()
+        .filter_map(|(segment_id, transactions)| {
+            let segment = *segment_by_id.get(segment_id)?;
+            let mut transactions = transactions.clone();
+            transactions.sort_by_key(|transaction| transaction.commit.first_lsn);
+            let first = transactions.first()?;
+            let last = transactions.last()?;
+            Some(WalSegmentRef {
+                writer_epoch: first.commit.writer_epoch,
+                segment_id: *segment_id,
+                first_lsn: first.commit.first_lsn,
+                last_lsn: last.commit.last_lsn,
+                previous_commit_digest: first.commit.previous_committed_transaction_digest,
+                final_commit_digest: last.commit.commit_digest,
+                segment_digest: segment.segment_digest,
+                commit_anchors: transactions
+                    .iter()
+                    .map(|transaction| WalCommitAnchor::from_commit(&transaction.commit))
+                    .collect(),
+                seal_posture: segment.seal_posture.clone(),
+                storage_locator: segment.storage_locator.clone(),
+            })
+        })
+        .collect::<Vec<_>>();
+    let recovery_certificate = recovery_certificate.map(RecoveryCertificateRef::from_certificate);
+
+    WalRecoveryProjection::present(WalRoot {
+        root_digest: manifest.manifest_digest,
+        writer_epochs: projected_writer_epochs,
+        segments: projected_segments,
+        recovery_certificate,
+    })
+}
+
+/// Projects a filesystem WAL recovery scan using read-only filesystem evidence.
+///
+/// The adapter validates the published manifest and scans segment files, but does
+/// not mutate WAL storage or graph storage.
+#[must_use]
+pub fn project_filesystem_wal_recovery(
+    root: impl AsRef<Path>,
+    report: &RecoveryScanReport,
+    writer_epochs: &[WalWriterEpoch],
+    recovery_certificate: Option<&RecoveryCertificate>,
+) -> WalRecoveryProjection {
+    let root = root.as_ref();
+    let manifest = match validate_filesystem_manifest(root) {
+        Ok(report) => report.manifest,
+        Err(WalStoreError::MissingManifest) => {
+            return project_wal_recovery(report, None, writer_epochs, &[], recovery_certificate);
+        }
+        Err(WalStoreError::ManifestLastCommittedLsnMismatch { expected, actual }) => {
+            return WalRecoveryProjection::obstructed(vec![
+                WalRecoveryProjectionObstruction::ManifestLastCommittedLsnMismatch {
+                    expected,
+                    actual,
+                },
+            ]);
+        }
+        Err(WalStoreError::ManifestLastCommitDigestMismatch { expected, actual }) => {
+            return WalRecoveryProjection::obstructed(vec![
+                WalRecoveryProjectionObstruction::ManifestLastCommitDigestMismatch {
+                    expected,
+                    actual,
+                },
+            ]);
+        }
+        Err(WalStoreError::ManifestSegmentCountMismatch { expected, actual }) => {
+            return WalRecoveryProjection::obstructed(vec![
+                WalRecoveryProjectionObstruction::ManifestSegmentCountMismatch {
+                    expected: actual,
+                    actual: expected,
+                },
+            ]);
+        }
+        Err(WalStoreError::ManifestCannotValidateUncommittedTail) => {
+            return WalRecoveryProjection::obstructed(vec![
+                WalRecoveryProjectionObstruction::TailPostureObstructed {
+                    posture: report.tail_posture,
+                },
+            ]);
+        }
+        Err(_) => {
+            return WalRecoveryProjection::obstructed(vec![
+                WalRecoveryProjectionObstruction::ManifestValidationUnavailable,
+            ]);
+        }
+    };
+    let segments = match filesystem_wal_recovery_segment_evidence(root) {
+        Ok(segments) => segments,
+        Err(_) => {
+            return WalRecoveryProjection::obstructed(vec![
+                WalRecoveryProjectionObstruction::SegmentEvidenceUnavailable,
+            ]);
+        }
+    };
+    project_wal_recovery(
+        report,
+        Some(&manifest),
+        writer_epochs,
+        &segments,
+        recovery_certificate,
+    )
+}
+
+fn insert_wal_projection_fact_node(
+    store: &mut GraphStore,
+    node_id: NodeId,
+    node_type: &str,
+    attachment_type: &str,
+    payload_bytes: Vec<u8>,
+) {
+    store.insert_node(
+        node_id,
+        NodeRecord {
+            ty: crate::ident::make_type_id(node_type),
+        },
+    );
+    store.set_node_attachment(
+        node_id,
+        Some(AttachmentValue::Atom(AtomPayload::new(
+            crate::ident::make_type_id(attachment_type),
+            Bytes::from(payload_bytes),
+        ))),
+    );
+}
+
+fn insert_wal_projection_edge(
+    store: &mut GraphStore,
+    from: NodeId,
+    to: NodeId,
+    role: &[u8],
+    edge_type: &str,
+) {
+    store.insert_edge(
+        from,
+        EdgeRecord {
+            id: wal_projection_edge_id(role, from, to),
+            from,
+            to,
+            ty: crate::ident::make_type_id(edge_type),
+        },
+    );
+}
+
+fn wal_projection_node_id(role: &[u8], identity_digest: Hash) -> NodeId {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(WAL_PROJECTION_GRAPH_NODE_DOMAIN);
+    update_len_prefixed(&mut hasher, role);
+    hasher.update(&identity_digest);
+    NodeId(hasher.finalize().into())
+}
+
+fn wal_projection_edge_id(role: &[u8], from: NodeId, to: NodeId) -> EdgeId {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(WAL_PROJECTION_GRAPH_EDGE_DOMAIN);
+    update_len_prefixed(&mut hasher, role);
+    hasher.update(&from.0);
+    hasher.update(&to.0);
+    EdgeId(hasher.finalize().into())
+}
+
+fn wal_projection_root_payload(root: &WalRoot) -> Vec<u8> {
+    let mut out = Vec::new();
+    push_hash(&mut out, &root.root_digest);
+
+    let mut writer_epoch_digests = root
+        .writer_epochs
+        .iter()
+        .map(WalWriterEpoch::identity_digest)
+        .collect::<Vec<_>>();
+    writer_epoch_digests.sort_unstable();
+    out.extend_from_slice(&len_u64(writer_epoch_digests.len()).to_le_bytes());
+    for digest in &writer_epoch_digests {
+        push_hash(&mut out, digest);
+    }
+
+    let mut segment_digests = root
+        .segments
+        .iter()
+        .map(WalSegmentRef::identity_digest)
+        .collect::<Vec<_>>();
+    segment_digests.sort_unstable();
+    out.extend_from_slice(&len_u64(segment_digests.len()).to_le_bytes());
+    for digest in &segment_digests {
+        push_hash(&mut out, digest);
+    }
+
+    match &root.recovery_certificate {
+        Some(certificate) => {
+            out.push(1);
+            push_hash(&mut out, &certificate.identity_digest());
+        }
+        None => out.push(0),
+    }
+    out
+}
+
+fn wal_projection_writer_epoch_payload(epoch: &WalWriterEpoch) -> Vec<u8> {
+    let mut out = Vec::new();
+    push_hash(&mut out, &epoch.epoch_id.as_hash());
+    push_hash(&mut out, &epoch.storage_fencing_token);
+    push_hash(&mut out, &epoch.process_identity);
+    push_hash(&mut out, &epoch.host_identity);
+    out.extend_from_slice(&epoch.started_at_lsn.as_u64().to_le_bytes());
+    match epoch.previous_epoch_id {
+        Some(previous_epoch_id) => {
+            out.push(1);
+            push_hash(&mut out, &previous_epoch_id.as_hash());
+        }
+        None => out.push(0),
+    }
+    push_optional_hash(&mut out, epoch.previous_epoch_final_commit_digest);
+    push_hash(&mut out, &epoch.lease_or_lock_evidence);
+    out
+}
+
+fn wal_projection_segment_payload(segment: &WalSegmentRef) -> Vec<u8> {
+    let mut out = Vec::new();
+    push_hash(&mut out, &segment.writer_epoch.as_hash());
+    out.extend_from_slice(&segment.segment_id.as_u64().to_le_bytes());
+    out.extend_from_slice(&segment.first_lsn.as_u64().to_le_bytes());
+    out.extend_from_slice(&segment.last_lsn.as_u64().to_le_bytes());
+    push_hash(&mut out, &segment.previous_commit_digest);
+    push_hash(&mut out, &segment.final_commit_digest);
+    push_hash(&mut out, &segment.segment_digest);
+
+    let mut commit_anchor_digests = segment
+        .commit_anchors
+        .iter()
+        .map(WalCommitAnchor::identity_digest)
+        .collect::<Vec<_>>();
+    commit_anchor_digests.sort_unstable();
+    out.extend_from_slice(&len_u64(commit_anchor_digests.len()).to_le_bytes());
+    for digest in &commit_anchor_digests {
+        push_hash(&mut out, digest);
+    }
+
+    push_wal_segment_seal_posture(&mut out, &segment.seal_posture);
+    out
+}
+
+fn wal_projection_commit_anchor_payload(anchor: &WalCommitAnchor) -> Vec<u8> {
+    let mut out = Vec::new();
+    push_hash(&mut out, &anchor.transaction_id.as_hash());
+    push_hash(&mut out, &anchor.commit_digest);
+    out.extend_from_slice(&anchor.first_lsn.as_u64().to_le_bytes());
+    out.extend_from_slice(&anchor.last_lsn.as_u64().to_le_bytes());
+    out.extend_from_slice(&anchor.record_count.to_le_bytes());
+    out
+}
+
+fn wal_projection_recovery_certificate_payload(certificate: &RecoveryCertificateRef) -> Vec<u8> {
+    let mut out = Vec::new();
+    push_hash(&mut out, &certificate.certificate_digest);
+    push_optional_hash(&mut out, certificate.checkpoint_used);
+    push_optional_lsn(&mut out, certificate.first_lsn);
+    push_optional_lsn(&mut out, certificate.last_lsn);
+    push_recovery_tail_posture(&mut out, &certificate.tail_posture);
+    push_hash(&mut out, &certificate.recovered_frontier_root);
+    push_hash(&mut out, &certificate.recovered_indexes_root);
+    out
+}
+
+fn push_wal_segment_seal_posture(out: &mut Vec<u8>, posture: &WalSegmentSealPosture) {
+    match posture {
+        WalSegmentSealPosture::Open => out.push(0),
+        WalSegmentSealPosture::Sealed { sealed_lsn } => {
+            out.push(1);
+            push_optional_lsn(out, *sealed_lsn);
+        }
+    }
+}
+
+fn push_recovery_tail_posture(out: &mut Vec<u8>, posture: &RecoveryTailPosture) {
+    match posture {
+        RecoveryTailPosture::Clean => out.push(0),
+        RecoveryTailPosture::TruncatedAll => out.push(1),
+        RecoveryTailPosture::TruncatedAfter(lsn) => {
+            out.push(2);
+            out.extend_from_slice(&lsn.as_u64().to_le_bytes());
+        }
+        RecoveryTailPosture::WouldTruncateAll => out.push(3),
+        RecoveryTailPosture::WouldTruncateAfter(lsn) => {
+            out.push(4);
+            out.extend_from_slice(&lsn.as_u64().to_le_bytes());
+        }
+    }
+}
+
 /// Read-only WAL doctor posture.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WalDoctorPosture {
@@ -3106,6 +4718,48 @@ pub fn recover_filesystem_store(
     Ok(report)
 }
 
+/// Recovers committed transactions from embedded bytes for one WAL segment.
+///
+/// This validates the same disk record checksums, frame integrity, transaction
+/// commit chain, and read-only tail posture used by filesystem WAL recovery,
+/// but it does not require access to the original filesystem root.
+pub fn recover_wal_segment_bytes(
+    segment_id: WalSegmentId,
+    bytes: &[u8],
+    mode: RecoveryAccessMode,
+) -> Result<WalSegmentBytesRecovery, WalRecoveryError> {
+    let (frames, commits, torn_tail) = read_segment_bytes(bytes)?;
+    for frame in &frames {
+        if frame.header.segment_id != segment_id {
+            return Err(WalStoreError::SegmentMismatch {
+                expected: segment_id,
+                actual: frame.header.segment_id,
+            }
+            .into());
+        }
+    }
+    let frame_refs = frames.iter().collect::<Vec<_>>();
+    let segment_digest = segment_digest(segment_id, &frame_refs);
+    let mut report = recover_from_frames_and_commits(&frames, &commits, mode)?;
+    if torn_tail && matches!(report.tail_posture, RecoveryTailPosture::Clean) {
+        report.tail_posture = match mode {
+            RecoveryAccessMode::Writable => report.last_committed_lsn().map_or(
+                RecoveryTailPosture::TruncatedAll,
+                RecoveryTailPosture::TruncatedAfter,
+            ),
+            RecoveryAccessMode::ReadOnly => report.last_committed_lsn().map_or(
+                RecoveryTailPosture::WouldTruncateAll,
+                RecoveryTailPosture::WouldTruncateAfter,
+            ),
+        };
+    }
+    Ok(WalSegmentBytesRecovery {
+        segment_id,
+        segment_digest,
+        report,
+    })
+}
+
 /// Runs a read-only WAL doctor over filesystem WAL segments.
 pub fn doctor_filesystem_store(
     root: impl AsRef<Path>,
@@ -3171,6 +4825,33 @@ pub fn validate_filesystem_manifest(
         last_committed_lsn,
         last_commit_digest,
     })
+}
+
+fn filesystem_wal_recovery_segment_evidence(
+    root: &Path,
+) -> Result<Vec<WalRecoverySegmentEvidence>, WalStoreError> {
+    let mut evidence = Vec::new();
+    for path in segment_paths(root)? {
+        let segment_id = parse_segment_id(&path)?;
+        let (frames, _, torn_tail) = read_segment_file(&path)?;
+        if torn_tail {
+            return Err(WalStoreError::ManifestCannotValidateUncommittedTail);
+        }
+        let frame_refs = frames.iter().collect::<Vec<_>>();
+        let storage_locator = match path.strip_prefix(root) {
+            Ok(relative) => WalSegmentStorageLocator::RelativePath(relative.to_path_buf()),
+            Err(_) => WalSegmentStorageLocator::AbsolutePath(path.clone()),
+        };
+        evidence.push(WalRecoverySegmentEvidence {
+            segment_id,
+            segment_digest: segment_digest(segment_id, &frame_refs),
+            seal_posture: WalSegmentSealPosture::Sealed {
+                sealed_lsn: frames.iter().map(|frame| frame.header.lsn).max(),
+            },
+            storage_locator: Some(storage_locator),
+        });
+    }
+    Ok(evidence)
 }
 
 /// Object-store read-after-write posture required by strict object storage.
@@ -3374,6 +5055,100 @@ pub enum MaterializationReplayPosture {
     Obstructed,
 }
 
+/// Typed materialization recovery posture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MaterializationRecoveryPosture {
+    /// Effect has a committed observation that matches authorization.
+    AlreadyObserved {
+        /// Observed artifact digest.
+        observed_artifact_digest: Hash,
+        /// Observed metadata digest.
+        observed_metadata_digest: Hash,
+    },
+    /// External artifact already matches the authorized effect.
+    ExistingArtifactMatches {
+        /// Existing artifact digest.
+        artifact_digest: Hash,
+        /// Existing metadata digest.
+        metadata_digest: Hash,
+    },
+    /// No committed observation or existing artifact evidence was available.
+    MissingArtifact {
+        /// Stable effect id.
+        effect_id: Hash,
+        /// Expected external artifact digest.
+        expected_artifact_digest: Hash,
+        /// Expected external metadata digest.
+        expected_metadata_digest: Hash,
+    },
+    /// External artifact digest mismatched the authorized effect.
+    ArtifactDigestMismatch {
+        /// Expected external artifact digest.
+        expected_artifact_digest: Hash,
+        /// Actual external artifact digest.
+        actual_artifact_digest: Hash,
+    },
+    /// External metadata digest mismatched the authorized effect.
+    MetadataDigestMismatch {
+        /// Expected external metadata digest.
+        expected_metadata_digest: Hash,
+        /// Actual external metadata digest.
+        actual_metadata_digest: Hash,
+    },
+    /// External artifact and metadata digests both mismatched authorization.
+    ArtifactAndMetadataDigestMismatch {
+        /// Expected external artifact digest.
+        expected_artifact_digest: Hash,
+        /// Actual external artifact digest.
+        actual_artifact_digest: Hash,
+        /// Expected external metadata digest.
+        expected_metadata_digest: Hash,
+        /// Actual external metadata digest.
+        actual_metadata_digest: Hash,
+    },
+    /// A committed observation conflicted with the authorized intent.
+    ObservationDigestMismatch {
+        /// Expected external artifact digest.
+        expected_artifact_digest: Hash,
+        /// Observed external artifact digest.
+        observed_artifact_digest: Hash,
+        /// Expected external metadata digest.
+        expected_metadata_digest: Hash,
+        /// Observed external metadata digest.
+        observed_metadata_digest: Hash,
+    },
+    /// Retained material required to verify recovery was unavailable.
+    RetainedMaterialUnavailable {
+        /// Unavailable material digest.
+        material_digest: Hash,
+        /// Material kind.
+        kind: RetainedMaterialKind,
+        /// Recovery scope.
+        scope: MissingMaterialScope,
+        /// Evidence posture.
+        posture: EvidenceMaterialPosture,
+    },
+}
+
+impl MaterializationRecoveryPosture {
+    /// Returns the coarse replay posture for compatibility with existing callers.
+    #[must_use]
+    pub const fn replay_posture(self) -> MaterializationReplayPosture {
+        match self {
+            Self::AlreadyObserved { .. } => MaterializationReplayPosture::AlreadyObserved,
+            Self::ExistingArtifactMatches { .. } => {
+                MaterializationReplayPosture::ExistingArtifactMatches
+            }
+            Self::MissingArtifact { .. } => MaterializationReplayPosture::Pending,
+            Self::ArtifactDigestMismatch { .. }
+            | Self::MetadataDigestMismatch { .. }
+            | Self::ArtifactAndMetadataDigestMismatch { .. }
+            | Self::ObservationDigestMismatch { .. }
+            | Self::RetainedMaterialUnavailable { .. } => MaterializationReplayPosture::Obstructed,
+        }
+    }
+}
+
 /// Recovered materialization outbox entry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MaterializationOutboxEntry {
@@ -3383,6 +5158,8 @@ pub struct MaterializationOutboxEntry {
     pub observation: Option<MaterializationObservationRecord>,
     /// Replay posture.
     pub posture: MaterializationReplayPosture,
+    /// Typed recovery posture.
+    pub recovery_posture: MaterializationRecoveryPosture,
 }
 
 /// Builds a side-effect outbox transaction.
@@ -3410,6 +5187,21 @@ pub fn recover_materialization_outbox(
     report: &RecoveryScanReport,
     existing_artifacts: &BTreeMap<Hash, ExistingMaterializedArtifact>,
 ) -> Result<BTreeMap<Hash, MaterializationOutboxEntry>, WalRecoveryIndexError> {
+    recover_materialization_outbox_with_retained_material(
+        report,
+        existing_artifacts,
+        &RecoveredRetentionIndex::default(),
+        &BTreeSet::new(),
+    )
+}
+
+/// Recovers materialization outbox posture with retained-material availability.
+pub fn recover_materialization_outbox_with_retained_material(
+    report: &RecoveryScanReport,
+    existing_artifacts: &BTreeMap<Hash, ExistingMaterializedArtifact>,
+    retention_index: &RecoveredRetentionIndex,
+    available_material: &BTreeSet<Hash>,
+) -> Result<BTreeMap<Hash, MaterializationOutboxEntry>, WalRecoveryIndexError> {
     let mut intents = BTreeMap::new();
     let mut observations = BTreeMap::new();
     for transaction in &report.transactions {
@@ -3431,32 +5223,96 @@ pub fn recover_materialization_outbox(
             }
         }
     }
+    let retained_obstructions: BTreeMap<_, _> =
+        retained_material_obstructions(retention_index, available_material)
+            .into_iter()
+            .map(|obstruction| (obstruction.material_digest, obstruction))
+            .collect();
     let mut outbox = BTreeMap::new();
     for (effect_id, intent) in intents {
         let observation = observations.get(&effect_id).copied();
-        let posture = if observation.is_some() {
-            MaterializationReplayPosture::AlreadyObserved
-        } else if let Some(existing) = existing_artifacts.get(&effect_id) {
-            if existing.artifact_digest == intent.expected_artifact_digest
-                && existing.metadata_digest == intent.target_metadata_digest
-            {
-                MaterializationReplayPosture::ExistingArtifactMatches
-            } else {
-                MaterializationReplayPosture::Obstructed
-            }
-        } else {
-            MaterializationReplayPosture::Pending
-        };
+        let recovery_posture = materialization_recovery_posture(
+            intent,
+            observation,
+            existing_artifacts.get(&effect_id).copied(),
+            retained_obstructions
+                .get(&intent.expected_artifact_digest)
+                .copied(),
+        );
+        let posture = recovery_posture.replay_posture();
         outbox.insert(
             effect_id,
             MaterializationOutboxEntry {
                 intent,
                 observation,
                 posture,
+                recovery_posture,
             },
         );
     }
     Ok(outbox)
+}
+
+fn materialization_recovery_posture(
+    intent: MaterializationIntentRecord,
+    observation: Option<MaterializationObservationRecord>,
+    existing: Option<ExistingMaterializedArtifact>,
+    retained_obstruction: Option<RetainedMaterialObstruction>,
+) -> MaterializationRecoveryPosture {
+    if let Some(observation) = observation {
+        return if observation.observed_artifact_digest == intent.expected_artifact_digest
+            && observation.observed_metadata_digest == intent.target_metadata_digest
+        {
+            MaterializationRecoveryPosture::AlreadyObserved {
+                observed_artifact_digest: observation.observed_artifact_digest,
+                observed_metadata_digest: observation.observed_metadata_digest,
+            }
+        } else {
+            MaterializationRecoveryPosture::ObservationDigestMismatch {
+                expected_artifact_digest: intent.expected_artifact_digest,
+                observed_artifact_digest: observation.observed_artifact_digest,
+                expected_metadata_digest: intent.target_metadata_digest,
+                observed_metadata_digest: observation.observed_metadata_digest,
+            }
+        };
+    }
+    if let Some(obstruction) = retained_obstruction {
+        return MaterializationRecoveryPosture::RetainedMaterialUnavailable {
+            material_digest: obstruction.material_digest,
+            kind: obstruction.kind,
+            scope: obstruction.scope,
+            posture: obstruction.posture,
+        };
+    }
+    if let Some(existing) = existing {
+        let artifact_matches = existing.artifact_digest == intent.expected_artifact_digest;
+        let metadata_matches = existing.metadata_digest == intent.target_metadata_digest;
+        return match (artifact_matches, metadata_matches) {
+            (true, true) => MaterializationRecoveryPosture::ExistingArtifactMatches {
+                artifact_digest: existing.artifact_digest,
+                metadata_digest: existing.metadata_digest,
+            },
+            (false, true) => MaterializationRecoveryPosture::ArtifactDigestMismatch {
+                expected_artifact_digest: intent.expected_artifact_digest,
+                actual_artifact_digest: existing.artifact_digest,
+            },
+            (true, false) => MaterializationRecoveryPosture::MetadataDigestMismatch {
+                expected_metadata_digest: intent.target_metadata_digest,
+                actual_metadata_digest: existing.metadata_digest,
+            },
+            (false, false) => MaterializationRecoveryPosture::ArtifactAndMetadataDigestMismatch {
+                expected_artifact_digest: intent.expected_artifact_digest,
+                actual_artifact_digest: existing.artifact_digest,
+                expected_metadata_digest: intent.target_metadata_digest,
+                actual_metadata_digest: existing.metadata_digest,
+            },
+        };
+    }
+    MaterializationRecoveryPosture::MissingArtifact {
+        effect_id: intent.effect_id,
+        expected_artifact_digest: intent.expected_artifact_digest,
+        expected_metadata_digest: intent.target_metadata_digest,
+    }
 }
 
 /// Imported suffix admission outcome stored in topology recovery evidence.
@@ -4568,6 +6424,12 @@ fn read_segment_file(
 ) -> Result<(Vec<WalFrame>, Vec<WalTransactionCommit>, bool), WalStoreError> {
     let mut bytes = Vec::new();
     File::open(path)?.read_to_end(&mut bytes)?;
+    read_segment_bytes(&bytes)
+}
+
+fn read_segment_bytes(
+    bytes: &[u8],
+) -> Result<(Vec<WalFrame>, Vec<WalTransactionCommit>, bool), WalStoreError> {
     let mut offset = 0usize;
     let mut frames = Vec::new();
     let mut commits = Vec::new();
@@ -5316,6 +7178,22 @@ pub fn build_recovery_certificate(
     }
 }
 
+/// Computes the stable digest for a recovery certificate.
+#[must_use]
+pub fn recovery_certificate_digest(certificate: &RecoveryCertificate) -> Hash {
+    let mut h = blake3::Hasher::new();
+    h.update(WAL_RECOVERY_CERTIFICATE_DOMAIN);
+    update_optional_projection_digest(&mut h, certificate.checkpoint_used);
+    update_optional_lsn(&mut h, certificate.first_lsn);
+    update_optional_lsn(&mut h, certificate.last_lsn);
+    h.update(&certificate.committed_transactions_replayed.to_le_bytes());
+    update_recovery_tail_posture(&mut h, certificate.tail_posture);
+    h.update(&certificate.obstruction_count.to_le_bytes());
+    h.update(&certificate.recovered_frontier_root);
+    h.update(&certificate.recovered_indexes_root);
+    h.finalize().into()
+}
+
 /// Runs a read-only WAL doctor over an in-memory store.
 pub fn doctor_in_memory_store(
     store: &InMemoryWalStore,
@@ -5997,6 +7875,64 @@ fn checksum32(domain: &[u8], bytes: &[u8]) -> u32 {
 fn update_len_prefixed(hasher: &mut blake3::Hasher, bytes: &[u8]) {
     hasher.update(&len_u64(bytes.len()).to_le_bytes());
     hasher.update(bytes);
+}
+
+fn update_optional_projection_digest(hasher: &mut blake3::Hasher, digest: Option<Hash>) {
+    match digest {
+        Some(digest) => {
+            hasher.update(&[1]);
+            hasher.update(&digest);
+        }
+        None => {
+            hasher.update(&[0]);
+        }
+    }
+}
+
+fn update_optional_writer_epoch_id(hasher: &mut blake3::Hasher, epoch_id: Option<WriterEpochId>) {
+    match epoch_id {
+        Some(epoch_id) => {
+            hasher.update(&[1]);
+            hasher.update(&epoch_id.as_hash());
+        }
+        None => {
+            hasher.update(&[0]);
+        }
+    }
+}
+
+fn update_optional_lsn(hasher: &mut blake3::Hasher, lsn: Option<Lsn>) {
+    match lsn {
+        Some(lsn) => {
+            hasher.update(&[1]);
+            hasher.update(&lsn.as_u64().to_le_bytes());
+        }
+        None => {
+            hasher.update(&[0]);
+        }
+    }
+}
+
+fn update_recovery_tail_posture(hasher: &mut blake3::Hasher, posture: RecoveryTailPosture) {
+    match posture {
+        RecoveryTailPosture::Clean => {
+            hasher.update(&[0]);
+        }
+        RecoveryTailPosture::TruncatedAll => {
+            hasher.update(&[1]);
+        }
+        RecoveryTailPosture::TruncatedAfter(lsn) => {
+            hasher.update(&[2]);
+            hasher.update(&lsn.as_u64().to_le_bytes());
+        }
+        RecoveryTailPosture::WouldTruncateAll => {
+            hasher.update(&[3]);
+        }
+        RecoveryTailPosture::WouldTruncateAfter(lsn) => {
+            hasher.update(&[4]);
+            hasher.update(&lsn.as_u64().to_le_bytes());
+        }
+    }
 }
 
 fn push_hash(out: &mut Vec<u8>, hash: &Hash) {

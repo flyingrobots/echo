@@ -141,3 +141,235 @@ impl EchoKernel {
             .canonical_state_hash()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        env, fs,
+        path::{Path, PathBuf},
+        process::{self, Child, Command},
+        thread,
+        time::Duration,
+    };
+
+    use warp_core::{
+        causal_wal::{
+            build_submission_acceptance_transaction, recover_filesystem_store,
+            recover_submission_index, AffectedFrontier, AffectedFrontierKind, FilesystemWalStore,
+            Lsn, PayloadCodecId, PayloadSchemaId, RecoveredSubmissionPosture, RecoveryAccessMode,
+            RecoveryTailPosture, SubmissionAcceptanceRecord, WalAppendAuthority,
+            WalCommittedTransaction, WalDurabilityMode, WalSegmentId, WalStorePort,
+            WalTransactionBuilder, WalTransactionId, WalTransactionKind, WriterEpochId,
+            WriterEpochRequest,
+        },
+        Hash,
+    };
+
+    const CHILD_MODE_ENV: &str = "ECHO_DIND_WAL_CRASHPOINT_CHILD";
+    const WAL_ROOT_ENV: &str = "ECHO_DIND_WAL_CRASHPOINT_ROOT";
+    const READY_MARKER_ENV: &str = "ECHO_DIND_WAL_CRASHPOINT_READY";
+    const AFTER_COMMIT_MODE: &str = "after_wal_commit";
+    const BEFORE_COMMIT_MODE: &str = "before_wal_commit";
+
+    #[test]
+    fn wal_process_crashpoints() {
+        if let Ok(mode) = env::var(CHILD_MODE_ENV) {
+            run_wal_crashpoint_child(&mode);
+        }
+
+        let root = crashpoint_root();
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("create crashpoint root");
+
+        let after_root = root.join("after-wal-commit");
+        let after_acceptance = acceptance("after-wal-commit");
+        run_and_kill_child(AFTER_COMMIT_MODE, &after_root);
+        let after_report = recover_filesystem_store(&after_root, RecoveryAccessMode::ReadOnly)
+            .expect("recover after-commit WAL root");
+        let after_index =
+            recover_submission_index(&after_report).expect("recover after-commit index");
+        let after_entry = after_index
+            .get(&after_acceptance.submission_id)
+            .expect("after-commit submission recovered");
+        assert_eq!(after_report.tail_posture, RecoveryTailPosture::Clean);
+        assert_eq!(after_entry.acceptance, after_acceptance);
+        assert_eq!(
+            after_entry.posture,
+            RecoveredSubmissionPosture::AcceptedPending
+        );
+
+        let before_root = root.join("before-wal-commit");
+        let before_acceptance = acceptance("before-wal-commit");
+        run_and_kill_child(BEFORE_COMMIT_MODE, &before_root);
+        let before_report = recover_filesystem_store(&before_root, RecoveryAccessMode::ReadOnly)
+            .expect("recover before-commit WAL root");
+        let before_index =
+            recover_submission_index(&before_report).expect("recover before-commit index");
+        assert_eq!(
+            before_report.tail_posture,
+            RecoveryTailPosture::WouldTruncateAll
+        );
+        assert!(before_index.get(&before_acceptance.submission_id).is_none());
+        assert!(before_index.is_empty());
+
+        fs::remove_dir_all(&root).expect("remove crashpoint root");
+    }
+
+    fn run_wal_crashpoint_child(mode: &str) -> ! {
+        let root = PathBuf::from(env::var_os(WAL_ROOT_ENV).expect("WAL root env"));
+        let marker = PathBuf::from(env::var_os(READY_MARKER_ENV).expect("ready marker env"));
+        fs::create_dir_all(&root).expect("create child WAL root");
+        let mut store = FilesystemWalStore::open(&root, WalSegmentId::from_raw(1))
+            .expect("open child WAL store");
+        store
+            .acquire_writer_epoch(writer_epoch_request())
+            .expect("acquire writer epoch");
+        match mode {
+            AFTER_COMMIT_MODE => {
+                store
+                    .append_transaction(submission_transaction(
+                        "after-wal-commit",
+                        Lsn::from_raw(0),
+                    ))
+                    .expect("append committed child transaction");
+            }
+            BEFORE_COMMIT_MODE => {
+                let transaction = submission_transaction("before-wal-commit", Lsn::from_raw(0));
+                store
+                    .append_uncommitted_frame(epoch_id(), transaction.frames[0].clone())
+                    .expect("append uncommitted child frame");
+            }
+            other => panic!("unknown child crashpoint mode: {other}"),
+        }
+        fs::write(marker, b"ready").expect("write ready marker");
+        loop {
+            thread::sleep(Duration::from_secs(60));
+        }
+    }
+
+    fn run_and_kill_child(mode: &str, wal_root: &Path) {
+        fs::create_dir_all(wal_root).expect("create WAL root");
+        let marker = wal_root.join("ready");
+        let mut child = Command::new(env::current_exe().expect("current test binary"))
+            .arg("tests::wal_process_crashpoints")
+            .arg("--exact")
+            .arg("--nocapture")
+            .env(CHILD_MODE_ENV, mode)
+            .env(WAL_ROOT_ENV, wal_root)
+            .env(READY_MARKER_ENV, &marker)
+            .spawn()
+            .expect("spawn WAL crashpoint child");
+        wait_for_ready_marker(&mut child, &marker);
+        child.kill().expect("kill WAL crashpoint child");
+        let status = child.wait().expect("wait for killed child");
+        assert!(!status.success(), "child should have been killed");
+    }
+
+    fn wait_for_ready_marker(child: &mut Child, marker: &Path) {
+        for _ in 0..200 {
+            if marker.exists() {
+                return;
+            }
+            if let Some(status) = child.try_wait().expect("poll child") {
+                panic!("child exited before ready marker: {status}");
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+        let _ = child.kill();
+        panic!("timed out waiting for ready marker at {}", marker.display());
+    }
+
+    fn crashpoint_root() -> PathBuf {
+        env::current_dir()
+            .expect("current dir")
+            .join("target")
+            .join("echo-dind-wal-crashpoints")
+            .join(process::id().to_string())
+    }
+
+    fn submission_transaction(label: &str, first_lsn: Lsn) -> WalCommittedTransaction {
+        build_submission_acceptance_transaction(
+            builder(
+                transaction_id(label),
+                first_lsn,
+                WalAppendAuthority::SubmissionIntake,
+                WalTransactionKind::SubmissionIntake,
+            ),
+            acceptance(label),
+            vec![frontier(label)],
+        )
+        .expect("build submission transaction")
+    }
+
+    fn acceptance(label: &str) -> SubmissionAcceptanceRecord {
+        SubmissionAcceptanceRecord {
+            submission_id: digest(&format!("submission:{label}")),
+            canonical_envelope_digest: digest(&format!("envelope:{label}")),
+            idempotency_key_digest: Some(digest(&format!("idempotency:{label}"))),
+            acceptance_evidence_digest: digest(&format!("accepted:{label}")),
+        }
+    }
+
+    fn builder(
+        transaction_id: WalTransactionId,
+        first_lsn: Lsn,
+        authority: WalAppendAuthority,
+        transaction_kind: WalTransactionKind,
+    ) -> WalTransactionBuilder {
+        WalTransactionBuilder::new(
+            epoch_id(),
+            WalSegmentId::from_raw(1),
+            transaction_id,
+            transaction_kind,
+            authority,
+            first_lsn,
+            digest("genesis-frame"),
+            digest("genesis-commit"),
+            WalDurabilityMode::StrictFilesystem,
+            PayloadCodecId::from_hash(digest("codec:echo-dind-wal-crashpoint")),
+            PayloadSchemaId::from_hash(digest("schema:echo-dind-wal-crashpoint")),
+            1,
+            1,
+            digest("domain:echo-dind-wal-crashpoint"),
+        )
+    }
+
+    fn writer_epoch_request() -> WriterEpochRequest {
+        WriterEpochRequest {
+            epoch_id: epoch_id(),
+            storage_fencing_token: digest("fence:echo-dind-wal-crashpoint"),
+            process_identity: digest("process:echo-dind-wal-crashpoint"),
+            host_identity: digest("host:echo-dind-wal-crashpoint"),
+            started_at_lsn: Lsn::from_raw(0),
+            previous_epoch_id: None,
+            previous_epoch_final_commit_digest: None,
+            lease_or_lock_evidence: digest("lease:echo-dind-wal-crashpoint"),
+        }
+    }
+
+    fn frontier(label: &str) -> AffectedFrontier {
+        AffectedFrontier {
+            kind: AffectedFrontierKind::SubmissionQueue,
+            before_digest: digest(&format!("{label}:submission:before")),
+            after_digest: digest(&format!("{label}:submission:after")),
+        }
+    }
+
+    fn transaction_id(label: &str) -> WalTransactionId {
+        WalTransactionId::from_hash(digest(&format!("tx:{label}")))
+    }
+
+    fn epoch_id() -> WriterEpochId {
+        WriterEpochId::from_hash(digest("epoch:echo-dind-wal-crashpoint"))
+    }
+
+    fn digest(label: &str) -> Hash {
+        let mut out = [0_u8; 32];
+        for (index, byte) in label.as_bytes().iter().enumerate() {
+            out[index % 32] = out[index % 32]
+                .wrapping_add(*byte)
+                .wrapping_add(index as u8);
+        }
+        out
+    }
+}

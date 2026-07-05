@@ -4,7 +4,13 @@
 
 #![allow(clippy::expect_used)]
 
-use std::collections::BTreeSet;
+use std::{
+    collections::BTreeSet,
+    fs,
+    path::PathBuf,
+    process,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 use warp_core::causal_wal::{
     retained_material_obstructions, BraidShellRetentionRecord, EvidenceMaterialPosture,
@@ -23,14 +29,31 @@ use warp_core::wsc::{
     retention_records_from_wsc_envelope, retention_records_from_wsc_store,
     retention_records_to_wsc_envelope, topology_records_from_wsc_envelope,
     topology_records_from_wsc_store, topology_records_to_wsc_envelope,
-    validate_wsc_causal_history_store, write_wsc_one_warp, InMemoryWscStore, OneWarpInput,
-    WscStoreEnvelope, WscStoreObstructionKind, WscStorePort, WscStoreRecordKind, WscStoreSubject,
+    validate_wsc_causal_history_store, write_wsc_one_warp, wsc_causal_history_export_profile,
+    wsc_causal_history_export_profiles, FilesystemWscStore, InMemoryWscStore, OneWarpInput,
+    WscCausalHistoryCasAuthority, WscCausalHistoryExportEvidence,
+    WscCausalHistoryExportProfileKind, WscCausalHistoryExportValidationMaterial, WscStoreEnvelope,
+    WscStoreObstructionKind, WscStorePort, WscStoreRecordKind, WscStoreSubject,
+    WSC_CAUSAL_HISTORY_EXPORT_PROFILE_VERSION,
 };
 use warp_core::{
     make_node_id, make_strand_id, make_type_id, make_warp_id, AuthorityDomainId,
     AuthorityDomainRef, BraidEvent, BraidStatus, HeadId, OriginId, WorldlineId, WorldlineTick,
     WriterHeadKey,
 };
+
+static NEXT_WSC_STORE_TEMP_DIR: AtomicU64 = AtomicU64::new(0);
+
+fn temp_wsc_store_dir(label: &str) -> PathBuf {
+    let root = std::env::temp_dir().join("echo-wsc-store-tests");
+    fs::create_dir_all(&root).expect("test temp root should be created");
+    let next = NEXT_WSC_STORE_TEMP_DIR.fetch_add(1, Ordering::Relaxed);
+    let dir = root.join(format!("{}-{}-{}", label, process::id(), next));
+    if dir.exists() {
+        fs::remove_dir_all(&dir).expect("stale WSC store temp dir should be removable");
+    }
+    dir
+}
 
 #[test]
 fn wsc_store_envelope_round_trips_deterministically() {
@@ -139,6 +162,173 @@ fn in_memory_wsc_store_missing_envelope_returns_typed_obstruction() {
 }
 
 #[test]
+fn filesystem_wsc_store_hides_staged_material_until_commit_marker() {
+    let envelope =
+        WscStoreEnvelope::validated(WscStoreRecordKind::Snapshot, [8; 32], fixture_wsc_bytes(29))
+            .expect("valid WSC envelope");
+    let id = envelope.id();
+    let dir = temp_wsc_store_dir("visibility");
+    let mut store = FilesystemWscStore::open(&dir).expect("filesystem WSC store opens");
+
+    let staged_id = store
+        .stage_envelope_without_commit_marker(envelope.clone())
+        .expect("staged filesystem WSC envelope");
+
+    assert_eq!(staged_id, id);
+    assert!(store.list_envelopes().is_empty());
+    assert_eq!(
+        store
+            .read_envelope(id)
+            .expect_err("staged envelope is not committed")
+            .kind,
+        WscStoreObstructionKind::IncompleteEnvelopeWrite
+    );
+
+    let reopened = FilesystemWscStore::open(&dir).expect("filesystem WSC store reopens");
+    assert!(reopened.list_envelopes().is_empty());
+    assert_eq!(
+        reopened
+            .read_envelope(id)
+            .expect_err("reopened staged envelope is not committed")
+            .kind,
+        WscStoreObstructionKind::IncompleteEnvelopeWrite
+    );
+
+    let receipt = store
+        .commit_staged_envelope(id)
+        .expect("staged filesystem WSC envelope commits");
+    assert_eq!(receipt.envelope_id, id);
+
+    let reopened = FilesystemWscStore::open(&dir).expect("filesystem WSC store reopens");
+    assert_eq!(reopened.list_envelopes(), vec![id]);
+    assert_eq!(reopened.read_envelope(id), Ok(envelope));
+}
+
+#[test]
+fn filesystem_wsc_store_restarts_with_deterministic_order() {
+    let first = WscStoreEnvelope::validated(
+        WscStoreRecordKind::Snapshot,
+        [10; 32],
+        fixture_wsc_bytes(31),
+    )
+    .expect("valid first WSC envelope");
+    let second = WscStoreEnvelope::validated(
+        WscStoreRecordKind::RetainedEvidence,
+        [11; 32],
+        fixture_wsc_bytes(37),
+    )
+    .expect("valid second WSC envelope");
+    let dir = temp_wsc_store_dir("restart-order");
+    let mut store = FilesystemWscStore::open(&dir).expect("filesystem WSC store opens");
+
+    store
+        .write_envelope(second.clone())
+        .expect("second envelope writes");
+    store
+        .write_envelope(first.clone())
+        .expect("first envelope writes");
+
+    let reopened = FilesystemWscStore::open(&dir).expect("filesystem WSC store reopens");
+    let mut expected = vec![first.id(), second.id()];
+    expected.sort_unstable();
+    assert_eq!(reopened.list_envelopes(), expected);
+    assert_eq!(reopened.read_envelope(first.id()), Ok(first.clone()));
+    assert_eq!(reopened.read_envelope(second.id()), Ok(second));
+
+    let mut reopened_for_write =
+        FilesystemWscStore::open(&dir).expect("filesystem WSC store reopens for write");
+    let receipt = reopened_for_write
+        .write_envelope(first.clone())
+        .expect("matching envelope write is idempotent after restart");
+    assert_eq!(receipt.envelope_id, first.id());
+    assert_eq!(reopened_for_write.read_envelope(first.id()), Ok(first));
+}
+
+#[test]
+fn filesystem_wsc_store_reports_torn_envelope_or_marker_material() {
+    let torn_envelope = WscStoreEnvelope::validated(
+        WscStoreRecordKind::Snapshot,
+        [12; 32],
+        fixture_wsc_bytes(41),
+    )
+    .expect("valid torn-envelope fixture");
+    let torn_marker = WscStoreEnvelope::validated(
+        WscStoreRecordKind::Snapshot,
+        [13; 32],
+        fixture_wsc_bytes(43),
+    )
+    .expect("valid torn-marker fixture");
+    let dir = temp_wsc_store_dir("torn-material");
+    let mut store = FilesystemWscStore::open(&dir).expect("filesystem WSC store opens");
+
+    store
+        .write_envelope(torn_envelope.clone())
+        .expect("torn-envelope fixture writes");
+    fs::write(store.envelope_path(torn_envelope.id()), b"torn-envelope")
+        .expect("torn envelope material written");
+    assert!(store.list_envelopes().contains(&torn_envelope.id()));
+    assert_eq!(
+        store
+            .read_envelope(torn_envelope.id())
+            .expect_err("torn envelope material obstructs")
+            .kind,
+        WscStoreObstructionKind::InvalidEnvelope
+    );
+
+    store
+        .write_envelope(torn_marker.clone())
+        .expect("torn-marker fixture writes");
+    fs::write(store.commit_marker_path(torn_marker.id()), b"torn-marker")
+        .expect("torn marker material written");
+    assert!(store.list_envelopes().contains(&torn_marker.id()));
+    assert_eq!(
+        store
+            .read_envelope(torn_marker.id())
+            .expect_err("torn marker material obstructs")
+            .kind,
+        WscStoreObstructionKind::InvalidCommitMarker
+    );
+}
+
+#[test]
+fn filesystem_wsc_store_rejects_envelope_material_under_wrong_id() {
+    let stored = WscStoreEnvelope::validated(
+        WscStoreRecordKind::Snapshot,
+        [14; 32],
+        fixture_wsc_bytes(47),
+    )
+    .expect("valid stored fixture");
+    let wrong = WscStoreEnvelope::validated(
+        WscStoreRecordKind::Snapshot,
+        [15; 32],
+        fixture_wsc_bytes(53),
+    )
+    .expect("valid wrong-id fixture");
+    let dir = temp_wsc_store_dir("wrong-id");
+    let mut store = FilesystemWscStore::open(&dir).expect("filesystem WSC store opens");
+
+    store
+        .write_envelope(stored.clone())
+        .expect("stored fixture writes");
+    fs::write(store.envelope_path(wrong.id()), stored.encode())
+        .expect("mismatched envelope material written under wrong id path");
+
+    let obstruction = store
+        .commit_staged_envelope(wrong.id())
+        .expect_err("wrong-id envelope material obstructs");
+    assert_eq!(
+        obstruction.kind,
+        WscStoreObstructionKind::DuplicateEnvelopeMismatch
+    );
+    assert_eq!(
+        obstruction.subject,
+        WscStoreSubject::Envelope {
+            envelope_id: wrong.id()
+        }
+    );
+}
+
+#[test]
 fn wsc_store_decode_rejects_digest_mismatch() {
     let envelope =
         WscStoreEnvelope::validated(WscStoreRecordKind::Snapshot, [5; 32], fixture_wsc_bytes(17))
@@ -155,6 +345,157 @@ fn wsc_store_decode_rejects_digest_mismatch() {
 fn wsc_store_module_has_no_jedit_nouns() {
     let source = include_str!("../src/wsc/store.rs");
     assert!(!source.to_lowercase().contains("jedit"));
+}
+
+#[test]
+fn wsc_causal_history_export_profiles_cover_required_evidence() {
+    let profiles = wsc_causal_history_export_profiles();
+    assert_eq!(profiles.len(), 3);
+    assert_eq!(
+        profiles.map(|profile| profile.kind),
+        [
+            WscCausalHistoryExportProfileKind::RefOnly,
+            WscCausalHistoryExportProfileKind::SelfContained,
+            WscCausalHistoryExportProfileKind::CasAddressed,
+        ]
+    );
+    assert!(profiles
+        .iter()
+        .all(|profile| profile.version == WSC_CAUSAL_HISTORY_EXPORT_PROFILE_VERSION));
+    assert_eq!(
+        WscCausalHistoryExportProfileKind::RefOnly.label(),
+        "ref-only"
+    );
+    assert_eq!(
+        WscCausalHistoryExportProfileKind::SelfContained.label(),
+        "self-contained"
+    );
+    assert_eq!(
+        WscCausalHistoryExportProfileKind::CasAddressed.label(),
+        "CAS-addressed"
+    );
+
+    let ref_only = wsc_causal_history_export_profile(WscCausalHistoryExportProfileKind::RefOnly);
+    assert_eq!(
+        ref_only.validation_material,
+        WscCausalHistoryExportValidationMaterial::ExternalWalStorageRefs
+    );
+    assert_eq!(
+        ref_only.projected_graph_facts,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
+        ref_only.segment_locators,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
+        ref_only.segment_digests,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
+        ref_only.lsn_ranges,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
+        ref_only.commit_anchors,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
+        ref_only.embedded_segment_bytes_or_retained_material,
+        WscCausalHistoryExportEvidence::Forbidden
+    );
+    assert_eq!(
+        ref_only.cas_content_hashes,
+        WscCausalHistoryExportEvidence::Forbidden
+    );
+    assert_eq!(
+        ref_only.semantic_refs,
+        WscCausalHistoryExportEvidence::Forbidden
+    );
+    assert_eq!(ref_only.cas_authority, None);
+
+    let self_contained =
+        wsc_causal_history_export_profile(WscCausalHistoryExportProfileKind::SelfContained);
+    assert_eq!(
+        self_contained.validation_material,
+        WscCausalHistoryExportValidationMaterial::EmbeddedSegmentBytesOrRetainedMaterial
+    );
+    assert_eq!(
+        self_contained.projected_graph_facts,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
+        self_contained.segment_locators,
+        WscCausalHistoryExportEvidence::Optional
+    );
+    assert_eq!(
+        self_contained.segment_digests,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
+        self_contained.lsn_ranges,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
+        self_contained.commit_anchors,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
+        self_contained.embedded_segment_bytes_or_retained_material,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
+        self_contained.cas_content_hashes,
+        WscCausalHistoryExportEvidence::Forbidden
+    );
+    assert_eq!(
+        self_contained.semantic_refs,
+        WscCausalHistoryExportEvidence::Forbidden
+    );
+    assert_eq!(self_contained.cas_authority, None);
+
+    let cas_addressed =
+        wsc_causal_history_export_profile(WscCausalHistoryExportProfileKind::CasAddressed);
+    assert_eq!(
+        cas_addressed.validation_material,
+        WscCausalHistoryExportValidationMaterial::CasHashesWithSemanticRefs
+    );
+    assert_eq!(
+        cas_addressed.projected_graph_facts,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
+        cas_addressed.segment_locators,
+        WscCausalHistoryExportEvidence::Forbidden
+    );
+    assert_eq!(
+        cas_addressed.segment_digests,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
+        cas_addressed.lsn_ranges,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
+        cas_addressed.commit_anchors,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
+        cas_addressed.embedded_segment_bytes_or_retained_material,
+        WscCausalHistoryExportEvidence::Forbidden
+    );
+    assert_eq!(
+        cas_addressed.cas_content_hashes,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
+        cas_addressed.semantic_refs,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
+        cas_addressed.cas_authority,
+        Some(WscCausalHistoryCasAuthority::ByteRetentionOnly)
+    );
 }
 
 #[test]
@@ -632,10 +973,12 @@ fn topology_records_ignore_uncommitted_staged_wsc_envelope() {
 #[test]
 fn topology_records_reject_conflicting_duplicate_strand_fork() {
     let mut records = topology_records();
-    let mut conflicting = match &records[0] {
-        TopologyIntentRecord::StrandFork(record) => record.clone(),
-        _ => panic!("expected strand fork fixture"),
-    };
+    let mut conflicting = if let TopologyIntentRecord::StrandFork(record) = &records[0] {
+        Some(record.clone())
+    } else {
+        None
+    }
+    .expect("expected strand fork fixture");
     conflicting.child_worldline_id = worldline(99);
     records.push(TopologyIntentRecord::StrandFork(conflicting));
 
@@ -654,10 +997,12 @@ fn topology_records_reject_conflicting_duplicate_strand_fork() {
 fn topology_records_reject_idempotency_conflicts_for_each_record_family() {
     let records = topology_records();
 
-    let fork = match &records[0] {
-        TopologyIntentRecord::StrandFork(record) => record.clone(),
-        _ => panic!("expected strand fork fixture"),
-    };
+    let fork = if let TopologyIntentRecord::StrandFork(record) = &records[0] {
+        Some(record.clone())
+    } else {
+        None
+    }
+    .expect("expected strand fork fixture");
     let mut conflicting_fork = fork.clone();
     conflicting_fork.strand_id = make_strand_id("wsc-topology-other-strand");
     conflicting_fork.child_worldline_id = worldline(52);
@@ -671,10 +1016,12 @@ fn topology_records_reject_idempotency_conflicts_for_each_record_family() {
         WscStoreObstructionKind::DuplicateEnvelopeMismatch
     );
 
-    let drop = match &records[1] {
-        TopologyIntentRecord::StrandDrop(record) => record.clone(),
-        _ => panic!("expected strand drop fixture"),
-    };
+    let drop = if let TopologyIntentRecord::StrandDrop(record) = &records[1] {
+        Some(record.clone())
+    } else {
+        None
+    }
+    .expect("expected strand drop fixture");
     let mut conflicting_drop = drop.clone();
     conflicting_drop.strand_id = make_strand_id("wsc-topology-other-drop");
     conflicting_drop.child_worldline_id = worldline(53);
@@ -688,10 +1035,12 @@ fn topology_records_reject_idempotency_conflicts_for_each_record_family() {
         WscStoreObstructionKind::DuplicateEnvelopeMismatch
     );
 
-    let braid_event = match &records[2] {
-        TopologyIntentRecord::BraidEvent(record) => record.clone(),
-        _ => panic!("expected braid event fixture"),
-    };
+    let braid_event = if let TopologyIntentRecord::BraidEvent(record) = &records[2] {
+        Some(record.clone())
+    } else {
+        None
+    }
+    .expect("expected braid event fixture");
     let mut conflicting_braid_event = braid_event.clone();
     conflicting_braid_event.event_index = 1;
     let obstruction = topology_records_to_wsc_envelope(&[
@@ -704,10 +1053,12 @@ fn topology_records_reject_idempotency_conflicts_for_each_record_family() {
         WscStoreObstructionKind::DuplicateEnvelopeMismatch
     );
 
-    let braid_shell = match &records[3] {
-        TopologyIntentRecord::BraidShell(record) => record.clone(),
-        _ => panic!("expected braid shell fixture"),
-    };
+    let braid_shell = if let TopologyIntentRecord::BraidShell(record) = &records[3] {
+        Some(record.clone())
+    } else {
+        None
+    }
+    .expect("expected braid shell fixture");
     let mut conflicting_braid_shell = braid_shell.clone();
     conflicting_braid_shell.shell_digest = [126; 32];
     conflicting_braid_shell.material_digest = [127; 32];
@@ -724,10 +1075,12 @@ fn topology_records_reject_idempotency_conflicts_for_each_record_family() {
 
 #[test]
 fn topology_records_reject_root_level_topology_attachment() {
-    let fork = match &topology_records()[0] {
-        TopologyIntentRecord::StrandFork(record) => record.clone(),
-        _ => panic!("expected strand fork fixture"),
-    };
+    let fork = if let TopologyIntentRecord::StrandFork(record) = &topology_records()[0] {
+        Some(record.clone())
+    } else {
+        None
+    }
+    .expect("expected strand fork fixture");
     let envelope = topology_envelope_with_root_attachment(TopologyIntentRecord::StrandFork(fork));
 
     let obstruction = topology_records_from_wsc_envelope(&envelope)
@@ -905,7 +1258,7 @@ fn fixture_wsc_bytes(tick: u64) -> Vec<u8> {
 }
 
 fn topology_envelope_with_root_attachment(record: TopologyIntentRecord) -> WscStoreEnvelope {
-    let canonical = topology_records_to_wsc_envelope(&[record.clone()])
+    let canonical = topology_records_to_wsc_envelope(std::slice::from_ref(&record))
         .expect("canonical topology WSC envelope");
     let payload = record.to_payload_bytes();
     let root = make_node_id("echo/wsc-store/topology/root");

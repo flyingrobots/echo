@@ -70,6 +70,39 @@ echo-cli inspect state.wsc --raw
 echo-cli --format json inspect state.wsc
 ```
 
+### `echo-cli wsc causal-history ...`
+
+Export, inspect, and verify WAL causal-history WSC bundles without importing
+history into Echo. Export commands inspect a filesystem WAL root read-only and
+require explicit writer-epoch projection evidence as JSON.
+
+```sh
+# Export graph facts plus retained evidence refs and external segment-byte dependencies
+echo-cli wsc causal-history export-ref-only runtime.wal \
+  --writer-epochs writer-epochs.json \
+  --out causal-history.ref-only
+
+# Export graph facts plus retained evidence refs and embedded WAL segment bytes
+echo-cli wsc causal-history export-self-contained runtime.wal \
+  --writer-epochs writer-epochs.json \
+  --out causal-history.self-contained
+
+# Inspect bundle manifest and envelope metadata
+echo-cli --format json wsc causal-history inspect causal-history.self-contained
+
+# Verify a self-contained bundle without the original WAL root
+echo-cli --format json wsc causal-history verify causal-history.self-contained
+```
+
+Ref-only verification keeps the bundle observable but reports unavailable
+segment bytes as typed JSON material obstructions until external WAL material is
+provided by a future adapter.
+
+Bundle manifests include `retained-evidence.ecwsc` for retained material and
+reading references. Self-contained bundles also include `retained-payloads.ecwsc`
+when retained payload bytes are embedded for import-time reveal and digest
+validation.
+
 ## Global Flags
 
 - `--format text|json` — Output format (default: `text`). Can appear before or after the subcommand.

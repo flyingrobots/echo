@@ -20,6 +20,9 @@ artifacts record motion.
 The WARP paper-to-Echo noun map is maintained in
 `docs/design/warp-optic-implementation-map.md`.
 
+The Edict Target IR obstruction receipt bridge is maintained in
+`docs/design/edict-target-ir-obstruction-receipt-bridge.md`.
+
 The post-PR #545 strands and braids hardening roadmap is maintained in
 `docs/design/braids-and-strands-roadmap.md`.
 
@@ -1065,6 +1068,16 @@ completed slice.
       while `runtime-wal-ack` remains the fast semantic gate.
     - Test plan: joined runtime WAL durability witness:
       `cargo xtask test-slice durable-runtime-wal`.
+
+- [x] **Slice 97: WAL projection fact types**
+    - User story: As recovery and projection, WAL roots, writer epochs,
+      segments, commit anchors, and recovery certificates need typed read-model
+      evidence before WSC export/import work can depend on them.
+    - Acceptance criteria: `WalSegmentRef` identity binds writer epoch, LSN
+      range, commit digest chain, segment digest, commit anchors, and seal
+      posture while excluding raw storage locators from causal identity.
+    - Test plan: WAL projection identity witness:
+      `cargo test -p warp-core wal_projection_fact_identity`.
 
 ## Recently Completed Slice Batch
 

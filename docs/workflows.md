@@ -100,6 +100,20 @@ Use `make verify-pr` or CI for broader package, clippy, rustdoc, and workspace
 coverage. Pre-push is intentionally the narrowest local proof that the changed
 slice still compiles and runs.
 
+Local `full` verification keeps broad Cargo test suites CI-owned by default.
+It still runs formatting, selected clippy/check lanes, docs/schema lint, and
+guards locally, but skips the broad Cargo test lanes unless you explicitly opt
+in:
+
+```sh
+VERIFY_LOCAL_FULL_TESTS=1 scripts/verify-local.sh full
+```
+
+That opt-in is for maintainers who want to pay the local cost. The default
+path leaves workspace, `warp-core`, feature-matrix, musl, DIND, rustdoc, and
+hook-regression breadth to GitHub Actions while local iteration uses exact
+test targets or repo-owned slices.
+
 Checkpoint checks:
 
 ```sh
@@ -150,10 +164,10 @@ The repo also exposes maintenance commands via `cargo xtask …`:
 - `cargo xtask test-slice contract-path-release` runs the v0.1 local contract-host release witness: installed contract pipeline replay, reference trusted host loop, and the serious external consumer fixture.
 - `cargo xtask test-slice runtime-wal-ack` runs the fast runtime WAL-backed ACK witness: app-facing acceptance rollback, scheduler tick receipt invariant checks, scheduler tick commit-before-publish, recovered indexes, CLI submission posture JSON, stale-claim guard, and generated man-page check.
 - `cargo xtask test-slice durable-runtime-wal` runs the release-grade filesystem runtime WAL durability witness: filesystem ACK recovery, filesystem failure atomicity, CLI submission posture JSON, stale-claim guard, and generated man-page check.
-- `cargo xtask test-slice durability-release` runs the joined WAL/WSC release witness: filesystem runtime WAL durability, WSC retained evidence recovery, WSC topology recovery, topology WAL recovery, typed missing-material obstruction, stale-claim guards, doctrine checks, and generated man-page freshness. This is a release-gate slice, not the fastest local edit loop.
+- `cargo xtask test-slice durability-release` runs the joined WAL/WSC release witness: filesystem runtime WAL durability, WSC retained evidence recovery, app-safe missing-retention posture, recovery plan bootstrap posture, committed-only durability index rebuilds, typed materialization outbox recovery, process-kill WAL crashpoints, DIND durability convergence, WSC topology recovery, topology WAL recovery, typed missing-material obstruction, stale-claim guards, doctrine checks, and generated man-page freshness. This is a release-gate slice, not the fastest local edit loop.
 - `cargo xtask pr-preflight` runs the default changed-scope pre-PR gate against `origin/main`.
 - `cargo xtask pr-preflight --full` runs the broader explicit full pre-PR gate.
-- `cargo xtask dind` runs the DIND (Deterministic Ironclad Nightmare Drills) harness locally.
+- `cargo xtask dind` defaults to DIND run mode and also runs the WAL/WSC/retention durability convergence gate before the scenario harness.
 
 ### Pre-PR Preflight
 

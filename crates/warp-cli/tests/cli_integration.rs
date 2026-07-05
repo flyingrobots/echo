@@ -9,7 +9,7 @@
 
 use std::error::Error;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use assert_cmd::cargo::cargo_bin;
 use predicates::prelude::*;
@@ -18,7 +18,7 @@ use warp_core::causal_wal::{
     build_submission_acceptance_transaction, build_tick_transaction, AffectedFrontier,
     AffectedFrontierKind, FilesystemWalStore, Lsn, PayloadCodecId, PayloadSchemaId,
     SubmissionAcceptanceRecord, TickReceiptRecord, WalAppendAuthority, WalDurabilityMode,
-    WalReceiptCorrelationRecord, WalSegmentId, WalStorePort, WalTickDecision,
+    WalManifest, WalReceiptCorrelationRecord, WalSegmentId, WalStorePort, WalTickDecision,
     WalTransactionBuilder, WalTransactionId, WalTransactionKind, WriterEpochId, WriterEpochRequest,
 };
 use warp_core::wsc::{build_one_warp_input, write_wsc_one_warp};
@@ -186,6 +186,135 @@ fn filesystem_wal_with_committed_submission() -> TestResult<TempDir> {
 
 fn filesystem_wal_with_decided_submission() -> TestResult<TempDir> {
     filesystem_wal_with_decided_submission_decision("decided", WalTickDecision::Applied)
+}
+
+struct ProjectableWalFixture {
+    root: TempDir,
+    writer_epochs: PathBuf,
+}
+
+fn filesystem_wal_with_projectable_decided_submission() -> TestResult<ProjectableWalFixture> {
+    let root = TempDir::new()?;
+    let writer_epoch = writer_epoch_request();
+    let mut store = FilesystemWalStore::open(root.path(), WalSegmentId::from_raw(1))?;
+    store.acquire_writer_epoch(writer_epoch.clone())?;
+    let label = "wsc-cli";
+    let acceptance = build_submission_acceptance_transaction(
+        WalTransactionBuilder::new(
+            writer_epoch.epoch_id,
+            WalSegmentId::from_raw(1),
+            WalTransactionId::from_hash(digest(&format!("transaction:{label}:accepted"))),
+            WalTransactionKind::SubmissionIntake,
+            WalAppendAuthority::SubmissionIntake,
+            Lsn::from_raw(0),
+            digest("previous-frame"),
+            digest("previous-commit"),
+            WalDurabilityMode::Buffered,
+            PayloadCodecId::from_hash(digest("codec")),
+            PayloadSchemaId::from_hash(digest("schema")),
+            1,
+            1,
+            digest("domain"),
+        ),
+        SubmissionAcceptanceRecord {
+            submission_id: digest(&format!("submission:{label}")),
+            canonical_envelope_digest: digest(&format!("envelope:{label}")),
+            idempotency_key_digest: None,
+            acceptance_evidence_digest: digest(&format!("evidence:{label}")),
+        },
+        vec![AffectedFrontier {
+            kind: AffectedFrontierKind::SubmissionQueue,
+            before_digest: digest("submission-frontier-before"),
+            after_digest: digest("submission-frontier-after"),
+        }],
+    )?;
+    store.append_transaction(acceptance)?;
+    let receipt = TickReceiptRecord {
+        submission_id: digest(&format!("submission:{label}")),
+        ticket_digest: digest(&format!("ticket:{label}")),
+        receipt_digest: digest(&format!("receipt:{label}")),
+        decision: WalTickDecision::Applied,
+    };
+    let correlation = WalReceiptCorrelationRecord {
+        submission_id: receipt.submission_id,
+        ticket_digest: receipt.ticket_digest,
+        receipt_digest: receipt.receipt_digest,
+    };
+    let tick = build_tick_transaction(
+        WalTransactionBuilder::new(
+            writer_epoch.epoch_id,
+            WalSegmentId::from_raw(1),
+            WalTransactionId::from_hash(digest(&format!("transaction:{label}:ticked"))),
+            WalTransactionKind::SchedulerTick,
+            WalAppendAuthority::TrustedScheduler,
+            Lsn::from_raw(2),
+            digest("tick-previous-frame"),
+            digest("tick-previous-commit"),
+            WalDurabilityMode::Buffered,
+            PayloadCodecId::from_hash(digest("codec")),
+            PayloadSchemaId::from_hash(digest("schema")),
+            1,
+            1,
+            digest("domain"),
+        ),
+        receipt,
+        correlation,
+        digest(&format!("state-delta:{label}")),
+        vec![
+            AffectedFrontier {
+                kind: AffectedFrontierKind::ReceiptIndex,
+                before_digest: digest("receipt-frontier-before"),
+                after_digest: digest("receipt-frontier-after"),
+            },
+            AffectedFrontier {
+                kind: AffectedFrontierKind::RuntimeState,
+                before_digest: digest("runtime-frontier-before"),
+                after_digest: digest("runtime-frontier-after"),
+            },
+        ],
+    )?;
+    store.append_transaction(tick)?;
+    store.seal_segment(writer_epoch.epoch_id, WalSegmentId::from_raw(1))?;
+    let last_commit_digest = store
+        .read_commits()
+        .last()
+        .map(|commit| commit.commit_digest);
+    store.publish_manifest(
+        writer_epoch.epoch_id,
+        WalManifest {
+            manifest_digest: digest("wsc-cli:manifest"),
+            last_committed_lsn: Some(Lsn::from_raw(4)),
+            last_commit_digest,
+            sealed_segment_count: 1,
+        },
+    )?;
+    let writer_epochs = root.path().join("writer-epochs.json");
+    write_writer_epoch_sidecar(&writer_epochs, &writer_epoch)?;
+    Ok(ProjectableWalFixture {
+        root,
+        writer_epochs,
+    })
+}
+
+fn write_writer_epoch_sidecar(path: &Path, epoch: &WriterEpochRequest) -> TestResult {
+    let writer_epochs = serde_json::json!([
+        {
+            "epoch_id": hex::encode(epoch.epoch_id.as_hash()),
+            "storage_fencing_token": hex::encode(epoch.storage_fencing_token),
+            "process_identity": hex::encode(epoch.process_identity),
+            "host_identity": hex::encode(epoch.host_identity),
+            "started_at_lsn": epoch.started_at_lsn.as_u64(),
+            "previous_epoch_id": epoch
+                .previous_epoch_id
+                .map(|epoch_id| hex::encode(epoch_id.as_hash())),
+            "previous_epoch_final_commit_digest": epoch
+                .previous_epoch_final_commit_digest
+                .map(hex::encode),
+            "lease_or_lock_evidence": hex::encode(epoch.lease_or_lock_evidence),
+        }
+    ]);
+    fs::write(path, serde_json::to_vec_pretty(&writer_epochs)?)?;
+    Ok(())
 }
 
 fn filesystem_wal_with_decided_submission_decision(
@@ -525,6 +654,145 @@ fn wal_submission_posture_json_reports_decided_rejected_status() -> TestResult {
         json["ticket_digest"],
         hex::encode(digest("ticket:rejected"))
     );
+    Ok(())
+}
+
+#[test]
+fn wsc_causal_history_exports_and_verifies_profiles() -> TestResult {
+    let fixture = filesystem_wal_with_projectable_decided_submission()?;
+    let ref_only_bundle = TempDir::new()?;
+    let export = echo_cli()
+        .args([
+            "--format",
+            "json",
+            "wsc",
+            "causal-history",
+            "export-ref-only",
+            fixture
+                .root
+                .path()
+                .to_str()
+                .ok_or("WAL root is not UTF-8")?,
+            "--writer-epochs",
+            fixture
+                .writer_epochs
+                .to_str()
+                .ok_or("writer epoch path is not UTF-8")?,
+            "--out",
+            ref_only_bundle
+                .path()
+                .to_str()
+                .ok_or("ref-only bundle path is not UTF-8")?,
+        ])
+        .assert()
+        .success();
+    let export_json: serde_json::Value = serde_json::from_slice(&export.get_output().stdout)?;
+    assert_eq!(export_json["profile"], "ref-only");
+
+    let verify = echo_cli()
+        .args([
+            "--format",
+            "json",
+            "wsc",
+            "causal-history",
+            "verify",
+            ref_only_bundle
+                .path()
+                .to_str()
+                .ok_or("ref-only bundle path is not UTF-8")?,
+        ])
+        .assert()
+        .success();
+    let json: serde_json::Value = serde_json::from_slice(&verify.get_output().stdout)?;
+
+    assert_eq!(json["profile"], "ref-only");
+    assert_eq!(json["result"], "obstructed");
+    assert_eq!(json["accepted_submission_count"], 1);
+    assert_eq!(json["receipt_count"], 1);
+    assert_eq!(json["correlation_count"], 1);
+    assert_eq!(
+        json["obstructions"][0]["kind"],
+        "ExternalSegmentBytesUnavailable"
+    );
+    assert_eq!(json["obstructions"][0]["segment_id"], 1);
+
+    let self_contained_bundle = TempDir::new()?;
+    echo_cli()
+        .args([
+            "--format",
+            "json",
+            "wsc",
+            "causal-history",
+            "export-self-contained",
+            fixture
+                .root
+                .path()
+                .to_str()
+                .ok_or("WAL root is not UTF-8")?,
+            "--writer-epochs",
+            fixture
+                .writer_epochs
+                .to_str()
+                .ok_or("writer epoch path is not UTF-8")?,
+            "--out",
+            self_contained_bundle
+                .path()
+                .to_str()
+                .ok_or("self-contained bundle path is not UTF-8")?,
+        ])
+        .assert()
+        .success();
+
+    let inspect = echo_cli()
+        .args([
+            "--format",
+            "json",
+            "wsc",
+            "causal-history",
+            "inspect",
+            self_contained_bundle
+                .path()
+                .to_str()
+                .ok_or("self-contained bundle path is not UTF-8")?,
+        ])
+        .assert()
+        .success();
+    let inspect_json: serde_json::Value = serde_json::from_slice(&inspect.get_output().stdout)?;
+    assert_eq!(inspect_json["profile"], "self-contained");
+    assert_eq!(inspect_json["envelope_count"], 6);
+    let envelope_roles = inspect_json["envelopes"]
+        .as_array()
+        .ok_or("expected envelope summaries")?
+        .iter()
+        .map(|envelope| envelope["role"].as_str().ok_or("expected envelope role"))
+        .collect::<Result<Vec<_>, _>>()?;
+    assert!(envelope_roles.contains(&"retained_evidence"));
+    assert!(envelope_roles.contains(&"retained_payloads"));
+
+    drop(fixture);
+
+    let verify = echo_cli()
+        .args([
+            "--format",
+            "json",
+            "wsc",
+            "causal-history",
+            "verify",
+            self_contained_bundle
+                .path()
+                .to_str()
+                .ok_or("self-contained bundle path is not UTF-8")?,
+        ])
+        .assert()
+        .success();
+    let json: serde_json::Value = serde_json::from_slice(&verify.get_output().stdout)?;
+
+    assert_eq!(json["profile"], "self-contained");
+    assert_eq!(json["result"], "pass");
+    assert_eq!(json["accepted_submission_count"], 1);
+    assert_eq!(json["receipt_count"], 1);
+    assert_eq!(json["correlation_count"], 1);
+    assert_eq!(json["obstructions"].as_array().map(Vec::len), Some(0));
     Ok(())
 }
 

@@ -78,6 +78,13 @@ pub enum Commands {
         #[command(subcommand)]
         command: WalCommands,
     },
+
+    /// Export and verify WSC causal-history bundles without importing history.
+    Wsc {
+        /// WSC command family.
+        #[command(subcommand)]
+        command: WscCommands,
+    },
 }
 
 /// WAL inspection subcommands.
@@ -99,6 +106,54 @@ pub enum WalCommands {
         /// 64-character hex canonical envelope digest.
         #[arg(long)]
         canonical_envelope_digest: String,
+    },
+}
+
+/// WSC inspection subcommands.
+#[derive(Subcommand, Debug)]
+pub enum WscCommands {
+    /// Work with WAL causal-history WSC bundles.
+    CausalHistory {
+        /// Causal-history WSC command.
+        #[command(subcommand)]
+        command: WscCausalHistoryCommands,
+    },
+}
+
+/// WAL causal-history WSC bundle subcommands.
+#[derive(Subcommand, Debug)]
+pub enum WscCausalHistoryCommands {
+    /// Export a ref-only WSC causal-history bundle from a filesystem WAL root.
+    ExportRefOnly {
+        /// Filesystem WAL root to inspect.
+        wal_root: PathBuf,
+        /// JSON file containing writer-epoch projection evidence.
+        #[arg(long)]
+        writer_epochs: PathBuf,
+        /// Output bundle directory.
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Export a self-contained WSC causal-history bundle from a filesystem WAL root.
+    ExportSelfContained {
+        /// Filesystem WAL root to inspect.
+        wal_root: PathBuf,
+        /// JSON file containing writer-epoch projection evidence.
+        #[arg(long)]
+        writer_epochs: PathBuf,
+        /// Output bundle directory.
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Inspect a WSC causal-history bundle manifest and envelopes.
+    Inspect {
+        /// Bundle directory to inspect.
+        bundle: PathBuf,
+    },
+    /// Verify a WSC causal-history bundle without importing Echo history.
+    Verify {
+        /// Bundle directory to verify.
+        bundle: PathBuf,
     },
 }
 
@@ -283,6 +338,55 @@ mod tests {
                 );
             }
             _ => panic!("expected Wal submission-posture command"),
+        }
+    }
+
+    #[test]
+    fn parse_wsc_causal_history_export_ref_only() {
+        let cli = Cli::try_parse_from([
+            "echo-cli",
+            "wsc",
+            "causal-history",
+            "export-ref-only",
+            "runtime.wal",
+            "--writer-epochs",
+            "writer-epochs.json",
+            "--out",
+            "bundle",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Wsc {
+                command:
+                    WscCommands::CausalHistory {
+                        command:
+                            WscCausalHistoryCommands::ExportRefOnly {
+                                ref wal_root,
+                                ref writer_epochs,
+                                ref out,
+                            },
+                    },
+            } => {
+                assert_eq!(wal_root, &PathBuf::from("runtime.wal"));
+                assert_eq!(writer_epochs, &PathBuf::from("writer-epochs.json"));
+                assert_eq!(out, &PathBuf::from("bundle"));
+            }
+            _ => panic!("expected WSC causal-history export-ref-only command"),
+        }
+    }
+
+    #[test]
+    fn parse_wsc_causal_history_verify() {
+        let cli =
+            Cli::try_parse_from(["echo-cli", "wsc", "causal-history", "verify", "bundle"]).unwrap();
+        match cli.command {
+            Commands::Wsc {
+                command:
+                    WscCommands::CausalHistory {
+                        command: WscCausalHistoryCommands::Verify { ref bundle },
+                    },
+            } => assert_eq!(bundle, &PathBuf::from("bundle")),
+            _ => panic!("expected WSC causal-history verify command"),
         }
     }
 

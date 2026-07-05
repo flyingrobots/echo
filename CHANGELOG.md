@@ -7,11 +7,123 @@
 
 ### Added
 
+- `warp-core` now exposes a narrow Edict `echo.span-ir/v1` Target IR fixture
+  bridge that accepts strict lowercase digest-locked pre-step
+  `continueObstructed` requirements, evaluates deterministic basis freshness
+  facts, and emits versioned attempt receipt objects bound to the supplied
+  Target IR digest. The bridge distinguishes accepted artifacts from executed
+  receipts, obstructed attempts from invalid proposals, and obstruction from
+  legal unselected counterfactuals without claiming bundle admission, Jim
+  semantics, scheduler counterfactual exploration, canonical Echo receipt
+  bytes, or receipt digests.
+- `warp-core` now exposes WAL projection fact records for `WalRoot`,
+  `WalWriterEpoch`, `WalSegmentRef`, `WalCommitAnchor`, and
+  `RecoveryCertificateRef`; `WalSegmentRef::identity_digest()` binds writer
+  epoch, LSN range, commit chain, segment digest, commit anchors, and seal
+  posture while excluding storage locators from causal projection identity.
+- `warp-core` can now project recovered WAL history into graph-ready
+  `WalRecoveryProjection` records from explicit manifest, segment seal, segment
+  locator, writer epoch, and recovery certificate evidence; missing manifests or
+  unavailable locators produce typed projection obstructions instead of empty
+  success.
+- `warp-core` now exposes `WalRecoveryPlan` records that bootstrap from a
+  projected WAL root or storage manifest, record checkpoint posture, committed
+  replay suffix, tail posture, recovered index roots, retained-material posture,
+  and projected evidence posture without requiring graph WAL nodes as input.
+- `warp-core` now exposes `RecoveredDurabilityIndexes` and
+  `rebuild_durability_indexes_after_recovery(...)`, composing committed WAL
+  recovery into submission, receipt, retained-material, materialization outbox,
+  topology, and graph/WSC projection indexes without invoking scheduler,
+  observer, wall-clock, network, or app code.
+- `warp-core` materialization outbox recovery now exposes typed
+  `MaterializationRecoveryPosture` evidence for missing artifacts, artifact or
+  metadata digest mismatches, committed observation mismatches, and retained
+  material unavailability while preserving the coarse replay posture for
+  existing callers.
+- `echo-dind-tests` now includes a process-kill WAL crashpoint witness that
+  kills child processes after committed WAL material and before transaction
+  commit, proving recovery preserves committed history and excludes uncommitted
+  tails.
+- `warp-core` can now materialize WAL projection records into deterministic
+  WARP graph facts with root, writer epoch, segment, commit-anchor, and recovery
+  certificate nodes plus typed graph edges suitable for WSC serialization. The
+  materialized graph omits raw WAL storage locator authority and rebuilds to
+  identical WSC bytes from the same recovery evidence.
+- `warp-core` now exposes observation-only WAL projection graph WSC import
+  evidence, keeping materialized projection bytes readable as schema/count
+  facts while rejecting them as causal-history import material or WAL recovery
+  authority without manifests and segment evidence.
+- `warp-core` now exposes a versioned WSC causal-history export profile model
+  for `ref-only`, `self-contained`, and `CAS-addressed` profiles, including the
+  evidence each profile must carry and an explicit CAS byte-retention posture
+  that does not promote CAS hashes into causal authority.
+- `warp-core` now exports and validates a ref-only WAL WSC fixture that joins
+  WAL projection graph material, accepted-submission evidence, and receipt
+  correlation evidence while reporting external segment bytes as explicit
+  dependencies and normalizing absolute locator paths out of causal identity.
+- `warp-core` now exports and validates a self-contained WAL WSC fixture that
+  embeds WAL segment bytes as WSC material, replays those bytes through WAL
+  recovery to validate segment digest and commit-chain evidence, rebuilds
+  accepted-submission and receipt indexes without access to the original
+  filesystem WAL root, and reports tampered embedded bytes as typed recovery
+  obstruction evidence.
+- `warp-core` now exports and validates a CAS-addressed WAL WSC fixture that
+  joins WAL projection graph facts with content-addressed segment and retained
+  material references, verifies referenced blobs through CAS content hashes
+  without making CAS semantic authority, reports missing blobs as typed import
+  obstructions, and keeps equal bytes under different semantic coordinates as
+  distinct retained material references.
+- `warp-core` WAL WSC exports now carry retained material and reading-reference
+  envelopes through ref-only, self-contained, and CAS-addressed profiles.
+  Self-contained exports can embed retained payload bytes and validate them
+  against the WAL-retained material digest, while CAS-addressed imports require
+  the referenced retained blobs to be present before reporting success.
+- `warp-core` now includes a filesystem-backed WSC store adapter that persists
+  envelope material separately from commit markers, hides staged material until
+  marker publication, reopens committed envelopes in deterministic order, and
+  reports torn envelope or marker files as typed WSC store obstructions.
+- `echo-cli` now exposes read-only `wsc causal-history` commands that export
+  ref-only and self-contained WAL WSC bundles from filesystem WAL roots, inspect
+  bundle envelope metadata including retained evidence envelopes, verify
+  self-contained bundles without the original WAL root, and report unavailable
+  ref-only segment bytes as typed material obstructions in JSON output.
+- `echo-cas` now exposes a fallible filesystem-backed `DiskTier` for durable
+  retained blobs, preserving content-only BLAKE3 hash semantics across process
+  reconstruction while keeping missing blobs as explicit absence.
 - `cargo xtask test-slice durable-runtime-wal` now runs the release-grade
   filesystem runtime WAL durability gate, joining filesystem ACK recovery,
   filesystem failure atomicity, CLI submission posture JSON, stale-claim, and
   generated man-page checks while leaving `runtime-wal-ack` as the fast
   semantic gate.
+- `cargo xtask test-slice durability-release` now includes the exact
+  `wsc_retained_evidence_export_modes` witness, keeping retained-evidence WSC
+  export coverage in the release gate without using Cargo's slow package-level
+  name filter.
+- `cargo xtask test-slice durability-release` now includes the exact
+  `retained_reading_missing_payload_is_not_empty_success` witness, locking the
+  app-safe missing-retention posture for reading payloads, reading envelopes,
+  and retained receipt support.
+- `cargo xtask test-slice durability-release` now includes the exact
+  `recovery_plan_bootstraps_from_wal_root` witness, locking recovery plan
+  bootstrap posture without using Cargo's slow package-level name filter.
+- `cargo xtask test-slice durability-release` now includes the exact
+  `wal_recovery_rebuilds_all_durability_indexes` witness, locking committed-only
+  rebuild coverage for durability indexes without using Cargo's slow
+  package-level name filter.
+- `cargo xtask test-slice durability-release` now includes the exact
+  `materialization_outbox_recovery_returns_typed_posture` witness, locking
+  typed materialization outbox recovery posture into the release gate.
+- `cargo xtask test-slice durability-release` now includes the exact
+  `wal_process_crashpoints` witness, promoting the process-kill WAL crashpoint
+  runner from future descriptor to release-gate evidence.
+- `cargo xtask dind` now defaults to run mode and includes the exact
+  `dind_durability_convergence_gate` witness, proving live WAL execution,
+  read-only WAL recovery, WSC import, and retained-material reveal agree on the
+  same app-facing receipt and bounded reading while missing or corrupt support
+  material returns typed obstruction.
+- `cargo xtask test-slice durability-release` now includes the exact
+  `dind_durability_convergence_gate` witness so the release slice also carries
+  the DIND durability convergence proof.
 - `warp-core` trusted runtime hosts now configure runtime WAL through
   `TrustedRuntimeWalConfig`, including in-memory and filesystem-backed
   adapters. `TrustedRuntimeWalStoreKind` exposes the configured adapter kind as
@@ -644,6 +756,9 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 - Echo 1.0 planning references now point at the cross-repository Continuum
   Stack Convergence Project instead of the retired Echo-only Project.
+- Local `scripts/verify-local.sh full` now treats broad Cargo test lanes as
+  GitHub Actions-owned by default, while keeping a maintainer opt-in through
+  `VERIFY_LOCAL_FULL_TESTS=1` for intentional local full-suite runs.
 - `warp-core` renamed the generated contract package host API from
   `install_contract_package(...)` to `register_contract_package(...)` so the
   trusted-runtime boundary reads as explicit runtime-owned registration instead

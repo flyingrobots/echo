@@ -15,7 +15,8 @@ This is the end-to-end deep dive into Echo's two durability artifacts: the
 format (WSC). It explains what each one is at the byte level, what each one is
 _for_ at the doctrine level, and how they meet inside the kernel. The
 doctrine-level summary lives in [`docs/topics/WAL.md`](../WAL.md); this
-document is the full tour underneath it.
+document is the full tour underneath it. The sharpest structural insights it
+surfaced are distilled in [the WoahMan ledger](../WOAHMAN.md).
 
 Everything described here is implemented in `warp-core`:
 

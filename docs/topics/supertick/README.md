@@ -15,7 +15,9 @@ a time, but by making _order_ a property of the data instead of the run.
 
 It is the companion volume to
 [The Causal WAL and WSC](../wal-wsc/README.md), which treats `super_tick` as a
-black box that emits receipts. This document opens the box.
+black box that emits receipts. This document opens the box. The sharpest
+structural insights it surfaced are distilled in
+[the WoahMan ledger](../WOAHMAN.md).
 
 Everything described here is implemented in `warp-core`:
 

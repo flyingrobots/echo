@@ -7,6 +7,11 @@
 
 ### Added
 
+- `docs/topics/WOAHMAN.md` now carries the WoahMan ledger: a living companion
+  to the deep dives that distills the sharpest structural insights (content
+  addressing as queue elimination, canonical merge as determinism, rejection
+  as witnessed history, crash as typed input, frozen protocol constants) into
+  short entries with code pointers and dive links.
 - `docs/topics/supertick/` now carries the end-to-end SuperTick deep dive: the
   failure-atomic scheduler pass, content-addressed ingress and graph-native
   dispatch, the radix plan order, the footprint reserve gate with `blocked_by`

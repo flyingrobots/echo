@@ -20,6 +20,7 @@ Echo's live documentation centers on the runtime carrier, the retained witnesses
 - WAL truth boundary: [/topics/WAL](/topics/WAL)
 - WAL/WSC deep dive: [/topics/wal-wsc/README](/topics/wal-wsc/README)
 - SuperTick deep dive: [/topics/supertick/README](/topics/supertick/README)
+- WoahMan insight ledger: [/topics/WOAHMAN](/topics/WOAHMAN)
 - WAL/WSC release closure audit: [/design/wal-wsc-release-closure-audit](/design/wal-wsc-release-closure-audit)
 - jedit next ten release-gate slices: [/design/v0.1.0-jedit-next-ten-slices](/design/v0.1.0-jedit-next-ten-slices)
 - Theory map: [/theory/THEORY](/theory/THEORY)

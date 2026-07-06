@@ -562,7 +562,8 @@ impl TrustedRuntimeWal {
         let mut store = TrustedRuntimeWalStore::open(store)?;
         let recovery_report = store.recover_for_writer()?;
         let recovered_cursor = TrustedRuntimeWalCursor::from_recovery(&recovery_report)?;
-        let evidence_catalog = crate::evidence::CausalSegmentCatalog::from_recovery_scan(&recovery_report)?;
+        let evidence_catalog =
+            crate::evidence::CausalSegmentCatalog::from_recovery_scan(&recovery_report)?;
         let next_lsn = if recovered_cursor.has_committed_history {
             recovered_cursor.next_lsn
         } else {
@@ -649,6 +650,18 @@ impl TrustedRuntimeWal {
         let report = self.store.recover_read_only()?;
         crate::evidence::CausalSegmentCatalog::from_recovery_scan(&report)
             .map_err(TrustedRuntimeWalError::EvidenceCatalog)
+    }
+
+    /// Returns the live evidence catalog if it exists.
+    #[must_use]
+    pub fn evidence_catalog(&self) -> Option<&crate::evidence::CausalSegmentCatalog> {
+        self.evidence_catalog.as_ref()
+    }
+
+    /// Returns the current posture of the live evidence catalog cache.
+    #[must_use]
+    pub fn evidence_catalog_posture(&self) -> &EvidenceCatalogPosture {
+        &self.evidence_catalog_posture
     }
 
     /// Returns the number of committed submission-intake transactions.
@@ -864,15 +877,14 @@ impl TrustedRuntimeWal {
         commit: &WalTransactionCommit,
         frames: &[crate::causal_wal::WalFrame],
     ) {
+        use crate::evidence::CommittedWalObserver;
         if let Some(catalog) = self.evidence_catalog.as_mut() {
             let view = crate::evidence::CommittedWalView { commit, frames };
-            use crate::evidence::CommittedWalObserver;
             if catalog.observe_committed_wal(view).is_err() {
-                self.evidence_catalog_posture =
-                    EvidenceCatalogPosture::NeedsRebuild {
-                        reason: *blake3::hash(b"catalog_update_error").as_bytes(),
-                        last_good_commit: self.previous_committed_transaction_digest,
-                    };
+                self.evidence_catalog_posture = EvidenceCatalogPosture::NeedsRebuild {
+                    reason: *blake3::hash(b"catalog_update_error").as_bytes(),
+                    last_good_commit: self.previous_committed_transaction_digest,
+                };
             }
         }
     }

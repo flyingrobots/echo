@@ -1,12 +1,11 @@
 //! Evidence and catalog layer for deriving causal segments from WAL history.
 
-use std::collections::BTreeMap;
 use crate::causal_wal::{
     Lsn, RecoveryScanReport, RecoveryTailPosture, WalFrame, WalRecoveredTransaction, WalSegmentRef,
     WalTransactionCommit, WalTransactionId, WalTransactionKind, WriterEpochId,
 };
 use crate::wsc::WscStoreEnvelopeId;
-use blake3::Hash;
+use std::collections::BTreeMap;
 
 /// The unique identifier of a causal evidence segment.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -127,12 +126,19 @@ pub struct CausalEvidenceSegment {
 }
 
 /// Errors occurring during the extraction or indexing of causal evidence.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum EvidenceCatalogError {
     /// The provided WAL transaction was invalid or malformed.
+    #[error("invalid WAL transaction evidence")]
     InvalidTransaction,
-    /// The frame count does not match the record count for the transaction.
-    FrameCountMismatch,
+    /// A frame count mismatch occurred.
+    #[error("frame count mismatch: expected {expected}, observed {observed}")]
+    FrameCountMismatch {
+        /// The expected number of frames.
+        expected: u64,
+        /// The observed number of frames.
+        observed: usize,
+    },
 }
 
 /// A lightweight borrowed view of a committed transaction and its frames.
@@ -154,6 +160,7 @@ pub trait CommittedWalObserver {
 }
 
 /// An indexed catalog mapping ranges of causal history to their underlying evidence.
+#[derive(Clone, Debug)]
 pub struct CausalSegmentCatalog {
     /// All segments indexed by local segment ID.
     pub segments_by_id: BTreeMap<EvidenceSegmentId, CausalEvidenceSegment>,
@@ -219,10 +226,13 @@ impl CausalSegmentCatalog {
     }
 
     /// Concludes the catalog build, optionally recording truncation intent based on tail posture.
-    pub fn finish(&mut self, _tail_posture: RecoveryTailPosture) -> Result<(), EvidenceCatalogError> {
+    pub fn finish(
+        &mut self,
+        _tail_posture: RecoveryTailPosture,
+    ) -> Result<(), EvidenceCatalogError> {
         Ok(())
     }
-    
+
     fn next_id(&mut self) -> EvidenceSegmentId {
         let id = self.next_id;
         self.next_id += 1;
@@ -243,11 +253,14 @@ impl CommittedWalObserver for CausalSegmentCatalog {
     ) -> Result<(), EvidenceCatalogError> {
         let commit = view.commit;
         let frame_count = view.frames.len() as u64;
-        
-        if frame_count != commit.record_count {
-            return Err(EvidenceCatalogError::FrameCountMismatch);
+
+        if view.commit.record_count != view.frames.len() as u64 {
+            return Err(EvidenceCatalogError::FrameCountMismatch {
+                expected: view.commit.record_count,
+                observed: view.frames.len(),
+            });
         }
-        
+
         let id = self.next_id();
         let segment = CausalEvidenceSegment {
             id,
@@ -282,7 +295,11 @@ mod tests {
     use super::*;
     use crate::causal_wal::Lsn;
 
-    fn make_test_commit(tx_kind: WalTransactionKind, tx_id_hash: &[u8], start_lsn: Lsn) -> WalRecoveredTransaction {
+    fn make_test_commit(
+        tx_kind: WalTransactionKind,
+        tx_id_hash: &[u8],
+        start_lsn: Lsn,
+    ) -> WalRecoveredTransaction {
         let commit = WalTransactionCommit {
             writer_epoch: WriterEpochId::from_hash(*blake3::hash(b"test").as_bytes()),
             transaction_id: WalTransactionId::from_hash(*blake3::hash(tx_id_hash).as_bytes()),
@@ -305,7 +322,11 @@ mod tests {
 
     #[test]
     fn test_committed_transactions_become_catalog_segments() {
-        let tx = make_test_commit(WalTransactionKind::SubmissionIntake, b"tx1", Lsn::from_raw(1));
+        let tx = make_test_commit(
+            WalTransactionKind::SubmissionIntake,
+            b"tx1",
+            Lsn::from_raw(1),
+        );
         let report = RecoveryScanReport {
             transactions: vec![tx],
             tail_posture: RecoveryTailPosture::Clean,
@@ -316,37 +337,59 @@ mod tests {
         let segment = catalog.segments_by_id.values().next().unwrap();
         assert_eq!(segment.kind, EvidenceSegmentKind::CommittedTransaction);
     }
-    
+
     #[test]
     fn test_multiple_transactions_produce_multiple_segments() {
-        let tx1 = make_test_commit(WalTransactionKind::SubmissionIntake, b"tx1", Lsn::from_raw(1));
+        let tx1 = make_test_commit(
+            WalTransactionKind::SubmissionIntake,
+            b"tx1",
+            Lsn::from_raw(1),
+        );
         let tx2 = make_test_commit(WalTransactionKind::SchedulerTick, b"tx2", Lsn::from_raw(2));
-        
+
         let report = RecoveryScanReport {
             transactions: vec![tx1.clone(), tx2.clone()],
             tail_posture: RecoveryTailPosture::Clean,
         };
-        
+
         let catalog = CausalSegmentCatalog::from_recovery_scan(&report).unwrap();
         assert_eq!(catalog.segments_by_id.len(), 2);
-        
-        let seg1 = catalog.base_by_commit_digest.get(&tx1.commit.commit_digest).and_then(|id| catalog.segments_by_id.get(id)).unwrap();
-        assert_eq!(seg1.transaction_kind, Some(WalTransactionKind::SubmissionIntake));
-        
-        let seg2 = catalog.base_by_commit_digest.get(&tx2.commit.commit_digest).and_then(|id| catalog.segments_by_id.get(id)).unwrap();
-        assert_eq!(seg2.transaction_kind, Some(WalTransactionKind::SchedulerTick));
+
+        let seg1 = catalog
+            .base_by_commit_digest
+            .get(&tx1.commit.commit_digest)
+            .and_then(|id| catalog.segments_by_id.get(id))
+            .unwrap();
+        assert_eq!(
+            seg1.transaction_kind,
+            Some(WalTransactionKind::SubmissionIntake)
+        );
+
+        let seg2 = catalog
+            .base_by_commit_digest
+            .get(&tx2.commit.commit_digest)
+            .and_then(|id| catalog.segments_by_id.get(id))
+            .unwrap();
+        assert_eq!(
+            seg2.transaction_kind,
+            Some(WalTransactionKind::SchedulerTick)
+        );
     }
-    
+
     #[test]
     fn test_base_segment_preserves_transaction_properties() {
-        let tx = make_test_commit(WalTransactionKind::SubmissionIntake, b"tx1", Lsn::from_raw(1));
+        let tx = make_test_commit(
+            WalTransactionKind::SubmissionIntake,
+            b"tx1",
+            Lsn::from_raw(1),
+        );
         let report = RecoveryScanReport {
             transactions: vec![tx.clone()],
             tail_posture: RecoveryTailPosture::Clean,
         };
         let catalog = CausalSegmentCatalog::from_recovery_scan(&report).unwrap();
         let segment = catalog.segments_by_id.values().next().unwrap();
-        
+
         // base segment preserves transaction_kind
         assert_eq!(segment.transaction_kind, Some(tx.commit.transaction_kind));
         // base segment lsn range equals commit.first_lsn..commit.last_lsn
@@ -355,7 +398,10 @@ mod tests {
         // base segment records_root equals commit.records_root
         assert_eq!(segment.records_root, tx.commit.records_root);
         // base segment affected_frontiers_root equals commit.affected_frontiers_root
-        assert_eq!(segment.affected_frontiers_root, tx.commit.affected_frontiers_root);
+        assert_eq!(
+            segment.affected_frontiers_root,
+            tx.commit.affected_frontiers_root
+        );
     }
 
     #[test]
@@ -368,19 +414,23 @@ mod tests {
         let catalog = CausalSegmentCatalog::from_recovery_scan(&report).unwrap();
         assert!(catalog.segments_by_id.is_empty());
     }
-    
+
     #[test]
     fn test_rebuilding_catalog_yields_identical_segments() {
-        let tx1 = make_test_commit(WalTransactionKind::SubmissionIntake, b"tx1", Lsn::from_raw(1));
+        let tx1 = make_test_commit(
+            WalTransactionKind::SubmissionIntake,
+            b"tx1",
+            Lsn::from_raw(1),
+        );
         let tx2 = make_test_commit(WalTransactionKind::SchedulerTick, b"tx2", Lsn::from_raw(2));
         let report = RecoveryScanReport {
             transactions: vec![tx1, tx2],
             tail_posture: RecoveryTailPosture::Clean,
         };
-        
+
         let catalog1 = CausalSegmentCatalog::from_recovery_scan(&report).unwrap();
         let catalog2 = CausalSegmentCatalog::from_recovery_scan(&report).unwrap();
-        
+
         assert_eq!(catalog1.segments_by_id.len(), catalog2.segments_by_id.len());
         for (id, seg1) in &catalog1.segments_by_id {
             let seg2 = catalog2.segments_by_id.get(id).unwrap();

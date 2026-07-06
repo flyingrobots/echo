@@ -45,6 +45,7 @@ mod braid;
 mod braid_shell;
 mod causal_facts;
 pub mod causal_wal;
+pub mod evidence;
 mod clock;
 mod cmd;
 mod constants;

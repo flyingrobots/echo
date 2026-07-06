@@ -5,7 +5,7 @@
 use warp_core::{
     CausalAnchorAppRootRole, CausalAnchorCasRole, CausalAnchorError, CausalAnchorFact,
     CausalAnchorGraphRole, CausalAnchorPurpose, CausalAnchorRequest, CausalAnchorRoot,
-    CausalAnchorSubject, CausalFrontierRef,
+    CausalAnchorSubject, CausalFrontierRef, CAUSAL_ANCHOR_SCHEMA_VERSION,
 };
 
 fn hash(seed: u8) -> [u8; 32] {
@@ -48,12 +48,20 @@ fn request_with_roots(
     materialization_roots: Vec<CausalAnchorRoot>,
 ) -> CausalAnchorRequest {
     CausalAnchorRequest {
+        schema_version: CAUSAL_ANCHOR_SCHEMA_VERSION,
         subject: subject(),
         basis_frontier: frontier(1),
         retained_roots,
         materialization_roots,
         purpose: CausalAnchorPurpose::UserSave,
         admitted_by_receipt_id: hash(9),
+    }
+}
+
+fn graph_index_root(seed: u8) -> CausalAnchorRoot {
+    CausalAnchorRoot::GraphFact {
+        id: hash(seed),
+        role: CausalAnchorGraphRole::Index,
     }
 }
 
@@ -116,6 +124,21 @@ fn causal_anchor_rejects_duplicate_roots_after_canonicalization() {
 }
 
 #[test]
+fn causal_anchor_rejects_roots_that_are_both_retained_and_materialized() {
+    let ambiguous = graph_index_root(42);
+    let err = CausalAnchorFact::from_request(request_with_roots(
+        vec![ambiguous.clone()],
+        vec![ambiguous],
+    ))
+    .expect_err("cross-set duplicate roots should be rejected");
+
+    assert_eq!(
+        err,
+        CausalAnchorError::RootAppearsInRetainedAndMaterialization
+    );
+}
+
+#[test]
 fn causal_anchor_digest_binds_subject_frontier_purpose_and_receipt() {
     let base = CausalAnchorFact::from_request(request_with_roots(
         vec![app_authority_root("head:42")],
@@ -160,6 +183,25 @@ fn causal_anchor_digest_binds_subject_frontier_purpose_and_receipt() {
     assert_ne!(base.anchor_digest, different_frontier.anchor_digest);
     assert_ne!(base.anchor_digest, different_purpose.anchor_digest);
     assert_ne!(base.anchor_digest, different_receipt.anchor_digest);
+}
+
+#[test]
+fn causal_anchor_digest_binds_schema_version() {
+    let base = CausalAnchorFact::from_request(request_with_roots(
+        vec![app_authority_root("head:42")],
+        Vec::new(),
+    ))
+    .expect("base causal anchor should build");
+    let next_schema = CausalAnchorFact::from_request(CausalAnchorRequest {
+        schema_version: CAUSAL_ANCHOR_SCHEMA_VERSION + 1,
+        ..request_with_roots(vec![app_authority_root("head:42")], Vec::new())
+    })
+    .expect("future schema causal anchor should build");
+
+    assert_eq!(base.schema_version, CAUSAL_ANCHOR_SCHEMA_VERSION);
+    assert_eq!(next_schema.schema_version, CAUSAL_ANCHOR_SCHEMA_VERSION + 1);
+    assert_ne!(base.anchor_digest, next_schema.anchor_digest);
+    assert_ne!(base.anchor_id, next_schema.anchor_id);
 }
 
 #[test]

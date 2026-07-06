@@ -15,6 +15,9 @@ use crate::ident::Hash;
 const CAUSAL_ANCHOR_DIGEST_DOMAIN: &[u8] = b"echo:causal-anchor:digest:v1\0";
 const CAUSAL_ANCHOR_ID_DOMAIN: &[u8] = b"echo:causal-anchor:id:v1\0";
 
+/// Current causal anchor schema version.
+pub const CAUSAL_ANCHOR_SCHEMA_VERSION: u32 = 1;
+
 /// Opaque Echo causal anchor identifier.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -214,6 +217,8 @@ impl CausalAnchorRoot {
 /// Request to construct an Echo causal anchor fact.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CausalAnchorRequest {
+    /// Schema version for the requested anchor fact.
+    pub schema_version: u32,
     /// Application subject being anchored.
     pub subject: CausalAnchorSubject,
     /// Admitted causal frontier being anchored.
@@ -231,6 +236,8 @@ pub struct CausalAnchorRequest {
 /// Echo causal anchor fact.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CausalAnchorFact {
+    /// Schema version for this anchor fact.
+    pub schema_version: u32,
     /// Stable anchor id derived from the anchor digest.
     pub anchor_id: CausalAnchorId,
     /// Application subject being anchored.
@@ -272,7 +279,14 @@ impl CausalAnchorFact {
         {
             return Err(CausalAnchorError::AuthorityMaterializationRoot);
         }
+        if retained_roots
+            .iter()
+            .any(|root| materialization_roots.binary_search(root).is_ok())
+        {
+            return Err(CausalAnchorError::RootAppearsInRetainedAndMaterialization);
+        }
         let anchor_digest = compute_anchor_digest(
+            request.schema_version,
             &request.subject,
             &request.basis_frontier,
             &retained_roots,
@@ -282,6 +296,7 @@ impl CausalAnchorFact {
         );
         let anchor_id = compute_anchor_id(&anchor_digest);
         Ok(Self {
+            schema_version: request.schema_version,
             anchor_id,
             subject: request.subject,
             basis_frontier: request.basis_frontier,
@@ -315,6 +330,9 @@ pub enum CausalAnchorError {
     /// Materialization roots cannot declare authority.
     #[error("causal anchor materialization roots cannot declare authority")]
     AuthorityMaterializationRoot,
+    /// A root cannot be both retained authority/evidence and materialization.
+    #[error("causal anchor roots must not appear in both retained and materialization sets")]
+    RootAppearsInRetainedAndMaterialization,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -358,6 +376,7 @@ fn compute_anchor_id(anchor_digest: &Hash) -> CausalAnchorId {
 }
 
 fn compute_anchor_digest(
+    schema_version: u32,
     subject: &CausalAnchorSubject,
     basis_frontier: &CausalFrontierRef,
     retained_roots: &[CausalAnchorRoot],
@@ -367,6 +386,7 @@ fn compute_anchor_digest(
 ) -> Hash {
     let mut hasher = Hasher::new();
     hasher.update(CAUSAL_ANCHOR_DIGEST_DOMAIN);
+    hasher.update(&schema_version.to_le_bytes());
     update_subject(&mut hasher, subject);
     hasher.update(&basis_frontier.frontier_digest);
     update_roots(&mut hasher, retained_roots);

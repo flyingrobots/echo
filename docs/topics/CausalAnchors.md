@@ -96,7 +96,8 @@ receipt families. Linear applications can still supply a frontier with one head.
 `retainedRoots` name authority or evidence roots. `materializationRoots` name
 derived projection artifacts such as flattened text, line indexes, rendered
 slices, or export blobs. A materialized projection must not become authority just
-because it is convenient to load.
+because it is convenient to load. The two root sets are disjoint: a root cannot
+be both retained evidence and a materialized projection in the same anchor.
 
 ## Admission Flow
 

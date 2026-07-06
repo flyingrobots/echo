@@ -269,7 +269,7 @@ pub use plurality_law::{
 pub use causal_anchor::{
     CausalAnchorAppRootRole, CausalAnchorCasRole, CausalAnchorError, CausalAnchorFact,
     CausalAnchorGraphRole, CausalAnchorId, CausalAnchorPurpose, CausalAnchorRequest,
-    CausalAnchorRoot, CausalAnchorSubject, CausalFrontierRef,
+    CausalAnchorRoot, CausalAnchorSubject, CausalFrontierRef, CAUSAL_ANCHOR_SCHEMA_VERSION,
 };
 pub use contract_obstruction::{
     ContractObstruction, ContractObstructionKind, ContractObstructionSubject,

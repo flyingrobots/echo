@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 640" width="1200" height="640" role="img" aria-labelledby="t">
+  <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+  <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+  <title id="t">The reading envelope: every emitted reading carries its witnesses, retained evidence, and four postures — a support ledger in the sense of Observer Geometry III</title>
+  <style>
+    .bg{fill:#0D1526}
+    .plane{fill:#16223B;stroke:#2A3B5E;stroke-width:1.5}
+    .item{fill:#1C2B4A;stroke:#334770;stroke-width:1}
+    .title{font:700 20px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .ptitle{font:700 14px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .txt{font:13px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .sub{font:11.5px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#93A5C4}
+    .mono{font:12px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#E8EEF9}
+    .monosm{font:11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#93A5C4}
+    .mantra{font:600 15px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#57C793}
+  </style>
+
+  <rect class="bg" x="0" y="0" width="1200" height="640"/>
+  <text class="title" x="40" y="36">The reading envelope — an answer that carries its own accountability</text>
+
+  <!-- envelope -->
+  <rect class="plane" x="40" y="70" width="620" height="440" rx="12" stroke="#2C5C46"/>
+  <text class="ptitle" x="60" y="98" fill="#57C793">ReadingEnvelope — attached to every observation artifact</text>
+
+  <text class="mono" x="60" y="128" fill="#E8EEF9">observer_plan · observer_instance · observer_basis</text>
+  <text class="monosm" x="60" y="146">who read, with what memory, in which native vocabulary</text>
+
+  <text class="mono" x="60" y="176" fill="#E8EEF9">witness_refs: [ReadingWitnessRef]</text>
+  <text class="monosm" x="60" y="194">ResolvedCommit(provenance ref) — or EmptyFrontier with its</text>
+  <text class="monosm" x="60" y="210">deterministic state_root + commit_hash: even nothing has a witness</text>
+
+  <text class="mono" x="60" y="240" fill="#E8EEF9">retained_evidence: [RetainedEvidencePosture]</text>
+  <text class="monosm" x="60" y="258">refs to retained material — or an explicit missing-retention posture</text>
+
+  <text class="mono" x="60" y="292" fill="#E8B84B">parent_basis_posture — where this reading stands</text>
+  <text class="monosm" x="60" y="310">Worldline · StrandHistorical · StrandAtAnchor ·</text>
+  <text class="monosm" x="60" y="326">StrandParentAdvancedDisjoint · StrandRevalidationRequired(+slots)</text>
+
+  <text class="mono" x="60" y="356" fill="#E8B84B">budget_posture — requested AND spent</text>
+  <text class="monosm" x="60" y="374">max_payload_bytes vs payload_bytes · max_witness_refs vs witness_refs</text>
+
+  <text class="mono" x="60" y="404" fill="#E8B84B">rights_posture — what enforcement actually ran</text>
+  <text class="monosm" x="60" y="422">emission type has exactly one variant: KernelPublic</text>
+
+  <text class="mono" x="60" y="452" fill="#E8B84B">residual_posture — Complete·Residual·PluralityPreserved·Obstructed</text>
+  <text class="monosm" x="60" y="470">the optic outcome algebra, recurring on the read side</text>
+  <text class="sub" x="60" y="496">OG-III reading: witness_refs ≈ carried support · missing-retention ≈ declared loss · obstruction ≈ blocked</text>
+
+  <!-- identity panel -->
+  <rect class="plane" x="700" y="70" width="460" height="230" rx="12" stroke="#25505C"/>
+  <text class="ptitle" x="720" y="98" fill="#4FC1D4">QueryReadingIdentity — the question has a name</text>
+  <text class="mono" x="720" y="128">reading_id = H( query_id ‖ vars_digest ‖</text>
+  <text class="mono" x="852" y="150">basis_digest ‖ aperture_digest ‖</text>
+  <text class="mono" x="852" y="172">plan ‖ contract evidence )</text>
+  <text class="mono" x="720" y="204" fill="#4FC1D4">aperture_digest = H( budget ‖ rights )</text>
+  <text class="sub" x="720" y="232">a reading's identity includes its aperture: the same</text>
+  <text class="sub" x="720" y="248">query at the same basis under a different budget or</text>
+  <text class="sub" x="720" y="264">rights posture is a different reading — observer-</text>
+  <text class="sub" x="720" y="280">relativity, priced into the hash</text>
+
+  <!-- honesty panel -->
+  <rect class="plane" x="700" y="330" width="460" height="180" rx="12" stroke="#5C4E23"/>
+  <text class="ptitle" x="720" y="358" fill="#E8B84B">Type-level report honesty</text>
+  <text class="monosm" x="720" y="384" fill="#E8EEF9">request side:  ObservationRights =</text>
+  <text class="monosm" x="736" y="400" fill="#E8EEF9">KernelPublic | CapabilityScoped { capability }</text>
+  <text class="monosm" x="720" y="424" fill="#57C793">emission side: ReadingRightsPosture = KernelPublic</text>
+  <text class="sub" x="720" y="452">you may request a capability-scoped read, but the</text>
+  <text class="sub" x="720" y="468">envelope cannot claim capability enforcement — the</text>
+  <text class="sub" x="720" y="484">variant does not exist until the checker does.</text>
+  <text class="sub" x="720" y="500">Report ≤ Just, enforced by the type system.</text>
+
+  <text class="mantra" x="600" y="570" text-anchor="middle">A reading may claim exactly what its envelope can witness — no more.</text>
+  <text class="sub" x="600" y="600" text-anchor="middle">Retained readings cross into durability as ReadingEnvelopeRetained WAL records — see the WAL/WSC deep dive.</text>
+</svg>

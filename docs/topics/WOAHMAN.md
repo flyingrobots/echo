@@ -23,7 +23,8 @@ a comment, and what the audit found.
 
 Sources so far:
 [The Causal WAL and WSC](wal-wsc/README.md) ·
-[The SuperTick](supertick/README.md)
+[The SuperTick](supertick/README.md) ·
+[Optics and Revelation](optics/README.md)
 
 ---
 
@@ -245,6 +246,53 @@ fingerprint, the file, and the replay all agree by construction rather than by
 reconciliation.
 → `snapshot.rs`, `wsc/build.rs`, `scheduler.rs`, `parallel/merge.rs`, `head.rs`
 · both dives, everywhere
+
+---
+
+## The observer is a law
+
+### №20 — The five-tuple has five digests
+
+Observer Geometry I defines an observer as five components — projection,
+basis, memory, update rule, emission. Echo's `AuthoredObserverPlan` carries
+`schema_hash`, `state_schema_hash`, `update_law_hash`, and
+`emission_law_hash` — each component of the theory's tuple **individually
+content-addressed** (code-verified, `observation.rs#L436-L462@f94acd4b`). An
+observer isn't a callback; it's a law with an address, and changing the law
+changes the identity of every reading it ever emits.
+→ `observation.rs` · [Optics §3](optics/README.md#3-observer-plans--a-law-with-a-content-address)
+
+### №21 — A reading's identity includes its aperture
+
+`QueryReadingIdentity.reading_id` digests the query, vars, basis — and an
+`aperture_digest = H(budget ‖ rights)`. The same question at the same basis
+under a different budget or rights posture is a _different reading_
+(code-verified, `observation.rs#L857-L881@f94acd4b`). Observer relativity is
+not a philosophical caveat here; it is priced into the hash, so one
+observer's chart can never be laundered into another's.
+→ `observation.rs` · [Optics §5](optics/README.md#5-the-reading-envelope--an-answer-that-carries-its-accountability)
+
+### №22 — The outcome algebra recurs on the read side
+
+`ReadingResidualPosture` = Complete · Residual · PluralityPreserved ·
+Obstructed — Paper VII's lowering outcomes, re-instantiated for revelation
+(code-verified, `observation.rs#L829-L849@f94acd4b`). `Residual` makes the
+lens residual `M` a first-class posture, and
+`PluralityRequiresExplicitPolicy` refuses any read that would collapse
+plurality without naming the authorizing policy. Even _looking_ obeys the
+optic law.
+→ `observation.rs`, `optic.rs` · [Optics §6](optics/README.md#6-lawful-refusal--the-outcome-algebra-recurs)
+
+### №23 — Report ≤ Just, enforced by the compiler
+
+The request side offers `ObservationRights::CapabilityScoped`; the emission
+side, `ReadingRightsPosture`, has exactly one variant: `KernelPublic`
+(code-verified, `observation.rs#L715-L735, L814-L825@f94acd4b`). Until a
+capability checker exists, the envelope _cannot claim_ capability
+enforcement — the claim has no representation. OG-III calls overclaiming
+"witness debt"; Echo makes the debt unrepresentable at the type level, the
+same way its budget posture records requested-versus-spent side by side.
+→ `observation.rs` · [Optics §8](optics/README.md#8-report--just--witness-debt-structurally-zero)
 
 ---
 

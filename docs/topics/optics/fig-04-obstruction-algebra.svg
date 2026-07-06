@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 640" width="1200" height="640" role="img" aria-labelledby="t">
+  <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+  <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+  <title id="t">The read-side outcome algebra and the thirteen deterministic optic obstruction kinds, grouped by what they protect</title>
+  <style>
+    .bg{fill:#0D1526}
+    .plane{fill:#16223B;stroke:#2A3B5E;stroke-width:1.5}
+    .title{font:700 20px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .ptitle{font:700 14px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .txt{font:13px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .sub{font:11.5px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#93A5C4}
+    .mono{font:12px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#E8EEF9}
+    .monosm{font:11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#93A5C4}
+    .chip{font:11.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    .mantra{font:600 15px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#E8B84B}
+  </style>
+
+  <rect class="bg" x="0" y="0" width="1200" height="640"/>
+  <text class="title" x="40" y="36">Lawful refusal — the outcome algebra recurs on the read side</text>
+
+  <!-- outcome algebra -->
+  <rect class="plane" x="40" y="64" width="1120" height="96" rx="12" stroke="#2C5C46"/>
+  <text class="ptitle" x="60" y="92" fill="#57C793">ReadingResidualPosture — every reading lands in exactly one</text>
+  <g>
+    <rect x="60"  y="106" width="180" height="36" rx="18" fill="#122B22" stroke="#2C5C46"/><text class="chip" x="82"  y="129" fill="#57C793">Complete</text>
+    <rect x="256" y="106" width="180" height="36" rx="18" fill="#1C2B4A" stroke="#334770"/><text class="chip" x="278" y="129" fill="#E8EEF9">Residual</text>
+    <rect x="452" y="106" width="230" height="36" rx="18" fill="#2B2413" stroke="#5C4E23"/><text class="chip" x="474" y="129" fill="#E8B84B">PluralityPreserved</text>
+    <rect x="698" y="106" width="180" height="36" rx="18" fill="#2E1A1C" stroke="#7A3A38"/><text class="chip" x="720" y="129" fill="#FF9B94">Obstructed</text>
+  </g>
+  <text class="monosm" x="900" y="122" fill="#93A5C4">= Derived ⊔ Plural ⊔</text>
+  <text class="monosm" x="900" y="138" fill="#93A5C4">Obstruction, read-side</text>
+
+  <!-- obstruction groups -->
+  <text class="ptitle" x="40" y="196" fill="#FF9B94">OpticObstructionKind — 13 deterministic reasons, grouped by what they protect</text>
+
+  <rect class="plane" x="40" y="212" width="360" height="170" rx="12" stroke="#7A3A38"/>
+  <text class="txt" x="60" y="240" fill="#FF9B94" font-weight="700">Evidence</text>
+  <text class="monosm" x="60" y="266" fill="#E8EEF9">MissingWitness</text>
+  <text class="monosm" x="60" y="286" fill="#E8EEF9">MissingRetainedReading</text>
+  <text class="sub" x="60" y="316">a reading without its witness or retained</text>
+  <text class="sub" x="60" y="332">material is refused, not approximated —</text>
+  <text class="sub" x="60" y="348">the OG-III blocked/lost compartments</text>
+  <text class="sub" x="60" y="364">surfacing as refusal</text>
+
+  <rect class="plane" x="420" y="212" width="360" height="170" rx="12" stroke="#5C4E23"/>
+  <text class="txt" x="440" y="240" fill="#E8B84B" font-weight="700">Basis comparability</text>
+  <text class="monosm" x="440" y="266" fill="#E8EEF9">StaleBasis · ConflictingFrontier</text>
+  <text class="monosm" x="440" y="286" fill="#E8EEF9">LiveTailRequiresReduction</text>
+  <text class="sub" x="440" y="316">a question asked at the wrong frontier is</text>
+  <text class="sub" x="440" y="332">not answered at the right one silently —</text>
+  <text class="sub" x="440" y="348">OG-II transport-before-judgement, applied</text>
+  <text class="sub" x="440" y="364">to reads</text>
+
+  <rect class="plane" x="800" y="212" width="360" height="170" rx="12" stroke="#4A3B73"/>
+  <text class="txt" x="820" y="240" fill="#A78BE0" font-weight="700">Authority &amp; budget</text>
+  <text class="monosm" x="820" y="266" fill="#E8EEF9">CapabilityDenied · BudgetExceeded</text>
+  <text class="monosm" x="820" y="286" fill="#E8EEF9">AttachmentDescentRequired / Denied</text>
+  <text class="sub" x="820" y="316">rights and budgets are judged before</text>
+  <text class="sub" x="820" y="332">emission; descending a portal is an</text>
+  <text class="sub" x="820" y="348">explicit act, never an implicit crawl —</text>
+  <text class="sub" x="820" y="364">the aperture is a boundary, not a hint</text>
+
+  <rect class="plane" x="40" y="402" width="740" height="130" rx="12" stroke="#25505C"/>
+  <text class="txt" x="60" y="430" fill="#4FC1D4" font-weight="700">Aperture &amp; law shape</text>
+  <text class="monosm" x="60" y="456" fill="#E8EEF9">UnsupportedAperture · UnsupportedProjectionLaw · UnsupportedIntentFamily</text>
+  <text class="sub" x="60" y="482">an optic exposes declared apertures, projection laws, and intent families; asking outside</text>
+  <text class="sub" x="60" y="498">the declaration is a typed refusal with the optic, focus, and coordinate named in the obstruction</text>
+
+  <rect class="plane" x="800" y="402" width="360" height="130" rx="12" stroke="#5C4E23"/>
+  <text class="txt" x="820" y="430" fill="#E8B84B" font-weight="700">Plurality</text>
+  <text class="monosm" x="820" y="456" fill="#E8EEF9">PluralityRequiresExplicitPolicy</text>
+  <text class="sub" x="820" y="482">a read that would collapse lawful plurality</text>
+  <text class="sub" x="820" y="498">into one answer must name the policy that</text>
+  <text class="sub" x="820" y="514">authorizes the collapse — Paper VII, verbatim</text>
+
+  <text class="mantra" x="600" y="580" text-anchor="middle">Obstruction is an answer. A fake success is not.</text>
+  <text class="sub" x="600" y="608" text-anchor="middle">"Typed obstruction returned instead of a hidden fallback or fake success" — the struct's own words.</text>
+</svg>

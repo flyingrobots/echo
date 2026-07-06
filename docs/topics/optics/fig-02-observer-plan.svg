@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 620" width="1200" height="620" role="img" aria-labelledby="t">
+  <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+  <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+  <title id="t">The observer plan: the five-component observer of Observer Geometry I and Paper VII, realized in code with each component content-addressed</title>
+  <style>
+    .bg{fill:#0D1526}
+    .plane{fill:#16223B;stroke:#2A3B5E;stroke-width:1.5}
+    .item{fill:#1C2B4A;stroke:#334770;stroke-width:1}
+    .title{font:700 20px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .ptitle{font:700 14px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .txt{font:13px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .sub{font:11.5px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#93A5C4}
+    .mono{font:12.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#E8EEF9}
+    .monosm{font:11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#93A5C4}
+    .mantra{font:600 15px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#4FC1D4}
+  </style>
+  <defs>
+    <marker id="aT2b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#4FC1D4"/></marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1200" height="620"/>
+  <text class="title" x="40" y="36">The observer plan — one five-tuple, three vocabularies, each component hashed</text>
+
+  <!-- header row -->
+  <text class="monosm" x="60"  y="84" fill="#93A5C4">OG-I structural observer</text>
+  <text class="monosm" x="410" y="84" fill="#93A5C4">Paper VII observer plan Ω</text>
+  <text class="monosm" x="700" y="84" fill="#93A5C4">warp-core (AuthoredObserverPlan + request)</text>
+
+  <!-- five rows -->
+  <g>
+    <rect class="item" x="40" y="96" width="330" height="52" rx="8"/>
+    <text class="mono" x="56" y="118">O — raw projection</text>
+    <text class="monosm" x="56" y="136">Hist → Tr</text>
+    <rect class="item" x="390" y="96" width="270" height="52" rx="8"/>
+    <text class="mono" x="406" y="126">π — projection</text>
+    <rect class="item" x="680" y="96" width="480" height="52" rx="8" stroke="#25505C"/>
+    <text class="mono" x="696" y="118" fill="#4FC1D4">ObservationProjection + frame validity matrix</text>
+    <text class="monosm" x="696" y="136">Head · Snapshot · TruthChannels · Query</text>
+  </g>
+  <g>
+    <rect class="item" x="40" y="158" width="330" height="52" rx="8"/>
+    <text class="mono" x="56" y="180">B_S — native basis</text>
+    <text class="monosm" x="56" y="198">primitive trace observables</text>
+    <rect class="item" x="390" y="158" width="270" height="52" rx="8"/>
+    <text class="mono" x="406" y="188">β — basis</text>
+    <rect class="item" x="680" y="158" width="480" height="52" rx="8" stroke="#25505C"/>
+    <text class="mono" x="696" y="180" fill="#4FC1D4">ReadingObserverBasis + schema_hash</text>
+    <text class="monosm" x="696" y="198">CommitBoundary · RecordedTruth · QueryView</text>
+  </g>
+  <g>
+    <rect class="item" x="40" y="220" width="330" height="52" rx="8"/>
+    <text class="mono" x="56" y="242">M_S — observational state</text>
+    <text class="monosm" x="56" y="260">memory across prefixes</text>
+    <rect class="item" x="390" y="220" width="270" height="52" rx="8"/>
+    <text class="mono" x="406" y="250">M — observer state</text>
+    <rect class="item" x="680" y="220" width="480" height="52" rx="8" stroke="#25505C"/>
+    <text class="mono" x="696" y="242" fill="#4FC1D4">state_schema_hash + ObserverInstanceRef</text>
+    <text class="monosm" x="696" y="260">instance = None ⇒ one-shot / memoryless read</text>
+  </g>
+  <g>
+    <rect class="item" x="40" y="282" width="330" height="52" rx="8"/>
+    <text class="mono" x="56" y="304">K_S — update rule</text>
+    <text class="monosm" x="56" y="322">M × Tr → M</text>
+    <rect class="item" x="390" y="282" width="270" height="52" rx="8"/>
+    <text class="mono" x="406" y="312">U — update discipline</text>
+    <rect class="item" x="680" y="282" width="480" height="52" rx="8" stroke="#25505C"/>
+    <text class="mono" x="696" y="304" fill="#4FC1D4">update_law_hash</text>
+    <text class="monosm" x="696" y="322">the accumulation law itself is content-addressed</text>
+  </g>
+  <g>
+    <rect class="item" x="40" y="344" width="330" height="52" rx="8"/>
+    <text class="mono" x="56" y="366">E_S — emission map</text>
+    <text class="monosm" x="56" y="384">M → accumulated description</text>
+    <rect class="item" x="390" y="344" width="270" height="52" rx="8"/>
+    <text class="mono" x="406" y="374">E — emission</text>
+    <rect class="item" x="680" y="344" width="480" height="52" rx="8" stroke="#25505C"/>
+    <text class="mono" x="696" y="366" fill="#4FC1D4">emission_law_hash → ReadingEnvelope</text>
+    <text class="monosm" x="696" y="384">what may leave the observer, as a law with identity</text>
+  </g>
+
+  <path d="M375 251 L388 251" fill="none" stroke="#4FC1D4" stroke-width="1.4" marker-end="url(#aT2b)"/>
+  <path d="M665 251 L678 251" fill="none" stroke="#4FC1D4" stroke-width="1.4" marker-end="url(#aT2b)"/>
+
+  <!-- plans strip -->
+  <rect class="plane" x="40" y="428" width="1120" height="120" rx="12"/>
+  <text class="ptitle" x="60" y="456">Two plan families, one discipline</text>
+  <text class="mono" x="60" y="482" fill="#E8EEF9">BuiltinObserverPlan — CommitBoundaryHead · CommitBoundarySnapshot · RecordedTruthChannels · QueryBytes</text>
+  <text class="sub" x="60" y="500">kernel-provided, memoryless; the Paper IV "boundary observer" family</text>
+  <text class="mono" x="60" y="524" fill="#E8EEF9">AuthoredObserverPlan — plan_id · artifact_hash · schema_hash · state_schema_hash · update_law_hash · emission_law_hash</text>
+  <text class="sub" x="60" y="542">compiled from app-authored optic surfaces (Wesley); every component of the five-tuple carries its own digest</text>
+
+  <text class="mantra" x="600" y="592" text-anchor="middle">An observer is not a callback. It is a law with a content address.</text>
+</svg>

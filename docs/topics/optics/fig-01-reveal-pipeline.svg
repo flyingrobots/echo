@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 660" width="1200" height="660" role="img" aria-labelledby="t">
+  <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+  <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+  <title id="t">The reveal pipeline: an observation request flows through validation, coordinate resolution, observer plan selection, and emission into a witnessed reading artifact</title>
+  <style>
+    .bg{fill:#0D1526}
+    .plane{fill:#16223B;stroke:#2A3B5E;stroke-width:1.5}
+    .item{fill:#1C2B4A;stroke:#334770;stroke-width:1}
+    .title{font:700 20px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .ptitle{font:700 14px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .txt{font:13px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#E8EEF9}
+    .sub{font:11.5px ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#93A5C4}
+    .mono{font:12px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#E8EEF9}
+    .monosm{font:11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#93A5C4}
+    .mantra{font:600 15px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:#A78BE0}
+  </style>
+  <defs>
+    <marker id="aP1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#A78BE0"/></marker>
+    <marker id="aR1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#E5605A"/></marker>
+    <marker id="aG1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#57C793"/></marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1200" height="660"/>
+  <text class="title" x="40" y="36">Reveal — a question is judged before it is answered</text>
+
+  <!-- request -->
+  <rect class="plane" x="40" y="70" width="330" height="330" rx="12" stroke="#3A5A9E"/>
+  <text class="ptitle" x="60" y="98" fill="#6FA8F5">ObservationRequest</text>
+  <text class="mono" x="60" y="126">coordinate  worldline · at</text>
+  <text class="monosm" x="76" y="142">Frontier | Tick(t)</text>
+  <text class="mono" x="60" y="166">frame       semantic basis</text>
+  <text class="monosm" x="76" y="182">CommitBoundary | RecordedTruth | QueryView</text>
+  <text class="mono" x="60" y="206">projection  what to emit</text>
+  <text class="monosm" x="76" y="222">Head | Snapshot | TruthChannels | Query</text>
+  <text class="mono" x="60" y="246">observer_plan   builtin / authored</text>
+  <text class="mono" x="60" y="270">observer_instance  Option — memory</text>
+  <text class="monosm" x="76" y="286">None ⇒ one-shot (memoryless read)</text>
+  <text class="mono" x="60" y="310">budget      payload + witness caps</text>
+  <text class="mono" x="60" y="334">rights      KernelPublic | Capability…</text>
+  <text class="sub" x="60" y="366">the caller declares basis, aperture, memory,</text>
+  <text class="sub" x="60" y="382">budget, and rights — before any bytes move</text>
+
+  <!-- pipeline -->
+  <rect class="plane" x="410" y="70" width="420" height="330" rx="12"/>
+  <text class="ptitle" x="430" y="98">ObservationService::observe</text>
+  <rect class="item" x="430" y="112" width="380" height="44" rx="8"/>
+  <text class="mono" x="444" y="130">1 validate frame × projection matrix</text>
+  <text class="monosm" x="444" y="146">a QueryView frame cannot ask for Head metadata</text>
+  <rect class="item" x="430" y="164" width="380" height="44" rx="8"/>
+  <text class="mono" x="444" y="182">2 validate observer contract + budget</text>
+  <text class="monosm" x="444" y="198">authored plans checked against installed packages</text>
+  <rect class="item" x="430" y="216" width="380" height="44" rx="8"/>
+  <text class="mono" x="444" y="234">3 resolve coordinate → committed basis</text>
+  <text class="monosm" x="444" y="250">frontier or historical tick, + strand basis posture</text>
+  <rect class="item" x="430" y="268" width="380" height="44" rx="8"/>
+  <text class="mono" x="444" y="286">4 run observer plan → payload</text>
+  <text class="monosm" x="444" y="302">head / snapshot / truth channels / query bytes</text>
+  <rect class="item" x="430" y="320" width="380" height="44" rx="8"/>
+  <text class="mono" x="444" y="338">5 wrap in ReadingEnvelope + artifact hash</text>
+  <text class="monosm" x="444" y="354">witnesses, postures, identity — then digest it all</text>
+
+  <path d="M370 235 L410 235" fill="none" stroke="#A78BE0" stroke-width="1.8" marker-end="url(#aP1)"/>
+
+  <!-- outcomes -->
+  <rect class="plane" x="870" y="70" width="290" height="150" rx="12" stroke="#2C5C46"/>
+  <text class="ptitle" x="890" y="98" fill="#57C793">ObservationArtifact</text>
+  <text class="mono" x="890" y="126">reading: ReadingEnvelope</text>
+  <text class="mono" x="890" y="148">payload: ObservationPayload</text>
+  <text class="mono" x="890" y="170">artifact_hash: Hash</text>
+  <text class="sub" x="890" y="198">a reading has content identity —</text>
+  <text class="sub" x="890" y="212">two equal questions, two equal answers</text>
+
+  <rect class="plane" x="870" y="250" width="290" height="150" rx="12" stroke="#7A3A38"/>
+  <text class="ptitle" x="890" y="278" fill="#FF9B94">ObservationError / OpticObstruction</text>
+  <text class="sub" x="890" y="304">typed refusal — never a hidden fallback,</text>
+  <text class="sub" x="890" y="320">never a fake success; the obstruction</text>
+  <text class="sub" x="890" y="336">names its kind, focus, coordinate, and</text>
+  <text class="sub" x="890" y="352">the witness basis it was judged against</text>
+  <text class="monosm" x="890" y="382" fill="#FF9B94">13 deterministic kinds — see fig-04</text>
+
+  <path d="M830 200 L870 155 " fill="none" stroke="#57C793" stroke-width="1.8" marker-end="url(#aG1)"/>
+  <path d="M830 300 L870 320" fill="none" stroke="#E5605A" stroke-width="1.8" marker-end="url(#aR1)"/>
+
+  <!-- doctrine strip -->
+  <rect class="plane" x="40" y="440" width="1120" height="140" rx="12" stroke="#4A3B73"/>
+  <text class="ptitle" x="60" y="468" fill="#A78BE0">Revelation is not mutation</text>
+  <text class="sub" x="60" y="494">observe() takes &amp;WorldlineRuntime, &amp;ProvenanceService, &amp;Engine — shared references only. A reading cannot change</text>
+  <text class="sub" x="60" y="510">the world it reads; counterfactual work requires an explicit fork, which is a topology intent through the write path.</text>
+  <text class="sub" x="60" y="536">And a reading only ever stands on committed basis: the resolved coordinate is a provenance commit (or the deterministic</text>
+  <text class="sub" x="60" y="552">empty frontier), never an uncommitted tail — the same boundary the WAL enforces on the write side.</text>
+
+  <text class="mantra" x="600" y="630" text-anchor="middle">A reading is a chart over history — never the territory, never a mutation.</text>
+</svg>

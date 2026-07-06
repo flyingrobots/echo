@@ -12,6 +12,14 @@
   addressing as queue elimination, canonical merge as determinism, rejection
   as witnessed history, crash as typed input, frozen protocol constants) into
   short entries with code pointers and dive links.
+- `docs/topics/optics/` now carries the optics/revelation deep dive,
+  completing the Commitment/Folding/Revelation trilogy: observation request
+  anatomy, content-addressed observer plans (five-tuple, five digests),
+  strand basis postures, the reading envelope as a support ledger, the
+  read-side outcome algebra with thirteen typed obstruction kinds, and the
+  type-level Report-≤-Just discipline — grounded in AIΩN Paper IV/VII and
+  Observer Geometry I–III vocabulary with source-code-only evidence
+  citations, illustrated with four SVG figures.
 - `docs/topics/supertick/` now carries the end-to-end SuperTick deep dive: the
   failure-atomic scheduler pass, content-addressed ingress and graph-native
   dispatch, the radix plan order, the footprint reserve gate with `blocked_by`

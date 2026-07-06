@@ -72,8 +72,8 @@
   <text class="sub" x="840" y="310">policy_id pins the deciding law; the same</text>
   <text class="sub" x="840" y="326">delta under a different policy is a</text>
   <text class="sub" x="840" y="342">different commit</text>
-  <text class="monosm" x="840" y="374" fill="#93A5C4">NUM_SHARDS lives in the digest domain —</text>
-  <text class="monosm" x="840" y="390" fill="#93A5C4">even the routing constant is committed</text>
+  <text class="monosm" x="840" y="374" fill="#93A5C4">no digest includes NUM_SHARDS — the canonical</text>
+  <text class="monosm" x="840" y="390" fill="#93A5C4">merge makes sharding non-semantic instead</text>
 
   <path d="M780 178 L820 178" fill="none" stroke="#57C793" stroke-width="1.8" marker-end="url(#aG5)"/>
   <path d="M780 300 L820 300" fill="none" stroke="#57C793" stroke-width="1.8" marker-end="url(#aG5)"/>

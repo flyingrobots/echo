@@ -28,12 +28,12 @@
   <text class="ptitle" x="60" y="98">Footprint — a rewrite's declared appetite</text>
   <g>
     <rect class="item" x="60" y="114" width="170" height="40" rx="6"/><text class="monosm" x="72" y="132" fill="#6FA8F5">n_read</text><text class="monosm" x="72" y="146" fill="#93A5C4">NodeKey set</text>
-    <rect class="item" x="250" y="114" width="170" height="40" rx="6" stroke="#5C4E23"/><text class="monosm" x="262" y="132" fill="#E8B84B">n_written</text><text class="monosm" x="262" y="146" fill="#93A5C4">NodeKey set</text>
+    <rect class="item" x="250" y="114" width="170" height="40" rx="6" stroke="#5C4E23"/><text class="monosm" x="262" y="132" fill="#E8B84B">n_write</text><text class="monosm" x="262" y="146" fill="#93A5C4">NodeKey set</text>
     <rect class="item" x="60" y="164" width="170" height="40" rx="6"/><text class="monosm" x="72" y="182" fill="#6FA8F5">e_read</text><text class="monosm" x="72" y="196" fill="#93A5C4">EdgeKey set</text>
-    <rect class="item" x="250" y="164" width="170" height="40" rx="6" stroke="#5C4E23"/><text class="monosm" x="262" y="182" fill="#E8B84B">e_written</text><text class="monosm" x="262" y="196" fill="#93A5C4">EdgeKey set</text>
+    <rect class="item" x="250" y="164" width="170" height="40" rx="6" stroke="#5C4E23"/><text class="monosm" x="262" y="182" fill="#E8B84B">e_write</text><text class="monosm" x="262" y="196" fill="#93A5C4">EdgeKey set</text>
     <rect class="item" x="60" y="214" width="170" height="40" rx="6"/><text class="monosm" x="72" y="232" fill="#6FA8F5">a_read</text><text class="monosm" x="72" y="246" fill="#93A5C4">AttachmentKey set</text>
-    <rect class="item" x="250" y="214" width="170" height="40" rx="6" stroke="#5C4E23"/><text class="monosm" x="262" y="232" fill="#E8B84B">a_written</text><text class="monosm" x="262" y="246" fill="#93A5C4">AttachmentKey set</text>
-    <rect class="item" x="60" y="264" width="170" height="40" rx="6" stroke="#4A3B73"/><text class="monosm" x="72" y="282" fill="#A78BE0">ports</text><text class="monosm" x="72" y="296" fill="#93A5C4">(WarpId, PortKey)</text>
+    <rect class="item" x="250" y="214" width="170" height="40" rx="6" stroke="#5C4E23"/><text class="monosm" x="262" y="232" fill="#E8B84B">a_write</text><text class="monosm" x="262" y="246" fill="#93A5C4">AttachmentKey set</text>
+    <rect class="item" x="60" y="264" width="170" height="40" rx="6" stroke="#4A3B73"/><text class="monosm" x="72" y="282" fill="#A78BE0">b_in · b_out</text><text class="monosm" x="72" y="296" fill="#93A5C4">(WarpId, PortKey)</text>
     <rect class="item" x="250" y="264" width="170" height="40" rx="6"/><text class="monosm" x="262" y="282" fill="#E8EEF9">factor_mask u64</text><text class="monosm" x="262" y="296" fill="#93A5C4">O(1) prefilter</text>
   </g>
   <text class="sub" x="60" y="332">every key is warp-scoped: (WarpId, local id) —</text>
@@ -48,10 +48,10 @@
   <text class="mono" x="500" y="208" fill="#57C793">R ∩ R   independent</text>
   <text class="mono" x="500" y="240" fill="#E5605A">ports: any overlap conflicts</text>
   <text class="sub" x="500" y="272">checked per plane — nodes, edges,</text>
-  <text class="sub" x="500" y="288">attachments — with O(1) lookups in</text>
-  <text class="sub" x="500" y="304">generation-stamped sets (GenSet);</text>
-  <text class="sub" x="500" y="320">a tick resets by bumping the</text>
-  <text class="sub" x="500" y="336">generation, not by clearing memory</text>
+  <text class="sub" x="500" y="288">attachments — via generation-stamped</text>
+  <text class="sub" x="500" y="304">sets (GenSet, ordered-map lookups);</text>
+  <text class="sub" x="500" y="320">per-transaction footprint state is</text>
+  <text class="sub" x="500" y="336">dropped when the tx finalizes</text>
 
   <!-- gate -->
   <rect class="plane" x="810" y="70" width="350" height="300" rx="12" stroke="#5C4E23"/>

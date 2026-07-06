@@ -21,14 +21,14 @@ structural insights it surfaced are distilled in
 
 Everything described here is implemented in `warp-core`:
 
-| Layer             | Source                                                            | What it is                                                           |
-| ----------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------- |
-| SuperTick pass    | `crates/warp-core/src/coordinator.rs`                             | The failure-atomic scheduler pass over runnable writer heads         |
-| Rewrite engine    | `crates/warp-core/src/engine_impl.rs`                             | Match → reserve → execute → seal, per head                           |
-| Radix scheduler   | `crates/warp-core/src/scheduler.rs`                               | O(n), zero-comparison canonical ordering and O(1) conflict detection |
-| Footprints        | `crates/warp-core/src/footprint.rs`                               | Declared read/write sets and the conflict law                        |
-| Parallel executor | `crates/warp-core/src/parallel/`                                  | Shard-partitioned execution with canonical merge                     |
-| Tick artifacts    | `crates/warp-core/src/receipt.rs`, `tick_patch.rs`, `snapshot.rs` | Receipt, patch, and the commit hash                                  |
+| Layer             | Source                                                            | What it is                                                             |
+| ----------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| SuperTick pass    | `crates/warp-core/src/coordinator.rs`                             | The failure-atomic scheduler pass over runnable writer heads           |
+| Rewrite engine    | `crates/warp-core/src/engine_impl.rs`                             | Match → reserve → execute → seal, per head                             |
+| Radix scheduler   | `crates/warp-core/src/scheduler.rs`                               | Canonical candidate ordering and generation-stamped conflict detection |
+| Footprints        | `crates/warp-core/src/footprint.rs`                               | Declared read/write sets and the conflict law                          |
+| Parallel executor | `crates/warp-core/src/parallel/`                                  | Shard-partitioned execution with canonical merge                       |
+| Tick artifacts    | `crates/warp-core/src/receipt.rs`, `tick_patch.rs`, `snapshot.rs` | Receipt, patch, and the commit hash                                    |
 
 ## 1. The problem the SuperTick solves
 
@@ -200,9 +200,11 @@ Candidates accumulate in the `RadixScheduler` with last-wins semantics on
 `(scope_hash, rule)`: re-matching the same rule at the same scope within a
 tick replaces the earlier candidate rather than duplicating it. At commit
 time, `drain_for_tx` returns them in ascending `(scope_hash, rule_id, nonce)`
-order via a stable LSD radix sort — 20 passes of 16-bit digits (16 for the
-full 32-byte scope hash, 2 for the rule, 2 for the nonce), zero comparisons,
-O(n).
+order. Above 1024 candidates that order is produced by a stable LSD radix
+sort — 20 passes of 16-bit digits (16 for the full 32-byte scope hash, 2 for
+the rule, 2 for the nonce), no comparisons, O(n); at or below that threshold a
+comparison sort produces the identical order faster
+(`scheduler.rs`, `SMALL_SORT_THRESHOLD`). Either path, same plan.
 
 The drained sequence is the tick's **plan**, and `plan_digest` commits to it
 before anything is judged. Determinism of the plan is not asserted; it is
@@ -234,8 +236,11 @@ ports: any intersection → conflict
 
 `reserve_for_receipt` walks the plan in order. For each candidate, the
 scheduler checks its footprint against everything already reserved this tick,
-using generation-stamped sets (`GenSet`) for O(1) per-resource lookups — a new
-tick resets the sets by bumping a generation counter, not by clearing memory.
+using generation-stamped sets (`GenSet`, ordered-map lookups keyed by
+warp-scoped resource). Per-transaction footprint state is dropped when the
+transaction finalizes; each new transaction starts with fresh sets. (The
+`GenSet` type carries a generation counter, but no current code path advances
+it — reset happens by allocation, not by bumping.)
 
 - **Independent** → the candidate's resources are marked, its phase becomes
   `Reserved`, and its accepted footprint contributes the tick's boundary
@@ -281,10 +286,15 @@ formula that is frozen as protocol:
 shard = LE_u64(node_id.as_bytes()[0..8]) & (NUM_SHARDS − 1)     NUM_SHARDS = 256
 ```
 
-Frozen means frozen: `NUM_SHARDS` is recorded in the patch digest domain, so
-changing the routing — or the shard count — changes commit hashes and is a
-protocol version bump. Shards group rewrites by scope locality for cache
-friendliness; they have no semantic meaning beyond that.
+The source marks this formula FROZEN and calls any change a protocol version
+bump. One caution from auditing the code: a comment in `shard.rs` claims
+`NUM_SHARDS` is recorded in the patch digest, but `compute_patch_digest_v2`
+hashes only the format version, policy id, rule-pack id, commit status, slots,
+and ops — no shard count. What actually keeps sharding non-semantic is §6.3:
+the canonical merge erases shard assignment from the output entirely, so the
+merged op list — and therefore every digest — is independent of how work was
+sharded. Shards group rewrites by scope locality for cache friendliness; they
+have no semantic meaning beyond that.
 
 ### 6.2 Workers
 
@@ -440,9 +450,10 @@ nonce)`; the merge by `(WarpOpKey, OpOrigin)`; warps by id. No decision
 11. **The SuperTick is failure-atomic — even against panics.** Checkpoint,
     `catch_unwind`, restore, scoped fault, re-raise. The global tick becomes
     real only at the end.
-12. **Even the constants are committed.** `NUM_SHARDS` and the shard routing
-    formula live in the digest domain; changing them is a protocol version
-    bump, not a tuning knob.
+12. **Sharding is erased, not committed.** The shard routing formula is
+    declared frozen in source, but no digest includes `NUM_SHARDS`; the
+    canonical merge makes the merged op list — and therefore every digest —
+    independent of shard assignment.
 
 ## 10. Source map
 
@@ -462,6 +473,41 @@ nonce)`; the merge by `(WarpOpKey, OpOrigin)`; warps by id. No decision
 | `docs/spec/canonical-inbox-sequencing.md`                  | Intent identity and tick-boundary ordering decisions                                                                                   |
 | `docs/spec/warp-tick-patch.md` / `merkle-commit.md`        | Patch format and commit-hash decisions                                                                                                 |
 | `docs/topics/wal-wsc/README.md`                            | What happens to a tick's outputs after this document ends                                                                              |
+
+## 11. Evidence standard
+
+Claims in this document were verified against source code at commit
+`9d65a4b2`, per the project rule that behavioral claims rest on executing
+code — never on comments, rustdoc, or design documents. Notable outcomes of
+that audit:
+
+- **Corrected during audit.** An earlier revision repeated two claims from
+  source comments that the code contradicts: (1) "`NUM_SHARDS` is recorded in
+  the patch digest" (`parallel/shard.rs` comment) — refuted by
+  `compute_patch_digest_v2`, `tick_patch.rs#L812-L832@9d65a4b2`, which hashes
+  no shard count; (2) "conflict sets reset by bumping a generation" — the
+  `GenSet` generation is initialized once and never advanced
+  (`scheduler.rs#L488-L513@9d65a4b2`); reset is by dropping per-transaction
+  state (`finalize_tx`, `scheduler.rs#L257-L260@9d65a4b2`).
+- **Qualified during audit.** "Zero-comparison drain" holds only above
+  `SMALL_SORT_THRESHOLD = 1024` (`scheduler.rs#L392-L401,L443@9d65a4b2`);
+  below it a comparison sort yields the identical order
+  (`cmp_thin`, `scheduler.rs#L447-L455@9d65a4b2`).
+- **Code-verified (high confidence).** The shard formula
+  (`parallel/shard.rs#L89-L100`), last-wins enqueue with nonce refresh
+  (`scheduler.rs#L309-L331`), the 20-pass digit schedule
+  (`scheduler.rs#L336-L389,L460-L476`), footprint-violation panics caught
+  into `PoisonedDelta` (`parallel/exec.rs#L882-L1002`,
+  `parallel/merge.rs#L73-L88`), and the SuperTick
+  checkpoint/`catch_unwind`/restore/`resume_unwind` path
+  (`coordinator.rs#L3216-L3404`), all `@9d65a4b2`.
+- **Inferred (stated as inference).** That the merged op list is independent
+  of `NUM_SHARDS` follows from the merge sorting and deduplicating flattened
+  `(WarpOpKey, OpOrigin)` pairs with no shard-derived input; the assignment
+  of `OpOrigin.op_ix` during delta emission was not independently traced.
+
+Line numbers drift; the cited commit is the anchor. If a claim here matters
+to you, re-derive it from the code before relying on it.
 
 > ```text
 > Race freely. Merge canonically. Commit to replay.

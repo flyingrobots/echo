@@ -15,6 +15,12 @@ carry the mechanics; this ledger carries the sparks.
 and a link to the dive that unpacks it. If it needs a diagram, it belongs in a
 deep dive; if it fits in a breath, it belongs here.
 
+**Evidence rule:** claims rest on source code, never on comments or docs —
+comments drift, code executes. Where an entry states behavior, it was read
+from the executing path; anything weaker is labeled _inferred_ or
+_comment-derived_ inline. Entry №18 records the one time this ledger trusted
+a comment, and what the audit found.
+
 Sources so far:
 [The Causal WAL and WSC](wal-wsc/README.md) ·
 [The SuperTick](supertick/README.md)
@@ -136,7 +142,7 @@ is named after.
 ### №11 — The footprint is a contract with two enforcement points
 
 A rewrite declares its read/write appetite _before_ running. The reserve gate
-enforces it against other rewrites (O(1) generation-stamped checks), and then
+enforces it against other rewrites (generation-stamped set checks), and then
 — in debug and enforce builds — a `FootprintGuard` enforces it against the
 rewrite _itself_: touch anything outside your declaration and your delta is
 poisoned. And if a merge conflict appears anyway, the engine doesn't resolve
@@ -210,17 +216,23 @@ happens in a world where the half-tick already never existed.
 
 ---
 
-## Even the constants are committed
+## Comments lie; code cannot
 
-### №18 — A tuning knob became protocol
+### №18 — The constant that claimed to be committed
 
-`NUM_SHARDS = 256` and the shard routing formula
-(`LE_u64(node_id[0..8]) & 255`) are recorded in the patch digest domain.
-Changing them — the kind of thing most engines call a performance tweak —
-changes commit hashes for identical worlds, so the code marks the formula
-FROZEN and demands a protocol version bump. When your identity is a hash of
-how you decide, _how you decide_ is part of your public interface.
-→ `parallel/shard.rs` · [SuperTick §6.1](supertick/README.md#61-work-units)
+This entry originally repeated a source comment: that `NUM_SHARDS = 256` is
+"recorded in the commit hash domain via `compute_patch_digest_v2`." The code
+refutes it — that function hashes the format version, policy id, rule-pack
+id, commit status, slots, and ops, and nothing else (code-verified,
+`tick_patch.rs#L812-L832@9d65a4b2`). What actually keeps sharding
+non-semantic is №5: the canonical merge erases shard assignment from the
+output, so no digest needs to commit to it (inferred, high confidence — the
+merge's inputs carry no shard-derived values). The corrected _woah_ is
+double: the architecture is so order-centric that a "frozen protocol
+constant" turns out not to need freezing — and the ledger's own first
+correction is a live demonstration of why claims here carry evidence labels.
+→ `tick_patch.rs` (`compute_patch_digest_v2`), `parallel/merge.rs` ·
+[SuperTick §6.1](supertick/README.md#61-work-units)
 
 ### №19 — Determinism has the same shape at every altitude
 

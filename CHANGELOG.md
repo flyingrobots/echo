@@ -855,6 +855,16 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- The SuperTick deep dive and WoahMan ledger no longer repeat two source
+  comments that the code contradicts: `NUM_SHARDS` is not hashed by
+  `compute_patch_digest_v2` (sharding is kept non-semantic by the canonical
+  merge, not by digest commitment), and `GenSet` conflict state is reset by
+  dropping per-transaction sets, not by advancing a generation counter. The
+  "zero-comparison drain" claim is now qualified (a comparison sort produces
+  the identical order at or below 1024 candidates), figure field names match
+  the `Footprint` struct (`n_write`/`e_write`/`a_write`, `b_in`/`b_out`), and
+  both deep dives now carry an Evidence standard section with source-code
+  citations pinned to the audited commit.
 - `warp-core` evolving braid logs now reject unchecked incremental mutations:
   `Braid::apply` returns typed lifecycle errors, rejects duplicate member
   weaving and mixed revealed/sealed membership, refuses empty-frontier

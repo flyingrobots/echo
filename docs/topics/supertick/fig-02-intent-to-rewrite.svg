@@ -81,7 +81,7 @@
 
   <!-- radix drain -->
   <rect class="plane" x="632" y="320" width="528" height="220" rx="12" stroke="#5C4E23"/>
-  <text class="ptitle" x="652" y="348" fill="#E8B84B">The drain — canonical plan order, zero comparisons</text>
+  <text class="ptitle" x="652" y="348" fill="#E8B84B">The drain — one canonical plan order, two sort paths</text>
   <text class="mono" x="652" y="380" fill="#E8EEF9">ascending (scope_hash, rule_id, nonce)</text>
   <g>
     <rect x="652" y="400" width="118" height="36" rx="6" fill="#2B2413" stroke="#5C4E23"/><text class="monosm" x="664" y="422" fill="#E8B84B">0x03…a1 · r7</text>
@@ -92,8 +92,8 @@
     <path d="M900 418 L912 418" fill="none" stroke="#E8B84B" stroke-width="1.6" marker-end="url(#aA2)"/>
     <path d="M1030 418 L1042 418" fill="none" stroke="#E8B84B" stroke-width="1.6" marker-end="url(#aA2)"/>
   </g>
-  <text class="sub" x="652" y="466">stable LSD radix sort — 20 passes of 16-bit digits</text>
-  <text class="sub" x="652" y="482">(16 scope + 2 rule + 2 nonce) · O(n), no comparisons</text>
+  <text class="sub" x="652" y="466">large batches: stable LSD radix sort — 20 passes of 16-bit</text>
+  <text class="sub" x="652" y="482">digits (16 scope + 2 rule + 2 nonce); ≤1024: same order, cmp sort</text>
   <text class="monosm" x="652" y="512" fill="#57C793">plan_digest commits to this exact order</text>
   <text class="sub" x="920" y="512">— before anything is judged</text>
 

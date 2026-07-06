@@ -675,6 +675,35 @@ echo-cli wsc causal-history verify <bundle>          # verify without importing
 | `docs/design/wal-wsc-durability-roadmap.md` / `causal-wal-hardening-matrix.md`                   | Hardening roadmap and matrix                                                                                                                                                 |
 | `docs/topics/WAL.md`                                                                             | Doctrine-level summary and current caveats                                                                                                                                   |
 
+## 9. Evidence standard
+
+Behavioral claims in this document were audited against source code at commit
+`9d65a4b2`, per the project rule that facts rest on executing code — never on
+comments, rustdoc, or design documents. Key verifications:
+
+- **Commit-record fsync boundary** — frames append with `sync: false`, the
+  commit disk-record with `sync: true` followed by `sync_all()`
+  (`append_segment_record`, `causal_wal.rs#L6380-L6399@9d65a4b2`; call sites
+  `#L4556`, `#L4581`).
+- **Manifest atomicity** — temp write → `sync_all` → rename → directory fsync
+  (`write_manifest_atomic`, `causal_wal.rs#L6686-L6697@9d65a4b2`); checkpoint
+  files follow the same pattern with magic `ECWALCP1`
+  (`#L6889-L6911`, `#L8489-L8500`).
+- **Self-contained import re-validates** — embedded segment bytes are passed
+  through `recover_wal_segment_bytes` in read-only mode, then checked for
+  clean tail posture, segment-digest match, and exact LSN range
+  (`wsc/store.rs#L3445-L3499@9d65a4b2`) — stricter than this document
+  originally claimed.
+- **Recovery scan semantics** — LSN continuity, per-commit frame validation,
+  and typed tail posture as described
+  (`recover_from_frames_and_commits`, `causal_wal.rs#L6729-L6789@9d65a4b2`).
+- **Comment-derived, flagged as such** — the expansion "Write-Streaming
+  Columnar" is a name that appears only in module documentation
+  (`wsc/mod.rs`); no behavioral claim depends on it.
+
+Line numbers drift; the cited commit is the anchor. If a claim here matters
+to you, re-derive it from the code before relying on it.
+
 > ```text
 > Echo may only claim what its WAL can recover.
 > ```

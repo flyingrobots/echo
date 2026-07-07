@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 560" width="1200" height="560" role="img" aria-labelledby="t">
+  <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+  <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+  <title id="t">The admission proof ladder with a climber marking proved rungs, the bounded site drawn as nested closures, and the four-way outcome fork</title>
+  <style>
+    .bg{fill:#0D1526}
+    .rail{stroke:#5A6E96;stroke-width:5;stroke-linecap:round}
+    .rung{stroke-width:3.5;stroke-linecap:round}
+    .lbl{font:12px ui-monospace,SFMono-Regular,Menlo,monospace}
+    .small{font:11px ui-sans-serif,sans-serif;fill:#93A5C4}
+    .title{font:700 19px ui-sans-serif,-apple-system,'Segoe UI',sans-serif;fill:#E8EEF9}
+    .h{font:700 13px ui-sans-serif,sans-serif;fill:#E8EEF9}
+  </style>
+  <defs>
+    <marker id="fk" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#93A5C4"/></marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1200" height="560"/>
+  <text class="title" x="40" y="34">The admission ladder · the site · the fork</text>
+
+  <!-- LADDER -->
+  <g>
+    <line class="rail" x1="150" y1="80" x2="150" y2="500"/>
+    <line class="rail" x1="330" y1="80" x2="330" y2="500"/>
+    <!-- rungs bottom-up: proved green, current amber, above gray -->
+    <line class="rung" x1="150" y1="470" x2="330" y2="470" stroke="#57C793"/>
+    <line class="rung" x1="150" y1="410" x2="330" y2="410" stroke="#57C793"/>
+    <line class="rung" x1="150" y1="350" x2="330" y2="350" stroke="#57C793"/>
+    <line class="rung" x1="150" y1="290" x2="330" y2="290" stroke="#57C793"/>
+    <line class="rung" x1="150" y1="230" x2="330" y2="230" stroke="#E8B84B" stroke-width="5"/>
+    <line class="rung" x1="150" y1="170" x2="330" y2="170" stroke="#3A4A6E"/>
+    <line class="rung" x1="150" y1="110" x2="330" y2="110" stroke="#7A3A38" stroke-dasharray="6 5"/>
+
+    <!-- climber -->
+    <circle cx="240" cy="216" r="9" fill="#E8B84B"/>
+
+    <text class="lbl" x="348" y="474" fill="#57C793">runtime support</text>
+    <text class="lbl" x="348" y="414" fill="#57C793">invocation admission</text>
+    <text class="lbl" x="348" y="354" fill="#57C793">scheduler admission</text>
+    <text class="lbl" x="348" y="294" fill="#57C793">work candidate</text>
+    <text class="lbl" x="348" y="234" fill="#E8B84B">law witness ← obstruction names this rung</text>
+    <text class="lbl" x="348" y="174" fill="#5A6E96">admission ticket</text>
+    <text class="lbl" x="348" y="114" fill="#FF9B94">capability (no success path yet)</text>
+    <text class="small" x="150" y="528">each obstruction variant = highest rung proved</text>
+  </g>
+
+  <!-- BOUNDED SITE: nested closures -->
+  <g transform="translate(790,250)">
+    <circle r="118" fill="none" stroke="#6FA8F5" stroke-width="1.6" stroke-dasharray="7 5"/>
+    <circle r="66" fill="#2B2413" fill-opacity="0.45" stroke="#E8B84B" stroke-width="2"/>
+    <!-- boundary ports as ticks on the outer rim -->
+    <g stroke="#A78BE0" stroke-width="3" stroke-linecap="round">
+      <line x1="-118" y1="0" x2="-132" y2="0"/>
+      <line x1="118" y1="0" x2="132" y2="0"/>
+      <line x1="0" y1="-118" x2="0" y2="-132"/>
+      <line x1="83" y1="83" x2="93" y2="93"/>
+    </g>
+    <text class="lbl" x="-44" y="6" fill="#E8B84B">affected_region</text>
+    <text class="lbl" x="-56" y="-96" fill="#6FA8F5">claim_footprint</text>
+    <text class="lbl" x="96" y="-116" fill="#A78BE0">b_in · b_out</text>
+    <text class="small" x="-114" y="160">BoundedSite = one footprint, re-read</text>
+  </g>
+  <text class="h" x="700" y="80">the site χ</text>
+
+  <!-- OUTCOME FORK -->
+  <g transform="translate(1000,120)">
+    <line x1="0" y1="140" x2="0" y2="60" stroke="#93A5C4" stroke-width="2.5"/>
+    <path d="M0 60 L-90 8" stroke="#57C793" stroke-width="2.5" fill="none" marker-end="url(#fk)"/>
+    <path d="M0 60 L-30 -4" stroke="#E8B84B" stroke-width="2.5" fill="none" marker-end="url(#fk)"/>
+    <path d="M0 60 L30 -4" stroke="#E5605A" stroke-width="2.5" fill="none" marker-end="url(#fk)"/>
+    <path d="M0 60 L90 8" stroke="#A78BE0" stroke-width="2.5" fill="none" marker-end="url(#fk)"/>
+    <text class="lbl" x="-148" y="0" fill="#57C793">Derived</text>
+    <text class="lbl" x="-52" y="-14" fill="#E8B84B">Plural</text>
+    <text class="lbl" x="18" y="-14" fill="#E5605A">Conflict</text>
+    <text class="lbl" x="80" y="0" fill="#A78BE0">Obstruction</text>
+  </g>
+  <text class="h" x="962" y="80">the fork</text>
+  <text class="small" x="920" y="300">AdmissionOutcome&lt;R,P,C,O&gt;</text>
+  <text class="small" x="920" y="318">Plural carries its site</text>
+  <path d="M962 306 C 900 320, 880 300, 862 282" stroke="#E8B84B" stroke-width="1.2" fill="none" stroke-dasharray="4 4"/>
+</svg>

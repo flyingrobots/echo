@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 460" width="1200" height="460" role="img" aria-labelledby="t">
+  <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+  <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+  <title id="t">An intent travels through three authority lanes, collecting five identity documents: handle, ticket, ingress record, receipt, correlation</title>
+  <style>
+    .bg{fill:#0D1526}
+    .lane{fill:#111B30;stroke:#22304F;stroke-width:1}
+    .lanelbl{font:700 12px ui-sans-serif,-apple-system,'Segoe UI',sans-serif}
+    .title{font:700 19px ui-sans-serif,-apple-system,'Segoe UI',sans-serif;fill:#E8EEF9}
+    .doc{stroke-width:1.5}
+    .name{font:600 12px ui-monospace,SFMono-Regular,Menlo,monospace;fill:#E8EEF9}
+    .claim{font:11px ui-sans-serif,sans-serif;fill:#93A5C4}
+    .stamp{font:700 10px ui-sans-serif,sans-serif}
+  </style>
+  <defs>
+    <marker id="flow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#E8B84B"/></marker>
+    <marker id="up" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#5A6E96"/></marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1200" height="460"/>
+  <text class="title" x="40" y="34">One intent, five documents</text>
+
+  <!-- authority lanes -->
+  <rect class="lane" x="40" y="62" width="1120" height="86" rx="8"/>
+  <text class="lanelbl" x="56" y="82" fill="#6FA8F5">APPLICATION</text>
+  <rect class="lane" x="40" y="156" width="1120" height="86" rx="8"/>
+  <text class="lanelbl" x="56" y="176" fill="#A78BE0">RUNTIME OWNER</text>
+  <rect class="lane" x="40" y="250" width="1120" height="86" rx="8"/>
+  <text class="lanelbl" x="56" y="270" fill="#57C793">SCHEDULER</text>
+
+  <!-- journey path: app -> owner -> scheduler -> app -->
+  <path d="M120 118 L300 118 L300 205 L520 205 L520 299 L760 299 L760 205 L920 205 L920 118 L1120 118"
+        fill="none" stroke="#E8B84B" stroke-width="2.2" marker-end="url(#flow)" opacity="0.9"/>
+  <circle cx="120" cy="118" r="7" fill="#E8B84B"/>
+  <text class="claim" x="104" y="98">intent</text>
+
+  <!-- document glyphs (folded-corner rects) hanging on the path -->
+  <!-- 1 handle -->
+  <g transform="translate(212,88)">
+    <path d="M0 8 L38 8 L50 20 L50 62 L0 62 Z" fill="#132A4A" stroke="#6FA8F5" class="doc"/>
+    <path d="M38 8 L38 20 L50 20" fill="none" stroke="#6FA8F5"/>
+    <text class="stamp" x="8" y="40" fill="#6FA8F5">SEEN</text>
+  </g>
+  <text class="name" x="180" y="168">IntentSubmissionHandle</text>
+
+  <!-- 2 ticket -->
+  <g transform="translate(432,176)">
+    <path d="M0 8 L38 8 L50 20 L50 62 L0 62 Z" fill="#2B2413" stroke="#E8B84B" class="doc"/>
+    <path d="M38 8 L38 20 L50 20" fill="none" stroke="#E8B84B"/>
+    <text class="stamp" x="6" y="40" fill="#E8B84B">LAWFUL</text>
+  </g>
+  <text class="name" x="392" y="258">OpticAdmissionTicket</text>
+
+  <!-- 3 ingress record -->
+  <g transform="translate(648,176)">
+    <path d="M0 8 L38 8 L50 20 L50 62 L0 62 Z" fill="#1E1A33" stroke="#A78BE0" class="doc"/>
+    <path d="M38 8 L38 20 L50 20" fill="none" stroke="#A78BE0"/>
+    <text class="stamp" x="6" y="40" fill="#A78BE0">STAGED</text>
+  </g>
+  <text class="name" x="590" y="164">TicketedRuntimeIngressRecord</text>
+
+  <!-- 4 receipt -->
+  <g transform="translate(830,270)">
+    <path d="M0 8 L38 8 L50 20 L50 62 L0 62 Z" fill="#122B22" stroke="#57C793" class="doc"/>
+    <path d="M38 8 L38 20 L50 20" fill="none" stroke="#57C793"/>
+    <text class="stamp" x="4" y="40" fill="#57C793">DECIDED</text>
+  </g>
+  <text class="name" x="800" y="360">TickReceipt</text>
+
+  <!-- 5 correlation -->
+  <g transform="translate(1012,88)">
+    <path d="M0 8 L38 8 L50 20 L50 62 L0 62 Z" fill="#173A42" stroke="#4FC1D4" class="doc"/>
+    <path d="M38 8 L38 20 L50 20" fill="none" stroke="#4FC1D4"/>
+    <text class="stamp" x="2" y="40" fill="#4FC1D4">FINDABLE</text>
+  </g>
+  <text class="name" x="950" y="168">ReceiptCorrelationRecord</text>
+
+  <!-- ticks connecting docs to path -->
+  <path d="M237 150 L237 118" stroke="#6FA8F5" stroke-width="1.2" stroke-dasharray="3 3"/>
+  <path d="M457 238 L457 205" stroke="#E8B84B" stroke-width="1.2" stroke-dasharray="3 3"/>
+  <path d="M673 238 L673 205" stroke="#A78BE0" stroke-width="1.2" stroke-dasharray="3 3"/>
+  <path d="M855 332 L855 299" stroke="#57C793" stroke-width="1.2" stroke-dasharray="3 3"/>
+  <path d="M1037 150 L1037 118" stroke="#4FC1D4" stroke-width="1.2" stroke-dasharray="3 3"/>
+
+  <!-- no-impersonation: strike between documents -->
+  <g stroke="#E5605A" stroke-width="1.6">
+    <path d="M292 122 L308 106"/><path d="M292 106 L308 122" transform="translate(0,0)"/>
+  </g>
+  <text class="claim" x="270" y="382" fill="#FF9B94">≠</text>
+  <text class="claim" x="60" y="382">handle</text>
+  <text class="claim" x="290" y="382">ticket</text>
+  <text class="claim" x="400" y="382" fill="#FF9B94">≠</text>
+  <text class="claim" x="420" y="382">staged</text>
+  <text class="claim" x="530" y="382" fill="#FF9B94">≠</text>
+  <text class="claim" x="550" y="382">receipt</text>
+  <text class="claim" x="660" y="382" fill="#FF9B94">≠</text>
+  <text class="claim" x="680" y="382">correlation — no document impersonates the next</text>
+
+  <!-- WAL anchor marks under lanes -->
+  <path d="M237 336 L237 412" stroke="#E8B84B" stroke-width="1" stroke-dasharray="2 4"/>
+  <path d="M855 336 L855 412" stroke="#E8B84B" stroke-width="1" stroke-dasharray="2 4"/>
+  <text class="claim" x="200" y="428" fill="#E8B84B">WAL commit</text>
+  <text class="claim" x="820" y="428" fill="#E8B84B">WAL commit</text>
+</svg>

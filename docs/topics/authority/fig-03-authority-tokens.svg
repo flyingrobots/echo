@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 540" width="1200" height="540" role="img" aria-labelledby="t">
+  <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+  <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+  <title id="t">Authority planes as concentric rings: evidence flows outward to the application, but the staging token exists only inside the trusted rings and cannot cross out</title>
+  <style>
+    .bg{fill:#0D1526}
+    .lbl{font:12px ui-monospace,SFMono-Regular,Menlo,monospace}
+    .small{font:11px ui-sans-serif,sans-serif;fill:#93A5C4}
+    .title{font:700 19px ui-sans-serif,-apple-system,'Segoe UI',sans-serif;fill:#E8EEF9}
+  </style>
+  <defs>
+    <marker id="out" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#57C793"/></marker>
+    <marker id="in" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#6FA8F5"/></marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1200" height="540"/>
+  <text class="title" x="40" y="34">Authority rings — evidence travels, authority doesn't</text>
+
+  <g transform="translate(480,290)">
+    <!-- rings -->
+    <circle r="230" fill="#111B30" stroke="#3A5A9E" stroke-width="1.5"/>
+    <circle r="150" fill="#161226" stroke="#A78BE0" stroke-width="1.5"/>
+    <circle r="78"  fill="#0E1F19" stroke="#57C793" stroke-width="2"/>
+    <text class="lbl" x="-232" y="-198" fill="#6FA8F5">application</text>
+    <text class="lbl" x="-136" y="-122" fill="#A78BE0">runtime owner</text>
+    <text class="lbl" x="-38" y="-52" fill="#57C793">scheduler</text>
+
+    <!-- token: a key glyph locked inside the owner ring -->
+    <g transform="translate(-6,110) rotate(-30)" stroke="#A78BE0" stroke-width="3.5" fill="none" stroke-linecap="round">
+      <circle r="11"/>
+      <line x1="9" y1="7" x2="34" y2="26"/>
+      <line x1="26" y1="20" x2="20" y2="28"/>
+      <line x1="34" y1="26" x2="28" y2="34"/>
+    </g>
+    <text class="lbl" x="-108" y="152" fill="#A78BE0">_private: ()</text>
+
+    <!-- token escape attempt: blocked at owner/application boundary -->
+    <path d="M14 122 C 90 160, 130 180, 168 196" stroke="#A78BE0" stroke-width="2" fill="none" stroke-dasharray="6 5"/>
+    <g stroke="#E5605A" stroke-width="4" stroke-linecap="round">
+      <line x1="150" y1="163" x2="178" y2="191"/>
+      <line x1="178" y1="163" x2="150" y2="191"/>
+    </g>
+
+    <!-- evidence flowing outward: ticket document crosses both boundaries -->
+    <path d="M-40 -60 C -110 -110, -160 -150, -208 -186" stroke="#57C793" stroke-width="2.2" fill="none" marker-end="url(#out)"/>
+    <g transform="translate(-150,-140)">
+      <path d="M0 0 L20 0 L27 7 L27 30 L0 30 Z" fill="#122B22" stroke="#57C793" stroke-width="1.4"/>
+      <path d="M20 0 L20 7 L27 7" fill="none" stroke="#57C793" stroke-width="1.4"/>
+    </g>
+    <text class="lbl" x="-320" y="-160" fill="#57C793">receipt · ticket</text>
+
+    <!-- intents flowing inward -->
+    <path d="M208 -120 C 150 -90, 100 -60, 52 -30" stroke="#6FA8F5" stroke-width="2.2" fill="none" marker-end="url(#in)"/>
+    <circle cx="196" cy="-126" r="6" fill="#6FA8F5"/>
+    <text class="lbl" x="212" y="-134" fill="#6FA8F5">intent</text>
+  </g>
+
+  <!-- cfg gate: door on the owner ring -->
+  <g transform="translate(480,290)">
+    <rect x="-158" y="52" width="16" height="34" rx="3" fill="#0D1526" stroke="#E8B84B" stroke-width="2"/>
+    <circle cx="-146" cy="69" r="2.5" fill="#E8B84B"/>
+  </g>
+  <text class="lbl" x="230" y="390" fill="#E8B84B">#[cfg(trusted_runtime)]</text>
+  <path d="M330 374 L344 356" stroke="#E8B84B" stroke-width="1.2" stroke-dasharray="4 4" fill="none"/>
+
+  <!-- legend -->
+  <g transform="translate(820,140)">
+    <path d="M0 0 L54 0" stroke="#6FA8F5" stroke-width="2.2" marker-end="url(#in)"/>
+    <text class="small" x="64" y="4">intents flow in</text>
+    <path d="M0 34 L54 34" stroke="#57C793" stroke-width="2.2" marker-end="url(#out)"/>
+    <text class="small" x="64" y="38">evidence flows out</text>
+    <g transform="translate(8,64) rotate(-30)" stroke="#A78BE0" stroke-width="2.6" fill="none" stroke-linecap="round">
+      <circle r="7"/><line x1="6" y1="4" x2="22" y2="16"/>
+    </g>
+    <text class="small" x="64" y="72">authority token — never crosses out</text>
+    <g stroke="#E5605A" stroke-width="3" stroke-linecap="round" transform="translate(16,96)">
+      <line x1="-8" y1="-8" x2="8" y2="8"/><line x1="8" y1="-8" x2="-8" y2="8"/>
+    </g>
+    <text class="small" x="64" y="102">unforgeable boundary</text>
+    <text class="small" x="0" y="150" fill="#5A6E96">recovery orbits outside the tick:</text>
+    <circle cx="16" cy="176" r="10" fill="none" stroke="#A78BE0" stroke-width="1.5" stroke-dasharray="3 3"/>
+    <text class="small" x="64" y="180">read-only; never invents documents</text>
+  </g>
+</svg>

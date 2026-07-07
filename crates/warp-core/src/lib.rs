@@ -43,6 +43,7 @@ mod admission;
 mod attachment;
 mod braid;
 mod braid_shell;
+mod causal_anchor;
 mod causal_facts;
 pub mod causal_wal;
 mod clock;
@@ -265,6 +266,11 @@ pub use plurality_law::{
     PluralityLawRegistryError, PluralityLawRequirement,
 };
 // --- Cursor types ---
+pub use causal_anchor::{
+    CausalAnchorAppRootRole, CausalAnchorCasRole, CausalAnchorError, CausalAnchorFact,
+    CausalAnchorGraphRole, CausalAnchorId, CausalAnchorPurpose, CausalAnchorRequest,
+    CausalAnchorRoot, CausalAnchorSubject, CausalFrontierRef, CAUSAL_ANCHOR_SCHEMA_VERSION,
+};
 pub use contract_obstruction::{
     ContractObstruction, ContractObstructionKind, ContractObstructionSubject,
 };

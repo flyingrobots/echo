@@ -17,10 +17,12 @@ Echo's live documentation centers on the runtime carrier, the retained witnesses
 - Echo v0.1.0 release plan: [/design/v0.1.0-release-plan](/design/v0.1.0-release-plan)
 - Echo v0.1.0 jedit release gate: [/design/v0.1.0-jedit-release-gate](/design/v0.1.0-jedit-release-gate)
 - Trusted runtime control history: [/design/trusted-runtime-control-history](/design/trusted-runtime-control-history)
+- Causal anchors: [/topics/CausalAnchors](/topics/CausalAnchors)
 - WAL truth boundary: [/topics/WAL](/topics/WAL)
 - WAL/WSC deep dive: [/topics/wal-wsc/README](/topics/wal-wsc/README)
 - SuperTick deep dive: [/topics/supertick/README](/topics/supertick/README)
 - Optics/revelation deep dive: [/topics/optics/README](/topics/optics/README)
+- Authority model deep dive: [/topics/authority/README](/topics/authority/README)
 - WoahMan insight ledger: [/topics/WOAHMAN](/topics/WOAHMAN)
 - WAL/WSC release closure audit: [/design/wal-wsc-release-closure-audit](/design/wal-wsc-release-closure-audit)
 - jedit next ten release-gate slices: [/design/v0.1.0-jedit-next-ten-slices](/design/v0.1.0-jedit-next-ten-slices)
@@ -49,6 +51,7 @@ Echo's live documentation centers on the runtime carrier, the retained witnesses
 - Rewrite scheduler: [/spec/scheduler-warp-core](/spec/scheduler-warp-core)
 - SuperTick deep dive: [/topics/supertick/README](/topics/supertick/README)
 - Canonical inbox sequencing: [/spec/canonical-inbox-sequencing](/spec/canonical-inbox-sequencing)
+- Causal anchors: [/topics/CausalAnchors](/topics/CausalAnchors)
 - WAL truth boundary: [/topics/WAL](/topics/WAL)
 - WAL/WSC deep dive: [/topics/wal-wsc/README](/topics/wal-wsc/README)
 - WARP tick patch: [/spec/warp-tick-patch](/spec/warp-tick-patch)
@@ -66,6 +69,7 @@ Echo's live documentation centers on the runtime carrier, the retained witnesses
 - ABI golden vectors: [/spec/abi-golden-vectors](/spec/abi-golden-vectors)
 - WARP view protocol: [/spec/warp-view-protocol](/spec/warp-view-protocol)
 - WSC, Verkle, IPA, and retained readings: [/architecture/wsc-verkle-ipa-retained-readings](/architecture/wsc-verkle-ipa-retained-readings)
+- Authority model deep dive: [/topics/authority/README](/topics/authority/README)
 
 ## Determinism Evidence
 

@@ -7,6 +7,12 @@
 
 ### Added
 
+- `docs/topics/authority/` now carries the authority model deep dive: the
+  five-document chain from witnessed submission to correlated outcome, the
+  admission obstruction ladder, the `BoundedSite`/outcome algebra, and the
+  zero-sized runtime-owner authority tokens that keep evidence transferable
+  while authority remains unforgeable, illustrated with three SVG figures and
+  cross-linked to the SuperTick, WAL/WSC, and Optics dives.
 - `docs/topics/WOAHMAN.md` now carries the WoahMan ledger: a living companion
   to the deep dives that distills the sharpest structural insights (content
   addressing as queue elimination, canonical merge as determinism, rejection
@@ -32,6 +38,15 @@
   contract, the WAL projection graph, and the three causal-history export
   profiles, illustrated with six SVG figures and indexed from
   `docs/README.md` and `docs/topics/WAL.md`.
+- `warp-core` now exposes a narrow Edict `echo.span-ir/v1` Target IR fixture
+  bridge that accepts strict lowercase digest-locked pre-step
+  `continueObstructed` requirements, evaluates deterministic basis freshness
+  facts, and emits versioned attempt receipt objects bound to the supplied
+  Target IR digest. The bridge distinguishes accepted artifacts from executed
+  receipts, obstructed attempts from invalid proposals, and obstruction from
+  legal unselected counterfactuals without claiming bundle admission, Jim
+  semantics, scheduler counterfactual exploration, canonical Echo receipt
+  bytes, or receipt digests.
 - `warp-core` now exposes WAL projection fact records for `WalRoot`,
   `WalWriterEpoch`, `WalSegmentRef`, `WalCommitAnchor`, and
   `RecoveryCertificateRef`; `WalSegmentRef::identity_digest()` binds writer

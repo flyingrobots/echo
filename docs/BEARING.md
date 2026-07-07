@@ -20,6 +20,9 @@ artifacts record motion.
 The WARP paper-to-Echo noun map is maintained in
 `docs/design/warp-optic-implementation-map.md`.
 
+The Edict Target IR obstruction receipt bridge is maintained in
+`docs/design/edict-target-ir-obstruction-receipt-bridge.md`.
+
 The post-PR #545 strands and braids hardening roadmap is maintained in
 `docs/design/braids-and-strands-roadmap.md`.
 

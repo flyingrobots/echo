@@ -850,6 +850,14 @@ impl WalTransactionCommit {
         self.compute_digest()
     }
 
+    pub(crate) fn validate_frame_evidence(
+        &self,
+        frames: &[WalFrame],
+    ) -> Result<(), WalValidationError> {
+        validate_transaction_frames(frames, self)?;
+        validate_transaction_semantics(frames, self.transaction_kind)
+    }
+
     fn compute_digest(&self) -> Hash {
         let mut h = blake3::Hasher::new();
         h.update(WAL_COMMIT_DOMAIN);
@@ -4300,6 +4308,8 @@ pub enum FilesystemWalFaultTarget {
     AppendFrame,
     /// Fail the next commit flush before writing the commit marker.
     FlushCommit,
+    /// Fail after writing and syncing the next commit marker.
+    CommitMarkerSynced,
     /// Fail the next manifest publish before writing manifest material.
     PublishManifest,
 }
@@ -4310,6 +4320,7 @@ pub enum FilesystemWalFaultTarget {
 pub struct FilesystemWalFaultPlan {
     append_frame: u32,
     flush_commit: u32,
+    commit_marker_synced: u32,
     publish_manifest: u32,
 }
 
@@ -4322,16 +4333,25 @@ impl FilesystemWalFaultPlan {
             FilesystemWalFaultTarget::AppendFrame => Self {
                 append_frame: 1,
                 flush_commit: 0,
+                commit_marker_synced: 0,
                 publish_manifest: 0,
             },
             FilesystemWalFaultTarget::FlushCommit => Self {
                 append_frame: 0,
                 flush_commit: 1,
+                commit_marker_synced: 0,
+                publish_manifest: 0,
+            },
+            FilesystemWalFaultTarget::CommitMarkerSynced => Self {
+                append_frame: 0,
+                flush_commit: 0,
+                commit_marker_synced: 1,
                 publish_manifest: 0,
             },
             FilesystemWalFaultTarget::PublishManifest => Self {
                 append_frame: 0,
                 flush_commit: 0,
+                commit_marker_synced: 0,
                 publish_manifest: 1,
             },
         }
@@ -4341,6 +4361,7 @@ impl FilesystemWalFaultPlan {
         let remaining = match target {
             FilesystemWalFaultTarget::AppendFrame => &mut self.append_frame,
             FilesystemWalFaultTarget::FlushCommit => &mut self.flush_commit,
+            FilesystemWalFaultTarget::CommitMarkerSynced => &mut self.commit_marker_synced,
             FilesystemWalFaultTarget::PublishManifest => &mut self.publish_manifest,
         };
         if *remaining == 0 {
@@ -4590,6 +4611,15 @@ impl WalStorePort for FilesystemWalStore {
             FilesystemSyncBoundary::CommitFileSynced,
             transaction_id,
         ));
+        #[cfg(any(test, feature = "host_test"))]
+        if self
+            .fault_plan
+            .should_fail(FilesystemWalFaultTarget::CommitMarkerSynced)
+        {
+            return Err(WalStoreError::Io(
+                "injected filesystem WAL commit_marker_synced failure".to_owned(),
+            ));
+        }
         Ok(())
     }
 

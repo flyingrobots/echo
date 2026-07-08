@@ -43,6 +43,12 @@ Materialized graphs are optional readings.
 Continuum is the protocol for lawful causal-history exchange.
 ```
 
+## Trace Architecture Principle
+
+> Graph is truth. Delta log is transport. Roaring is index. Matrix is projection. Receipt is proof.
+
+Echo execution traces are not a separate event-sourcing reality. They are a bounded, append-only, canonical streaming log of WSC `NodeRow`, `EdgeRow`, and `AttRow` deltas. Trace storage is chunked. Sparse selector columns may be encoded as compressed bitsets, but they are derived indexes, not the source of truth. Prover-specific rectangular traces are downstream projections of the delta log.
+
 ## Git Rules
 
 - **NEVER** amend commits.

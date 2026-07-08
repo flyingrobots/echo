@@ -57,6 +57,7 @@ pub mod domain;
 mod dynamic_binding;
 mod edict_target_ir;
 mod engine_impl;
+pub mod evidence;
 mod footprint;
 /// Footprint enforcement guard for parallel execution.
 ///
@@ -405,8 +406,9 @@ pub use tick_patch::{
 };
 #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 pub use trusted_runtime_host::{
-    TrustedRuntimeApp, TrustedRuntimeHost, TrustedRuntimeHostError, TrustedRuntimeHostRunReport,
-    TrustedRuntimeWal, TrustedRuntimeWalConfig, TrustedRuntimeWalError, TrustedRuntimeWalStoreKind,
+    EvidenceCatalogPosture, TrustedRuntimeApp, TrustedRuntimeHost, TrustedRuntimeHostError,
+    TrustedRuntimeHostRunReport, TrustedRuntimeWal, TrustedRuntimeWalConfig,
+    TrustedRuntimeWalError, TrustedRuntimeWalStoreKind,
 };
 pub use tx::TxId;
 pub use warp_state::{WarpInstance, WarpState};

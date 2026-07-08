@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+[package]
+name = "echo-trace"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Canonical causal trace boundary for Echo graph delta streams"
+readme = "README.md"
+keywords = ["echo", "trace", "causal", "graph"]
+categories = ["data-structures", "development-tools"]
+
+[dependencies]
+
+[lints]
+workspace = true

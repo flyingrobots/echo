@@ -28,7 +28,8 @@ members = [
     "crates/ttd-protocol-rs",
     "crates/echo-ttd",
     "crates/method",
-    "xtask"
+    "xtask",
+    "crates/echo-trace",
 ]
 resolver = "2"
 

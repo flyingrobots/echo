@@ -83,6 +83,9 @@ pub enum TrustedRuntimeWalError {
     /// WAL recovery failed while rebuilding runtime evidence.
     #[error("trusted runtime WAL recovery error: {0}")]
     Recovery(#[from] WalRecoveryError),
+    /// Evidence catalog operations failed.
+    #[error("trusted runtime evidence catalog error: {0}")]
+    EvidenceCatalog(#[from] crate::evidence::EvidenceCatalogError),
     /// Runtime outcome evidence could not be matched to the receipt correlation.
     #[error(
         "trusted runtime WAL tick outcome unavailable for submission {submission_id:?} receipt {receipt_digest:?}"
@@ -509,10 +512,28 @@ impl TrustedRuntimeHost {
     }
 }
 
+/// Represents the live cache posture of the derived evidence catalog.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EvidenceCatalogPosture {
+    /// The live catalog is synchronized with committed history.
+    Fresh,
+    /// The live catalog failed to update and requires recovery rebuild.
+    NeedsRebuild {
+        /// A digest indicating the reason for the rebuild.
+        reason: Hash,
+        /// The last transaction digest where the catalog was known to be fresh.
+        last_good_commit: Hash,
+    },
+}
+
 /// Minimal trusted-runtime WAL adapter for ACK-boundary integration tests.
 #[derive(Clone, Debug)]
 pub struct TrustedRuntimeWal {
     store: TrustedRuntimeWalStore,
+    evidence_catalog: Option<crate::evidence::CausalSegmentCatalog>,
+    evidence_catalog_posture: EvidenceCatalogPosture,
+    #[cfg(any(test, feature = "host_test"))]
+    fail_next_evidence_catalog_update: bool,
     writer_epoch: WriterEpochId,
     segment_id: WalSegmentId,
     next_lsn: Lsn,
@@ -541,8 +562,10 @@ impl TrustedRuntimeWal {
     pub fn from_config(config: TrustedRuntimeWalConfig) -> Result<Self, TrustedRuntimeWalError> {
         let TrustedRuntimeWalConfig { store, next_lsn } = config;
         let mut store = TrustedRuntimeWalStore::open(store)?;
-        let recovered_cursor =
-            TrustedRuntimeWalCursor::from_recovery(&store.recover_for_writer()?)?;
+        let recovery_report = store.recover_for_writer()?;
+        let recovered_cursor = TrustedRuntimeWalCursor::from_recovery(&recovery_report)?;
+        let evidence_catalog =
+            crate::evidence::CausalSegmentCatalog::from_recovery_scan(&recovery_report)?;
         let next_lsn = if recovered_cursor.has_committed_history {
             recovered_cursor.next_lsn
         } else {
@@ -579,6 +602,10 @@ impl TrustedRuntimeWal {
             submission_frontier_digest: recovered_cursor.submission_frontier_digest,
             receipt_frontier_digest: recovered_cursor.receipt_frontier_digest,
             runtime_state_frontier_digest: recovered_cursor.runtime_state_frontier_digest,
+            evidence_catalog: Some(evidence_catalog),
+            evidence_catalog_posture: EvidenceCatalogPosture::Fresh,
+            #[cfg(any(test, feature = "host_test"))]
+            fail_next_evidence_catalog_update: false,
         })
     }
 
@@ -618,6 +645,27 @@ impl TrustedRuntimeWal {
             submissions,
             receipts,
         })
+    }
+
+    /// Recovers the causal segment catalog from committed WAL transactions.
+    pub fn recover_evidence_catalog_read_only(
+        &self,
+    ) -> Result<crate::evidence::CausalSegmentCatalog, TrustedRuntimeWalError> {
+        let report = self.store.recover_read_only()?;
+        crate::evidence::CausalSegmentCatalog::from_recovery_scan(&report)
+            .map_err(TrustedRuntimeWalError::EvidenceCatalog)
+    }
+
+    /// Returns the live evidence catalog if it exists.
+    #[must_use]
+    pub fn evidence_catalog(&self) -> Option<&crate::evidence::CausalSegmentCatalog> {
+        self.evidence_catalog.as_ref()
+    }
+
+    /// Returns the current posture of the live evidence catalog cache.
+    #[must_use]
+    pub fn evidence_catalog_posture(&self) -> &EvidenceCatalogPosture {
+        &self.evidence_catalog_posture
     }
 
     /// Returns the number of committed submission-intake transactions.
@@ -674,6 +722,18 @@ impl TrustedRuntimeWal {
     fn refresh_cursor_from_store_for_writer(&mut self) -> Result<(), TrustedRuntimeWalError> {
         let report = self.store.recover_for_writer()?;
         let cursor = TrustedRuntimeWalCursor::from_recovery(&report)?;
+        match crate::evidence::CausalSegmentCatalog::from_recovery_scan(&report) {
+            Ok(catalog) => {
+                self.evidence_catalog = Some(catalog);
+                self.evidence_catalog_posture = EvidenceCatalogPosture::Fresh;
+            }
+            Err(_) => {
+                self.evidence_catalog_posture = EvidenceCatalogPosture::NeedsRebuild {
+                    reason: *blake3::hash(b"catalog_recovery_rebuild_error").as_bytes(),
+                    last_good_commit: self.previous_committed_transaction_digest,
+                };
+            }
+        }
         self.next_lsn = cursor.next_lsn;
         self.previous_frame_digest = cursor.previous_frame_digest;
         self.previous_committed_transaction_digest = cursor.previous_committed_transaction_digest;
@@ -818,12 +878,42 @@ impl TrustedRuntimeWal {
             .last_lsn
             .checked_next()
             .ok_or(WalBuildError::LsnOverflow)?;
+        let last_good_commit = self.previous_committed_transaction_digest;
         let commit = transaction.commit.clone();
+        let frames = transaction.frames.clone();
         self.store.append_transaction(transaction)?;
         self.next_lsn = next_lsn;
         self.previous_frame_digest = last_frame_digest;
         self.previous_committed_transaction_digest = commit.commit_digest;
+        self.try_update_evidence_catalog_after_commit(&commit, &frames, last_good_commit);
         Ok(commit)
+    }
+
+    fn try_update_evidence_catalog_after_commit(
+        &mut self,
+        commit: &WalTransactionCommit,
+        frames: &[crate::causal_wal::WalFrame],
+        last_good_commit: Hash,
+    ) {
+        use crate::evidence::CommittedWalObserver;
+        #[cfg(any(test, feature = "host_test"))]
+        if self.fail_next_evidence_catalog_update {
+            self.fail_next_evidence_catalog_update = false;
+            self.evidence_catalog_posture = EvidenceCatalogPosture::NeedsRebuild {
+                reason: *blake3::hash(b"catalog_update_error").as_bytes(),
+                last_good_commit,
+            };
+            return;
+        }
+        if let Some(catalog) = self.evidence_catalog.as_mut() {
+            let view = crate::evidence::CommittedWalView { commit, frames };
+            if catalog.observe_committed_wal(view).is_err() {
+                self.evidence_catalog_posture = EvidenceCatalogPosture::NeedsRebuild {
+                    reason: *blake3::hash(b"catalog_update_error").as_bytes(),
+                    last_good_commit,
+                };
+            }
+        }
     }
 
     fn builder(
@@ -1224,6 +1314,11 @@ impl TrustedRuntimeWal {
         self.next_lsn = next_lsn;
         self.previous_frame_digest = last_frame_digest;
         Ok(())
+    }
+
+    /// Forces the next live evidence catalog update to fail after WAL commit.
+    pub fn fail_next_evidence_catalog_update_for_test(&mut self) {
+        self.fail_next_evidence_catalog_update = true;
     }
 }
 

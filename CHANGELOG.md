@@ -7,6 +7,11 @@
 
 ### Added
 
+- `warp-core` now exposes a recovered WAL evidence segment catalog derived from
+  `RecoveryScanReport`, with a non-authoritative live cache in
+  `TrustedRuntimeWal` that marks cache-update failures as rebuild posture
+  without turning committed WAL transactions into failures.
+
 - `warp-core` now exposes a narrow Edict `echo.span-ir/v1` Target IR fixture
   bridge that accepts strict lowercase digest-locked pre-step
   `continueObstructed` requirements, evaluates deterministic basis freshness
@@ -847,6 +852,14 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- `warp-core` recovered filesystem WAL ACK paths now rebuild the live evidence
+  catalog before returning recovered success, live catalog-update failures record
+  the last commit where the catalog was actually fresh, and committed evidence
+  segments now populate `coverings_by_range` for their exact LSN range. Rebuilt
+  evidence catalogs now reject malformed commit/frame evidence before admitting
+  `ExactCommittedWal` segments.
+- `Cargo.lock` now pins `crossbeam-epoch` to `0.9.20`, clearing
+  `RUSTSEC-2026-0204` for the benchmark-only `rayon` dependency path.
 - `warp-core` evolving braid logs now reject unchecked incremental mutations:
   `Braid::apply` returns typed lifecycle errors, rejects duplicate member
   weaving and mixed revealed/sealed membership, refuses empty-frontier

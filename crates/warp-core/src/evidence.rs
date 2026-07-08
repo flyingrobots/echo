@@ -223,6 +223,13 @@ impl CausalSegmentCatalog {
                 self.base_by_transaction_id.insert(tx_id, id);
             }
             self.base_by_lsn_start.insert(segment.first_lsn, id);
+            self.coverings_by_range
+                .entry(EvidenceRangeKey {
+                    first_lsn: segment.first_lsn,
+                    last_lsn: segment.last_lsn,
+                })
+                .or_default()
+                .push(id);
         }
         self.segments_by_id.insert(id, segment);
     }
@@ -403,6 +410,34 @@ mod tests {
         assert_eq!(
             segment.affected_frontiers_root,
             tx.commit.affected_frontiers_root
+        );
+    }
+
+    #[test]
+    fn test_base_segments_populate_covering_range_index() {
+        let tx = make_test_commit(
+            WalTransactionKind::SubmissionIntake,
+            b"tx1",
+            Lsn::from_raw(7),
+        );
+        let report = RecoveryScanReport {
+            transactions: vec![tx.clone()],
+            tail_posture: RecoveryTailPosture::Clean,
+        };
+
+        let catalog = CausalSegmentCatalog::from_recovery_scan(&report).unwrap();
+        let segment = catalog.segments_by_id.values().next().unwrap();
+        let range_key = EvidenceRangeKey {
+            first_lsn: tx.commit.first_lsn,
+            last_lsn: tx.commit.last_lsn,
+        };
+
+        assert_eq!(
+            catalog
+                .coverings_by_range
+                .get(&range_key)
+                .map(Vec::as_slice),
+            Some(&[segment.id][..])
         );
     }
 

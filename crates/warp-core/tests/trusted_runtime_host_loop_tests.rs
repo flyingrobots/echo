@@ -1520,3 +1520,151 @@ fn runtime_wal_ack_recover_read_only_exposes_recovery_certificate() {
     assert!(recovery.certificate.first_lsn.is_some());
     assert!(recovery.certificate.last_lsn.is_some());
 }
+
+use warp_core::EvidenceCatalogPosture;
+
+#[test]
+fn runtime_wal_live_evidence_catalog_matches_read_only_recovery_after_submission() {
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_in_memory_runtime_wal()
+        .expect("runtime WAL should initialize");
+    host.register_contract_package(package())
+        .expect("host should install package");
+
+    let _submission = {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(eint_envelope(worldline_id))
+            .expect("submission acceptance should commit before ACK")
+    };
+
+    let wal = host.runtime_wal().expect("runtime WAL should exist");
+
+    // Live catalog must exist and be fresh
+    let live_catalog = wal.evidence_catalog().expect("live catalog should exist");
+    assert_eq!(
+        *wal.evidence_catalog_posture(),
+        EvidenceCatalogPosture::Fresh,
+        "live catalog should be fresh"
+    );
+
+    // Recovered catalog from pristine read-only scan
+    let recovered_catalog = wal
+        .recover_evidence_catalog_read_only()
+        .expect("rebuild should succeed");
+
+    assert_eq!(
+        live_catalog.segments_by_id.len(),
+        1,
+        "submission should produce 1 base segment"
+    );
+    assert_eq!(
+        live_catalog.segments_by_id.len(),
+        recovered_catalog.segments_by_id.len(),
+        "live catalog must match recovered catalog length"
+    );
+
+    for (id, live_seg) in &live_catalog.segments_by_id {
+        let rec_seg = recovered_catalog
+            .segments_by_id
+            .get(id)
+            .expect("recovered catalog missing segment");
+        assert_eq!(
+            live_seg.commit_digest, rec_seg.commit_digest,
+            "segment commit digest must match"
+        );
+    }
+}
+
+#[test]
+fn runtime_wal_live_evidence_catalog_rebuilds_after_recovered_filesystem_ack() {
+    let wal_root = temp_runtime_wal_dir("catalog-recovered-filesystem-ack");
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_runtime_wal(
+        TrustedRuntimeWalConfig::filesystem_with_fault_plan_for_test(
+            &wal_root,
+            FilesystemWalFaultPlan::fail_next(FilesystemWalFaultTarget::CommitMarkerSynced),
+        ),
+    )
+    .expect("host should configure faulting filesystem runtime WAL adapter");
+
+    let _submission = {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(eint_envelope(worldline_id))
+            .expect("recoverable commit marker failure should still ACK")
+    };
+
+    let wal = host.runtime_wal().expect("runtime WAL should exist");
+    assert_eq!(
+        *wal.evidence_catalog_posture(),
+        EvidenceCatalogPosture::Fresh,
+        "recovered ACK should leave the live catalog fresh"
+    );
+
+    let live_catalog = wal.evidence_catalog().expect("live catalog should exist");
+    let recovered_catalog = wal
+        .recover_evidence_catalog_read_only()
+        .expect("read-only rebuild should succeed");
+    assert_eq!(
+        recovered_catalog.segments_by_id.len(),
+        1,
+        "recovered WAL should contain the committed submission segment"
+    );
+    assert_eq!(
+        live_catalog.segments_by_id.len(),
+        recovered_catalog.segments_by_id.len(),
+        "live catalog must include the recovered committed submission"
+    );
+}
+
+#[test]
+fn runtime_wal_live_evidence_catalog_failure_marks_needs_rebuild_without_failing_commit() {
+    let (runtime, worldline_a, worldline_b) = runtime_pair();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_in_memory_runtime_wal()
+        .expect("runtime WAL should initialize");
+
+    let _first = {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(eint_envelope(worldline_a))
+            .expect("first submission acceptance should commit before ACK")
+    };
+    let last_good_commit = host
+        .runtime_wal()
+        .expect("runtime WAL should exist")
+        .commits()
+        .last()
+        .expect("first commit should exist")
+        .commit_digest;
+
+    let mut faulting_wal = host
+        .runtime_wal()
+        .expect("runtime WAL should exist")
+        .clone();
+    faulting_wal.fail_next_evidence_catalog_update_for_test();
+    host.replace_runtime_wal_for_test(faulting_wal);
+
+    let _second = {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(eint_envelope(worldline_b))
+            .expect("catalog update failure should not reject committed WAL acceptance")
+    };
+
+    let wal = host.runtime_wal().expect("runtime WAL should exist");
+    assert_eq!(
+        wal.commits().len(),
+        2,
+        "WAL commit should succeed even when the derived catalog fails"
+    );
+    assert!(matches!(
+        wal.evidence_catalog_posture(),
+        EvidenceCatalogPosture::NeedsRebuild {
+            last_good_commit: observed,
+            ..
+        } if *observed == last_good_commit
+    ));
+}

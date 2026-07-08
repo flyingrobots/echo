@@ -43,6 +43,7 @@ mod admission;
 mod attachment;
 mod braid;
 mod braid_shell;
+mod causal_anchor;
 mod causal_facts;
 pub mod causal_wal;
 mod clock;
@@ -54,7 +55,9 @@ mod contract_registry;
 /// Domain separation prefixes for hashing.
 pub mod domain;
 mod dynamic_binding;
+mod edict_target_ir;
 mod engine_impl;
+pub mod evidence;
 mod footprint;
 /// Footprint enforcement guard for parallel execution.
 ///
@@ -211,6 +214,15 @@ pub use dynamic_binding::{
     ResolvedClosureBinding, ResolvedSlotBinding, StructuredBindingResolver,
     StructuredBindingRuntime, StructuredRuntimeBindings,
 };
+pub use edict_target_ir::{
+    accept_edict_echo_target_ir, execute_accepted_edict_echo_target_ir, AcceptedEdictEchoTargetIr,
+    EdictEchoAttemptInput, EdictEchoAttemptObstruction, EdictEchoAttemptOutcomeKind,
+    EdictEchoAttemptReceipt, EdictEchoObstructionReason, EdictEchoTargetIrAcceptanceError,
+    EdictEchoTargetIrAcceptanceErrorKind, EdictEchoTargetIrArtifact, EdictEchoTargetIrDigestField,
+    EdictEchoTargetIrIntent, EdictEchoTargetIrPredicate, EdictEchoTargetIrRequirement,
+    EdictEchoTargetIrRequirementFailure, EDICT_ECHO_ATTEMPT_RECEIPT_SCHEMA,
+    EDICT_ECHO_TARGET_IR_DOMAIN,
+};
 pub use engine_impl::{
     scope_hash, ApplyResult, CommitOutcome, DispatchDisposition, Engine, EngineBuilder,
     EngineError, ExistingState, FreshStore, IngestDisposition,
@@ -255,6 +267,11 @@ pub use plurality_law::{
     PluralityLawRegistryError, PluralityLawRequirement,
 };
 // --- Cursor types ---
+pub use causal_anchor::{
+    CausalAnchorAppRootRole, CausalAnchorCasRole, CausalAnchorError, CausalAnchorFact,
+    CausalAnchorGraphRole, CausalAnchorId, CausalAnchorPurpose, CausalAnchorRequest,
+    CausalAnchorRoot, CausalAnchorSubject, CausalFrontierRef, CAUSAL_ANCHOR_SCHEMA_VERSION,
+};
 pub use contract_obstruction::{
     ContractObstruction, ContractObstructionKind, ContractObstructionSubject,
 };
@@ -389,8 +406,9 @@ pub use tick_patch::{
 };
 #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 pub use trusted_runtime_host::{
-    TrustedRuntimeApp, TrustedRuntimeHost, TrustedRuntimeHostError, TrustedRuntimeHostRunReport,
-    TrustedRuntimeWal, TrustedRuntimeWalConfig, TrustedRuntimeWalError, TrustedRuntimeWalStoreKind,
+    EvidenceCatalogPosture, TrustedRuntimeApp, TrustedRuntimeHost, TrustedRuntimeHostError,
+    TrustedRuntimeHostRunReport, TrustedRuntimeWal, TrustedRuntimeWalConfig,
+    TrustedRuntimeWalError, TrustedRuntimeWalStoreKind,
 };
 pub use tx::TxId;
 pub use warp_state::{WarpInstance, WarpState};

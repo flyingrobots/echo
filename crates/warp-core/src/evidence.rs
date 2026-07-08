@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Evidence and catalog layer for deriving causal segments from WAL history.
 
 use crate::causal_wal::{

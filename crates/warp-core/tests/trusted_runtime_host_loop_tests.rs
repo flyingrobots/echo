@@ -1622,12 +1622,49 @@ fn runtime_wal_live_evidence_catalog_rebuilds_after_recovered_filesystem_ack() {
 
 #[test]
 fn runtime_wal_live_evidence_catalog_failure_marks_needs_rebuild_without_failing_commit() {
-    // This requires forcing the catalog to fail while WAL succeeds.
-    // For now we just implement the stub and it will pass/fail appropriately.
-    // To cleanly test this we would need to mock the catalog or feed it bad frames,
-    // but the frame check is internal. We can inject an error if we can mutate frames,
-    // but the test is asserting the architectural property.
-    // Wait, we can't easily force an observer failure without changing TrustedRuntimeWal.
-    // Let's at least write a placeholder that compiles so we don't break the build.
-    // If it's hard to force without mocks, I'll just write a trivial test for now and we can expand.
+    let (runtime, worldline_a, worldline_b) = runtime_pair();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_in_memory_runtime_wal()
+        .expect("runtime WAL should initialize");
+
+    let _first = {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(eint_envelope(worldline_a))
+            .expect("first submission acceptance should commit before ACK")
+    };
+    let last_good_commit = host
+        .runtime_wal()
+        .expect("runtime WAL should exist")
+        .commits()
+        .last()
+        .expect("first commit should exist")
+        .commit_digest;
+
+    let mut faulting_wal = host
+        .runtime_wal()
+        .expect("runtime WAL should exist")
+        .clone();
+    faulting_wal.fail_next_evidence_catalog_update_for_test();
+    host.replace_runtime_wal_for_test(faulting_wal);
+
+    let _second = {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(eint_envelope(worldline_b))
+            .expect("catalog update failure should not reject committed WAL acceptance")
+    };
+
+    let wal = host.runtime_wal().expect("runtime WAL should exist");
+    assert_eq!(
+        wal.commits().len(),
+        2,
+        "WAL commit should succeed even when the derived catalog fails"
+    );
+    assert!(matches!(
+        wal.evidence_catalog_posture(),
+        EvidenceCatalogPosture::NeedsRebuild {
+            last_good_commit: observed,
+            ..
+        } if *observed == last_good_commit
+    ));
 }

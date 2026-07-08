@@ -532,6 +532,8 @@ pub struct TrustedRuntimeWal {
     store: TrustedRuntimeWalStore,
     evidence_catalog: Option<crate::evidence::CausalSegmentCatalog>,
     evidence_catalog_posture: EvidenceCatalogPosture,
+    #[cfg(any(test, feature = "host_test"))]
+    fail_next_evidence_catalog_update: bool,
     writer_epoch: WriterEpochId,
     segment_id: WalSegmentId,
     next_lsn: Lsn,
@@ -602,6 +604,8 @@ impl TrustedRuntimeWal {
             runtime_state_frontier_digest: recovered_cursor.runtime_state_frontier_digest,
             evidence_catalog: Some(evidence_catalog),
             evidence_catalog_posture: EvidenceCatalogPosture::Fresh,
+            #[cfg(any(test, feature = "host_test"))]
+            fail_next_evidence_catalog_update: false,
         })
     }
 
@@ -874,13 +878,14 @@ impl TrustedRuntimeWal {
             .last_lsn
             .checked_next()
             .ok_or(WalBuildError::LsnOverflow)?;
+        let last_good_commit = self.previous_committed_transaction_digest;
         let commit = transaction.commit.clone();
         let frames = transaction.frames.clone();
         self.store.append_transaction(transaction)?;
         self.next_lsn = next_lsn;
         self.previous_frame_digest = last_frame_digest;
         self.previous_committed_transaction_digest = commit.commit_digest;
-        self.try_update_evidence_catalog_after_commit(&commit, &frames);
+        self.try_update_evidence_catalog_after_commit(&commit, &frames, last_good_commit);
         Ok(commit)
     }
 
@@ -888,14 +893,24 @@ impl TrustedRuntimeWal {
         &mut self,
         commit: &WalTransactionCommit,
         frames: &[crate::causal_wal::WalFrame],
+        last_good_commit: Hash,
     ) {
         use crate::evidence::CommittedWalObserver;
+        #[cfg(any(test, feature = "host_test"))]
+        if self.fail_next_evidence_catalog_update {
+            self.fail_next_evidence_catalog_update = false;
+            self.evidence_catalog_posture = EvidenceCatalogPosture::NeedsRebuild {
+                reason: *blake3::hash(b"catalog_update_error").as_bytes(),
+                last_good_commit,
+            };
+            return;
+        }
         if let Some(catalog) = self.evidence_catalog.as_mut() {
             let view = crate::evidence::CommittedWalView { commit, frames };
             if catalog.observe_committed_wal(view).is_err() {
                 self.evidence_catalog_posture = EvidenceCatalogPosture::NeedsRebuild {
                     reason: *blake3::hash(b"catalog_update_error").as_bytes(),
-                    last_good_commit: self.previous_committed_transaction_digest,
+                    last_good_commit,
                 };
             }
         }
@@ -1299,6 +1314,11 @@ impl TrustedRuntimeWal {
         self.next_lsn = next_lsn;
         self.previous_frame_digest = last_frame_digest;
         Ok(())
+    }
+
+    /// Forces the next live evidence catalog update to fail after WAL commit.
+    pub fn fail_next_evidence_catalog_update_for_test(&mut self) {
+        self.fail_next_evidence_catalog_update = true;
     }
 }
 

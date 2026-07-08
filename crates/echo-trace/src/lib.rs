@@ -1,10 +1,11 @@
-// SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
 //! Echo Trace
-//! 
+//!
 //! Graph is truth. Delta log is transport. Roaring is index.
 //! Matrix is projection. Receipt is proof.
-//! 
+//!
 //! This crate defines the canonical causal delta stream boundary.
 
 /// Represents an execution tick identifier.
@@ -70,7 +71,7 @@ pub enum TraceError {
 }
 
 /// The trace boundary trait.
-/// 
+///
 /// Consumes canonical graph deltas, bounded in chunked streams.
 pub trait TraceSink<N, E, A> {
     /// Start a new trace run.
@@ -90,8 +91,15 @@ pub trait TraceSink<N, E, A> {
 pub struct NullTraceSink;
 
 impl<N, E, A> TraceSink<N, E, A> for NullTraceSink {
-    fn begin_run(&mut self, _meta: &TraceRunMeta) -> Result<(), TraceError> { Ok(()) }
-    fn append_delta(&mut self, _delta: &CanonicalGraphDelta<'_, N, E, A>) -> Result<(), TraceError> { Ok(()) }
+    fn begin_run(&mut self, _meta: &TraceRunMeta) -> Result<(), TraceError> {
+        Ok(())
+    }
+    fn append_delta(
+        &mut self,
+        _delta: &CanonicalGraphDelta<'_, N, E, A>,
+    ) -> Result<(), TraceError> {
+        Ok(())
+    }
     fn seal_chunk(&mut self) -> Result<TraceChunkReceipt, TraceError> {
         Ok(TraceChunkReceipt {
             start_tick: 0,

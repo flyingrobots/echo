@@ -855,7 +855,9 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 - `warp-core` recovered filesystem WAL ACK paths now rebuild the live evidence
   catalog before returning recovered success, live catalog-update failures record
   the last commit where the catalog was actually fresh, and committed evidence
-  segments now populate `coverings_by_range` for their exact LSN range.
+  segments now populate `coverings_by_range` for their exact LSN range. Rebuilt
+  evidence catalogs now reject malformed commit/frame evidence before admitting
+  `ExactCommittedWal` segments.
 - `Cargo.lock` now pins `crossbeam-epoch` to `0.9.20`, clearing
   `RUSTSEC-2026-0204` for the benchmark-only `rayon` dependency path.
 - `warp-core` evolving braid logs now reject unchecked incremental mutations:

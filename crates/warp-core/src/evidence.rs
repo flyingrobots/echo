@@ -269,6 +269,9 @@ impl CommittedWalObserver for CausalSegmentCatalog {
                 observed: view.frames.len(),
             });
         }
+        commit
+            .validate_frame_evidence(view.frames)
+            .map_err(|_| EvidenceCatalogError::InvalidTransaction)?;
 
         let id = self.next_id();
         let segment = CausalEvidenceSegment {
@@ -302,30 +305,89 @@ impl CommittedWalObserver for CausalSegmentCatalog {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::causal_wal::Lsn;
+    use crate::causal_wal::{
+        AffectedFrontier, AffectedFrontierKind, PayloadCodecId, PayloadSchemaId,
+        WalAppendAuthority, WalDurabilityMode, WalRecordKind, WalSegmentId, WalTransactionBuilder,
+    };
+    use crate::{causal_wal::Lsn, Hash};
+
+    fn test_hash(label: &[u8]) -> Hash {
+        *blake3::hash(label).as_bytes()
+    }
+
+    fn test_wal_shape(
+        tx_kind: WalTransactionKind,
+    ) -> (WalAppendAuthority, WalRecordKind, AffectedFrontierKind) {
+        match tx_kind {
+            WalTransactionKind::SubmissionIntake => (
+                WalAppendAuthority::SubmissionIntake,
+                WalRecordKind::SubmissionAcceptedRecorded,
+                AffectedFrontierKind::SubmissionQueue,
+            ),
+            WalTransactionKind::SchedulerTick => (
+                WalAppendAuthority::TrustedScheduler,
+                WalRecordKind::TickReceiptRecorded,
+                AffectedFrontierKind::ReceiptIndex,
+            ),
+            WalTransactionKind::RuntimePosture => (
+                WalAppendAuthority::RuntimeControl,
+                WalRecordKind::TrustedRuntimeControlRecorded,
+                AffectedFrontierKind::RuntimeControl,
+            ),
+            WalTransactionKind::Checkpoint => (
+                WalAppendAuthority::Recovery,
+                WalRecordKind::CheckpointPublicationRecorded,
+                AffectedFrontierKind::CheckpointIndex,
+            ),
+            WalTransactionKind::MaterializationOutbox => (
+                WalAppendAuthority::TrustedScheduler,
+                WalRecordKind::MaterializationIntentRecorded,
+                AffectedFrontierKind::ReceiptIndex,
+            ),
+            WalTransactionKind::TopologyIntent => (
+                WalAppendAuthority::TrustedScheduler,
+                WalRecordKind::TopologyStrandForkRecorded,
+                AffectedFrontierKind::TopologyIndex,
+            ),
+        }
+    }
 
     fn make_test_commit(
         tx_kind: WalTransactionKind,
         tx_id_hash: &[u8],
         start_lsn: Lsn,
     ) -> WalRecoveredTransaction {
-        let commit = WalTransactionCommit {
-            writer_epoch: WriterEpochId::from_hash(*blake3::hash(b"test").as_bytes()),
-            transaction_id: WalTransactionId::from_hash(*blake3::hash(tx_id_hash).as_bytes()),
-            transaction_kind: tx_kind,
-            first_lsn: start_lsn,
-            last_lsn: start_lsn,
-            record_count: 0,
-            records_root: *blake3::hash(b"records").as_bytes(),
-            affected_frontiers_root: *blake3::hash(b"frontiers").as_bytes(),
-            previous_committed_transaction_digest: *blake3::hash(b"prev").as_bytes(),
-            durability_mode: crate::causal_wal::WalDurabilityMode::StrictFilesystem,
-            schema_version: 0,
-            commit_digest: *blake3::hash(tx_id_hash).as_bytes(),
-        };
+        let (authority, record_kind, frontier_kind) = test_wal_shape(tx_kind);
+        let transaction_id = WalTransactionId::from_hash(test_hash(tx_id_hash));
+        let mut builder = WalTransactionBuilder::new(
+            WriterEpochId::from_hash(test_hash(b"test-writer-epoch")),
+            WalSegmentId::from_raw(1),
+            transaction_id,
+            tx_kind,
+            authority,
+            start_lsn,
+            test_hash(b"previous-frame"),
+            test_hash(b"previous-commit"),
+            WalDurabilityMode::StrictFilesystem,
+            PayloadCodecId::from_hash(test_hash(b"payload-codec")),
+            PayloadSchemaId::from_hash(test_hash(b"payload-schema")),
+            1,
+            1,
+            test_hash(b"digest-domain"),
+        );
+        builder
+            .push_record(record_kind, tx_id_hash.to_vec())
+            .expect("test WAL record should build");
+        let transaction = builder
+            .commit(vec![AffectedFrontier {
+                kind: frontier_kind,
+                before_digest: test_hash(b"frontier-before"),
+                after_digest: test_hash(b"frontier-after"),
+            }])
+            .expect("test WAL transaction should validate");
         WalRecoveredTransaction {
-            commit,
-            frames: vec![],
+            commit: transaction.commit,
+            frames: transaction.frames,
         }
     }
 
@@ -439,6 +501,25 @@ mod tests {
                 .map(Vec::as_slice),
             Some(&[segment.id][..])
         );
+    }
+
+    #[test]
+    fn test_malformed_recovered_transaction_is_rejected() {
+        let mut tx = make_test_commit(
+            WalTransactionKind::SubmissionIntake,
+            b"tx1",
+            Lsn::from_raw(7),
+        );
+        tx.commit.commit_digest = test_hash(b"forged-commit-digest");
+        let report = RecoveryScanReport {
+            transactions: vec![tx],
+            tail_posture: RecoveryTailPosture::Clean,
+        };
+
+        assert!(matches!(
+            CausalSegmentCatalog::from_recovery_scan(&report),
+            Err(EvidenceCatalogError::InvalidTransaction)
+        ));
     }
 
     #[test]

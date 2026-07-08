@@ -850,6 +850,14 @@ impl WalTransactionCommit {
         self.compute_digest()
     }
 
+    pub(crate) fn validate_frame_evidence(
+        &self,
+        frames: &[WalFrame],
+    ) -> Result<(), WalValidationError> {
+        validate_transaction_frames(frames, self)?;
+        validate_transaction_semantics(frames, self.transaction_kind)
+    }
+
     fn compute_digest(&self) -> Hash {
         let mut h = blake3::Hasher::new();
         h.update(WAL_COMMIT_DOMAIN);

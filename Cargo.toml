@@ -28,8 +28,9 @@ members = [
     "crates/ttd-protocol-rs",
     "crates/echo-ttd",
     "crates/method",
-    "xtask"
-, "crates/echo-trace"]
+    "xtask",
+    "crates/echo-trace",
+]
 resolver = "2"
 
 [workspace.package]

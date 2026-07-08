@@ -852,6 +852,10 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- `warp-core` recovered filesystem WAL ACK paths now rebuild the live evidence
+  catalog before returning recovered success, live catalog-update failures record
+  the last commit where the catalog was actually fresh, and committed evidence
+  segments now populate `coverings_by_range` for their exact LSN range.
 - `warp-core` evolving braid logs now reject unchecked incremental mutations:
   `Braid::apply` returns typed lifecycle errors, rejects duplicate member
   weaving and mixed revealed/sealed membership, refuses empty-frontier

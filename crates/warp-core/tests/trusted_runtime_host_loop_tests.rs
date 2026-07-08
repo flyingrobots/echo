@@ -1578,6 +1578,49 @@ fn runtime_wal_live_evidence_catalog_matches_read_only_recovery_after_submission
 }
 
 #[test]
+fn runtime_wal_live_evidence_catalog_rebuilds_after_recovered_filesystem_ack() {
+    let wal_root = temp_runtime_wal_dir("catalog-recovered-filesystem-ack");
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_runtime_wal(
+        TrustedRuntimeWalConfig::filesystem_with_fault_plan_for_test(
+            &wal_root,
+            FilesystemWalFaultPlan::fail_next(FilesystemWalFaultTarget::CommitMarkerSynced),
+        ),
+    )
+    .expect("host should configure faulting filesystem runtime WAL adapter");
+
+    let _submission = {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(eint_envelope(worldline_id))
+            .expect("recoverable commit marker failure should still ACK")
+    };
+
+    let wal = host.runtime_wal().expect("runtime WAL should exist");
+    assert_eq!(
+        *wal.evidence_catalog_posture(),
+        EvidenceCatalogPosture::Fresh,
+        "recovered ACK should leave the live catalog fresh"
+    );
+
+    let live_catalog = wal.evidence_catalog().expect("live catalog should exist");
+    let recovered_catalog = wal
+        .recover_evidence_catalog_read_only()
+        .expect("read-only rebuild should succeed");
+    assert_eq!(
+        recovered_catalog.segments_by_id.len(),
+        1,
+        "recovered WAL should contain the committed submission segment"
+    );
+    assert_eq!(
+        live_catalog.segments_by_id.len(),
+        recovered_catalog.segments_by_id.len(),
+        "live catalog must include the recovered committed submission"
+    );
+}
+
+#[test]
 fn runtime_wal_live_evidence_catalog_failure_marks_needs_rebuild_without_failing_commit() {
     // This requires forcing the catalog to fail while WAL succeeds.
     // For now we just implement the stub and it will pass/fail appropriately.

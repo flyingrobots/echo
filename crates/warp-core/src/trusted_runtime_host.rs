@@ -718,6 +718,18 @@ impl TrustedRuntimeWal {
     fn refresh_cursor_from_store_for_writer(&mut self) -> Result<(), TrustedRuntimeWalError> {
         let report = self.store.recover_for_writer()?;
         let cursor = TrustedRuntimeWalCursor::from_recovery(&report)?;
+        match crate::evidence::CausalSegmentCatalog::from_recovery_scan(&report) {
+            Ok(catalog) => {
+                self.evidence_catalog = Some(catalog);
+                self.evidence_catalog_posture = EvidenceCatalogPosture::Fresh;
+            }
+            Err(_) => {
+                self.evidence_catalog_posture = EvidenceCatalogPosture::NeedsRebuild {
+                    reason: *blake3::hash(b"catalog_recovery_rebuild_error").as_bytes(),
+                    last_good_commit: self.previous_committed_transaction_digest,
+                };
+            }
+        }
         self.next_lsn = cursor.next_lsn;
         self.previous_frame_digest = cursor.previous_frame_digest;
         self.previous_committed_transaction_digest = cursor.previous_committed_transaction_digest;

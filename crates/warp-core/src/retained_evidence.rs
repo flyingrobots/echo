@@ -8,12 +8,16 @@
 
 use blake3::Hasher;
 
-use crate::contract_obstruction::ContractObstruction;
+use crate::contract_obstruction::{
+    ContractObstruction, ContractObstructionKind, ContractObstructionSubject,
+};
 use crate::contract_registry::{ContractEvidenceIdentity, ContractOperationKind};
 use crate::ident::Hash;
 
 const RETAINED_EVIDENCE_COORDINATE_ID_DOMAIN: &[u8] = b"echo:retained-evidence-coordinate-id:v1\0";
 const RETAINED_EVIDENCE_REF_ID_DOMAIN: &[u8] = b"echo:retained-evidence-ref-id:v1\0";
+const RETAINED_EVIDENCE_BOUNDARY_POSTURE_ID_DOMAIN: &[u8] =
+    b"echo:retained-evidence-boundary-posture-id:v1\0";
 
 /// Semantic role of retained contract evidence.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -41,6 +45,155 @@ impl RetainedEvidenceRole {
             Self::ReadingPayload => 3,
             Self::ReadingEnvelope => 4,
             Self::ObserverArtifact => 5,
+        }
+    }
+}
+
+/// Boundary layer occupied by retained evidence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum RetainedEvidenceLayer {
+    /// Coordinates and anchors needed to reintegrate the evidence with causal
+    /// history.
+    ReintegrationCore,
+    /// Proof-bearing material that certifies admission or observation
+    /// lawfulness.
+    WitnessCore,
+    /// Operational receipt or explanation shell.
+    ReceiptShell,
+}
+
+impl RetainedEvidenceLayer {
+    fn tag(self) -> u8 {
+        match self {
+            Self::ReintegrationCore => 0,
+            Self::WitnessCore => 1,
+            Self::ReceiptShell => 2,
+        }
+    }
+}
+
+/// Origin posture for retained evidence at a boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum RetainedEvidenceOrigin {
+    /// Native Echo retained evidence.
+    Native,
+    /// Evidence translated through a substrate/refinement boundary.
+    Translated,
+    /// Fixture or test-only evidence.
+    Fixture,
+    /// Evidence derived from other retained support.
+    Derived,
+    /// Opaque evidence whose origin cannot be refined locally.
+    Opaque,
+}
+
+impl RetainedEvidenceOrigin {
+    fn tag(self) -> u8 {
+        match self {
+            Self::Native => 0,
+            Self::Translated => 1,
+            Self::Fixture => 2,
+            Self::Derived => 3,
+            Self::Opaque => 4,
+        }
+    }
+}
+
+/// Proof strength carried by retained evidence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum RetainedEvidenceProofStrength {
+    /// No accepted proof is carried.
+    None,
+    /// Digest-only evidence.
+    DigestOnly,
+    /// Signature-backed evidence.
+    Signature,
+    /// Replay-certificate-backed evidence.
+    ReplayCertificate,
+    /// Merkle opening or equivalent inclusion proof.
+    MerkleOpening,
+    /// Zero-knowledge proof-backed evidence.
+    ZkProof,
+    /// Composite proof bundle.
+    Composite,
+}
+
+impl RetainedEvidenceProofStrength {
+    fn tag(self) -> u8 {
+        match self {
+            Self::None => 0,
+            Self::DigestOnly => 1,
+            Self::Signature => 2,
+            Self::ReplayCertificate => 3,
+            Self::MerkleOpening => 4,
+            Self::ZkProof => 5,
+            Self::Composite => 6,
+        }
+    }
+}
+
+/// Access posture for retained evidence at the current observer boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum RetainedEvidenceAccess {
+    /// The current observer may reveal the retained bytes.
+    Revealable,
+    /// The current observer may cite the evidence but not reveal bytes.
+    CitationOnly,
+    /// The evidence is explicitly redacted at this boundary.
+    Redacted,
+    /// Authority denies the requested access.
+    AuthorityBlocked,
+    /// Required decryption or unsealing key is unavailable.
+    KeyUnavailable,
+    /// The participant/runtime does not support this evidence kind.
+    Unsupported,
+}
+
+impl RetainedEvidenceAccess {
+    fn tag(self) -> u8 {
+        match self {
+            Self::Revealable => 0,
+            Self::CitationOnly => 1,
+            Self::Redacted => 2,
+            Self::AuthorityBlocked => 3,
+            Self::KeyUnavailable => 4,
+            Self::Unsupported => 5,
+        }
+    }
+}
+
+/// Completeness posture for retained evidence support.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum RetainedEvidenceCompleteness {
+    /// Obligated support is complete for this boundary.
+    Complete,
+    /// Some support is present, but the obligation is only partially met.
+    Partial,
+    /// Loss, redaction, or unavailability was declared rather than hidden.
+    DeclaredLost,
+    /// Evidence is stale for the requested basis or context.
+    Stale,
+    /// No semantic coordinate descriptor exists.
+    MissingCoordinate,
+    /// A descriptor exists, but the retained content is absent.
+    MissingContent,
+    /// Retained content is present but corrupt or hash-invalid.
+    Corrupt,
+    /// The boundary cannot admit the evidence for the requested purpose.
+    Obstructed,
+}
+
+impl RetainedEvidenceCompleteness {
+    fn tag(self) -> u8 {
+        match self {
+            Self::Complete => 0,
+            Self::Partial => 1,
+            Self::DeclaredLost => 2,
+            Self::Stale => 3,
+            Self::MissingCoordinate => 4,
+            Self::MissingContent => 5,
+            Self::Corrupt => 6,
+            Self::Obstructed => 7,
         }
     }
 }
@@ -201,6 +354,219 @@ impl RetainedEvidencePosture {
     }
 }
 
+/// Observer-facing retained evidence boundary posture.
+///
+/// This is the projection surface above local byte retention. It keeps
+/// semantic identity, witness-ladder layer, evidence origin, proof strength,
+/// access, completeness, and obstruction posture distinct.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RetainedEvidenceBoundaryPosture {
+    /// Semantic coordinate the posture answers for.
+    pub coordinate: RetainedEvidenceCoordinate,
+    /// Exact retained reference when a descriptor is known.
+    pub reference: Option<RetainedEvidenceRef>,
+    /// Witness-ladder layer occupied by the evidence.
+    pub layer: RetainedEvidenceLayer,
+    /// Evidence origin posture.
+    pub origin: RetainedEvidenceOrigin,
+    /// Proof strength posture.
+    pub proof_strength: RetainedEvidenceProofStrength,
+    /// Access posture for the current observer boundary.
+    pub access: RetainedEvidenceAccess,
+    /// Completeness posture for the current support obligation.
+    pub completeness: RetainedEvidenceCompleteness,
+    /// Typed obstruction when this posture obstructs the boundary claim.
+    pub obstruction: Option<ContractObstruction>,
+}
+
+impl RetainedEvidenceBoundaryPosture {
+    /// Builds available retained evidence that may be cited but not revealed.
+    #[must_use]
+    pub fn available_citation(
+        reference: RetainedEvidenceRef,
+        layer: RetainedEvidenceLayer,
+        origin: RetainedEvidenceOrigin,
+        proof_strength: RetainedEvidenceProofStrength,
+    ) -> Self {
+        Self::available_with_access(
+            reference,
+            layer,
+            origin,
+            proof_strength,
+            RetainedEvidenceAccess::CitationOnly,
+        )
+    }
+
+    /// Builds available retained evidence that may be revealed.
+    #[must_use]
+    pub fn available_revealable(
+        reference: RetainedEvidenceRef,
+        layer: RetainedEvidenceLayer,
+        origin: RetainedEvidenceOrigin,
+        proof_strength: RetainedEvidenceProofStrength,
+    ) -> Self {
+        Self::available_with_access(
+            reference,
+            layer,
+            origin,
+            proof_strength,
+            RetainedEvidenceAccess::Revealable,
+        )
+    }
+
+    /// Builds available retained evidence with an explicit access posture.
+    #[must_use]
+    pub fn available_with_access(
+        reference: RetainedEvidenceRef,
+        layer: RetainedEvidenceLayer,
+        origin: RetainedEvidenceOrigin,
+        proof_strength: RetainedEvidenceProofStrength,
+        access: RetainedEvidenceAccess,
+    ) -> Self {
+        Self {
+            coordinate: reference.coordinate.clone(),
+            reference: Some(reference),
+            layer,
+            origin,
+            proof_strength,
+            access,
+            completeness: RetainedEvidenceCompleteness::Complete,
+            obstruction: None,
+        }
+    }
+
+    /// Builds redacted retained evidence posture. Redaction is declared loss,
+    /// not missing content.
+    #[must_use]
+    pub fn redacted(
+        reference: RetainedEvidenceRef,
+        layer: RetainedEvidenceLayer,
+        origin: RetainedEvidenceOrigin,
+        proof_strength: RetainedEvidenceProofStrength,
+    ) -> Self {
+        Self {
+            coordinate: reference.coordinate.clone(),
+            reference: Some(reference),
+            layer,
+            origin,
+            proof_strength,
+            access: RetainedEvidenceAccess::Redacted,
+            completeness: RetainedEvidenceCompleteness::DeclaredLost,
+            obstruction: None,
+        }
+    }
+
+    /// Builds missing-coordinate boundary posture using the existing
+    /// `MissingRetention` obstruction for true local retained-coordinate absence.
+    #[must_use]
+    pub fn missing_coordinate(
+        coordinate: RetainedEvidenceCoordinate,
+        layer: RetainedEvidenceLayer,
+        origin: RetainedEvidenceOrigin,
+        proof_strength: RetainedEvidenceProofStrength,
+        access: RetainedEvidenceAccess,
+    ) -> Self {
+        Self {
+            obstruction: Some(coordinate.missing_retention_obstruction()),
+            coordinate,
+            reference: None,
+            layer,
+            origin,
+            proof_strength,
+            access,
+            completeness: RetainedEvidenceCompleteness::MissingCoordinate,
+        }
+    }
+
+    /// Builds missing-content boundary posture using the existing
+    /// `MissingRetention` obstruction for true local retained-content absence.
+    #[must_use]
+    pub fn missing_content(
+        reference: RetainedEvidenceRef,
+        layer: RetainedEvidenceLayer,
+        origin: RetainedEvidenceOrigin,
+        proof_strength: RetainedEvidenceProofStrength,
+        access: RetainedEvidenceAccess,
+    ) -> Self {
+        Self {
+            obstruction: Some(reference.missing_retention_obstruction()),
+            coordinate: reference.coordinate.clone(),
+            reference: Some(reference),
+            layer,
+            origin,
+            proof_strength,
+            access,
+            completeness: RetainedEvidenceCompleteness::MissingContent,
+        }
+    }
+
+    /// Builds posture for an unsupported proof/evidence kind. This is an
+    /// admission obstruction, not missing retention.
+    #[must_use]
+    pub fn unsupported_evidence_kind(
+        coordinate: RetainedEvidenceCoordinate,
+        layer: RetainedEvidenceLayer,
+        origin: RetainedEvidenceOrigin,
+        proof_strength: RetainedEvidenceProofStrength,
+    ) -> Self {
+        let obstruction =
+            ContractObstruction::admission_obstruction(ContractObstructionSubject::Retention {
+                retention_id: coordinate.coordinate_id(),
+            })
+            .with_contract(coordinate.contract.clone());
+        Self {
+            coordinate,
+            reference: None,
+            layer,
+            origin,
+            proof_strength,
+            access: RetainedEvidenceAccess::Unsupported,
+            completeness: RetainedEvidenceCompleteness::Obstructed,
+            obstruction: Some(obstruction),
+        }
+    }
+
+    /// Stable id for the full observer-facing boundary posture.
+    #[must_use]
+    pub fn boundary_posture_id(&self) -> Hash {
+        let mut hasher = Hasher::new();
+        hasher.update(RETAINED_EVIDENCE_BOUNDARY_POSTURE_ID_DOMAIN);
+        hasher.update(&self.coordinate.coordinate_id());
+        match &self.reference {
+            Some(reference) => {
+                hasher.update(&[1]);
+                hasher.update(&reference.evidence_ref_id());
+            }
+            None => {
+                hasher.update(&[0]);
+            }
+        }
+        hasher.update(&[self.layer.tag()]);
+        hasher.update(&[self.origin.tag()]);
+        hasher.update(&[self.proof_strength.tag()]);
+        hasher.update(&[self.access.tag()]);
+        hasher.update(&[self.completeness.tag()]);
+        match &self.obstruction {
+            Some(obstruction) => {
+                hasher.update(&[1]);
+                update_obstruction(&mut hasher, obstruction);
+            }
+            None => {
+                hasher.update(&[0]);
+            }
+        }
+        hasher.finalize().into()
+    }
+
+    /// Returns true only when this boundary posture grants byte revelation.
+    #[must_use]
+    pub fn grants_reveal(&self) -> bool {
+        self.access == RetainedEvidenceAccess::Revealable
+            && self.completeness == RetainedEvidenceCompleteness::Complete
+            && self.obstruction.is_none()
+    }
+}
+
 fn update_contract_identity(hasher: &mut Hasher, contract: &ContractEvidenceIdentity) {
     hasher.update(contract.package_id.as_bytes());
     hasher.update(&contract.echo_abi_version.to_le_bytes());
@@ -226,5 +592,68 @@ fn contract_operation_kind_tag(kind: ContractOperationKind) -> u8 {
     match kind {
         ContractOperationKind::Mutation => 0,
         ContractOperationKind::Query => 1,
+    }
+}
+
+fn update_obstruction(hasher: &mut Hasher, obstruction: &ContractObstruction) {
+    hasher.update(&[contract_obstruction_kind_tag(obstruction.kind)]);
+    update_obstruction_subject(hasher, &obstruction.subject);
+    match &obstruction.contract {
+        Some(contract) => {
+            hasher.update(&[1]);
+            update_contract_identity(hasher, contract);
+        }
+        None => {
+            hasher.update(&[0]);
+        }
+    }
+}
+
+fn contract_obstruction_kind_tag(kind: ContractObstructionKind) -> u8 {
+    match kind {
+        ContractObstructionKind::UnsupportedOperation => 0,
+        ContractObstructionKind::UnsupportedQuery => 1,
+        ContractObstructionKind::AdmissionObstruction => 2,
+        ContractObstructionKind::RuntimeFault => 3,
+        ContractObstructionKind::MissingRetention => 4,
+        ContractObstructionKind::StaleBasis => 5,
+        ContractObstructionKind::ResidualReading => 6,
+        ContractObstructionKind::BudgetExceeded => 7,
+    }
+}
+
+fn update_obstruction_subject(hasher: &mut Hasher, subject: &ContractObstructionSubject) {
+    match subject {
+        ContractObstructionSubject::Unspecified => {
+            hasher.update(&[0]);
+        }
+        ContractObstructionSubject::Operation { op_id } => {
+            hasher.update(&[1]);
+            hasher.update(&op_id.to_le_bytes());
+        }
+        ContractObstructionSubject::Query { query_id } => {
+            hasher.update(&[2]);
+            hasher.update(&query_id.to_le_bytes());
+        }
+        ContractObstructionSubject::Submission { submission_id } => {
+            hasher.update(&[3]);
+            hasher.update(submission_id);
+        }
+        ContractObstructionSubject::Ticket { ticket_digest } => {
+            hasher.update(&[4]);
+            hasher.update(ticket_digest);
+        }
+        ContractObstructionSubject::Reading { reading_id } => {
+            hasher.update(&[5]);
+            hasher.update(reading_id);
+        }
+        ContractObstructionSubject::Retention { retention_id } => {
+            hasher.update(&[6]);
+            hasher.update(retention_id);
+        }
+        ContractObstructionSubject::SchedulerFault { fault_id } => {
+            hasher.update(&[7]);
+            hasher.update(fault_id.as_bytes());
+        }
     }
 }

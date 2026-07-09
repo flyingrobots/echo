@@ -7,6 +7,10 @@
 
 ### Added
 
+- `warp-core` now exposes `RetainedEvidenceBoundaryPosture` with boundary
+  layer, origin, proof strength, access, completeness, and obstruction axes so
+  retained evidence refs can be projected without conflating citation, reveal
+  permission, redaction, unsupported evidence kinds, or missing retention.
 - `warp-core` now exposes a recovered WAL evidence segment catalog derived from
   `RecoveryScanReport`, with a non-authoritative live cache in
   `TrustedRuntimeWal` that marks cache-update failures as rebuild posture

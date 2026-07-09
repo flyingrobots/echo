@@ -8,11 +8,13 @@ use warp_core::causal_wal::{
     RecoveredRetentionIndexError, RetainedMaterialKind, RetainedMaterialRecord,
 };
 use warp_core::{
-    make_head_id, ContractEvidenceIdentity, ContractObstructionKind, ContractObstructionSubject,
-    ContractOperationKind, GlobalTick, InstalledContractPackageId, IntentOutcome,
-    IntentOutcomeDecision, IntentOutcomeObservation, ReceiptCorrelationRecord,
-    RetainedEvidenceCoordinate, RetainedEvidencePosture, RetainedEvidenceRef, RetainedEvidenceRole,
-    TickReceiptRejection, WorldlineId, WorldlineTick, WriterHeadKey,
+    make_head_id, ContractEvidenceIdentity, ContractObstruction, ContractObstructionKind,
+    ContractObstructionSubject, ContractOperationKind, GlobalTick, InstalledContractPackageId,
+    IntentOutcome, IntentOutcomeDecision, IntentOutcomeObservation, ReceiptCorrelationRecord,
+    RetainedEvidenceAccess, RetainedEvidenceBoundaryPosture, RetainedEvidenceCompleteness,
+    RetainedEvidenceCoordinate, RetainedEvidenceLayer, RetainedEvidenceOrigin,
+    RetainedEvidencePosture, RetainedEvidenceProofStrength, RetainedEvidenceRef,
+    RetainedEvidenceRole, TickReceiptRejection, WorldlineId, WorldlineTick, WriterHeadKey,
 };
 
 fn hash(seed: u8) -> [u8; 32] {
@@ -346,6 +348,199 @@ fn available_retained_evidence_is_not_an_obstruction() {
 
     assert_eq!(posture.obstruction(), None);
     assert_eq!(posture, RetainedEvidencePosture::Available(reference));
+}
+
+#[test]
+fn native_and_fixture_retained_evidence_do_not_alias() {
+    let reference = RetainedEvidenceRef::new(
+        coordinate(RetainedEvidenceRole::Witness, 40),
+        content_hash(b"same witness bytes"),
+        18,
+    );
+    let native = RetainedEvidenceBoundaryPosture::available_citation(
+        reference.clone(),
+        RetainedEvidenceLayer::WitnessCore,
+        RetainedEvidenceOrigin::Native,
+        RetainedEvidenceProofStrength::Signature,
+    );
+    let fixture = RetainedEvidenceBoundaryPosture::available_citation(
+        reference,
+        RetainedEvidenceLayer::WitnessCore,
+        RetainedEvidenceOrigin::Fixture,
+        RetainedEvidenceProofStrength::Signature,
+    );
+
+    assert_ne!(native, fixture);
+    assert_ne!(native.boundary_posture_id(), fixture.boundary_posture_id());
+    assert_eq!(native.origin, RetainedEvidenceOrigin::Native);
+    assert_eq!(fixture.origin, RetainedEvidenceOrigin::Fixture);
+}
+
+#[test]
+fn redacted_retained_evidence_is_not_missing_content() {
+    let reference = RetainedEvidenceRef::new(
+        coordinate(RetainedEvidenceRole::ContractReceipt, 41),
+        content_hash(b"receipt shell bytes"),
+        19,
+    );
+    let redacted = RetainedEvidenceBoundaryPosture::redacted(
+        reference,
+        RetainedEvidenceLayer::ReceiptShell,
+        RetainedEvidenceOrigin::Native,
+        RetainedEvidenceProofStrength::ReplayCertificate,
+    );
+
+    assert_eq!(redacted.access, RetainedEvidenceAccess::Redacted);
+    assert_eq!(
+        redacted.completeness,
+        RetainedEvidenceCompleteness::DeclaredLost
+    );
+    assert_ne!(
+        redacted
+            .obstruction
+            .as_ref()
+            .map(|obstruction| obstruction.kind),
+        Some(ContractObstructionKind::MissingRetention)
+    );
+}
+
+#[test]
+fn unsupported_evidence_kind_obstructs_not_missing_retention() {
+    let coord = coordinate(RetainedEvidenceRole::Witness, 42);
+    let unsupported = RetainedEvidenceBoundaryPosture::unsupported_evidence_kind(
+        coord.clone(),
+        RetainedEvidenceLayer::WitnessCore,
+        RetainedEvidenceOrigin::Translated,
+        RetainedEvidenceProofStrength::ZkProof,
+    );
+
+    assert_eq!(unsupported.access, RetainedEvidenceAccess::Unsupported);
+    assert_eq!(
+        unsupported.completeness,
+        RetainedEvidenceCompleteness::Obstructed
+    );
+    assert_eq!(
+        unsupported
+            .obstruction
+            .as_ref()
+            .map(|obstruction| &obstruction.subject),
+        Some(&ContractObstructionSubject::Retention {
+            retention_id: coord.coordinate_id()
+        })
+    );
+    assert_ne!(
+        unsupported
+            .obstruction
+            .as_ref()
+            .map(|obstruction| obstruction.kind),
+        Some(ContractObstructionKind::MissingRetention)
+    );
+}
+
+#[test]
+fn boundary_posture_id_binds_obstruction_contract_evidence() {
+    let coord = coordinate(RetainedEvidenceRole::Witness, 46);
+    let base_obstruction =
+        ContractObstruction::admission_obstruction(ContractObstructionSubject::Retention {
+            retention_id: coord.coordinate_id(),
+        });
+    let first = RetainedEvidenceBoundaryPosture {
+        coordinate: coord.clone(),
+        reference: None,
+        layer: RetainedEvidenceLayer::WitnessCore,
+        origin: RetainedEvidenceOrigin::Translated,
+        proof_strength: RetainedEvidenceProofStrength::Composite,
+        access: RetainedEvidenceAccess::AuthorityBlocked,
+        completeness: RetainedEvidenceCompleteness::Obstructed,
+        obstruction: Some(base_obstruction.clone().with_contract(contract(
+            46,
+            47,
+            ContractOperationKind::Mutation,
+        ))),
+    };
+    let second = RetainedEvidenceBoundaryPosture {
+        obstruction: Some(base_obstruction.with_contract(contract(
+            48,
+            49,
+            ContractOperationKind::Mutation,
+        ))),
+        ..first.clone()
+    };
+
+    assert_ne!(first.obstruction, second.obstruction);
+    assert_ne!(first.boundary_posture_id(), second.boundary_posture_id());
+}
+
+#[test]
+fn retained_content_hash_does_not_identify_semantic_evidence() {
+    let content_hash = content_hash(b"shared cold proof bytes");
+    let first = RetainedEvidenceRef::new(
+        coordinate(RetainedEvidenceRole::ReadingPayload, 43),
+        content_hash,
+        23,
+    );
+    let second = RetainedEvidenceRef::new(
+        coordinate(RetainedEvidenceRole::ReadingPayload, 44),
+        content_hash,
+        23,
+    );
+
+    let first_posture = RetainedEvidenceBoundaryPosture::available_citation(
+        first,
+        RetainedEvidenceLayer::ReintegrationCore,
+        RetainedEvidenceOrigin::Native,
+        RetainedEvidenceProofStrength::MerkleOpening,
+    );
+    let second_posture = RetainedEvidenceBoundaryPosture::available_citation(
+        second,
+        RetainedEvidenceLayer::ReintegrationCore,
+        RetainedEvidenceOrigin::Native,
+        RetainedEvidenceProofStrength::MerkleOpening,
+    );
+
+    assert_eq!(
+        first_posture
+            .reference
+            .as_ref()
+            .map(|reference| reference.content_hash),
+        second_posture
+            .reference
+            .as_ref()
+            .map(|reference| reference.content_hash)
+    );
+    assert_ne!(
+        first_posture.coordinate.coordinate_id(),
+        second_posture.coordinate.coordinate_id()
+    );
+    assert_ne!(
+        first_posture.boundary_posture_id(),
+        second_posture.boundary_posture_id()
+    );
+}
+
+#[test]
+fn available_retained_evidence_ref_does_not_grant_reveal() {
+    let reference = RetainedEvidenceRef::new(
+        coordinate(RetainedEvidenceRole::ReadingEnvelope, 45),
+        content_hash(b"reading envelope"),
+        16,
+    );
+    let citation = RetainedEvidenceBoundaryPosture::available_citation(
+        reference.clone(),
+        RetainedEvidenceLayer::ReintegrationCore,
+        RetainedEvidenceOrigin::Native,
+        RetainedEvidenceProofStrength::DigestOnly,
+    );
+    let revealable = RetainedEvidenceBoundaryPosture::available_revealable(
+        reference,
+        RetainedEvidenceLayer::ReintegrationCore,
+        RetainedEvidenceOrigin::Native,
+        RetainedEvidenceProofStrength::DigestOnly,
+    );
+
+    assert_eq!(citation.access, RetainedEvidenceAccess::CitationOnly);
+    assert!(!citation.grants_reveal());
+    assert!(revealable.grants_reveal());
 }
 
 #[test]

@@ -62,6 +62,7 @@ Echo's live documentation centers on the runtime carrier, the retained witnesses
 - ABI golden vectors: [/spec/abi-golden-vectors](/spec/abi-golden-vectors)
 - WARP view protocol: [/spec/warp-view-protocol](/spec/warp-view-protocol)
 - WSC, Verkle, IPA, and retained readings: [/architecture/wsc-verkle-ipa-retained-readings](/architecture/wsc-verkle-ipa-retained-readings)
+- Retained evidence refs and missing-retention posture: [/design/retained-evidence-refs-and-missing-retention](/design/retained-evidence-refs-and-missing-retention)
 
 ## Determinism Evidence
 

@@ -588,6 +588,7 @@ impl RetainedEvidenceBoundaryPosture {
     pub fn grants_reveal(&self) -> bool {
         self.access == RetainedEvidenceAccess::Revealable
             && self.completeness == RetainedEvidenceCompleteness::Complete
+            && self.reference.is_some()
             && self.obstruction.is_none()
     }
 }

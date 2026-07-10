@@ -583,6 +583,22 @@ fn available_retained_evidence_ref_does_not_grant_reveal() {
 }
 
 #[test]
+fn revealable_boundary_posture_without_reference_does_not_grant_reveal() {
+    let posture = RetainedEvidenceBoundaryPosture {
+        coordinate: coordinate(RetainedEvidenceRole::ReadingEnvelope, 48),
+        reference: None,
+        layer: RetainedEvidenceLayer::ReintegrationCore,
+        origin: RetainedEvidenceOrigin::Native,
+        proof_strength: RetainedEvidenceProofStrength::DigestOnly,
+        access: RetainedEvidenceAccess::Revealable,
+        completeness: RetainedEvidenceCompleteness::Complete,
+        obstruction: None,
+    };
+
+    assert!(!posture.grants_reveal());
+}
+
+#[test]
 fn query_identity_does_not_imply_payload_retention() {
     let query_reading_id = hash(10);
     let reading_payload = RetainedEvidenceCoordinate::new(

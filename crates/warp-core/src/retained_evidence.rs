@@ -469,6 +469,11 @@ impl RetainedEvidenceBoundaryPosture {
         origin: RetainedEvidenceOrigin,
         proof_strength: RetainedEvidenceProofStrength,
     ) -> Self {
+        let obstruction =
+            ContractObstruction::admission_obstruction(ContractObstructionSubject::Retention {
+                retention_id: reference.evidence_ref_id(),
+            })
+            .with_contract(reference.coordinate.contract.clone());
         Self {
             coordinate: reference.coordinate.clone(),
             reference: Some(reference),
@@ -477,7 +482,7 @@ impl RetainedEvidenceBoundaryPosture {
             proof_strength,
             access: RetainedEvidenceAccess::Redacted,
             completeness: RetainedEvidenceCompleteness::DeclaredLost,
-            obstruction: None,
+            obstruction: Some(obstruction),
         }
     }
 

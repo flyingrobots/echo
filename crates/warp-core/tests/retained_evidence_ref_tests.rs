@@ -384,7 +384,7 @@ fn redacted_retained_evidence_is_not_missing_content() {
         19,
     );
     let redacted = RetainedEvidenceBoundaryPosture::redacted(
-        reference,
+        reference.clone(),
         RetainedEvidenceLayer::ReceiptShell,
         RetainedEvidenceOrigin::Native,
         RetainedEvidenceProofStrength::ReplayCertificate,
@@ -394,6 +394,22 @@ fn redacted_retained_evidence_is_not_missing_content() {
     assert_eq!(
         redacted.completeness,
         RetainedEvidenceCompleteness::DeclaredLost
+    );
+    assert_eq!(
+        redacted
+            .obstruction
+            .as_ref()
+            .map(|obstruction| obstruction.kind),
+        Some(ContractObstructionKind::AdmissionObstruction)
+    );
+    assert_eq!(
+        redacted
+            .obstruction
+            .as_ref()
+            .map(|obstruction| &obstruction.subject),
+        Some(&ContractObstructionSubject::Retention {
+            retention_id: reference.evidence_ref_id()
+        })
     );
     assert_ne!(
         redacted

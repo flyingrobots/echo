@@ -528,15 +528,15 @@ fn boundary_posture_id_binds_obstruction_contract_evidence() {
 
 #[test]
 fn retained_content_hash_does_not_identify_semantic_evidence() {
-    let content_hash = content_hash(b"shared cold proof bytes");
+    let shared_hash = content_hash(b"shared cold proof bytes");
     let first = RetainedEvidenceRef::new(
         coordinate(RetainedEvidenceRole::ReadingPayload, 43),
-        content_hash,
+        shared_hash,
         23,
     );
     let second = RetainedEvidenceRef::new(
         coordinate(RetainedEvidenceRole::ReadingPayload, 44),
-        content_hash,
+        shared_hash,
         23,
     );
 

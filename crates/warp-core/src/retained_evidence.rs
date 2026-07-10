@@ -423,15 +423,40 @@ impl RetainedEvidenceBoundaryPosture {
         proof_strength: RetainedEvidenceProofStrength,
         access: RetainedEvidenceAccess,
     ) -> Self {
-        Self {
-            coordinate: reference.coordinate.clone(),
-            reference: Some(reference),
-            layer,
-            origin,
-            proof_strength,
-            access,
-            completeness: RetainedEvidenceCompleteness::Complete,
-            obstruction: None,
+        match access {
+            RetainedEvidenceAccess::Revealable | RetainedEvidenceAccess::CitationOnly => Self {
+                coordinate: reference.coordinate.clone(),
+                reference: Some(reference),
+                layer,
+                origin,
+                proof_strength,
+                access,
+                completeness: RetainedEvidenceCompleteness::Complete,
+                obstruction: None,
+            },
+            RetainedEvidenceAccess::Redacted => {
+                Self::redacted(reference, layer, origin, proof_strength)
+            }
+            RetainedEvidenceAccess::AuthorityBlocked
+            | RetainedEvidenceAccess::KeyUnavailable
+            | RetainedEvidenceAccess::Unsupported => {
+                let obstruction = ContractObstruction::admission_obstruction(
+                    ContractObstructionSubject::Retention {
+                        retention_id: reference.evidence_ref_id(),
+                    },
+                )
+                .with_contract(reference.coordinate.contract.clone());
+                Self {
+                    coordinate: reference.coordinate.clone(),
+                    reference: Some(reference),
+                    layer,
+                    origin,
+                    proof_strength,
+                    access,
+                    completeness: RetainedEvidenceCompleteness::Obstructed,
+                    obstruction: Some(obstruction),
+                }
+            }
         }
     }
 

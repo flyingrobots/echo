@@ -438,6 +438,45 @@ fn unsupported_evidence_kind_obstructs_not_missing_retention() {
 }
 
 #[test]
+fn obstructing_available_access_does_not_claim_complete_support() {
+    let reference = RetainedEvidenceRef::new(
+        coordinate(RetainedEvidenceRole::Witness, 47),
+        content_hash(b"blocked witness bytes"),
+        21,
+    );
+    let blocked = RetainedEvidenceBoundaryPosture::available_with_access(
+        reference.clone(),
+        RetainedEvidenceLayer::WitnessCore,
+        RetainedEvidenceOrigin::Native,
+        RetainedEvidenceProofStrength::Signature,
+        RetainedEvidenceAccess::AuthorityBlocked,
+    );
+
+    assert_eq!(blocked.access, RetainedEvidenceAccess::AuthorityBlocked);
+    assert_eq!(
+        blocked.completeness,
+        RetainedEvidenceCompleteness::Obstructed
+    );
+    assert_eq!(
+        blocked
+            .obstruction
+            .as_ref()
+            .map(|obstruction| obstruction.kind),
+        Some(ContractObstructionKind::AdmissionObstruction)
+    );
+    assert_eq!(
+        blocked
+            .obstruction
+            .as_ref()
+            .map(|obstruction| &obstruction.subject),
+        Some(&ContractObstructionSubject::Retention {
+            retention_id: reference.evidence_ref_id()
+        })
+    );
+    assert!(!blocked.grants_reveal());
+}
+
+#[test]
 fn boundary_posture_id_binds_obstruction_contract_evidence() {
     let coord = coordinate(RetainedEvidenceRole::Witness, 46);
     let base_obstruction =

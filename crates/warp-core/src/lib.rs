@@ -279,7 +279,10 @@ pub use playback::{
     CursorId, CursorRole, PlaybackCursor, PlaybackMode, SeekError, SeekThen, StepResult,
 };
 pub use retained_evidence::{
-    RetainedEvidenceCoordinate, RetainedEvidencePosture, RetainedEvidenceRef, RetainedEvidenceRole,
+    RetainedEvidenceAccess, RetainedEvidenceBoundaryPosture, RetainedEvidenceCompleteness,
+    RetainedEvidenceCoordinate, RetainedEvidenceLayer, RetainedEvidenceOrigin,
+    RetainedEvidencePosture, RetainedEvidenceProofStrength, RetainedEvidenceRef,
+    RetainedEvidenceRole,
 };
 // --- Sealed membership capability types ---
 pub use sealed_membership::{

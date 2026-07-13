@@ -753,6 +753,9 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 - Deleted `echo-app-core` (desktop app-shell fossil: toasts, prefs, config
   ports) and the `echo-dry-tests` in-memory config fake that existed only to
   test its trait; no other crate consumed either.
+- Removed the unused `echo-wasm-abi::ttd` module and its public `PrivacyMask`,
+  `SessionToken`, and `TtdError` exports after the owning TTD/session stack was
+  retired. This is a breaking Rust API removal for unknown external consumers.
 - Deleted `cargo xtask wesley` (existed only to sync the removed TTD
   protocol consumer artifacts).
 - Deleted stale point-in-time audit reports under `docs/audit/` and

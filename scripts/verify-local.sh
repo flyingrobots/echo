@@ -1447,8 +1447,7 @@ prepare_echo_wasm_abi_scope() {
       crates/echo-wasm-abi/Cargo.toml|\
       crates/echo-wasm-abi/src/lib.rs|\
       crates/echo-wasm-abi/src/kernel_port.rs|\
-      crates/echo-wasm-abi/src/eintlog.rs|\
-      crates/echo-wasm-abi/src/ttd.rs)
+      crates/echo-wasm-abi/src/eintlog.rs)
         FULL_SCOPE_ECHO_WASM_ABI_RUN_LIB=1
         ;;
       crates/echo-wasm-abi/src/canonical.rs)

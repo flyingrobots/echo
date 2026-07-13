@@ -46,6 +46,25 @@ check_missing \
   "the unimplemented WARP view protocol spec must stay retired" \
   "docs/spec/warp-view-protocol.md"
 
+check_missing \
+  "the unused TTD WASM ABI module must stay retired" \
+  "crates/echo-wasm-abi/src/ttd.rs"
+
+check_absent \
+  "the WASM ABI root must not export the retired TTD module" \
+  "crates/echo-wasm-abi/src/lib.rs" \
+  '^pub (mod ttd|use ttd::\*);$'
+
+check_absent \
+  "the fixed-timestep invariant must not classify deleted TTD protocol fields" \
+  "docs/invariants/FIXED-TIMESTEP.md" \
+  'TtdrHeader|TTD protocol|Generated TTD protocol|Legacy `OpEnvelope\.ts`'
+
+check_absent \
+  "the canonical codec must not cite a deleted crate as its authority" \
+  "crates/echo-wasm-abi/src/canonical.rs" \
+  'echo-session-proto'
+
 check_absent \
   "the workspace lockfile must not retain the retired TTD protocol importer" \
   "pnpm-lock.yaml" \

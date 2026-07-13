@@ -105,12 +105,6 @@ becomes an admitted canonical decision record.
 | `SchedulerStatus.latestCycleGlobalTick`                                | HistoryTime | Reports the latest runtime scheduler cycle coordinate.                     |
 | `SchedulerStatus.latestCommitGlobalTick`                               | HistoryTime | Reports the scheduler cycle coordinate that produced the latest commit.    |
 | `SchedulerStatus.lastQuiescentGlobalTick`                              | HistoryTime | Reports the scheduler cycle coordinate at quiescence.                      |
-| `TtdrHeader.tick`                                                      | HistoryTime | Tick receipt coordinate for witnessed deterministic verification.          |
-| TTD protocol `tick` / `fromTick` / `toTick` / `targetTick` fields      | HistoryTime | Cursor, seek, violation, snapshot, and truth-frame coordinates.            |
-| TTD protocol `initialTick` / `finalTick` fields                        | HistoryTime | Cursor lifecycle tick coordinates, not host timestamps.                    |
-| TTD protocol `deadlineTick` fields                                     | HistoryTime | Deadlines are tick-denominated semantic time.                              |
-| Legacy `OpEnvelope.ts`                                                 | HostTime    | Monotonic per-host transport timestamp; must not order causal history.     |
-| Generated TTD protocol `timestamp` / `Timestamp` fields                | HostTime    | Milliseconds-since-epoch event telemetry; not replay/admission authority.  |
 | Hook, CI, and verification timing fields such as `elapsed_ms` or dates | HostTime    | Tooling telemetry and audit logs; outside the deterministic history plane. |
 
 ## Timer and deadline doctrine

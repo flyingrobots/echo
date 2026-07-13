@@ -68,9 +68,6 @@ pub mod kernel_port;
 #[cfg(test)]
 mod witnessed_suffix_tests;
 
-pub mod ttd;
-pub use ttd::*;
-
 /// Deterministic binary codec for length-prefixed scalars and Q32.32 fixed-point helpers.
 pub mod codec;
 

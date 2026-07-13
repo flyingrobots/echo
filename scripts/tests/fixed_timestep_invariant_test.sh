@@ -85,10 +85,10 @@ assert "classifies HistoryTime" \
   grep -q "HistoryTime" "${invariant}"
 assert "classifies HostTime" \
   grep -q "HostTime" "${invariant}"
-assert "legacy OpEnvelope timestamp is HostTime" \
-  grep -q "Legacy \`OpEnvelope.ts\`.*HostTime" "${invariant}"
-assert "deadlineTick is HistoryTime" \
-  grep -q "deadlineTick.*HistoryTime" "${invariant}"
+assert "WorldlineTick is HistoryTime" \
+  grep -q "\`WorldlineTick\`.*HistoryTime" "${invariant}"
+assert "verification timing fields are HostTime" \
+  grep -q "verification timing fields.*HostTime" "${invariant}"
 
 # --- Cross-references ---
 echo ""

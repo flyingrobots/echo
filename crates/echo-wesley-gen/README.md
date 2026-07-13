@@ -17,6 +17,23 @@ The preferred input is GraphQL SDL lowered directly through the published
 fixtures and compatibility while consumers move off the historical JavaScript
 generator.
 
+Echo's external Edict provider uses a separate strict source contract:
+[`schemas/edict-provider/echo-provider-semantics-v1.json`](../../schemas/edict-provider/echo-provider-semantics-v1.json).
+`provider_semantics::parse_provider_semantic_source_v1(...)` validates explicit
+source bytes without filesystem discovery, normalizes set-like declarations,
+and rejects duplicate coordinates or dangling authority, type, failure,
+obstruction, profile, budget, capability, adapter, and schema references with
+stable error kinds. It also checks exhaustive obstruction mappings,
+bounded type closure, Edict Core alias ownership, failure identifiers, exact
+fact-domain/authority families, capability-owned write classes, explicit
+semantic discharge, and complete lawpack/target-profile/invocation/domain/root
+contracts. Every runtime effect resolves to exactly one native capability or
+direct adapter, and every lawpack adapter has a unique target-profile selector.
+Authority-facts outputs name Edict issue #157 as their canonical contract owner.
+The separately declared provider manifest pins the later package root's exact
+ABI and provider coordinate and cannot inventory itself.
+This source is not accepted through the tolerant historical `echo-ir/v1` path.
+
 ## Usage
 
 ```bash
@@ -74,3 +91,7 @@ cat ir.json | cargo run -p echo-wesley-gen -- --contract-host --out generated.rs
   requirement bytes, codec id, and digest directly from
   `OpticAdmissionRequirementsArtifact`; Echo stores them as opaque registry
   payload and does not reserialize Wesley requirement structs.
+- Edict provider lawpacks, profiles, source-partitioned authority facts,
+  generated-artifact profiles, schemas, provenance, review JSON, and the later
+  package manifest are generated projections of the checked Echo provider
+  semantic source. They are not alternate authored inputs.

@@ -44,6 +44,7 @@ readonly forbidden_process_paths=(
   "docs/determinism/DETERMINISM_CLAIMS_v0.1.md"
   "docs/determinism/RELEASE_POLICY.md"
   "docs/determinism/sec-claim-map.json"
+  "schemas/runtime/README.md"
   ".github/workflows/refresh-dependency-dags.yml"
   "docs/assets/dags"
   "scripts/dag-utils.js"

@@ -61,7 +61,6 @@ jobs:
                     -p echo-runtime-schema \
                     -p echo-dry-tests \
                     -p echo-graph \
-                    -p echo-app-core \
                     --lib -- -D warnings -D missing_docs
 
     clippy-libs-support:

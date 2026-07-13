@@ -10,7 +10,6 @@ members = [
     "crates/warp-cli",
     "crates/warp-geom",
     "crates/warp-benches",
-    "crates/echo-app-core",
     "crates/echo-file-aperture",
     "crates/echo-graph",
     "crates/echo-dind-harness",
@@ -34,7 +33,6 @@ repository = "https://github.com/flyingrobots/echo"
 rust-version = "1.90.0"
 
 [workspace.dependencies]
-echo-app-core = { version = "0.1.0", path = "crates/echo-app-core" }
 echo-cas = { version = "0.1.0", path = "crates/echo-cas" }
 echo-dind-tests = { version = "0.1.0", path = "crates/echo-dind-tests" }
 echo-dry-tests = { version = "0.1.0", path = "crates/echo-dry-tests" }

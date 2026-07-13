@@ -79,10 +79,6 @@ crates:
     class: DET_IMPORTANT
     owner_role: "Tooling Engineer"
     paths: ["crates/echo-wesley-gen/**"]
-  echo-app-core:
-    class: DET_IMPORTANT
-    owner_role: "Architect"
-    paths: ["crates/echo-app-core/**"]
   echo-cas:
     class: DET_IMPORTANT
     owner_role: "Architect"

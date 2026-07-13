@@ -742,6 +742,9 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
   `echo-session-proto`, and the untracked `ttd-browser` prebuilt artifact
   (TTD stack now lives with warp-ttd), plus `echo-config-fs` (desktop
   app-shell fossil) and the `packages/ttd-protocol-ts` generated consumer.
+- Deleted `echo-app-core` (desktop app-shell fossil: toasts, prefs, config
+  ports) and the `echo-dry-tests` in-memory config fake that existed only to
+  test its trait; no other crate consumed either.
 - Deleted `cargo xtask wesley` (existed only to sync the removed TTD
   protocol consumer artifacts).
 - Deleted stale point-in-time audit reports under `docs/audit/` and

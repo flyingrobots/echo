@@ -18,7 +18,6 @@ categories = ["development-tools::testing"]
 # Core crates for test doubles
 warp-core = { workspace = true, features = ["native_rule_bootstrap"] }
 echo-graph = { workspace = true }
-echo-app-core = { workspace = true }
 
 # Hashing
 blake3 = "1"

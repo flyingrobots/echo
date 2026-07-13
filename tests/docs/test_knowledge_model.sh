@@ -245,6 +245,12 @@ if grep -Eq \
   failures=$((failures + 1))
 fi
 
+if grep -Eq '^## [0-9]+\. (Audit Findings|Implementation Checklist)|Issue #[0-9]+|PR #[0-9]+' \
+  docs/determinism/SPEC_DETERMINISTIC_MATH.md; then
+  echo "knowledge-model: deterministic math policy contains a dated audit/status checklist" >&2
+  failures=$((failures + 1))
+fi
+
 if ((failures > 0)); then
   echo "knowledge-model: ${failures} violation(s)" >&2
   exit 1

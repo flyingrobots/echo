@@ -38,6 +38,8 @@ jobs:
               run: bash tests/hooks/test_verify_local.sh
             - name: retired component reference regression
               run: bash tests/docs/test_retired_component_refs.sh
+            - name: repository knowledge model regression
+              run: bash tests/docs/test_knowledge_model.sh
 
     clippy-libs-core:
         name: Clippy (core libs)

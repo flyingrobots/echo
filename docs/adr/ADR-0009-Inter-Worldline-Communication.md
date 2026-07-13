@@ -295,33 +295,6 @@ new tick, not a full rescan.
 3. State roots MUST agree after both sides import all commuting concurrent
    work. History roots MAY differ unless canonical batching is enabled.
 
-## Implementation Considerations
-
-### Near-term (local multi-worldline)
-
-- Extend `WorldlineTickPatchV1` with explicit read footprint (`in_slots`
-  already exists), anchor set, and precondition witness.
-- Implement frontier-relative patch construction for multi-warp operations.
-- Add conflict policy trait with `Accept`, `Join`, `Conflict`, `Retry`,
-  and `Branch` variants.
-- Wire inter-worldline intent delivery through the existing ingress path.
-
-### Mid-term (formalized transport)
-
-- Implement suffix transport as a library operation over the provenance
-  store.
-- Add hierarchical footprint summaries for suffix range pruning.
-- Define canonical batching for history convergence where required.
-- Extend the `ProvenanceStore` with merge tick and conflict object types.
-
-### Later (distributed)
-
-- Worldline ownership and authority records.
-- Signed provenance exchange (receipt hashes, transport proofs).
-- Causal readiness checks (request missing dependencies before import).
-- Remote frontier advertisement and subscription.
-- Cross-node causal tracing via `global_tick` correlation metadata.
-
 ## Relationship to the WARP Paper Series
 
 This ADR derives its design principles from the WARP paper series
@@ -342,17 +315,6 @@ Key correspondences:
 | Observer geometry connection            | Paper IV: observers as functors, rulial distance              |
 | Local tick confluence                   | Paper II: within-tick commuting conversions                   |
 | Footprint discipline                    | Paper III: patch boundaries and causal cones                  |
-
-## Test Requirements
-
-| Category               | What to verify                                                                  |
-| ---------------------- | ------------------------------------------------------------------------------- |
-| Message isolation      | Cross-worldline mutation only through admitted intents; no shared state leakage |
-| Transport correctness  | Transported patch at tip produces same state as replay from common frontier     |
-| Interference detection | All four footprint dimensions checked; stale-read conflicts caught              |
-| Conflict policy        | Interfering imports invoke explicit policy; no silent intent loss               |
-| Convergence            | Commuting imports produce identical state roots regardless of arrival order     |
-| Cascading imports      | New merge tick requires only incremental transport check for pending imports    |
 
 ## Consequences
 
@@ -377,18 +339,15 @@ Key correspondences:
 
 - This ADR does not specify wire encoding formats.
 - This ADR does not prescribe specific CRDT implementations.
-- This ADR does not require distributed execution in any near-term
-  milestone.
+- This ADR does not require distributed execution.
 - This ADR does not reproduce formal proofs from the WARP paper series.
 
-## Document Governance
+## Historical Note
 
-- Any change to the communication or transport invariants requires a
-  dedicated design amendment PR.
-- PRs introducing cross-worldline state sharing must reference this ADR
-  and justify the exception.
-- Conflict policy implementations must satisfy the explicit-surfacing
-  invariant: no silent intent loss.
+The original record included near-, mid-, and long-range implementation
+roadmaps, a test-plan table, and document-amendment instructions. Those process
+artifacts remain in Git history. ADRs 0013 and 0016, not this historical body,
+govern current transport authority and identity.
 
 ---
 

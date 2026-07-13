@@ -218,6 +218,13 @@ if grep -Eq \
   failures=$((failures + 1))
 fi
 
+if grep -Eq \
+  '^## (Implementation Considerations|Test Requirements|Document Governance)|^### (Near-term|Mid-term|Later)' \
+  docs/adr/ADR-0009-Inter-Worldline-Communication.md; then
+  echo "knowledge-model: ADR 0009 contains a roadmap, test plan, or work governance" >&2
+  failures=$((failures + 1))
+fi
+
 if ((failures > 0)); then
   echo "knowledge-model: ${failures} violation(s)" >&2
   exit 1

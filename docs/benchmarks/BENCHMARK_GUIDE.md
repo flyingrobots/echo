@@ -319,9 +319,8 @@ Before considering your benchmark "done":
 - [ ] Registered in `Cargo.toml` with `harness = false`
 - [ ] Runs successfully: `cargo bench -p warp-benches --bench my_feature`
 - [ ] JSON artifacts generated in `target/criterion/`
-- [ ] Added to `docs/benchmarks/index.html` GROUPS array
-- [ ] Added to `xtask/src/main.rs` `BENCH_CORE_GROUP_KEYS`
-- [ ] Dashboard displays line with unique color/dash pattern
+- [ ] Selected report surface is registered and renders the benchmark
+- [ ] Core-dashboard benchmarks are added to both `GROUPS` and `BENCH_CORE_GROUP_KEYS`
 - [ ] Module docs define the measured operation, setup, units, and caveats
 - [ ] Criterion output and generated JSON or dashboard artifacts inspected
 - [ ] Merge-gated additions update the workflow and baseline explicitly

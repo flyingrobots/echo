@@ -92,6 +92,22 @@ if grep -Eq 'RESERVE_BENCHMARK\.md|reserve_independence|MY_FEATURE_BENCHMARK\.md
   failures=$((failures + 1))
 fi
 
+if grep -Eq \
+  '^- \[ \] Added to .*GROUPS array|^- \[ \] Added to .*BENCH_CORE_GROUP_KEYS|^- \[ \] Dashboard displays line' \
+  docs/benchmarks/BENCHMARK_GUIDE.md; then
+  echo "knowledge-model: benchmark checklist makes the core dashboard unconditional" >&2
+  failures=$((failures + 1))
+fi
+
+for benchmark_checklist_claim in \
+  'Selected report surface is registered and renders the benchmark' \
+  'Core-dashboard benchmarks are added to both'; do
+  if ! grep -Fq -- "${benchmark_checklist_claim}" docs/benchmarks/BENCHMARK_GUIDE.md; then
+    echo "knowledge-model: benchmark checklist missing: ${benchmark_checklist_claim}" >&2
+    failures=$((failures + 1))
+  fi
+done
+
 if grep -Fq -- \
   "A retained-reading proof envelope names" \
   docs/adr/0020-retained-reading-storage-and-proof-boundary.md; then

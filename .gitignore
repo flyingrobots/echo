@@ -44,7 +44,7 @@ temp
 
 # Local caches
 .cache
-/.codex/
+.codex/
 artifacts/pr-review/
 __pycache__/
 *.pyc

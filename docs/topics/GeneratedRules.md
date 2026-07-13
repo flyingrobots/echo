@@ -3,18 +3,39 @@
 
 # Generated Rule Authorship
 
-Product and application rules are authored in contract languages and lowered
-into generated Echo packages. Hand-written Rust rule registration is not a
-public authoring surface.
+Product and application rules are authored in contract languages. Hand-written
+Rust rule registration is not a supported product authoring surface. The final
+package-shaped lowering corridor is a target boundary, not current end-to-end
+implementation truth.
 
-## Boundary
+## Current Implementation
 
-The `native_rule_bootstrap` feature exists for internal fixtures, generated-code
-bootstrap, and transitional engine tests. It gates raw rule types and
-registration APIs; disabling the feature must make those surfaces unavailable
-to ordinary consumers.
+Wesley currently emits raw `RewriteRule` builders plus generated operation,
+handler, observer, and footprint helpers. Its integration fixture enables
+`native_rule_bootstrap` and calls `Engine::register_rule` directly. Wesley does
+not yet package that output. It does not emit an `InstalledContractPackage` or
+exercise package verification.
 
-The supported flow is:
+Echo separately implements `InstalledContractPackage` verification,
+`Engine::register_contract_package`, scheduler-owned execution for registered
+handlers, and `rule_pack_id` stamping. No current generator joins Wesley output
+to that package-registration path.
+
+The Edict bridge is fixture-only. It accepts a narrow `echo.span-ir/v1` Target
+IR subset and produces deterministic attempt-receipt fixtures.
+
+The Edict bridge does not admit a package or execute scheduler work.
+
+`native_rule_bootstrap` is a Cargo feature gate and repository policy boundary.
+Default builds omit raw rule constructors and public registration methods, but
+a Rust dependency consumer can explicitly enable the feature.
+
+It is not an access-control or security seal. Echo product and adapter code must
+not use it as an application authoring escape hatch.
+
+## Target Corridor
+
+The required end state is:
 
 ```text
 Wesley or Edict source
@@ -27,10 +48,10 @@ Wesley or Edict source
 -> receipt / reading evidence carrying package and rule-pack identity
 ```
 
-Echo already owns package verification, registry installation, scheduler-owned
-execution, and `rule_pack_id` stamping. The missing Edict bridge is a generator
-that consumes Edict Target IR and emits the same package-shaped runtime surface;
-it is not a second execution engine.
+Both authoring systems need package emitters that consume their verified source
+or Target IR and produce the same package-shaped runtime surface. That work must
+reuse Echo's registration and execution path; it must not create a second
+execution engine.
 
 ## Footprint Honesty
 
@@ -45,10 +66,11 @@ trigger hidden retries or widen access.
 
 ## Required Guards
 
-- Default consumers cannot import raw `RewriteRule` construction or call raw
+- Default builds do not expose raw `RewriteRule` construction or public raw
   registration.
-- Generated packages install through `InstalledContractPackage`, not an
-  app-specific engine escape hatch.
+- Product and adapter crates do not enable `native_rule_bootstrap`.
+- Package-qualified generators register through `InstalledContractPackage`,
+  not an app-specific engine escape hatch.
 - Registry/package identity, operation identity, codec/schema compatibility,
   and footprint metadata are verified before the engine mutates registration
   state.

@@ -42,6 +42,8 @@ jobs:
               run: bash tests/docs/test_knowledge_model.sh
             - name: ADR namespace regression
               run: bash tests/docs/test_adr_namespace.sh
+            - name: generated rule truth regression
+              run: bash tests/docs/test_generated_rule_truth.sh
 
     clippy-libs-core:
         name: Clippy (core libs)

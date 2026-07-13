@@ -887,6 +887,11 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- Generated-rule architecture now distinguishes Wesley's current raw
+  `RewriteRule` fixture path, Edict's fixture-only Target IR bridge, and the
+  still-target package-registration corridor. It also records
+  `native_rule_bootstrap` as an opt-in Cargo policy boundary rather than an
+  access-control seal.
 - `warp-core` recovered filesystem WAL ACK paths now rebuild the live evidence
   catalog before returning recovered success, live catalog-update failures record
   the last commit where the catalog was actually fresh, and committed evidence

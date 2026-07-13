@@ -211,6 +211,13 @@ if grep -Eq \
   failures=$((failures + 1))
 fi
 
+if grep -Eq \
+  '^## (Implementation Plan|Key Files \(Observed State|Gameplay and Non-Debug Use Cases|Test Requirements|Document Governance)|critical path|8-step plan|crates/ttd-browser' \
+  docs/adr/ADR-0008-Worldline-Runtime-Model.md; then
+  echo "knowledge-model: ADR 0008 contains a dated plan, status ledger, or work governance" >&2
+  failures=$((failures + 1))
+fi
+
 if ((failures > 0)); then
   echo "knowledge-model: ${failures} violation(s)" >&2
   exit 1

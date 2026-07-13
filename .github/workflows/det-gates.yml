@@ -54,7 +54,7 @@ jobs:
       - name: Classify path impact from det-policy.yaml
         id: classify
         run: |
-          node ./scripts/classify_changes.cjs det-policy.json changed.txt >> $GITHUB_OUTPUT
+          node ./scripts/classify_changes.cjs det-policy.json changed.txt >> "$GITHUB_OUTPUT"
 
   determinism-linux:
     name: G1 determinism (linux)

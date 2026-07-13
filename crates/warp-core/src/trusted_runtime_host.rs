@@ -30,6 +30,7 @@ use crate::{
         WalTransactionCommit, WalTransactionId, WalTransactionKind, WriterEpochId,
         WriterEpochRequest,
     },
+    contract_host::{decode_canonical_eint, encode_canonical_eint},
     ContractInverseAdmissionRequest, ContractInverseContext, ContractInverseObstruction,
     ContractOperationKind, Engine, IngressCausalParent, IngressEnvelope,
     IngressEnvelopeDecodeError, IngressPayload, IngressSubmissionGeneration,
@@ -509,10 +510,11 @@ impl TrustedRuntimeHost {
             intent_kind,
             intent_bytes,
         } = target_envelope.payload();
-        let (target_op_id, target_vars_bytes) = echo_wasm_abi::unpack_intent_v1(intent_bytes)
-            .map_err(|_| ContractInverseObstruction::TargetIntentMalformed {
+        let (target_op_id, target_vars_bytes) = decode_canonical_eint(intent_bytes).ok_or(
+            ContractInverseObstruction::TargetIntentMalformed {
                 submission_id: correlation.submission_id,
-            })?;
+            },
+        )?;
         let target_contract = correlation.contract.as_ref().ok_or_else(|| {
             ContractInverseObstruction::TargetContractEvidenceUnavailable {
                 target_receipt_ref: Box::new(request.target_receipt_ref),
@@ -627,12 +629,11 @@ impl TrustedRuntimeHost {
                 },
             );
         }
-        let intent_bytes = echo_wasm_abi::pack_intent_v1(inverse.op_id, &inverse.vars_bytes)
-            .map_err(
-                |_| ContractInverseObstruction::ProducedIntentEncodingFailed {
-                    op_id: inverse.op_id,
-                },
-            )?;
+        let intent_bytes = encode_canonical_eint(inverse.op_id, &inverse.vars_bytes).ok_or(
+            ContractInverseObstruction::ProducedIntentEncodingFailed {
+                op_id: inverse.op_id,
+            },
+        )?;
         let mut causal_parents = current_basis_receipt_refs
             .into_iter()
             .map(|receipt_ref| IngressCausalParent::TickReceipt { receipt_ref })

@@ -207,7 +207,7 @@ pub struct IntentSubmissionRecord {
 /// The submission record is Echo semantic ingress history. The envelope is the
 /// canonical material a trusted host can later use for ticketed runtime ingress.
 /// Restoring this material does not enter scheduler-visible inboxes.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WitnessedSubmissionPersistenceRecord {
     /// Witnessed Echo submission record.
     pub submission: IntentSubmissionRecord,
@@ -220,7 +220,7 @@ pub struct WitnessedSubmissionPersistenceRecord {
 /// Hosts may write this image to durable storage. Importing it restores
 /// accepted submission identity and envelope material only; it does not tick,
 /// dispatch, stage ticketed ingress, or mutate application state.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct WitnessedSubmissionPersistenceSnapshot {
     records: Vec<WitnessedSubmissionPersistenceRecord>,
 }

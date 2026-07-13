@@ -3,7 +3,7 @@
 
 # Witnessed Submission Persistence
 
-Status: accepted and implemented local persistence shell.
+Status: accepted and implemented through the trusted runtime WAL.
 
 ## Claim
 
@@ -30,8 +30,9 @@ Restoring the image does none of the following:
 - does not advance `GlobalTick` or `WorldlineTick`;
 - does not dispatch handlers or execute contracts.
 
-The host still owns durable storage. This slice supplies the smallest core
-persistence shell needed for the host to persist accepted submission material.
+The host-owned WAL commits the versioned retained envelope in the same
+transaction as acceptance evidence. Filesystem reopen rebuilds the persistence
+snapshot and restores it before exposing the configured WAL to the host.
 
 ## Invariants
 
@@ -46,14 +47,19 @@ persistence shell needed for the host to persist accepted submission material.
   semantic submission event.
 - Recovery is not scheduler admission and does not grant application tick
   authority.
+- Recovery certificates bind retained envelope material and report missing
+  envelope records as obstructions.
 
 ## Non-Goals
 
-- Do not implement disk storage or a write-ahead log.
 - Do not stage scheduler work during restore.
 - Do not issue admission tickets, law witnesses, or receipt correlations.
 - Do not retry or execute restored submissions automatically.
+- Do not claim that restoring accepted envelopes also restores decided runtime
+  state; replayable tick deltas and provenance remain a separate boundary.
 
 ## Witnesses
 
 - `cargo test -p warp-core --lib witnessed_submission_persistence`
+- `cargo test -p warp-core --test ingress_retention_codec_tests`
+- `cargo test -p warp-core --features native_rule_bootstrap,trusted_runtime,host_test --test trusted_runtime_host_loop_tests filesystem_runtime_wal_restores_witnessed_submission_material_after_restart`

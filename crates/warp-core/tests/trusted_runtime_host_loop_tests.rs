@@ -628,9 +628,69 @@ fn filesystem_runtime_wal_ack_reconstructs_submission_and_tick_from_root() {
     );
     assert_eq!(recovery.certificate.committed_transactions_replayed, 2);
     assert_eq!(recovery.certificate.obstruction_count, 0);
-    assert_eq!(
+    assert_ne!(
         recovery.certificate.recovered_indexes_root,
         recovered_submission_receipt_index_root(&recovery.submissions, &recovery.receipts)
+    );
+    assert_eq!(recovery.witnessed_submissions.len(), 1);
+    assert!(recovery.missing_submission_envelopes.is_empty());
+}
+
+#[test]
+fn filesystem_runtime_wal_restores_witnessed_submission_material_after_restart() {
+    let wal_root = temp_runtime_wal_dir("submission-material-recovery");
+    let (initial_runtime, worldline_id) = runtime();
+    let mut host = TrustedRuntimeHost::new(initial_runtime, empty_engine())
+        .expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("host should configure filesystem runtime WAL adapter");
+
+    let envelope = causal_eint_envelope(
+        worldline_id,
+        vec![filesystem_wal_failure_digest("retained-parent")],
+    );
+    let submission = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(envelope.clone())
+        .expect("submission should cross the durable ACK boundary");
+    assert_eq!(host.runtime().global_tick().as_u64(), 0);
+    drop(host);
+
+    let (reconstructed_runtime, _) = runtime();
+    let mut reconstructed_host = TrustedRuntimeHost::new(reconstructed_runtime, empty_engine())
+        .expect("reconstructed host should initialize");
+    reconstructed_host
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("reopened WAL should restore witnessed submission material");
+
+    let restored = reconstructed_host
+        .runtime()
+        .witnessed_submission(&submission.submission_id)
+        .expect("witnessed submission should survive host restart");
+    assert_eq!(restored.ingress_id, envelope.ingress_id());
+    let restored_envelope = reconstructed_host
+        .runtime()
+        .witnessed_submission_envelope(&submission.submission_id)
+        .expect("canonical envelope material should survive host restart");
+    assert_eq!(restored_envelope.ingress_id(), envelope.ingress_id());
+    assert_eq!(
+        restored_envelope.causal_parents(),
+        envelope.causal_parents()
+    );
+    assert_eq!(reconstructed_host.runtime().global_tick().as_u64(), 0);
+
+    let duplicate = reconstructed_host
+        .app()
+        .submit_intent_with_runtime_wal_ack(envelope)
+        .expect("restored submission should remain idempotent");
+    assert!(duplicate.duplicate);
+    assert_eq!(duplicate.submission_id, submission.submission_id);
+    assert_eq!(
+        reconstructed_host
+            .runtime_wal()
+            .expect("runtime WAL should remain configured")
+            .submission_acceptance_count(),
+        1
     );
 }
 
@@ -725,9 +785,9 @@ fn filesystem_runtime_wal_ack_reconstructed_host_appends_after_recovery() {
     let commits = runtime_wal.commits();
     assert_eq!(commits.len(), 2);
     assert_eq!(commits[0].first_lsn, Lsn::from_raw(0));
-    assert_eq!(commits[0].last_lsn, Lsn::from_raw(1));
-    assert_eq!(commits[1].first_lsn, Lsn::from_raw(2));
-    assert_eq!(commits[1].last_lsn, Lsn::from_raw(3));
+    assert_eq!(commits[0].last_lsn, Lsn::from_raw(2));
+    assert_eq!(commits[1].first_lsn, Lsn::from_raw(3));
+    assert_eq!(commits[1].last_lsn, Lsn::from_raw(5));
     assert_eq!(
         commits[1].previous_committed_transaction_digest,
         commits[0].commit_digest
@@ -813,7 +873,7 @@ fn filesystem_runtime_wal_ack_recovery_reports_uncommitted_tail_from_root() {
         .expect("read-only recovery should report uncommitted tail");
     assert_eq!(
         recovery.certificate.tail_posture,
-        RecoveryTailPosture::WouldTruncateAfter(Lsn::from_raw(1))
+        RecoveryTailPosture::WouldTruncateAfter(Lsn::from_raw(2))
     );
 }
 
@@ -1554,10 +1614,12 @@ fn runtime_wal_ack_recover_read_only_rebuilds_submission_and_receipt_indexes() {
             .get(&submission.submission_id),
         Some(&ticket.ticket_digest)
     );
-    assert_eq!(
+    assert_ne!(
         recovery.certificate.recovered_indexes_root,
         recovered_submission_receipt_index_root(&recovery.submissions, &recovery.receipts)
     );
+    assert_eq!(recovery.witnessed_submissions.len(), 1);
+    assert!(recovery.missing_submission_envelopes.is_empty());
 }
 
 #[test]

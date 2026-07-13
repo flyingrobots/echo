@@ -15,9 +15,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use thiserror::Error;
+
 use crate::head::WriterHeadKey;
 use crate::ident::Hash;
 use crate::worldline::WorldlineId;
+
+const RETAINED_INGRESS_ENVELOPE_MAGIC_V1: &[u8; 8] = b"EINGR001";
 
 // =============================================================================
 // IntentKind
@@ -32,6 +36,12 @@ use crate::worldline::WorldlineId;
 pub struct IntentKind(Hash);
 
 impl IntentKind {
+    /// Reconstructs a stable intent kind from its canonical hash.
+    #[must_use]
+    pub const fn from_hash(hash: Hash) -> Self {
+        Self(hash)
+    }
+
     /// Returns the canonical hash backing this stable intent-kind identifier.
     #[must_use]
     pub fn as_hash(&self) -> &Hash {
@@ -106,7 +116,7 @@ impl IngressTarget {
 ///
 /// Early phases use only `LocalIntent`. Cross-worldline messages and imports
 /// are added in Phases 10 and 11 respectively.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum IngressPayload {
     /// A local intent from the application layer.
     LocalIntent {
@@ -151,7 +161,7 @@ impl IngressCausalParent {
 /// - content-addressed by `ingress_id` for idempotence,
 /// - deterministically routed via `target`,
 /// - causally linked via `causal_parents`.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IngressEnvelope {
     /// Content address of this envelope (BLAKE3 of payload).
     ingress_id: Hash,
@@ -224,6 +234,128 @@ impl IngressEnvelope {
         &self.causal_parents
     }
 
+    /// Encodes this envelope as bounded, versioned retained material.
+    ///
+    /// These bytes preserve the canonical claim needed for restart replay. The
+    /// ingress id remains the semantic content address; this retention codec is
+    /// a storage format and does not replace that identity law.
+    #[must_use]
+    pub fn to_retained_bytes_v1(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(RETAINED_INGRESS_ENVELOPE_MAGIC_V1);
+        match &self.target {
+            IngressTarget::DefaultWriter { worldline_id } => {
+                out.push(1);
+                out.extend_from_slice(worldline_id.as_bytes());
+            }
+            IngressTarget::InboxAddress {
+                worldline_id,
+                inbox,
+            } => {
+                out.push(2);
+                out.extend_from_slice(worldline_id.as_bytes());
+                push_len(&mut out, inbox.0.len());
+                out.extend_from_slice(inbox.0.as_bytes());
+            }
+            IngressTarget::ExactHead { key } => {
+                out.push(3);
+                out.extend_from_slice(key.worldline_id.as_bytes());
+                out.extend_from_slice(key.head_id.as_bytes());
+            }
+        }
+        push_len(&mut out, self.causal_parents.len());
+        for parent in &self.causal_parents {
+            match parent {
+                IngressCausalParent::TickReceipt { receipt_digest } => {
+                    out.push(1);
+                    out.extend_from_slice(receipt_digest);
+                }
+            }
+        }
+        match &self.payload {
+            IngressPayload::LocalIntent {
+                intent_kind,
+                intent_bytes,
+            } => {
+                out.push(1);
+                out.extend_from_slice(intent_kind.as_hash());
+                push_len(&mut out, intent_bytes.len());
+                out.extend_from_slice(intent_bytes);
+            }
+        }
+        out
+    }
+
+    /// Decodes retained ingress material without admitting or executing it.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed decode error for truncated, malformed, unsupported, or
+    /// non-canonical retained material.
+    pub fn from_retained_bytes_v1(bytes: &[u8]) -> Result<Self, IngressEnvelopeDecodeError> {
+        let mut cursor = RetainedIngressCursor::new(bytes);
+        if cursor.read_exact(RETAINED_INGRESS_ENVELOPE_MAGIC_V1.len())?
+            != RETAINED_INGRESS_ENVELOPE_MAGIC_V1
+        {
+            return Err(IngressEnvelopeDecodeError::InvalidMagic);
+        }
+        let target = match cursor.read_u8()? {
+            1 => IngressTarget::DefaultWriter {
+                worldline_id: WorldlineId::from_bytes(cursor.read_hash()?),
+            },
+            2 => {
+                let worldline_id = WorldlineId::from_bytes(cursor.read_hash()?);
+                let inbox_len = cursor.read_len()?;
+                let inbox = String::from_utf8(cursor.read_exact(inbox_len)?.to_vec())
+                    .map_err(|_| IngressEnvelopeDecodeError::InvalidInboxUtf8)?;
+                IngressTarget::InboxAddress {
+                    worldline_id,
+                    inbox: InboxAddress(inbox),
+                }
+            }
+            3 => IngressTarget::ExactHead {
+                key: WriterHeadKey {
+                    worldline_id: WorldlineId::from_bytes(cursor.read_hash()?),
+                    head_id: crate::head::HeadId::from_bytes(cursor.read_hash()?),
+                },
+            },
+            tag => return Err(IngressEnvelopeDecodeError::UnknownTargetTag(tag)),
+        };
+        let parent_count = cursor.read_len()?;
+        if parent_count > cursor.remaining_len() / (1 + core::mem::size_of::<Hash>()) {
+            return Err(IngressEnvelopeDecodeError::UnexpectedEof);
+        }
+        let mut causal_parents = Vec::with_capacity(parent_count);
+        for _ in 0..parent_count {
+            let parent = match cursor.read_u8()? {
+                1 => IngressCausalParent::TickReceipt {
+                    receipt_digest: cursor.read_hash()?,
+                },
+                tag => return Err(IngressEnvelopeDecodeError::UnknownCausalParentTag(tag)),
+            };
+            causal_parents.push(parent);
+        }
+        let envelope = match cursor.read_u8()? {
+            1 => {
+                let intent_kind = IntentKind::from_hash(cursor.read_hash()?);
+                let intent_len = cursor.read_len()?;
+                let intent_bytes = cursor.read_exact(intent_len)?.to_vec();
+                Self::local_intent_with_causal_parents(
+                    target,
+                    intent_kind,
+                    intent_bytes,
+                    causal_parents,
+                )
+            }
+            tag => return Err(IngressEnvelopeDecodeError::UnknownPayloadTag(tag)),
+        };
+        cursor.finish()?;
+        if envelope.to_retained_bytes_v1() != bytes {
+            return Err(IngressEnvelopeDecodeError::NonCanonical);
+        }
+        Ok(envelope)
+    }
+
     fn expected_ingress_id(&self) -> Hash {
         match &self.payload {
             IngressPayload::LocalIntent {
@@ -239,6 +371,94 @@ impl IngressEnvelope {
             self.expected_ingress_id(),
             "ingress_id does not match payload — envelope was constructed incorrectly"
         );
+    }
+}
+
+/// Error returned while decoding retained ingress envelope material.
+#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
+pub enum IngressEnvelopeDecodeError {
+    /// Retained bytes ended before the declared value was complete.
+    #[error("retained ingress envelope ended unexpectedly")]
+    UnexpectedEof,
+    /// Retained bytes did not carry the v1 envelope magic.
+    #[error("retained ingress envelope has invalid magic")]
+    InvalidMagic,
+    /// Retained target tag is unknown.
+    #[error("retained ingress envelope has unknown target tag {0}")]
+    UnknownTargetTag(u8),
+    /// Retained causal parent tag is unknown.
+    #[error("retained ingress envelope has unknown causal parent tag {0}")]
+    UnknownCausalParentTag(u8),
+    /// Retained payload tag is unknown.
+    #[error("retained ingress envelope has unknown payload tag {0}")]
+    UnknownPayloadTag(u8),
+    /// Named inbox material was not valid UTF-8.
+    #[error("retained ingress envelope inbox is not valid UTF-8")]
+    InvalidInboxUtf8,
+    /// Retained bytes decoded but did not use the canonical v1 encoding.
+    #[error("retained ingress envelope is not canonically encoded")]
+    NonCanonical,
+    /// Retained bytes contained trailing material outside the v1 envelope.
+    #[error("retained ingress envelope has trailing bytes")]
+    TrailingBytes,
+}
+
+fn push_len(out: &mut Vec<u8>, len: usize) {
+    out.extend_from_slice(&(len as u64).to_le_bytes());
+}
+
+struct RetainedIngressCursor<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> RetainedIngressCursor<'a> {
+    const fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, offset: 0 }
+    }
+
+    fn remaining_len(&self) -> usize {
+        self.bytes.len().saturating_sub(self.offset)
+    }
+
+    fn read_exact(&mut self, len: usize) -> Result<&'a [u8], IngressEnvelopeDecodeError> {
+        let end = self
+            .offset
+            .checked_add(len)
+            .ok_or(IngressEnvelopeDecodeError::UnexpectedEof)?;
+        let value = self
+            .bytes
+            .get(self.offset..end)
+            .ok_or(IngressEnvelopeDecodeError::UnexpectedEof)?;
+        self.offset = end;
+        Ok(value)
+    }
+
+    fn read_u8(&mut self) -> Result<u8, IngressEnvelopeDecodeError> {
+        Ok(self.read_exact(1)?[0])
+    }
+
+    fn read_hash(&mut self) -> Result<Hash, IngressEnvelopeDecodeError> {
+        self.read_exact(core::mem::size_of::<Hash>())?
+            .try_into()
+            .map_err(|_| IngressEnvelopeDecodeError::UnexpectedEof)
+    }
+
+    fn read_len(&mut self) -> Result<usize, IngressEnvelopeDecodeError> {
+        let raw = u64::from_le_bytes(
+            self.read_exact(core::mem::size_of::<u64>())?
+                .try_into()
+                .map_err(|_| IngressEnvelopeDecodeError::UnexpectedEof)?,
+        );
+        usize::try_from(raw).map_err(|_| IngressEnvelopeDecodeError::UnexpectedEof)
+    }
+
+    fn finish(self) -> Result<(), IngressEnvelopeDecodeError> {
+        if self.offset == self.bytes.len() {
+            Ok(())
+        } else {
+            Err(IngressEnvelopeDecodeError::TrailingBytes)
+        }
     }
 }
 

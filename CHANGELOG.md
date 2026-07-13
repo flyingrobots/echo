@@ -7,6 +7,11 @@
 
 ### Added
 
+- Trusted runtime submission intake now atomically retains a versioned canonical
+  ingress envelope with each WAL-backed acceptance. Filesystem WAL reopen
+  restores the witnessed submission ledger without ticking or dispatching,
+  preserves duplicate posture, and reports legacy acceptances without envelope
+  material as explicit recovery obstructions.
 - `warp-core` ingress can now cite typed causal parent tick receipts. Trusted
   runtime outcomes, WAL receipt correlations, read-only recovery indexes, and
   WSC causal-history envelopes retain both parent and reverse child lookup so

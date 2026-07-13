@@ -8,7 +8,7 @@
 //! application code tick authority.
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
 };
 
@@ -16,7 +16,7 @@ use thiserror::Error;
 
 use crate::{
     causal_wal::{
-        build_recovery_certificate, build_submission_acceptance_transaction,
+        build_recovery_certificate, build_submission_acceptance_with_material_transaction,
         build_tick_transaction, recover_filesystem_store, recover_from_frames_and_commits,
         recover_receipt_index, recover_submission_index, recovered_submission_receipt_index_root,
         AffectedFrontier, AffectedFrontierKind, FilesystemWalStore, InMemoryWalStore, Lsn,
@@ -25,15 +25,18 @@ use crate::{
         SubmissionRetryPosture, TickReceiptRecord, WalAppendAuthority, WalBuildError,
         WalCommittedTransaction, WalDecodeError, WalDurabilityMode, WalReceiptCorrelationRecord,
         WalRecordKind, WalRecoveryError, WalRecoveryIndexError, WalSegmentId, WalStoreError,
-        WalStorePort, WalTickDecision, WalTransactionBuilder, WalTransactionCommit,
-        WalTransactionId, WalTransactionKind, WriterEpochId, WriterEpochRequest,
+        WalStorePort, WalSubmissionEnvelopeRecord, WalTickDecision, WalTransactionBuilder,
+        WalTransactionCommit, WalTransactionId, WalTransactionKind, WriterEpochId,
+        WriterEpochRequest,
     },
-    Engine, IngressEnvelope, InstalledContractPackage, InstalledContractPackageError,
-    InstalledContractPackageRecord, IntentOutcome, IntentOutcomeDecision, IntentOutcomeObservation,
-    IntentSubmissionHandle, ObservationArtifact, ObservationError, ObservationRequest,
+    Engine, IngressEnvelope, IngressEnvelopeDecodeError, IngressSubmissionGeneration,
+    InstalledContractPackage, InstalledContractPackageError, InstalledContractPackageRecord,
+    IntentOutcome, IntentOutcomeDecision, IntentOutcomeObservation, IntentSubmissionHandle,
+    IntentSubmissionRecord, ObservationArtifact, ObservationError, ObservationRequest,
     ObservationService, OpticAdmissionTicket, ProvenanceService, ReceiptCorrelationRecord,
     RuntimeError, SchedulerCoordinator, StepRecord, TickReceiptRejection,
-    TicketedRuntimeIngressAuthority, TicketedRuntimeIngressDisposition, WorldlineRuntime,
+    TicketedRuntimeIngressAuthority, TicketedRuntimeIngressDisposition,
+    WitnessedSubmissionPersistenceRecord, WitnessedSubmissionPersistenceSnapshot, WorldlineRuntime,
 };
 use crate::{Hash, HistoryError};
 
@@ -83,6 +86,32 @@ pub enum TrustedRuntimeWalError {
     /// WAL recovery failed while rebuilding runtime evidence.
     #[error("trusted runtime WAL recovery error: {0}")]
     Recovery(#[from] WalRecoveryError),
+    /// A retained submission envelope could not be decoded.
+    #[error("trusted runtime WAL retained envelope decode failed for submission {submission_id:?}: {error}")]
+    SubmissionEnvelopeDecode {
+        /// Submission whose retained envelope was malformed.
+        submission_id: Hash,
+        /// Typed retained-envelope codec error.
+        error: IngressEnvelopeDecodeError,
+    },
+    /// Retained submission material disagreed with acceptance evidence.
+    #[error("trusted runtime WAL retained envelope mismatched submission {submission_id:?}")]
+    SubmissionEnvelopeMismatch {
+        /// Submission whose retained material was inconsistent.
+        submission_id: Hash,
+    },
+    /// Multiple retained records disagreed for one submission.
+    #[error("trusted runtime WAL retained envelope conflicted for submission {submission_id:?}")]
+    SubmissionEnvelopeConflict {
+        /// Submission whose retained records conflicted.
+        submission_id: Hash,
+    },
+    /// Recovery cannot restore an accepted submission without envelope material.
+    #[error("trusted runtime WAL is missing retained envelope material for submission {submission_id:?}")]
+    SubmissionEnvelopeMissing {
+        /// Accepted submission whose canonical envelope was unavailable.
+        submission_id: Hash,
+    },
     /// Evidence catalog operations failed.
     #[error("trusted runtime evidence catalog error: {0}")]
     EvidenceCatalog(#[from] crate::evidence::EvidenceCatalogError),
@@ -137,6 +166,10 @@ pub struct TrustedRuntimeWalRecovery {
     pub submissions: RecoveredSubmissionIndex,
     /// Rebuilt receipt/correlation index.
     pub receipts: RecoveredReceiptIndex,
+    /// Replayable witnessed submission ledger reconstructed from retained envelopes.
+    pub witnessed_submissions: WitnessedSubmissionPersistenceSnapshot,
+    /// Accepted submissions whose canonical envelope material was unavailable.
+    pub missing_submission_envelopes: Vec<Hash>,
 }
 
 /// Store kind configured for the trusted runtime WAL adapter.
@@ -325,7 +358,14 @@ impl TrustedRuntimeHost {
         &mut self,
         config: TrustedRuntimeWalConfig,
     ) -> Result<(), TrustedRuntimeHostError> {
-        self.runtime_wal = Some(TrustedRuntimeWal::from_config(config)?);
+        let runtime_wal = TrustedRuntimeWal::from_config(config)?;
+        let recovery = runtime_wal.recover_read_only()?;
+        if let Some(submission_id) = recovery.missing_submission_envelopes.first().copied() {
+            return Err(TrustedRuntimeWalError::SubmissionEnvelopeMissing { submission_id }.into());
+        }
+        self.runtime
+            .restore_witnessed_submission_persistence(recovery.witnessed_submissions)?;
+        self.runtime_wal = Some(runtime_wal);
         Ok(())
     }
 
@@ -640,10 +680,20 @@ impl TrustedRuntimeWal {
         let report = self.store.recover_read_only()?;
         let submissions = recover_submission_index(&report).map_err(WalRecoveryError::from)?;
         let receipts = recover_receipt_index(&report).map_err(WalRecoveryError::from)?;
+        let (witnessed_submissions, missing_submission_envelopes) =
+            recover_witnessed_submission_material(&report, &submissions)?;
         Ok(TrustedRuntimeWalRecovery {
-            certificate: runtime_wal_recovery_certificate(&report, &submissions, &receipts),
+            certificate: runtime_wal_recovery_certificate(
+                &report,
+                &submissions,
+                &receipts,
+                &witnessed_submissions,
+                &missing_submission_envelopes,
+            ),
             submissions,
             receipts,
+            witnessed_submissions,
+            missing_submission_envelopes,
         })
     }
 
@@ -791,13 +841,14 @@ impl TrustedRuntimeWal {
         };
         let next_submission_frontier =
             submission_frontier_digest(self.submission_frontier_digest, record);
-        let transaction = build_submission_acceptance_transaction(
+        let transaction = build_submission_acceptance_with_material_transaction(
             self.builder(
                 WalTransactionKind::SubmissionIntake,
                 WalAppendAuthority::SubmissionIntake,
                 WalTransactionId::from_hash(submission_transaction_digest(handle, record)),
             ),
             record,
+            submission_envelope_record(envelope, handle),
             vec![AffectedFrontier {
                 kind: AffectedFrontierKind::SubmissionQueue,
                 before_digest: self.submission_frontier_digest,
@@ -1215,6 +1266,78 @@ fn submission_acceptance_record_from_transaction(
         .map_err(decode_trusted_runtime_wal_payload)
 }
 
+fn recover_witnessed_submission_material(
+    report: &RecoveryScanReport,
+    submissions: &RecoveredSubmissionIndex,
+) -> Result<(WitnessedSubmissionPersistenceSnapshot, Vec<Hash>), TrustedRuntimeWalError> {
+    let mut material_by_submission = BTreeMap::new();
+    for transaction in &report.transactions {
+        for frame in &transaction.frames {
+            if frame.header.record_kind != WalRecordKind::SubmissionEnvelopeRetained {
+                continue;
+            }
+            let material =
+                WalSubmissionEnvelopeRecord::from_payload_bytes(&frame.payload.canonical_bytes)
+                    .map_err(decode_trusted_runtime_wal_payload)?;
+            if material_by_submission
+                .get(&material.submission_id)
+                .is_some_and(|existing| existing != &material)
+            {
+                return Err(TrustedRuntimeWalError::SubmissionEnvelopeConflict {
+                    submission_id: material.submission_id,
+                });
+            }
+            material_by_submission.insert(material.submission_id, material);
+        }
+    }
+
+    let mut records = Vec::new();
+    let mut missing = Vec::new();
+    for (submission_id, entry) in submissions.entries() {
+        let Some(material) = material_by_submission.remove(submission_id) else {
+            missing.push(*submission_id);
+            continue;
+        };
+        if material.canonical_envelope_digest != entry.acceptance.canonical_envelope_digest
+            || material.submission_generation == 0
+        {
+            return Err(TrustedRuntimeWalError::SubmissionEnvelopeMismatch {
+                submission_id: *submission_id,
+            });
+        }
+        let envelope = IngressEnvelope::from_retained_bytes_v1(&material.retained_envelope_bytes)
+            .map_err(|error| TrustedRuntimeWalError::SubmissionEnvelopeDecode {
+            submission_id: *submission_id,
+            error,
+        })?;
+        if envelope.ingress_id() != entry.acceptance.canonical_envelope_digest {
+            return Err(TrustedRuntimeWalError::SubmissionEnvelopeMismatch {
+                submission_id: *submission_id,
+            });
+        }
+        records.push(WitnessedSubmissionPersistenceRecord {
+            submission: IntentSubmissionRecord {
+                submission_id: *submission_id,
+                ingress_id: entry.acceptance.canonical_envelope_digest,
+                head_key: material.head_key,
+                submission_generation: IngressSubmissionGeneration::from_raw(
+                    material.submission_generation,
+                ),
+            },
+            envelope,
+        });
+    }
+    if let Some((submission_id, _)) = material_by_submission.first_key_value() {
+        return Err(TrustedRuntimeWalError::SubmissionEnvelopeMismatch {
+            submission_id: *submission_id,
+        });
+    }
+    Ok((
+        WitnessedSubmissionPersistenceSnapshot::new(records),
+        missing,
+    ))
+}
+
 fn tick_records_from_transaction(
     transaction: &crate::causal_wal::WalRecoveredTransaction,
 ) -> Result<(TickReceiptRecord, WalReceiptCorrelationRecord, Hash), TrustedRuntimeWalError> {
@@ -1286,13 +1409,14 @@ impl TrustedRuntimeWal {
         };
         let next_submission_frontier =
             submission_frontier_digest(self.submission_frontier_digest, record);
-        let transaction = build_submission_acceptance_transaction(
+        let transaction = build_submission_acceptance_with_material_transaction(
             self.builder(
                 WalTransactionKind::SubmissionIntake,
                 WalAppendAuthority::SubmissionIntake,
                 WalTransactionId::from_hash(submission_transaction_digest(handle, record)),
             ),
             record,
+            submission_envelope_record(envelope, handle),
             vec![AffectedFrontier {
                 kind: AffectedFrontierKind::SubmissionQueue,
                 before_digest: self.submission_frontier_digest,
@@ -1448,6 +1572,19 @@ fn acceptance_evidence_digest(handle: IntentSubmissionHandle) -> Hash {
     hasher.update(&handle.submission_generation.as_u64().to_le_bytes());
     hasher.update(&[u8::from(handle.duplicate)]);
     hasher.finalize().into()
+}
+
+fn submission_envelope_record(
+    envelope: &IngressEnvelope,
+    handle: IntentSubmissionHandle,
+) -> WalSubmissionEnvelopeRecord {
+    WalSubmissionEnvelopeRecord {
+        submission_id: handle.submission_id,
+        canonical_envelope_digest: envelope.ingress_id(),
+        submission_generation: handle.submission_generation.as_u64(),
+        head_key: handle.head_key,
+        retained_envelope_bytes: envelope.to_retained_bytes_v1(),
+    }
 }
 
 fn submission_transaction_digest(
@@ -1626,6 +1763,51 @@ mod tests {
 
         assert_eq!(decision, WalTickDecision::Applied);
     }
+
+    #[test]
+    fn runtime_wal_recovery_marks_legacy_acceptance_without_envelope_material() {
+        let mut wal = TrustedRuntimeWal::new_in_memory().expect("test WAL should initialize");
+        let handle = IntentSubmissionHandle {
+            ingress_id: [11; 32],
+            head_key: test_head_key(),
+            submission_id: [12; 32],
+            submission_generation: IngressSubmissionGeneration::from_raw(1),
+            duplicate: false,
+        };
+        let record = SubmissionAcceptanceRecord {
+            submission_id: handle.submission_id,
+            canonical_envelope_digest: handle.ingress_id,
+            idempotency_key_digest: None,
+            acceptance_evidence_digest: acceptance_evidence_digest(handle),
+        };
+        let transaction = crate::causal_wal::build_submission_acceptance_transaction(
+            wal.builder(
+                WalTransactionKind::SubmissionIntake,
+                WalAppendAuthority::SubmissionIntake,
+                WalTransactionId::from_hash(submission_transaction_digest(handle, record)),
+            ),
+            record,
+            vec![AffectedFrontier {
+                kind: AffectedFrontierKind::SubmissionQueue,
+                before_digest: wal.submission_frontier_digest,
+                after_digest: submission_frontier_digest(wal.submission_frontier_digest, record),
+            }],
+        )
+        .expect("legacy acceptance transaction should build");
+        wal.append_transaction(transaction)
+            .expect("legacy acceptance transaction should commit");
+
+        let recovery = wal
+            .recover_read_only()
+            .expect("legacy acceptance should remain inspectable");
+
+        assert!(recovery.witnessed_submissions.is_empty());
+        assert_eq!(
+            recovery.missing_submission_envelopes,
+            vec![handle.submission_id]
+        );
+        assert_eq!(recovery.certificate.obstruction_count, 1);
+    }
 }
 
 fn tick_transaction_digest(
@@ -1737,15 +1919,57 @@ fn runtime_wal_recovery_certificate(
     report: &RecoveryScanReport,
     submissions: &RecoveredSubmissionIndex,
     receipts: &RecoveredReceiptIndex,
+    witnessed_submissions: &WitnessedSubmissionPersistenceSnapshot,
+    missing_submission_envelopes: &[Hash],
 ) -> RecoveryCertificate {
     let recovered_frontier_root = report
         .last_commit_digest()
         .unwrap_or_else(|| trusted_runtime_wal_digest("recovery-frontier:empty"));
+    let recovered_indexes_root = recovered_submission_material_index_root(
+        recovered_submission_receipt_index_root(submissions, receipts),
+        witnessed_submissions,
+        missing_submission_envelopes,
+    );
     build_recovery_certificate(
         report,
         None,
-        0,
+        missing_submission_envelopes.len() as u64,
         recovered_frontier_root,
-        recovered_submission_receipt_index_root(submissions, receipts),
+        recovered_indexes_root,
     )
+}
+
+fn recovered_submission_material_index_root(
+    base_root: Hash,
+    witnessed_submissions: &WitnessedSubmissionPersistenceSnapshot,
+    missing_submission_envelopes: &[Hash],
+) -> Hash {
+    if witnessed_submissions.is_empty() && missing_submission_envelopes.is_empty() {
+        return base_root;
+    }
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo:trusted-runtime-wal:submission-material-index:v1\0");
+    hasher.update(&base_root);
+    hasher.update(&(witnessed_submissions.len() as u64).to_le_bytes());
+    for record in witnessed_submissions.records() {
+        hasher.update(&record.submission.submission_id);
+        hasher.update(&record.submission.ingress_id);
+        hasher.update(record.submission.head_key.worldline_id.as_bytes());
+        hasher.update(record.submission.head_key.head_id.as_bytes());
+        hasher.update(
+            &record
+                .submission
+                .submission_generation
+                .as_u64()
+                .to_le_bytes(),
+        );
+        let retained_bytes = record.envelope.to_retained_bytes_v1();
+        hasher.update(&(retained_bytes.len() as u64).to_le_bytes());
+        hasher.update(&retained_bytes);
+    }
+    hasher.update(&(missing_submission_envelopes.len() as u64).to_le_bytes());
+    for submission_id in missing_submission_envelopes {
+        hasher.update(submission_id);
+    }
+    hasher.finalize().into()
 }

@@ -321,6 +321,8 @@ pub enum WalRecordKind {
     SubmissionAcceptedRecorded,
     /// Echo recorded submission acceptance evidence.
     SubmissionAcceptanceEvidenceRecorded,
+    /// Echo retained the canonical submission envelope needed for replay.
+    SubmissionEnvelopeRetained,
     /// Trusted runtime recorded a law witness.
     RuntimeLawWitnessRecorded,
     /// Trusted runtime issued runtime admission-ticket evidence.
@@ -367,6 +369,7 @@ impl WalRecordKind {
         match self {
             Self::SubmissionAcceptedRecorded => "SubmissionAcceptedRecorded",
             Self::SubmissionAcceptanceEvidenceRecorded => "SubmissionAcceptanceEvidenceRecorded",
+            Self::SubmissionEnvelopeRetained => "SubmissionEnvelopeRetained",
             Self::RuntimeLawWitnessRecorded => "RuntimeLawWitnessRecorded",
             Self::RuntimeAdmissionTicketIssued => "RuntimeAdmissionTicketIssued",
             Self::TicketedRuntimeIngressRecorded => "TicketedRuntimeIngressRecorded",
@@ -392,9 +395,9 @@ impl WalRecordKind {
     /// Returns the append authority required for this record kind.
     pub const fn required_authority(self) -> WalAppendAuthority {
         match self {
-            Self::SubmissionAcceptedRecorded | Self::SubmissionAcceptanceEvidenceRecorded => {
-                WalAppendAuthority::SubmissionIntake
-            }
+            Self::SubmissionAcceptedRecorded
+            | Self::SubmissionAcceptanceEvidenceRecorded
+            | Self::SubmissionEnvelopeRetained => WalAppendAuthority::SubmissionIntake,
             Self::RuntimeLawWitnessRecorded
             | Self::RuntimeAdmissionTicketIssued
             | Self::TicketedRuntimeIngressRecorded
@@ -447,6 +450,7 @@ impl WalRecordKind {
             Self::TopologyBraidEventRecorded => 19,
             Self::TopologyBraidShellRetained => 20,
             Self::TopologySuffixImportRecorded => 21,
+            Self::SubmissionEnvelopeRetained => 22,
         }
     }
 
@@ -473,6 +477,7 @@ impl WalRecordKind {
             19 => Ok(Self::TopologyBraidEventRecorded),
             20 => Ok(Self::TopologyBraidShellRetained),
             21 => Ok(Self::TopologySuffixImportRecorded),
+            22 => Ok(Self::SubmissionEnvelopeRetained),
             _ => Err(WalDecodeError::UnknownEnumCode {
                 enum_name: "WalRecordKind",
                 code,
@@ -1790,6 +1795,54 @@ impl SubmissionAcceptanceRecord {
     }
 }
 
+/// WAL record carrying canonical material for one witnessed submission.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WalSubmissionEnvelopeRecord {
+    /// Stable submission id associated with the retained envelope.
+    pub submission_id: Hash,
+    /// Canonical ingress digest committed by submission acceptance.
+    pub canonical_envelope_digest: Hash,
+    /// Echo-owned submission generation needed for deterministic ledger replay.
+    pub submission_generation: u64,
+    /// Resolved writer head against which the submission id was derived.
+    pub head_key: WriterHeadKey,
+    /// Versioned retained ingress envelope bytes.
+    pub retained_envelope_bytes: Vec<u8>,
+}
+
+impl WalSubmissionEnvelopeRecord {
+    /// Encodes the retained submission material deterministically.
+    #[must_use]
+    pub fn to_payload_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        push_hash(&mut out, &self.submission_id);
+        push_hash(&mut out, &self.canonical_envelope_digest);
+        out.extend_from_slice(&self.submission_generation.to_le_bytes());
+        push_writer_head_key(&mut out, self.head_key);
+        out.extend_from_slice(&len_u64(self.retained_envelope_bytes.len()).to_le_bytes());
+        out.extend_from_slice(&self.retained_envelope_bytes);
+        out
+    }
+
+    /// Decodes retained submission material with payload-bounded allocation.
+    pub fn from_payload_bytes(bytes: &[u8]) -> Result<Self, WalDecodeError> {
+        let mut cursor = WalPayloadCursor::new(bytes);
+        let submission_id = cursor.read_hash()?;
+        let canonical_envelope_digest = cursor.read_hash()?;
+        let submission_generation = cursor.read_u64()?;
+        let head_key = cursor.read_writer_head_key()?;
+        let retained_envelope_bytes = cursor.read_vec()?;
+        cursor.finish()?;
+        Ok(Self {
+            submission_id,
+            canonical_envelope_digest,
+            submission_generation,
+            head_key,
+            retained_envelope_bytes,
+        })
+    }
+}
+
 /// Scheduler-owned tick decision captured by a WAL receipt record.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WalTickDecision {
@@ -2325,6 +2378,11 @@ impl RecoveredSubmissionIndex {
     #[must_use]
     pub fn get(&self, submission_id: &Hash) -> Option<&RecoveredSubmissionEntry> {
         self.submissions.get(submission_id)
+    }
+
+    /// Iterates recovered submissions in deterministic submission-id order.
+    pub fn entries(&self) -> impl Iterator<Item = (&Hash, &RecoveredSubmissionEntry)> {
+        self.submissions.iter()
     }
 
     /// Returns the number of recovered submissions.
@@ -6915,6 +6973,14 @@ pub fn build_submission_acceptance_transaction(
     record: SubmissionAcceptanceRecord,
     affected_frontiers: Vec<AffectedFrontier>,
 ) -> Result<WalCommittedTransaction, WalBuildError> {
+    push_submission_acceptance_records(&mut builder, record)?;
+    builder.commit(affected_frontiers)
+}
+
+fn push_submission_acceptance_records(
+    builder: &mut WalTransactionBuilder,
+    record: SubmissionAcceptanceRecord,
+) -> Result<(), WalBuildError> {
     builder.push_record(
         WalRecordKind::SubmissionAcceptedRecorded,
         record.to_payload_bytes(),
@@ -6922,6 +6988,21 @@ pub fn build_submission_acceptance_transaction(
     builder.push_record(
         WalRecordKind::SubmissionAcceptanceEvidenceRecorded,
         record.acceptance_evidence_digest.to_vec(),
+    )?;
+    Ok(())
+}
+
+/// Builds a submission acceptance transaction with replayable envelope material.
+pub fn build_submission_acceptance_with_material_transaction(
+    mut builder: WalTransactionBuilder,
+    record: SubmissionAcceptanceRecord,
+    material: WalSubmissionEnvelopeRecord,
+    affected_frontiers: Vec<AffectedFrontier>,
+) -> Result<WalCommittedTransaction, WalBuildError> {
+    push_submission_acceptance_records(&mut builder, record)?;
+    builder.push_record(
+        WalRecordKind::SubmissionEnvelopeRetained,
+        material.to_payload_bytes(),
     )?;
     builder.commit(affected_frontiers)
 }

@@ -48,6 +48,13 @@ parent lookup and reverse child lookup during read-only recovery. A contract can
 therefore define inverse semantics while Echo preserves the provenance chain
 across process loss.
 
+Sixth, trusted submission intake commits the canonical retained ingress envelope
+in the same transaction as acceptance evidence. Reopening a filesystem WAL can
+restore witnessed submission identity, generation, route, payload, and causal
+parents without scheduler or contract callbacks. Legacy acceptance records that
+lack envelope material remain inspectable, but recovery reports them as
+obstructed and the trusted host refuses to claim a complete replay.
+
 ## Boundaries
 
 The WAL belongs to the trusted runtime host. Application-facing code can submit
@@ -94,6 +101,11 @@ or file switch. The correct gate is whether the edit crossed the Echo
 WAL-backed ACK boundary and whether recovery can later classify it as pending,
 decided, rejected, or obstructed. If that boundary is unavailable, the editor
 must say so honestly instead of pretending a local buffer is causal history.
+
+Restored submission material is not yet full runtime-state replay. A decided
+tick still requires its replayable state delta and provenance support to restore
+the exact materialized application state. Submission restoration must not be
+described as complete editor-session restoration until that boundary is green.
 
 ## Topology Intents
 
@@ -160,6 +172,7 @@ The core test names to read first are:
 - `runtime_wal_ack_recover_read_only_rebuilds_submission_and_receipt_indexes`
 - `runtime_wal_ack_recover_read_only_exposes_recovery_certificate`
 - `filesystem_runtime_wal_recovers_receipt_causal_parents_after_host_restart`
+- `filesystem_runtime_wal_restores_witnessed_submission_material_after_restart`
 
 The host surface lives in `crates/warp-core/src/trusted_runtime_host.rs`,
 especially `TrustedRuntimeHost`, `TrustedRuntimeApp`, `TrustedRuntimeWal`,

@@ -16,16 +16,16 @@ use warp_core::causal_wal::{
     apply_committed_transaction, audit_wal_release_readiness,
     build_checkpoint_publication_transaction, build_materialization_outbox_transaction,
     build_recovery_certificate, build_retained_reading_transaction,
-    build_submission_acceptance_transaction, build_tick_transaction,
-    build_topology_intent_transaction, canonical_segment_relative_path, doctor_in_memory_store,
-    evaluate_checkpoint_publication, lint_wal_schema_terms, materialize_wal_projection_graph,
-    missing_material_scope, observe_wal_projection_graph_wsc, project_causal_commit_evidence,
-    project_filesystem_wal_recovery, project_wal_recovery, read_checkpoint_record,
-    rebuild_durability_indexes_after_recovery, recover_checkpoint_publications,
-    recover_filesystem_store, recover_in_memory_store, recover_materialization_outbox,
-    recover_materialization_outbox_with_retained_material, recover_receipt_index,
-    recover_retention_index, recover_submission_index, recover_topology_index,
-    recovered_submission_receipt_index_root, recovered_topology_index_root,
+    build_submission_acceptance_transaction, build_submission_acceptance_with_material_transaction,
+    build_tick_transaction, build_topology_intent_transaction, canonical_segment_relative_path,
+    doctor_in_memory_store, evaluate_checkpoint_publication, lint_wal_schema_terms,
+    materialize_wal_projection_graph, missing_material_scope, observe_wal_projection_graph_wsc,
+    project_causal_commit_evidence, project_filesystem_wal_recovery, project_wal_recovery,
+    read_checkpoint_record, rebuild_durability_indexes_after_recovery,
+    recover_checkpoint_publications, recover_filesystem_store, recover_in_memory_store,
+    recover_materialization_outbox, recover_materialization_outbox_with_retained_material,
+    recover_receipt_index, recover_retention_index, recover_submission_index,
+    recover_topology_index, recovered_submission_receipt_index_root, recovered_topology_index_root,
     retained_material_obstructions, shadow_replay_matches, validate_checkpoint_record,
     validate_strict_object_store_capabilities, wal_projection_graph_schema_hash,
     write_checkpoint_record_atomic, AffectedFrontier, AffectedFrontierKind,
@@ -48,9 +48,10 @@ use warp_core::causal_wal::{
     WalRecoveryProjectionPosture, WalRecoveryRetainedMaterialAvailability,
     WalRecoveryRetainedMaterialPosture, WalRecoverySegmentEvidence, WalReleaseReadinessGates,
     WalRoot, WalSchemaLintError, WalSegmentId, WalSegmentRef, WalSegmentSealPosture,
-    WalSegmentStorageLocator, WalStoreError, WalStorePort, WalTickDecision, WalTransactionBuilder,
-    WalTransactionId, WalTransactionKind, WalWriterEpoch, WriterEpoch, WriterEpochId,
-    WriterEpochRequest, WAL_PROJECTION_GRAPH_RECOVERY_CERTIFICATE_EDGE_TYPE,
+    WalSegmentStorageLocator, WalStoreError, WalStorePort, WalSubmissionEnvelopeRecord,
+    WalTickDecision, WalTransactionBuilder, WalTransactionId, WalTransactionKind, WalWriterEpoch,
+    WriterEpoch, WriterEpochId, WriterEpochRequest,
+    WAL_PROJECTION_GRAPH_RECOVERY_CERTIFICATE_EDGE_TYPE,
     WAL_PROJECTION_GRAPH_ROOT_COMMIT_ANCHOR_EDGE_TYPE,
     WAL_PROJECTION_GRAPH_SEGMENT_COMMIT_ANCHOR_EDGE_TYPE, WAL_PROJECTION_GRAPH_SEGMENT_EDGE_TYPE,
     WAL_PROJECTION_GRAPH_WRITER_EPOCH_EDGE_TYPE,
@@ -2651,6 +2652,7 @@ fn record_kind_name_does_not_imply_commit_before_transaction_commit() {
     let kinds = [
         WalRecordKind::SubmissionAcceptedRecorded,
         WalRecordKind::SubmissionAcceptanceEvidenceRecorded,
+        WalRecordKind::SubmissionEnvelopeRetained,
         WalRecordKind::RuntimeLawWitnessRecorded,
         WalRecordKind::RuntimeAdmissionTicketIssued,
         WalRecordKind::TicketedRuntimeIngressRecorded,
@@ -2670,6 +2672,52 @@ fn record_kind_name_does_not_imply_commit_before_transaction_commit() {
     assert!(kinds
         .iter()
         .all(|kind| kind.obeys_recorded_not_committed_grammar()));
+}
+
+#[test]
+fn submission_acceptance_retains_envelope_in_the_same_transaction() {
+    let acceptance = submission_acceptance("retained-envelope");
+    let material = WalSubmissionEnvelopeRecord {
+        submission_id: acceptance.submission_id,
+        canonical_envelope_digest: acceptance.canonical_envelope_digest,
+        submission_generation: 1,
+        head_key: head(7, worldline(6)),
+        retained_envelope_bytes: b"retained-envelope-v1".to_vec(),
+    };
+    let transaction = must_ok(build_submission_acceptance_with_material_transaction(
+        builder(
+            transaction_id("tx:submission:retained-envelope"),
+            Lsn::from_raw(0),
+            WalAppendAuthority::SubmissionIntake,
+            WalTransactionKind::SubmissionIntake,
+        ),
+        acceptance,
+        material.clone(),
+        vec![frontier(
+            AffectedFrontierKind::SubmissionQueue,
+            "queue:retained-envelope:before",
+            "queue:retained-envelope:after",
+        )],
+    ));
+
+    assert_eq!(
+        transaction
+            .frames
+            .iter()
+            .map(|frame| frame.header.record_kind)
+            .collect::<Vec<_>>(),
+        vec![
+            WalRecordKind::SubmissionAcceptedRecorded,
+            WalRecordKind::SubmissionAcceptanceEvidenceRecorded,
+            WalRecordKind::SubmissionEnvelopeRetained,
+        ]
+    );
+    assert_eq!(
+        must_ok(WalSubmissionEnvelopeRecord::from_payload_bytes(
+            &transaction.frames[2].payload.canonical_bytes,
+        )),
+        material
+    );
 }
 
 #[test]

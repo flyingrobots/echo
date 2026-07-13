@@ -454,7 +454,7 @@ pub use head::{
 /// [`WorldlineRuntime::ingest`] with these types.
 pub use head_inbox::{
     make_intent_kind, HeadInbox, InboxAddress, InboxPolicy, IngressCausalParent, IngressEnvelope,
-    IngressPayload, IngressTarget, IntentKind,
+    IngressEnvelopeDecodeError, IngressPayload, IngressTarget, IntentKind,
 };
 pub use worldline_registry::WorldlineRegistry;
 pub use worldline_state::{WorldlineFrontier, WorldlineState, WorldlineStateError};

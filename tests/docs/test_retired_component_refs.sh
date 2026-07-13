@@ -56,6 +56,11 @@ for map_file in \
     'warp-view-protocol'
 done
 
+check_absent \
+  "echo-dry-tests docs must not advertise the deleted config fake" \
+  "crates/echo-dry-tests/README.md" \
+  'InMemoryConfigStore|[Cc]onfiguration store'
+
 if ((failures > 0)); then
   echo "retired-component-ref: ${failures} violation(s)" >&2
   exit 1

@@ -9,7 +9,6 @@ Shared test doubles and fixtures for Echo crates.
 
 This crate provides reusable test utilities including:
 
-- In-memory configuration store for testing without filesystem
 - Demo rules (motion, port) for integration tests
 - Engine and GraphStore builder utilities
 - WarpSnapshot and WarpDiff builders
@@ -18,11 +17,6 @@ This crate provides reusable test utilities including:
 - Synthetic rule builders (noop matchers/executors)
 
 ## Public API
-
-### Config Store
-
-- **`InMemoryConfigStore`** - An in-memory configuration store implementing the
-  config trait, useful for testing without touching the filesystem.
 
 ### Demo Rules
 

@@ -46,6 +46,11 @@ check_missing \
   "the unimplemented WARP view protocol spec must stay retired" \
   "docs/spec/warp-view-protocol.md"
 
+check_absent \
+  "the workspace lockfile must not retain the retired TTD protocol importer" \
+  "pnpm-lock.yaml" \
+  '^[[:space:]]+packages/ttd-protocol-ts:'
+
 for map_file in \
   docs/README.md \
   crates/echo-graph/README.md \

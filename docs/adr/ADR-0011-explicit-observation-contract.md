@@ -3,10 +3,16 @@
 
 # ADR-0011: Explicit Observation Contract
 
-- **Status:** Implemented
+- **Status:** Partially superseded
+- **Superseded in part by:** [ADR 0021](0021-public-optic-observation-boundary.md), which replaces the claim that `observe(...)` is the only canonical public read entrypoint
 - **Date:** 2026-03-15
 - **Amends:** ADR-0008, ADR-0010
 - **Related:** ADR-0009
+
+ADR 0011 remains authoritative for explicit coordinates, frames, projections,
+read-only execution, deterministic serialization, and observation artifact
+identity. ADR 0021 governs the public WARP-optic versus internal observation
+boundary.
 
 ## Context
 

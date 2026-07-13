@@ -44,6 +44,7 @@ causal history. Git history is the archive; GitHub owns live work and status.
 - [Session causal posture and authority](adr/0018-sessions-causal-posture-and-authority.md)
 - [Bunny owns reusable geometry](adr/0019-bunny-owns-reusable-geometry.md)
 - [Retained reading storage and proof boundary](adr/0020-retained-reading-storage-and-proof-boundary.md)
+- [Public optic and observation boundary](adr/0021-public-optic-observation-boundary.md)
 
 ## Normative Contracts
 

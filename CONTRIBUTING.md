@@ -116,7 +116,10 @@ prioritize:
     - For a partial-staged commit, format and stage the intended whole-file
       result first, or separate formatter-only changes into their own commit.
     - With `ECHO_AUTO_FMT=0`, formatting failures abort without changing files.
-- Do not bypass hooks. The repo runs fmt, clippy, tests, and rustdoc on the pinned toolchain before push.
+- Do not bypass hooks. Pre-push runs changed-scope checks on the pinned
+  toolchain. Broad tests and rustdoc are CI-owned by default. Run
+  `VERIFY_LOCAL_FULL_TESTS=1 VERIFY_LOCAL_RUSTDOC=1 scripts/verify-local.sh pre-push`
+  to opt in locally.
 - Toolchain: pinned to Rust 1.90.0. Ensure your local override matches:
     - rustup toolchain install 1.90.0
     - rustup override set 1.90.0

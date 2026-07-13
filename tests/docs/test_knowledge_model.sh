@@ -311,6 +311,24 @@ if grep -Eq \
   failures=$((failures + 1))
 fi
 
+if grep -Eq \
+  'repo runs fmt, clippy, tests, and rustdoc .*before push' \
+  CONTRIBUTING.md; then
+  echo "knowledge-model: contributor guide overstates pre-push coverage" >&2
+  failures=$((failures + 1))
+fi
+
+for pre_push_truth in \
+  'Pre-push runs changed-scope checks' \
+  'Broad tests and rustdoc are CI-owned by default' \
+  'VERIFY_LOCAL_FULL_TESTS=1' \
+  'VERIFY_LOCAL_RUSTDOC=1'; do
+  if ! grep -Fq -- "${pre_push_truth}" CONTRIBUTING.md; then
+    echo "knowledge-model: contributor guide missing: ${pre_push_truth}" >&2
+    failures=$((failures + 1))
+  fi
+done
+
 if rg -q \
   '^Legend:|^## Why this packet exists|^## (Human|Agent) users / jobs / hills|^The hill:' \
   docs/spec; then

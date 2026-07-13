@@ -258,6 +258,32 @@ if grep -Eq '^## [0-9]+\. (Audit Findings|Implementation Checklist)|Issue #[0-9]
   failures=$((failures + 1))
 fi
 
+if rg -q \
+  'Echo-admitted causal anchors|A causal anchor is .*Echo-admitted|Echo validates that the frontier is admitted|A later slice must|Causal anchor + = Echo admitted' \
+  docs/topics/CausalAnchors.md crates/warp-core/src/causal_anchor.rs; then
+  echo "knowledge-model: causal-anchor contract overclaims trusted admission" >&2
+  failures=$((failures + 1))
+fi
+
+for causal_anchor_truth in \
+  'canonical causal-anchor value contract' \
+  'caller-provided references' \
+  'No current API verifies' \
+  'publishes the value under trusted runtime authority'; do
+  if ! grep -Fq -- "${causal_anchor_truth}" docs/topics/CausalAnchors.md; then
+    echo "knowledge-model: causal-anchor topic missing: ${causal_anchor_truth}" >&2
+    failures=$((failures + 1))
+  fi
+done
+
+if ! grep -Fq -- 'does not verify frontier admission' \
+  crates/warp-core/src/causal_anchor.rs || \
+  ! grep -Fq -- 'receipt provenance, authority, or retention' \
+  crates/warp-core/src/causal_anchor.rs; then
+  echo "knowledge-model: causal-anchor API docs hide the unverified boundary" >&2
+  failures=$((failures + 1))
+fi
+
 if grep -Eq 'current `v[0-9]+\.[0-9]+\.[0-9]+` goal|Ongoing work focuses' README.md; then
   echo "knowledge-model: README contains a live release goal or work queue" >&2
   failures=$((failures + 1))

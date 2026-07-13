@@ -13,24 +13,17 @@ For deep-track doctrine, theoretical foundations (AION Foundations), and interna
 
 Integrate deterministic graph rewriting into your application or game.
 
-- **Read**: [Start Here](./docs/guide/start-here.md)
+- **Read**: [Local Contract Host Quickstart](./docs/quickstart-local-contract-host.md)
 - **Host**: [Architecture](./ARCHITECTURE.md) (Engine pipeline)
 
 ### 2. Verify Determinism (DIND)
 
 Use the "Drill Sergeant" discipline to prove cross-platform convergence.
 
-- **Read**: [DIND Harness](./docs/dind-harness.md)
+- **Read**: [DIND Harness](./docs/determinism/dind-harness.md)
 - **Run**: `cargo xtask dind run`
 
-### 3. Time Travel Debugging
-
-Explore the worldline algebra through the interactive debugger.
-
-- **WASM**: [ttd-browser](./crates/ttd-browser)
-- **Host**: [echo-ttd](./crates/echo-ttd)
-
-### 4. Continuous Integration
+### 3. Continuous Integration
 
 Understand the guardrails that prevent non-determinism from entering main.
 

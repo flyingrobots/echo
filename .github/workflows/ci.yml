@@ -36,6 +36,8 @@ jobs:
                   submodules: false
             - name: verify-local hook regression
               run: bash tests/hooks/test_verify_local.sh
+            - name: retired component reference regression
+              run: bash tests/docs/test_retired_component_refs.sh
 
     clippy-libs-core:
         name: Clippy (core libs)

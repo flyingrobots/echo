@@ -102,6 +102,32 @@ test_missing_release_project_link_fails() {
   }
 }
 
+test_release_contract_decouples_edict() {
+  local release_contract
+  release_contract="${repo_root}/docs/releases/echo-1.0-contract.md"
+
+  if grep -Fq -- "https://github.com/flyingrobots/echo/issues/589" "$release_contract"; then
+    fail "Echo 1.0 release contract still gates release on Edict issue #589"
+  fi
+
+  grep -Fq -- 'Edict and `jedit` compatibility work does not gate Echo 1.0.' "$release_contract" || {
+    fail "Echo 1.0 release contract does not state the Edict decoupling decision"
+  }
+}
+
+test_checker_rejects_edict_release_gate() {
+  local tmp out
+  make_fixture tmp
+
+  printf '\n%s\n' "https://github.com/flyingrobots/echo/issues/589" >>"${tmp}/docs/releases/echo-1.0-contract.md"
+
+  out="$({ ECHO_REPO_ROOT="$tmp" "$checker"; } 2>&1 || true)"
+  echo "$out" | grep -q "release contract rejects Edict release gate" || {
+    echo "$out" >&2
+    fail "checker did not reject the retired Edict release gate"
+  }
+}
+
 test_missing_duplicate_replay_law_fails() {
   local tmp out
   make_fixture tmp
@@ -152,6 +178,8 @@ main() {
   test_missing_bootstrap_phrase_fails
   test_missing_runtime_authority_phrase_fails
   test_missing_release_project_link_fails
+  test_release_contract_decouples_edict
+  test_checker_rejects_edict_release_gate
   test_missing_duplicate_replay_law_fails
   test_stale_durability_claims_fail
 }

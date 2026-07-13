@@ -23,18 +23,17 @@ release bar inside the larger Continuum stack convergence.
 
 ## Release Gates
 
-Echo 1.0 is blocked until all four release gates are closed by
+Echo 1.0 is blocked until all three release gates are closed by
 evidence-bearing pull requests:
 
 | Gate | Issue                                                                                              | Contract                                                                                |
 | ---- | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
 | A    | [#585 Gate A - Continuum Participant Conformance](https://github.com/flyingrobots/echo/issues/585) | Echo is a lawful Continuum participant.                                                 |
 | B    | [#591 Gate B - Networked Causal Suffix Exchange](https://github.com/flyingrobots/echo/issues/591)  | Echo and `git-warp` exchange witnessed causal suffixes over a real network boundary.    |
-| C    | [#589 Gate C - Native Jedit-on-Edict Execution](https://github.com/flyingrobots/echo/issues/589)   | Echo executes designated `jedit` operations through admitted Edict artifacts.           |
 | D    | [#588 Gate D - Release Integrity](https://github.com/flyingrobots/echo/issues/588)                 | The release candidate is reproducible, packaged, documented, compatible, and auditable. |
 
 The release bar issue [#584](https://github.com/flyingrobots/echo/issues/584)
-depends on all four gate issues. Gate D depends on Gates A, B, and C, because a
+depends on all three gate issues. Gate D depends on Gates A and B, because a
 release candidate may only be cut from the demonstrated compatibility set.
 
 ## Definitions
@@ -50,11 +49,6 @@ disconnect and resume, deterministically admit or reject duplicate, reordered,
 stale, and tampered suffixes, and prove reconstructed state from received
 history.
 
-Native Jedit-on-Edict execution means every designated `jedit` operation
-compiles through Edict, Echo admits and invokes the resulting artifact, bespoke
-`jedit` execution paths are removed or unreachable, and a negative test proves
-the old bypass cannot execute.
-
 Release integrity means Echo ships only from a clean-room reproducible build,
 an exact cross-repository compatibility set, verified package and documentation
 artifacts, upgrade and rollback evidence, and the closed evidence from all
@@ -67,9 +61,8 @@ negative-test output, and release manifest entries required by the relevant
 gate.
 
 A compatibility set is the pinned multi-repository state used to build,
-exercise, and release Echo 1.0. It must include Echo, `git-warp`, Continuum,
-Edict, `jedit`, and every artifact schema or protocol version needed to verify
-the release gates.
+exercise, and release Echo 1.0. It must include Echo, `git-warp`, Continuum, and
+every artifact schema or protocol version needed to verify the release gates.
 
 ## Non-Goals
 
@@ -88,9 +81,9 @@ applications.
 State sync is not sufficient for Gate B. The release proof must be witnessed
 causal suffix exchange with deterministic admission and rejection behavior.
 
-Direct `jedit` execution is not sufficient for Gate C. The release proof must
-run through Edict artifact compilation, admission, invocation, and Echo
-mutation evidence.
+Edict and `jedit` compatibility work does not gate Echo 1.0. A particular
+application, authoring language, or generated rule package may prove downstream
+compatibility independently, but it is not part of Echo's binary release bar.
 
 Independently green repositories are not sufficient for Gate D. Echo 1.0 is one
 demonstrated compatibility set, not several unrelated successful CI runs.
@@ -104,9 +97,8 @@ must pin:
 - Echo commit and release candidate version.
 - `git-warp` commit and suffix-exchange protocol version.
 - Continuum commit and participant profile version.
-- Edict commit, artifact schema version, and relevant bundle digests.
-- `jedit` commit and designated operation set.
-- Dependency versions and generated-package versions.
+- Dependency versions and any generated-package versions actually included in
+  the release candidate.
 - Workflow runs, proof-packet digests, and release-candidate artifact digests.
 
 No release candidate may be generated from unpinned repository state,
@@ -124,15 +116,9 @@ duplicate/reordered/stale/tampered suffix cases, deterministic admission or
 rejection, reconstructed state proof from received history, and an evidence
 bundle containing both peers' identities and commit SHAs.
 
-Gate C requires deterministic Edict compilation for designated `jedit`
-operations, versioned artifact schema, capability and optics enforcement,
-deterministic invocation envelopes, rejection of malformed, unauthorized, and
-incompatible artifacts, old-bypass negative tests, and an end-to-end trace from
-authored operation to Echo mutation.
-
 Gate D requires a clean-room reproducible build, exact cross-repository
 compatibility set, upgrade and rollback tests, package and documentation
-verification, all four gate issues closed by evidence-bearing PRs, and a
+verification, all three gate issues closed by evidence-bearing PRs, and a
 release candidate generated only from the pinned compatibility set.
 
 ## Pass Rule

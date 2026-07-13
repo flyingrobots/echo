@@ -96,8 +96,10 @@ require_literal "release contract links Continuum Stack Convergence Project" "$r
 require_literal "release contract links Release Bar" "$release_contract" "$issue_584_url"
 require_literal "release contract links Gate A" "$release_contract" "$issue_585_url"
 require_literal "release contract links Gate B" "$release_contract" "$issue_591_url"
-require_literal "release contract links Gate C" "$release_contract" "$issue_589_url"
 require_literal "release contract links Gate D" "$release_contract" "$issue_588_url"
+require_literal "release contract decouples Edict compatibility" "$release_contract" 'Edict and `jedit` compatibility work does not gate Echo 1.0.'
+reject_literal_anywhere "release contract rejects Edict release gate" "$issue_589_url" "$release_contract"
+reject_literal_anywhere "release contract rejects retired Gate C" "Gate C" "$release_contract"
 require_literal "release contract names release manifest" "$release_contract" "echo-convergence.lock"
 require_literal "release contract requires proof packets" "$release_contract" "A proof packet is a downloadable or inspectable evidence bundle"
 require_literal "release contract pins compatibility set" "$release_contract" "A compatibility set is the pinned multi-repository state"

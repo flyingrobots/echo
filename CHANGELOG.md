@@ -786,6 +786,10 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Changed
 
+- Echo 1.0 release eligibility now depends only on Continuum participant
+  conformance, networked causal suffix exchange, and release integrity. Edict,
+  `jedit`, and any particular generated package remain downstream compatibility
+  work and no longer gate the Echo release.
 - Echo 1.0 planning references now point at the cross-repository Continuum
   Stack Convergence Project instead of the retired Echo-only Project.
 - Local `scripts/verify-local.sh full` now treats broad Cargo test lanes as

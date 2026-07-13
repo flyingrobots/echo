@@ -77,6 +77,20 @@ check_absent \
   "docs/spec/SPEC-0009-wasm-abi-v3.md" \
   'crates/echo-session-proto/src/eint_v2\.rs'
 
+check_absent \
+  "historical ABI v3 spec must not claim active or current authority" \
+  "docs/spec/SPEC-0009-wasm-abi-v3.md" \
+  'Status:\*\* Active|specifies the current WASM|current WASM export'
+
+for required_v3_claim in \
+  '**Status:** Superseded' \
+  '[canonical WASM ABI specification](SPEC-0009-wasm-abi.md)'; do
+  if ! rg -q -F -- "${required_v3_claim}" docs/spec/SPEC-0009-wasm-abi-v3.md; then
+    echo "retired-component-ref: historical ABI v3 spec missing: ${required_v3_claim}" >&2
+    failures=$((failures + 1))
+  fi
+done
+
 check_missing \
   "the unimplemented WARP view protocol spec must stay retired" \
   "docs/spec/warp-view-protocol.md"

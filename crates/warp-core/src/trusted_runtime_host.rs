@@ -1513,119 +1513,6 @@ fn wal_tick_decision_from_observation(
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{
-        GlobalTick, IngressSubmissionGeneration, WorldlineId, WorldlineTick, WriterHeadKey,
-    };
-
-    fn test_head_key() -> WriterHeadKey {
-        WriterHeadKey {
-            worldline_id: WorldlineId::from_bytes([9; 32]),
-            head_id: crate::make_head_id("runtime-wal-test"),
-        }
-    }
-
-    fn test_correlation(receipt_digest: Hash) -> ReceiptCorrelationRecord {
-        ReceiptCorrelationRecord {
-            ticketed_ingress_id: [1; 32],
-            submission_id: [2; 32],
-            ticket_digest: [3; 32],
-            ingress_id: [4; 32],
-            head_key: test_head_key(),
-            contract: None,
-            commit_global_tick: GlobalTick::from_raw(1),
-            worldline_tick_after: WorldlineTick::from_raw(1),
-            tick_receipt_digest: receipt_digest,
-            commit_hash: [5; 32],
-        }
-    }
-
-    #[test]
-    fn runtime_wal_tick_decision_rejects_pending_observation_as_invariant() {
-        let err = wal_tick_decision_from_observation(
-            IntentOutcomeObservation::Pending {
-                submission_id: [2; 32],
-                submission_generation: IngressSubmissionGeneration::from_raw(1),
-                ticketed_ingress_id: Some([6; 32]),
-            },
-            [7; 32],
-        )
-        .expect_err("pending outcome cannot produce scheduler tick WAL evidence");
-
-        assert!(matches!(
-            err,
-            TrustedRuntimeWalError::TickOutcomeUnavailable {
-                submission_id,
-                receipt_digest,
-            } if submission_id == [2; 32] && receipt_digest == [7; 32]
-        ));
-    }
-
-    #[test]
-    fn runtime_wal_tick_decision_rejects_receipt_digest_mismatch_as_invariant() {
-        let err = wal_tick_decision_from_observation(
-            IntentOutcomeObservation::Decided {
-                correlation: Box::new(test_correlation([8; 32])),
-                decision: IntentOutcomeDecision::Applied {
-                    receipt_entry_index: 0,
-                    rule_id: [9; 32],
-                },
-            },
-            [7; 32],
-        )
-        .expect_err("mismatched receipt digest cannot produce scheduler tick WAL evidence");
-
-        assert!(matches!(
-            err,
-            TrustedRuntimeWalError::TickReceiptDigestMismatch {
-                expected_receipt_digest,
-                observed_receipt_digest,
-            } if expected_receipt_digest == [7; 32] && observed_receipt_digest == [8; 32]
-        ));
-    }
-
-    #[test]
-    fn runtime_wal_tick_decision_rejects_missing_receipt_entry_as_invariant() {
-        let err = wal_tick_decision_from_observation(
-            IntentOutcomeObservation::Decided {
-                correlation: Box::new(test_correlation([7; 32])),
-                decision: IntentOutcomeDecision::NoMatchingReceiptEntry {
-                    tick_receipt_digest: [7; 32],
-                },
-            },
-            [7; 32],
-        )
-        .expect_err("missing receipt entries cannot produce scheduler tick WAL evidence");
-
-        assert!(matches!(
-            err,
-            TrustedRuntimeWalError::TickOutcomeUnavailable {
-                submission_id,
-                receipt_digest,
-            } if submission_id == [2; 32] && receipt_digest == [7; 32]
-        ));
-    }
-
-    #[test]
-    fn runtime_wal_tick_decision_maps_matching_outcome() {
-        let decision = wal_tick_decision_from_observation(
-            IntentOutcomeObservation::Decided {
-                correlation: Box::new(test_correlation([7; 32])),
-                decision: IntentOutcomeDecision::Applied {
-                    receipt_entry_index: 0,
-                    rule_id: [9; 32],
-                },
-            },
-            [7; 32],
-        )
-        .expect("matching outcome should map to a WAL tick decision");
-
-        assert_eq!(decision, WalTickDecision::Applied);
-    }
-}
-
 fn tick_transaction_digest(
     correlation: &ReceiptCorrelationRecord,
     decision: WalTickDecision,
@@ -1733,4 +1620,109 @@ fn runtime_wal_recovery_certificate(
         recovered_frontier_root,
         recovered_submission_receipt_index_root(submissions, receipts),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        GlobalTick, IngressSubmissionGeneration, WorldlineId, WorldlineTick, WriterHeadKey,
+    };
+
+    fn test_head_key() -> WriterHeadKey {
+        WriterHeadKey {
+            worldline_id: WorldlineId::from_bytes([9; 32]),
+            head_id: crate::make_head_id("runtime-wal-test"),
+        }
+    }
+
+    fn test_correlation(receipt_digest: Hash) -> ReceiptCorrelationRecord {
+        ReceiptCorrelationRecord {
+            ticketed_ingress_id: [1; 32],
+            submission_id: [2; 32],
+            ticket_digest: [3; 32],
+            ingress_id: [4; 32],
+            head_key: test_head_key(),
+            contract: None,
+            commit_global_tick: GlobalTick::from_raw(1),
+            worldline_tick_after: WorldlineTick::from_raw(1),
+            tick_receipt_digest: receipt_digest,
+            commit_hash: [5; 32],
+        }
+    }
+
+    #[test]
+    fn runtime_wal_tick_decision_rejects_pending_observation_as_invariant() {
+        assert!(matches!(
+            wal_tick_decision_from_observation(
+                IntentOutcomeObservation::Pending {
+                    submission_id: [2; 32],
+                    submission_generation: IngressSubmissionGeneration::from_raw(1),
+                    ticketed_ingress_id: Some([6; 32]),
+                },
+                [7; 32],
+            ),
+            Err(TrustedRuntimeWalError::TickOutcomeUnavailable {
+                submission_id,
+                receipt_digest,
+            }) if submission_id == [2; 32] && receipt_digest == [7; 32]
+        ));
+    }
+
+    #[test]
+    fn runtime_wal_tick_decision_rejects_receipt_digest_mismatch_as_invariant() {
+        assert!(matches!(
+            wal_tick_decision_from_observation(
+                IntentOutcomeObservation::Decided {
+                    correlation: Box::new(test_correlation([8; 32])),
+                    decision: IntentOutcomeDecision::Applied {
+                        receipt_entry_index: 0,
+                        rule_id: [9; 32],
+                    },
+                },
+                [7; 32],
+            ),
+            Err(TrustedRuntimeWalError::TickReceiptDigestMismatch {
+                expected_receipt_digest,
+                observed_receipt_digest,
+            }) if expected_receipt_digest == [7; 32]
+                && observed_receipt_digest == [8; 32]
+        ));
+    }
+
+    #[test]
+    fn runtime_wal_tick_decision_rejects_missing_receipt_entry_as_invariant() {
+        assert!(matches!(
+            wal_tick_decision_from_observation(
+                IntentOutcomeObservation::Decided {
+                    correlation: Box::new(test_correlation([7; 32])),
+                    decision: IntentOutcomeDecision::NoMatchingReceiptEntry {
+                        tick_receipt_digest: [7; 32],
+                    },
+                },
+                [7; 32],
+            ),
+            Err(TrustedRuntimeWalError::TickOutcomeUnavailable {
+                submission_id,
+                receipt_digest,
+            }) if submission_id == [2; 32] && receipt_digest == [7; 32]
+        ));
+    }
+
+    #[test]
+    fn runtime_wal_tick_decision_maps_matching_outcome() {
+        assert!(matches!(
+            wal_tick_decision_from_observation(
+                IntentOutcomeObservation::Decided {
+                    correlation: Box::new(test_correlation([7; 32])),
+                    decision: IntentOutcomeDecision::Applied {
+                        receipt_entry_index: 0,
+                        rule_id: [9; 32],
+                    },
+                },
+                [7; 32],
+            ),
+            Ok(WalTickDecision::Applied)
+        ));
+    }
 }

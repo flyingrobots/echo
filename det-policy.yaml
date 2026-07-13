@@ -53,10 +53,6 @@ crates:
     class: DET_CRITICAL
     owner_role: "Architect"
     paths: ["crates/echo-graph/**"]
-  echo-ttd:
-    class: DET_CRITICAL
-    owner_role: "Architect"
-    paths: ["crates/echo-ttd/**"]
   echo-dind-harness:
     class: DET_CRITICAL
     owner_role: "CI Engineer"
@@ -65,14 +61,6 @@ crates:
     class: DET_CRITICAL
     owner_role: "CI Engineer"
     paths: ["crates/echo-dind-tests/**"]
-  ttd-browser:
-    class: DET_CRITICAL
-    owner_role: "Architect"
-    paths: ["crates/ttd-browser/**"]
-  ttd-protocol-rs:
-    class: DET_CRITICAL
-    owner_role: "Architect"
-    paths: ["crates/ttd-protocol-rs/**"]
   ci:
     class: DET_CRITICAL
     owner_role: "CI Engineer"
@@ -87,10 +75,6 @@ crates:
     class: DET_IMPORTANT
     owner_role: "Architect"
     paths: ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "deny.toml", "audit.toml"]
-  echo-wasm-bindings:
-    class: DET_IMPORTANT
-    owner_role: "Tooling Engineer"
-    paths: ["crates/echo-wasm-bindings/**"]
   echo-wesley-gen:
     class: DET_IMPORTANT
     owner_role: "Tooling Engineer"
@@ -103,18 +87,10 @@ crates:
     class: DET_IMPORTANT
     owner_role: "Architect"
     paths: ["crates/echo-cas/**"]
-  echo-config-fs:
-    class: DET_IMPORTANT
-    owner_role: "Architect"
-    paths: ["crates/echo-config-fs/**"]
   echo-registry-api:
     class: DET_IMPORTANT
     owner_role: "Architect"
     paths: ["crates/echo-registry-api/**"]
-  echo-session-proto:
-    class: DET_IMPORTANT
-    owner_role: "Architect"
-    paths: ["crates/echo-session-proto/**"]
   warp-cli:
     class: DET_IMPORTANT
     owner_role: "Architect"

@@ -4,4 +4,3 @@
 **/warp-core/src/engine_impl.rs
 **/warp-core/src/attachment.rs
 **/echo-wasm-abi/src/lib.rs
-**/echo-wasm-bindings/src/lib.rs

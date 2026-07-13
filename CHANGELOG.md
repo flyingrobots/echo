@@ -737,6 +737,18 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Removed
 
+- Deleted zombie crates with no consumers (recoverable from git history):
+  `echo-wasm-bindings` (browser demo kernel), `echo-ttd`, `ttd-protocol-rs`,
+  `echo-session-proto`, and the untracked `ttd-browser` prebuilt artifact
+  (TTD stack now lives with warp-ttd), plus `echo-config-fs` (desktop
+  app-shell fossil) and the `packages/ttd-protocol-ts` generated consumer.
+- Deleted `cargo xtask wesley` (existed only to sync the removed TTD
+  protocol consumer artifacts).
+- Deleted stale point-in-time audit reports under `docs/audit/` and
+  `docs/audits/`.
+- Removed the deleted crates from workspace members, CI clippy lanes,
+  `det-policy.yaml`, `scripts/verify-local.sh`, and the unordered-ABI
+  allowlist.
 - Removed the VitePress docs-site toolchain from active repo tooling: npm
   scripts, Make targets, tracked docs-site config, the dead browser-open helper,
   and VitePress/Mermaid dependencies are gone.

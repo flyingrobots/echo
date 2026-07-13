@@ -422,7 +422,6 @@ cargo bench -p warp-benches
 - `echo-wasm-abi`: public ABI and wire DTOs
 - `echo-wesley-gen`: Wesley contract helper generator
 - `echo-cas`: content-addressed retention and semantic lookup
-- `echo-ttd`: time-travel and playback tooling
 
 ## Onramps
 

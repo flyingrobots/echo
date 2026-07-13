@@ -260,10 +260,8 @@ readonly FULL_CRITICAL_PREFIXES=(
   "crates/echo-scene-port/"
   "crates/echo-scene-codec/"
   "crates/echo-graph/"
-  "crates/echo-ttd/"
   "crates/echo-dind-harness/"
   "crates/echo-dind-tests/"
-  "crates/ttd-protocol-rs/"
   ".github/workflows/"
   ".githooks/"
   "scripts/"
@@ -314,10 +312,8 @@ readonly FULL_LOCAL_PACKAGES=(
   "echo-scene-port"
   "echo-scene-codec"
   "echo-graph"
-  "echo-ttd"
   "echo-dind-harness"
   "echo-dind-tests"
-  "ttd-protocol-rs"
   "xtask"
 )
 
@@ -327,7 +323,6 @@ readonly FULL_LOCAL_TEST_PACKAGES=(
   "echo-graph"
   "echo-scene-port"
   "echo-scene-codec"
-  "echo-ttd"
   "echo-dind-harness"
   "echo-dind-tests"
 )
@@ -344,10 +339,8 @@ readonly FULL_LOCAL_CLIPPY_SUPPORT_PACKAGES=(
   "echo-scene-port"
   "echo-scene-codec"
   "echo-graph"
-  "echo-ttd"
   "echo-dind-harness"
   "echo-dind-tests"
-  "ttd-protocol-rs"
 )
 
 readonly FULL_LOCAL_CLIPPY_BIN_ONLY_PACKAGES=(

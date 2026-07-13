@@ -86,6 +86,10 @@ check_missing \
   "docs/assets/wvp"
 
 check_missing \
+  "the empty-value unordered ABI exemption file must stay retired" \
+  ".ban-unordered-abi-allowlist"
+
+check_missing \
   "the unused TTD WASM ABI module must stay retired" \
   "crates/echo-wasm-abi/src/ttd.rs"
 

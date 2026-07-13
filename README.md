@@ -103,28 +103,44 @@ model.
 
 ## How It Works
 
-1. Author your domain model as a GraphQL contract.
-2. Compile it with Wesley into generated helpers, codecs, and contract
-   artifacts.
-3. Submit canonical intents through Echo's generic ingress boundary.
-4. Echo owns admission, scheduling, ticks, settlement, and execution.
-5. Observe results as `ObservationArtifact`s with `ReadingEnvelope` evidence.
+Echo currently implements two separate halves of the generated-contract path.
+Wesley currently emits raw `RewriteRule` builders and generated helpers. Its
+integration fixture enables the policy-gated `native_rule_bootstrap` feature
+and registers those rules directly. It does not emit an `InstalledContractPackage`
+or exercise package verification.
+
+Echo separately verifies and registers `InstalledContractPackage` values,
+dispatches registered handlers through the scheduler, and stamps rule-pack
+identity into runtime evidence. No current Wesley or Edict generator connects
+compiler output to that package path.
 
 ```mermaid
 sequenceDiagram
     participant Dev
-    participant App
     participant Wesley
+    participant Fixture
     participant Echo
 
     Dev->>Dev: Author GraphQL contract
     Dev->>Wesley: Compile with echo-wesley-gen
-    Wesley-->>Dev: Generated helpers + contract artifacts
-    App->>Echo: Submit canonical intent
-    Echo-->>App: DispatchResponse with ingress evidence
+    Wesley-->>Fixture: RewriteRule builders + helpers
+    Fixture->>Echo: register_rule via native_rule_bootstrap
+    Fixture->>Echo: Submit canonical intent
+    Echo-->>Fixture: DispatchResponse with ingress evidence
     Echo->>Echo: Runtime-owned admission, scheduling, tick
-    App->>Echo: Send ObservationRequest
-    Echo-->>App: ObservationArtifact + ReadingEnvelope
+    Fixture->>Echo: Send bounded optic request
+    Echo-->>Fixture: OpticReading or typed obstruction
+```
+
+The package-shaped flow below is the target corridor, not a current end-to-end application path:
+
+```text
+authored Wesley or Edict source
+-> verified compiler IR
+-> generated handlers, observers, footprints, and package metadata
+-> InstalledContractPackage verification
+-> scheduler-owned execution
+-> receipts and readings bound to package identity
 ```
 
 ## Contracts And Boundaries
@@ -132,12 +148,19 @@ sequenceDiagram
 Echo core is intentionally generic. Application nouns belong in authored
 contracts and generated adapters, not in the runtime kernel.
 
-- You define nouns, operations, and queries in GraphQL.
-- You use Wesley directives such as `@wes_op` and `@wes_footprint` to describe
-  operation identity and deterministic footprint claims.
-- Wesley generates type-safe helpers, codecs, registry metadata, and host
-  adapters.
-- Echo verifies and hosts those artifacts through stable generic boundaries.
+- Wesley contract fixtures define nouns, operations, and queries in GraphQL and
+  use directives such as `@wes_op` and `@wes_footprint` for operation and
+  footprint claims.
+- The current generator emits Rust rule builders and helper code, not a
+  verified installable package or a supported external application SDK.
+- Echo's package registry and scheduler path is implemented independently of
+  that fixture generator.
+- A package-qualified compiler must join those halves through the generic
+  package boundary; it must not create a second execution engine.
+
+See [Generated Rule Authorship](docs/topics/GeneratedRules.md) for the exact
+current/target boundary, including the fixture-only Edict bridge and the absent
+release footprint-qualification lane.
 
 ```graphql
 type Mutation {

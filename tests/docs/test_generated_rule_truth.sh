@@ -11,6 +11,7 @@ topic="docs/topics/GeneratedRules.md"
 adr="docs/adr/0014-generated-rule-authorship-and-footprints.md"
 wesley_fixture="crates/echo-wesley-gen/tests/generation.rs"
 edict_bridge="crates/warp-core/src/edict_target_ir.rs"
+readme="README.md"
 
 fail() {
   echo "generated-rule-truth: $*" >&2
@@ -51,5 +52,10 @@ reject_literal "$topic" "The supported flow is:"
 reject_literal "$topic" "The missing Edict bridge is a generator"
 reject_literal "$adr" '`native_rule_bootstrap` remains sealed'
 reject_literal "$adr" "without the sealed feature"
+
+require_literal "$readme" 'Wesley currently emits raw `RewriteRule` builders and generated helpers.'
+require_literal "$readme" 'It does not emit an `InstalledContractPackage`'
+require_literal "$readme" 'The package-shaped flow below is the target corridor, not a current end-to-end application path:'
+reject_literal "$readme" 'Wesley generates type-safe helpers, codecs, registry metadata, and host adapters.'
 
 echo "generated-rule-truth: current Wesley, Edict, and feature boundaries are explicit"

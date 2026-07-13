@@ -155,6 +155,15 @@ for basename in "${current_adrs[@]}"; do
   fi
 done
 
+for basename in "${legacy_adrs[@]}"; do
+  id="${basename#ADR-}"
+  id="${id%%-*}"
+  path="docs/adr/${basename}"
+  if [[ -f "$path" ]] && ! grep -Eq -- "^# ADR-${id}:" "$path"; then
+    fail "H1 number does not match filename: ${path}"
+  fi
+done
+
 if ((failures > 0)); then
   echo "adr-namespace: ${failures} violation(s)" >&2
   exit 1

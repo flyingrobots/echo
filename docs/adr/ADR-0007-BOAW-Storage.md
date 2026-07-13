@@ -5,7 +5,8 @@
 
 > **Naming note:** "BOAW" is a retired codename. The subsystem is now `warp_core::parallel`.
 
-- Status: Accepted
+- Status: Partially superseded
+- Superseded in part by: [ADR 0020](0020-retained-reading-storage-and-proof-boundary.md), which governs WSC/CAS ontology and proof authority
 - Date: 2026-01-17
 - Project: Echo (warp-core)
 - Decision: Replace the spike-era monolithic in-place GraphStore model with BOAW: immutable snapshots + COW overlays + lockless parallel execution via per-thread deltas, deterministic commits/hashes, explicit footprint-based independence scheduling, typed merge/collapse, and privacy-safe provenance (mind/diagnostics modes).
@@ -22,7 +23,11 @@ The spike GraphStore (monolithic BTreeMaps + in-place mutation + post-hoc diff) 
 - Forking and collapse/merge
 - Privacy-safe provenance: never write sensitive raw bytes into an append-only ledger
 
-This ADR locks the full end-to-end architecture so new work does not accrete demo tech debt.
+This ADR records the immutable-snapshot, delta, footprint, scheduling, and
+deterministic-merge mechanics. ADR 0020 governs the authority boundary: WSC is
+a deterministic physical representation and CAS proves exact byte identity;
+neither is causal history, admission authority, recovery authority, semantic
+reading identity, or proof authority.
 
 ---
 
@@ -31,7 +36,7 @@ This ADR locks the full end-to-end architecture so new work does not accrete dem
 - Atom: Typed payload (type_id + bytes) stored as an attachment value. Semantics depend on type policy.
 - Attachment: Value associated with a node/edge or a boundary interface. Attachments are the primary data plane.
 - WARP / Worldline: A commit-addressed evolving view of state. A worldline is defined by its commit DAG.
-- Snapshot (WSC): Immutable, canonical, readable without copying: sorted tables + ranges + blob arena.
+- Snapshot (WSC): Immutable deterministic physical representation, readable without copying: sorted tables + ranges + blob arena.
 - COW: “Delete” means unlink from the worldline view, not physical destruction; physical reclamation is optional GC.
 - Footprint: Declared read/write sets (nodes, edges, attachments, boundary ports, and any bucket/index targets) used for independence checks.
 - MWMR Scheduling: Multiple writers admitted only when independence is proven; execution is parallel; commit is canonical.
@@ -86,9 +91,9 @@ A snapshot contains only nodes/edges reachable from the root(s). Unreachable obj
 - A deterministic GC MAY delete unreachable objects/segments from storage based on pinning/retention policy.
 - “Never delete the substrate” is a policy choice: skip GC or pin everything.
 
-### 4.2 Zero-copy WSC is the canonical snapshot IO
+### 4.2 Zero-copy WSC is deterministic physical snapshot IO
 
-WSC remains the target snapshot format:
+WSC remains the target physical snapshot format:
 
 - Nodes table sorted by NodeId
 - Edges table sorted by EdgeId
@@ -96,7 +101,9 @@ WSC remains the target snapshot format:
 - Attachment index tables per node/edge → ranges into attachment rows
 - Blob arena referenced by (offset,len)
 
-The reader (WscFile/WarpView) remains valid. The writer/materializer becomes the canonical commit builder.
+The reader (WscFile/WarpView) remains valid. The writer/materializer produces
+deterministic physical commit artifacts without making the format itself
+causal authority.
 
 ---
 
@@ -161,7 +168,9 @@ Snapshots are immutable tables; COW requires sharing. We lock in segment-level s
 Commit builder output = “segment manifest + directory.”
 Only changed segments are newly written. Unchanged segments are reused.
 
-WSC can remain the “single-file” format by packing segments on write, but the canonical storage model is segment-addressed. (Packing is a distribution artifact.)
+WSC can remain the “single-file” format by packing segments on write, while a
+segment-addressed CAS provides physical sharing. Packing is a distribution
+artifact; neither representation defines semantic or causal identity.
 
 ### 5.6 GC policy is pinning, not a second graph
 
@@ -169,7 +178,7 @@ We do not maintain a second mutable “base graph.”
 
 Instead:
 
-- The substrate is an immutable CAS of segments/objects
+- The physical store is an immutable CAS of segments/objects
 - “Never delete anything” = pin commits (or disable GC)
 - “Free disk” = GC unreachable segments from unpinned commits
 

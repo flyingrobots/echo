@@ -38,6 +38,10 @@ readonly superseded_legacy_adrs=(
   "ADR-0005-Physics.md"
 )
 
+readonly partially_superseded_legacy_adrs=(
+  "ADR-0007-BOAW-Storage.md"
+)
+
 readonly collided_paths=(
   "docs/adr/0001-repository-knowledge-model.md"
   "docs/adr/0002-echo-continuum-authority-boundary.md"
@@ -70,6 +74,16 @@ for basename in "${superseded_legacy_adrs[@]}"; do
   fi
   if ! grep -F -- "(${basename})" docs/adr/README.md | grep -Fq -- '| Superseded'; then
     fail "ADR index does not mark ${basename} superseded"
+  fi
+done
+
+for basename in "${partially_superseded_legacy_adrs[@]}"; do
+  path="docs/adr/${basename}"
+  if ! grep -Eq -- '^- \*\*Status:\*\* Partially superseded$|^- Status: Partially superseded$' "${path}"; then
+    fail "partially superseded legacy ADR lacks partial status: ${path}"
+  fi
+  if ! grep -F -- "(${basename})" docs/adr/README.md | grep -Fq -- '| Partially superseded'; then
+    fail "ADR index does not mark ${basename} partially superseded"
   fi
 done
 

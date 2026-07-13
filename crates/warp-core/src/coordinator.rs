@@ -2566,6 +2566,14 @@ impl WorldlineRuntime {
                 ticket_digest: ticketed_ingress.ticket_digest,
                 receipt_content_digest: context.tick_receipt_digest,
             };
+            let mut causal_parent_receipts = envelope
+                .causal_parents()
+                .iter()
+                .copied()
+                .map(crate::IngressCausalParent::receipt_ref)
+                .collect::<Vec<_>>();
+            causal_parent_receipts.sort_unstable();
+            causal_parent_receipts.dedup();
             let record = ReceiptCorrelationRecord {
                 ticketed_ingress_id,
                 submission_id: ticketed_ingress.submission_id,
@@ -2578,12 +2586,7 @@ impl WorldlineRuntime {
                 worldline_tick_after: context.worldline_tick_after,
                 tick_receipt_digest: context.tick_receipt_digest,
                 commit_hash: context.commit_hash,
-                causal_parent_receipts: envelope
-                    .causal_parents()
-                    .iter()
-                    .copied()
-                    .map(crate::IngressCausalParent::receipt_ref)
-                    .collect(),
+                causal_parent_receipts,
             };
             rollback.entries.push(ReceiptCorrelationRollbackEntry {
                 ticketed_ingress_id,

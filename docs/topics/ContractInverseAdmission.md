@@ -75,16 +75,34 @@ following steps:
 8. Resolve every retained receipt in the current provenance-tip commit.
 9. Invoke the installed read-only inverse law.
 10. Validate that the produced mutation belongs to the same package.
-11. Build a normal local intent citing the target receipt and current-basis
-    receipt set as causal parents.
+11. Build a normal local intent citing the target receipt with the typed
+    `ContractInverseTarget` relation and citing the current-basis receipt set as
+    ordinary causal dependencies.
 12. Commit the normal submission-acceptance transaction before returning.
 
 The returned submission is only witnessed ingress history. It is staged and
 ticked through the ordinary trusted-host path. Its eventual receipt retains the
-target and current-basis receipts in `causal_parent_receipts`, and recovery
-rebuilds both parent and reverse-child indexes from durable evidence. Including
-the current basis in ingress identity prevents otherwise identical inverse
-intents derived at different frontiers from collapsing into one submission.
+target and current-basis receipts in `causal_parent_receipts`, while the
+witnessed ingress envelope preserves which receipt was the inverse target.
+Recovery rebuilds both parent and reverse-child indexes from durable evidence.
+Including relation roles and the current basis in ingress identity prevents
+semantically different derivations from collapsing into one submission.
+
+## History Projection
+
+`TrustedRuntimeApp::contract_inverse_derivation` resolves an admitted receipt
+through retained receipt correlation and its witnessed ingress envelope. It
+returns:
+
+- the admitted inverse receipt;
+- the exact target receipt selected for inversion;
+- the canonical current-basis receipt set used at admission.
+
+An ordinary non-inverse receipt returns `Ok(None)`. Missing inverse receipt,
+witnessed submission, target receipt, or basis receipt evidence returns a typed
+`ContractInverseHistoryObstruction`. Multiple retained inverse-target roles are
+also an obstruction. The query never consults or repairs a process-local
+request map.
 
 ## Obstruction Is Truth
 
@@ -113,9 +131,10 @@ target transition.
 ## Durability And Restart
 
 Receipt correlations and witnessed submission envelopes are reconstructed from
-the runtime WAL. The inverse request therefore resolves the same target after a
-host restart without a process-local undo map. An in-memory map may accelerate
-that lookup, but it is never authority and may be discarded at any time.
+the runtime WAL. Both inverse admission and inverse-derivation observation
+therefore resolve the same target after a host restart without a process-local
+undo map. An in-memory index may accelerate that traversal, but it is never
+authority and may be discarded and rebuilt at any time.
 
 The installed executable contract package is host configuration and must be
 reinstalled after restart. Echo compares its full retained evidence identity to

@@ -650,6 +650,37 @@ fn inverse_intent_resolves_one_admitted_transition_after_restart() {
         expected_parents
     );
 
+    let inverse_receipt_ref = reconstructed
+        .runtime()
+        .receipt_correlation_for_submission(&inverse.submission_id)
+        .expect("inverse should retain its own receipt evidence")
+        .causal_receipt_ref;
+    drop(reconstructed);
+
+    let (history_runtime, _) = runtime();
+    let mut history = TrustedRuntimeHost::new(history_runtime, empty_engine())
+        .expect("history host should initialize");
+    history
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("history host should recover inverse evidence");
+    let derivation = {
+        let app = history.app();
+        assert_eq!(
+            app.contract_inverse_derivation(&target_receipt_ref)
+                .expect("ordinary edit history should remain readable"),
+            None
+        );
+        app.contract_inverse_derivation(&inverse_receipt_ref)
+            .expect("inverse history should remain readable")
+            .expect("inverse receipt should retain a typed derivation")
+    };
+    assert_eq!(derivation.inverse_receipt_ref, inverse_receipt_ref);
+    assert_eq!(derivation.target_receipt_ref, target_receipt_ref);
+    assert_eq!(
+        derivation.current_basis_receipt_refs,
+        vec![current_basis_receipt_ref]
+    );
+
     fs::remove_dir_all(wal_root).expect("test WAL directory should be removable");
 }
 

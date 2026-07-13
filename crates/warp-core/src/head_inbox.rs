@@ -141,6 +141,11 @@ pub enum IngressCausalParent {
         /// Exact causal coordinate of the retained target receipt.
         receipt_ref: CausalTickReceiptRef,
     },
+    /// Exact receipt whose contract transition an admitted inverse derives from.
+    ContractInverseTarget {
+        /// Exact causal coordinate of the transition being inverted.
+        receipt_ref: CausalTickReceiptRef,
+    },
 }
 
 impl IngressCausalParent {
@@ -148,7 +153,9 @@ impl IngressCausalParent {
     #[must_use]
     pub const fn receipt_ref(self) -> CausalTickReceiptRef {
         match self {
-            Self::TickReceipt { receipt_ref } => receipt_ref,
+            Self::TickReceipt { receipt_ref } | Self::ContractInverseTarget { receipt_ref } => {
+                receipt_ref
+            }
         }
     }
 }
@@ -272,6 +279,10 @@ impl IngressEnvelope {
                     out.push(1);
                     out.extend_from_slice(&receipt_ref.to_canonical_bytes());
                 }
+                IngressCausalParent::ContractInverseTarget { receipt_ref } => {
+                    out.push(2);
+                    out.extend_from_slice(&receipt_ref.to_canonical_bytes());
+                }
             }
         }
         match &self.payload {
@@ -344,6 +355,14 @@ impl IngressEnvelope {
         for _ in 0..parent_count {
             let parent = match cursor.read_u8()? {
                 1 => IngressCausalParent::TickReceipt {
+                    receipt_ref: CausalTickReceiptRef::from_canonical_bytes(
+                        cursor
+                            .read_exact(CAUSAL_TICK_RECEIPT_REF_LEN)?
+                            .try_into()
+                            .map_err(|_| IngressEnvelopeDecodeError::UnexpectedEof)?,
+                    ),
+                },
+                2 => IngressCausalParent::ContractInverseTarget {
                     receipt_ref: CausalTickReceiptRef::from_canonical_bytes(
                         cursor
                             .read_exact(CAUSAL_TICK_RECEIPT_REF_LEN)?
@@ -581,6 +600,10 @@ fn compute_ingress_id(
             match parent {
                 IngressCausalParent::TickReceipt { receipt_ref } => {
                     hasher.update(b"tick-receipt\0");
+                    hasher.update(&receipt_ref.to_canonical_bytes());
+                }
+                IngressCausalParent::ContractInverseTarget { receipt_ref } => {
+                    hasher.update(b"contract-inverse-target\0");
                     hasher.update(&receipt_ref.to_canonical_bytes());
                 }
             }

@@ -21,6 +21,7 @@ pub(crate) fn decode_canonical_eint(bytes: &[u8]) -> Option<(u32, &[u8])> {
 }
 
 /// Encodes one canonical EINT envelope at the contract-host serialization boundary.
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 pub(crate) fn encode_canonical_eint(op_id: u32, vars_bytes: &[u8]) -> Option<Vec<u8>> {
     echo_wasm_abi::pack_intent_v1(op_id, vars_bytes).ok()
 }

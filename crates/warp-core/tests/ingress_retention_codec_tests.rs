@@ -45,12 +45,15 @@ fn retained_ingress_round_trips_every_target_and_causal_parent() {
     let parent = IngressCausalParent::TickReceipt {
         receipt_ref: receipt_ref(worldline_id, "parent-receipt"),
     };
+    let inverse_target = IngressCausalParent::ContractInverseTarget {
+        receipt_ref: receipt_ref(worldline_id, "inverse-target"),
+    };
 
     round_trip(IngressEnvelope::local_intent_with_causal_parents(
         IngressTarget::DefaultWriter { worldline_id },
         intent_kind,
         b"default".to_vec(),
-        vec![parent],
+        vec![parent, inverse_target],
     ));
     round_trip(IngressEnvelope::local_intent_with_causal_parents(
         IngressTarget::InboxAddress {
@@ -59,7 +62,7 @@ fn retained_ingress_round_trips_every_target_and_causal_parent() {
         },
         intent_kind,
         b"inbox".to_vec(),
-        vec![parent],
+        vec![parent, inverse_target],
     ));
     round_trip(IngressEnvelope::local_intent_with_causal_parents(
         IngressTarget::ExactHead {
@@ -70,8 +73,28 @@ fn retained_ingress_round_trips_every_target_and_causal_parent() {
         },
         intent_kind,
         b"exact".to_vec(),
-        vec![parent],
+        vec![parent, inverse_target],
     ));
+}
+
+#[test]
+fn causal_parent_role_changes_ingress_identity() {
+    let worldline_id = WorldlineId::from_bytes(digest("worldline"));
+    let receipt_ref = receipt_ref(worldline_id, "shared-receipt");
+    let dependency = IngressEnvelope::local_intent_with_causal_parents(
+        IngressTarget::DefaultWriter { worldline_id },
+        make_intent_kind("fixture.intent/retained-v2"),
+        b"payload".to_vec(),
+        vec![IngressCausalParent::TickReceipt { receipt_ref }],
+    );
+    let inverse = IngressEnvelope::local_intent_with_causal_parents(
+        IngressTarget::DefaultWriter { worldline_id },
+        make_intent_kind("fixture.intent/retained-v2"),
+        b"payload".to_vec(),
+        vec![IngressCausalParent::ContractInverseTarget { receipt_ref }],
+    );
+
+    assert_ne!(dependency.ingress_id(), inverse.ingress_id());
 }
 
 #[test]

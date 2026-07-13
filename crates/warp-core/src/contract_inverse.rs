@@ -46,6 +46,64 @@ impl ContractInverseIntent {
     }
 }
 
+/// Durable causal derivation recovered for one admitted contract inverse.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ContractInverseDerivation {
+    /// Exact receipt coordinate of the admitted inverse transition.
+    pub inverse_receipt_ref: CausalTickReceiptRef,
+    /// Exact receipt coordinate of the transition selected for inversion.
+    pub target_receipt_ref: CausalTickReceiptRef,
+    /// Canonical receipt set that formed the current basis at inverse admission.
+    pub current_basis_receipt_refs: Vec<CausalTickReceiptRef>,
+}
+
+/// Typed obstruction while recovering an inverse derivation from causal history.
+#[derive(Clone, Debug, PartialEq, Eq, Error)]
+pub enum ContractInverseHistoryObstruction {
+    /// No retained transition matched the requested inverse receipt coordinate.
+    #[error("contract inverse history receipt is unavailable: {inverse_receipt_ref:?}")]
+    InverseReceiptUnavailable {
+        /// Requested inverse receipt coordinate.
+        inverse_receipt_ref: Box<CausalTickReceiptRef>,
+    },
+    /// The inverse receipt names submission material that is not retained.
+    #[error(
+        "contract inverse history submission is unavailable for receipt {inverse_receipt_ref:?}: {submission_id:?}"
+    )]
+    InverseSubmissionUnavailable {
+        /// Requested inverse receipt coordinate.
+        inverse_receipt_ref: Box<CausalTickReceiptRef>,
+        /// Missing witnessed submission id.
+        submission_id: Hash,
+    },
+    /// Retained ingress cites more than one transition as its inverse target.
+    #[error("contract inverse history has ambiguous targets: {inverse_receipt_ref:?}")]
+    AmbiguousInverseTarget {
+        /// Inverse receipt whose retained ingress has conflicting target roles.
+        inverse_receipt_ref: Box<CausalTickReceiptRef>,
+    },
+    /// The typed inverse target link points to unavailable receipt evidence.
+    #[error(
+        "contract inverse history target is unavailable for inverse {inverse_receipt_ref:?}: {target_receipt_ref:?}"
+    )]
+    TargetReceiptUnavailable {
+        /// Inverse receipt whose target cannot be recovered.
+        inverse_receipt_ref: Box<CausalTickReceiptRef>,
+        /// Missing inverse target receipt.
+        target_receipt_ref: Box<CausalTickReceiptRef>,
+    },
+    /// A current-basis link points to unavailable receipt evidence.
+    #[error(
+        "contract inverse history basis is unavailable for inverse {inverse_receipt_ref:?}: {basis_receipt_ref:?}"
+    )]
+    CurrentBasisReceiptUnavailable {
+        /// Inverse receipt whose basis cannot be recovered.
+        inverse_receipt_ref: Box<CausalTickReceiptRef>,
+        /// Missing current-basis receipt.
+        basis_receipt_ref: Box<CausalTickReceiptRef>,
+    },
+}
+
 /// Installed read-only inverse law for one generated mutation operation.
 #[derive(Clone)]
 pub struct ContractInverseHandler {

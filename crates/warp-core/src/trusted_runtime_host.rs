@@ -31,17 +31,18 @@ use crate::{
         WriterEpochRequest,
     },
     contract_host::{decode_canonical_eint, encode_canonical_eint},
-    ContractInverseAdmissionRequest, ContractInverseContext, ContractInverseObstruction,
-    ContractOperationKind, Engine, IngressCausalParent, IngressEnvelope,
-    IngressEnvelopeDecodeError, IngressPayload, IngressSubmissionGeneration,
-    InstalledContractPackage, InstalledContractPackageError, InstalledContractPackageRecord,
-    IntentOutcome, IntentOutcomeDecision, IntentOutcomeObservation, IntentSubmissionHandle,
-    IntentSubmissionRecord, ObservationArtifact, ObservationError, ObservationRequest,
-    ObservationService, OpticAdmissionTicket, ProvenanceEntry, ProvenanceService, ProvenanceStore,
-    ReceiptCorrelationPersistenceRecord, ReceiptCorrelationRecord, RetainedProvenanceError,
-    RuntimeError, SchedulerCoordinator, StepRecord, TickReceiptRejection,
-    TicketedRuntimeIngressAuthority, TicketedRuntimeIngressDisposition,
-    WitnessedSubmissionPersistenceRecord, WitnessedSubmissionPersistenceSnapshot, WorldlineRuntime,
+    ContractInverseAdmissionRequest, ContractInverseContext, ContractInverseDerivation,
+    ContractInverseHistoryObstruction, ContractInverseObstruction, ContractOperationKind, Engine,
+    IngressCausalParent, IngressEnvelope, IngressEnvelopeDecodeError, IngressPayload,
+    IngressSubmissionGeneration, InstalledContractPackage, InstalledContractPackageError,
+    InstalledContractPackageRecord, IntentOutcome, IntentOutcomeDecision, IntentOutcomeObservation,
+    IntentSubmissionHandle, IntentSubmissionRecord, ObservationArtifact, ObservationError,
+    ObservationRequest, ObservationService, OpticAdmissionTicket, ProvenanceEntry,
+    ProvenanceService, ProvenanceStore, ReceiptCorrelationPersistenceRecord,
+    ReceiptCorrelationRecord, RetainedProvenanceError, RuntimeError, SchedulerCoordinator,
+    StepRecord, TickReceiptRejection, TicketedRuntimeIngressAuthority,
+    TicketedRuntimeIngressDisposition, WitnessedSubmissionPersistenceRecord,
+    WitnessedSubmissionPersistenceSnapshot, WorldlineRuntime,
 };
 use crate::{Hash, HistoryError};
 
@@ -638,7 +639,7 @@ impl TrustedRuntimeHost {
             .into_iter()
             .map(|receipt_ref| IngressCausalParent::TickReceipt { receipt_ref })
             .collect::<Vec<_>>();
-        causal_parents.push(IngressCausalParent::TickReceipt {
+        causal_parents.push(IngressCausalParent::ContractInverseTarget {
             receipt_ref: request.target_receipt_ref,
         });
         Ok(IngressEnvelope::local_intent_with_causal_parents(
@@ -647,6 +648,84 @@ impl TrustedRuntimeHost {
             intent_bytes,
             causal_parents,
         ))
+    }
+
+    fn contract_inverse_derivation(
+        &self,
+        inverse_receipt_ref: &crate::CausalTickReceiptRef,
+    ) -> Result<Option<ContractInverseDerivation>, ContractInverseHistoryObstruction> {
+        let correlation = self
+            .runtime
+            .receipt_correlation_for_receipt_ref(inverse_receipt_ref)
+            .ok_or_else(
+                || ContractInverseHistoryObstruction::InverseReceiptUnavailable {
+                    inverse_receipt_ref: Box::new(*inverse_receipt_ref),
+                },
+            )?;
+        let envelope = self
+            .runtime
+            .witnessed_submission_envelope(&correlation.submission_id)
+            .ok_or_else(
+                || ContractInverseHistoryObstruction::InverseSubmissionUnavailable {
+                    inverse_receipt_ref: Box::new(*inverse_receipt_ref),
+                    submission_id: correlation.submission_id,
+                },
+            )?;
+        let mut target_receipt_refs = Vec::new();
+        let mut current_basis_receipt_refs = Vec::new();
+        for parent in envelope.causal_parents() {
+            match *parent {
+                IngressCausalParent::TickReceipt { receipt_ref } => {
+                    current_basis_receipt_refs.push(receipt_ref);
+                }
+                IngressCausalParent::ContractInverseTarget { receipt_ref } => {
+                    target_receipt_refs.push(receipt_ref);
+                }
+            }
+        }
+        target_receipt_refs.sort_unstable();
+        target_receipt_refs.dedup();
+        let Some(target_receipt_ref) = target_receipt_refs.first().copied() else {
+            return Ok(None);
+        };
+        if target_receipt_refs.len() != 1 {
+            return Err(ContractInverseHistoryObstruction::AmbiguousInverseTarget {
+                inverse_receipt_ref: Box::new(*inverse_receipt_ref),
+            });
+        }
+        if self
+            .runtime
+            .receipt_correlation_for_receipt_ref(&target_receipt_ref)
+            .is_none()
+        {
+            return Err(
+                ContractInverseHistoryObstruction::TargetReceiptUnavailable {
+                    inverse_receipt_ref: Box::new(*inverse_receipt_ref),
+                    target_receipt_ref: Box::new(target_receipt_ref),
+                },
+            );
+        }
+        current_basis_receipt_refs.sort_unstable();
+        current_basis_receipt_refs.dedup();
+        for basis_receipt_ref in &current_basis_receipt_refs {
+            if self
+                .runtime
+                .receipt_correlation_for_receipt_ref(basis_receipt_ref)
+                .is_none()
+            {
+                return Err(
+                    ContractInverseHistoryObstruction::CurrentBasisReceiptUnavailable {
+                        inverse_receipt_ref: Box::new(*inverse_receipt_ref),
+                        basis_receipt_ref: Box::new(*basis_receipt_ref),
+                    },
+                );
+            }
+        }
+        Ok(Some(ContractInverseDerivation {
+            inverse_receipt_ref: *inverse_receipt_ref,
+            target_receipt_ref,
+            current_basis_receipt_refs,
+        }))
     }
 
     /// Stages one witnessed installed-contract submission into runtime ingress.
@@ -2132,6 +2211,24 @@ impl TrustedRuntimeApp<'_> {
         }
         let envelope = self.host.resolve_contract_inverse_envelope(&request)?;
         self.submit_intent_with_runtime_wal_ack(envelope)
+    }
+
+    /// Recovers the typed causal derivation for one admitted inverse receipt.
+    ///
+    /// Ordinary non-inverse receipts return `Ok(None)`. The returned derivation
+    /// is reconstructed from retained receipt correlation and witnessed ingress
+    /// material, so callers do not need process-local request maps.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed obstruction when the requested receipt, its witnessed
+    /// submission, inverse target, or current-basis receipt evidence is missing
+    /// or internally ambiguous.
+    pub fn contract_inverse_derivation(
+        &self,
+        inverse_receipt_ref: &crate::CausalTickReceiptRef,
+    ) -> Result<Option<ContractInverseDerivation>, ContractInverseHistoryObstruction> {
+        self.host.contract_inverse_derivation(inverse_receipt_ref)
     }
 
     /// Observes the product-facing outcome for one witnessed submission.

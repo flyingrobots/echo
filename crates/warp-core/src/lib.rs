@@ -208,9 +208,9 @@ pub use contract_host::{
     eint_op_id, eint_vars_for_op, matches_eint_op, runtime_ingress_eint_read_footprint,
 };
 pub use contract_inverse::{
-    ContractInverseAdmissionRequest, ContractInverseContext, ContractInverseHandler,
-    ContractInverseHandlerError, ContractInverseIntent, ContractInverseObstruction,
-    ContractInverseResolveFn,
+    ContractInverseAdmissionRequest, ContractInverseContext, ContractInverseDerivation,
+    ContractInverseHandler, ContractInverseHandlerError, ContractInverseHistoryObstruction,
+    ContractInverseIntent, ContractInverseObstruction, ContractInverseResolveFn,
 };
 pub use contract_registry::{
     ContractEvidenceIdentity, ContractMutationHandler, ContractOperationKind,

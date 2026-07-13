@@ -231,6 +231,13 @@ if grep -Eq '^## Appendix|README Brag|PATHS_DEFAULT=|PATTERNS=\(' \
   failures=$((failures + 1))
 fi
 
+if grep -Eq '^## Follow-ups|docs/warp-two-plane-law\.md' \
+  docs/adr/ADR-0001-warp-two-plane-skeleton-and-attachments.md \
+  docs/adr/ADR-0002-warp-instances-descended-attachments.md; then
+  echo "knowledge-model: two-plane ADRs contain a work queue or dead invariant path" >&2
+  failures=$((failures + 1))
+fi
+
 if ((failures > 0)); then
   echo "knowledge-model: ${failures} violation(s)" >&2
   exit 1

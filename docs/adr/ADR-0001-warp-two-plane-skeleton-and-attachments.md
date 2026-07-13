@@ -3,8 +3,8 @@
 
 # ADR-0001: Two-plane WARP representation in Echo (SkeletonGraph + Attachment Plane)
 
-Status: Accepted  
-Date: 2025-12-29
+- **Status:** Accepted
+- **Date:** 2025-12-29
 
 ## Context
 
@@ -54,7 +54,7 @@ Echo treats the following as project laws:
 - `type_id` participates in canonical encoding/digest; identical bytes with different `type_id` must not collide.
 - No hidden edges in payload bytes.
 
-See also: `docs/warp-two-plane-law.md`.
+See also: `docs/invariants/warp-two-plane-law.md`.
 
 ## Consequences
 
@@ -75,8 +75,3 @@ Cons:
 
 - Store nested WARP graphs directly inside payload bytes: rejected (hides structure from matching/slicing and causes correctness/perf hazards).
 - Represent recursion via recursive Rust types: rejected (poor fit for sharing, determinism, patch/slice semantics, and stable hashing).
-
-## Follow-ups
-
-- SPEC for Attachment Plane v0 (Atoms): codec boundary, deterministic error semantics, canonical encoding rules.
-- Stage B1 proposal: descended attachments using explicit references/links (no hidden edges).

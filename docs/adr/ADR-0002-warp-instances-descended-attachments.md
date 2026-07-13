@@ -3,9 +3,9 @@
 
 # ADR-0002: WarpInstances + Descended Attachments via Flattened Indirection
 
-Status: Accepted  
-Date: 2025-12-30  
-Owners: Echo / WARP core
+- **Status:** Accepted
+- **Date:** 2025-12-30
+- **Owners:** Echo / WARP core
 
 ## Context
 
@@ -116,8 +116,3 @@ Cons:
 
 2. Use recursive Rust data structures (`Box`, `Rc`, etc).
     - Rejected: poor fit for cycles/sharing, determinism, and patch/slice boundary artifacts.
-
-## Follow-ups
-
-- Spec: Descended Attachments v1 (WarpInstances + attachment slots + footprint laws).
-- Tooling: state “zoom” views projecting instances and `Descend` links (explicitly not wormholes).

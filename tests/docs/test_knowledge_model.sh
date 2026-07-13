@@ -256,6 +256,13 @@ if grep -Eq 'current `v[0-9]+\.[0-9]+\.[0-9]+` goal|Ongoing work focuses' README
   failures=$((failures + 1))
 fi
 
+if grep -Eq \
+  'renderer-agnostic engine|reproducible simulations|Temporal Tooling|will regain coverage when reintroduced|hook now aborts the commit if running `cargo fmt` would change any files' \
+  CONTRIBUTING.md; then
+  echo "knowledge-model: contributor guide contains obsolete framing, future work, or hook behavior" >&2
+  failures=$((failures + 1))
+fi
+
 if ((failures > 0)); then
   echo "knowledge-model: ${failures} violation(s)" >&2
   exit 1

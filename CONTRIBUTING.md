@@ -22,11 +22,15 @@ Welcome, chrononaut! Echo thrives when timelines collaborate. Please read this g
 
 ## Project Philosophy
 
-Echo is a deterministic, renderer-agnostic engine. We prioritize:
+Echo is a deterministic WARP runtime over witnessed causal history. We
+prioritize:
 
-- **Determinism**: every change must preserve reproducible simulations.
-- **Documentation**: specs live alongside code.
-- **Temporal Tooling**: features support branching timelines and merges.
+- **Causal integrity**: admission, transitions, frontiers, receipts, and
+  witnesses remain explicit.
+- **Executable evidence**: behavior and invariants are proved by focused tests,
+  gates, schemas, or artifact checks.
+- **Bounded interfaces**: application nouns stay in authored contracts and
+  adapters; Echo core exposes generic causal and optic boundaries.
 
 ## Getting Started
 
@@ -60,7 +64,8 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
   during normal development. Cargo still compiles and launches every
   `warp-core` integration-test binary before applying that runtime filter.
 - The broader local gate must pass before PR submission.
-- Add unit/integration coverage for new logic; Rhai/TypeScript tooling will regain coverage when reintroduced.
+- Add unit or integration coverage that directly witnesses new logic and
+  invariants.
 - For WASM work, install the required target with
   `rustup target add wasm32-unknown-unknown` and use the crate-specific build
   instructions for the surface you are changing.
@@ -84,7 +89,6 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
 ## Code Style
 
 - Rust code must pass `cargo fmt` and `cargo clippy` without warnings.
-- Rhai scripts should remain deterministic (no uncontrolled globals, RNG via engine services).
 - TypeScript packages live in `packages/` and `apps/`; follow local lint configs.
 - Avoid non-deterministic APIs (no wall-clock, no uncontrolled randomness). Use Echo’s deterministic services.
 
@@ -92,20 +96,26 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
 
 - Install repo hooks once: `make hooks` (configures `core.hooksPath` to `.githooks`).
 - Pre-commit runs:
-    - cargo fmt (auto-fix by default; set `ECHO_AUTO_FMT=0` for check-only)
-    - Toolchain pin verification (matches `rust-toolchain.toml`)
-- To auto-fix formatting on commit: `ECHO_AUTO_FMT=1 git commit -m "message"`
+    - PRNG version/golden coupling checks when the PRNG changes.
+    - Toolchain and lockfile-format verification.
+    - Rust and Markdown formatting (`ECHO_AUTO_FMT=1` by default).
+    - Targeted verification for staged Rust crates.
+    - SPDX and Markdown lint checks.
+- Set `ECHO_AUTO_FMT=0` for check-only formatting.
 
 #### Partial Staging & rustfmt
 
-- rustfmt formats entire files, not only staged hunks. To preserve index integrity, our pre-commit hook now aborts the commit if running `cargo fmt` would change any files. It first checks with `cargo fmt --check`, and if changes are needed it applies them and exits with a helpful message.
-- Workflow when this happens:
-    1. Review formatting changes: `git status` and `git diff`.
-    2. Restage intentionally formatted files (e.g., `git add -A` or `git add -p`).
-    3. Commit again.
+- Formatters rewrite entire files, not only staged hunks. When the relevant
+  working tree is clean relative to the index, the hook auto-stages formatter
+  changes and continues the commit.
+- If unstaged changes existed before formatting, the hook applies formatting
+  but aborts rather than guessing which staged and unstaged hunks are safe to
+  combine. Review `git status` and `git diff`, restage intentionally, and commit
+  again.
 - Tips:
-    - If you need to keep a partial-staged commit, do two commits: first commit the formatter-only changes, then commit your code changes.
-    - You can switch to check-only with `ECHO_AUTO_FMT=0` (commit will still fail on formatting issues, but nothing is auto-applied).
+    - For a partial-staged commit, format and stage the intended whole-file
+      result first, or separate formatter-only changes into their own commit.
+    - With `ECHO_AUTO_FMT=0`, formatting failures abort without changing files.
 - Do not bypass hooks. The repo runs fmt, clippy, tests, and rustdoc on the pinned toolchain before push.
 - Toolchain: pinned to Rust 1.90.0. Ensure your local override matches:
     - rustup toolchain install 1.90.0

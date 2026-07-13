@@ -132,6 +132,11 @@ check_absent \
   "CHANGELOG.md" \
   'untracked `ttd-browser` prebuilt artifact'
 
+check_absent \
+  "the changelog must not resurrect the retired session-protocol layer" \
+  "CHANGELOG.md" \
+  'session-protocol EINT v2'
+
 for map_file in \
   docs/README.md \
   crates/echo-graph/README.md \

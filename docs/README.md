@@ -60,9 +60,7 @@ causal history. Git history is the archive; GitHub owns live work and status.
 
 - [Deterministic math policy](determinism/SPEC_DETERMINISTIC_MATH.md)
 - [Deterministic math hazards](determinism/DETERMINISTIC_MATH.md)
-- [Claim register](determinism/DETERMINISM_CLAIMS_v0.1.md)
 - [DIND harness](determinism/dind-harness.md)
-- [Release policy](determinism/RELEASE_POLICY.md)
 - [Scheduler performance](benchmarks/scheduler-performance-warp-core.md)
 
 ## Knowledge Ownership

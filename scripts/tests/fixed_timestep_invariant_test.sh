@@ -123,8 +123,8 @@ assert "SPEC-0004 references timer admitted history" \
   grep -q "only an admitted tick plus receipt" "${spec004}"
 assert "static nondeterminism guard is referenced" \
   grep -q "scripts/ban-nondeterminism.sh" "${invariant}"
-assert "release allowlist policy is referenced" \
-  grep -q "docs/determinism/RELEASE_POLICY.md" "${invariant}"
+assert "rule-scoped waiver boundary is explicit" \
+  grep -q "cannot influence semantic history" "${invariant}"
 
 # --- Static wall-clock guard ---
 echo ""

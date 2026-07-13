@@ -13,10 +13,9 @@ All math within the simulation loop (`warp-core`) must adhere to these rules.
 
 > **You are here:** normative policy (this document wins on conflicts).
 >
-> | Doc                                                      | Role                                               |
-> | -------------------------------------------------------- | -------------------------------------------------- |
-> | [DETERMINISTIC_MATH.md](DETERMINISTIC_MATH.md)           | Hazard catalog (IEEE 754 pitfalls and mitigations) |
-> | [DETERMINISM_CLAIMS_v0.1.md](DETERMINISM_CLAIMS_v0.1.md) | Formal determinism claims                          |
+> | Doc                                            | Role                                               |
+> | ---------------------------------------------- | -------------------------------------------------- |
+> | [DETERMINISTIC_MATH.md](DETERMINISTIC_MATH.md) | Hazard catalog (IEEE 754 pitfalls and mitigations) |
 
 ## 1. Floating Point (f32)
 

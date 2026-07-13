@@ -203,13 +203,13 @@ jobs:
           name: sec-artifacts
           path: |
             sec-tests.log
-            docs/determinism/sec-claim-map.json
 
   perf-regression:
     name: G3 perf regression (criterion)
     needs: classify-changes
     # Runs for ALL non-NONCRITICAL changes (both DET_CRITICAL and DET_IMPORTANT).
-    # G3 is staging-optional per docs/determinism/RELEASE_POLICY.md but always executes here.
+    # It always executes here, but det-policy.yaml does not make it a merge
+    # blocker for DET_IMPORTANT changes.
     if: needs.classify-changes.outputs.run_none != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -324,29 +324,3 @@ jobs:
       - name: Validate evidence pointers
         run: |
           node scripts/validate_claims.cjs gathered-artifacts/evidence.json
-      - name: Cross-check claim IDs against CLAIM_MAP
-        run: |
-          EVIDENCE_IDS=$(jq -r '.claims[].id' gathered-artifacts/evidence.json | sort)
-          CLAIM_MAP_IDS=$(yq -o=json docs/determinism/CLAIM_MAP.yaml | jq -r '.claims | keys[]' | sort)
-          EXTRA=$(comm -23 <(echo "$EVIDENCE_IDS") <(echo "$CLAIM_MAP_IDS"))
-          MISSING=$(comm -13 <(echo "$EVIDENCE_IDS") <(echo "$CLAIM_MAP_IDS"))
-          if [ -n "$EXTRA" ]; then
-            echo "ERROR: Claims in evidence.json but not in CLAIM_MAP.yaml:" && echo "$EXTRA" && exit 1
-          fi
-          if [ -n "$MISSING" ]; then
-            echo "ERROR: Claims in CLAIM_MAP.yaml but not in evidence.json:" && echo "$MISSING" && exit 1
-          fi
-          echo "All claim IDs synchronized"
-      - name: Verify sec-claim-map test IDs exist
-        run: |
-          MISSING=""
-          for tid in $(jq -r '.mappings[].test_id' docs/determinism/sec-claim-map.json); do
-            fn_name="${tid##*::}"
-            if ! grep -rq "fn ${fn_name}" crates/echo-scene-codec/src/; then
-              MISSING="$MISSING $tid"
-            fi
-          done
-          if [ -n "$MISSING" ]; then
-            echo "ERROR: sec-claim-map.json references non-existent tests:$MISSING" && exit 1
-          fi
-          echo "All sec-claim-map test IDs verified"

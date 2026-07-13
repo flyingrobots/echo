@@ -127,4 +127,3 @@ deterministic path.
 - [Generated rules](../topics/GeneratedRules.md)
 - [WARP optics](../topics/WarpOptics.md)
 - [FIXED-TIMESTEP](./FIXED-TIMESTEP.md)
-- [RELEASE_POLICY](../determinism/RELEASE_POLICY.md)

@@ -40,6 +40,10 @@ readonly forbidden_process_paths=(
   "scripts/check-append-only.js"
   "scripts/check_task_lists.sh"
   "scripts/tests/check_task_lists_test.sh"
+  "docs/determinism/CLAIM_MAP.yaml"
+  "docs/determinism/DETERMINISM_CLAIMS_v0.1.md"
+  "docs/determinism/RELEASE_POLICY.md"
+  "docs/determinism/sec-claim-map.json"
   ".github/workflows/refresh-dependency-dags.yml"
   "docs/assets/dags"
   "scripts/dag-utils.js"
@@ -64,6 +68,11 @@ for forbidden_path in "${forbidden_process_paths[@]}"; do
     failures=$((failures + 1))
   fi
 done
+
+if grep -Eq 'CLAIM_MAP\.yaml|sec-claim-map\.json' .github/workflows/det-gates.yml; then
+  echo "knowledge-model: determinism workflow references a deleted status map" >&2
+  failures=$((failures + 1))
+fi
 
 if ((failures > 0)); then
   echo "knowledge-model: ${failures} violation(s)" >&2

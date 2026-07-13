@@ -202,10 +202,9 @@ The current static guard is `scripts/ban-nondeterminism.sh`. It scans
 determinism-critical crate paths and bans wall-clock and pacing APIs
 including `std::time::SystemTime`, `SystemTime::now`,
 `std::time::Instant`, `Instant::now`, `std::thread::sleep`, and
-async runtime sleep calls. The release allowlist rules in
-`docs/determinism/RELEASE_POLICY.md` require every exemption to prove
-that the nondeterministic API cannot reach the deterministic engine
-loop.
+async runtime sleep calls. Every entry in `.ban-nondeterminism-allowlist`
+must be rule-scoped, name the exact boundary path and reason, and prove that the
+nondeterministic API cannot influence semantic history.
 
 ## Rationale
 

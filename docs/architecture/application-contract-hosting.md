@@ -60,6 +60,7 @@ The design evidence for this boundary lives in these repo-local packets:
 - `docs/design/0015-registry-provider-host-boundary-decision/design.md`
 - `docs/design/0016-wesley-to-echo-toy-contract-proof/design.md`
 - `docs/design/0017-authenticated-wesley-intent-admission-posture/design.md`
+- `docs/design/echo-edict-provider-semantic-source.md`
 
 ## Ownership Split
 
@@ -114,6 +115,87 @@ Echo's generic runtime surfaces. That bridge has two separate faces:
 | :-------------------- | :---------------------------------------------------------------------- |
 | Application helpers   | Build canonical EINT intent bytes and `ObservationRequest` values.      |
 | Contract-host helpers | Install generated mutation handler rules and read-only query observers. |
+
+## External Edict Provider Artifacts
+
+Echo also owns the runtime-specific semantics supplied to Edict's generic
+external provider host. That pipeline has a separate source and output boundary:
+
+```text
+Echo GraphQL and checked semantic declarations
+  -> Echo-Wesley generators
+  -> generated lawpack, target profile, split authority facts, schemas,
+     review projection, generated-artifact profile, and provenance
+  -> provider-owned lowerer and verifier components
+  -> #655 generated provider manifest and digest-locked Echo provider package
+  -> Edict's runtime-neutral provider host
+```
+
+The first checked non-GraphQL source is
+[`schemas/edict-provider/echo-provider-semantics-v1.json`](../../schemas/edict-provider/echo-provider-semantics-v1.json).
+Its executable schema and pure validator live in
+`echo_wesley_gen::provider_semantics`. The source fixes one reviewed
+compatibility operation and explicitly records its type family, effect
+signature and execution class, typed failure and obstruction
+schemas, exhaustive obstruction mapping, full Edict optic profile, budget,
+target-owned write-class/native capability, complete manifest resources,
+artifact roles, invocation domains, and CDDL roots. Package records use an
+Echo-owned alias over the exact Edict Core string coordinate rather than
+redefining Core string semantics.
+
+The provider source follows three authority rules:
+
+1. A semantic fact has one stable coordinate, one named authority artifact, and
+   one canonical domain.
+2. Generated files are projections. A lawpack, profile, facts file, manifest,
+   schema, provenance record, or review rendering cannot become input authority.
+3. There is no directory or registry search. Runtime SDL and historical
+   relocated Wesley SDL do not become fallback authority merely because they
+   contain a matching name.
+
+The authority split is structural. The semantic declaration owns the portable
+effect, domain obstruction, source mapping, budget, and operation. Target
+metadata owns the operation profile and optic template, low-level failure
+taxonomy, write-class resolution, native capability, and inner Target IR
+selection. An explicit discharge mapping joins target authority to the
+lawpack's advisory hint and abstract footprint/cost obligations without making
+the two vocabularies identical. The semantic source's invocation/schema
+inventory owns the outer provider artifact domain. The validator checks the
+joins between those facts and rejects missing mappings, incompatible profiles,
+capability/effect disagreement, missing or ambiguous implementations, duplicate
+target-profile adapter selectors, recursive types, Core ownership violations,
+invalid failure identifiers, incomplete artifact closure, and non-empty payload
+mappings that would require generator-authored semantics.
+
+The provider manifest is a #655 package-root output, not a #652 member of its
+own artifact list. Two authority-facts documents preserve Edict's one-source
+rule: lawpack facts carry budgets, while target-profile facts carry operation
+profiles and resolved effect write classes. Their canonical byte contract is
+Edict-owned and landed under Edict #157 in Edict PR #159. Generated resource
+declarations carry no output digests. Standard Edict resources are explicit
+trusted inputs whose canonical publication is tracked by Edict #158.
+
+The target-profile lowerer and verifier resources are generated declarative
+contract documents. They do not select executable implementations. The package
+manifest separately binds the exact provider-owned components and their frozen
+WIT world attestations, preserving independent lowerers and component upgrades
+without target-profile semantic churn.
+
+The package-root projection pins `echo.edict-provider@1` to exact component
+world `edict:target-provider@1.0.0`. Generated provenance is a generic Edict
+`generationProvenance` package member whose document contract remains owned by
+Wesley #728.
+
+The first capability distinguishes two nested domains. `echo.span-ir/v1` is
+the inner Echo target IR domain selected by `echo.dpo@1.replace`.
+`edict.target-ir.artifact/v1` is the outer canonical artifact domain that
+crosses the Edict provider WIT boundary and is validated through the declared
+`target-ir-artifact` schema root.
+
+This source contract does not claim that Echo currently executes the declared
+replace operation. Runtime mutation, admission, receipts, and presence-sensitive
+replace enforcement remain runtime implementation authority and must be proven
+by the lowerer, verifier, and admitted-execution slices.
 
 Applications own:
 

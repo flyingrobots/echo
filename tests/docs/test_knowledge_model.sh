@@ -92,6 +92,20 @@ if grep -Eq 'RESERVE_BENCHMARK\.md|reserve_independence|MY_FEATURE_BENCHMARK\.md
   failures=$((failures + 1))
 fi
 
+if grep -Fq -- \
+  "A retained-reading proof envelope names" \
+  docs/adr/0020-retained-reading-storage-and-proof-boundary.md; then
+  echo "knowledge-model: ADR 0020 implies an unsupported proof envelope exists" >&2
+  failures=$((failures + 1))
+fi
+
+if ! grep -Fq -- \
+  "Any proof-bearing retained-reading envelope, when supported, must name" \
+  docs/adr/0020-retained-reading-storage-and-proof-boundary.md; then
+  echo "knowledge-model: ADR 0020 is missing the future proof-envelope contract" >&2
+  failures=$((failures + 1))
+fi
+
 if ((failures > 0)); then
   echo "knowledge-model: ${failures} violation(s)" >&2
   exit 1

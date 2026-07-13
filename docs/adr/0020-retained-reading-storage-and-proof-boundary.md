@@ -42,10 +42,11 @@ Successful proof verification establishes only the proposition named by that
 proof. It does not confer capability, admission, scheduler, tick, WAL, recovery,
 or reveal authority.
 
-A retained-reading proof envelope names the payload layout and codec,
-commitment family and root, proof family and reference, opened coordinates or
-aperture, and verification posture. Residual or obstructed material remains
-explicit rather than being erased by a successful partial opening.
+Any proof-bearing retained-reading envelope, when supported, must name the
+payload layout and codec, commitment family and root, proof family and
+reference, opened coordinates or aperture, and verification posture. Residual
+or obstructed material remains explicit rather than being erased by a
+successful partial opening.
 
 Product structures such as ropes, buffers, editor checkpoints, and UI models
 remain application-owned. Echo retains and proves generic causal material and

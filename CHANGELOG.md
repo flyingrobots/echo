@@ -7,6 +7,21 @@
 
 ### Added
 
+- `echo-wesley-gen` now exposes a strict, versioned Echo Edict provider
+  semantic-source model and pure validator. The checked first-operation source
+  fixes `target.replace` authority, typed failure and obstruction schemas,
+  exhaustive source mapping, full optic profile, budget, native capability,
+  explicit semantic discharge, source-partitioned authority facts, complete
+  lawpack/target-profile resources, generated artifact roles, package ABI and
+  provider identity, and full invocation schema bindings. It deterministically
+  rejects recursive types, Edict Core ownership violations, byte-counted string
+  aliases, invalid failure identifiers, duplicate or dangling facts,
+  missing or ambiguous effect implementations, duplicate target-profile adapter
+  selectors, authority/profile/capability disagreement, self-referential
+  manifests, and incorrect generated contracts, invocation domains, or schema
+  roots while treating generated files and relocated SDL as non-authoritative.
+  Authority-facts outputs are bound to Edict's canonical ABI work in
+  `flyingrobots/edict#157` rather than defining an Echo-owned wire contract.
 - `warp-core` installed contract packages can now provide read-only inverse
   laws for mutation operations. The trusted app surface resolves an exact
   retained causal receipt after restart, verifies the recovered witnessed

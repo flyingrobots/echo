@@ -24,10 +24,19 @@ residual, and obstruction semantics.
 
 ## Decision
 
-The canonical application and adapter read boundary is a bounded WARP optic.
-Product reads use `observe_optic` and receive either an `OpticReading` or a
-typed obstruction. Adapters must not privately materialize a wider reading to
-hide an obstruction or budget limit.
+The canonical product contract shape is a bounded WARP optic. The ABI names
+that shape with `observe_optic`, whose result preserves either an
+`OpticReading` or a typed obstruction. Adapters must not privately materialize
+a wider reading to hide an obstruction or budget limit.
+
+This decision does not certify the current optic bridge as an authorization
+boundary. The bridge validates supported focus/coordinate, aperture,
+attachment, and budget posture. It does not verify the caller-supplied optic,
+capability, or projection/reducer law identifiers against trusted opened-optic
+or installed-law authority. `QueryBytes` apertures currently return
+`UnsupportedProjectionLaw`. Until those claims have a trusted binding, their
+presence in an `ObserveOpticRequest` is coordinate posture, not proof of
+authorization or installed query law.
 
 `ObservationService::observe` is the internal lowering primitive for explicit
 coordinate, frame, and projection resolution. An optic may lower through that
@@ -50,11 +59,14 @@ semantics that bypass the optic boundary.
 
 ## Consequences
 
-- Application adapters have one WARP-shaped read contract: `observe_optic`.
+- Application adapters target one WARP-shaped read contract: `observe_optic`.
 - Observation remains reusable as a deterministic internal mechanism without
   impersonating the public optic law.
 - Lower-level ABI exports must remain explicit and read-only, and cannot justify
   a second product-facing observation model.
+- The current generated QueryView path remains a lower-level raw observation
+  integration until optic capability/law admission and `QueryBytes` lowering
+  exist.
 - Tests must distinguish optic validation and obstruction behavior from raw
   observation projection behavior.
 

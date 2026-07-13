@@ -573,7 +573,7 @@ pub fn init_console_panic_hook() {
 }
 
 // ---------------------------------------------------------------------------
-// ABI exports (v3)
+// ABI exports (current)
 // ---------------------------------------------------------------------------
 
 /// Initialize the default engine kernel.
@@ -610,8 +610,10 @@ pub fn dispatch_intent(intent_bytes: &[u8]) -> Uint8Array {
 /// Execute a privileged scheduler/runtime control intent.
 ///
 /// This export is for trusted host/runtime-owner adapters. Application-facing
-/// clients must use `dispatch_intent`, `observe`, and `scheduler_status` only.
-/// The input bytes must be a packed `ControlIntentV1` EINT envelope.
+/// clients must not call it: application ingress uses `dispatch_intent` or
+/// `dispatch_optic_intent`, product reads use `observe_optic`, and
+/// `scheduler_status` remains read-only metadata. The input bytes must be a
+/// packed `ControlIntentV1` EINT envelope.
 #[wasm_bindgen]
 pub fn dispatch_control_intent_trusted(control_intent_bytes: &[u8]) -> Uint8Array {
     let control = match unpack_control_intent_v1(control_intent_bytes) {

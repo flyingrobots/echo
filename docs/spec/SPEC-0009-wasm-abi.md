@@ -17,18 +17,15 @@ Depends on:
 
 The WASM boundary is where browser and host code meet the Echo runtime. It must be small, deterministic, and explicit about what kind of operation is crossing: intent admission, scheduler inspection, or observation.
 
-ABI version 12 keeps the application-facing export shape from version 11,
-retains the explicit trusted host-control export, and carries witnessed
-submission identity for accepted application ingress. Observation requests
-still name their observer plan, optional hosted observer instance, read budget,
-and rights posture explicitly. Observation artifacts continue to carry
-reading-envelope metadata for emitted readings, including contract/query
-identity and generic retained-evidence posture when a contract QueryView
-observer supplies a reading.
+ABI version 12 retains the explicit trusted host-control export and carries
+witnessed submission identity for accepted application ingress. Product read
+requests bind optic identity, causal coordinate, focus, bounded aperture, law
+versions, and capability. Emitted optic readings preserve reading-envelope and
+witness/evidence posture; typed obstructions remain visible to the caller.
 
 Browser tools must not silently depend on wall-clock timing or unsupported
-exports. A UI can submit an intent, ask for scheduler status, or request an
-observation artifact; it cannot reach around the runtime to step or render
+exports. A UI can submit an intent, ask for scheduler status, or request a
+bounded optic reading; it cannot reach around the runtime to step or render
 private state.
 
 The boundary also supports deterministic automation: a client can generate
@@ -37,7 +34,25 @@ returned reading with logical ticks.
 
 ## Decision 1: The ABI implements only the current epoch
 
-`ABI_VERSION` detects host/runtime mismatch. It does not promise compatibility with historical export shapes. Current exports are `init`, `dispatch_intent`, `dispatch_control_intent_trusted`, `observe`, `scheduler_status`, `get_registry_info`, `get_codec_id`, `get_registry_version`, and `get_schema_sha256_hex`.
+`ABI_VERSION` detects host/runtime mismatch. It does not promise compatibility
+with historical export shapes. Current callable exports are:
+
+- `init`
+- `dispatch_intent`
+- `dispatch_control_intent_trusted`
+- `dispatch_optic_intent`
+- `observe_optic`
+- `observe`
+- `observe_neighborhood_site`
+- `observe_neighborhood_core`
+- `compare_settlement`
+- `plan_settlement`
+- `settle_strand`
+- `get_registry_info`
+- `scheduler_status`
+- `get_codec_id`
+- `get_registry_version`
+- `get_schema_sha256_hex`
 
 Removed exports stay removed: `step`, `snapshot_at`, `render_snapshot`, `execute_query`, `get_head`, and `drain_view_ops`.
 
@@ -59,20 +74,29 @@ The raw trusted host-control export is not an application API. High-level
 browser or JavaScript application facades must not re-export it to untrusted
 application code.
 
-## Decision 3: Observation is the only public world-state read
+## Decision 3: Bounded optics define the product read shape
 
-`observe(request)` returns an observation artifact with resolved coordinate, reading envelope, declared frame, declared projection, artifact hash, and payload.
+`observe_optic(request)` is the product-shaped ABI surface. Its request carries
+an optic, explicit causal coordinate, focus, bounded aperture, projection and
+reducer law versions, and capability basis. Its result is either an
+`OpticReading` with evidence posture or a typed `OpticObstruction`; adapters
+must not widen the request or erase an obstruction.
 
-The observation request names the observer plan, optional hosted observer
-instance, read budget, and rights posture. The reading envelope names the
-observer plan, hosted observer instance when present, native observer basis,
-installed contract evidence when present, QueryView reading identity when
-present, generic retained-evidence posture, witness refs, parent/basis posture,
-budget posture, rights posture, and residual posture. Built-in observations
-currently emit `complete` residual posture for clean derived readings and leave
-contract/query/retained-evidence fields empty. The ABI also names `residual`,
-`plurality_preserved`, and `obstructed` so external consumers can recognize
-bounded non-clean readings without treating the payload as a generic state read.
+The current engine validates worldline focus/coordinate consistency, supported
+head or snapshot apertures, attachment posture, and byte budget. It does not
+verify `optic_id`, capability, or projection/reducer law claims against a
+trusted opened-optic or installed-law authority. `QueryBytes` apertures,
+including those emitted by Wesley query helpers, return
+`UnsupportedProjectionLaw`. Field presence is not authorization evidence, and
+ABI 12 does not yet provide a production-ready generated-query optic path.
+
+`observe(request)`, `observe_neighborhood_site(request)`, and
+`observe_neighborhood_core(request)` remain lower-level ABI surfaces for
+explicit coordinate/projection materialization and diagnostic inspection. They
+are read-only, but they do not by themselves confer the aperture, law,
+capability, budget, residual, or obstruction semantics of an optic. The current
+installed-contract query path uses raw `observe`; product adapters must not
+treat that lower-level path as proof that optic capability or law was admitted.
 
 ## Decision 4: The ABI uses logical clocks only
 

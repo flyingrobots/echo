@@ -1400,7 +1400,7 @@ impl TrustedRuntimeApp<'_> {
         self.host.runtime.observe_app_intent_outcome(submission_id)
     }
 
-    /// Runs a read-only observation through the host-owned query service.
+    /// Runs a read-only observation through the current installed-query path.
     ///
     /// # Errors
     ///

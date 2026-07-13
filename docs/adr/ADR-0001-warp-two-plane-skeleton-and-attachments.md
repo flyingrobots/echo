@@ -41,9 +41,9 @@ The rewrite hot path is defined over the skeleton projection `π(U)` (matching/i
 - If a dependency matters for matching, causality, slicing, or rewrite applicability, it must be represented explicitly in the skeleton plane.
 - Payload bytes must not be used to smuggle graph structure the engine cannot see.
 
-1. Future recursion in attachments is represented as **flattened indirection** (future work):
+1. Descended attachments use **flattened indirection**, as specified by [ADR 0002](ADR-0002-warp-instances-descended-attachments.md):
 
-- recursion is modeled via explicit references (e.g., attachment-root references / skeleton-visible links), not nested Rust structs.
+- recursion is modeled through explicit `AttachmentValue::Descend(WarpId)` references to `WarpInstance`s, not nested Rust structs.
 
 ## Laws (Invariants)
 
@@ -69,7 +69,7 @@ Cons:
 
 - Adds `TypeId` + codec plumbing for payloads.
 - Call sites must choose/define payload type identifiers (or use helper constructors).
-- Full descended attachments require additional design work (Stage B1).
+- Descended attachments add instance-scoped identity and descent-chain footprint obligations.
 
 ## Alternatives considered
 

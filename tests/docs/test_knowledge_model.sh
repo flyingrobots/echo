@@ -239,6 +239,13 @@ if grep -Eq '^## Follow-ups|docs/warp-two-plane-law\.md' \
 fi
 
 if grep -Eq \
+  'Future recursion in attachments.*future work|Full descended attachments require additional design work' \
+  docs/adr/ADR-0001-warp-two-plane-skeleton-and-attachments.md; then
+  echo "knowledge-model: ADR 0001 treats implemented descended attachments as future work" >&2
+  failures=$((failures + 1))
+fi
+
+if grep -Eq \
   'Compatibility is one phase|During ABI v1|At the start of Phase 6|deleted on schedule|Those remain later work' \
   docs/adr/ADR-0011-explicit-observation-contract.md; then
   echo "knowledge-model: ADR 0011 contains an ABI migration diary or future-work queue" >&2

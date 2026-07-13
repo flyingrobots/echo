@@ -38,6 +38,11 @@ check_absent \
   '\]\(\./crates/echo-ttd\)'
 
 check_absent \
+  "GUIDE must not advertise the frozen advanced guide as doctrine" \
+  "GUIDE.md" \
+  'ADVANCED_GUIDE\.md'
+
+check_absent \
   "GUIDE must not describe Echo as a graph-orchestrating simulation engine" \
   "GUIDE.md" \
   'simulation engine orchestrates the causal graph|application or game'

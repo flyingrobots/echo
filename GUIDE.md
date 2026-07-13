@@ -7,7 +7,9 @@ This is the developer-level operator guide for Echo. Use it for orientation and
 the productive-fast path through Echo's deterministic WARP runtime over
 witnessed causal history.
 
-For deep-track doctrine, theoretical foundations (AION Foundations), and internal spec details, use [ADVANCED_GUIDE.md](./ADVANCED_GUIDE.md).
+For deeper doctrine, use the [documentation map](./docs/README.md). It routes
+current architecture, living topics, specifications, invariants, and durable
+ADRs without treating a historical guide as present truth.
 
 ## Choose Your Lane
 

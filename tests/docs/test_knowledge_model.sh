@@ -38,6 +38,8 @@ readonly forbidden_process_paths=(
   "backlog"
   "crates/method"
   "scripts/check-append-only.js"
+  "scripts/check_task_lists.sh"
+  "scripts/tests/check_task_lists_test.sh"
   ".github/workflows/refresh-dependency-dags.yml"
   "docs/assets/dags"
   "scripts/dag-utils.js"

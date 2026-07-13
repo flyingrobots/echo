@@ -322,28 +322,6 @@ jobs:
                   set -euo pipefail
                   bash scripts/tests/check_rust_versions_test.sh
 
-    task-lists:
-        name: Task Lists Guard
-        runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@v4
-            - name: Check task lists for contradictions
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  script="scripts/check_task_lists.sh"
-                  if [[ ! -x "$script" ]]; then
-                    echo "Error: $script is missing or not executable" >&2
-                    ls -la scripts || true
-                    exit 1
-                  fi
-                  "$script"
-            - name: Task list checker self-tests
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  bash scripts/tests/check_task_lists_test.sh
-
     wasm-package-boundary:
         name: WASM Package Boundary
         runs-on: ubuntu-latest

@@ -453,8 +453,8 @@ pub use head::{
 /// transitional callers, but new code should route ingress via
 /// [`WorldlineRuntime::ingest`] with these types.
 pub use head_inbox::{
-    make_intent_kind, HeadInbox, InboxAddress, InboxPolicy, IngressEnvelope, IngressPayload,
-    IngressTarget, IntentKind,
+    make_intent_kind, HeadInbox, InboxAddress, InboxPolicy, IngressCausalParent, IngressEnvelope,
+    IngressPayload, IngressTarget, IntentKind,
 };
 pub use worldline_registry::WorldlineRegistry;
 pub use worldline_state::{WorldlineFrontier, WorldlineState, WorldlineStateError};

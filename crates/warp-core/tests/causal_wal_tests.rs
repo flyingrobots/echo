@@ -1316,7 +1316,13 @@ fn wsc_ref_only_export_preserves_wal_identity() {
 
     let export = must_ok(wsc_ref_only_wal_export(
         &root,
-        wsc_records(&[], &[], &[acceptance], &[receipt], &[correlation]),
+        wsc_records(
+            &[],
+            &[],
+            &[acceptance],
+            &[receipt],
+            core::slice::from_ref(&correlation),
+        ),
     ));
     let imported = must_ok(validate_wsc_ref_only_wal_export(&export, &root));
 
@@ -1328,7 +1334,10 @@ fn wsc_ref_only_export_preserves_wal_identity() {
     assert_eq!(imported.root_identity_digest, root.identity_digest());
     assert_eq!(imported.accepted_submissions, vec![acceptance]);
     assert_eq!(imported.receipts, vec![receipt]);
-    assert_eq!(imported.correlations, vec![correlation]);
+    assert_eq!(
+        imported.correlations.as_slice(),
+        core::slice::from_ref(&correlation)
+    );
 
     assert_eq!(imported.segment_dependencies.len(), 1);
     let dependency = &imported.segment_dependencies[0];
@@ -1369,11 +1378,23 @@ fn wsc_ref_only_export_preserves_wal_identity() {
 
     let absolute_export_a = must_ok(wsc_ref_only_wal_export(
         &absolute_a,
-        wsc_records(&[], &[], &[acceptance], &[receipt], &[correlation]),
+        wsc_records(
+            &[],
+            &[],
+            &[acceptance],
+            &[receipt],
+            core::slice::from_ref(&correlation),
+        ),
     ));
     let absolute_export_b = must_ok(wsc_ref_only_wal_export(
         &absolute_b,
-        wsc_records(&[], &[], &[acceptance], &[receipt], &[correlation]),
+        wsc_records(
+            &[],
+            &[],
+            &[acceptance],
+            &[receipt],
+            core::slice::from_ref(&correlation),
+        ),
     ));
     assert_eq!(
         absolute_export_a.projection_envelope.basis_digest(),
@@ -1411,7 +1432,13 @@ fn wsc_ref_only_export_preserves_wal_identity() {
         must_err(
             wsc_ref_only_wal_export(
                 &missing_locator,
-                wsc_records(&[], &[], &[acceptance], &[receipt], &[correlation]),
+                wsc_records(
+                    &[],
+                    &[],
+                    &[acceptance],
+                    &[receipt],
+                    core::slice::from_ref(&correlation),
+                ),
             ),
             "ref-only WSC exports require segment locators",
         ),
@@ -1480,7 +1507,13 @@ fn wsc_self_contained_export_replays_segment_bytes() {
                 &root,
                 &[],
                 &[],
-                wsc_records(&[], &[], &[acceptance], &[receipt], &[correlation]),
+                wsc_records(
+                    &[],
+                    &[],
+                    &[acceptance],
+                    &[receipt],
+                    core::slice::from_ref(&correlation),
+                ),
             ),
             "self-contained WSC exports require embedded segment material",
         ),
@@ -1496,7 +1529,13 @@ fn wsc_self_contained_export_replays_segment_bytes() {
             segment_bytes: segment_bytes.clone(),
         }],
         &[],
-        wsc_records(&[], &[], &[acceptance], &[receipt], &[correlation]),
+        wsc_records(
+            &[],
+            &[],
+            &[acceptance],
+            &[receipt],
+            core::slice::from_ref(&correlation),
+        ),
     ));
     drop(store);
     must_ok(fs::remove_dir_all(&dir));
@@ -1514,7 +1553,10 @@ fn wsc_self_contained_export_replays_segment_bytes() {
     assert_eq!(imported.root_identity_digest, root.identity_digest());
     assert_eq!(imported.accepted_submissions, vec![acceptance]);
     assert_eq!(imported.receipts, vec![receipt]);
-    assert_eq!(imported.correlations, vec![correlation]);
+    assert_eq!(
+        imported.correlations.as_slice(),
+        core::slice::from_ref(&correlation)
+    );
 
     assert_eq!(imported.segment_recoveries.len(), 1);
     let segment_recovery = &imported.segment_recoveries[0];
@@ -1578,7 +1620,13 @@ fn wsc_self_contained_export_replays_segment_bytes() {
             segment_bytes: tampered_segment_bytes,
         }],
         &[],
-        wsc_records(&[], &[], &[acceptance], &[receipt], &[correlation]),
+        wsc_records(
+            &[],
+            &[],
+            &[acceptance],
+            &[receipt],
+            core::slice::from_ref(&correlation),
+        ),
     ));
     let error = must_err(
         validate_wsc_self_contained_wal_export(&tampered_export, &root),
@@ -1684,7 +1732,13 @@ fn wsc_cas_addressed_export_requires_present_blobs() {
                 byte_len: retained_b.byte_len,
             },
         ],
-        wsc_records(&[], &[], &[acceptance], &[receipt], &[correlation]),
+        wsc_records(
+            &[],
+            &[],
+            &[acceptance],
+            &[receipt],
+            core::slice::from_ref(&correlation),
+        ),
     ));
 
     let imported = must_ok(validate_wsc_cas_addressed_wal_export(
@@ -1703,7 +1757,10 @@ fn wsc_cas_addressed_export_requires_present_blobs() {
     assert_eq!(imported.root_identity_digest, root.identity_digest());
     assert_eq!(imported.accepted_submissions, vec![acceptance]);
     assert_eq!(imported.receipts, vec![receipt]);
-    assert_eq!(imported.correlations, vec![correlation]);
+    assert_eq!(
+        imported.correlations.as_slice(),
+        core::slice::from_ref(&correlation)
+    );
 
     assert_eq!(imported.cas_references.segments.len(), 1);
     let segment_reference = &imported.cas_references.segments[0];
@@ -1818,7 +1875,7 @@ fn wsc_retained_evidence_export_modes() {
             &[reading_ref],
             &[acceptance],
             &[receipt],
-            &[correlation],
+            core::slice::from_ref(&correlation),
         ),
     ));
     let ref_only_import = must_ok(validate_wsc_ref_only_wal_export(&ref_only, &root));
@@ -1848,7 +1905,7 @@ fn wsc_retained_evidence_export_modes() {
             &[reading_ref],
             &[acceptance],
             &[receipt],
-            &[correlation],
+            core::slice::from_ref(&correlation),
         ),
     ));
     let self_contained_import = must_ok(validate_wsc_self_contained_wal_export(
@@ -1887,7 +1944,7 @@ fn wsc_retained_evidence_export_modes() {
             &[reading_ref],
             &[acceptance],
             &[receipt],
-            &[correlation],
+            core::slice::from_ref(&correlation),
         ),
     ));
     let cas_import = must_ok(validate_wsc_cas_addressed_wal_export(
@@ -2130,7 +2187,7 @@ fn dind_durability_convergence_gate() {
             &[reading],
             &[acceptance],
             &[receipt],
-            &[correlation],
+            core::slice::from_ref(&correlation),
         ),
     ));
     let imported_self_contained = must_ok(validate_wsc_self_contained_wal_export(
@@ -2178,7 +2235,7 @@ fn dind_durability_convergence_gate() {
             &[reading],
             &[acceptance],
             &[receipt],
-            &[correlation],
+            core::slice::from_ref(&correlation),
         ),
     ));
     let imported_cas = must_ok(validate_wsc_cas_addressed_wal_export(
@@ -2241,7 +2298,7 @@ fn dind_durability_convergence_gate() {
                 &[reading],
                 &[acceptance],
                 &[receipt],
-                &[correlation],
+                core::slice::from_ref(&correlation),
             ),
         ),
         "corrupt embedded retained material must obstruct rather than diverge",
@@ -2274,7 +2331,7 @@ fn dind_durability_convergence_gate() {
             &[reading],
             &[acceptance],
             &[receipt],
-            &[correlation],
+            core::slice::from_ref(&correlation),
         ),
     ));
     let corrupt_segment = must_err(
@@ -2352,6 +2409,7 @@ fn correlation_record(label: &str) -> WalReceiptCorrelationRecord {
         submission_id: digest(&format!("submission:{label}")),
         ticket_digest: digest(&format!("ticket:{label}")),
         receipt_digest: digest(&format!("receipt:{label}")),
+        causal_parent_receipts: Vec::new(),
     }
 }
 

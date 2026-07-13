@@ -41,6 +41,13 @@ without scheduler callbacks, application callbacks, wall-clock interpretation,
 or external I/O. Recovery also emits a certificate over the committed replay
 range and recovered index root.
 
+Fifth, an admitted intent may cite typed causal parent tick receipts. Echo does
+not interpret a parent as undo, redo, compensation, or any other application
+operation. It commits the citation with the child receipt and rebuilds both
+parent lookup and reverse child lookup during read-only recovery. A contract can
+therefore define inverse semantics while Echo preserves the provenance chain
+across process loss.
+
 ## Boundaries
 
 The WAL belongs to the trusted runtime host. Application-facing code can submit
@@ -152,6 +159,7 @@ The core test names to read first are:
 - `runtime_wal_ack_tick_failure_rolls_back_visible_outcome`
 - `runtime_wal_ack_recover_read_only_rebuilds_submission_and_receipt_indexes`
 - `runtime_wal_ack_recover_read_only_exposes_recovery_certificate`
+- `filesystem_runtime_wal_recovers_receipt_causal_parents_after_host_restart`
 
 The host surface lives in `crates/warp-core/src/trusted_runtime_host.rs`,
 especially `TrustedRuntimeHost`, `TrustedRuntimeApp`, `TrustedRuntimeWal`,

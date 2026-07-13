@@ -81,6 +81,7 @@ fn receipt_correlation(contract: ContractEvidenceIdentity) -> ReceiptCorrelation
         worldline_tick_after: WorldlineTick::from_raw(27),
         tick_receipt_digest: hash(28),
         commit_hash: hash(29),
+        causal_parent_receipts: Vec::new(),
     }
 }
 

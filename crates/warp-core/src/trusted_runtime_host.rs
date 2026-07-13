@@ -825,9 +825,10 @@ impl TrustedRuntimeWal {
             submission_id: correlation.submission_id,
             ticket_digest: correlation.ticket_digest,
             receipt_digest: correlation.tick_receipt_digest,
+            causal_parent_receipts: correlation.causal_parent_receipts.clone(),
         };
         let next_receipt_frontier =
-            receipt_frontier_digest(self.receipt_frontier_digest, receipt, wal_correlation);
+            receipt_frontier_digest(self.receipt_frontier_digest, receipt, &wal_correlation);
         let next_runtime_frontier = runtime_state_frontier_digest(
             self.runtime_state_frontier_digest,
             correlation,
@@ -1187,7 +1188,7 @@ impl TrustedRuntimeWalCursor {
                     cursor.receipt_frontier_digest = receipt_frontier_digest(
                         cursor.receipt_frontier_digest,
                         receipt,
-                        correlation,
+                        &correlation,
                     );
                     cursor.runtime_state_frontier_digest = recovered_runtime_state_frontier_digest(
                         cursor.runtime_state_frontier_digest,
@@ -1539,6 +1540,7 @@ mod tests {
             worldline_tick_after: WorldlineTick::from_raw(1),
             tick_receipt_digest: receipt_digest,
             commit_hash: [5; 32],
+            causal_parent_receipts: Vec::new(),
         }
     }
 
@@ -1642,6 +1644,7 @@ fn tick_transaction_digest(
     hasher.update(&correlation.commit_hash);
     hasher.update(&correlation.commit_global_tick.as_u64().to_le_bytes());
     hasher.update(&correlation.worldline_tick_after.as_u64().to_le_bytes());
+    hash_causal_parent_receipts(&mut hasher, &correlation.causal_parent_receipts);
     hasher.update(&[wal_tick_decision_code(decision)]);
     hasher.update(&state_delta_digest);
     hasher.finalize().into()
@@ -1662,7 +1665,7 @@ fn tick_state_delta_digest(correlation: &ReceiptCorrelationRecord) -> Hash {
 fn receipt_frontier_digest(
     previous: Hash,
     receipt: TickReceiptRecord,
-    correlation: WalReceiptCorrelationRecord,
+    correlation: &WalReceiptCorrelationRecord,
 ) -> Hash {
     let mut hasher = blake3::Hasher::new();
     hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
@@ -1675,7 +1678,19 @@ fn receipt_frontier_digest(
     hasher.update(&correlation.submission_id);
     hasher.update(&correlation.ticket_digest);
     hasher.update(&correlation.receipt_digest);
+    hash_causal_parent_receipts(&mut hasher, &correlation.causal_parent_receipts);
     hasher.finalize().into()
+}
+
+fn hash_causal_parent_receipts(hasher: &mut blake3::Hasher, parents: &[Hash]) {
+    if parents.is_empty() {
+        return;
+    }
+    hasher.update(b"causal-parent-tick-receipts:v1\0");
+    hasher.update(&(parents.len() as u64).to_le_bytes());
+    for parent in parents {
+        hasher.update(parent);
+    }
 }
 
 fn wal_tick_decision_code(decision: WalTickDecision) -> u8 {

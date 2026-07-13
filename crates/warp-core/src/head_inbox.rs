@@ -120,6 +120,27 @@ pub enum IngressPayload {
     // Phase 9C: ConflictArtifact { ... }
 }
 
+/// Typed retained causal evidence cited by an ingress claim.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[non_exhaustive]
+pub enum IngressCausalParent {
+    /// Scheduler-owned tick receipt cited by a later contract intent.
+    TickReceipt {
+        /// Digest of the retained target receipt.
+        receipt_digest: Hash,
+    },
+}
+
+impl IngressCausalParent {
+    /// Returns the cited tick receipt digest.
+    #[must_use]
+    pub const fn receipt_digest(self) -> Hash {
+        match self {
+            Self::TickReceipt { receipt_digest } => receipt_digest,
+        }
+    }
+}
+
 // =============================================================================
 // IngressEnvelope
 // =============================================================================
@@ -137,7 +158,7 @@ pub struct IngressEnvelope {
     /// Routing target.
     target: IngressTarget,
     /// Causal parent references (empty for local intents in early phases).
-    causal_parents: Vec<Hash>,
+    causal_parents: Vec<IngressCausalParent>,
     /// The payload.
     payload: IngressPayload,
 }
@@ -150,11 +171,28 @@ impl IngressEnvelope {
         intent_kind: IntentKind,
         intent_bytes: Vec<u8>,
     ) -> Self {
-        let ingress_id = compute_ingress_id(&intent_kind, &intent_bytes);
+        Self::local_intent_with_causal_parents(target, intent_kind, intent_bytes, Vec::new())
+    }
+
+    /// Creates a local intent that explicitly cites retained causal evidence.
+    ///
+    /// Parent references are canonicalized as a set. Contract-defined inverse or
+    /// compensating intents use this boundary to cite the receipt evidence they
+    /// depend on without teaching Echo the contract's domain semantics.
+    #[must_use]
+    pub fn local_intent_with_causal_parents(
+        target: IngressTarget,
+        intent_kind: IntentKind,
+        intent_bytes: Vec<u8>,
+        mut causal_parents: Vec<IngressCausalParent>,
+    ) -> Self {
+        causal_parents.sort_unstable();
+        causal_parents.dedup();
+        let ingress_id = compute_ingress_id(&intent_kind, &intent_bytes, &causal_parents);
         Self {
             ingress_id,
             target,
-            causal_parents: Vec::new(),
+            causal_parents,
             payload: IngressPayload::LocalIntent {
                 intent_kind,
                 intent_bytes,
@@ -182,7 +220,7 @@ impl IngressEnvelope {
 
     /// Returns the causal parents for this envelope.
     #[must_use]
-    pub fn causal_parents(&self) -> &[Hash] {
+    pub fn causal_parents(&self) -> &[IngressCausalParent] {
         &self.causal_parents
     }
 
@@ -191,7 +229,7 @@ impl IngressEnvelope {
             IngressPayload::LocalIntent {
                 intent_kind,
                 intent_bytes,
-            } => compute_ingress_id(intent_kind, intent_bytes),
+            } => compute_ingress_id(intent_kind, intent_bytes, &self.causal_parents),
         }
     }
 
@@ -206,12 +244,32 @@ impl IngressEnvelope {
 
 /// Computes the content address of a local intent.
 ///
-/// Hash structure: `BLAKE3("ingress:" || kind_hash || bytes)`.
-/// No length prefix is needed because the kind hash is always exactly 32 bytes
-/// (`Hash = [u8; 32]`), so the boundary between kind and payload is
-/// unambiguous.
-fn compute_ingress_id(kind: &IntentKind, bytes: &[u8]) -> Hash {
+/// Parentless intents preserve the original
+/// `BLAKE3("ingress:" || kind_hash || bytes)` identity. Causal intents use a
+/// separate versioned domain with explicit lengths so the same contract bytes
+/// cited against different receipt evidence cannot collapse as duplicates.
+fn compute_ingress_id(
+    kind: &IntentKind,
+    bytes: &[u8],
+    causal_parents: &[IngressCausalParent],
+) -> Hash {
     let mut hasher = blake3::Hasher::new();
+    if !causal_parents.is_empty() {
+        hasher.update(b"ingress:causal:v1\0");
+        hasher.update(kind.as_hash());
+        hasher.update(&(bytes.len() as u64).to_le_bytes());
+        hasher.update(bytes);
+        hasher.update(&(causal_parents.len() as u64).to_le_bytes());
+        for parent in causal_parents {
+            match parent {
+                IngressCausalParent::TickReceipt { receipt_digest } => {
+                    hasher.update(b"tick-receipt\0");
+                    hasher.update(receipt_digest);
+                }
+            }
+        }
+        return hasher.finalize().into();
+    }
     hasher.update(b"ingress:");
     hasher.update(kind.as_hash());
     hasher.update(bytes);

@@ -220,6 +220,7 @@ fn tick_transaction(
         submission_id: receipt.submission_id,
         ticket_digest: receipt.ticket_digest,
         receipt_digest: receipt.receipt_digest,
+        causal_parent_receipts: Vec::new(),
     };
     must_ok(build_tick_transaction(
         builder(

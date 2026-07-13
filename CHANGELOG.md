@@ -7,6 +7,10 @@
 
 ### Added
 
+- `warp-core` ingress can now cite typed causal parent tick receipts. Trusted
+  runtime outcomes, WAL receipt correlations, read-only recovery indexes, and
+  WSC causal-history envelopes retain both parent and reverse child lookup so
+  contract-defined inverse intents remain attributable after host restart.
 - `warp-core` now exposes `RetainedEvidenceBoundaryPosture` with boundary
   layer, origin, proof strength, access, completeness, and obstruction axes so
   retained evidence refs can be projected without conflating citation, reveal

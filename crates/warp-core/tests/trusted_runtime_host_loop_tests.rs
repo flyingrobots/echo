@@ -25,13 +25,14 @@ use warp_core::{
     make_head_id, make_intent_kind, make_node_id, make_type_id, AuthoredObserverPlan,
     ContractMutationHandler, ContractOperationKind, ContractPackageIdentity, ContractQueryObserver,
     ContractQueryObserverResult, EngineBuilder, GraphStore, GraphView, Hash, InboxPolicy,
-    IngressEnvelope, IngressTarget, IntentOutcome, NodeId, NodeRecord, ObservationAt,
-    ObservationCoordinate, ObservationFrame, ObservationPayload, ObservationProjection,
-    ObservationReadBudget, ObservationRequest, ObserverPlanId, OpticAdmissionTicket,
-    OpticArtifactHandle, PatternGraph, PlaybackMode, SchedulerKind, TickDelta, TrustedRuntimeHost,
-    TrustedRuntimeHostError, TrustedRuntimeWal, TrustedRuntimeWalConfig, TrustedRuntimeWalError,
-    TrustedRuntimeWalStoreKind, WarpOp, WorldlineId, WorldlineRuntime, WorldlineState, WriterHead,
-    WriterHeadKey, OPTIC_ADMISSION_TICKET_KIND, OPTIC_ARTIFACT_HANDLE_KIND,
+    IngressCausalParent, IngressEnvelope, IngressTarget, IntentOutcome, NodeId, NodeRecord,
+    ObservationAt, ObservationCoordinate, ObservationFrame, ObservationPayload,
+    ObservationProjection, ObservationReadBudget, ObservationRequest, ObserverPlanId,
+    OpticAdmissionTicket, OpticArtifactHandle, PatternGraph, PlaybackMode, SchedulerKind,
+    TickDelta, TrustedRuntimeHost, TrustedRuntimeHostError, TrustedRuntimeWal,
+    TrustedRuntimeWalConfig, TrustedRuntimeWalError, TrustedRuntimeWalStoreKind, WarpOp,
+    WorldlineId, WorldlineRuntime, WorldlineState, WriterHead, WriterHeadKey,
+    OPTIC_ADMISSION_TICKET_KIND, OPTIC_ARTIFACT_HANDLE_KIND,
 };
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -335,6 +336,21 @@ fn eint_envelope(worldline_id: WorldlineId) -> IngressEnvelope {
     )
 }
 
+fn causal_eint_envelope(
+    worldline_id: WorldlineId,
+    causal_parent_receipts: Vec<Hash>,
+) -> IngressEnvelope {
+    IngressEnvelope::local_intent_with_causal_parents(
+        IngressTarget::DefaultWriter { worldline_id },
+        make_intent_kind("echo.intent/eint-v1"),
+        echo_wasm_abi::pack_intent_v1(MUTATION_OP_ID, MUTATION_VARS).expect("EINT should pack"),
+        causal_parent_receipts
+            .into_iter()
+            .map(|receipt_digest| IngressCausalParent::TickReceipt { receipt_digest })
+            .collect(),
+    )
+}
+
 fn query_request(worldline_id: WorldlineId) -> ObservationRequest {
     let mut request = ObservationRequest::builtin_one_shot(
         ObservationCoordinate {
@@ -615,6 +631,61 @@ fn filesystem_runtime_wal_ack_reconstructs_submission_and_tick_from_root() {
     assert_eq!(
         recovery.certificate.recovered_indexes_root,
         recovered_submission_receipt_index_root(&recovery.submissions, &recovery.receipts)
+    );
+}
+
+#[test]
+fn filesystem_runtime_wal_recovers_receipt_causal_parents_after_host_restart() {
+    let wal_root = temp_runtime_wal_dir("causal-parent-recovery");
+    let target_receipt = filesystem_wal_failure_digest("target-receipt");
+    let (initial_runtime, worldline_id) = runtime();
+    let mut host = TrustedRuntimeHost::new(initial_runtime, empty_engine())
+        .expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("host should configure filesystem runtime WAL adapter");
+    host.register_contract_package(package())
+        .expect("host should install package");
+
+    let submission = {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(causal_eint_envelope(
+            worldline_id,
+            vec![target_receipt],
+        ))
+        .expect("causal intent should cross the durable ACK boundary")
+    };
+    host.stage_installed_contract_submission(submission.submission_id, &admission_ticket(58))
+        .expect("trusted host should stage package-supported ticketed ingress");
+    host.run_until_idle(4)
+        .expect("trusted host should tick until idle");
+
+    let outcome = host.app().observe_intent_outcome(&submission.submission_id);
+    let IntentOutcome::Applied { receipt, .. } = outcome else {
+        panic!("expected applied causal intent outcome");
+    };
+    assert_eq!(receipt.causal_parent_receipts, vec![target_receipt]);
+    let inverse_receipt = receipt.tick_receipt_digest;
+    drop(host);
+
+    let (reconstructed_runtime, _) = runtime();
+    let mut reconstructed_host = TrustedRuntimeHost::new(reconstructed_runtime, empty_engine())
+        .expect("reconstructed trusted host should initialize");
+    reconstructed_host
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("reconstructed host should reopen filesystem runtime WAL adapter");
+
+    let recovery = reconstructed_host
+        .runtime_wal()
+        .expect("runtime WAL should be configured")
+        .recover_read_only()
+        .expect("filesystem runtime WAL should recover causal receipt ancestry");
+    assert_eq!(
+        recovery.receipts.causal_parent_receipts(&inverse_receipt),
+        [target_receipt].as_slice()
+    );
+    assert_eq!(
+        recovery.receipts.receipts_citing(&target_receipt),
+        [inverse_receipt].as_slice()
     );
 }
 

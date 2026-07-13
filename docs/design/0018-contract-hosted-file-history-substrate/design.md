@@ -244,6 +244,13 @@ Echo should not expose a generic blind inverse of `WarpOp` as the application
 undo model. WarpOp patches are replay artifacts. Domain inverse law belongs to
 the contract family.
 
+The ingress and receipt boundary carries this relationship as a typed causal
+parent tick-receipt reference. Echo includes the canonical parent set in causal
+ingress identity, commits it in receipt-correlation evidence, and recovers
+parent and reverse-child indexes. The installed contract, not Echo core,
+decides whether that relationship means inverse, redo, compensation, or another
+domain operation.
+
 ## Retention, CAS, And Streaming
 
 Large files must not require full text materialization.
@@ -319,7 +326,6 @@ The fixture should prove:
 - Does EINT v1 need an outer admission certificate before the first installed
   contract proof, or can the certificate remain host-side metadata for this
   slice?
-- Which existing receipt structures should carry inverse-to-target links?
 - How much of generic braid projection belongs in the current Strand and
   SettlementService model versus a new braid registry?
 - What is the first streaming seam that preserves current `echo-cas`

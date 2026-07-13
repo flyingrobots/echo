@@ -576,14 +576,21 @@ fn pending_submission_recovers_from_committed_wsc_store_without_decision() {
 #[test]
 fn receipt_correlation_records_round_trip_through_wsc_envelope() {
     let receipt = tick_receipt(7, 17, 27, WalTickDecision::Applied);
-    let correlation = receipt_correlation(7, 17, 27);
-    let envelope = receipt_correlation_records_to_wsc_envelope(&[receipt], &[correlation])
-        .expect("receipt correlation WSC envelope");
+    let mut correlation = receipt_correlation(7, 17, 27);
+    correlation.causal_parent_receipts = vec![[37; 32]];
+    let envelope = receipt_correlation_records_to_wsc_envelope(
+        &[receipt],
+        core::slice::from_ref(&correlation),
+    )
+    .expect("receipt correlation WSC envelope");
 
     let recovered = receipt_correlation_records_from_wsc_envelope(&envelope)
         .expect("recovered receipt correlations");
     assert_eq!(recovered.receipts, vec![receipt]);
-    assert_eq!(recovered.correlations, vec![correlation]);
+    assert_eq!(
+        recovered.correlations.as_slice(),
+        core::slice::from_ref(&correlation)
+    );
 
     let index = RecoveredReceiptIndex::from_receipt_correlation_records(
         recovered.receipts,
@@ -595,6 +602,8 @@ fn receipt_correlation_records_round_trip_through_wsc_envelope() {
         index.decisions_by_receipt.get(&[27; 32]),
         Some(&WalTickDecision::Applied)
     );
+    assert_eq!(index.causal_parent_receipts(&[27; 32]), [[37; 32]]);
+    assert_eq!(index.receipts_citing(&[37; 32]), [[27; 32]]);
 }
 
 #[test]
@@ -1339,6 +1348,7 @@ fn receipt_correlation(
         submission_id: [submission_byte; 32],
         ticket_digest: [ticket_byte; 32],
         receipt_digest: [receipt_byte; 32],
+        causal_parent_receipts: Vec::new(),
     }
 }
 

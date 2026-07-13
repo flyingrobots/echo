@@ -1872,7 +1872,7 @@ impl TickReceiptRecord {
 }
 
 /// WAL receipt correlation record payload.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WalReceiptCorrelationRecord {
     /// Submission correlated to the receipt.
     pub submission_id: Hash,
@@ -1880,6 +1880,8 @@ pub struct WalReceiptCorrelationRecord {
     pub ticket_digest: Hash,
     /// Tick receipt digest.
     pub receipt_digest: Hash,
+    /// Canonical retained receipt/evidence hashes cited by this receipt's intent.
+    pub causal_parent_receipts: Vec<Hash>,
 }
 
 impl WalReceiptCorrelationRecord {
@@ -1890,6 +1892,15 @@ impl WalReceiptCorrelationRecord {
         push_hash(&mut out, &self.submission_id);
         push_hash(&mut out, &self.ticket_digest);
         push_hash(&mut out, &self.receipt_digest);
+        let mut causal_parent_receipts = self.causal_parent_receipts.clone();
+        causal_parent_receipts.sort_unstable();
+        causal_parent_receipts.dedup();
+        if !causal_parent_receipts.is_empty() {
+            out.extend_from_slice(&len_u64(causal_parent_receipts.len()).to_le_bytes());
+            for parent in causal_parent_receipts {
+                push_hash(&mut out, &parent);
+            }
+        }
         out
     }
 
@@ -1899,11 +1910,28 @@ impl WalReceiptCorrelationRecord {
         let submission_id = cursor.read_hash()?;
         let ticket_digest = cursor.read_hash()?;
         let receipt_digest = cursor.read_hash()?;
+        let mut causal_parent_receipts = if cursor.remaining_len() == 0 {
+            Vec::new()
+        } else {
+            let parent_count =
+                usize::try_from(cursor.read_u64()?).map_err(|_| WalDecodeError::UnexpectedEof)?;
+            if parent_count > cursor.remaining_len() / core::mem::size_of::<Hash>() {
+                return Err(WalDecodeError::UnexpectedEof);
+            }
+            let mut parents = Vec::with_capacity(parent_count);
+            for _ in 0..parent_count {
+                parents.push(cursor.read_hash()?);
+            }
+            parents
+        };
+        causal_parent_receipts.sort_unstable();
+        causal_parent_receipts.dedup();
         cursor.finish()?;
         Ok(Self {
             submission_id,
             ticket_digest,
             receipt_digest,
+            causal_parent_receipts,
         })
     }
 }
@@ -2417,6 +2445,17 @@ pub fn recovered_submission_receipt_index_root(
         hasher.update(receipt_digest);
         hasher.update(&[decision.code()]);
     }
+    if !receipts.causal_parent_receipts_by_receipt.is_empty() {
+        hasher.update(b"causal-parents-by-receipt:v1\0");
+        hasher.update(&len_u64(receipts.causal_parent_receipts_by_receipt.len()).to_le_bytes());
+        for (receipt_digest, parents) in &receipts.causal_parent_receipts_by_receipt {
+            hasher.update(receipt_digest);
+            hasher.update(&len_u64(parents.len()).to_le_bytes());
+            for parent in parents {
+                hasher.update(parent);
+            }
+        }
+    }
     hasher.finalize().into()
 }
 
@@ -2441,6 +2480,10 @@ pub struct RecoveredReceiptIndex {
     pub ticket_by_submission: BTreeMap<Hash, Hash>,
     /// Decisions by receipt digest.
     pub decisions_by_receipt: BTreeMap<Hash, WalTickDecision>,
+    /// Canonical causal parent receipt/evidence hashes by child receipt.
+    causal_parent_receipts_by_receipt: BTreeMap<Hash, Vec<Hash>>,
+    /// Canonical child receipt hashes by cited parent receipt/evidence hash.
+    receipts_by_causal_parent: BTreeMap<Hash, Vec<Hash>>,
 }
 
 impl RecoveredReceiptIndex {
@@ -2471,17 +2514,65 @@ impl RecoveredReceiptIndex {
                 .insert(receipt.receipt_digest, receipt.decision);
         }
         for correlation in correlations {
-            index
-                .receipt_by_submission
-                .insert(correlation.submission_id, correlation.receipt_digest);
-            index
-                .receipt_by_ticket
-                .insert(correlation.ticket_digest, correlation.receipt_digest);
-            index
-                .ticket_by_submission
-                .insert(correlation.submission_id, correlation.ticket_digest);
+            index.apply_correlation_record(correlation);
         }
         index
+    }
+
+    fn apply_correlation_record(&mut self, correlation: WalReceiptCorrelationRecord) {
+        let mut parents = correlation.causal_parent_receipts;
+        parents.sort_unstable();
+        parents.dedup();
+        if let Some(previous_parents) = self
+            .causal_parent_receipts_by_receipt
+            .remove(&correlation.receipt_digest)
+        {
+            for previous_parent in previous_parents {
+                let remove_parent = self
+                    .receipts_by_causal_parent
+                    .get_mut(&previous_parent)
+                    .is_some_and(|children| {
+                        children.retain(|child| child != &correlation.receipt_digest);
+                        children.is_empty()
+                    });
+                if remove_parent {
+                    self.receipts_by_causal_parent.remove(&previous_parent);
+                }
+            }
+        }
+        self.receipt_by_submission
+            .insert(correlation.submission_id, correlation.receipt_digest);
+        self.receipt_by_ticket
+            .insert(correlation.ticket_digest, correlation.receipt_digest);
+        self.ticket_by_submission
+            .insert(correlation.submission_id, correlation.ticket_digest);
+        if parents.is_empty() {
+            return;
+        }
+        self.causal_parent_receipts_by_receipt
+            .insert(correlation.receipt_digest, parents.clone());
+        for parent in parents {
+            let children = self.receipts_by_causal_parent.entry(parent).or_default();
+            children.push(correlation.receipt_digest);
+            children.sort_unstable();
+            children.dedup();
+        }
+    }
+
+    /// Returns canonical causal parent receipt/evidence hashes cited by a receipt.
+    #[must_use]
+    pub fn causal_parent_receipts(&self, receipt_digest: &Hash) -> &[Hash] {
+        self.causal_parent_receipts_by_receipt
+            .get(receipt_digest)
+            .map_or(&[], Vec::as_slice)
+    }
+
+    /// Returns canonical receipts whose intents cite the supplied receipt/evidence hash.
+    #[must_use]
+    pub fn receipts_citing(&self, parent_receipt_digest: &Hash) -> &[Hash] {
+        self.receipts_by_causal_parent
+            .get(parent_receipt_digest)
+            .map_or(&[], Vec::as_slice)
     }
 }
 
@@ -7003,15 +7094,7 @@ pub fn recover_receipt_index(
                     let correlation = WalReceiptCorrelationRecord::from_payload_bytes(
                         &frame.payload.canonical_bytes,
                     )?;
-                    index
-                        .receipt_by_submission
-                        .insert(correlation.submission_id, correlation.receipt_digest);
-                    index
-                        .receipt_by_ticket
-                        .insert(correlation.ticket_digest, correlation.receipt_digest);
-                    index
-                        .ticket_by_submission
-                        .insert(correlation.submission_id, correlation.ticket_digest);
+                    index.apply_correlation_record(correlation);
                 }
                 _ => {}
             }

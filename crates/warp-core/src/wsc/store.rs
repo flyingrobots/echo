@@ -1753,7 +1753,7 @@ pub fn validate_wsc_self_contained_wal_export(
     .map_err(WscSelfContainedWalImportError::Index)?;
     let receipt_index = RecoveredReceiptIndex::from_receipt_correlation_records(
         receipt_records.receipts.iter().copied(),
-        receipt_records.correlations.iter().copied(),
+        receipt_records.correlations.iter().cloned(),
     );
 
     Ok(WscSelfContainedWalImport {
@@ -4583,11 +4583,11 @@ fn canonical_receipt_correlations(
                 record.ticket_digest,
                 record.receipt_digest,
             ),
-            *record,
+            record.clone(),
         );
-        by_submission.insert(record.submission_id, *record);
-        by_ticket.insert(record.ticket_digest, *record);
-        by_receipt.insert(record.receipt_digest, *record);
+        by_submission.insert(record.submission_id, record.clone());
+        by_ticket.insert(record.ticket_digest, record.clone());
+        by_receipt.insert(record.receipt_digest, record.clone());
     }
     Ok(by_correlation.into_values().collect())
 }

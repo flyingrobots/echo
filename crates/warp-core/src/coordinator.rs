@@ -598,6 +598,11 @@ pub struct ReceiptCorrelationRecord {
     pub tick_receipt_digest: Hash,
     /// Commit hash emitted by the scheduler-owned tick.
     pub commit_hash: Hash,
+    /// Canonical retained receipt/evidence hashes cited by the admitted intent.
+    ///
+    /// Echo preserves these links without interpreting application-defined
+    /// inverse or compensation semantics.
+    pub causal_parent_receipts: Vec<Hash>,
 }
 
 /// Scheduler-owned decision observed for a witnessed intent submission.
@@ -679,6 +684,8 @@ pub struct IntentOutcomeReceipt {
     pub tick_receipt_digest: Hash,
     /// Commit hash emitted by the scheduler-owned tick.
     pub commit_hash: Hash,
+    /// Canonical retained receipt/evidence hashes cited by the admitted intent.
+    pub causal_parent_receipts: Vec<Hash>,
     /// Entry index inside the correlated tick receipt.
     pub receipt_entry_index: u32,
     /// Scheduler rule that produced the receipt entry.
@@ -707,6 +714,7 @@ impl IntentOutcomeReceipt {
             worldline_tick_after: correlation.worldline_tick_after,
             tick_receipt_digest: correlation.tick_receipt_digest,
             commit_hash: correlation.commit_hash,
+            causal_parent_receipts: correlation.causal_parent_receipts.clone(),
             receipt_entry_index,
             rule_id,
             retained_evidence: retained_contract_receipt_evidence(correlation),
@@ -2279,6 +2287,12 @@ impl WorldlineRuntime {
                 worldline_tick_after: context.worldline_tick_after,
                 tick_receipt_digest: context.tick_receipt_digest,
                 commit_hash: context.commit_hash,
+                causal_parent_receipts: envelope
+                    .causal_parents()
+                    .iter()
+                    .copied()
+                    .map(crate::IngressCausalParent::receipt_digest)
+                    .collect(),
             };
             rollback.entries.push(ReceiptCorrelationRollbackEntry {
                 ticketed_ingress_id,
@@ -5045,6 +5059,7 @@ mod tests {
             worldline_tick_after: wt(8),
             tick_receipt_digest: hash(9),
             commit_hash: hash(10),
+            causal_parent_receipts: Vec::new(),
         };
 
         let applied = IntentOutcome::from_observation(IntentOutcomeObservation::Decided {

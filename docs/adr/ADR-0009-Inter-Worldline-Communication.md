@@ -3,10 +3,19 @@
 
 # ADR-0009: Inter-Worldline Communication, Frontier Transport, and Conflict Policy
 
-- **Status:** Accepted
+- **Status:** Superseded
+- **Superseded by:** [ADR 0013](0013-echo-continuum-authority-boundary.md) and [ADR 0016](0016-continuum-transport-identity.md)
 - **Date:** 2026-03-09
 - **Depends on:** ADR-0008 (Worldline Runtime Model)
 - **Theoretical basis:** WARP Paper Series (Papers I–V), unpublished.
+
+## Supersession
+
+Echo and Continuum now exchange ordered witnessed causal suffixes. A transport
+bundle is not materialized state or a raw frontier-relative patch stream, and
+equivalent visible state is insufficient transport identity. ADRs 0013 and
+0016 govern the current authority and identity boundary. The state-patch model
+below remains only as historical rationale.
 
 ## Context
 

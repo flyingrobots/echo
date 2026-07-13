@@ -30,7 +30,7 @@ track work, progress, priority, or release readiness.
 | [0006](ADR-0006-Ban-Non-Determinism.md)                          | Undeclared           | Ban semantic non-determinism                                 |
 | [0007](ADR-0007-BOAW-Storage.md)                                 | Partially superseded | BOAW execution mechanics; ADR 0020 governs storage authority |
 | [0008](ADR-0008-Worldline-Runtime-Model.md)                      | Accepted             | Worldline runtime model                                      |
-| [0009](ADR-0009-Inter-Worldline-Communication.md)                | Accepted             | Inter-worldline communication                                |
+| [0009](ADR-0009-Inter-Worldline-Communication.md)                | Superseded           | Historical frontier-relative state-patch transport           |
 | [0010](ADR-0010-observational-seek-and-administrative-rewind.md) | Accepted             | Observational seek and administrative rewind                 |
 | [0011](ADR-0011-explicit-observation-contract.md)                | Implemented          | Explicit observation contract                                |
 | [0012](0012-repository-knowledge-model.md)                       | Accepted             | Repository knowledge model after Method                      |

@@ -36,6 +36,7 @@ readonly current_adrs=(
 readonly superseded_legacy_adrs=(
   "ADR-0003-Materialization-Bus.md"
   "ADR-0005-Physics.md"
+  "ADR-0009-Inter-Worldline-Communication.md"
 )
 
 readonly partially_superseded_legacy_adrs=(

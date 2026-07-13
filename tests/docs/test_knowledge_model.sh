@@ -238,6 +238,13 @@ if grep -Eq '^## Follow-ups|docs/warp-two-plane-law\.md' \
   failures=$((failures + 1))
 fi
 
+if grep -Eq \
+  'Compatibility is one phase|During ABI v1|At the start of Phase 6|deleted on schedule|Those remain later work' \
+  docs/adr/ADR-0011-explicit-observation-contract.md; then
+  echo "knowledge-model: ADR 0011 contains an ABI migration diary or future-work queue" >&2
+  failures=$((failures + 1))
+fi
+
 if ((failures > 0)); then
   echo "knowledge-model: ${failures} violation(s)" >&2
   exit 1

@@ -178,52 +178,26 @@ The only valid query-shaped pairing in v1 is:
 That pairing is still allowed to fail with deterministic `UnsupportedQuery`
 until real query support exists.
 
-No future query API may bypass `observe(...)`.
-
-### 8. Compatibility is one phase only
-
-The internal read pivot is a hard break.
-
-During ABI v1, one adapter phase was allowed:
-
-- `get_head()` lowers to `observe(Frontier, CommitBoundary, Head)`
-- `snapshot_at(t)` lowers to `observe(Tick(t), CommitBoundary, Snapshot)`
-- `execute_query(...)` lowers to `observe(..., QueryView, Query { ... })`
-- `drain_view_ops()` is a legacy adapter over `RecordedTruth`
-
-`drain_view_ops()` was legacy/debug-only in that phase. It was not allowed to
-gain new product semantics.
-
-At the start of Phase 6:
-
-- `get_head`
-- `snapshot_at`
-- `drain_view_ops`
-- `execute_query`
-- `render_snapshot`
-
-are removed from the public boundary. That landed as the first ABI v2 break.
-The follow-on Phase 6 honest-clock/control-plane rewrite then bumps the public
-WASM boundary again to ABI v3. After those slices land, `observe(...)` remains
-the only canonical public read entrypoint.
+Query resolution must lower through the explicit observation primitive. Public
+application and adapter queries also obey ADR 0021's bounded optic boundary.
 
 ## Consequences
 
 ### Positive
 
 - Reads become explicit about worldline and time.
-- One canonical read path replaces divergent implicit read semantics.
+- One canonical internal observation primitive replaces divergent implicit read
+  semantics.
 - Historical and current observations can share one deterministic identity model.
 - Recorded truth becomes a real read contract rather than a side effect of
   mutable drain plumbing.
 
 ### Negative
 
-- Kernel and ABI adapters must be rewritten now instead of later.
-- Some existing cursor/session helpers remain as accelerators but lose their
-  status as the conceptual public read model.
-- The v1 compatibility layer is intentionally temporary and must be deleted on
-  schedule instead of being allowed to fossilize.
+- Adapters must name coordinates, frames, and projections instead of relying on
+  implicit current state.
+- Cursor or session helpers may accelerate reads but cannot become an
+  independent causal or product read model.
 
 ## Non-Goals
 
@@ -236,4 +210,8 @@ This ADR does not introduce:
 - implicit continuation from historical reads,
 - `fork_from_observation(...)` itself.
 
-Those remain later work.
+## Historical Note
+
+The original record included an ABI-phase migration diary, temporary adapter
+list, deletion schedule, and future-work language. Those process artifacts
+remain in Git history. ADR 0021 governs the current public optic boundary.

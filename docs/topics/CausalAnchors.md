@@ -268,7 +268,7 @@ subject. Echo does not validate rope structure; Jim does.
 
 The WAL remains the durable commit boundary for Echo runtime history. The current
 causal-anchor value is not admitted through that authority and does not replace
-WAL ordering or recovery. See [/topics/WAL](/topics/WAL) for the WAL boundary.
+WAL ordering or recovery. See [WAL](WAL.md) for the WAL boundary.
 
 A trusted admission path could pin CAS roots, graph facts, manifests, indexes, or
 materialized projection blobs. Constructing a `CausalAnchorFact` alone pins

@@ -5358,7 +5358,13 @@ fn run_lint_dead_refs(args: LintDeadRefsArgs) -> Result<()> {
     );
     for (file, line, target, resolved) in &broken {
         eprintln!("  {}:{}: -> {}", file.display(), line, target);
-        eprintln!("    resolved to: {} (not found)", resolved.display());
+        if target.starts_with('/') {
+            eprintln!(
+                "    root-relative docs-site routes are unsupported; use a repository-relative link"
+            );
+        } else {
+            eprintln!("    resolved to: {} (not found)", resolved.display());
+        }
         eprintln!();
     }
 
@@ -5426,9 +5432,13 @@ fn find_docs_root(start: &Path) -> PathBuf {
 /// Try to resolve a link target to an existing path.
 ///
 /// Returns `None` if the link resolves successfully (target exists).
-/// Returns `Some(best_guess_path)` if no resolution succeeded.
+/// Returns `Some(best_guess_path)` if the target is a retired root-relative
+/// docs-site route or no resolution succeeded.
 fn try_resolve_link(source_file: &Path, target: &str, docs_root: &Path) -> Option<PathBuf> {
     let candidates = build_candidates(source_file, target, docs_root);
+    if target.starts_with('/') {
+        return candidates.into_iter().next();
+    }
     for candidate in &candidates {
         if candidate.exists() {
             return None; // Link is valid
@@ -6473,7 +6483,7 @@ mod tests {
     }
 
     #[test]
-    fn root_relative_link_resolves_against_docs_root() {
+    fn root_relative_link_builds_diagnostic_candidate() {
         let source = Path::new("docs/README.md");
         let docs_root = Path::new("docs");
         let candidates = build_candidates(source, "/guide/start-here.md", docs_root);
@@ -6493,6 +6503,31 @@ mod tests {
         assert!(candidates
             .iter()
             .any(|p| p.ends_with("guide/start-here.html")));
+    }
+
+    #[test]
+    fn root_relative_link_is_rejected_even_when_target_exists() {
+        let root = unique_temp_path("xtask-root-relative-link");
+        let docs = root.join("docs");
+        let topics = docs.join("topics");
+        let source = docs.join("README.md");
+        let target = topics.join("WAL.md");
+        assert_ok(
+            fs::create_dir_all(&topics),
+            "test topics directory should be created",
+        );
+        assert_ok(
+            fs::write(&source, "# Docs\n"),
+            "test source should be written",
+        );
+        assert_ok(
+            fs::write(&target, "# WAL\n"),
+            "test target should be written",
+        );
+
+        assert!(try_resolve_link(&source, "/topics/WAL", &docs).is_some());
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

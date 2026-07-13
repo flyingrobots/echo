@@ -7,7 +7,7 @@ This document outlines the high-risk sources of nondeterminism in floating-point
 and the mitigation strategies Echo uses to stay bit-stable across architectures.
 
 For the normative rules, see
-[/determinism/SPEC_DETERMINISTIC_MATH](/determinism/SPEC_DETERMINISTIC_MATH).
+[SPEC_DETERMINISTIC_MATH.md](SPEC_DETERMINISTIC_MATH.md).
 
 Achieving bit-perfect determinism across disparate hardware architectures (x86_64, AArch64, WASM32)
 is difficult due to loosely defined behaviors in the IEEE 754 specification. While basic arithmetic

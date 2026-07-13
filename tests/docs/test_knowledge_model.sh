@@ -251,6 +251,11 @@ if grep -Eq '^## [0-9]+\. (Audit Findings|Implementation Checklist)|Issue #[0-9]
   failures=$((failures + 1))
 fi
 
+if grep -Eq 'current `v[0-9]+\.[0-9]+\.[0-9]+` goal|Ongoing work focuses' README.md; then
+  echo "knowledge-model: README contains a live release goal or work queue" >&2
+  failures=$((failures + 1))
+fi
+
 if ((failures > 0)); then
   echo "knowledge-model: ${failures} violation(s)" >&2
   exit 1

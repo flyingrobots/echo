@@ -466,9 +466,4 @@ Echo has a working deterministic kernel, installed contract hosting, witnessed
 intent submission, scheduler-owned execution, observation envelopes, semantic
 retention, suffix transport surfaces, and playback tooling.
 
-The current `v0.1.0` goal is narrower and practical: make Echo a usable local
-deterministic contract host. Ongoing work focuses on durable submission
-persistence, product-facing intent outcome APIs, reference host loops, retained
-evidence polish, release-grade quickstarts, and deeper Continuum integration.
-
 Built by [FLYING ROBOTS](https://github.com/flyingrobots).

@@ -776,8 +776,8 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 - `docs/march-16.plan.md` — stale planning scratchpad.
 - `docs/plans/parallel-merge-and-footprint-optimizations.md` — superseded
   by design review.
-- ADRs (0001–0011), old plans, book (LaTeX), and research artifacts.
-  All recoverable from git history.
+- Old plans, book (LaTeX), and research artifacts. All remain recoverable from
+  Git history.
 - **`warp-ffi` crate deleted:** The C ABI integration path (`crates/warp-ffi`)
   has been removed. The C ABI approach was abandoned in favor of Rust plugin
   extension via `RewriteRule` trait registration and Rhai scripting. See
@@ -786,6 +786,10 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Changed
 
+- Restored the durable ADR 0001–0011 namespace and moved the post-Method
+  decisions to ADR 0012–0019, preserving the meaning of existing source
+  citations. CI now rejects missing, duplicate, non-contiguous, unindexed, or
+  collided ADR identifiers.
 - Echo 1.0 release eligibility now depends only on Continuum participant
   conformance, networked causal suffix exchange, and release integrity. Edict,
   `jedit`, and any particular generated package remain downstream compatibility

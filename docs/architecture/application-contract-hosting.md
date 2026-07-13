@@ -57,8 +57,8 @@ Current authority for this boundary lives in:
 
 - [Generated rules](../topics/GeneratedRules.md)
 - [Runtime authority](../topics/RuntimeAuthority.md)
-- [Registry, provider, and host boundary](../adr/0004-registry-provider-host-boundary.md)
-- [Generated rule authorship and footprints](../adr/0003-generated-rule-authorship-and-footprints.md)
+- [Registry, provider, and host boundary](../adr/0015-registry-provider-host-boundary.md)
+- [Generated rule authorship and footprints](../adr/0014-generated-rule-authorship-and-footprints.md)
 - [Declarative rule authorship](../invariants/DECLARATIVE-RULE-AUTHORSHIP.md)
 
 ## Ownership Split

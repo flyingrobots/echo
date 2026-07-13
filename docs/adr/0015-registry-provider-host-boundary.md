@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# ADR 0004: Registry, Provider, and Host Boundary
+# ADR 0015: Registry, Provider, and Host Boundary
 
 - **Status:** Accepted
 - **Date:** 2026-07-13

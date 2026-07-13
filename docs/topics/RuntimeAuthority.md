@@ -44,7 +44,7 @@ adapters.
 
 ## Evidence Anchors
 
-- [Registry/provider/host boundary](../adr/0004-registry-provider-host-boundary.md)
+- [Registry/provider/host boundary](../adr/0015-registry-provider-host-boundary.md)
 - `docs/architecture/application-contract-hosting.md`
 - `crates/warp-core/src/trusted_runtime_host.rs`
 - `crates/warp-core/src/engine_impl.rs`

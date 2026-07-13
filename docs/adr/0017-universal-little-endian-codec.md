@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# ADR 0006: Universal Little-Endian Codec
+# ADR 0017: Universal Little-Endian Codec
 
 - **Status:** Accepted
 - **Date:** 2026-07-13

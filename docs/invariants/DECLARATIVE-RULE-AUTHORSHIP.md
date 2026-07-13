@@ -123,7 +123,7 @@ deterministic path.
 
 ## Cross-references
 
-- [Generated rule authorship and footprints](../adr/0003-generated-rule-authorship-and-footprints.md)
+- [Generated rule authorship and footprints](../adr/0014-generated-rule-authorship-and-footprints.md)
 - [Generated rules](../topics/GeneratedRules.md)
 - [WARP optics](../topics/WarpOptics.md)
 - [FIXED-TIMESTEP](./FIXED-TIMESTEP.md)

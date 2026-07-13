@@ -37,14 +37,14 @@ causal history. Git history is the archive; GitHub owns live work and status.
 ## Durable Decisions
 
 - [ADR map](adr/README.md)
-- [Repository knowledge model](adr/0001-repository-knowledge-model.md)
-- [Echo/Continuum authority boundary](adr/0002-echo-continuum-authority-boundary.md)
-- [Generated rule authorship and footprints](adr/0003-generated-rule-authorship-and-footprints.md)
-- [Registry, provider, and host boundary](adr/0004-registry-provider-host-boundary.md)
-- [Continuum transport identity](adr/0005-continuum-transport-identity.md)
-- [Universal little-endian codec](adr/0006-universal-little-endian-codec.md)
-- [Session causal posture and authority](adr/0007-sessions-causal-posture-and-authority.md)
-- [Bunny owns reusable geometry](adr/0008-bunny-owns-reusable-geometry.md)
+- [Repository knowledge model](adr/0012-repository-knowledge-model.md)
+- [Echo/Continuum authority boundary](adr/0013-echo-continuum-authority-boundary.md)
+- [Generated rule authorship and footprints](adr/0014-generated-rule-authorship-and-footprints.md)
+- [Registry, provider, and host boundary](adr/0015-registry-provider-host-boundary.md)
+- [Continuum transport identity](adr/0016-continuum-transport-identity.md)
+- [Universal little-endian codec](adr/0017-universal-little-endian-codec.md)
+- [Session causal posture and authority](adr/0018-sessions-causal-posture-and-authority.md)
+- [Bunny owns reusable geometry](adr/0019-bunny-owns-reusable-geometry.md)
 
 ## Normative Contracts
 

@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# ADR 0003: Generated Rule Authorship and Footprints
+# ADR 0014: Generated Rule Authorship and Footprints
 
 - **Status:** Accepted
 - **Date:** 2026-07-13

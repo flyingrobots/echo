@@ -154,7 +154,7 @@ history, observer-relative reading, retained artifact, or obstruction.
 
 ## Current Authority
 
-- [Continuum transport identity](../adr/0005-continuum-transport-identity.md)
-- [Echo/Continuum authority boundary](../adr/0002-echo-continuum-authority-boundary.md)
+- [Continuum transport identity](../adr/0016-continuum-transport-identity.md)
+- [Echo/Continuum authority boundary](../adr/0013-echo-continuum-authority-boundary.md)
 - [Runtime authority](../topics/RuntimeAuthority.md)
 - [Strands and braids](../topics/StrandsAndBraids.md)

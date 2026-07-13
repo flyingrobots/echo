@@ -217,8 +217,8 @@ after the runtime direction is pinned, not before.
 - `docs/topics/WarpOptics.md`
 - `docs/topics/RuntimeAuthority.md`
 - `docs/architecture/continuum-transport.md`
-- `docs/adr/0002-echo-continuum-authority-boundary.md`
-- `docs/adr/0005-continuum-transport-identity.md`
+- `docs/adr/0013-echo-continuum-authority-boundary.md`
+- `docs/adr/0016-continuum-transport-identity.md`
 
 ## Practical rule
 

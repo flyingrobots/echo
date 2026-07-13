@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# ADR 0002: Echo and Continuum Authority Boundary
+# ADR 0013: Echo and Continuum Authority Boundary
 
 - **Status:** Accepted
 - **Date:** 2026-07-13

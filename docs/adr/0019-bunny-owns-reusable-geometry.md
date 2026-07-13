@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# ADR 0008: Bunny Owns Reusable Geometry
+# ADR 0019: Bunny Owns Reusable Geometry
 
 - **Status:** Accepted
 - **Date:** 2026-07-13

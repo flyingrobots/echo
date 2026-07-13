@@ -18,7 +18,7 @@
 //! spec. If you change one side, change both — they are the cross-boundary
 //! contract.
 //!
-//! This is executable evidence for `docs/adr/0006-universal-little-endian-codec.md`
+//! This is executable evidence for `docs/adr/0017-universal-little-endian-codec.md`
 //! and `docs/spec/abi-golden-vectors.md`.
 
 use echo_wasm_abi::codec::{Reader, Writer};

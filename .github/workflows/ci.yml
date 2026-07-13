@@ -40,6 +40,8 @@ jobs:
               run: bash tests/docs/test_retired_component_refs.sh
             - name: repository knowledge model regression
               run: bash tests/docs/test_knowledge_model.sh
+            - name: ADR namespace regression
+              run: bash tests/docs/test_adr_namespace.sh
 
     clippy-libs-core:
         name: Clippy (core libs)

@@ -112,3 +112,17 @@ test('classification rejects unknown and duplicate gate identifiers', () => {
   assert.equal(duplicate.status, 1);
   assert.match(duplicate.stderr, /duplicate required gate G2/);
 });
+
+test('classification rejects malformed crate policy before matching paths', () => {
+  const unknownClassPolicy = structuredClone(policy);
+  unknownClassPolicy.crates.important.class = 'DET_IMPORANT';
+  const unknownClass = runClassifier('crates/important/src/lib.rs', unknownClassPolicy);
+  assert.equal(unknownClass.status, 1);
+  assert.match(unknownClass.stderr, /unknown class DET_IMPORANT/);
+
+  const missingPathsPolicy = structuredClone(policy);
+  missingPathsPolicy.crates.important.paths = [];
+  const missingPaths = runClassifier('crates/important/src/lib.rs', missingPathsPolicy);
+  assert.equal(missingPaths.status, 1);
+  assert.match(missingPaths.stderr, /missing or invalid paths/);
+});

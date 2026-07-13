@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 const fs = require('fs');
-const { assertValidRequiredGates } = require('./validate_det_policy.cjs');
+const { assertValidDetPolicy } = require('./validate_det_policy.cjs');
 
 /**
  * Checks if a file path matches a glob-like pattern.
@@ -37,7 +37,7 @@ function classifyChanges(policyPath, changedFilesPath) {
   }
 
   const policy = JSON.parse(fs.readFileSync(policyPath, 'utf8'));
-  assertValidRequiredGates(policy.classes || {});
+  assertValidDetPolicy(policy);
   const changedFiles = fs.readFileSync(changedFilesPath, 'utf8').split('\n').filter(Boolean);
 
   let maxClass = 'DET_NONCRITICAL';

@@ -7,7 +7,7 @@ Canonical renderable graph format for Echo (nodes/edges + payloads).
 
 ## What this crate does
 
-- Defines the graph types used on the session wire and in visualizers:
+- Defines graph types used by observer, debug, and visualization surfaces:
     - `RenderGraph` with nodes, edges, and payload fields suitable for
       serialization and rendering.
     - `WarpOp`, `WarpSnapshot`, `WarpDiff`, `WarpFrame` for structural WARP updates
@@ -15,7 +15,6 @@ Canonical renderable graph format for Echo (nodes/edges + payloads).
 - Provides helpers to hash graphs deterministically (via BLAKE3) for use in
   state verification and write-ahead logging.
 - Is the shared graph representation between:
-    - `echo-session-proto` (protocol/frame layer),
     - `warp-ttd` host adapters,
     - and other browser/host tools that need a renderable WARP view.
 

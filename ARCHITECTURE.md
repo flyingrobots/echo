@@ -14,7 +14,7 @@ flowchart TD
     subgraph Ingress["Ingress Surfaces"]
         WASM[Echo WASM Guest]
         CLI[warp-cli]
-        APP[echo-app-core]
+        APP[Generated Contract Hosts]
     end
     subgraph Core["warp-core (Engine)"]
         RE[Rewrite Engine]

@@ -61,6 +61,16 @@ check_absent \
   "crates/echo-dry-tests/README.md" \
   'InMemoryConfigStore|[Cc]onfiguration store'
 
+for architecture_file in \
+  ARCHITECTURE.md \
+  crates/echo-graph/README.md \
+  crates/echo-wasm-abi/README.md; do
+  check_absent \
+    "live architecture docs must not name deleted crates as active peers" \
+    "${architecture_file}" \
+    'echo-app-core|echo-session-proto'
+done
+
 if ((failures > 0)); then
   echo "retired-component-ref: ${failures} violation(s)" >&2
   exit 1

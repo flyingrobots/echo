@@ -26,7 +26,7 @@ track work, progress, priority, or release readiness.
 | [0002](ADR-0002-warp-instances-descended-attachments.md)         | Accepted    | WARP instances and descended attachments                |
 | [0003](ADR-0003-Materialization-Bus.md)                          | Superseded  | Historical causality-first ingress and materialization  |
 | [0004](ADR-0004-No-Global-State.md)                              | Accepted    | Dependency injection without global state               |
-| [0005](ADR-0005-Physics.md)                                      | Accepted    | Deterministic scheduled physics rewrites                |
+| [0005](ADR-0005-Physics.md)                                      | Superseded  | Historical deterministic physics proposal               |
 | [0006](ADR-0006-Ban-Non-Determinism.md)                          | Undeclared  | Ban semantic non-determinism                            |
 | [0007](ADR-0007-BOAW-Storage.md)                                 | Accepted    | BOAW storage, execution, merge, and privacy             |
 | [0008](ADR-0008-Worldline-Runtime-Model.md)                      | Accepted    | Worldline runtime model                                 |

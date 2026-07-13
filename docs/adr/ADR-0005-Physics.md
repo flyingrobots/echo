@@ -3,8 +3,14 @@
 
 # ADR-0005: Physics as Deterministic Scheduled Rewrites (Footprints + Phases)
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-01-14
+- **Superseded by:** [ADR 0019](0019-bunny-owns-reusable-geometry.md)
+
+> This record preserves a historical scheduling proposal. Physics, contact,
+> broad-phase, CCD, and reusable geometry are not Echo-owned runtime phases.
+> Bunny owns those reusable capabilities; application-specific physics belongs
+> in authored contracts and adapters above Echo's causal runtime boundary.
 
 ## Context
 

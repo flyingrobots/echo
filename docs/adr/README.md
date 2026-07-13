@@ -24,7 +24,7 @@ track work, progress, priority, or release readiness.
 | ---------------------------------------------------------------- | ----------- | ------------------------------------------------------- |
 | [0001](ADR-0001-warp-two-plane-skeleton-and-attachments.md)      | Accepted    | Two-plane WARP representation                           |
 | [0002](ADR-0002-warp-instances-descended-attachments.md)         | Accepted    | WARP instances and descended attachments                |
-| [0003](ADR-0003-Materialization-Bus.md)                          | Implemented | Causality-first ingress and materialization             |
+| [0003](ADR-0003-Materialization-Bus.md)                          | Superseded  | Historical causality-first ingress and materialization  |
 | [0004](ADR-0004-No-Global-State.md)                              | Accepted    | Dependency injection without global state               |
 | [0005](ADR-0005-Physics.md)                                      | Accepted    | Deterministic scheduled physics rewrites                |
 | [0006](ADR-0006-Ban-Non-Determinism.md)                          | Undeclared  | Ban semantic non-determinism                            |

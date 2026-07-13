@@ -33,6 +33,10 @@ readonly current_adrs=(
   "0020-retained-reading-storage-and-proof-boundary.md"
 )
 
+readonly superseded_legacy_adrs=(
+  "ADR-0003-Materialization-Bus.md"
+)
+
 readonly collided_paths=(
   "docs/adr/0001-repository-knowledge-model.md"
   "docs/adr/0002-echo-continuum-authority-boundary.md"
@@ -56,6 +60,16 @@ fail() {
 for basename in "${legacy_adrs[@]}" "${current_adrs[@]}"; do
   path="docs/adr/${basename}"
   [[ -f "$path" ]] || fail "missing canonical record ${path}"
+done
+
+for basename in "${superseded_legacy_adrs[@]}"; do
+  path="docs/adr/${basename}"
+  if ! grep -Eq -- '^- \*\*Status:\*\* Superseded$|^- Status: Superseded$' "${path}"; then
+    fail "superseded legacy ADR lacks superseded status: ${path}"
+  fi
+  if ! grep -F -- "(${basename})" docs/adr/README.md | grep -Fq -- '| Superseded'; then
+    fail "ADR index does not mark ${basename} superseded"
+  fi
 done
 
 for path in "${collided_paths[@]}"; do

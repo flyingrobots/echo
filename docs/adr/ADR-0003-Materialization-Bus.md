@@ -1,12 +1,21 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# ADR-000X: Causality-First API — Ingress + MaterializationPort, No Direct Graph Writes
+# ADR-0003: Causality-First API — Ingress + MaterializationPort, No Direct Graph Writes
 
-- **Status:** Implemented
+- **Status:** Superseded
 - **Date:** 2026-01-14
 - **Implementation:** 2026-01-17 (completion packet retained in Git history
   before `c6c9c087`)
+- **Superseded by:** [ADR 0013](0013-echo-continuum-authority-boundary.md),
+  [ADR 0015](0015-registry-provider-host-boundary.md), and
+  [canonical inbox sequencing](../spec/canonical-inbox-sequencing.md)
+
+> This record preserves the historical causality-first motivation. Its claims
+> that ingress was the only public write path, rules emitted through a completed
+> materialization bus, ingress assigned sequence numbers, and WASM/WebSocket
+> transports shared one implemented protocol are not current implementation or
+> API authority.
 
 ## Context
 

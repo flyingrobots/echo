@@ -20,8 +20,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      run_full: ${{ steps.classify.outputs.run_full }}
-      run_reduced: ${{ steps.classify.outputs.run_reduced }}
+      max_class: ${{ steps.classify.outputs.max_class }}
+      run_g1: ${{ steps.classify.outputs.run_g1 }}
+      run_g2: ${{ steps.classify.outputs.run_g2 }}
+      run_g3: ${{ steps.classify.outputs.run_g3 }}
+      run_g4: ${{ steps.classify.outputs.run_g4 }}
       run_none: ${{ steps.classify.outputs.run_none }}
     steps:
       - uses: actions/checkout@v4
@@ -54,12 +57,12 @@ jobs:
       - name: Classify path impact from det-policy.yaml
         id: classify
         run: |
-          node ./scripts/classify_changes.cjs det-policy.json changed.txt >> $GITHUB_OUTPUT
+          node ./scripts/classify_changes.cjs det-policy.json changed.txt >> "$GITHUB_OUTPUT"
 
   determinism-linux:
     name: G1 determinism (linux)
     needs: classify-changes
-    if: needs.classify-changes.outputs.run_full == 'true'
+    if: needs.classify-changes.outputs.run_g1 == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -100,7 +103,7 @@ jobs:
   determinism-macos:
     name: G1 determinism (macos)
     needs: classify-changes
-    if: needs.classify-changes.outputs.run_full == 'true'
+    if: needs.classify-changes.outputs.run_g1 == 'true'
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
@@ -139,9 +142,9 @@ jobs:
             artifacts/digest-table.csv
 
   static-inspection:
-    name: DET-001 Static Inspection
+    name: Static nondeterminism inspection
     needs: classify-changes
-    if: needs.classify-changes.outputs.run_full == 'true'
+    if: needs.classify-changes.outputs.run_g1 == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -163,29 +166,17 @@ jobs:
           DETERMINISM_PATHS: ${{ steps.det_paths.outputs.paths }}
         run: |
           ./scripts/ban-nondeterminism.sh | tee static-inspection.log
-      - name: Create report
-        if: always()
-        env:
-          DET_OUTCOME: ${{ steps.det_check.outcome }}
-        run: |
-          if [ "$DET_OUTCOME" = "success" ]; then
-            echo '{"claim_id": "DET-001", "status": "PASSED"}' > static-inspection.json
-          else
-            echo '{"claim_id": "DET-001", "status": "FAILED"}' > static-inspection.json
-          fi
       - name: Upload inspection artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: static-inspection
-          path: |
-            static-inspection.log
-            static-inspection.json
+          path: static-inspection.log
 
   decoder-security:
     name: G2 decoder security tests
     needs: classify-changes
-    if: needs.classify-changes.outputs.run_full == 'true' || needs.classify-changes.outputs.run_reduced == 'true'
+    if: needs.classify-changes.outputs.run_g2 == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -203,14 +194,11 @@ jobs:
           name: sec-artifacts
           path: |
             sec-tests.log
-            docs/determinism/sec-claim-map.json
 
   perf-regression:
     name: G3 perf regression (criterion)
     needs: classify-changes
-    # Runs for ALL non-NONCRITICAL changes (both DET_CRITICAL and DET_IMPORTANT).
-    # G3 is staging-optional per docs/determinism/RELEASE_POLICY.md but always executes here.
-    if: needs.classify-changes.outputs.run_none != 'true'
+    if: needs.classify-changes.outputs.run_g3 == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -235,7 +223,7 @@ jobs:
   build-repro:
     name: G4 build reproducibility (wasm)
     needs: classify-changes
-    if: needs.classify-changes.outputs.run_full == 'true' || needs.classify-changes.outputs.run_reduced == 'true'
+    if: needs.classify-changes.outputs.run_g4 == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -285,7 +273,7 @@ jobs:
             build2.wasm
 
   validate-evidence:
-    name: Evidence schema / claim policy
+    name: Evidence artifact presence
     needs:
       - classify-changes
       - determinism-linux
@@ -303,50 +291,67 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: gathered-artifacts
-      - name: Verify artifact presence
+      - name: Verify upstream results and exact artifact payloads
         env:
-          RUN_FULL: ${{ needs.classify-changes.outputs.run_full }}
+          RUN_G1: ${{ needs.classify-changes.outputs.run_g1 }}
+          RUN_G2: ${{ needs.classify-changes.outputs.run_g2 }}
+          RUN_G3: ${{ needs.classify-changes.outputs.run_g3 }}
+          RUN_G4: ${{ needs.classify-changes.outputs.run_g4 }}
+          DECODER_RESULT: ${{ needs.decoder-security.result }}
+          PERF_RESULT: ${{ needs.perf-regression.result }}
+          REPRO_RESULT: ${{ needs.build-repro.result }}
+          LINUX_RESULT: ${{ needs.determinism-linux.result }}
+          MACOS_RESULT: ${{ needs.determinism-macos.result }}
+          INSPECTION_RESULT: ${{ needs.static-inspection.result }}
         run: |
           ls -R gathered-artifacts
-          # Always required (run on both full and reduced)
-          [ -d gathered-artifacts/sec-artifacts ] || (echo "Missing sec-artifacts" && exit 1)
-          [ -d gathered-artifacts/build-repro-artifacts ] || (echo "Missing build-repro-artifacts" && exit 1)
-          [ -d gathered-artifacts/perf-artifacts ] || (echo "Missing perf-artifacts" && exit 1)
-          # Only required when run_full (these jobs are skipped for run_reduced)
-          if [ "$RUN_FULL" = "true" ]; then
-            [ -d gathered-artifacts/det-linux-artifacts ] || (echo "Missing det-linux-artifacts" && exit 1)
-            [ -d gathered-artifacts/det-macos-artifacts ] || (echo "Missing det-macos-artifacts" && exit 1)
-            [ -d gathered-artifacts/static-inspection ] || (echo "Missing static-inspection" && exit 1)
+
+          required_artifacts=()
+
+          if [ "$RUN_G1" = "true" ]; then
+            [ "$LINUX_RESULT" = "success" ] || { echo "determinism-linux: $LINUX_RESULT"; exit 1; }
+            [ "$MACOS_RESULT" = "success" ] || { echo "determinism-macos: $MACOS_RESULT"; exit 1; }
+            [ "$INSPECTION_RESULT" = "success" ] || { echo "static-inspection: $INSPECTION_RESULT"; exit 1; }
+            required_artifacts+=(
+              gathered-artifacts/det-linux-artifacts/det-linux.log
+              gathered-artifacts/det-linux-artifacts/trig-linux.log
+              gathered-artifacts/det-linux-artifacts/dind-linux.log
+              gathered-artifacts/det-linux-artifacts/dind-report.json
+              gathered-artifacts/det-linux-artifacts/artifacts/digest-table.csv
+              gathered-artifacts/det-macos-artifacts/det-macos.log
+              gathered-artifacts/det-macos-artifacts/trig-macos.log
+              gathered-artifacts/det-macos-artifacts/dind-macos.log
+              gathered-artifacts/det-macos-artifacts/dind-report.json
+              gathered-artifacts/det-macos-artifacts/artifacts/digest-table.csv
+              gathered-artifacts/static-inspection/static-inspection.log
+            )
           fi
-      - name: Generate evidence pack
-        run: |
-          node scripts/generate_evidence.cjs gathered-artifacts
-      - name: Validate evidence pointers
-        run: |
-          node scripts/validate_claims.cjs gathered-artifacts/evidence.json
-      - name: Cross-check claim IDs against CLAIM_MAP
-        run: |
-          EVIDENCE_IDS=$(jq -r '.claims[].id' gathered-artifacts/evidence.json | sort)
-          CLAIM_MAP_IDS=$(yq -o=json docs/determinism/CLAIM_MAP.yaml | jq -r '.claims | keys[]' | sort)
-          EXTRA=$(comm -23 <(echo "$EVIDENCE_IDS") <(echo "$CLAIM_MAP_IDS"))
-          MISSING=$(comm -13 <(echo "$EVIDENCE_IDS") <(echo "$CLAIM_MAP_IDS"))
-          if [ -n "$EXTRA" ]; then
-            echo "ERROR: Claims in evidence.json but not in CLAIM_MAP.yaml:" && echo "$EXTRA" && exit 1
+
+          if [ "$RUN_G2" = "true" ]; then
+            [ "$DECODER_RESULT" = "success" ] || { echo "decoder-security: $DECODER_RESULT"; exit 1; }
+            required_artifacts+=(
+              gathered-artifacts/sec-artifacts/sec-tests.log
+            )
           fi
-          if [ -n "$MISSING" ]; then
-            echo "ERROR: Claims in CLAIM_MAP.yaml but not in evidence.json:" && echo "$MISSING" && exit 1
+
+          if [ "$RUN_G3" = "true" ]; then
+            [ "$PERF_RESULT" = "success" ] || { echo "perf-regression: $PERF_RESULT"; exit 1; }
+            required_artifacts+=(
+              gathered-artifacts/perf-artifacts/perf.log
+              gathered-artifacts/perf-artifacts/perf-report.json
+            )
           fi
-          echo "All claim IDs synchronized"
-      - name: Verify sec-claim-map test IDs exist
-        run: |
-          MISSING=""
-          for tid in $(jq -r '.mappings[].test_id' docs/determinism/sec-claim-map.json); do
-            fn_name="${tid##*::}"
-            if ! grep -rq "fn ${fn_name}" crates/echo-scene-codec/src/; then
-              MISSING="$MISSING $tid"
-            fi
+
+          if [ "$RUN_G4" = "true" ]; then
+            [ "$REPRO_RESULT" = "success" ] || { echo "build-repro: $REPRO_RESULT"; exit 1; }
+            required_artifacts+=(
+              gathered-artifacts/build-repro-artifacts/hash1.txt
+              gathered-artifacts/build-repro-artifacts/hash2.txt
+              gathered-artifacts/build-repro-artifacts/build1.wasm
+              gathered-artifacts/build-repro-artifacts/build2.wasm
+            )
+          fi
+
+          for artifact in "${required_artifacts[@]}"; do
+            [ -s "$artifact" ] || { echo "Missing or empty artifact: $artifact"; exit 1; }
           done
-          if [ -n "$MISSING" ]; then
-            echo "ERROR: sec-claim-map.json references non-existent tests:$MISSING" && exit 1
-          fi
-          echo "All sec-claim-map test IDs verified"

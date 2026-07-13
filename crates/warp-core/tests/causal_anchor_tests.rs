@@ -66,7 +66,7 @@ fn graph_index_root(seed: u8) -> CausalAnchorRoot {
 }
 
 #[test]
-fn causal_anchor_digest_is_order_insensitive_for_root_sets() {
+fn causal_anchor_digest_is_order_insensitive_for_root_sets() -> Result<(), CausalAnchorError> {
     let retained_a = app_authority_root("head:42");
     let retained_b = graph_evidence_root(2);
     let materialized_a = materialization_root(3);
@@ -75,76 +75,72 @@ fn causal_anchor_digest_is_order_insensitive_for_root_sets() {
     let first = CausalAnchorFact::from_request(request_with_roots(
         vec![retained_a.clone(), retained_b.clone()],
         vec![materialized_a.clone(), materialized_b.clone()],
-    ))
-    .expect("first causal anchor should build");
+    ))?;
     let second = CausalAnchorFact::from_request(request_with_roots(
         vec![retained_b, retained_a],
         vec![materialized_b, materialized_a],
-    ))
-    .expect("second causal anchor should build");
+    ))?;
 
     assert_eq!(first.anchor_digest, second.anchor_digest);
     assert_eq!(first.anchor_id, second.anchor_id);
     assert_eq!(first.retained_roots, second.retained_roots);
     assert_eq!(first.materialization_roots, second.materialization_roots);
+    Ok(())
 }
 
 #[test]
 fn causal_anchor_rejects_empty_retained_roots() {
-    let err = CausalAnchorFact::from_request(request_with_roots(
-        Vec::new(),
-        vec![materialization_root(1)],
-    ))
-    .expect_err("empty retained roots should be rejected");
-
-    assert_eq!(err, CausalAnchorError::EmptyRetainedRoots);
+    assert!(matches!(
+        CausalAnchorFact::from_request(request_with_roots(
+            Vec::new(),
+            vec![materialization_root(1)],
+        )),
+        Err(CausalAnchorError::EmptyRetainedRoots)
+    ));
 }
 
 #[test]
 fn causal_anchor_rejects_authority_materialization_roots() {
-    let err = CausalAnchorFact::from_request(request_with_roots(
-        vec![app_authority_root("head:42")],
-        vec![app_authority_root("head:42-flat-text")],
-    ))
-    .expect_err("authority materialization roots should be rejected");
-
-    assert_eq!(err, CausalAnchorError::AuthorityMaterializationRoot);
+    assert!(matches!(
+        CausalAnchorFact::from_request(request_with_roots(
+            vec![app_authority_root("head:42")],
+            vec![app_authority_root("head:42-flat-text")],
+        )),
+        Err(CausalAnchorError::AuthorityMaterializationRoot)
+    ));
 }
 
 #[test]
 fn causal_anchor_rejects_duplicate_roots_after_canonicalization() {
     let duplicated = app_authority_root("head:42");
-    let err = CausalAnchorFact::from_request(request_with_roots(
-        vec![duplicated.clone(), duplicated],
-        Vec::new(),
-    ))
-    .expect_err("duplicate retained roots should be rejected");
-
-    assert_eq!(err, CausalAnchorError::DuplicateRetainedRoot);
+    assert!(matches!(
+        CausalAnchorFact::from_request(request_with_roots(
+            vec![duplicated.clone(), duplicated],
+            Vec::new(),
+        )),
+        Err(CausalAnchorError::DuplicateRetainedRoot)
+    ));
 }
 
 #[test]
 fn causal_anchor_rejects_roots_that_are_both_retained_and_materialized() {
     let ambiguous = graph_index_root(42);
-    let err = CausalAnchorFact::from_request(request_with_roots(
-        vec![ambiguous.clone()],
-        vec![ambiguous],
-    ))
-    .expect_err("cross-set duplicate roots should be rejected");
-
-    assert_eq!(
-        err,
-        CausalAnchorError::RootAppearsInRetainedAndMaterialization
-    );
+    assert!(matches!(
+        CausalAnchorFact::from_request(request_with_roots(
+            vec![ambiguous.clone()],
+            vec![ambiguous],
+        )),
+        Err(CausalAnchorError::RootAppearsInRetainedAndMaterialization)
+    ));
 }
 
 #[test]
-fn causal_anchor_digest_binds_subject_frontier_purpose_and_receipt() {
+fn causal_anchor_digest_binds_subject_frontier_purpose_and_receipt() -> Result<(), CausalAnchorError>
+{
     let base = CausalAnchorFact::from_request(request_with_roots(
         vec![app_authority_root("head:42")],
         vec![materialization_root(3)],
-    ))
-    .expect("base causal anchor should build");
+    ))?;
 
     let different_subject = CausalAnchorFact::from_request(CausalAnchorRequest {
         subject: CausalAnchorSubject::new("mail", "Thread", "thread:42"),
@@ -152,65 +148,61 @@ fn causal_anchor_digest_binds_subject_frontier_purpose_and_receipt() {
             vec![app_authority_root("head:42")],
             vec![materialization_root(3)],
         )
-    })
-    .expect("different subject causal anchor should build");
+    })?;
     let different_frontier = CausalAnchorFact::from_request(CausalAnchorRequest {
         basis_frontier: frontier(8),
         ..request_with_roots(
             vec![app_authority_root("head:42")],
             vec![materialization_root(3)],
         )
-    })
-    .expect("different frontier causal anchor should build");
+    })?;
     let different_purpose = CausalAnchorFact::from_request(CausalAnchorRequest {
         purpose: CausalAnchorPurpose::Export,
         ..request_with_roots(
             vec![app_authority_root("head:42")],
             vec![materialization_root(3)],
         )
-    })
-    .expect("different purpose causal anchor should build");
+    })?;
     let different_receipt = CausalAnchorFact::from_request(CausalAnchorRequest {
         admitted_by_receipt_id: hash(7),
         ..request_with_roots(
             vec![app_authority_root("head:42")],
             vec![materialization_root(3)],
         )
-    })
-    .expect("different receipt causal anchor should build");
+    })?;
 
     assert_ne!(base.anchor_digest, different_subject.anchor_digest);
     assert_ne!(base.anchor_digest, different_frontier.anchor_digest);
     assert_ne!(base.anchor_digest, different_purpose.anchor_digest);
     assert_ne!(base.anchor_digest, different_receipt.anchor_digest);
+    Ok(())
 }
 
 #[test]
-fn causal_anchor_digest_binds_schema_version() {
+fn causal_anchor_digest_binds_schema_version() -> Result<(), CausalAnchorError> {
     let base = CausalAnchorFact::from_request(request_with_roots(
         vec![app_authority_root("head:42")],
         Vec::new(),
-    ))
-    .expect("base causal anchor should build");
+    ))?;
     let next_schema = CausalAnchorFact::from_request(CausalAnchorRequest {
         schema_version: CAUSAL_ANCHOR_SCHEMA_VERSION + 1,
         ..request_with_roots(vec![app_authority_root("head:42")], Vec::new())
-    })
-    .expect("future schema causal anchor should build");
+    })?;
 
     assert_eq!(base.schema_version, CAUSAL_ANCHOR_SCHEMA_VERSION);
     assert_eq!(next_schema.schema_version, CAUSAL_ANCHOR_SCHEMA_VERSION + 1);
     assert_ne!(base.anchor_digest, next_schema.anchor_digest);
     assert_ne!(base.anchor_id, next_schema.anchor_id);
+    Ok(())
 }
 
 #[test]
-fn jim_rope_checkpoint_anchor_retains_head_as_authority_not_projection() {
+fn jim_rope_checkpoint_anchor_retains_head_as_authority_not_projection(
+) -> Result<(), CausalAnchorError> {
     let anchor = CausalAnchorFact::from_request(request_with_roots(
         vec![app_authority_root("rope-head:42")],
         vec![materialization_root(5)],
-    ))
-    .expect("jedit save anchor should build");
+    ))?;
 
     assert_eq!(anchor.subject, subject());
     assert_eq!(anchor.purpose, CausalAnchorPurpose::UserSave);
@@ -221,15 +213,16 @@ fn jim_rope_checkpoint_anchor_retains_head_as_authority_not_projection() {
     assert_eq!(anchor.materialization_roots, vec![materialization_root(5)]);
     assert!(anchor.retained_roots[0].is_authority());
     assert!(!anchor.materialization_roots[0].is_authority());
+    Ok(())
 }
 
 #[test]
-fn causal_anchor_id_is_domain_separated_from_anchor_digest() {
+fn causal_anchor_id_is_domain_separated_from_anchor_digest() -> Result<(), CausalAnchorError> {
     let anchor = CausalAnchorFact::from_request(request_with_roots(
         vec![app_authority_root("head:42")],
         Vec::new(),
-    ))
-    .expect("causal anchor should build");
+    ))?;
 
     assert_ne!(anchor.anchor_id.as_bytes(), &anchor.anchor_digest);
+    Ok(())
 }

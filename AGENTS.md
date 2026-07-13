@@ -43,11 +43,17 @@ Materialized graphs are optional readings.
 Continuum is the protocol for lawful causal-history exchange.
 ```
 
-## Trace Architecture Principle
+## Derived Trace Principle
 
-> Graph is truth. Delta log is transport. Roaring is index. Matrix is projection. Receipt is proof.
+> Witnessed causal history is truth. Trace is derived evidence. Receipt is
+> proof only for the proposition it actually binds.
 
-Echo execution traces are not a separate event-sourcing reality. They are a bounded, append-only, canonical streaming log of WSC `NodeRow`, `EdgeRow`, and `AttRow` deltas. Trace storage is chunked. Sparse selector columns may be encoded as compressed bitsets, but they are derived indexes, not the source of truth. Prover-specific rectangular traces are downstream projections of the delta log.
+An execution trace must never become a second event-sourcing reality. If Echo
+retains a trace, it derives that material from a sealed causal commit and binds
+it to the real worldline, tick, frontier, receipt, schema, and payload identity.
+WSC rows, compressed indexes, and prover-specific matrices remain physical
+representations or projections, not causal authority. Disabled or obstructed
+tracing yields an explicit posture, never a successful all-zero receipt.
 
 ## Git Rules
 
@@ -56,41 +62,40 @@ Echo execution traces are not a separate event-sourcing reality. They are a boun
 - **NEVER** push to `main` without explicit permission.
 - Always use standard commits and regular pushes.
 
-## Documentation & Planning Map
+## Repository Knowledge Model
 
-Do not audit the repository by recursively walking the filesystem. Follow the authoritative manifests:
+Repository knowledge has one owner for each kind of truth:
 
-### 1. The Entrance
+- **Current architectural truth**: `docs/architecture/`, `docs/spec/`,
+  `docs/invariants/`, and `docs/topics/`.
+- **Durable architectural decisions**: accepted ADRs in `docs/adr/`.
+- **Live work, priority, dependencies, and status**: GitHub Issues, Projects,
+  pull requests, and review threads.
+- **Shipped externally meaningful behavior**: `CHANGELOG.md`.
+- **Historical source material**: Git history.
 
-- **`README.md`**: Public front door, core value prop, and quick tour.
-- **`GUIDE.md`**: Orientation and productive-fast path.
-- **`docs/README.md`**: Documentation map.
+Use `README.md`, `GUIDE.md`, and `docs/README.md` as entrances. Do not recreate
+cycles, retrospectives, a checked-in backlog, a checked-in status ledger, or a
+post-hoc design document. Change-local design and test plans may live in the
+issue or pull request. Write an ADR only when a decision changes a durable
+architectural boundary or invariant.
 
-### 2. The Bedrock
+When recovering context, read the relevant canonical topic/spec/invariant and
+ADR, then inspect the current GitHub issue or pull request, `git log -n 5`, and
+`git status`.
 
-- **`ARCHITECTURE.md`**: Authoritative structural reference (Hexagonal, Core, Memory).
-- **`VISION.md`**: Core tenets and the causal mission.
-- **`METHOD.md`**: Repo work doctrine (Backlog lanes, Cycle loop).
+## Work Loop
 
-### 3. The Direction
-
-- **`docs/BEARING.md`**: Current execution gravity and active tensions.
-- **`docs/design/ROADMAP.md`**: Broad strategic horizon and targets.
-- **`backlog/`**: The active source of truth for pending work.
-
-### 4. The Proof
-
-- **`CHANGELOG.md`**: Historical truth of merged behavior.
-- **`cargo xtask dind`**: Determinism convergence verification.
-
-## Context Recovery Protocol
-
-When starting a new session or recovering from context loss:
-
-1. **Read `docs/BEARING.md`** to find the current execution gravity.
-2. **Read `METHOD.md`** to understand the work doctrine.
-3. **Check `backlog/asap/`** for imminent work.
-4. **Check `git log -n 5` and `git status`** to verify the current branch state.
+```text
+scope claim
+-> decide whether an ADR is required
+-> name the test plan and executable witness
+-> RED
+-> GREEN
+-> update current docs and CHANGELOG when applicable
+-> validate
+-> stop
+```
 
 ## Executable Claim Protocol
 
@@ -120,14 +125,12 @@ absorbing them into the task. Report files changed, symbols or behavior changed,
 witness commands, pass/fail results, and intentional non-actions such as no
 commit, no push, or no PR comment.
 
-## End of Turn Checklist
+## Validation
 
-After altering files:
-
-1. **Verify Truth**: Ensure documentation is updated if behavior or structure changed.
-2. **Log Debt**: Add follow-on backlog items to `bad-code/` or `cool-ideas/`.
-3. **Commit**: Use focused, conventional commit messages. Propose a draft before executing.
-4. **Validate**: Run `cargo check` and relevant tests.
+After altering files, update canonical documentation when behavior or structure
+changed, update `CHANGELOG.md` when shipped behavior changed, run the narrow
+witness and directly relevant checks, and commit the result as a focused new
+commit. Record follow-on work in GitHub rather than in the repository.
 
 ---
 

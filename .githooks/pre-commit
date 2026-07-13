@@ -110,18 +110,7 @@ case "${_auto_fmt}" in
     ;;
 esac
 
-# 4) Task list guard: prevent contradictory duplicated checklist items
-if [[ -f scripts/check_task_lists.sh ]]; then
-  if [[ ! -x scripts/check_task_lists.sh ]]; then
-    echo "pre-commit: scripts/check_task_lists.sh exists but is not executable. Run: chmod +x scripts/check_task_lists.sh" >&2
-    exit 1
-  fi
-  if echo "$STAGED" | grep -E '^(WASM-TASKS\.md|docs/tasks\.md)$' >/dev/null; then
-    scripts/check_task_lists.sh || { echo 'pre-commit: task list conflicts detected.' >&2; exit 1; }
-  fi
-fi
-
-# 6) Lockfile guard: ensure lockfile version matches the pinned Cargo format
+# 4) Lockfile guard: ensure lockfile version matches the pinned Cargo format
 if [[ -f Cargo.lock ]]; then
   # Normalize detected lockfile version (strip quotes/CR/whitespace)
   VER_LINE=$(grep -n '^version = ' Cargo.lock | head -n1 | awk -F'= ' '{print $2}' | tr -d '\r' | tr -d '"' | xargs)
@@ -139,15 +128,15 @@ if [[ -f Cargo.lock ]]; then
   fi
 fi
 
-# 7) Targeted Rust verification for staged crates
+# 5) Targeted Rust verification for staged crates
 scripts/verify-local.sh pre-commit
 
-# 8) SPDX header enforcement (code = Apache-2.0; docs/math = Apache-2.0 OR LicenseRef-MIND-UCAL-1.0)
+# 6) SPDX header enforcement (code = Apache-2.0; docs/math = Apache-2.0 OR LicenseRef-MIND-UCAL-1.0)
 if [[ -x scripts/ensure_spdx.sh ]]; then
   scripts/ensure_spdx.sh || exit 1
 fi
 
-# 9) Markdown formatting and linting for staged .md files
+# 7) Markdown formatting and linting for staged .md files
 # Use -z and --diff-filter=ACMRT to exclude deletions and handle whitespace safely
 MD_FILES=()
 while IFS= read -r -d '' md_file; do

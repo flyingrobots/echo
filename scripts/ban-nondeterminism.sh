@@ -12,8 +12,8 @@ set -euo pipefail
 #   DETERMINISM_PATHS="crates/warp-core crates/warp-math crates/warp-wasm crates/echo-wasm-abi"
 #   DETERMINISM_ALLOWLIST=".ban-nondeterminism-allowlist"
 #
-# Allowlist governance: see docs/determinism/RELEASE_POLICY.md § "Determinism Allowlist Governance"
-# for approval requirements, acceptable exemption criteria, and audit cadence.
+# Every waiver is rule-scoped to an exact path and must explain why the
+# nondeterministic API cannot influence semantic history.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"

@@ -3,7 +3,7 @@
 
 # STRAND-CONTRACT
 
-**Status:** Normative | **Legend:** KERNEL | **Cycle:** 0004
+**Status:** Normative
 
 ## Invariant
 
@@ -127,6 +127,6 @@ strands into base worldlines under channel policy).
 - [FIXED-TIMESTEP](./FIXED-TIMESTEP.md) — inherited quantum
 - [SPEC-0004 — Worldlines](../spec/SPEC-0004-worldlines-playback-truthbus.md)
 - [SPEC-0005 — Provenance Payload](../spec/SPEC-0005-provenance-payload.md)
-- `docs/design/0008-strand-settlement/design.md`
-- `docs/design/0010-live-basis-settlement-plan/design.md`
+- `docs/topics/StrandsAndBraids.md`
+- `docs/topics/RuntimeAuthority.md`
 - `warp_core::strand` — code-level implementation

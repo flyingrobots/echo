@@ -2768,8 +2768,10 @@ pub trait KernelPort {
 
     /// Observe through an explicit optic request.
     ///
-    /// The default implementation reports that optic reads are not supported by
-    /// this kernel implementation.
+    /// This is the product-shaped read entrypoint. Implementations must not
+    /// treat caller-supplied optic, capability, or law identifiers as verified
+    /// authority without a trusted binding. The default implementation reports
+    /// that optic reads are not supported by this kernel implementation.
     fn observe_optic(&self, _request: ObserveOpticRequest) -> Result<ObserveOpticResult, AbiError> {
         Err(AbiError {
             code: error_codes::NOT_SUPPORTED,
@@ -2779,9 +2781,9 @@ pub trait KernelPort {
 
     /// Observe a worldline at an explicit coordinate and frame.
     ///
-    /// This is the canonical world-state read entrypoint. The
-    /// default implementation reports that the observation contract is not
-    /// supported by this kernel implementation.
+    /// This is a lower-level coordinate/projection primitive beneath bounded
+    /// optic reads. The default implementation reports that the observation
+    /// contract is not supported by this kernel implementation.
     fn observe(&self, _request: ObservationRequest) -> Result<ObservationArtifact, AbiError> {
         Err(AbiError {
             code: error_codes::NOT_SUPPORTED,
@@ -2791,9 +2793,9 @@ pub trait KernelPort {
 
     /// Publish the local neighborhood site for an explicit observation request.
     ///
-    /// This is the canonical public read for plural local-site inspection.
-    /// The default implementation reports that neighborhood publication is not
-    /// supported by this kernel implementation.
+    /// This is a lower-level plural local-site inspection surface. The default
+    /// implementation reports that neighborhood publication is not supported by
+    /// this kernel implementation.
     fn observe_neighborhood_site(
         &self,
         _request: ObservationRequest,
@@ -2807,7 +2809,7 @@ pub trait KernelPort {
     /// Publish the shared neighborhood-core family projection for an explicit
     /// observation request.
     ///
-    /// This is the canonical shared observer/debugger read for the first
+    /// This is a lower-level shared observer/debugger projection for the first
     /// neighborhood-core family slice. The default implementation reports that
     /// this projection is not supported by the kernel implementation.
     fn observe_neighborhood_core(

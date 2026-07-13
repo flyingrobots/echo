@@ -106,23 +106,22 @@ const GROUPS = [
     {
         key: "my_feature", // Must match group name
         label: "My Feature Description", // Display name
-        color: "#7dcfff", // Hex color (pick unique)
-        dash: "2,6", // Line style: null or '2,6' or '4,4' or '8,4'
+        color: "#60a5fa", // Hex color (pick unique)
+        dash: "8 4", // Line style: null or a space-separated SVG pattern
     },
 ];
 ```
 
 **Color Palette (already used):**
 
-- `#bb9af7` - Purple (snapshot_hash)
-- `#9ece6a` - Green (scheduler_drain)
-- `#e0af68` - Yellow (scheduler_enqueue)
-- `#f7768e` - Red (scheduler_drain/drain)
+- `#c084fc` - Purple (`snapshot_hash`)
+- `#4ade80` - Green (`scheduler_drain`)
+- `#fbbf24` - Yellow (`scheduler_drain/enqueue`)
+- `#fb7185` - Red (`scheduler_drain/drain`)
 
 These are the colors currently used by the core-overhead dashboard groups in
-`BENCH_CORE_GROUP_KEYS`. Specialized studies such as
-`reserve_independence` or `parallel_policy_matrix` manage their own report
-surfaces and do not automatically appear in that overview tab.
+`BENCH_CORE_GROUP_KEYS`. Specialized policy studies have separate generated
+report surfaces and do not automatically appear in that overview tab.
 
 **Pick a new color or use available:**
 
@@ -133,9 +132,9 @@ surfaces and do not automatically appear in that overview tab.
 **Dash Patterns:**
 
 - `null` - Solid line
-- `'2,6'` - Short dashes (dotted)
-- `'4,4'` - Medium dashes
-- `'8,4'` - Long dashes
+- `'2 4'` - Short dashes (dotted)
+- `'6 4'` - Medium dashes
+- `'8 4'` - Long dashes
 
 #### 4b. Add to `cargo xtask bench bake`
 
@@ -186,106 +185,13 @@ Open the dashboard and check:
     - Constant horizontal = O(1)
     - Quadratic curve = O(n²)
 
-### 7. Document Your Benchmark
+### 7. Document Measurement Semantics
 
-Create `docs/benchmarks/MY_FEATURE_BENCHMARK.md`:
-
-````markdown
-# My Feature Benchmark
-
-## Overview
-
-Brief description of what you're measuring and why.
-
-## What Was Added
-
-### Benchmark Implementation
-
-- File: `crates/warp-benches/benches/my_feature.rs`
-- Measures: [specific metric]
-- Input sizes: 10, 100, 1K, 3K, 10K, 30K
-- Key design choices: [why you set it up this way]
-
-### Dashboard Integration
-
-- Color: [color code]
-- Line style: [dash pattern]
-- Label: [display name]
-
-## Results
-
-| Input Size (n) | Mean Time | Per-Operation | Throughput |
-| -------------- | --------- | ------------- | ---------- |
-| 10             | X.XX µs   | XXX ns        | X.XX M/s   |
-| 100            | X.XX µs   | XXX ns        | X.XX M/s   |
-| 1,000          | XXX µs    | XXX ns        | X.XX M/s   |
-| 3,000          | X.XX ms   | X.XX µs       | XXX K/s    |
-| 10,000         | XX.X ms   | X.XX µs       | XXX K/s    |
-| 30,000         | XX.X ms   | X.XX µs       | XXX K/s    |
-
-### Analysis
-
-**Key Findings:**
-
-- [Your complexity claim]: O(n), O(m), O(1), etc.
-- [Evidence]: Per-operation time remains constant / grows linearly / etc.
-- [Comparison]: If expected O(n²), we'd see XXX scaling but actual is YYY
-
-**Validation:**
-
-- ✅ Hypothesis confirmed: [why]
-- ⚠️ Caveats: [what this doesn't test]
-
-## Running the Benchmark
-
-```bash
-# Quick test
-cargo bench -p warp-benches --bench my_feature
-
-# Full dashboard
-make bench-bake
-```
-````
-
-## Interpretation
-
-### What This Proves
-
-✅ [Your claims backed by data]
-
-### What This Doesn't Prove
-
-⚠️ [Limitations and future work]
-
-## Related Documentation
-
-- [Related files and docs]
-
-## Quality Standards
-
-### Benchmark Code Quality
-
-- [ ] **Statistical rigor**: 50+ samples, 8s measurement time
-- [ ] **Multiple input sizes**: At least 5-6 data points
-- [ ] **Proper use of `black_box()`**: Prevent unwanted optimization
-- [ ] **Clean setup/teardown**: Only measure what matters
-- [ ] **Realistic workloads**: Test actual use cases, not synthetic edge cases
-- [ ] **Comments**: Explain WHY you're measuring this way
-
-### Dashboard Integration Quality
-
-- [ ] **Unique visual identity**: Distinct color + dash pattern
-- [ ] **Clear labeling**: Legend text explains what's measured
-- [ ] **Data integrity**: JSON artifacts exist for all input sizes
-- [ ] **Visual validation**: Line shape matches expected complexity
-
-### Documentation Quality
-
-- [ ] **Context**: Why this benchmark exists
-- [ ] **Results table**: Actual numbers with units
-- [ ] **Analysis**: Interpretation of results vs hypothesis
-- [ ] **Honest caveats**: What's NOT proven
-- [ ] **Related docs**: Links to implementation and related docs
+Put invariant methodology, the measured operation, setup boundaries, throughput
+units, input sizes, and caveats in module-level documentation in the benchmark
+source. Criterion output, generated JSON or dashboard artifacts, and the pull
+request own point-in-time measurements. Do not hand-copy benchmark numbers into
+Markdown status reports.
 
 ## Common Pitfalls
 
@@ -392,19 +298,18 @@ make bench-open-inline # Open baked report without rebuilding
 ## CI Integration
 
 Benchmark regression gating remains live via the **G3 perf gate** in
-`.github/workflows/det-gates.yml`. It compares Criterion output against the
-git-tracked `perf-baseline.json` and fails if any benchmark regresses beyond
-the configured threshold.
+`.github/workflows/det-gates.yml`. G3 currently runs only
+`warp-benches/materialization_hotpath` and compares that output against the
+git-tracked `perf-baseline.json`. Other benchmark targets are not merge-gated
+unless the workflow and baseline explicitly add them.
 
-Baseline updates are manual. The old automation that opened `chore/perf-baseline-*`
-branches after `main` pushes is intentionally disabled so benchmark baseline
-changes only happen when a human chooses to review and land them.
+Baseline updates are explicit, reviewed repository changes.
 
 ## Questions?
 
 - Check existing benchmarks in `crates/warp-benches/benches/`
 - Read [Criterion.rs User Guide](https://bheisler.github.io/criterion.rs/book/)
-- Look at `docs/benchmarks/RESERVE_BENCHMARK.md` for a complete example
+- Read the [warp-benches benchmark map](../../crates/warp-benches/benches/README.md)
 
 ## Checklist
 
@@ -414,10 +319,8 @@ Before considering your benchmark "done":
 - [ ] Registered in `Cargo.toml` with `harness = false`
 - [ ] Runs successfully: `cargo bench -p warp-benches --bench my_feature`
 - [ ] JSON artifacts generated in `target/criterion/`
-- [ ] Added to `docs/benchmarks/index.html` GROUPS array
-- [ ] Added to `xtask/src/main.rs` `BENCH_CORE_GROUP_KEYS`
-- [ ] Dashboard displays line with unique color/dash pattern
-- [ ] Results validate complexity hypothesis
-- [ ] Documentation created in `docs/benchmarks/`
-- [ ] Results table with actual measurements
-- [ ] Analysis explains findings and caveats
+- [ ] Selected report surface is registered and renders the benchmark
+- [ ] Core-dashboard benchmarks are added to both `GROUPS` and `BENCH_CORE_GROUP_KEYS`
+- [ ] Module docs define the measured operation, setup, units, and caveats
+- [ ] Criterion output and generated JSON or dashboard artifacts inspected
+- [ ] Merge-gated additions update the workflow and baseline explicitly

@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Deterministic CBOR encoder/decoder (subset, canonical) for WASM ABI payloads.
-//! Copied verbatim in spirit from `echo-session-proto` canonical encoder to avoid
-//! divergence; supports definite lengths only, no tags, sorted map keys, and the
-//! smallest-width integers/floats that round-trip. Limits integers to i64/u64 as
-//! supported by `ciborium::value::Integer`.
+//! This module is the Echo WASM ABI authority for definite lengths, no tags,
+//! sorted map keys, and the smallest-width integers/floats that round-trip. It
+//! limits integers to i64/u64 as supported by `ciborium::value::Integer`.
 
 use ciborium::value::{Integer, Value};
 use half::f16;

@@ -23,9 +23,9 @@
 //!    transform exists; [`shell_posture_obstruction`] is the single
 //!    admission check for that rule.
 //!
-//! This module is the E0-lite core required by design packet 0026 before
-//! any θ_braid shell lands; the full strand-creation posture system
-//! remains echo#538.
+//! This module owns the retained-artifact revelation law. Braid-shell
+//! composition applies the same least-revealed-member obstruction; see
+//! `docs/topics/StrandsAndBraids.md` for the current cross-module boundary.
 
 use crate::ident::Hash;
 use crate::playback::SessionId;

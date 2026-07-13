@@ -5,30 +5,26 @@
 
 _Define the canonical byte examples that keep host encoders and runtime decoders aligned._
 
-Legend: PLATFORM
-
-Status: Partial Rust-side vector set
-
 Depends on:
 
 - [SPEC-0009 - WASM ABI Contract](SPEC-0009-wasm-abi.md)
 - [JS to Canonical CBOR Mapping](js-cbor-mapping.md)
 
-## Why this packet exists
+## Purpose
 
 The ABI is a byte contract. Golden vectors are the shared evidence that independent encoders emit the same bytes for the same logical value.
 
-## Human users / jobs / hills
+Every listed vector is normative for the case it names and must agree with the
+executable fixtures. The document does not encode a completeness or delivery
+status for other host implementations.
 
-Human users need ABI failures to be diagnosable.
+ABI failures must be diagnosable. When a host adapter changes, a reviewer can
+compare expected and actual hex and identify drift in key ordering, integer
+width, definite length, or schema shape.
 
-The hill: when a host adapter changes, a reviewer can compare expected hex with actual hex and identify whether the drift is key ordering, integer width, definite length, or schema shape.
-
-## Agent users / jobs / hills
-
-Agent users need compact fixtures for conformance checks.
-
-The hill: an agent can generate a payload, compare it against these vectors, and decide whether it is safe to cross the WASM boundary.
+The vectors are compact conformance fixtures: an independent encoder can
+generate a payload, compare it with the expected bytes, and determine whether
+it conforms to the WASM boundary.
 
 ## Decision 1: Golden vectors are evidence, not a second spec
 

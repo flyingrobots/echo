@@ -18,19 +18,12 @@ categories = ["development-tools::testing"]
 # Core crates for test doubles
 warp-core = { workspace = true, features = ["native_rule_bootstrap"] }
 echo-graph = { workspace = true }
-echo-app-core = { workspace = true }
 
 # Hashing
 blake3 = "1"
 
-# Serialization (for config store fake)
-serde = { version = "1", features = ["derive"] }
-
 # Bytes for payload construction
 bytes = "1"
-
-[dev-dependencies]
-serde_json = "1"
 
 [features]
 default = []

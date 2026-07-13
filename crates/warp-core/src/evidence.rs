@@ -307,9 +307,16 @@ mod tests {
     use super::*;
     use crate::causal_wal::{
         AffectedFrontier, AffectedFrontierKind, PayloadCodecId, PayloadSchemaId,
-        WalAppendAuthority, WalDurabilityMode, WalRecordKind, WalSegmentId, WalTransactionBuilder,
+        WalAppendAuthority, WalBuildError, WalDurabilityMode, WalRecordKind, WalSegmentId,
+        WalTransactionBuilder,
     };
     use crate::{causal_wal::Lsn, Hash};
+
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("missing test fixture: {0}")]
+    struct MissingTestFixture(&'static str);
 
     fn test_hash(label: &[u8]) -> Hash {
         *blake3::hash(label).as_bytes()
@@ -356,7 +363,7 @@ mod tests {
         tx_kind: WalTransactionKind,
         tx_id_hash: &[u8],
         start_lsn: Lsn,
-    ) -> WalRecoveredTransaction {
+    ) -> Result<WalRecoveredTransaction, WalBuildError> {
         let (authority, record_kind, frontier_kind) = test_wal_shape(tx_kind);
         let transaction_id = WalTransactionId::from_hash(test_hash(tx_id_hash));
         let mut builder = WalTransactionBuilder::new(
@@ -375,62 +382,63 @@ mod tests {
             1,
             test_hash(b"digest-domain"),
         );
-        builder
-            .push_record(record_kind, tx_id_hash.to_vec())
-            .expect("test WAL record should build");
-        let transaction = builder
-            .commit(vec![AffectedFrontier {
-                kind: frontier_kind,
-                before_digest: test_hash(b"frontier-before"),
-                after_digest: test_hash(b"frontier-after"),
-            }])
-            .expect("test WAL transaction should validate");
-        WalRecoveredTransaction {
+        builder.push_record(record_kind, tx_id_hash.to_vec())?;
+        let transaction = builder.commit(vec![AffectedFrontier {
+            kind: frontier_kind,
+            before_digest: test_hash(b"frontier-before"),
+            after_digest: test_hash(b"frontier-after"),
+        }])?;
+        Ok(WalRecoveredTransaction {
             commit: transaction.commit,
             frames: transaction.frames,
-        }
+        })
     }
 
     #[test]
-    fn test_committed_transactions_become_catalog_segments() {
+    fn test_committed_transactions_become_catalog_segments() -> TestResult {
         let tx = make_test_commit(
             WalTransactionKind::SubmissionIntake,
             b"tx1",
             Lsn::from_raw(1),
-        );
+        )?;
         let report = RecoveryScanReport {
             transactions: vec![tx],
             tail_posture: RecoveryTailPosture::Clean,
         };
 
-        let catalog = CausalSegmentCatalog::from_recovery_scan(&report).unwrap();
+        let catalog = CausalSegmentCatalog::from_recovery_scan(&report)?;
         assert_eq!(catalog.segments_by_id.len(), 1);
-        let segment = catalog.segments_by_id.values().next().unwrap();
+        let segment = catalog
+            .segments_by_id
+            .values()
+            .next()
+            .ok_or(MissingTestFixture("committed transaction segment"))?;
         assert_eq!(segment.kind, EvidenceSegmentKind::CommittedTransaction);
+        Ok(())
     }
 
     #[test]
-    fn test_multiple_transactions_produce_multiple_segments() {
+    fn test_multiple_transactions_produce_multiple_segments() -> TestResult {
         let tx1 = make_test_commit(
             WalTransactionKind::SubmissionIntake,
             b"tx1",
             Lsn::from_raw(1),
-        );
-        let tx2 = make_test_commit(WalTransactionKind::SchedulerTick, b"tx2", Lsn::from_raw(2));
+        )?;
+        let tx2 = make_test_commit(WalTransactionKind::SchedulerTick, b"tx2", Lsn::from_raw(2))?;
 
         let report = RecoveryScanReport {
             transactions: vec![tx1.clone(), tx2.clone()],
             tail_posture: RecoveryTailPosture::Clean,
         };
 
-        let catalog = CausalSegmentCatalog::from_recovery_scan(&report).unwrap();
+        let catalog = CausalSegmentCatalog::from_recovery_scan(&report)?;
         assert_eq!(catalog.segments_by_id.len(), 2);
 
         let seg1 = catalog
             .base_by_commit_digest
             .get(&tx1.commit.commit_digest)
             .and_then(|id| catalog.segments_by_id.get(id))
-            .unwrap();
+            .ok_or(MissingTestFixture("first transaction segment"))?;
         assert_eq!(
             seg1.transaction_kind,
             Some(WalTransactionKind::SubmissionIntake)
@@ -440,26 +448,31 @@ mod tests {
             .base_by_commit_digest
             .get(&tx2.commit.commit_digest)
             .and_then(|id| catalog.segments_by_id.get(id))
-            .unwrap();
+            .ok_or(MissingTestFixture("second transaction segment"))?;
         assert_eq!(
             seg2.transaction_kind,
             Some(WalTransactionKind::SchedulerTick)
         );
+        Ok(())
     }
 
     #[test]
-    fn test_base_segment_preserves_transaction_properties() {
+    fn test_base_segment_preserves_transaction_properties() -> TestResult {
         let tx = make_test_commit(
             WalTransactionKind::SubmissionIntake,
             b"tx1",
             Lsn::from_raw(1),
-        );
+        )?;
         let report = RecoveryScanReport {
             transactions: vec![tx.clone()],
             tail_posture: RecoveryTailPosture::Clean,
         };
-        let catalog = CausalSegmentCatalog::from_recovery_scan(&report).unwrap();
-        let segment = catalog.segments_by_id.values().next().unwrap();
+        let catalog = CausalSegmentCatalog::from_recovery_scan(&report)?;
+        let segment = catalog
+            .segments_by_id
+            .values()
+            .next()
+            .ok_or(MissingTestFixture("base transaction segment"))?;
 
         // base segment preserves transaction_kind
         assert_eq!(segment.transaction_kind, Some(tx.commit.transaction_kind));
@@ -473,22 +486,27 @@ mod tests {
             segment.affected_frontiers_root,
             tx.commit.affected_frontiers_root
         );
+        Ok(())
     }
 
     #[test]
-    fn test_base_segments_populate_covering_range_index() {
+    fn test_base_segments_populate_covering_range_index() -> TestResult {
         let tx = make_test_commit(
             WalTransactionKind::SubmissionIntake,
             b"tx1",
             Lsn::from_raw(7),
-        );
+        )?;
         let report = RecoveryScanReport {
             transactions: vec![tx.clone()],
             tail_posture: RecoveryTailPosture::Clean,
         };
 
-        let catalog = CausalSegmentCatalog::from_recovery_scan(&report).unwrap();
-        let segment = catalog.segments_by_id.values().next().unwrap();
+        let catalog = CausalSegmentCatalog::from_recovery_scan(&report)?;
+        let segment = catalog
+            .segments_by_id
+            .values()
+            .next()
+            .ok_or(MissingTestFixture("covering-range segment"))?;
         let range_key = EvidenceRangeKey {
             first_lsn: tx.commit.first_lsn,
             last_lsn: tx.commit.last_lsn,
@@ -501,15 +519,16 @@ mod tests {
                 .map(Vec::as_slice),
             Some(&[segment.id][..])
         );
+        Ok(())
     }
 
     #[test]
-    fn test_malformed_recovered_transaction_is_rejected() {
+    fn test_malformed_recovered_transaction_is_rejected() -> TestResult {
         let mut tx = make_test_commit(
             WalTransactionKind::SubmissionIntake,
             b"tx1",
             Lsn::from_raw(7),
-        );
+        )?;
         tx.commit.commit_digest = test_hash(b"forged-commit-digest");
         let report = RecoveryScanReport {
             transactions: vec![tx],
@@ -520,40 +539,46 @@ mod tests {
             CausalSegmentCatalog::from_recovery_scan(&report),
             Err(EvidenceCatalogError::InvalidTransaction)
         ));
+        Ok(())
     }
 
     #[test]
-    fn test_uncommitted_tail_frames_do_not_become_catalog_segments() {
+    fn test_uncommitted_tail_frames_do_not_become_catalog_segments() -> TestResult {
         let report = RecoveryScanReport {
             transactions: vec![],
             tail_posture: RecoveryTailPosture::WouldTruncateAfter(Lsn::from_raw(5)),
         };
 
-        let catalog = CausalSegmentCatalog::from_recovery_scan(&report).unwrap();
+        let catalog = CausalSegmentCatalog::from_recovery_scan(&report)?;
         assert!(catalog.segments_by_id.is_empty());
+        Ok(())
     }
 
     #[test]
-    fn test_rebuilding_catalog_yields_identical_segments() {
+    fn test_rebuilding_catalog_yields_identical_segments() -> TestResult {
         let tx1 = make_test_commit(
             WalTransactionKind::SubmissionIntake,
             b"tx1",
             Lsn::from_raw(1),
-        );
-        let tx2 = make_test_commit(WalTransactionKind::SchedulerTick, b"tx2", Lsn::from_raw(2));
+        )?;
+        let tx2 = make_test_commit(WalTransactionKind::SchedulerTick, b"tx2", Lsn::from_raw(2))?;
         let report = RecoveryScanReport {
             transactions: vec![tx1, tx2],
             tail_posture: RecoveryTailPosture::Clean,
         };
 
-        let catalog1 = CausalSegmentCatalog::from_recovery_scan(&report).unwrap();
-        let catalog2 = CausalSegmentCatalog::from_recovery_scan(&report).unwrap();
+        let catalog1 = CausalSegmentCatalog::from_recovery_scan(&report)?;
+        let catalog2 = CausalSegmentCatalog::from_recovery_scan(&report)?;
 
         assert_eq!(catalog1.segments_by_id.len(), catalog2.segments_by_id.len());
         for (id, seg1) in &catalog1.segments_by_id {
-            let seg2 = catalog2.segments_by_id.get(id).unwrap();
+            let seg2 = catalog2
+                .segments_by_id
+                .get(id)
+                .ok_or(MissingTestFixture("rebuilt transaction segment"))?;
             assert_eq!(seg1.commit_digest, seg2.commit_digest);
             assert_eq!(seg1.first_lsn, seg2.first_lsn);
         }
+        Ok(())
     }
 }

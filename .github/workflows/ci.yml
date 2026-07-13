@@ -36,6 +36,18 @@ jobs:
                   submodules: false
             - name: verify-local hook regression
               run: bash tests/hooks/test_verify_local.sh
+            - name: retired component reference regression
+              run: bash tests/docs/test_retired_component_refs.sh
+            - name: repository knowledge model regression
+              run: bash tests/docs/test_knowledge_model.sh
+            - name: ADR namespace regression
+              run: bash tests/docs/test_adr_namespace.sh
+            - name: generated rule truth regression
+              run: bash tests/docs/test_generated_rule_truth.sh
+            - name: determinism policy gate regression
+              run: node --test scripts/tests/classify_changes.test.cjs
+            - name: WASM ABI and optic boundary regression
+              run: node --test scripts/tests/wasm_abi_truth_test.mjs
 
     clippy-libs-core:
         name: Clippy (core libs)
@@ -61,9 +73,6 @@ jobs:
                     -p echo-runtime-schema \
                     -p echo-dry-tests \
                     -p echo-graph \
-                    -p echo-app-core \
-                    -p echo-config-fs \
-                    -p echo-session-proto \
                     --lib -- -D warnings -D missing_docs
 
     clippy-libs-support:
@@ -84,16 +93,12 @@ jobs:
               run: |
                   cargo clippy \
                     -p echo-registry-api \
-                    -p echo-wasm-bindings \
                     -p echo-wesley-gen \
                     -p echo-cas \
                     -p echo-scene-port \
                     -p echo-scene-codec \
-                    -p echo-ttd \
                     -p echo-dind-harness \
                     -p echo-dind-tests \
-                    -p ttd-protocol-rs \
-                    -p method \
                     --lib -- -D warnings -D missing_docs
 
     clippy-bins:
@@ -320,28 +325,6 @@ jobs:
               run: |
                   set -euo pipefail
                   bash scripts/tests/check_rust_versions_test.sh
-
-    task-lists:
-        name: Task Lists Guard
-        runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@v4
-            - name: Check task lists for contradictions
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  script="scripts/check_task_lists.sh"
-                  if [[ ! -x "$script" ]]; then
-                    echo "Error: $script is missing or not executable" >&2
-                    ls -la scripts || true
-                    exit 1
-                  fi
-                  "$script"
-            - name: Task list checker self-tests
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  bash scripts/tests/check_task_lists_test.sh
 
     wasm-package-boundary:
         name: WASM Package Boundary

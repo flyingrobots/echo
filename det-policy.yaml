@@ -9,10 +9,8 @@ classes:
     required_gates: [G1, G2, G3, G4]
   DET_IMPORTANT:
     description: "Affects critical systems indirectly. Reduced gate set."
-    # Note: required_gates defines policy-level merge blockers, not workflow
-    # execution. G3 (perf regression) runs unconditionally for all non-NONCRITICAL
-    # changes in det-gates.yml (run_none != 'true') but is not a merge blocker
-    # for DET_IMPORTANT — consistent with RELEASE_POLICY.md staging-optional design.
+    # required_gates is consumed by classify_changes.cjs and directly controls
+    # workflow execution and merge-blocking evidence validation.
     required_gates: [G2, G4]
   DET_NONCRITICAL:
     description: "No deterministic runtime impact. Standard CI only."
@@ -41,6 +39,10 @@ crates:
     class: DET_CRITICAL
     owner_role: "Architect"
     paths: ["crates/echo-wasm-abi/**"]
+  echo-runtime-schema:
+    class: DET_CRITICAL
+    owner_role: "Architect"
+    paths: ["crates/echo-runtime-schema/**"]
   echo-scene-port:
     class: DET_CRITICAL
     owner_role: "Architect"
@@ -53,10 +55,6 @@ crates:
     class: DET_CRITICAL
     owner_role: "Architect"
     paths: ["crates/echo-graph/**"]
-  echo-ttd:
-    class: DET_CRITICAL
-    owner_role: "Architect"
-    paths: ["crates/echo-ttd/**"]
   echo-dind-harness:
     class: DET_CRITICAL
     owner_role: "CI Engineer"
@@ -65,21 +63,12 @@ crates:
     class: DET_CRITICAL
     owner_role: "CI Engineer"
     paths: ["crates/echo-dind-tests/**"]
-  ttd-browser:
-    class: DET_CRITICAL
-    owner_role: "Architect"
-    paths: ["crates/ttd-browser/**"]
-  ttd-protocol-rs:
-    class: DET_CRITICAL
-    owner_role: "Architect"
-    paths: ["crates/ttd-protocol-rs/**"]
   ci:
     class: DET_CRITICAL
     owner_role: "CI Engineer"
     # Intentional fail-safe: scripts/** is broadly classified as DET_CRITICAL
-    # so new CI scripts are automatically covered. Utility scripts
-    # (scaffold-community.sh, bench_*.py, etc.) pay the cost of extra CI runs but
-    # cannot silently bypass gates. Per-script refinement tracked in #284.
+    # so new CI scripts are automatically covered. Utility scripts pay the cost
+    # of extra CI runs but cannot silently bypass gates.
     paths: [".github/workflows/**", "scripts/**", "det-policy.yaml", "Makefile", "xtask/**"]
 
   # ---- DET_IMPORTANT ----
@@ -87,34 +76,26 @@ crates:
     class: DET_IMPORTANT
     owner_role: "Architect"
     paths: ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "deny.toml", "audit.toml"]
-  echo-wasm-bindings:
-    class: DET_IMPORTANT
-    owner_role: "Tooling Engineer"
-    paths: ["crates/echo-wasm-bindings/**"]
   echo-wesley-gen:
     class: DET_IMPORTANT
     owner_role: "Tooling Engineer"
     paths: ["crates/echo-wesley-gen/**"]
-  echo-app-core:
-    class: DET_IMPORTANT
-    owner_role: "Architect"
-    paths: ["crates/echo-app-core/**"]
   echo-cas:
     class: DET_IMPORTANT
     owner_role: "Architect"
     paths: ["crates/echo-cas/**"]
-  echo-config-fs:
+  echo-file-aperture:
     class: DET_IMPORTANT
     owner_role: "Architect"
-    paths: ["crates/echo-config-fs/**"]
+    paths: ["crates/echo-file-aperture/**"]
+  echo-trace:
+    class: DET_IMPORTANT
+    owner_role: "Architect"
+    paths: ["crates/echo-trace/**"]
   echo-registry-api:
     class: DET_IMPORTANT
     owner_role: "Architect"
     paths: ["crates/echo-registry-api/**"]
-  echo-session-proto:
-    class: DET_IMPORTANT
-    owner_role: "Architect"
-    paths: ["crates/echo-session-proto/**"]
   warp-cli:
     class: DET_IMPORTANT
     owner_role: "Architect"

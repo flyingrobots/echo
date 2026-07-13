@@ -5,18 +5,17 @@
 
 This document is **normative**: if it conflicts with other docs, this wins.
 For background hazards and motivation, see
-[/determinism/DETERMINISTIC_MATH](/determinism/DETERMINISTIC_MATH).
+[DETERMINISTIC_MATH.md](DETERMINISTIC_MATH.md).
 
-All math within the simulation loop (`warp-core`) must adhere to these rules.
+All math within deterministic runtime paths must adhere to these rules.
 
 ## Docs Map
 
 > **You are here:** normative policy (this document wins on conflicts).
 >
-> | Doc                                                      | Role                                               |
-> | -------------------------------------------------------- | -------------------------------------------------- |
-> | [DETERMINISTIC_MATH.md](DETERMINISTIC_MATH.md)           | Hazard catalog (IEEE 754 pitfalls and mitigations) |
-> | [DETERMINISM_CLAIMS_v0.1.md](DETERMINISM_CLAIMS_v0.1.md) | Formal determinism claims                          |
+> | Doc                                            | Role                                               |
+> | ---------------------------------------------- | -------------------------------------------------- |
+> | [DETERMINISTIC_MATH.md](DETERMINISTIC_MATH.md) | Hazard catalog (IEEE 754 pitfalls and mitigations) |
 
 ## 1. Floating Point (f32)
 
@@ -44,26 +43,7 @@ Implementations of `Eq` for floating-point types **must** be reflexive.
 - **Deserialize:** Must route through `F32Scalar::new()` or a validator that applies canonicalization.
 - **Serialize:** Safe to dump bytes _if_ the value is already canonical.
 
-## 3. Audit Findings (2025-11-30)
-
-An audit of `warp-core` identified the following risks:
-
-- **Hardware Transcendentals:** `F32Scalar::sin/cos` previously delegated to `f32::sin/cos`. **Risk:** High (varies across libc/hardware implementations).
-- _Status:_ Implemented deterministic LUT-backed trig in `warp_math::trig` (Issue #107).
-- **Implicit Hardware Ops:** `Add`, `Sub`, `Mul`, `Div` rely on standard `f32` ops.
-- _Risk:_ Subnormal handling (DAZ/FTZ) depends on CPU flags.
-- _Status:_ `F32Scalar::new` flushes subnormals to `+0.0` at construction and after operations.
-- **NaN Propagation:** `f32` ops produce hardware-specific NaN payloads.
-- _Status:_ `F32Scalar::new` canonicalizes NaNs to `0x7fc0_0000`.
-
-## 4. Implementation Checklist
-
-- [x] Canonicalize `-0.0` to `+0.0` (PR #123).
-- [x] Canonicalize `NaN` payloads (`F32Scalar::new`).
-- [x] Flush subnormals to `+0.0` (`F32Scalar::new`).
-- [x] Replace `sin`/`cos` with deterministic approximation (`warp_math::trig` LUT backend).
-
-## 5. Local Validation (CI parity)
+## 3. Local Validation (CI parity)
 
 Echo’s deterministic-math CI lanes are intentionally “boring”: they run the same commands you
 should run locally before proposing changes to scalar backends or transcendentals.

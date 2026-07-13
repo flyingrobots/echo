@@ -5,11 +5,11 @@
 //! A braid shell is not a note that plurality happened. It is the retained
 //! holographic boundary that makes a braid-scope settlement outcome
 //! replayable **without reopening member strand histories** (AIΩN Paper VII
-//! Prop 3.5; design packet 0026). The shell binds basis + members + member
-//! verdicts + policy + outcome + witness with domain-separated digests, and
-//! [`replay_braid_shell`] reproduces the outcome from shell records alone —
-//! its signature offers no path to strand histories, so rematerialization is
-//! a type error, not a temptation.
+//! Prop 3.5; see `docs/topics/StrandsAndBraids.md`). The shell binds basis +
+//! members + member verdicts + policy + outcome + witness with
+//! domain-separated digests, and [`replay_braid_shell`] reproduces the outcome
+//! from shell records alone — its signature offers no path to strand histories,
+//! so rematerialization is a type error, not a temptation.
 //!
 //! Hierarchy (E1a doctrine): `PluralAlternative` is per-entry residue;
 //! θ_braid is the plural settlement boundary; the `BraidShell` is the

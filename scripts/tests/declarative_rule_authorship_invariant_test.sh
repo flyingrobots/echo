@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 #
-# Tests for cycle 0012: DECLARATIVE-RULE-AUTHORSHIP invariant document.
+# Executable witness for the DECLARATIVE-RULE-AUTHORSHIP invariant document.
 
 set -euo pipefail
 
@@ -25,7 +25,6 @@ assert() {
 }
 
 invariant="${repo_root}/docs/invariants/DECLARATIVE-RULE-AUTHORSHIP.md"
-release_policy="${repo_root}/docs/determinism/RELEASE_POLICY.md"
 warp_core_lib="${repo_root}/crates/warp-core/src/lib.rs"
 
 echo "=== DECLARATIVE-RULE-AUTHORSHIP invariant tests ==="
@@ -47,12 +46,7 @@ assert "contains callback-free wording" \
   grep -qi "callback-free" "${invariant}"
 
 echo ""
-echo "3. Release policy cross-reference"
-assert "RELEASE_POLICY references DECLARATIVE-RULE-AUTHORSHIP" \
-  grep -q "DECLARATIVE-RULE-AUTHORSHIP" "${release_policy}"
-
-echo ""
-echo "4. Default public API does not export native rule authoring"
+echo "3. Default public API does not export native rule authoring"
 assert "default lib.rs does not unconditionally pub use RewriteRule" \
   awk '
     /^#\[cfg\(feature = "native_rule_bootstrap"\)\]$/ { gated = 1; next }

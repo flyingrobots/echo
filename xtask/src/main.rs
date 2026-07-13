@@ -39,8 +39,6 @@ struct Cli {
 enum Commands {
     /// Bake benchmark report artifacts and export benchmark data.
     Bench(BenchArgs),
-    /// Generate dependency DAG DOT/SVG artifacts for issues + milestones.
-    Dags(DagsArgs),
     /// Emit agent-native Doghouse recorder events.
     Doghouse(DoghouseArgs),
     /// Run the 30-second Hello Echo evidence capsule.
@@ -63,10 +61,6 @@ enum Commands {
     MarkdownFix(MarkdownFixArgs),
     /// Run all docs linters: markdown-fix (auto-fix) then lint-dead-refs (check).
     DocsLint(DocsLintArgs),
-    /// METHOD workspace operations (status, backlog inspection).
-    Method(MethodArgs),
-    /// Wesley consumer artifact maintenance.
-    Wesley(WesleyArgs),
     /// Run a narrow local test slice with explicit Cargo target selection.
     TestSlice(TestSliceArgs),
 }
@@ -114,132 +108,6 @@ enum TestSlice {
     DurableRuntimeWal,
     /// Joined WAL/WSC durability release witness.
     DurabilityRelease,
-}
-
-#[derive(Args)]
-struct MethodArgs {
-    /// METHOD subcommand to execute.
-    #[command(subcommand)]
-    command: MethodCommand,
-}
-
-#[derive(Args)]
-struct WesleyArgs {
-    /// Wesley maintenance subcommand to execute.
-    #[command(subcommand)]
-    command: WesleyCommand,
-}
-
-#[derive(Subcommand)]
-enum WesleyCommand {
-    /// Verify Echo's downstream Wesley-generated protocol consumer artifacts.
-    Sync(WesleySyncArgs),
-}
-
-#[derive(Args)]
-struct WesleySyncArgs {
-    /// Output as JSON (agent surface).
-    #[arg(long)]
-    json: bool,
-}
-
-#[derive(Subcommand)]
-enum MethodCommand {
-    /// Capture a backlog note in inbox/.
-    Inbox(MethodInboxArgs),
-    /// Scaffold a retro and witness directory for an active cycle.
-    Close(MethodCloseArgs),
-    /// Promote a backlog item into the next numbered design cycle.
-    Pull(MethodPullArgs),
-    /// Check playback questions against committed tests.
-    Drift(MethodDriftArgs),
-    /// Show backlog lanes, active cycles, and legend load.
-    Status(MethodStatusArgs),
-    /// Regenerate METHOD task matrix markdown and CSV.
-    Matrix(MethodMatrixArgs),
-    /// Regenerate METHOD task DAG DOT and SVG.
-    Dag(MethodDagArgs),
-    /// Show tasks with no unresolved backlog-task blockers.
-    Frontier(MethodFrontierArgs),
-    /// Show the unweighted longest dependency chain.
-    CriticalPath(MethodCriticalPathArgs),
-    /// Verify METHOD graph artifacts are up to date.
-    CheckDag(MethodCheckDagArgs),
-}
-
-#[derive(Args)]
-struct MethodInboxArgs {
-    /// Idea title or one-line note to capture.
-    title: String,
-}
-
-#[derive(Args)]
-struct MethodCloseArgs {
-    /// Cycle number or full cycle directory name. Defaults to most recent active cycle.
-    cycle: Option<String>,
-}
-
-#[derive(Args)]
-struct MethodPullArgs {
-    /// Backlog item path, file stem, METHOD task id, or native task id.
-    item: String,
-}
-
-#[derive(Args)]
-struct MethodDriftArgs {
-    /// Cycle number or full cycle directory name. Defaults to most recent active cycle.
-    cycle: Option<String>,
-    /// Output as JSON (agent surface).
-    #[arg(long)]
-    json: bool,
-}
-
-#[derive(Args)]
-struct MethodStatusArgs {
-    /// Output as JSON (agent surface).
-    #[arg(long)]
-    json: bool,
-}
-
-#[derive(Args)]
-struct MethodMatrixArgs {
-    /// Check generated matrix artifacts without writing them.
-    #[arg(long)]
-    check: bool,
-}
-
-#[derive(Args)]
-struct MethodDagArgs {
-    /// Check generated DAG artifacts without writing them.
-    #[arg(long)]
-    check: bool,
-    /// Skip rendering SVG with Graphviz; write/check DOT only.
-    #[arg(long)]
-    no_render: bool,
-}
-
-#[derive(Args)]
-struct MethodFrontierArgs {
-    /// Output as JSON (agent surface).
-    #[arg(long)]
-    json: bool,
-    /// Maximum number of tasks to print in human mode.
-    #[arg(long, default_value = "25")]
-    limit: usize,
-}
-
-#[derive(Args)]
-struct MethodCriticalPathArgs {
-    /// Output as JSON (agent surface).
-    #[arg(long)]
-    json: bool,
-}
-
-#[derive(Args)]
-struct MethodCheckDagArgs {
-    /// Skip checking rendered SVG freshness.
-    #[arg(long)]
-    no_render: bool,
 }
 
 #[derive(Args)]
@@ -399,31 +267,6 @@ enum DindCommands {
 }
 
 #[derive(Args)]
-struct DagsArgs {
-    /// Fetch fresh issue/milestone snapshots via `gh` (requires network/auth).
-    #[arg(long)]
-    fetch: bool,
-
-    /// Render SVGs via Graphviz `dot`.
-    #[arg(long = "render", default_value_t = true)]
-    #[arg(long = "no-render", action = clap::ArgAction::SetFalse)]
-    render: bool,
-
-    /// Override the snapshot label shown in graph titles.
-    ///
-    /// Values:
-    /// - `none` (omit the snapshot label entirely)
-    /// - `rolling` (stable label for CI/automation)
-    /// - `YYYY-MM-DD` (pinned date label for comparisons)
-    #[arg(long = "snapshot-label", default_value = "auto")]
-    snapshot_label: String,
-
-    /// Legacy flag: override the snapshot label shown in graph titles (format: YYYY-MM-DD).
-    #[arg(long, hide = true)]
-    snapshot: Option<String>,
-}
-
-#[derive(Args)]
 struct ManPagesArgs {
     /// Output directory for generated man pages.
     #[arg(long, default_value = "docs/man")]
@@ -523,7 +366,6 @@ fn main() -> Result<()> {
 
     match cli.command {
         Commands::Bench(args) => run_bench(args),
-        Commands::Dags(args) => run_dags(args),
         Commands::Doghouse(args) => run_doghouse(args),
         Commands::HelloEcho(args) => run_hello_echo(args),
         Commands::PrStatus(args) => run_pr_status(args),
@@ -535,8 +377,6 @@ fn main() -> Result<()> {
         Commands::LintDeadRefs(args) => run_lint_dead_refs(args),
         Commands::MarkdownFix(args) => run_markdown_fix(&args),
         Commands::DocsLint(args) => run_docs_lint(args),
-        Commands::Method(args) => run_method(args),
-        Commands::Wesley(args) => run_wesley(args),
         Commands::TestSlice(args) => run_test_slice(args),
     }
 }
@@ -870,440 +710,6 @@ fn display_command(command: &Command) -> String {
     parts.join(" ")
 }
 
-#[derive(Serialize)]
-struct WesleySyncReport {
-    ok: bool,
-    canonical_schema: String,
-    rust_schema_sha256: Option<String>,
-    typescript_schema_sha256: Option<String>,
-    checks: Vec<WesleySyncCheck>,
-}
-
-#[derive(Serialize)]
-struct WesleySyncCheck {
-    name: String,
-    ok: bool,
-    detail: String,
-}
-
-fn run_wesley(args: WesleyArgs) -> Result<()> {
-    match args.command {
-        WesleyCommand::Sync(sync_args) => run_wesley_sync(sync_args),
-    }
-}
-
-fn run_wesley_sync(args: WesleySyncArgs) -> Result<()> {
-    let repo_root = find_repo_root()?;
-    let report = build_wesley_sync_report(&repo_root)?;
-
-    if args.json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&report)
-                .context("failed to serialize Wesley sync report")?
-        );
-    } else {
-        print_wesley_sync_report(&report);
-    }
-
-    if report.ok {
-        Ok(())
-    } else {
-        bail!("Wesley protocol consumer check failed")
-    }
-}
-
-fn build_wesley_sync_report(repo_root: &Path) -> Result<WesleySyncReport> {
-    let rust_cargo = read_repo_file(repo_root, "crates/ttd-protocol-rs/Cargo.toml")?;
-    let rust_lib = read_repo_file(repo_root, "crates/ttd-protocol-rs/lib.rs")?;
-    let ts_package = read_repo_file(repo_root, "packages/ttd-protocol-ts/package.json")?;
-    let ts_index = read_repo_file(repo_root, "packages/ttd-protocol-ts/index.ts")?;
-    let ts_types = read_repo_file(repo_root, "packages/ttd-protocol-ts/types.ts")?;
-    let ts_registry = read_repo_file(repo_root, "packages/ttd-protocol-ts/registry.ts")?;
-    let ts_zod = read_repo_file(repo_root, "packages/ttd-protocol-ts/zod.ts")?;
-    let echo_ttd_cargo = read_repo_file(repo_root, "crates/echo-ttd/Cargo.toml")?;
-
-    let rust_schema_sha256 = extract_assignment_string(&rust_lib, "SCHEMA_SHA256");
-    let typescript_schema_sha256 = extract_assignment_string(&ts_registry, "SCHEMA_HASH");
-    let mut checks = Vec::new();
-
-    push_check(
-        &mut checks,
-        "local-ttd-schema-absent",
-        !repo_root.join("schemas/ttd-protocol.graphql").exists(),
-        "Echo must not carry a backup source-of-truth TTD protocol schema",
-    );
-    push_check(
-        &mut checks,
-        "rust-crate-canonical-owner",
-        rust_cargo.contains("canonical warp-ttd protocol")
-            && rust_cargo.contains("cargo xtask wesley sync"),
-        "Rust consumer crate must name canonical warp-ttd ownership and the local check command",
-    );
-    push_check(
-        &mut checks,
-        "rust-lib-generated-marker",
-        rust_lib.contains("Generated code") && rust_lib.contains("SCHEMA_SHA256"),
-        "Rust lib.rs must remain a generated protocol artifact with schema identity",
-    );
-    push_check(
-        &mut checks,
-        "typescript-package-canonical-owner",
-        ts_package.contains("canonical warp-ttd protocol") && ts_package.contains("DO NOT EDIT"),
-        "TypeScript package must advertise downstream generated-consumer status",
-    );
-    push_check(
-        &mut checks,
-        "typescript-generated-markers",
-        [&ts_index, &ts_types, &ts_registry, &ts_zod]
-            .into_iter()
-            .all(|content| content.contains("Auto-generated by @wesley/generator-ttd")),
-        "TypeScript generated files must retain generator markers",
-    );
-    push_check(
-        &mut checks,
-        "schema-hash-match",
-        rust_schema_sha256.is_some()
-            && rust_schema_sha256 == typescript_schema_sha256
-            && rust_schema_sha256.as_deref().is_some_and(is_sha256_hex),
-        "Rust and TypeScript generated consumers must name the same 64-hex schema hash",
-    );
-    push_check(
-        &mut checks,
-        "echo-ttd-runtime-separate",
-        !echo_ttd_cargo.contains("ttd-protocol-rs"),
-        "Echo runtime-side compliance must not depend on host-neutral generated protocol nouns",
-    );
-
-    let ok = checks.iter().all(|check| check.ok);
-    Ok(WesleySyncReport {
-        ok,
-        canonical_schema: "warp-ttd/schemas/warp-ttd-protocol.graphql".to_owned(),
-        rust_schema_sha256,
-        typescript_schema_sha256,
-        checks,
-    })
-}
-
-fn push_check(checks: &mut Vec<WesleySyncCheck>, name: &str, ok: bool, detail: &str) {
-    checks.push(WesleySyncCheck {
-        name: name.to_owned(),
-        ok,
-        detail: detail.to_owned(),
-    });
-}
-
-fn print_wesley_sync_report(report: &WesleySyncReport) {
-    println!(
-        "Wesley protocol consumer check: {}",
-        if report.ok { "ok" } else { "failed" }
-    );
-    println!("Canonical schema: {}", report.canonical_schema);
-    println!(
-        "Rust schema SHA-256: {}",
-        report.rust_schema_sha256.as_deref().unwrap_or("<missing>")
-    );
-    println!(
-        "TypeScript schema SHA-256: {}",
-        report
-            .typescript_schema_sha256
-            .as_deref()
-            .unwrap_or("<missing>")
-    );
-    for check in &report.checks {
-        println!(
-            "  {} {} — {}",
-            if check.ok { "ok" } else { "FAIL" },
-            check.name,
-            check.detail
-        );
-    }
-}
-
-fn read_repo_file(repo_root: &Path, relative: &str) -> Result<String> {
-    let path = repo_root.join(relative);
-    std::fs::read_to_string(&path).with_context(|| format!("failed to read {relative}"))
-}
-
-fn extract_assignment_string(contents: &str, name: &str) -> Option<String> {
-    contents
-        .lines()
-        .find(|line| line.contains(name))
-        .and_then(|line| {
-            let start = line.find('"').or_else(|| line.find('\''))?;
-            let quote = line.as_bytes()[start];
-            let rest = &line[start + 1..];
-            let end = rest
-                .as_bytes()
-                .iter()
-                .position(|candidate| *candidate == quote)?;
-            Some(rest[..end].to_owned())
-        })
-}
-
-fn is_sha256_hex(candidate: &str) -> bool {
-    candidate.len() == 64 && candidate.bytes().all(|byte| byte.is_ascii_hexdigit())
-}
-
-fn run_method(args: MethodArgs) -> Result<()> {
-    match args.command {
-        MethodCommand::Inbox(inbox_args) => run_method_inbox(inbox_args),
-        MethodCommand::Close(close_args) => run_method_close(close_args),
-        MethodCommand::Pull(pull_args) => run_method_pull(pull_args),
-        MethodCommand::Drift(drift_args) => run_method_drift(drift_args),
-        MethodCommand::Status(status_args) => run_method_status(status_args),
-        MethodCommand::Matrix(matrix_args) => run_method_matrix(matrix_args),
-        MethodCommand::Dag(dag_args) => run_method_dag(dag_args),
-        MethodCommand::Frontier(frontier_args) => run_method_frontier(frontier_args),
-        MethodCommand::CriticalPath(path_args) => run_method_critical_path(path_args),
-        MethodCommand::CheckDag(check_args) => run_method_check_dag(check_args),
-    }
-}
-
-fn method_workspace() -> Result<method::workspace::MethodWorkspace> {
-    let root = std::env::current_dir().context("failed to get current dir")?;
-    method::workspace::MethodWorkspace::discover(&root).map_err(|e| anyhow::anyhow!(e))
-}
-
-fn run_method_inbox(args: MethodInboxArgs) -> Result<()> {
-    let root = std::env::current_dir().context("failed to get current dir")?;
-    let workspace = method_workspace()?;
-    let path = method::inbox::create_inbox_item(&workspace, &args.title)
-        .map_err(|e| anyhow::anyhow!(e))?;
-    let display_path = path.strip_prefix(&root).unwrap_or(&path);
-    println!("{}", display_path.display());
-    Ok(())
-}
-
-fn run_method_close(args: MethodCloseArgs) -> Result<()> {
-    let root = std::env::current_dir().context("failed to get current dir")?;
-    let workspace = method_workspace()?;
-    let result = method::close::close_cycle(&workspace, args.cycle.as_deref())
-        .map_err(|e| anyhow::anyhow!(e))?;
-    let retro_path = result
-        .retro_path
-        .strip_prefix(&root)
-        .unwrap_or(&result.retro_path);
-    let witness_dir = result
-        .witness_dir
-        .strip_prefix(&root)
-        .unwrap_or(&result.witness_dir);
-
-    println!("closed {}", result.cycle);
-    println!("retro {}", retro_path.display());
-    println!("witness {}", witness_dir.display());
-    Ok(())
-}
-
-fn run_method_pull(args: MethodPullArgs) -> Result<()> {
-    let root = std::env::current_dir().context("failed to get current dir")?;
-    let workspace = method_workspace()?;
-    let result =
-        method::pull::pull_backlog_item(&workspace, &args.item).map_err(|e| anyhow::anyhow!(e))?;
-    let design_path = result
-        .design_path
-        .strip_prefix(&root)
-        .unwrap_or(&result.design_path);
-
-    println!("pulled {}", result.cycle_number);
-    println!("cycle {}", result.cycle);
-    println!("design {}", design_path.display());
-    Ok(())
-}
-
-fn run_method_drift(args: MethodDriftArgs) -> Result<()> {
-    let workspace = method_workspace()?;
-    let report = method::drift::drift_report(&workspace, args.cycle.as_deref())
-        .map_err(|e| anyhow::anyhow!(e))?;
-
-    if args.json {
-        let json =
-            serde_json::to_string_pretty(&report).context("failed to serialize drift report")?;
-        println!("{json}");
-    } else {
-        print_drift_human(&report);
-    }
-
-    if !report.covered() {
-        bail!(
-            "METHOD drift check failed: {} playback question(s) lack matching tests",
-            report.missing_count()
-        );
-    }
-    Ok(())
-}
-
-fn run_method_status(args: MethodStatusArgs) -> Result<()> {
-    let workspace = method_workspace()?;
-    let report = method::status::StatusReport::build(&workspace).map_err(|e| anyhow::anyhow!(e))?;
-
-    if args.json {
-        let json =
-            serde_json::to_string_pretty(&report).context("failed to serialize status report")?;
-        println!("{json}");
-    } else {
-        print_status_human(&report);
-    }
-    Ok(())
-}
-
-fn print_drift_human(report: &method::drift::DriftReport) {
-    println!("Drift check: {}", report.cycle);
-    println!("  design files: {}", report.design_paths.len());
-    println!("  playback questions: {}", report.questions.len());
-    println!("  missing coverage: {}", report.missing_count());
-    for question in &report.questions {
-        let status = if question.matches.is_empty() {
-            "MISS"
-        } else {
-            "ok"
-        };
-        println!("  {status} {}", question.question);
-        for path in &question.matches {
-            println!("      {}", path.display());
-        }
-    }
-}
-
-fn run_method_matrix(args: MethodMatrixArgs) -> Result<()> {
-    let workspace = method_workspace()?;
-    let graph = method::graph::TaskGraph::build(&workspace).map_err(|e| anyhow::anyhow!(e))?;
-    let artifacts = method::graph::GraphArtifacts::render(&graph);
-    let paths = method::graph::GraphArtifactPaths::defaults(&workspace);
-
-    let checks = [
-        (
-            "matrix markdown",
-            &paths.matrix_md,
-            artifacts.matrix_md.as_bytes(),
-        ),
-        (
-            "matrix csv",
-            &paths.matrix_csv,
-            artifacts.matrix_csv.as_bytes(),
-        ),
-    ];
-    if args.check {
-        check_artifacts_current(&checks)?;
-        println!("METHOD matrix artifacts are current");
-    } else {
-        write_artifact(&paths.matrix_md, artifacts.matrix_md.as_bytes())?;
-        write_artifact(&paths.matrix_csv, artifacts.matrix_csv.as_bytes())?;
-        println!("wrote {}", paths.matrix_md.display());
-        println!("wrote {}", paths.matrix_csv.display());
-    }
-    Ok(())
-}
-
-fn run_method_dag(args: MethodDagArgs) -> Result<()> {
-    let workspace = method_workspace()?;
-    let graph = method::graph::TaskGraph::build(&workspace).map_err(|e| anyhow::anyhow!(e))?;
-    let artifacts = method::graph::GraphArtifacts::render(&graph);
-    let paths = method::graph::GraphArtifactPaths::defaults(&workspace);
-
-    if args.check {
-        let rendered_svg = if args.no_render {
-            None
-        } else {
-            Some(render_dot_to_svg(&artifacts.dot)?)
-        };
-        let mut checks = vec![("task dag dot", &paths.dot, artifacts.dot.as_bytes())];
-        if let Some(svg) = rendered_svg.as_ref() {
-            checks.push(("task dag svg", &paths.svg, svg.as_slice()));
-        }
-        check_artifacts_current(&checks)?;
-        println!("METHOD DAG artifacts are current");
-    } else {
-        write_artifact(&paths.dot, artifacts.dot.as_bytes())?;
-        println!("wrote {}", paths.dot.display());
-        if !args.no_render {
-            let svg = render_dot_to_svg(&artifacts.dot)?;
-            write_artifact(&paths.svg, &svg)?;
-            println!("wrote {}", paths.svg.display());
-        }
-    }
-    Ok(())
-}
-
-fn run_method_frontier(args: MethodFrontierArgs) -> Result<()> {
-    let workspace = method_workspace()?;
-    let graph = method::graph::TaskGraph::build(&workspace).map_err(|e| anyhow::anyhow!(e))?;
-    let frontier = graph.frontier();
-
-    if args.json {
-        let json =
-            serde_json::to_string_pretty(&frontier).context("failed to serialize frontier")?;
-        println!("{json}");
-        return Ok(());
-    }
-
-    println!("Open frontier: {} task(s)", frontier.len());
-    for task in frontier.into_iter().take(args.limit) {
-        let native = task
-            .task
-            .native_id
-            .as_ref()
-            .map(|id| format!(" {id}"))
-            .unwrap_or_default();
-        println!(
-            "  {} [{}]{} {}",
-            task.task.id, task.task.lane, native, task.task.title
-        );
-        println!(
-            "      unlocks: {}, downstream depth: {}, source: {}",
-            task.downstream_count, task.downstream_depth, task.task.source_path
-        );
-    }
-    Ok(())
-}
-
-fn run_method_critical_path(args: MethodCriticalPathArgs) -> Result<()> {
-    let workspace = method_workspace()?;
-    let graph = method::graph::TaskGraph::build(&workspace).map_err(|e| anyhow::anyhow!(e))?;
-    let path = graph.critical_path();
-
-    if args.json {
-        let json =
-            serde_json::to_string_pretty(&path).context("failed to serialize critical path")?;
-        println!("{json}");
-        return Ok(());
-    }
-
-    println!("Critical path: {} task(s)", path.len());
-    for (idx, task) in path.iter().enumerate() {
-        let native = task
-            .native_id
-            .as_ref()
-            .map(|id| format!(" {id}"))
-            .unwrap_or_default();
-        println!(
-            "  {}. {} [{}]{} {}",
-            idx + 1,
-            task.id,
-            task.lane,
-            native,
-            task.title
-        );
-    }
-    Ok(())
-}
-
-fn run_method_check_dag(args: MethodCheckDagArgs) -> Result<()> {
-    run_method_matrix(MethodMatrixArgs { check: true })?;
-    run_method_dag(MethodDagArgs {
-        check: true,
-        no_render: args.no_render,
-    })
-}
-
-fn write_artifact(path: &Path, bytes: &[u8]) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create {}", parent.display()))?;
-    }
-    std::fs::write(path, bytes).with_context(|| format!("failed to write {}", path.display()))
-}
-
 fn check_artifacts_current(checks: &[(&str, &PathBuf, &[u8])]) -> Result<()> {
     let mut stale = Vec::new();
     for (label, path, expected) in checks {
@@ -1317,7 +723,7 @@ fn check_artifacts_current(checks: &[(&str, &PathBuf, &[u8])]) -> Result<()> {
         Ok(())
     } else {
         bail!(
-            "METHOD graph artifacts are not current:\n{}",
+            "generated artifacts are not current:\n{}",
             stale
                 .into_iter()
                 .map(|line| format!("  - {line}"))
@@ -1325,63 +731,6 @@ fn check_artifacts_current(checks: &[(&str, &PathBuf, &[u8])]) -> Result<()> {
                 .join("\n")
         )
     }
-}
-
-fn render_dot_to_svg(dot: &str) -> Result<Vec<u8>> {
-    use std::io::Write;
-
-    let mut child = Command::new("dot")
-        .arg("-Tsvg")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .context("failed to spawn `dot` (is Graphviz installed?)")?;
-
-    {
-        let stdin = child.stdin.as_mut().context("failed to open dot stdin")?;
-        stdin
-            .write_all(dot.as_bytes())
-            .context("failed to write DOT to Graphviz")?;
-    }
-
-    let output = child
-        .wait_with_output()
-        .context("failed to wait for Graphviz")?;
-    if !output.status.success() {
-        bail!(
-            "Graphviz failed (exit status: {}):\n{}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-    Ok(output.stdout)
-}
-
-fn print_status_human(report: &method::status::StatusReport) {
-    println!("Backlog");
-    for (lane, count) in &report.lanes {
-        println!("  {lane}: {count}");
-    }
-    println!();
-
-    println!("Active cycles");
-    if report.active_cycles.is_empty() {
-        println!("  (none)");
-    } else {
-        for cycle in &report.active_cycles {
-            println!("  {}-{}", cycle.number, cycle.slug);
-        }
-    }
-    println!();
-
-    println!("Legend load");
-    for (legend, count) in &report.legend_load {
-        println!("  {legend}: {count}");
-    }
-    println!();
-
-    println!("Total: {}", report.total_items);
 }
 
 fn run_bench(args: BenchArgs) -> Result<()> {
@@ -1398,37 +747,6 @@ fn run_doghouse(args: DoghouseArgs) -> Result<()> {
         DoghouseCommand::NudgeCoderabbit(args) => run_doghouse_nudge_coderabbit(args),
         DoghouseCommand::RearmCoderabbit(args) => run_doghouse_rearm_coderabbit(args),
     }
-}
-
-fn run_dags(args: DagsArgs) -> Result<()> {
-    let mut node_args = vec!["scripts/generate-dependency-dags.js".to_owned()];
-    if args.fetch {
-        node_args.push("--fetch".to_owned());
-    }
-    if args.render {
-        node_args.push("--render".to_owned());
-    }
-
-    if let Some(snapshot) = args.snapshot.as_deref() {
-        validate_snapshot_date(snapshot)?;
-        node_args.push("--snapshot".to_owned());
-        node_args.push(snapshot.to_owned());
-    } else {
-        validate_snapshot_label(&args.snapshot_label)?;
-        node_args.push("--snapshot-label".to_owned());
-        node_args.push(args.snapshot_label);
-    }
-
-    let status = Command::new("node")
-        .args(node_args)
-        .status()
-        .context("failed to spawn `node` (is Node.js installed?)")?;
-
-    if !status.success() {
-        bail!("dependency DAG generation failed (exit status: {status})");
-    }
-
-    Ok(())
 }
 
 fn run_pr_status(args: PrStatusArgs) -> Result<()> {
@@ -4166,10 +3484,8 @@ fn analyze_pr_preflight_scope(changed_files: &[String], full: bool) -> Preflight
     }
 
     if changed_files.iter().any(|path| {
-        matches!(
-            path.as_str(),
-            "Cargo.toml" | "Cargo.lock" | "docs/workflows.md"
-        ) || path.starts_with("crates/echo-runtime-schema/")
+        matches!(path.as_str(), "Cargo.toml" | "Cargo.lock")
+            || path.starts_with("crates/echo-runtime-schema/")
             || path.starts_with("crates/echo-wasm-abi/")
     }) {
         scope.run_feature_contracts = true;
@@ -5640,48 +4956,6 @@ struct ReviewReplyResponse {
     html_url: Option<String>,
 }
 
-fn validate_snapshot_label(label: &str) -> Result<()> {
-    if label == "auto" || label == "none" || label == "rolling" {
-        return Ok(());
-    }
-
-    validate_snapshot_date(label)
-}
-
-fn validate_snapshot_date(snapshot: &str) -> Result<()> {
-    let mut parts = snapshot.split('-');
-    let year = parts
-        .next()
-        .context("snapshot must be YYYY-MM-DD")?
-        .parse::<u32>()
-        .context("snapshot year must be numeric")?;
-    let month = parts
-        .next()
-        .context("snapshot must be YYYY-MM-DD")?
-        .parse::<u32>()
-        .context("snapshot month must be numeric")?;
-    let day = parts
-        .next()
-        .context("snapshot must be YYYY-MM-DD")?
-        .parse::<u32>()
-        .context("snapshot day must be numeric")?;
-    if parts.next().is_some() {
-        bail!("snapshot must be YYYY-MM-DD");
-    }
-
-    if !(2000..=2100).contains(&year) {
-        bail!("snapshot year out of expected range (2000..2100)");
-    }
-    if !(1..=12).contains(&month) {
-        bail!("snapshot month must be 01..12");
-    }
-    if !(1..=31).contains(&day) {
-        bail!("snapshot day must be 01..31");
-    }
-
-    Ok(())
-}
-
 fn run_dind(args: DindArgs) -> Result<()> {
     // Delegate to the Node.js script which handles manifest parsing and orchestration.
     // This mirrors what CI does and ensures consistent behavior.
@@ -6084,7 +5358,13 @@ fn run_lint_dead_refs(args: LintDeadRefsArgs) -> Result<()> {
     );
     for (file, line, target, resolved) in &broken {
         eprintln!("  {}:{}: -> {}", file.display(), line, target);
-        eprintln!("    resolved to: {} (not found)", resolved.display());
+        if target.starts_with('/') {
+            eprintln!(
+                "    root-relative docs-site routes are unsupported; use a repository-relative link"
+            );
+        } else {
+            eprintln!("    resolved to: {} (not found)", resolved.display());
+        }
         eprintln!();
     }
 
@@ -6152,9 +5432,13 @@ fn find_docs_root(start: &Path) -> PathBuf {
 /// Try to resolve a link target to an existing path.
 ///
 /// Returns `None` if the link resolves successfully (target exists).
-/// Returns `Some(best_guess_path)` if no resolution succeeded.
+/// Returns `Some(best_guess_path)` if the target is a retired root-relative
+/// docs-site route or no resolution succeeded.
 fn try_resolve_link(source_file: &Path, target: &str, docs_root: &Path) -> Option<PathBuf> {
     let candidates = build_candidates(source_file, target, docs_root);
+    if target.starts_with('/') {
+        return candidates.into_iter().next();
+    }
     for candidate in &candidates {
         if candidate.exists() {
             return None; // Link is valid
@@ -6968,12 +6252,11 @@ mod tests {
                 std::io::Error::other("xtask crate should live under repository root")
             })?;
         let checked_docs = [
-            "docs/BEARING.md",
-            "docs/design/v0.1.0-jedit-release-gate.md",
-            "docs/design/causal-wal-hardening-matrix.md",
-            "docs/design/wal-wsc-durability-roadmap.md",
             "docs/topics/WAL.md",
-            "docs/workflows.md",
+            "docs/topics/RuntimeAuthority.md",
+            "docs/architecture/continuum-transport.md",
+            "docs/releases/echo-1.0-contract.md",
+            "GUIDE.md",
         ];
         let stale_claims = [
             "durable ACK semantics are unimplemented",
@@ -7002,46 +6285,11 @@ mod tests {
             }
         }
 
-        let bearing = fs::read_to_string(repo_root.join("docs/BEARING.md"))?;
-        assert!(bearing.contains("Runtime ACK drift gate"));
-        assert!(bearing.contains("cargo xtask test-slice runtime-wal-ack"));
-        assert!(bearing.contains("cargo xtask test-slice durable-runtime-wal"));
-
-        let workflows = fs::read_to_string(repo_root.join("docs/workflows.md"))?;
-        assert!(workflows.contains("cargo xtask test-slice runtime-wal-ack"));
-        assert!(workflows.contains("cargo xtask test-slice durable-runtime-wal"));
-        assert!(workflows.contains("cargo xtask test-slice durability-release"));
+        let guide = fs::read_to_string(repo_root.join("GUIDE.md"))?;
+        assert!(guide.contains("cargo xtask test-slice runtime-wal-ack"));
+        assert!(guide.contains("cargo xtask test-slice durable-runtime-wal"));
+        assert!(guide.contains("cargo xtask test-slice durability-release"));
         Ok(())
-    }
-
-    #[test]
-    fn wesley_sync_extracts_rust_and_typescript_schema_hashes() {
-        let hash = "d55d6000b43562e7be04702cdd4335452d1eb6df1f0fbea924e4c6434fff2871";
-        assert_eq!(
-            extract_assignment_string(
-                &format!("pub const SCHEMA_SHA256: &str = \"{hash}\";"),
-                "SCHEMA_SHA256"
-            ),
-            Some(hash.to_owned())
-        );
-        assert_eq!(
-            extract_assignment_string(
-                &format!("export const SCHEMA_HASH = '{hash}';"),
-                "SCHEMA_HASH"
-            ),
-            Some(hash.to_owned())
-        );
-    }
-
-    #[test]
-    fn wesley_sync_accepts_only_sha256_hex_schema_hashes() {
-        assert!(is_sha256_hex(
-            "d55d6000b43562e7be04702cdd4335452d1eb6df1f0fbea924e4c6434fff2871"
-        ));
-        assert!(!is_sha256_hex("d55d6000"));
-        assert!(!is_sha256_hex(
-            "z55d6000b43562e7be04702cdd4335452d1eb6df1f0fbea924e4c6434fff2871"
-        ));
     }
 
     fn sample_pr_overview() -> PrOverview {
@@ -7235,7 +6483,7 @@ mod tests {
     }
 
     #[test]
-    fn root_relative_link_resolves_against_docs_root() {
+    fn root_relative_link_builds_diagnostic_candidate() {
         let source = Path::new("docs/README.md");
         let docs_root = Path::new("docs");
         let candidates = build_candidates(source, "/guide/start-here.md", docs_root);
@@ -7255,6 +6503,31 @@ mod tests {
         assert!(candidates
             .iter()
             .any(|p| p.ends_with("guide/start-here.html")));
+    }
+
+    #[test]
+    fn root_relative_link_is_rejected_even_when_target_exists() {
+        let root = unique_temp_path("xtask-root-relative-link");
+        let docs = root.join("docs");
+        let topics = docs.join("topics");
+        let source = docs.join("README.md");
+        let target = topics.join("WAL.md");
+        assert_ok(
+            fs::create_dir_all(&topics),
+            "test topics directory should be created",
+        );
+        assert_ok(
+            fs::write(&source, "# Docs\n"),
+            "test source should be written",
+        );
+        assert_ok(
+            fs::write(&target, "# WAL\n"),
+            "test target should be written",
+        );
+
+        assert!(try_resolve_link(&source, "/topics/WAL", &docs).is_some());
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
@@ -7615,7 +6888,7 @@ mod tests {
                     comment_id: Some(333),
                     author: Some("codex".to_owned()),
                     url: None,
-                    path: Some("docs/workflows.md".to_owned()),
+                    path: Some("docs/topics/WAL.md".to_owned()),
                     line: Some(12),
                     is_outdated: false,
                     preview: "old thread".to_owned(),
@@ -8817,7 +8090,7 @@ mod tests {
     fn preflight_scope_for_docs_only_branch_enables_docs_checks() {
         let scope = analyze_pr_preflight_scope(
             &[
-                "docs/BEARING.md".to_owned(),
+                "docs/topics/WAL.md".to_owned(),
                 "scripts/hooks/README.md".to_owned(),
             ],
             false,
@@ -8828,7 +8101,7 @@ mod tests {
         assert_eq!(
             scope.markdown_files,
             Some(vec![
-                "docs/BEARING.md".to_owned(),
+                "docs/topics/WAL.md".to_owned(),
                 "scripts/hooks/README.md".to_owned()
             ])
         );
@@ -8855,7 +8128,7 @@ mod tests {
         let scope = analyze_pr_preflight_scope(
             &[
                 "crates/echo-runtime-schema/src/lib.rs".to_owned(),
-                "docs/workflows.md".to_owned(),
+                "docs/README.md".to_owned(),
             ],
             false,
         );
@@ -8888,7 +8161,7 @@ mod tests {
     fn preflight_scope_skips_deleted_markdown_and_shell_paths() {
         let scope = analyze_pr_preflight_scope(
             &[
-                "docs/workflows.md".to_owned(),
+                "docs/README.md".to_owned(),
                 "docs/not-here-anymore.md".to_owned(),
                 "scripts/pr-status.sh".to_owned(),
                 "scripts/not-here-anymore.sh".to_owned(),
@@ -8898,7 +8171,7 @@ mod tests {
 
         assert_eq!(
             scope.markdown_files,
-            Some(vec!["docs/workflows.md".to_owned()])
+            Some(vec!["docs/README.md".to_owned()])
         );
         assert_eq!(
             scope.shell_files,
@@ -8910,7 +8183,7 @@ mod tests {
     fn preflight_plan_includes_expected_changed_scope_checks() {
         let plan = build_pr_preflight_plan(
             &[
-                "docs/workflows.md".to_owned(),
+                "docs/README.md".to_owned(),
                 "scripts/pr-status.sh".to_owned(),
                 "crates/echo-runtime-schema/src/lib.rs".to_owned(),
             ],
@@ -8928,7 +8201,7 @@ mod tests {
 
     #[test]
     fn full_preflight_dead_refs_scans_all_markdown_files_explicitly() {
-        let files = vec!["README.md".to_owned(), "docs/workflows.md".to_owned()];
+        let files = vec!["README.md".to_owned(), "docs/README.md".to_owned()];
         let command = build_lint_dead_refs_command(Some(&files), true);
         let (program, args) = command_program_and_args(&command);
 
@@ -8941,12 +8214,12 @@ mod tests {
         ]));
         assert!(args.iter().any(|value| value == "--file"));
         assert!(args.iter().any(|value| value == "README.md"));
-        assert!(args.iter().any(|value| value == "docs/workflows.md"));
+        assert!(args.iter().any(|value| value == "docs/README.md"));
     }
 
     #[test]
     fn preflight_markdownlint_uses_pinned_pnpm_entrypoint() {
-        let command = build_markdownlint_command(&["docs/workflows.md".to_owned()]);
+        let command = build_markdownlint_command(&["docs/README.md".to_owned()]);
         let (program, args) = command_program_and_args(&command);
 
         assert_eq!(program, "pnpm");
@@ -8955,7 +8228,7 @@ mod tests {
             vec![
                 "exec".to_owned(),
                 "markdownlint-cli2".to_owned(),
-                "docs/workflows.md".to_owned()
+                "docs/README.md".to_owned()
             ]
         );
     }
@@ -8966,11 +8239,8 @@ mod tests {
         assert!(is_maintained_shell_path(".githooks/pre-commit"));
         assert!(is_maintained_shell_path("scripts/hooks/pre-commit"));
         assert!(!is_maintained_shell_path("scripts/hooks/README.md"));
-        assert!(!is_maintained_shell_path(
-            "scripts/generate-dependency-dags.js"
-        ));
         assert!(!is_maintained_shell_path("scripts/bench_bake.py"));
-        assert!(!is_maintained_shell_path("scripts/generate_evidence.cjs"));
+        assert!(!is_maintained_shell_path("scripts/classify_changes.cjs"));
     }
 
     #[test]

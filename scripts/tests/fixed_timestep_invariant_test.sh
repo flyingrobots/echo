@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 #
-# Tests for cycle 0003: FIXED-TIMESTEP invariant document.
+# Executable witness for the FIXED-TIMESTEP invariant document.
 
 set -euo pipefail
 
@@ -85,10 +85,10 @@ assert "classifies HistoryTime" \
   grep -q "HistoryTime" "${invariant}"
 assert "classifies HostTime" \
   grep -q "HostTime" "${invariant}"
-assert "legacy OpEnvelope timestamp is HostTime" \
-  grep -q "Legacy \`OpEnvelope.ts\`.*HostTime" "${invariant}"
-assert "deadlineTick is HistoryTime" \
-  grep -q "deadlineTick.*HistoryTime" "${invariant}"
+assert "WorldlineTick is HistoryTime" \
+  grep -q "\`WorldlineTick\`.*HistoryTime" "${invariant}"
+assert "verification timing fields are HostTime" \
+  grep -q "verification timing fields.*HostTime" "${invariant}"
 
 # --- Cross-references ---
 echo ""
@@ -123,8 +123,8 @@ assert "SPEC-0004 references timer admitted history" \
   grep -q "only an admitted tick plus receipt" "${spec004}"
 assert "static nondeterminism guard is referenced" \
   grep -q "scripts/ban-nondeterminism.sh" "${invariant}"
-assert "release allowlist policy is referenced" \
-  grep -q "docs/determinism/RELEASE_POLICY.md" "${invariant}"
+assert "rule-scoped waiver boundary is explicit" \
+  grep -q "cannot influence semantic history" "${invariant}"
 
 # --- Static wall-clock guard ---
 echo ""

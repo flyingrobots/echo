@@ -3,7 +3,7 @@
 
 # DECLARATIVE-RULE-AUTHORSHIP
 
-**Status:** Normative | **Legend:** KERNEL | **Cycle:** 0012
+**Status:** Normative
 
 ## Invariant
 
@@ -123,9 +123,7 @@ deterministic path.
 
 ## Cross-references
 
-- [0010-bounded-site-and-admission-policy](../design/0010-bounded-site-and-admission-policy.md)
-- [0012-dynamic-footprint-binding-runtime](../design/0012-dynamic-footprint-binding-runtime.md)
-- [TTD-COUNTERFACTUAL-CREATION](./TTD-COUNTERFACTUAL-CREATION.md)
+- [Generated rule authorship and footprints](../adr/0014-generated-rule-authorship-and-footprints.md)
+- [Generated rules](../topics/GeneratedRules.md)
+- [WARP optics](../topics/WarpOptics.md)
 - [FIXED-TIMESTEP](./FIXED-TIMESTEP.md)
-- [RELEASE_POLICY](../RELEASE_POLICY.md)
-- [KERNEL_determinism-escape-hatches](../method/backlog/up-next/KERNEL_determinism-escape-hatches.md)

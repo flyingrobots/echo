@@ -500,7 +500,7 @@ fn boundary_posture_id_binds_obstruction_contract_evidence() {
             retention_id: coord.coordinate_id(),
         });
     let first = RetainedEvidenceBoundaryPosture {
-        coordinate: coord.clone(),
+        coordinate: coord,
         reference: None,
         layer: RetainedEvidenceLayer::WitnessCore,
         origin: RetainedEvidenceOrigin::Translated,

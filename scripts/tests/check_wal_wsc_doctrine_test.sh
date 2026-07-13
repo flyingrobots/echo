@@ -25,22 +25,11 @@ fail() {
 
 copy_fixture() {
   local tmp="$1"
-  mkdir -p "${tmp}/docs/design" "${tmp}/docs/releases" "${tmp}/docs/topics"
-  cp "${repo_root}/docs/BEARING.md" "${tmp}/docs/BEARING.md"
-  cp "${repo_root}/docs/WorkItems.md" "${tmp}/docs/WorkItems.md"
-  cp \
-    "${repo_root}/docs/design/work-item-sequencing-and-prioritization.md" \
-    "${tmp}/docs/design/work-item-sequencing-and-prioritization.md"
-  cp \
-    "${repo_root}/docs/design/causal-wal-end-to-end.md" \
-    "${tmp}/docs/design/causal-wal-end-to-end.md"
-  cp \
-    "${repo_root}/docs/design/wal-wsc-durability-roadmap.md" \
-    "${tmp}/docs/design/wal-wsc-durability-roadmap.md"
+  mkdir -p "${tmp}/docs/architecture" "${tmp}/docs/releases" "${tmp}/docs/topics"
   cp "${repo_root}/docs/topics/WAL.md" "${tmp}/docs/topics/WAL.md"
-  cp \
-    "${repo_root}/docs/releases/echo-1.0-contract.md" \
-    "${tmp}/docs/releases/echo-1.0-contract.md"
+  cp "${repo_root}/docs/topics/RuntimeAuthority.md" "${tmp}/docs/topics/RuntimeAuthority.md"
+  cp "${repo_root}/docs/architecture/continuum-transport.md" "${tmp}/docs/architecture/continuum-transport.md"
+  cp "${repo_root}/docs/releases/echo-1.0-contract.md" "${tmp}/docs/releases/echo-1.0-contract.md"
 }
 
 make_fixture() {
@@ -67,33 +56,33 @@ test_missing_bootstrap_phrase_fails() {
   make_fixture tmp
 
   awk '
-    { gsub(/configured WAL root or storage manifest/, "configured in-memory graph facts"); print }
-  ' "${tmp}/docs/design/causal-wal-end-to-end.md" \
-    >"${tmp}/docs/design/causal-wal-end-to-end.md.tmp"
-  mv \
-    "${tmp}/docs/design/causal-wal-end-to-end.md.tmp" \
-    "${tmp}/docs/design/causal-wal-end-to-end.md"
+    { gsub(/projected WAL root or storage manifest/, "projected graph state"); print }
+  ' "${tmp}/docs/topics/WAL.md" >"${tmp}/docs/topics/WAL.md.tmp"
+  mv "${tmp}/docs/topics/WAL.md.tmp" "${tmp}/docs/topics/WAL.md"
 
   out="$({ ECHO_REPO_ROOT="$tmp" "$checker"; } 2>&1 || true)"
-  echo "$out" | grep -q "WAL design names recovery bootstrap source" || {
+  echo "$out" | grep -q "WAL topic names recovery bootstrap source" || {
     echo "$out" >&2
     fail "checker did not report the missing recovery bootstrap phrase"
   }
 }
 
-test_stale_workitems_backlog_link_fails() {
+test_missing_runtime_authority_phrase_fails() {
   local tmp out
   make_fixture tmp
 
-  cat >>"${tmp}/docs/WorkItems.md" <<'EOF'
-
-- [WAL/WSC Storage Relationship](method/backlog/v0.1.0/PLATFORM_wal-wsc-storage-relationship.md)
-EOF
+  awk '
+    {
+      gsub(/An admission ticket witnesses lawful eligibility. It is not execution./, "An admission ticket executes work.")
+      print
+    }
+  ' "${tmp}/docs/topics/RuntimeAuthority.md" >"${tmp}/docs/topics/RuntimeAuthority.md.tmp"
+  mv "${tmp}/docs/topics/RuntimeAuthority.md.tmp" "${tmp}/docs/topics/RuntimeAuthority.md"
 
   out="$({ ECHO_REPO_ROOT="$tmp" "$checker"; } 2>&1 || true)"
-  echo "$out" | grep -q "Work boundary removes stale WAL/WSC backlog link" || {
+  echo "$out" | grep -q "runtime authority distinguishes admission from execution" || {
     echo "$out" >&2
-    fail "checker did not report the stale WorkItems WAL/WSC backlog link"
+    fail "checker did not report the missing admission boundary"
   }
 }
 
@@ -103,11 +92,8 @@ test_missing_release_project_link_fails() {
 
   awk '
     { gsub(/https:\/\/github.com\/users\/flyingrobots\/projects\/15/, "https://example.invalid/project"); print }
-  ' "${tmp}/docs/releases/echo-1.0-contract.md" \
-    >"${tmp}/docs/releases/echo-1.0-contract.md.tmp"
-  mv \
-    "${tmp}/docs/releases/echo-1.0-contract.md.tmp" \
-    "${tmp}/docs/releases/echo-1.0-contract.md"
+  ' "${tmp}/docs/releases/echo-1.0-contract.md" >"${tmp}/docs/releases/echo-1.0-contract.md.tmp"
+  mv "${tmp}/docs/releases/echo-1.0-contract.md.tmp" "${tmp}/docs/releases/echo-1.0-contract.md"
 
   out="$({ ECHO_REPO_ROOT="$tmp" "$checker"; } 2>&1 || true)"
   echo "$out" | grep -q "release contract links Continuum Stack Convergence Project" || {
@@ -116,35 +102,45 @@ test_missing_release_project_link_fails() {
   }
 }
 
-test_live_roadmap_issue_map_fails() {
-  local tmp out
-  make_fixture tmp
+test_release_contract_decouples_edict() {
+  local release_contract
+  release_contract="${repo_root}/docs/releases/echo-1.0-contract.md"
 
-  cat >>"${tmp}/docs/design/wal-wsc-durability-roadmap.md" <<'EOF'
+  if grep -Fq -- "https://github.com/flyingrobots/echo/issues/589" "$release_contract"; then
+    fail "Echo 1.0 release contract still gates release on Edict issue #589"
+  fi
 
-## Roadmap Issue Map
-EOF
-
-  out="$({ ECHO_REPO_ROOT="$tmp" "$checker"; } 2>&1 || true)"
-  echo "$out" | grep -q "WAL doctrine removes roadmap issue map" || {
-    echo "$out" >&2
-    fail "checker did not report the live roadmap issue map"
+  grep -Fq -- 'Edict and `jedit` compatibility work does not gate Echo 1.0.' "$release_contract" || {
+    fail "Echo 1.0 release contract does not state the Edict decoupling decision"
   }
 }
 
-test_live_workitems_audit_fails() {
+test_checker_rejects_edict_release_gate() {
   local tmp out
   make_fixture tmp
 
-  cat >>"${tmp}/docs/WorkItems.md" <<'EOF'
-
-Last audited: whenever.
-EOF
+  printf '\n%s\n' "https://github.com/flyingrobots/echo/issues/589" >>"${tmp}/docs/releases/echo-1.0-contract.md"
 
   out="$({ ECHO_REPO_ROOT="$tmp" "$checker"; } 2>&1 || true)"
-  echo "$out" | grep -q "Work boundary removes audit date" || {
+  echo "$out" | grep -q "release contract rejects Edict release gate" || {
     echo "$out" >&2
-    fail "checker did not report the live WorkItems audit marker"
+    fail "checker did not reject the retired Edict release gate"
+  }
+}
+
+test_missing_duplicate_replay_law_fails() {
+  local tmp out
+  make_fixture tmp
+
+  awk '
+    { gsub(/Duplicate replay is idempotent./, "Duplicate replay is best effort."); print }
+  ' "${tmp}/docs/topics/WAL.md" >"${tmp}/docs/topics/WAL.md.tmp"
+  mv "${tmp}/docs/topics/WAL.md.tmp" "${tmp}/docs/topics/WAL.md"
+
+  out="$({ ECHO_REPO_ROOT="$tmp" "$checker"; } 2>&1 || true)"
+  echo "$out" | grep -q "WAL topic requires idempotent duplicate replay" || {
+    echo "$out" >&2
+    fail "checker did not report the missing duplicate replay law"
   }
 }
 
@@ -180,10 +176,11 @@ main() {
   test_current_repo_passes
   test_isolated_fixture_passes
   test_missing_bootstrap_phrase_fails
-  test_stale_workitems_backlog_link_fails
+  test_missing_runtime_authority_phrase_fails
   test_missing_release_project_link_fails
-  test_live_roadmap_issue_map_fails
-  test_live_workitems_audit_fails
+  test_release_contract_decouples_edict
+  test_checker_rejects_edict_release_gate
+  test_missing_duplicate_replay_law_fails
   test_stale_durability_claims_fail
 }
 

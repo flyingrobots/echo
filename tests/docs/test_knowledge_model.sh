@@ -61,6 +61,15 @@ readonly forbidden_process_paths=(
   "tests/hooks/test_dependency_dags.sh"
 )
 
+readonly stale_process_anchor_files=(
+  "scripts/tests/fixed_timestep_invariant_test.sh"
+  "scripts/tests/declarative_rule_authorship_invariant_test.sh"
+  "scripts/tests/strand_contract_invariant_test.sh"
+  "crates/warp-core/tests/strand_contract_tests.rs"
+  "crates/warp-core/src/revelation.rs"
+  "crates/warp-core/src/braid_shell.rs"
+)
+
 failures=0
 for required_doc in "${required_docs[@]}"; do
   if [[ ! -f "${required_doc}" ]]; then
@@ -119,6 +128,16 @@ if ! grep -Fq -- \
   "Any proof-bearing retained-reading envelope, when supported, must name" \
   docs/adr/0020-retained-reading-storage-and-proof-boundary.md; then
   echo "knowledge-model: ADR 0020 is missing the future proof-envelope contract" >&2
+  failures=$((failures + 1))
+fi
+
+if stale_process_anchors="$({
+  rg -n \
+    'cycle 0003|cycle 0004|cycle 0012|design packet 0026' \
+    "${stale_process_anchor_files[@]}"
+} 2>/dev/null)"; then
+  echo "knowledge-model: source comments cite deleted process artifacts" >&2
+  echo "${stale_process_anchors}" >&2
   failures=$((failures + 1))
 fi
 

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 #
-# Tests for cycle 0003: FIXED-TIMESTEP invariant document.
+# Executable witness for the FIXED-TIMESTEP invariant document.
 
 set -euo pipefail
 

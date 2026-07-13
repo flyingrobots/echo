@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 #
-# Tests for cycle 0012: DECLARATIVE-RULE-AUTHORSHIP invariant document.
+# Executable witness for the DECLARATIVE-RULE-AUTHORSHIP invariant document.
 
 set -euo pipefail
 

@@ -28,6 +28,10 @@ Declared footprints are compile-time contracts. Debug runtime enforcement is a
 generator-correctness oracle, and CI must exercise representative generated
 packages with release enforcement.
 
+This is a qualification requirement, not a claim that the lane is currently implemented.
+Until package emitters and the release-enforcement witness exist, generated
+packs are not release-qualified.
+
 ## Consequences
 
 - Raw rule constructors and public registration stay unavailable in default

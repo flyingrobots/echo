@@ -892,6 +892,10 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
   still-target package-registration corridor. It also records
   `native_rule_bootstrap` as an opt-in Cargo policy boundary rather than an
   access-control seal.
+- Generated-rule documentation no longer implies that release footprint
+  enforcement is already wired. Wesley and Edict packs remain unqualified until
+  package emitters and positive and negative `footprint_enforce_release`
+  witnesses exist.
 - `warp-core` recovered filesystem WAL ACK paths now rebuild the live evidence
   catalog before returning recovered success, live catalog-update failures record
   the last commit where the catalog was actually fresh, and committed evidence

@@ -61,6 +61,11 @@ authorization mechanism. Release CI must nevertheless execute representative
 generated Wesley and Edict packs with `footprint_enforce_release` so a generator
 cannot silently ship false declarations.
 
+The `footprint_enforce_release` qualification lane is not wired into CI.
+No Wesley or Edict pack is currently release-qualified. Package emitters and a
+positive generated-pack witness plus a deliberately false-footprint negative
+oracle are prerequisites before either authoring system may claim that status.
+
 Conflicts remain explicit receipt rejections. A footprint failure must not
 trigger hidden retries or widen access.
 

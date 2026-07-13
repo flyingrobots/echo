@@ -41,8 +41,11 @@ require_literal "$topic" 'The Edict bridge is fixture-only'
 require_literal "$topic" 'does not admit a package or execute scheduler work'
 require_literal "$topic" '`native_rule_bootstrap` is a Cargo feature gate and repository policy boundary'
 require_literal "$topic" 'It is not an access-control or security seal'
+require_literal "$topic" 'The `footprint_enforce_release` qualification lane is not wired into CI.'
+require_literal "$topic" 'No Wesley or Edict pack is currently release-qualified.'
 
 require_literal "$adr" 'The feature is a policy and compatibility boundary, not an access-control seal.'
+require_literal "$adr" 'This is a qualification requirement, not a claim that the lane is currently implemented.'
 
 reject_literal "$topic" "The supported flow is:"
 reject_literal "$topic" "The missing Edict bridge is a generator"

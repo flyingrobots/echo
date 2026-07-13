@@ -30,7 +30,9 @@ use crate::{
         WalTransactionCommit, WalTransactionId, WalTransactionKind, WriterEpochId,
         WriterEpochRequest,
     },
-    Engine, IngressEnvelope, IngressEnvelopeDecodeError, IngressSubmissionGeneration,
+    ContractInverseAdmissionRequest, ContractInverseContext, ContractInverseObstruction,
+    ContractOperationKind, Engine, IngressCausalParent, IngressEnvelope,
+    IngressEnvelopeDecodeError, IngressPayload, IngressSubmissionGeneration,
     InstalledContractPackage, InstalledContractPackageError, InstalledContractPackageRecord,
     IntentOutcome, IntentOutcomeDecision, IntentOutcomeObservation, IntentSubmissionHandle,
     IntentSubmissionRecord, ObservationArtifact, ObservationError, ObservationRequest,
@@ -59,6 +61,9 @@ pub enum TrustedRuntimeHostError {
     /// The app used the WAL-backed ACK path before a runtime WAL was configured.
     #[error("trusted runtime host runtime WAL is unavailable")]
     RuntimeWalUnavailable,
+    /// Contract-defined inverse resolution was causally obstructed.
+    #[error("trusted runtime host contract inverse obstruction: {0}")]
+    ContractInverse(#[from] ContractInverseObstruction),
     /// Runtime WAL append or build failed.
     #[error("trusted runtime host WAL error: {0}")]
     Wal(#[from] TrustedRuntimeWalError),
@@ -482,6 +487,165 @@ impl TrustedRuntimeHost {
         package: InstalledContractPackage<'a>,
     ) -> Result<InstalledContractPackageRecord, InstalledContractPackageError<'a>> {
         self.engine.register_contract_package(package)
+    }
+
+    fn resolve_contract_inverse_envelope(
+        &self,
+        request: &ContractInverseAdmissionRequest,
+    ) -> Result<IngressEnvelope, ContractInverseObstruction> {
+        let correlation = self
+            .runtime
+            .receipt_correlation_for_receipt_ref(&request.target_receipt_ref)
+            .ok_or_else(|| ContractInverseObstruction::TargetReceiptUnavailable {
+                target_receipt_ref: Box::new(request.target_receipt_ref),
+            })?;
+        let target_envelope = self
+            .runtime
+            .witnessed_submission_envelope(&correlation.submission_id)
+            .ok_or(ContractInverseObstruction::TargetSubmissionUnavailable {
+                submission_id: correlation.submission_id,
+            })?;
+        let IngressPayload::LocalIntent {
+            intent_kind,
+            intent_bytes,
+        } = target_envelope.payload();
+        let (target_op_id, target_vars_bytes) = echo_wasm_abi::unpack_intent_v1(intent_bytes)
+            .map_err(|_| ContractInverseObstruction::TargetIntentMalformed {
+                submission_id: correlation.submission_id,
+            })?;
+        let target_contract = correlation.contract.as_ref().ok_or_else(|| {
+            ContractInverseObstruction::TargetContractEvidenceUnavailable {
+                target_receipt_ref: Box::new(request.target_receipt_ref),
+            }
+        })?;
+        if target_contract.op_kind != ContractOperationKind::Mutation {
+            return Err(ContractInverseObstruction::TargetOperationKindMismatch {
+                actual: target_contract.op_kind,
+            });
+        }
+        if target_contract.op_id != target_op_id {
+            return Err(ContractInverseObstruction::TargetOperationMismatch {
+                retained_op_id: target_contract.op_id,
+                envelope_op_id: target_op_id,
+            });
+        }
+
+        let installed_contract = self
+            .engine
+            .installed_contract_mutation_evidence(target_op_id)
+            .ok_or(ContractInverseObstruction::InstalledContractUnavailable { target_op_id })?;
+        if installed_contract != *target_contract {
+            return Err(ContractInverseObstruction::ContractVersionMismatch {
+                retained_package_id: target_contract.package_id,
+                installed_package_id: installed_contract.package_id,
+            });
+        }
+        let inverse_handler = self
+            .engine
+            .installed_contract_inverse_handler(target_op_id)
+            .cloned()
+            .ok_or(ContractInverseObstruction::InverseHandlerUnavailable { target_op_id })?;
+
+        let current_worldline_id = request.current_target.worldline_id();
+        let current_frontier_tick = self
+            .runtime
+            .worldlines()
+            .get(&current_worldline_id)
+            .ok_or(ContractInverseObstruction::CurrentWorldlineUnavailable {
+                worldline_id: current_worldline_id,
+            })?
+            .frontier_tick();
+        if current_frontier_tick != request.expected_current_frontier_tick {
+            return Err(ContractInverseObstruction::CurrentBasisMismatch {
+                expected: request.expected_current_frontier_tick,
+                observed: current_frontier_tick,
+            });
+        }
+        let mut current_basis_receipt_refs = Vec::new();
+        if current_frontier_tick != crate::WorldlineTick::ZERO {
+            let current_tip = self
+                .provenance
+                .tip_ref(current_worldline_id)
+                .ok()
+                .flatten()
+                .filter(|tip| tip.worldline_tick.checked_increment() == Some(current_frontier_tick))
+                .ok_or(
+                    ContractInverseObstruction::CurrentBasisProvenanceUnavailable {
+                        worldline_id: current_worldline_id,
+                        frontier_tick: current_frontier_tick,
+                    },
+                )?;
+            current_basis_receipt_refs.extend(
+                self.runtime
+                    .receipt_correlations()
+                    .filter(|candidate| {
+                        candidate.causal_receipt_ref.worldline_id == current_worldline_id
+                            && candidate.worldline_tick_after == current_frontier_tick
+                            && candidate.commit_hash == current_tip.commit_hash
+                    })
+                    .map(|candidate| candidate.causal_receipt_ref),
+            );
+            current_basis_receipt_refs.sort_unstable();
+            current_basis_receipt_refs.dedup();
+            if current_basis_receipt_refs.is_empty() {
+                return Err(ContractInverseObstruction::CurrentBasisReceiptUnavailable {
+                    worldline_id: current_worldline_id,
+                    frontier_tick: current_frontier_tick,
+                    commit_hash: current_tip.commit_hash,
+                });
+            }
+        }
+
+        let inverse = (inverse_handler.resolve)(ContractInverseContext {
+            target_receipt_ref: request.target_receipt_ref,
+            target_submission_id: correlation.submission_id,
+            target_contract,
+            target_intent_kind: *intent_kind,
+            target_op_id,
+            target_vars_bytes,
+            target_ingress_target: target_envelope.target(),
+            current_target: &request.current_target,
+            current_frontier_tick,
+            current_basis_receipt_refs: &current_basis_receipt_refs,
+            policy_bytes: &request.policy_bytes,
+            runtime: &self.runtime,
+            provenance: &self.provenance,
+        })?;
+        let emitted_package_id = self
+            .engine
+            .installed_contract_mutation_package_id(inverse.op_id)
+            .copied()
+            .ok_or(ContractInverseObstruction::ProducedMutationUnavailable {
+                op_id: inverse.op_id,
+            })?;
+        if emitted_package_id != target_contract.package_id {
+            return Err(
+                ContractInverseObstruction::ProducedMutationContractMismatch {
+                    op_id: inverse.op_id,
+                    target_package_id: target_contract.package_id,
+                    emitted_package_id,
+                },
+            );
+        }
+        let intent_bytes = echo_wasm_abi::pack_intent_v1(inverse.op_id, &inverse.vars_bytes)
+            .map_err(
+                |_| ContractInverseObstruction::ProducedIntentEncodingFailed {
+                    op_id: inverse.op_id,
+                },
+            )?;
+        let mut causal_parents = current_basis_receipt_refs
+            .into_iter()
+            .map(|receipt_ref| IngressCausalParent::TickReceipt { receipt_ref })
+            .collect::<Vec<_>>();
+        causal_parents.push(IngressCausalParent::TickReceipt {
+            receipt_ref: request.target_receipt_ref,
+        });
+        Ok(IngressEnvelope::local_intent_with_causal_parents(
+            request.current_target.clone(),
+            *intent_kind,
+            intent_bytes,
+            causal_parents,
+        ))
     }
 
     /// Stages one witnessed installed-contract submission into runtime ingress.
@@ -1942,6 +2106,31 @@ impl TrustedRuntimeApp<'_> {
             return Err(error.into());
         }
         Ok(handle)
+    }
+
+    /// Resolves one installed contract inverse from durable causal evidence and
+    /// submits it through the normal WAL-backed ingress boundary.
+    ///
+    /// The installed contract defines inverse semantics. Echo validates the
+    /// target receipt, canonical submission, exact contract artifact, and
+    /// current frontier before admitting the produced intent with the target
+    /// receipt and current frontier receipts as causal parents. This method does
+    /// not stage or tick.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed inverse obstruction when required causal evidence or the
+    /// matching contract law is unavailable. Returns the usual trusted-host
+    /// error when WAL-backed submission cannot be durably acknowledged.
+    pub fn submit_contract_inverse_with_runtime_wal_ack(
+        &mut self,
+        request: ContractInverseAdmissionRequest,
+    ) -> Result<IntentSubmissionHandle, TrustedRuntimeHostError> {
+        if self.host.runtime_wal.is_none() {
+            return Err(TrustedRuntimeHostError::RuntimeWalUnavailable);
+        }
+        let envelope = self.host.resolve_contract_inverse_envelope(&request)?;
+        self.submit_intent_with_runtime_wal_ack(envelope)
     }
 
     /// Observes the product-facing outcome for one witnessed submission.

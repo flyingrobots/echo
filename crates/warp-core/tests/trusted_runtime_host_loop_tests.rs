@@ -292,6 +292,7 @@ fn package() -> warp_core::InstalledContractPackage<'static> {
             op_id: MUTATION_OP_ID,
             rule: contract_rule(),
         }],
+        inverse_handlers: vec![],
         query_observers: vec![query_observer()],
     }
 }

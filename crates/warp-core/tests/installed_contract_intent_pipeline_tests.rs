@@ -297,6 +297,7 @@ fn register_contract(engine: &mut Engine) {
                     rule: conflict_rule(),
                 },
             ],
+            inverse_handlers: vec![],
             query_observers: vec![query_observer()],
         })
         .expect("contract package should install");

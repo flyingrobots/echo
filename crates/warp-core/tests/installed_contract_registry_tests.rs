@@ -8,13 +8,13 @@ use echo_registry_api::{
     OpKind, RegistryInfo, RegistryProvider,
 };
 use warp_core::{
-    make_node_id, make_type_id, AuthoredObserverPlan, ContractMutationHandler,
-    ContractPackageIdentity, ContractQueryObserver, ContractQueryObserverResult, EngineBuilder,
-    GraphStore, GraphView, InstalledContractPackage, InstalledContractPackageError, NodeId,
-    NodeRecord, ObservationAt, ObservationCoordinate, ObservationError, ObservationFrame,
-    ObservationPayload, ObservationProjection, ObservationRequest, ObservationService,
-    ObserverPlanId, PatternGraph, ProvenanceService, RewriteRule, TickDelta, WorldlineId,
-    WorldlineRuntime, WorldlineState,
+    make_node_id, make_type_id, AuthoredObserverPlan, ContractInverseHandler,
+    ContractInverseIntent, ContractMutationHandler, ContractPackageIdentity, ContractQueryObserver,
+    ContractQueryObserverResult, EngineBuilder, GraphStore, GraphView, InstalledContractPackage,
+    InstalledContractPackageError, NodeId, NodeRecord, ObservationAt, ObservationCoordinate,
+    ObservationError, ObservationFrame, ObservationPayload, ObservationProjection,
+    ObservationRequest, ObservationService, ObserverPlanId, PatternGraph, ProvenanceService,
+    RewriteRule, TickDelta, WorldlineId, WorldlineRuntime, WorldlineState,
 };
 
 const SCHEMA_SHA256_HEX: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -187,6 +187,12 @@ fn mutation_handler_with_rule(op_id: u32, rule: RewriteRule) -> ContractMutation
     ContractMutationHandler { op_id, rule }
 }
 
+fn inverse_handler(target_op_id: u32) -> ContractInverseHandler {
+    ContractInverseHandler::new(target_op_id, move |_context| {
+        Ok(ContractInverseIntent::new(target_op_id, vec![]))
+    })
+}
+
 fn query_observer(query_id: u32) -> ContractQueryObserver {
     ContractQueryObserver::new(query_id, observer_plan(), |_context| {
         Ok(ContractQueryObserverResult::complete(b"value=42".to_vec()))
@@ -233,6 +239,7 @@ fn package_with_handlers(
         registry: &REGISTRY,
         verification_policy,
         mutation_handlers,
+        inverse_handlers: vec![],
         query_observers,
     }
 }
@@ -274,14 +281,17 @@ fn query_request(worldline_id: WorldlineId, query_id: u32) -> Result<Observation
 #[test]
 fn installed_contract_package_binds_supported_mutation_and_query() -> Result<(), String> {
     let mut engine = engine();
+    let mut package = package_with_ops(MUTATION_OP_ID, QUERY_OP_ID);
+    package.inverse_handlers = vec![inverse_handler(MUTATION_OP_ID)];
     let record = engine
-        .register_contract_package(package_with_ops(MUTATION_OP_ID, QUERY_OP_ID))
+        .register_contract_package(package)
         .map_err(|err| format!("supported package should install: {err:?}"))?;
 
     assert_eq!(record.package_name, "toy-counter");
     assert_eq!(record.package_version, "0.1.0");
     assert_eq!(record.registry_info.schema_sha256_hex, SCHEMA_SHA256_HEX);
     assert_eq!(record.mutation_op_ids, vec![MUTATION_OP_ID]);
+    assert_eq!(record.inverse_op_ids, vec![MUTATION_OP_ID]);
     assert_eq!(record.query_op_ids, vec![QUERY_OP_ID]);
     assert_eq!(
         engine.installed_contract_mutation_package_id(MUTATION_OP_ID),
@@ -426,6 +436,104 @@ fn installed_contract_package_rejects_duplicate_mutation_op_id_before_registrati
     );
     assert_eq!(
         engine.installed_contract_query_package_id(QUERY_OP_ID),
+        None
+    );
+    Ok(())
+}
+
+#[test]
+fn installed_contract_package_rejects_duplicate_inverse_op_id_before_registration(
+) -> Result<(), String> {
+    let mut engine = engine();
+    let mut package = package_with_ops(MUTATION_OP_ID, QUERY_OP_ID);
+    package.inverse_handlers = vec![
+        inverse_handler(MUTATION_OP_ID),
+        inverse_handler(MUTATION_OP_ID),
+    ];
+
+    let Err(err) = engine.register_contract_package(package) else {
+        return Err("duplicate inverse op id must be rejected".to_owned());
+    };
+
+    assert!(matches!(
+        err,
+        InstalledContractPackageError::DuplicateInverseHandlerInPackage {
+            op_id: MUTATION_OP_ID
+        }
+    ));
+    assert_eq!(
+        engine.installed_contract_mutation_package_id(MUTATION_OP_ID),
+        None
+    );
+    Ok(())
+}
+
+#[test]
+fn installed_contract_package_rejects_unknown_inverse_operation() -> Result<(), String> {
+    let mut engine = engine();
+    let mut package = package_with_ops(MUTATION_OP_ID, QUERY_OP_ID);
+    package.inverse_handlers = vec![inverse_handler(UNKNOWN_OP_ID)];
+
+    let Err(err) = engine.register_contract_package(package) else {
+        return Err("inverse law for unknown operation must be rejected".to_owned());
+    };
+
+    assert!(matches!(
+        err,
+        InstalledContractPackageError::UnknownInverseOperation {
+            op_id: UNKNOWN_OP_ID
+        }
+    ));
+    assert_eq!(
+        engine.installed_contract_mutation_package_id(MUTATION_OP_ID),
+        None
+    );
+    Ok(())
+}
+
+#[test]
+fn installed_contract_package_rejects_inverse_for_query_operation() -> Result<(), String> {
+    let mut engine = engine();
+    let mut package = package_with_ops(MUTATION_OP_ID, QUERY_OP_ID);
+    package.inverse_handlers = vec![inverse_handler(QUERY_OP_ID)];
+
+    let Err(err) = engine.register_contract_package(package) else {
+        return Err("inverse law for query operation must be rejected".to_owned());
+    };
+
+    assert!(matches!(
+        err,
+        InstalledContractPackageError::InverseOperationKindMismatch {
+            op_id: QUERY_OP_ID,
+            actual: OpKind::Query,
+        }
+    ));
+    assert_eq!(
+        engine.installed_contract_mutation_package_id(MUTATION_OP_ID),
+        None
+    );
+    Ok(())
+}
+
+#[test]
+fn installed_contract_package_rejects_inverse_without_package_mutation_handler(
+) -> Result<(), String> {
+    let mut engine = engine();
+    let mut package = package_with_ops(MUTATION_OP_ID, QUERY_OP_ID);
+    package.inverse_handlers = vec![inverse_handler(SECOND_MUTATION_OP_ID)];
+
+    let Err(err) = engine.register_contract_package(package) else {
+        return Err("orphan inverse law must be rejected".to_owned());
+    };
+
+    assert!(matches!(
+        err,
+        InstalledContractPackageError::InverseHandlerWithoutMutationHandler {
+            op_id: SECOND_MUTATION_OP_ID
+        }
+    ));
+    assert_eq!(
+        engine.installed_contract_mutation_package_id(MUTATION_OP_ID),
         None
     );
     Ok(())

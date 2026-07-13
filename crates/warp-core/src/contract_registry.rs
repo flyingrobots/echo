@@ -2,8 +2,9 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Installed contract package boundary.
 //!
-//! This module binds generated registry metadata to installed mutation handlers
-//! and read-only query observers without importing application nouns into core.
+//! This module binds generated registry metadata to installed mutation handlers,
+//! read-only inverse laws, and query observers without importing application
+//! nouns into core.
 
 #[cfg(feature = "native_rule_bootstrap")]
 use std::collections::BTreeSet;
@@ -22,6 +23,7 @@ use echo_registry_api::verify_contract_artifact;
 use crate::ident::Hash;
 use crate::observation::ContractQueryObserver;
 use crate::rule::RewriteRule;
+use crate::ContractInverseHandler;
 
 #[cfg(feature = "native_rule_bootstrap")]
 const INSTALLED_CONTRACT_PACKAGE_ID_DOMAIN: &[u8] = b"echo:installed-contract-package-id:v1\0";
@@ -125,6 +127,8 @@ pub struct InstalledContractPackage<'a> {
     pub verification_policy: ContractArtifactVerificationPolicy<'a>,
     /// Generated mutation handlers to install.
     pub mutation_handlers: Vec<ContractMutationHandler>,
+    /// Generated inverse laws for supported mutation operations.
+    pub inverse_handlers: Vec<ContractInverseHandler>,
     /// Generated read-only query observers to install.
     pub query_observers: Vec<ContractQueryObserver>,
 }
@@ -146,6 +150,8 @@ pub struct InstalledContractPackageRecord {
     pub trust_posture: ContractArtifactTrustPosture,
     /// Installed mutation operation ids.
     pub mutation_op_ids: Vec<u32>,
+    /// Mutation operation ids with installed inverse laws.
+    pub inverse_op_ids: Vec<u32>,
     /// Installed query operation ids.
     pub query_op_ids: Vec<u32>,
 }
@@ -236,6 +242,32 @@ pub enum InstalledContractPackageError<'a> {
         /// Duplicated operation id.
         op_id: u32,
     },
+    /// Package repeated an inverse handler operation id.
+    #[error("duplicate inverse handler operation id in package: {op_id}")]
+    DuplicateInverseHandlerInPackage {
+        /// Duplicated operation id.
+        op_id: u32,
+    },
+    /// Inverse handler named an operation not present in the generated registry.
+    #[error("unknown inverse target mutation operation id: {op_id}")]
+    UnknownInverseOperation {
+        /// Unsupported operation id.
+        op_id: u32,
+    },
+    /// Inverse handler named a non-mutation registry operation.
+    #[error("inverse target operation id {op_id} is not a mutation: {actual:?}")]
+    InverseOperationKindMismatch {
+        /// Operation id.
+        op_id: u32,
+        /// Actual registry operation kind.
+        actual: OpKind,
+    },
+    /// Inverse handler named a mutation not installed by the same package.
+    #[error("inverse target operation id has no mutation handler in package: {op_id}")]
+    InverseHandlerWithoutMutationHandler {
+        /// Unsupported operation id.
+        op_id: u32,
+    },
     /// Package repeated a query observer operation id.
     #[error("duplicate query observer operation id in package: {op_id}")]
     DuplicateQueryObserverInPackage {
@@ -288,6 +320,7 @@ pub enum InstalledContractPackageError<'a> {
 pub(crate) struct PreparedInstalledContractPackage {
     pub(crate) record: InstalledContractPackageRecord,
     pub(crate) mutation_handlers: Vec<ContractMutationHandler>,
+    pub(crate) inverse_handlers: Vec<ContractInverseHandler>,
     pub(crate) query_observers: Vec<ContractQueryObserver>,
 }
 
@@ -352,6 +385,39 @@ pub(crate) fn prepare_installed_contract_package(
         mutation_op_ids.push(handler.op_id);
     }
 
+    let mut inverse_op_ids = Vec::with_capacity(package.inverse_handlers.len());
+    let mut seen_inverses = BTreeSet::new();
+    for handler in &package.inverse_handlers {
+        if !seen_inverses.insert(handler.target_op_id) {
+            return Err(
+                InstalledContractPackageError::DuplicateInverseHandlerInPackage {
+                    op_id: handler.target_op_id,
+                },
+            );
+        }
+        let Some(op) = package.registry.op_by_id(handler.target_op_id) else {
+            return Err(InstalledContractPackageError::UnknownInverseOperation {
+                op_id: handler.target_op_id,
+            });
+        };
+        if op.kind != OpKind::Mutation {
+            return Err(
+                InstalledContractPackageError::InverseOperationKindMismatch {
+                    op_id: handler.target_op_id,
+                    actual: op.kind,
+                },
+            );
+        }
+        if !seen_mutations.contains(&handler.target_op_id) {
+            return Err(
+                InstalledContractPackageError::InverseHandlerWithoutMutationHandler {
+                    op_id: handler.target_op_id,
+                },
+            );
+        }
+        inverse_op_ids.push(handler.target_op_id);
+    }
+
     let mut query_op_ids = Vec::with_capacity(package.query_observers.len());
     let mut seen_queries = BTreeSet::new();
     for observer in &package.query_observers {
@@ -377,6 +443,7 @@ pub(crate) fn prepare_installed_contract_package(
     }
 
     mutation_op_ids.sort_unstable();
+    inverse_op_ids.sort_unstable();
     query_op_ids.sort_unstable();
 
     let package_id = installed_contract_package_id(package.identity, verified.info);
@@ -388,12 +455,14 @@ pub(crate) fn prepare_installed_contract_package(
         registry_info: verified.info,
         trust_posture: verified.posture,
         mutation_op_ids,
+        inverse_op_ids,
         query_op_ids,
     };
 
     Ok(PreparedInstalledContractPackage {
         record,
         mutation_handlers: package.mutation_handlers,
+        inverse_handlers: package.inverse_handlers,
         query_observers: package.query_observers,
     })
 }

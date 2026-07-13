@@ -51,6 +51,7 @@ mod clock;
 mod cmd;
 mod constants;
 mod contract_host;
+mod contract_inverse;
 mod contract_obstruction;
 mod contract_registry;
 /// Domain separation prefixes for hashing.
@@ -205,6 +206,11 @@ pub use cmd::{
 pub use constants::{blake3_empty, digest_len0_u64, POLICY_ID_NO_POLICY_V0};
 pub use contract_host::{
     eint_op_id, eint_vars_for_op, matches_eint_op, runtime_ingress_eint_read_footprint,
+};
+pub use contract_inverse::{
+    ContractInverseAdmissionRequest, ContractInverseContext, ContractInverseHandler,
+    ContractInverseHandlerError, ContractInverseIntent, ContractInverseObstruction,
+    ContractInverseResolveFn,
 };
 pub use contract_registry::{
     ContractEvidenceIdentity, ContractMutationHandler, ContractOperationKind,

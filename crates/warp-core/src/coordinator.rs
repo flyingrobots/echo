@@ -1331,6 +1331,21 @@ impl WorldlineRuntime {
             })
     }
 
+    /// Returns a receipt correlation by its exact retained causal coordinate.
+    ///
+    /// The correlation set is rebuilt from durable receipt, submission, and
+    /// provenance evidence during recovery. This lookup does not make the live
+    /// index authoritative over that retained history.
+    #[must_use]
+    pub fn receipt_correlation_for_receipt_ref(
+        &self,
+        receipt_ref: &CausalTickReceiptRef,
+    ) -> Option<&ReceiptCorrelationRecord> {
+        self.receipt_correlations_by_ticketed_ingress
+            .values()
+            .find(|correlation| correlation.causal_receipt_ref == *receipt_ref)
+    }
+
     /// Iterates receipt correlations in deterministic ticketed-ingress id order.
     pub fn receipt_correlations(&self) -> impl Iterator<Item = &ReceiptCorrelationRecord> {
         self.receipt_correlations_by_ticketed_ingress.values()

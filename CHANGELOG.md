@@ -7,6 +7,16 @@
 
 ### Added
 
+- `warp-core` installed contract packages can now provide read-only inverse
+  laws for mutation operations. The trusted app surface resolves an exact
+  retained causal receipt after restart, verifies the recovered witnessed
+  submission and currently installed artifact, checks the caller's current
+  frontier, resolves the receipt set for the current frontier commit, and
+  WAL-acknowledges the contract-produced mutation with both the target receipt
+  and current-basis receipts as causal parents. Missing receipts, stale bases,
+  unavailable inverse fragments, unmappable spans, absent handlers, and
+  contract-version mismatches remain typed obstructions; inverse admission
+  never deletes or rewrites the original transition.
 - `warp-core` now distinguishes repeatable `TickReceipt` content commitments
   from admitted receipt-event identity. `CausalTickReceiptRef` binds receipt
   content to worldline, worldline tick, global tick, commit, submission, and

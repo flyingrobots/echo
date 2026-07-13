@@ -82,8 +82,11 @@ pub(crate) fn submission_posture(
             submissions.retry_posture(submission_id, canonical_envelope_digest),
         ),
         recovered_posture: matching_entry.map(|entry| recovered_posture_label(entry.posture)),
-        receipt_digest: matching_entry
-            .and_then(|entry| entry.receipt_digest.map(|digest| hex_hash(&digest))),
+        receipt_digest: matching_entry.and_then(|entry| {
+            entry
+                .receipt_ref
+                .map(|receipt_ref| hex_hash(&receipt_ref.receipt_content_digest))
+        }),
         ticket_digest: matching_entry
             .and_then(|_| receipts.ticket_by_submission.get(&submission_id))
             .map(hex_hash),

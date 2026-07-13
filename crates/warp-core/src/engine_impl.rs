@@ -36,6 +36,7 @@ use crate::tick_patch::{diff_state, SlotId, TickCommitStatus, WarpOp, WarpTickPa
 use crate::tx::TxId;
 use crate::warp_state::{WarpInstance, WarpState};
 use crate::worldline_state::WorldlineState;
+use crate::ContractInverseHandler;
 use std::sync::Arc;
 
 const RUNTIME_INGRESS_EVENT_TYPE: &str = "runtime/ingress/event";
@@ -428,6 +429,8 @@ pub struct Engine {
         BTreeMap<InstalledContractPackageId, InstalledContractPackageRecord>,
     #[cfg_attr(not(feature = "native_rule_bootstrap"), allow(dead_code))]
     contract_mutation_handlers: BTreeMap<u32, InstalledContractPackageId>,
+    #[cfg_attr(not(feature = "native_rule_bootstrap"), allow(dead_code))]
+    contract_inverse_handlers: BTreeMap<u32, ContractInverseHandler>,
     #[cfg_attr(not(feature = "native_rule_bootstrap"), allow(dead_code))]
     contract_query_observer_packages: BTreeMap<u32, InstalledContractPackageId>,
     contract_query_observers: BTreeMap<u32, ContractQueryObserver>,
@@ -859,6 +862,7 @@ impl Engine {
             canonical_cmd_rules: Vec::new(),
             installed_contract_packages: BTreeMap::new(),
             contract_mutation_handlers: BTreeMap::new(),
+            contract_inverse_handlers: BTreeMap::new(),
             contract_query_observer_packages: BTreeMap::new(),
             contract_query_observers: BTreeMap::new(),
             scheduler: DeterministicScheduler::new(kind, Arc::clone(&telemetry)),
@@ -1052,6 +1056,7 @@ impl Engine {
             canonical_cmd_rules: Vec::new(),
             installed_contract_packages: BTreeMap::new(),
             contract_mutation_handlers: BTreeMap::new(),
+            contract_inverse_handlers: BTreeMap::new(),
             contract_query_observer_packages: BTreeMap::new(),
             contract_query_observers: BTreeMap::new(),
             scheduler: DeterministicScheduler::new(kind, Arc::clone(&telemetry)),
@@ -1217,6 +1222,10 @@ impl Engine {
             self.contract_mutation_handlers
                 .insert(handler.op_id, prepared.record.package_id);
         }
+        for handler in prepared.inverse_handlers {
+            self.contract_inverse_handlers
+                .insert(handler.target_op_id, handler);
+        }
         for observer in prepared.query_observers {
             let query_id = observer.query_id;
             self.register_contract_query_observer_impl(observer)
@@ -1325,6 +1334,15 @@ impl Engine {
         self.installed_contract_packages
             .get(package_id)
             .map(|record| record.evidence_identity(op_id, crate::ContractOperationKind::Mutation))
+    }
+
+    /// Returns the installed read-only inverse law for a mutation operation.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn installed_contract_inverse_handler(
+        &self,
+        op_id: u32,
+    ) -> Option<&ContractInverseHandler> {
+        self.contract_inverse_handlers.get(&op_id)
     }
 
     /// Returns the package id that installed a query operation id.

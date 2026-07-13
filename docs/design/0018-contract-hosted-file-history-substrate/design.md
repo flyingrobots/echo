@@ -301,8 +301,9 @@ The fixture should prove:
 6. GREEN: bounded contract observer support.
 7. RED: intent-only external strand, braid, and settlement mutation.
 8. GREEN: generic intent wrappers and tests.
-9. RED: jedit fixture `unapplyTick` appends inverse tick.
-10. GREEN: contract inverse hook with jedit example fixture.
+9. DONE: jedit-shaped fixture proves inverse admission appends a new tick.
+10. DONE: installed contract inverse hook resolves from retained evidence after
+    restart.
 11. RED/GREEN: CAS retention for inverse fragments and bounded text blobs.
 12. Design/RED: wormhole/checkpoint retention policy preserving inverse
     semantics.

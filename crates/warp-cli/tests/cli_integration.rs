@@ -23,8 +23,8 @@ use warp_core::causal_wal::{
 };
 use warp_core::wsc::{build_one_warp_input, write_wsc_one_warp};
 use warp_core::{
-    make_edge_id, make_node_id, make_type_id, make_warp_id, EdgeRecord, GraphStore, Hash,
-    NodeRecord,
+    make_edge_id, make_node_id, make_type_id, make_warp_id, CausalTickReceiptRef, EdgeRecord,
+    GlobalTick, GraphStore, Hash, NodeRecord, WorldlineId, WorldlineTick,
 };
 
 #[path = "support/runtime_wal_fixture.rs"]
@@ -133,6 +133,18 @@ fn digest(label: &str) -> warp_core::Hash {
     out
 }
 
+fn causal_receipt_ref(label: &str) -> CausalTickReceiptRef {
+    CausalTickReceiptRef {
+        worldline_id: WorldlineId::from_bytes(digest(&format!("worldline:{label}"))),
+        worldline_tick_after: WorldlineTick::from_raw(1),
+        commit_global_tick: GlobalTick::from_raw(1),
+        commit_hash: digest(&format!("commit:{label}")),
+        submission_id: digest(&format!("submission:{label}")),
+        ticket_digest: digest(&format!("ticket:{label}")),
+        receipt_content_digest: digest(&format!("receipt:{label}")),
+    }
+}
+
 fn writer_epoch_request() -> WriterEpochRequest {
     WriterEpochRequest {
         epoch_id: WriterEpochId::from_hash(digest("epoch")),
@@ -230,15 +242,12 @@ fn filesystem_wal_with_projectable_decided_submission() -> TestResult<Projectabl
     )?;
     store.append_transaction(acceptance)?;
     let receipt = TickReceiptRecord {
-        submission_id: digest(&format!("submission:{label}")),
-        ticket_digest: digest(&format!("ticket:{label}")),
-        receipt_digest: digest(&format!("receipt:{label}")),
+        receipt_ref: causal_receipt_ref(label),
         decision: WalTickDecision::Applied,
     };
     let correlation = WalReceiptCorrelationRecord {
-        submission_id: receipt.submission_id,
-        ticket_digest: receipt.ticket_digest,
-        receipt_digest: receipt.receipt_digest,
+        receipt_ref: receipt.receipt_ref,
+        causal_parent_receipts: vec![],
     };
     let tick = build_tick_transaction(
         WalTransactionBuilder::new(
@@ -356,15 +365,12 @@ fn filesystem_wal_with_decided_submission_decision(
     )?;
     store.append_transaction(acceptance)?;
     let receipt = TickReceiptRecord {
-        submission_id: digest(&format!("submission:{label}")),
-        ticket_digest: digest(&format!("ticket:{label}")),
-        receipt_digest: digest(&format!("receipt:{label}")),
+        receipt_ref: causal_receipt_ref(label),
         decision,
     };
     let correlation = WalReceiptCorrelationRecord {
-        submission_id: receipt.submission_id,
-        ticket_digest: receipt.ticket_digest,
-        receipt_digest: receipt.receipt_digest,
+        receipt_ref: receipt.receipt_ref,
+        causal_parent_receipts: vec![],
     };
     let tick = build_tick_transaction(
         WalTransactionBuilder::new(

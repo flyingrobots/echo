@@ -270,6 +270,12 @@ if rg -q \
   failures=$((failures + 1))
 fi
 
+if grep -Eq '^Status: (Partial|Incomplete|In progress)' \
+  docs/spec/abi-golden-vectors.md; then
+  echo "knowledge-model: ABI golden-vector spec contains a live completeness bit" >&2
+  failures=$((failures + 1))
+fi
+
 if ((failures > 0)); then
   echo "knowledge-model: ${failures} violation(s)" >&2
   exit 1

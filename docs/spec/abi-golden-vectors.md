@@ -5,8 +5,6 @@
 
 _Define the canonical byte examples that keep host encoders and runtime decoders aligned._
 
-Status: Partial Rust-side vector set
-
 Depends on:
 
 - [SPEC-0009 - WASM ABI Contract](SPEC-0009-wasm-abi.md)
@@ -15,6 +13,10 @@ Depends on:
 ## Purpose
 
 The ABI is a byte contract. Golden vectors are the shared evidence that independent encoders emit the same bytes for the same logical value.
+
+Every listed vector is normative for the case it names and must agree with the
+executable fixtures. The document does not encode a completeness or delivery
+status for other host implementations.
 
 ABI failures must be diagnosable. When a host adapter changes, a reviewer can
 compare expected and actual hex and identify drift in key ordering, integer

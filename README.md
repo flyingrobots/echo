@@ -396,10 +396,14 @@ authored Wesley contracts and generated adapters above the runtime boundary.
 ```bash
 make hooks
 cargo xtask hello-echo
-cargo xtask method status
 cargo xtask test-slice warp-core-smoke
 cargo xtask dind run
 ```
+
+Live work, priorities, and status are maintained in GitHub Issues, Projects,
+pull requests, and review threads. Architectural decisions live in
+[`docs/adr/`](docs/adr/), while current doctrine lives in
+[`docs/topics/`](docs/topics/).
 
 ## Benchmarks And Gates
 

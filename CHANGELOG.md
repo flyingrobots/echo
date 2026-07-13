@@ -737,6 +737,11 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Removed
 
+- Removed the abandoned Method system: its workspace crate and `xtask`
+  commands, checked-in backlog, cycles, retrospectives, status ledgers, process
+  manuals, and generated task graphs. Current architecture now lives in
+  canonical topics/specs/invariants, durable decisions live in ADRs, and live
+  work/status lives in GitHub.
 - Deleted zombie crates with no consumers (recoverable from git history):
   `echo-wasm-bindings` (browser demo kernel), `echo-ttd`, `ttd-protocol-rs`,
   `echo-session-proto`, and the untracked `ttd-browser` prebuilt artifact

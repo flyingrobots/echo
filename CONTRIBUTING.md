@@ -32,7 +32,7 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
 
 1. Clone the repo and run `cargo check` to ensure the Rust workspace builds.
 2. Read `docs/architecture/outline.md`.
-3. Review `docs/AGENTS.md` for collaboration norms before touching runtime code.
+3. Review `AGENTS.md` for architecture, Git safety, and the executable-claim loop before touching runtime code.
 4. Optional: develop inside the devcontainer for toolchain parity with CI.
     - Open in VS Code → "Reopen in Container" (requires the Dev Containers extension).
 
@@ -43,7 +43,9 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
 
 - Keep `main` pristine. Create feature branches like `echo/<feature>` or `timeline/<experiment>`.
 - Before starting work, ensure `git status` is clean. If not, resolve or coordinate with the human operator.
-- PR review loops are procedural: follow `docs/procedures/PR-SUBMISSION-REVIEW-LOOP.md` and use `docs/procedures/EXTRACT-PR-COMMENTS.md` to extract actionable CodeRabbitAI feedback per round.
+- Keep change-local design, test plans, review state, and follow-up work in the
+  GitHub issue or pull request. Record only durable architectural decisions as
+  ADRs in `docs/adr/`.
 
 ## Testing Expectations
 
@@ -66,7 +68,8 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
 ## Documentation & Telemetry
 
 - Update relevant docs in `docs/` whenever behavior or architecture changes.
-- Record major architectural decisions in ADRs (`docs/adr/`) or PR descriptions.
+- Record durable architectural decisions in ADRs (`docs/adr/`). Keep
+  change-local rationale in the issue or pull request.
 
 ## Submitting Changes
 

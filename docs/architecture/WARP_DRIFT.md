@@ -170,7 +170,8 @@ Implementation note: the runtime now exposes this distinction via
 settles through a target-local import root. Owned-footprint overlap runs
 explicit settlement revalidation: already-satisfied replay imports as `Clean`,
 apply failure is `Obstructed`, and state-changing replay remains
-`ParentFootprintOverlap` conflict residue. The active decision/implementation plan is tracked in `docs/design/0010-live-basis-settlement-plan/design.md`.
+`ParentFootprintOverlap` conflict residue. The current model is documented in
+`docs/topics/StrandsAndBraids.md`.
 
 ### Second: define observer plans and reading artifacts explicitly
 
@@ -210,22 +211,14 @@ may remain implementation details, but they are not public mutation authority.
 The bootstrap strand contract and README language should be revised only
 after the runtime direction is pinned, not before.
 
-## Relevant design context
+## Current context
 
-These packets define the reconciliation path now that completed backlog cards
-are pruned from `docs/method/backlog/**`:
-
-- `docs/design/0004-strand-contract/design.md`
-- `docs/design/0009-witnessed-causal-suffix-sync/design.md`
-- `docs/design/0010-live-basis-settlement-plan/design.md`
-- `docs/design/0011-optic-observer-runtime-doctrine/design.md`
-- `docs/design/0008-strand-settlement/design.md`
-- `docs/design/0009-witnessed-causal-suffix-sync/design.md`
-- `docs/design/0010-live-basis-settlement-plan/design.md`
-- `docs/design/0011-optic-observer-runtime-doctrine/design.md`
-- `docs/design/0022-continuum-transport-identity/design.md`
+- `docs/topics/StrandsAndBraids.md`
+- `docs/topics/WarpOptics.md`
+- `docs/topics/RuntimeAuthority.md`
 - `docs/architecture/continuum-transport.md`
-- `docs/design/0006-echo-continuum-alignment/design.md`
+- `docs/adr/0002-echo-continuum-authority-boundary.md`
+- `docs/adr/0005-continuum-transport-identity.md`
 
 ## Practical rule
 

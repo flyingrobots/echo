@@ -26,6 +26,19 @@ readonly required_docs=(
   "docs/topics/GeneratedRules.md"
 )
 
+readonly forbidden_process_paths=(
+  "METHOD.md"
+  "docs/method"
+  "docs/BEARING.md"
+  "docs/WorkItems.md"
+  "docs/workflows.md"
+  "docs/procedures"
+  "docs/technical-teardown.md"
+  "backlog"
+  "crates/method"
+  "scripts/check-append-only.js"
+)
+
 failures=0
 for required_doc in "${required_docs[@]}"; do
   if [[ ! -f "${required_doc}" ]]; then
@@ -34,8 +47,15 @@ for required_doc in "${required_docs[@]}"; do
   fi
 done
 
+for forbidden_path in "${forbidden_process_paths[@]}"; do
+  if [[ -e "${forbidden_path}" ]]; then
+    echo "knowledge-model: forbidden process artifact ${forbidden_path}" >&2
+    failures=$((failures + 1))
+  fi
+done
+
 if ((failures > 0)); then
-  echo "knowledge-model: ${failures} required document(s) missing" >&2
+  echo "knowledge-model: ${failures} violation(s)" >&2
   exit 1
 fi
 

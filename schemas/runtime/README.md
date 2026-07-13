@@ -50,8 +50,8 @@ The validator does two narrow jobs:
 
 This keeps Phase 8 moving without pretending Wesley is already stable enough to
 own the runtime freeze loop. The old mismatch notes are no longer live docs;
-use the Method backlog and the runtime specs for current planning and
-code-backed contract truth.
+use GitHub for current planning and the runtime specs for code-backed contract
+truth.
 
 ## Planned Output Contract
 

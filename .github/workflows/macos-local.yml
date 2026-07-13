@@ -37,7 +37,6 @@ jobs:
             -p echo-scene-codec \
             -p echo-dind-harness \
             -p echo-dind-tests \
-            -p method \
             --lib -- -D warnings -D missing_docs
       - name: cargo clippy (binaries)
         run: |

@@ -1,5 +1,0 @@
-Legacy METHOD workspace marker.
-
-GitHub Issues are the live work tracker. This otherwise-empty directory is
-kept so legacy `cargo xtask method ...` commands can still discover a METHOD
-workspace in fresh clones.

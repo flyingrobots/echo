@@ -99,8 +99,7 @@ The current braid and strand implementation already has typed strand
 construction, braid event logs, settlement provenance entries, retained braid
 shells, and replay/audit optics. The remaining durability gate is to promote
 those topology operations to WAL-backed accepted evidence and recoverable
-WSC-retained material. That work is tracked by the braids and strands Goalpost 6
-roadmap.
+WSC-retained material. Track that remaining implementation work in GitHub.
 
 Until that lands, Echo should not overclaim that braid shells and topology
 indexes have the same explicit crash-recovery posture as tick receipts. It can
@@ -138,6 +137,24 @@ parent/child process boundaries. A killed child that already committed WAL
 material recovers as committed history; a killed child with only uncommitted
 frames recovers as tail posture and does not enter accepted or decided history.
 
+The durable vocabulary is precise:
+
+- Records are recorded.
+- Transactions are committed.
+- Segments are sealed.
+
+Graph facts are projected evidence. WSC carries or references that evidence;
+it does not become a second commit authority.
+
+Release-grade durability requires all of the following executable claims:
+
+- Recovery is deterministic from the same committed evidence.
+- The defined crashpoint matrix passes.
+- Duplicate replay is idempotent.
+- Corrupt or incomplete evidence is deterministically rejected.
+- Retained evidence survives restart or produces a typed obstruction.
+- Required recovery artifacts are emitted by CI.
+
 ## Evidence
 
 The runtime ACK and recovery witnesses live in
@@ -157,12 +174,10 @@ The host surface lives in `crates/warp-core/src/trusted_runtime_host.rs`,
 especially `TrustedRuntimeHost`, `TrustedRuntimeApp`, `TrustedRuntimeWal`,
 `submit_intent_with_runtime_wal_ack(...)`, and `recover_read_only()`.
 
-The doctrine and remaining release-hardening plan live in:
-
-- `docs/BEARING.md`
-- `docs/design/causal-wal-hardening-matrix.md`
-- `docs/design/work-item-sequencing-and-prioritization.md`
-- `docs/WorkItems.md`
+Related current authority lives in `docs/topics/RuntimeAuthority.md`,
+`docs/architecture/continuum-transport.md`, and
+`docs/releases/echo-1.0-contract.md`. Live release-hardening work and status
+belong in GitHub.
 
 ## Current Caveat
 

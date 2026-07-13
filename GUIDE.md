@@ -43,15 +43,28 @@ Echo is a tiered engine. You choose your depth based on the task:
 - [ ] **I am setting up the repo**: Run `make hooks` and `cargo check`.
 - [ ] **I am writing a new rule**: Declare your `Footprint` and test against `delta_validate`.
 - [ ] **I am debugging a desync**: Run `cargo xtask dind run --seed <N>` to reproduce.
-- [ ] **I am contributing to Echo**: Read `METHOD.md` and `docs/BEARING.md`.
+- [ ] **I am contributing to Echo**: Read [AGENTS.md](./AGENTS.md), then inspect the relevant GitHub issue or pull request.
 
 ## Rule of Thumb
 
 If you need a comprehensive spec, use the [docs/README.md](./docs/README.md) map.
 
-If you need to know "what's true right now," use [docs/BEARING.md](./docs/BEARING.md).
+If you need current architectural truth, use the
+[architecture](./docs/architecture/), [specification](./docs/spec/),
+[invariant](./docs/invariants/), and [topic](./docs/topics/) maps. Durable
+decisions live in [ADRs](./docs/adr/); live work and status live in GitHub.
 
 If you are just starting, use the [README.md](./README.md) and the orientation tracks above.
+
+## Focused Durability Witnesses
+
+Use the narrow repository-owned slices while iterating on WAL and recovery:
+
+```bash
+cargo xtask test-slice runtime-wal-ack
+cargo xtask test-slice durable-runtime-wal
+cargo xtask test-slice durability-release
+```
 
 ---
 

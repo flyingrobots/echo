@@ -3,7 +3,7 @@
 
 # FIXED-TIMESTEP
 
-**Status:** Normative | **Legend:** KERNEL | **Cycle:** 0003
+**Status:** Normative
 
 ## Invariant
 
@@ -233,8 +233,8 @@ as uniform integers with no per-tick metadata.
 - Replay is structurally sound without recording per-tick time deltas.
   The quantum is a worldline parameter, not a per-entry field.
 - No variable-dt plumbing needs to exist in the codebase. If a future
-  use case demands variable dt, it requires a new design cycle to
-  relax this invariant with explicit constraints.
+  use case demands variable dt, it requires a new ADR to relax this invariant
+  with explicit constraints.
 
 ## Cross-references
 

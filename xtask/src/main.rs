@@ -63,8 +63,6 @@ enum Commands {
     MarkdownFix(MarkdownFixArgs),
     /// Run all docs linters: markdown-fix (auto-fix) then lint-dead-refs (check).
     DocsLint(DocsLintArgs),
-    /// METHOD workspace operations (status, backlog inspection).
-    Method(MethodArgs),
     /// Run a narrow local test slice with explicit Cargo target selection.
     TestSlice(TestSliceArgs),
 }
@@ -112,112 +110,6 @@ enum TestSlice {
     DurableRuntimeWal,
     /// Joined WAL/WSC durability release witness.
     DurabilityRelease,
-}
-
-#[derive(Args)]
-struct MethodArgs {
-    /// METHOD subcommand to execute.
-    #[command(subcommand)]
-    command: MethodCommand,
-}
-
-#[derive(Subcommand)]
-enum MethodCommand {
-    /// Capture a backlog note in inbox/.
-    Inbox(MethodInboxArgs),
-    /// Scaffold a retro and witness directory for an active cycle.
-    Close(MethodCloseArgs),
-    /// Promote a backlog item into the next numbered design cycle.
-    Pull(MethodPullArgs),
-    /// Check playback questions against committed tests.
-    Drift(MethodDriftArgs),
-    /// Show backlog lanes, active cycles, and legend load.
-    Status(MethodStatusArgs),
-    /// Regenerate METHOD task matrix markdown and CSV.
-    Matrix(MethodMatrixArgs),
-    /// Regenerate METHOD task DAG DOT and SVG.
-    Dag(MethodDagArgs),
-    /// Show tasks with no unresolved backlog-task blockers.
-    Frontier(MethodFrontierArgs),
-    /// Show the unweighted longest dependency chain.
-    CriticalPath(MethodCriticalPathArgs),
-    /// Verify METHOD graph artifacts are up to date.
-    CheckDag(MethodCheckDagArgs),
-}
-
-#[derive(Args)]
-struct MethodInboxArgs {
-    /// Idea title or one-line note to capture.
-    title: String,
-}
-
-#[derive(Args)]
-struct MethodCloseArgs {
-    /// Cycle number or full cycle directory name. Defaults to most recent active cycle.
-    cycle: Option<String>,
-}
-
-#[derive(Args)]
-struct MethodPullArgs {
-    /// Backlog item path, file stem, METHOD task id, or native task id.
-    item: String,
-}
-
-#[derive(Args)]
-struct MethodDriftArgs {
-    /// Cycle number or full cycle directory name. Defaults to most recent active cycle.
-    cycle: Option<String>,
-    /// Output as JSON (agent surface).
-    #[arg(long)]
-    json: bool,
-}
-
-#[derive(Args)]
-struct MethodStatusArgs {
-    /// Output as JSON (agent surface).
-    #[arg(long)]
-    json: bool,
-}
-
-#[derive(Args)]
-struct MethodMatrixArgs {
-    /// Check generated matrix artifacts without writing them.
-    #[arg(long)]
-    check: bool,
-}
-
-#[derive(Args)]
-struct MethodDagArgs {
-    /// Check generated DAG artifacts without writing them.
-    #[arg(long)]
-    check: bool,
-    /// Skip rendering SVG with Graphviz; write/check DOT only.
-    #[arg(long)]
-    no_render: bool,
-}
-
-#[derive(Args)]
-struct MethodFrontierArgs {
-    /// Output as JSON (agent surface).
-    #[arg(long)]
-    json: bool,
-    /// Maximum number of tasks to print in human mode.
-    #[arg(long, default_value = "25")]
-    limit: usize,
-}
-
-#[derive(Args)]
-struct MethodCriticalPathArgs {
-    /// Output as JSON (agent surface).
-    #[arg(long)]
-    json: bool,
-}
-
-#[derive(Args)]
-struct MethodCheckDagArgs {
-    /// Skip checking rendered SVG freshness.
-    #[arg(long)]
-    no_render: bool,
 }
 
 #[derive(Args)]
@@ -513,7 +405,6 @@ fn main() -> Result<()> {
         Commands::LintDeadRefs(args) => run_lint_dead_refs(args),
         Commands::MarkdownFix(args) => run_markdown_fix(&args),
         Commands::DocsLint(args) => run_docs_lint(args),
-        Commands::Method(args) => run_method(args),
         Commands::TestSlice(args) => run_test_slice(args),
     }
 }
@@ -847,265 +738,6 @@ fn display_command(command: &Command) -> String {
     parts.join(" ")
 }
 
-fn run_method(args: MethodArgs) -> Result<()> {
-    match args.command {
-        MethodCommand::Inbox(inbox_args) => run_method_inbox(inbox_args),
-        MethodCommand::Close(close_args) => run_method_close(close_args),
-        MethodCommand::Pull(pull_args) => run_method_pull(pull_args),
-        MethodCommand::Drift(drift_args) => run_method_drift(drift_args),
-        MethodCommand::Status(status_args) => run_method_status(status_args),
-        MethodCommand::Matrix(matrix_args) => run_method_matrix(matrix_args),
-        MethodCommand::Dag(dag_args) => run_method_dag(dag_args),
-        MethodCommand::Frontier(frontier_args) => run_method_frontier(frontier_args),
-        MethodCommand::CriticalPath(path_args) => run_method_critical_path(path_args),
-        MethodCommand::CheckDag(check_args) => run_method_check_dag(check_args),
-    }
-}
-
-fn method_workspace() -> Result<method::workspace::MethodWorkspace> {
-    let root = std::env::current_dir().context("failed to get current dir")?;
-    method::workspace::MethodWorkspace::discover(&root).map_err(|e| anyhow::anyhow!(e))
-}
-
-fn run_method_inbox(args: MethodInboxArgs) -> Result<()> {
-    let root = std::env::current_dir().context("failed to get current dir")?;
-    let workspace = method_workspace()?;
-    let path = method::inbox::create_inbox_item(&workspace, &args.title)
-        .map_err(|e| anyhow::anyhow!(e))?;
-    let display_path = path.strip_prefix(&root).unwrap_or(&path);
-    println!("{}", display_path.display());
-    Ok(())
-}
-
-fn run_method_close(args: MethodCloseArgs) -> Result<()> {
-    let root = std::env::current_dir().context("failed to get current dir")?;
-    let workspace = method_workspace()?;
-    let result = method::close::close_cycle(&workspace, args.cycle.as_deref())
-        .map_err(|e| anyhow::anyhow!(e))?;
-    let retro_path = result
-        .retro_path
-        .strip_prefix(&root)
-        .unwrap_or(&result.retro_path);
-    let witness_dir = result
-        .witness_dir
-        .strip_prefix(&root)
-        .unwrap_or(&result.witness_dir);
-
-    println!("closed {}", result.cycle);
-    println!("retro {}", retro_path.display());
-    println!("witness {}", witness_dir.display());
-    Ok(())
-}
-
-fn run_method_pull(args: MethodPullArgs) -> Result<()> {
-    let root = std::env::current_dir().context("failed to get current dir")?;
-    let workspace = method_workspace()?;
-    let result =
-        method::pull::pull_backlog_item(&workspace, &args.item).map_err(|e| anyhow::anyhow!(e))?;
-    let design_path = result
-        .design_path
-        .strip_prefix(&root)
-        .unwrap_or(&result.design_path);
-
-    println!("pulled {}", result.cycle_number);
-    println!("cycle {}", result.cycle);
-    println!("design {}", design_path.display());
-    Ok(())
-}
-
-fn run_method_drift(args: MethodDriftArgs) -> Result<()> {
-    let workspace = method_workspace()?;
-    let report = method::drift::drift_report(&workspace, args.cycle.as_deref())
-        .map_err(|e| anyhow::anyhow!(e))?;
-
-    if args.json {
-        let json =
-            serde_json::to_string_pretty(&report).context("failed to serialize drift report")?;
-        println!("{json}");
-    } else {
-        print_drift_human(&report);
-    }
-
-    if !report.covered() {
-        bail!(
-            "METHOD drift check failed: {} playback question(s) lack matching tests",
-            report.missing_count()
-        );
-    }
-    Ok(())
-}
-
-fn run_method_status(args: MethodStatusArgs) -> Result<()> {
-    let workspace = method_workspace()?;
-    let report = method::status::StatusReport::build(&workspace).map_err(|e| anyhow::anyhow!(e))?;
-
-    if args.json {
-        let json =
-            serde_json::to_string_pretty(&report).context("failed to serialize status report")?;
-        println!("{json}");
-    } else {
-        print_status_human(&report);
-    }
-    Ok(())
-}
-
-fn print_drift_human(report: &method::drift::DriftReport) {
-    println!("Drift check: {}", report.cycle);
-    println!("  design files: {}", report.design_paths.len());
-    println!("  playback questions: {}", report.questions.len());
-    println!("  missing coverage: {}", report.missing_count());
-    for question in &report.questions {
-        let status = if question.matches.is_empty() {
-            "MISS"
-        } else {
-            "ok"
-        };
-        println!("  {status} {}", question.question);
-        for path in &question.matches {
-            println!("      {}", path.display());
-        }
-    }
-}
-
-fn run_method_matrix(args: MethodMatrixArgs) -> Result<()> {
-    let workspace = method_workspace()?;
-    let graph = method::graph::TaskGraph::build(&workspace).map_err(|e| anyhow::anyhow!(e))?;
-    let artifacts = method::graph::GraphArtifacts::render(&graph);
-    let paths = method::graph::GraphArtifactPaths::defaults(&workspace);
-
-    let checks = [
-        (
-            "matrix markdown",
-            &paths.matrix_md,
-            artifacts.matrix_md.as_bytes(),
-        ),
-        (
-            "matrix csv",
-            &paths.matrix_csv,
-            artifacts.matrix_csv.as_bytes(),
-        ),
-    ];
-    if args.check {
-        check_artifacts_current(&checks)?;
-        println!("METHOD matrix artifacts are current");
-    } else {
-        write_artifact(&paths.matrix_md, artifacts.matrix_md.as_bytes())?;
-        write_artifact(&paths.matrix_csv, artifacts.matrix_csv.as_bytes())?;
-        println!("wrote {}", paths.matrix_md.display());
-        println!("wrote {}", paths.matrix_csv.display());
-    }
-    Ok(())
-}
-
-fn run_method_dag(args: MethodDagArgs) -> Result<()> {
-    let workspace = method_workspace()?;
-    let graph = method::graph::TaskGraph::build(&workspace).map_err(|e| anyhow::anyhow!(e))?;
-    let artifacts = method::graph::GraphArtifacts::render(&graph);
-    let paths = method::graph::GraphArtifactPaths::defaults(&workspace);
-
-    if args.check {
-        let rendered_svg = if args.no_render {
-            None
-        } else {
-            Some(render_dot_to_svg(&artifacts.dot)?)
-        };
-        let mut checks = vec![("task dag dot", &paths.dot, artifacts.dot.as_bytes())];
-        if let Some(svg) = rendered_svg.as_ref() {
-            checks.push(("task dag svg", &paths.svg, svg.as_slice()));
-        }
-        check_artifacts_current(&checks)?;
-        println!("METHOD DAG artifacts are current");
-    } else {
-        write_artifact(&paths.dot, artifacts.dot.as_bytes())?;
-        println!("wrote {}", paths.dot.display());
-        if !args.no_render {
-            let svg = render_dot_to_svg(&artifacts.dot)?;
-            write_artifact(&paths.svg, &svg)?;
-            println!("wrote {}", paths.svg.display());
-        }
-    }
-    Ok(())
-}
-
-fn run_method_frontier(args: MethodFrontierArgs) -> Result<()> {
-    let workspace = method_workspace()?;
-    let graph = method::graph::TaskGraph::build(&workspace).map_err(|e| anyhow::anyhow!(e))?;
-    let frontier = graph.frontier();
-
-    if args.json {
-        let json =
-            serde_json::to_string_pretty(&frontier).context("failed to serialize frontier")?;
-        println!("{json}");
-        return Ok(());
-    }
-
-    println!("Open frontier: {} task(s)", frontier.len());
-    for task in frontier.into_iter().take(args.limit) {
-        let native = task
-            .task
-            .native_id
-            .as_ref()
-            .map(|id| format!(" {id}"))
-            .unwrap_or_default();
-        println!(
-            "  {} [{}]{} {}",
-            task.task.id, task.task.lane, native, task.task.title
-        );
-        println!(
-            "      unlocks: {}, downstream depth: {}, source: {}",
-            task.downstream_count, task.downstream_depth, task.task.source_path
-        );
-    }
-    Ok(())
-}
-
-fn run_method_critical_path(args: MethodCriticalPathArgs) -> Result<()> {
-    let workspace = method_workspace()?;
-    let graph = method::graph::TaskGraph::build(&workspace).map_err(|e| anyhow::anyhow!(e))?;
-    let path = graph.critical_path();
-
-    if args.json {
-        let json =
-            serde_json::to_string_pretty(&path).context("failed to serialize critical path")?;
-        println!("{json}");
-        return Ok(());
-    }
-
-    println!("Critical path: {} task(s)", path.len());
-    for (idx, task) in path.iter().enumerate() {
-        let native = task
-            .native_id
-            .as_ref()
-            .map(|id| format!(" {id}"))
-            .unwrap_or_default();
-        println!(
-            "  {}. {} [{}]{} {}",
-            idx + 1,
-            task.id,
-            task.lane,
-            native,
-            task.title
-        );
-    }
-    Ok(())
-}
-
-fn run_method_check_dag(args: MethodCheckDagArgs) -> Result<()> {
-    run_method_matrix(MethodMatrixArgs { check: true })?;
-    run_method_dag(MethodDagArgs {
-        check: true,
-        no_render: args.no_render,
-    })
-}
-
-fn write_artifact(path: &Path, bytes: &[u8]) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create {}", parent.display()))?;
-    }
-    std::fs::write(path, bytes).with_context(|| format!("failed to write {}", path.display()))
-}
-
 fn check_artifacts_current(checks: &[(&str, &PathBuf, &[u8])]) -> Result<()> {
     let mut stale = Vec::new();
     for (label, path, expected) in checks {
@@ -1119,7 +751,7 @@ fn check_artifacts_current(checks: &[(&str, &PathBuf, &[u8])]) -> Result<()> {
         Ok(())
     } else {
         bail!(
-            "METHOD graph artifacts are not current:\n{}",
+            "generated artifacts are not current:\n{}",
             stale
                 .into_iter()
                 .map(|line| format!("  - {line}"))
@@ -1127,63 +759,6 @@ fn check_artifacts_current(checks: &[(&str, &PathBuf, &[u8])]) -> Result<()> {
                 .join("\n")
         )
     }
-}
-
-fn render_dot_to_svg(dot: &str) -> Result<Vec<u8>> {
-    use std::io::Write;
-
-    let mut child = Command::new("dot")
-        .arg("-Tsvg")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .context("failed to spawn `dot` (is Graphviz installed?)")?;
-
-    {
-        let stdin = child.stdin.as_mut().context("failed to open dot stdin")?;
-        stdin
-            .write_all(dot.as_bytes())
-            .context("failed to write DOT to Graphviz")?;
-    }
-
-    let output = child
-        .wait_with_output()
-        .context("failed to wait for Graphviz")?;
-    if !output.status.success() {
-        bail!(
-            "Graphviz failed (exit status: {}):\n{}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-    Ok(output.stdout)
-}
-
-fn print_status_human(report: &method::status::StatusReport) {
-    println!("Backlog");
-    for (lane, count) in &report.lanes {
-        println!("  {lane}: {count}");
-    }
-    println!();
-
-    println!("Active cycles");
-    if report.active_cycles.is_empty() {
-        println!("  (none)");
-    } else {
-        for cycle in &report.active_cycles {
-            println!("  {}-{}", cycle.number, cycle.slug);
-        }
-    }
-    println!();
-
-    println!("Legend load");
-    for (legend, count) in &report.legend_load {
-        println!("  {legend}: {count}");
-    }
-    println!();
-
-    println!("Total: {}", report.total_items);
 }
 
 fn run_bench(args: BenchArgs) -> Result<()> {
@@ -3968,10 +3543,8 @@ fn analyze_pr_preflight_scope(changed_files: &[String], full: bool) -> Preflight
     }
 
     if changed_files.iter().any(|path| {
-        matches!(
-            path.as_str(),
-            "Cargo.toml" | "Cargo.lock" | "docs/workflows.md"
-        ) || path.starts_with("crates/echo-runtime-schema/")
+        matches!(path.as_str(), "Cargo.toml" | "Cargo.lock")
+            || path.starts_with("crates/echo-runtime-schema/")
             || path.starts_with("crates/echo-wasm-abi/")
     }) {
         scope.run_feature_contracts = true;
@@ -6770,12 +6343,11 @@ mod tests {
                 std::io::Error::other("xtask crate should live under repository root")
             })?;
         let checked_docs = [
-            "docs/BEARING.md",
-            "docs/design/v0.1.0-jedit-release-gate.md",
-            "docs/design/causal-wal-hardening-matrix.md",
-            "docs/design/wal-wsc-durability-roadmap.md",
             "docs/topics/WAL.md",
-            "docs/workflows.md",
+            "docs/topics/RuntimeAuthority.md",
+            "docs/architecture/continuum-transport.md",
+            "docs/releases/echo-1.0-contract.md",
+            "GUIDE.md",
         ];
         let stale_claims = [
             "durable ACK semantics are unimplemented",
@@ -6804,15 +6376,10 @@ mod tests {
             }
         }
 
-        let bearing = fs::read_to_string(repo_root.join("docs/BEARING.md"))?;
-        assert!(bearing.contains("Runtime ACK drift gate"));
-        assert!(bearing.contains("cargo xtask test-slice runtime-wal-ack"));
-        assert!(bearing.contains("cargo xtask test-slice durable-runtime-wal"));
-
-        let workflows = fs::read_to_string(repo_root.join("docs/workflows.md"))?;
-        assert!(workflows.contains("cargo xtask test-slice runtime-wal-ack"));
-        assert!(workflows.contains("cargo xtask test-slice durable-runtime-wal"));
-        assert!(workflows.contains("cargo xtask test-slice durability-release"));
+        let guide = fs::read_to_string(repo_root.join("GUIDE.md"))?;
+        assert!(guide.contains("cargo xtask test-slice runtime-wal-ack"));
+        assert!(guide.contains("cargo xtask test-slice durable-runtime-wal"));
+        assert!(guide.contains("cargo xtask test-slice durability-release"));
         Ok(())
     }
 
@@ -7387,7 +6954,7 @@ mod tests {
                     comment_id: Some(333),
                     author: Some("codex".to_owned()),
                     url: None,
-                    path: Some("docs/workflows.md".to_owned()),
+                    path: Some("docs/topics/WAL.md".to_owned()),
                     line: Some(12),
                     is_outdated: false,
                     preview: "old thread".to_owned(),
@@ -8589,7 +8156,7 @@ mod tests {
     fn preflight_scope_for_docs_only_branch_enables_docs_checks() {
         let scope = analyze_pr_preflight_scope(
             &[
-                "docs/BEARING.md".to_owned(),
+                "docs/topics/WAL.md".to_owned(),
                 "scripts/hooks/README.md".to_owned(),
             ],
             false,
@@ -8600,7 +8167,7 @@ mod tests {
         assert_eq!(
             scope.markdown_files,
             Some(vec![
-                "docs/BEARING.md".to_owned(),
+                "docs/topics/WAL.md".to_owned(),
                 "scripts/hooks/README.md".to_owned()
             ])
         );
@@ -8627,7 +8194,7 @@ mod tests {
         let scope = analyze_pr_preflight_scope(
             &[
                 "crates/echo-runtime-schema/src/lib.rs".to_owned(),
-                "docs/workflows.md".to_owned(),
+                "docs/README.md".to_owned(),
             ],
             false,
         );
@@ -8660,7 +8227,7 @@ mod tests {
     fn preflight_scope_skips_deleted_markdown_and_shell_paths() {
         let scope = analyze_pr_preflight_scope(
             &[
-                "docs/workflows.md".to_owned(),
+                "docs/README.md".to_owned(),
                 "docs/not-here-anymore.md".to_owned(),
                 "scripts/pr-status.sh".to_owned(),
                 "scripts/not-here-anymore.sh".to_owned(),
@@ -8670,7 +8237,7 @@ mod tests {
 
         assert_eq!(
             scope.markdown_files,
-            Some(vec!["docs/workflows.md".to_owned()])
+            Some(vec!["docs/README.md".to_owned()])
         );
         assert_eq!(
             scope.shell_files,
@@ -8682,7 +8249,7 @@ mod tests {
     fn preflight_plan_includes_expected_changed_scope_checks() {
         let plan = build_pr_preflight_plan(
             &[
-                "docs/workflows.md".to_owned(),
+                "docs/README.md".to_owned(),
                 "scripts/pr-status.sh".to_owned(),
                 "crates/echo-runtime-schema/src/lib.rs".to_owned(),
             ],
@@ -8700,7 +8267,7 @@ mod tests {
 
     #[test]
     fn full_preflight_dead_refs_scans_all_markdown_files_explicitly() {
-        let files = vec!["README.md".to_owned(), "docs/workflows.md".to_owned()];
+        let files = vec!["README.md".to_owned(), "docs/README.md".to_owned()];
         let command = build_lint_dead_refs_command(Some(&files), true);
         let (program, args) = command_program_and_args(&command);
 
@@ -8713,12 +8280,12 @@ mod tests {
         ]));
         assert!(args.iter().any(|value| value == "--file"));
         assert!(args.iter().any(|value| value == "README.md"));
-        assert!(args.iter().any(|value| value == "docs/workflows.md"));
+        assert!(args.iter().any(|value| value == "docs/README.md"));
     }
 
     #[test]
     fn preflight_markdownlint_uses_pinned_pnpm_entrypoint() {
-        let command = build_markdownlint_command(&["docs/workflows.md".to_owned()]);
+        let command = build_markdownlint_command(&["docs/README.md".to_owned()]);
         let (program, args) = command_program_and_args(&command);
 
         assert_eq!(program, "pnpm");
@@ -8727,7 +8294,7 @@ mod tests {
             vec![
                 "exec".to_owned(),
                 "markdownlint-cli2".to_owned(),
-                "docs/workflows.md".to_owned()
+                "docs/README.md".to_owned()
             ]
         );
     }

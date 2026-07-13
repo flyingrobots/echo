@@ -21,7 +21,6 @@ members = [
     "crates/echo-cas",
     "crates/echo-scene-port",
     "crates/echo-scene-codec",
-    "crates/method",
     "xtask",
     "crates/echo-trace",
 ]
@@ -45,7 +44,6 @@ echo-scene-port = { version = "0.1.0", path = "crates/echo-scene-port" }
 echo-wasm-abi = { version = "0.1.0", path = "crates/echo-wasm-abi" }
 warp-math = { version = "0.1.0", path = "crates/warp-math" }
 warp-core = { version = "0.1.1", path = "crates/warp-core" }
-method = { version = "0.1.0", path = "crates/method" }
 
 # ── Workspace-wide lint policy ──────────────────────────────────────
 # Maximum strictness. Crates opt in via `[lints] workspace = true`.

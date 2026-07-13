@@ -40,7 +40,9 @@ readonly forbidden_process_paths=(
   "crates/method"
   "scripts/check-append-only.js"
   "scripts/check_task_lists.sh"
+  "scripts/generate_evidence.cjs"
   "scripts/tests/check_task_lists_test.sh"
+  "scripts/validate_claims.cjs"
   "docs/determinism/CLAIM_MAP.yaml"
   "docs/determinism/DETERMINISM_CLAIMS_v0.1.md"
   "docs/determinism/RELEASE_POLICY.md"
@@ -90,6 +92,24 @@ if grep -Eq 'CLAIM_MAP\.yaml|sec-claim-map\.json' .github/workflows/det-gates.ym
   echo "knowledge-model: determinism workflow references a deleted status map" >&2
   failures=$((failures + 1))
 fi
+
+if grep -Eq '(DET|SEC|REPRO|PRF)-[0-9]{3}' .github/workflows/det-gates.yml; then
+  echo "knowledge-model: determinism workflow emits undefined numeric claim IDs" >&2
+  failures=$((failures + 1))
+fi
+
+for evidence_gate_claim in \
+  'Evidence artifact presence' \
+  'required_artifacts=(' \
+  'needs.decoder-security.result' \
+  'gathered-artifacts/perf-artifacts/perf-report.json' \
+  'gathered-artifacts/static-inspection/static-inspection.log' \
+  'Missing or empty artifact'; do
+  if ! grep -Fq -- "${evidence_gate_claim}" .github/workflows/det-gates.yml; then
+    echo "knowledge-model: determinism artifact gate missing: ${evidence_gate_claim}" >&2
+    failures=$((failures + 1))
+  fi
+done
 
 if grep -Fq -- "scaffold-community" det-policy.yaml; then
   echo "knowledge-model: determinism policy names a retired process scaffolder" >&2

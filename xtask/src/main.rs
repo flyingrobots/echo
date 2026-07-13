@@ -8205,7 +8205,7 @@ mod tests {
         assert!(is_maintained_shell_path("scripts/hooks/pre-commit"));
         assert!(!is_maintained_shell_path("scripts/hooks/README.md"));
         assert!(!is_maintained_shell_path("scripts/bench_bake.py"));
-        assert!(!is_maintained_shell_path("scripts/generate_evidence.cjs"));
+        assert!(!is_maintained_shell_path("scripts/classify_changes.cjs"));
     }
 
     #[test]

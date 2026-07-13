@@ -139,7 +139,7 @@ jobs:
             artifacts/digest-table.csv
 
   static-inspection:
-    name: DET-001 Static Inspection
+    name: Static nondeterminism inspection
     needs: classify-changes
     if: needs.classify-changes.outputs.run_full == 'true'
     runs-on: ubuntu-latest
@@ -163,24 +163,12 @@ jobs:
           DETERMINISM_PATHS: ${{ steps.det_paths.outputs.paths }}
         run: |
           ./scripts/ban-nondeterminism.sh | tee static-inspection.log
-      - name: Create report
-        if: always()
-        env:
-          DET_OUTCOME: ${{ steps.det_check.outcome }}
-        run: |
-          if [ "$DET_OUTCOME" = "success" ]; then
-            echo '{"claim_id": "DET-001", "status": "PASSED"}' > static-inspection.json
-          else
-            echo '{"claim_id": "DET-001", "status": "FAILED"}' > static-inspection.json
-          fi
       - name: Upload inspection artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: static-inspection
-          path: |
-            static-inspection.log
-            static-inspection.json
+          path: static-inspection.log
 
   decoder-security:
     name: G2 decoder security tests
@@ -285,7 +273,7 @@ jobs:
             build2.wasm
 
   validate-evidence:
-    name: Evidence schema / claim policy
+    name: Evidence artifact presence
     needs:
       - classify-changes
       - determinism-linux
@@ -303,24 +291,51 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: gathered-artifacts
-      - name: Verify artifact presence
+      - name: Verify upstream results and exact artifact payloads
         env:
           RUN_FULL: ${{ needs.classify-changes.outputs.run_full }}
+          DECODER_RESULT: ${{ needs.decoder-security.result }}
+          PERF_RESULT: ${{ needs.perf-regression.result }}
+          REPRO_RESULT: ${{ needs.build-repro.result }}
+          LINUX_RESULT: ${{ needs.determinism-linux.result }}
+          MACOS_RESULT: ${{ needs.determinism-macos.result }}
+          INSPECTION_RESULT: ${{ needs.static-inspection.result }}
         run: |
           ls -R gathered-artifacts
-          # Always required (run on both full and reduced)
-          [ -d gathered-artifacts/sec-artifacts ] || (echo "Missing sec-artifacts" && exit 1)
-          [ -d gathered-artifacts/build-repro-artifacts ] || (echo "Missing build-repro-artifacts" && exit 1)
-          [ -d gathered-artifacts/perf-artifacts ] || (echo "Missing perf-artifacts" && exit 1)
-          # Only required when run_full (these jobs are skipped for run_reduced)
+
+          [ "$DECODER_RESULT" = "success" ] || { echo "decoder-security: $DECODER_RESULT"; exit 1; }
+          [ "$PERF_RESULT" = "success" ] || { echo "perf-regression: $PERF_RESULT"; exit 1; }
+          [ "$REPRO_RESULT" = "success" ] || { echo "build-repro: $REPRO_RESULT"; exit 1; }
+
+          required_artifacts=(
+            gathered-artifacts/sec-artifacts/sec-tests.log
+            gathered-artifacts/perf-artifacts/perf.log
+            gathered-artifacts/perf-artifacts/perf-report.json
+            gathered-artifacts/build-repro-artifacts/hash1.txt
+            gathered-artifacts/build-repro-artifacts/hash2.txt
+            gathered-artifacts/build-repro-artifacts/build1.wasm
+            gathered-artifacts/build-repro-artifacts/build2.wasm
+          )
+
           if [ "$RUN_FULL" = "true" ]; then
-            [ -d gathered-artifacts/det-linux-artifacts ] || (echo "Missing det-linux-artifacts" && exit 1)
-            [ -d gathered-artifacts/det-macos-artifacts ] || (echo "Missing det-macos-artifacts" && exit 1)
-            [ -d gathered-artifacts/static-inspection ] || (echo "Missing static-inspection" && exit 1)
+            [ "$LINUX_RESULT" = "success" ] || { echo "determinism-linux: $LINUX_RESULT"; exit 1; }
+            [ "$MACOS_RESULT" = "success" ] || { echo "determinism-macos: $MACOS_RESULT"; exit 1; }
+            [ "$INSPECTION_RESULT" = "success" ] || { echo "static-inspection: $INSPECTION_RESULT"; exit 1; }
+            required_artifacts+=(
+              gathered-artifacts/det-linux-artifacts/det-linux.log
+              gathered-artifacts/det-linux-artifacts/trig-linux.log
+              gathered-artifacts/det-linux-artifacts/dind-linux.log
+              gathered-artifacts/det-linux-artifacts/dind-report.json
+              gathered-artifacts/det-linux-artifacts/artifacts/digest-table.csv
+              gathered-artifacts/det-macos-artifacts/det-macos.log
+              gathered-artifacts/det-macos-artifacts/trig-macos.log
+              gathered-artifacts/det-macos-artifacts/dind-macos.log
+              gathered-artifacts/det-macos-artifacts/dind-report.json
+              gathered-artifacts/det-macos-artifacts/artifacts/digest-table.csv
+              gathered-artifacts/static-inspection/static-inspection.log
+            )
           fi
-      - name: Generate evidence pack
-        run: |
-          node scripts/generate_evidence.cjs gathered-artifacts
-      - name: Validate evidence pointers
-        run: |
-          node scripts/validate_claims.cjs gathered-artifacts/evidence.json
+
+          for artifact in "${required_artifacts[@]}"; do
+            [ -s "$artifact" ] || { echo "Missing or empty artifact: $artifact"; exit 1; }
+          done

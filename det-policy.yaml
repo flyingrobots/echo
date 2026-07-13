@@ -65,9 +65,8 @@ crates:
     class: DET_CRITICAL
     owner_role: "CI Engineer"
     # Intentional fail-safe: scripts/** is broadly classified as DET_CRITICAL
-    # so new CI scripts are automatically covered. Utility scripts
-    # (scaffold-community.sh, bench_*.py, etc.) pay the cost of extra CI runs but
-    # cannot silently bypass gates. Per-script refinement tracked in #284.
+    # so new CI scripts are automatically covered. Utility scripts pay the cost
+    # of extra CI runs but cannot silently bypass gates.
     paths: [".github/workflows/**", "scripts/**", "det-policy.yaml", "Makefile", "xtask/**"]
 
   # ---- DET_IMPORTANT ----

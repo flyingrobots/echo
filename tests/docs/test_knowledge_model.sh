@@ -57,6 +57,7 @@ readonly forbidden_process_paths=(
   "scripts/generate-dependency-dags.js"
   "scripts/open_dependency_dags_pr.sh"
   "scripts/parse-tasks-dag.js"
+  "scripts/scaffold-community.sh"
   "scripts/tests/parse-tasks-dag.test.js"
   "tests/hooks/test_dependency_dags.sh"
 )
@@ -87,6 +88,11 @@ done
 
 if grep -Eq 'CLAIM_MAP\.yaml|sec-claim-map\.json' .github/workflows/det-gates.yml; then
   echo "knowledge-model: determinism workflow references a deleted status map" >&2
+  failures=$((failures + 1))
+fi
+
+if grep -Fq -- "scaffold-community" det-policy.yaml; then
+  echo "knowledge-model: determinism policy names a retired process scaffolder" >&2
   failures=$((failures + 1))
 fi
 

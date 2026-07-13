@@ -33,7 +33,6 @@ authority by submitting material.
 
 ## Evidence Anchors
 
-- `docs/architecture/continuum-foundations.md`
 - `docs/architecture/continuum-transport.md`
 - `crates/warp-core/src/witnessed_suffix.rs`
 - `crates/warp-core/src/admission.rs`

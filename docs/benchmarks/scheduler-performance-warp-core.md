@@ -58,20 +58,6 @@ Run:
 cargo bench -p warp-benches
 ```
 
----
-
-## Recommended Next Benches (When Needed)
-
-These are “nice to have” when tuning the scheduler or validating complexity claims:
-
-- A dedicated `reserve()` microbench varying:
-    - `k` (number of previously reserved rewrites)
-    - `m` (candidate footprint size)
-- A benchmark that isolates _only_ `reserve()` without engine/rule overhead (if practical).
-- A benchmark suite that publishes JSON artifacts and supports regression gates (CI-stable).
-
----
-
 ## Documentation Hygiene
 
 When you add/modify scheduler benches:

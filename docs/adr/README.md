@@ -41,6 +41,7 @@ track work, progress, priority, or release readiness.
 | [0017](0017-universal-little-endian-codec.md)                    | Accepted    | Canonical little-endian binary boundary                 |
 | [0018](0018-sessions-causal-posture-and-authority.md)            | Accepted    | Sessions as causal contexts                             |
 | [0019](0019-bunny-owns-reusable-geometry.md)                     | Accepted    | Bunny owns reusable geometry                            |
+| [0020](0020-retained-reading-storage-and-proof-boundary.md)      | Accepted    | Retained reading storage and proof boundary             |
 
 ADR 0006 predates this index contract and did not declare a status. The index
 preserves that fact instead of silently ratifying a historical decision.

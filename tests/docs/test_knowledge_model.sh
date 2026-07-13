@@ -17,6 +17,7 @@ readonly required_docs=(
   "docs/adr/0017-universal-little-endian-codec.md"
   "docs/adr/0018-sessions-causal-posture-and-authority.md"
   "docs/adr/0019-bunny-owns-reusable-geometry.md"
+  "docs/adr/0020-retained-reading-storage-and-proof-boundary.md"
   "docs/topics/README.md"
   "docs/topics/RuntimeAuthority.md"
   "docs/topics/StrandsAndBraids.md"
@@ -45,6 +46,11 @@ readonly forbidden_process_paths=(
   "docs/determinism/RELEASE_POLICY.md"
   "docs/determinism/sec-claim-map.json"
   "schemas/runtime/README.md"
+  "docs/architecture/WARP_DRIFT.md"
+  "docs/architecture/continuum-foundations.md"
+  "docs/architecture/wsc-verkle-ipa-retained-readings.md"
+  "docs/benchmarks/RESERVE_BENCHMARK.md"
+  "docs/benchmarks/parallelism-study.md"
   ".github/workflows/refresh-dependency-dags.yml"
   "docs/assets/dags"
   "scripts/dag-utils.js"
@@ -72,6 +78,17 @@ done
 
 if grep -Eq 'CLAIM_MAP\.yaml|sec-claim-map\.json' .github/workflows/det-gates.yml; then
   echo "knowledge-model: determinism workflow references a deleted status map" >&2
+  failures=$((failures + 1))
+fi
+
+if grep -Fq -- "Recommended Next Benches" docs/benchmarks/scheduler-performance-warp-core.md; then
+  echo "knowledge-model: scheduler benchmark guide contains a work queue" >&2
+  failures=$((failures + 1))
+fi
+
+if grep -Eq 'RESERVE_BENCHMARK\.md|reserve_independence|MY_FEATURE_BENCHMARK\.md' \
+  docs/benchmarks/BENCHMARK_GUIDE.md; then
+  echo "knowledge-model: benchmark guide contains a status-report template or dead example" >&2
   failures=$((failures + 1))
 fi
 

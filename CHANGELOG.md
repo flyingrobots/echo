@@ -745,6 +745,10 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 - Removed the superseded `docs/design/` packet corpus and the retired TTD
   counterfactual-creation invariant after promoting current doctrine into
   canonical topics, ADRs, architecture documents, specifications, and tests.
+- Removed the remaining architecture drift/future packets and dated benchmark
+  reports after preserving the retained-reading storage and proof boundary in
+  ADR 0020. Benchmark instructions now keep methodology in source docs and
+  measurements in generated artifacts and pull requests.
 - Deleted zombie crates with no consumers (recoverable from git history):
   `echo-wasm-bindings` (browser demo kernel), `echo-ttd`, `ttd-protocol-rs`,
   and `echo-session-proto` (the TTD stack now lives with `warp-ttd`), plus
@@ -793,6 +797,9 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
   decisions to ADR 0012–0019, preserving the meaning of existing source
   citations. CI now rejects missing, duplicate, non-contiguous, unindexed, or
   collided ADR identifiers.
+- Recorded the WSC, CAS, semantic reading identity, and optional proof boundary
+  as ADR 0020 without carrying forward the source packet's implementation
+  roadmap or application-specific checkpoint design.
 - Echo 1.0 release eligibility now depends only on Continuum participant
   conformance, networked causal suffix exchange, and release integrity. Edict,
   `jedit`, and any particular generated package remain downstream compatibility

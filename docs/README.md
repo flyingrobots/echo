@@ -17,9 +17,7 @@ causal history. Git history is the archive; GitHub owns live work and status.
 ## Current Architecture
 
 - [There Is No Graph](architecture/there-is-no-graph.md)
-- [Continuum foundations](architecture/continuum-foundations.md)
 - [Continuum transport](architecture/continuum-transport.md)
-- [WSC, Verkle, IPA, and retained readings](architecture/wsc-verkle-ipa-retained-readings.md)
 - [Echo optics adapter notes](architecture/echo-optics-adapter-notes.md)
 
 ## Living Topics
@@ -45,6 +43,7 @@ causal history. Git history is the archive; GitHub owns live work and status.
 - [Universal little-endian codec](adr/0017-universal-little-endian-codec.md)
 - [Session causal posture and authority](adr/0018-sessions-causal-posture-and-authority.md)
 - [Bunny owns reusable geometry](adr/0019-bunny-owns-reusable-geometry.md)
+- [Retained reading storage and proof boundary](adr/0020-retained-reading-storage-and-proof-boundary.md)
 
 ## Normative Contracts
 

@@ -22,14 +22,8 @@ echo-graph = { workspace = true }
 # Hashing
 blake3 = "1"
 
-# Serialization (for config store fake)
-serde = { version = "1", features = ["derive"] }
-
 # Bytes for payload construction
 bytes = "1"
-
-[dev-dependencies]
-serde_json = "1"
 
 [features]
 default = []

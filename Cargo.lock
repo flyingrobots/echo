@@ -567,8 +567,6 @@ dependencies = [
  "blake3",
  "bytes",
  "echo-graph",
- "serde",
- "serde_json",
  "warp-core",
 ]
 

@@ -61,6 +61,11 @@ check_absent \
   "crates/echo-dry-tests/README.md" \
   'InMemoryConfigStore|[Cc]onfiguration store'
 
+check_absent \
+  "echo-dry-tests must not retain config-fake serialization dependencies" \
+  "crates/echo-dry-tests/Cargo.toml" \
+  '^serde(_json)?[[:space:]]*='
+
 for architecture_file in \
   ARCHITECTURE.md \
   crates/echo-graph/README.md \

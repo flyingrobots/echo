@@ -82,6 +82,10 @@ check_missing \
   "docs/spec/warp-view-protocol.md"
 
 check_missing \
+  "the retired WARP view dashboard assets must stay retired" \
+  "docs/assets/wvp"
+
+check_missing \
   "the unused TTD WASM ABI module must stay retired" \
   "crates/echo-wasm-abi/src/ttd.rs"
 

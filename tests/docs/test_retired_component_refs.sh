@@ -22,6 +22,16 @@ check_absent() {
   fi
 }
 
+check_missing() {
+  local label="$1"
+  local path="$2"
+
+  if [[ -e "${path}" ]]; then
+    echo "retired-component-path: ${label}: ${path}" >&2
+    failures=$((failures + 1))
+  fi
+}
+
 check_absent \
   "GUIDE must not link to the retired echo-ttd crate" \
   "GUIDE.md" \
@@ -31,6 +41,20 @@ check_absent \
   "WASM ABI spec must not cite the retired session-protocol EINT implementation" \
   "docs/spec/SPEC-0009-wasm-abi-v3.md" \
   'crates/echo-session-proto/src/eint_v2\.rs'
+
+check_missing \
+  "the unimplemented WARP view protocol spec must stay retired" \
+  "docs/spec/warp-view-protocol.md"
+
+for map_file in \
+  docs/README.md \
+  crates/echo-graph/README.md \
+  crates/warp-wasm/README.md; do
+  check_absent \
+    "live docs must not advertise the retired WARP view protocol" \
+    "${map_file}" \
+    'warp-view-protocol'
+done
 
 if ((failures > 0)); then
   echo "retired-component-ref: ${failures} violation(s)" >&2

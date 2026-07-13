@@ -23,5 +23,4 @@ Canonical renderable graph format for Echo (nodes/edges + payloads).
 
 - Runtime and graph-carrier context: `docs/architecture/outline.md`.
 - Core runtime tour: `docs/spec/warp-core.md`.
-- WARP stream schema: `docs/spec/warp-view-protocol.md`.
 - JS/CBOR encoding rules: `docs/spec/js-cbor-mapping.md`.

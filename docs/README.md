@@ -60,7 +60,6 @@ Echo's live documentation centers on the runtime carrier, the retained witnesses
 - WASM trusted runtime host control: [/design/wasm-trusted-runtime-host-control-boundary](/design/wasm-trusted-runtime-host-control-boundary)
 - JS to canonical CBOR mapping: [/spec/js-cbor-mapping](/spec/js-cbor-mapping)
 - ABI golden vectors: [/spec/abi-golden-vectors](/spec/abi-golden-vectors)
-- WARP view protocol: [/spec/warp-view-protocol](/spec/warp-view-protocol)
 - WSC, Verkle, IPA, and retained readings: [/architecture/wsc-verkle-ipa-retained-readings](/architecture/wsc-verkle-ipa-retained-readings)
 - Retained evidence refs and missing-retention posture: [/design/retained-evidence-refs-and-missing-retention](/design/retained-evidence-refs-and-missing-retention)
 

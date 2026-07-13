@@ -68,5 +68,3 @@ product contract.
 - Echo runtime model: `docs/architecture/outline.md`.
 - Current WASM ABI contract: `docs/spec/SPEC-0009-wasm-abi.md`.
 - JS/CBOR encoding rules: `docs/spec/js-cbor-mapping.md`.
-- WARP stream schema for retained browser/session protocol types:
-  `docs/spec/warp-view-protocol.md`.

@@ -51,6 +51,11 @@ check_absent \
   "pnpm-lock.yaml" \
   '^[[:space:]]+packages/ttd-protocol-ts:'
 
+check_absent \
+  "the changelog must describe only tracked PR deletions" \
+  "CHANGELOG.md" \
+  'untracked `ttd-browser` prebuilt artifact'
+
 for map_file in \
   docs/README.md \
   crates/echo-graph/README.md \

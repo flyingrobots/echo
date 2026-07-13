@@ -747,9 +747,9 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
   canonical topics, ADRs, architecture documents, specifications, and tests.
 - Deleted zombie crates with no consumers (recoverable from git history):
   `echo-wasm-bindings` (browser demo kernel), `echo-ttd`, `ttd-protocol-rs`,
-  `echo-session-proto`, and the untracked `ttd-browser` prebuilt artifact
-  (TTD stack now lives with warp-ttd), plus `echo-config-fs` (desktop
-  app-shell fossil) and the `packages/ttd-protocol-ts` generated consumer.
+  and `echo-session-proto` (the TTD stack now lives with `warp-ttd`), plus
+  `echo-config-fs` (desktop app-shell fossil) and the
+  `packages/ttd-protocol-ts` generated consumer.
 - Deleted `echo-app-core` (desktop app-shell fossil: toasts, prefs, config
   ports) and the `echo-dry-tests` in-memory config fake that existed only to
   test its trait; no other crate consumed either.

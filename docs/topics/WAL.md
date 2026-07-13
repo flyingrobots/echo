@@ -97,14 +97,11 @@ history or the geometry through which causal history is interpreted.
 
 The current braid and strand implementation already has typed strand
 construction, braid event logs, settlement provenance entries, retained braid
-shells, and replay/audit optics. The remaining durability gate is to promote
-those topology operations to WAL-backed accepted evidence and recoverable
-WSC-retained material. Track that remaining implementation work in GitHub.
-
-Until that lands, Echo should not overclaim that braid shells and topology
-indexes have the same explicit crash-recovery posture as tick receipts. It can
-claim that they are causal/provenance entities with retained replay shapes, and
-it can name WAL/WSC topology recovery as the required next hardening step.
+shells, and replay/audit optics. Topology operations do not currently have
+WAL-backed accepted evidence or recoverable WSC-retained material. Echo must not
+claim that braid shells and topology indexes have the same explicit
+crash-recovery posture as tick receipts. They are causal/provenance entities
+with retained replay shapes, not evidence of WAL/WSC topology recovery.
 
 ## WAL, Graph Facts, And WSC
 

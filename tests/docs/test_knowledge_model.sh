@@ -284,6 +284,21 @@ if ! grep -Fq -- 'does not verify frontier admission' \
   failures=$((failures + 1))
 fi
 
+if grep -Eq \
+  'remaining durability gate|Track that remaining implementation work|required next hardening step' \
+  docs/topics/WAL.md; then
+  echo "knowledge-model: WAL topic contains a live implementation queue" >&2
+  failures=$((failures + 1))
+fi
+
+if ! grep -Fq -- 'Topology operations do not currently have' \
+  docs/topics/WAL.md || \
+  ! grep -Fq -- 'WAL-backed accepted evidence or recoverable WSC-retained material' \
+  docs/topics/WAL.md; then
+  echo "knowledge-model: WAL topic hides the topology durability boundary" >&2
+  failures=$((failures + 1))
+fi
+
 if grep -Eq 'current `v[0-9]+\.[0-9]+\.[0-9]+` goal|Ongoing work focuses' README.md; then
   echo "knowledge-model: README contains a live release goal or work queue" >&2
   failures=$((failures + 1))

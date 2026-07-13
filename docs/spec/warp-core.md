@@ -5,8 +5,6 @@
 
 _Map the implemented Rust kernel to Echo's Paper VII vocabulary: carrier state, settlement, retained patches, and observer-facing boundaries._
 
-Legend: KERNEL
-
 Depends on:
 
 - [Echo Runtime Model](../architecture/outline.md)
@@ -14,21 +12,16 @@ Depends on:
 - [WARP Tick Patch](warp-tick-patch.md)
 - [Merkle Commit](merkle-commit.md)
 
-## Why this packet exists
+## Purpose
 
 `warp-core` is where Echo's runtime claims are made concrete. It stores carrier state, applies rewrite settlement, emits replayable patch artifacts, and computes hashes that later observers use for replay and audit.
 
-## Human users / jobs / hills
+The document is a grounded map from research terms to Rust surfaces so a
+maintainer can locate a runtime concept without reading every crate.
 
-Human users need one grounded map from research terms to Rust surfaces.
-
-The hill: a maintainer can answer "where is that runtime concept implemented?" without reading every crate.
-
-## Agent users / jobs / hills
-
-Agent users need a stable public surface for tests, tools, and higher layers.
-
-The hill: an agent can import `warp-core`, build a state, enqueue rewrites, commit a tick, and inspect the snapshot, receipt, and patch.
+It also identifies the stable test and tooling surface: a consumer can build a
+carrier, enqueue rewrites, commit a tick, and inspect the snapshot, receipt,
+and patch.
 
 ## Decision 1: `WarpState` is the carrier
 

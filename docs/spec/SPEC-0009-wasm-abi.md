@@ -5,8 +5,6 @@
 
 _Define the current deterministic browser boundary for intent ingress, scheduler metadata, and observer-relative reads._
 
-Legend: PLATFORM
-
 Current ABI version: 12
 
 Depends on:
@@ -15,7 +13,7 @@ Depends on:
 - [ABI Golden Vectors](abi-golden-vectors.md)
 - [SPEC-0004 - Worldlines, Playback, and Observation](SPEC-0004-worldlines-playback-truthbus.md)
 
-## Why this packet exists
+## Purpose
 
 The WASM boundary is where browser and host code meet the Echo runtime. It must be small, deterministic, and explicit about what kind of operation is crossing: intent admission, scheduler inspection, or observation.
 
@@ -28,17 +26,14 @@ reading-envelope metadata for emitted readings, including contract/query
 identity and generic retained-evidence posture when a contract QueryView
 observer supplies a reading.
 
-## Human users / jobs / hills
+Browser tools must not silently depend on wall-clock timing or unsupported
+exports. A UI can submit an intent, ask for scheduler status, or request an
+observation artifact; it cannot reach around the runtime to step or render
+private state.
 
-Human users need browser tools that do not silently depend on wall-clock timing or unsupported exports.
-
-The hill: a UI can submit an intent, ask for scheduler status, or request an observation artifact; it cannot reach around the runtime to step, query, or render private state.
-
-## Agent users / jobs / hills
-
-Agent users need a stable automation boundary.
-
-The hill: an agent can generate canonical CBOR, call one export, inspect an `ok` envelope, and correlate the returned reading with logical ticks.
+The boundary also supports deterministic automation: a client can generate
+canonical CBOR, call an export, inspect an `ok` envelope, and correlate the
+returned reading with logical ticks.
 
 ## Decision 1: The ABI implements only the current epoch
 

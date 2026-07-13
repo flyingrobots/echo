@@ -5,29 +5,23 @@
 
 _Define the implemented `warp-core` scheduler: deterministic drain order plus footprint reservation._
 
-Legend: KERNEL
-
 Depends on:
 
 - [Canonical Inbox Sequencing](canonical-inbox-sequencing.md)
 - [SPEC-0003 - DPO Concurrency Litmus v0](SPEC-0003-dpo-concurrency-litmus-v0.md)
 - [WARP Tick Patch](warp-tick-patch.md)
 
-## Why this packet exists
+## Purpose
 
 The scheduler is Echo's current settlement law for competing rewrites. It is where candidate work becomes an admitted set, rejected candidates receive a witness, and the tick stays deterministic across runs.
 
-## Human users / jobs / hills
+Scheduler claims must be tied to code and tests. When a candidate is rejected,
+a reviewer can identify the declared resource conflict and reproduce the
+admission decision.
 
-Human users need scheduler claims tied to code and tests.
-
-The hill: when a candidate is rejected, a reviewer can identify the declared resource conflict and reproduce the accept/reject decision.
-
-## Agent users / jobs / hills
-
-Agent users need a predictable reservation protocol.
-
-The hill: an agent can construct footprints, sort pending rewrites the same way the runtime does, and predict whether `reserve()` should admit the candidate.
+The reservation protocol is predictable: a consumer can construct footprints,
+sort pending rewrites as the runtime does, and determine whether `reserve()`
+should admit a candidate.
 
 ## Decision 1: Pending rewrites carry explicit footprints
 

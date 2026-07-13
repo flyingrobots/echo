@@ -5,29 +5,23 @@
 
 _Define the state and commit hashes that let Echo retain a witnessed history without retaining observer interpretations as canonical state._
 
-Legend: KERNEL
-
 Depends on:
 
 - [WARP Tick Patch](warp-tick-patch.md)
 - [SPEC-0001 - Attachment Plane v0 Typed Atoms](SPEC-0001-attachment-plane-v0-atoms.md)
 - [SPEC-0002 - Descended Attachments v1](SPEC-0002-descended-attachments-v1.md)
 
-## Why this packet exists
+## Purpose
 
 Echo needs stable hash commitments for replay, slicing, and audit. The hash boundary must commit to the witnessed carrier and replayable delta, while leaving observer-relative readings and diagnostic narration outside the commit unless a later version explicitly adds them.
 
-## Human users / jobs / hills
+Hash mismatches must have a concrete explanation: when a state root or commit id
+changes, a reviewer can trace the change to reachable state, patch bytes,
+parents, or policy identity.
 
-Human users need hash mismatches to mean something concrete.
-
-The hill: when a state root or commit id changes, a reviewer can trace the change to reachable state, patch bytes, parents, or policy id.
-
-## Agent users / jobs / hills
-
-Agent users need deterministic equality tests.
-
-The hill: an agent can rebuild a state from retained patches and compare the same `state_root` and commit id without access to the original process.
+Independent verification must be deterministic. A verifier can rebuild state
+from retained patches and compare the same `state_root` and commit id without
+access to the original process.
 
 ## Decision 1: `state_root` commits to reachable WARP state
 

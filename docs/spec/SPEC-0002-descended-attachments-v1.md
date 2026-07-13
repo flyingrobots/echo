@@ -5,29 +5,23 @@
 
 _Define how an attachment slot can open into another WARP instance without creating hidden edges or recursive hot-path traversal._
 
-Legend: KERNEL
-
 Depends on:
 
 - [SPEC-0001 - Attachment Plane v0 Typed Atoms](SPEC-0001-attachment-plane-v0-atoms.md)
 - [WARP Tick Patch](warp-tick-patch.md)
 - [Merkle Commit](merkle-commit.md)
 
-## Why this packet exists
+## Purpose
 
 Echo needs nested state without losing deterministic replay or turning payload inspection into implicit graph traversal. Descended attachments solve that by making descent an explicit attachment-slot value and by recording the portal chain as witnessed causality.
 
-## Human users / jobs / hills
+Nested state must remain inspectable, replayable, and explainable. A slice for a
+value inside a descendant pulls in the portal chain that made the descendant
+reachable.
 
-Human users need nested state that can be inspected, replayed, and explained.
-
-The hill: when a user asks why a value inside a descendant exists, the slice pulls in the portal chain that made the descendant reachable.
-
-## Agent users / jobs / hills
-
-Agent users need local reasoning. A rule running inside a descendant should not scan the whole runtime to discover how it got there.
-
-The hill: the agent can read `WarpInstance.parent` and the descent stack to find the attachment slots that define reachability.
+Rules also need local reasoning: execution inside a descendant must not scan
+the whole runtime to discover its basis. `WarpInstance.parent` and the descent
+stack identify the attachment slots that define reachability.
 
 ## Decision 1: Descent is flattened indirection
 

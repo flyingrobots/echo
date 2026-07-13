@@ -263,6 +263,13 @@ if grep -Eq \
   failures=$((failures + 1))
 fi
 
+if rg -q \
+  '^Legend:|^## Why this packet exists|^## (Human|Agent) users / jobs / hills|^The hill:' \
+  docs/spec; then
+  echo "knowledge-model: canonical specs contain Method-era packet taxonomy" >&2
+  failures=$((failures + 1))
+fi
+
 if ((failures > 0)); then
   echo "knowledge-model: ${failures} violation(s)" >&2
   exit 1

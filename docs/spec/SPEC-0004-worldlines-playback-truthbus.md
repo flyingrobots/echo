@@ -5,8 +5,6 @@
 
 _Define worldlines as retained witnessed history and playback as an observer viewpoint over that history._
 
-Legend: PLATFORM / KERNEL
-
 Depends on:
 
 - [WARP Tick Patch](warp-tick-patch.md)
@@ -15,21 +13,17 @@ Depends on:
 - [WASM ABI Contract](SPEC-0009-wasm-abi.md)
 - [FIXED-TIMESTEP](../invariants/FIXED-TIMESTEP.md)
 
-## Why this packet exists
+## Purpose
 
 Earlier drafts centered TruthBus as the public read story. The current Echo language is sharper: the runtime retains witnessed history, and public reads are observer-relative observation artifacts. Playback cursors and session helpers are implementation surfaces that materialize a viewpoint; they are not the semantic center.
 
-## Human users / jobs / hills
+Playback is observation over recorded history, not a second execution. Seeking
+to a prior tick applies recorded patches, verifies expected hashes, and emits
+the observer reading recorded for that coordinate.
 
-Human users need time travel to feel like a debugger, not like a second simulation.
-
-The hill: seeking to a prior tick applies recorded patches, verifies expected hashes, and emits the same observer reading that was recorded for that tick.
-
-## Agent users / jobs / hills
-
-Agent users need reproducible coordinates for "show me this state at that frontier."
-
-The hill: an agent can name a worldline coordinate, request an observation frame, and receive an artifact with resolved coordinate metadata and a reading envelope.
+Coordinates are reproducible: a consumer can name a worldline coordinate,
+request an observation frame, and receive an artifact with resolved coordinate
+metadata and a reading envelope.
 
 ## Decision 1: Worldline is the retained history boundary
 

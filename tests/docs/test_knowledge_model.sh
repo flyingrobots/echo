@@ -204,6 +204,13 @@ if grep -Eq 'T2000 on|README Brag|PATHS_DEFAULT=|PATTERNS=\(' \
   failures=$((failures + 1))
 fi
 
+if grep -Eq \
+  '^## (12\) Migration plan|14\) Tests|Commit-ready Rust test skeletons|Next: wiring strategy|Sequencing|The one warning)|Phase 6B COMPLETE|^- \[x\]' \
+  docs/adr/ADR-0007-BOAW-Storage.md; then
+  echo "knowledge-model: ADR 0007 contains an implementation diary or test-plan packet" >&2
+  failures=$((failures + 1))
+fi
+
 if ((failures > 0)); then
   echo "knowledge-model: ${failures} violation(s)" >&2
   exit 1

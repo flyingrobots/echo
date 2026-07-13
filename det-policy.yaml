@@ -9,10 +9,8 @@ classes:
     required_gates: [G1, G2, G3, G4]
   DET_IMPORTANT:
     description: "Affects critical systems indirectly. Reduced gate set."
-    # Note: required_gates defines policy-level merge blockers, not workflow
-    # execution. G3 (perf regression) runs unconditionally for all non-NONCRITICAL
-    # changes in det-gates.yml (run_none != 'true') but is not a merge blocker
-    # for DET_IMPORTANT.
+    # required_gates is consumed by classify_changes.cjs and directly controls
+    # workflow execution and merge-blocking evidence validation.
     required_gates: [G2, G4]
   DET_NONCRITICAL:
     description: "No deterministic runtime impact. Standard CI only."

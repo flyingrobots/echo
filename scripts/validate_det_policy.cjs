@@ -1,6 +1,27 @@
 #!/usr/bin/env node
 const fs = require('fs');
 
+const ALLOWED_GATES = new Set(['G1', 'G2', 'G3', 'G4']);
+
+function assertValidRequiredGates(classes) {
+  for (const [className, classInfo] of Object.entries(classes)) {
+    if (!Array.isArray(classInfo.required_gates)) {
+      throw new Error(`Class ${className} missing or invalid required_gates (must be an array)`);
+    }
+
+    const seen = new Set();
+    for (const gate of classInfo.required_gates) {
+      if (!ALLOWED_GATES.has(gate)) {
+        throw new Error(`Class ${className} has invalid required gate ${gate}`);
+      }
+      if (seen.has(gate)) {
+        throw new Error(`Class ${className} has duplicate required gate ${gate}`);
+      }
+      seen.add(gate);
+    }
+  }
+}
+
 /**
  * Validates the structure and content of a det-policy JSON file.
  * Checks for required gate definitions, crate classifications, and owner assignments.
@@ -23,23 +44,15 @@ function validateDetPolicy(filePath) {
       return false;
     }
 
-    const ALLOWED_GATES = new Set(['G1', 'G2', 'G3', 'G4']);
     const classes = data.classes || {};
     const crates = data.crates || {};
     const policy = data.policy || {};
 
-    // Check classes
-    for (const [className, classInfo] of Object.entries(classes)) {
-      if (!Array.isArray(classInfo.required_gates)) {
-        console.error(`Error: Class ${className} missing or invalid required_gates (must be an array)`);
-        return false;
-      }
-      for (const gate of classInfo.required_gates) {
-        if (!ALLOWED_GATES.has(gate)) {
-          console.error(`Error: Class ${className} has invalid gate ${gate}`);
-          return false;
-        }
-      }
+    try {
+      assertValidRequiredGates(classes);
+    } catch (error) {
+      console.error(`Error: ${error.message}`);
+      return false;
     }
 
     // Check crates
@@ -75,7 +88,7 @@ function validateDetPolicy(filePath) {
   }
 }
 
-module.exports = { validateDetPolicy };
+module.exports = { assertValidRequiredGates, validateDetPolicy };
 
 if (require.main === module) {
   const filePath = process.argv[2] || 'det-policy.json';

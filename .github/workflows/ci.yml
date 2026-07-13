@@ -44,6 +44,8 @@ jobs:
               run: bash tests/docs/test_adr_namespace.sh
             - name: generated rule truth regression
               run: bash tests/docs/test_generated_rule_truth.sh
+            - name: determinism policy gate regression
+              run: node --test scripts/tests/classify_changes.test.cjs
 
     clippy-libs-core:
         name: Clippy (core libs)

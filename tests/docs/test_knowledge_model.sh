@@ -198,6 +198,12 @@ if ! grep -Fq -- 'Witnessed causal history is truth' AGENTS.md; then
   failures=$((failures + 1))
 fi
 
+if grep -Eq 'T2000 on|README Brag|PATHS_DEFAULT=|PATTERNS=\(' \
+  docs/adr/ADR-0006-Ban-Non-Determinism.md; then
+  echo "knowledge-model: ADR 0006 contains an embedded implementation packet" >&2
+  failures=$((failures + 1))
+fi
+
 if ((failures > 0)); then
   echo "knowledge-model: ${failures} violation(s)" >&2
   exit 1

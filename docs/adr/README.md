@@ -27,7 +27,7 @@ track work, progress, priority, or release readiness.
 | [0003](ADR-0003-Materialization-Bus.md)                          | Superseded           | Historical causality-first ingress and materialization         |
 | [0004](ADR-0004-No-Global-State.md)                              | Accepted             | Dependency injection without global state                      |
 | [0005](ADR-0005-Physics.md)                                      | Superseded           | Historical deterministic physics proposal                      |
-| [0006](ADR-0006-Ban-Non-Determinism.md)                          | Undeclared           | Ban semantic non-determinism                                   |
+| [0006](ADR-0006-Ban-Non-Determinism.md)                          | Superseded           | Historical non-determinism enforcement proposal                |
 | [0007](ADR-0007-BOAW-Storage.md)                                 | Partially superseded | BOAW execution mechanics; ADR 0020 governs storage authority   |
 | [0008](ADR-0008-Worldline-Runtime-Model.md)                      | Accepted             | Worldline runtime model                                        |
 | [0009](ADR-0009-Inter-Worldline-Communication.md)                | Superseded           | Historical frontier-relative state-patch transport             |
@@ -44,5 +44,6 @@ track work, progress, priority, or release readiness.
 | [0020](0020-retained-reading-storage-and-proof-boundary.md)      | Accepted             | Retained reading storage and proof boundary                    |
 | [0021](0021-public-optic-observation-boundary.md)                | Accepted             | Public WARP optic over internal observation                    |
 
-ADR 0006 predates this index contract and did not declare a status. The index
-preserves that fact instead of silently ratifying a historical decision.
+ADR 0006 predates this index contract and did not declare a status. Its
+superseded tombstone preserves that fact without silently ratifying the old
+implementation proposal.

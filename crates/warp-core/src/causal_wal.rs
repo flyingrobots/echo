@@ -40,9 +40,14 @@ use crate::revelation::{AuthorityDomainId, AuthorityDomainRef, OriginId};
 use crate::strand::StrandId;
 use crate::worldline::WorldlineId;
 use crate::wsc::{validate_wsc, WscFile};
+use crate::{CausalTickReceiptRef, CAUSAL_TICK_RECEIPT_REF_LEN};
 
 const WAL_FRAME_DOMAIN: &[u8] = b"echo:causal_wal:frame:v1\0";
 const WAL_PAYLOAD_DOMAIN: &[u8] = b"echo:causal_wal:payload:v1\0";
+const WAL_TICK_RECEIPT_MAGIC_V2: &[u8; 8] = b"ETICK002";
+const WAL_RECEIPT_CORRELATION_MAGIC_V2: &[u8; 8] = b"ERCOR002";
+const LEGACY_TICK_RECEIPT_PAYLOAD_LEN: usize = 3 * core::mem::size_of::<Hash>() + 1;
+const LEGACY_RECEIPT_CORRELATION_PREFIX_LEN: usize = 3 * core::mem::size_of::<Hash>();
 const WAL_RECORDS_ROOT_DOMAIN: &[u8] = b"echo:causal_wal:records_root:v1\0";
 const WAL_FRONTIERS_ROOT_DOMAIN: &[u8] = b"echo:causal_wal:frontiers_root:v1\0";
 const WAL_COMMIT_DOMAIN: &[u8] = b"echo:causal_wal:commit:v1\0";
@@ -2162,12 +2167,8 @@ impl WalTickDecision {
 /// WAL tick receipt record payload.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TickReceiptRecord {
-    /// Submission decided by the receipt.
-    pub submission_id: Hash,
-    /// Admission ticket digest.
-    pub ticket_digest: Hash,
-    /// Tick receipt digest.
-    pub receipt_digest: Hash,
+    /// Exact causal coordinate of the admitted receipt event.
+    pub receipt_ref: CausalTickReceiptRef,
     /// Scheduler decision.
     pub decision: WalTickDecision,
 }
@@ -2177,25 +2178,40 @@ impl TickReceiptRecord {
     #[must_use]
     pub fn to_payload_bytes(&self) -> Vec<u8> {
         let mut out = Vec::new();
-        push_hash(&mut out, &self.submission_id);
-        push_hash(&mut out, &self.ticket_digest);
-        push_hash(&mut out, &self.receipt_digest);
+        out.extend_from_slice(WAL_TICK_RECEIPT_MAGIC_V2);
+        out.extend_from_slice(&self.receipt_ref.to_canonical_bytes());
         out.push(self.decision.code());
         out
     }
 
     /// Decodes a deterministic tick receipt payload.
     pub fn from_payload_bytes(bytes: &[u8]) -> Result<Self, WalDecodeError> {
+        if bytes.len() < WAL_TICK_RECEIPT_MAGIC_V2.len() {
+            return Err(WalDecodeError::UnexpectedEof);
+        }
+        if &bytes[..WAL_TICK_RECEIPT_MAGIC_V2.len()] != WAL_TICK_RECEIPT_MAGIC_V2 {
+            return if bytes.len() == LEGACY_TICK_RECEIPT_PAYLOAD_LEN {
+                Err(WalDecodeError::LegacyCausalReceiptIdentityUnavailable {
+                    record_kind: "tick-receipt",
+                })
+            } else {
+                Err(WalDecodeError::InvalidRecordMagic {
+                    record_kind: "tick-receipt",
+                })
+            };
+        }
         let mut cursor = WalPayloadCursor::new(bytes);
-        let submission_id = cursor.read_hash()?;
-        let ticket_digest = cursor.read_hash()?;
-        let receipt_digest = cursor.read_hash()?;
+        cursor.read_exact(WAL_TICK_RECEIPT_MAGIC_V2.len())?;
+        let receipt_ref = CausalTickReceiptRef::from_canonical_bytes(
+            cursor
+                .read_exact(CAUSAL_TICK_RECEIPT_REF_LEN)?
+                .try_into()
+                .map_err(|_| WalDecodeError::UnexpectedEof)?,
+        );
         let decision = WalTickDecision::from_code(cursor.read_u8()?)?;
         cursor.finish()?;
         Ok(Self {
-            submission_id,
-            ticket_digest,
-            receipt_digest,
+            receipt_ref,
             decision,
         })
     }
@@ -2204,14 +2220,10 @@ impl TickReceiptRecord {
 /// WAL receipt correlation record payload.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WalReceiptCorrelationRecord {
-    /// Submission correlated to the receipt.
-    pub submission_id: Hash,
-    /// Admission ticket digest.
-    pub ticket_digest: Hash,
-    /// Tick receipt digest.
-    pub receipt_digest: Hash,
-    /// Canonical retained receipt/evidence hashes cited by this receipt's intent.
-    pub causal_parent_receipts: Vec<Hash>,
+    /// Exact causal coordinate of the child receipt event.
+    pub receipt_ref: CausalTickReceiptRef,
+    /// Canonical admitted tick receipts cited by this receipt's intent.
+    pub causal_parent_receipts: Vec<CausalTickReceiptRef>,
 }
 
 impl WalReceiptCorrelationRecord {
@@ -2219,16 +2231,15 @@ impl WalReceiptCorrelationRecord {
     #[must_use]
     pub fn to_payload_bytes(&self) -> Vec<u8> {
         let mut out = Vec::new();
-        push_hash(&mut out, &self.submission_id);
-        push_hash(&mut out, &self.ticket_digest);
-        push_hash(&mut out, &self.receipt_digest);
+        out.extend_from_slice(WAL_RECEIPT_CORRELATION_MAGIC_V2);
+        out.extend_from_slice(&self.receipt_ref.to_canonical_bytes());
         let mut causal_parent_receipts = self.causal_parent_receipts.clone();
         causal_parent_receipts.sort_unstable();
         causal_parent_receipts.dedup();
         if !causal_parent_receipts.is_empty() {
             out.extend_from_slice(&len_u64(causal_parent_receipts.len()).to_le_bytes());
             for parent in causal_parent_receipts {
-                push_hash(&mut out, &parent);
+                out.extend_from_slice(&parent.to_canonical_bytes());
             }
         }
         out
@@ -2236,21 +2247,44 @@ impl WalReceiptCorrelationRecord {
 
     /// Decodes a deterministic receipt correlation payload.
     pub fn from_payload_bytes(bytes: &[u8]) -> Result<Self, WalDecodeError> {
+        if bytes.len() < WAL_RECEIPT_CORRELATION_MAGIC_V2.len() {
+            return Err(WalDecodeError::UnexpectedEof);
+        }
+        if &bytes[..WAL_RECEIPT_CORRELATION_MAGIC_V2.len()] != WAL_RECEIPT_CORRELATION_MAGIC_V2 {
+            return if is_legacy_receipt_correlation_payload(bytes) {
+                Err(WalDecodeError::LegacyCausalReceiptIdentityUnavailable {
+                    record_kind: "receipt-correlation",
+                })
+            } else {
+                Err(WalDecodeError::InvalidRecordMagic {
+                    record_kind: "receipt-correlation",
+                })
+            };
+        }
         let mut cursor = WalPayloadCursor::new(bytes);
-        let submission_id = cursor.read_hash()?;
-        let ticket_digest = cursor.read_hash()?;
-        let receipt_digest = cursor.read_hash()?;
+        cursor.read_exact(WAL_RECEIPT_CORRELATION_MAGIC_V2.len())?;
+        let receipt_ref = CausalTickReceiptRef::from_canonical_bytes(
+            cursor
+                .read_exact(CAUSAL_TICK_RECEIPT_REF_LEN)?
+                .try_into()
+                .map_err(|_| WalDecodeError::UnexpectedEof)?,
+        );
         let mut causal_parent_receipts = if cursor.remaining_len() == 0 {
             Vec::new()
         } else {
             let parent_count =
                 usize::try_from(cursor.read_u64()?).map_err(|_| WalDecodeError::UnexpectedEof)?;
-            if parent_count > cursor.remaining_len() / core::mem::size_of::<Hash>() {
+            if parent_count > cursor.remaining_len() / CAUSAL_TICK_RECEIPT_REF_LEN {
                 return Err(WalDecodeError::UnexpectedEof);
             }
             let mut parents = Vec::with_capacity(parent_count);
             for _ in 0..parent_count {
-                parents.push(cursor.read_hash()?);
+                parents.push(CausalTickReceiptRef::from_canonical_bytes(
+                    cursor
+                        .read_exact(CAUSAL_TICK_RECEIPT_REF_LEN)?
+                        .try_into()
+                        .map_err(|_| WalDecodeError::UnexpectedEof)?,
+                ));
             }
             parents
         };
@@ -2258,12 +2292,34 @@ impl WalReceiptCorrelationRecord {
         causal_parent_receipts.dedup();
         cursor.finish()?;
         Ok(Self {
-            submission_id,
-            ticket_digest,
-            receipt_digest,
+            receipt_ref,
             causal_parent_receipts,
         })
     }
+}
+
+fn is_legacy_receipt_correlation_payload(bytes: &[u8]) -> bool {
+    if bytes.len() == LEGACY_RECEIPT_CORRELATION_PREFIX_LEN {
+        return true;
+    }
+    let Some(count_bytes) =
+        bytes.get(LEGACY_RECEIPT_CORRELATION_PREFIX_LEN..LEGACY_RECEIPT_CORRELATION_PREFIX_LEN + 8)
+    else {
+        return false;
+    };
+    let mut count = [0; 8];
+    count.copy_from_slice(count_bytes);
+    let Ok(count) = usize::try_from(u64::from_le_bytes(count)) else {
+        return false;
+    };
+    count
+        .checked_mul(core::mem::size_of::<Hash>())
+        .and_then(|parent_bytes| {
+            LEGACY_RECEIPT_CORRELATION_PREFIX_LEN
+                .checked_add(8)?
+                .checked_add(parent_bytes)
+        })
+        == Some(bytes.len())
 }
 
 /// Retained material family referenced by committed WAL history.
@@ -2556,8 +2612,8 @@ pub struct RecoveredSubmissionEntry {
     pub acceptance: SubmissionAcceptanceRecord,
     /// Current recovered posture.
     pub posture: RecoveredSubmissionPosture,
-    /// Deciding receipt digest, if any.
-    pub receipt_digest: Option<Hash>,
+    /// Exact deciding receipt coordinate, if any.
+    pub receipt_ref: Option<CausalTickReceiptRef>,
 }
 
 /// Recovered submission index.
@@ -2633,13 +2689,13 @@ impl RecoveredSubmissionIndex {
             .or_insert(RecoveredSubmissionEntry {
                 acceptance: record,
                 posture: RecoveredSubmissionPosture::AcceptedPending,
-                receipt_digest: None,
+                receipt_ref: None,
             });
         Ok(())
     }
 
     fn apply_tick_receipt_record(&mut self, receipt: TickReceiptRecord) {
-        if let Some(entry) = self.submissions.get_mut(&receipt.submission_id) {
+        if let Some(entry) = self.submissions.get_mut(&receipt.receipt_ref.submission_id) {
             entry.posture = match receipt.decision {
                 WalTickDecision::Applied => RecoveredSubmissionPosture::DecidedApplied,
                 WalTickDecision::RejectedFootprintConflict => {
@@ -2647,7 +2703,7 @@ impl RecoveredSubmissionIndex {
                 }
                 WalTickDecision::Obstructed => RecoveredSubmissionPosture::Obstructed,
             };
-            entry.receipt_digest = Some(receipt.receipt_digest);
+            entry.receipt_ref = Some(receipt.receipt_ref);
         }
     }
 
@@ -2737,10 +2793,10 @@ pub fn recovered_submission_receipt_index_root(
         }
         hasher.update(&entry.acceptance.acceptance_evidence_digest);
         hasher.update(&[recovered_submission_posture_code(entry.posture)]);
-        match entry.receipt_digest {
-            Some(digest) => {
+        match entry.receipt_ref {
+            Some(receipt_ref) => {
                 hasher.update(&[1]);
-                hasher.update(&digest);
+                hasher.update(&receipt_ref.to_canonical_bytes());
             }
             None => {
                 hasher.update(&[0]);
@@ -2757,16 +2813,16 @@ pub fn recovered_submission_receipt_index_root(
         }
     }
     hasher.update(&len_u64(receipts.receipt_by_submission.len()).to_le_bytes());
-    for (submission_id, receipt_digest) in &receipts.receipt_by_submission {
+    for (submission_id, receipt_ref) in &receipts.receipt_by_submission {
         hasher.update(b"receipt-by-submission");
         hasher.update(submission_id);
-        hasher.update(receipt_digest);
+        hasher.update(&receipt_ref.to_canonical_bytes());
     }
     hasher.update(&len_u64(receipts.receipt_by_ticket.len()).to_le_bytes());
-    for (ticket_digest, receipt_digest) in &receipts.receipt_by_ticket {
+    for (ticket_digest, receipt_ref) in &receipts.receipt_by_ticket {
         hasher.update(b"receipt-by-ticket");
         hasher.update(ticket_digest);
-        hasher.update(receipt_digest);
+        hasher.update(&receipt_ref.to_canonical_bytes());
     }
     hasher.update(&len_u64(receipts.ticket_by_submission.len()).to_le_bytes());
     for (submission_id, ticket_digest) in &receipts.ticket_by_submission {
@@ -2775,19 +2831,19 @@ pub fn recovered_submission_receipt_index_root(
         hasher.update(ticket_digest);
     }
     hasher.update(&len_u64(receipts.decisions_by_receipt.len()).to_le_bytes());
-    for (receipt_digest, decision) in &receipts.decisions_by_receipt {
+    for (receipt_ref, decision) in &receipts.decisions_by_receipt {
         hasher.update(b"decision-by-receipt");
-        hasher.update(receipt_digest);
+        hasher.update(&receipt_ref.to_canonical_bytes());
         hasher.update(&[decision.code()]);
     }
     if !receipts.causal_parent_receipts_by_receipt.is_empty() {
-        hasher.update(b"causal-parents-by-receipt:v1\0");
+        hasher.update(b"causal-parents-by-receipt:v2\0");
         hasher.update(&len_u64(receipts.causal_parent_receipts_by_receipt.len()).to_le_bytes());
-        for (receipt_digest, parents) in &receipts.causal_parent_receipts_by_receipt {
-            hasher.update(receipt_digest);
+        for (receipt_ref, parents) in &receipts.causal_parent_receipts_by_receipt {
+            hasher.update(&receipt_ref.to_canonical_bytes());
             hasher.update(&len_u64(parents.len()).to_le_bytes());
             for parent in parents {
-                hasher.update(parent);
+                hasher.update(&parent.to_canonical_bytes());
             }
         }
     }
@@ -2808,17 +2864,17 @@ fn recovered_submission_posture_code(posture: RecoveredSubmissionPosture) -> u8 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RecoveredReceiptIndex {
     /// Receipt by submission id.
-    pub receipt_by_submission: BTreeMap<Hash, Hash>,
+    pub receipt_by_submission: BTreeMap<Hash, CausalTickReceiptRef>,
     /// Receipt by admission ticket digest.
-    pub receipt_by_ticket: BTreeMap<Hash, Hash>,
+    pub receipt_by_ticket: BTreeMap<Hash, CausalTickReceiptRef>,
     /// Ticket by submission id.
     pub ticket_by_submission: BTreeMap<Hash, Hash>,
-    /// Decisions by receipt digest.
-    pub decisions_by_receipt: BTreeMap<Hash, WalTickDecision>,
-    /// Canonical causal parent receipt/evidence hashes by child receipt.
-    causal_parent_receipts_by_receipt: BTreeMap<Hash, Vec<Hash>>,
-    /// Canonical child receipt hashes by cited parent receipt/evidence hash.
-    receipts_by_causal_parent: BTreeMap<Hash, Vec<Hash>>,
+    /// Decisions by exact causal receipt coordinate.
+    pub decisions_by_receipt: BTreeMap<CausalTickReceiptRef, WalTickDecision>,
+    /// Canonical causal parent receipt coordinates by child receipt.
+    causal_parent_receipts_by_receipt: BTreeMap<CausalTickReceiptRef, Vec<CausalTickReceiptRef>>,
+    /// Canonical child receipt coordinates by cited parent receipt coordinate.
+    receipts_by_causal_parent: BTreeMap<CausalTickReceiptRef, Vec<CausalTickReceiptRef>>,
 }
 
 impl RecoveredReceiptIndex {
@@ -2835,18 +2891,19 @@ impl RecoveredReceiptIndex {
     {
         let mut index = Self::default();
         for receipt in receipts {
+            let receipt_ref = receipt.receipt_ref;
             index
                 .receipt_by_submission
-                .insert(receipt.submission_id, receipt.receipt_digest);
+                .insert(receipt_ref.submission_id, receipt_ref);
             index
                 .receipt_by_ticket
-                .insert(receipt.ticket_digest, receipt.receipt_digest);
+                .insert(receipt_ref.ticket_digest, receipt_ref);
             index
                 .ticket_by_submission
-                .insert(receipt.submission_id, receipt.ticket_digest);
+                .insert(receipt_ref.submission_id, receipt_ref.ticket_digest);
             index
                 .decisions_by_receipt
-                .insert(receipt.receipt_digest, receipt.decision);
+                .insert(receipt_ref, receipt.decision);
         }
         for correlation in correlations {
             index.apply_correlation_record(correlation);
@@ -2860,14 +2917,14 @@ impl RecoveredReceiptIndex {
         parents.dedup();
         if let Some(previous_parents) = self
             .causal_parent_receipts_by_receipt
-            .remove(&correlation.receipt_digest)
+            .remove(&correlation.receipt_ref)
         {
             for previous_parent in previous_parents {
                 let remove_parent = self
                     .receipts_by_causal_parent
                     .get_mut(&previous_parent)
                     .is_some_and(|children| {
-                        children.retain(|child| child != &correlation.receipt_digest);
+                        children.retain(|child| child != &correlation.receipt_ref);
                         children.is_empty()
                     });
                 if remove_parent {
@@ -2875,38 +2932,50 @@ impl RecoveredReceiptIndex {
                 }
             }
         }
-        self.receipt_by_submission
-            .insert(correlation.submission_id, correlation.receipt_digest);
-        self.receipt_by_ticket
-            .insert(correlation.ticket_digest, correlation.receipt_digest);
-        self.ticket_by_submission
-            .insert(correlation.submission_id, correlation.ticket_digest);
+        self.receipt_by_submission.insert(
+            correlation.receipt_ref.submission_id,
+            correlation.receipt_ref,
+        );
+        self.receipt_by_ticket.insert(
+            correlation.receipt_ref.ticket_digest,
+            correlation.receipt_ref,
+        );
+        self.ticket_by_submission.insert(
+            correlation.receipt_ref.submission_id,
+            correlation.receipt_ref.ticket_digest,
+        );
         if parents.is_empty() {
             return;
         }
         self.causal_parent_receipts_by_receipt
-            .insert(correlation.receipt_digest, parents.clone());
+            .insert(correlation.receipt_ref, parents.clone());
         for parent in parents {
             let children = self.receipts_by_causal_parent.entry(parent).or_default();
-            children.push(correlation.receipt_digest);
+            children.push(correlation.receipt_ref);
             children.sort_unstable();
             children.dedup();
         }
     }
 
-    /// Returns canonical causal parent receipt/evidence hashes cited by a receipt.
+    /// Returns canonical causal parent receipt coordinates cited by a receipt.
     #[must_use]
-    pub fn causal_parent_receipts(&self, receipt_digest: &Hash) -> &[Hash] {
+    pub fn causal_parent_receipts(
+        &self,
+        receipt_ref: &CausalTickReceiptRef,
+    ) -> &[CausalTickReceiptRef] {
         self.causal_parent_receipts_by_receipt
-            .get(receipt_digest)
+            .get(receipt_ref)
             .map_or(&[], Vec::as_slice)
     }
 
-    /// Returns canonical receipts whose intents cite the supplied receipt/evidence hash.
+    /// Returns canonical receipts whose intents cite the supplied receipt coordinate.
     #[must_use]
-    pub fn receipts_citing(&self, parent_receipt_digest: &Hash) -> &[Hash] {
+    pub fn receipts_citing(
+        &self,
+        parent_receipt_ref: &CausalTickReceiptRef,
+    ) -> &[CausalTickReceiptRef] {
         self.receipts_by_causal_parent
-            .get(parent_receipt_digest)
+            .get(parent_receipt_ref)
             .map_or(&[], Vec::as_slice)
     }
 }
@@ -7460,18 +7529,19 @@ pub fn recover_receipt_index(
                 WalRecordKind::TickReceiptRecorded => {
                     let receipt =
                         TickReceiptRecord::from_payload_bytes(&frame.payload.canonical_bytes)?;
+                    let receipt_ref = receipt.receipt_ref;
                     index
                         .receipt_by_submission
-                        .insert(receipt.submission_id, receipt.receipt_digest);
+                        .insert(receipt_ref.submission_id, receipt_ref);
                     index
                         .receipt_by_ticket
-                        .insert(receipt.ticket_digest, receipt.receipt_digest);
+                        .insert(receipt_ref.ticket_digest, receipt_ref);
                     index
                         .ticket_by_submission
-                        .insert(receipt.submission_id, receipt.ticket_digest);
+                        .insert(receipt_ref.submission_id, receipt_ref.ticket_digest);
                     index
                         .decisions_by_receipt
-                        .insert(receipt.receipt_digest, receipt.decision);
+                        .insert(receipt_ref, receipt.decision);
                 }
                 WalRecordKind::ReceiptCorrelationRecorded => {
                     let correlation = WalReceiptCorrelationRecord::from_payload_bytes(
@@ -8100,6 +8170,18 @@ pub enum WalDecodeError {
     /// Encoded frame failed embedded integrity validation.
     #[error("encoded WAL frame failed embedded integrity validation")]
     InvalidEmbeddedFrame,
+    /// Versioned causal receipt material did not carry the required magic.
+    #[error("invalid {record_kind} WAL payload magic")]
+    InvalidRecordMagic {
+        /// Retained record family whose version marker is malformed.
+        record_kind: &'static str,
+    },
+    /// Legacy receipt material names content but not one admitted event.
+    #[error("legacy {record_kind} payload lacks an exact causal receipt identity")]
+    LegacyCausalReceiptIdentityUnavailable {
+        /// Retained record family that cannot be upgraded without ambiguity.
+        record_kind: &'static str,
+    },
 }
 
 /// WAL recovered index errors.
@@ -8778,6 +8860,19 @@ impl<'a> WalPayloadCursor<'a> {
 
     fn remaining_len(&self) -> usize {
         self.bytes.len().saturating_sub(self.offset)
+    }
+
+    fn read_exact(&mut self, len: usize) -> Result<&'a [u8], WalDecodeError> {
+        let end = self
+            .offset
+            .checked_add(len)
+            .ok_or(WalDecodeError::UnexpectedEof)?;
+        let bytes = self
+            .bytes
+            .get(self.offset..end)
+            .ok_or(WalDecodeError::UnexpectedEof)?;
+        self.offset = end;
+        Ok(bytes)
     }
 
     fn read_u8(&mut self) -> Result<u8, WalDecodeError> {

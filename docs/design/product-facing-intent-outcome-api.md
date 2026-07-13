@@ -28,15 +28,23 @@ surface returning `IntentOutcome`:
 - `Obstructed`.
 
 Applied and rejected outcomes carry `IntentOutcomeReceipt`, which names the
-ticketed ingress id, admission ticket digest, tick receipt digest, commit hash,
-worldline tick, entry index, rule id, installed contract evidence when present,
-and retained receipt evidence posture where Echo can name a lawful contract
-coordinate. Obstructed outcomes use the contract-host obstruction taxonomy and
-use the same retained receipt coordinate for generated contract work.
+ticketed ingress id, admission ticket digest, exact `CausalTickReceiptRef`, tick
+receipt content digest, commit hash, worldline tick, entry index, rule id,
+installed contract evidence when present, and retained receipt evidence posture
+where Echo can name a lawful contract coordinate. Obstructed outcomes use the
+contract-host obstruction taxonomy and use the same retained receipt coordinate
+for generated contract work.
 
 ## Invariants
 
 - Submission handles are not tick receipts.
+- `TickReceipt::digest()` is a repeatable content commitment, not causal event
+  identity.
+- Later intents cite `IntentOutcomeReceipt::causal_receipt_ref`; they must not
+  cite `tick_receipt_digest` as though it uniquely identified one admission.
+- A causal receipt reference is a coordinate, not authority. Recovery validates
+  it against retained submission, ticket, worldline, tick, commit, receipt, and
+  provenance evidence before restoring an outcome.
 - Outcome observation is read-only.
 - Pending does not imply failure or retry.
 - Rejected is a lawful scheduler outcome, not a runtime fault.

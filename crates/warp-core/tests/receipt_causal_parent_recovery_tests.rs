@@ -4,11 +4,12 @@
 #![allow(clippy::expect_used)]
 
 use warp_core::causal_wal::{
-    RecoveredReceiptIndex, TickReceiptRecord, WalReceiptCorrelationRecord, WalTickDecision,
+    RecoveredReceiptIndex, TickReceiptRecord, WalDecodeError, WalReceiptCorrelationRecord,
+    WalTickDecision,
 };
 use warp_core::{
-    make_intent_kind, HeadId, IngressCausalParent, IngressEnvelope, IngressTarget, WorldlineId,
-    WriterHeadKey,
+    make_intent_kind, CausalTickReceiptRef, GlobalTick, HeadId, IngressCausalParent,
+    IngressEnvelope, IngressTarget, WorldlineId, WorldlineTick, WriterHeadKey,
 };
 
 fn digest(label: &str) -> [u8; 32] {
@@ -22,10 +23,76 @@ fn writer_head() -> WriterHeadKey {
     }
 }
 
+fn receipt_ref(label: &str, tick: u64, content_digest: [u8; 32]) -> CausalTickReceiptRef {
+    CausalTickReceiptRef {
+        worldline_id: writer_head().worldline_id,
+        worldline_tick_after: WorldlineTick::from_raw(tick),
+        commit_global_tick: GlobalTick::from_raw(tick),
+        commit_hash: digest(&format!("{label}:commit")),
+        submission_id: digest(&format!("{label}:submission")),
+        ticket_digest: digest(&format!("{label}:ticket")),
+        receipt_content_digest: content_digest,
+    }
+}
+
+fn distinct_receipt_ref(label: &str, tick: u64) -> CausalTickReceiptRef {
+    receipt_ref(label, tick, digest(&format!("{label}:content")))
+}
+
+#[test]
+fn identical_receipt_content_has_distinct_causal_receipt_refs() {
+    let shared_content_digest = digest("identical-receipt-content");
+    let first = receipt_ref("first", 1, shared_content_digest);
+    let second = receipt_ref("second", 2, shared_content_digest);
+    let recovered = RecoveredReceiptIndex::from_receipt_correlation_records(
+        [
+            TickReceiptRecord {
+                receipt_ref: first,
+                decision: WalTickDecision::Applied,
+            },
+            TickReceiptRecord {
+                receipt_ref: second,
+                decision: WalTickDecision::Applied,
+            },
+        ],
+        [],
+    );
+
+    assert_ne!(
+        recovered.receipt_by_submission[&first.submission_id],
+        recovered.receipt_by_submission[&second.submission_id],
+        "receipt content equality must not alias two admitted causal events"
+    );
+    assert_eq!(recovered.decisions_by_receipt.len(), 2);
+}
+
+#[test]
+fn causal_parent_lookup_does_not_alias_identical_receipt_content() {
+    let shared_content_digest = digest("identical-receipt-content");
+    let first = receipt_ref("first", 1, shared_content_digest);
+    let second = receipt_ref("second", 2, shared_content_digest);
+    let shared_parent = distinct_receipt_ref("shared-parent", 3);
+    let recovered = RecoveredReceiptIndex::from_receipt_correlation_records(
+        [],
+        [
+            WalReceiptCorrelationRecord {
+                receipt_ref: first,
+                causal_parent_receipts: vec![shared_parent],
+            },
+            WalReceiptCorrelationRecord {
+                receipt_ref: second,
+                causal_parent_receipts: vec![shared_parent],
+            },
+        ],
+    );
+
+    assert_eq!(recovered.receipts_citing(&shared_parent), [first, second]);
+}
+
 #[test]
 fn causal_parent_receipt_changes_ingress_identity_and_is_canonicalized() {
-    let target_receipt = digest("target-receipt");
-    let other_receipt = digest("other-receipt");
+    let target_receipt = distinct_receipt_ref("target-receipt", 4);
+    let other_receipt = distinct_receipt_ref("other-receipt", 5);
     let target = IngressTarget::DefaultWriter {
         worldline_id: writer_head().worldline_id,
     };
@@ -38,13 +105,13 @@ fn causal_parent_receipt_changes_ingress_identity_and_is_canonicalized() {
         intent_bytes.clone(),
         vec![
             IngressCausalParent::TickReceipt {
-                receipt_digest: target_receipt,
+                receipt_ref: target_receipt,
             },
             IngressCausalParent::TickReceipt {
-                receipt_digest: other_receipt,
+                receipt_ref: other_receipt,
             },
             IngressCausalParent::TickReceipt {
-                receipt_digest: target_receipt,
+                receipt_ref: target_receipt,
             },
         ],
     );
@@ -53,17 +120,17 @@ fn causal_parent_receipt_changes_ingress_identity_and_is_canonicalized() {
         intent_kind,
         intent_bytes,
         vec![IngressCausalParent::TickReceipt {
-            receipt_digest: other_receipt,
+            receipt_ref: other_receipt,
         }],
     );
 
     assert_ne!(first.ingress_id(), second.ingress_id());
     let mut expected_parents = vec![
         IngressCausalParent::TickReceipt {
-            receipt_digest: target_receipt,
+            receipt_ref: target_receipt,
         },
         IngressCausalParent::TickReceipt {
-            receipt_digest: other_receipt,
+            receipt_ref: other_receipt,
         },
     ];
     expected_parents.sort_unstable();
@@ -71,7 +138,7 @@ fn causal_parent_receipt_changes_ingress_identity_and_is_canonicalized() {
 }
 
 #[test]
-fn receipt_correlation_decoder_accepts_legacy_parentless_payload() {
+fn legacy_bare_receipt_digest_is_reported_as_ambiguous() {
     let submission_id = digest("legacy-submission");
     let ticket_digest = digest("legacy-ticket");
     let receipt_digest = digest("legacy-receipt");
@@ -80,40 +147,83 @@ fn receipt_correlation_decoder_accepts_legacy_parentless_payload() {
     legacy_payload.extend_from_slice(&ticket_digest);
     legacy_payload.extend_from_slice(&receipt_digest);
 
-    let decoded = WalReceiptCorrelationRecord::from_payload_bytes(&legacy_payload)
-        .expect("legacy correlation payload should remain readable");
+    assert_eq!(
+        WalReceiptCorrelationRecord::from_payload_bytes(&legacy_payload),
+        Err(WalDecodeError::LegacyCausalReceiptIdentityUnavailable {
+            record_kind: "receipt-correlation",
+        })
+    );
+}
 
-    assert_eq!(decoded.submission_id, submission_id);
-    assert_eq!(decoded.ticket_digest, ticket_digest);
-    assert_eq!(decoded.receipt_digest, receipt_digest);
-    assert!(decoded.causal_parent_receipts.is_empty());
-    assert_eq!(decoded.to_payload_bytes(), legacy_payload);
+#[test]
+fn tick_receipt_decoder_rejects_legacy_content_only_identity() {
+    let mut legacy_payload = Vec::new();
+    legacy_payload.extend_from_slice(&digest("legacy-submission"));
+    legacy_payload.extend_from_slice(&digest("legacy-ticket"));
+    legacy_payload.extend_from_slice(&digest("legacy-receipt"));
+    legacy_payload.push(1);
+
+    assert_eq!(
+        TickReceiptRecord::from_payload_bytes(&legacy_payload),
+        Err(WalDecodeError::LegacyCausalReceiptIdentityUnavailable {
+            record_kind: "tick-receipt",
+        })
+    );
+}
+
+#[test]
+fn versioned_receipt_records_reject_corrupt_magic_as_corruption() {
+    let receipt_ref = distinct_receipt_ref("corrupt-magic", 6);
+    let mut tick_payload = TickReceiptRecord {
+        receipt_ref,
+        decision: WalTickDecision::Applied,
+    }
+    .to_payload_bytes();
+    tick_payload[0] ^= 0xff;
+    assert_eq!(
+        TickReceiptRecord::from_payload_bytes(&tick_payload),
+        Err(WalDecodeError::InvalidRecordMagic {
+            record_kind: "tick-receipt",
+        })
+    );
+
+    let mut correlation_payload = WalReceiptCorrelationRecord {
+        receipt_ref,
+        causal_parent_receipts: Vec::new(),
+    }
+    .to_payload_bytes();
+    correlation_payload[0] ^= 0xff;
+    assert_eq!(
+        WalReceiptCorrelationRecord::from_payload_bytes(&correlation_payload),
+        Err(WalDecodeError::InvalidRecordMagic {
+            record_kind: "receipt-correlation",
+        })
+    );
 }
 
 #[test]
 fn receipt_correlation_decoder_rejects_parent_count_beyond_payload() {
-    let mut forged_payload = vec![0; 3 * core::mem::size_of::<[u8; 32]>()];
+    let mut forged_payload = b"ERCOR002".to_vec();
+    forged_payload
+        .extend_from_slice(&distinct_receipt_ref("forged-correlation", 6).to_canonical_bytes());
     forged_payload.extend_from_slice(&u64::MAX.to_le_bytes());
 
-    assert!(WalReceiptCorrelationRecord::from_payload_bytes(&forged_payload).is_err());
+    assert_eq!(
+        WalReceiptCorrelationRecord::from_payload_bytes(&forged_payload),
+        Err(WalDecodeError::UnexpectedEof)
+    );
 }
 
 #[test]
 fn recovered_receipt_index_preserves_causal_parent_receipts() {
-    let submission_id = digest("inverse-submission");
-    let ticket_digest = digest("inverse-ticket");
-    let inverse_receipt = digest("inverse-receipt");
-    let target_receipt = digest("target-receipt");
+    let inverse_receipt = distinct_receipt_ref("inverse-receipt", 7);
+    let target_receipt = distinct_receipt_ref("target-receipt", 8);
     let receipt = TickReceiptRecord {
-        submission_id,
-        ticket_digest,
-        receipt_digest: inverse_receipt,
+        receipt_ref: inverse_receipt,
         decision: WalTickDecision::Applied,
     };
     let correlation = WalReceiptCorrelationRecord {
-        submission_id,
-        ticket_digest,
-        receipt_digest: inverse_receipt,
+        receipt_ref: inverse_receipt,
         causal_parent_receipts: vec![target_receipt],
     };
 
@@ -132,13 +242,11 @@ fn recovered_receipt_index_preserves_causal_parent_receipts() {
 
 #[test]
 fn recovered_receipt_index_replaces_reverse_parent_links_consistently() {
-    let receipt_digest = digest("replaced-receipt");
-    let old_parent = digest("old-parent");
-    let new_parent = digest("new-parent");
+    let receipt_ref = distinct_receipt_ref("replaced-receipt", 9);
+    let old_parent = distinct_receipt_ref("old-parent", 10);
+    let new_parent = distinct_receipt_ref("new-parent", 11);
     let correlation = |parent| WalReceiptCorrelationRecord {
-        submission_id: digest("replaced-submission"),
-        ticket_digest: digest("replaced-ticket"),
-        receipt_digest,
+        receipt_ref,
         causal_parent_receipts: vec![parent],
     };
 
@@ -149,11 +257,11 @@ fn recovered_receipt_index_replaces_reverse_parent_links_consistently() {
 
     assert!(recovered.receipts_citing(&old_parent).is_empty());
     assert_eq!(
-        recovered.causal_parent_receipts(&receipt_digest),
+        recovered.causal_parent_receipts(&receipt_ref),
         [new_parent].as_slice()
     );
     assert_eq!(
         recovered.receipts_citing(&new_parent),
-        [receipt_digest].as_slice()
+        [receipt_ref].as_slice()
     );
 }

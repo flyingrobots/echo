@@ -1040,7 +1040,7 @@ impl TrustedRuntimeWal {
             .receipts
             .receipt_by_submission
             .get(&correlation.submission_id)
-            == Some(&correlation.tick_receipt_digest)
+            == Some(&correlation.causal_receipt_ref)
     }
 
     fn record_submission_acceptance(
@@ -1083,15 +1083,11 @@ impl TrustedRuntimeWal {
         state_delta_digest: Hash,
     ) -> Result<WalTransactionCommit, TrustedRuntimeWalError> {
         let receipt = TickReceiptRecord {
-            submission_id: correlation.submission_id,
-            ticket_digest: correlation.ticket_digest,
-            receipt_digest: correlation.tick_receipt_digest,
+            receipt_ref: correlation.causal_receipt_ref,
             decision,
         };
         let wal_correlation = WalReceiptCorrelationRecord {
-            submission_id: correlation.submission_id,
-            ticket_digest: correlation.ticket_digest,
-            receipt_digest: correlation.tick_receipt_digest,
+            receipt_ref: correlation.causal_receipt_ref,
             causal_parent_receipts: correlation.causal_parent_receipts.clone(),
         };
         let next_receipt_frontier =
@@ -1533,11 +1529,11 @@ fn recover_witnessed_submission_material(
                 submission_id: *submission_id,
             });
         }
-        let envelope = IngressEnvelope::from_retained_bytes_v1(&material.retained_envelope_bytes)
+        let envelope = IngressEnvelope::from_retained_bytes(&material.retained_envelope_bytes)
             .map_err(|error| TrustedRuntimeWalError::SubmissionEnvelopeDecode {
-            submission_id: *submission_id,
-            error,
-        })?;
+                submission_id: *submission_id,
+                error,
+            })?;
         if envelope.ingress_id() != entry.acceptance.canonical_envelope_digest {
             return Err(TrustedRuntimeWalError::SubmissionEnvelopeMismatch {
                 submission_id: *submission_id,
@@ -1607,10 +1603,7 @@ fn recover_runtime_state_delta_material(
         }
         let receipt = tick_receipt_from_transaction(transaction)?;
         let wal_correlation = tick_correlation_from_transaction(transaction)?;
-        if wal_correlation.receipt_digest != receipt.receipt_digest
-            || wal_correlation.submission_id != receipt.submission_id
-            || wal_correlation.ticket_digest != receipt.ticket_digest
-        {
+        if wal_correlation.receipt_ref != receipt.receipt_ref {
             return Err(decode_trusted_runtime_wal_payload(
                 WalDecodeError::InvalidEmbeddedFrame,
             ));
@@ -1628,35 +1621,48 @@ fn recover_runtime_state_delta_material(
             ));
         }
         if state_delta_frame.payload.canonical_bytes.len() == core::mem::size_of::<Hash>() {
-            missing.push(receipt.receipt_digest);
+            missing.push(receipt.receipt_ref.identity_digest());
             continue;
         }
         let state_delta = WalRuntimeStateDeltaRecord::from_payload_bytes(
             &state_delta_frame.payload.canonical_bytes,
         )?;
-        if state_delta.receipt_digest() != receipt.receipt_digest {
+        if state_delta.receipt_digest() != receipt.receipt_ref.receipt_content_digest {
             return Err(RetainedProvenanceError::Inconsistent("state-delta receipt").into());
         }
         let entry = state_delta.provenance_entry().clone();
         let head_key = entry
             .head_key
             .ok_or(RetainedProvenanceError::MissingHeadKey)?;
-        let persistence = ReceiptCorrelationPersistenceRecord {
-            submission_id: receipt.submission_id,
-            ticket_digest: receipt.ticket_digest,
-            head_key,
-            commit_global_tick: entry.commit_global_tick,
+        let expected_receipt_ref = crate::CausalTickReceiptRef {
+            worldline_id: entry.worldline_id,
             worldline_tick_after: entry
                 .worldline_tick
                 .checked_add(1)
                 .ok_or(RetainedProvenanceError::Inconsistent("worldline tick"))?,
-            tick_receipt_digest: receipt.receipt_digest,
+            commit_global_tick: entry.commit_global_tick,
+            commit_hash: entry.expected.commit_hash,
+            submission_id: receipt.receipt_ref.submission_id,
+            ticket_digest: receipt.receipt_ref.ticket_digest,
+            receipt_content_digest: state_delta.receipt_digest(),
+        };
+        if receipt.receipt_ref != expected_receipt_ref {
+            return Err(RetainedProvenanceError::Inconsistent("causal receipt ref").into());
+        }
+        let persistence = ReceiptCorrelationPersistenceRecord {
+            submission_id: receipt.receipt_ref.submission_id,
+            ticket_digest: receipt.receipt_ref.ticket_digest,
+            causal_receipt_ref: receipt.receipt_ref,
+            head_key,
+            commit_global_tick: entry.commit_global_tick,
+            worldline_tick_after: receipt.receipt_ref.worldline_tick_after,
+            tick_receipt_digest: receipt.receipt_ref.receipt_content_digest,
             commit_hash: entry.expected.commit_hash,
             contract: state_delta.contract().cloned(),
             causal_parent_receipts: wal_correlation.causal_parent_receipts,
         };
         if correlations_by_submission
-            .get(&receipt.submission_id)
+            .get(&receipt.receipt_ref.submission_id)
             .is_some_and(|existing| existing != &persistence)
         {
             return Err(TrustedRuntimeWalError::RuntimeStateDeltaConflict {
@@ -1665,15 +1671,18 @@ fn recover_runtime_state_delta_material(
             });
         }
         if submission_by_ticket
-            .insert(receipt.ticket_digest, receipt.submission_id)
-            .is_some_and(|existing| existing != receipt.submission_id)
+            .insert(
+                receipt.receipt_ref.ticket_digest,
+                receipt.receipt_ref.submission_id,
+            )
+            .is_some_and(|existing| existing != receipt.receipt_ref.submission_id)
         {
             return Err(TrustedRuntimeWalError::RuntimeStateDeltaConflict {
                 worldline_id: entry.worldline_id,
                 worldline_tick: entry.worldline_tick,
             });
         }
-        correlations_by_submission.insert(receipt.submission_id, persistence);
+        correlations_by_submission.insert(receipt.receipt_ref.submission_id, persistence);
         let coordinate = (entry.worldline_id, entry.worldline_tick);
         if entries_by_coordinate
             .get(&coordinate)
@@ -1725,10 +1734,7 @@ fn tick_records_from_transaction(
 > {
     let receipt = tick_receipt_from_transaction(transaction)?;
     let correlation = tick_correlation_from_transaction(transaction)?;
-    if correlation.receipt_digest != receipt.receipt_digest
-        || correlation.submission_id != receipt.submission_id
-        || correlation.ticket_digest != receipt.ticket_digest
-    {
+    if correlation.receipt_ref != receipt.receipt_ref {
         return Err(decode_trusted_runtime_wal_payload(
             WalDecodeError::InvalidEmbeddedFrame,
         ));
@@ -1754,7 +1760,7 @@ fn tick_records_from_transaction(
         let state_delta = WalRuntimeStateDeltaRecord::from_payload_bytes(
             &state_delta_frame.payload.canonical_bytes,
         )?;
-        if state_delta.receipt_digest() != receipt.receipt_digest {
+        if state_delta.receipt_digest() != receipt.receipt_ref.receipt_content_digest {
             return Err(RetainedProvenanceError::Inconsistent("state-delta receipt").into());
         }
         (
@@ -2035,7 +2041,7 @@ fn submission_envelope_record(
         canonical_envelope_digest: envelope.ingress_id(),
         submission_generation: handle.submission_generation.as_u64(),
         head_key: handle.head_key,
-        retained_envelope_bytes: envelope.to_retained_bytes_v1(),
+        retained_envelope_bytes: envelope.to_retained_bytes_v2(),
     }
 }
 
@@ -2107,7 +2113,8 @@ fn wal_tick_decision_from_observation(
 mod tests {
     use super::*;
     use crate::{
-        GlobalTick, IngressSubmissionGeneration, WorldlineId, WorldlineTick, WriterHeadKey,
+        CausalTickReceiptRef, GlobalTick, IngressSubmissionGeneration, WorldlineId, WorldlineTick,
+        WriterHeadKey,
     };
 
     fn test_head_key() -> WriterHeadKey {
@@ -2118,17 +2125,27 @@ mod tests {
     }
 
     fn test_correlation(receipt_digest: Hash) -> ReceiptCorrelationRecord {
+        let head_key = test_head_key();
         ReceiptCorrelationRecord {
             ticketed_ingress_id: [1; 32],
             submission_id: [2; 32],
             ticket_digest: [3; 32],
             ingress_id: [4; 32],
-            head_key: test_head_key(),
+            head_key,
             contract: None,
             commit_global_tick: GlobalTick::from_raw(1),
             worldline_tick_after: WorldlineTick::from_raw(1),
             tick_receipt_digest: receipt_digest,
             commit_hash: [5; 32],
+            causal_receipt_ref: CausalTickReceiptRef {
+                worldline_id: head_key.worldline_id,
+                worldline_tick_after: WorldlineTick::from_raw(1),
+                commit_global_tick: GlobalTick::from_raw(1),
+                commit_hash: [5; 32],
+                submission_id: [2; 32],
+                ticket_digest: [3; 32],
+                receipt_content_digest: receipt_digest,
+            },
             causal_parent_receipts: Vec::new(),
         }
     }
@@ -2265,15 +2282,19 @@ mod tests {
     fn runtime_wal_recovery_marks_legacy_tick_without_replayable_state_material() {
         let mut wal = TrustedRuntimeWal::new_in_memory().expect("test WAL should initialize");
         let receipt = TickReceiptRecord {
-            submission_id: [21; 32],
-            ticket_digest: [22; 32],
-            receipt_digest: [23; 32],
+            receipt_ref: CausalTickReceiptRef {
+                worldline_id: WorldlineId::from_bytes([20; 32]),
+                worldline_tick_after: WorldlineTick::from_raw(1),
+                commit_global_tick: GlobalTick::from_raw(1),
+                commit_hash: [26; 32],
+                submission_id: [21; 32],
+                ticket_digest: [22; 32],
+                receipt_content_digest: [23; 32],
+            },
             decision: WalTickDecision::Applied,
         };
         let correlation = WalReceiptCorrelationRecord {
-            submission_id: receipt.submission_id,
-            ticket_digest: receipt.ticket_digest,
-            receipt_digest: receipt.receipt_digest,
+            receipt_ref: receipt.receipt_ref,
             causal_parent_receipts: Vec::new(),
         };
         let legacy_state_delta_digest = [24; 32];
@@ -2314,7 +2335,7 @@ mod tests {
         assert!(recovery.provenance_entries.is_empty());
         assert_eq!(
             recovery.missing_runtime_state_deltas,
-            vec![receipt.receipt_digest]
+            vec![receipt.receipt_ref.identity_digest()]
         );
         assert_eq!(recovery.certificate.obstruction_count, 1);
     }
@@ -2329,13 +2350,8 @@ fn tick_transaction_digest(
     hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
     hasher.update(b"tick-transaction");
     hasher.update(&correlation.ticketed_ingress_id);
-    hasher.update(&correlation.submission_id);
-    hasher.update(&correlation.ticket_digest);
+    hasher.update(&correlation.causal_receipt_ref.to_canonical_bytes());
     hasher.update(&correlation.ingress_id);
-    hasher.update(&correlation.tick_receipt_digest);
-    hasher.update(&correlation.commit_hash);
-    hasher.update(&correlation.commit_global_tick.as_u64().to_le_bytes());
-    hasher.update(&correlation.worldline_tick_after.as_u64().to_le_bytes());
     hash_causal_parent_receipts(&mut hasher, &correlation.causal_parent_receipts);
     hasher.update(&[wal_tick_decision_code(decision)]);
     hasher.update(&state_delta_digest);
@@ -2351,25 +2367,24 @@ fn receipt_frontier_digest(
     hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
     hasher.update(b"receipt-frontier");
     hasher.update(&previous);
-    hasher.update(&receipt.submission_id);
-    hasher.update(&receipt.ticket_digest);
-    hasher.update(&receipt.receipt_digest);
+    hasher.update(&receipt.receipt_ref.to_canonical_bytes());
     hasher.update(&[wal_tick_decision_code(receipt.decision)]);
-    hasher.update(&correlation.submission_id);
-    hasher.update(&correlation.ticket_digest);
-    hasher.update(&correlation.receipt_digest);
+    hasher.update(&correlation.receipt_ref.to_canonical_bytes());
     hash_causal_parent_receipts(&mut hasher, &correlation.causal_parent_receipts);
     hasher.finalize().into()
 }
 
-fn hash_causal_parent_receipts(hasher: &mut blake3::Hasher, parents: &[Hash]) {
+fn hash_causal_parent_receipts(
+    hasher: &mut blake3::Hasher,
+    parents: &[crate::CausalTickReceiptRef],
+) {
     if parents.is_empty() {
         return;
     }
-    hasher.update(b"causal-parent-tick-receipts:v1\0");
+    hasher.update(b"causal-parent-tick-receipts:v2\0");
     hasher.update(&(parents.len() as u64).to_le_bytes());
     for parent in parents {
-        hasher.update(parent);
+        hasher.update(&parent.to_canonical_bytes());
     }
 }
 
@@ -2422,9 +2437,7 @@ fn recovered_legacy_runtime_state_frontier_digest(
     hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
     hasher.update(b"runtime-state-frontier:recovered");
     hasher.update(&previous);
-    hasher.update(&correlation.submission_id);
-    hasher.update(&correlation.ticket_digest);
-    hasher.update(&correlation.receipt_digest);
+    hasher.update(&correlation.receipt_ref.to_canonical_bytes());
     hasher.update(&state_delta_digest);
     hasher.finalize().into()
 }
@@ -2484,7 +2497,7 @@ fn recovered_submission_material_index_root(
                 .as_u64()
                 .to_le_bytes(),
         );
-        let retained_bytes = record.envelope.to_retained_bytes_v1();
+        let retained_bytes = record.envelope.to_retained_bytes_v2();
         hasher.update(&(retained_bytes.len() as u64).to_le_bytes());
         hasher.update(&retained_bytes);
     }

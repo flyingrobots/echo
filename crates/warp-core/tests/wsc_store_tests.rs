@@ -38,8 +38,8 @@ use warp_core::wsc::{
 };
 use warp_core::{
     make_node_id, make_strand_id, make_type_id, make_warp_id, AuthorityDomainId,
-    AuthorityDomainRef, BraidEvent, BraidStatus, HeadId, OriginId, WorldlineId, WorldlineTick,
-    WriterHeadKey,
+    AuthorityDomainRef, BraidEvent, BraidStatus, CausalTickReceiptRef, GlobalTick, HeadId,
+    OriginId, WorldlineId, WorldlineTick, WriterHeadKey,
 };
 
 static NEXT_WSC_STORE_TEMP_DIR: AtomicU64 = AtomicU64::new(0);
@@ -566,7 +566,7 @@ fn pending_submission_recovers_from_committed_wsc_store_without_decision() {
         .get(&pending.submission_id)
         .expect("recovered pending submission");
     assert_eq!(entry.posture, RecoveredSubmissionPosture::AcceptedPending);
-    assert_eq!(entry.receipt_digest, None);
+    assert_eq!(entry.receipt_ref, None);
     assert_eq!(
         recovered.retry_posture(pending.submission_id, pending.canonical_envelope_digest),
         SubmissionRetryPosture::AlreadyAcceptedPending
@@ -577,7 +577,8 @@ fn pending_submission_recovers_from_committed_wsc_store_without_decision() {
 fn receipt_correlation_records_round_trip_through_wsc_envelope() {
     let receipt = tick_receipt(7, 17, 27, WalTickDecision::Applied);
     let mut correlation = receipt_correlation(7, 17, 27);
-    correlation.causal_parent_receipts = vec![[37; 32]];
+    let parent_receipt = causal_receipt_ref(37, 47, 57);
+    correlation.causal_parent_receipts = vec![parent_receipt];
     let envelope = receipt_correlation_records_to_wsc_envelope(
         &[receipt],
         core::slice::from_ref(&correlation),
@@ -596,14 +597,26 @@ fn receipt_correlation_records_round_trip_through_wsc_envelope() {
         recovered.receipts,
         recovered.correlations,
     );
-    assert_eq!(index.receipt_by_submission.get(&[7; 32]), Some(&[27; 32]));
-    assert_eq!(index.receipt_by_ticket.get(&[17; 32]), Some(&[27; 32]));
     assert_eq!(
-        index.decisions_by_receipt.get(&[27; 32]),
+        index.receipt_by_submission.get(&[7; 32]),
+        Some(&receipt.receipt_ref)
+    );
+    assert_eq!(
+        index.receipt_by_ticket.get(&[17; 32]),
+        Some(&receipt.receipt_ref)
+    );
+    assert_eq!(
+        index.decisions_by_receipt.get(&receipt.receipt_ref),
         Some(&WalTickDecision::Applied)
     );
-    assert_eq!(index.causal_parent_receipts(&[27; 32]), [[37; 32]]);
-    assert_eq!(index.receipts_citing(&[37; 32]), [[27; 32]]);
+    assert_eq!(
+        index.causal_parent_receipts(&receipt.receipt_ref),
+        [parent_receipt]
+    );
+    assert_eq!(
+        index.receipts_citing(&parent_receipt),
+        [receipt.receipt_ref]
+    );
 }
 
 #[test]
@@ -639,7 +652,10 @@ fn receipt_correlation_records_reject_basis_digest_mismatch() {
 #[test]
 fn receipt_correlation_records_reject_conflicting_duplicate_receipt() {
     let receipt = tick_receipt(7, 17, 27, WalTickDecision::Applied);
-    let conflicting_receipt = tick_receipt(8, 18, 27, WalTickDecision::Obstructed);
+    let conflicting_receipt = TickReceiptRecord {
+        decision: WalTickDecision::Obstructed,
+        ..receipt
+    };
 
     let obstruction = receipt_correlation_records_to_wsc_envelope(
         &[receipt, conflicting_receipt],
@@ -700,10 +716,7 @@ fn decided_submissions_recover_from_committed_wsc_store() {
         applied_entry.posture,
         RecoveredSubmissionPosture::DecidedApplied
     );
-    assert_eq!(
-        applied_entry.receipt_digest,
-        Some(applied_receipt.receipt_digest)
-    );
+    assert_eq!(applied_entry.receipt_ref, Some(applied_receipt.receipt_ref));
     assert_eq!(
         submissions.retry_posture(applied.submission_id, applied.canonical_envelope_digest),
         SubmissionRetryPosture::AlreadyDecidedApplied
@@ -717,8 +730,8 @@ fn decided_submissions_recover_from_committed_wsc_store() {
         RecoveredSubmissionPosture::DecidedRejected
     );
     assert_eq!(
-        rejected_entry.receipt_digest,
-        Some(rejected_receipt.receipt_digest)
+        rejected_entry.receipt_ref,
+        Some(rejected_receipt.receipt_ref)
     );
     assert_eq!(
         submissions.retry_posture(rejected.submission_id, rejected.canonical_envelope_digest),
@@ -726,12 +739,12 @@ fn decided_submissions_recover_from_committed_wsc_store() {
     );
     assert_eq!(
         receipts.receipt_by_submission.get(&applied.submission_id),
-        Some(&applied_receipt.receipt_digest)
+        Some(&applied_receipt.receipt_ref)
     );
     assert_eq!(
         receipts
             .decisions_by_receipt
-            .get(&rejected_receipt.receipt_digest),
+            .get(&rejected_receipt.receipt_ref),
         Some(&WalTickDecision::RejectedFootprintConflict)
     );
 }
@@ -767,7 +780,7 @@ fn wsc_causal_history_rejects_receipt_without_committed_acceptance() {
     assert_eq!(
         obstruction.subject,
         WscStoreSubject::CausalHistory {
-            subject_digest: receipt.receipt_digest
+            subject_digest: receipt.receipt_ref.identity_digest()
         }
     );
 }
@@ -800,7 +813,7 @@ fn wsc_causal_history_rejects_receipt_without_correlation() {
     assert_eq!(
         obstruction.subject,
         WscStoreSubject::CausalHistory {
-            subject_digest: receipt.receipt_digest
+            subject_digest: receipt.receipt_ref.identity_digest()
         }
     );
 }
@@ -1332,10 +1345,24 @@ fn tick_receipt(
     decision: WalTickDecision,
 ) -> TickReceiptRecord {
     TickReceiptRecord {
+        receipt_ref: causal_receipt_ref(submission_byte, ticket_byte, receipt_byte),
+        decision,
+    }
+}
+
+fn causal_receipt_ref(
+    submission_byte: u8,
+    ticket_byte: u8,
+    receipt_byte: u8,
+) -> CausalTickReceiptRef {
+    CausalTickReceiptRef {
+        worldline_id: WorldlineId::from_bytes([submission_byte.wrapping_add(1); 32]),
+        worldline_tick_after: WorldlineTick::from_raw(u64::from(receipt_byte) + 1),
+        commit_global_tick: GlobalTick::from_raw(u64::from(receipt_byte) + 1),
+        commit_hash: [receipt_byte.wrapping_add(1); 32],
         submission_id: [submission_byte; 32],
         ticket_digest: [ticket_byte; 32],
-        receipt_digest: [receipt_byte; 32],
-        decision,
+        receipt_content_digest: [receipt_byte; 32],
     }
 }
 
@@ -1345,9 +1372,7 @@ fn receipt_correlation(
     receipt_byte: u8,
 ) -> WalReceiptCorrelationRecord {
     WalReceiptCorrelationRecord {
-        submission_id: [submission_byte; 32],
-        ticket_digest: [ticket_byte; 32],
-        receipt_digest: [receipt_byte; 32],
+        receipt_ref: causal_receipt_ref(submission_byte, ticket_byte, receipt_byte),
         causal_parent_receipts: Vec::new(),
     }
 }

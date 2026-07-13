@@ -23,16 +23,17 @@ use warp_core::{
         WriterEpochId, WriterEpochRequest,
     },
     make_head_id, make_intent_kind, make_node_id, make_type_id, AuthoredObserverPlan,
-    ContractMutationHandler, ContractOperationKind, ContractPackageIdentity, ContractQueryObserver,
-    ContractQueryObserverResult, EngineBuilder, GraphStore, GraphView, Hash, InboxPolicy,
-    IngressCausalParent, IngressEnvelope, IngressTarget, IntentOutcome, NodeId, NodeRecord,
-    ObservationAt, ObservationCoordinate, ObservationFrame, ObservationPayload,
-    ObservationProjection, ObservationReadBudget, ObservationRequest, ObserverPlanId,
-    OpticAdmissionTicket, OpticArtifactHandle, PatternGraph, PlaybackMode, ProvenanceStore,
-    RuntimeWalActivationGap, SchedulerKind, TickDelta, TrustedRuntimeHost, TrustedRuntimeHostError,
-    TrustedRuntimeWal, TrustedRuntimeWalConfig, TrustedRuntimeWalError, TrustedRuntimeWalStoreKind,
-    WarpOp, WorldlineId, WorldlineRuntime, WorldlineState, WorldlineTick, WriterHead,
-    WriterHeadKey, OPTIC_ADMISSION_TICKET_KIND, OPTIC_ARTIFACT_HANDLE_KIND,
+    CausalTickReceiptRef, ContractMutationHandler, ContractOperationKind, ContractPackageIdentity,
+    ContractQueryObserver, ContractQueryObserverResult, EngineBuilder, GlobalTick, GraphStore,
+    GraphView, Hash, InboxPolicy, IngressCausalParent, IngressEnvelope, IngressTarget,
+    IntentOutcome, NodeId, NodeRecord, ObservationAt, ObservationCoordinate, ObservationFrame,
+    ObservationPayload, ObservationProjection, ObservationReadBudget, ObservationRequest,
+    ObserverPlanId, OpticAdmissionTicket, OpticArtifactHandle, PatternGraph, PlaybackMode,
+    ProvenanceStore, RuntimeWalActivationGap, SchedulerKind, TickDelta, TrustedRuntimeHost,
+    TrustedRuntimeHostError, TrustedRuntimeWal, TrustedRuntimeWalConfig, TrustedRuntimeWalError,
+    TrustedRuntimeWalStoreKind, WarpOp, WorldlineId, WorldlineRuntime, WorldlineState,
+    WorldlineTick, WriterHead, WriterHeadKey, OPTIC_ADMISSION_TICKET_KIND,
+    OPTIC_ARTIFACT_HANDLE_KIND,
 };
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -84,6 +85,18 @@ fn temp_runtime_wal_dir(label: &str) -> PathBuf {
 
 fn filesystem_wal_failure_digest(label: &str) -> Hash {
     blake3::hash(format!("trusted-runtime-wal-failure:{label}").as_bytes()).into()
+}
+
+fn causal_receipt_ref(worldline_id: WorldlineId, label: &str, tick: u64) -> CausalTickReceiptRef {
+    CausalTickReceiptRef {
+        worldline_id,
+        worldline_tick_after: WorldlineTick::from_raw(tick),
+        commit_global_tick: GlobalTick::from_raw(tick),
+        commit_hash: filesystem_wal_failure_digest(&format!("{label}:commit")),
+        submission_id: filesystem_wal_failure_digest(&format!("{label}:submission")),
+        ticket_digest: filesystem_wal_failure_digest(&format!("{label}:ticket")),
+        receipt_content_digest: filesystem_wal_failure_digest(&format!("{label}:content")),
+    }
 }
 
 fn filesystem_wal_failure_epoch_id() -> WriterEpochId {
@@ -338,7 +351,7 @@ fn eint_envelope(worldline_id: WorldlineId) -> IngressEnvelope {
 
 fn causal_eint_envelope(
     worldline_id: WorldlineId,
-    causal_parent_receipts: Vec<Hash>,
+    causal_parent_receipts: Vec<CausalTickReceiptRef>,
 ) -> IngressEnvelope {
     IngressEnvelope::local_intent_with_causal_parents(
         IngressTarget::DefaultWriter { worldline_id },
@@ -346,7 +359,7 @@ fn causal_eint_envelope(
         echo_wasm_abi::pack_intent_v1(MUTATION_OP_ID, MUTATION_VARS).expect("EINT should pack"),
         causal_parent_receipts
             .into_iter()
-            .map(|receipt_digest| IngressCausalParent::TickReceipt { receipt_digest })
+            .map(|receipt_ref| IngressCausalParent::TickReceipt { receipt_ref })
             .collect(),
     )
 }
@@ -580,7 +593,7 @@ fn filesystem_runtime_wal_ack_reconstructs_submission_and_tick_from_root() {
     let IntentOutcome::Applied { receipt, .. } = outcome else {
         panic!("expected applied outcome");
     };
-    let tick_receipt_digest = receipt.tick_receipt_digest;
+    let causal_receipt_ref = receipt.causal_receipt_ref;
     drop(host);
 
     let (reconstructed_runtime, _) = runtime();
@@ -617,7 +630,7 @@ fn filesystem_runtime_wal_ack_reconstructs_submission_and_tick_from_root() {
             .receipts
             .receipt_by_submission
             .get(&submission.submission_id),
-        Some(&tick_receipt_digest)
+        Some(&causal_receipt_ref)
     );
     assert_eq!(
         recovery
@@ -647,7 +660,7 @@ fn filesystem_runtime_wal_restores_witnessed_submission_material_after_restart()
 
     let envelope = causal_eint_envelope(
         worldline_id,
-        vec![filesystem_wal_failure_digest("retained-parent")],
+        vec![causal_receipt_ref(worldline_id, "retained-parent", 37)],
     );
     let submission = host
         .app()
@@ -697,8 +710,8 @@ fn filesystem_runtime_wal_restores_witnessed_submission_material_after_restart()
 #[test]
 fn filesystem_runtime_wal_recovers_receipt_causal_parents_after_host_restart() {
     let wal_root = temp_runtime_wal_dir("causal-parent-recovery");
-    let target_receipt = filesystem_wal_failure_digest("target-receipt");
     let (initial_runtime, worldline_id) = runtime();
+    let target_receipt = causal_receipt_ref(worldline_id, "target-receipt", 41);
     let mut host = TrustedRuntimeHost::new(initial_runtime, empty_engine())
         .expect("trusted host should initialize");
     host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
@@ -724,7 +737,7 @@ fn filesystem_runtime_wal_recovers_receipt_causal_parents_after_host_restart() {
         panic!("expected applied causal intent outcome");
     };
     assert_eq!(receipt.causal_parent_receipts, vec![target_receipt]);
-    let inverse_receipt = receipt.tick_receipt_digest;
+    let inverse_receipt = receipt.causal_receipt_ref;
     drop(host);
 
     let (reconstructed_runtime, _) = runtime();
@@ -1545,7 +1558,7 @@ fn runtime_wal_ack_tick_commits_receipt_transaction_before_outcome_is_observed()
     let IntentOutcome::Applied { receipt, .. } = outcome else {
         panic!("expected applied outcome");
     };
-    let tick_receipt_digest = receipt.tick_receipt_digest;
+    let causal_receipt_ref = receipt.causal_receipt_ref;
 
     let runtime_wal = host
         .runtime_wal()
@@ -1580,7 +1593,7 @@ fn runtime_wal_ack_tick_commits_receipt_transaction_before_outcome_is_observed()
         receipts
             .receipt_by_submission
             .get(&submission.submission_id),
-        Some(&tick_receipt_digest)
+        Some(&causal_receipt_ref)
     );
     assert_eq!(
         receipts.ticket_by_submission.get(&submission.submission_id),

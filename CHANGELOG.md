@@ -7,6 +7,14 @@
 
 ### Added
 
+- `warp-core` now distinguishes repeatable `TickReceipt` content commitments
+  from admitted receipt-event identity. `CausalTickReceiptRef` binds receipt
+  content to worldline, worldline tick, global tick, commit, submission, and
+  admission ticket coordinates; ingress, trusted-runtime WAL, recovery indexes,
+  app-facing outcomes, and WSC causal history now retain and follow that exact
+  coordinate. Versioned codecs reject malformed magic as corruption and report
+  structurally valid legacy digest-only parent evidence as an explicit
+  ambiguity rather than aliasing it to an arbitrary event.
 - Trusted runtime scheduler commits now retain canonical local-commit
   provenance, the exact typed tick receipt, and installed-contract evidence in
   the same WAL transaction as receipt correlation. Filesystem reopen replays

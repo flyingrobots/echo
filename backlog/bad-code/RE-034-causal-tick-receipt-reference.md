@@ -3,6 +3,9 @@
 
 # RE-034: Separate Tick Receipt Content From Causal Identity
 
+Status: core identity and durable transport resolved; inverse-admission witness
+pending.
+
 ## Problem
 
 `TickReceipt::digest()` intentionally commits to canonical candidate outcomes
@@ -32,7 +35,11 @@ repeated structurally identical operations.
 
 ## Acceptance Tests
 
-- `identical_receipt_content_has_distinct_causal_receipt_refs`
-- `inverse_intent_resolves_one_admitted_transition_after_restart`
-- `causal_parent_lookup_does_not_alias_identical_receipt_content`
-- `legacy_bare_receipt_digest_is_reported_as_ambiguous`
+- [x] `identical_receipt_content_has_distinct_causal_receipt_refs`
+- [ ] `inverse_intent_resolves_one_admitted_transition_after_restart`
+- [x] `causal_parent_lookup_does_not_alias_identical_receipt_content`
+- [x] `legacy_bare_receipt_digest_is_reported_as_ambiguous`
+
+The remaining witness belongs to contract inverse admission. It must resolve a
+specific `CausalTickReceiptRef` after restart and must not reintroduce a
+content-digest lookup or application-owned process cache.

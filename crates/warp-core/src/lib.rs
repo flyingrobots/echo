@@ -45,6 +45,7 @@ mod braid;
 mod braid_shell;
 mod causal_anchor;
 mod causal_facts;
+mod causal_receipt;
 pub mod causal_wal;
 mod clock;
 mod cmd;
@@ -194,6 +195,7 @@ pub use causal_facts::{
     ArtifactRegistrationReceipt, CapabilityGrantValidationObstructionKind, FactDigest, GraphFact,
     InvocationObstructionKind, PublishedGraphFact, ARTIFACT_REGISTRATION_RECEIPT_KIND,
 };
+pub use causal_receipt::{CausalTickReceiptRef, CAUSAL_TICK_RECEIPT_REF_LEN};
 pub use clock::{GlobalTick, RunId, WorldlineTick};
 pub use cmd::{
     import_suffix_intent_rule, import_suffix_result_edge_id, import_suffix_result_node_id,

@@ -33,6 +33,7 @@ use crate::strand::{ForkBasisRef, Strand, StrandError, StrandId, StrandRegistry,
 use crate::worldline::{ApplyError, WorldlineId};
 use crate::worldline_registry::WorldlineRegistry;
 use crate::worldline_state::{WorldlineFrontier, WorldlineState};
+use crate::CausalTickReceiptRef;
 
 // =============================================================================
 // Runtime Errors and Ingress Disposition
@@ -587,6 +588,8 @@ pub struct ReceiptCorrelationRecord {
     pub submission_id: Hash,
     /// Admission ticket digest bound to the runtime ingress.
     pub ticket_digest: Hash,
+    /// Exact causal coordinate of the admitted tick receipt.
+    pub causal_receipt_ref: CausalTickReceiptRef,
     /// Content-addressed canonical ingress id decided by the tick.
     pub ingress_id: Hash,
     /// Writer head that committed the ingress batch.
@@ -601,11 +604,11 @@ pub struct ReceiptCorrelationRecord {
     pub tick_receipt_digest: Hash,
     /// Commit hash emitted by the scheduler-owned tick.
     pub commit_hash: Hash,
-    /// Canonical retained receipt/evidence hashes cited by the admitted intent.
+    /// Canonical admitted tick receipts cited by the admitted intent.
     ///
     /// Echo preserves these links without interpreting application-defined
     /// inverse or compensation semantics.
-    pub causal_parent_receipts: Vec<Hash>,
+    pub causal_parent_receipts: Vec<CausalTickReceiptRef>,
 }
 
 /// Persisted receipt-correlation fields sufficient for causal runtime replay.
@@ -620,6 +623,8 @@ pub struct ReceiptCorrelationPersistenceRecord {
     pub submission_id: Hash,
     /// Admission ticket digest bound to runtime ingress.
     pub ticket_digest: Hash,
+    /// Exact causal coordinate of the admitted tick receipt.
+    pub causal_receipt_ref: CausalTickReceiptRef,
     /// Writer head that committed the ingress.
     pub head_key: WriterHeadKey,
     /// Runtime cycle stamp that produced the receipt.
@@ -632,8 +637,8 @@ pub struct ReceiptCorrelationPersistenceRecord {
     pub commit_hash: Hash,
     /// Installed contract evidence attached to the admitted transition.
     pub contract: Option<crate::ContractEvidenceIdentity>,
-    /// Canonical retained receipt/evidence hashes cited by the admitted intent.
-    pub causal_parent_receipts: Vec<Hash>,
+    /// Canonical admitted tick receipts cited by the admitted intent.
+    pub causal_parent_receipts: Vec<CausalTickReceiptRef>,
 }
 
 impl From<&ReceiptCorrelationRecord> for ReceiptCorrelationPersistenceRecord {
@@ -641,6 +646,7 @@ impl From<&ReceiptCorrelationRecord> for ReceiptCorrelationPersistenceRecord {
         Self {
             submission_id: correlation.submission_id,
             ticket_digest: correlation.ticket_digest,
+            causal_receipt_ref: correlation.causal_receipt_ref,
             head_key: correlation.head_key,
             commit_global_tick: correlation.commit_global_tick,
             worldline_tick_after: correlation.worldline_tick_after,
@@ -717,6 +723,8 @@ pub struct IntentOutcomeReceipt {
     pub ticketed_ingress_id: Hash,
     /// Admission ticket digest bound to runtime ingress.
     pub ticket_digest: Hash,
+    /// Exact causal coordinate that later intents must cite.
+    pub causal_receipt_ref: CausalTickReceiptRef,
     /// Canonical ingress id decided by the tick.
     pub ingress_id: Hash,
     /// Writer head that committed the tick.
@@ -731,8 +739,8 @@ pub struct IntentOutcomeReceipt {
     pub tick_receipt_digest: Hash,
     /// Commit hash emitted by the scheduler-owned tick.
     pub commit_hash: Hash,
-    /// Canonical retained receipt/evidence hashes cited by the admitted intent.
-    pub causal_parent_receipts: Vec<Hash>,
+    /// Canonical admitted tick receipts cited by the admitted intent.
+    pub causal_parent_receipts: Vec<CausalTickReceiptRef>,
     /// Entry index inside the correlated tick receipt.
     pub receipt_entry_index: u32,
     /// Scheduler rule that produced the receipt entry.
@@ -754,6 +762,7 @@ impl IntentOutcomeReceipt {
         Self {
             ticketed_ingress_id: correlation.ticketed_ingress_id,
             ticket_digest: correlation.ticket_digest,
+            causal_receipt_ref: correlation.causal_receipt_ref,
             ingress_id: correlation.ingress_id,
             head_key: correlation.head_key,
             contract: correlation.contract.clone(),
@@ -2040,6 +2049,20 @@ impl WorldlineRuntime {
                 persisted.tick_receipt_digest,
             ));
         }
+        let expected_receipt_ref = CausalTickReceiptRef {
+            worldline_id: persisted.head_key.worldline_id,
+            worldline_tick_after: persisted.worldline_tick_after,
+            commit_global_tick: persisted.commit_global_tick,
+            commit_hash: persisted.commit_hash,
+            submission_id: persisted.submission_id,
+            ticket_digest: persisted.ticket_digest,
+            receipt_content_digest: persisted.tick_receipt_digest,
+        };
+        if persisted.causal_receipt_ref != expected_receipt_ref {
+            return Err(RuntimeError::ReceiptCorrelationReplayMismatch(
+                persisted.causal_receipt_ref.identity_digest(),
+            ));
+        }
 
         let ticketed_ingress_id = derive_ticketed_runtime_ingress_id(
             persisted.submission_id,
@@ -2059,6 +2082,7 @@ impl WorldlineRuntime {
             ticketed_ingress_id,
             submission_id: persisted.submission_id,
             ticket_digest: persisted.ticket_digest,
+            causal_receipt_ref: persisted.causal_receipt_ref,
             ingress_id: submission.ingress_id,
             head_key: persisted.head_key,
             contract: persisted.contract.clone(),
@@ -2518,10 +2542,20 @@ impl WorldlineRuntime {
             else {
                 continue;
             };
+            let causal_receipt_ref = CausalTickReceiptRef {
+                worldline_id: context.head_key.worldline_id,
+                worldline_tick_after: context.worldline_tick_after,
+                commit_global_tick: context.commit_global_tick,
+                commit_hash: context.commit_hash,
+                submission_id: ticketed_ingress.submission_id,
+                ticket_digest: ticketed_ingress.ticket_digest,
+                receipt_content_digest: context.tick_receipt_digest,
+            };
             let record = ReceiptCorrelationRecord {
                 ticketed_ingress_id,
                 submission_id: ticketed_ingress.submission_id,
                 ticket_digest: ticketed_ingress.ticket_digest,
+                causal_receipt_ref,
                 ingress_id,
                 head_key: context.head_key,
                 contract: ticketed_ingress.contract.clone(),
@@ -2533,7 +2567,7 @@ impl WorldlineRuntime {
                     .causal_parents()
                     .iter()
                     .copied()
-                    .map(crate::IngressCausalParent::receipt_digest)
+                    .map(crate::IngressCausalParent::receipt_ref)
                     .collect(),
             };
             rollback.entries.push(ReceiptCorrelationRollbackEntry {
@@ -5336,6 +5370,15 @@ mod tests {
             worldline_id: wl(6),
             head_id: make_head_id("default"),
         };
+        let causal_receipt_ref = CausalTickReceiptRef {
+            worldline_id: head_key.worldline_id,
+            worldline_tick_after: wt(8),
+            commit_global_tick: gt(7),
+            commit_hash: hash(10),
+            submission_id: hash(2),
+            ticket_digest: hash(3),
+            receipt_content_digest: hash(9),
+        };
         let correlation = ReceiptCorrelationRecord {
             ticketed_ingress_id: hash(1),
             submission_id: hash(2),
@@ -5347,6 +5390,7 @@ mod tests {
             worldline_tick_after: wt(8),
             tick_receipt_digest: hash(9),
             commit_hash: hash(10),
+            causal_receipt_ref,
             causal_parent_receipts: Vec::new(),
         };
 

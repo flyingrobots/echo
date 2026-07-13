@@ -72,7 +72,8 @@ use warp_core::wsc::{
 };
 use warp_core::{
     make_strand_id, make_type_id, AuthorityDomainId, AuthorityDomainRef, BraidEvent, BraidStatus,
-    Hash, HeadId, OriginId, WorldlineId, WorldlineTick, WriterHeadKey,
+    CausalTickReceiptRef, GlobalTick, Hash, HeadId, OriginId, WorldlineId, WorldlineTick,
+    WriterHeadKey,
 };
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -1592,14 +1593,14 @@ fn wsc_self_contained_export_replays_segment_bytes() {
             .receipt_index
             .receipt_by_submission
             .get(&acceptance.submission_id),
-        Some(&receipt.receipt_digest)
+        Some(&receipt.receipt_ref)
     );
     assert_eq!(
         imported
             .receipt_index
             .receipt_by_ticket
-            .get(&receipt.ticket_digest),
-        Some(&receipt.receipt_digest)
+            .get(&receipt.receipt_ref.ticket_digest),
+        Some(&receipt.receipt_ref)
     );
 
     let mut wsc_store = InMemoryWscStore::default();
@@ -2006,8 +2007,8 @@ fn dind_durability_outcome(
     DindDurabilityOutcome {
         submission_id: acceptance.submission_id,
         canonical_envelope_digest: acceptance.canonical_envelope_digest,
-        ticket_digest: receipt.ticket_digest,
-        receipt_digest: receipt.receipt_digest,
+        ticket_digest: receipt.receipt_ref.ticket_digest,
+        receipt_digest: receipt.receipt_ref.receipt_content_digest,
         decision: receipt.decision,
         reading_id: reading.reading_id,
         reading_coordinate_digest: reading.semantic_coordinate_digest,
@@ -2106,6 +2107,12 @@ fn dind_durability_convergence_gate() {
     let recovered_submissions = must_ok(recover_submission_index(&report));
     let recovered_receipts = must_ok(recover_receipt_index(&report));
     let recovered_retention = must_ok(recover_retention_index(&report));
+    let recovered_receipt_ref = must_some(
+        recovered_receipts
+            .receipt_by_submission
+            .get(&acceptance.submission_id)
+            .copied(),
+    );
     let recovered_outcome = dind_durability_outcome(
         must_some(
             recovered_submissions
@@ -2113,23 +2120,11 @@ fn dind_durability_convergence_gate() {
                 .map(|entry| entry.acceptance),
         ),
         TickReceiptRecord {
-            submission_id: acceptance.submission_id,
-            ticket_digest: must_some(
-                recovered_receipts
-                    .ticket_by_submission
-                    .get(&acceptance.submission_id)
-                    .copied(),
-            ),
-            receipt_digest: must_some(
-                recovered_receipts
-                    .receipt_by_submission
-                    .get(&acceptance.submission_id)
-                    .copied(),
-            ),
+            receipt_ref: recovered_receipt_ref,
             decision: must_some(
                 recovered_receipts
                     .decisions_by_receipt
-                    .get(&receipt.receipt_digest)
+                    .get(&recovered_receipt_ref)
                     .copied(),
             ),
         },
@@ -2396,20 +2391,28 @@ fn submission_acceptance(label: &str) -> SubmissionAcceptanceRecord {
     }
 }
 
-fn receipt_record(label: &str, decision: WalTickDecision) -> TickReceiptRecord {
-    TickReceiptRecord {
+fn causal_receipt_ref(label: &str) -> CausalTickReceiptRef {
+    CausalTickReceiptRef {
+        worldline_id: WorldlineId::from_bytes(digest(&format!("worldline:{label}"))),
+        worldline_tick_after: WorldlineTick::from_raw(1),
+        commit_global_tick: GlobalTick::from_raw(1),
+        commit_hash: digest(&format!("commit:{label}")),
         submission_id: digest(&format!("submission:{label}")),
         ticket_digest: digest(&format!("ticket:{label}")),
-        receipt_digest: digest(&format!("receipt:{label}")),
+        receipt_content_digest: digest(&format!("receipt:{label}")),
+    }
+}
+
+fn receipt_record(label: &str, decision: WalTickDecision) -> TickReceiptRecord {
+    TickReceiptRecord {
+        receipt_ref: causal_receipt_ref(label),
         decision,
     }
 }
 
 fn correlation_record(label: &str) -> WalReceiptCorrelationRecord {
     WalReceiptCorrelationRecord {
-        submission_id: digest(&format!("submission:{label}")),
-        ticket_digest: digest(&format!("ticket:{label}")),
-        receipt_digest: digest(&format!("receipt:{label}")),
+        receipt_ref: causal_receipt_ref(label),
         causal_parent_receipts: Vec::new(),
     }
 }
@@ -3104,7 +3107,7 @@ fn crash_after_tick_commit_recovers_receipt_and_state_delta() {
             .receipt_by_submission
             .get(&digest("submission:applied"))
             .copied(),
-        Some(digest("receipt:applied"))
+        Some(causal_receipt_ref("applied"))
     );
 }
 
@@ -3129,7 +3132,7 @@ fn committed_receipt_correlation_rebuilds_after_restart() {
             .receipt_by_ticket
             .get(&digest("ticket:correlated"))
             .copied(),
-        Some(digest("receipt:correlated"))
+        Some(causal_receipt_ref("correlated"))
     );
     assert_eq!(
         receipts
@@ -3165,7 +3168,7 @@ fn lawful_rejection_recovers_without_fault_posture() {
     assert!(must_some(
         receipts
             .decisions_by_receipt
-            .get(&digest("receipt:rejected"))
+            .get(&causal_receipt_ref("rejected"))
             .copied()
     )
     .is_lawful_rejection());

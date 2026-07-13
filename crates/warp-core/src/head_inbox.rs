@@ -20,8 +20,10 @@ use thiserror::Error;
 use crate::head::WriterHeadKey;
 use crate::ident::Hash;
 use crate::worldline::WorldlineId;
+use crate::{CausalTickReceiptRef, CAUSAL_TICK_RECEIPT_REF_LEN};
 
 const RETAINED_INGRESS_ENVELOPE_MAGIC_V1: &[u8; 8] = b"EINGR001";
+const RETAINED_INGRESS_ENVELOPE_MAGIC_V2: &[u8; 8] = b"EINGR002";
 
 // =============================================================================
 // IntentKind
@@ -136,17 +138,17 @@ pub enum IngressPayload {
 pub enum IngressCausalParent {
     /// Scheduler-owned tick receipt cited by a later contract intent.
     TickReceipt {
-        /// Digest of the retained target receipt.
-        receipt_digest: Hash,
+        /// Exact causal coordinate of the retained target receipt.
+        receipt_ref: CausalTickReceiptRef,
     },
 }
 
 impl IngressCausalParent {
-    /// Returns the cited tick receipt digest.
+    /// Returns the cited causal tick-receipt coordinate.
     #[must_use]
-    pub const fn receipt_digest(self) -> Hash {
+    pub const fn receipt_ref(self) -> CausalTickReceiptRef {
         match self {
-            Self::TickReceipt { receipt_digest } => receipt_digest,
+            Self::TickReceipt { receipt_ref } => receipt_ref,
         }
     }
 }
@@ -240,9 +242,9 @@ impl IngressEnvelope {
     /// ingress id remains the semantic content address; this retention codec is
     /// a storage format and does not replace that identity law.
     #[must_use]
-    pub fn to_retained_bytes_v1(&self) -> Vec<u8> {
+    pub fn to_retained_bytes_v2(&self) -> Vec<u8> {
         let mut out = Vec::new();
-        out.extend_from_slice(RETAINED_INGRESS_ENVELOPE_MAGIC_V1);
+        out.extend_from_slice(RETAINED_INGRESS_ENVELOPE_MAGIC_V2);
         match &self.target {
             IngressTarget::DefaultWriter { worldline_id } => {
                 out.push(1);
@@ -266,9 +268,9 @@ impl IngressEnvelope {
         push_len(&mut out, self.causal_parents.len());
         for parent in &self.causal_parents {
             match parent {
-                IngressCausalParent::TickReceipt { receipt_digest } => {
+                IngressCausalParent::TickReceipt { receipt_ref } => {
                     out.push(1);
-                    out.extend_from_slice(receipt_digest);
+                    out.extend_from_slice(&receipt_ref.to_canonical_bytes());
                 }
             }
         }
@@ -292,7 +294,89 @@ impl IngressEnvelope {
     ///
     /// Returns a typed decode error for truncated, malformed, unsupported, or
     /// non-canonical retained material.
-    pub fn from_retained_bytes_v1(bytes: &[u8]) -> Result<Self, IngressEnvelopeDecodeError> {
+    pub fn from_retained_bytes(bytes: &[u8]) -> Result<Self, IngressEnvelopeDecodeError> {
+        let magic = bytes
+            .get(..RETAINED_INGRESS_ENVELOPE_MAGIC_V2.len())
+            .ok_or(IngressEnvelopeDecodeError::UnexpectedEof)?;
+        if magic == RETAINED_INGRESS_ENVELOPE_MAGIC_V2 {
+            return Self::from_retained_bytes_v2(bytes);
+        }
+        if magic == RETAINED_INGRESS_ENVELOPE_MAGIC_V1 {
+            return Self::from_retained_bytes_v1(bytes);
+        }
+        Err(IngressEnvelopeDecodeError::InvalidMagic)
+    }
+
+    fn from_retained_bytes_v2(bytes: &[u8]) -> Result<Self, IngressEnvelopeDecodeError> {
+        let mut cursor = RetainedIngressCursor::new(bytes);
+        if cursor.read_exact(RETAINED_INGRESS_ENVELOPE_MAGIC_V2.len())?
+            != RETAINED_INGRESS_ENVELOPE_MAGIC_V2
+        {
+            return Err(IngressEnvelopeDecodeError::InvalidMagic);
+        }
+        let target = match cursor.read_u8()? {
+            1 => IngressTarget::DefaultWriter {
+                worldline_id: WorldlineId::from_bytes(cursor.read_hash()?),
+            },
+            2 => {
+                let worldline_id = WorldlineId::from_bytes(cursor.read_hash()?);
+                let inbox_len = cursor.read_len()?;
+                let inbox = String::from_utf8(cursor.read_exact(inbox_len)?.to_vec())
+                    .map_err(|_| IngressEnvelopeDecodeError::InvalidInboxUtf8)?;
+                IngressTarget::InboxAddress {
+                    worldline_id,
+                    inbox: InboxAddress(inbox),
+                }
+            }
+            3 => IngressTarget::ExactHead {
+                key: WriterHeadKey {
+                    worldline_id: WorldlineId::from_bytes(cursor.read_hash()?),
+                    head_id: crate::head::HeadId::from_bytes(cursor.read_hash()?),
+                },
+            },
+            tag => return Err(IngressEnvelopeDecodeError::UnknownTargetTag(tag)),
+        };
+        let parent_count = cursor.read_len()?;
+        if parent_count > cursor.remaining_len() / (1 + CAUSAL_TICK_RECEIPT_REF_LEN) {
+            return Err(IngressEnvelopeDecodeError::UnexpectedEof);
+        }
+        let mut causal_parents = Vec::with_capacity(parent_count);
+        for _ in 0..parent_count {
+            let parent = match cursor.read_u8()? {
+                1 => IngressCausalParent::TickReceipt {
+                    receipt_ref: CausalTickReceiptRef::from_canonical_bytes(
+                        cursor
+                            .read_exact(CAUSAL_TICK_RECEIPT_REF_LEN)?
+                            .try_into()
+                            .map_err(|_| IngressEnvelopeDecodeError::UnexpectedEof)?,
+                    ),
+                },
+                tag => return Err(IngressEnvelopeDecodeError::UnknownCausalParentTag(tag)),
+            };
+            causal_parents.push(parent);
+        }
+        let envelope = match cursor.read_u8()? {
+            1 => {
+                let intent_kind = IntentKind::from_hash(cursor.read_hash()?);
+                let intent_len = cursor.read_len()?;
+                let intent_bytes = cursor.read_exact(intent_len)?.to_vec();
+                Self::local_intent_with_causal_parents(
+                    target,
+                    intent_kind,
+                    intent_bytes,
+                    causal_parents,
+                )
+            }
+            tag => return Err(IngressEnvelopeDecodeError::UnknownPayloadTag(tag)),
+        };
+        cursor.finish()?;
+        if envelope.to_retained_bytes_v2() != bytes {
+            return Err(IngressEnvelopeDecodeError::NonCanonical);
+        }
+        Ok(envelope)
+    }
+
+    fn from_retained_bytes_v1(bytes: &[u8]) -> Result<Self, IngressEnvelopeDecodeError> {
         let mut cursor = RetainedIngressCursor::new(bytes);
         if cursor.read_exact(RETAINED_INGRESS_ENVELOPE_MAGIC_V1.len())?
             != RETAINED_INGRESS_ENVELOPE_MAGIC_V1
@@ -325,32 +409,39 @@ impl IngressEnvelope {
         if parent_count > cursor.remaining_len() / (1 + core::mem::size_of::<Hash>()) {
             return Err(IngressEnvelopeDecodeError::UnexpectedEof);
         }
-        let mut causal_parents = Vec::with_capacity(parent_count);
+        let mut legacy_parent_digests = Vec::with_capacity(parent_count);
         for _ in 0..parent_count {
-            let parent = match cursor.read_u8()? {
-                1 => IngressCausalParent::TickReceipt {
-                    receipt_digest: cursor.read_hash()?,
-                },
+            match cursor.read_u8()? {
+                1 => legacy_parent_digests.push(cursor.read_hash()?),
                 tag => return Err(IngressEnvelopeDecodeError::UnknownCausalParentTag(tag)),
-            };
-            causal_parents.push(parent);
+            }
         }
-        let envelope = match cursor.read_u8()? {
+        let (intent_kind, intent_bytes) = match cursor.read_u8()? {
             1 => {
                 let intent_kind = IntentKind::from_hash(cursor.read_hash()?);
                 let intent_len = cursor.read_len()?;
                 let intent_bytes = cursor.read_exact(intent_len)?.to_vec();
-                Self::local_intent_with_causal_parents(
-                    target,
-                    intent_kind,
-                    intent_bytes,
-                    causal_parents,
-                )
+                (intent_kind, intent_bytes)
             }
             tag => return Err(IngressEnvelopeDecodeError::UnknownPayloadTag(tag)),
         };
         cursor.finish()?;
-        if envelope.to_retained_bytes_v1() != bytes {
+        if let Some(receipt_digest) = legacy_parent_digests.first().copied() {
+            let mut canonical_parents = legacy_parent_digests.clone();
+            canonical_parents.sort_unstable();
+            canonical_parents.dedup();
+            if canonical_parents != legacy_parent_digests {
+                return Err(IngressEnvelopeDecodeError::NonCanonical);
+            }
+            return Err(
+                IngressEnvelopeDecodeError::AmbiguousLegacyTickReceiptParent { receipt_digest },
+            );
+        }
+        let envelope = Self::local_intent(target, intent_kind, intent_bytes);
+        let mut canonical = envelope.to_retained_bytes_v2();
+        canonical[..RETAINED_INGRESS_ENVELOPE_MAGIC_V1.len()]
+            .copy_from_slice(RETAINED_INGRESS_ENVELOPE_MAGIC_V1);
+        if canonical != bytes {
             return Err(IngressEnvelopeDecodeError::NonCanonical);
         }
         Ok(envelope)
@@ -380,7 +471,7 @@ pub enum IngressEnvelopeDecodeError {
     /// Retained bytes ended before the declared value was complete.
     #[error("retained ingress envelope ended unexpectedly")]
     UnexpectedEof,
-    /// Retained bytes did not carry the v1 envelope magic.
+    /// Retained bytes did not carry a supported envelope magic.
     #[error("retained ingress envelope has invalid magic")]
     InvalidMagic,
     /// Retained target tag is unknown.
@@ -389,16 +480,22 @@ pub enum IngressEnvelopeDecodeError {
     /// Retained causal parent tag is unknown.
     #[error("retained ingress envelope has unknown causal parent tag {0}")]
     UnknownCausalParentTag(u8),
+    /// A v1 parent names receipt content but not one admitted receipt event.
+    #[error("legacy retained ingress cites ambiguous tick receipt digest {receipt_digest:?}")]
+    AmbiguousLegacyTickReceiptParent {
+        /// Bare receipt-content digest that cannot identify one causal event.
+        receipt_digest: Hash,
+    },
     /// Retained payload tag is unknown.
     #[error("retained ingress envelope has unknown payload tag {0}")]
     UnknownPayloadTag(u8),
     /// Named inbox material was not valid UTF-8.
     #[error("retained ingress envelope inbox is not valid UTF-8")]
     InvalidInboxUtf8,
-    /// Retained bytes decoded but did not use the canonical v1 encoding.
+    /// Retained bytes decoded but did not use the canonical versioned encoding.
     #[error("retained ingress envelope is not canonically encoded")]
     NonCanonical,
-    /// Retained bytes contained trailing material outside the v1 envelope.
+    /// Retained bytes contained trailing material outside the envelope.
     #[error("retained ingress envelope has trailing bytes")]
     TrailingBytes,
 }
@@ -475,16 +572,16 @@ fn compute_ingress_id(
 ) -> Hash {
     let mut hasher = blake3::Hasher::new();
     if !causal_parents.is_empty() {
-        hasher.update(b"ingress:causal:v1\0");
+        hasher.update(b"ingress:causal:v2\0");
         hasher.update(kind.as_hash());
         hasher.update(&(bytes.len() as u64).to_le_bytes());
         hasher.update(bytes);
         hasher.update(&(causal_parents.len() as u64).to_le_bytes());
         for parent in causal_parents {
             match parent {
-                IngressCausalParent::TickReceipt { receipt_digest } => {
+                IngressCausalParent::TickReceipt { receipt_ref } => {
                     hasher.update(b"tick-receipt\0");
-                    hasher.update(receipt_digest);
+                    hasher.update(&receipt_ref.to_canonical_bytes());
                 }
             }
         }

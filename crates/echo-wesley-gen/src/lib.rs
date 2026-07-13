@@ -12,6 +12,9 @@
 //! requirement structs. Enforcement, grant validation, admission tickets,
 //! witnesses, and execution are intentionally out of scope for this adapter.
 
+/// Strict Echo-owned semantic source for generated Edict provider artifacts.
+pub mod provider_semantics;
+
 /// Imported Wesley runtime optic artifact ready for Echo registration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportedRuntimeOpticArtifact {

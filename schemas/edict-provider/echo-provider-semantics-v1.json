@@ -1,0 +1,598 @@
+{
+  "apiVersion": "echo.edict-provider-semantics/v1",
+  "coordinate": "echo.semantic-schema@1",
+  "authoritySources": [
+    {
+      "coordinate": "echo.provider-semantic-declaration@1",
+      "kind": "echoSemanticDeclaration",
+      "artifact": "schemas/edict-provider/echo-provider-semantics-v1.json"
+    },
+    {
+      "coordinate": "echo.provider-target-metadata@1",
+      "kind": "targetMetadata",
+      "artifact": "schemas/edict-provider/echo-provider-semantics-v1.json"
+    }
+  ],
+  "types": [
+    {
+      "identity": {
+        "coordinate": "a.b@1.Input",
+        "domain": "echo.edict-provider/value/v1",
+        "authority": "echo.provider-semantic-declaration@1"
+      },
+      "shape": {
+        "kind": "record",
+        "fields": [
+          {
+            "name": "id",
+            "type": "a.b@1.Id"
+          }
+        ]
+      }
+    },
+    {
+      "identity": {
+        "coordinate": "a.b@1.Receipt",
+        "domain": "echo.edict-provider/value/v1",
+        "authority": "echo.provider-semantic-declaration@1"
+      },
+      "shape": {
+        "kind": "record",
+        "fields": [
+          {
+            "name": "id",
+            "type": "a.b@1.Id"
+          }
+        ]
+      }
+    },
+    {
+      "identity": {
+        "coordinate": "a.b@1.Output",
+        "domain": "echo.edict-provider/value/v1",
+        "authority": "echo.provider-semantic-declaration@1"
+      },
+      "shape": {
+        "kind": "record",
+        "fields": [
+          {
+            "name": "id",
+            "type": "a.b@1.Id"
+          }
+        ]
+      }
+    },
+    {
+      "identity": {
+        "coordinate": "a.b@1.Id",
+        "domain": "echo.edict-provider/value/v1",
+        "authority": "echo.provider-semantic-declaration@1"
+      },
+      "shape": {
+        "kind": "coreStringAlias",
+        "maxScalarValues": 16,
+        "canonical": "raw-utf8"
+      }
+    },
+    {
+      "identity": {
+        "coordinate": "domain.WriteRejected.Payload",
+        "domain": "echo.edict-provider/value/v1",
+        "authority": "echo.provider-semantic-declaration@1"
+      },
+      "shape": {
+        "kind": "record",
+        "fields": []
+      }
+    },
+    {
+      "identity": {
+        "coordinate": "target.replace.rejected",
+        "domain": "echo.edict-provider/value/v1",
+        "authority": "echo.provider-semantic-declaration@1"
+      },
+      "shape": {
+        "kind": "record",
+        "fields": []
+      }
+    }
+  ],
+  "writeClasses": [
+    {
+      "identity": {
+        "coordinate": "replace",
+        "domain": "echo.edict-provider/write-class/v1",
+        "authority": "echo.provider-target-metadata@1"
+      }
+    }
+  ],
+  "obstructions": [
+    {
+      "identity": {
+        "coordinate": "domain.WriteRejected",
+        "domain": "echo.edict-provider/obstruction/v1",
+        "authority": "echo.provider-semantic-declaration@1"
+      },
+      "authorityClass": "domainMappable",
+      "payloadSchema": "domain.WriteRejected.Payload"
+    }
+  ],
+  "effects": [
+    {
+      "identity": {
+        "coordinate": "target.replace",
+        "domain": "echo.edict-provider/semantic-effect/v1",
+        "authority": "echo.provider-semantic-declaration@1"
+      },
+      "parameterTypes": ["a.b@1.Id"],
+      "resultType": "a.b@1.Receipt",
+      "executionClass": "runtime",
+      "effectKindHint": "replace",
+      "guardKinds": ["precommit-atomic"],
+      "failures": [
+        {
+          "key": "rejected",
+          "domain": "echo.edict-provider/effect-failure/v1",
+          "authority": "echo.provider-target-metadata@1",
+          "authorityClass": "domainMappable",
+          "payloadType": "target.replace.rejected"
+        }
+      ],
+      "footprintObligation": "target.replace.footprint",
+      "costObligation": "target.replace.cost",
+      "guardSupport": true
+    }
+  ],
+  "profiles": [
+    {
+      "identity": {
+        "coordinate": "continuum.profile.write/v1",
+        "domain": "echo.edict-provider/operation-profile/v1",
+        "authority": "echo.provider-target-metadata@1"
+      },
+      "sourceNames": ["p.effectful"],
+      "allowedWriteClasses": ["replace"],
+      "guardKinds": ["precommit-atomic"],
+      "atomicity": "atomic",
+      "postconditionSupport": true,
+      "opticTemplate": {
+        "opticKind": "affectReintegration",
+        "boundaryKind": "affect",
+        "supportPolicy": "continuum.support.carry-or-obstruct/v1",
+        "lossDisposition": "continuum.support.reject-on-loss/v1",
+        "apertureRequirement": {
+          "kind": "abstractFootprintObligation",
+          "ref": "target.replace.footprint"
+        }
+      },
+      "effectPredicate": "echo.dpo.operation-mode.replace-only/v1",
+      "opticContract": "replace-point"
+    }
+  ],
+  "budgets": [
+    {
+      "identity": {
+        "coordinate": "p.tiny",
+        "domain": "echo.edict-provider/core-budget/v1",
+        "authority": "echo.provider-semantic-declaration@1"
+      },
+      "maxSteps": 8,
+      "maxAllocatedBytes": 1024,
+      "maxOutputBytes": 256
+    }
+  ],
+  "capabilities": [
+    {
+      "identity": {
+        "coordinate": "echo.dpo@1.replace",
+        "domain": "echo.edict-provider/target-intrinsic/v1",
+        "authority": "echo.provider-target-metadata@1"
+      },
+      "effect": "target.replace",
+      "effectKind": "replace",
+      "writeClass": "replace",
+      "guardSupport": true,
+      "footprintTemplate": "target.replace.footprint",
+      "costTemplate": "target.replace.cost",
+      "semanticDischarge": {
+        "effectKindHint": "replace",
+        "footprintObligation": "target.replace.footprint",
+        "costObligation": "target.replace.cost"
+      },
+      "canParticipateInAtomicGuard": true,
+      "targetProfile": "echo.dpo@1",
+      "targetIrDomain": "echo.span-ir/v1"
+    }
+  ],
+  "directAdapters": [],
+  "operations": [
+    {
+      "identity": {
+        "coordinate": "a.b@1.t",
+        "domain": "echo.edict-provider/operation/v1",
+        "authority": "echo.provider-semantic-declaration@1"
+      },
+      "inputType": "a.b@1.Input",
+      "outputType": "a.b@1.Output",
+      "effect": "target.replace",
+      "profile": "continuum.profile.write/v1",
+      "budget": "p.tiny",
+      "obstructionMappings": [
+        {
+          "failure": "rejected",
+          "obstruction": "domain.WriteRejected"
+        }
+      ],
+      "implementation": {
+        "kind": "native",
+        "capability": "echo.dpo@1.replace"
+      }
+    }
+  ],
+  "artifactResources": [
+    {
+      "role": "resource.canonical-encoding",
+      "coordinate": "edict.canonical-cbor/v1",
+      "schemaContract": "edict.canonical-cbor/v1",
+      "provision": "external"
+    },
+    {
+      "role": "resource.conformance-corpus",
+      "coordinate": "echo.dpo.fixtures/v1",
+      "schemaContract": "echo.edict-provider.conformance-corpus/v1",
+      "provision": "generated"
+    },
+    {
+      "role": "resource.diagnostic-abi",
+      "coordinate": "edict.diagnostics/v1",
+      "schemaContract": "edict.diagnostics/v1",
+      "provision": "external"
+    },
+    {
+      "role": "resource.deterministic-execution",
+      "coordinate": "edict.determinism/v1",
+      "schemaContract": "edict.determinism/v1",
+      "provision": "external"
+    },
+    {
+      "role": "resource.fuel-model",
+      "coordinate": "edict.fuel/v1",
+      "schemaContract": "edict.fuel/v1",
+      "provision": "external"
+    },
+    {
+      "role": "resource.lawpack-compatibility",
+      "coordinate": "echo.dpo-lawpack.compatibility@1",
+      "schemaContract": "echo.edict-provider.lawpack-compatibility/v1",
+      "provision": "generated"
+    },
+    {
+      "role": "resource.lawpack-exports",
+      "coordinate": "echo.dpo-lawpack.exports@1",
+      "schemaContract": "edict.lawpack/v1#lawpack-exports",
+      "provision": "generated"
+    },
+    {
+      "role": "resource.lawpack-target-adapter",
+      "coordinate": "echo.dpo-lawpack.adapter.echo-dpo@1",
+      "schemaContract": "echo.edict-provider.lawpack-target-adapter/v1",
+      "provision": "generated"
+    },
+    {
+      "role": "resource.lawpack-verifier",
+      "coordinate": "echo.dpo-lawpack.verifier@1",
+      "schemaContract": "echo.edict-provider.lawpack-verifier/v1",
+      "provision": "generated"
+    },
+    {
+      "role": "resource.sandbox",
+      "coordinate": "edict.wasm-component/v1",
+      "schemaContract": "edict.wasm-component/v1",
+      "provision": "external"
+    },
+    {
+      "role": "resource.target-bundle-profile",
+      "coordinate": "echo.dpo.bundle/v1",
+      "schemaContract": "echo.dpo.bundle/v1",
+      "provision": "generated"
+    },
+    {
+      "role": "resource.target-cost-algebra",
+      "coordinate": "echo.dpo.cost/v1",
+      "schemaContract": "echo.dpo.cost/v1",
+      "provision": "generated"
+    },
+    {
+      "role": "resource.target-footprint-algebra",
+      "coordinate": "echo.dpo.footprint/v1",
+      "schemaContract": "echo.dpo.footprint/v1",
+      "provision": "generated"
+    },
+    {
+      "role": "resource.target-intrinsics",
+      "coordinate": "echo.dpo.intrinsics/v1",
+      "schemaContract": "edict.target-profile.intrinsics/v1",
+      "provision": "generated"
+    },
+    {
+      "role": "resource.target-ir",
+      "coordinate": "echo.span-ir/v1",
+      "schemaContract": "echo.span-ir/v1",
+      "provision": "generated"
+    },
+    {
+      "role": "resource.target-lowerer-contract",
+      "coordinate": "echo.dpo.lowerer/v1",
+      "schemaContract": "echo.dpo.lowerer/v1",
+      "provision": "generated"
+    },
+    {
+      "role": "resource.target-obstruction-taxonomy",
+      "coordinate": "echo.dpo.obstructions/v1",
+      "schemaContract": "echo.dpo.obstructions/v1",
+      "provision": "generated"
+    },
+    {
+      "role": "resource.target-operation-profiles",
+      "coordinate": "echo.dpo.operation-profiles/v1",
+      "schemaContract": "edict.target-profile.operation-profiles/v1",
+      "provision": "generated"
+    },
+    {
+      "role": "resource.target-verifier-contract",
+      "coordinate": "echo.dpo.verifier/v1",
+      "schemaContract": "echo.dpo.verifier/v1",
+      "provision": "generated"
+    }
+  ],
+  "lawpackProjection": {
+    "authority": "echo.provider-semantic-declaration@1",
+    "artifactRole": "lawpack.echo-dpo",
+    "id": "echo.dpo-lawpack",
+    "version": "1",
+    "acceptedCoreAbis": ["edict.core/v1"],
+    "dependencies": [],
+    "exportsResource": "resource.lawpack-exports",
+    "targetAdapters": [
+      {
+        "acceptedTargetProfileRole": "target-profile.echo-dpo",
+        "acceptedTargetIrResource": "resource.target-ir",
+        "adapterResource": "resource.lawpack-target-adapter",
+        "effects": ["target.replace"]
+      }
+    ],
+    "verifier": {
+      "class": "declarative",
+      "rulesetResource": "resource.lawpack-verifier"
+    },
+    "compatibilityResource": "resource.lawpack-compatibility",
+    "conformanceFixtureCorpusResource": "resource.conformance-corpus"
+  },
+  "targetProfileProjection": {
+    "authority": "echo.provider-target-metadata@1",
+    "artifactRole": "target-profile.echo-dpo",
+    "id": "echo.dpo",
+    "version": "1",
+    "acceptedCoreAbis": ["edict.core/v1"],
+    "intrinsicNamespace": "echo.dpo@1",
+    "intrinsicsResource": "resource.target-intrinsics",
+    "operationProfilesResource": "resource.target-operation-profiles",
+    "footprintAlgebraResource": "resource.target-footprint-algebra",
+    "costAlgebraResource": "resource.target-cost-algebra",
+    "targetIrResource": "resource.target-ir",
+    "obstructionTaxonomyResource": "resource.target-obstruction-taxonomy",
+    "verifierResource": "resource.target-verifier-contract",
+    "lowererResource": "resource.target-lowerer-contract",
+    "sandboxResource": "resource.sandbox",
+    "fuelModelResource": "resource.fuel-model",
+    "bundleProfileResource": "resource.target-bundle-profile",
+    "generatedArtifactProfileRoles": [
+      "generated-artifact-profile.echo-dpo-registration"
+    ],
+    "canonicalEncodingRulesResource": "resource.canonical-encoding",
+    "acceptedLawpackAdapterAbis": [],
+    "diagnosticAbiResource": "resource.diagnostic-abi",
+    "applicationModel": "atomic",
+    "readConsistency": "application-snapshot",
+    "guardEvaluation": "precommit-atomic",
+    "obstructionRollback": "no-visible-effects",
+    "multiTarget": false,
+    "postconditionSupport": true,
+    "deterministicExecutionResource": "resource.deterministic-execution",
+    "conformanceFixtureCorpusResource": "resource.conformance-corpus"
+  },
+  "generatedArtifacts": [
+    {
+      "role": "authority-facts.echo-dpo",
+      "kind": "authorityFacts",
+      "coordinate": "echo.dpo-authority-facts@1",
+      "schemaContract": "edict.authority-facts/v1",
+      "contractOwner": "flyingrobots/edict#157",
+      "authorityFactSource": {
+        "kind": "targetProfile",
+        "coordinate": "echo.dpo@1"
+      }
+    },
+    {
+      "role": "authority-facts.echo-lawpack",
+      "kind": "authorityFacts",
+      "coordinate": "echo.dpo-lawpack-authority-facts@1",
+      "schemaContract": "edict.authority-facts/v1",
+      "contractOwner": "flyingrobots/edict#157",
+      "authorityFactSource": {
+        "kind": "lawpack",
+        "coordinate": "echo.dpo-lawpack@1"
+      }
+    },
+    {
+      "role": "generated-artifact-profile.echo-dpo-registration",
+      "kind": "generatedArtifactProfile",
+      "coordinate": "echo.dpo.registration/v1",
+      "schemaContract": "echo.generated-artifact-profile/v1"
+    },
+    {
+      "role": "lawpack.echo-dpo",
+      "kind": "lawpack",
+      "coordinate": "echo.dpo-lawpack@1",
+      "schemaContract": "edict.lawpack/v1"
+    },
+    {
+      "role": "provenance.provider-generation",
+      "kind": "generationProvenance",
+      "coordinate": "echo.edict-provider-generation-provenance@1",
+      "schemaContract": "wesley:GenerationProvenanceManifestV1",
+      "contractOwner": "flyingrobots/wesley#728"
+    },
+    {
+      "role": "review.provider-generation",
+      "kind": "reviewArtifact",
+      "coordinate": "echo.edict-provider-generation-review@1",
+      "schemaContract": "echo.edict-provider.generation-review/v1"
+    },
+    {
+      "role": "schema.echo-provider-artifacts",
+      "kind": "artifactSchema",
+      "coordinate": "echo.provider-artifacts.cddl@1",
+      "schemaContract": "selfContainedCddlV1"
+    },
+    {
+      "role": "target-profile.echo-dpo",
+      "kind": "targetProfile",
+      "coordinate": "echo.dpo@1",
+      "schemaContract": "edict.target-profile/v1"
+    }
+  ],
+  "packageManifest": {
+    "role": "provider-manifest.echo",
+    "coordinate": "echo.edict-provider-manifest@1",
+    "schemaContract": "edict.provider-manifest/v1",
+    "providerAbi": "edict:target-provider@1.0.0",
+    "providerCoordinate": "echo.edict-provider@1"
+  },
+  "invocationInputs": [
+    {
+      "role": "authority-facts.echo-dpo",
+      "kind": "authorityFacts",
+      "domain": "edict.authority-facts/v1",
+      "schemaRole": "schema.echo-provider-artifacts"
+    },
+    {
+      "role": "authority-facts.echo-lawpack",
+      "kind": "authorityFacts",
+      "domain": "edict.authority-facts/v1",
+      "schemaRole": "schema.echo-provider-artifacts"
+    },
+    {
+      "role": "core.echo-provider",
+      "kind": "core",
+      "domain": "edict.core.module/v1",
+      "schemaRole": "schema.echo-provider-artifacts"
+    },
+    {
+      "role": "lawpack.echo-dpo",
+      "kind": "lawpack",
+      "domain": "edict.lawpack/v1",
+      "schemaRole": "schema.echo-provider-artifacts"
+    },
+    {
+      "role": "lowerability.echo-dpo",
+      "kind": "lowerabilityFacts",
+      "domain": "edict.lowering-requirements/v1",
+      "schemaRole": "schema.echo-provider-artifacts"
+    },
+    {
+      "role": "target-ir.echo-dpo",
+      "kind": "targetIr",
+      "domain": "edict.target-ir.artifact/v1",
+      "schemaRole": "schema.echo-provider-artifacts"
+    },
+    {
+      "role": "target-profile.echo-dpo",
+      "kind": "targetProfile",
+      "domain": "edict.target-profile/v1",
+      "schemaRole": "schema.echo-provider-artifacts"
+    }
+  ],
+  "invocationOutputs": [
+    {
+      "role": "generated.echo-dpo",
+      "kind": "generatedArtifact",
+      "domain": "echo.generated-artifact/v1",
+      "schemaRole": "schema.echo-provider-artifacts"
+    },
+    {
+      "role": "review.echo-dpo",
+      "kind": "reviewPayload",
+      "domain": "echo.review-payload/v1",
+      "schemaRole": "schema.echo-provider-artifacts"
+    },
+    {
+      "role": "target-ir.echo-dpo",
+      "kind": "targetIr",
+      "domain": "edict.target-ir.artifact/v1",
+      "schemaRole": "schema.echo-provider-artifacts"
+    },
+    {
+      "role": "verifier-report.echo-dpo",
+      "kind": "verifierReport",
+      "domain": "echo.verifier-report/v1",
+      "schemaRole": "schema.echo-provider-artifacts"
+    }
+  ],
+  "schemaBindings": [
+    {
+      "domain": "echo.generated-artifact/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "generated-artifact"
+    },
+    {
+      "domain": "echo.review-payload/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "review-payload"
+    },
+    {
+      "domain": "echo.verifier-report/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "verifier-report"
+    },
+    {
+      "domain": "edict.authority-facts/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "authority-facts"
+    },
+    {
+      "domain": "edict.core.module/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "core-module"
+    },
+    {
+      "domain": "edict.lawpack/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "lawpack-manifest"
+    },
+    {
+      "domain": "edict.lowering-requirements/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "lowering-requirements"
+    },
+    {
+      "domain": "edict.target-ir.artifact/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "target-ir-artifact"
+    },
+    {
+      "domain": "edict.target-profile/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "target-profile-manifest"
+    }
+  ]
+}

@@ -7,6 +7,15 @@
 
 ### Added
 
+- Trusted runtime scheduler commits now retain canonical local-commit
+  provenance, the exact typed tick receipt, and installed-contract evidence in
+  the same WAL transaction as receipt correlation. Filesystem reopen replays
+  that evidence into a fresh runtime without invoking scheduler or contract
+  callbacks and restores global tick, worldline frontier, materialized state,
+  receipt indexes, causal parents, and app-facing outcome. Legacy digest-only
+  runtime deltas remain explicit recovery obstructions. WAL activation also
+  rejects live process-only authority that recovered durable history cannot
+  reproduce.
 - Trusted runtime submission intake now atomically retains a versioned canonical
   ingress envelope with each WAL-backed acceptance. Filesystem WAL reopen
   restores the witnessed submission ledger without ticking or dispatching,

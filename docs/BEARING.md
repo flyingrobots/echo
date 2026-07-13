@@ -155,15 +155,16 @@ crash-recoverable without giving applications tick or WAL authority.
 
 ## What Is Not Yet True
 
-- Accepted submissions are not yet durable restart-proof ingress history;
-  current replay records prove deterministic import shape, not persistence.
+- WAL-backed accepted submissions and ticketed transition outcomes are durable
+  across filesystem host reconstruction. Lower-level non-WAL and non-ticketed
+  runtime ingress does not inherit that claim.
 - Product-facing clients do not yet have polished ABI/helper surfaces for
   per-intent applied/rejected semantics.
 - Contract-aware obstruction taxonomy and product-facing error surfaces still
   need release-grade stabilization.
-- The semantic retention layer is local and in-memory. App-safe readings can
-  now report generic missing-retention posture, but durable retained artifact,
-  witness, receipt, and reading recovery remains future work.
+- Exact tick receipts and local-commit provenance now survive trusted-host WAL
+  recovery. Durable retained reading payloads, broader witness material, and
+  complete application-session projections remain future work.
 - Generic external contract proof exists, but the release gate now requires
   real `jedit` follow-through from the sibling repository. jedit now has a
   local app/host split for its opt-in real-WASM witness; the remaining gap is

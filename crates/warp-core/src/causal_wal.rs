@@ -25,9 +25,16 @@ use crate::attachment::{AtomPayload, AttachmentValue};
 use crate::braid::{BraidEvent, BraidStatus};
 use crate::braid_shell::BraidMemberRef;
 use crate::clock::WorldlineTick;
+use crate::contract_registry::{
+    ContractEvidenceIdentity, ContractOperationKind, InstalledContractPackageId,
+};
 use crate::graph::GraphStore;
 use crate::head::{HeadId, WriterHeadKey};
 use crate::ident::{EdgeId, Hash, NodeId};
+use crate::provenance_codec::{
+    decode_local_commit_v1, encode_local_commit_v1, RetainedProvenanceError,
+};
+use crate::provenance_store::ProvenanceEntry;
 use crate::record::{EdgeRecord, NodeRecord};
 use crate::revelation::{AuthorityDomainId, AuthorityDomainRef, OriginId};
 use crate::strand::StrandId;
@@ -42,6 +49,8 @@ const WAL_COMMIT_DOMAIN: &[u8] = b"echo:causal_wal:commit:v1\0";
 const WAL_RECOVERED_INDEX_ROOT_DOMAIN: &[u8] = b"echo:causal_wal:recovered_index_root:v1\0";
 const WAL_HEADER_CHECKSUM_DOMAIN: &[u8] = b"echo:causal_wal:header_checksum:v1\0";
 const WAL_FRAME_CHECKSUM_DOMAIN: &[u8] = b"echo:causal_wal:frame_checksum:v1\0";
+const WAL_RUNTIME_STATE_DELTA_DOMAIN: &[u8] = b"echo:causal_wal:runtime_state_delta:v1\0";
+const WAL_RUNTIME_STATE_DELTA_MAGIC_V1: &[u8; 8] = b"ERSD0001";
 const WAL_DISK_RECORD_DOMAIN: &[u8] = b"echo:causal_wal:disk_record:v1\0";
 const WAL_PROJECTION_ROOT_DOMAIN: &[u8] = b"echo:causal_wal:projection:root:v1\0";
 const WAL_PROJECTION_WRITER_EPOCH_DOMAIN: &[u8] = b"echo:causal_wal:projection:writer_epoch:v1\0";
@@ -1840,6 +1849,274 @@ impl WalSubmissionEnvelopeRecord {
             head_key,
             retained_envelope_bytes,
         })
+    }
+}
+
+/// WAL record carrying one replayable scheduler-produced provenance entry.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WalRuntimeStateDeltaRecord {
+    receipt_digest: Hash,
+    contract: Option<ContractEvidenceIdentity>,
+    entry: ProvenanceEntry,
+}
+
+impl WalRuntimeStateDeltaRecord {
+    /// Validates and wraps one local-commit provenance entry for retention.
+    ///
+    /// # Errors
+    ///
+    /// Returns a codec error when the entry is not a canonical, replayable
+    /// scheduler local commit.
+    pub fn from_provenance_entry(
+        receipt_digest: Hash,
+        contract: Option<ContractEvidenceIdentity>,
+        entry: ProvenanceEntry,
+    ) -> Result<Self, RetainedProvenanceError> {
+        encode_local_commit_v1(&entry)?;
+        if entry
+            .tick_receipt
+            .as_ref()
+            .is_none_or(|receipt| receipt.digest() != receipt_digest)
+        {
+            return Err(RetainedProvenanceError::Inconsistent("state-delta receipt"));
+        }
+        Ok(Self {
+            receipt_digest,
+            contract,
+            entry,
+        })
+    }
+
+    /// Returns the tick receipt that admitted this retained state transition.
+    #[must_use]
+    pub const fn receipt_digest(&self) -> Hash {
+        self.receipt_digest
+    }
+
+    /// Returns the retained provenance entry.
+    #[must_use]
+    pub fn provenance_entry(&self) -> &ProvenanceEntry {
+        &self.entry
+    }
+
+    /// Returns installed-contract evidence attached to the admitted transition.
+    #[must_use]
+    pub fn contract(&self) -> Option<&ContractEvidenceIdentity> {
+        self.contract.as_ref()
+    }
+
+    /// Encodes the validated entry as canonical retained bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns a codec error if an invalid record was constructed internally.
+    pub fn to_payload_bytes(&self) -> Result<Vec<u8>, RetainedProvenanceError> {
+        let entry_bytes = encode_local_commit_v1(&self.entry)?;
+        let mut out = Vec::new();
+        out.extend_from_slice(WAL_RUNTIME_STATE_DELTA_MAGIC_V1);
+        out.extend_from_slice(&self.receipt_digest);
+        push_retained_contract_evidence(&mut out, self.contract.as_ref());
+        out.extend_from_slice(&(entry_bytes.len() as u64).to_le_bytes());
+        out.extend_from_slice(&entry_bytes);
+        Ok(out)
+    }
+
+    /// Decodes replayable retained state-delta material without applying it.
+    ///
+    /// # Errors
+    ///
+    /// Returns a codec error for malformed, truncated, non-canonical, or
+    /// commitment-inconsistent material.
+    pub fn from_payload_bytes(bytes: &[u8]) -> Result<Self, RetainedProvenanceError> {
+        let magic = bytes
+            .get(..WAL_RUNTIME_STATE_DELTA_MAGIC_V1.len())
+            .ok_or(RetainedProvenanceError::UnexpectedEof)?;
+        if magic != WAL_RUNTIME_STATE_DELTA_MAGIC_V1 {
+            return Err(RetainedProvenanceError::InvalidMagic);
+        }
+        let receipt_start = WAL_RUNTIME_STATE_DELTA_MAGIC_V1.len();
+        let receipt_end = receipt_start + core::mem::size_of::<Hash>();
+        let receipt_digest = bytes
+            .get(receipt_start..receipt_end)
+            .ok_or(RetainedProvenanceError::UnexpectedEof)?
+            .try_into()
+            .map_err(|_| RetainedProvenanceError::UnexpectedEof)?;
+        let mut cursor = RetainedStateDeltaCursor::new(bytes, receipt_end);
+        let contract = cursor.read_contract_evidence()?;
+        let entry_len = cursor.read_u64()?;
+        let entry_len =
+            usize::try_from(entry_len).map_err(|_| RetainedProvenanceError::LengthOverflow)?;
+        let entry_bytes = cursor.read_exact(entry_len)?;
+        cursor.finish()?;
+        let entry = decode_local_commit_v1(entry_bytes)?;
+        if entry
+            .tick_receipt
+            .as_ref()
+            .is_none_or(|receipt| receipt.digest() != receipt_digest)
+        {
+            return Err(RetainedProvenanceError::Inconsistent("state-delta receipt"));
+        }
+        Ok(Self {
+            receipt_digest,
+            contract,
+            entry,
+        })
+    }
+
+    /// Returns a content digest for the retained state-delta record.
+    ///
+    /// # Errors
+    ///
+    /// Returns a codec error if an invalid record was constructed internally.
+    pub fn digest(&self) -> Result<Hash, RetainedProvenanceError> {
+        let bytes = self.to_payload_bytes()?;
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(WAL_RUNTIME_STATE_DELTA_DOMAIN);
+        hasher.update(&(bytes.len() as u64).to_le_bytes());
+        hasher.update(&bytes);
+        Ok(hasher.finalize().into())
+    }
+}
+
+fn push_retained_contract_evidence(out: &mut Vec<u8>, contract: Option<&ContractEvidenceIdentity>) {
+    let Some(contract) = contract else {
+        out.push(0);
+        return;
+    };
+    out.push(1);
+    out.extend_from_slice(contract.package_id.as_bytes());
+    out.extend_from_slice(&contract.echo_abi_version.to_le_bytes());
+    push_retained_string(out, &contract.package_name);
+    push_retained_string(out, &contract.package_version);
+    push_retained_string(out, &contract.artifact_hash_hex);
+    push_retained_string(out, &contract.codec_id);
+    out.extend_from_slice(&contract.registry_version.to_le_bytes());
+    push_retained_string(out, &contract.wesley_generator_version);
+    out.extend_from_slice(&contract.helper_api_version.to_le_bytes());
+    push_retained_string(out, &contract.schema_sha256_hex);
+    out.extend_from_slice(&contract.op_id.to_le_bytes());
+    out.push(match contract.op_kind {
+        ContractOperationKind::Mutation => 1,
+        ContractOperationKind::Query => 2,
+    });
+}
+
+fn push_retained_string(out: &mut Vec<u8>, value: &str) {
+    out.extend_from_slice(&(value.len() as u64).to_le_bytes());
+    out.extend_from_slice(value.as_bytes());
+}
+
+struct RetainedStateDeltaCursor<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> RetainedStateDeltaCursor<'a> {
+    const fn new(bytes: &'a [u8], offset: usize) -> Self {
+        Self { bytes, offset }
+    }
+
+    fn read_exact(&mut self, len: usize) -> Result<&'a [u8], RetainedProvenanceError> {
+        let end = self
+            .offset
+            .checked_add(len)
+            .ok_or(RetainedProvenanceError::LengthOverflow)?;
+        let value = self
+            .bytes
+            .get(self.offset..end)
+            .ok_or(RetainedProvenanceError::UnexpectedEof)?;
+        self.offset = end;
+        Ok(value)
+    }
+
+    fn read_u8(&mut self) -> Result<u8, RetainedProvenanceError> {
+        Ok(self.read_exact(1)?[0])
+    }
+
+    fn read_u32(&mut self) -> Result<u32, RetainedProvenanceError> {
+        Ok(u32::from_le_bytes(
+            self.read_exact(4)?
+                .try_into()
+                .map_err(|_| RetainedProvenanceError::UnexpectedEof)?,
+        ))
+    }
+
+    fn read_u64(&mut self) -> Result<u64, RetainedProvenanceError> {
+        Ok(u64::from_le_bytes(
+            self.read_exact(8)?
+                .try_into()
+                .map_err(|_| RetainedProvenanceError::UnexpectedEof)?,
+        ))
+    }
+
+    fn read_hash(&mut self) -> Result<Hash, RetainedProvenanceError> {
+        self.read_exact(core::mem::size_of::<Hash>())?
+            .try_into()
+            .map_err(|_| RetainedProvenanceError::UnexpectedEof)
+    }
+
+    fn read_string(&mut self) -> Result<String, RetainedProvenanceError> {
+        let len = usize::try_from(self.read_u64()?)
+            .map_err(|_| RetainedProvenanceError::LengthOverflow)?;
+        String::from_utf8(self.read_exact(len)?.to_vec())
+            .map_err(|_| RetainedProvenanceError::InvalidUtf8)
+    }
+
+    fn read_contract_evidence(
+        &mut self,
+    ) -> Result<Option<ContractEvidenceIdentity>, RetainedProvenanceError> {
+        match self.read_u8()? {
+            0 => Ok(None),
+            1 => {
+                let package_id = InstalledContractPackageId::from_bytes(self.read_hash()?);
+                let echo_abi_version = self.read_u32()?;
+                let package_name = self.read_string()?;
+                let package_version = self.read_string()?;
+                let artifact_hash_hex = self.read_string()?;
+                let codec_id = self.read_string()?;
+                let registry_version = self.read_u32()?;
+                let wesley_generator_version = self.read_string()?;
+                let helper_api_version = self.read_u32()?;
+                let schema_sha256_hex = self.read_string()?;
+                let op_id = self.read_u32()?;
+                let op_kind = match self.read_u8()? {
+                    1 => ContractOperationKind::Mutation,
+                    2 => ContractOperationKind::Query,
+                    tag => {
+                        return Err(RetainedProvenanceError::UnknownTag {
+                            family: "contract operation kind",
+                            tag,
+                        })
+                    }
+                };
+                Ok(Some(ContractEvidenceIdentity {
+                    package_id,
+                    echo_abi_version,
+                    package_name,
+                    package_version,
+                    artifact_hash_hex,
+                    codec_id,
+                    registry_version,
+                    wesley_generator_version,
+                    helper_api_version,
+                    schema_sha256_hex,
+                    op_id,
+                    op_kind,
+                }))
+            }
+            tag => Err(RetainedProvenanceError::UnknownTag {
+                family: "optional contract evidence",
+                tag,
+            }),
+        }
+    }
+
+    fn finish(self) -> Result<(), RetainedProvenanceError> {
+        if self.offset == self.bytes.len() {
+            Ok(())
+        } else {
+            Err(RetainedProvenanceError::TrailingBytes)
+        }
     }
 }
 
@@ -7015,6 +7292,35 @@ pub fn build_tick_transaction(
     state_delta_digest: Hash,
     affected_frontiers: Vec<AffectedFrontier>,
 ) -> Result<WalCommittedTransaction, WalBuildError> {
+    push_tick_receipt_records(&mut builder, receipt, &correlation)?;
+    builder.push_record(
+        WalRecordKind::RuntimeStateDeltaRecorded,
+        state_delta_digest.to_vec(),
+    )?;
+    builder.commit(affected_frontiers)
+}
+
+/// Builds a scheduler-owned tick transaction with replayable state-delta material.
+pub fn build_replayable_tick_transaction(
+    mut builder: WalTransactionBuilder,
+    receipt: TickReceiptRecord,
+    correlation: WalReceiptCorrelationRecord,
+    retained_state_delta_bytes: Vec<u8>,
+    affected_frontiers: Vec<AffectedFrontier>,
+) -> Result<WalCommittedTransaction, WalBuildError> {
+    push_tick_receipt_records(&mut builder, receipt, &correlation)?;
+    builder.push_record(
+        WalRecordKind::RuntimeStateDeltaRecorded,
+        retained_state_delta_bytes,
+    )?;
+    builder.commit(affected_frontiers)
+}
+
+fn push_tick_receipt_records(
+    builder: &mut WalTransactionBuilder,
+    receipt: TickReceiptRecord,
+    correlation: &WalReceiptCorrelationRecord,
+) -> Result<(), WalBuildError> {
     builder.push_record(
         WalRecordKind::TickReceiptRecorded,
         receipt.to_payload_bytes(),
@@ -7023,11 +7329,7 @@ pub fn build_tick_transaction(
         WalRecordKind::ReceiptCorrelationRecorded,
         correlation.to_payload_bytes(),
     )?;
-    builder.push_record(
-        WalRecordKind::RuntimeStateDeltaRecorded,
-        state_delta_digest.to_vec(),
-    )?;
-    builder.commit(affected_frontiers)
+    Ok(())
 }
 
 /// Builds a retained reading transaction.

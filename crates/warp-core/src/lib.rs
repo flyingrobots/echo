@@ -144,6 +144,7 @@ mod payload;
 mod playback;
 mod plurality_law;
 pub mod proof;
+mod provenance_codec;
 mod provenance_store;
 mod receipt;
 mod record;
@@ -360,12 +361,16 @@ pub use optic_artifact::{
     OPTIC_ADMISSION_TICKET_KIND, OPTIC_ADMISSION_TICKET_POSTURE_KIND, OPTIC_ARTIFACT_HANDLE_KIND,
 };
 pub use playback::{CursorReceipt, TruthFrame, TruthSink};
+pub use provenance_codec::RetainedProvenanceError;
 pub use provenance_store::{
     BoundaryTransitionRecord, BtrError, BtrPayload, CheckpointRef, HistoryError,
     LocalProvenanceStore, ProvenanceEntry, ProvenanceEventKind, ProvenanceRef, ProvenanceService,
     ProvenanceStore, ReplayCheckpoint, ReplayError,
 };
-pub use receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection};
+pub use receipt::{
+    TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptPartsError,
+    TickReceiptRejection,
+};
 pub use record::{EdgeRecord, NodeRecord};
 #[allow(deprecated)]
 pub use revelation::RevelationPosture;
@@ -409,9 +414,9 @@ pub use tick_patch::{
 };
 #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 pub use trusted_runtime_host::{
-    EvidenceCatalogPosture, TrustedRuntimeApp, TrustedRuntimeHost, TrustedRuntimeHostError,
-    TrustedRuntimeHostRunReport, TrustedRuntimeWal, TrustedRuntimeWalConfig,
-    TrustedRuntimeWalError, TrustedRuntimeWalStoreKind,
+    EvidenceCatalogPosture, RuntimeWalActivationGap, TrustedRuntimeApp, TrustedRuntimeHost,
+    TrustedRuntimeHostError, TrustedRuntimeHostRunReport, TrustedRuntimeWal,
+    TrustedRuntimeWalConfig, TrustedRuntimeWalError, TrustedRuntimeWalStoreKind,
 };
 pub use tx::TxId;
 pub use warp_state::{WarpInstance, WarpState};
@@ -436,11 +441,12 @@ pub use coordinator::{
     ForkStrandReceipt, ForkStrandRequest, IngressDisposition, IngressSubmissionGeneration,
     IntentOutcome, IntentOutcomeDecision, IntentOutcomeObservation, IntentOutcomeReceipt,
     IntentSubmissionDisposition, IntentSubmissionHandle, IntentSubmissionRecord,
-    ReceiptCorrelationRecord, RuntimeError, SchedulerCoordinator, SchedulerFaultGeneration,
-    SchedulerFaultId, SchedulerFaultRecord, SchedulerFaultRecoveryAuthority, SchedulerFaultScope,
-    SchedulerFaultStatus, SchedulerRunId, StepRecord, TicketedRuntimeIngressAuthority,
-    TicketedRuntimeIngressDisposition, TicketedRuntimeIngressRecord,
-    WitnessedSubmissionPersistenceRecord, WitnessedSubmissionPersistenceSnapshot, WorldlineRuntime,
+    ReceiptCorrelationPersistenceRecord, ReceiptCorrelationRecord, RuntimeError,
+    SchedulerCoordinator, SchedulerFaultGeneration, SchedulerFaultId, SchedulerFaultRecord,
+    SchedulerFaultRecoveryAuthority, SchedulerFaultScope, SchedulerFaultStatus, SchedulerRunId,
+    StepRecord, TicketedRuntimeIngressAuthority, TicketedRuntimeIngressDisposition,
+    TicketedRuntimeIngressRecord, WitnessedSubmissionPersistenceRecord,
+    WitnessedSubmissionPersistenceSnapshot, WorldlineRuntime,
 };
 /// Writer-head registry and routing primitives used by the runtime-owned ingress path.
 pub use head::{

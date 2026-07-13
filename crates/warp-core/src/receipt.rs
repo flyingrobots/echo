@@ -19,6 +19,7 @@
 //! witness-bearing publication the runtime may emit.
 
 use blake3::Hasher;
+use thiserror::Error;
 
 use crate::admission::AdmissionOutcomeKind;
 use crate::ident::{Hash, NodeKey};
@@ -31,6 +32,19 @@ pub struct TickReceipt {
     entries: Vec<TickReceiptEntry>,
     blocked_by: Vec<Vec<u32>>,
     digest: Hash,
+}
+
+/// Error returned when reconstructing a tick receipt from retained parts.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum TickReceiptPartsError {
+    /// Candidate entries and blocker lists must remain parallel.
+    #[error("tick receipt entry count {entries} does not match blocker-list count {blocked_by}")]
+    LengthMismatch {
+        /// Number of candidate entries.
+        entries: usize,
+        /// Number of blocker lists.
+        blocked_by: usize,
+    },
 }
 
 impl TickReceipt {
@@ -47,6 +61,35 @@ impl TickReceipt {
             blocked_by,
             digest,
         }
+    }
+
+    /// Reconstructs a receipt value from retained canonical parts.
+    ///
+    /// Constructing this value does not admit it as Echo history. Admission
+    /// boundaries must still validate its digest against causal commitments.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when candidate entries and blocker lists are not
+    /// parallel.
+    pub fn try_from_retained_parts(
+        tx: TxId,
+        entries: Vec<TickReceiptEntry>,
+        blocked_by: Vec<Vec<u32>>,
+    ) -> Result<Self, TickReceiptPartsError> {
+        if entries.len() != blocked_by.len() {
+            return Err(TickReceiptPartsError::LengthMismatch {
+                entries: entries.len(),
+                blocked_by: blocked_by.len(),
+            });
+        }
+        let digest = compute_tick_receipt_digest(&entries);
+        Ok(Self {
+            tx,
+            entries,
+            blocked_by,
+            digest,
+        })
     }
 
     /// Transaction identifier associated with the tick receipt.

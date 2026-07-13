@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Durable receipt-parent recovery witnesses for contract-defined inverse intents.
+#![allow(clippy::expect_used)]
 
 use warp_core::causal_wal::{
     RecoveredReceiptIndex, TickReceiptRecord, WalReceiptCorrelationRecord, WalTickDecision,

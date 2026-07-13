@@ -242,7 +242,8 @@ impl ContractObstruction {
             | RuntimeError::FrontierTickOverflow(_)
             | RuntimeError::GlobalTickOverflow
             | RuntimeError::IntentSubmissionGenerationOverflow
-            | RuntimeError::IntentSubmissionReplayMismatch(_) => {
+            | RuntimeError::IntentSubmissionReplayMismatch(_)
+            | RuntimeError::ReceiptCorrelationReplayMismatch(_) => {
                 Self::runtime_fault(ContractObstructionSubject::Unspecified)
             }
         }

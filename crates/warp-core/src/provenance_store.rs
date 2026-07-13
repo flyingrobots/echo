@@ -91,6 +91,28 @@ pub enum HistoryError {
         tick: WorldlineTick,
     },
 
+    /// A retained local-commit receipt must identify the entry's transaction.
+    #[error("local commit receipt transaction mismatch at tick {tick}: expected {expected}, got {actual}")]
+    LocalCommitReceiptTxMismatch {
+        /// Entry whose retained receipt disagreed.
+        tick: WorldlineTick,
+        /// Transaction derived from the entry coordinate.
+        expected: u64,
+        /// Transaction carried by the retained receipt.
+        actual: u64,
+    },
+
+    /// A retained local-commit receipt must match the patch decision commitment.
+    #[error("local commit receipt digest mismatch at tick {tick}")]
+    LocalCommitReceiptDigestMismatch {
+        /// Entry whose retained receipt disagreed.
+        tick: WorldlineTick,
+        /// Decision digest committed by the patch.
+        expected: Hash,
+        /// Digest computed from the retained receipt.
+        actual: Hash,
+    },
+
     /// The local commit head must belong to the same worldline as the entry.
     #[error("local commit head/worldline mismatch: entry {entry_worldline:?}, head {head_key:?}")]
     HeadWorldlineMismatch {
@@ -354,6 +376,30 @@ pub enum ReplayError {
         actual: Hash,
     },
 
+    /// A retained receipt used a transaction other than the replay coordinate.
+    #[error(
+        "replay receipt transaction mismatch at tick {tick}: expected {expected}, got {actual}"
+    )]
+    ReceiptTxMismatch {
+        /// Tick whose retained receipt disagreed.
+        tick: WorldlineTick,
+        /// Transaction derived from the tick coordinate.
+        expected: u64,
+        /// Transaction carried by the retained receipt.
+        actual: u64,
+    },
+
+    /// A retained receipt did not match the patch decision commitment.
+    #[error("replay receipt digest mismatch at tick {tick}")]
+    ReceiptDigestMismatch {
+        /// Tick whose retained receipt disagreed.
+        tick: WorldlineTick,
+        /// Decision digest committed by the patch.
+        expected: Hash,
+        /// Digest computed from the retained receipt.
+        actual: Hash,
+    },
+
     /// Replayed state root did not match the stored provenance commitment.
     #[error("replay state root mismatch at tick {tick}")]
     StateRootMismatch {
@@ -479,6 +525,8 @@ pub struct ProvenanceEntry {
     pub expected: HashTriplet,
     /// Replay patch for this entry, when applicable.
     pub patch: Option<WorldlineTickPatchV1>,
+    /// Exact scheduler receipt for this local commit, when retained.
+    pub tick_receipt: Option<TickReceipt>,
     /// Recorded materialization outputs.
     pub outputs: OutputFrameSet,
     /// Recorded atom-write provenance.
@@ -519,6 +567,7 @@ impl ProvenanceEntry {
             event_kind: ProvenanceEventKind::LocalCommit,
             expected,
             patch: Some(patch),
+            tick_receipt: None,
             outputs,
             atom_writes,
         }
@@ -547,9 +596,17 @@ impl ProvenanceEntry {
             event_kind,
             expected,
             patch: Some(patch),
+            tick_receipt: None,
             outputs,
             atom_writes,
         }
+    }
+
+    /// Attaches the exact scheduler receipt to a local-commit entry.
+    #[must_use]
+    pub fn with_tick_receipt(mut self, receipt: TickReceipt) -> Self {
+        self.tick_receipt = Some(receipt);
+        self
     }
 }
 
@@ -790,7 +847,25 @@ pub(crate) fn replay_artifacts_for_entry(
         policy_id: patch.policy_id(),
         tx,
     };
-    let receipt = TickReceipt::new(snapshot.tx, Vec::new(), Vec::new());
+    let receipt = if let Some(receipt) = &entry.tick_receipt {
+        if receipt.tx() != snapshot.tx {
+            return Err(ReplayError::ReceiptTxMismatch {
+                tick,
+                expected: snapshot.tx.value(),
+                actual: receipt.tx().value(),
+            });
+        }
+        if receipt.digest() != patch.header.decision_digest {
+            return Err(ReplayError::ReceiptDigestMismatch {
+                tick,
+                expected: patch.header.decision_digest,
+                actual: receipt.digest(),
+            });
+        }
+        receipt.clone()
+    } else {
+        TickReceipt::new(snapshot.tx, Vec::new(), Vec::new())
+    };
     Ok((snapshot, receipt, replay_patch))
 }
 
@@ -1370,10 +1445,36 @@ impl LocalProvenanceStore {
                 head_key,
             });
         }
-        if entry.patch.is_none() {
-            return Err(HistoryError::LocalCommitMissingPatch {
+        let patch = entry
+            .patch
+            .as_ref()
+            .ok_or(HistoryError::LocalCommitMissingPatch {
                 tick: entry.worldline_tick,
-            });
+            })?;
+        if let Some(receipt) = &entry.tick_receipt {
+            let expected_tx = entry
+                .worldline_tick
+                .as_u64()
+                .checked_add(1)
+                .ok_or_else(|| HistoryError::LocalCommitReceiptTxMismatch {
+                    tick: entry.worldline_tick,
+                    expected: u64::MAX,
+                    actual: receipt.tx().value(),
+                })?;
+            if receipt.tx().value() != expected_tx {
+                return Err(HistoryError::LocalCommitReceiptTxMismatch {
+                    tick: entry.worldline_tick,
+                    expected: expected_tx,
+                    actual: receipt.tx().value(),
+                });
+            }
+            if receipt.digest() != patch.header.decision_digest {
+                return Err(HistoryError::LocalCommitReceiptDigestMismatch {
+                    tick: entry.worldline_tick,
+                    expected: patch.header.decision_digest,
+                    actual: receipt.digest(),
+                });
+            }
         }
         if !matches!(entry.event_kind, ProvenanceEventKind::LocalCommit) {
             return Err(HistoryError::InvalidLocalCommitEventKind {

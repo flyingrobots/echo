@@ -16,15 +16,16 @@ use thiserror::Error;
 
 use crate::{
     causal_wal::{
-        build_recovery_certificate, build_submission_acceptance_with_material_transaction,
-        build_tick_transaction, recover_filesystem_store, recover_from_frames_and_commits,
-        recover_receipt_index, recover_submission_index, recovered_submission_receipt_index_root,
-        AffectedFrontier, AffectedFrontierKind, FilesystemWalStore, InMemoryWalStore, Lsn,
-        PayloadCodecId, PayloadSchemaId, RecoveredReceiptIndex, RecoveredSubmissionIndex,
-        RecoveryAccessMode, RecoveryCertificate, RecoveryScanReport, SubmissionAcceptanceRecord,
-        SubmissionRetryPosture, TickReceiptRecord, WalAppendAuthority, WalBuildError,
-        WalCommittedTransaction, WalDecodeError, WalDurabilityMode, WalReceiptCorrelationRecord,
-        WalRecordKind, WalRecoveryError, WalRecoveryIndexError, WalSegmentId, WalStoreError,
+        build_recovery_certificate, build_replayable_tick_transaction,
+        build_submission_acceptance_with_material_transaction, recover_filesystem_store,
+        recover_from_frames_and_commits, recover_receipt_index, recover_submission_index,
+        recovered_submission_receipt_index_root, AffectedFrontier, AffectedFrontierKind,
+        FilesystemWalStore, InMemoryWalStore, Lsn, PayloadCodecId, PayloadSchemaId,
+        RecoveredReceiptIndex, RecoveredSubmissionIndex, RecoveryAccessMode, RecoveryCertificate,
+        RecoveryScanReport, SubmissionAcceptanceRecord, SubmissionRetryPosture, TickReceiptRecord,
+        WalAppendAuthority, WalBuildError, WalCommittedTransaction, WalDecodeError,
+        WalDurabilityMode, WalReceiptCorrelationRecord, WalRecordKind, WalRecoveryError,
+        WalRecoveryIndexError, WalRuntimeStateDeltaRecord, WalSegmentId, WalStoreError,
         WalStorePort, WalSubmissionEnvelopeRecord, WalTickDecision, WalTransactionBuilder,
         WalTransactionCommit, WalTransactionId, WalTransactionKind, WriterEpochId,
         WriterEpochRequest,
@@ -33,7 +34,8 @@ use crate::{
     InstalledContractPackage, InstalledContractPackageError, InstalledContractPackageRecord,
     IntentOutcome, IntentOutcomeDecision, IntentOutcomeObservation, IntentSubmissionHandle,
     IntentSubmissionRecord, ObservationArtifact, ObservationError, ObservationRequest,
-    ObservationService, OpticAdmissionTicket, ProvenanceService, ReceiptCorrelationRecord,
+    ObservationService, OpticAdmissionTicket, ProvenanceEntry, ProvenanceService, ProvenanceStore,
+    ReceiptCorrelationPersistenceRecord, ReceiptCorrelationRecord, RetainedProvenanceError,
     RuntimeError, SchedulerCoordinator, StepRecord, TickReceiptRejection,
     TicketedRuntimeIngressAuthority, TicketedRuntimeIngressDisposition,
     WitnessedSubmissionPersistenceRecord, WitnessedSubmissionPersistenceSnapshot, WorldlineRuntime,
@@ -112,6 +114,31 @@ pub enum TrustedRuntimeWalError {
         /// Accepted submission whose canonical envelope was unavailable.
         submission_id: Hash,
     },
+    /// A replayable runtime state delta could not be encoded or decoded.
+    #[error("trusted runtime WAL retained state-delta codec error: {0}")]
+    RuntimeStateDeltaCodec(#[from] RetainedProvenanceError),
+    /// Recovery cannot restore a decided receipt without replayable state material.
+    #[error(
+        "trusted runtime WAL is missing replayable state material for receipt {receipt_digest:?}"
+    )]
+    RuntimeStateDeltaMissing {
+        /// Receipt whose committed state transition lacks replayable material.
+        receipt_digest: Hash,
+    },
+    /// Two retained state deltas disagreed at one worldline tick.
+    #[error("trusted runtime WAL retained state delta conflicted for worldline {worldline_id:?} tick {worldline_tick:?}")]
+    RuntimeStateDeltaConflict {
+        /// Worldline whose retained transition conflicted.
+        worldline_id: crate::WorldlineId,
+        /// Tick whose retained transition conflicted.
+        worldline_tick: crate::WorldlineTick,
+    },
+    /// Live runtime authority contains state absent from the recovered WAL.
+    #[error("trusted runtime WAL activation would forget process-only {gap:?} authority")]
+    RuntimeAuthorityNotDurable {
+        /// Category of live authority missing from durable recovery evidence.
+        gap: RuntimeWalActivationGap,
+    },
     /// Evidence catalog operations failed.
     #[error("trusted runtime evidence catalog error: {0}")]
     EvidenceCatalog(#[from] crate::evidence::EvidenceCatalogError),
@@ -148,6 +175,25 @@ pub enum TrustedRuntimeWalError {
     },
 }
 
+/// Live runtime authority category that a WAL activation cannot safely recover.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RuntimeWalActivationGap {
+    /// A witnessed submission has no durable acceptance and envelope evidence.
+    WitnessedSubmission,
+    /// A staged ticketed ingress has no durable decision correlation.
+    TicketedIngress,
+    /// A receipt correlation has no durable tick transaction.
+    ReceiptCorrelation,
+    /// A provenance entry has no replayable durable state delta.
+    Provenance,
+    /// A writer-head inbox contains pending process-only ingress.
+    PendingIngress,
+    /// The runtime cycle has advanced beyond durable tick evidence.
+    GlobalTick,
+    /// A live worldline frontier differs from its retained provenance history.
+    WorldlineState,
+}
+
 /// Summary returned after a trusted host runs the scheduler until idle.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TrustedRuntimeHostRunReport {
@@ -170,6 +216,12 @@ pub struct TrustedRuntimeWalRecovery {
     pub witnessed_submissions: WitnessedSubmissionPersistenceSnapshot,
     /// Accepted submissions whose canonical envelope material was unavailable.
     pub missing_submission_envelopes: Vec<Hash>,
+    /// Replayable scheduler local commits reconstructed from retained state deltas.
+    pub provenance_entries: Vec<ProvenanceEntry>,
+    /// Decided receipts whose legacy state-delta record retained only a digest.
+    pub missing_runtime_state_deltas: Vec<Hash>,
+    /// Receipt correlations reconstructed from atomic tick transactions.
+    pub receipt_correlations: Vec<ReceiptCorrelationPersistenceRecord>,
 }
 
 /// Store kind configured for the trusted runtime WAL adapter.
@@ -363,8 +415,24 @@ impl TrustedRuntimeHost {
         if let Some(submission_id) = recovery.missing_submission_envelopes.first().copied() {
             return Err(TrustedRuntimeWalError::SubmissionEnvelopeMissing { submission_id }.into());
         }
-        self.runtime
+        if let Some(receipt_digest) = recovery.missing_runtime_state_deltas.first().copied() {
+            return Err(TrustedRuntimeWalError::RuntimeStateDeltaMissing { receipt_digest }.into());
+        }
+        ensure_runtime_authority_is_durable(&self.runtime, &self.provenance, &recovery)?;
+
+        let mut restored_runtime = self.runtime.clone();
+        let mut restored_provenance = self.provenance.clone();
+        restored_runtime
             .restore_witnessed_submission_persistence(recovery.witnessed_submissions)?;
+        restore_provenance_entries(&mut restored_provenance, &recovery.provenance_entries)?;
+        restored_runtime.restore_causal_runtime_history(
+            &restored_provenance,
+            &recovery.provenance_entries,
+            &recovery.receipt_correlations,
+        )?;
+
+        self.runtime = restored_runtime;
+        self.provenance = restored_provenance;
         self.runtime_wal = Some(runtime_wal);
         Ok(())
     }
@@ -485,8 +553,16 @@ impl TrustedRuntimeHost {
                         return Err(error.into());
                     }
                 };
-                let state_delta_digest = tick_state_delta_digest(&correlation);
-                tick_wal_records.push((correlation, decision, state_delta_digest));
+                let (state_delta, state_delta_digest) =
+                    match retained_state_delta_for_correlation(&self.provenance, &correlation) {
+                        Ok(state_delta) => state_delta,
+                        Err(error) => {
+                            self.runtime = runtime_before;
+                            self.provenance = provenance_before;
+                            return Err(error);
+                        }
+                    };
+                tick_wal_records.push((correlation, decision, state_delta, state_delta_digest));
             }
         }
         if let Some(runtime_wal) = self.runtime_wal.as_mut() {
@@ -500,10 +576,13 @@ impl TrustedRuntimeHost {
                 .into());
             }
             let runtime_wal_before = runtime_wal.clone();
-            for (correlation, decision, state_delta_digest) in &tick_wal_records {
-                if let Err(error) =
-                    runtime_wal.record_tick_receipt(correlation, *decision, *state_delta_digest)
-                {
+            for (correlation, decision, state_delta, state_delta_digest) in &tick_wal_records {
+                if let Err(error) = runtime_wal.record_tick_receipt(
+                    correlation,
+                    *decision,
+                    state_delta,
+                    *state_delta_digest,
+                ) {
                     if runtime_wal.recover_filesystem_tick_commit_after_error(correlation) {
                         continue;
                     }
@@ -550,6 +629,133 @@ impl TrustedRuntimeHost {
             report.committed_steps += steps.len();
         }
     }
+}
+
+fn ensure_runtime_authority_is_durable(
+    runtime: &WorldlineRuntime,
+    provenance: &ProvenanceService,
+    recovery: &TrustedRuntimeWalRecovery,
+) -> Result<(), TrustedRuntimeWalError> {
+    let recovered_submissions = recovery
+        .witnessed_submissions
+        .records()
+        .iter()
+        .map(|record| (record.submission.submission_id, record))
+        .collect::<BTreeMap<_, _>>();
+    if runtime.witnessed_submissions().any(|submission| {
+        recovered_submissions
+            .get(&submission.submission_id)
+            .is_none_or(|record| record.submission != *submission)
+    }) {
+        return Err(TrustedRuntimeWalError::RuntimeAuthorityNotDurable {
+            gap: RuntimeWalActivationGap::WitnessedSubmission,
+        });
+    }
+
+    let recovered_correlations = recovery
+        .receipt_correlations
+        .iter()
+        .map(|correlation| (correlation.submission_id, correlation))
+        .collect::<BTreeMap<_, _>>();
+    if runtime.receipt_correlations().any(|correlation| {
+        let persisted = ReceiptCorrelationPersistenceRecord::from(correlation);
+        recovered_correlations
+            .get(&persisted.submission_id)
+            .is_none_or(|recovered| **recovered != persisted)
+    }) {
+        return Err(TrustedRuntimeWalError::RuntimeAuthorityNotDurable {
+            gap: RuntimeWalActivationGap::ReceiptCorrelation,
+        });
+    }
+
+    if runtime.ticketed_runtime_ingress_records().any(|ticketed| {
+        let Some(correlation) = recovered_correlations.get(&ticketed.submission_id) else {
+            return true;
+        };
+        let Some(submission) = recovered_submissions.get(&ticketed.submission_id) else {
+            return true;
+        };
+        correlation.ticket_digest != ticketed.ticket_digest
+            || correlation.head_key != ticketed.head_key
+            || correlation.contract != ticketed.contract
+            || submission.submission.ingress_id != ticketed.ingress_id
+    }) {
+        return Err(TrustedRuntimeWalError::RuntimeAuthorityNotDurable {
+            gap: RuntimeWalActivationGap::TicketedIngress,
+        });
+    }
+
+    if runtime
+        .heads()
+        .iter()
+        .any(|(_, head)| !head.inbox().is_empty())
+    {
+        return Err(TrustedRuntimeWalError::RuntimeAuthorityNotDurable {
+            gap: RuntimeWalActivationGap::PendingIngress,
+        });
+    }
+
+    let recovered_entries = recovery
+        .provenance_entries
+        .iter()
+        .map(|entry| ((entry.worldline_id, entry.worldline_tick), entry))
+        .collect::<BTreeMap<_, _>>();
+    for (worldline_id, frontier) in runtime.worldlines().iter() {
+        let retained_len = provenance.len(*worldline_id).map_err(|_| {
+            TrustedRuntimeWalError::RuntimeAuthorityNotDurable {
+                gap: RuntimeWalActivationGap::Provenance,
+            }
+        })?;
+        for raw_tick in 0..retained_len {
+            let tick = crate::WorldlineTick::from_raw(raw_tick);
+            let current = provenance.entry(*worldline_id, tick).map_err(|_| {
+                TrustedRuntimeWalError::RuntimeAuthorityNotDurable {
+                    gap: RuntimeWalActivationGap::Provenance,
+                }
+            })?;
+            if recovered_entries
+                .get(&(*worldline_id, tick))
+                .is_none_or(|recovered| **recovered != current)
+            {
+                return Err(TrustedRuntimeWalError::RuntimeAuthorityNotDurable {
+                    gap: RuntimeWalActivationGap::Provenance,
+                });
+            }
+        }
+
+        let replayed = provenance
+            .replay_worldline_state(*worldline_id, frontier.state())
+            .map_err(|_| TrustedRuntimeWalError::RuntimeAuthorityNotDurable {
+                gap: RuntimeWalActivationGap::WorldlineState,
+            })?;
+        if frontier.frontier_tick().as_u64() != retained_len
+            || replayed.state_root() != frontier.state().state_root()
+        {
+            return Err(TrustedRuntimeWalError::RuntimeAuthorityNotDurable {
+                gap: RuntimeWalActivationGap::WorldlineState,
+            });
+        }
+    }
+
+    let recovered_global_tick = recovery
+        .provenance_entries
+        .iter()
+        .map(|entry| entry.commit_global_tick)
+        .chain(
+            recovery
+                .receipt_correlations
+                .iter()
+                .map(|correlation| correlation.commit_global_tick),
+        )
+        .max()
+        .unwrap_or_default();
+    if runtime.global_tick() > recovered_global_tick {
+        return Err(TrustedRuntimeWalError::RuntimeAuthorityNotDurable {
+            gap: RuntimeWalActivationGap::GlobalTick,
+        });
+    }
+
+    Ok(())
 }
 
 /// Represents the live cache posture of the derived evidence catalog.
@@ -682,6 +888,10 @@ impl TrustedRuntimeWal {
         let receipts = recover_receipt_index(&report).map_err(WalRecoveryError::from)?;
         let (witnessed_submissions, missing_submission_envelopes) =
             recover_witnessed_submission_material(&report, &submissions)?;
+        let runtime_state = recover_runtime_state_delta_material(&report)?;
+        let provenance_entries = runtime_state.provenance_entries;
+        let receipt_correlations = runtime_state.receipt_correlations;
+        let missing_runtime_state_deltas = runtime_state.missing_runtime_state_deltas;
         Ok(TrustedRuntimeWalRecovery {
             certificate: runtime_wal_recovery_certificate(
                 &report,
@@ -689,11 +899,16 @@ impl TrustedRuntimeWal {
                 &receipts,
                 &witnessed_submissions,
                 &missing_submission_envelopes,
-            ),
+                &provenance_entries,
+                &missing_runtime_state_deltas,
+            )?,
             submissions,
             receipts,
             witnessed_submissions,
             missing_submission_envelopes,
+            provenance_entries,
+            missing_runtime_state_deltas,
+            receipt_correlations,
         })
     }
 
@@ -864,6 +1079,7 @@ impl TrustedRuntimeWal {
         &mut self,
         correlation: &ReceiptCorrelationRecord,
         decision: WalTickDecision,
+        state_delta: &WalRuntimeStateDeltaRecord,
         state_delta_digest: Hash,
     ) -> Result<WalTransactionCommit, TrustedRuntimeWalError> {
         let receipt = TickReceiptRecord {
@@ -885,7 +1101,7 @@ impl TrustedRuntimeWal {
             correlation,
             state_delta_digest,
         );
-        let transaction = build_tick_transaction(
+        let transaction = build_replayable_tick_transaction(
             self.builder(
                 WalTransactionKind::SchedulerTick,
                 WalAppendAuthority::TrustedScheduler,
@@ -897,7 +1113,7 @@ impl TrustedRuntimeWal {
             ),
             receipt,
             wal_correlation,
-            state_delta_digest,
+            state_delta.to_payload_bytes()?,
             vec![
                 AffectedFrontier {
                     kind: AffectedFrontierKind::ReceiptIndex,
@@ -1234,18 +1450,30 @@ impl TrustedRuntimeWalCursor {
                         submission_frontier_digest(cursor.submission_frontier_digest, record);
                 }
                 WalTransactionKind::SchedulerTick => {
-                    let (receipt, correlation, state_delta_digest) =
+                    let (receipt, correlation, state_delta_digest, provenance_entry) =
                         tick_records_from_transaction(transaction)?;
                     cursor.receipt_frontier_digest = receipt_frontier_digest(
                         cursor.receipt_frontier_digest,
                         receipt,
                         &correlation,
                     );
-                    cursor.runtime_state_frontier_digest = recovered_runtime_state_frontier_digest(
-                        cursor.runtime_state_frontier_digest,
-                        correlation,
-                        state_delta_digest,
-                    );
+                    cursor.runtime_state_frontier_digest = match provenance_entry {
+                        Some(entry) => runtime_state_frontier_digest_from_fields(
+                            cursor.runtime_state_frontier_digest,
+                            entry.expected.commit_hash,
+                            state_delta_digest,
+                            entry.commit_global_tick,
+                            entry
+                                .worldline_tick
+                                .checked_add(1)
+                                .ok_or(RetainedProvenanceError::Inconsistent("worldline tick"))?,
+                        ),
+                        None => recovered_legacy_runtime_state_frontier_digest(
+                            cursor.runtime_state_frontier_digest,
+                            correlation,
+                            state_delta_digest,
+                        ),
+                    };
                 }
                 _ => {}
             }
@@ -1338,36 +1566,227 @@ fn recover_witnessed_submission_material(
     ))
 }
 
+fn restore_provenance_entries(
+    provenance: &mut ProvenanceService,
+    entries: &[ProvenanceEntry],
+) -> Result<(), TrustedRuntimeHostError> {
+    for entry in entries {
+        let retained_len = provenance.len(entry.worldline_id)?;
+        if entry.worldline_tick.as_u64() < retained_len {
+            let existing = provenance.entry(entry.worldline_id, entry.worldline_tick)?;
+            if existing != *entry {
+                return Err(TrustedRuntimeWalError::RuntimeStateDeltaConflict {
+                    worldline_id: entry.worldline_id,
+                    worldline_tick: entry.worldline_tick,
+                }
+                .into());
+            }
+            continue;
+        }
+        provenance.append_local_commit(entry.clone())?;
+    }
+    Ok(())
+}
+
+struct RecoveredRuntimeStateMaterial {
+    provenance_entries: Vec<ProvenanceEntry>,
+    receipt_correlations: Vec<ReceiptCorrelationPersistenceRecord>,
+    missing_runtime_state_deltas: Vec<Hash>,
+}
+
+fn recover_runtime_state_delta_material(
+    report: &RecoveryScanReport,
+) -> Result<RecoveredRuntimeStateMaterial, TrustedRuntimeWalError> {
+    let mut entries_by_coordinate = BTreeMap::new();
+    let mut correlations_by_submission = BTreeMap::new();
+    let mut submission_by_ticket = BTreeMap::new();
+    let mut missing = Vec::new();
+    for transaction in &report.transactions {
+        if transaction.commit.transaction_kind != WalTransactionKind::SchedulerTick {
+            continue;
+        }
+        let receipt = tick_receipt_from_transaction(transaction)?;
+        let wal_correlation = tick_correlation_from_transaction(transaction)?;
+        if wal_correlation.receipt_digest != receipt.receipt_digest
+            || wal_correlation.submission_id != receipt.submission_id
+            || wal_correlation.ticket_digest != receipt.ticket_digest
+        {
+            return Err(decode_trusted_runtime_wal_payload(
+                WalDecodeError::InvalidEmbeddedFrame,
+            ));
+        }
+        let mut state_delta_frames = transaction
+            .frames
+            .iter()
+            .filter(|frame| frame.header.record_kind == WalRecordKind::RuntimeStateDeltaRecorded);
+        let state_delta_frame = state_delta_frames
+            .next()
+            .ok_or_else(missing_trusted_runtime_record)?;
+        if state_delta_frames.next().is_some() {
+            return Err(decode_trusted_runtime_wal_payload(
+                WalDecodeError::InvalidEmbeddedFrame,
+            ));
+        }
+        if state_delta_frame.payload.canonical_bytes.len() == core::mem::size_of::<Hash>() {
+            missing.push(receipt.receipt_digest);
+            continue;
+        }
+        let state_delta = WalRuntimeStateDeltaRecord::from_payload_bytes(
+            &state_delta_frame.payload.canonical_bytes,
+        )?;
+        if state_delta.receipt_digest() != receipt.receipt_digest {
+            return Err(RetainedProvenanceError::Inconsistent("state-delta receipt").into());
+        }
+        let entry = state_delta.provenance_entry().clone();
+        let head_key = entry
+            .head_key
+            .ok_or(RetainedProvenanceError::MissingHeadKey)?;
+        let persistence = ReceiptCorrelationPersistenceRecord {
+            submission_id: receipt.submission_id,
+            ticket_digest: receipt.ticket_digest,
+            head_key,
+            commit_global_tick: entry.commit_global_tick,
+            worldline_tick_after: entry
+                .worldline_tick
+                .checked_add(1)
+                .ok_or(RetainedProvenanceError::Inconsistent("worldline tick"))?,
+            tick_receipt_digest: receipt.receipt_digest,
+            commit_hash: entry.expected.commit_hash,
+            contract: state_delta.contract().cloned(),
+            causal_parent_receipts: wal_correlation.causal_parent_receipts,
+        };
+        if correlations_by_submission
+            .get(&receipt.submission_id)
+            .is_some_and(|existing| existing != &persistence)
+        {
+            return Err(TrustedRuntimeWalError::RuntimeStateDeltaConflict {
+                worldline_id: entry.worldline_id,
+                worldline_tick: entry.worldline_tick,
+            });
+        }
+        if submission_by_ticket
+            .insert(receipt.ticket_digest, receipt.submission_id)
+            .is_some_and(|existing| existing != receipt.submission_id)
+        {
+            return Err(TrustedRuntimeWalError::RuntimeStateDeltaConflict {
+                worldline_id: entry.worldline_id,
+                worldline_tick: entry.worldline_tick,
+            });
+        }
+        correlations_by_submission.insert(receipt.submission_id, persistence);
+        let coordinate = (entry.worldline_id, entry.worldline_tick);
+        if entries_by_coordinate
+            .get(&coordinate)
+            .is_some_and(|existing| existing != &entry)
+        {
+            return Err(TrustedRuntimeWalError::RuntimeStateDeltaConflict {
+                worldline_id: entry.worldline_id,
+                worldline_tick: entry.worldline_tick,
+            });
+        }
+        entries_by_coordinate.insert(coordinate, entry);
+    }
+    let mut entries = entries_by_coordinate.into_values().collect::<Vec<_>>();
+    entries.sort_by_key(|entry| {
+        (
+            entry.commit_global_tick,
+            entry.worldline_id,
+            entry.worldline_tick,
+        )
+    });
+    let mut correlations = correlations_by_submission.into_values().collect::<Vec<_>>();
+    correlations.sort_by_key(|correlation| {
+        (
+            correlation.commit_global_tick,
+            correlation.head_key,
+            correlation.worldline_tick_after,
+            correlation.submission_id,
+        )
+    });
+    missing.sort_unstable();
+    missing.dedup();
+    Ok(RecoveredRuntimeStateMaterial {
+        provenance_entries: entries,
+        receipt_correlations: correlations,
+        missing_runtime_state_deltas: missing,
+    })
+}
+
 fn tick_records_from_transaction(
     transaction: &crate::causal_wal::WalRecoveredTransaction,
-) -> Result<(TickReceiptRecord, WalReceiptCorrelationRecord, Hash), TrustedRuntimeWalError> {
-    let receipt_frame = transaction
-        .frames
-        .iter()
-        .find(|frame| frame.header.record_kind == WalRecordKind::TickReceiptRecorded)
-        .ok_or_else(missing_trusted_runtime_record)?;
-    let receipt = TickReceiptRecord::from_payload_bytes(&receipt_frame.payload.canonical_bytes)
-        .map_err(decode_trusted_runtime_wal_payload)?;
-    let correlation_frame = transaction
-        .frames
-        .iter()
-        .find(|frame| frame.header.record_kind == WalRecordKind::ReceiptCorrelationRecorded)
-        .ok_or_else(missing_trusted_runtime_record)?;
-    let correlation =
-        WalReceiptCorrelationRecord::from_payload_bytes(&correlation_frame.payload.canonical_bytes)
-            .map_err(decode_trusted_runtime_wal_payload)?;
+) -> Result<
+    (
+        TickReceiptRecord,
+        WalReceiptCorrelationRecord,
+        Hash,
+        Option<ProvenanceEntry>,
+    ),
+    TrustedRuntimeWalError,
+> {
+    let receipt = tick_receipt_from_transaction(transaction)?;
+    let correlation = tick_correlation_from_transaction(transaction)?;
+    if correlation.receipt_digest != receipt.receipt_digest
+        || correlation.submission_id != receipt.submission_id
+        || correlation.ticket_digest != receipt.ticket_digest
+    {
+        return Err(decode_trusted_runtime_wal_payload(
+            WalDecodeError::InvalidEmbeddedFrame,
+        ));
+    }
     let state_delta_frame = transaction
         .frames
         .iter()
         .find(|frame| frame.header.record_kind == WalRecordKind::RuntimeStateDeltaRecorded)
         .ok_or_else(missing_trusted_runtime_record)?;
-    let state_delta_digest = state_delta_frame
-        .payload
-        .canonical_bytes
-        .as_slice()
-        .try_into()
-        .map_err(|_| decode_trusted_runtime_wal_payload(WalDecodeError::UnexpectedEof))?;
-    Ok((receipt, correlation, state_delta_digest))
+    let (state_delta_digest, provenance_entry) = if state_delta_frame.payload.canonical_bytes.len()
+        == core::mem::size_of::<Hash>()
+    {
+        (
+            state_delta_frame
+                .payload
+                .canonical_bytes
+                .as_slice()
+                .try_into()
+                .map_err(|_| decode_trusted_runtime_wal_payload(WalDecodeError::UnexpectedEof))?,
+            None,
+        )
+    } else {
+        let state_delta = WalRuntimeStateDeltaRecord::from_payload_bytes(
+            &state_delta_frame.payload.canonical_bytes,
+        )?;
+        if state_delta.receipt_digest() != receipt.receipt_digest {
+            return Err(RetainedProvenanceError::Inconsistent("state-delta receipt").into());
+        }
+        (
+            state_delta.digest()?,
+            Some(state_delta.provenance_entry().clone()),
+        )
+    };
+    Ok((receipt, correlation, state_delta_digest, provenance_entry))
+}
+
+fn tick_receipt_from_transaction(
+    transaction: &crate::causal_wal::WalRecoveredTransaction,
+) -> Result<TickReceiptRecord, TrustedRuntimeWalError> {
+    let receipt_frame = transaction
+        .frames
+        .iter()
+        .find(|frame| frame.header.record_kind == WalRecordKind::TickReceiptRecorded)
+        .ok_or_else(missing_trusted_runtime_record)?;
+    TickReceiptRecord::from_payload_bytes(&receipt_frame.payload.canonical_bytes)
+        .map_err(decode_trusted_runtime_wal_payload)
+}
+
+fn tick_correlation_from_transaction(
+    transaction: &crate::causal_wal::WalRecoveredTransaction,
+) -> Result<WalReceiptCorrelationRecord, TrustedRuntimeWalError> {
+    let correlation_frame = transaction
+        .frames
+        .iter()
+        .find(|frame| frame.header.record_kind == WalRecordKind::ReceiptCorrelationRecorded)
+        .ok_or_else(missing_trusted_runtime_record)?;
+    WalReceiptCorrelationRecord::from_payload_bytes(&correlation_frame.payload.canonical_bytes)
+        .map_err(decode_trusted_runtime_wal_payload)
 }
 
 fn missing_trusted_runtime_record() -> TrustedRuntimeWalError {
@@ -1552,6 +1971,39 @@ fn provenance_from_runtime(
         provenance.register_worldline(*worldline_id, frontier.state())?;
     }
     Ok(provenance)
+}
+
+fn retained_state_delta_for_correlation(
+    provenance: &ProvenanceService,
+    correlation: &ReceiptCorrelationRecord,
+) -> Result<(WalRuntimeStateDeltaRecord, Hash), TrustedRuntimeHostError> {
+    let provenance_tick = correlation
+        .worldline_tick_after
+        .checked_sub(1)
+        .ok_or(RetainedProvenanceError::Inconsistent(
+            "worldline tick after",
+        ))
+        .map_err(TrustedRuntimeWalError::from)?;
+    let entry = provenance.entry(correlation.head_key.worldline_id, provenance_tick)?;
+    if entry.head_key != Some(correlation.head_key)
+        || entry.commit_global_tick != correlation.commit_global_tick
+        || entry.expected.commit_hash != correlation.commit_hash
+    {
+        return Err(
+            TrustedRuntimeWalError::from(RetainedProvenanceError::Inconsistent(
+                "receipt-correlated provenance",
+            ))
+            .into(),
+        );
+    }
+    let state_delta = WalRuntimeStateDeltaRecord::from_provenance_entry(
+        correlation.tick_receipt_digest,
+        correlation.contract.clone(),
+        entry,
+    )
+    .map_err(TrustedRuntimeWalError::from)?;
+    let digest = state_delta.digest().map_err(TrustedRuntimeWalError::from)?;
+    Ok((state_delta, digest))
 }
 
 fn trusted_runtime_wal_digest(label: &str) -> Hash {
@@ -1808,6 +2260,64 @@ mod tests {
         );
         assert_eq!(recovery.certificate.obstruction_count, 1);
     }
+
+    #[test]
+    fn runtime_wal_recovery_marks_legacy_tick_without_replayable_state_material() {
+        let mut wal = TrustedRuntimeWal::new_in_memory().expect("test WAL should initialize");
+        let receipt = TickReceiptRecord {
+            submission_id: [21; 32],
+            ticket_digest: [22; 32],
+            receipt_digest: [23; 32],
+            decision: WalTickDecision::Applied,
+        };
+        let correlation = WalReceiptCorrelationRecord {
+            submission_id: receipt.submission_id,
+            ticket_digest: receipt.ticket_digest,
+            receipt_digest: receipt.receipt_digest,
+            causal_parent_receipts: Vec::new(),
+        };
+        let legacy_state_delta_digest = [24; 32];
+        let transaction = crate::causal_wal::build_tick_transaction(
+            wal.builder(
+                WalTransactionKind::SchedulerTick,
+                WalAppendAuthority::TrustedScheduler,
+                WalTransactionId::from_hash([25; 32]),
+            ),
+            receipt,
+            correlation.clone(),
+            legacy_state_delta_digest,
+            vec![
+                AffectedFrontier {
+                    kind: AffectedFrontierKind::ReceiptIndex,
+                    before_digest: wal.receipt_frontier_digest,
+                    after_digest: receipt_frontier_digest(
+                        wal.receipt_frontier_digest,
+                        receipt,
+                        &correlation,
+                    ),
+                },
+                AffectedFrontier {
+                    kind: AffectedFrontierKind::RuntimeState,
+                    before_digest: wal.runtime_state_frontier_digest,
+                    after_digest: trusted_runtime_wal_digest("legacy-runtime-frontier"),
+                },
+            ],
+        )
+        .expect("legacy tick transaction should build");
+        wal.append_transaction(transaction)
+            .expect("legacy tick transaction should commit");
+
+        let recovery = wal
+            .recover_read_only()
+            .expect("legacy tick should remain inspectable");
+
+        assert!(recovery.provenance_entries.is_empty());
+        assert_eq!(
+            recovery.missing_runtime_state_deltas,
+            vec![receipt.receipt_digest]
+        );
+        assert_eq!(recovery.certificate.obstruction_count, 1);
+    }
 }
 
 fn tick_transaction_digest(
@@ -1829,18 +2339,6 @@ fn tick_transaction_digest(
     hash_causal_parent_receipts(&mut hasher, &correlation.causal_parent_receipts);
     hasher.update(&[wal_tick_decision_code(decision)]);
     hasher.update(&state_delta_digest);
-    hasher.finalize().into()
-}
-
-fn tick_state_delta_digest(correlation: &ReceiptCorrelationRecord) -> Hash {
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
-    hasher.update(b"tick-state-delta");
-    hasher.update(&correlation.commit_hash);
-    hasher.update(correlation.head_key.worldline_id.as_bytes());
-    hasher.update(correlation.head_key.head_id.as_bytes());
-    hasher.update(&correlation.commit_global_tick.as_u64().to_le_bytes());
-    hasher.update(&correlation.worldline_tick_after.as_u64().to_le_bytes());
     hasher.finalize().into()
 }
 
@@ -1888,18 +2386,34 @@ fn runtime_state_frontier_digest(
     correlation: &ReceiptCorrelationRecord,
     state_delta_digest: Hash,
 ) -> Hash {
+    runtime_state_frontier_digest_from_fields(
+        previous,
+        correlation.commit_hash,
+        state_delta_digest,
+        correlation.commit_global_tick,
+        correlation.worldline_tick_after,
+    )
+}
+
+fn runtime_state_frontier_digest_from_fields(
+    previous: Hash,
+    commit_hash: Hash,
+    state_delta_digest: Hash,
+    commit_global_tick: crate::GlobalTick,
+    worldline_tick_after: crate::WorldlineTick,
+) -> Hash {
     let mut hasher = blake3::Hasher::new();
     hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
     hasher.update(b"runtime-state-frontier");
     hasher.update(&previous);
-    hasher.update(&correlation.commit_hash);
+    hasher.update(&commit_hash);
     hasher.update(&state_delta_digest);
-    hasher.update(&correlation.commit_global_tick.as_u64().to_le_bytes());
-    hasher.update(&correlation.worldline_tick_after.as_u64().to_le_bytes());
+    hasher.update(&commit_global_tick.as_u64().to_le_bytes());
+    hasher.update(&worldline_tick_after.as_u64().to_le_bytes());
     hasher.finalize().into()
 }
 
-fn recovered_runtime_state_frontier_digest(
+fn recovered_legacy_runtime_state_frontier_digest(
     previous: Hash,
     correlation: WalReceiptCorrelationRecord,
     state_delta_digest: Hash,
@@ -1921,7 +2435,9 @@ fn runtime_wal_recovery_certificate(
     receipts: &RecoveredReceiptIndex,
     witnessed_submissions: &WitnessedSubmissionPersistenceSnapshot,
     missing_submission_envelopes: &[Hash],
-) -> RecoveryCertificate {
+    provenance_entries: &[ProvenanceEntry],
+    missing_runtime_state_deltas: &[Hash],
+) -> Result<RecoveryCertificate, TrustedRuntimeWalError> {
     let recovered_frontier_root = report
         .last_commit_digest()
         .unwrap_or_else(|| trusted_runtime_wal_digest("recovery-frontier:empty"));
@@ -1930,13 +2446,18 @@ fn runtime_wal_recovery_certificate(
         witnessed_submissions,
         missing_submission_envelopes,
     );
-    build_recovery_certificate(
+    let recovered_indexes_root = recovered_runtime_state_delta_index_root(
+        recovered_indexes_root,
+        provenance_entries,
+        missing_runtime_state_deltas,
+    )?;
+    Ok(build_recovery_certificate(
         report,
         None,
-        missing_submission_envelopes.len() as u64,
+        (missing_submission_envelopes.len() + missing_runtime_state_deltas.len()) as u64,
         recovered_frontier_root,
         recovered_indexes_root,
-    )
+    ))
 }
 
 fn recovered_submission_material_index_root(
@@ -1972,4 +2493,28 @@ fn recovered_submission_material_index_root(
         hasher.update(submission_id);
     }
     hasher.finalize().into()
+}
+
+fn recovered_runtime_state_delta_index_root(
+    base_root: Hash,
+    provenance_entries: &[ProvenanceEntry],
+    missing_runtime_state_deltas: &[Hash],
+) -> Result<Hash, TrustedRuntimeWalError> {
+    if provenance_entries.is_empty() && missing_runtime_state_deltas.is_empty() {
+        return Ok(base_root);
+    }
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo:trusted-runtime-wal:runtime-state-delta-index:v1\0");
+    hasher.update(&base_root);
+    hasher.update(&(provenance_entries.len() as u64).to_le_bytes());
+    for entry in provenance_entries {
+        let retained_bytes = crate::provenance_codec::encode_local_commit_v1(entry)?;
+        hasher.update(&(retained_bytes.len() as u64).to_le_bytes());
+        hasher.update(&retained_bytes);
+    }
+    hasher.update(&(missing_runtime_state_deltas.len() as u64).to_le_bytes());
+    for receipt_digest in missing_runtime_state_deltas {
+        hasher.update(receipt_digest);
+    }
+    Ok(hasher.finalize().into())
 }

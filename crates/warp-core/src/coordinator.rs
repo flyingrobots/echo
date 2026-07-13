@@ -5,7 +5,7 @@
 //! The [`WorldlineRuntime`] owns the live ingress path for ADR-0008 Phase 3:
 //! per-head inboxes, deterministic routing, and canonical SuperTick stepping.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 
 use thiserror::Error;
@@ -104,6 +104,9 @@ pub enum RuntimeError {
     /// or conflicted with an existing witnessed submission.
     #[error("witnessed intent submission replay mismatch: {0:?}")]
     IntentSubmissionReplayMismatch(Hash),
+    /// Persisted receipt correlation disagreed with submission or provenance evidence.
+    #[error("receipt correlation replay mismatch: {0:?}")]
+    ReceiptCorrelationReplayMismatch(Hash),
     /// A witnessed submission exists without the canonical envelope material
     /// required to build a full persistence snapshot.
     #[error("witnessed intent submission envelope unavailable: {0:?}")]
@@ -603,6 +606,50 @@ pub struct ReceiptCorrelationRecord {
     /// Echo preserves these links without interpreting application-defined
     /// inverse or compensation semantics.
     pub causal_parent_receipts: Vec<Hash>,
+}
+
+/// Persisted receipt-correlation fields sufficient for causal runtime replay.
+///
+/// Submission and ingress material remain authoritative in the witnessed
+/// submission ledger. Tick state and receipt material remain authoritative in
+/// provenance. This record joins those facts without retaining an independent
+/// mutable runtime snapshot.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReceiptCorrelationPersistenceRecord {
+    /// Witnessed submission decided by the retained tick.
+    pub submission_id: Hash,
+    /// Admission ticket digest bound to runtime ingress.
+    pub ticket_digest: Hash,
+    /// Writer head that committed the ingress.
+    pub head_key: WriterHeadKey,
+    /// Runtime cycle stamp that produced the receipt.
+    pub commit_global_tick: GlobalTick,
+    /// Worldline frontier tick after the commit.
+    pub worldline_tick_after: WorldlineTick,
+    /// Scheduler-owned tick receipt digest.
+    pub tick_receipt_digest: Hash,
+    /// Commit hash emitted by the scheduler-owned tick.
+    pub commit_hash: Hash,
+    /// Installed contract evidence attached to the admitted transition.
+    pub contract: Option<crate::ContractEvidenceIdentity>,
+    /// Canonical retained receipt/evidence hashes cited by the admitted intent.
+    pub causal_parent_receipts: Vec<Hash>,
+}
+
+impl From<&ReceiptCorrelationRecord> for ReceiptCorrelationPersistenceRecord {
+    fn from(correlation: &ReceiptCorrelationRecord) -> Self {
+        Self {
+            submission_id: correlation.submission_id,
+            ticket_digest: correlation.ticket_digest,
+            head_key: correlation.head_key,
+            commit_global_tick: correlation.commit_global_tick,
+            worldline_tick_after: correlation.worldline_tick_after,
+            tick_receipt_digest: correlation.tick_receipt_digest,
+            commit_hash: correlation.commit_hash,
+            contract: correlation.contract.clone(),
+            causal_parent_receipts: correlation.causal_parent_receipts.clone(),
+        }
+    }
 }
 
 /// Scheduler-owned decision observed for a witnessed intent submission.
@@ -1879,6 +1926,201 @@ impl WorldlineRuntime {
         Ok(())
     }
 
+    /// Rehydrates committed runtime state and receipt indexes from causal history.
+    ///
+    /// Replay applies retained provenance patches to the registered deterministic
+    /// worldline bases. It never runs the scheduler, engine, or contract handlers.
+    /// The operation is atomic: any mismatch leaves this runtime unchanged.
+    /// Witnessed submissions must be restored before their receipt correlations.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when retained provenance does not match the registered
+    /// worldline bases, a receipt does not match replayed tick evidence, or a
+    /// correlation disagrees with witnessed submission identity.
+    pub fn restore_causal_runtime_history(
+        &mut self,
+        provenance: &ProvenanceService,
+        entries: &[ProvenanceEntry],
+        correlations: &[ReceiptCorrelationPersistenceRecord],
+    ) -> Result<(), RuntimeError> {
+        let mut restored = self.clone();
+        let mut touched_worldlines = BTreeSet::new();
+        let mut recovered_global_tick = restored.global_tick;
+
+        for entry in entries {
+            let stored = provenance.entry(entry.worldline_id, entry.worldline_tick)?;
+            if stored != *entry {
+                return Err(RuntimeError::ReceiptCorrelationReplayMismatch(
+                    entry.expected.commit_hash,
+                ));
+            }
+            touched_worldlines.insert(entry.worldline_id);
+            recovered_global_tick = recovered_global_tick.max(entry.commit_global_tick);
+        }
+
+        for worldline_id in touched_worldlines {
+            let base_state = restored
+                .worldlines
+                .get(&worldline_id)
+                .ok_or(RuntimeError::UnknownWorldline(worldline_id))?
+                .state()
+                .clone();
+            let state = provenance.replay_worldline_state(worldline_id, &base_state)?;
+            let frontier_tick = WorldlineTick::from_raw(provenance.len(worldline_id)?);
+            restored
+                .worldlines
+                .replace_frontier(WorldlineFrontier::at_tick(
+                    worldline_id,
+                    state,
+                    frontier_tick,
+                ));
+        }
+        restored.global_tick = recovered_global_tick;
+
+        for persisted in correlations {
+            restored.restore_receipt_correlation(persisted)?;
+        }
+        restored.refresh_runnable();
+        *self = restored;
+        Ok(())
+    }
+
+    fn restore_receipt_correlation(
+        &mut self,
+        persisted: &ReceiptCorrelationPersistenceRecord,
+    ) -> Result<(), RuntimeError> {
+        let submission = self
+            .witnessed_submissions
+            .get(&persisted.submission_id)
+            .cloned()
+            .ok_or(RuntimeError::UnknownIntentSubmission(
+                persisted.submission_id,
+            ))?;
+        if submission.head_key != persisted.head_key {
+            return Err(RuntimeError::ReceiptCorrelationReplayMismatch(
+                persisted.tick_receipt_digest,
+            ));
+        }
+        let envelope = self
+            .witnessed_submission_envelopes
+            .get(&persisted.submission_id)
+            .ok_or(RuntimeError::WitnessedSubmissionEnvelopeUnavailable(
+                persisted.submission_id,
+            ))?;
+        if envelope.ingress_id() != submission.ingress_id {
+            return Err(RuntimeError::ReceiptCorrelationReplayMismatch(
+                persisted.tick_receipt_digest,
+            ));
+        }
+        let tick_index = persisted
+            .worldline_tick_after
+            .as_u64()
+            .checked_sub(1)
+            .and_then(|tick| usize::try_from(tick).ok())
+            .ok_or(RuntimeError::ReceiptCorrelationReplayMismatch(
+                persisted.tick_receipt_digest,
+            ))?;
+        let frontier = self
+            .worldlines
+            .get(&persisted.head_key.worldline_id)
+            .ok_or(RuntimeError::UnknownWorldline(
+                persisted.head_key.worldline_id,
+            ))?;
+        let Some((snapshot, receipt, _patch)) = frontier.state().tick_history().get(tick_index)
+        else {
+            return Err(RuntimeError::ReceiptCorrelationReplayMismatch(
+                persisted.tick_receipt_digest,
+            ));
+        };
+        if receipt.digest() != persisted.tick_receipt_digest
+            || snapshot.hash != persisted.commit_hash
+        {
+            return Err(RuntimeError::ReceiptCorrelationReplayMismatch(
+                persisted.tick_receipt_digest,
+            ));
+        }
+
+        let ticketed_ingress_id = derive_ticketed_runtime_ingress_id(
+            persisted.submission_id,
+            persisted.ticket_digest,
+            submission.ingress_id,
+            persisted.head_key,
+        );
+        let ticketed = TicketedRuntimeIngressRecord {
+            ticketed_ingress_id,
+            submission_id: persisted.submission_id,
+            ticket_digest: persisted.ticket_digest,
+            ingress_id: submission.ingress_id,
+            head_key: persisted.head_key,
+            contract: persisted.contract.clone(),
+        };
+        let correlation = ReceiptCorrelationRecord {
+            ticketed_ingress_id,
+            submission_id: persisted.submission_id,
+            ticket_digest: persisted.ticket_digest,
+            ingress_id: submission.ingress_id,
+            head_key: persisted.head_key,
+            contract: persisted.contract.clone(),
+            commit_global_tick: persisted.commit_global_tick,
+            worldline_tick_after: persisted.worldline_tick_after,
+            tick_receipt_digest: persisted.tick_receipt_digest,
+            commit_hash: persisted.commit_hash,
+            causal_parent_receipts: persisted.causal_parent_receipts.clone(),
+        };
+        if self
+            .ticketed_runtime_ingress
+            .get(&ticketed_ingress_id)
+            .is_some_and(|existing| existing != &ticketed)
+            || self
+                .ticketed_runtime_ingress_by_submission
+                .get(&persisted.submission_id)
+                .is_some_and(|existing| *existing != ticketed_ingress_id)
+            || self
+                .ticketed_runtime_ingress_by_target
+                .get(&(persisted.head_key, submission.ingress_id))
+                .is_some_and(|existing| *existing != ticketed_ingress_id)
+            || self
+                .receipt_correlations_by_ticketed_ingress
+                .get(&ticketed_ingress_id)
+                .is_some_and(|existing| existing != &correlation)
+            || self
+                .receipt_correlation_by_submission
+                .get(&persisted.submission_id)
+                .is_some_and(|existing| *existing != ticketed_ingress_id)
+            || self
+                .receipt_correlation_by_ticket
+                .get(&persisted.ticket_digest)
+                .is_some_and(|existing| *existing != ticketed_ingress_id)
+        {
+            return Err(RuntimeError::ReceiptCorrelationReplayMismatch(
+                persisted.tick_receipt_digest,
+            ));
+        }
+        self.ticketed_runtime_ingress
+            .insert(ticketed_ingress_id, ticketed);
+        self.ticketed_runtime_ingress_by_submission
+            .insert(persisted.submission_id, ticketed_ingress_id);
+        self.ticketed_runtime_ingress_by_target.insert(
+            (persisted.head_key, submission.ingress_id),
+            ticketed_ingress_id,
+        );
+        self.receipt_correlations_by_ticketed_ingress
+            .insert(ticketed_ingress_id, correlation);
+        self.receipt_correlation_by_submission
+            .insert(persisted.submission_id, ticketed_ingress_id);
+        self.receipt_correlation_by_ticket
+            .insert(persisted.ticket_digest, ticketed_ingress_id);
+        self.worldlines
+            .frontier_mut(&persisted.head_key.worldline_id)
+            .ok_or(RuntimeError::UnknownWorldline(
+                persisted.head_key.worldline_id,
+            ))?
+            .state_mut()
+            .record_committed_ingress(persisted.head_key, [submission.ingress_id]);
+        Ok(())
+    }
+
     /// Records an accepted intent submission without entering runtime ingress.
     ///
     /// This is witnessed Echo ingress history only. It does not store the
@@ -2444,6 +2686,7 @@ fn scheduler_fault_scope_for_error(
         | RuntimeError::Strand(_)
         | RuntimeError::IntentSubmissionGenerationOverflow
         | RuntimeError::IntentSubmissionReplayMismatch(_)
+        | RuntimeError::ReceiptCorrelationReplayMismatch(_)
         | RuntimeError::WitnessedSubmissionEnvelopeUnavailable(_)
         | RuntimeError::UnknownIntentSubmission(_)
         | RuntimeError::TicketedIngressSubmissionMismatch(_)
@@ -2558,6 +2801,26 @@ fn hash_history_error(hasher: &mut blake3::Hasher, err: &HistoryError) {
         HistoryError::LocalCommitMissingPatch { tick } => {
             hasher.update(b"local-commit-missing-patch");
             hash_worldline_tick(hasher, *tick);
+        }
+        HistoryError::LocalCommitReceiptTxMismatch {
+            tick,
+            expected,
+            actual,
+        } => {
+            hasher.update(b"local-commit-receipt-tx-mismatch");
+            hash_worldline_tick(hasher, *tick);
+            hasher.update(&expected.to_le_bytes());
+            hasher.update(&actual.to_le_bytes());
+        }
+        HistoryError::LocalCommitReceiptDigestMismatch {
+            tick,
+            expected,
+            actual,
+        } => {
+            hasher.update(b"local-commit-receipt-digest-mismatch");
+            hash_worldline_tick(hasher, *tick);
+            hasher.update(expected);
+            hasher.update(actual);
         }
         HistoryError::HeadWorldlineMismatch {
             entry_worldline,
@@ -2767,6 +3030,26 @@ fn hash_replay_error(hasher: &mut blake3::Hasher, err: &ReplayError) {
             actual,
         } => {
             hasher.update(b"patch-digest-mismatch");
+            hash_worldline_tick(hasher, *tick);
+            hasher.update(expected);
+            hasher.update(actual);
+        }
+        ReplayError::ReceiptTxMismatch {
+            tick,
+            expected,
+            actual,
+        } => {
+            hasher.update(b"receipt-tx-mismatch");
+            hash_worldline_tick(hasher, *tick);
+            hasher.update(&expected.to_le_bytes());
+            hasher.update(&actual.to_le_bytes());
+        }
+        ReplayError::ReceiptDigestMismatch {
+            tick,
+            expected,
+            actual,
+        } => {
+            hasher.update(b"receipt-digest-mismatch");
             hash_worldline_tick(hasher, *tick);
             hasher.update(expected);
             hasher.update(actual);
@@ -3115,6 +3398,10 @@ fn scheduler_error_cause_digest(err: &RuntimeError) -> Hash {
             hasher.update(b"intent-submission-replay-mismatch");
             hasher.update(submission_id);
         }
+        RuntimeError::ReceiptCorrelationReplayMismatch(receipt_digest) => {
+            hasher.update(b"receipt-correlation-replay-mismatch");
+            hasher.update(receipt_digest);
+        }
         RuntimeError::WitnessedSubmissionEnvelopeUnavailable(submission_id) => {
             hasher.update(b"witnessed-submission-envelope-unavailable");
             hasher.update(submission_id);
@@ -3349,7 +3636,8 @@ impl SchedulerCoordinator {
                         worldline_patch,
                         outputs,
                         Vec::new(),
-                    );
+                    )
+                    .with_tick_receipt(receipt);
                     provenance.append_local_commit(entry)?;
                     frontier.state_mut().record_committed_ingress(
                         *key,

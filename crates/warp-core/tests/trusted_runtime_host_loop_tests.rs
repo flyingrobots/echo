@@ -28,11 +28,11 @@ use warp_core::{
     IngressCausalParent, IngressEnvelope, IngressTarget, IntentOutcome, NodeId, NodeRecord,
     ObservationAt, ObservationCoordinate, ObservationFrame, ObservationPayload,
     ObservationProjection, ObservationReadBudget, ObservationRequest, ObserverPlanId,
-    OpticAdmissionTicket, OpticArtifactHandle, PatternGraph, PlaybackMode, SchedulerKind,
-    TickDelta, TrustedRuntimeHost, TrustedRuntimeHostError, TrustedRuntimeWal,
-    TrustedRuntimeWalConfig, TrustedRuntimeWalError, TrustedRuntimeWalStoreKind, WarpOp,
-    WorldlineId, WorldlineRuntime, WorldlineState, WriterHead, WriterHeadKey,
-    OPTIC_ADMISSION_TICKET_KIND, OPTIC_ARTIFACT_HANDLE_KIND,
+    OpticAdmissionTicket, OpticArtifactHandle, PatternGraph, PlaybackMode, ProvenanceStore,
+    RuntimeWalActivationGap, SchedulerKind, TickDelta, TrustedRuntimeHost, TrustedRuntimeHostError,
+    TrustedRuntimeWal, TrustedRuntimeWalConfig, TrustedRuntimeWalError, TrustedRuntimeWalStoreKind,
+    WarpOp, WorldlineId, WorldlineRuntime, WorldlineState, WorldlineTick, WriterHead,
+    WriterHeadKey, OPTIC_ADMISSION_TICKET_KIND, OPTIC_ARTIFACT_HANDLE_KIND,
 };
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -747,6 +747,138 @@ fn filesystem_runtime_wal_recovers_receipt_causal_parents_after_host_restart() {
         recovery.receipts.receipts_citing(&target_receipt),
         [inverse_receipt].as_slice()
     );
+}
+
+#[test]
+fn filesystem_runtime_wal_recovers_replayable_provenance_after_restart() {
+    let wal_root = temp_runtime_wal_dir("replayable-provenance-recovery");
+    let (initial_runtime, worldline_id) = runtime();
+    let mut host = TrustedRuntimeHost::new(initial_runtime, empty_engine())
+        .expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("host should configure filesystem runtime WAL adapter");
+    host.register_contract_package(package())
+        .expect("host should install package");
+
+    let envelope = eint_envelope(worldline_id);
+    let ticket = admission_ticket(59);
+    let submission = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(envelope.clone())
+        .expect("submission should cross the durable ACK boundary");
+    host.stage_installed_contract_submission(submission.submission_id, &ticket)
+        .expect("trusted host should stage package-supported ticketed ingress");
+    host.run_until_idle(4)
+        .expect("trusted host should commit the mutation");
+    let expected_entry = host
+        .provenance()
+        .entry(worldline_id, WorldlineTick::ZERO)
+        .expect("committed mutation should have provenance");
+    let expected_correlation = host
+        .runtime()
+        .receipt_correlation_for_submission(&submission.submission_id)
+        .expect("committed mutation should have a receipt correlation")
+        .clone();
+    let expected_frontier = host
+        .runtime()
+        .worldlines()
+        .get(&worldline_id)
+        .expect("committed worldline should remain registered");
+    let expected_frontier_tick = expected_frontier.frontier_tick();
+    let expected_state_root = expected_frontier.state().state_root();
+    let expected_outcome = host.app().observe_intent_outcome(&submission.submission_id);
+    drop(host);
+
+    let (reconstructed_runtime, _) = runtime();
+    let mut reconstructed_host = TrustedRuntimeHost::new(reconstructed_runtime, empty_engine())
+        .expect("reconstructed host should initialize");
+    reconstructed_host
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("reopened WAL should recover retained provenance");
+    let recovery = reconstructed_host
+        .runtime_wal()
+        .expect("runtime WAL should remain configured")
+        .recover_read_only()
+        .expect("read-only recovery should decode retained provenance");
+
+    assert_eq!(recovery.provenance_entries, vec![expected_entry]);
+    assert_eq!(
+        reconstructed_host.runtime().global_tick().as_u64(),
+        expected_correlation.commit_global_tick.as_u64()
+    );
+    let reconstructed_frontier = reconstructed_host
+        .runtime()
+        .worldlines()
+        .get(&worldline_id)
+        .expect("reconstructed worldline should remain registered");
+    assert_eq!(
+        reconstructed_frontier.frontier_tick(),
+        expected_frontier_tick
+    );
+    assert_eq!(
+        reconstructed_frontier.state().state_root(),
+        expected_state_root
+    );
+    assert_eq!(
+        reconstructed_host
+            .app()
+            .observe_intent_outcome(&submission.submission_id),
+        expected_outcome
+    );
+
+    reconstructed_host
+        .register_contract_package(package())
+        .expect("reconstructed host should reinstall deterministic contract code");
+    let duplicate = reconstructed_host
+        .app()
+        .submit_intent_with_runtime_wal_ack(envelope)
+        .expect("recovered causal submission should remain idempotent");
+    assert!(duplicate.duplicate);
+    assert!(matches!(
+        reconstructed_host
+            .stage_installed_contract_submission(submission.submission_id, &ticket)
+            .expect("recovered ticketed ingress should remain idempotent"),
+        warp_core::TicketedRuntimeIngressDisposition::Duplicate { .. }
+    ));
+    let idle = reconstructed_host
+        .run_until_idle(1)
+        .expect("duplicate recovered work should not schedule another transition");
+    assert_eq!(idle.committed_steps, 0);
+    assert_eq!(
+        reconstructed_host
+            .provenance()
+            .len(worldline_id)
+            .expect("recovered provenance should remain readable"),
+        1
+    );
+}
+
+#[test]
+fn runtime_wal_activation_rejects_process_only_committed_history() {
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.register_contract_package(package())
+        .expect("host should install package");
+
+    let submission = host
+        .app()
+        .submit_intent(eint_envelope(worldline_id))
+        .expect("process-local submission should be accepted");
+    host.stage_installed_contract_submission(submission.submission_id, &admission_ticket(60))
+        .expect("trusted host should stage package-supported ticketed ingress");
+    host.run_until_idle(4)
+        .expect("process-local runtime should commit the mutation");
+
+    let error = host
+        .enable_in_memory_runtime_wal()
+        .expect_err("WAL activation must reject already-committed process-only history");
+    assert!(matches!(
+        error,
+        TrustedRuntimeHostError::Wal(TrustedRuntimeWalError::RuntimeAuthorityNotDurable {
+            gap: RuntimeWalActivationGap::WitnessedSubmission,
+        })
+    ));
 }
 
 #[test]

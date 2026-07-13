@@ -742,6 +742,9 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
   manuals, and generated task graphs. Current architecture now lives in
   canonical topics/specs/invariants, durable decisions live in ADRs, and live
   work/status lives in GitHub.
+- Removed the superseded `docs/design/` packet corpus and the retired TTD
+  counterfactual-creation invariant after promoting current doctrine into
+  canonical topics, ADRs, architecture documents, specifications, and tests.
 - Deleted zombie crates with no consumers (recoverable from git history):
   `echo-wasm-bindings` (browser demo kernel), `echo-ttd`, `ttd-protocol-rs`,
   `echo-session-proto`, and the untracked `ttd-browser` prebuilt artifact

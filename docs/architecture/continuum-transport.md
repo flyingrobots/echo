@@ -152,12 +152,9 @@ and hologram slicing are all WARP optic operations over witnessed causal
 history. Their outputs are holograms with different effect postures: admitted
 history, observer-relative reading, retained artifact, or obstruction.
 
-## Current Design Packet
+## Current Authority
 
-The active decision packet is:
-
-- `docs/design/0022-continuum-transport-identity/design.md`
-
-The earlier suffix-sync packet remains the broad design ancestor:
-
-- `docs/design/0009-witnessed-causal-suffix-sync/design.md`
+- [Continuum transport identity](../adr/0005-continuum-transport-identity.md)
+- [Echo/Continuum authority boundary](../adr/0002-echo-continuum-authority-boundary.md)
+- [Runtime authority](../topics/RuntimeAuthority.md)
+- [Strands and braids](../topics/StrandsAndBraids.md)

@@ -12,8 +12,8 @@ that can talk to Echo through generic intent and observation boundaries.
 
 This is Echo's concrete implementation of the WARP compiler seam: authored
 contract nouns lower into generated request helpers and contract-host helpers,
-while Echo core remains generic. See
-`docs/design/warp-optic-implementation-map.md` for the WARP-paper-to-Echo noun
+while Echo core remains generic. See the current
+[WARP optics](../topics/WarpOptics.md) model for the WARP-paper-to-Echo noun
 map.
 
 The short version:
@@ -53,13 +53,13 @@ Application-authored optics may declare retained consequence obligations, such
 as receipt obligations, but they do not create ticks or `TickReceipt` values.
 Only trusted runtime control owns tick boundaries.
 
-The design evidence for this boundary lives in these repo-local packets:
+Current authority for this boundary lives in:
 
-- `docs/design/0013-wesley-compiled-contract-hosting-doctrine/design.md`
-- `docs/design/0014-eint-registry-observation-boundary-inventory/design.md`
-- `docs/design/0015-registry-provider-host-boundary-decision/design.md`
-- `docs/design/0016-wesley-to-echo-toy-contract-proof/design.md`
-- `docs/design/0017-authenticated-wesley-intent-admission-posture/design.md`
+- [Generated rules](../topics/GeneratedRules.md)
+- [Runtime authority](../topics/RuntimeAuthority.md)
+- [Registry, provider, and host boundary](../adr/0004-registry-provider-host-boundary.md)
+- [Generated rule authorship and footprints](../adr/0003-generated-rule-authorship-and-footprints.md)
+- [Declarative rule authorship](../invariants/DECLARATIVE-RULE-AUTHORSHIP.md)
 
 ## Ownership Split
 
@@ -162,8 +162,9 @@ registry verification, or generated operation/package binding guarantees.
 
 **ReadingEnvelope** is the read-side evidence envelope. It carries observer
 plan, basis, witness refs, budget posture, rights posture, and residual,
-plural, or obstructed posture. The current family boundary is named in
-`docs/design/0019-reading-envelope-family-boundary/reading-envelope-family-boundary.md`.
+plural, or obstructed posture. The current family boundary is described by
+[WARP optics](../topics/WarpOptics.md) and
+[Obstructions](../topics/Obstructions.md).
 
 ## Write Path
 

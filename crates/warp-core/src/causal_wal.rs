@@ -2,10 +2,8 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Echo-owned causal write-ahead log primitives.
 //!
-//! This module is the first in-memory foundation for the causal WAL described in
-//! `docs/design/causal-wal-end-to-end.md`. It deliberately stops short of
-//! filesystem durability and live scheduler integration. The core invariant is
-//! already enforced here:
+//! This module implements the causal WAL primitives described in
+//! `docs/topics/WAL.md`. Its core invariant is:
 //!
 //! ```text
 //! Records are recorded.

@@ -29,6 +29,7 @@ readonly required_docs=(
 readonly forbidden_process_paths=(
   "METHOD.md"
   "docs/method"
+  "docs/design"
   "docs/BEARING.md"
   "docs/WorkItems.md"
   "docs/workflows.md"

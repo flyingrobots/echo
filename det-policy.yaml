@@ -39,6 +39,10 @@ crates:
     class: DET_CRITICAL
     owner_role: "Architect"
     paths: ["crates/echo-wasm-abi/**"]
+  echo-runtime-schema:
+    class: DET_CRITICAL
+    owner_role: "Architect"
+    paths: ["crates/echo-runtime-schema/**"]
   echo-scene-port:
     class: DET_CRITICAL
     owner_role: "Architect"
@@ -80,6 +84,14 @@ crates:
     class: DET_IMPORTANT
     owner_role: "Architect"
     paths: ["crates/echo-cas/**"]
+  echo-file-aperture:
+    class: DET_IMPORTANT
+    owner_role: "Architect"
+    paths: ["crates/echo-file-aperture/**"]
+  echo-trace:
+    class: DET_IMPORTANT
+    owner_role: "Architect"
+    paths: ["crates/echo-trace/**"]
   echo-registry-api:
     class: DET_IMPORTANT
     owner_role: "Architect"

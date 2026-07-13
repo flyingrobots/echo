@@ -126,3 +126,17 @@ test('classification rejects malformed crate policy before matching paths', () =
   assert.equal(missingPaths.status, 1);
   assert.match(missingPaths.stderr, /missing or invalid paths/);
 });
+
+test('every workspace member has an explicit non-catch-all policy path', () => {
+  const manifest = readFileSync(join(repoRoot, 'Cargo.toml'), 'utf8');
+  const membersMatch = manifest.match(/members\s*=\s*\[([\s\S]*?)\]/);
+  assert.ok(membersMatch, 'Cargo.toml has no workspace members array');
+  const members = Array.from(membersMatch[1].matchAll(/"([^"]+)"/g), (match) => match[1]);
+  const policyYaml = readFileSync(join(repoRoot, 'det-policy.yaml'), 'utf8');
+  const missing = members.filter((member) => !policyYaml.includes(`"${member}/**"`));
+
+  assert.deepEqual(missing, [], `workspace members without explicit policy paths: ${missing}`);
+  assert.match(policyYaml, /echo-runtime-schema:\n\s+class: DET_CRITICAL\n/);
+  assert.match(policyYaml, /echo-file-aperture:\n\s+class: DET_IMPORTANT\n/);
+  assert.match(policyYaml, /echo-trace:\n\s+class: DET_IMPORTANT\n/);
+});

@@ -158,7 +158,7 @@ if ! grep -Fq -- \
 fi
 
 if stale_process_anchors="$({
-  rg -n \
+  grep -En \
     'cycle 0003|cycle 0004|cycle 0012|design packet 0026' \
     "${stale_process_anchor_files[@]}"
 } 2>/dev/null)"; then
@@ -258,7 +258,7 @@ if grep -Eq '^## [0-9]+\. (Audit Findings|Implementation Checklist)|Issue #[0-9]
   failures=$((failures + 1))
 fi
 
-if rg -q \
+if grep -Eq \
   'Echo-admitted causal anchors|A causal anchor is .*Echo-admitted|Echo validates that the frontier is admitted|A later slice must|Causal anchor + = Echo admitted' \
   docs/topics/CausalAnchors.md crates/warp-core/src/causal_anchor.rs; then
   echo "knowledge-model: causal-anchor contract overclaims trusted admission" >&2
@@ -329,7 +329,7 @@ for pre_push_truth in \
   fi
 done
 
-if rg -q \
+if grep -ERq \
   '^Legend:|^## Why this packet exists|^## (Human|Agent) users / jobs / hills|^The hill:' \
   docs/spec; then
   echo "knowledge-model: canonical specs contain Method-era packet taxonomy" >&2

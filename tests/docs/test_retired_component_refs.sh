@@ -15,7 +15,7 @@ check_absent() {
   local pattern="$3"
   local matches
 
-  if matches="$(rg -n -- "${pattern}" "${file}")"; then
+  if matches="$(grep -En -- "${pattern}" "${file}")"; then
     echo "retired-component-ref: ${label}" >&2
     echo "${matches}" >&2
     failures=$((failures + 1))
@@ -66,7 +66,7 @@ for required_guide_claim in \
   'witnessed causal history' \
   'generated contracts' \
   'cargo xtask dind run --emit-repro'; do
-  if ! rg -q -F -- "${required_guide_claim}" GUIDE.md; then
+  if ! grep -qF -- "${required_guide_claim}" GUIDE.md; then
     echo "retired-component-ref: GUIDE missing current claim: ${required_guide_claim}" >&2
     failures=$((failures + 1))
   fi
@@ -85,7 +85,7 @@ check_absent \
 for required_v3_claim in \
   '**Status:** Superseded' \
   '[canonical WASM ABI specification](SPEC-0009-wasm-abi.md)'; do
-  if ! rg -q -F -- "${required_v3_claim}" docs/spec/SPEC-0009-wasm-abi-v3.md; then
+  if ! grep -qF -- "${required_v3_claim}" docs/spec/SPEC-0009-wasm-abi-v3.md; then
     echo "retired-component-ref: historical ABI v3 spec missing: ${required_v3_claim}" >&2
     failures=$((failures + 1))
   fi

@@ -167,6 +167,37 @@ if stale_process_anchors="$({
   failures=$((failures + 1))
 fi
 
+if grep -Eq \
+  'graph-rewrite simulation engine|ScenePort|TTD Port|State is a typed, directed multigraph|WARP Graphs' \
+  ARCHITECTURE.md; then
+  echo "knowledge-model: root architecture page teaches the superseded graph/port model" >&2
+  failures=$((failures + 1))
+fi
+
+if grep -Eq 'FixedTrig|State is a finite directed multigraph' ADVANCED_GUIDE.md; then
+  echo "knowledge-model: advanced guide teaches superseded or fabricated doctrine" >&2
+  failures=$((failures + 1))
+fi
+
+for superseded_root_doc in ARCHITECTURE.md ADVANCED_GUIDE.md; do
+  if ! grep -Fq -- "Superseded" "${superseded_root_doc}" || \
+    ! grep -Fq -- "docs/README.md" "${superseded_root_doc}"; then
+    echo "knowledge-model: ${superseded_root_doc} lacks an honest supersession route" >&2
+    failures=$((failures + 1))
+  fi
+done
+
+if grep -Fq -- 'Graph is truth' AGENTS.md || \
+  grep -Eq 'Current architectural truth.*`ARCHITECTURE\.md`' AGENTS.md; then
+  echo "knowledge-model: AGENTS promotes superseded graph or root-document authority" >&2
+  failures=$((failures + 1))
+fi
+
+if ! grep -Fq -- 'Witnessed causal history is truth' AGENTS.md; then
+  echo "knowledge-model: AGENTS lacks the trace derivation authority rule" >&2
+  failures=$((failures + 1))
+fi
+
 if ((failures > 0)); then
   echo "knowledge-model: ${failures} violation(s)" >&2
   exit 1

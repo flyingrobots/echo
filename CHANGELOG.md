@@ -803,6 +803,9 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 - Replaced the opaque numeric determinism claim-pack generator with an honest
   gate over upstream job results and exact artifact payload presence. The
   executable suites remain the authority for what passed.
+- Replaced the frozen root architecture and advanced guides with explicit
+  supersession signposts to the living no-graph architecture, topics,
+  specifications, invariants, and ADRs.
 - Echo 1.0 release eligibility now depends only on Continuum participant
   conformance, networked causal suffix exchange, and release integrity. Edict,
   `jedit`, and any particular generated package remain downstream compatibility

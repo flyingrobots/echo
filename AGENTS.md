@@ -43,11 +43,17 @@ Materialized graphs are optional readings.
 Continuum is the protocol for lawful causal-history exchange.
 ```
 
-## Trace Architecture Principle
+## Derived Trace Principle
 
-> Graph is truth. Delta log is transport. Roaring is index. Matrix is projection. Receipt is proof.
+> Witnessed causal history is truth. Trace is derived evidence. Receipt is
+> proof only for the proposition it actually binds.
 
-Echo execution traces are not a separate event-sourcing reality. They are a bounded, append-only, canonical streaming log of WSC `NodeRow`, `EdgeRow`, and `AttRow` deltas. Trace storage is chunked. Sparse selector columns may be encoded as compressed bitsets, but they are derived indexes, not the source of truth. Prover-specific rectangular traces are downstream projections of the delta log.
+An execution trace must never become a second event-sourcing reality. If Echo
+retains a trace, it derives that material from a sealed causal commit and binds
+it to the real worldline, tick, frontier, receipt, schema, and payload identity.
+WSC rows, compressed indexes, and prover-specific matrices remain physical
+representations or projections, not causal authority. Disabled or obstructed
+tracing yields an explicit posture, never a successful all-zero receipt.
 
 ## Git Rules
 
@@ -60,8 +66,8 @@ Echo execution traces are not a separate event-sourcing reality. They are a boun
 
 Repository knowledge has one owner for each kind of truth:
 
-- **Current architectural truth**: `ARCHITECTURE.md`, `docs/architecture/`,
-  `docs/spec/`, `docs/invariants/`, and `docs/topics/`.
+- **Current architectural truth**: `docs/architecture/`, `docs/spec/`,
+  `docs/invariants/`, and `docs/topics/`.
 - **Durable architectural decisions**: accepted ADRs in `docs/adr/`.
 - **Live work, priority, dependencies, and status**: GitHub Issues, Projects,
   pull requests, and review threads.

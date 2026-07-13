@@ -41,13 +41,6 @@ pr-threads:
 pr-preflight:
 	@cargo xtask pr-preflight $(ARGS)
 
-.PHONY: dags dags-fetch
-dags:
-	@cargo xtask dags
-
-dags-fetch:
-	@cargo xtask dags --fetch
-
 # Benchmarks and reports
 .PHONY: bench-report bench-vendor vendor-d3 bench-serve bench-open
 

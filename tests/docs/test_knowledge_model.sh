@@ -38,6 +38,14 @@ readonly forbidden_process_paths=(
   "backlog"
   "crates/method"
   "scripts/check-append-only.js"
+  ".github/workflows/refresh-dependency-dags.yml"
+  "docs/assets/dags"
+  "scripts/dag-utils.js"
+  "scripts/generate-dependency-dags.js"
+  "scripts/open_dependency_dags_pr.sh"
+  "scripts/parse-tasks-dag.js"
+  "scripts/tests/parse-tasks-dag.test.js"
+  "tests/hooks/test_dependency_dags.sh"
 )
 
 failures=0

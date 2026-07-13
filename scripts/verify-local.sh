@@ -1748,10 +1748,6 @@ select_hook_tests() {
         test_path="tests/hooks/test_runtime_schema_validation.sh"
         [[ -f "$test_path" ]] && append_unique "$test_path" selected_hook_tests
         ;;
-      scripts/generate-dependency-dags.js|scripts/parse-tasks-dag.js|scripts/dag-utils.js|docs/assets/dags/*)
-        test_path="tests/hooks/test_dependency_dags.sh"
-        [[ -f "$test_path" ]] && append_unique "$test_path" selected_hook_tests
-        ;;
       .coderabbit.yaml)
         test_path="tests/hooks/test_coderabbit_config.sh"
         [[ -f "$test_path" ]] && append_unique "$test_path" selected_hook_tests

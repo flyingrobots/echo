@@ -38,6 +38,36 @@ check_absent \
   '\]\(\./crates/echo-ttd\)'
 
 check_absent \
+  "GUIDE must not describe Echo as a graph-orchestrating simulation engine" \
+  "GUIDE.md" \
+  'simulation engine orchestrates the causal graph|application or game'
+
+check_absent \
+  "GUIDE must not advertise the deleted App Core surface" \
+  "GUIDE.md" \
+  'App Core'
+
+check_absent \
+  "GUIDE must not teach handwritten rule authorship" \
+  "GUIDE.md" \
+  'writing a new rule|Declare your `Footprint`'
+
+check_absent \
+  "GUIDE must not advertise the nonexistent DIND seed option" \
+  "GUIDE.md" \
+  'dind run --seed'
+
+for required_guide_claim in \
+  'witnessed causal history' \
+  'generated contracts' \
+  'cargo xtask dind run --emit-repro'; do
+  if ! rg -q -F -- "${required_guide_claim}" GUIDE.md; then
+    echo "retired-component-ref: GUIDE missing current claim: ${required_guide_claim}" >&2
+    failures=$((failures + 1))
+  fi
+done
+
+check_absent \
   "WASM ABI spec must not cite the retired session-protocol EINT implementation" \
   "docs/spec/SPEC-0009-wasm-abi-v3.md" \
   'crates/echo-session-proto/src/eint_v2\.rs'

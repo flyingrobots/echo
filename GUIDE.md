@@ -3,18 +3,23 @@
 
 # Guide — Echo
 
-This is the developer-level operator guide for Echo. Use it for orientation, the productive-fast path, and to understand how the simulation engine orchestrates the causal graph.
+This is the developer-level operator guide for Echo. Use it for orientation and
+the productive-fast path through Echo's deterministic WARP runtime over
+witnessed causal history.
 
 For deep-track doctrine, theoretical foundations (AION Foundations), and internal spec details, use [ADVANCED_GUIDE.md](./ADVANCED_GUIDE.md).
 
 ## Choose Your Lane
 
-### 1. Build a Causal Simulation
+### 1. Host a Contract Package
 
-Integrate deterministic graph rewriting into your application or game.
+Exercise the local generated-style package boundary. Product behavior belongs
+in authored, generated contracts; the current generator limitations are stated
+explicitly in the generated-rule topic.
 
 - **Read**: [Local Contract Host Quickstart](./docs/quickstart-local-contract-host.md)
-- **Host**: [Architecture](./ARCHITECTURE.md) (Engine pipeline)
+- **Understand**: [Application Contract Hosting](./docs/architecture/application-contract-hosting.md)
+- **Check status**: [Generated Rule Authorship](./docs/topics/GeneratedRules.md)
 
 ### 2. Verify Determinism (DIND)
 
@@ -30,19 +35,22 @@ Understand the guardrails that prevent non-determinism from entering main.
 - **Check**: [`det-policy.yaml`](./det-policy.yaml)
 - **Scripts**: `scripts/ban-nondeterminism.sh`
 
-## Big Picture: System Orchestration
+## Big Picture
 
-Echo is a tiered engine. You choose your depth based on the task:
+There is witnessed causal history. WARP optics chart it. Holograms witness
+those charts. Materialized graphs are optional readings. Continuum is the
+protocol for lawful causal-history exchange.
 
-1. **Ingress Surfaces (Surfaces)**: The CLI, WASM guest, and App Core are thin interfaces that communicate with the engine. They ensure that transitions are always structured.
-2. **warp-core (The Engine)**: The primary domain kernel. It orchestrates parallel rule execution, private deltas, and canonical merge. It ensures that concurrency is structurally prevented.
-3. **WARP (Memory)**: The Structural Worldline Memory that tracks the evolution of your simulation state through hash-locked ticks.
+External callers submit explicit-base intents or observe through bounded
+optics. Echo admits, stages, pluralizes, conflicts, or obstructs those claims
+under named law and emits receipts, readings, or witnesses. Application nouns
+stay in authored contracts and generated adapters rather than Echo core.
 
 ## Orientation Checklist
 
 - [ ] **I am setting up the repo**: Run `make hooks` and `cargo check`.
-- [ ] **I am writing a new rule**: Declare your `Footprint` and test against `delta_validate`.
-- [ ] **I am debugging a desync**: Run `cargo xtask dind run --seed <N>` to reproduce.
+- [ ] **I am adding product behavior**: Author it in the contract language and use generated adapters; raw Rust rule registration is bootstrap-only.
+- [ ] **I am debugging a desync**: Run `cargo xtask dind run --emit-repro` to emit a reproduction bundle on failure.
 - [ ] **I am contributing to Echo**: Read [AGENTS.md](./AGENTS.md), then inspect the relevant GitHub issue or pull request.
 
 ## Rule of Thumb

@@ -27,6 +27,11 @@ check_absent \
   "GUIDE.md" \
   '\]\(\./crates/echo-ttd\)'
 
+check_absent \
+  "WASM ABI spec must not cite the retired session-protocol EINT implementation" \
+  "docs/spec/SPEC-0009-wasm-abi-v3.md" \
+  'crates/echo-session-proto/src/eint_v2\.rs'
+
 if ((failures > 0)); then
   echo "retired-component-ref: ${failures} violation(s)" >&2
   exit 1

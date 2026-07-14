@@ -2891,6 +2891,10 @@ fn hash_history_error(hasher: &mut blake3::Hasher, err: &HistoryError) {
             hasher.update(b"recorded-event-unexpected-head-key");
             hash_worldline_tick(hasher, *tick);
         }
+        HistoryError::RecordedEventUnexpectedTickReceipt { tick } => {
+            hasher.update(b"recorded-event-unexpected-tick-receipt");
+            hash_worldline_tick(hasher, *tick);
+        }
         HistoryError::RecordedEventMissingPatch { tick } => {
             hasher.update(b"recorded-event-missing-patch");
             hash_worldline_tick(hasher, *tick);

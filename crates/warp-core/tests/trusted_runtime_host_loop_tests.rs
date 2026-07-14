@@ -16,11 +16,11 @@ use echo_registry_api::{
 use warp_core::{
     causal_wal::{
         canonical_segment_path, recover_in_memory_store, recover_receipt_index,
-        recover_submission_index, recovered_submission_receipt_index_root, FilesystemWalFaultPlan,
-        FilesystemWalFaultTarget, FilesystemWalStore, Lsn, RecoveredSubmissionPosture,
-        RecoveryAccessMode, RecoveryTailPosture, WalBuildError, WalDurabilityMode, WalManifest,
-        WalRecoveryError, WalSegmentId, WalStoreError, WalStorePort, WalTransactionKind,
-        WriterEpochId, WriterEpochRequest,
+        recover_submission_index, FilesystemWalFaultPlan, FilesystemWalFaultTarget,
+        FilesystemWalStore, Lsn, RecoveredSubmissionPosture, RecoveryAccessMode,
+        RecoveryTailPosture, WalBuildError, WalDurabilityMode, WalManifest, WalRecoveryError,
+        WalSegmentId, WalStoreError, WalStorePort, WalTransactionKind, WriterEpochId,
+        WriterEpochRequest,
     },
     make_head_id, make_intent_kind, make_node_id, make_type_id, AuthoredObserverPlan,
     CausalTickReceiptRef, ContractMutationHandler, ContractOperationKind, ContractPackageIdentity,
@@ -642,9 +642,11 @@ fn filesystem_runtime_wal_ack_reconstructs_submission_and_tick_from_root() {
     );
     assert_eq!(recovery.certificate.committed_transactions_replayed, 2);
     assert_eq!(recovery.certificate.obstruction_count, 0);
-    assert_ne!(
+    assert_eq!(
         recovery.certificate.recovered_indexes_root,
-        recovered_submission_receipt_index_root(&recovery.submissions, &recovery.receipts)
+        recovery
+            .recomputed_indexes_root()
+            .expect("recovered evidence should reproduce the certificate root")
     );
     assert_eq!(recovery.witnessed_submissions.len(), 1);
     assert!(recovery.missing_submission_envelopes.is_empty());
@@ -1760,9 +1762,11 @@ fn runtime_wal_ack_recover_read_only_rebuilds_submission_and_receipt_indexes() {
             .get(&submission.submission_id),
         Some(&ticket.ticket_digest)
     );
-    assert_ne!(
+    assert_eq!(
         recovery.certificate.recovered_indexes_root,
-        recovered_submission_receipt_index_root(&recovery.submissions, &recovery.receipts)
+        recovery
+            .recomputed_indexes_root()
+            .expect("recovered evidence should reproduce the certificate root")
     );
     assert_eq!(recovery.witnessed_submissions.len(), 1);
     assert!(recovery.missing_submission_envelopes.is_empty());

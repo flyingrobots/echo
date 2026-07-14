@@ -231,6 +231,25 @@ pub struct TrustedRuntimeWalRecovery {
     pub receipt_correlations: Vec<ReceiptCorrelationPersistenceRecord>,
 }
 
+impl TrustedRuntimeWalRecovery {
+    /// Recomputes the certificate's canonical index root from recovered evidence.
+    ///
+    /// # Errors
+    ///
+    /// Returns a retained-provenance codec error when a recovered local commit
+    /// cannot be canonically encoded.
+    pub fn recomputed_indexes_root(&self) -> Result<Hash, TrustedRuntimeWalError> {
+        recovered_runtime_wal_indexes_root(
+            &self.submissions,
+            &self.receipts,
+            &self.witnessed_submissions,
+            &self.missing_submission_envelopes,
+            &self.provenance_entries,
+            &self.missing_runtime_state_deltas,
+        )
+    }
+}
+
 /// Store kind configured for the trusted runtime WAL adapter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -2751,13 +2770,11 @@ fn runtime_wal_recovery_certificate(
     let recovered_frontier_root = report
         .last_commit_digest()
         .unwrap_or_else(|| trusted_runtime_wal_digest("recovery-frontier:empty"));
-    let recovered_indexes_root = recovered_submission_material_index_root(
-        recovered_submission_receipt_index_root(submissions, receipts),
+    let recovered_indexes_root = recovered_runtime_wal_indexes_root(
+        submissions,
+        receipts,
         witnessed_submissions,
         missing_submission_envelopes,
-    );
-    let recovered_indexes_root = recovered_runtime_state_delta_index_root(
-        recovered_indexes_root,
         provenance_entries,
         missing_runtime_state_deltas,
     )?;
@@ -2768,6 +2785,26 @@ fn runtime_wal_recovery_certificate(
         recovered_frontier_root,
         recovered_indexes_root,
     ))
+}
+
+fn recovered_runtime_wal_indexes_root(
+    submissions: &RecoveredSubmissionIndex,
+    receipts: &RecoveredReceiptIndex,
+    witnessed_submissions: &WitnessedSubmissionPersistenceSnapshot,
+    missing_submission_envelopes: &[Hash],
+    provenance_entries: &[ProvenanceEntry],
+    missing_runtime_state_deltas: &[Hash],
+) -> Result<Hash, TrustedRuntimeWalError> {
+    let recovered_indexes_root = recovered_submission_material_index_root(
+        recovered_submission_receipt_index_root(submissions, receipts),
+        witnessed_submissions,
+        missing_submission_envelopes,
+    );
+    recovered_runtime_state_delta_index_root(
+        recovered_indexes_root,
+        provenance_entries,
+        missing_runtime_state_deltas,
+    )
 }
 
 fn recovered_submission_material_index_root(

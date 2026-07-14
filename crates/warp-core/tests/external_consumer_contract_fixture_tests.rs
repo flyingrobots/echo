@@ -6,7 +6,7 @@
 
 use std::fs;
 use std::io::ErrorKind;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use echo_cas::{MemoryTier, RetainedBlobIndex, RetainedBlobRole, SemanticBlobCoordinate};
@@ -351,14 +351,16 @@ fn semantic_coordinate(
 fn temp_runtime_wal_dir(label: &str) -> PathBuf {
     let root = PathBuf::from("target").join("warp-core-test-tmp");
     fs::create_dir_all(&root).expect("test temp root should be created");
+    temp_runtime_wal_dir_in(&root, label, &TEMP_COUNTER)
+}
+
+fn temp_runtime_wal_dir_in(root: &Path, label: &str, counter: &AtomicU64) -> PathBuf {
     for _ in 0..1024 {
-        let unique = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let unique = counter.fetch_add(1, Ordering::Relaxed);
         let dir = root.join(format!("echo-contract-inverse-{label}-{unique}"));
         match fs::create_dir(&dir) {
             Ok(()) => return dir,
-            Err(error) if error.kind() == ErrorKind::AlreadyExists => {
-                fs::remove_dir_all(&dir).expect("stale test dir should be removable");
-            }
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => {}
             Err(error) => panic!(
                 "failed to create deterministic test directory {}: {error}",
                 dir.display()
@@ -366,6 +368,30 @@ fn temp_runtime_wal_dir(label: &str) -> PathBuf {
         }
     }
     panic!("exhausted deterministic test directory attempts for {label}");
+}
+
+#[test]
+fn temp_runtime_wal_dir_preserves_colliding_directory() {
+    let root = PathBuf::from("target").join("warp-core-test-tmp");
+    fs::create_dir_all(&root).expect("test temp root should be created");
+    let label = format!(
+        "collision-{}-{}",
+        std::process::id(),
+        TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+    );
+    let collision = root.join(format!("echo-contract-inverse-{label}-0"));
+    fs::create_dir(&collision).expect("collision directory should be created");
+    let marker = collision.join("owner-marker");
+    fs::write(&marker, b"owned elsewhere").expect("collision marker should be written");
+
+    let allocated = temp_runtime_wal_dir_in(&root, &label, &AtomicU64::new(0));
+    let collision_preserved = marker.exists();
+    fs::remove_dir_all(&allocated).expect("allocated test directory should be removable");
+    if collision.exists() {
+        fs::remove_dir_all(&collision).expect("collision test directory should be removable");
+    }
+
+    assert!(collision_preserved, "collision owner marker was deleted");
 }
 
 fn document_value(host: &TrustedRuntimeHost, worldline_id: WorldlineId) -> Vec<u8> {

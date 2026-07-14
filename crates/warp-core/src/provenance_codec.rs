@@ -217,6 +217,13 @@ fn validate_local_commit(entry: &ProvenanceEntry) -> Result<(), RetainedProvenan
     {
         return Err(RetainedProvenanceError::NonCanonicalPatch);
     }
+    if !entry
+        .parents
+        .windows(2)
+        .all(|pair| pair[0].commit_hash < pair[1].commit_hash)
+    {
+        return Err(RetainedProvenanceError::Inconsistent("parent ordering"));
+    }
     let parent_hashes = entry
         .parents
         .iter()

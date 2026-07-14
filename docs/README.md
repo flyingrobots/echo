@@ -36,6 +36,7 @@ causal history. Git history is the archive; GitHub owns live work and status.
 - [Contract inverse admission](topics/ContractInverseAdmission.md)
 - [WAL](topics/WAL.md)
 - [Runtime constellation](topics/RuntimeConstellation.md)
+- [Security posture and threat models](topics/security/README.md)
 
 ## Durable Decisions
 

@@ -280,7 +280,9 @@ pub use causal_anchor::{
     CausalAnchorAdmissionReceipt, CausalAnchorAdmissionReceiptId, CausalAnchorAdmissionRequest,
     CausalAnchorAppRootRole, CausalAnchorCasRole, CausalAnchorClaim, CausalAnchorError,
     CausalAnchorFact, CausalAnchorGraphRole, CausalAnchorId, CausalAnchorPurpose, CausalAnchorRoot,
-    CausalAnchorSubject, CausalFrontierRef, CAUSAL_ANCHOR_SCHEMA_VERSION,
+    CausalAnchorRootSupportGrant, CausalAnchorRootSupportPolicy, CausalAnchorSubject,
+    CausalAnchorSupportError, CausalAnchorSupportSet, CausalFrontierRef,
+    CAUSAL_ANCHOR_SCHEMA_VERSION,
 };
 pub use contract_obstruction::{
     ContractObstruction, ContractObstructionKind, ContractObstructionSubject,

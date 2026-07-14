@@ -5,7 +5,9 @@
 use warp_core::{
     CausalAnchorAdmissionRequest, CausalAnchorAppRootRole, CausalAnchorCasRole, CausalAnchorClaim,
     CausalAnchorError, CausalAnchorGraphRole, CausalAnchorPurpose, CausalAnchorRoot,
-    CausalAnchorSubject, CausalFrontierRef, CAUSAL_ANCHOR_SCHEMA_VERSION,
+    CausalAnchorRootSupportGrant, CausalAnchorRootSupportPolicy, CausalAnchorSubject,
+    CausalAnchorSupportError, CausalAnchorSupportSet, CausalFrontierRef,
+    CAUSAL_ANCHOR_SCHEMA_VERSION,
 };
 
 fn hash(seed: u8) -> [u8; 32] {
@@ -138,6 +140,36 @@ fn causal_anchor_rejects_empty_application_root_fields() {
             field: "id",
         })
     ));
+}
+
+#[test]
+fn causal_anchor_support_policy_is_canonical_and_exact() -> Result<(), CausalAnchorError> {
+    let claim = CausalAnchorClaim::from_admission_request(request_with_roots(
+        vec![app_authority_root("head:policy")],
+        vec![materialization_root(9)],
+    ))?;
+    let retained = CausalAnchorRootSupportGrant::retained(
+        claim.subject().clone(),
+        claim.retained_roots()[0].clone(),
+    );
+    let materialization = CausalAnchorRootSupportGrant::materialization(
+        claim.subject().clone(),
+        claim.materialization_roots()[0].clone(),
+    );
+    let materialization_grant_digest = materialization.grant_digest();
+    let first = CausalAnchorRootSupportPolicy::new([retained.clone(), materialization.clone()]);
+    let reversed = CausalAnchorRootSupportPolicy::new([materialization, retained.clone()]);
+
+    assert_eq!(first.policy_digest(), reversed.policy_digest());
+    assert_eq!(first.validate_claim(&claim), Ok(()));
+    assert_eq!(
+        CausalAnchorRootSupportPolicy::new([retained]).validate_claim(&claim),
+        Err(CausalAnchorSupportError::UnsupportedRoot {
+            grant_digest: materialization_grant_digest,
+            support_set: CausalAnchorSupportSet::Materialization,
+        })
+    );
+    Ok(())
 }
 
 #[test]

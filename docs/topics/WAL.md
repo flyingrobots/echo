@@ -86,13 +86,15 @@ fails instead of treating process memory as durable authority.
 Eighth, causal-anchor admission has its own admission-kernel authority,
 transaction kind, fact record, receipt record, and affected frontier. The
 canonical claim contains no receipt identity. Echo derives that identity from
-the claim and WAL coordinate, commits the fact and receipt in one transaction,
-and recovers only complete, internally consistent pairs. Uncommitted frames do
+the claim, host support-policy digest, and WAL coordinate, commits the fact and
+receipt in one transaction, and recovers only complete, internally consistent
+pairs. Uncommitted frames do
 not become admitted anchors; malformed payloads, unknown enum codes, trailing
 bytes, missing or duplicate required frames, mismatched fact/receipt evidence,
 noncanonical frame order, and mismatched WAL coordinates are rejected. The
-low-level durable transition exists; its application-facing trusted-host API is
-a separate gate.
+trusted-host API requires the current logical durable frontier and exact
+host-installed root support before invoking this transition, and returns only
+after commit.
 
 ## Boundaries
 
@@ -251,7 +253,8 @@ evidence mismatch, and WAL-coordinate binding.
 
 The host surface lives in `crates/warp-core/src/trusted_runtime_host.rs`,
 especially `TrustedRuntimeHost`, `TrustedRuntimeApp`, `TrustedRuntimeWal`,
-`submit_intent_with_runtime_wal_ack(...)`, and `recover_read_only()`.
+`submit_intent_with_runtime_wal_ack(...)`, `admit_causal_anchor(...)`,
+`causal_anchor_by_id(...)`, and `recover_read_only()`.
 
 Related current authority lives in `docs/topics/RuntimeAuthority.md`,
 `docs/architecture/continuum-transport.md`, and

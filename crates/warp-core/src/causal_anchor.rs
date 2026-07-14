@@ -7,6 +7,8 @@
 //! deterministic claim. Claim construction does not confer admission. Only the
 //! trusted Echo path may attach a receipt and construct an admitted fact.
 
+use std::collections::BTreeSet;
+
 use blake3::Hasher;
 use thiserror::Error;
 
@@ -17,6 +19,8 @@ const CAUSAL_ANCHOR_ADMISSION_RECEIPT_ID_DOMAIN: &[u8] =
     b"echo:causal-anchor:admission-receipt-id:v1\0";
 const CAUSAL_ANCHOR_FACT_DIGEST_DOMAIN: &[u8] = b"echo:causal-anchor:fact-digest:v1\0";
 const CAUSAL_ANCHOR_ID_DOMAIN: &[u8] = b"echo:causal-anchor:id:v1\0";
+const CAUSAL_ANCHOR_SUPPORT_POLICY_DIGEST_DOMAIN: &[u8] = b"echo:causal-anchor:support-policy:v1\0";
+const CAUSAL_ANCHOR_SUPPORT_GRANT_DIGEST_DOMAIN: &[u8] = b"echo:causal-anchor:support-grant:v1\0";
 const CAUSAL_ANCHOR_CLAIM_PAYLOAD_MAGIC: &[u8; 8] = b"EACLM001";
 const CAUSAL_ANCHOR_FACT_PAYLOAD_MAGIC: &[u8; 8] = b"EAFCT001";
 const CAUSAL_ANCHOR_RECEIPT_PAYLOAD_MAGIC: &[u8; 8] = b"EARCP001";
@@ -252,6 +256,164 @@ impl CausalAnchorRoot {
             Self::AppSubjectRoot { role, .. } => *role == CausalAnchorAppRootRole::Authority,
         }
     }
+}
+
+/// Root-set position authorized by a causal-anchor support grant.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CausalAnchorSupportSet {
+    /// The root may appear in the retained authority/evidence set.
+    Retained,
+    /// The root may appear in the derived materialization set.
+    Materialization,
+}
+
+impl CausalAnchorSupportSet {
+    const fn tag(self) -> u8 {
+        match self {
+            Self::Retained => 1,
+            Self::Materialization => 2,
+        }
+    }
+}
+
+/// Exact host-owned support grant for one subject, root, and root set.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CausalAnchorRootSupportGrant {
+    subject: CausalAnchorSubject,
+    root: CausalAnchorRoot,
+    support_set: CausalAnchorSupportSet,
+}
+
+impl CausalAnchorRootSupportGrant {
+    /// Grants one subject permission to retain the exact named root.
+    #[must_use]
+    pub const fn retained(subject: CausalAnchorSubject, root: CausalAnchorRoot) -> Self {
+        Self {
+            subject,
+            root,
+            support_set: CausalAnchorSupportSet::Retained,
+        }
+    }
+
+    /// Grants one subject permission to attach the exact materialization root.
+    #[must_use]
+    pub const fn materialization(subject: CausalAnchorSubject, root: CausalAnchorRoot) -> Self {
+        Self {
+            subject,
+            root,
+            support_set: CausalAnchorSupportSet::Materialization,
+        }
+    }
+
+    /// Returns the subject authorized by this grant.
+    #[must_use]
+    pub const fn subject(&self) -> &CausalAnchorSubject {
+        &self.subject
+    }
+
+    /// Returns the exact root authorized by this grant.
+    #[must_use]
+    pub const fn root(&self) -> &CausalAnchorRoot {
+        &self.root
+    }
+
+    /// Returns the root-set position authorized by this grant.
+    #[must_use]
+    pub const fn support_set(&self) -> CausalAnchorSupportSet {
+        self.support_set
+    }
+
+    /// Returns the canonical identity of this exact support coordinate.
+    #[must_use]
+    pub fn grant_digest(&self) -> Hash {
+        compute_support_grant_digest(self)
+    }
+}
+
+/// Canonical host-owned policy for generic causal-anchor root support.
+///
+/// Echo does not infer application-domain root meaning. A trusted host installs
+/// exact grants after obtaining support from its graph, CAS, or application
+/// authority adapters. Application-facing admission cannot install this policy.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CausalAnchorRootSupportPolicy {
+    grants: BTreeSet<CausalAnchorRootSupportGrant>,
+    policy_digest: Hash,
+}
+
+impl CausalAnchorRootSupportPolicy {
+    /// Builds a canonical exact-grant policy.
+    #[must_use]
+    pub fn new(grants: impl IntoIterator<Item = CausalAnchorRootSupportGrant>) -> Self {
+        let grants = grants.into_iter().collect::<BTreeSet<_>>();
+        let policy_digest = compute_support_policy_digest(&grants);
+        Self {
+            grants,
+            policy_digest,
+        }
+    }
+
+    /// Returns the digest bound into admission receipt evidence.
+    #[must_use]
+    pub const fn policy_digest(&self) -> &Hash {
+        &self.policy_digest
+    }
+
+    /// Validates every claimed root against an exact host-owned grant.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first unsupported canonical root and its requested root set.
+    pub fn validate_claim(
+        &self,
+        claim: &CausalAnchorClaim,
+    ) -> Result<(), CausalAnchorSupportError> {
+        for root in claim.retained_roots() {
+            self.require_grant(claim.subject(), root, CausalAnchorSupportSet::Retained)?;
+        }
+        for root in claim.materialization_roots() {
+            self.require_grant(
+                claim.subject(),
+                root,
+                CausalAnchorSupportSet::Materialization,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn require_grant(
+        &self,
+        subject: &CausalAnchorSubject,
+        root: &CausalAnchorRoot,
+        support_set: CausalAnchorSupportSet,
+    ) -> Result<(), CausalAnchorSupportError> {
+        let grant = CausalAnchorRootSupportGrant {
+            subject: subject.clone(),
+            root: root.clone(),
+            support_set,
+        };
+        if self.grants.contains(&grant) {
+            Ok(())
+        } else {
+            Err(CausalAnchorSupportError::UnsupportedRoot {
+                grant_digest: grant.grant_digest(),
+                support_set,
+            })
+        }
+    }
+}
+
+/// Generic causal-anchor support-policy refusal.
+#[derive(Clone, Debug, PartialEq, Eq, Error)]
+pub enum CausalAnchorSupportError {
+    /// No host support grant covers the exact subject, root, and root set.
+    #[error("causal anchor root support grant {grant_digest:?} is unavailable in {support_set:?}")]
+    UnsupportedRoot {
+        /// Canonical digest of the exact subject, root, and root-set coordinate.
+        grant_digest: Hash,
+        /// Root set in which support was requested.
+        support_set: CausalAnchorSupportSet,
+    },
 }
 
 /// Application request for Echo to consider a causal-anchor claim for admission.
@@ -550,6 +712,7 @@ pub struct CausalAnchorAdmissionReceipt {
     anchor_id: CausalAnchorId,
     claim_digest: Hash,
     basis_frontier: CausalFrontierRef,
+    support_policy_digest: Hash,
     writer_epoch_id: Hash,
     wal_transaction_id: Hash,
     wal_first_lsn: u64,
@@ -580,6 +743,12 @@ impl CausalAnchorAdmissionReceipt {
         &self.basis_frontier
     }
 
+    /// Returns the host-owned root-support policy applied at admission.
+    #[must_use]
+    pub const fn support_policy_digest(&self) -> &Hash {
+        &self.support_policy_digest
+    }
+
     /// Returns the WAL writer epoch that ordered this admission.
     #[must_use]
     pub const fn writer_epoch_id(&self) -> &Hash {
@@ -605,6 +774,7 @@ impl CausalAnchorAdmissionReceipt {
         out.extend_from_slice(self.anchor_id.as_bytes());
         out.extend_from_slice(&self.claim_digest);
         out.extend_from_slice(&self.basis_frontier.frontier_digest);
+        out.extend_from_slice(&self.support_policy_digest);
         out.extend_from_slice(&self.writer_epoch_id);
         out.extend_from_slice(&self.wal_transaction_id);
         out.extend_from_slice(&self.wal_first_lsn.to_le_bytes());
@@ -618,6 +788,7 @@ impl CausalAnchorAdmissionReceipt {
         let anchor_id = CausalAnchorId(cursor.read_hash()?);
         let claim_digest = cursor.read_hash()?;
         let basis_frontier = CausalFrontierRef::from_digest(cursor.read_hash()?);
+        let support_policy_digest = cursor.read_hash()?;
         let writer_epoch_id = cursor.read_hash()?;
         let wal_transaction_id = cursor.read_hash()?;
         let wal_first_lsn = cursor.read_u64()?;
@@ -625,6 +796,7 @@ impl CausalAnchorAdmissionReceipt {
 
         let expected_receipt_id = compute_admission_receipt_id(
             &claim_digest,
+            &support_policy_digest,
             &writer_epoch_id,
             &wal_transaction_id,
             wal_first_lsn,
@@ -641,6 +813,7 @@ impl CausalAnchorAdmissionReceipt {
             anchor_id,
             claim_digest,
             basis_frontier,
+            support_policy_digest,
             writer_epoch_id,
             wal_transaction_id,
             wal_first_lsn,
@@ -650,12 +823,14 @@ impl CausalAnchorAdmissionReceipt {
 
 pub(crate) fn prepare_causal_anchor_admission(
     claim: CausalAnchorClaim,
+    support_policy_digest: Hash,
     writer_epoch_id: Hash,
     wal_transaction_id: Hash,
     wal_first_lsn: u64,
 ) -> (CausalAnchorFact, CausalAnchorAdmissionReceipt) {
     let receipt_id = compute_admission_receipt_id(
         claim.claim_digest(),
+        &support_policy_digest,
         &writer_epoch_id,
         &wal_transaction_id,
         wal_first_lsn,
@@ -667,6 +842,7 @@ pub(crate) fn prepare_causal_anchor_admission(
         anchor_id,
         claim_digest: *claim.claim_digest(),
         basis_frontier: *claim.basis_frontier(),
+        support_policy_digest,
         writer_epoch_id,
         wal_transaction_id,
         wal_first_lsn,
@@ -864,8 +1040,30 @@ fn compute_claim_digest(
     hasher.finalize().into()
 }
 
+fn compute_support_policy_digest(grants: &BTreeSet<CausalAnchorRootSupportGrant>) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(CAUSAL_ANCHOR_SUPPORT_POLICY_DIGEST_DOMAIN);
+    hasher.update(&(grants.len() as u64).to_le_bytes());
+    for grant in grants {
+        hasher.update(&[grant.support_set.tag()]);
+        update_subject(&mut hasher, &grant.subject);
+        update_root(&mut hasher, &grant.root);
+    }
+    hasher.finalize().into()
+}
+
+fn compute_support_grant_digest(grant: &CausalAnchorRootSupportGrant) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(CAUSAL_ANCHOR_SUPPORT_GRANT_DIGEST_DOMAIN);
+    hasher.update(&[grant.support_set.tag()]);
+    update_subject(&mut hasher, &grant.subject);
+    update_root(&mut hasher, &grant.root);
+    hasher.finalize().into()
+}
+
 fn compute_admission_receipt_id(
     claim_digest: &Hash,
+    support_policy_digest: &Hash,
     writer_epoch_id: &Hash,
     wal_transaction_id: &Hash,
     wal_first_lsn: u64,
@@ -873,6 +1071,7 @@ fn compute_admission_receipt_id(
     let mut hasher = Hasher::new();
     hasher.update(CAUSAL_ANCHOR_ADMISSION_RECEIPT_ID_DOMAIN);
     hasher.update(claim_digest);
+    hasher.update(support_policy_digest);
     hasher.update(writer_epoch_id);
     hasher.update(wal_transaction_id);
     hasher.update(&wal_first_lsn.to_le_bytes());

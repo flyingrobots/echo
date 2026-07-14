@@ -112,6 +112,7 @@ fn transaction(label: &str) -> Result<WalCommittedTransaction, WalBuildError> {
     build_causal_anchor_admission_transaction(
         builder(label, 10),
         claim(label),
+        digest("anchor-support-policy"),
         vec![frontier(label)],
     )
 }
@@ -184,6 +185,36 @@ fn committed_anchor_transaction_recovers_one_cross_checked_admission() {
     assert_eq!(admission.transaction_id, transaction.commit.transaction_id);
     assert_eq!(admission.committed_lsn, transaction.commit.last_lsn);
     assert_eq!(admission.commit_digest, transaction.commit.commit_digest);
+}
+
+#[test]
+fn admission_receipt_identity_binds_host_support_policy() {
+    let first = must_ok(build_causal_anchor_admission_transaction(
+        builder("policy-binding", 10),
+        claim("policy-binding"),
+        digest("support-policy:first"),
+        vec![frontier("policy-binding")],
+    ));
+    let second = must_ok(build_causal_anchor_admission_transaction(
+        builder("policy-binding", 10),
+        claim("policy-binding"),
+        digest("support-policy:second"),
+        vec![frontier("policy-binding")],
+    ));
+    let first_admission = must_ok(recover_causal_anchor_admissions(&must_ok(report_for(
+        &first,
+    ))))
+    .remove(0);
+    let second_admission = must_ok(recover_causal_anchor_admissions(&must_ok(report_for(
+        &second,
+    ))))
+    .remove(0);
+
+    assert_ne!(
+        first_admission.receipt.receipt_id(),
+        second_admission.receipt.receipt_id()
+    );
+    assert_ne!(first_admission.fact, second_admission.fact);
 }
 
 #[test]
@@ -281,6 +312,7 @@ fn anchor_payload_codec_rejects_noncanonical_root_order() {
     let valid = must_ok(build_causal_anchor_admission_transaction(
         builder("noncanonical-order", 10),
         claim_with_two_graph_roots("noncanonical-order"),
+        digest("anchor-support-policy"),
         vec![frontier("noncanonical-order")],
     ));
     let mut fact = valid.frames[0].payload.canonical_bytes.clone();

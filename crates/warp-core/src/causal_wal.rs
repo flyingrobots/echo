@@ -7569,6 +7569,7 @@ fn push_tick_receipt_records(
 pub fn build_causal_anchor_admission_transaction(
     mut builder: WalTransactionBuilder,
     claim: CausalAnchorClaim,
+    support_policy_digest: Hash,
     affected_frontiers: Vec<AffectedFrontier>,
 ) -> Result<WalCommittedTransaction, WalBuildError> {
     if !builder.frames.is_empty() {
@@ -7581,6 +7582,7 @@ pub fn build_causal_anchor_admission_transaction(
     }
     let (fact, receipt) = prepare_causal_anchor_admission(
         claim,
+        support_policy_digest,
         builder.writer_epoch.as_hash(),
         builder.transaction_id.as_hash(),
         builder.next_lsn.as_u64(),

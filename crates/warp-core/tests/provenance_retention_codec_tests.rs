@@ -15,13 +15,21 @@ use warp_core::{
     WorldlineTickPatchV1, WriterHeadKey,
 };
 
-const OUTER_HEADER_LEN: usize = 8 + 32 + 8;
-const ENTRY_PREFIX_THROUGH_PARENTS: usize = 8 + 32 + 8 + 8 + 1 + 64 + 8 + 72;
-const EXPECTED_COMMIT_HASH_OFFSET: usize =
-    OUTER_HEADER_LEN + ENTRY_PREFIX_THROUGH_PARENTS + 32 + 32;
-
 fn digest(label: &str) -> Hash {
     blake3::hash(label.as_bytes()).into()
+}
+
+fn encoded_field_offset(bytes: &[u8], field: &[u8]) -> usize {
+    let mut matches = bytes
+        .windows(field.len())
+        .enumerate()
+        .filter_map(|(offset, candidate)| (candidate == field).then_some(offset));
+    let offset = matches.next().expect("encoded field should be present");
+    assert!(
+        matches.next().is_none(),
+        "encoded field should occur exactly once"
+    );
+    offset
 }
 
 fn fixture_entry() -> ProvenanceEntry {
@@ -315,8 +323,12 @@ fn replayable_state_delta_rejects_corrupt_commitment_and_non_local_event() {
     let mut bytes = record
         .to_payload_bytes()
         .expect("validated record should encode");
-    bytes[EXPECTED_COMMIT_HASH_OFFSET] ^= 0x80;
-    assert!(WalRuntimeStateDeltaRecord::from_payload_bytes(&bytes).is_err());
+    let commit_hash_offset = encoded_field_offset(&bytes, &entry.expected.commit_hash);
+    bytes[commit_hash_offset] ^= 0x80;
+    assert_eq!(
+        WalRuntimeStateDeltaRecord::from_payload_bytes(&bytes),
+        Err(RetainedProvenanceError::Inconsistent("commit hash"))
+    );
 
     let mut missing_receipt = entry.clone();
     missing_receipt.tick_receipt = None;

@@ -609,12 +609,11 @@ impl TrustedRuntimeHost {
                 )?;
             current_basis_receipt_refs.extend(
                 self.runtime
-                    .receipt_correlations()
-                    .filter(|candidate| {
-                        candidate.causal_receipt_ref.worldline_id == current_worldline_id
-                            && candidate.worldline_tick_after == current_frontier_tick
-                            && candidate.commit_hash == current_tip.commit_hash
-                    })
+                    .receipt_correlations_for_current_basis(
+                        current_worldline_id,
+                        current_frontier_tick,
+                        current_tip.commit_hash,
+                    )
                     .map(|candidate| candidate.causal_receipt_ref),
             );
             current_basis_receipt_refs.sort_unstable();

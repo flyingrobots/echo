@@ -2726,6 +2726,59 @@ fn submission_acceptance_retains_envelope_in_the_same_transaction() {
 }
 
 #[test]
+fn submission_acceptance_rejects_mismatched_retained_material() {
+    let acceptance = submission_acceptance("mismatched-retained-envelope");
+    let material = WalSubmissionEnvelopeRecord {
+        submission_id: digest("submission:other"),
+        canonical_envelope_digest: acceptance.canonical_envelope_digest,
+        submission_generation: 1,
+        head_key: head(7, worldline(6)),
+        retained_envelope_bytes: b"retained-envelope-v1".to_vec(),
+    };
+
+    let error = must_err(
+        build_submission_acceptance_with_material_transaction(
+            builder(
+                transaction_id("tx:submission:mismatched-retained-envelope"),
+                Lsn::from_raw(0),
+                WalAppendAuthority::SubmissionIntake,
+                WalTransactionKind::SubmissionIntake,
+            ),
+            acceptance,
+            material,
+            Vec::new(),
+        ),
+        "mismatched retained material must not enter an atomic WAL claim",
+    );
+
+    assert_eq!(error, WalBuildError::SubmissionMaterialMismatch);
+}
+
+#[test]
+fn tick_transaction_rejects_mismatched_receipt_correlation() {
+    let receipt = receipt_record("receipt", WalTickDecision::Applied);
+    let correlation = correlation_record("other-receipt");
+
+    let error = must_err(
+        build_tick_transaction(
+            builder(
+                transaction_id("tx:tick:mismatched-correlation"),
+                Lsn::from_raw(0),
+                WalAppendAuthority::TrustedScheduler,
+                WalTransactionKind::SchedulerTick,
+            ),
+            receipt,
+            correlation,
+            digest("state-delta:mismatched-correlation"),
+            Vec::new(),
+        ),
+        "a receipt and correlation must name the same causal event",
+    );
+
+    assert_eq!(error, WalBuildError::ReceiptCorrelationMismatch);
+}
+
+#[test]
 fn receipt_correlation_decode_rejects_noncanonical_parent_sets() {
     let parent_a = causal_receipt_ref("parent-a");
     let parent_b = causal_receipt_ref("parent-b");

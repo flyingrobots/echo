@@ -56,6 +56,8 @@ restore witnessed submission identity, generation, route, payload, and causal
 parents without scheduler or contract callbacks. Legacy acceptance records that
 lack envelope material remain inspectable, but recovery reports them as
 obstructed and the trusted host refuses to claim a complete replay.
+Transaction construction rejects any retained envelope whose submission or
+canonical-envelope identity disagrees with its acceptance record.
 
 Seventh, a scheduler-tick transaction for ticketed runtime ingress retains the
 canonical local-commit provenance entry, its exact typed `TickReceipt`, and any
@@ -66,6 +68,9 @@ then publishes the reconstructed runtime. The recovery witness compares global
 tick, frontier tick, state root, provenance, receipt, contract evidence, and the
 app-facing outcome without running the scheduler or contract handler. A legacy
 digest-only state-delta record is inspectable but obstructs writable startup.
+Transaction construction also requires the receipt and correlation to name the
+same causal event and the retained state delta to bind that receipt's content
+commitment before the transaction can commit.
 WAL activation is non-lossy: if the live host contains submissions, staged
 ingress, receipt correlations, provenance, pending inbox work, cycle progress,
 or worldline state that recovered WAL evidence cannot reproduce, activation
@@ -209,6 +214,9 @@ The core test names to read first are:
 - `filesystem_runtime_wal_restores_witnessed_submission_material_after_restart`
 - `filesystem_runtime_wal_recovers_replayable_provenance_after_restart`
 - `runtime_wal_activation_rejects_process_only_committed_history`
+- `submission_acceptance_rejects_mismatched_retained_material`
+- `tick_transaction_rejects_mismatched_receipt_correlation`
+- `replayable_tick_transaction_rejects_unrelated_state_delta_receipt`
 
 The canonical retained transition codec witnesses live in
 `crates/warp-core/tests/provenance_retention_codec_tests.rs`. They cover every

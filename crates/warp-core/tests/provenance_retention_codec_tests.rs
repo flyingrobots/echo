@@ -5,14 +5,20 @@
 
 use bytes::Bytes;
 use warp_core::{
-    causal_wal::WalRuntimeStateDeltaRecord, compute_commit_hash_v2, make_edge_id, make_head_id,
-    make_node_id, make_type_id, make_warp_id, AtomPayload, AtomWrite, AttachmentKey,
-    AttachmentValue, ContractEvidenceIdentity, ContractOperationKind, EdgeKey, EdgeRecord,
-    GlobalTick, Hash, HashTriplet, InstalledContractPackageId, NodeKey, NodeRecord, PortalInit,
-    ProvenanceEntry, ProvenanceEventKind, ProvenanceRef, RetainedProvenanceError, SlotId,
-    TickCommitStatus, TickReceipt, TickReceiptDisposition, TickReceiptEntry, TxId, WarpInstance,
-    WarpOp, WarpTickPatchV1, WorldlineId, WorldlineTick, WorldlineTickHeaderV1,
-    WorldlineTickPatchV1, WriterHeadKey,
+    causal_wal::{
+        build_replayable_tick_transaction, Lsn, PayloadCodecId, PayloadSchemaId, TickReceiptRecord,
+        WalAppendAuthority, WalBuildError, WalDurabilityMode, WalReceiptCorrelationRecord,
+        WalRuntimeStateDeltaRecord, WalSegmentId, WalTickDecision, WalTransactionBuilder,
+        WalTransactionId, WalTransactionKind, WriterEpochId,
+    },
+    compute_commit_hash_v2, make_edge_id, make_head_id, make_node_id, make_type_id, make_warp_id,
+    AtomPayload, AtomWrite, AttachmentKey, AttachmentValue, CausalTickReceiptRef,
+    ContractEvidenceIdentity, ContractOperationKind, EdgeKey, EdgeRecord, GlobalTick, Hash,
+    HashTriplet, InstalledContractPackageId, NodeKey, NodeRecord, PortalInit, ProvenanceEntry,
+    ProvenanceEventKind, ProvenanceRef, RetainedProvenanceError, SlotId, TickCommitStatus,
+    TickReceipt, TickReceiptDisposition, TickReceiptEntry, TxId, WarpInstance, WarpOp,
+    WarpTickPatchV1, WorldlineId, WorldlineTick, WorldlineTickHeaderV1, WorldlineTickPatchV1,
+    WriterHeadKey,
 };
 
 const OUTER_HEADER_LEN: usize = 8 + 32 + 8;
@@ -200,6 +206,25 @@ fn fixture_receipt_digest(entry: &ProvenanceEntry) -> Hash {
         .digest()
 }
 
+fn replay_builder() -> WalTransactionBuilder {
+    WalTransactionBuilder::new(
+        WriterEpochId::from_hash(digest("epoch")),
+        WalSegmentId::from_raw(1),
+        WalTransactionId::from_hash(digest("transaction")),
+        WalTransactionKind::SchedulerTick,
+        WalAppendAuthority::TrustedScheduler,
+        Lsn::from_raw(0),
+        digest("previous-frame"),
+        digest("previous-commit"),
+        WalDurabilityMode::Buffered,
+        PayloadCodecId::from_hash(digest("codec")),
+        PayloadSchemaId::from_hash(digest("schema")),
+        1,
+        1,
+        digest("domain"),
+    )
+}
+
 fn fixture_contract() -> ContractEvidenceIdentity {
     ContractEvidenceIdentity {
         package_id: InstalledContractPackageId::from_bytes(digest("package")),
@@ -241,6 +266,47 @@ fn replayable_state_delta_round_trips_every_operation_and_slot_variant() {
         decoded.to_payload_bytes().expect("decoded record encodes"),
         bytes
     );
+}
+
+#[test]
+fn replayable_tick_transaction_rejects_unrelated_state_delta_receipt() {
+    let entry = fixture_entry();
+    let retained = WalRuntimeStateDeltaRecord::from_provenance_entry(
+        fixture_receipt_digest(&entry),
+        None,
+        entry,
+    )
+    .expect("canonical local commit should be retainable")
+    .to_payload_bytes()
+    .expect("validated record should encode");
+    let receipt_ref = CausalTickReceiptRef {
+        worldline_id: WorldlineId::from_bytes(digest("other-worldline")),
+        worldline_tick_after: WorldlineTick::from_raw(2),
+        commit_global_tick: GlobalTick::from_raw(3),
+        commit_hash: digest("other-commit"),
+        submission_id: digest("other-submission"),
+        ticket_digest: digest("other-ticket"),
+        receipt_content_digest: digest("other-receipt"),
+    };
+    let receipt = TickReceiptRecord {
+        receipt_ref,
+        decision: WalTickDecision::Applied,
+    };
+    let correlation = WalReceiptCorrelationRecord {
+        receipt_ref,
+        causal_parent_receipts: Vec::new(),
+    };
+
+    let error = build_replayable_tick_transaction(
+        replay_builder(),
+        receipt,
+        correlation,
+        retained,
+        Vec::new(),
+    )
+    .expect_err("state-delta material must bind the transaction receipt");
+
+    assert_eq!(error, WalBuildError::RuntimeStateDeltaReceiptMismatch);
 }
 
 #[test]

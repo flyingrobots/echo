@@ -7451,6 +7451,11 @@ pub fn build_submission_acceptance_with_material_transaction(
     material: WalSubmissionEnvelopeRecord,
     affected_frontiers: Vec<AffectedFrontier>,
 ) -> Result<WalCommittedTransaction, WalBuildError> {
+    if record.submission_id != material.submission_id
+        || record.canonical_envelope_digest != material.canonical_envelope_digest
+    {
+        return Err(WalBuildError::SubmissionMaterialMismatch);
+    }
     push_submission_acceptance_records(&mut builder, record)?;
     builder.push_record(
         WalRecordKind::SubmissionEnvelopeRetained,
@@ -7483,6 +7488,11 @@ pub fn build_replayable_tick_transaction(
     retained_state_delta_bytes: Vec<u8>,
     affected_frontiers: Vec<AffectedFrontier>,
 ) -> Result<WalCommittedTransaction, WalBuildError> {
+    let state_delta = WalRuntimeStateDeltaRecord::from_payload_bytes(&retained_state_delta_bytes)
+        .map_err(|_| WalBuildError::RuntimeStateDeltaInvalid)?;
+    if state_delta.receipt_digest() != receipt.receipt_ref.receipt_content_digest {
+        return Err(WalBuildError::RuntimeStateDeltaReceiptMismatch);
+    }
     push_tick_receipt_records(&mut builder, receipt, &correlation)?;
     builder.push_record(
         WalRecordKind::RuntimeStateDeltaRecorded,
@@ -7496,6 +7506,9 @@ fn push_tick_receipt_records(
     receipt: TickReceiptRecord,
     correlation: &WalReceiptCorrelationRecord,
 ) -> Result<(), WalBuildError> {
+    if receipt.receipt_ref != correlation.receipt_ref {
+        return Err(WalBuildError::ReceiptCorrelationMismatch);
+    }
     builder.push_record(
         WalRecordKind::TickReceiptRecorded,
         receipt.to_payload_bytes(),
@@ -8043,6 +8056,18 @@ pub enum WalBuildError {
     /// Empty transaction.
     #[error("WAL transaction has no records")]
     EmptyTransaction,
+    /// Submission acceptance and retained material name different evidence.
+    #[error("WAL submission acceptance does not match retained material")]
+    SubmissionMaterialMismatch,
+    /// Tick receipt and correlation name different causal receipt events.
+    #[error("WAL tick receipt does not match its receipt correlation")]
+    ReceiptCorrelationMismatch,
+    /// Replayable runtime state-delta bytes are not a valid retained record.
+    #[error("WAL replayable runtime state delta is invalid")]
+    RuntimeStateDeltaInvalid,
+    /// Replayable runtime state delta names a different receipt commitment.
+    #[error("WAL replayable runtime state delta does not match the tick receipt")]
+    RuntimeStateDeltaReceiptMismatch,
     /// Validation failed.
     #[error(transparent)]
     Validation(#[from] WalValidationError),

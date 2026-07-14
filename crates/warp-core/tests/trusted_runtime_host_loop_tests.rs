@@ -29,10 +29,10 @@ use warp_core::{
     IntentOutcome, NodeId, NodeRecord, ObservationAt, ObservationCoordinate, ObservationFrame,
     ObservationPayload, ObservationProjection, ObservationReadBudget, ObservationRequest,
     ObserverPlanId, OpticAdmissionTicket, OpticArtifactHandle, PatternGraph, PlaybackMode,
-    ProvenanceStore, RuntimeWalActivationGap, SchedulerKind, TickDelta, TrustedRuntimeHost,
-    TrustedRuntimeHostError, TrustedRuntimeWal, TrustedRuntimeWalConfig, TrustedRuntimeWalError,
-    TrustedRuntimeWalStoreKind, WarpOp, WorldlineId, WorldlineRuntime, WorldlineState,
-    WorldlineTick, WriterHead, WriterHeadKey, OPTIC_ADMISSION_TICKET_KIND,
+    ProvenanceStore, RuntimeError, RuntimeWalActivationGap, SchedulerKind, TickDelta,
+    TrustedRuntimeHost, TrustedRuntimeHostError, TrustedRuntimeWal, TrustedRuntimeWalConfig,
+    TrustedRuntimeWalError, TrustedRuntimeWalStoreKind, WarpOp, WorldlineId, WorldlineRuntime,
+    WorldlineState, WorldlineTick, WriterHead, WriterHeadKey, OPTIC_ADMISSION_TICKET_KIND,
     OPTIC_ARTIFACT_HANDLE_KIND,
 };
 
@@ -520,6 +520,38 @@ fn runtime_wal_ack_submit_commits_acceptance_before_returning_handle() {
     assert_eq!(entry.acceptance.submission_id, submission.submission_id);
     assert_eq!(entry.acceptance.canonical_envelope_digest, envelope_digest);
     assert_eq!(entry.posture, RecoveredSubmissionPosture::AcceptedPending);
+}
+
+#[test]
+fn runtime_wal_ack_rejects_contract_inverse_target_from_normal_submission() {
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_in_memory_runtime_wal()
+        .expect("runtime WAL should initialize");
+
+    let envelope = IngressEnvelope::local_intent_with_causal_parents(
+        IngressTarget::DefaultWriter { worldline_id },
+        make_intent_kind("echo.intent/eint-v1"),
+        echo_wasm_abi::pack_intent_v1(MUTATION_OP_ID, MUTATION_VARS).expect("EINT should pack"),
+        vec![IngressCausalParent::ContractInverseTarget {
+            receipt_ref: causal_receipt_ref(worldline_id, "smuggled-inverse-target", 1),
+        }],
+    );
+
+    let result = host.app().submit_intent_with_runtime_wal_ack(envelope);
+
+    assert!(matches!(
+        result,
+        Err(TrustedRuntimeHostError::Runtime(error))
+            if matches!(*error, RuntimeError::ContractInverseTargetRequiresContractAdmission)
+    ));
+    assert_eq!(
+        host.runtime_wal()
+            .expect("runtime WAL should remain configured")
+            .submission_acceptance_count(),
+        0
+    );
 }
 
 #[test]

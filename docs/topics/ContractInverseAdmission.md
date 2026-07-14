@@ -87,6 +87,11 @@ witnessed ingress envelope preserves which receipt was the inverse target.
 Recovery rebuilds both parent and reverse-child indexes from durable evidence.
 Including relation roles and the current basis in ingress identity prevents
 semantically different derivations from collapsing into one submission.
+Although the envelope representation and codec preserve the typed relation,
+ordinary app and runtime submission reject `ContractInverseTarget`. Only the
+validated contract-inverse admission path can authorize that role, so retained
+history cannot misclassify an arbitrary app-authored intent as a
+contract-defined inverse.
 
 ## History Projection
 
@@ -108,6 +113,7 @@ request map.
 
 Echo obstructs before submission when:
 
+- an ordinary submission claims the reserved contract-inverse target role;
 - the exact target receipt is unavailable;
 - the target receipt records a rejected or otherwise non-applied outcome;
 - the target witnessed envelope is unavailable or malformed;

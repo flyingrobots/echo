@@ -213,6 +213,7 @@ impl ContractObstruction {
                 })
             }
             RuntimeError::MalformedInstalledContractIntent
+            | RuntimeError::ContractInverseTargetRequiresContractAdmission
             | RuntimeError::UnknownIntentSubmission(_)
             | RuntimeError::TicketedIngressSubmissionMismatch(_)
             | RuntimeError::TicketedIngressAlreadyStaged(_)

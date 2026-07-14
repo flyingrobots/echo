@@ -17,7 +17,9 @@ use crate::head::{
 };
 #[cfg(feature = "native_rule_bootstrap")]
 use crate::head_inbox::IngressPayload;
-use crate::head_inbox::{InboxAddress, InboxIngestResult, IngressEnvelope, IngressTarget};
+use crate::head_inbox::{
+    InboxAddress, InboxIngestResult, IngressCausalParent, IngressEnvelope, IngressTarget,
+};
 use crate::ident::{Hash, NodeId};
 use crate::optic_artifact::OpticAdmissionTicket;
 use crate::provenance_store::{
@@ -79,6 +81,9 @@ pub enum RuntimeError {
     /// The resolved head rejected the envelope under its inbox policy.
     #[error("writer head rejected ingress by policy: {0:?}")]
     RejectedByPolicy(WriterHeadKey),
+    /// Ordinary submission attempted to claim the contract-inverse target role.
+    #[error("contract inverse target parent requires contract inverse admission")]
+    ContractInverseTargetRequiresContractAdmission,
     /// A commit against a worldline frontier failed.
     #[error(transparent)]
     Engine(#[from] EngineError),
@@ -1423,6 +1428,14 @@ impl WorldlineRuntime {
         self.submit_intent(envelope).map(Into::into)
     }
 
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn submit_contract_inverse_intent(
+        &mut self,
+        envelope: IngressEnvelope,
+    ) -> Result<IntentSubmissionHandle, RuntimeError> {
+        self.submit_intent_inner(envelope, true).map(Into::into)
+    }
+
     /// Returns scheduler fault evidence by fault id.
     #[must_use]
     pub fn scheduler_fault(&self, fault_id: &SchedulerFaultId) -> Option<&SchedulerFaultRecord> {
@@ -2267,6 +2280,22 @@ impl WorldlineRuntime {
         &mut self,
         envelope: IngressEnvelope,
     ) -> Result<IntentSubmissionDisposition, RuntimeError> {
+        self.submit_intent_inner(envelope, false)
+    }
+
+    fn submit_intent_inner(
+        &mut self,
+        envelope: IngressEnvelope,
+        allow_contract_inverse_target: bool,
+    ) -> Result<IntentSubmissionDisposition, RuntimeError> {
+        if !allow_contract_inverse_target
+            && envelope
+                .causal_parents()
+                .iter()
+                .any(|parent| matches!(parent, IngressCausalParent::ContractInverseTarget { .. }))
+        {
+            return Err(RuntimeError::ContractInverseTargetRequiresContractAdmission);
+        }
         let ingress_id = envelope.ingress_id();
         let retained_envelope = envelope.clone();
         let head_key = self.resolve_target(envelope.target())?;
@@ -2876,6 +2905,7 @@ fn scheduler_fault_scope_for_error(
         | RuntimeError::MissingDefaultWriter(_)
         | RuntimeError::MissingInboxAddress { .. }
         | RuntimeError::RejectedByPolicy(_)
+        | RuntimeError::ContractInverseTargetRequiresContractAdmission
         | RuntimeError::Replay(_)
         | RuntimeError::Strand(_)
         | RuntimeError::IntentSubmissionGenerationOverflow
@@ -3576,6 +3606,9 @@ fn scheduler_error_cause_digest(err: &RuntimeError) -> Hash {
         RuntimeError::RejectedByPolicy(head_key) => {
             hasher.update(b"rejected-by-policy");
             hash_writer_head_key(&mut hasher, head_key);
+        }
+        RuntimeError::ContractInverseTargetRequiresContractAdmission => {
+            hasher.update(b"contract-inverse-target-requires-contract-admission");
         }
         RuntimeError::Provenance(err) => {
             hasher.update(b"provenance");

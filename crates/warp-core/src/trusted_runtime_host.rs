@@ -121,6 +121,16 @@ pub enum TrustedRuntimeWalError {
         /// Accepted submission whose canonical envelope was unavailable.
         submission_id: Hash,
     },
+    /// Receipt correlation parents disagreed with the retained ingress envelope.
+    #[error(
+        "trusted runtime WAL causal parents mismatched submission {submission_id:?} receipt {receipt_ref_digest:?}"
+    )]
+    ReceiptCorrelationCausalParentsMismatch {
+        /// Submission whose retained causal-parent claims disagreed.
+        submission_id: Hash,
+        /// Identity digest of the receipt carrying the conflicting correlation.
+        receipt_ref_digest: Hash,
+    },
     /// A replayable runtime state delta could not be encoded or decoded.
     #[error("trusted runtime WAL retained state-delta codec error: {0}")]
     RuntimeStateDeltaCodec(#[from] RetainedProvenanceError),
@@ -1164,6 +1174,7 @@ impl TrustedRuntimeWal {
         let provenance_entries = runtime_state.provenance_entries;
         let receipt_correlations = runtime_state.receipt_correlations;
         let missing_runtime_state_deltas = runtime_state.missing_runtime_state_deltas;
+        validate_recovered_causal_parent_evidence(&witnessed_submissions, &receipt_correlations)?;
         Ok(TrustedRuntimeWalRecovery {
             certificate: runtime_wal_recovery_certificate(
                 &report,
@@ -1753,11 +1764,8 @@ impl TrustedRuntimeWalCursor {
 fn submission_acceptance_record_from_transaction(
     transaction: &crate::causal_wal::WalRecoveredTransaction,
 ) -> Result<SubmissionAcceptanceRecord, TrustedRuntimeWalError> {
-    let frame = transaction
-        .frames
-        .iter()
-        .find(|frame| frame.header.record_kind == WalRecordKind::SubmissionAcceptedRecorded)
-        .ok_or_else(missing_trusted_runtime_record)?;
+    let frame =
+        required_unique_transaction_frame(transaction, WalRecordKind::SubmissionAcceptedRecorded)?;
     SubmissionAcceptanceRecord::from_payload_bytes(&frame.payload.canonical_bytes)
         .map_err(decode_trusted_runtime_wal_payload)
 }
@@ -1768,10 +1776,9 @@ fn recover_witnessed_submission_material(
 ) -> Result<(WitnessedSubmissionPersistenceSnapshot, Vec<Hash>), TrustedRuntimeWalError> {
     let mut material_by_submission = BTreeMap::new();
     for transaction in &report.transactions {
-        for frame in &transaction.frames {
-            if frame.header.record_kind != WalRecordKind::SubmissionEnvelopeRetained {
-                continue;
-            }
+        if let Some(frame) =
+            unique_transaction_frame(transaction, WalRecordKind::SubmissionEnvelopeRetained)?
+        {
             let material =
                 WalSubmissionEnvelopeRecord::from_payload_bytes(&frame.payload.canonical_bytes)
                     .map_err(decode_trusted_runtime_wal_payload)?;
@@ -1880,18 +1887,10 @@ fn recover_runtime_state_delta_material(
                 WalDecodeError::InvalidEmbeddedFrame,
             ));
         }
-        let mut state_delta_frames = transaction
-            .frames
-            .iter()
-            .filter(|frame| frame.header.record_kind == WalRecordKind::RuntimeStateDeltaRecorded);
-        let state_delta_frame = state_delta_frames
-            .next()
-            .ok_or_else(missing_trusted_runtime_record)?;
-        if state_delta_frames.next().is_some() {
-            return Err(decode_trusted_runtime_wal_payload(
-                WalDecodeError::InvalidEmbeddedFrame,
-            ));
-        }
+        let state_delta_frame = required_unique_transaction_frame(
+            transaction,
+            WalRecordKind::RuntimeStateDeltaRecorded,
+        )?;
         if state_delta_frame.payload.canonical_bytes.len() == core::mem::size_of::<Hash>() {
             missing.push(receipt.receipt_ref.identity_digest());
             continue;
@@ -1993,6 +1992,31 @@ fn recover_runtime_state_delta_material(
     })
 }
 
+fn validate_recovered_causal_parent_evidence(
+    witnessed_submissions: &WitnessedSubmissionPersistenceSnapshot,
+    receipt_correlations: &[ReceiptCorrelationPersistenceRecord],
+) -> Result<(), TrustedRuntimeWalError> {
+    let envelopes_by_submission = witnessed_submissions
+        .records()
+        .iter()
+        .map(|record| (record.submission.submission_id, &record.envelope))
+        .collect::<BTreeMap<_, _>>();
+    for correlation in receipt_correlations {
+        let Some(envelope) = envelopes_by_submission.get(&correlation.submission_id) else {
+            continue;
+        };
+        if correlation.causal_parent_receipts != envelope.canonical_causal_parent_receipt_refs() {
+            return Err(
+                TrustedRuntimeWalError::ReceiptCorrelationCausalParentsMismatch {
+                    submission_id: correlation.submission_id,
+                    receipt_ref_digest: correlation.causal_receipt_ref.identity_digest(),
+                },
+            );
+        }
+    }
+    Ok(())
+}
+
 fn tick_records_from_transaction(
     transaction: &crate::causal_wal::WalRecoveredTransaction,
 ) -> Result<
@@ -2011,11 +2035,8 @@ fn tick_records_from_transaction(
             WalDecodeError::InvalidEmbeddedFrame,
         ));
     }
-    let state_delta_frame = transaction
-        .frames
-        .iter()
-        .find(|frame| frame.header.record_kind == WalRecordKind::RuntimeStateDeltaRecorded)
-        .ok_or_else(missing_trusted_runtime_record)?;
+    let state_delta_frame =
+        required_unique_transaction_frame(transaction, WalRecordKind::RuntimeStateDeltaRecorded)?;
     let (state_delta_digest, provenance_entry) = if state_delta_frame.payload.canonical_bytes.len()
         == core::mem::size_of::<Hash>()
     {
@@ -2046,7 +2067,8 @@ fn tick_records_from_transaction(
 fn tick_receipt_from_transaction(
     transaction: &crate::causal_wal::WalRecoveredTransaction,
 ) -> Result<TickReceiptRecord, TrustedRuntimeWalError> {
-    let receipt_frame = unique_tick_record(transaction, WalRecordKind::TickReceiptRecorded)?;
+    let receipt_frame =
+        required_unique_transaction_frame(transaction, WalRecordKind::TickReceiptRecorded)?;
     TickReceiptRecord::from_payload_bytes(&receipt_frame.payload.canonical_bytes)
         .map_err(decode_trusted_runtime_wal_payload)
 }
@@ -2055,20 +2077,27 @@ fn tick_correlation_from_transaction(
     transaction: &crate::causal_wal::WalRecoveredTransaction,
 ) -> Result<WalReceiptCorrelationRecord, TrustedRuntimeWalError> {
     let correlation_frame =
-        unique_tick_record(transaction, WalRecordKind::ReceiptCorrelationRecorded)?;
+        required_unique_transaction_frame(transaction, WalRecordKind::ReceiptCorrelationRecorded)?;
     WalReceiptCorrelationRecord::from_payload_bytes(&correlation_frame.payload.canonical_bytes)
         .map_err(decode_trusted_runtime_wal_payload)
 }
 
-fn unique_tick_record(
+fn required_unique_transaction_frame(
     transaction: &crate::causal_wal::WalRecoveredTransaction,
     record_kind: WalRecordKind,
 ) -> Result<&crate::causal_wal::WalFrame, TrustedRuntimeWalError> {
+    unique_transaction_frame(transaction, record_kind)?.ok_or_else(missing_trusted_runtime_record)
+}
+
+fn unique_transaction_frame(
+    transaction: &crate::causal_wal::WalRecoveredTransaction,
+    record_kind: WalRecordKind,
+) -> Result<Option<&crate::causal_wal::WalFrame>, TrustedRuntimeWalError> {
     let mut matching = transaction
         .frames
         .iter()
         .filter(|frame| frame.header.record_kind == record_kind);
-    let record = matching.next().ok_or_else(missing_trusted_runtime_record)?;
+    let record = matching.next();
     if matching.next().is_some() {
         return Err(decode_trusted_runtime_wal_payload(
             WalDecodeError::InvalidEmbeddedFrame,
@@ -2460,8 +2489,8 @@ fn wal_tick_decision_from_observation(
 mod tests {
     use super::*;
     use crate::{
-        CausalTickReceiptRef, GlobalTick, IngressSubmissionGeneration, WorldlineId, WorldlineTick,
-        WriterHeadKey,
+        CausalTickReceiptRef, GlobalTick, IngressSubmissionGeneration, IngressTarget, WorldlineId,
+        WorldlineTick, WriterHeadKey,
     };
 
     fn test_head_key() -> WriterHeadKey {
@@ -2688,7 +2717,105 @@ mod tests {
     }
 
     #[test]
-    fn runtime_wal_tick_record_selection_rejects_duplicate_receipt_evidence() {
+    fn runtime_wal_submission_record_selection_rejects_duplicate_singular_evidence() {
+        let wal = TrustedRuntimeWal::new_in_memory().expect("test WAL should initialize");
+        let head_key = test_head_key();
+        let envelope = IngressEnvelope::local_intent(
+            IngressTarget::ExactHead { key: head_key },
+            crate::make_intent_kind("runtime-wal-duplicate-submission-record"),
+            b"duplicate-submission-record".to_vec(),
+        );
+        let handle = IntentSubmissionHandle {
+            ingress_id: envelope.ingress_id(),
+            head_key,
+            submission_id: [21; 32],
+            submission_generation: IngressSubmissionGeneration::from_raw(1),
+            duplicate: false,
+        };
+        let acceptance = SubmissionAcceptanceRecord {
+            submission_id: handle.submission_id,
+            canonical_envelope_digest: handle.ingress_id,
+            idempotency_key_digest: None,
+            acceptance_evidence_digest: acceptance_evidence_digest(handle),
+        };
+        let retained_envelope = submission_envelope_record(&envelope, handle);
+
+        for (index, duplicate_kind) in [
+            WalRecordKind::SubmissionAcceptedRecorded,
+            WalRecordKind::SubmissionEnvelopeRetained,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut transaction_id = [22; 32];
+            transaction_id[0] = u8::try_from(index).expect("fixture index must fit in u8");
+            let mut builder = wal.builder(
+                WalTransactionKind::SubmissionIntake,
+                WalAppendAuthority::SubmissionIntake,
+                WalTransactionId::from_hash(transaction_id),
+            );
+            builder
+                .push_record(
+                    WalRecordKind::SubmissionAcceptedRecorded,
+                    acceptance.to_payload_bytes(),
+                )
+                .expect("fixture acceptance must append");
+            if duplicate_kind == WalRecordKind::SubmissionAcceptedRecorded {
+                builder
+                    .push_record(
+                        WalRecordKind::SubmissionAcceptedRecorded,
+                        acceptance.to_payload_bytes(),
+                    )
+                    .expect("duplicate acceptance must append");
+            }
+            builder
+                .push_record(
+                    WalRecordKind::SubmissionEnvelopeRetained,
+                    retained_envelope.to_payload_bytes(),
+                )
+                .expect("fixture retained envelope must append");
+            if duplicate_kind == WalRecordKind::SubmissionEnvelopeRetained {
+                builder
+                    .push_record(
+                        WalRecordKind::SubmissionEnvelopeRetained,
+                        retained_envelope.to_payload_bytes(),
+                    )
+                    .expect("duplicate retained envelope must append");
+            }
+            let transaction = builder
+                .commit(Vec::new())
+                .expect("duplicate-kind transaction must commit structurally");
+            transaction
+                .validate()
+                .expect("duplicate-kind transaction must remain structurally valid");
+            let recovered = crate::causal_wal::WalRecoveredTransaction {
+                commit: transaction.commit,
+                frames: transaction.frames,
+            };
+
+            let result = if duplicate_kind == WalRecordKind::SubmissionAcceptedRecorded {
+                submission_acceptance_record_from_transaction(&recovered).map(|_| ())
+            } else {
+                let report = RecoveryScanReport {
+                    transactions: vec![recovered],
+                    tail_posture: crate::causal_wal::RecoveryTailPosture::Clean,
+                };
+                let submissions =
+                    recover_submission_index(&report).expect("canonical acceptance should recover");
+                recover_witnessed_submission_material(&report, &submissions).map(|_| ())
+            };
+
+            assert!(matches!(
+                result,
+                Err(TrustedRuntimeWalError::Recovery(WalRecoveryError::Index(
+                    WalRecoveryIndexError::Decode(WalDecodeError::InvalidEmbeddedFrame)
+                )))
+            ));
+        }
+    }
+
+    #[test]
+    fn runtime_wal_tick_record_selection_rejects_duplicate_singular_evidence() {
         let wal = TrustedRuntimeWal::new_in_memory().expect("test WAL should initialize");
         let receipt = TickReceiptRecord {
             receipt_ref: CausalTickReceiptRef {
@@ -2712,6 +2839,7 @@ mod tests {
         for (index, duplicate_kind) in [
             WalRecordKind::TickReceiptRecorded,
             WalRecordKind::ReceiptCorrelationRecorded,
+            WalRecordKind::RuntimeStateDeltaRecorded,
         ]
         .into_iter()
         .enumerate()
@@ -2748,6 +2876,11 @@ mod tests {
             builder
                 .push_record(WalRecordKind::RuntimeStateDeltaRecorded, [36; 32].to_vec())
                 .expect("fixture state delta must append");
+            if duplicate_kind == WalRecordKind::RuntimeStateDeltaRecorded {
+                builder
+                    .push_record(WalRecordKind::RuntimeStateDeltaRecorded, [36; 32].to_vec())
+                    .expect("duplicate state delta must append");
+            }
             let transaction = builder
                 .commit(Vec::new())
                 .expect("duplicate-kind transaction must commit structurally");
@@ -2766,6 +2899,54 @@ mod tests {
                 )))
             ));
         }
+    }
+
+    #[test]
+    fn recovered_correlation_rejects_parents_not_bound_by_envelope() {
+        let head_key = test_head_key();
+        let envelope_parent = CausalTickReceiptRef {
+            worldline_id: head_key.worldline_id,
+            worldline_tick_after: WorldlineTick::from_raw(2),
+            commit_global_tick: GlobalTick::from_raw(2),
+            commit_hash: [31; 32],
+            submission_id: [32; 32],
+            ticket_digest: [33; 32],
+            receipt_content_digest: [34; 32],
+        };
+        let envelope = IngressEnvelope::local_intent_with_causal_parents(
+            IngressTarget::ExactHead { key: head_key },
+            crate::make_intent_kind("runtime-wal-parent-validation"),
+            b"parent-validation".to_vec(),
+            vec![IngressCausalParent::TickReceipt {
+                receipt_ref: envelope_parent,
+            }],
+        );
+        let witnessed = WitnessedSubmissionPersistenceSnapshot::new(vec![
+            WitnessedSubmissionPersistenceRecord {
+                submission: IntentSubmissionRecord {
+                    submission_id: [2; 32],
+                    ingress_id: envelope.ingress_id(),
+                    head_key,
+                    submission_generation: IngressSubmissionGeneration::from_raw(1),
+                },
+                envelope,
+            },
+        ]);
+        let mut correlation = ReceiptCorrelationPersistenceRecord::from(&test_correlation([7; 32]));
+        correlation.causal_parent_receipts = vec![CausalTickReceiptRef {
+            ticket_digest: [35; 32],
+            ..envelope_parent
+        }];
+
+        assert_eq!(
+            validate_recovered_causal_parent_evidence(&witnessed, &[correlation.clone()]),
+            Err(
+                TrustedRuntimeWalError::ReceiptCorrelationCausalParentsMismatch {
+                    submission_id: correlation.submission_id,
+                    receipt_ref_digest: correlation.causal_receipt_ref.identity_digest(),
+                }
+            )
+        );
     }
 }
 

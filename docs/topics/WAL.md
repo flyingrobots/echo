@@ -17,7 +17,7 @@ Echo may only claim what its WAL can recover.
 
 ## What We Found
 
-The current runtime WAL evidence says four concrete things.
+The current runtime WAL evidence says seven concrete things.
 
 First, accepted-submission evidence is not just an in-memory editor event. The
 WAL-backed ACK path, `submit_intent_with_runtime_wal_ack(...)`, returns only
@@ -48,7 +48,9 @@ parent lookup and reverse child lookup during read-only recovery. A contract can
 therefore define inverse semantics while Echo preserves the provenance chain
 across process loss. Recovery rejects explicitly empty, duplicated, or
 out-of-order parent receipt coordinates instead of normalizing committed
-non-canonical bytes.
+non-canonical bytes. Before exposing a recovered correlation, it also requires
+that correlation's parent set to match the independently retained ingress
+envelope.
 
 Sixth, trusted submission intake commits the canonical retained ingress envelope
 in the same transaction as acceptance evidence. Reopening a filesystem WAL can
@@ -58,6 +60,8 @@ lack envelope material remain inspectable, but recovery reports them as
 obstructed and the trusted host refuses to claim a complete replay.
 Transaction construction rejects any retained envelope whose submission or
 canonical-envelope identity disagrees with its acceptance record.
+Recovery requires exactly one acceptance frame and at most one retained
+envelope frame in each intake transaction.
 
 Seventh, a scheduler-tick transaction for ticketed runtime ingress retains the
 canonical local-commit provenance entry, its exact typed `TickReceipt`, and any
@@ -71,6 +75,9 @@ digest-only state-delta record is inspectable but obstructs writable startup.
 Transaction construction also requires the receipt and correlation to name the
 same causal event and the retained state delta to bind that receipt's content
 commitment before the transaction can commit.
+Each scheduler transaction must also contain exactly one receipt, correlation,
+and runtime state-delta frame; recovery rejects duplicate claims rather than
+selecting whichever frame appears first.
 WAL activation is non-lossy: if the live host contains submissions, staged
 ingress, receipt correlations, provenance, pending inbox work, cycle progress,
 or worldline state that recovered WAL evidence cannot reproduce, activation

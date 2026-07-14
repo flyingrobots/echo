@@ -5,29 +5,22 @@
 
 _Define intent identity and tick-boundary ordering so arrival order does not become causality._
 
-Legend: KERNEL
-
 Depends on:
 
 - [WARP Rewrite Scheduler](scheduler-warp-core.md)
 - [WARP Tick Patch](warp-tick-patch.md)
 - [Merkle Commit](merkle-commit.md)
 
-## Why this packet exists
+## Purpose
 
 Echo admits intents from outside the kernel. Arrival order is an observer phenomenon; it must not silently become causal order inside a deterministic tick. The inbox contract turns submitted bytes into content-addressed ingress entries and settles pending work in canonical order.
 
-## Human users / jobs / hills
+Retries and shuffled submissions must converge. Submitting the same set of
+intent bytes in any order produces the same pending set, canonical tick order,
+and committed state when tick membership is held fixed.
 
-Human users need retries and shuffled submissions to converge.
-
-The hill: submitting the same set of intent bytes in any order produces the same pending set, same canonical tick order, and same committed state when tick membership is held fixed.
-
-## Agent users / jobs / hills
-
-Agent users need idempotent intake for automation.
-
-The hill: an agent can retry a submitted envelope and receive the same identity without duplicating ledger state.
+Intake is idempotent for automated clients: retrying a submitted envelope
+returns the same identity without duplicating ledger state.
 
 ## Decision 1: Intent identity is content identity
 

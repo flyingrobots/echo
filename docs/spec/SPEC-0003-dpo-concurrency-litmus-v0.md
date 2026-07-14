@@ -5,29 +5,22 @@
 
 _Pin the executable concurrency claim Echo can make today: footprint-independent rewrites settle to a deterministic outcome._
 
-Legend: KERNEL
-
 Depends on:
 
 - [WARP Rewrite Scheduler](scheduler-warp-core.md)
 - [WARP Tick Patch](warp-tick-patch.md)
 - [Merkle Commit](merkle-commit.md)
 
-## Why this packet exists
+## Purpose
 
 The research language points toward DPO/DPOI concurrency: independent rewrites commute, conflicts have a deterministic explanation, and a witnessed history can be replayed. The current runtime does not implement a full categorical DPO engine. It implements a conservative footprint scheduler.
 
-## Human users / jobs / hills
+Determinism claims must be reviewable rather than aspirational. The litmus tests
+show that enqueue-order permutations produce the same terminal commit when
+footprints admit the same independent set.
 
-Human users need determinism claims that are reviewable rather than aspirational.
-
-The hill: a reviewer can run the litmus tests and see enqueue-order permutations produce the same terminal commit when the footprints admit the same independent set.
-
-## Agent users / jobs / hills
-
-Agent users need a concrete translation between theory vocabulary and runtime evidence.
-
-The hill: an agent can inspect a rejected candidate and identify the footprint resource that blocked it.
+The specification also translates theory vocabulary into runtime evidence: a
+rejected candidate identifies the footprint resource that blocked it.
 
 ## Decision 1: v0 speaks in footprint independence
 

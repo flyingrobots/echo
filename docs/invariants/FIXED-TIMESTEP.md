@@ -3,7 +3,7 @@
 
 # FIXED-TIMESTEP
 
-**Status:** Normative | **Legend:** KERNEL | **Cycle:** 0003
+**Status:** Normative
 
 ## Invariant
 
@@ -105,12 +105,6 @@ becomes an admitted canonical decision record.
 | `SchedulerStatus.latestCycleGlobalTick`                                | HistoryTime | Reports the latest runtime scheduler cycle coordinate.                     |
 | `SchedulerStatus.latestCommitGlobalTick`                               | HistoryTime | Reports the scheduler cycle coordinate that produced the latest commit.    |
 | `SchedulerStatus.lastQuiescentGlobalTick`                              | HistoryTime | Reports the scheduler cycle coordinate at quiescence.                      |
-| `TtdrHeader.tick`                                                      | HistoryTime | Tick receipt coordinate for witnessed deterministic verification.          |
-| TTD protocol `tick` / `fromTick` / `toTick` / `targetTick` fields      | HistoryTime | Cursor, seek, violation, snapshot, and truth-frame coordinates.            |
-| TTD protocol `initialTick` / `finalTick` fields                        | HistoryTime | Cursor lifecycle tick coordinates, not host timestamps.                    |
-| TTD protocol `deadlineTick` fields                                     | HistoryTime | Deadlines are tick-denominated semantic time.                              |
-| Legacy `OpEnvelope.ts`                                                 | HostTime    | Monotonic per-host transport timestamp; must not order causal history.     |
-| Generated TTD protocol `timestamp` / `Timestamp` fields                | HostTime    | Milliseconds-since-epoch event telemetry; not replay/admission authority.  |
 | Hook, CI, and verification timing fields such as `elapsed_ms` or dates | HostTime    | Tooling telemetry and audit logs; outside the deterministic history plane. |
 
 ## Timer and deadline doctrine
@@ -202,10 +196,9 @@ The current static guard is `scripts/ban-nondeterminism.sh`. It scans
 determinism-critical crate paths and bans wall-clock and pacing APIs
 including `std::time::SystemTime`, `SystemTime::now`,
 `std::time::Instant`, `Instant::now`, `std::thread::sleep`, and
-async runtime sleep calls. The release allowlist rules in
-`docs/determinism/RELEASE_POLICY.md` require every exemption to prove
-that the nondeterministic API cannot reach the deterministic engine
-loop.
+async runtime sleep calls. Every entry in `.ban-nondeterminism-allowlist`
+must be rule-scoped, name the exact boundary path and reason, and prove that the
+nondeterministic API cannot influence semantic history.
 
 ## Rationale
 
@@ -233,13 +226,11 @@ as uniform integers with no per-tick metadata.
 - Replay is structurally sound without recording per-tick time deltas.
   The quantum is a worldline parameter, not a per-entry field.
 - No variable-dt plumbing needs to exist in the codebase. If a future
-  use case demands variable dt, it requires a new design cycle to
-  relax this invariant with explicit constraints.
+  use case demands variable dt, it requires a new ADR to relax this invariant
+  with explicit constraints.
 
 ## Cross-references
 
 - [SPEC-0004 — Worldlines, Playback, and Observation](../spec/SPEC-0004-worldlines-playback-truthbus.md)
 - [SPEC-0005 — Provenance Payload](../spec/SPEC-0005-provenance-payload.md)
-- [Continuum foundations](../architecture/continuum-foundations.md) — archived
-  bridge note for older Continuum framing
 - `warp_geom::Tick` — code-level precedent

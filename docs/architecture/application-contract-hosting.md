@@ -8,15 +8,17 @@ application framework.
 
 Echo is a deterministic witnessed causal substrate. Applications own product
 semantics. Wesley compiles authored GraphQL contracts into generated Rust code
-that can talk to Echo through generic intent and observation boundaries.
+that can talk to Echo through generic intent and observation DTOs. A bounded
+optic is the product contract shape, but the current generated query execution
+path is still the lower-level observation primitive described below.
 
 This is Echo's concrete implementation of the WARP compiler seam: authored
 contract nouns lower into generated request helpers and contract-host helpers,
-while Echo core remains generic. See
-`docs/design/warp-optic-implementation-map.md` for the WARP-paper-to-Echo noun
+while Echo core remains generic. See the current
+[WARP optics](../topics/WarpOptics.md) model for the WARP-paper-to-Echo noun
 map.
 
-The short version:
+The current installed-contract query path is:
 
 ```text
 Application UI / adapter
@@ -25,8 +27,9 @@ Application UI / adapter
   -> EINT v1 intent bytes
   -> Echo dispatch_intent(...)
   -> Echo causal ingress, scheduling, admission, receipts
+  -> Wesley-generated raw ObservationRequest
   -> Echo observe(...)
-  -> ReadingEnvelope + payload bytes
+  -> ObservationArtifact + ReadingEnvelope
   -> generated/application decoding
   -> UI
 ```
@@ -43,7 +46,7 @@ adapters, and product documentation. They must not become Echo substrate APIs.
 Echo-owned APIs stay generic:
 
 - dispatch canonical intent bytes;
-- observe runtime readings;
+- observe runtime readings through generic raw and optic-shaped surfaces;
 - retain artifacts;
 - admit witnessed suffixes;
 - settle strands;
@@ -53,14 +56,13 @@ Application-authored optics may declare retained consequence obligations, such
 as receipt obligations, but they do not create ticks or `TickReceipt` values.
 Only trusted runtime control owns tick boundaries.
 
-The design evidence for this boundary lives in these repo-local packets:
+Current authority for this boundary lives in:
 
-- `docs/design/0013-wesley-compiled-contract-hosting-doctrine/design.md`
-- `docs/design/0014-eint-registry-observation-boundary-inventory/design.md`
-- `docs/design/0015-registry-provider-host-boundary-decision/design.md`
-- `docs/design/0016-wesley-to-echo-toy-contract-proof/design.md`
-- `docs/design/0017-authenticated-wesley-intent-admission-posture/design.md`
-- `docs/design/echo-edict-provider-semantic-source.md`
+- [Generated rules](../topics/GeneratedRules.md)
+- [Runtime authority](../topics/RuntimeAuthority.md)
+- [Registry, provider, and host boundary](../adr/0015-registry-provider-host-boundary.md)
+- [Generated rule authorship and footprints](../adr/0014-generated-rule-authorship-and-footprints.md)
+- [Declarative rule authorship](../invariants/DECLARATIVE-RULE-AUTHORSHIP.md)
 
 ## Ownership Split
 
@@ -78,7 +80,7 @@ flowchart TB
     app -->|"owns UI, workflows, product policy"| contract
     contract -->|"declares domain nouns, ops, reads"| wesley
     wesley -->|"emits DTOs, codecs, op ids, registry"| generated
-    generated -->|"packs EINT, builds ObservationRequest"| echo
+    generated -->|"packs EINT; builds raw and optic query DTOs"| echo
     echo -->|"admits, schedules, witnesses, observes"| cas
     cas -->|"stores retained content, witnesses, cached readings"| echo
 
@@ -95,7 +97,8 @@ Echo owns:
 - witness and retained artifact references;
 - `echo-cas` retention policy;
 - strand, braid, import, and suffix admission substrate;
-- generic ABI entrypoints such as `dispatch_intent(...)` and `observe(...)`.
+- generic ABI entrypoints such as `dispatch_intent(...)`, raw `observe(...)`,
+  and the product-shaped `observe_optic(...)` surface.
 
 Contracts own:
 
@@ -113,7 +116,7 @@ Echo's generic runtime surfaces. That bridge has two separate faces:
 
 | Surface               | Responsibility                                                          |
 | :-------------------- | :---------------------------------------------------------------------- |
-| Application helpers   | Build canonical EINT intent bytes and `ObservationRequest` values.      |
+| Application helpers   | Build EINT bytes plus raw and optic-shaped query request DTOs.          |
 | Contract-host helpers | Install generated mutation handler rules and read-only query observers. |
 
 ## External Edict Provider Artifacts
@@ -227,8 +230,18 @@ surface.
 "EINT" || op_id:u32le || vars_len:u32le || vars
 ```
 
-**ObservationRequest** is the generic read request. Generated query helpers map
-contract query operations onto this request shape when possible.
+**ObserveOpticRequest** is the product contract shape. Wesley query helpers can
+bind query identity and canonical variables to an explicit causal coordinate,
+focus, bounded `QueryBytes` aperture, law versions, budget, and capability.
+
+That DTO is not yet a trusted or executable generated-query boundary. The
+current bridge does not verify caller-supplied optic, capability, or law IDs,
+and `QueryBytes` returns `UnsupportedProjectionLaw`.
+
+Raw `ObservationRequest` is the lower-level coordinate/frame/projection
+primitive used by the current installed-contract query path. It can produce a
+QueryView reading, but it does not prove optic capability or law admission and
+must not be described as the final product contract.
 
 **Installed contract package** is the registry-verified runtime-owner
 installation unit that binds generated registry metadata, schema hash, package
@@ -244,8 +257,9 @@ registry verification, or generated operation/package binding guarantees.
 
 **ReadingEnvelope** is the read-side evidence envelope. It carries observer
 plan, basis, witness refs, budget posture, rights posture, and residual,
-plural, or obstructed posture. The current family boundary is named in
-`docs/design/0019-reading-envelope-family-boundary/reading-envelope-family-boundary.md`.
+plural, or obstructed posture. The current family boundary is described by
+[WARP optics](../topics/WarpOptics.md) and
+[Obstructions](../topics/Obstructions.md).
 
 ## Write Path
 
@@ -339,12 +353,20 @@ must not hide app mutation in unrecorded global state.
 
 ## Read Path
 
-Applications read from Echo by observing.
+The product contract shape is a bounded optic, but the two generated query
+surfaces have different current behavior:
 
-Generated query helpers construct `ObservationRequest` values. The application
-adapter, or a future higher-level wrapper, calls `KernelPort::observe(...)`,
-verifies enough of the returned `ReadingEnvelope`, and decodes the payload bytes
-according to the generated contract.
+- `*_observation_request(...)` builds a raw `ObservationRequest`. The installed
+  contract host can execute this lower-level QueryView path through
+  `KernelPort::observe(...)`.
+- `*_observe_optic_request(...)` builds a bounded `ObserveOpticRequest`, but the
+  current bridge returns `UnsupportedProjectionLaw` for its `QueryBytes`
+  aperture. The bridge also does not verify its optic, capability, or law IDs
+  against trusted admission authority.
+
+Therefore this document does not present generated optic queries as a runnable
+application path. Raw observation is the current integration primitive, while
+the bounded optic remains the product contract shape.
 
 Generated contract-host query observer helpers are separate from application
 query request builders. They install read-only host observers behind
@@ -361,16 +383,16 @@ sequenceDiagram
 
     UI->>Gen: request generated query
     Gen->>Gen: canonicalize query variables
-    Gen->>Gen: build ObservationRequest
+    Gen->>Gen: build raw ObservationRequest
     Gen->>Echo: observe(request)
-    Echo->>Runtime: resolve coordinate, frame, projection
+    Echo->>Runtime: resolve QueryView coordinate and projection
     Runtime-->>Echo: ObservationArtifact
     Echo-->>Gen: ReadingEnvelope + payload bytes
     Gen->>Gen: verify reading posture and decode payload
     Gen-->>UI: generated query result
 ```
 
-For a generated query, the projection currently uses:
+The current raw query projection uses:
 
 ```rust
 ObservationProjection::Query {
@@ -379,18 +401,18 @@ ObservationProjection::Query {
 }
 ```
 
-The returned artifact is not just data. It includes:
+The returned artifact is not just data. It preserves:
 
 - resolved coordinate;
-- reading envelope;
-- declared frame;
-- declared projection;
+- reading envelope and witness/evidence posture;
+- declared frame and projection;
 - artifact hash;
-- payload.
+- payload bytes.
 
-The application should inspect the reading posture before presenting a result
-as complete. A reading may be complete, residual, plurality-preserving,
-obstructed, budget-limited, or rights-limited.
+The application must inspect the reading posture before presenting a value as
+complete. A reading may be residual, plurality-preserving, budget-limited, or
+rights-limited. This lower-level success does not certify the caller-supplied
+capability/law posture of a separate optic request.
 
 ## Registry Handshake
 
@@ -419,7 +441,7 @@ flowchart LR
     generated["Generated client registry"]
     host["Installed Echo host registry info"]
     decision{"schema, codec, registry, ABI match?"}
-    dispatch["allow generated dispatch and observe"]
+    dispatch["allow generated dispatch and current raw query reads"]
     reject["refuse this generated client"]
 
     generated --> decision
@@ -535,11 +557,11 @@ and cached materialized readings.
 CAS content hashes are not semantic truth by themselves. Meaning lives in the
 typed coordinate or reference above the CAS blob.
 
-For future retained readings, the preferred payload direction is documented in
-[WSC, Verkle, IPA, And Retained Readings](wsc-verkle-ipa-retained-readings.md):
-WSC supplies canonical columnar reading bytes, Verkle-style roots may
-authenticate those bytes, IPA-style proofs may support bounded apertures, and
-`echo-cas` remains content-addressed byte retention.
+The durable storage and proof boundary is recorded in
+[ADR 0020](../adr/0020-retained-reading-storage-and-proof-boundary.md): WSC
+supplies deterministic columnar reading bytes, optional verified openings may
+support bounded apertures, and `echo-cas` remains content-addressed byte
+retention. None of those layers becomes causal or admission authority.
 
 ```mermaid
 flowchart TB
@@ -573,18 +595,22 @@ A browser-hosted application should follow this shape:
 5. Pack an EINT intent through generated helpers.
 6. Call `dispatch_intent(intent_bytes)`.
 7. Decode `DispatchResponse`.
-8. Use generated query helpers to build `ObservationRequest`.
-9. Call `observe(request)`.
+8. Use the generated raw query helper to build an `ObservationRequest`.
+9. Call `observe(request)` through the current installed-contract query path.
 10. Decode `ObservationArtifact`.
-11. Inspect the `ReadingEnvelope`.
+11. Inspect the `ReadingEnvelope` evidence posture.
 12. Decode payload bytes into generated result types.
 13. Render the UI.
 
 For a raw WASM export that accepts bytes, the browser adapter serializes the
 `ObservationRequest` at the ABI boundary using its `Serialize` implementation
-and canonical CBOR. That encoding is transport plumbing; the generated query
-helper still produces an `ObservationRequest`, and the Echo read boundary is
-`KernelPort::observe(request)`.
+and canonical CBOR. This is the current runnable query integration, but it is a
+lower-level primitive rather than the product contract shape.
+
+Wesley also emits an `ObserveOpticRequest` helper. The current engine returns
+`UnsupportedProjectionLaw` for its `QueryBytes` aperture and does not verify its
+capability/law identifiers. Browser adapters must preserve that typed
+obstruction; they cannot advertise the optic path as an available query API.
 
 The UI can be highly application-specific. The Echo calls remain generic.
 
@@ -614,7 +640,8 @@ let artifact =
 ```
 
 The generated names differ by contract. Echo still receives only generic
-intent bytes and observation requests.
+intent bytes and observation DTOs. This native example uses the current raw
+query path and does not claim optic capability/law admission.
 
 ## What Echo Does Not Do
 
@@ -637,8 +664,8 @@ responsibilities.
 flowchart LR
     app["Application: user intent and UI"]
     gen["Generated contract: schema, op ids, codecs"]
-    abi["Echo ABI: canonical bytes and requests"]
-    runtime["Echo runtime: causal admission and observation"]
+    abi["Echo ABI: canonical bytes and observation DTOs"]
+    runtime["Echo runtime: causal admission and current raw QueryView"]
     reading["ReadingEnvelope: evidence posture"]
     app2["Application: present result"]
 
@@ -659,7 +686,7 @@ Generated Wesley code:
   I know the contract schema and how to encode/decode operations.
 
 Echo ABI:
-  I accept canonical intent bytes and observation requests.
+  I accept canonical intent bytes and explicit observation DTOs.
 
 Echo runtime:
   I admit, schedule, witness, retain, and observe causal history.
@@ -676,10 +703,11 @@ For a `jedit`-style application:
 ```text
 jedit owns text/editor semantics.
 Wesley compiles those semantics into generated contract types and helpers.
-Echo receives canonical intents and emits witnessed readings.
+Echo receives canonical intents and emits witnessed readings through the
+current raw query path. Generated optic queries remain typed obstructions.
 jedit renders buffers, cursors, diffs, diagnostics, history, and UI.
 ```
 
 Echo gives applications deterministic causal substrate, witnessed ingress,
-observation envelopes, registry identity, and retention hooks. It should not
-become the application.
+reading envelopes, product-shaped optic DTOs, registry identity, and retention
+hooks. It should not become the application.

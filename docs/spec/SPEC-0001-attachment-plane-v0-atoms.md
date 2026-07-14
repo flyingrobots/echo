@@ -5,29 +5,23 @@
 
 _Define the depth-0 attachment contract: typed bytes may ride with structure, but they do not become hidden structure._
 
-Legend: KERNEL
-
 Depends on:
 
 - [Echo Runtime Model](../architecture/outline.md)
 - [warp-core](warp-core.md)
 - [Merkle Commit](merkle-commit.md)
 
-## Why this packet exists
+## Purpose
 
 Echo's hot path works over witnessed causal structure. Attachments are allowed because real applications need payloads, but payload bytes cannot secretly change matching, scheduling, replay, or observation. This packet keeps the attachment plane useful while preserving the distinction between causal history and observer-relative readings.
 
-## Human users / jobs / hills
+Payloads must carry domain material without making the runtime uninspectable. A
+reviewer can inspect a commit, replay patch, or scheduler footprint and know
+that no hidden edge was smuggled through an attachment blob.
 
-Human users need payloads to carry domain state without making the runtime uninspectable.
-
-The hill: a reviewer can look at a commit hash, replay patch, or scheduler footprint and know that no hidden edge was smuggled through an attachment blob.
-
-## Agent users / jobs / hills
-
-Agent users need stable rules for decoding payloads only when a declared rule, view, or inspector asks for that interpretation.
-
-The hill: an agent can audit attachment usage by checking type ids, slot ids, and footprint declarations without reverse-engineering opaque bytes.
+Decoding is governed by stable typed rules. Attachment use can be audited from
+type ids, slot ids, and footprint declarations without reverse-engineering
+opaque bytes.
 
 ## Decision 1: Attachments are typed atoms at depth 0
 

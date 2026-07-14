@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Echo-admitted causal anchors.
+//! Canonical causal-anchor value contract.
 //!
-//! A causal anchor names a durable causal basis for a subject. It does not store
-//! a materialized snapshot. It binds an application subject, a causal frontier,
-//! retained authority/evidence roots, optional projection roots, an admission
-//! receipt, and a purpose into deterministic Echo-owned evidence.
+//! A causal-anchor value binds an application subject, a caller-provided causal
+//! frontier digest, claimed authority/evidence roots, optional projection roots,
+//! a caller-provided receipt digest, and a purpose into a deterministic value.
+//! Construction validates canonical value shape only; it does not admit or
+//! publish the value through runtime authority.
 
 use blake3::Hasher;
 use thiserror::Error;
@@ -64,10 +65,12 @@ impl CausalAnchorSubject {
     }
 }
 
-/// Opaque reference to an admitted causal frontier.
+/// Opaque caller-provided reference to a causal frontier.
+///
+/// Possession of this value is not evidence that the frontier was admitted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CausalFrontierRef {
-    /// Digest of the admitted frontier being anchored.
+    /// Caller-provided digest of the frontier being referenced.
     pub frontier_digest: Hash,
 }
 
@@ -79,7 +82,7 @@ impl CausalFrontierRef {
     }
 }
 
-/// Purpose under which Echo admitted a causal anchor.
+/// Claimed purpose encoded into a causal-anchor value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CausalAnchorPurpose {
     /// Recovery basis.
@@ -172,7 +175,7 @@ impl CausalAnchorAppRootRole {
     }
 }
 
-/// Root retained by or attached to a causal anchor.
+/// Root claimed as retained by or attached to a causal-anchor value.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CausalAnchorRoot {
     /// Content-addressed object root.
@@ -214,26 +217,28 @@ impl CausalAnchorRoot {
     }
 }
 
-/// Request to construct an Echo causal anchor fact.
+/// Request to construct a canonical causal-anchor value.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CausalAnchorRequest {
     /// Schema version for the requested anchor fact.
     pub schema_version: u32,
     /// Application subject being anchored.
     pub subject: CausalAnchorSubject,
-    /// Admitted causal frontier being anchored.
+    /// Caller-provided causal-frontier reference.
     pub basis_frontier: CausalFrontierRef,
-    /// Authority/evidence roots retained by the anchor.
+    /// Roots claimed as retained authority or evidence.
     pub retained_roots: Vec<CausalAnchorRoot>,
     /// Optional derived projection roots attached to the anchor.
     pub materialization_roots: Vec<CausalAnchorRoot>,
     /// Purpose of the anchor.
     pub purpose: CausalAnchorPurpose,
-    /// Receipt digest that admitted the anchor request.
+    /// Caller-provided receipt digest committed into the value.
+    ///
+    /// Construction does not recover or authenticate this receipt.
     pub admitted_by_receipt_id: Hash,
 }
 
-/// Echo causal anchor fact.
+/// Canonical causal-anchor value.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CausalAnchorFact {
     /// Schema version for this anchor fact.
@@ -242,7 +247,7 @@ pub struct CausalAnchorFact {
     pub anchor_id: CausalAnchorId,
     /// Application subject being anchored.
     pub subject: CausalAnchorSubject,
-    /// Admitted causal frontier being anchored.
+    /// Caller-provided causal-frontier reference.
     pub basis_frontier: CausalFrontierRef,
     /// Canonical retained root set.
     pub retained_roots: Vec<CausalAnchorRoot>,
@@ -250,18 +255,20 @@ pub struct CausalAnchorFact {
     pub materialization_roots: Vec<CausalAnchorRoot>,
     /// Purpose of the anchor.
     pub purpose: CausalAnchorPurpose,
-    /// Receipt digest that admitted the anchor request.
+    /// Caller-provided receipt digest committed into the value.
     pub admitted_by_receipt_id: Hash,
-    /// Digest over subject, basis, roots, purpose, and admission receipt.
+    /// Digest over subject, basis, roots, purpose, and supplied receipt digest.
     pub anchor_digest: Hash,
 }
 
 impl CausalAnchorFact {
-    /// Builds a validated, canonical causal anchor fact.
+    /// Builds a shape-validated, canonical causal-anchor value.
     ///
     /// Root vectors are sorted and duplicate roots are rejected so the resulting
     /// digest represents a set of retained/materialized roots rather than caller
-    /// iteration order.
+    /// iteration order. This function does not verify frontier admission, root
+    /// existence, receipt provenance, authority, or retention, and it does not
+    /// publish the resulting value through the WAL.
     pub fn from_request(request: CausalAnchorRequest) -> Result<Self, CausalAnchorError> {
         validate_subject(&request.subject)?;
         let retained_roots =

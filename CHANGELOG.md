@@ -790,6 +790,36 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Removed
 
+- Removed the abandoned Method system: its workspace crate and `xtask`
+  commands, checked-in backlog, cycles, retrospectives, status ledgers, process
+  manuals, and generated task graphs. Current architecture now lives in
+  canonical topics/specs/invariants, durable decisions live in ADRs, and live
+  work/status lives in GitHub.
+- Removed the superseded `docs/design/` packet corpus and the retired TTD
+  counterfactual-creation invariant after promoting current doctrine into
+  canonical topics, ADRs, architecture documents, specifications, and tests.
+- Removed the remaining architecture drift/future packets and dated benchmark
+  reports after preserving the retained-reading storage and proof boundary in
+  ADR 0020. Benchmark instructions now keep methodology in source docs and
+  measurements in generated artifacts and pull requests.
+- Deleted zombie crates with no consumers (recoverable from git history):
+  `echo-wasm-bindings` (browser demo kernel), `echo-ttd`, `ttd-protocol-rs`,
+  and `echo-session-proto` (the TTD stack now lives with `warp-ttd`), plus
+  `echo-config-fs` (desktop app-shell fossil) and the
+  `packages/ttd-protocol-ts` generated consumer.
+- Deleted `echo-app-core` (desktop app-shell fossil: toasts, prefs, config
+  ports) and the `echo-dry-tests` in-memory config fake that existed only to
+  test its trait; no other crate consumed either.
+- Removed the unused `echo-wasm-abi::ttd` module and its public `PrivacyMask`,
+  `SessionToken`, and `TtdError` exports after the owning TTD/session stack was
+  retired. This is a breaking Rust API removal for unknown external consumers.
+- Deleted `cargo xtask wesley` (existed only to sync the removed TTD
+  protocol consumer artifacts).
+- Deleted stale point-in-time audit reports under `docs/audit/` and
+  `docs/audits/`.
+- Removed the deleted crates from workspace members, CI clippy lanes,
+  `det-policy.yaml`, `scripts/verify-local.sh`, and the unordered-ABI
+  allowlist.
 - Removed the VitePress docs-site toolchain from active repo tooling: npm
   scripts, Make targets, tracked docs-site config, the dead browser-open helper,
   and VitePress/Mermaid dependencies are gone.
@@ -806,8 +836,8 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 - `docs/march-16.plan.md` — stale planning scratchpad.
 - `docs/plans/parallel-merge-and-footprint-optimizations.md` — superseded
   by design review.
-- ADRs (0001–0011), old plans, book (LaTeX), and research artifacts.
-  All recoverable from git history.
+- Old plans, book (LaTeX), and research artifacts. All remain recoverable from
+  Git history.
 - **`warp-ffi` crate deleted:** The C ABI integration path (`crates/warp-ffi`)
   has been removed. The C ABI approach was abandoned in favor of Rust plugin
   extension via `RewriteRule` trait registration and Rhai scripting. See
@@ -816,6 +846,23 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Changed
 
+- Restored the durable ADR 0001–0011 namespace and moved the post-Method
+  decisions to ADR 0012–0019, preserving the meaning of existing source
+  citations. CI now rejects missing, duplicate, non-contiguous, unindexed, or
+  collided ADR identifiers.
+- Recorded the WSC, CAS, semantic reading identity, and optional proof boundary
+  as ADR 0020 without carrying forward the source packet's implementation
+  roadmap or application-specific checkpoint design.
+- Replaced the opaque numeric determinism claim-pack generator with an honest
+  gate over upstream job results and exact artifact payload presence. The
+  executable suites remain the authority for what passed.
+- Replaced the frozen root architecture and advanced guides with explicit
+  supersession signposts to the living no-graph architecture, topics,
+  specifications, invariants, and ADRs.
+- Echo 1.0 release eligibility now depends only on Continuum participant
+  conformance, networked causal suffix exchange, and release integrity. Edict,
+  `jedit`, and any particular generated package remain downstream compatibility
+  work and no longer gate the Echo release.
 - Echo 1.0 planning references now point at the cross-repository Continuum
   Stack Convergence Project instead of the retired Echo-only Project.
 - Local `scripts/verify-local.sh full` now treats broad Cargo test lanes as
@@ -909,6 +956,15 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- Generated-rule architecture now distinguishes Wesley's current raw
+  `RewriteRule` fixture path, Edict's fixture-only Target IR bridge, and the
+  still-target package-registration corridor. It also records
+  `native_rule_bootstrap` as an opt-in Cargo policy boundary rather than an
+  access-control seal.
+- Generated-rule documentation no longer implies that release footprint
+  enforcement is already wired. Wesley and Edict packs remain unqualified until
+  package emitters and positive and negative `footprint_enforce_release`
+  witnesses exist.
 - `warp-core` recovered filesystem WAL ACK paths now rebuild the live evidence
   catalog before returning recovered success, live catalog-update failures record
   the last commit where the catalog was actually fresh, and committed evidence
@@ -957,10 +1013,10 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
   `git rev-parse --git-dir`, so pre-commit and pre-push hooks work in linked
   worktrees where `.git` is a file rather than a directory. Stamps are
   per-worktree as a result.
-- `docs/spec/SPEC-0009-wasm-abi-v3.md` now states that the documented EINT v1
-  layout is the ABI v3 application-dispatch intake
-  (`OpticIntentPayload::EintV1`) and cites the session-protocol EINT v2
-  envelope as a separate layer outside ABI v3 dispatch.
+- `docs/spec/SPEC-0009-wasm-abi-v3.md` is now a historical supersession
+  signpost to the canonical current WASM ABI specification. The former v3
+  export table, wire contract, migration notes, and test checklist remain in
+  Git history rather than presenting a second active ABI authority.
 - `warp-core` WSC retained-evidence recovery now rejects conflicting duplicate
   retained material digests and reading ids instead of letting recovery or the
   recovered retention index silently overwrite evidence identity collisions.

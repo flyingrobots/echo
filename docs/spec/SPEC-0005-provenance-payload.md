@@ -5,29 +5,23 @@
 
 _Define provenance payloads as retained shells for replay, audit, and "show me why" queries._
 
-Legend: PLATFORM / KERNEL
-
 Depends on:
 
 - [SPEC-0004 - Worldlines, Playback, and Observation](SPEC-0004-worldlines-playback-truthbus.md)
 - [WARP Tick Patch](warp-tick-patch.md)
 - [Merkle Commit](merkle-commit.md)
 
-## Why this packet exists
+## Purpose
 
 Echo needs a way to package causal history without confusing that package with the public observation contract. A retained shell can carry replay and audit material, while an observation artifact is the observer-relative reading emitted from that material.
 
-## Human users / jobs / hills
+A payload must support a trustworthy answer to "why did this value appear?" A
+consumer can replay its patches, verify the hash triplets, and inspect the
+causal slot chain that produced a target value.
 
-Human users need a trustworthy answer to "why did this value appear?"
-
-The hill: a user can take a payload, replay the patches, verify the hash triplets, and inspect the causal slot chain that produced a target value.
-
-## Agent users / jobs / hills
-
-Agent users need a compact, deterministic artifact for provenance exchange.
-
-The hill: an agent can request a worldline segment, verify its boundary record, and derive the backward causal cone for a slot without asking the live runtime to re-execute rules.
+It is also a compact deterministic artifact for exchange: a consumer can
+verify a worldline segment's boundary record and derive a slot's backward
+causal cone without asking the live runtime to re-execute rules.
 
 ## Decision 1: ProvenancePayload packages a worldline segment
 

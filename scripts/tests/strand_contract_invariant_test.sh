@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 #
-# Tests for cycle 0004: STRAND-CONTRACT invariant document.
+# Executable witness for the STRAND-CONTRACT invariant document.
 
 set -euo pipefail
 

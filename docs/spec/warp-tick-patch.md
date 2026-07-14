@@ -5,8 +5,6 @@
 
 _Define the replayable per-tick delta that carries witnessed state change across worldlines, slices, and audits._
 
-Legend: KERNEL
-
 Patch encoding version: 2
 
 Depends on:
@@ -15,21 +13,17 @@ Depends on:
 - [Merkle Commit](merkle-commit.md)
 - [SPEC-0002 - Descended Attachments v1](SPEC-0002-descended-attachments-v1.md)
 
-## Why this packet exists
+## Purpose
 
 Echo needs a retained artifact that says what changed without re-running the rules that produced it. The tick patch is that artifact: a canonical delta over carrier state, plus conservative slot I/O for slicing.
 
-## Human users / jobs / hills
+Replay must be independent of the original scheduler run. Given a prior state
+and a patch, a verifier can apply the operations, recompute the state root, and
+compare the expected hash.
 
-Human users need replay to be independent of the original scheduler run.
-
-The hill: given a prior state and a patch, a verifier can apply the ops, recompute the state root, and compare the expected hash.
-
-## Agent users / jobs / hills
-
-Agent users need a stable unit for slicing and exchange.
-
-The hill: an agent can trace a target slot backward through `in_slots` and `out_slots` without decoding opaque payload bytes.
+The patch is also the stable unit for slicing and exchange. A consumer can
+trace a target slot backward through `in_slots` and `out_slots` without
+decoding opaque payload bytes.
 
 ## Decision 1: A tick patch is a delta, not a recipe
 

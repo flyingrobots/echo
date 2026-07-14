@@ -9,7 +9,6 @@
 //!
 //! # Modules
 //!
-//! - [`config`] - In-memory config store fake for testing without filesystem
 //! - [`demo_rules`] - Demo rules (motion, port) for integration tests
 //! - [`engine`] - Engine and GraphStore builder utilities
 //! - [`footprint`] - Ergonomic footprint construction via builder pattern
@@ -18,7 +17,6 @@
 //! - [`motion`] - Motion payload encoding helpers
 //! - [`rules`] - Synthetic rule builders (noop matchers/executors)
 
-pub mod config;
 pub mod demo_rules;
 pub mod engine;
 pub mod footprint;
@@ -28,7 +26,6 @@ pub mod motion;
 pub mod rules;
 
 // Re-export commonly used items at crate root for convenience
-pub use config::InMemoryConfigStore;
 pub use demo_rules::{
     build_motion_demo_engine, build_port_demo_engine, motion_rule, port_rule, MOTION_RULE_NAME,
     PORT_RULE_NAME,

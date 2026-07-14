@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Integration tests for the strand contract (cycle 0004).
+//! Integration tests for the strand contract.
 //!
 //! These tests verify the ten invariants (INV-S1 through INV-S10) and the
 //! create/list/drop lifecycle.

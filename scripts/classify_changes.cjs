@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 const fs = require('fs');
+const { assertValidDetPolicy } = require('./validate_det_policy.cjs');
 
 /**
  * Checks if a file path matches a glob-like pattern.
@@ -22,7 +23,7 @@ function matches(file, pattern) {
 
 /**
  * Classifies the impact of changed files based on a det-policy JSON.
- * Outputs max_class and run_* flags for GitHub Actions.
+ * Outputs the maximum class and one run flag per policy-defined gate.
  * 
  * @param {string} policyPath - Path to the det-policy JSON file.
  * @param {string} changedFilesPath - Path to the file containing list of changed files.
@@ -36,6 +37,7 @@ function classifyChanges(policyPath, changedFilesPath) {
   }
 
   const policy = JSON.parse(fs.readFileSync(policyPath, 'utf8'));
+  assertValidDetPolicy(policy);
   const changedFiles = fs.readFileSync(changedFilesPath, 'utf8').split('\n').filter(Boolean);
 
   let maxClass = 'DET_NONCRITICAL';
@@ -73,10 +75,17 @@ function classifyChanges(policyPath, changedFilesPath) {
   // Debug log for CI visibility
   console.error(`Classified ${changedFiles.length} files. Max class: ${maxClass}`);
 
+  const classPolicy = policy.classes && policy.classes[maxClass];
+  if (!classPolicy || !Array.isArray(classPolicy.required_gates)) {
+    throw new Error(`Class ${maxClass} has no valid required_gates policy.`);
+  }
+
+  const requiredGates = new Set(classPolicy.required_gates);
   process.stdout.write(`max_class=${maxClass}\n`);
-  process.stdout.write(`run_full=${maxClass === 'DET_CRITICAL'}\n`);
-  process.stdout.write(`run_reduced=${maxClass === 'DET_IMPORTANT' || maxClass === 'DET_CRITICAL'}\n`);
-  const noGates = changedFiles.length === 0 || maxClass === 'DET_NONCRITICAL';
+  for (const gate of ['G1', 'G2', 'G3', 'G4']) {
+    process.stdout.write(`run_${gate.toLowerCase()}=${requiredGates.has(gate)}\n`);
+  }
+  const noGates = changedFiles.length === 0 || requiredGates.size === 0;
   process.stdout.write(`run_none=${noGates}\n`);
 }
 

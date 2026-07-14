@@ -6,8 +6,8 @@
 This note describes where consumer adapters and generated host helpers sit
 relative to the Echo Optics API.
 
-The WARP-paper-to-Echo implementation map lives at
-`docs/design/warp-optic-implementation-map.md`.
+The current WARP-paper-to-Echo model lives in
+[`docs/topics/WarpOptics.md`](../topics/WarpOptics.md).
 
 The boundary rule is:
 

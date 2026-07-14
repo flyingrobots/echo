@@ -5,28 +5,21 @@
 
 _Define how host-side JavaScript values become deterministic ABI bytes._
 
-Legend: PLATFORM
-
 Depends on:
 
 - [SPEC-0009 - WASM ABI Contract](SPEC-0009-wasm-abi.md)
 - [ABI Golden Vectors](abi-golden-vectors.md)
 
-## Why this packet exists
+## Purpose
 
 At the ABI boundary, bytes are the identity surface. JavaScript values have ambient behaviors that are not deterministic enough for hashing, replay, or ledger stamping. This packet defines the allowed mapping into canonical CBOR.
 
-## Human users / jobs / hills
+Host-adapter bugs must fail before they enter the kernel. Malformed or
+non-canonical values are rejected with a clear ABI error instead of being
+normalized differently by different hosts.
 
-Human users need host adapter bugs to fail before they enter the kernel.
-
-The hill: malformed or non-canonical values are rejected at the boundary with a clear ABI error instead of being normalized differently by different hosts.
-
-## Agent users / jobs / hills
-
-Agent users need deterministic payload construction.
-
-The hill: an agent can encode the same logical value twice and get byte-identical CBOR before submitting it as an intent or observation request.
+Payload construction is deterministic: encoding the same logical value twice
+produces byte-identical CBOR before intent or observation submission.
 
 ## Decision 1: The supported scalar mapping is narrow
 

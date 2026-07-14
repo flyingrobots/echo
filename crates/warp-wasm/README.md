@@ -12,16 +12,15 @@ See the repository root `README.md` for the full overview.
 - Wraps `echo-wasm-abi` and `echo-registry-api` in `wasm-bindgen` bindings so
   Echo’s deterministic wire protocol can be used from JavaScript/TypeScript in
   web-based tools and playgrounds.
-- Exposes the current observation-first and intent-shaped control surface
-  (`ABI_VERSION` 12 in `echo-wasm-abi`): `observe(...)` is the only public
-  world-state read export, `scheduler_status()` is the read-only scheduler
-  metadata export, and `dispatch_intent(...)` is application intent ingress.
-  Accepted application ingress returns witnessed submission identity in addition
-  to canonical intent identity.
-  The current ABI also publishes strand settlement comparison, planning,
-  execution entrypoints, settlement basis evidence, overlap revalidation
-  evidence, read-side basis plus residual posture, and generic retained
-  evidence posture on observation artifacts.
+- Exposes the current intent-shaped and optic-shaped surface (`ABI_VERSION` 12
+  in `echo-wasm-abi`). `observe_optic(...)` carries the product read shape and
+  returns a bounded reading or typed obstruction, but the current engine does
+  not verify its caller-supplied capability/law identifiers and obstructs
+  generated `QueryBytes` apertures. Installed-contract queries therefore still
+  use lower-level raw observation. `dispatch_intent(...)` and
+  `dispatch_optic_intent(...)` provide untrusted ingress/proposal paths, while
+  `scheduler_status()` exposes read-only scheduler metadata. Neighborhood and
+  settlement exports also remain lower-level ABI surfaces.
 - The engine-backed boundary uses logical clocks only:
   `WorldlineTick` is per-worldline append identity and `GlobalTick` is runtime
   cycle correlation metadata. No wall-clock time enters Echo internals.
@@ -68,5 +67,3 @@ product contract.
 - Echo runtime model: `docs/architecture/outline.md`.
 - Current WASM ABI contract: `docs/spec/SPEC-0009-wasm-abi.md`.
 - JS/CBOR encoding rules: `docs/spec/js-cbor-mapping.md`.
-- WARP stream schema for retained browser/session protocol types:
-  `docs/spec/warp-view-protocol.md`.

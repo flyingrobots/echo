@@ -1075,7 +1075,7 @@ fi
 reduced_output="$(run_detect \
   crates/warp-cli/src/main.rs \
   crates/warp-cli/src/main.rs \
-  crates/echo-app-core/src/lib.rs \
+  crates/echo-dry-tests/src/lib.rs \
 )"
 if printf '%s\n' "$reduced_output" | grep -q '^classification=reduced$'; then
   pass "non-critical crate changes use reduced mode"
@@ -1089,7 +1089,7 @@ else
   fail "non-critical crate changes should map to the reduced stamp suite"
   printf '%s\n' "$reduced_output"
 fi
-if printf '%s\n' "$reduced_output" | grep -q '^changed_crates=echo-app-core,warp-cli$'; then
+if printf '%s\n' "$reduced_output" | grep -q '^changed_crates=echo-dry-tests,warp-cli$'; then
   pass "changed crate list is deduplicated and sorted"
 else
   fail "changed crate list should be sorted and deduplicated"

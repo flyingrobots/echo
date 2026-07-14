@@ -18,8 +18,8 @@
 //! spec. If you change one side, change both — they are the cross-boundary
 //! contract.
 //!
-//! Covers Phase 6 (cross-boundary roundtrip fixtures) of
-//! `docs/design/0024-universal-le-binary-codec/design.md`.
+//! This is executable evidence for `docs/adr/0017-universal-little-endian-codec.md`
+//! and `docs/spec/abi-golden-vectors.md`.
 
 use echo_wasm_abi::codec::{Reader, Writer};
 

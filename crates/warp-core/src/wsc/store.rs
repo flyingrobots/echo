@@ -4555,7 +4555,6 @@ fn canonical_receipt_correlations(
     let mut by_correlation = BTreeMap::new();
     let mut by_submission = BTreeMap::new();
     let mut by_ticket = BTreeMap::new();
-    let mut by_receipt = BTreeMap::new();
     for record in records {
         if let Some(existing) = by_submission.get(&record.receipt_ref.submission_id) {
             if existing != record {
@@ -4571,7 +4570,7 @@ fn canonical_receipt_correlations(
                 ));
             }
         }
-        if let Some(existing) = by_receipt.get(&record.receipt_ref) {
+        if let Some(existing) = by_correlation.get(&record.receipt_ref) {
             if existing != record {
                 return Err(WscStoreObstruction::duplicate_mismatch(
                     WscStoreEnvelopeId::from_hash(record.receipt_ref.identity_digest()),
@@ -4581,7 +4580,6 @@ fn canonical_receipt_correlations(
         by_correlation.insert(record.receipt_ref, record.clone());
         by_submission.insert(record.receipt_ref.submission_id, record.clone());
         by_ticket.insert(record.receipt_ref.ticket_digest, record.clone());
-        by_receipt.insert(record.receipt_ref, record.clone());
     }
     Ok(by_correlation.into_values().collect())
 }

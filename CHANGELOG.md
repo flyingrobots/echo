@@ -46,6 +46,10 @@
   parent sets as corruption and report structurally valid legacy digest-only
   parent evidence as an explicit ambiguity rather than aliasing it to an
   arbitrary event.
+  Retained tick-receipt reconstruction also rejects non-canonical blocker
+  ordering, forward or non-applied blocker references, and blocker attribution
+  incompatible with the candidate disposition before the receipt re-enters
+  provenance history.
 - Trusted runtime scheduler commits now retain canonical local-commit
   provenance, the exact typed tick receipt, and installed-contract evidence in
   the same WAL transaction as receipt correlation. Filesystem reopen replays

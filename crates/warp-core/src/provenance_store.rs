@@ -138,6 +138,13 @@ pub enum HistoryError {
         tick: WorldlineTick,
     },
 
+    /// Recorded non-local events must not carry scheduler receipt evidence.
+    #[error("recorded event unexpectedly carried a tick receipt at tick {tick}")]
+    RecordedEventUnexpectedTickReceipt {
+        /// The entry tick.
+        tick: WorldlineTick,
+    },
+
     /// Recorded non-local events must carry a replay patch.
     #[error("recorded event missing patch at tick {tick}")]
     RecordedEventMissingPatch {
@@ -1497,6 +1504,11 @@ impl LocalProvenanceStore {
                 tick: entry.worldline_tick,
             });
         }
+        if entry.tick_receipt.is_some() {
+            return Err(HistoryError::RecordedEventUnexpectedTickReceipt {
+                tick: entry.worldline_tick,
+            });
+        }
         if entry.patch.is_none() {
             return Err(HistoryError::RecordedEventMissingPatch {
                 tick: entry.worldline_tick,
@@ -2725,6 +2737,33 @@ mod tests {
 
         store.append_recorded_event(entry.clone()).unwrap();
         assert_eq!(store.entry(w, wt(0)).unwrap(), entry);
+    }
+
+    #[test]
+    fn append_recorded_event_rejects_scheduler_receipt() {
+        let mut store = LocalProvenanceStore::new();
+        let w = test_worldline_id();
+        store.register_worldline(w, test_warp_id()).unwrap();
+
+        let entry = ProvenanceEntry::recorded_event(
+            w,
+            wt(0),
+            gt(0),
+            Vec::new(),
+            ProvenanceEventKind::ConflictArtifact {
+                artifact_id: [9u8; 32],
+            },
+            test_triplet(0),
+            test_patch(0),
+            Vec::new(),
+            Vec::new(),
+        )
+        .with_tick_receipt(TickReceipt::new(TxId::from_raw(1), Vec::new(), Vec::new()));
+
+        assert_eq!(
+            store.append_recorded_event(entry),
+            Err(HistoryError::RecordedEventUnexpectedTickReceipt { tick: wt(0) })
+        );
     }
 
     #[test]

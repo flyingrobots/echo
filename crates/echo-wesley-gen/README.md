@@ -44,6 +44,19 @@ embedded contract resource and provenance record, and performs no discovery or
 mutable coordinate resolution. This authenticates the schema publication; it
 does not by itself claim that a generated artifact is a valid schema instance.
 
+`provider_generation::build_provider_generation_input_v1(...)` joins that
+admitted pack with exact Echo semantic-source bytes and the checked versioned
+generation settings. It constructs Wesley's canonical extension-generation
+input in memory, binds exact source materials for later provenance verification,
+and derives the six primary output roles from the validated source. The current
+closure carries an empty Wesley Shape and operation catalog because it declares
+no GraphQL authority source; it does not synthesize `a.b@1.t` as GraphQL.
+While the checked settings select no Shape source, any semantic input that
+declares GraphQL authority fails closed until explicit SDL bytes are supported.
+The normalized semantic model is stable under set ordering, while the
+generation-input digest changes when raw authored bytes change because it binds
+the exact source artifact.
+
 ## Usage
 
 ```bash

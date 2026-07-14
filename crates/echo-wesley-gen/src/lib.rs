@@ -18,6 +18,9 @@ pub mod provider_semantics;
 /// Explicit admission boundary for the Edict-owned provider contract pack.
 pub mod provider_contract_pack;
 
+/// Canonical Wesley input assembly for Echo provider artifact generation.
+pub mod provider_generation;
+
 /// Imported Wesley runtime optic artifact ready for Echo registration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportedRuntimeOpticArtifact {
@@ -33,7 +36,7 @@ pub struct ImportedRuntimeOpticArtifact {
 /// verifies the descriptor through [`warp_core::OpticArtifactRegistry`] and
 /// returns the opaque runtime-local handle only after registration succeeds.
 pub fn import_runtime_optic_artifact(
-    artifact: &wesley_core::OpticArtifact,
+    artifact: &wesley_core::OperationArtifact,
 ) -> anyhow::Result<ImportedRuntimeOpticArtifact> {
     if artifact.requirements_digest != artifact.requirements_artifact.digest {
         anyhow::bail!(
@@ -62,7 +65,7 @@ pub fn import_runtime_optic_artifact(
 
 /// Imports a Wesley registration descriptor into Echo's registration shape.
 pub fn import_registration_descriptor(
-    descriptor: &wesley_core::OpticRegistrationDescriptor,
+    descriptor: &wesley_core::OperationRegistrationDescriptor,
 ) -> warp_core::OpticRegistrationDescriptor {
     warp_core::OpticRegistrationDescriptor {
         artifact_id: descriptor.artifact_id.clone(),

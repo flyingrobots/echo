@@ -193,6 +193,17 @@ world `edict:target-provider@1.0.0`. Generated provenance is a generic Edict
 `generationProvenance` package member whose document contract remains owned by
 Wesley #728.
 
+The generation invocation itself is a pure Wesley extension input. It binds
+the exact Echo semantic-source file, admitted Edict CDDL and manifest, and
+versioned generator settings as content-addressed inputs. The first closure has
+no GraphQL Shape authority, so its Wesley Shape and root-operation catalog are
+empty; the Echo semantic operation is not projected into a synthetic GraphQL
+operation. Primary lawpack, target-profile, facts, registration-profile, and
+schema roles are selected before provenance. Provenance and review are derived
+after primary output digests exist, preventing self-referential digest sets.
+Set-like source reordering preserves normalized semantic projections but moves
+the exact-source generation-input identity, as honest provenance requires.
+
 The first capability distinguishes two nested domains. `echo.span-ir/v1` is
 the inner Echo target IR domain selected by `echo.dpo@1.replace`.
 `edict.target-ir.artifact/v1` is the outer canonical artifact domain that

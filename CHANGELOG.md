@@ -13,6 +13,13 @@
   domain inventories plus every embedded resource byte, digest, and provenance
   record, rejects tampering with stable structured error kinds, and performs no
   filesystem, registry, environment, or network discovery.
+- `echo-wesley-gen` now constructs a canonical Wesley extension-generation
+  input from exact Echo semantic-source bytes, the admitted Edict CDDL and
+  manifest, and checked versioned settings. The first provider closure uses an
+  explicitly empty GraphQL Shape/operation catalog, derives six primary output
+  roles without circular provenance/review digests, preserves the normalized
+  semantic model across set reordering, and moves the generation-input digest
+  when exact authored source or settings bytes change.
 - `echo-wesley-gen` now exposes a strict, versioned Echo Edict provider
   semantic-source model and pure validator. The checked first-operation source
   fixes `target.replace` authority, typed failure and obstruction schemas,

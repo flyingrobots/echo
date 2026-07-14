@@ -89,6 +89,22 @@ subresources, and Wesley-owned `generationProvenance` metadata. Resources marked
 `external` are explicit digest-locked generator inputs; placeholder digests
 are forbidden.
 
+[`generation-settings-v1.json`](generation-settings-v1.json) is the explicit,
+versioned settings input for that invocation. The first closure selects no
+GraphQL Shape source: `a.b@1.t` remains an Echo semantic operation and is not
+invented as a GraphQL root field. The canonical Wesley generation input binds
+the exact semantic-source bytes, admitted Edict CDDL and manifest bytes, and
+settings bytes. Its primary projection-role set excludes provenance and review
+because those are derived envelopes over the primary outputs and cannot include
+their own digests.
+
+The validator's normalized semantic projection is insensitive to ordering of
+set-like declarations. The generation-input digest intentionally still changes
+when the authored JSON bytes are reordered, because later provenance binds the
+exact source artifact rather than mislabeling normalized bytes as the checked
+file. Generated semantic artifact bytes remain a function of the normalized
+model.
+
 The two authority-facts outputs use Edict's `edict.authority-facts/v1` domain
 and bind their contract owner to
 [Edict #157](https://github.com/flyingrobots/edict/issues/157). Echo does not

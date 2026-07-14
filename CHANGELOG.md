@@ -59,7 +59,8 @@
   receipt indexes, causal parents, and app-facing outcome. Legacy digest-only
   runtime deltas remain explicit recovery obstructions. WAL activation also
   rejects live process-only authority that recovered durable history cannot
-  reproduce. WAL transaction construction rejects retained submission,
+  reproduce. Recovery rejects scheduler transactions that duplicate tick
+  receipt or receipt-correlation records. WAL transaction construction rejects retained submission,
   correlation, or replayable state-delta material that does not bind the other
   evidence in the same atomic claim.
 - Trusted runtime submission intake now atomically retains a versioned canonical

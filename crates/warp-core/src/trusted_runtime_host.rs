@@ -2046,11 +2046,7 @@ fn tick_records_from_transaction(
 fn tick_receipt_from_transaction(
     transaction: &crate::causal_wal::WalRecoveredTransaction,
 ) -> Result<TickReceiptRecord, TrustedRuntimeWalError> {
-    let receipt_frame = transaction
-        .frames
-        .iter()
-        .find(|frame| frame.header.record_kind == WalRecordKind::TickReceiptRecorded)
-        .ok_or_else(missing_trusted_runtime_record)?;
+    let receipt_frame = unique_tick_record(transaction, WalRecordKind::TickReceiptRecorded)?;
     TickReceiptRecord::from_payload_bytes(&receipt_frame.payload.canonical_bytes)
         .map_err(decode_trusted_runtime_wal_payload)
 }
@@ -2058,13 +2054,27 @@ fn tick_receipt_from_transaction(
 fn tick_correlation_from_transaction(
     transaction: &crate::causal_wal::WalRecoveredTransaction,
 ) -> Result<WalReceiptCorrelationRecord, TrustedRuntimeWalError> {
-    let correlation_frame = transaction
-        .frames
-        .iter()
-        .find(|frame| frame.header.record_kind == WalRecordKind::ReceiptCorrelationRecorded)
-        .ok_or_else(missing_trusted_runtime_record)?;
+    let correlation_frame =
+        unique_tick_record(transaction, WalRecordKind::ReceiptCorrelationRecorded)?;
     WalReceiptCorrelationRecord::from_payload_bytes(&correlation_frame.payload.canonical_bytes)
         .map_err(decode_trusted_runtime_wal_payload)
+}
+
+fn unique_tick_record(
+    transaction: &crate::causal_wal::WalRecoveredTransaction,
+    record_kind: WalRecordKind,
+) -> Result<&crate::causal_wal::WalFrame, TrustedRuntimeWalError> {
+    let mut matching = transaction
+        .frames
+        .iter()
+        .filter(|frame| frame.header.record_kind == record_kind);
+    let record = matching.next().ok_or_else(missing_trusted_runtime_record)?;
+    if matching.next().is_some() {
+        return Err(decode_trusted_runtime_wal_payload(
+            WalDecodeError::InvalidEmbeddedFrame,
+        ));
+    }
+    Ok(record)
 }
 
 fn missing_trusted_runtime_record() -> TrustedRuntimeWalError {
@@ -2653,6 +2663,63 @@ mod tests {
             vec![receipt.receipt_ref.identity_digest()]
         );
         assert_eq!(recovery.certificate.obstruction_count, 1);
+    }
+
+    #[test]
+    fn runtime_wal_tick_record_selection_rejects_duplicate_receipt_evidence() {
+        let wal = TrustedRuntimeWal::new_in_memory().expect("test WAL should initialize");
+        let receipt = TickReceiptRecord {
+            receipt_ref: CausalTickReceiptRef {
+                worldline_id: WorldlineId::from_bytes([30; 32]),
+                worldline_tick_after: WorldlineTick::from_raw(1),
+                commit_global_tick: GlobalTick::from_raw(1),
+                commit_hash: [31; 32],
+                submission_id: [32; 32],
+                ticket_digest: [33; 32],
+                receipt_content_digest: [34; 32],
+            },
+            decision: WalTickDecision::Applied,
+        };
+        let correlation = WalReceiptCorrelationRecord {
+            receipt_ref: receipt.receipt_ref,
+            causal_parent_receipts: Vec::new(),
+        };
+        let transaction = crate::causal_wal::build_tick_transaction(
+            wal.builder(
+                WalTransactionKind::SchedulerTick,
+                WalAppendAuthority::TrustedScheduler,
+                WalTransactionId::from_hash([35; 32]),
+            ),
+            receipt,
+            correlation,
+            [36; 32],
+            Vec::new(),
+        )
+        .expect("canonical tick transaction should build");
+
+        for record_kind in [
+            WalRecordKind::TickReceiptRecorded,
+            WalRecordKind::ReceiptCorrelationRecorded,
+        ] {
+            let duplicate = transaction
+                .frames
+                .iter()
+                .find(|frame| frame.header.record_kind == record_kind)
+                .expect("fixture must contain selected record kind")
+                .clone();
+            let mut recovered = crate::causal_wal::WalRecoveredTransaction {
+                commit: transaction.commit.clone(),
+                frames: transaction.frames.clone(),
+            };
+            recovered.frames.push(duplicate);
+
+            assert!(matches!(
+                tick_records_from_transaction(&recovered),
+                Err(TrustedRuntimeWalError::Recovery(WalRecoveryError::Index(
+                    WalRecoveryIndexError::Decode(WalDecodeError::InvalidEmbeddedFrame)
+                )))
+            ));
+        }
     }
 }
 

@@ -2706,34 +2706,58 @@ mod tests {
             receipt_ref: receipt.receipt_ref,
             causal_parent_receipts: Vec::new(),
         };
-        let transaction = crate::causal_wal::build_tick_transaction(
-            wal.builder(
-                WalTransactionKind::SchedulerTick,
-                WalAppendAuthority::TrustedScheduler,
-                WalTransactionId::from_hash([35; 32]),
-            ),
-            receipt,
-            correlation,
-            [36; 32],
-            Vec::new(),
-        )
-        .expect("canonical tick transaction should build");
+        let receipt_bytes = receipt.to_payload_bytes();
+        let correlation_bytes = correlation.to_payload_bytes();
 
-        for record_kind in [
+        for (index, duplicate_kind) in [
             WalRecordKind::TickReceiptRecorded,
             WalRecordKind::ReceiptCorrelationRecorded,
-        ] {
-            let duplicate = transaction
-                .frames
-                .iter()
-                .find(|frame| frame.header.record_kind == record_kind)
-                .expect("fixture must contain selected record kind")
-                .clone();
-            let mut recovered = crate::causal_wal::WalRecoveredTransaction {
-                commit: transaction.commit.clone(),
-                frames: transaction.frames.clone(),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut transaction_id = [35; 32];
+            transaction_id[0] = u8::try_from(index).expect("fixture index must fit in u8");
+            let mut builder = wal.builder(
+                WalTransactionKind::SchedulerTick,
+                WalAppendAuthority::TrustedScheduler,
+                WalTransactionId::from_hash(transaction_id),
+            );
+            builder
+                .push_record(WalRecordKind::TickReceiptRecorded, receipt_bytes.clone())
+                .expect("fixture tick receipt must append");
+            if duplicate_kind == WalRecordKind::TickReceiptRecorded {
+                builder
+                    .push_record(WalRecordKind::TickReceiptRecorded, receipt_bytes.clone())
+                    .expect("duplicate tick receipt must append");
+            }
+            builder
+                .push_record(
+                    WalRecordKind::ReceiptCorrelationRecorded,
+                    correlation_bytes.clone(),
+                )
+                .expect("fixture correlation must append");
+            if duplicate_kind == WalRecordKind::ReceiptCorrelationRecorded {
+                builder
+                    .push_record(
+                        WalRecordKind::ReceiptCorrelationRecorded,
+                        correlation_bytes.clone(),
+                    )
+                    .expect("duplicate correlation must append");
+            }
+            builder
+                .push_record(WalRecordKind::RuntimeStateDeltaRecorded, [36; 32].to_vec())
+                .expect("fixture state delta must append");
+            let transaction = builder
+                .commit(Vec::new())
+                .expect("duplicate-kind transaction must commit structurally");
+            transaction
+                .validate()
+                .expect("duplicate-kind transaction must remain structurally valid");
+            let recovered = crate::causal_wal::WalRecoveredTransaction {
+                commit: transaction.commit,
+                frames: transaction.frames,
             };
-            recovered.frames.push(duplicate);
 
             assert!(matches!(
                 tick_records_from_transaction(&recovered),

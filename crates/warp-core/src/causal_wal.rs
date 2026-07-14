@@ -2272,6 +2272,11 @@ impl WalReceiptCorrelationRecord {
         } else {
             let parent_count =
                 usize::try_from(cursor.read_u64()?).map_err(|_| WalDecodeError::UnexpectedEof)?;
+            if parent_count == 0 {
+                return Err(WalDecodeError::NonCanonicalCausalParentReceipts {
+                    record_kind: "receipt-correlation",
+                });
+            }
             if parent_count > cursor.remaining_len() / CAUSAL_TICK_RECEIPT_REF_LEN {
                 return Err(WalDecodeError::UnexpectedEof);
             }

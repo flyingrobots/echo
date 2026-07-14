@@ -2755,6 +2755,25 @@ fn receipt_correlation_decode_rejects_noncanonical_parent_sets() {
 }
 
 #[test]
+fn receipt_correlation_decode_rejects_explicit_empty_parent_count() {
+    let record = correlation_record("explicit-empty-parents");
+    let canonical = record.to_payload_bytes();
+    assert_eq!(
+        WalReceiptCorrelationRecord::from_payload_bytes(&canonical),
+        Ok(record)
+    );
+
+    let mut noncanonical = canonical;
+    noncanonical.extend_from_slice(&0_u64.to_le_bytes());
+    assert_eq!(
+        WalReceiptCorrelationRecord::from_payload_bytes(&noncanonical),
+        Err(WalDecodeError::NonCanonicalCausalParentReceipts {
+            record_kind: "receipt-correlation",
+        })
+    );
+}
+
+#[test]
 fn application_cannot_append_tick_or_runtime_control_records() {
     let mut builder = builder(
         transaction_id("tx:bad-authority"),

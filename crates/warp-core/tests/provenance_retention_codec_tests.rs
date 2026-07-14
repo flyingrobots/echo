@@ -244,6 +244,42 @@ fn replayable_state_delta_round_trips_every_operation_and_slot_variant() {
 }
 
 #[test]
+fn replayable_state_delta_rejects_non_canonical_parent_order() {
+    let mut entry = fixture_entry();
+    entry.parents.push(ProvenanceRef {
+        worldline_id: entry.worldline_id,
+        worldline_tick: WorldlineTick::from_raw(5),
+        commit_hash: digest("second-parent-commit"),
+    });
+    entry
+        .parents
+        .sort_unstable_by(|left, right| right.commit_hash.cmp(&left.commit_hash));
+    entry.expected.commit_hash = compute_commit_hash_v2(
+        &entry.expected.state_root,
+        &entry
+            .parents
+            .iter()
+            .map(|parent| parent.commit_hash)
+            .collect::<Vec<_>>(),
+        &entry.expected.patch_digest,
+        entry
+            .patch
+            .as_ref()
+            .expect("fixture has a patch")
+            .policy_id(),
+    );
+
+    assert_eq!(
+        WalRuntimeStateDeltaRecord::from_provenance_entry(
+            fixture_receipt_digest(&entry),
+            None,
+            entry,
+        ),
+        Err(RetainedProvenanceError::Inconsistent("parent ordering"))
+    );
+}
+
+#[test]
 fn replayable_state_delta_rejects_every_truncation_and_trailing_material() {
     let entry = fixture_entry();
     let record = WalRuntimeStateDeltaRecord::from_provenance_entry(

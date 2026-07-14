@@ -2673,7 +2673,7 @@ impl RecoveredSubmissionIndex {
     {
         let mut index = Self::from_acceptance_records(acceptances)?;
         for receipt in receipts {
-            index.apply_tick_receipt_record(receipt);
+            index.apply_tick_receipt_record(receipt)?;
         }
         Ok(index)
     }
@@ -2703,17 +2703,35 @@ impl RecoveredSubmissionIndex {
         Ok(())
     }
 
-    fn apply_tick_receipt_record(&mut self, receipt: TickReceiptRecord) {
+    fn apply_tick_receipt_record(
+        &mut self,
+        receipt: TickReceiptRecord,
+    ) -> Result<(), WalRecoveryIndexError> {
+        let posture = match receipt.decision {
+            WalTickDecision::Applied => RecoveredSubmissionPosture::DecidedApplied,
+            WalTickDecision::RejectedFootprintConflict => {
+                RecoveredSubmissionPosture::DecidedRejected
+            }
+            WalTickDecision::Obstructed => RecoveredSubmissionPosture::Obstructed,
+        };
         if let Some(entry) = self.submissions.get_mut(&receipt.receipt_ref.submission_id) {
-            entry.posture = match receipt.decision {
-                WalTickDecision::Applied => RecoveredSubmissionPosture::DecidedApplied,
-                WalTickDecision::RejectedFootprintConflict => {
-                    RecoveredSubmissionPosture::DecidedRejected
+            if let Some(existing) = entry.receipt_ref {
+                if existing != receipt.receipt_ref {
+                    return Err(WalRecoveryIndexError::ConflictingReceiptForSubmission {
+                        submission_id: receipt.receipt_ref.submission_id,
+                    });
                 }
-                WalTickDecision::Obstructed => RecoveredSubmissionPosture::Obstructed,
-            };
+                if entry.posture != posture {
+                    return Err(WalRecoveryIndexError::ConflictingReceiptDecision {
+                        receipt_identity_digest: receipt.receipt_ref.identity_digest(),
+                    });
+                }
+                return Ok(());
+            }
+            entry.posture = posture;
             entry.receipt_ref = Some(receipt.receipt_ref);
         }
+        Ok(())
     }
 
     /// Returns a recovered submission entry.
@@ -2845,10 +2863,19 @@ pub fn recovered_submission_receipt_index_root(
         hasher.update(&receipt_ref.to_canonical_bytes());
         hasher.update(&[decision.code()]);
     }
-    if !receipts.causal_parent_receipts_by_receipt.is_empty() {
+    let causal_parent_count = receipts
+        .causal_parent_receipts_by_receipt
+        .values()
+        .filter(|parents| !parents.is_empty())
+        .count();
+    if causal_parent_count != 0 {
         hasher.update(b"causal-parents-by-receipt:v2\0");
-        hasher.update(&len_u64(receipts.causal_parent_receipts_by_receipt.len()).to_le_bytes());
-        for (receipt_ref, parents) in &receipts.causal_parent_receipts_by_receipt {
+        hasher.update(&len_u64(causal_parent_count).to_le_bytes());
+        for (receipt_ref, parents) in receipts
+            .causal_parent_receipts_by_receipt
+            .iter()
+            .filter(|(_, parents)| !parents.is_empty())
+        {
             hasher.update(&receipt_ref.to_canonical_bytes());
             hasher.update(&len_u64(parents.len()).to_le_bytes());
             for parent in parents {
@@ -2892,78 +2919,148 @@ impl RecoveredReceiptIndex {
     /// Tick receipt records carry decision posture. Correlation records can
     /// restore ticket/submission/receipt lookup handles when decision material
     /// is not present in the same source.
-    #[must_use]
-    pub fn from_receipt_correlation_records<I, J>(receipts: I, correlations: J) -> Self
+    pub fn from_receipt_correlation_records<I, J>(
+        receipts: I,
+        correlations: J,
+    ) -> Result<Self, WalRecoveryIndexError>
     where
         I: IntoIterator<Item = TickReceiptRecord>,
         J: IntoIterator<Item = WalReceiptCorrelationRecord>,
     {
         let mut index = Self::default();
         for receipt in receipts {
-            let receipt_ref = receipt.receipt_ref;
-            index
-                .receipt_by_submission
-                .insert(receipt_ref.submission_id, receipt_ref);
-            index
-                .receipt_by_ticket
-                .insert(receipt_ref.ticket_digest, receipt_ref);
-            index
-                .ticket_by_submission
-                .insert(receipt_ref.submission_id, receipt_ref.ticket_digest);
-            index
-                .decisions_by_receipt
-                .insert(receipt_ref, receipt.decision);
+            index.apply_tick_receipt_record(receipt)?;
         }
         for correlation in correlations {
-            index.apply_correlation_record(correlation);
+            index.apply_correlation_record(correlation)?;
         }
-        index
+        Ok(index)
     }
 
-    fn apply_correlation_record(&mut self, correlation: WalReceiptCorrelationRecord) {
+    fn apply_tick_receipt_record(
+        &mut self,
+        receipt: TickReceiptRecord,
+    ) -> Result<(), WalRecoveryIndexError> {
+        let receipt_ref = receipt.receipt_ref;
+        if self
+            .receipt_by_submission
+            .get(&receipt_ref.submission_id)
+            .is_some_and(|existing| *existing != receipt_ref)
+        {
+            return Err(WalRecoveryIndexError::ConflictingReceiptForSubmission {
+                submission_id: receipt_ref.submission_id,
+            });
+        }
+        if self
+            .receipt_by_ticket
+            .get(&receipt_ref.ticket_digest)
+            .is_some_and(|existing| *existing != receipt_ref)
+        {
+            return Err(WalRecoveryIndexError::ConflictingReceiptForTicket {
+                ticket_digest: receipt_ref.ticket_digest,
+            });
+        }
+        if self
+            .ticket_by_submission
+            .get(&receipt_ref.submission_id)
+            .is_some_and(|existing| *existing != receipt_ref.ticket_digest)
+        {
+            return Err(WalRecoveryIndexError::ConflictingTicketForSubmission {
+                submission_id: receipt_ref.submission_id,
+            });
+        }
+        if self
+            .decisions_by_receipt
+            .get(&receipt_ref)
+            .is_some_and(|existing| *existing != receipt.decision)
+        {
+            return Err(WalRecoveryIndexError::ConflictingReceiptDecision {
+                receipt_identity_digest: receipt_ref.identity_digest(),
+            });
+        }
+        self.receipt_by_submission
+            .entry(receipt_ref.submission_id)
+            .or_insert(receipt_ref);
+        self.receipt_by_ticket
+            .entry(receipt_ref.ticket_digest)
+            .or_insert(receipt_ref);
+        self.ticket_by_submission
+            .entry(receipt_ref.submission_id)
+            .or_insert(receipt_ref.ticket_digest);
+        self.decisions_by_receipt
+            .entry(receipt_ref)
+            .or_insert(receipt.decision);
+        Ok(())
+    }
+
+    fn apply_correlation_record(
+        &mut self,
+        correlation: WalReceiptCorrelationRecord,
+    ) -> Result<(), WalRecoveryIndexError> {
         let mut parents = correlation.causal_parent_receipts;
         parents.sort_unstable();
         parents.dedup();
-        if let Some(previous_parents) = self
-            .causal_parent_receipts_by_receipt
-            .remove(&correlation.receipt_ref)
+        let receipt_ref = correlation.receipt_ref;
+        if self
+            .receipt_by_submission
+            .get(&receipt_ref.submission_id)
+            .is_some_and(|existing| *existing != receipt_ref)
         {
-            for previous_parent in previous_parents {
-                let remove_parent = self
-                    .receipts_by_causal_parent
-                    .get_mut(&previous_parent)
-                    .is_some_and(|children| {
-                        children.retain(|child| child != &correlation.receipt_ref);
-                        children.is_empty()
-                    });
-                if remove_parent {
-                    self.receipts_by_causal_parent.remove(&previous_parent);
-                }
-            }
+            return Err(WalRecoveryIndexError::ConflictingReceiptForSubmission {
+                submission_id: receipt_ref.submission_id,
+            });
         }
-        self.receipt_by_submission.insert(
-            correlation.receipt_ref.submission_id,
-            correlation.receipt_ref,
-        );
-        self.receipt_by_ticket.insert(
-            correlation.receipt_ref.ticket_digest,
-            correlation.receipt_ref,
-        );
-        self.ticket_by_submission.insert(
-            correlation.receipt_ref.submission_id,
-            correlation.receipt_ref.ticket_digest,
-        );
-        if parents.is_empty() {
-            return;
+        if self
+            .receipt_by_ticket
+            .get(&receipt_ref.ticket_digest)
+            .is_some_and(|existing| *existing != receipt_ref)
+        {
+            return Err(WalRecoveryIndexError::ConflictingReceiptForTicket {
+                ticket_digest: receipt_ref.ticket_digest,
+            });
         }
+        if self
+            .ticket_by_submission
+            .get(&receipt_ref.submission_id)
+            .is_some_and(|existing| *existing != receipt_ref.ticket_digest)
+        {
+            return Err(WalRecoveryIndexError::ConflictingTicketForSubmission {
+                submission_id: receipt_ref.submission_id,
+            });
+        }
+        if self
+            .causal_parent_receipts_by_receipt
+            .get(&receipt_ref)
+            .is_some_and(|existing| *existing != parents)
+        {
+            return Err(WalRecoveryIndexError::ConflictingReceiptCausalParents {
+                receipt_identity_digest: receipt_ref.identity_digest(),
+            });
+        }
+        if self
+            .causal_parent_receipts_by_receipt
+            .contains_key(&receipt_ref)
+        {
+            return Ok(());
+        }
+        self.receipt_by_submission
+            .entry(receipt_ref.submission_id)
+            .or_insert(receipt_ref);
+        self.receipt_by_ticket
+            .entry(receipt_ref.ticket_digest)
+            .or_insert(receipt_ref);
+        self.ticket_by_submission
+            .entry(receipt_ref.submission_id)
+            .or_insert(receipt_ref.ticket_digest);
         self.causal_parent_receipts_by_receipt
-            .insert(correlation.receipt_ref, parents.clone());
+            .insert(receipt_ref, parents.clone());
         for parent in parents {
             let children = self.receipts_by_causal_parent.entry(parent).or_default();
-            children.push(correlation.receipt_ref);
+            children.push(receipt_ref);
             children.sort_unstable();
             children.dedup();
         }
+        Ok(())
     }
 
     /// Returns canonical causal parent receipt coordinates cited by a receipt.
@@ -7518,7 +7615,7 @@ pub fn recover_submission_index(
                 WalRecordKind::TickReceiptRecorded => {
                     let receipt =
                         TickReceiptRecord::from_payload_bytes(&frame.payload.canonical_bytes)?;
-                    index.apply_tick_receipt_record(receipt);
+                    index.apply_tick_receipt_record(receipt)?;
                 }
                 _ => {}
             }
@@ -7538,25 +7635,13 @@ pub fn recover_receipt_index(
                 WalRecordKind::TickReceiptRecorded => {
                     let receipt =
                         TickReceiptRecord::from_payload_bytes(&frame.payload.canonical_bytes)?;
-                    let receipt_ref = receipt.receipt_ref;
-                    index
-                        .receipt_by_submission
-                        .insert(receipt_ref.submission_id, receipt_ref);
-                    index
-                        .receipt_by_ticket
-                        .insert(receipt_ref.ticket_digest, receipt_ref);
-                    index
-                        .ticket_by_submission
-                        .insert(receipt_ref.submission_id, receipt_ref.ticket_digest);
-                    index
-                        .decisions_by_receipt
-                        .insert(receipt_ref, receipt.decision);
+                    index.apply_tick_receipt_record(receipt)?;
                 }
                 WalRecordKind::ReceiptCorrelationRecorded => {
                     let correlation = WalReceiptCorrelationRecord::from_payload_bytes(
                         &frame.payload.canonical_bytes,
                     )?;
-                    index.apply_correlation_record(correlation);
+                    index.apply_correlation_record(correlation)?;
                 }
                 _ => {}
             }
@@ -8210,6 +8295,36 @@ pub enum WalRecoveryIndexError {
     SubmissionEnvelopeConflict {
         /// Conflicting submission id.
         submission_id: Hash,
+    },
+    /// One submission id mapped to conflicting exact receipt coordinates.
+    #[error("submission id mapped to conflicting causal receipt coordinates")]
+    ConflictingReceiptForSubmission {
+        /// Submission whose recovered receipt evidence conflicted.
+        submission_id: Hash,
+    },
+    /// One admission ticket mapped to conflicting exact receipt coordinates.
+    #[error("admission ticket mapped to conflicting causal receipt coordinates")]
+    ConflictingReceiptForTicket {
+        /// Ticket whose recovered receipt evidence conflicted.
+        ticket_digest: Hash,
+    },
+    /// One submission id mapped to conflicting admission tickets.
+    #[error("submission id mapped to conflicting admission tickets")]
+    ConflictingTicketForSubmission {
+        /// Submission whose recovered ticket evidence conflicted.
+        submission_id: Hash,
+    },
+    /// One exact receipt coordinate carried conflicting decisions.
+    #[error("causal receipt coordinate carried conflicting decisions")]
+    ConflictingReceiptDecision {
+        /// Identity digest of the receipt coordinate whose decision conflicted.
+        receipt_identity_digest: Hash,
+    },
+    /// One exact receipt coordinate carried conflicting causal parent sets.
+    #[error("causal receipt coordinate carried conflicting causal parent sets")]
+    ConflictingReceiptCausalParents {
+        /// Identity digest of the receipt coordinate whose parents conflicted.
+        receipt_identity_digest: Hash,
     },
     /// Strand fork evidence conflicted for one strand id.
     #[error("strand fork evidence conflicted for strand {strand_id:?}")]

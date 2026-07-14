@@ -1754,7 +1754,8 @@ pub fn validate_wsc_self_contained_wal_export(
     let receipt_index = RecoveredReceiptIndex::from_receipt_correlation_records(
         receipt_records.receipts.iter().copied(),
         receipt_records.correlations.iter().cloned(),
-    );
+    )
+    .map_err(WscSelfContainedWalImportError::Index)?;
 
     Ok(WscSelfContainedWalImport {
         profile: export.profile,

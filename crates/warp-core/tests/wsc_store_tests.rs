@@ -596,7 +596,8 @@ fn receipt_correlation_records_round_trip_through_wsc_envelope() {
     let index = RecoveredReceiptIndex::from_receipt_correlation_records(
         recovered.receipts,
         recovered.correlations,
-    );
+    )
+    .expect("canonical receipt correlation should recover");
     assert_eq!(
         index.receipt_by_submission.get(&[7; 32]),
         Some(&receipt.receipt_ref)
@@ -707,7 +708,8 @@ fn decided_submissions_recover_from_committed_wsc_store() {
     let receipts = RecoveredReceiptIndex::from_receipt_correlation_records(
         receipt_records.receipts,
         receipt_records.correlations,
-    );
+    )
+    .expect("canonical WSC receipt evidence should recover");
 
     let applied_entry = submissions
         .get(&applied.submission_id)

@@ -1175,8 +1175,10 @@ fn wal_recovery_rebuilds_all_durability_indexes() {
     let expected_submissions = must_ok(
         RecoveredSubmissionIndex::from_acceptance_and_receipt_records([acceptance], [receipt]),
     );
-    let expected_receipts =
-        RecoveredReceiptIndex::from_receipt_correlation_records([receipt], [correlation]);
+    let expected_receipts = must_ok(RecoveredReceiptIndex::from_receipt_correlation_records(
+        [receipt],
+        [correlation],
+    ));
     let expected_retention = must_ok(RecoveredRetentionIndex::from_retention_records(
         [material],
         [reading],
@@ -2993,6 +2995,26 @@ fn schema_linter_rejects_app_nouns_and_authority_leaks() {
         &["TextBuffer"]
     )
     .is_ok());
+}
+
+#[test]
+fn recovered_submission_index_rejects_conflicting_receipt_decisions() {
+    let acceptance = submission_acceptance("conflicting-receipt-decision");
+    let applied = receipt_record("conflicting-receipt-decision", WalTickDecision::Applied);
+    let obstructed = TickReceiptRecord {
+        receipt_ref: applied.receipt_ref,
+        decision: WalTickDecision::Obstructed,
+    };
+
+    assert_eq!(
+        RecoveredSubmissionIndex::from_acceptance_and_receipt_records(
+            [acceptance],
+            [applied, obstructed],
+        ),
+        Err(WalRecoveryIndexError::ConflictingReceiptDecision {
+            receipt_identity_digest: applied.receipt_ref.identity_digest(),
+        })
+    );
 }
 
 #[test]

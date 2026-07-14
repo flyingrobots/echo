@@ -5,7 +5,7 @@
 
 use warp_core::causal_wal::{
     RecoveredReceiptIndex, TickReceiptRecord, WalDecodeError, WalReceiptCorrelationRecord,
-    WalTickDecision,
+    WalRecoveryIndexError, WalTickDecision,
 };
 use warp_core::{
     make_intent_kind, CausalTickReceiptRef, GlobalTick, HeadId, IngressCausalParent,
@@ -56,7 +56,8 @@ fn identical_receipt_content_has_distinct_causal_receipt_refs() {
             },
         ],
         [],
-    );
+    )
+    .expect("distinct receipt evidence should recover");
 
     assert_ne!(
         recovered.receipt_by_submission[&first.submission_id],
@@ -84,7 +85,8 @@ fn causal_parent_lookup_does_not_alias_identical_receipt_content() {
                 causal_parent_receipts: vec![shared_parent],
             },
         ],
-    );
+    )
+    .expect("distinct causal child evidence should recover");
 
     assert_eq!(recovered.receipts_citing(&shared_parent), [first, second]);
 }
@@ -228,7 +230,8 @@ fn recovered_receipt_index_preserves_causal_parent_receipts() {
     };
 
     let recovered =
-        RecoveredReceiptIndex::from_receipt_correlation_records([receipt], [correlation]);
+        RecoveredReceiptIndex::from_receipt_correlation_records([receipt], [correlation])
+            .expect("canonical receipt correlation should recover");
 
     assert_eq!(
         recovered.causal_parent_receipts(&inverse_receipt),
@@ -241,7 +244,7 @@ fn recovered_receipt_index_preserves_causal_parent_receipts() {
 }
 
 #[test]
-fn recovered_receipt_index_replaces_reverse_parent_links_consistently() {
+fn recovered_receipt_index_rejects_conflicting_parent_evidence() {
     let receipt_ref = distinct_receipt_ref("replaced-receipt", 9);
     let old_parent = distinct_receipt_ref("old-parent", 10);
     let new_parent = distinct_receipt_ref("new-parent", 11);
@@ -250,18 +253,114 @@ fn recovered_receipt_index_replaces_reverse_parent_links_consistently() {
         causal_parent_receipts: vec![parent],
     };
 
-    let recovered = RecoveredReceiptIndex::from_receipt_correlation_records(
+    let error = RecoveredReceiptIndex::from_receipt_correlation_records(
         [],
         [correlation(old_parent), correlation(new_parent)],
+    )
+    .expect_err("conflicting parent evidence must not replace admitted ancestry");
+
+    assert_eq!(
+        error,
+        WalRecoveryIndexError::ConflictingReceiptCausalParents {
+            receipt_identity_digest: receipt_ref.identity_digest(),
+        }
+    );
+}
+
+#[test]
+fn recovered_receipt_index_rejects_conflicting_decisions() {
+    let receipt_ref = distinct_receipt_ref("conflicting-decision", 12);
+    let record = |decision| TickReceiptRecord {
+        receipt_ref,
+        decision,
+    };
+
+    let error = RecoveredReceiptIndex::from_receipt_correlation_records(
+        [
+            record(WalTickDecision::Applied),
+            record(WalTickDecision::Obstructed),
+        ],
+        [],
+    )
+    .expect_err("conflicting decisions must not replace admitted receipt evidence");
+
+    assert_eq!(
+        error,
+        WalRecoveryIndexError::ConflictingReceiptDecision {
+            receipt_identity_digest: receipt_ref.identity_digest(),
+        }
+    );
+}
+
+#[test]
+fn recovered_receipt_index_rejects_conflicting_submission_and_ticket_mappings() {
+    let first = distinct_receipt_ref("mapping-first", 13);
+    let mut same_submission = distinct_receipt_ref("mapping-second", 14);
+    same_submission.submission_id = first.submission_id;
+    let submission_error = RecoveredReceiptIndex::from_receipt_correlation_records(
+        [
+            TickReceiptRecord {
+                receipt_ref: first,
+                decision: WalTickDecision::Applied,
+            },
+            TickReceiptRecord {
+                receipt_ref: same_submission,
+                decision: WalTickDecision::Applied,
+            },
+        ],
+        [],
+    )
+    .expect_err("one submission must not name two receipt coordinates");
+    assert_eq!(
+        submission_error,
+        WalRecoveryIndexError::ConflictingReceiptForSubmission {
+            submission_id: first.submission_id,
+        }
     );
 
-    assert!(recovered.receipts_citing(&old_parent).is_empty());
+    let mut same_ticket = distinct_receipt_ref("mapping-third", 15);
+    same_ticket.ticket_digest = first.ticket_digest;
+    let ticket_error = RecoveredReceiptIndex::from_receipt_correlation_records(
+        [
+            TickReceiptRecord {
+                receipt_ref: first,
+                decision: WalTickDecision::Applied,
+            },
+            TickReceiptRecord {
+                receipt_ref: same_ticket,
+                decision: WalTickDecision::Applied,
+            },
+        ],
+        [],
+    )
+    .expect_err("one ticket must not name two receipt coordinates");
     assert_eq!(
-        recovered.causal_parent_receipts(&receipt_ref),
-        [new_parent].as_slice()
+        ticket_error,
+        WalRecoveryIndexError::ConflictingReceiptForTicket {
+            ticket_digest: first.ticket_digest,
+        }
     );
-    assert_eq!(
-        recovered.receipts_citing(&new_parent),
-        [receipt_ref].as_slice()
-    );
+}
+
+#[test]
+fn recovered_receipt_index_accepts_exact_duplicate_evidence() {
+    let receipt_ref = distinct_receipt_ref("exact-duplicate", 16);
+    let parent = distinct_receipt_ref("exact-duplicate-parent", 17);
+    let receipt = TickReceiptRecord {
+        receipt_ref,
+        decision: WalTickDecision::Applied,
+    };
+    let correlation = WalReceiptCorrelationRecord {
+        receipt_ref,
+        causal_parent_receipts: vec![parent],
+    };
+
+    let recovered = RecoveredReceiptIndex::from_receipt_correlation_records(
+        [receipt, receipt],
+        [correlation.clone(), correlation],
+    )
+    .expect("exact duplicate receipt evidence should be idempotent");
+
+    assert_eq!(recovered.causal_parent_receipts(&receipt_ref), [parent]);
+    assert_eq!(recovered.receipts_citing(&parent), [receipt_ref]);
 }
